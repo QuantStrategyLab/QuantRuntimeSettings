@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/schemas/runtime-target.schema.json",
+  "title": "Quant runtime target",
+  "type": "object",
+  "required": ["target_id", "github", "runtime_target"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "target_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9_-]+/[a-z0-9_-]+$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "github": {
+      "type": "object",
+      "required": ["repository", "variable_scope"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        },
+        "variable_scope": {
+          "type": "string",
+          "enum": ["repository", "environment"]
+        },
+        "environment": {
+          "type": "string"
+        }
+      }
+    },
+    "runtime_target": {
+      "type": "object",
+      "required": [
+        "platform_id",
+        "strategy_profile",
+        "dry_run_only",
+        "deployment_selector",
+        "account_selector",
+        "account_scope",
+        "service_name",
+        "execution_mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "platform_id": {
+          "type": "string"
+        },
+        "strategy_profile": {
+          "type": "string"
+        },
+        "dry_run_only": {
+          "type": "boolean"
+        },
+        "deployment_selector": {
+          "type": "string"
+        },
+        "account_selector": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1
+        },
+        "account_scope": {
+          "type": "string"
+        },
+        "service_name": {
+          "type": "string"
+        },
+        "execution_mode": {
+          "type": "string",
+          "enum": ["live", "paper", "dry_run"]
+        }
+      }
+    },
+    "plugin_mounts_variable": {
+      "type": "string"
+    },
+    "plugin_mounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["strategy", "plugin", "signal_path", "enabled", "expected_mode"],
+        "additionalProperties": false,
+        "properties": {
+          "strategy": {
+            "type": "string"
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "signal_path": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "expected_mode": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "extra_variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "integer", "boolean", "object", "array", "null"]
+      }
+    }
+  }
+}
+

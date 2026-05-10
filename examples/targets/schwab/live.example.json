@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "schwab/live",
+  "description": "Example Charles Schwab live deployment target.",
+  "github": {
+    "repository": "QuantStrategyLab/CharlesSchwabPlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "schwab",
+    "strategy_profile": "example_strategy_profile",
+    "dry_run_only": false,
+    "deployment_selector": "example-schwab",
+    "account_selector": ["example-schwab"],
+    "account_scope": "example-schwab",
+    "service_name": "example-schwab-service",
+    "execution_mode": "live"
+  },
+  "plugin_mounts_variable": "SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [
+    {
+      "strategy": "example_strategy_profile",
+      "plugin": "example_notification_plugin",
+      "signal_path": "gs://example-bucket/strategy-artifacts/example_strategy_profile/plugins/example_notification_plugin/latest_signal.json",
+      "enabled": true,
+      "expected_mode": "shadow"
+    }
+  ],
+  "extra_variables": {}
+}

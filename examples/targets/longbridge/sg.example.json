@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "longbridge/sg",
+  "description": "Example LongBridge environment-scoped deployment target.",
+  "github": {
+    "repository": "QuantStrategyLab/LongBridgePlatform",
+    "variable_scope": "environment",
+    "environment": "example-longbridge"
+  },
+  "runtime_target": {
+    "platform_id": "longbridge",
+    "strategy_profile": "example_strategy_profile",
+    "dry_run_only": false,
+    "deployment_selector": "EXAMPLE",
+    "account_selector": ["EXAMPLE"],
+    "account_scope": "EXAMPLE",
+    "service_name": "example-longbridge-service",
+    "execution_mode": "live"
+  },
+  "plugin_mounts_variable": "LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [
+    {
+      "strategy": "example_strategy_profile",
+      "plugin": "example_notification_plugin",
+      "signal_path": "gs://example-bucket/strategy-artifacts/example_strategy_profile/plugins/example_notification_plugin/latest_signal.json",
+      "enabled": true,
+      "expected_mode": "shadow"
+    }
+  ],
+  "extra_variables": {
+    "LONGBRIDGE_DRY_RUN_ONLY": "false"
+  }
+}

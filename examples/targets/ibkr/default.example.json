@@ -1,0 +1,30 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "ibkr/default",
+  "description": "Example Interactive Brokers deployment target.",
+  "github": {
+    "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "ibkr",
+    "strategy_profile": "example_strategy_profile",
+    "dry_run_only": false,
+    "deployment_selector": "example-default",
+    "account_selector": ["example-default"],
+    "account_scope": "example-default",
+    "service_name": "example-ibkr-service",
+    "execution_mode": "live"
+  },
+  "plugin_mounts_variable": "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [
+    {
+      "strategy": "example_strategy_profile",
+      "plugin": "example_notification_plugin",
+      "signal_path": "gs://example-bucket/strategy-artifacts/example_strategy_profile/plugins/example_notification_plugin/latest_signal.json",
+      "enabled": true,
+      "expected_mode": "shadow"
+    }
+  ],
+  "extra_variables": {}
+}
