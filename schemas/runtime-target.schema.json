@@ -76,6 +76,46 @@
         "execution_mode": {
           "type": "string",
           "enum": ["live", "paper", "dry_run"]
+        },
+        "execution_windows": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "precheck": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "offset_minutes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": ["notify_only", "dry_run"]
+                }
+              }
+            },
+            "execution": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "offset_minutes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "mode": {
+                  "type": "string",
+                  "enum": ["live", "paper", "dry_run"]
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -115,4 +155,3 @@
     }
   }
 }
-
