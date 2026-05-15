@@ -14,7 +14,19 @@
     "account_selector": ["example-schwab"],
     "account_scope": "example-schwab",
     "service_name": "example-schwab-service",
-    "execution_mode": "live"
+    "execution_mode": "live",
+    "execution_windows": {
+      "precheck": {
+        "enabled": true,
+        "offset_minutes": 15,
+        "mode": "notify_only"
+      },
+      "execution": {
+        "enabled": true,
+        "offset_minutes": 15,
+        "mode": "live"
+      }
+    }
   },
   "plugin_mounts_variable": "SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON",
   "plugin_mounts": [

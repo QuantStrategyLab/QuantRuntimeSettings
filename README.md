@@ -54,6 +54,8 @@ python3 scripts/runtime_settings.py apply --yes local/targets/longbridge/sg.json
 
 `RUNTIME_TARGET_JSON` is canonical. Compatibility variables such as `STRATEGY_PROFILE` are generated from it so they cannot drift independently.
 
+For daily strategies that want both a precheck pass and an execution pass, declare them in `runtime_target.execution_windows`. Keep the strategy logic unchanged; let the platform layer decide whether a window is `notify_only`, `dry_run`, `paper`, or `live`.
+
 ## Architecture
 
 This repo acts as a small bridge between strategy selection and platform deployment without exposing live assignments:
@@ -115,6 +117,8 @@ python3 scripts/runtime_settings.py apply --yes local/targets/longbridge/sg.json
 ```
 
 `RUNTIME_TARGET_JSON` 是唯一 canonical source。兼容变量，例如 `STRATEGY_PROFILE`，由它生成，避免多个配置源互相漂移。
+
+对于希望同时有预检和执行两次运行的日频策略，可以在 `runtime_target.execution_windows` 里显式声明两个窗口。策略逻辑保持不变，由平台层决定某个窗口是 `notify_only`、`dry_run`、`paper` 还是 `live`。
 
 ## 架构
 

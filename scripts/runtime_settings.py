@@ -32,6 +32,10 @@ RUNTIME_REQUIRED_FIELDS = (
     "service_name",
     "execution_mode",
 )
+WINDOW_MODES = {
+    "precheck": {"notify_only", "dry_run"},
+    "execution": {"live", "paper", "dry_run"},
+}
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
 SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY")
 
@@ -167,6 +171,45 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
     execution_mode = runtime_target.get("execution_mode")
     if execution_mode not in {"live", "paper", "dry_run"}:
         errors.append("runtime_target.execution_mode must be live, paper, or dry_run")
+
+    execution_windows = runtime_target.get("execution_windows")
+    if execution_windows is not None:
+        if not isinstance(execution_windows, dict):
+            errors.append("runtime_target.execution_windows must be an object when present")
+        else:
+            for window_name, allowed_modes in WINDOW_MODES.items():
+                window = execution_windows.get(window_name)
+                if window is None:
+                    continue
+                if not isinstance(window, dict):
+                    errors.append(f"runtime_target.execution_windows.{window_name} must be an object")
+                    continue
+                for field in window:
+                    if field not in {"enabled", "offset_minutes", "mode"}:
+                        errors.append(
+                            f"runtime_target.execution_windows.{window_name}.{field} is unsupported"
+                        )
+                if "enabled" in window and not isinstance(window["enabled"], bool):
+                    errors.append(
+                        f"runtime_target.execution_windows.{window_name}.enabled must be boolean"
+                    )
+                if "offset_minutes" in window:
+                    offset_minutes = window["offset_minutes"]
+                    if not isinstance(offset_minutes, int) or offset_minutes < 0:
+                        errors.append(
+                            f"runtime_target.execution_windows.{window_name}.offset_minutes must be a non-negative integer"
+                        )
+                mode = window.get("mode")
+                if mode is not None and mode not in allowed_modes:
+                    errors.append(
+                        f"runtime_target.execution_windows.{window_name}.mode must be one of {sorted(allowed_modes)}"
+                    )
+            for window_name in execution_windows:
+                if window_name not in WINDOW_MODES:
+                    errors.append(
+                        "runtime_target.execution_windows only supports precheck and execution"
+                    )
+                    break
 
 
 def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
