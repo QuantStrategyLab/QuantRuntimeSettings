@@ -143,6 +143,9 @@
           },
           "expected_mode": {
             "type": "string"
+          },
+          "expected_schema_version": {
+            "type": "string"
           }
         }
       }
