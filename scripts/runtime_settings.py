@@ -248,6 +248,12 @@ def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
         if not isinstance(mount.get("enabled"), bool):
             errors.append(f"plugin_mounts[{index}].enabled must be boolean")
 
+        expected_schema_version = mount.get("expected_schema_version")
+        if expected_schema_version is not None and (
+            not isinstance(expected_schema_version, str) or not expected_schema_version.strip()
+        ):
+            errors.append(f"plugin_mounts[{index}].expected_schema_version must be a non-empty string")
+
         signal_path = mount.get("signal_path")
         if not isinstance(signal_path, str) or not signal_path.startswith("gs://"):
             errors.append(f"plugin_mounts[{index}].signal_path must be a gs:// URI")

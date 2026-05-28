@@ -35,7 +35,8 @@
       "plugin": "example_notification_plugin",
       "signal_path": "gs://example-bucket/strategy-artifacts/example_strategy_profile/plugins/example_notification_plugin/latest_signal.json",
       "enabled": true,
-      "expected_mode": "shadow"
+      "expected_mode": "shadow",
+      "expected_schema_version": "example_notification_plugin.v1"
     }
   ],
   "extra_variables": {}

@@ -49,6 +49,21 @@ class RuntimeSettingsTest(unittest.TestCase):
                     )
                 )
 
+    def test_plugin_mount_schema_version_is_rendered_for_platform_parser(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertIn('"expected_schema_version":"example_notification_plugin.v1"', assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"])
+
+    def test_plugin_mount_schema_version_must_be_non_empty_string(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["plugin_mounts"][0]["expected_schema_version"] = ""
+
+        self.assertIn(
+            "plugin_mounts[0].expected_schema_version must be a non-empty string",
+            runtime_settings.validate_target(target),
+        )
+
     def test_generated_variables_cannot_be_overridden(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["extra_variables"] = {"STRATEGY_PROFILE": "old_strategy"}
