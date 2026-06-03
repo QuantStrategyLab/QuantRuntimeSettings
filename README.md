@@ -1,5 +1,36 @@
 # QuantRuntimeSettings
 
+<!-- qsl-doc-overview:start -->
+
+> ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
+> ⚠️ Investing involves risk. This project does not provide investment advice and is for educational and research purposes only.
+
+## Open-source overview / 开源项目入口
+
+| Item | Description |
+| --- | --- |
+| Project type | runtime settings |
+| What it does | Runtime settings schema and tooling for QuantStrategyLab deployments. |
+| 中文说明 | 运行时配置 schema 与工具，帮助各部署统一账户、profile、dry-run/live 参数。 |
+| Current status | Configuration tooling. It should not contain secrets or live account identifiers. |
+
+### Quick start
+
+- `python -m pip install -e '.[test]'`
+- `python -m pytest -q`
+
+### Deploy / operate safely
+
+Consume generated settings from platform repositories; validate redaction and environment-specific overrides before use.
+
+### Strategy performance / evidence boundary
+
+Not a strategy repository; correctness is schema/test coverage and safe downstream consumption.
+
+> Detailed runbooks, migration notes, workflow internals, and historical decisions are kept below. Start with this overview before using the lower-level operational sections.
+
+<!-- qsl-doc-overview:end -->
+
 > ⚠️ 投资有风险，不构成投资建议，仅供学习交流用途。
 
 [English](#english) | [中文](#中文)
