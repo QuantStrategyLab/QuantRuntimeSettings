@@ -563,7 +563,7 @@
 
         <div class="run-area">
           <button class="run-button" id="dispatch-button" type="button" disabled data-i18n="loginToRun">登录后切换</button>
-          <p class="action-note" id="action-note">公开页面只能查看；登录版校验账号权限后才会触发 workflow。</p>
+          <p class="action-note" id="action-note">登录后才可执行切换。</p>
           <p class="toast" id="toast" aria-live="polite"></p>
         </div>
       </div>
@@ -576,7 +576,6 @@
         <dl class="summary-list" id="summary-list"></dl>
         <div class="summary-actions">
           <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制摘要</button>
-          <span class="quiet" id="config-source">default</span>
         </div>
       </aside>
     </section>
@@ -599,6 +598,7 @@
 
     const strategyOptions = [
       "tqqq_growth_income",
+      "soxl_soxx_trend_income",
       "global_etf_rotation",
       "russell_1000_multi_factor_defensive",
       "mega_cap_leader_rotation_top50_balanced",
@@ -606,6 +606,7 @@
 
     const strategyLabels = {
       tqqq_growth_income: "TQQQ Growth Income",
+      soxl_soxx_trend_income: "SOXL/SOXX Trend Income",
       global_etf_rotation: "Global ETF Rotation",
       russell_1000_multi_factor_defensive: "Russell 1000 Defensive",
       mega_cap_leader_rotation_top50_balanced: "Mega Cap Top 50",
@@ -670,8 +671,8 @@
         loginToRun: "登录后切换",
         configureAccounts: "配置账号后切换",
         runSwitch: "一键切换",
-        readonlyNote: "公开页面只能查看；登录版校验账号权限后才会触发 workflow。",
-        missingConfigNote: "还没有加载私有账号配置，禁止执行，避免账号不匹配。",
+        readonlyNote: "登录后才可执行切换。",
+        missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "点击后会触发 workflow，并同步目标平台服务。",
         noAccount: "没有账号选项",
         repository: "平台仓库",
@@ -689,8 +690,6 @@
         dispatched: "已触发 workflow",
         dispatchFailed: "触发失败",
         targetMeta: "target {target} · service {service}",
-        defaultConfig: "公开示例",
-        privateConfig: "私有账号",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -707,8 +706,8 @@
         loginToRun: "Sign in to switch",
         configureAccounts: "Configure accounts",
         runSwitch: "Switch now",
-        readonlyNote: "Public page is read-only; the Worker checks login before dispatching the workflow.",
-        missingConfigNote: "Private account config is not loaded, so switching is disabled.",
+        readonlyNote: "Sign in to switch.",
+        missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "This dispatches the workflow and syncs the target platform service.",
         noAccount: "No accounts",
         repository: "Repository",
@@ -726,8 +725,6 @@
         dispatched: "Workflow dispatched",
         dispatchFailed: "Dispatch failed",
         targetMeta: "target {target} · service {service}",
-        defaultConfig: "Public sample",
-        privateConfig: "Private accounts",
       },
     };
 
@@ -903,7 +900,6 @@
       `).join("");
 
       el("mode-pill").textContent = inputs.execution_mode;
-      el("config-source").textContent = state.configSource === "private" ? t("privateConfig") : t("defaultConfig");
     }
 
     function renderAuth() {

@@ -510,7 +510,7 @@ function assertSwitchIntent(inputs) {
 }
 
 function assertConfiguredAccount(inputs, accountOptions) {
-  if (!accountOptions) throw new Error("private account options are not configured");
+  if (!accountOptions) throw new Error("account options are not configured");
   const options = accountOptions[inputs.platform] || [];
   if (!options.length) throw new Error(`no account options configured for ${inputs.platform}`);
   const matched = options.some((option) => accountOptionMatchesInputs(option, inputs));
