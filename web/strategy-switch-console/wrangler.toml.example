@@ -1,0 +1,18 @@
+name = "qsl-strategy-switch-console"
+main = "worker.js"
+compatibility_date = "2026-06-09"
+workers_dev = true
+
+# Set these with `wrangler secret put ...` instead of committing values:
+# - GITHUB_CLIENT_ID
+# - GITHUB_CLIENT_SECRET
+# - SESSION_SECRET
+# - RUNTIME_SETTINGS_DISPATCH_TOKEN
+# - ALLOWED_GITHUB_LOGINS
+# - STRATEGY_SWITCH_ADMIN_LOGINS
+# - STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON
+#
+# Optional non-secret variables can be placed here or in the Cloudflare dashboard:
+# RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
+# RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
+# RUNTIME_SETTINGS_REF = "main"

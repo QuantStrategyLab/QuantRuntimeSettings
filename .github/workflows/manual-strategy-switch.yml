@@ -1,0 +1,358 @@
+name: Manual Strategy Switch
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Target platform."
+        required: true
+        type: choice
+        options:
+          - longbridge
+          - ibkr
+          - schwab
+          - firstrade
+      target_name:
+        description: "Target name, e.g. sg, live, live-u1599-tqqq."
+        required: true
+        type: string
+      strategy_profile:
+        description: "Canonical strategy profile to switch to."
+        required: true
+        type: string
+      execution_mode:
+        description: "live writes live mode; paper sets dry_run_only=true and execution_mode=paper."
+        required: true
+        type: choice
+        default: live
+        options:
+          - live
+          - paper
+      variable_scope:
+        description: "Where GitHub variables are written. blank = platform default."
+        required: false
+        type: choice
+        default: default
+        options:
+          - default
+          - repository
+          - environment
+      github_environment:
+        description: "Environment name when variable_scope=environment. blank = platform default."
+        required: false
+        type: string
+      deployment_selector:
+        description: "Runtime deployment_selector. blank = derived from target_name."
+        required: false
+        type: string
+      account_selector:
+        description: "Comma-separated broker account selectors. blank = account_scope."
+        required: false
+        type: string
+      account_scope:
+        description: "Runtime account_scope/account group. blank = deployment_selector."
+        required: false
+        type: string
+      service_name:
+        description: "Cloud Run service name. blank = platform default."
+        required: false
+        type: string
+      plugin_mode:
+        description: "auto mounts known strategy plugin artifacts; custom uses custom_plugin_mounts_json."
+        required: true
+        type: choice
+        default: auto
+        options:
+          - auto
+          - none
+          - custom
+      custom_plugin_mounts_json:
+        description: "JSON list or {strategy_plugins:[...]} when plugin_mode=custom."
+        required: false
+        type: string
+      extra_variables_json:
+        description: "Optional JSON object of non-secret extra GitHub variables or target env fields."
+        required: false
+        type: string
+      reserved_cash_ratio:
+        description: "Optional platform reserved-cash ratio override."
+        required: false
+        type: string
+      min_reserved_cash_usd:
+        description: "Optional platform minimum reserved cash override."
+        required: false
+        type: string
+      income_threshold_usd:
+        description: "Optional TQQQ income threshold override."
+        required: false
+        type: string
+      qqqi_income_ratio:
+        description: "Optional TQQQ QQQI income ratio override."
+        required: false
+        type: string
+      service_targets_mode:
+        description: "auto patches IBKR CLOUD_RUN_SERVICE_TARGETS_JSON when it exists."
+        required: true
+        type: choice
+        default: auto
+        options:
+          - auto
+          - off
+      apply:
+        description: "Actually write GitHub variables. false = preview only."
+        required: true
+        type: boolean
+        default: false
+      trigger_platform_sync:
+        description: "After apply, dispatch the target platform sync-cloud-run-env workflow."
+        required: true
+        type: boolean
+        default: false
+      confirm_apply:
+        description: "Required for writes. Use APPLY for variable writes, APPLY_AND_SYNC when trigger_platform_sync=true."
+        required: false
+        type: string
+      platform_sync_workflow:
+        description: "Target platform workflow filename."
+        required: false
+        type: string
+        default: sync-cloud-run-env.yml
+
+concurrency:
+  group: runtime-strategy-switch-${{ inputs.platform }}-${{ inputs.target_name }}
+  cancel-in-progress: false
+
+jobs:
+  switch:
+    name: Build and apply runtime switch
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      PLATFORM: ${{ inputs.platform }}
+      TARGET_NAME: ${{ inputs.target_name }}
+      STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
+      EXECUTION_MODE: ${{ inputs.execution_mode }}
+      VARIABLE_SCOPE: ${{ inputs.variable_scope }}
+      GITHUB_ENVIRONMENT_NAME: ${{ inputs.github_environment }}
+      DEPLOYMENT_SELECTOR: ${{ inputs.deployment_selector }}
+      ACCOUNT_SELECTOR: ${{ inputs.account_selector }}
+      ACCOUNT_SCOPE: ${{ inputs.account_scope }}
+      SERVICE_NAME: ${{ inputs.service_name }}
+      PLUGIN_MODE: ${{ inputs.plugin_mode }}
+      CUSTOM_PLUGIN_MOUNTS_JSON: ${{ inputs.custom_plugin_mounts_json }}
+      EXTRA_VARIABLES_JSON: ${{ inputs.extra_variables_json }}
+      RESERVED_CASH_RATIO: ${{ inputs.reserved_cash_ratio }}
+      MIN_RESERVED_CASH_USD: ${{ inputs.min_reserved_cash_usd }}
+      INCOME_THRESHOLD_USD: ${{ inputs.income_threshold_usd }}
+      QQQI_INCOME_RATIO: ${{ inputs.qqqi_income_ratio }}
+      SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
+      APPLY_SWITCH: ${{ inputs.apply }}
+      TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
+      CONFIRM_APPLY: ${{ inputs.confirm_apply }}
+      PLATFORM_SYNC_WORKFLOW: ${{ inputs.platform_sync_workflow }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Enforce write safety gates
+        run: |
+          set -euo pipefail
+
+          if [ "${APPLY_SWITCH}" != "true" ] && [ "${TRIGGER_PLATFORM_SYNC}" = "true" ]; then
+            echo "trigger_platform_sync=true is invalid unless apply=true." >&2
+            exit 2
+          fi
+
+          if [ "${APPLY_SWITCH}" = "true" ]; then
+            if [ -z "${GH_TOKEN:-}" ]; then
+              echo "RUNTIME_SETTINGS_GH_TOKEN is required for apply=true." >&2
+              exit 2
+            fi
+            if [ "${TRIGGER_PLATFORM_SYNC}" = "true" ]; then
+              if [ "${CONFIRM_APPLY:-}" != "APPLY_AND_SYNC" ]; then
+                echo "Set confirm_apply=APPLY_AND_SYNC when trigger_platform_sync=true." >&2
+                exit 2
+              fi
+            elif [ "${CONFIRM_APPLY:-}" != "APPLY" ]; then
+              echo "Set confirm_apply=APPLY when apply=true." >&2
+              exit 2
+            fi
+          fi
+
+          if [ "${PLATFORM}" = "ibkr" ] \
+            && [ "${SERVICE_TARGETS_MODE}" = "auto" ] \
+            && [ -z "${GH_TOKEN:-}" ]; then
+            echo "RUNTIME_SETTINGS_GH_TOKEN is required for IBKR service-target preview because the workflow must read and patch CLOUD_RUN_SERVICE_TARGETS_JSON." >&2
+            exit 2
+          fi
+
+      - name: Resolve platform repository
+        id: platform
+        run: |
+          set -euo pipefail
+          case "${PLATFORM}" in
+            longbridge)
+              repo="QuantStrategyLab/LongBridgePlatform"
+              ;;
+            ibkr)
+              repo="QuantStrategyLab/InteractiveBrokersPlatform"
+              ;;
+            schwab)
+              repo="QuantStrategyLab/CharlesSchwabPlatform"
+              ;;
+            firstrade)
+              repo="QuantStrategyLab/FirstradePlatform"
+              ;;
+            *)
+              echo "Unsupported platform: ${PLATFORM}" >&2
+              exit 2
+              ;;
+          esac
+          echo "repository=${repo}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch existing service targets
+        if: env.SERVICE_TARGETS_MODE == 'auto' && env.PLATFORM == 'ibkr'
+        env:
+          TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
+        run: |
+          set -euo pipefail
+          output_file="${RUNNER_TEMP}/existing-service-targets.json"
+          python - <<'PY' "${TARGET_REPOSITORY}" "${output_file}"
+          import json
+          import subprocess
+          import sys
+
+          repo, output_path = sys.argv[1], sys.argv[2]
+          raw = subprocess.check_output(
+              ["gh", "variable", "list", "--repo", repo, "--json", "name,value"],
+              text=True,
+          )
+          variables = json.loads(raw)
+          value = ""
+          for item in variables:
+              if item.get("name") == "CLOUD_RUN_SERVICE_TARGETS_JSON":
+                  value = str(item.get("value") or "").strip()
+                  break
+          if not value:
+              open(output_path, "w", encoding="utf-8").close()
+              raise SystemExit(0)
+          try:
+              payload = json.loads(value)
+          except json.JSONDecodeError:
+              payload = json.loads(value.replace("\\n", "\n"))
+          with open(output_path, "w", encoding="utf-8") as handle:
+              json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+          PY
+          echo "EXISTING_SERVICE_TARGETS_JSON_FILE=${output_file}" >> "$GITHUB_ENV"
+
+      - name: Build switch target
+        run: |
+          set -euo pipefail
+          target_file="${RUNNER_TEMP}/runtime-switch-target.json"
+          args=(
+            --platform "${PLATFORM}"
+            --target-name "${TARGET_NAME}"
+            --strategy-profile "${STRATEGY_PROFILE}"
+            --execution-mode "${EXECUTION_MODE}"
+            --plugin-mode "${PLUGIN_MODE}"
+            --output "${target_file}"
+          )
+          if [ "${VARIABLE_SCOPE}" != "default" ]; then
+            args+=(--variable-scope "${VARIABLE_SCOPE}")
+          fi
+          if [ -n "${GITHUB_ENVIRONMENT_NAME:-}" ]; then
+            args+=(--github-environment "${GITHUB_ENVIRONMENT_NAME}")
+          fi
+          if [ -n "${DEPLOYMENT_SELECTOR:-}" ]; then
+            args+=(--deployment-selector "${DEPLOYMENT_SELECTOR}")
+          fi
+          if [ -n "${ACCOUNT_SELECTOR:-}" ]; then
+            args+=(--account-selector "${ACCOUNT_SELECTOR}")
+          fi
+          if [ -n "${ACCOUNT_SCOPE:-}" ]; then
+            args+=(--account-scope "${ACCOUNT_SCOPE}")
+          fi
+          if [ -n "${SERVICE_NAME:-}" ]; then
+            args+=(--service-name "${SERVICE_NAME}")
+          fi
+          if [ -n "${CUSTOM_PLUGIN_MOUNTS_JSON:-}" ]; then
+            args+=(--custom-plugin-mounts-json "${CUSTOM_PLUGIN_MOUNTS_JSON}")
+          fi
+          if [ -n "${EXTRA_VARIABLES_JSON:-}" ]; then
+            args+=(--extra-variables-json "${EXTRA_VARIABLES_JSON}")
+          fi
+          if [ -n "${RESERVED_CASH_RATIO:-}" ]; then
+            args+=(--reserved-cash-ratio "${RESERVED_CASH_RATIO}")
+          fi
+          if [ -n "${MIN_RESERVED_CASH_USD:-}" ]; then
+            args+=(--min-reserved-cash-usd "${MIN_RESERVED_CASH_USD}")
+          fi
+          if [ -n "${INCOME_THRESHOLD_USD:-}" ]; then
+            args+=(--income-threshold-usd "${INCOME_THRESHOLD_USD}")
+          fi
+          if [ -n "${QQQI_INCOME_RATIO:-}" ]; then
+            args+=(--qqqi-income-ratio "${QQQI_INCOME_RATIO}")
+          fi
+          if [ -s "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
+            args+=(--existing-service-targets-json-file "${EXISTING_SERVICE_TARGETS_JSON_FILE}")
+          fi
+          python3 scripts/build_runtime_switch.py "${args[@]}"
+          python3 scripts/runtime_settings.py validate "${target_file}"
+          echo "TARGET_FILE=${target_file}" >> "$GITHUB_ENV"
+
+      - name: Preview assignments
+        run: |
+          set -euo pipefail
+          python3 scripts/runtime_settings.py render "${TARGET_FILE}" --format env
+          python3 scripts/runtime_settings.py render "${TARGET_FILE}" --format json > "${RUNNER_TEMP}/assignments.json"
+          python - <<'PY' "${TARGET_FILE}" "${RUNNER_TEMP}/assignments.json" >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+
+          target = json.load(open(sys.argv[1], encoding="utf-8"))
+          assignments = json.load(open(sys.argv[2], encoding="utf-8"))
+          print("## Runtime switch preview")
+          print()
+          print(f"- target_id: `{target['target_id']}`")
+          print(f"- repository: `{target['github']['repository']}`")
+          print(f"- variable_scope: `{target['github']['variable_scope']}`")
+          if target["github"].get("environment"):
+              print(f"- environment: `{target['github']['environment']}`")
+          print(f"- strategy_profile: `{target['runtime_target']['strategy_profile']}`")
+          print(f"- service_name: `{target['runtime_target']['service_name']}`")
+          print(f"- execution_mode: `{target['runtime_target']['execution_mode']}`")
+          print()
+          print("### Variables")
+          for assignment in assignments:
+              value = str(assignment["value"])
+              preview = value if len(value) <= 220 else value[:220] + "..."
+              print(f"- `{assignment['name']}` = `{preview}`")
+          PY
+
+      - name: Apply GitHub variable updates
+        if: env.APPLY_SWITCH == 'true'
+        run: python3 scripts/runtime_settings.py apply "${TARGET_FILE}" --yes
+
+      - name: Dispatch platform sync workflow
+        if: env.APPLY_SWITCH == 'true' && env.TRIGGER_PLATFORM_SYNC == 'true'
+        env:
+          TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
+        run: |
+          set -euo pipefail
+          workflow="${PLATFORM_SYNC_WORKFLOW:-sync-cloud-run-env.yml}"
+          case "${PLATFORM}" in
+            longbridge|ibkr)
+              gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main -f target=configured
+              ;;
+            schwab|firstrade)
+              gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main
+              ;;
+            *)
+              echo "No platform sync dispatch rule for ${PLATFORM}" >&2
+              exit 2
+              ;;
+          esac
+          echo "Dispatched ${workflow} in ${TARGET_REPOSITORY}."

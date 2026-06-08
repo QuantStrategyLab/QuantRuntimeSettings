@@ -1,0 +1,45 @@
+{
+  "longbridge": [
+    {
+      "key": "hk",
+      "label": "hk",
+      "target_name": "hk",
+      "account_selector": "HK"
+    },
+    {
+      "key": "sg",
+      "label": "sg",
+      "target_name": "sg",
+      "account_selector": "SG"
+    },
+    {
+      "key": "paper",
+      "label": "paper",
+      "target_name": "paper",
+      "account_selector": "PAPER"
+    }
+  ],
+  "ibkr": [
+    {
+      "key": "u0000000",
+      "label": "u0000000",
+      "target_name": "u0000000",
+      "account_selector": "u0000000",
+      "service_name": "interactive-brokers-u0000000-service"
+    }
+  ],
+  "schwab": [
+    {
+      "key": "default",
+      "label": "default",
+      "target_name": "default"
+    }
+  ],
+  "firstrade": [
+    {
+      "key": "default",
+      "label": "default",
+      "target_name": "default"
+    }
+  ]
+}
