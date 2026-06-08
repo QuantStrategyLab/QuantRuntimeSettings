@@ -11,6 +11,18 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
+const PLATFORM_REPOSITORIES = {
+  longbridge: "QuantStrategyLab/LongBridgePlatform",
+  ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
+  schwab: "QuantStrategyLab/CharlesSchwabPlatform",
+  firstrade: "QuantStrategyLab/FirstradePlatform",
+};
+const DEFAULT_VARIABLE_SCOPE = {
+  longbridge: "environment",
+  ibkr: "repository",
+  schwab: "repository",
+  firstrade: "repository",
+};
 
 export default {
   async fetch(request, env) {
@@ -411,9 +423,90 @@ async function configPayload(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return { accountOptions: null };
   const accountConfig = await loadAccountOptionsConfig(env);
+  const currentStrategies = await loadCurrentStrategies(accountConfig.options, env);
   return {
     accountOptions: accountConfig.options,
+    currentStrategies,
   };
+}
+
+async function loadCurrentStrategies(accountOptions, env) {
+  const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+  if (!token || !accountOptions) return {};
+
+  const variableCache = new Map();
+  const readVariable = (repository, scope, githubEnvironment, name) => {
+    const cacheKey = [repository, scope, githubEnvironment || "", name].join("|");
+    if (!variableCache.has(cacheKey)) {
+      variableCache.set(cacheKey, fetchGithubVariable(token, repository, scope, githubEnvironment, name));
+    }
+    return variableCache.get(cacheKey);
+  };
+
+  const currentStrategies = {};
+  for (const platform of SUPPORTED_PLATFORMS) {
+    const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
+    if (!options.length) continue;
+    const repository = PLATFORM_REPOSITORIES[platform];
+    if (!repository) continue;
+    const platformStrategies = {};
+
+    for (const option of options) {
+      const current = await resolveCurrentStrategyForAccount({
+        platform,
+        option,
+        optionsCount: options.length,
+        repository,
+        readVariable,
+      });
+      if (current) platformStrategies[option.key] = current;
+    }
+
+    if (Object.keys(platformStrategies).length) currentStrategies[platform] = platformStrategies;
+  }
+  return currentStrategies;
+}
+
+async function resolveCurrentStrategyForAccount({ platform, option, optionsCount, repository, readVariable }) {
+  const serviceTargetsValue = await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON");
+  const serviceTargetProfile = strategyFromServiceTargets(serviceTargetsValue, platform, option);
+  if (serviceTargetProfile) {
+    return {
+      strategy_profile: serviceTargetProfile,
+      source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
+      variable_scope: "repository",
+    };
+  }
+
+  const variableScope = resolveVariableScope(platform, option);
+  const githubEnvironment = resolveGithubEnvironment(platform, option, variableScope);
+  const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
+  const runtimeTarget = parseJsonObject(runtimeTargetValue);
+  const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
+  const runtimeTargetProfile = runtimeTargetMatches ? cleanCurrentStrategy(runtimeTarget.strategy_profile) : "";
+  if (runtimeTargetProfile) {
+    return {
+      strategy_profile: runtimeTargetProfile,
+      source: "RUNTIME_TARGET_JSON",
+      variable_scope: variableScope,
+      github_environment: githubEnvironment || "",
+    };
+  }
+
+  if (variableScope === "environment" || optionsCount <= 1) {
+    const profileValue = await readVariable(repository, variableScope, githubEnvironment, "STRATEGY_PROFILE");
+    const profile = cleanCurrentStrategy(profileValue);
+    if (profile) {
+      return {
+        strategy_profile: profile,
+        source: "STRATEGY_PROFILE",
+        variable_scope: variableScope,
+        github_environment: githubEnvironment || "",
+      };
+    }
+  }
+
+  return null;
 }
 
 function logout(request) {
@@ -639,6 +732,148 @@ function requireSameOrigin(request) {
   const origin = request.headers.get("Origin");
   if (!origin) return;
   if (origin !== new URL(request.url).origin) throw new Error("cross-origin request rejected");
+}
+
+async function fetchGithubVariable(token, repository, scope, githubEnvironment, name) {
+  const apiUrl = githubVariableUrl(repository, scope, githubEnvironment, name);
+  if (!apiUrl) return "";
+  try {
+    const response = await fetch(apiUrl, {
+      headers: githubHeaders(token),
+    });
+    if (response.status === 404 || response.status === 403) return "";
+    if (!response.ok) return "";
+    const payload = await response.json();
+    return String(payload?.value || "");
+  } catch {
+    return "";
+  }
+}
+
+function githubVariableUrl(repository, scope, githubEnvironment, name) {
+  const [owner, repo] = String(repository || "").split("/");
+  if (!owner || !repo) return "";
+  const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  const variableName = encodeURIComponent(name);
+  if (scope === "environment") {
+    if (!githubEnvironment) return "";
+    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables/${variableName}`;
+  }
+  return `${base}/actions/variables/${variableName}`;
+}
+
+function resolveVariableScope(platform, option) {
+  const configured = String(option?.variable_scope || "").trim();
+  if (configured && configured !== "default") return configured;
+  return DEFAULT_VARIABLE_SCOPE[platform] || "repository";
+}
+
+function resolveGithubEnvironment(platform, option, variableScope) {
+  if (variableScope !== "environment") return "";
+  const configured = String(option?.github_environment || "").trim();
+  if (configured) return configured;
+  const targetName = String(option?.target_name || option?.key || "").trim();
+  if (!targetName) return "";
+  if (platform === "longbridge") return `longbridge-${targetName.toLowerCase()}`;
+  return targetName;
+}
+
+function strategyFromServiceTargets(rawValue, platform, option) {
+  const payload = parseJsonObject(rawValue);
+  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  for (const entry of targets) {
+    if (!entry || Array.isArray(entry) || typeof entry !== "object") continue;
+    const runtimeTarget = entry.runtime_target && typeof entry.runtime_target === "object"
+      ? entry.runtime_target
+      : {};
+    if (!runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry)) continue;
+    const profile = cleanCurrentStrategy(runtimeTarget.strategy_profile || entry.strategy_profile);
+    if (profile) return profile;
+  }
+  return "";
+}
+
+function runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry = {}) {
+  const runtimePlatform = String(runtimeTarget?.platform_id || "").trim().toLowerCase();
+  if (runtimePlatform && runtimePlatform !== platform) return false;
+
+  const serviceName = String(option?.service_name || defaultCurrentServiceName(platform, option?.target_name || option?.key) || "");
+  if (serviceName && hasCandidate(serviceName, [
+    runtimeTarget?.service_name,
+    entry?.service,
+    entry?.service_name,
+  ])) return true;
+
+  if (hasCandidate(option?.account_scope, [
+    runtimeTarget?.account_scope,
+    entry?.ACCOUNT_GROUP,
+    entry?.account_scope,
+  ])) return true;
+
+  if (hasCandidate(option?.deployment_selector, [
+    runtimeTarget?.deployment_selector,
+    entry?.deployment_selector,
+  ])) return true;
+
+  const optionSelectors = splitSelectorValues(option?.account_selector);
+  const runtimeSelectors = splitSelectorValues(runtimeTarget?.account_selector || entry?.account_selector);
+  if (optionSelectors.some((value) => runtimeSelectors.includes(value))) return true;
+
+  const targetName = String(option?.target_name || option?.key || "").trim();
+  return Boolean(targetName && hasCandidate(targetName, [
+    runtimeTarget?.target_name,
+    runtimeTarget?.deployment_selector,
+    runtimeTarget?.account_scope,
+    entry?.target_name,
+  ]));
+}
+
+function defaultCurrentServiceName(platform, targetName) {
+  const normalized = String(targetName || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (platform === "longbridge") return `longbridge-quant-${normalized}-service`;
+  if (platform === "ibkr") return `interactive-brokers-${normalized}-service`;
+  if (platform === "schwab") return "charles-schwab-quant-service";
+  if (platform === "firstrade") return "firstrade-quant-service";
+  return "";
+}
+
+function hasCandidate(expected, candidates) {
+  const normalizedExpected = normalizeMatchValue(expected);
+  if (!normalizedExpected) return false;
+  return candidates.some((candidate) => normalizeMatchValue(candidate) === normalizedExpected);
+}
+
+function splitSelectorValues(value) {
+  if (Array.isArray(value)) return value.map(normalizeMatchValue).filter(Boolean);
+  return String(value || "")
+    .split(/[,\s]+/)
+    .map(normalizeMatchValue)
+    .filter(Boolean);
+}
+
+function normalizeMatchValue(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function parseJsonObject(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  for (const candidate of [text, text.replaceAll("\\n", "\n")]) {
+    try {
+      const payload = JSON.parse(candidate);
+      return payload && !Array.isArray(payload) && typeof payload === "object" ? payload : null;
+    } catch {
+      // Try the next representation.
+    }
+  }
+  return null;
+}
+
+function cleanCurrentStrategy(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || text.length > 120 || !/^[a-z0-9._=-]+$/.test(text)) return "";
+  return text;
 }
 
 function cleanCsv(value, field) {
