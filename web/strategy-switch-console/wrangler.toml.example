@@ -1,6 +1,6 @@
 name = "qsl-strategy-switch-console"
 main = "worker.js"
-compatibility_date = "2026-06-09"
+compatibility_date = "2026-06-08"
 workers_dev = true
 
 # Set these with `wrangler secret put ...` instead of committing values:
