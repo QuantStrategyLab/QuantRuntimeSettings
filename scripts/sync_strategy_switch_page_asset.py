@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embed docs/index.html as a Cloudflare Worker module asset."""
+"""Embed the strategy switch Worker HTML as a module asset."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "docs" / "index.html"
+SOURCE = ROOT / "web" / "strategy-switch-console" / "index.html"
 TARGET = ROOT / "web" / "strategy-switch-console" / "page_asset.js"
 
 

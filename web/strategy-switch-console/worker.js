@@ -586,6 +586,7 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "deployment_selector", item.deployment_selector, cleanSlug);
   addConfigOptional(option, "account_scope", item.account_scope, cleanSlug);
   addConfigOptional(option, "service_name", item.service_name, cleanSlug);
+  addConfigOptional(option, "default_strategy_profile", item.default_strategy_profile || item.strategy_profile, cleanSlug);
   addConfigOptional(option, "github_environment", item.github_environment, cleanSlug);
   addConfigOptional(option, "variable_scope", item.variable_scope, (value, field) =>
     cleanChoice(value || "default", ["default", "repository", "environment"], field),

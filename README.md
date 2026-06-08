@@ -68,9 +68,7 @@ Notes:
 
 ## Useful docs
 
-- [Strategy switch GitHub Pages console](docs/index.html)
-- [GitHub Pages strategy switch design](docs/github_pages_strategy_switch.md)
-- [Authenticated strategy switch console Worker](web/strategy-switch-console/README.md)
+- [Strategy switch console Worker](web/strategy-switch-console/README.md)
 - [Strategy switch admin backend](docs/strategy_switch_admin_backend.md)
 - [Manual strategy switch permission-control plan](docs/manual_strategy_switch_permission_control.zh-CN.md)
 

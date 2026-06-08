@@ -611,6 +611,7 @@
     const strategyOptions = [
       "tqqq_growth_income",
       "soxl_soxx_trend_income",
+      "nasdaq_sp500_smart_dca",
       "global_etf_rotation",
       "russell_1000_multi_factor_defensive",
       "mega_cap_leader_rotation_top50_balanced",
@@ -619,6 +620,7 @@
     const strategyLabels = {
       tqqq_growth_income: "TQQQ Growth Income",
       soxl_soxx_trend_income: "SOXL/SOXX Trend Income",
+      nasdaq_sp500_smart_dca: "Nasdaq/S&P 500 Smart DCA",
       global_etf_rotation: "Global ETF Rotation",
       russell_1000_multi_factor_defensive: "Russell 1000 Defensive",
       mega_cap_leader_rotation_top50_balanced: "Mega Cap Top 50",
@@ -626,9 +628,9 @@
 
     const defaultAccountOptions = {
       longbridge: [
-        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK" },
-        { key: "sg", label: "sg", target_name: "sg", account_selector: "SG" },
-        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER" },
+        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK", default_strategy_profile: "tqqq_growth_income" },
+        { key: "sg", label: "sg", target_name: "sg", account_selector: "SG", default_strategy_profile: "tqqq_growth_income" },
+        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER", default_strategy_profile: "tqqq_growth_income" },
       ],
       ibkr: [
         {
@@ -639,6 +641,7 @@
           deployment_selector: "live-u1599-tqqq",
           account_scope: "live-u1599-tqqq",
           service_name: "interactive-brokers-live-u1599-tqqq-service",
+          default_strategy_profile: "tqqq_growth_income",
         },
         {
           key: "u16608560",
@@ -648,6 +651,7 @@
           deployment_selector: "live-u1660-soxl",
           account_scope: "live-u1660-soxl",
           service_name: "interactive-brokers-live-u1660-soxl-service",
+          default_strategy_profile: "soxl_soxx_trend_income",
         },
         {
           key: "u18336562",
@@ -657,13 +661,14 @@
           deployment_selector: "live-u1833-smart-dca",
           account_scope: "live-u1833-smart-dca",
           service_name: "interactive-brokers-live-u1833-smart-dca-service",
+          default_strategy_profile: "nasdaq_sp500_smart_dca",
         },
       ],
       schwab: [
-        { key: "default", label: "default", target_name: "default" },
+        { key: "default", label: "default", target_name: "default", default_strategy_profile: "tqqq_growth_income" },
       ],
       firstrade: [
-        { key: "default", label: "default", target_name: "default" },
+        { key: "default", label: "default", target_name: "default", default_strategy_profile: "tqqq_growth_income" },
       ],
     };
 
@@ -779,11 +784,29 @@
       return options.find((option) => option.key === form.accountKey) || options[0];
     }
 
+    function defaultStrategyForAccount(account, fallback = "tqqq_growth_income") {
+      const profile = String(account?.default_strategy_profile || account?.strategy_profile || "").trim();
+      if (strategyOptions.includes(profile)) return profile;
+      const hint = [
+        account?.key,
+        account?.label,
+        account?.target_name,
+        account?.deployment_selector,
+        account?.account_scope,
+        account?.service_name,
+      ].join(" ").toLowerCase();
+      if (hint.includes("smart-dca") || hint.includes("smart_dca")) return "nasdaq_sp500_smart_dca";
+      if (hint.includes("soxl")) return "soxl_soxx_trend_income";
+      if (hint.includes("tqqq")) return "tqqq_growth_income";
+      return fallback;
+    }
+
     function ensureAccountSelection(platform) {
       const options = optionsFor(platform);
       if (!options.length) return;
       if (!options.some((option) => option.key === state.forms[platform].accountKey)) {
         state.forms[platform].accountKey = options[0].key;
+        state.forms[platform].strategy = defaultStrategyForAccount(options[0], state.forms[platform].strategy);
       }
     }
 
@@ -1000,6 +1023,9 @@
           deployment_selector: item.deployment_selector ? String(item.deployment_selector) : "",
           account_scope: item.account_scope ? String(item.account_scope) : "",
           service_name: item.service_name ? String(item.service_name) : "",
+          default_strategy_profile: item.default_strategy_profile || item.strategy_profile
+            ? String(item.default_strategy_profile || item.strategy_profile)
+            : "",
           github_environment: item.github_environment ? String(item.github_environment) : "",
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
@@ -1057,6 +1083,10 @@
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
+      state.forms[state.selected].strategy = defaultStrategyForAccount(
+        selectedAccount(),
+        state.forms[state.selected].strategy,
+      );
       render();
     });
 

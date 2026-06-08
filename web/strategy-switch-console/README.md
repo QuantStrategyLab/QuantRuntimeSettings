@@ -64,9 +64,9 @@ Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLO
 
 ## Page Asset
 
-`worker.js` serves the same UI as `docs/index.html` through `page_asset.js`.
+`worker.js` serves `web/strategy-switch-console/index.html` through `page_asset.js`.
 
-After editing `docs/index.html`, regenerate the asset:
+After editing `web/strategy-switch-console/index.html`, regenerate the asset:
 
 ```bash
 python3 scripts/sync_strategy_switch_page_asset.py
@@ -76,7 +76,7 @@ Deploy `worker.js` and `page_asset.js` together.
 
 ## Account Dropdowns
 
-The public page only ships sample targets. After sign-in, switching stays disabled until the Worker loads private account options; the Worker also rejects dispatches without matching private account config. Copy the example and fill in your real target/account routes:
+The Worker page ships sample targets as a fallback. After sign-in, switching stays disabled until the Worker loads configured account options; the Worker also rejects dispatches without matching account config. Copy the example and fill in your real target/account routes:
 
 ```bash
 cp web/strategy-switch-console/account-options.example.json /tmp/strategy-switch-accounts.json
@@ -101,7 +101,8 @@ Each account item supports:
   "account_selector": "U15998061",
   "deployment_selector": "live-u1599-tqqq",
   "account_scope": "live-u1599-tqqq",
-  "service_name": "interactive-brokers-live-u1599-tqqq-service"
+  "service_name": "interactive-brokers-live-u1599-tqqq-service",
+  "default_strategy_profile": "tqqq_growth_income"
 }
 ```
 

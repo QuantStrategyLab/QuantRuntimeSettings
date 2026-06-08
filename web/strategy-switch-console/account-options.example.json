@@ -4,19 +4,22 @@
       "key": "hk",
       "label": "hk",
       "target_name": "hk",
-      "account_selector": "HK"
+      "account_selector": "HK",
+      "default_strategy_profile": "tqqq_growth_income"
     },
     {
       "key": "sg",
       "label": "sg",
       "target_name": "sg",
-      "account_selector": "SG"
+      "account_selector": "SG",
+      "default_strategy_profile": "tqqq_growth_income"
     },
     {
       "key": "paper",
       "label": "paper",
       "target_name": "paper",
-      "account_selector": "PAPER"
+      "account_selector": "PAPER",
+      "default_strategy_profile": "tqqq_growth_income"
     }
   ],
   "ibkr": [
@@ -27,7 +30,8 @@
       "account_selector": "U15998061",
       "deployment_selector": "live-u1599-tqqq",
       "account_scope": "live-u1599-tqqq",
-      "service_name": "interactive-brokers-live-u1599-tqqq-service"
+      "service_name": "interactive-brokers-live-u1599-tqqq-service",
+      "default_strategy_profile": "tqqq_growth_income"
     },
     {
       "key": "u16608560",
@@ -36,7 +40,8 @@
       "account_selector": "U16608560",
       "deployment_selector": "live-u1660-soxl",
       "account_scope": "live-u1660-soxl",
-      "service_name": "interactive-brokers-live-u1660-soxl-service"
+      "service_name": "interactive-brokers-live-u1660-soxl-service",
+      "default_strategy_profile": "soxl_soxx_trend_income"
     },
     {
       "key": "u18336562",
@@ -45,21 +50,24 @@
       "account_selector": "U18336562",
       "deployment_selector": "live-u1833-smart-dca",
       "account_scope": "live-u1833-smart-dca",
-      "service_name": "interactive-brokers-live-u1833-smart-dca-service"
+      "service_name": "interactive-brokers-live-u1833-smart-dca-service",
+      "default_strategy_profile": "nasdaq_sp500_smart_dca"
     }
   ],
   "schwab": [
     {
       "key": "default",
       "label": "default",
-      "target_name": "default"
+      "target_name": "default",
+      "default_strategy_profile": "tqqq_growth_income"
     }
   ],
   "firstrade": [
     {
       "key": "default",
       "label": "default",
-      "target_name": "default"
+      "target_name": "default",
+      "default_strategy_profile": "tqqq_growth_income"
     }
   ]
 }
