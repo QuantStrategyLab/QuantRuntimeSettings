@@ -67,12 +67,13 @@ audit_log
 ## 文件结构
 
 ```text
+index.html
 worker.js
 page_asset.js
 wrangler.toml.example
 ```
 
-`worker.js` 会复用 `docs/index.html` 的同一套页面。改完页面后运行：
+`worker.js` 会通过 `page_asset.js` 发布 `web/strategy-switch-console/index.html`。改完页面后运行：
 
 ```bash
 python3 scripts/sync_strategy_switch_page_asset.py
@@ -82,7 +83,7 @@ python3 scripts/sync_strategy_switch_page_asset.py
 
 ## 账号下拉配置
 
-公开页面只带示例 target，登录后如果没有加载私有账号配置，“一键切换”仍会保持禁用，Worker 后端也会拒绝 dispatch，避免账号不匹配。复制示例文件后填入你的真实 target/account route：
+Worker 页面内置示例 target 作为兜底。登录后如果没有加载账号配置，“一键切换”仍会保持禁用，Worker 后端也会拒绝 dispatch，避免账号不匹配。复制示例文件后填入你的真实 target/account route：
 
 ```bash
 cp web/strategy-switch-console/account-options.example.json /tmp/strategy-switch-accounts.json
@@ -107,7 +108,8 @@ wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-
   "account_selector": "U15998061",
   "deployment_selector": "live-u1599-tqqq",
   "account_scope": "live-u1599-tqqq",
-  "service_name": "interactive-brokers-live-u1599-tqqq-service"
+  "service_name": "interactive-brokers-live-u1599-tqqq-service",
+  "default_strategy_profile": "tqqq_growth_income"
 }
 ```
 

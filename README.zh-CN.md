@@ -68,9 +68,7 @@ confirm_apply=APPLY_AND_SYNC
 
 ## 延伸文档
 
-- [策略切换控制台 GitHub Pages 首页](docs/index.html)
-- [GitHub Pages 策略切换网页设计](docs/github_pages_strategy_switch.zh-CN.md)
-- [登录版策略切换控制台 Worker](web/strategy-switch-console/README.zh-CN.md)
+- [策略切换控制台 Worker](web/strategy-switch-console/README.zh-CN.md)
 - [策略切换登录权限后台方案](docs/strategy_switch_admin_backend.zh-CN.md)
 - [手动策略切换权限控制方案](docs/manual_strategy_switch_permission_control.zh-CN.md)
 
