@@ -612,6 +612,7 @@
       "tqqq_growth_income",
       "soxl_soxx_trend_income",
       "nasdaq_sp500_smart_dca",
+      "hk_low_vol_dividend_quality_snapshot",
       "global_etf_rotation",
       "russell_1000_multi_factor_defensive",
       "mega_cap_leader_rotation_top50_balanced",
@@ -621,6 +622,7 @@
       tqqq_growth_income: "TQQQ Growth Income",
       soxl_soxx_trend_income: "SOXL/SOXX Trend Income",
       nasdaq_sp500_smart_dca: "Nasdaq/S&P 500 Smart DCA",
+      hk_low_vol_dividend_quality_snapshot: "HK Low Vol Dividend Quality",
       global_etf_rotation: "Global ETF Rotation",
       russell_1000_multi_factor_defensive: "Russell 1000 Defensive",
       mega_cap_leader_rotation_top50_balanced: "Mega Cap Top 50",
@@ -628,9 +630,9 @@
 
     const defaultAccountOptions = {
       longbridge: [
-        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK", default_strategy_profile: "tqqq_growth_income" },
+        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK", default_strategy_profile: "hk_low_vol_dividend_quality_snapshot" },
         { key: "sg", label: "sg", target_name: "sg", account_selector: "SG", default_strategy_profile: "tqqq_growth_income" },
-        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER", default_strategy_profile: "tqqq_growth_income" },
+        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER", default_strategy_profile: "mega_cap_leader_rotation_top50_balanced" },
       ],
       ibkr: [
         {
@@ -665,10 +667,10 @@
         },
       ],
       schwab: [
-        { key: "default", label: "default", target_name: "default", default_strategy_profile: "tqqq_growth_income" },
+        { key: "default", label: "default", target_name: "default", default_strategy_profile: "soxl_soxx_trend_income" },
       ],
       firstrade: [
-        { key: "default", label: "default", target_name: "default", default_strategy_profile: "tqqq_growth_income" },
+        { key: "default", label: "default", target_name: "default", default_strategy_profile: "mega_cap_leader_rotation_top50_balanced" },
       ],
     };
 
@@ -760,6 +762,7 @@
       lang: initialLang,
       auth: { available: false, allowed: false, admin: false, login: null },
       accountOptions: clone(defaultAccountOptions),
+      currentStrategies: {},
       configSource: "default",
       forms: {
         longbridge: { accountKey: "hk", strategy: "tqqq_growth_income", executionMode: "live" },
@@ -784,9 +787,50 @@
       return options.find((option) => option.key === form.accountKey) || options[0];
     }
 
-    function defaultStrategyForAccount(account, fallback = "tqqq_growth_income") {
-      const profile = String(account?.default_strategy_profile || account?.strategy_profile || "").trim();
-      if (strategyOptions.includes(profile)) return profile;
+    function cleanStrategyProfile(value) {
+      const profile = String(value || "").trim();
+      return /^[a-z0-9._=-]{1,120}$/.test(profile) ? profile : "";
+    }
+
+    function strategyChoices() {
+      const choices = [...strategyOptions];
+      const addChoice = (value) => {
+        const profile = cleanStrategyProfile(value);
+        if (profile && !choices.includes(profile)) choices.push(profile);
+      };
+      for (const platform of Object.keys(platformMeta)) {
+        for (const account of optionsFor(platform)) {
+          addChoice(account.default_strategy_profile || account.strategy_profile);
+        }
+        for (const entry of Object.values(state.currentStrategies[platform] || {})) {
+          addChoice(entry.strategy_profile);
+        }
+        addChoice(state.forms[platform].strategy);
+      }
+      return choices;
+    }
+
+    function strategyLabel(profile) {
+      return strategyLabels[profile] || profile;
+    }
+
+    function currentStrategyForAccount(platform, account) {
+      const byPlatform = state.currentStrategies[platform] || {};
+      const keys = [account?.key, account?.target_name, account?.label]
+        .filter(Boolean)
+        .map((value) => String(value));
+      for (const key of keys) {
+        const profile = cleanStrategyProfile(byPlatform[key]?.strategy_profile);
+        if (profile) return profile;
+      }
+      return "";
+    }
+
+    function defaultStrategyForAccount(platform, account, fallback = "tqqq_growth_income") {
+      const currentProfile = currentStrategyForAccount(platform, account);
+      if (currentProfile) return currentProfile;
+      const profile = cleanStrategyProfile(account?.default_strategy_profile || account?.strategy_profile);
+      if (profile) return profile;
       const hint = [
         account?.key,
         account?.label,
@@ -801,12 +845,18 @@
       return fallback;
     }
 
+    function syncStrategyForAccount(platform) {
+      const account = selectedAccount(platform);
+      if (!account) return;
+      state.forms[platform].strategy = defaultStrategyForAccount(platform, account, state.forms[platform].strategy);
+    }
+
     function ensureAccountSelection(platform) {
       const options = optionsFor(platform);
       if (!options.length) return;
       if (!options.some((option) => option.key === state.forms[platform].accountKey)) {
         state.forms[platform].accountKey = options[0].key;
-        state.forms[platform].strategy = defaultStrategyForAccount(options[0], state.forms[platform].strategy);
+        state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
       }
     }
 
@@ -859,7 +909,7 @@
       return [
         [t("repository"), repositories[state.selected]],
         [t("selectedAccount"), account.label],
-        [t("selectedStrategy"), strategyLabels[inputs.strategy_profile] || inputs.strategy_profile],
+        [t("selectedStrategy"), strategyLabel(inputs.strategy_profile)],
         [t("selectedMode"), inputs.execution_mode],
         [t("target"), inputs.target_name],
         [t("accountSelector"), inputs.account_selector || "auto"],
@@ -894,7 +944,7 @@
           <span class="platform-copy">
             <strong>${meta.label}</strong>
             <span>${escapeHtml(account.label)}</span>
-            <small>${escapeHtml(strategyLabels[form.strategy] || form.strategy)}</small>
+            <small>${escapeHtml(strategyLabel(form.strategy))}</small>
           </span>
         `;
         strip.appendChild(button);
@@ -919,8 +969,8 @@
         : `<option value="">${t("noAccount")}</option>`;
       el("account-meta").textContent = accounts.length ? accountMetaText(platform) : "";
 
-      strategySelect.innerHTML = strategyOptions.map((strategy) => (
-        `<option value="${strategy}" ${strategy === form.strategy ? "selected" : ""}>${escapeHtml(strategyLabels[strategy] || strategy)}</option>`
+      strategySelect.innerHTML = strategyChoices().map((strategy) => (
+        `<option value="${strategy}" ${strategy === form.strategy ? "selected" : ""}>${escapeHtml(strategyLabel(strategy))}</option>`
       )).join("");
 
       document.querySelectorAll("[data-mode]").forEach((button) => {
@@ -1002,12 +1052,17 @@
         const payload = await response.json();
         if (payload.accountOptions) {
           state.accountOptions = normalizeAccountOptions(payload.accountOptions);
+          state.currentStrategies = normalizeCurrentStrategies(payload.currentStrategies || {});
           state.configSource = "private";
-          for (const platform of Object.keys(platformMeta)) ensureAccountSelection(platform);
+          for (const platform of Object.keys(platformMeta)) {
+            ensureAccountSelection(platform);
+            syncStrategyForAccount(platform);
+          }
           render();
         }
       } catch {
         state.configSource = "default";
+        state.currentStrategies = {};
       }
     }
 
@@ -1030,6 +1085,24 @@
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
         }));
+      }
+      return normalized;
+    }
+
+    function normalizeCurrentStrategies(raw) {
+      const normalized = {};
+      for (const platform of Object.keys(platformMeta)) {
+        if (!raw[platform] || typeof raw[platform] !== "object" || Array.isArray(raw[platform])) continue;
+        normalized[platform] = {};
+        for (const [key, entry] of Object.entries(raw[platform])) {
+          const profile = cleanStrategyProfile(entry?.strategy_profile);
+          if (!profile) continue;
+          normalized[platform][String(key)] = {
+            strategy_profile: profile,
+            source: entry?.source ? String(entry.source) : "",
+          };
+        }
+        if (!Object.keys(normalized[platform]).length) delete normalized[platform];
       }
       return normalized;
     }
@@ -1083,10 +1156,7 @@
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
-      state.forms[state.selected].strategy = defaultStrategyForAccount(
-        selectedAccount(),
-        state.forms[state.selected].strategy,
-      );
+      syncStrategyForAccount(state.selected);
       render();
     });
 

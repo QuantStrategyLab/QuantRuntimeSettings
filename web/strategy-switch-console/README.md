@@ -108,6 +108,21 @@ Each account item supports:
 
 The Worker validates dispatch inputs against this config. Keep only routing metadata here. Do not store broker passwords, tokens, or API keys in this config.
 
+For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`; if none can be read safely, the page falls back to `default_strategy_profile`.
+
+## Strategy Profile Alignment
+
+Treat `strategy_profile` as the canonical strategy id across the switch console, runtime settings, and platform repositories.
+
+When adding or renaming a strategy profile:
+
+- Add the profile id and display label to `web/strategy-switch-console/index.html`.
+- Set each affected account's `default_strategy_profile` in `account-options.example.json` and the deployed KV account config.
+- Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.
+- Use lower-case ids with letters, numbers, dot, underscore, dash, or equals only. Do not encode account names or secrets in profile ids.
+
+The console can display a dynamically read unknown profile, but the profile should still be added to the catalog so the UI and docs stay aligned.
+
 ## GitHub OAuth App
 
 Create a GitHub OAuth App:

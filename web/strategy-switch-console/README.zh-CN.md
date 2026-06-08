@@ -115,6 +115,21 @@ wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-
 
 Worker 会校验 dispatch 参数必须匹配这里的某个账号项。只放路由信息，不放 broker 密码、token、API key。
 
+登录用户访问 `/api/config` 时，Worker 还会读取目标平台仓库的当前 GitHub Variables。读取优先级是账号匹配的 `CLOUD_RUN_SERVICE_TARGETS_JSON`、匹配的 `RUNTIME_TARGET_JSON.strategy_profile`、`STRATEGY_PROFILE`；都读不到时，页面才回退到 `default_strategy_profile`。
+
+## 策略 Profile 对齐规范
+
+`strategy_profile` 是切换页、runtime settings 和各平台仓库之间的统一策略 ID。
+
+新增或重命名策略 profile 时，需要同时做这些事：
+
+- 在 `web/strategy-switch-console/index.html` 增加 profile id 和显示名称。
+- 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `default_strategy_profile`。
+- 确认平台仓库当前的 `RUNTIME_TARGET_JSON.strategy_profile` 或账号级 `CLOUD_RUN_SERVICE_TARGETS_JSON` 使用同一个 id。
+- profile id 只使用小写字母、数字、点、下划线、短横线或等号。不要把账号名、密码、token、密钥信息写进 profile id。
+
+切换页可以临时显示动态读取到但未登记的 profile，但后续仍应补进策略目录，保持 UI 和文档一致。
+
 ## GitHub OAuth App
 
 创建 GitHub OAuth App：
