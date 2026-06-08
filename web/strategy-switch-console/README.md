@@ -14,7 +14,9 @@ GITHUB_CLIENT_SECRET
 SESSION_SECRET
 RUNTIME_SETTINGS_DISPATCH_TOKEN
 ALLOWED_GITHUB_LOGINS
+ALLOWED_GITHUB_ORGS
 STRATEGY_SWITCH_ADMIN_LOGINS
+STRATEGY_SWITCH_ADMIN_ORGS
 ```
 
 Optional variables:
@@ -26,10 +28,11 @@ RUNTIME_SETTINGS_REF=main
 STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON=<contents of account-options.example.json>
 ```
 
-`ALLOWED_GITHUB_LOGINS` and `STRATEGY_SWITCH_ADMIN_LOGINS` are comma-separated lists:
+`ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, and `STRATEGY_SWITCH_ADMIN_ORGS` are comma-separated lists. Prefer the organization name for admin access:
 
 ```text
-your-github-login
+STRATEGY_SWITCH_ADMIN_ORGS=QuantStrategyLab
+STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 ```
 
 The login entrypoint is `/login` on the Worker domain. The page header keeps a single Login Management entry. After sign-in, `/api/session` returns:
@@ -43,11 +46,11 @@ The login entrypoint is `/login` on the Worker domain. The page header keeps a s
 }
 ```
 
-`admin=true` means the login is listed in `STRATEGY_SWITCH_ADMIN_LOGINS` or the KV-backed admin list. Open `/admin` to manage allowed GitHub logins and account dropdown routes; non-admin users receive 403.
+`admin=true` means the login or one of its GitHub organizations is listed in `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, or the KV-backed admin config. Open `/admin` to manage allowed GitHub logins, organizations, and account dropdown routes; non-admin users receive 403.
 
 ## Admin Management
 
-GitHub OAuth 2.0 is the only login method. Keep your own GitHub login in `STRATEGY_SWITCH_ADMIN_LOGINS`; that secret is the break-glass admin source and cannot be removed from the UI.
+GitHub OAuth 2.0 is the only login method. The Worker requests the `read:org` scope to verify GitHub organization membership. Put `QuantStrategyLab` in `STRATEGY_SWITCH_ADMIN_ORGS`, and keep your own GitHub login in `STRATEGY_SWITCH_ADMIN_LOGINS` as a break-glass admin.
 
 For editable admin settings, bind a Cloudflare KV namespace named `STRATEGY_SWITCH_CONFIG`. The Worker uses these KV keys:
 
@@ -57,7 +60,7 @@ account_options
 audit_log
 ```
 
-Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
+Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
 
 ## Page Asset
 
@@ -130,7 +133,9 @@ wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
+wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
+wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 

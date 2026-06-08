@@ -82,6 +82,9 @@ GITHUB_CLIENT_SECRET
 SESSION_SECRET
 RUNTIME_SETTINGS_DISPATCH_TOKEN
 ALLOWED_GITHUB_LOGINS
+ALLOWED_GITHUB_ORGS
+STRATEGY_SWITCH_ADMIN_LOGINS
+STRATEGY_SWITCH_ADMIN_ORGS
 ```
 
 GitHub Actions Environment secret：
@@ -96,8 +99,8 @@ RUNTIME_SETTINGS_GH_TOKEN
 
 1. 先合并 `docs/index.html`，启用 GitHub Pages，只发布只读控制台。
 2. 配置 `Manual Strategy Switch` workflow 和 `RUNTIME_SETTINGS_GH_TOKEN`。
-3. 部署 Worker，配置 GitHub OAuth 和 `ALLOWED_GITHUB_LOGINS`。
-4. 用 `apply=false` 测试网页触发 workflow。
+3. 部署 Worker，配置 GitHub OAuth、允许登录用户/组织和管理员用户/组织。
+4. 先用受控账号测试登录、账号下拉和 workflow dispatch。
 5. 再用低风险目标测试 `apply=true`。
 
 ## 为什么不直接在 GitHub Pages 一键切换

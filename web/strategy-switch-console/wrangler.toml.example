@@ -9,7 +9,9 @@ workers_dev = true
 # - SESSION_SECRET
 # - RUNTIME_SETTINGS_DISPATCH_TOKEN
 # - ALLOWED_GITHUB_LOGINS
+# - ALLOWED_GITHUB_ORGS
 # - STRATEGY_SWITCH_ADMIN_LOGINS
+# - STRATEGY_SWITCH_ADMIN_ORGS
 # - STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON
 #
 # Optional non-secret variables can be placed here or in the Cloudflare dashboard:

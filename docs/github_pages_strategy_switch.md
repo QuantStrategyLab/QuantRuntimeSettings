@@ -82,6 +82,9 @@ GITHUB_CLIENT_SECRET
 SESSION_SECRET
 RUNTIME_SETTINGS_DISPATCH_TOKEN
 ALLOWED_GITHUB_LOGINS
+ALLOWED_GITHUB_ORGS
+STRATEGY_SWITCH_ADMIN_LOGINS
+STRATEGY_SWITCH_ADMIN_ORGS
 ```
 
 GitHub Actions Environment secret:
@@ -96,8 +99,8 @@ Do not reuse these tokens. `RUNTIME_SETTINGS_DISPATCH_TOKEN` only dispatches the
 
 1. Merge `docs/index.html` and enable GitHub Pages from `/docs`.
 2. Configure `Manual Strategy Switch` and `RUNTIME_SETTINGS_GH_TOKEN`.
-3. Deploy the Worker with GitHub OAuth and `ALLOWED_GITHUB_LOGINS`.
-4. Test dispatch with `apply=false`.
+3. Deploy the Worker with GitHub OAuth, allowed users/orgs, and admin users/orgs.
+4. Test sign-in, account dropdown loading, and workflow dispatch with a controlled account.
 5. Test `apply=true` on a low-risk target.
 
 ## Why Pages Does Not Dispatch Directly

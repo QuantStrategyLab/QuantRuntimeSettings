@@ -6,8 +6,8 @@ Goal: keep the open-source switch page public and read-only by default, while al
 
 - Login method: GitHub OAuth 2.0.
 - Public access: unsigned visitors can view the page, but cannot dispatch the workflow.
-- Allowed switch users: `ALLOWED_GITHUB_LOGINS`, KV `auth_config.allowed_logins`, and all admins.
-- Admin users: `STRATEGY_SWITCH_ADMIN_LOGINS` plus KV `auth_config.admin_logins`.
+- Allowed switch users/orgs: `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, KV `auth_config.allowed_logins`, KV `auth_config.allowed_orgs`, and all admins.
+- Admin users/orgs: `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, KV `auth_config.admin_logins`, and KV `auth_config.admin_orgs`.
 - Account dropdowns: KV `account_options` first, falling back to `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
 - Audit log: each admin save appends to KV `audit_log`, capped at 50 entries.
 
@@ -35,13 +35,14 @@ Without the KV binding, `/admin` is read-only and the Worker falls back to secre
 
 - Not signed in: public read-only page.
 - Signed in but not allowlisted: no switch and no admin page.
-- Allowlisted: can dispatch switches.
-- Admin-listed: can open `/admin` and manage allowed logins, admin logins, and account dropdown JSON.
-- `STRATEGY_SWITCH_ADMIN_LOGINS` remains the break-glass admin source and is preserved on save.
+- Allowlisted users or organization members: can dispatch switches.
+- Admin users or admin organization members: can open `/admin` and manage allowed logins, allowed orgs, admin logins, admin orgs, and account dropdown JSON.
+- `STRATEGY_SWITCH_ADMIN_LOGINS` and `STRATEGY_SWITCH_ADMIN_ORGS` remain break-glass admin sources and are preserved on save.
 
 ## Security Boundary
 
-- The admin backend stores GitHub logins and account routing metadata only.
+- The admin backend stores GitHub logins, GitHub organization names, and account routing metadata only.
+- OAuth requests the `read:org` scope to verify membership in configured admin or allowlist organizations.
 - Broker passwords, tokens, API keys, and cloud credentials stay out of this config.
 - Admin writes use POST and same-origin checks.
 - Sessions use HttpOnly, Secure, SameSite=Lax, and HMAC-signed cookies.
