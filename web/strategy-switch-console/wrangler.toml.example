@@ -16,3 +16,9 @@ workers_dev = true
 # RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
 # RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
 # RUNTIME_SETTINGS_REF = "main"
+
+# Bind this namespace to enable editable /admin login and account management.
+# Without it, /admin is read-only and the Worker falls back to secrets.
+# [[kv_namespaces]]
+# binding = "STRATEGY_SWITCH_CONFIG"
+# id = "replace-with-cloudflare-kv-namespace-id"

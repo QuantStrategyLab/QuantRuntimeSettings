@@ -25,7 +25,7 @@ STRATEGY_SWITCH_ADMIN_LOGINS
 RUNTIME_SETTINGS_REPO=QuantStrategyLab/QuantRuntimeSettings
 RUNTIME_SETTINGS_WORKFLOW=manual-strategy-switch.yml
 RUNTIME_SETTINGS_REF=main
-STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON={"longbridge":[{"key":"hk","label":"hk","target_name":"hk","account_selector":"HK"},{"key":"sg","label":"sg","target_name":"sg","account_selector":"SG"},{"key":"paper","label":"paper","target_name":"paper","account_selector":"PAPER"}],"ibkr":[{"key":"u0000000","label":"u0000000","target_name":"u0000000","account_selector":"u0000000"}],"schwab":[{"key":"default","label":"default","target_name":"default"}],"firstrade":[{"key":"default","label":"default","target_name":"default"}]}
+STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON=<account-options.example.json 的内容>
 ```
 
 `ALLOWED_GITHUB_LOGINS` 和 `STRATEGY_SWITCH_ADMIN_LOGINS` 用英文逗号分隔，例如：
@@ -34,7 +34,7 @@ STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON={"longbridge":[{"key":"hk","label":"hk","ta
 your-github-login
 ```
 
-登录入口是 Worker 域名下的 `/login`，页面顶部会在 Worker 可用时显示“登录 GitHub”。登录成功后访问 `/api/session` 会返回：
+登录入口是 Worker 域名下的 `/login`，页面顶部保留一个“登录管理”入口。登录成功后访问 `/api/session` 会返回：
 
 ```json
 {
@@ -45,7 +45,21 @@ your-github-login
 }
 ```
 
-`admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS` 中。也可以直接访问 `/admin` 验证管理权限；非管理员会返回 403。
+`admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS` 或 KV 后台管理员名单中。直接访问 `/admin` 可以管理允许登录的 GitHub 用户和账号下拉路由；非管理员会返回 403。
+
+## 登录管理后台
+
+登录方式使用 GitHub OAuth 2.0。建议把你自己的 GitHub login 放在 `STRATEGY_SWITCH_ADMIN_LOGINS`，它是兜底管理员来源，后台里不能把这个入口删掉。
+
+如果要让 `/admin` 保存修改，需要绑定 Cloudflare KV namespace：`STRATEGY_SWITCH_CONFIG`。Worker 会使用这些 key：
+
+```text
+auth_config
+account_options
+audit_log
+```
+
+没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`STRATEGY_SWITCH_ADMIN_LOGINS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
 
 ## 文件结构
 
@@ -78,15 +92,19 @@ cd web/strategy-switch-console
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+绑定 `STRATEGY_SWITCH_CONFIG` 后，也可以直接在 `/admin` 编辑并保存同一份账号 JSON。KV 优先级高于 secret；secret 作为兜底配置。
+
 每个账号项支持这些字段：
 
 ```json
 {
-  "key": "u0000000",
-  "label": "u0000000",
-  "target_name": "u0000000",
-  "account_selector": "u0000000",
-  "service_name": "interactive-brokers-u0000000-service"
+  "key": "u15998061",
+  "label": "u15998061",
+  "target_name": "u15998061",
+  "account_selector": "U15998061",
+  "deployment_selector": "live-u1599-tqqq",
+  "account_scope": "live-u1599-tqqq",
+  "service_name": "interactive-brokers-live-u1599-tqqq-service"
 }
 ```
 
@@ -122,6 +140,14 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+如果要启用后台保存，先创建 KV：
+
+```bash
+wrangler kv namespace create STRATEGY_SWITCH_CONFIG
+```
+
+然后把返回的 namespace id 加到 `wrangler.toml`。
+
 部署：
 
 ```bash
@@ -138,9 +164,9 @@ wrangler deploy
 
 1. 访问控制台页面。
 2. 未登录时只能查看公开示例，“一键切换”按钮禁用。
-3. 点击“登录 GitHub”，也可以直接访问 `/login`。
+3. 点击“登录管理”，也可以直接访问 `/login`。
 4. 如果登录账号在 `ALLOWED_GITHUB_LOGINS` 或 `STRATEGY_SWITCH_ADMIN_LOGINS`，且账号配置已加载，按钮启用。
-5. 顶部只保留“登录管理”入口；如果登录账号在 `STRATEGY_SWITCH_ADMIN_LOGINS`，点击后进入 `/admin` 验证管理权限。
+5. 顶部只保留“登录管理”入口；如果登录账号是管理员，点击后进入 `/admin` 管理登录权限和账号下拉。
 6. 选择平台、账号、策略和模式后点击“一键切换”。
 7. 页面返回 GitHub Actions 链接，用于查看运行结果。
 

@@ -5,6 +5,10 @@ const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
 const SESSION_COOKIE = "qsl_switch_session";
 const OAUTH_STATE_COOKIE = "qsl_switch_oauth_state";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
+const AUTH_CONFIG_KEY = "auth_config";
+const ACCOUNT_OPTIONS_KEY = "account_options";
+const AUDIT_LOG_KEY = "audit_log";
+const AUDIT_LOG_LIMIT = 50;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
 
@@ -17,6 +21,10 @@ export default {
       if (url.pathname === "/admin") return adminPage(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === "/api/config") return json(await configPayload(request, env));
+      if (url.pathname === "/api/admin/config" && request.method === "GET") return adminConfigResponse(request, env);
+      if (url.pathname === "/api/admin/config" && request.method === "POST") {
+        return saveAdminConfig(request, env);
+      }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return dispatchSwitch(request, env);
       return html(PAGE_HTML);
@@ -80,7 +88,8 @@ async function finishLogin(request, env) {
     return html(renderMessage("登录失败", "无法读取 GitHub 用户。"), 502, clearOAuthCookie());
   }
 
-  if (!isAllowedLogin(login, env)) {
+  const authConfig = await loadAuthConfig(env);
+  if (!isAllowedLogin(login, authConfig)) {
     return html(renderMessage("没有权限", `${login} 不在允许登录名单中。`), 403, clearOAuthCookie());
   }
 
@@ -104,38 +113,287 @@ async function sessionPayload(request, env) {
 }
 
 async function adminPage(request, env) {
+  const session = await requireAdminSession(request, env);
+  if (session instanceof Response) return session;
+  return html(await renderAdminPage(await buildAdminState(session, env)));
+}
+
+async function adminConfigResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  return json(await buildAdminState(session, env));
+}
+
+async function saveAdminConfig(request, env) {
+  requireSameOrigin(request);
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required to save admin config" }, 400);
+  }
+
+  let raw;
+  try {
+    raw = await request.json();
+  } catch (error) {
+    return json({ ok: false, error: "request body must be valid JSON" }, 400);
+  }
+  const bootstrapAdmins = parseLoginList(env.STRATEGY_SWITCH_ADMIN_LOGINS || "", "STRATEGY_SWITCH_ADMIN_LOGINS");
+  const allowedLogins = normalizeLoginList(raw.allowed_logins, "allowed_logins");
+  const submittedAdmins = normalizeLoginList(raw.admin_logins, "admin_logins");
+  const effectiveAdmins = uniqueStrings([...bootstrapAdmins, ...submittedAdmins]);
+  if (!effectiveAdmins.includes(session.login)) {
+    throw new Error("current admin login must remain in admin_logins");
+  }
+  const authConfig = {
+    allowed_logins: uniqueStrings([...allowedLogins, ...effectiveAdmins]),
+    admin_logins: effectiveAdmins,
+  };
+  const accountOptions = normalizeAccountOptionsInput(raw.account_options, "account_options");
+
+  await writeConfigJson(env, AUTH_CONFIG_KEY, authConfig);
+  await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, accountOptions);
+  await appendAuditLog(env, {
+    ts: new Date().toISOString(),
+    login: session.login,
+    action: "save_config",
+    allowed_count: authConfig.allowed_logins.length,
+    admin_count: authConfig.admin_logins.length,
+    account_counts: accountCounts(accountOptions),
+  });
+  return json(await buildAdminState(session, env));
+}
+
+async function requireAdminSession(request, env) {
   const session = await readSession(request, env);
   if (!session) return redirect("/login");
   if (!session.admin) {
-    return html(renderMessage("没有管理权限", `${session.login} 不在 STRATEGY_SWITCH_ADMIN_LOGINS 中。`), 403);
+    return html(renderMessage("没有管理权限", `${session.login} 不在管理员名单中。`), 403);
   }
+  return session;
+}
 
-  const configuredPlatforms = parseAccountOptions(env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON || "") || {};
+async function buildAdminState(session, env) {
+  const authConfig = await loadAuthConfig(env);
+  const accountConfig = await loadAccountOptionsConfig(env);
+  return {
+    ok: true,
+    session: { login: session.login, admin: true },
+    kvAvailable: hasConfigStore(env),
+    authConfig,
+    accountOptions: accountConfig.options || {},
+    accountOptionSource: accountConfig.source,
+    auditLog: await loadAuditLog(env),
+  };
+}
+
+async function renderAdminPage(state) {
+  const disabled = state.kvAvailable ? "" : " disabled";
+  const statusClass = state.kvAvailable ? "ready" : "warn";
+  const statusText = state.kvAvailable ? "KV 已连接 / KV connected" : "KV 未绑定，只读 / Read-only";
+  const sourceText = state.accountOptionSource === "kv"
+    ? "KV"
+    : (state.accountOptionSource === "secret" ? "Worker secret" : "none");
   const accountRows = SUPPORTED_PLATFORMS.map((platform) => {
-    const count = Array.isArray(configuredPlatforms[platform]) ? configuredPlatforms[platform].length : 0;
+    const count = Array.isArray(state.accountOptions[platform]) ? state.accountOptions[platform].length : 0;
     return `<tr><td>${escapeHtml(platform)}</td><td>${count}</td></tr>`;
   }).join("");
-  return html(`<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Strategy Switch Admin</title>
-<body style="font-family:system-ui,sans-serif;margin:32px;color:#16191f;background:#f5f6f8">
-<main style="max-width:760px;margin:auto;background:white;border:1px solid #dce1e7;border-radius:8px;padding:24px">
-<h1 style="margin:0 0 8px">Strategy Switch Admin</h1>
-<p style="margin:0 0 18px;color:#66707c">Signed in as ${escapeHtml(session.login)}. Admin permission is verified by STRATEGY_SWITCH_ADMIN_LOGINS.</p>
-<h2 style="font-size:16px">Account options</h2>
-<table style="width:100%;border-collapse:collapse"><thead><tr><th align="left">Platform</th><th align="left">Configured accounts</th></tr></thead><tbody>${accountRows}</tbody></table>
-<p style="color:#66707c;margin-top:18px">Next step: connect Cloudflare KV to edit allowlist and account options here. Current version verifies admin access and shows loaded private account config counts.</p>
-<p><a href="/">Back to switch console</a></p>
-</main>
-</body>`);
+  const auditRows = state.auditLog.length
+    ? state.auditLog.map((entry) => (
+      `<tr><td>${escapeHtml(entry.ts || "")}</td><td>${escapeHtml(entry.login || "")}</td><td>${escapeHtml(entry.action || "")}</td></tr>`
+    )).join("")
+    : `<tr><td colspan="3">暂无记录 / No records</td></tr>`;
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Strategy Switch Login Management</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --ink: #16191f;
+      --muted: #66707c;
+      --line: #dce1e7;
+      --accent: #136f63;
+      --warn: #9a5b13;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100svh; background: var(--bg); color: var(--ink); letter-spacing: 0; }
+    button, textarea { font: inherit; letter-spacing: 0; }
+    .topbar {
+      min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 16px 28px; border-bottom: 1px solid var(--line); background: rgba(250, 251, 252, 0.94);
+      position: sticky; top: 0; z-index: 10; backdrop-filter: blur(14px);
+    }
+    .brand { display: grid; gap: 3px; min-width: 0; }
+    h1 { margin: 0; font-size: 21px; line-height: 1.12; font-weight: 780; overflow-wrap: anywhere; }
+    .brand p, .muted { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
+    .actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+    a, button { color: inherit; }
+    .btn {
+      min-height: 36px; display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+      padding: 0 13px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+      color: var(--muted); text-decoration: none; white-space: nowrap; font-size: 13px; font-weight: 740; cursor: pointer;
+    }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
+    .btn:disabled { opacity: 0.48; cursor: not-allowed; }
+    .shell { width: min(1080px, calc(100vw - 36px)); margin: 0 auto; padding: 24px 0 34px; display: grid; gap: 18px; }
+    .status {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px;
+      padding: 14px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+    }
+    .metric { display: grid; gap: 5px; min-width: 0; }
+    .metric strong { font-size: 15px; line-height: 1.2; overflow-wrap: anywhere; }
+    .metric span { color: var(--muted); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
+    .ready strong { color: var(--accent); }
+    .warn strong { color: var(--warn); }
+    form { display: grid; gap: 18px; }
+    section { display: grid; gap: 12px; padding: 18px 0; border-top: 1px solid var(--line); }
+    section:first-child { border-top: 0; padding-top: 0; }
+    h2 { margin: 0; font-size: 16px; line-height: 1.25; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+    label { display: grid; gap: 7px; color: var(--muted); font-size: 12px; font-weight: 740; }
+    textarea {
+      width: 100%; min-height: 118px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
+      background: var(--surface); color: var(--ink); padding: 11px 12px; line-height: 1.45; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    textarea.json { min-height: 320px; }
+    .panel { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 12px; }
+    .form-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    #status { color: var(--muted); font-size: 13px; line-height: 1.45; min-height: 20px; }
+    @media (max-width: 760px) {
+      .topbar { align-items: flex-start; flex-direction: column; padding: 15px 18px; }
+      .shell { width: min(100% - 24px, 1080px); padding-top: 16px; }
+      .status, .grid { grid-template-columns: 1fr; }
+      textarea.json { min-height: 260px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1>登录管理 / Login Management</h1>
+      <p>GitHub OAuth 2.0 管理策略切换权限。</p>
+    </div>
+    <div class="actions">
+      <a class="btn" href="/">返回切换页</a>
+      <button class="btn" id="logout-button" type="button">退出</button>
+    </div>
+  </header>
+  <main class="shell">
+    <div class="status">
+      <div class="metric">
+        <strong>${escapeHtml(state.session.login)}</strong>
+        <span>当前管理员 / Current admin</span>
+      </div>
+      <div class="metric ${statusClass}">
+        <strong>${escapeHtml(statusText)}</strong>
+        <span>保存后台配置需要 Cloudflare KV。</span>
+      </div>
+      <div class="metric">
+        <strong>${escapeHtml(sourceText)}</strong>
+        <span>账号配置来源 / Account source</span>
+      </div>
+    </div>
+    <form class="panel" id="admin-form">
+      <section>
+        <h2>登录权限 / Login Access</h2>
+        <p class="muted">每行一个 GitHub 用户名。管理员会自动拥有切换权限；secret 里的管理员始终保留为兜底入口。</p>
+        <div class="grid">
+          <label>
+            可切换用户 / Allowed logins
+            <textarea id="allowed-logins"${disabled}>${escapeHtml(state.authConfig.allowed_logins.join("\n"))}</textarea>
+          </label>
+          <label>
+            管理员 / Admin logins
+            <textarea id="admin-logins"${disabled}>${escapeHtml(state.authConfig.admin_logins.join("\n"))}</textarea>
+          </label>
+        </div>
+      </section>
+      <section>
+        <h2>账号下拉 / Account Options</h2>
+        <p class="muted">这里只保存账号路由，不保存 broker 密码、token、API key 或云密钥。</p>
+        <textarea class="json" id="account-options"${disabled}>${escapeHtml(JSON.stringify(state.accountOptions, null, 2))}</textarea>
+      </section>
+      <div class="form-actions">
+        <button class="btn primary" id="save-button" type="submit"${disabled}>保存配置</button>
+        <span id="status">${state.kvAvailable ? "" : "当前未绑定 STRATEGY_SWITCH_CONFIG KV，只能查看。"} </span>
+      </div>
+    </form>
+    <div class="panel">
+      <h2>账号数量 / Account Counts</h2>
+      <table>
+        <thead><tr><th>Platform</th><th>Accounts</th></tr></thead>
+        <tbody>${accountRows}</tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <h2>最近修改 / Recent Changes</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Login</th><th>Action</th></tr></thead>
+        <tbody id="audit-rows">${auditRows}</tbody>
+      </table>
+    </div>
+  </main>
+  <script>
+    const kvAvailable = ${JSON.stringify(state.kvAvailable)};
+    const statusNode = document.getElementById("status");
+    const setStatus = (message) => { statusNode.textContent = message; };
+    const parseLogins = (value) => value.split(/[\\s,]+/).map((item) => item.trim()).filter(Boolean);
+
+    document.getElementById("logout-button").addEventListener("click", async () => {
+      await fetch("/api/logout", { method: "POST" });
+      window.location.href = "/";
+    });
+
+    document.getElementById("admin-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!kvAvailable) return;
+      let accountOptions;
+      try {
+        accountOptions = JSON.parse(document.getElementById("account-options").value);
+      } catch {
+        setStatus("账号 JSON 无效 / Account JSON is invalid");
+        return;
+      }
+      setStatus("正在保存 / Saving...");
+      try {
+        const response = await fetch("/api/admin/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            allowed_logins: parseLogins(document.getElementById("allowed-logins").value),
+            admin_logins: parseLogins(document.getElementById("admin-logins").value),
+            account_options: accountOptions,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "save failed");
+        setStatus("已保存 / Saved");
+      } catch (error) {
+        setStatus("保存失败 / Save failed: " + error.message);
+      }
+    });
+  </script>
+</body>
+</html>`;
 }
 
 async function configPayload(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return { accountOptions: null };
+  const accountConfig = await loadAccountOptionsConfig(env);
   return {
-    accountOptions: parseAccountOptions(env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON || ""),
+    accountOptions: accountConfig.options,
   };
 }
 
@@ -155,7 +413,8 @@ async function dispatchSwitch(request, env) {
   const rawInput = await request.json();
   const inputs = normalizeSwitchInputs(rawInput);
   assertSwitchIntent(inputs);
-  assertConfiguredAccount(inputs, parseAccountOptions(env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON || ""));
+  const accountConfig = await loadAccountOptionsConfig(env);
+  assertConfiguredAccount(inputs, accountConfig.options);
   const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
   const workflow = env.RUNTIME_SETTINGS_WORKFLOW || DEFAULT_WORKFLOW;
   const apiUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/dispatches`;
@@ -259,17 +518,26 @@ function accountOptionMatchesInputs(option, inputs) {
   return true;
 }
 
-function parseAccountOptions(raw) {
+function parseAccountOptions(raw, fieldName = "account options") {
   const text = String(raw || "").trim();
   if (!text) return null;
   let payload;
   try {
     payload = JSON.parse(text);
   } catch (error) {
-    throw new Error("STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON must be valid JSON");
+    throw new Error(`${fieldName} must be valid JSON`);
   }
+  return normalizeAccountOptionsPayload(payload, fieldName);
+}
+
+function normalizeAccountOptionsInput(value, fieldName) {
+  if (typeof value === "string") return parseAccountOptions(value, fieldName) || {};
+  return normalizeAccountOptionsPayload(value, fieldName);
+}
+
+function normalizeAccountOptionsPayload(payload, fieldName = "account options") {
   if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-    throw new Error("STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON must be an object");
+    throw new Error(`${fieldName} must be an object`);
   }
 
   const result = {};
@@ -277,7 +545,7 @@ function parseAccountOptions(raw) {
     const items = payload[platform];
     if (items === undefined) continue;
     if (!Array.isArray(items) || items.length > 20) {
-      throw new Error(`account options for ${platform} must be an array with at most 20 items`);
+      throw new Error(`${fieldName}.${platform} must be an array with at most 20 items`);
     }
     result[platform] = items.map((item, index) => cleanAccountOption(item, platform, index));
   }
@@ -404,27 +672,159 @@ function requireEnv(env, name) {
   if (!env[name]) throw new Error(`${name} is not configured`);
 }
 
-function allowedLogins(env) {
-  return String(env.ALLOWED_GITHUB_LOGINS || env.ALLOWED_GITHUB_LOGIN || "")
-    .split(",")
-    .map((login) => login.trim().toLowerCase())
-    .filter(Boolean);
+async function loadAuthConfig(env) {
+  const bootstrapAdmins = parseLoginList(env.STRATEGY_SWITCH_ADMIN_LOGINS || "", "STRATEGY_SWITCH_ADMIN_LOGINS");
+  const envAllowed = parseLoginList(
+    env.ALLOWED_GITHUB_LOGINS || env.ALLOWED_GITHUB_LOGIN || "",
+    "ALLOWED_GITHUB_LOGINS",
+  );
+  let storedAllowed = [];
+  let storedAdmins = [];
+  let source = "secret";
+  if (hasConfigStore(env)) {
+    const stored = await readConfigJson(env, AUTH_CONFIG_KEY);
+    if (stored) {
+      const normalized = normalizeAuthConfigPayload(stored, AUTH_CONFIG_KEY);
+      storedAllowed = normalized.allowed_logins;
+      storedAdmins = normalized.admin_logins;
+      source = "kv";
+    }
+  }
+  const adminLogins = uniqueStrings([...bootstrapAdmins, ...storedAdmins]);
+  const allowedLogins = uniqueStrings([...envAllowed, ...storedAllowed, ...adminLogins]);
+  return {
+    allowed_logins: allowedLogins,
+    admin_logins: adminLogins,
+    bootstrap_admin_logins: bootstrapAdmins,
+    env_allowed_logins: envAllowed,
+    source,
+    kv_available: hasConfigStore(env),
+  };
 }
 
-function adminLogins(env) {
-  return String(env.STRATEGY_SWITCH_ADMIN_LOGINS || "")
-    .split(",")
-    .map((login) => login.trim().toLowerCase())
-    .filter(Boolean);
+function normalizeAuthConfigPayload(payload, fieldName) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  return {
+    allowed_logins: normalizeLoginList(payload.allowed_logins || [], `${fieldName}.allowed_logins`),
+    admin_logins: normalizeLoginList(payload.admin_logins || [], `${fieldName}.admin_logins`),
+  };
 }
 
-function isAdminLogin(login, env) {
-  return adminLogins(env).includes(String(login || "").toLowerCase());
+function parseLoginList(value, fieldName) {
+  return normalizeLoginList(value, fieldName);
 }
 
-function isAllowedLogin(login, env) {
-  const normalized = String(login || "").toLowerCase();
-  return allowedLogins(env).includes(normalized) || isAdminLogin(normalized, env);
+function normalizeLoginList(value, fieldName) {
+  const items = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
+  if (items.length > 80) throw new Error(`${fieldName} supports at most 80 logins`);
+  return uniqueStrings(items.map((item) => cleanGithubLogin(item, fieldName)).filter(Boolean));
+}
+
+function cleanGithubLogin(value, fieldName) {
+  const login = String(value || "").trim().toLowerCase();
+  if (!login) return "";
+  if (
+    login.length > 39 ||
+    !/^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/.test(login) ||
+    login.includes("--")
+  ) {
+    throw new Error(`${fieldName} contains an invalid GitHub login`);
+  }
+  return login;
+}
+
+function isAdminLogin(login, authConfig) {
+  return authConfig.admin_logins.includes(String(login || "").toLowerCase());
+}
+
+function isAllowedLogin(login, authConfig) {
+  return authConfig.allowed_logins.includes(String(login || "").toLowerCase()) || isAdminLogin(login, authConfig);
+}
+
+async function loadAccountOptionsConfig(env) {
+  if (hasConfigStore(env)) {
+    const stored = await readConfigJson(env, ACCOUNT_OPTIONS_KEY);
+    if (stored) {
+      return {
+        options: normalizeAccountOptionsPayload(stored, ACCOUNT_OPTIONS_KEY),
+        source: "kv",
+      };
+    }
+  }
+  return {
+    options: parseAccountOptions(env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON || "", "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON"),
+    source: env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON ? "secret" : "none",
+  };
+}
+
+function hasConfigStore(env) {
+  return Boolean(configStore(env));
+}
+
+function configStore(env) {
+  const store = env.STRATEGY_SWITCH_CONFIG;
+  if (!store || typeof store.get !== "function" || typeof store.put !== "function") return null;
+  return store;
+}
+
+async function readConfigJson(env, key) {
+  const store = configStore(env);
+  if (!store) return null;
+  const text = await store.get(key);
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    throw new Error(`STRATEGY_SWITCH_CONFIG.${key} must be valid JSON`);
+  }
+}
+
+async function writeConfigJson(env, key, value) {
+  const store = configStore(env);
+  if (!store) throw new Error("STRATEGY_SWITCH_CONFIG KV binding is required");
+  await store.put(key, JSON.stringify(value, null, 2));
+}
+
+async function loadAuditLog(env) {
+  if (!hasConfigStore(env)) return [];
+  const payload = await readConfigJson(env, AUDIT_LOG_KEY);
+  if (!Array.isArray(payload)) return [];
+  return payload
+    .filter((entry) => entry && !Array.isArray(entry) && typeof entry === "object")
+    .slice(0, AUDIT_LOG_LIMIT);
+}
+
+async function appendAuditLog(env, entry) {
+  if (!hasConfigStore(env)) return;
+  let current = [];
+  try {
+    current = await loadAuditLog(env);
+  } catch (error) {
+    current = [];
+  }
+  await writeConfigJson(env, AUDIT_LOG_KEY, [entry, ...current].slice(0, AUDIT_LOG_LIMIT));
+}
+
+function accountCounts(accountOptions) {
+  const counts = {};
+  for (const platform of SUPPORTED_PLATFORMS) {
+    counts[platform] = Array.isArray(accountOptions[platform]) ? accountOptions[platform].length : 0;
+  }
+  return counts;
+}
+
+function uniqueStrings(items) {
+  const result = [];
+  const seen = new Set();
+  for (const item of items) {
+    const text = String(item || "").trim().toLowerCase();
+    if (!text || seen.has(text)) continue;
+    seen.add(text);
+    result.push(text);
+  }
+  return result;
 }
 
 async function makeSession(login, env) {
@@ -447,8 +847,9 @@ async function readSession(request, env) {
   const session = JSON.parse(base64UrlDecode(payload));
   if (!session.exp || session.exp < Math.floor(Date.now() / 1000)) return null;
   const login = String(session.login || "").toLowerCase();
-  const admin = isAdminLogin(login, env);
-  return { login, allowed: admin || allowedLogins(env).includes(login), admin };
+  const authConfig = await loadAuthConfig(env);
+  const admin = isAdminLogin(login, authConfig);
+  return { login, allowed: isAllowedLogin(login, authConfig), admin };
 }
 
 async function hmac(value, secret) {

@@ -21,11 +21,31 @@
   ],
   "ibkr": [
     {
-      "key": "u0000000",
-      "label": "u0000000",
-      "target_name": "u0000000",
-      "account_selector": "u0000000",
-      "service_name": "interactive-brokers-u0000000-service"
+      "key": "u15998061",
+      "label": "u15998061",
+      "target_name": "u15998061",
+      "account_selector": "U15998061",
+      "deployment_selector": "live-u1599-tqqq",
+      "account_scope": "live-u1599-tqqq",
+      "service_name": "interactive-brokers-live-u1599-tqqq-service"
+    },
+    {
+      "key": "u16608560",
+      "label": "u16608560",
+      "target_name": "u16608560",
+      "account_selector": "U16608560",
+      "deployment_selector": "live-u1660-soxl",
+      "account_scope": "live-u1660-soxl",
+      "service_name": "interactive-brokers-live-u1660-soxl-service"
+    },
+    {
+      "key": "u18336562",
+      "label": "u18336562",
+      "target_name": "u18336562",
+      "account_selector": "U18336562",
+      "deployment_selector": "live-u1833-smart-dca",
+      "account_scope": "live-u1833-smart-dca",
+      "service_name": "interactive-brokers-live-u1833-smart-dca-service"
     }
   ],
   "schwab": [

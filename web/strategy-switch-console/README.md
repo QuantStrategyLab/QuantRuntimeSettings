@@ -23,7 +23,7 @@ Optional variables:
 RUNTIME_SETTINGS_REPO=QuantStrategyLab/QuantRuntimeSettings
 RUNTIME_SETTINGS_WORKFLOW=manual-strategy-switch.yml
 RUNTIME_SETTINGS_REF=main
-STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON={"longbridge":[{"key":"hk","label":"hk","target_name":"hk","account_selector":"HK"},{"key":"sg","label":"sg","target_name":"sg","account_selector":"SG"},{"key":"paper","label":"paper","target_name":"paper","account_selector":"PAPER"}],"ibkr":[{"key":"u0000000","label":"u0000000","target_name":"u0000000","account_selector":"u0000000"}],"schwab":[{"key":"default","label":"default","target_name":"default"}],"firstrade":[{"key":"default","label":"default","target_name":"default"}]}
+STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON=<contents of account-options.example.json>
 ```
 
 `ALLOWED_GITHUB_LOGINS` and `STRATEGY_SWITCH_ADMIN_LOGINS` are comma-separated lists:
@@ -32,7 +32,7 @@ STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON={"longbridge":[{"key":"hk","label":"hk","ta
 your-github-login
 ```
 
-The login entrypoint is `/login` on the Worker domain. When the Worker is available, the page header shows the GitHub sign-in link. After sign-in, `/api/session` returns:
+The login entrypoint is `/login` on the Worker domain. The page header keeps a single Login Management entry. After sign-in, `/api/session` returns:
 
 ```json
 {
@@ -43,7 +43,21 @@ The login entrypoint is `/login` on the Worker domain. When the Worker is availa
 }
 ```
 
-`admin=true` means the login is listed in `STRATEGY_SWITCH_ADMIN_LOGINS`. You can also open `/admin` directly to verify admin permission; non-admin users receive 403.
+`admin=true` means the login is listed in `STRATEGY_SWITCH_ADMIN_LOGINS` or the KV-backed admin list. Open `/admin` to manage allowed GitHub logins and account dropdown routes; non-admin users receive 403.
+
+## Admin Management
+
+GitHub OAuth 2.0 is the only login method. Keep your own GitHub login in `STRATEGY_SWITCH_ADMIN_LOGINS`; that secret is the break-glass admin source and cannot be removed from the UI.
+
+For editable admin settings, bind a Cloudflare KV namespace named `STRATEGY_SWITCH_CONFIG`. The Worker uses these KV keys:
+
+```text
+auth_config
+account_options
+audit_log
+```
+
+Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
 
 ## Page Asset
 
@@ -72,15 +86,19 @@ cd web/strategy-switch-console
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+After `STRATEGY_SWITCH_CONFIG` is bound, admins can also edit and save the same account JSON from `/admin`. KV takes precedence over the secret; the secret remains a fallback.
+
 Each account item supports:
 
 ```json
 {
-  "key": "u0000000",
-  "label": "u0000000",
-  "target_name": "u0000000",
-  "account_selector": "u0000000",
-  "service_name": "interactive-brokers-u0000000-service"
+  "key": "u15998061",
+  "label": "u15998061",
+  "target_name": "u15998061",
+  "account_selector": "U15998061",
+  "deployment_selector": "live-u1599-tqqq",
+  "account_scope": "live-u1599-tqqq",
+  "service_name": "interactive-brokers-live-u1599-tqqq-service"
 }
 ```
 
@@ -115,6 +133,14 @@ wrangler secret put ALLOWED_GITHUB_LOGINS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
+
+Create and bind KV if you want `/admin` to save changes:
+
+```bash
+wrangler kv namespace create STRATEGY_SWITCH_CONFIG
+```
+
+Add the returned namespace id to `wrangler.toml`.
 
 Deploy:
 

@@ -1,55 +1,50 @@
 # Strategy Switch Admin Backend
 
-Goal: keep the personal strategy switch console simple while avoiding code changes for every login or account dropdown update.
+Goal: keep the open-source switch page public and read-only by default, while allowing an authenticated admin to manage who can switch strategies and which account routes appear in the dropdown.
 
-## Current Mode
+## Current Implementation
 
-- GitHub OAuth signs users in.
-- `ALLOWED_GITHUB_LOGINS` controls who can dispatch a switch.
-- `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` controls signed-in account dropdowns.
-- The GitHub dispatch token stays in Worker secrets and is never sent to the browser.
+- Login method: GitHub OAuth 2.0.
+- Public access: unsigned visitors can view the page, but cannot dispatch the workflow.
+- Allowed switch users: `ALLOWED_GITHUB_LOGINS`, KV `auth_config.allowed_logins`, and all admins.
+- Admin users: `STRATEGY_SWITCH_ADMIN_LOGINS` plus KV `auth_config.admin_logins`.
+- Account dropdowns: KV `account_options` first, falling back to `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
+- Audit log: each admin save appends to KV `audit_log`, capped at 50 entries.
 
-This is enough for the first deployment. Its main limitation is that user and account changes require updating Worker secrets.
+## Cloudflare KV
 
-## Recommended Admin Mode
+Bind the namespace:
 
-Keep GitHub OAuth and use an admin-only `/admin` page:
+```toml
+[[kv_namespaces]]
+binding = "STRATEGY_SWITCH_CONFIG"
+id = "..."
+```
 
-- Bootstrap admins come from `STRATEGY_SWITCH_ADMIN_LOGINS`; keep your own GitHub login there.
-- Admin actions:
-  - The current version verifies admin identity and shows configured account counts for the four platforms.
-  - After KV is connected, add or remove allowed GitHub logins.
-  - After KV is connected, edit account dropdowns for the four platforms.
-  - After KV is connected, review recent permission and account-config changes.
-- Storage:
-  - Cloudflare KV namespace: `STRATEGY_SWITCH_CONFIG`.
-  - key `auth_config`: `allowed_logins` and `admin_logins`.
-  - key `account_options`: platform account dropdowns.
-  - key `audit_log`: recent admin changes.
+KV keys:
+
+```text
+auth_config
+account_options
+audit_log
+```
+
+Without the KV binding, `/admin` is read-only and the Worker falls back to secrets.
 
 ## Permission Rules
 
 - Not signed in: public read-only page.
-- Signed in but not allowlisted: no switch, no admin page.
+- Signed in but not allowlisted: no switch and no admin page.
 - Allowlisted: can dispatch switches.
-- Admin-listed: can manage login permissions and account dropdowns.
-- `STRATEGY_SWITCH_ADMIN_LOGINS` remains the break-glass admin source so you cannot remove yourself through the UI.
+- Admin-listed: can open `/admin` and manage allowed logins, admin logins, and account dropdown JSON.
+- `STRATEGY_SWITCH_ADMIN_LOGINS` remains the break-glass admin source and is preserved on save.
 
 ## Security Boundary
 
 - The admin backend stores GitHub logins and account routing metadata only.
 - Broker passwords, tokens, API keys, and cloud credentials stay out of this config.
-- Admin writes use POST and the existing Worker same-origin checks.
-- Sessions keep HttpOnly, Secure, SameSite=Lax, and HMAC-signed cookies.
-- Dispatch tokens remain separate from admin config and are never readable from frontend code.
-- Audit logs record time, admin login, and action type, but never secrets.
+- Admin writes use POST and same-origin checks.
+- Sessions use HttpOnly, Secure, SameSite=Lax, and HMAC-signed cookies.
+- The GitHub dispatch token stays in Worker secrets and is never returned to frontend or admin APIs.
 
-## Rollout
-
-1. Ship the current secret-backed console.
-2. The read-only `/admin` verification page is already available for `STRATEGY_SWITCH_ADMIN_LOGINS`.
-3. Add Worker KV reads with secret fallback.
-4. Add `/api/admin/config` write operations for admins.
-5. Add audit logs and last-version rollback.
-
-This avoids a database, custom user system, or broad RBAC while still giving a practical backend for a personal open-source project.
+This keeps the personal system simple: no database, review flow, or custom RBAC, while preventing strangers from operating the public page.
