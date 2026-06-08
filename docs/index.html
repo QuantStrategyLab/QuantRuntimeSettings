@@ -106,6 +106,12 @@
       flex-wrap: wrap;
     }
 
+    .auth-status {
+      max-width: 260px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .shell {
       width: min(1160px, calc(100vw - 36px));
       margin: 0 auto;
@@ -526,7 +532,9 @@
       <p data-i18n="appSubtitle">选平台、目标账号和策略，一次执行完成切换。</p>
     </div>
     <div class="top-actions">
-      <a class="btn" id="account-link" href="https://github.com/QuantStrategyLab/QuantRuntimeSettings/tree/main/web/strategy-switch-console" data-i18n="loginManage">登录管理</a>
+      <span class="pill ready auth-status" id="auth-status" hidden></span>
+      <a class="btn" id="login-link" href="/login" hidden data-i18n="login">登录</a>
+      <button class="btn" id="logout-button" type="button" hidden data-i18n="logout">退出</button>
     </div>
   </header>
 
@@ -659,7 +667,9 @@
       zh: {
         appTitle: "策略切换",
         appSubtitle: "选平台、目标账号和策略，一次执行完成切换。",
-        loginManage: "登录管理",
+        login: "登录",
+        logout: "退出",
+        signedInAs: "已登录 {login}",
         activePlatform: "当前平台",
         account: "目标账号",
         strategy: "策略",
@@ -694,7 +704,9 @@
       en: {
         appTitle: "Strategy Switch",
         appSubtitle: "Pick platform, target account, and strategy. One action switches everything.",
-        loginManage: "Login Management",
+        login: "Sign in",
+        logout: "Sign out",
+        signedInAs: "Signed in as {login}",
         activePlatform: "Active Platform",
         account: "Target account",
         strategy: "Strategy",
@@ -903,24 +915,18 @@
     }
 
     function renderAuth() {
-      const accountLink = el("account-link");
-      if (!state.auth.available) {
-        accountLink.href = "https://github.com/QuantStrategyLab/QuantRuntimeSettings/tree/main/web/strategy-switch-console";
-        accountLink.dataset.action = "setup";
-        accountLink.textContent = t("loginManage");
-      } else if (state.auth.admin) {
-        accountLink.href = "/admin";
-        accountLink.dataset.action = "admin";
-        accountLink.textContent = t("loginManage");
-      } else if (state.auth.allowed) {
-        accountLink.href = "#logout";
-        accountLink.dataset.action = "logout";
-        accountLink.textContent = t("loginManage");
-      } else {
-        accountLink.href = "/login";
-        accountLink.dataset.action = "login";
-        accountLink.textContent = t("loginManage");
-      }
+      const status = el("auth-status");
+      const loginLink = el("login-link");
+      const logoutButton = el("logout-button");
+      const signedIn = Boolean(state.auth.allowed && state.auth.login);
+
+      status.hidden = !signedIn;
+      status.textContent = signedIn ? t("signedInAs").replace("{login}", state.auth.login) : "";
+      loginLink.hidden = !state.auth.available || signedIn;
+      loginLink.href = "/login";
+      loginLink.textContent = t("login");
+      logoutButton.hidden = !signedIn;
+      logoutButton.textContent = t("logout");
 
       const dispatch = el("dispatch-button");
       const hasPrivateAccounts = state.configSource === "private";
@@ -1016,9 +1022,7 @@
       }
     }
 
-    async function handleAccountLink(event) {
-      if (el("account-link").dataset.action !== "logout") return;
-      event.preventDefault();
+    async function handleLogout() {
       await fetch("/api/logout", { method: "POST" });
       window.location.reload();
     }
@@ -1074,7 +1078,7 @@
     });
 
     el("dispatch-button").addEventListener("click", dispatchSwitch);
-    el("account-link").addEventListener("click", handleAccountLink);
+    el("logout-button").addEventListener("click", handleLogout);
 
     render();
     refreshSession();
