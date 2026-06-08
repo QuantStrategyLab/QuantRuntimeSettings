@@ -608,25 +608,20 @@
       firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
     };
 
-    const strategyOptions = [
-      "tqqq_growth_income",
-      "soxl_soxx_trend_income",
-      "nasdaq_sp500_smart_dca",
-      "hk_low_vol_dividend_quality_snapshot",
-      "global_etf_rotation",
-      "russell_1000_multi_factor_defensive",
-      "mega_cap_leader_rotation_top50_balanced",
+    const defaultStrategyProfiles = [
+      { profile: "tqqq_growth_income", label: "TQQQ Growth Income", domain: "us_equity", runtime_enabled: true },
+      { profile: "soxl_soxx_trend_income", label: "SOXL/SOXX Semiconductor Trend Income", domain: "us_equity", runtime_enabled: true },
+      { profile: "nasdaq_sp500_smart_dca", label: "Nasdaq/S&P 500 Smart DCA", domain: "us_equity", runtime_enabled: true },
+      { profile: "global_etf_rotation", label: "Global ETF Rotation", domain: "us_equity", runtime_enabled: true },
+      { profile: "russell_1000_multi_factor_defensive", label: "Russell 1000 Multi-Factor Defensive", domain: "us_equity", runtime_enabled: true },
+      { profile: "mega_cap_leader_rotation_top50_balanced", label: "Mega Cap Leader Rotation Top50 Balanced", domain: "us_equity", runtime_enabled: true },
+      { profile: "hk_dividend_gold_defensive_rotation", label: "HK Dividend-Gold Defensive Rotation", domain: "hk_equity", runtime_enabled: true },
+      { profile: "hk_global_etf_tactical_rotation", label: "HK Global ETF Tactical Rotation", domain: "hk_equity", runtime_enabled: true },
+      { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Low-Vol Dividend Quality Snapshot", domain: "hk_equity", runtime_enabled: true },
     ];
 
-    const strategyLabels = {
-      tqqq_growth_income: "TQQQ Growth Income",
-      soxl_soxx_trend_income: "SOXL/SOXX Trend Income",
-      nasdaq_sp500_smart_dca: "Nasdaq/S&P 500 Smart DCA",
-      hk_low_vol_dividend_quality_snapshot: "HK Low Vol Dividend Quality",
-      global_etf_rotation: "Global ETF Rotation",
-      russell_1000_multi_factor_defensive: "Russell 1000 Defensive",
-      mega_cap_leader_rotation_top50_balanced: "Mega Cap Top 50",
-    };
+    let strategyOptions = [];
+    let strategyLabels = {};
 
     const defaultAccountOptions = {
       longbridge: [
@@ -765,10 +760,10 @@
       currentStrategies: {},
       configSource: "default",
       forms: {
-        longbridge: { accountKey: "hk", strategy: "tqqq_growth_income", executionMode: "live" },
+        longbridge: { accountKey: "hk", strategy: "hk_low_vol_dividend_quality_snapshot", executionMode: "live" },
         ibkr: { accountKey: "u15998061", strategy: "tqqq_growth_income", executionMode: "live" },
-        schwab: { accountKey: "default", strategy: "tqqq_growth_income", executionMode: "live" },
-        firstrade: { accountKey: "default", strategy: "tqqq_growth_income", executionMode: "live" },
+        schwab: { accountKey: "default", strategy: "soxl_soxx_trend_income", executionMode: "live" },
+        firstrade: { accountKey: "default", strategy: "mega_cap_leader_rotation_top50_balanced", executionMode: "live" },
       },
     };
 
@@ -790,6 +785,24 @@
     function cleanStrategyProfile(value) {
       const profile = String(value || "").trim();
       return /^[a-z0-9._=-]{1,120}$/.test(profile) ? profile : "";
+    }
+
+    function applyStrategyProfiles(rawProfiles) {
+      const profiles = Array.isArray(rawProfiles) && rawProfiles.length
+        ? rawProfiles
+        : defaultStrategyProfiles;
+      const nextOptions = [];
+      const nextLabels = {};
+      for (const item of profiles) {
+        const profile = cleanStrategyProfile(item?.profile || item?.strategy_profile);
+        if (!profile || nextOptions.includes(profile)) continue;
+        if (item?.runtime_enabled === false || item?.live_enabled === false) continue;
+        nextOptions.push(profile);
+        nextLabels[profile] = String(item?.label || item?.display_name || profile).trim() || profile;
+      }
+      if (!nextOptions.length && profiles !== defaultStrategyProfiles) return applyStrategyProfiles(defaultStrategyProfiles);
+      strategyOptions = nextOptions;
+      strategyLabels = nextLabels;
     }
 
     function strategyChoices() {
@@ -1044,6 +1057,18 @@
       await refreshConfig();
     }
 
+    async function refreshStrategyProfiles() {
+      try {
+        const response = await fetch("/api/strategy-profiles", { cache: "no-store" });
+        if (!response.ok) throw new Error("no strategy profiles");
+        const payload = await response.json();
+        applyStrategyProfiles(payload.strategyProfiles || []);
+        render();
+      } catch {
+        applyStrategyProfiles(defaultStrategyProfiles);
+      }
+    }
+
     async function refreshConfig() {
       if (!state.auth.available || !state.auth.allowed) return;
       try {
@@ -1051,6 +1076,7 @@
         if (!response.ok) throw new Error("no config");
         const payload = await response.json();
         if (payload.accountOptions) {
+          applyStrategyProfiles(payload.strategyProfiles || defaultStrategyProfiles);
           state.accountOptions = normalizeAccountOptions(payload.accountOptions);
           state.currentStrategies = normalizeCurrentStrategies(payload.currentStrategies || {});
           state.configSource = "private";
@@ -1184,7 +1210,10 @@
     el("dispatch-button").addEventListener("click", dispatchSwitch);
     el("logout-button").addEventListener("click", handleLogout);
 
+    applyStrategyProfiles(defaultStrategyProfiles);
+    for (const platform of Object.keys(platformMeta)) syncStrategyForAccount(platform);
     render();
+    refreshStrategyProfiles();
     refreshSession();
   </script>
 </body>

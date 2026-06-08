@@ -1,4 +1,5 @@
 import { PAGE_HTML } from "./page_asset.js";
+import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 
 const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
@@ -7,6 +8,7 @@ const OAUTH_STATE_COOKIE = "qsl_switch_oauth_state";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const AUTH_CONFIG_KEY = "auth_config";
 const ACCOUNT_OPTIONS_KEY = "account_options";
+const STRATEGY_PROFILES_KEY = "strategy_profiles";
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 
@@ -32,6 +34,7 @@ export default {
       if (url.pathname === "/callback") return finishLogin(request, env);
       if (url.pathname === "/admin") return adminPage(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
+      if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/config") return json(await configPayload(request, env));
       if (url.pathname === "/api/admin/config" && request.method === "GET") return adminConfigResponse(request, env);
       if (url.pathname === "/api/admin/config" && request.method === "POST") {
@@ -423,10 +426,18 @@ async function configPayload(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return { accountOptions: null };
   const accountConfig = await loadAccountOptionsConfig(env);
+  const strategyProfiles = await loadStrategyProfilesConfig(env);
   const currentStrategies = await loadCurrentStrategies(accountConfig.options, env);
   return {
     accountOptions: accountConfig.options,
+    strategyProfiles,
     currentStrategies,
+  };
+}
+
+async function strategyProfilesPayload(env) {
+  return {
+    strategyProfiles: await loadStrategyProfilesConfig(env),
   };
 }
 
@@ -645,6 +656,51 @@ function parseAccountOptions(raw, fieldName = "account options") {
 function normalizeAccountOptionsInput(value, fieldName) {
   if (typeof value === "string") return parseAccountOptions(value, fieldName) || {};
   return normalizeAccountOptionsPayload(value, fieldName);
+}
+
+function parseStrategyProfiles(raw, fieldName = "strategy profiles") {
+  const text = String(raw || "").trim();
+  if (!text) return null;
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${fieldName} must be valid JSON`);
+  }
+  return normalizeStrategyProfilesPayload(payload, fieldName);
+}
+
+function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profiles") {
+  if (!Array.isArray(payload) || payload.length > 100) {
+    throw new Error(`${fieldName} must be an array with at most 100 items`);
+  }
+
+  const result = [];
+  const seen = new Set();
+  for (const [index, item] of payload.entries()) {
+    if (!item || Array.isArray(item) || typeof item !== "object") {
+      throw new Error(`${fieldName}[${index}] must be an object`);
+    }
+    const profile = cleanCurrentStrategy(item.profile || item.strategy_profile);
+    if (!profile) throw new Error(`${fieldName}[${index}].profile is invalid`);
+    if (seen.has(profile)) continue;
+    seen.add(profile);
+    const entry = {
+      profile,
+      label: cleanLabel(item.label || item.display_name || profile, `${fieldName}[${index}].label`),
+      runtime_enabled: cleanProfileBoolean(item.runtime_enabled ?? item.live_enabled ?? true),
+    };
+    const domain = String(item.domain || "").trim();
+    if (domain) entry.domain = cleanChoice(domain, ["us_equity", "hk_equity"], `${fieldName}[${index}].domain`);
+    result.push(entry);
+  }
+  return result;
+}
+
+function cleanProfileBoolean(value) {
+  if (value === true || value === "true" || value === "1" || value === 1) return true;
+  if (value === false || value === "false" || value === "0" || value === 0) return false;
+  throw new Error("runtime_enabled must be boolean");
 }
 
 function normalizeAccountOptionsPayload(payload, fieldName = "account options") {
@@ -1080,6 +1136,19 @@ async function loadAccountOptionsConfig(env) {
     options: parseAccountOptions(env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON || "", "STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON"),
     source: env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON ? "secret" : "none",
   };
+}
+
+async function loadStrategyProfilesConfig(env) {
+  if (hasConfigStore(env)) {
+    const stored = await readConfigJson(env, STRATEGY_PROFILES_KEY);
+    if (stored) return normalizeStrategyProfilesPayload(stored, STRATEGY_PROFILES_KEY);
+  }
+  const configured = parseStrategyProfiles(
+    env.STRATEGY_SWITCH_STRATEGY_PROFILES_JSON || "",
+    "STRATEGY_SWITCH_STRATEGY_PROFILES_JSON",
+  );
+  if (configured) return configured;
+  return normalizeStrategyProfilesPayload(DEFAULT_STRATEGY_PROFILES, "DEFAULT_STRATEGY_PROFILES");
 }
 
 function hasConfigStore(env) {

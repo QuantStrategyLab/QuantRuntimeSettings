@@ -59,6 +59,7 @@ STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 ```text
 auth_config
 account_options
+strategy_profiles
 audit_log
 ```
 
@@ -73,13 +74,13 @@ page_asset.js
 wrangler.toml.example
 ```
 
-`worker.js` 会通过 `page_asset.js` 发布 `web/strategy-switch-console/index.html`。改完页面后运行：
+`worker.js` 会通过 `page_asset.js` 发布 `web/strategy-switch-console/index.html`，并通过 `strategy_profiles_asset.js` 提供兜底 live-enabled 策略目录。改完页面或 `strategy-profiles.example.json` 后运行：
 
 ```bash
 python3 scripts/sync_strategy_switch_page_asset.py
 ```
 
-这会重新生成 `web/strategy-switch-console/page_asset.js`。部署 Worker 时需要同时带上 `worker.js` 和 `page_asset.js`。
+这会重新生成 `web/strategy-switch-console/page_asset.js` 和 `web/strategy-switch-console/strategy_profiles_asset.js`。部署 Worker 时需要同时带上 `worker.js`、`page_asset.js` 和 `strategy_profiles_asset.js`。
 
 ## 账号下拉配置
 
@@ -115,6 +116,8 @@ wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-
 
 Worker 会校验 dispatch 参数必须匹配这里的某个账号项。只放路由信息，不放 broker 密码、token、API key。
 
+`/api/strategy-profiles` 会返回公开的 live-enabled 策略目录，用于生成策略下拉框。读取优先级是 KV `strategy_profiles`、`STRATEGY_SWITCH_STRATEGY_PROFILES_JSON`、`strategy-profiles.example.json`。
+
 登录用户访问 `/api/config` 时，Worker 还会读取目标平台仓库的当前 GitHub Variables。读取优先级是账号匹配的 `CLOUD_RUN_SERVICE_TARGETS_JSON`、匹配的 `RUNTIME_TARGET_JSON.strategy_profile`、`STRATEGY_PROFILE`；都读不到时，页面才回退到 `default_strategy_profile`。
 
 ## 策略 Profile 对齐规范
@@ -123,8 +126,10 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项。只放路
 
 新增或重命名策略 profile 时，需要同时做这些事：
 
-- 在 `web/strategy-switch-console/index.html` 增加 profile id 和显示名称。
+- 在 `strategy-profiles.example.json` 增加 runtime-enabled profile id 和显示名称。
+- 运行 `python3 scripts/sync_strategy_switch_page_asset.py` 重新生成 `strategy_profiles_asset.js`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `default_strategy_profile`。
+- 用 `strategy-profiles.example.json` 更新已部署 KV 的 `strategy_profiles` key。
 - 确认平台仓库当前的 `RUNTIME_TARGET_JSON.strategy_profile` 或账号级 `CLOUD_RUN_SERVICE_TARGETS_JSON` 使用同一个 id。
 - profile id 只使用小写字母、数字、点、下划线、短横线或等号。不要把账号名、密码、token、密钥信息写进 profile id。
 

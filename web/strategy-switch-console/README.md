@@ -57,6 +57,7 @@ For editable admin settings, bind a Cloudflare KV namespace named `STRATEGY_SWIT
 ```text
 auth_config
 account_options
+strategy_profiles
 audit_log
 ```
 
@@ -64,15 +65,15 @@ Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLO
 
 ## Page Asset
 
-`worker.js` serves `web/strategy-switch-console/index.html` through `page_asset.js`.
+`worker.js` serves `web/strategy-switch-console/index.html` through `page_asset.js` and the fallback live-enabled strategy catalog through `strategy_profiles_asset.js`.
 
-After editing `web/strategy-switch-console/index.html`, regenerate the asset:
+After editing `web/strategy-switch-console/index.html` or `strategy-profiles.example.json`, regenerate the assets:
 
 ```bash
 python3 scripts/sync_strategy_switch_page_asset.py
 ```
 
-Deploy `worker.js` and `page_asset.js` together.
+Deploy `worker.js`, `page_asset.js`, and `strategy_profiles_asset.js` together.
 
 ## Account Dropdowns
 
@@ -108,6 +109,8 @@ Each account item supports:
 
 The Worker validates dispatch inputs against this config. Keep only routing metadata here. Do not store broker passwords, tokens, or API keys in this config.
 
+`/api/strategy-profiles` returns the public live-enabled strategy catalog for the dropdown. It reads the KV `strategy_profiles` key first, then `STRATEGY_SWITCH_STRATEGY_PROFILES_JSON`, then `strategy-profiles.example.json`.
+
 For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`; if none can be read safely, the page falls back to `default_strategy_profile`.
 
 ## Strategy Profile Alignment
@@ -116,8 +119,10 @@ Treat `strategy_profile` as the canonical strategy id across the switch console,
 
 When adding or renaming a strategy profile:
 
-- Add the profile id and display label to `web/strategy-switch-console/index.html`.
+- Add the runtime-enabled profile id and display label to `strategy-profiles.example.json`.
+- Run `python3 scripts/sync_strategy_switch_page_asset.py` so `strategy_profiles_asset.js` is regenerated.
 - Set each affected account's `default_strategy_profile` in `account-options.example.json` and the deployed KV account config.
+- Update the deployed KV `strategy_profiles` key from `strategy-profiles.example.json`.
 - Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.
 - Use lower-case ids with letters, numbers, dot, underscore, dash, or equals only. Do not encode account names or secrets in profile ids.
 

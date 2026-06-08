@@ -1,0 +1,56 @@
+[
+  {
+    "profile": "tqqq_growth_income",
+    "label": "TQQQ Growth Income",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "soxl_soxx_trend_income",
+    "label": "SOXL/SOXX Semiconductor Trend Income",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "nasdaq_sp500_smart_dca",
+    "label": "Nasdaq/S&P 500 Smart DCA",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "global_etf_rotation",
+    "label": "Global ETF Rotation",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "russell_1000_multi_factor_defensive",
+    "label": "Russell 1000 Multi-Factor Defensive",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "mega_cap_leader_rotation_top50_balanced",
+    "label": "Mega Cap Leader Rotation Top50 Balanced",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "hk_dividend_gold_defensive_rotation",
+    "label": "HK Dividend-Gold Defensive Rotation",
+    "domain": "hk_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "hk_global_etf_tactical_rotation",
+    "label": "HK Global ETF Tactical Rotation",
+    "domain": "hk_equity",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "hk_low_vol_dividend_quality_snapshot",
+    "label": "HK Low-Vol Dividend Quality Snapshot",
+    "domain": "hk_equity",
+    "runtime_enabled": true
+  }
+]

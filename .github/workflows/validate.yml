@@ -23,7 +23,9 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/sync_strategy_switch_page_asset.py
-          git diff --exit-code -- web/strategy-switch-console/page_asset.js
+          git diff --exit-code -- web/strategy-switch-console/page_asset.js web/strategy-switch-console/strategy_profiles_asset.js
+          jq empty web/strategy-switch-console/strategy-profiles.example.json
           sed -n '/<script>/,/<\/script>/p' web/strategy-switch-console/index.html | sed '1d;$d' | node --check --input-type=commonjs
           node --check --input-type=module < web/strategy-switch-console/page_asset.js
+          node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
