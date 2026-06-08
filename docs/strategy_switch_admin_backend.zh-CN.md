@@ -6,8 +6,8 @@
 
 - 登录方式：GitHub OAuth 2.0。
 - 公开访问：未登录用户只能看到只读切换页，不能触发 workflow。
-- 可切换用户：来自 `ALLOWED_GITHUB_LOGINS`、KV `auth_config.allowed_logins` 和管理员名单。
-- 管理员：来自 `STRATEGY_SWITCH_ADMIN_LOGINS` 和 KV `auth_config.admin_logins`。
+- 可切换用户/组织：来自 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、KV `auth_config.allowed_logins`、KV `auth_config.allowed_orgs` 和管理员配置。
+- 管理员用户/组织：来自 `STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS`、KV `auth_config.admin_logins` 和 KV `auth_config.admin_orgs`。
 - 账号下拉：优先读取 KV `account_options`，没有 KV 配置时回退 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
 - 审计：管理员保存配置后写入 KV `audit_log`，保留最近 50 条。
 
@@ -35,13 +35,14 @@ audit_log
 
 - 未登录：只能查看公开页面。
 - 登录但不在 allowlist：不能切换，也不能进入后台。
-- allowlist 用户：可以一键切换。
-- admin 用户：可以进入 `/admin`，维护 allowlist、admin list 和账号下拉 JSON。
-- `STRATEGY_SWITCH_ADMIN_LOGINS` 是兜底管理员来源，后台保存时会自动保留，避免把自己锁在外面。
+- allowlist 用户或组织成员：可以一键切换。
+- admin 用户或管理员组织成员：可以进入 `/admin`，维护 allowlist、admin list、组织名单和账号下拉 JSON。
+- `STRATEGY_SWITCH_ADMIN_LOGINS` 和 `STRATEGY_SWITCH_ADMIN_ORGS` 是兜底管理员来源，后台保存时会自动保留，避免把自己锁在外面。
 
 ## 安全边界
 
-- 后台只保存 GitHub login 和账号路由信息。
+- 后台只保存 GitHub login、GitHub 组织名和账号路由信息。
+- OAuth 会请求 `read:org` scope，用于校验登录用户是否属于配置的管理员组织或 allowlist 组织。
 - 不保存 broker 密码、token、API key 或云密钥。
 - 后台写操作使用 POST，并校验 Same-Origin。
 - session cookie 使用 HttpOnly、Secure、SameSite=Lax 和 HMAC 签名。

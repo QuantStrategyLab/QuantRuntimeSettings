@@ -16,7 +16,9 @@ GITHUB_CLIENT_SECRET
 SESSION_SECRET
 RUNTIME_SETTINGS_DISPATCH_TOKEN
 ALLOWED_GITHUB_LOGINS
+ALLOWED_GITHUB_ORGS
 STRATEGY_SWITCH_ADMIN_LOGINS
+STRATEGY_SWITCH_ADMIN_ORGS
 ```
 
 可选：
@@ -28,10 +30,11 @@ RUNTIME_SETTINGS_REF=main
 STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON=<account-options.example.json 的内容>
 ```
 
-`ALLOWED_GITHUB_LOGINS` 和 `STRATEGY_SWITCH_ADMIN_LOGINS` 用英文逗号分隔，例如：
+`ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS` 和 `STRATEGY_SWITCH_ADMIN_ORGS` 用英文逗号分隔。个人系统建议用组织名做管理员入口，例如：
 
 ```text
-your-github-login
+STRATEGY_SWITCH_ADMIN_ORGS=QuantStrategyLab
+STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 ```
 
 登录入口是 Worker 域名下的 `/login`，页面顶部保留一个“登录管理”入口。登录成功后访问 `/api/session` 会返回：
@@ -45,11 +48,11 @@ your-github-login
 }
 ```
 
-`admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS` 或 KV 后台管理员名单中。直接访问 `/admin` 可以管理允许登录的 GitHub 用户和账号下拉路由；非管理员会返回 403。
+`admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS`，或 KV 后台管理员名单/组织中。直接访问 `/admin` 可以管理允许登录的 GitHub 用户、组织和账号下拉路由；非管理员会返回 403。
 
 ## 登录管理后台
 
-登录方式使用 GitHub OAuth 2.0。建议把你自己的 GitHub login 放在 `STRATEGY_SWITCH_ADMIN_LOGINS`，它是兜底管理员来源，后台里不能把这个入口删掉。
+登录方式使用 GitHub OAuth 2.0，并请求 `read:org` scope 来校验 GitHub 组织成员关系。建议把 `QuantStrategyLab` 放在 `STRATEGY_SWITCH_ADMIN_ORGS`，同时把你自己的 GitHub login 放在 `STRATEGY_SWITCH_ADMIN_LOGINS` 作为兜底管理员。
 
 如果要让 `/admin` 保存修改，需要绑定 Cloudflare KV namespace：`STRATEGY_SWITCH_CONFIG`。Worker 会使用这些 key：
 
@@ -59,7 +62,7 @@ account_options
 audit_log
 ```
 
-没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`STRATEGY_SWITCH_ADMIN_LOGINS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
+没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
 
 ## 文件结构
 
@@ -136,7 +139,9 @@ wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
+wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
+wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
@@ -165,7 +170,7 @@ wrangler deploy
 1. 访问控制台页面。
 2. 未登录时只能查看公开示例，“一键切换”按钮禁用。
 3. 点击“登录管理”，也可以直接访问 `/login`。
-4. 如果登录账号在 `ALLOWED_GITHUB_LOGINS` 或 `STRATEGY_SWITCH_ADMIN_LOGINS`，且账号配置已加载，按钮启用。
+4. 如果登录账号在 allowlist 用户/组织或管理员用户/组织中，且账号配置已加载，按钮启用。
 5. 顶部只保留“登录管理”入口；如果登录账号是管理员，点击后进入 `/admin` 管理登录权限和账号下拉。
 6. 选择平台、账号、策略和模式后点击“一键切换”。
 7. 页面返回 GitHub Actions 链接，用于查看运行结果。

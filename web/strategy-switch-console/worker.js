@@ -41,7 +41,7 @@ async function startLogin(request, env) {
   const authorizeUrl = new URL("https://github.com/login/oauth/authorize");
   authorizeUrl.searchParams.set("client_id", env.GITHUB_CLIENT_ID);
   authorizeUrl.searchParams.set("redirect_uri", `${url.origin}/callback`);
-  authorizeUrl.searchParams.set("scope", "read:user");
+  authorizeUrl.searchParams.set("scope", "read:user read:org");
   authorizeUrl.searchParams.set("state", state);
   return redirect(authorizeUrl.toString(), {
     "Set-Cookie": cookie(OAUTH_STATE_COOKIE, state, 600),
@@ -89,11 +89,12 @@ async function finishLogin(request, env) {
   }
 
   const authConfig = await loadAuthConfig(env);
-  if (!isAllowedLogin(login, authConfig)) {
-    return html(renderMessage("没有权限", `${login} 不在允许登录名单中。`), 403, clearOAuthCookie());
+  const orgLogins = await fetchGithubOrgLogins(tokenPayload.access_token);
+  if (!isAllowedPrincipal(login, orgLogins, authConfig)) {
+    return html(renderMessage("没有权限", `${login} 不在允许登录名单或组织中。`), 403, clearOAuthCookie());
   }
 
-  const session = await makeSession(login, env);
+  const session = await makeSession(login, authorizedOrgLogins(orgLogins, authConfig), env);
   return redirect("/", {
     "Set-Cookie": [
       cookie(SESSION_COOKIE, session, SESSION_TTL_SECONDS),
@@ -141,15 +142,21 @@ async function saveAdminConfig(request, env) {
     return json({ ok: false, error: "request body must be valid JSON" }, 400);
   }
   const bootstrapAdmins = parseLoginList(env.STRATEGY_SWITCH_ADMIN_LOGINS || "", "STRATEGY_SWITCH_ADMIN_LOGINS");
+  const bootstrapAdminOrgs = parseOrgList(env.STRATEGY_SWITCH_ADMIN_ORGS || "", "STRATEGY_SWITCH_ADMIN_ORGS");
   const allowedLogins = normalizeLoginList(raw.allowed_logins, "allowed_logins");
+  const allowedOrgs = normalizeOrgList(raw.allowed_orgs, "allowed_orgs");
   const submittedAdmins = normalizeLoginList(raw.admin_logins, "admin_logins");
+  const submittedAdminOrgs = normalizeOrgList(raw.admin_orgs, "admin_orgs");
   const effectiveAdmins = uniqueStrings([...bootstrapAdmins, ...submittedAdmins]);
-  if (!effectiveAdmins.includes(session.login)) {
-    throw new Error("current admin login must remain in admin_logins");
+  const effectiveAdminOrgs = uniqueStrings([...bootstrapAdminOrgs, ...submittedAdminOrgs]);
+  if (!effectiveAdmins.includes(session.login) && !hasOrgMatch(session.orgs, effectiveAdminOrgs)) {
+    throw new Error("current admin login or org must remain in admin config");
   }
   const authConfig = {
     allowed_logins: uniqueStrings([...allowedLogins, ...effectiveAdmins]),
+    allowed_orgs: allowedOrgs,
     admin_logins: effectiveAdmins,
+    admin_orgs: effectiveAdminOrgs,
   };
   const accountOptions = normalizeAccountOptionsInput(raw.account_options, "account_options");
 
@@ -160,7 +167,9 @@ async function saveAdminConfig(request, env) {
     login: session.login,
     action: "save_config",
     allowed_count: authConfig.allowed_logins.length,
+    allowed_org_count: authConfig.allowed_orgs.length,
     admin_count: authConfig.admin_logins.length,
+    admin_org_count: authConfig.admin_orgs.length,
     account_counts: accountCounts(accountOptions),
   });
   return json(await buildAdminState(session, env));
@@ -307,15 +316,23 @@ async function renderAdminPage(state) {
     <form class="panel" id="admin-form">
       <section>
         <h2>登录权限 / Login Access</h2>
-        <p class="muted">每行一个 GitHub 用户名。管理员会自动拥有切换权限；secret 里的管理员始终保留为兜底入口。</p>
+        <p class="muted">每行一个 GitHub 用户名或组织名。管理员会自动拥有切换权限；secret 里的管理员和管理员组织始终保留为兜底入口。</p>
         <div class="grid">
           <label>
             可切换用户 / Allowed logins
             <textarea id="allowed-logins"${disabled}>${escapeHtml(state.authConfig.allowed_logins.join("\n"))}</textarea>
           </label>
           <label>
+            可切换组织 / Allowed orgs
+            <textarea id="allowed-orgs"${disabled}>${escapeHtml(state.authConfig.allowed_orgs.join("\n"))}</textarea>
+          </label>
+          <label>
             管理员 / Admin logins
             <textarea id="admin-logins"${disabled}>${escapeHtml(state.authConfig.admin_logins.join("\n"))}</textarea>
+          </label>
+          <label>
+            管理员组织 / Admin orgs
+            <textarea id="admin-orgs"${disabled}>${escapeHtml(state.authConfig.admin_orgs.join("\n"))}</textarea>
           </label>
         </div>
       </section>
@@ -372,7 +389,9 @@ async function renderAdminPage(state) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             allowed_logins: parseLogins(document.getElementById("allowed-logins").value),
+            allowed_orgs: parseLogins(document.getElementById("allowed-orgs").value),
             admin_logins: parseLogins(document.getElementById("admin-logins").value),
+            admin_orgs: parseLogins(document.getElementById("admin-orgs").value),
             account_options: accountOptions,
           }),
         });
@@ -668,35 +687,68 @@ function githubHeaders(token) {
   };
 }
 
+async function fetchGithubOrgLogins(token) {
+  const orgs = [];
+  for (let page = 1; page <= 5; page += 1) {
+    const response = await fetch(`https://api.github.com/user/orgs?per_page=100&page=${page}`, {
+      headers: githubHeaders(token),
+    });
+    if (!response.ok) return orgs;
+    const payload = await response.json();
+    if (!Array.isArray(payload) || !payload.length) break;
+    for (const org of payload) {
+      const login = cleanGithubOrg(org?.login || "", "github org");
+      if (login) orgs.push(login);
+    }
+    if (payload.length < 100) break;
+  }
+  return uniqueStrings(orgs);
+}
+
 function requireEnv(env, name) {
   if (!env[name]) throw new Error(`${name} is not configured`);
 }
 
 async function loadAuthConfig(env) {
   const bootstrapAdmins = parseLoginList(env.STRATEGY_SWITCH_ADMIN_LOGINS || "", "STRATEGY_SWITCH_ADMIN_LOGINS");
+  const bootstrapAdminOrgs = parseOrgList(env.STRATEGY_SWITCH_ADMIN_ORGS || "", "STRATEGY_SWITCH_ADMIN_ORGS");
   const envAllowed = parseLoginList(
     env.ALLOWED_GITHUB_LOGINS || env.ALLOWED_GITHUB_LOGIN || "",
     "ALLOWED_GITHUB_LOGINS",
   );
+  const envAllowedOrgs = parseOrgList(
+    env.ALLOWED_GITHUB_ORGS || env.ALLOWED_GITHUB_ORG || "",
+    "ALLOWED_GITHUB_ORGS",
+  );
   let storedAllowed = [];
+  let storedAllowedOrgs = [];
   let storedAdmins = [];
+  let storedAdminOrgs = [];
   let source = "secret";
   if (hasConfigStore(env)) {
     const stored = await readConfigJson(env, AUTH_CONFIG_KEY);
     if (stored) {
       const normalized = normalizeAuthConfigPayload(stored, AUTH_CONFIG_KEY);
       storedAllowed = normalized.allowed_logins;
+      storedAllowedOrgs = normalized.allowed_orgs;
       storedAdmins = normalized.admin_logins;
+      storedAdminOrgs = normalized.admin_orgs;
       source = "kv";
     }
   }
   const adminLogins = uniqueStrings([...bootstrapAdmins, ...storedAdmins]);
+  const adminOrgs = uniqueStrings([...bootstrapAdminOrgs, ...storedAdminOrgs]);
   const allowedLogins = uniqueStrings([...envAllowed, ...storedAllowed, ...adminLogins]);
+  const allowedOrgs = uniqueStrings([...envAllowedOrgs, ...storedAllowedOrgs]);
   return {
     allowed_logins: allowedLogins,
+    allowed_orgs: allowedOrgs,
     admin_logins: adminLogins,
+    admin_orgs: adminOrgs,
     bootstrap_admin_logins: bootstrapAdmins,
+    bootstrap_admin_orgs: bootstrapAdminOrgs,
     env_allowed_logins: envAllowed,
+    env_allowed_orgs: envAllowedOrgs,
     source,
     kv_available: hasConfigStore(env),
   };
@@ -708,7 +760,9 @@ function normalizeAuthConfigPayload(payload, fieldName) {
   }
   return {
     allowed_logins: normalizeLoginList(payload.allowed_logins || [], `${fieldName}.allowed_logins`),
+    allowed_orgs: normalizeOrgList(payload.allowed_orgs || [], `${fieldName}.allowed_orgs`),
     admin_logins: normalizeLoginList(payload.admin_logins || [], `${fieldName}.admin_logins`),
+    admin_orgs: normalizeOrgList(payload.admin_orgs || [], `${fieldName}.admin_orgs`),
   };
 }
 
@@ -720,6 +774,16 @@ function normalizeLoginList(value, fieldName) {
   const items = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
   if (items.length > 80) throw new Error(`${fieldName} supports at most 80 logins`);
   return uniqueStrings(items.map((item) => cleanGithubLogin(item, fieldName)).filter(Boolean));
+}
+
+function parseOrgList(value, fieldName) {
+  return normalizeOrgList(value, fieldName);
+}
+
+function normalizeOrgList(value, fieldName) {
+  const items = Array.isArray(value) ? value : String(value || "").split(/[\s,]+/);
+  if (items.length > 80) throw new Error(`${fieldName} supports at most 80 orgs`);
+  return uniqueStrings(items.map((item) => cleanGithubOrg(item, fieldName)).filter(Boolean));
 }
 
 function cleanGithubLogin(value, fieldName) {
@@ -735,12 +799,35 @@ function cleanGithubLogin(value, fieldName) {
   return login;
 }
 
-function isAdminLogin(login, authConfig) {
+function cleanGithubOrg(value, fieldName) {
+  return cleanGithubLogin(value, fieldName);
+}
+
+function isAdminLogin(login, orgLogins, authConfig) {
   return authConfig.admin_logins.includes(String(login || "").toLowerCase());
 }
 
-function isAllowedLogin(login, authConfig) {
-  return authConfig.allowed_logins.includes(String(login || "").toLowerCase()) || isAdminLogin(login, authConfig);
+function isAdminPrincipal(login, orgLogins, authConfig) {
+  return isAdminLogin(login, orgLogins, authConfig) || hasOrgMatch(orgLogins, authConfig.admin_orgs);
+}
+
+function isAllowedPrincipal(login, orgLogins, authConfig) {
+  const normalizedLogin = String(login || "").toLowerCase();
+  return (
+    authConfig.allowed_logins.includes(normalizedLogin) ||
+    hasOrgMatch(orgLogins, authConfig.allowed_orgs) ||
+    isAdminPrincipal(normalizedLogin, orgLogins, authConfig)
+  );
+}
+
+function authorizedOrgLogins(orgLogins, authConfig) {
+  const authorized = new Set([...authConfig.allowed_orgs, ...authConfig.admin_orgs]);
+  return uniqueStrings(orgLogins).filter((org) => authorized.has(org));
+}
+
+function hasOrgMatch(orgLogins, configuredOrgs) {
+  const orgs = new Set(uniqueStrings(orgLogins));
+  return configuredOrgs.some((org) => orgs.has(String(org || "").toLowerCase()));
 }
 
 async function loadAccountOptionsConfig(env) {
@@ -827,9 +914,10 @@ function uniqueStrings(items) {
   return result;
 }
 
-async function makeSession(login, env) {
+async function makeSession(login, orgs, env) {
   const payload = base64UrlEncodeJson({
     login,
+    orgs: uniqueStrings(orgs),
     exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
   });
   const signature = await hmac(payload, env.SESSION_SECRET);
@@ -847,9 +935,10 @@ async function readSession(request, env) {
   const session = JSON.parse(base64UrlDecode(payload));
   if (!session.exp || session.exp < Math.floor(Date.now() / 1000)) return null;
   const login = String(session.login || "").toLowerCase();
+  const orgs = normalizeOrgList(session.orgs || [], "session.orgs");
   const authConfig = await loadAuthConfig(env);
-  const admin = isAdminLogin(login, authConfig);
-  return { login, allowed: isAllowedLogin(login, authConfig), admin };
+  const admin = isAdminPrincipal(login, orgs, authConfig);
+  return { login, orgs, allowed: isAllowedPrincipal(login, orgs, authConfig), admin };
 }
 
 async function hmac(value, secret) {
