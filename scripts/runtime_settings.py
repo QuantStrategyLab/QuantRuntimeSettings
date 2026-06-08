@@ -21,6 +21,7 @@ SUPPORTED_PLATFORMS = {
     "schwab": {"plugin_mounts_prefix": "SCHWAB_", "repository": "QuantStrategyLab/CharlesSchwabPlatform"},
     "longbridge": {"plugin_mounts_prefix": "LONGBRIDGE_", "repository": "QuantStrategyLab/LongBridgePlatform"},
     "ibkr": {"plugin_mounts_prefix": "IBKR_", "repository": "QuantStrategyLab/InteractiveBrokersPlatform"},
+    "firstrade": {"plugin_mounts_prefix": "FIRSTRADE_", "repository": "QuantStrategyLab/FirstradePlatform"},
 }
 RUNTIME_REQUIRED_FIELDS = (
     "platform_id",
@@ -37,7 +38,13 @@ WINDOW_MODES = {
     "execution": {"live", "paper", "dry_run"},
 }
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
-SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY")
+SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
+PLATFORM_DRY_RUN_VARIABLES = {
+    "schwab": "SCHWAB_DRY_RUN_ONLY",
+    "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
+    "ibkr": "IBKR_DRY_RUN_ONLY",
+    "firstrade": "FIRSTRADE_DRY_RUN_ONLY",
+}
 
 
 @dataclass(frozen=True)
@@ -89,6 +96,13 @@ def load_target(path: Path) -> dict[str, Any]:
         return json.load(handle)
 
 
+def display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(ROOT))
+    except ValueError:
+        return str(path)
+
+
 def load_local_policy() -> dict[str, Any]:
     if not LOCAL_POLICY_PATH.exists():
         return {}
@@ -117,7 +131,15 @@ def target_path_id(path: Path) -> str | None:
 
 def is_secret_variable_name(name: str) -> bool:
     upper_name = name.upper()
-    if upper_name.endswith("_SECRET_NAME"):
+    allowed_secret_pointer_suffixes = (
+        "_SECRET_ID",
+        "_SECRET_NAME",
+        "_SECRET_REF",
+        "_SECRET_RESOURCE",
+        "_SECRET_RESOURCE_NAME",
+        "_SECRET_VERSION",
+    )
+    if upper_name.endswith(allowed_secret_pointer_suffixes):
         return False
     return any(marker in upper_name for marker in SECRET_MARKERS)
 
@@ -197,7 +219,8 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                     offset_minutes = window["offset_minutes"]
                     if not isinstance(offset_minutes, int) or offset_minutes < 0:
                         errors.append(
-                            f"runtime_target.execution_windows.{window_name}.offset_minutes must be a non-negative integer"
+                            "runtime_target.execution_windows."
+                            f"{window_name}.offset_minutes must be a non-negative integer"
                         )
                 mode = window.get("mode")
                 if mode is not None and mode not in allowed_modes:
@@ -301,9 +324,11 @@ def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
 
     runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
     dry_run_only = runtime_target.get("dry_run_only")
-    longbridge_dry_run = extra_variables.get("LONGBRIDGE_DRY_RUN_ONLY")
-    if longbridge_dry_run is not None and env_string(longbridge_dry_run).lower() != env_string(dry_run_only):
-        errors.append("extra_variables.LONGBRIDGE_DRY_RUN_ONLY must match runtime_target.dry_run_only")
+    platform_id = runtime_target.get("platform_id")
+    dry_run_variable = PLATFORM_DRY_RUN_VARIABLES.get(str(platform_id or ""))
+    platform_dry_run = extra_variables.get(dry_run_variable) if dry_run_variable else None
+    if platform_dry_run is not None and env_string(platform_dry_run).lower() != env_string(dry_run_only):
+        errors.append(f"extra_variables.{dry_run_variable} must match runtime_target.dry_run_only")
 
 
 def validate_target(target: dict[str, Any], path: Path | None = None) -> list[str]:
@@ -325,7 +350,10 @@ def validate_target(target: dict[str, Any], path: Path | None = None) -> list[st
     runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
     github = target.get("github") if isinstance(target.get("github"), dict) else {}
     platform_id = runtime_target.get("platform_id")
-    if platform_id in SUPPORTED_PLATFORMS and github.get("repository") != SUPPORTED_PLATFORMS[platform_id]["repository"]:
+    if (
+        platform_id in SUPPORTED_PLATFORMS
+        and github.get("repository") != SUPPORTED_PLATFORMS[platform_id]["repository"]
+    ):
         errors.append(
             "github.repository does not match platform "
             f"{platform_id}: expected {SUPPORTED_PLATFORMS[platform_id]['repository']}"
@@ -381,11 +409,11 @@ def command_validate(args: argparse.Namespace) -> int:
         errors = validate_target(target, path)
         if errors:
             had_errors = True
-            print(f"FAIL {path.relative_to(ROOT)}", file=sys.stderr)
+            print(f"FAIL {display_path(path)}", file=sys.stderr)
             for error in errors:
                 print(f"  - {error}", file=sys.stderr)
         else:
-            print(f"OK   {path.relative_to(ROOT)}")
+            print(f"OK   {display_path(path)}")
     return 1 if had_errors else 0
 
 

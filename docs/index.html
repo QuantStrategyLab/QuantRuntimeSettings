@@ -1,0 +1,1087 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>QuantRuntimeSettings Strategy Switch</title>
+  <style>
+    :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --soft: #eef1f4;
+      --ink: #16191f;
+      --muted: #66707c;
+      --line: #dce1e7;
+      --line-strong: #b8c2cc;
+      --accent: #136f63;
+      --accent-ink: #ffffff;
+      --danger: #b54137;
+      --lb: #0f766e;
+      --ib: #2f5f9f;
+      --sw: #9b4153;
+      --ft: #94651f;
+      font-family:
+        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      background: var(--bg);
+    }
+
+    body {
+      margin: 0;
+      min-height: 100svh;
+      background: var(--bg);
+      color: var(--ink);
+      letter-spacing: 0;
+    }
+
+    button,
+    select {
+      font: inherit;
+      letter-spacing: 0;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    a {
+      color: inherit;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    .topbar {
+      min-height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 17px 28px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(250, 251, 252, 0.94);
+      backdrop-filter: blur(14px);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    .brand {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    h1 {
+      font-size: 22px;
+      line-height: 1.12;
+      font-weight: 780;
+      overflow-wrap: anywhere;
+    }
+
+    .brand p {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .top-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .shell {
+      width: min(1160px, calc(100vw - 36px));
+      margin: 0 auto;
+      padding: 26px 0 32px;
+      display: grid;
+      gap: 18px;
+    }
+
+    .pill,
+    .btn {
+      min-height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--muted);
+      text-decoration: none;
+      white-space: nowrap;
+      font-size: 13px;
+      font-weight: 740;
+    }
+
+    .pill {
+      padding: 0 12px;
+      border-radius: 999px;
+    }
+
+    .pill.ready {
+      border-color: rgba(19, 111, 99, 0.28);
+      background: #eff9f6;
+      color: var(--accent);
+    }
+
+    .btn {
+      padding: 0 13px;
+      border-radius: 8px;
+      transition: border-color 150ms ease, background 150ms ease, transform 150ms ease;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+      background: #fafbfc;
+    }
+
+    .mode button {
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 760;
+      transition: background 150ms ease, color 150ms ease;
+    }
+
+    .mode button.active {
+      background: #ffffff;
+      color: var(--ink);
+      box-shadow: 0 1px 7px rgba(22, 25, 31, 0.08);
+    }
+
+    .platform-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .platform-button {
+      min-width: 0;
+      min-height: 104px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      align-items: center;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--platform-color);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--ink);
+      text-align: left;
+      transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+    }
+
+    .platform-button:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+    }
+
+    .platform-button.active {
+      border-color: var(--platform-color);
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--platform-color) 5%, white), #ffffff 62%);
+      box-shadow: 0 16px 36px rgba(22, 25, 31, 0.10);
+    }
+
+    .platform-button[data-platform="longbridge"] {
+      --platform-color: var(--lb);
+    }
+
+    .platform-button[data-platform="ibkr"] {
+      --platform-color: var(--ib);
+    }
+
+    .platform-button[data-platform="schwab"] {
+      --platform-color: var(--sw);
+    }
+
+    .platform-button[data-platform="firstrade"] {
+      --platform-color: var(--ft);
+    }
+
+    .mark {
+      width: 44px;
+      height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      background: color-mix(in srgb, var(--platform-color) 12%, white);
+      color: var(--platform-color);
+      font-size: 13px;
+      font-weight: 840;
+    }
+
+    .platform-copy {
+      min-width: 0;
+      display: grid;
+      gap: 3px;
+    }
+
+    .platform-copy strong {
+      font-size: 16px;
+      line-height: 1.18;
+      overflow-wrap: anywhere;
+    }
+
+    .platform-copy span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
+
+    .platform-copy small {
+      color: var(--platform-color);
+      font-size: 11px;
+      line-height: 1.25;
+      font-weight: 780;
+      overflow-wrap: anywhere;
+    }
+
+    .switch-surface {
+      display: grid;
+      grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+
+    .switch-panel,
+    .summary-panel {
+      min-width: 0;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 18px 42px rgba(22, 25, 31, 0.08);
+    }
+
+    .switch-panel {
+      display: grid;
+      gap: 20px;
+      padding: 22px;
+    }
+
+    .panel-head {
+      display: grid;
+      gap: 5px;
+    }
+
+    .eyebrow {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 780;
+      text-transform: uppercase;
+    }
+
+    .panel-head h2 {
+      font-size: clamp(28px, 4vw, 46px);
+      line-height: 1.04;
+      font-weight: 820;
+      overflow-wrap: anywhere;
+    }
+
+    .quick-form {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      gap: 14px;
+    }
+
+    .control-block {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 760;
+    }
+
+    select {
+      width: 100%;
+      min-width: 0;
+      height: 48px;
+      padding: 0 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--ink);
+      outline: none;
+      font-size: 14px;
+      font-weight: 680;
+      transition: border-color 150ms ease, box-shadow 150ms ease;
+    }
+
+    select:focus {
+      border-color: var(--platform-color, var(--accent));
+      box-shadow: 0 0 0 3px rgba(19, 111, 99, 0.12);
+    }
+
+    .selection-meta {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .mode {
+      height: 48px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 4px;
+      padding: 4px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--soft);
+    }
+
+    .mode button {
+      font-size: 13px;
+    }
+
+    .run-area {
+      display: grid;
+      gap: 10px;
+      padding-top: 2px;
+    }
+
+    .run-button {
+      min-height: 56px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--accent);
+      color: var(--accent-ink);
+      font-size: 16px;
+      font-weight: 820;
+      transition: transform 150ms ease, background 150ms ease, opacity 150ms ease;
+    }
+
+    .run-button:hover:not(:disabled) {
+      transform: translateY(-1px);
+      background: #0f5f55;
+    }
+
+    .run-button:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .action-note {
+      min-height: 20px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .action-note.warning {
+      color: var(--danger);
+      font-weight: 720;
+    }
+
+    .summary-panel {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      overflow: hidden;
+    }
+
+    .summary-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .summary-head h2 {
+      font-size: 15px;
+      line-height: 1.2;
+      font-weight: 800;
+    }
+
+    .summary-list {
+      margin: 0;
+      padding: 8px 16px;
+      display: grid;
+    }
+
+    .summary-row {
+      display: grid;
+      grid-template-columns: 128px minmax(0, 1fr);
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #eef1f4;
+      align-items: start;
+    }
+
+    .summary-row:last-child {
+      border-bottom: 0;
+    }
+
+    .summary-row dt {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+      font-weight: 760;
+    }
+
+    .summary-row dd {
+      margin: 0;
+      min-width: 0;
+      color: var(--ink);
+      font-size: 13px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+
+    .summary-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      padding: 15px 16px;
+      border-top: 1px solid var(--line);
+      background: #fbfcfd;
+    }
+
+    .toast {
+      min-height: 20px;
+      color: var(--accent);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .quiet {
+      color: var(--muted);
+    }
+
+    @media (max-width: 980px) {
+      .platform-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .switch-surface {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 680px) {
+      .topbar {
+        position: static;
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 18px;
+      }
+
+      .top-actions {
+        justify-content: flex-start;
+        width: 100%;
+      }
+
+      .shell {
+        width: min(100% - 28px, 1160px);
+        padding-top: 18px;
+      }
+
+      .platform-strip,
+      .quick-form {
+        grid-template-columns: 1fr;
+      }
+
+      .switch-panel {
+        padding: 18px;
+      }
+
+      .summary-row {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <h1 data-i18n="appTitle">策略切换</h1>
+      <p data-i18n="appSubtitle">选平台、目标账号和策略，一次执行完成切换。</p>
+    </div>
+    <div class="top-actions">
+      <a class="btn" id="account-link" href="https://github.com/QuantStrategyLab/QuantRuntimeSettings/tree/main/web/strategy-switch-console" data-i18n="loginManage">登录管理</a>
+    </div>
+  </header>
+
+  <main class="shell">
+    <nav class="platform-strip" id="platform-strip" aria-label="Platforms"></nav>
+
+    <section class="switch-surface">
+      <div class="switch-panel" id="switch-panel">
+        <div class="panel-head">
+          <span class="eyebrow" data-i18n="activePlatform">当前平台</span>
+          <h2 id="platform-title">LongBridge</h2>
+        </div>
+
+        <div class="quick-form">
+          <label class="control-block">
+            <span data-i18n="account">目标账号</span>
+            <select id="account-select"></select>
+            <span class="selection-meta" id="account-meta"></span>
+          </label>
+
+          <label class="control-block">
+            <span data-i18n="strategy">策略</span>
+            <select id="strategy-select"></select>
+          </label>
+
+          <div class="control-block">
+            <span data-i18n="mode">模式</span>
+            <div class="mode" id="mode-control">
+              <button type="button" data-mode="live" class="active" data-i18n="live">实盘</button>
+              <button type="button" data-mode="paper" data-i18n="paper">模拟</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="run-area">
+          <button class="run-button" id="dispatch-button" type="button" disabled data-i18n="loginToRun">登录后切换</button>
+          <p class="action-note" id="action-note">公开页面只能查看；登录版校验账号权限后才会触发 workflow。</p>
+          <p class="toast" id="toast" aria-live="polite"></p>
+        </div>
+      </div>
+
+      <aside class="summary-panel">
+        <div class="summary-head">
+          <h2 data-i18n="summary">切换摘要</h2>
+          <span class="pill" id="mode-pill">live</span>
+        </div>
+        <dl class="summary-list" id="summary-list"></dl>
+        <div class="summary-actions">
+          <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制摘要</button>
+          <span class="quiet" id="config-source">default</span>
+        </div>
+      </aside>
+    </section>
+  </main>
+
+  <script>
+    const repositories = {
+      longbridge: "QuantStrategyLab/LongBridgePlatform",
+      ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
+      schwab: "QuantStrategyLab/CharlesSchwabPlatform",
+      firstrade: "QuantStrategyLab/FirstradePlatform",
+    };
+
+    const platformMeta = {
+      longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
+      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
+      schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
+      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+    };
+
+    const strategyOptions = [
+      "tqqq_growth_income",
+      "global_etf_rotation",
+      "russell_1000_multi_factor_defensive",
+      "mega_cap_leader_rotation_top50_balanced",
+    ];
+
+    const strategyLabels = {
+      tqqq_growth_income: "TQQQ Growth Income",
+      global_etf_rotation: "Global ETF Rotation",
+      russell_1000_multi_factor_defensive: "Russell 1000 Defensive",
+      mega_cap_leader_rotation_top50_balanced: "Mega Cap Top 50",
+    };
+
+    const defaultAccountOptions = {
+      longbridge: [
+        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK" },
+        { key: "sg", label: "sg", target_name: "sg", account_selector: "SG" },
+        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER" },
+      ],
+      ibkr: [
+        {
+          key: "u15998061",
+          label: "u15998061",
+          target_name: "u15998061",
+          account_selector: "U15998061",
+          deployment_selector: "live-u1599-tqqq",
+          account_scope: "live-u1599-tqqq",
+          service_name: "interactive-brokers-live-u1599-tqqq-service",
+        },
+        {
+          key: "u16608560",
+          label: "u16608560",
+          target_name: "u16608560",
+          account_selector: "U16608560",
+          deployment_selector: "live-u1660-soxl",
+          account_scope: "live-u1660-soxl",
+          service_name: "interactive-brokers-live-u1660-soxl-service",
+        },
+        {
+          key: "u18336562",
+          label: "u18336562",
+          target_name: "u18336562",
+          account_selector: "U18336562",
+          deployment_selector: "live-u1833-smart-dca",
+          account_scope: "live-u1833-smart-dca",
+          service_name: "interactive-brokers-live-u1833-smart-dca-service",
+        },
+      ],
+      schwab: [
+        { key: "default", label: "default", target_name: "default" },
+      ],
+      firstrade: [
+        { key: "default", label: "default", target_name: "default" },
+      ],
+    };
+
+    const copy = {
+      zh: {
+        appTitle: "策略切换",
+        appSubtitle: "选平台、目标账号和策略，一次执行完成切换。",
+        loginManage: "登录管理",
+        activePlatform: "当前平台",
+        account: "目标账号",
+        strategy: "策略",
+        mode: "模式",
+        live: "实盘",
+        paper: "模拟",
+        summary: "切换摘要",
+        copySummary: "复制摘要",
+        loginToRun: "登录后切换",
+        configureAccounts: "配置账号后切换",
+        runSwitch: "一键切换",
+        readonlyNote: "公开页面只能查看；登录版校验账号权限后才会触发 workflow。",
+        missingConfigNote: "还没有加载私有账号配置，禁止执行，避免账号不匹配。",
+        readyNote: "点击后会触发 workflow，并同步目标平台服务。",
+        noAccount: "没有账号选项",
+        repository: "平台仓库",
+        target: "Target",
+        selectedAccount: "账号",
+        selectedStrategy: "策略",
+        selectedMode: "模式",
+        service: "服务",
+        accountSelector: "账号选择器",
+        action: "动作",
+        actionValue: "切换并同步",
+        confirm: "确认词",
+        copied: "已复制摘要",
+        dispatching: "正在触发 workflow...",
+        dispatched: "已触发 workflow",
+        dispatchFailed: "触发失败",
+        targetMeta: "target {target} · service {service}",
+        defaultConfig: "公开示例",
+        privateConfig: "私有账号",
+      },
+      en: {
+        appTitle: "Strategy Switch",
+        appSubtitle: "Pick platform, target account, and strategy. One action switches everything.",
+        loginManage: "Login Management",
+        activePlatform: "Active Platform",
+        account: "Target account",
+        strategy: "Strategy",
+        mode: "Mode",
+        live: "Live",
+        paper: "Paper",
+        summary: "Switch Summary",
+        copySummary: "Copy summary",
+        loginToRun: "Sign in to switch",
+        configureAccounts: "Configure accounts",
+        runSwitch: "Switch now",
+        readonlyNote: "Public page is read-only; the Worker checks login before dispatching the workflow.",
+        missingConfigNote: "Private account config is not loaded, so switching is disabled.",
+        readyNote: "This dispatches the workflow and syncs the target platform service.",
+        noAccount: "No accounts",
+        repository: "Repository",
+        target: "Target",
+        selectedAccount: "Account",
+        selectedStrategy: "Strategy",
+        selectedMode: "Mode",
+        service: "Service",
+        accountSelector: "Account selector",
+        action: "Action",
+        actionValue: "Switch and sync",
+        confirm: "Confirm",
+        copied: "Summary copied",
+        dispatching: "Dispatching workflow...",
+        dispatched: "Workflow dispatched",
+        dispatchFailed: "Dispatch failed",
+        targetMeta: "target {target} · service {service}",
+        defaultConfig: "Public sample",
+        privateConfig: "Private accounts",
+      },
+    };
+
+    const storedLang = localStorage.getItem("qsl-switch-lang");
+    const initialLang = storedLang === "zh" || storedLang === "en"
+      ? storedLang
+      : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+
+    const state = {
+      selected: "longbridge",
+      lang: initialLang,
+      auth: { available: false, allowed: false, admin: false, login: null },
+      accountOptions: clone(defaultAccountOptions),
+      configSource: "default",
+      forms: {
+        longbridge: { accountKey: "hk", strategy: "tqqq_growth_income", executionMode: "live" },
+        ibkr: { accountKey: "u15998061", strategy: "tqqq_growth_income", executionMode: "live" },
+        schwab: { accountKey: "default", strategy: "tqqq_growth_income", executionMode: "live" },
+        firstrade: { accountKey: "default", strategy: "tqqq_growth_income", executionMode: "live" },
+      },
+    };
+
+    const el = (id) => document.getElementById(id);
+    const t = (key) => copy[state.lang][key] || copy.en[key] || key;
+
+    function optionsFor(platform) {
+      return state.accountOptions[platform] && state.accountOptions[platform].length
+        ? state.accountOptions[platform]
+        : defaultAccountOptions[platform];
+    }
+
+    function selectedAccount(platform = state.selected) {
+      const options = optionsFor(platform);
+      const form = state.forms[platform];
+      return options.find((option) => option.key === form.accountKey) || options[0];
+    }
+
+    function ensureAccountSelection(platform) {
+      const options = optionsFor(platform);
+      if (!options.length) return;
+      if (!options.some((option) => option.key === state.forms[platform].accountKey)) {
+        state.forms[platform].accountKey = options[0].key;
+      }
+    }
+
+    function derivedService(platform, targetName) {
+      if (platform === "longbridge") return `longbridge-quant-${targetName.toLowerCase()}-service`;
+      if (platform === "ibkr") return `interactive-brokers-${targetName.toLowerCase()}-service`;
+      if (platform === "schwab") return "charles-schwab-quant-service";
+      if (platform === "firstrade") return "firstrade-quant-service";
+      return "";
+    }
+
+    function accountMetaText(platform = state.selected) {
+      const account = selectedAccount(platform);
+      const targetName = account.target_name || account.key;
+      const service = account.service_name || derivedService(platform, targetName);
+      return t("targetMeta").replace("{target}", targetName).replace("{service}", service);
+    }
+
+    function buildInputs(platform = state.selected) {
+      const form = state.forms[platform];
+      const account = selectedAccount(platform);
+      const targetName = account.target_name || account.key;
+      const inputs = {
+        platform,
+        target_name: targetName,
+        strategy_profile: form.strategy,
+        execution_mode: form.executionMode,
+        variable_scope: account.variable_scope || "default",
+        plugin_mode: account.plugin_mode || "auto",
+        service_targets_mode: "auto",
+        apply: "true",
+        trigger_platform_sync: "true",
+        confirm_apply: "APPLY_AND_SYNC",
+        platform_sync_workflow: "sync-cloud-run-env.yml",
+      };
+      for (const field of [
+        "github_environment",
+        "deployment_selector",
+        "account_selector",
+        "account_scope",
+        "service_name",
+      ]) {
+        if (account[field]) inputs[field] = account[field];
+      }
+      return inputs;
+    }
+
+    function summaryRows(inputs) {
+      const account = selectedAccount();
+      return [
+        [t("repository"), repositories[state.selected]],
+        [t("selectedAccount"), account.label],
+        [t("selectedStrategy"), strategyLabels[inputs.strategy_profile] || inputs.strategy_profile],
+        [t("selectedMode"), inputs.execution_mode],
+        [t("target"), inputs.target_name],
+        [t("accountSelector"), inputs.account_selector || "auto"],
+        [t("service"), inputs.service_name || derivedService(state.selected, inputs.target_name)],
+        [t("action"), t("actionValue")],
+        [t("confirm"), inputs.confirm_apply],
+      ];
+    }
+
+    function applyLanguage() {
+      document.documentElement.lang = state.lang === "zh" ? "zh-CN" : "en";
+      document.querySelectorAll("[data-i18n]").forEach((node) => {
+        node.textContent = t(node.dataset.i18n);
+      });
+    }
+
+    function renderPlatforms() {
+      const strip = el("platform-strip");
+      strip.innerHTML = "";
+      for (const platform of Object.keys(platformMeta)) {
+        ensureAccountSelection(platform);
+        const meta = platformMeta[platform];
+        const form = state.forms[platform];
+        const account = selectedAccount(platform);
+        const button = document.createElement("button");
+        button.className = "platform-button";
+        button.type = "button";
+        button.dataset.platform = platform;
+        button.classList.toggle("active", platform === state.selected);
+        button.innerHTML = `
+          <span class="mark">${meta.code}</span>
+          <span class="platform-copy">
+            <strong>${meta.label}</strong>
+            <span>${escapeHtml(account.label)}</span>
+            <small>${escapeHtml(strategyLabels[form.strategy] || form.strategy)}</small>
+          </span>
+        `;
+        strip.appendChild(button);
+      }
+    }
+
+    function renderControls() {
+      const platform = state.selected;
+      const meta = platformMeta[platform];
+      const form = state.forms[platform];
+      const accounts = optionsFor(platform);
+      const accountSelect = el("account-select");
+      const strategySelect = el("strategy-select");
+
+      el("switch-panel").style.setProperty("--platform-color", meta.accent);
+      el("platform-title").textContent = meta.label;
+
+      accountSelect.innerHTML = accounts.length
+        ? accounts.map((account) => (
+          `<option value="${escapeAttr(account.key)}" ${account.key === form.accountKey ? "selected" : ""}>${escapeHtml(account.label)}</option>`
+        )).join("")
+        : `<option value="">${t("noAccount")}</option>`;
+      el("account-meta").textContent = accounts.length ? accountMetaText(platform) : "";
+
+      strategySelect.innerHTML = strategyOptions.map((strategy) => (
+        `<option value="${strategy}" ${strategy === form.strategy ? "selected" : ""}>${escapeHtml(strategyLabels[strategy] || strategy)}</option>`
+      )).join("");
+
+      document.querySelectorAll("[data-mode]").forEach((button) => {
+        button.classList.toggle("active", button.dataset.mode === form.executionMode);
+      });
+    }
+
+    function renderSummary() {
+      const inputs = buildInputs();
+      const list = el("summary-list");
+      list.innerHTML = summaryRows(inputs).map(([label, value]) => `
+        <div class="summary-row">
+          <dt>${escapeHtml(label)}</dt>
+          <dd>${escapeHtml(value)}</dd>
+        </div>
+      `).join("");
+
+      el("mode-pill").textContent = inputs.execution_mode;
+      el("config-source").textContent = state.configSource === "private" ? t("privateConfig") : t("defaultConfig");
+    }
+
+    function renderAuth() {
+      const accountLink = el("account-link");
+      if (!state.auth.available) {
+        accountLink.href = "https://github.com/QuantStrategyLab/QuantRuntimeSettings/tree/main/web/strategy-switch-console";
+        accountLink.dataset.action = "setup";
+        accountLink.textContent = t("loginManage");
+      } else if (state.auth.admin) {
+        accountLink.href = "/admin";
+        accountLink.dataset.action = "admin";
+        accountLink.textContent = t("loginManage");
+      } else if (state.auth.allowed) {
+        accountLink.href = "#logout";
+        accountLink.dataset.action = "logout";
+        accountLink.textContent = t("loginManage");
+      } else {
+        accountLink.href = "/login";
+        accountLink.dataset.action = "login";
+        accountLink.textContent = t("loginManage");
+      }
+
+      const dispatch = el("dispatch-button");
+      const hasPrivateAccounts = state.configSource === "private";
+      dispatch.disabled = !state.auth.allowed || !hasPrivateAccounts;
+      dispatch.textContent = state.auth.allowed
+        ? (hasPrivateAccounts ? t("runSwitch") : t("configureAccounts"))
+        : t("loginToRun");
+      const note = el("action-note");
+      note.textContent = state.auth.allowed
+        ? (hasPrivateAccounts ? t("readyNote") : t("missingConfigNote"))
+        : t("readonlyNote");
+      note.classList.toggle("warning", state.auth.allowed && !hasPrivateAccounts);
+    }
+
+    function render() {
+      applyLanguage();
+      renderPlatforms();
+      renderControls();
+      renderSummary();
+      renderAuth();
+    }
+
+    async function refreshSession() {
+      try {
+        const response = await fetch("/api/session", { cache: "no-store" });
+        if (!response.ok) throw new Error("no backend");
+        const session = await response.json();
+        state.auth = {
+          available: true,
+          allowed: Boolean(session.allowed),
+          admin: Boolean(session.admin),
+          login: session.login || null,
+        };
+      } catch {
+        state.auth = { available: false, allowed: false, admin: false, login: null };
+      }
+      render();
+      await refreshConfig();
+    }
+
+    async function refreshConfig() {
+      if (!state.auth.available || !state.auth.allowed) return;
+      try {
+        const response = await fetch("/api/config", { cache: "no-store" });
+        if (!response.ok) throw new Error("no config");
+        const payload = await response.json();
+        if (payload.accountOptions) {
+          state.accountOptions = normalizeAccountOptions(payload.accountOptions);
+          state.configSource = "private";
+          for (const platform of Object.keys(platformMeta)) ensureAccountSelection(platform);
+          render();
+        }
+      } catch {
+        state.configSource = "default";
+      }
+    }
+
+    function normalizeAccountOptions(raw) {
+      const normalized = clone(defaultAccountOptions);
+      for (const platform of Object.keys(platformMeta)) {
+        if (!Array.isArray(raw[platform]) || !raw[platform].length) continue;
+        normalized[platform] = raw[platform].map((item, index) => ({
+          key: String(item.key || item.target_name || index),
+          label: String(item.label || item.target_name || item.key || platform),
+          target_name: String(item.target_name || item.key || ""),
+          account_selector: item.account_selector ? String(item.account_selector) : "",
+          deployment_selector: item.deployment_selector ? String(item.deployment_selector) : "",
+          account_scope: item.account_scope ? String(item.account_scope) : "",
+          service_name: item.service_name ? String(item.service_name) : "",
+          github_environment: item.github_environment ? String(item.github_environment) : "",
+          variable_scope: item.variable_scope ? String(item.variable_scope) : "",
+          plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
+        }));
+      }
+      return normalized;
+    }
+
+    async function dispatchSwitch() {
+      if (!state.auth.allowed) return;
+      el("toast").textContent = t("dispatching");
+      try {
+        const response = await fetch("/api/switch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(buildInputs()),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || t("dispatchFailed"));
+        el("toast").textContent = t("dispatched");
+        if (payload.actions_url) window.open(payload.actions_url, "_blank", "noopener,noreferrer");
+      } catch (error) {
+        el("toast").textContent = `${t("dispatchFailed")}: ${error.message}`;
+      }
+    }
+
+    async function handleAccountLink(event) {
+      if (el("account-link").dataset.action !== "logout") return;
+      event.preventDefault();
+      await fetch("/api/logout", { method: "POST" });
+      window.location.reload();
+    }
+
+    function summaryText() {
+      const inputs = buildInputs();
+      return summaryRows(inputs).map(([label, value]) => `${label}: ${value}`).join("\n");
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }
+
+    function escapeAttr(value) {
+      return escapeHtml(value).replaceAll("'", "&#39;");
+    }
+
+    el("platform-strip").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-platform]");
+      if (!button) return;
+      state.selected = button.dataset.platform;
+      render();
+    });
+
+    el("account-select").addEventListener("change", () => {
+      state.forms[state.selected].accountKey = el("account-select").value;
+      render();
+    });
+
+    el("strategy-select").addEventListener("change", () => {
+      state.forms[state.selected].strategy = el("strategy-select").value;
+      render();
+    });
+
+    el("mode-control").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-mode]");
+      if (!button) return;
+      state.forms[state.selected].executionMode = button.dataset.mode;
+      render();
+    });
+
+    el("copy-button").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(summaryText());
+        el("toast").textContent = t("copied");
+      } catch {
+        el("toast").textContent = summaryText();
+      }
+    });
+
+    el("dispatch-button").addEventListener("click", dispatchSwitch);
+    el("account-link").addEventListener("click", handleAccountLink);
+
+    render();
+    refreshSession();
+  </script>
+</body>
+</html>

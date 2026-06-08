@@ -30,9 +30,49 @@ python -m pip install -e .
 python -m pytest -q
 ```
 
+## Manual Strategy Switch
+
+`.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It currently supports `longbridge`, `ibkr`, `schwab`, and `firstrade`.
+
+Recommended flow:
+
+1. Run once with `apply=false` to preview the assignments.
+2. Check `repository`, `environment`, `strategy_profile`, `service_name`, `execution_mode`, and plugin mounts.
+3. Re-run with `apply=true` and `confirm_apply=APPLY` to write variables.
+4. Set `trigger_platform_sync=true` and `confirm_apply=APPLY_AND_SYNC` when the target platform should dispatch its Cloud Run env sync workflow.
+
+Example:
+
+```text
+platform=longbridge
+target_name=sg
+strategy_profile=tqqq_growth_income
+execution_mode=live
+plugin_mode=auto
+apply=true
+trigger_platform_sync=true
+confirm_apply=APPLY_AND_SYNC
+```
+
+Notes:
+
+- This is a GitHub Actions `workflow_dispatch` form, not a public web app. The default `apply=false` mode only previews assignments and writes nothing remotely.
+- LongBridge defaults to environment-scoped variables; `target_name=sg` resolves to `longbridge-sg`.
+- Schwab defaults to repository-scoped variables.
+- Firstrade defaults to repository-scoped variables; `target_name=live` uses `firstrade-quant-service` and `account_scope=US`.
+- IBKR patches the selected service/account-scope entry inside `CLOUD_RUN_SERVICE_TARGETS_JSON` when that variable exists, so other IBKR services are preserved.
+- Cross-repository variable writes and workflow dispatches require a `RUNTIME_SETTINGS_GH_TOKEN` secret in this repository with sufficient target-repository variable/workflow permissions. The workflow does not fall back to the default `github.token` for remote writes.
+- IBKR `service_targets_mode=auto` must read and patch the target repository's `CLOUD_RUN_SERVICE_TARGETS_JSON`, so even preview mode requires `RUNTIME_SETTINGS_GH_TOKEN` for IBKR.
+- The workflow is bound to the `runtime-strategy-switch` GitHub Environment. For a personal system, required reviewers are optional; prefer storing `RUNTIME_SETTINGS_GH_TOKEN` as an Environment secret and rely on preview, confirmation text, and a least-privilege token for day-to-day safety.
+- Follow the simplified permission-control plan before enabling real switches: [docs/manual_strategy_switch_permission_control.zh-CN.md](docs/manual_strategy_switch_permission_control.zh-CN.md).
+
 ## Useful docs
 
-- No separate `docs/` directory yet; start with this README and the workflow files.
+- [Strategy switch GitHub Pages console](docs/index.html)
+- [GitHub Pages strategy switch design](docs/github_pages_strategy_switch.md)
+- [Authenticated strategy switch console Worker](web/strategy-switch-console/README.md)
+- [Strategy switch admin backend](docs/strategy_switch_admin_backend.md)
+- [Manual strategy switch permission-control plan](docs/manual_strategy_switch_permission_control.zh-CN.md)
 
 ## Community and security
 
