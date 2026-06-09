@@ -480,10 +480,12 @@ async function loadCurrentStrategies(accountOptions, env) {
 
 async function resolveCurrentStrategyForAccount({ platform, option, optionsCount, repository, readVariable }) {
   const serviceTargetsValue = await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON");
-  const serviceTargetProfile = strategyFromServiceTargets(serviceTargetsValue, platform, option);
+  const serviceTarget = runtimeTargetFromServiceTargets(serviceTargetsValue, platform, option);
+  const serviceTargetProfile = cleanCurrentStrategy(serviceTarget?.strategy_profile);
   if (serviceTargetProfile) {
     return {
       strategy_profile: serviceTargetProfile,
+      ...runtimeModePayload(serviceTarget),
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -498,6 +500,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   if (runtimeTargetProfile) {
     return {
       strategy_profile: runtimeTargetProfile,
+      ...runtimeModePayload(runtimeTarget),
       source: "RUNTIME_TARGET_JSON",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
@@ -508,12 +511,16 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     const profileValue = await readVariable(repository, variableScope, githubEnvironment, "STRATEGY_PROFILE");
     const profile = cleanCurrentStrategy(profileValue);
     if (profile) {
-      return {
+      const current = {
         strategy_profile: profile,
         source: "STRATEGY_PROFILE",
         variable_scope: variableScope,
         github_environment: githubEnvironment || "",
       };
+      if (variableScope === "environment" && normalizeMatchValue(option?.target_name) === "paper") {
+        current.execution_mode = "paper";
+      }
+      return current;
     }
   }
 
@@ -834,7 +841,7 @@ function resolveGithubEnvironment(platform, option, variableScope) {
   return targetName;
 }
 
-function strategyFromServiceTargets(rawValue, platform, option) {
+function runtimeTargetFromServiceTargets(rawValue, platform, option) {
   const payload = parseJsonObject(rawValue);
   const targets = Array.isArray(payload?.targets) ? payload.targets : [];
   for (const entry of targets) {
@@ -843,10 +850,36 @@ function strategyFromServiceTargets(rawValue, platform, option) {
       ? entry.runtime_target
       : {};
     if (!runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry)) continue;
-    const profile = cleanCurrentStrategy(runtimeTarget.strategy_profile || entry.strategy_profile);
-    if (profile) return profile;
+    return {
+      ...runtimeTarget,
+      strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
+    };
   }
+  return null;
+}
+
+function runtimeModePayload(runtimeTarget) {
+  const executionMode = normalizeRuntimeExecutionMode(runtimeTarget?.execution_mode, runtimeTarget?.dry_run_only);
+  const payload = {};
+  if (executionMode) payload.execution_mode = executionMode;
+  const dryRunOnly = cleanOptionalBoolean(runtimeTarget?.dry_run_only);
+  if (dryRunOnly !== null) payload.dry_run_only = dryRunOnly;
+  return payload;
+}
+
+function normalizeRuntimeExecutionMode(value, dryRunOnly) {
+  const mode = String(value || "").trim().toLowerCase();
+  if (mode === "live" || mode === "paper") return mode;
+  const dryRun = cleanOptionalBoolean(dryRunOnly);
+  if (dryRun === true) return "paper";
+  if (dryRun === false) return "live";
   return "";
+}
+
+function cleanOptionalBoolean(value) {
+  if (value === true || value === "true" || value === "1" || value === 1) return true;
+  if (value === false || value === "false" || value === "0" || value === 0) return false;
+  return null;
 }
 
 function runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry = {}) {
