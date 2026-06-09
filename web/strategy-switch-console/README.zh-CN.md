@@ -124,6 +124,8 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 
 登录用户访问 `/api/config` 时，Worker 还会读取目标平台仓库的当前 GitHub Variables。读取优先级是账号匹配的 `CLOUD_RUN_SERVICE_TARGETS_JSON`、匹配的 `RUNTIME_TARGET_JSON.strategy_profile`、`STRATEGY_PROFILE`；都读不到时，页面才回退到 `default_strategy_profile`。
 
+切换表单也支持可选的预留现金覆盖项：最小预留现金 USD 和预留现金比例。留空表示沿用平台现有默认值。填写后，Worker 会把它们传给 `manual-strategy-switch.yml`，由 workflow 写入平台对应变量，例如 `IBKR_MIN_RESERVED_CASH_USD` 和 `IBKR_RESERVED_CASH_RATIO`。
+
 策略切换成功后也会把当前账号的 `default_strategy_profile` 同步回 KV 的 `account_options` key。网页接口会在触发 workflow 成功后立即同步；如果 `runtime-strategy-switch` 环境变量里配置了 `STRATEGY_SWITCH_CONSOLE_URL`，手动 GitHub workflow 在写入平台变量后也会回调 Worker 内部接口同步。这个 workflow 回调需要 GitHub 环境 secret `STRATEGY_SWITCH_SYNC_TOKEN`，值要和 Worker 里同名 secret 保持一致。
 
 ## 策略 Profile 对齐规范

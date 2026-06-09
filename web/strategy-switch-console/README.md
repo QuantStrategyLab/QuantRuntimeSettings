@@ -117,6 +117,8 @@ The Worker validates dispatch inputs against this config, including whether the 
 
 For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`; if none can be read safely, the page falls back to `default_strategy_profile`.
 
+The switch form also accepts optional reserved-cash overrides: minimum reserved cash in USD and reserved-cash ratio. Leave them blank to keep the platform's existing defaults. When set, the Worker passes them to `manual-strategy-switch.yml`, which writes the platform-specific variables such as `IBKR_MIN_RESERVED_CASH_USD` and `IBKR_RESERVED_CASH_RATIO`.
+
 Successful strategy switches also sync the selected account's `default_strategy_profile` back to the KV `account_options` key. The web endpoint does this immediately after dispatching the workflow, and the manual GitHub workflow calls the Worker's internal sync endpoint after applying platform variables when the `runtime-strategy-switch` environment variable `STRATEGY_SWITCH_CONSOLE_URL` is set. For that workflow callback, set the GitHub environment secret `STRATEGY_SWITCH_SYNC_TOKEN` to the same value as the Worker secret with that name.
 
 ## Strategy Profile Alignment
