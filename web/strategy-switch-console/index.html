@@ -884,11 +884,13 @@
         loadingConfig: "读取配置中",
         configureAccounts: "配置账号后切换",
         runSwitch: "一键切换",
+        noChanges: "无变更",
         readonlyNote: "登录后才可执行切换。",
         publicReadonly: "登录后查看账号配置。",
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "点击后会触发 workflow，并同步目标平台服务。",
+        noChangesNote: "当前选择与已读取配置一致。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
@@ -897,6 +899,7 @@
         selectedMarket: "市场",
         reservedCashPolicy: "当前预留现金",
         pendingReservedCashPolicy: "待提交预留现金",
+        pendingMode: "待提交模式",
         unchanged: "不变",
         copied: "已复制状态",
         dispatching: "正在触发 workflow...",
@@ -939,11 +942,13 @@
         loadingConfig: "Loading config",
         configureAccounts: "Configure accounts",
         runSwitch: "Switch now",
+        noChanges: "No changes",
         readonlyNote: "Sign in to switch.",
         publicReadonly: "Sign in to view account config.",
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "This dispatches the workflow and syncs the target platform service.",
+        noChangesNote: "The current selection matches the readable config.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
@@ -952,6 +957,7 @@
         selectedMarket: "Market",
         reservedCashPolicy: "Current reserved cash",
         pendingReservedCashPolicy: "Pending reserved cash",
+        pendingMode: "Pending mode",
         unchanged: "Unchanged",
         copied: "State copied",
         dispatching: "Dispatching workflow...",
@@ -1304,8 +1310,10 @@
       ]) {
         if (account[field]) inputs[field] = account[field];
       }
-      if (form.reservedCashRatio) inputs.reserved_cash_ratio = form.reservedCashRatio;
-      if (form.minReservedCashUsd) inputs.min_reserved_cash_usd = form.minReservedCashUsd;
+      if (form.reservedCashTouched) {
+        if (form.reservedCashRatio) inputs.reserved_cash_ratio = form.reservedCashRatio;
+        if (form.minReservedCashUsd) inputs.min_reserved_cash_usd = form.minReservedCashUsd;
+      }
       return inputs;
     }
 
@@ -1333,7 +1341,46 @@
     }
 
     function pendingReservedCashPolicyText(inputs, platform = state.selected, account = selectedAccount(platform)) {
-      return reservedCashPolicyText(inputs, platform, account, t("unchanged"));
+      return reservedCashPolicyText(pendingReservePolicy(inputs, platform, account).inputs, platform, account, t("unchanged"));
+    }
+
+    function pendingReservePolicy(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const current = currentReservePolicyForAccount(platform, account);
+      const floorOverride = cleanDisplayNumber(inputs.min_reserved_cash_usd);
+      const ratioOverride = cleanDisplayRatio(inputs.reserved_cash_ratio);
+      const changed = Boolean(
+        (floorOverride && floorOverride !== current.minReservedCashUsd) ||
+          (ratioOverride && ratioOverride !== current.reservedCashRatio),
+      );
+      return {
+        changed,
+        inputs: {
+          min_reserved_cash_usd: floorOverride || current.minReservedCashUsd,
+          reserved_cash_ratio: ratioOverride || current.reservedCashRatio,
+        },
+      };
+    }
+
+    function pendingChangeState(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const currentProfile = currentStrategyForAccount(platform, account);
+      const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
+      const currentEntry = currentEntryForAccount(platform, account);
+      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const reserve = pendingReservePolicy(inputs, platform, account);
+      return {
+        currentProfile,
+        nextProfile,
+        currentMode,
+        strategyChanged: Boolean(nextProfile && (!currentProfile || currentProfile !== nextProfile)),
+        modeChanged: Boolean(currentMode && inputs.execution_mode && currentMode !== inputs.execution_mode),
+        reserveCashChanged: reserve.changed,
+        reserve,
+      };
+    }
+
+    function hasPendingChanges(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const changes = pendingChangeState(inputs, platform, account);
+      return Boolean(changes.strategyChanged || changes.modeChanged || changes.reserveCashChanged);
     }
 
     function formatRatioPercent(value) {
@@ -1344,20 +1391,23 @@
 
     function summaryRows(inputs) {
       const account = selectedAccount();
-      const currentProfile = currentStrategyForAccount(state.selected, account);
-      const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
-      const currentStrategyText = currentProfile ? strategyLabel(currentProfile) : t("notRead");
-      const nextStrategyChanged = !currentProfile || currentProfile !== nextProfile;
+      const changes = pendingChangeState(inputs, state.selected, account);
+      const currentStrategyText = changes.currentProfile ? strategyLabel(changes.currentProfile) : t("notRead");
       const rows = [
         [t("repository"), state.repositories[state.selected] || defaultRepositories[state.selected]],
         [t("selectedAccount"), account.label],
         [t("currentStrategy"), currentStrategyText],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
-        [t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"],
       ];
-      if (nextStrategyChanged && nextProfile) {
-        rows.push([t("nextStrategy"), strategyLabel(nextProfile), "pending"]);
+      if (changes.reserveCashChanged) {
+        rows.push([t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"]);
+      }
+      if (changes.modeChanged) {
+        rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
+      }
+      if (changes.strategyChanged && changes.nextProfile) {
+        rows.push([t("nextStrategy"), strategyLabel(changes.nextProfile), "pending"]);
       }
       return rows;
     }
@@ -1519,17 +1569,25 @@
       const hasPrivateAccounts = state.configSource === "private";
       const loadingConfig = state.configSource === "loading";
       const hasValidStrategy = hasValidStrategySelection();
-      dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy;
+      const hasPendingChange = hasPrivateAccounts && hasValidStrategy && hasPendingChanges(buildInputs());
+      dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
       dispatch.textContent = state.auth.allowed
-        ? (loadingConfig ? t("loadingConfig") : (hasPrivateAccounts ? t("runSwitch") : t("configureAccounts")))
+        ? (loadingConfig
+          ? t("loadingConfig")
+          : (hasPrivateAccounts ? (hasValidStrategy ? (hasPendingChange ? t("runSwitch") : t("noChanges")) : t("configureAccounts")) : t("configureAccounts")))
         : t("loginToRun");
       const note = el("action-note");
       note.textContent = state.auth.allowed
         ? (loadingConfig
           ? t("loadingConfigNote")
-          : (hasPrivateAccounts ? (hasValidStrategy ? t("readyNote") : t("invalidStrategyNote")) : t("missingConfigNote")))
+          : (hasPrivateAccounts
+            ? (hasValidStrategy ? (hasPendingChange ? t("readyNote") : t("noChangesNote")) : t("invalidStrategyNote"))
+            : t("missingConfigNote")))
         : t("readonlyNote");
-      note.classList.toggle("warning", state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy));
+      note.classList.toggle(
+        "warning",
+        state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy || !hasPendingChange),
+      );
     }
 
     function renderAppVisibility() {
