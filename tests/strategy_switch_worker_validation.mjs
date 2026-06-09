@@ -69,9 +69,9 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
   "test_account_options",
 );
 
-assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["hk_equity"]);
-assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity"]);
-assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity"]);
+assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "hk_equity"]);
+assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
+assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 
 const longbridgeHk = __test.assertConfiguredAccount(
   {
@@ -111,13 +111,38 @@ __test.assertStrategyAllowedForAccount(
   ibkrAccount,
   strategyProfiles,
 );
+__test.assertStrategyAllowedForAccount(
+  {
+    platform: "ibkr",
+    strategy_profile: "hk_low_vol_dividend_quality_snapshot",
+  },
+  ibkrAccount,
+  strategyProfiles,
+);
+
+const schwabAccount = __test.assertConfiguredAccount(
+  {
+    platform: "schwab",
+    target_name: "default",
+    strategy_profile: "tqqq_growth_income",
+  },
+  accountOptions,
+);
+__test.assertStrategyAllowedForAccount(
+  {
+    platform: "schwab",
+    strategy_profile: "tqqq_growth_income",
+  },
+  schwabAccount,
+  strategyProfiles,
+);
 assert.throws(
   () => __test.assertStrategyAllowedForAccount(
     {
-      platform: "ibkr",
+      platform: "schwab",
       strategy_profile: "hk_low_vol_dividend_quality_snapshot",
     },
-    ibkrAccount,
+    schwabAccount,
     strategyProfiles,
   ),
   /not supported/,

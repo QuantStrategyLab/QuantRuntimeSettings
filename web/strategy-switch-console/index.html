@@ -628,9 +628,9 @@
 
     const defaultAccountOptions = {
       longbridge: [
-        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK", default_strategy_profile: "hk_low_vol_dividend_quality_snapshot", supported_domains: ["hk_equity"] },
-        { key: "sg", label: "sg", target_name: "sg", account_selector: "SG", default_strategy_profile: "tqqq_growth_income", supported_domains: ["us_equity"] },
-        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER", default_strategy_profile: "mega_cap_leader_rotation_top50_balanced", supported_domains: ["us_equity"] },
+        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK", default_strategy_profile: "hk_low_vol_dividend_quality_snapshot", supported_domains: ["us_equity", "hk_equity"] },
+        { key: "sg", label: "sg", target_name: "sg", account_selector: "SG", default_strategy_profile: "tqqq_growth_income", supported_domains: ["us_equity", "hk_equity"] },
+        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER", default_strategy_profile: "mega_cap_leader_rotation_top50_balanced", supported_domains: ["us_equity", "hk_equity"] },
       ],
       ibkr: [
         {
@@ -642,7 +642,7 @@
           account_scope: "live-u1599-tqqq",
           service_name: "interactive-brokers-live-u1599-tqqq-service",
           default_strategy_profile: "tqqq_growth_income",
-          supported_domains: ["us_equity"],
+          supported_domains: ["us_equity", "hk_equity"],
         },
         {
           key: "u16608560",
@@ -653,7 +653,7 @@
           account_scope: "live-u1660-soxl",
           service_name: "interactive-brokers-live-u1660-soxl-service",
           default_strategy_profile: "soxl_soxx_trend_income",
-          supported_domains: ["us_equity"],
+          supported_domains: ["us_equity", "hk_equity"],
         },
         {
           key: "u18336562",
@@ -664,7 +664,7 @@
           account_scope: "live-u1833-smart-dca",
           service_name: "interactive-brokers-live-u1833-smart-dca-service",
           default_strategy_profile: "nasdaq_sp500_smart_dca",
-          supported_domains: ["us_equity"],
+          supported_domains: ["us_equity", "hk_equity"],
         },
       ],
       schwab: [
@@ -852,20 +852,8 @@
     }
 
     function inferSupportedDomains(platform, account) {
-      const tokens = [
-        account?.key,
-        account?.label,
-        account?.target_name,
-        account?.account_selector,
-        account?.account_scope,
-        account?.deployment_selector,
-        account?.service_name,
-      ]
-        .join(" ")
-        .toLowerCase()
-        .split(/[^a-z0-9]+/)
-        .filter(Boolean);
-      if (platform === "longbridge" && tokens.includes("hk")) return ["hk_equity"];
+      void account;
+      if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
       return ["us_equity"];
     }
 
