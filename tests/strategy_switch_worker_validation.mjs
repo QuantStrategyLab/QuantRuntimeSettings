@@ -10,6 +10,10 @@ const indexHtml = readFileSync(resolve(root, "web/strategy-switch-console/index.
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
 assert.equal(indexHtml.includes(".innerHTML"), false);
+assert.ok(indexHtml.includes('<body class="app-loading">'));
+assert.ok(indexHtml.includes('id="boot-screen"'));
+assert.ok(indexHtml.includes('id="app-shell"'));
+assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
 
 const headers = __test.responseHeaders({ "Content-Type": "text/html; charset=utf-8" });
 assert.equal(headers.get("X-Frame-Options"), "DENY");
