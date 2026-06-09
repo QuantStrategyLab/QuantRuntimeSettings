@@ -785,20 +785,8 @@ function supportedDomainsForAccount(platform, option) {
 }
 
 function inferAccountSupportedDomains(platform, option) {
-  const tokens = [
-    option?.key,
-    option?.label,
-    option?.target_name,
-    option?.account_selector,
-    option?.account_scope,
-    option?.deployment_selector,
-    option?.service_name,
-  ]
-    .join(" ")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-  if (platform === "longbridge" && tokens.includes("hk")) return ["hk_equity"];
+  void option;
+  if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
   return ["us_equity"];
 }
 

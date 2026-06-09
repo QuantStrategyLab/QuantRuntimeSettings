@@ -111,7 +111,7 @@ wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-
   "account_scope": "live-u1599-tqqq",
   "service_name": "interactive-brokers-live-u1599-tqqq-service",
   "default_strategy_profile": "tqqq_growth_income",
-  "supported_domains": ["us_equity"]
+  "supported_domains": ["us_equity", "hk_equity"]
 }
 ```
 
@@ -131,6 +131,7 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 - 运行 `python3 scripts/sync_strategy_switch_page_asset.py` 重新生成 `strategy_profiles_asset.js`。
 - 给每个策略 profile 设置 `domain`。当前支持 `us_equity` 和 `hk_equity`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `default_strategy_profile` 和 `supported_domains`。
+- LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。
 - 用 `strategy-profiles.example.json` 更新已部署 KV 的 `strategy_profiles` key。
 - 确认平台仓库当前的 `RUNTIME_TARGET_JSON.strategy_profile` 或账号级 `CLOUD_RUN_SERVICE_TARGETS_JSON` 使用同一个 id。
 - profile id 只使用小写字母、数字、点、下划线、短横线或等号。不要把账号名、密码、token、密钥信息写进 profile id。

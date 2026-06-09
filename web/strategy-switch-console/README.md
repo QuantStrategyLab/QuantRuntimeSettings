@@ -104,7 +104,7 @@ Each account item supports:
   "account_scope": "live-u1599-tqqq",
   "service_name": "interactive-brokers-live-u1599-tqqq-service",
   "default_strategy_profile": "tqqq_growth_income",
-  "supported_domains": ["us_equity"]
+  "supported_domains": ["us_equity", "hk_equity"]
 }
 ```
 
@@ -124,6 +124,7 @@ When adding or renaming a strategy profile:
 - Run `python3 scripts/sync_strategy_switch_page_asset.py` so `strategy_profiles_asset.js` is regenerated.
 - Set `domain` on each strategy profile. Current values are `us_equity` and `hk_equity`.
 - Set each affected account's `default_strategy_profile` and `supported_domains` in `account-options.example.json` and the deployed KV account config.
+- Use `["us_equity", "hk_equity"]` for LongBridge and IBKR accounts unless you intentionally want to narrow a specific account.
 - Update the deployed KV `strategy_profiles` key from `strategy-profiles.example.json`.
 - Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.
 - Use lower-case ids with letters, numbers, dot, underscore, dash, or equals only. Do not encode account names or secrets in profile ids.
