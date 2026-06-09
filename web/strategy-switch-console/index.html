@@ -877,10 +877,7 @@
         usEquity: "美股",
         hkEquity: "港股",
         currentStrategy: "当前策略",
-        currentMode: "当前模式",
-        readSource: "读取来源",
         nextStrategy: "选择策略",
-        nextMode: "选择模式",
         notRead: "未读取",
         publicPreview: "公开示例",
         accountConfigLoaded: "账号配置已加载",
@@ -937,10 +934,7 @@
         usEquity: "US equity",
         hkEquity: "HK equity",
         currentStrategy: "Current strategy",
-        currentMode: "Current mode",
-        readSource: "Read source",
         nextStrategy: "Selected strategy",
-        nextMode: "Selected mode",
         notRead: "Not read",
         publicPreview: "Public preview",
         accountConfigLoaded: "Account config loaded",
@@ -1218,24 +1212,13 @@
 
     function summaryRows(inputs) {
       const account = selectedAccount();
-      const currentEntry = currentEntryForAccount(state.selected, account);
       const currentProfile = currentStrategyForAccount(state.selected, account);
-      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
-      const source = currentEntry?.source
-        || (state.configSource === "loading"
-          ? t("loadingConfig")
-          : (state.configSource === "private" ? t("accountConfigLoaded") : t("publicPreview")));
       return [
         [t("repository"), repositories[state.selected]],
         [t("selectedAccount"), account.label],
         [t("currentStrategy"), currentProfile ? strategyLabel(currentProfile) : t("notRead")],
-        [t("currentMode"), currentMode ? modeLabel(currentMode) : t("notRead")],
-        [t("readSource"), source],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
         [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
-        [t("nextMode"), modeLabel(inputs.execution_mode)],
-        [t("action"), t("actionValue")],
-        [t("confirm"), inputs.confirm_apply],
       ];
     }
 
