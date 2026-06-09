@@ -13,7 +13,7 @@
       "label": "sg",
       "target_name": "sg",
       "account_selector": "SG",
-      "default_strategy_profile": "tqqq_growth_income",
+      "default_strategy_profile": "soxl_soxx_trend_income",
       "supported_domains": ["us_equity", "hk_equity"]
     },
     {
