@@ -757,7 +757,7 @@
   </main>
 
   <script>
-    const repositories = {
+    const defaultRepositories = {
       longbridge: "QuantStrategyLab/LongBridgePlatform",
       ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
       schwab: "QuantStrategyLab/CharlesSchwabPlatform",
@@ -917,6 +917,7 @@
       accountOptions: clone(defaultAccountOptions),
       currentStrategies: {},
       configSource: "default",
+      repositories: clone(defaultRepositories),
       forms: {
         longbridge: { accountKey: "preview", strategy: "", executionMode: "live" },
         ibkr: { accountKey: "preview", strategy: "", executionMode: "live" },
@@ -1179,7 +1180,7 @@
       const account = selectedAccount();
       const currentProfile = currentStrategyForAccount(state.selected, account);
       const rows = [
-        [t("repository"), repositories[state.selected]],
+        [t("repository"), state.repositories[state.selected] || defaultRepositories[state.selected]],
         [t("selectedAccount"), account.label],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
         [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
@@ -1416,6 +1417,7 @@
         if (payload.accountOptions) {
           applyStrategyProfiles(payload.strategyProfiles || defaultStrategyProfiles);
           state.accountOptions = normalizeAccountOptions(payload.accountOptions);
+          state.repositories = normalizePlatformRepositories(payload.platformRepositories || {});
           state.currentStrategies = normalizeCurrentStrategies(payload.currentStrategies || {});
           state.configSource = "private";
           for (const platform of Object.keys(platformMeta)) {
@@ -1484,6 +1486,18 @@
           };
         }
         if (!Object.keys(normalized[platform]).length) delete normalized[platform];
+      }
+      return normalized;
+    }
+
+    function normalizePlatformRepositories(raw) {
+      const normalized = clone(defaultRepositories);
+      if (!raw || typeof raw !== "object" || Array.isArray(raw)) return normalized;
+      for (const platform of Object.keys(platformMeta)) {
+        const repository = String(raw[platform] || "").trim();
+        if (/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+          normalized[platform] = repository;
+        }
       }
       return normalized;
     }

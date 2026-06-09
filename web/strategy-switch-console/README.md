@@ -25,8 +25,11 @@ Optional variables:
 RUNTIME_SETTINGS_REPO=QuantStrategyLab/QuantRuntimeSettings
 RUNTIME_SETTINGS_WORKFLOW=manual-strategy-switch.yml
 RUNTIME_SETTINGS_REF=main
+STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON={"longbridge":"your-org/LongBridgePlatform","ibkr":"your-org/InteractiveBrokersPlatform","schwab":"your-org/CharlesSchwabPlatform","firstrade":"your-org/FirstradePlatform"}
 STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON=<contents of account-options.example.json>
 ```
+
+Forks can also override one platform at a time with `STRATEGY_SWITCH_LONGBRIDGE_REPO`, `STRATEGY_SWITCH_IBKR_REPO`, `STRATEGY_SWITCH_SCHWAB_REPO`, and `STRATEGY_SWITCH_FIRSTRADE_REPO`. The GitHub Actions workflow supports the same mapping with `RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON` or `RUNTIME_SETTINGS_*_REPO` repository variables.
 
 `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, and `STRATEGY_SWITCH_ADMIN_ORGS` are comma-separated lists. Prefer the organization name for admin access:
 
@@ -180,6 +183,8 @@ Deploy:
 ```bash
 wrangler deploy
 ```
+
+For a full fork checklist, see [docs/strategy_switch_fork_guide.md](../../docs/strategy_switch_fork_guide.md).
 
 ## Token Scope
 

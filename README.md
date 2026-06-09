@@ -68,6 +68,7 @@ Notes:
 
 ## Useful docs
 
+- [Fork guide for the strategy switch console](docs/strategy_switch_fork_guide.md)
 - [Strategy switch console Worker](web/strategy-switch-console/README.md)
 - [Strategy switch admin backend](docs/strategy_switch_admin_backend.md)
 - [Manual strategy switch permission-control plan](docs/manual_strategy_switch_permission_control.zh-CN.md)

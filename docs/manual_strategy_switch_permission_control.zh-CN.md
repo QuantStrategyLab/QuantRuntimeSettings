@@ -28,12 +28,14 @@
 
 ## Token 权限
 
-优先用 fine-grained PAT，只授权这些目标仓库：
+优先用 fine-grained PAT，只授权你实际使用的目标平台仓库。QuantStrategyLab 默认仓库是：
 
 - `QuantStrategyLab/LongBridgePlatform`
 - `QuantStrategyLab/InteractiveBrokersPlatform`
 - `QuantStrategyLab/CharlesSchwabPlatform`
 - `QuantStrategyLab/FirstradePlatform`
+
+如果你 fork 到自己的组织，把这些替换成你的平台仓库，并在本仓 repository variables 里配置 `RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON` 或 `RUNTIME_SETTINGS_LONGBRIDGE_REPO`、`RUNTIME_SETTINGS_IBKR_REPO`、`RUNTIME_SETTINGS_SCHWAB_REPO`、`RUNTIME_SETTINGS_FIRSTRADE_REPO`。完整步骤见 [策略切换控制台 Fork 指南](strategy_switch_fork_guide.zh-CN.md)。
 
 需要的能力只有：
 

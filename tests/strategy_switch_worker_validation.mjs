@@ -36,6 +36,19 @@ const publicConfigResponse = await worker.fetch(new Request("https://switch.exam
 assert.equal(publicConfigResponse.status, 200);
 assert.deepEqual(await publicConfigResponse.json(), { accountOptions: null });
 
+assert.equal(
+  __test.platformRepositories({ STRATEGY_SWITCH_LONGBRIDGE_REPO: "ForkOrg/LongBridgePlatform" }).longbridge,
+  "ForkOrg/LongBridgePlatform",
+);
+assert.equal(
+  __test.platformRepositories({
+    RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON: JSON.stringify({
+      ibkr: "ForkOrg/InteractiveBrokersPlatform",
+    }),
+  }).ibkr,
+  "ForkOrg/InteractiveBrokersPlatform",
+);
+
 const headers = __test.responseHeaders({ "Content-Type": "text/html; charset=utf-8" });
 assert.equal(headers.get("X-Frame-Options"), "DENY");
 assert.equal(headers.get("X-Content-Type-Options"), "nosniff");
