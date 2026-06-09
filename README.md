@@ -26,8 +26,8 @@ It supports the system but does not decide which strategy should be live. Strate
 ## Quick start
 
 ```bash
-python -m pip install -e .
-python -m pytest -q
+python3 scripts/runtime_settings.py validate
+python3 -m unittest discover -s tests -v
 ```
 
 ## Manual Strategy Switch
