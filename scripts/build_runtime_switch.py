@@ -252,7 +252,7 @@ def _build_target_entry(
     dry_run_variable = PLATFORM_DRY_RUN_VARIABLES.get(platform)
     if dry_run_variable:
         entry[dry_run_variable] = env_string(runtime_target["dry_run_only"])
-    if mounts and mounts_variable:
+    if mounts_variable:
         entry[mounts_variable] = {"strategy_plugins": mounts}
     entry.update(extra_variables)
     return entry
@@ -329,7 +329,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         field_name="existing_service_targets_json_file",
     )
     top_level_mounts = mounts
-    plugin_mounts_variable: str | None = mounts_variable if mounts else None
+    plugin_mounts_variable: str | None = mounts_variable
     if service_targets:
         patched_service_targets = _patch_service_targets(
             current_payload=service_targets,

@@ -153,6 +153,8 @@ jobs:
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
       CONFIRM_APPLY: ${{ inputs.confirm_apply }}
       PLATFORM_SYNC_WORKFLOW: ${{ inputs.platform_sync_workflow }}
+      STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
+      STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -356,3 +358,56 @@ jobs:
               ;;
           esac
           echo "Dispatched ${workflow} in ${TARGET_REPOSITORY}."
+
+      - name: Sync strategy switch account defaults
+        if: env.APPLY_SWITCH == 'true' && env.STRATEGY_SWITCH_CONSOLE_URL != ''
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.request
+
+          base_url = os.environ["STRATEGY_SWITCH_CONSOLE_URL"].rstrip("/")
+          token = os.environ["STRATEGY_SWITCH_SYNC_TOKEN"]
+          if not token:
+              raise SystemExit("STRATEGY_SWITCH_SYNC_TOKEN is required when STRATEGY_SWITCH_CONSOLE_URL is set")
+          with open(os.environ["TARGET_FILE"], encoding="utf-8") as handle:
+              target = json.load(handle)
+          runtime_target = target["runtime_target"]
+          github = target["github"]
+          payload = {
+              "platform": runtime_target["platform_id"],
+              "target_name": target["target_id"].split("/", 1)[1],
+              "strategy_profile": runtime_target["strategy_profile"],
+              "execution_mode": runtime_target["execution_mode"],
+              "variable_scope": github["variable_scope"],
+              "plugin_mode": os.environ["PLUGIN_MODE"],
+              "deployment_selector": runtime_target["deployment_selector"],
+              "account_selector": ",".join(runtime_target["account_selector"]),
+              "account_scope": runtime_target["account_scope"],
+              "service_name": runtime_target["service_name"],
+          }
+          if github.get("environment"):
+              payload["github_environment"] = github["environment"]
+
+          request = urllib.request.Request(
+              f"{base_url}/api/internal/sync-account-default",
+              data=json.dumps(payload, separators=(",", ":")).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+              },
+              method="POST",
+          )
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  body = response.read().decode("utf-8")
+          except urllib.error.HTTPError as exc:
+              body = exc.read().decode("utf-8", errors="replace")
+              print(body, file=sys.stderr)
+              raise
+          print(body)
+          PY

@@ -121,6 +121,8 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 
 登录用户访问 `/api/config` 时，Worker 还会读取目标平台仓库的当前 GitHub Variables。读取优先级是账号匹配的 `CLOUD_RUN_SERVICE_TARGETS_JSON`、匹配的 `RUNTIME_TARGET_JSON.strategy_profile`、`STRATEGY_PROFILE`；都读不到时，页面才回退到 `default_strategy_profile`。
 
+策略切换成功后也会把当前账号的 `default_strategy_profile` 同步回 KV 的 `account_options` key。网页接口会在触发 workflow 成功后立即同步；如果 `runtime-strategy-switch` 环境变量里配置了 `STRATEGY_SWITCH_CONSOLE_URL`，手动 GitHub workflow 在写入平台变量后也会回调 Worker 内部接口同步。这个 workflow 回调需要 GitHub 环境 secret `STRATEGY_SWITCH_SYNC_TOKEN`，值要和 Worker 里同名 secret 保持一致。
+
 ## 策略 Profile 对齐规范
 
 `strategy_profile` 是切换页、runtime settings 和各平台仓库之间的统一策略 ID。
@@ -134,6 +136,7 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 - LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。
 - 用 `strategy-profiles.example.json` 更新已部署 KV 的 `strategy_profiles` key。
 - 确认平台仓库当前的 `RUNTIME_TARGET_JSON.strategy_profile` 或账号级 `CLOUD_RUN_SERVICE_TARGETS_JSON` 使用同一个 id。
+- 让 `manual-strategy-switch.yml` 统一管理平台 plugin mounts。策略不需要插件时，它会写入空的 `*_STRATEGY_PLUGIN_MOUNTS_JSON`，清掉旧策略留下的插件配置。
 - profile id 只使用小写字母、数字、点、下划线、短横线或等号。不要把账号名、密码、token、密钥信息写进 profile id。
 
 切换页只允许选择 runtime-enabled 且 `domain` 属于当前账号 `supported_domains` 的策略。如果从 GitHub Variables 动态读到了未登记 profile，先补进策略目录再切换。
@@ -163,6 +166,7 @@ wrangler secret put GITHUB_CLIENT_ID
 wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
+wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # 可选；默认复用 RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
 wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS

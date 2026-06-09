@@ -59,6 +59,9 @@ export default {
       if (url.pathname === "/api/admin/config" && request.method === "POST") {
         return saveAdminConfig(request, env);
       }
+      if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
+        return syncAccountDefaultResponse(request, env);
+      }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return dispatchSwitch(request, env);
       return html(PAGE_HTML);
@@ -615,13 +618,88 @@ async function dispatchSwitch(request, env) {
     return json({ ok: false, error: `GitHub dispatch failed: ${text.slice(0, 600)}` }, 502);
   }
 
+  const accountOptionsSync = await syncDefaultStrategyForAccount(env, accountConfig.options, inputs, session);
   return json({
     ok: true,
     repository,
     workflow,
     actions_url: `https://github.com/${repository}/actions/workflows/${workflow}`,
+    account_options_synced: accountOptionsSync.synced,
+    account_options_sync: accountOptionsSync,
     inputs,
   });
+}
+
+async function syncDefaultStrategyForAccount(env, accountOptions, inputs, session) {
+  if (!hasConfigStore(env)) return { synced: false, reason: "kv_not_bound" };
+  try {
+    const { options, changed } = updateAccountOptionsDefaultStrategy(accountOptions, inputs);
+    let auditLogged = false;
+    if (changed) {
+      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, options);
+      try {
+        await appendAuditLog(env, {
+          ts: new Date().toISOString(),
+          login: session?.login || "",
+          action: "sync_default_strategy",
+          platform: inputs.platform,
+          target_name: inputs.target_name,
+          strategy_profile: inputs.strategy_profile,
+        });
+        auditLogged = true;
+      } catch {
+        auditLogged = false;
+      }
+    }
+    return { synced: true, changed, audit_logged: auditLogged };
+  } catch (error) {
+    return { synced: false, error: error.message || "account option sync failed" };
+  }
+}
+
+async function syncAccountDefaultResponse(request, env) {
+  requireInternalSyncToken(request, env);
+  let rawInput;
+  try {
+    rawInput = await request.json();
+  } catch {
+    return json({ ok: false, error: "request body must be valid JSON" }, 400);
+  }
+  const inputs = normalizeSwitchInputs(rawInput);
+  const accountConfig = await loadAccountOptionsConfig(env);
+  const accountOption = assertConfiguredAccount(inputs, accountConfig.options);
+  assertStrategyAllowedForAccount(inputs, accountOption, await loadStrategyProfilesConfig(env));
+  const result = await syncDefaultStrategyForAccount(env, accountConfig.options, inputs, {
+    login: "github-actions",
+  });
+  return json({ ok: result.synced, account_options_sync: result }, result.synced ? 200 : 500);
+}
+
+function requireInternalSyncToken(request, env) {
+  const expected = env.STRATEGY_SWITCH_SYNC_TOKEN || env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+  if (!expected) throw new HttpError("internal sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("internal sync token is invalid", 401);
+}
+
+function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
+  const options = normalizeAccountOptionsPayload(accountOptions || {}, ACCOUNT_OPTIONS_KEY);
+  const platformOptions = options[inputs.platform] || [];
+  let matched = false;
+  let changed = false;
+  const updatedPlatformOptions = platformOptions.map((option) => {
+    if (!accountOptionMatchesInputs(option, inputs)) return option;
+    matched = true;
+    if (option.default_strategy_profile === inputs.strategy_profile) return option;
+    changed = true;
+    return { ...option, default_strategy_profile: inputs.strategy_profile };
+  });
+  if (!matched) throw new Error("switch inputs do not match configured account options");
+  return {
+    options: { ...options, [inputs.platform]: updatedPlatformOptions },
+    changed,
+  };
 }
 
 function normalizeSwitchInputs(raw) {
@@ -710,9 +788,42 @@ function accountOptionMatchesInputs(option, inputs) {
     const expected = option[field] || "";
     const actual = inputs[field] || "";
     if (expected && actual !== expected) return false;
-    if (!expected && actual && !["default", "auto"].includes(actual)) return false;
+    if (!expected && actual && !["default", "auto", defaultInputValue(field, inputs)].includes(actual)) return false;
   }
   return true;
+}
+
+function defaultInputValue(field, inputs) {
+  const platform = inputs.platform;
+  const targetName = inputs.target_name;
+  if (field === "variable_scope") return DEFAULT_VARIABLE_SCOPE[platform] || "repository";
+  if (field === "plugin_mode") return "auto";
+  if (field === "deployment_selector") {
+    if (platform === "firstrade") return "firstrade";
+    return ["sg", "hk", "paper"].includes(targetName.toLowerCase()) ? targetName.toUpperCase() : targetName;
+  }
+  if (field === "account_scope") {
+    if (platform === "firstrade") return "US";
+    return inputs.deployment_selector || defaultInputValue("deployment_selector", inputs);
+  }
+  if (field === "account_selector") {
+    if (platform === "firstrade") return "firstrade";
+    return inputs.account_scope || defaultInputValue("account_scope", inputs);
+  }
+  if (field === "github_environment") {
+    const variableScope = inputs.variable_scope === "default"
+      ? defaultInputValue("variable_scope", inputs)
+      : inputs.variable_scope;
+    if (variableScope !== "environment") return "";
+    return platform === "longbridge" ? `longbridge-${targetName.toLowerCase()}` : targetName;
+  }
+  if (field === "service_name") {
+    if (platform === "schwab") return "charles-schwab-quant-service";
+    if (platform === "firstrade") return "firstrade-quant-service";
+    if (platform === "longbridge") return `longbridge-quant-${targetName.toLowerCase()}-service`;
+    if (platform === "ibkr") return `interactive-brokers-${targetName.toLowerCase()}-service`;
+  }
+  return "";
 }
 
 function parseAccountOptions(raw, fieldName = "account options") {
@@ -1515,6 +1626,8 @@ export const __test = {
   normalizeStrategyProfilesPayload,
   requireSameOrigin,
   responseHeaders,
+  syncDefaultStrategyForAccount,
   supportedDomainsForAccount,
+  updateAccountOptionsDefaultStrategy,
   withTimeout,
 };

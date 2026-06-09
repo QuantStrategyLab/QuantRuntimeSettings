@@ -114,6 +114,8 @@ The Worker validates dispatch inputs against this config, including whether the 
 
 For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`; if none can be read safely, the page falls back to `default_strategy_profile`.
 
+Successful strategy switches also sync the selected account's `default_strategy_profile` back to the KV `account_options` key. The web endpoint does this immediately after dispatching the workflow, and the manual GitHub workflow calls the Worker's internal sync endpoint after applying platform variables when the `runtime-strategy-switch` environment variable `STRATEGY_SWITCH_CONSOLE_URL` is set. For that workflow callback, set the GitHub environment secret `STRATEGY_SWITCH_SYNC_TOKEN` to the same value as the Worker secret with that name.
+
 ## Strategy Profile Alignment
 
 Treat `strategy_profile` as the canonical strategy id across the switch console, runtime settings, and platform repositories.
@@ -127,6 +129,7 @@ When adding or renaming a strategy profile:
 - Use `["us_equity", "hk_equity"]` for LongBridge and IBKR accounts unless you intentionally want to narrow a specific account.
 - Update the deployed KV `strategy_profiles` key from `strategy-profiles.example.json`.
 - Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.
+- Let `manual-strategy-switch.yml` manage platform plugin mounts. It writes an empty `*_STRATEGY_PLUGIN_MOUNTS_JSON` payload for strategies without plugin mounts, so old strategy plugin config is cleared instead of lingering.
 - Use lower-case ids with letters, numbers, dot, underscore, dash, or equals only. Do not encode account names or secrets in profile ids.
 
 The console only allows live-enabled profiles whose `domain` is included in the selected account's `supported_domains`. If a profile is dynamically read from GitHub Variables but is missing from the catalog, add it to the catalog before switching to it.
@@ -156,6 +159,7 @@ wrangler secret put GITHUB_CLIENT_ID
 wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
+wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
 wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
