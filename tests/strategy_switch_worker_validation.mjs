@@ -17,7 +17,24 @@ assert.ok(indexHtml.includes(".switch-surface.summary-hidden"));
 assert.ok(indexHtml.includes('summaryPanel.hidden = !showSummary'));
 assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !showSummary)'));
 assert.equal(indexHtml.includes("publicSummary"), false);
+assert.ok(indexHtml.includes("function hasPrivateConfig()"));
+assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
+assert.equal(indexHtml.includes("u15998061"), false);
+assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
+assert.equal(indexHtml.includes('account_selector: "SG"'), false);
 assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
+
+const servedPageResponse = await worker.fetch(new Request("https://switch.example/"), {});
+const servedHtml = await servedPageResponse.text();
+assert.equal(servedPageResponse.status, 200);
+assert.ok(servedHtml.includes("function hasPrivateConfig()"));
+assert.equal(servedHtml.includes("u15998061"), false);
+assert.equal(servedHtml.includes("longbridge-quant-sg-service"), false);
+assert.equal(servedHtml.includes('account_selector: "SG"'), false);
+
+const publicConfigResponse = await worker.fetch(new Request("https://switch.example/api/config"), {});
+assert.equal(publicConfigResponse.status, 200);
+assert.deepEqual(await publicConfigResponse.json(), { accountOptions: null });
 
 const headers = __test.responseHeaders({ "Content-Type": "text/html; charset=utf-8" });
 assert.equal(headers.get("X-Frame-Options"), "DENY");
@@ -63,7 +80,7 @@ assert.equal(unauthorizedSyncResponse.status, 401);
 assert.match((await unauthorizedSyncResponse.json()).error, /internal sync token is invalid/);
 
 assert.equal(
-  await __test.withTimeout(new Promise((resolve) => setTimeout(() => resolve("late"), 25)), 1, "fallback"),
+  await __test.withTimeout(new Promise(() => {}), 1, "fallback"),
   "fallback",
 );
 
