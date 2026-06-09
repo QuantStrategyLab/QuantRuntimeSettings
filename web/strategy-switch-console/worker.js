@@ -559,11 +559,20 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetsValue = await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON");
   const serviceTarget = runtimeTargetFromServiceTargets(serviceTargetsValue, platform, option);
   const serviceTargetProfile = cleanCurrentStrategy(serviceTarget?.strategy_profile);
+  const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
   if (serviceTargetProfile) {
     return {
       strategy_profile: serviceTargetProfile,
       ...runtimeModePayload(serviceTarget),
-      ...reservedCashPayloadFromObject(platform, serviceTarget),
+      ...serviceTargetReservedCashPayload,
+      source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
+      variable_scope: "repository",
+    };
+  }
+  if (Object.keys(serviceTargetReservedCashPayload).length) {
+    return {
+      ...runtimeModePayload(serviceTarget),
+      ...serviceTargetReservedCashPayload,
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -609,6 +618,15 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       }
       return current;
     }
+  }
+
+  if (Object.keys(reservedCashPayload).length) {
+    return {
+      ...reservedCashPayload,
+      source: "RESERVED_CASH_VARIABLES",
+      variable_scope: variableScope,
+      github_environment: githubEnvironment || "",
+    };
   }
 
   return null;

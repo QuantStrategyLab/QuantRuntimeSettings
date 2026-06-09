@@ -25,6 +25,10 @@ assert.ok(indexHtml.includes('function selectedCashCurrency('));
 assert.ok(indexHtml.includes('function currentReservedCashPolicyText('));
 assert.ok(indexHtml.includes('reservedCashTouched: false'));
 assert.ok(indexHtml.includes('.reserve-ratio-block'));
+assert.ok(indexHtml.includes('.summary-row.pending'));
+assert.ok(indexHtml.includes('function currentEntryHasState('));
+assert.equal(indexHtml.includes('placeholder="150"'), false);
+assert.equal(indexHtml.includes('placeholder="0.03"'), false);
 assert.equal(indexHtml.includes("ibkr-primary"), false);
 assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(indexHtml.includes('account_selector: "SG"'), false);
@@ -335,6 +339,38 @@ try {
   assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response("", { status: 404 });
+  }
+  if (requestUrl.endsWith("/LONGBRIDGE_MIN_RESERVED_CASH_USD")) {
+    return new Response(JSON.stringify({ value: "150" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/LONGBRIDGE_RESERVED_CASH_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.03" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { longbridge: [accountOptions.longbridge[0]] },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.longbridge.hk.strategy_profile, undefined);
+  assert.equal(currentStrategies.longbridge.hk.min_reserved_cash_usd, "150");
+  assert.equal(currentStrategies.longbridge.hk.reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.longbridge.hk.source, "RESERVED_CASH_VARIABLES");
 } finally {
   globalThis.fetch = originalFetch;
 }

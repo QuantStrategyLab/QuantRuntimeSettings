@@ -571,6 +571,13 @@
       border-bottom: 0;
     }
 
+    .summary-row.pending {
+      margin: 0 -16px;
+      padding-inline: 13px 16px;
+      border-left: 3px solid var(--platform-color, var(--accent));
+      background: color-mix(in srgb, var(--platform-color, var(--accent)) 6%, #ffffff);
+    }
+
     .summary-row dt {
       color: var(--muted);
       font-size: 12px;
@@ -586,6 +593,11 @@
       line-height: 1.45;
       font-weight: 680;
       overflow-wrap: anywhere;
+    }
+
+    .summary-row.pending dd {
+      color: var(--platform-color, var(--accent));
+      font-weight: 800;
     }
 
     .summary-actions {
@@ -764,13 +776,13 @@
 
           <label class="control-block min-reserve-block">
             <span id="min-reserved-cash-label">最小预留现金</span>
-            <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1" placeholder="150">
+            <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
             <span class="selection-meta" data-i18n="reservedCashMeta">留空则沿用当前平台默认值。</span>
           </label>
 
           <label class="control-block reserve-ratio-block">
             <span data-i18n="reservedCashRatio">预留现金比例</span>
-            <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01" placeholder="0.03">
+            <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
             <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
           </label>
         </div>
@@ -864,9 +876,9 @@
         paper: "Dry run",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
-        reservedCashMeta: "留空则沿用当前平台默认值。",
+        reservedCashMeta: "例如 150；留空则不覆盖当前值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
-        summary: "当前配置状态",
+        summary: "当前 / 待提交",
         copySummary: "复制状态",
         loginToRun: "登录后切换",
         loadingConfig: "读取配置中",
@@ -883,7 +895,8 @@
         repository: "平台仓库",
         selectedAccount: "账号",
         selectedMarket: "市场",
-        reservedCashPolicy: "预留现金",
+        reservedCashPolicy: "当前预留现金",
+        pendingReservedCashPolicy: "待提交预留现金",
         unchanged: "不变",
         copied: "已复制状态",
         dispatching: "正在触发 workflow...",
@@ -894,7 +907,7 @@
         usEquity: "美股",
         hkEquity: "港股",
         currentStrategy: "当前策略",
-        nextStrategy: "选择策略",
+        nextStrategy: "切换策略",
         notRead: "未读取",
       },
       en: {
@@ -918,9 +931,9 @@
         paper: "Dry run",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
-        reservedCashMeta: "Leave blank to keep the platform default.",
+        reservedCashMeta: "Example: 150. Leave blank to avoid overriding the current value.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
-        summary: "Current Config",
+        summary: "Current / Pending",
         copySummary: "Copy state",
         loginToRun: "Sign in to switch",
         loadingConfig: "Loading config",
@@ -937,7 +950,8 @@
         repository: "Repository",
         selectedAccount: "Account",
         selectedMarket: "Market",
-        reservedCashPolicy: "Reserved cash",
+        reservedCashPolicy: "Current reserved cash",
+        pendingReservedCashPolicy: "Pending reserved cash",
         unchanged: "Unchanged",
         copied: "State copied",
         dispatching: "Dispatching workflow...",
@@ -948,7 +962,7 @@
         usEquity: "US equity",
         hkEquity: "HK equity",
         currentStrategy: "Current strategy",
-        nextStrategy: "Selected strategy",
+        nextStrategy: "Switch strategy",
         notRead: "Not read",
       },
     };
@@ -1113,10 +1127,19 @@
         .map((value) => String(value));
       for (const key of keys) {
         const entry = byPlatform[key];
-        const profile = cleanStrategyProfile(entry?.strategy_profile);
-        if (profile) return entry;
+        if (currentEntryHasState(entry)) return entry;
       }
       return null;
+    }
+
+    function currentEntryHasState(entry) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return false;
+      return Boolean(
+        cleanStrategyProfile(entry.strategy_profile) ||
+          cleanDisplayNumber(entry.min_reserved_cash_usd ?? entry.reserved_cash_floor_usd) ||
+          cleanDisplayRatio(entry.reserved_cash_ratio) ||
+          normalizeExecutionMode(entry.execution_mode, entry.dry_run_only),
+      );
     }
 
     function currentStrategyForAccount(platform, account) {
@@ -1309,6 +1332,10 @@
       );
     }
 
+    function pendingReservedCashPolicyText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      return reservedCashPolicyText(inputs, platform, account, t("unchanged"));
+    }
+
     function formatRatioPercent(value) {
       const numeric = Number(value);
       if (!Number.isFinite(numeric)) return String(value);
@@ -1318,15 +1345,19 @@
     function summaryRows(inputs) {
       const account = selectedAccount();
       const currentProfile = currentStrategyForAccount(state.selected, account);
+      const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
+      const currentStrategyText = currentProfile ? strategyLabel(currentProfile) : t("notRead");
+      const nextStrategyChanged = !currentProfile || currentProfile !== nextProfile;
       const rows = [
         [t("repository"), state.repositories[state.selected] || defaultRepositories[state.selected]],
         [t("selectedAccount"), account.label],
+        [t("currentStrategy"), currentStrategyText],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
-        [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
+        [t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"],
       ];
-      if (state.auth.allowed) {
-        rows.splice(2, 0, [t("currentStrategy"), currentProfile ? strategyLabel(currentProfile) : t("notRead")]);
+      if (nextStrategyChanged && nextProfile) {
+        rows.push([t("nextStrategy"), strategyLabel(nextProfile), "pending"]);
       }
       return rows;
     }
@@ -1452,9 +1483,10 @@
       const list = el("summary-list");
       list.replaceChildren();
       document.querySelector(".summary-head h2").textContent = t("summary");
-      for (const [label, value] of summaryRows(inputs)) {
+      for (const [label, value, rowClass] of summaryRows(inputs)) {
         const row = document.createElement("div");
         row.className = "summary-row";
+        if (rowClass) row.classList.add(rowClass);
         const labelNode = document.createElement("dt");
         labelNode.textContent = label;
         const valueNode = document.createElement("dd");
@@ -1630,13 +1662,16 @@
         normalized[platform] = {};
         for (const [key, entry] of Object.entries(raw[platform])) {
           const profile = cleanStrategyProfile(entry?.strategy_profile);
-          if (!profile) continue;
+          const minReservedCashUsd = cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd);
+          const reservedCashRatio = cleanDisplayRatio(entry?.reserved_cash_ratio);
+          const executionMode = normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
+          if (!profile && !minReservedCashUsd && !reservedCashRatio && !executionMode) continue;
           normalized[platform][String(key)] = {
             strategy_profile: profile,
-            execution_mode: normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only),
+            execution_mode: executionMode,
             dry_run_only: entry?.dry_run_only === true || entry?.dry_run_only === "true" || entry?.dry_run_only === "1",
-            min_reserved_cash_usd: cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd),
-            reserved_cash_ratio: cleanDisplayRatio(entry?.reserved_cash_ratio),
+            min_reserved_cash_usd: minReservedCashUsd,
+            reserved_cash_ratio: reservedCashRatio,
             source: entry?.source ? String(entry.source) : "",
           };
         }
