@@ -681,7 +681,7 @@
         strategy: "策略",
         mode: "模式",
         live: "实盘",
-        paper: "模拟",
+        paper: "Dry run",
         summary: "切换摘要",
         copySummary: "复制摘要",
         loginToRun: "登录后切换",
@@ -718,7 +718,7 @@
         strategy: "Strategy",
         mode: "Mode",
         live: "Live",
-        paper: "Paper",
+        paper: "Dry run",
         summary: "Switch Summary",
         copySummary: "Copy summary",
         loginToRun: "Sign in to switch",
@@ -827,16 +827,55 @@
       return strategyLabels[profile] || profile;
     }
 
-    function currentStrategyForAccount(platform, account) {
+    function modeLabel(mode) {
+      return mode === "paper" ? t("paper") : t("live");
+    }
+
+    function currentEntryForAccount(platform, account) {
       const byPlatform = state.currentStrategies[platform] || {};
       const keys = [account?.key, account?.target_name, account?.label]
         .filter(Boolean)
         .map((value) => String(value));
       for (const key of keys) {
-        const profile = cleanStrategyProfile(byPlatform[key]?.strategy_profile);
-        if (profile) return profile;
+        const entry = byPlatform[key];
+        const profile = cleanStrategyProfile(entry?.strategy_profile);
+        if (profile) return entry;
       }
+      return null;
+    }
+
+    function currentStrategyForAccount(platform, account) {
+      const entry = currentEntryForAccount(platform, account);
+      const profile = cleanStrategyProfile(entry?.strategy_profile);
+      return profile || "";
+    }
+
+    function normalizeExecutionMode(value, dryRunOnly) {
+      const mode = String(value || "").trim().toLowerCase();
+      if (mode === "live" || mode === "paper") return mode;
+      if (dryRunOnly === true || dryRunOnly === "true" || dryRunOnly === "1" || dryRunOnly === 1) return "paper";
+      if (dryRunOnly === false || dryRunOnly === "false" || dryRunOnly === "0" || dryRunOnly === 0) return "live";
       return "";
+    }
+
+    function defaultExecutionModeForAccount(platform, account, fallback = "live") {
+      const currentMode = normalizeExecutionMode(
+        currentEntryForAccount(platform, account)?.execution_mode,
+        currentEntryForAccount(platform, account)?.dry_run_only,
+      );
+      if (currentMode) return currentMode;
+      const hint = [
+        account?.key,
+        account?.label,
+        account?.target_name,
+        account?.deployment_selector,
+        account?.account_scope,
+        account?.service_name,
+      ].join(" ").toLowerCase();
+      if (hint.split(/\s+/).includes("paper") || hint.includes("-paper") || hint.includes("_paper")) {
+        return "paper";
+      }
+      return fallback;
     }
 
     function defaultStrategyForAccount(platform, account, fallback = "tqqq_growth_income") {
@@ -862,6 +901,10 @@
       const account = selectedAccount(platform);
       if (!account) return;
       state.forms[platform].strategy = defaultStrategyForAccount(platform, account, state.forms[platform].strategy);
+      state.forms[platform].executionMode = defaultExecutionModeForAccount(
+        platform,
+        account,
+      );
     }
 
     function ensureAccountSelection(platform) {
@@ -923,7 +966,7 @@
         [t("repository"), repositories[state.selected]],
         [t("selectedAccount"), account.label],
         [t("selectedStrategy"), strategyLabel(inputs.strategy_profile)],
-        [t("selectedMode"), inputs.execution_mode],
+        [t("selectedMode"), modeLabel(inputs.execution_mode)],
         [t("target"), inputs.target_name],
         [t("accountSelector"), inputs.account_selector || "auto"],
         [t("service"), inputs.service_name || derivedService(state.selected, inputs.target_name)],
@@ -1001,7 +1044,7 @@
         </div>
       `).join("");
 
-      el("mode-pill").textContent = inputs.execution_mode;
+      el("mode-pill").textContent = modeLabel(inputs.execution_mode);
     }
 
     function renderAuth() {
@@ -1125,6 +1168,8 @@
           if (!profile) continue;
           normalized[platform][String(key)] = {
             strategy_profile: profile,
+            execution_mode: normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only),
+            dry_run_only: entry?.dry_run_only === true || entry?.dry_run_only === "true" || entry?.dry_run_only === "1",
             source: entry?.source ? String(entry.source) : "",
           };
         }
