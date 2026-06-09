@@ -106,6 +106,7 @@ Each account item supports:
   "deployment_selector": "demo-ibkr-tqqq",
   "account_scope": "demo-ibkr-tqqq",
   "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+  "cash_currency": "USD",
   "default_strategy_profile": "tqqq_growth_income",
   "supported_domains": ["us_equity", "hk_equity"]
 }
@@ -117,7 +118,7 @@ The Worker validates dispatch inputs against this config, including whether the 
 
 For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`; if none can be read safely, the page falls back to `default_strategy_profile`.
 
-The switch form also accepts optional reserved-cash overrides: minimum reserved cash in USD and reserved-cash ratio. Leave them blank to keep the platform's existing defaults. When set, the Worker passes them to `manual-strategy-switch.yml`, which writes the platform-specific variables such as `IBKR_MIN_RESERVED_CASH_USD` and `IBKR_RESERVED_CASH_RATIO`.
+The switch form also accepts optional reserved-cash overrides: minimum reserved cash in the selected account currency and reserved-cash ratio. Set `cash_currency` to `USD` or `HKD` in account config when the account has a fixed cash currency; otherwise the page infers HKD for HK-equity strategy selections and USD for US-equity selections. Leave reserved-cash fields blank to keep the platform's existing defaults. When set, the Worker passes them to `manual-strategy-switch.yml`, which writes the platform-specific variables such as `IBKR_MIN_RESERVED_CASH_USD` and `IBKR_RESERVED_CASH_RATIO`.
 
 Successful strategy switches also sync the selected account's `default_strategy_profile` back to the KV `account_options` key. The web endpoint does this immediately after dispatching the workflow, and the manual GitHub workflow calls the Worker's internal sync endpoint after applying platform variables when the `runtime-strategy-switch` environment variable `STRATEGY_SWITCH_CONSOLE_URL` is set. For that workflow callback, set the GitHub environment secret `STRATEGY_SWITCH_SYNC_TOKEN` to the same value as the Worker secret with that name.
 

@@ -931,6 +931,12 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "deployment_selector", item.deployment_selector, cleanSlug);
   addConfigOptional(option, "account_scope", item.account_scope, cleanSlug);
   addConfigOptional(option, "service_name", item.service_name, cleanSlug);
+  addConfigOptional(
+    option,
+    "cash_currency",
+    item.cash_currency || item.market_currency || item.trading_currency,
+    cleanCashCurrency,
+  );
   addConfigOptional(option, "default_strategy_profile", item.default_strategy_profile || item.strategy_profile, cleanSlug);
   addConfigOptional(option, "github_environment", item.github_environment, cleanSlug);
   addConfigOptional(option, "variable_scope", item.variable_scope, (value, field) =>
@@ -1016,6 +1022,10 @@ function normalizeSupportedDomains(value, fieldName) {
 
 function cleanStrategyDomain(value, fieldName) {
   return cleanChoice(value, SUPPORTED_STRATEGY_DOMAINS, fieldName);
+}
+
+function cleanCashCurrency(value, fieldName) {
+  return cleanChoice(String(value || "").trim().toUpperCase(), ["USD", "HKD"], fieldName);
 }
 
 function addConfigOptional(target, key, value, cleaner) {

@@ -5,6 +5,7 @@
       "label": "hk",
       "target_name": "hk",
       "account_selector": "HK",
+      "cash_currency": "HKD",
       "default_strategy_profile": "hk_low_vol_dividend_quality_snapshot",
       "supported_domains": ["us_equity", "hk_equity"]
     },
@@ -34,6 +35,7 @@
       "deployment_selector": "demo-ibkr-tqqq",
       "account_scope": "demo-ibkr-tqqq",
       "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+      "cash_currency": "USD",
       "default_strategy_profile": "tqqq_growth_income",
       "supported_domains": ["us_equity", "hk_equity"]
     },
@@ -45,6 +47,7 @@
       "deployment_selector": "demo-ibkr-soxl",
       "account_scope": "demo-ibkr-soxl",
       "service_name": "interactive-brokers-demo-ibkr-soxl-service",
+      "cash_currency": "USD",
       "default_strategy_profile": "soxl_soxx_trend_income",
       "supported_domains": ["us_equity", "hk_equity"]
     },
@@ -56,6 +59,7 @@
       "deployment_selector": "demo-ibkr-dca",
       "account_scope": "demo-ibkr-dca",
       "service_name": "interactive-brokers-demo-ibkr-dca-service",
+      "cash_currency": "USD",
       "default_strategy_profile": "nasdaq_sp500_smart_dca",
       "supported_domains": ["us_equity", "hk_equity"]
     }
@@ -65,6 +69,7 @@
       "key": "default",
       "label": "default",
       "target_name": "default",
+      "cash_currency": "USD",
       "default_strategy_profile": "soxl_soxx_trend_income",
       "supported_domains": ["us_equity"]
     }
@@ -74,6 +79,7 @@
       "key": "default",
       "label": "default",
       "target_name": "default",
+      "cash_currency": "USD",
       "default_strategy_profile": "mega_cap_leader_rotation_top50_balanced",
       "supported_domains": ["us_equity"]
     }
