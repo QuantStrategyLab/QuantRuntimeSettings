@@ -132,6 +132,38 @@ assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response("", { status: 404 });
+  }
+  if (requestUrl.endsWith("/RUNTIME_TARGET_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        platform_id: "schwab",
+        strategy_profile: "soxl_soxx_trend_income",
+        dry_run_only: false,
+        account_scope: "schwab",
+        service_name: "charles-schwab-quant-service",
+        execution_mode: "live",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { schwab: accountOptions.schwab },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.schwab.default.strategy_profile, "soxl_soxx_trend_income");
+  assert.equal(currentStrategies.schwab.default.execution_mode, "live");
+  assert.equal(currentStrategies.schwab.default.source, "RUNTIME_TARGET_JSON");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 const longbridgeHk = __test.assertConfiguredAccount(
   {
     platform: "longbridge",
