@@ -24,13 +24,14 @@ assert.doesNotThrow(() => __test.requireSameOrigin(
   }),
   { requireOrigin: true },
 ));
-assert.throws(
+const missingOriginError = captureError(
   () => __test.requireSameOrigin(new Request("https://switch.example/api/switch", { method: "POST" }), {
     requireOrigin: true,
   }),
-  /Origin header is required/,
 );
-assert.throws(
+assert.match(missingOriginError.message, /Origin header is required/);
+assert.equal(missingOriginError.status, 403);
+const crossOriginError = captureError(
   () => __test.requireSameOrigin(
     new Request("https://switch.example/api/switch", {
       method: "POST",
@@ -38,8 +39,18 @@ assert.throws(
     }),
     { requireOrigin: true },
   ),
-  /cross-origin request rejected/,
 );
+assert.match(crossOriginError.message, /cross-origin request rejected/);
+assert.equal(crossOriginError.status, 403);
+
+function captureError(fn) {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  assert.fail("Expected function to throw");
+}
 
 const strategyProfiles = __test.normalizeStrategyProfilesPayload(
   [

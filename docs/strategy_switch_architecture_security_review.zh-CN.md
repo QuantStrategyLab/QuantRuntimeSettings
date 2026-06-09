@@ -51,7 +51,7 @@ requireSameOrigin(request, { requireOrigin: true });
 
 Impact：`/api/switch`、`/api/admin/config`、`/api/logout` 都是状态变更路径。要求浏览器 POST 带同源 `Origin`，能减少 cookie-auth endpoint 被跨站触发的空间。
 
-Fix：`requireSameOrigin()` 现在支持 `requireOrigin`，缺失或跨站 Origin 都会拒绝。OAuth GET callback 不受影响。
+Fix：`requireSameOrigin()` 现在支持 `requireOrigin`，缺失或跨站 Origin 都会以 403 拒绝。OAuth GET callback 不受影响。
 
 False positive notes：非浏览器脚本如果手动带 session cookie 调 POST，也必须提供正确 `Origin` header。
 
@@ -95,4 +95,3 @@ Fix：主切换页删除了 `.innerHTML` 动态渲染路径，并在 [tests/stra
 - `node --check --input-type=module < web/strategy-switch-console/worker.js`
 - `python3 scripts/runtime_settings.py validate`
 - `python3 -m unittest discover -s tests -v`
-
