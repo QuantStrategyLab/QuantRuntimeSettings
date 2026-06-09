@@ -13,6 +13,7 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
+const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity"];
 const PLATFORM_REPOSITORIES = {
   longbridge: "QuantStrategyLab/LongBridgePlatform",
   ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
@@ -544,7 +545,8 @@ async function dispatchSwitch(request, env) {
   const inputs = normalizeSwitchInputs(rawInput);
   assertSwitchIntent(inputs);
   const accountConfig = await loadAccountOptionsConfig(env);
-  assertConfiguredAccount(inputs, accountConfig.options);
+  const accountOption = assertConfiguredAccount(inputs, accountConfig.options);
+  assertStrategyAllowedForAccount(inputs, accountOption, await loadStrategyProfilesConfig(env));
   const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
   const workflow = env.RUNTIME_SETTINGS_WORKFLOW || DEFAULT_WORKFLOW;
   const apiUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/dispatches`;
@@ -624,8 +626,22 @@ function assertConfiguredAccount(inputs, accountOptions) {
   if (!accountOptions) throw new Error("account options are not configured");
   const options = accountOptions[inputs.platform] || [];
   if (!options.length) throw new Error(`no account options configured for ${inputs.platform}`);
-  const matched = options.some((option) => accountOptionMatchesInputs(option, inputs));
+  const matched = options.find((option) => accountOptionMatchesInputs(option, inputs));
   if (!matched) throw new Error("switch inputs do not match configured account options");
+  return matched;
+}
+
+function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles) {
+  const strategy = strategyProfiles.find((item) => item.profile === inputs.strategy_profile);
+  if (!strategy || strategy.runtime_enabled !== true) {
+    throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
+  }
+  const supportedDomains = supportedDomainsForAccount(inputs.platform, accountOption);
+  if (!supportedDomains.includes(strategy.domain)) {
+    throw new Error(
+      `strategy domain ${strategy.domain} is not supported by ${inputs.platform}/${accountOption.key}`,
+    );
+  }
 }
 
 function accountOptionMatchesInputs(option, inputs) {
@@ -697,8 +713,7 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       label: cleanLabel(item.label || item.display_name || profile, `${fieldName}[${index}].label`),
       runtime_enabled: cleanProfileBoolean(item.runtime_enabled ?? item.live_enabled ?? true),
     };
-    const domain = String(item.domain || "").trim();
-    if (domain) entry.domain = cleanChoice(domain, ["us_equity", "hk_equity"], `${fieldName}[${index}].domain`);
+    entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
     result.push(entry);
   }
   return result;
@@ -750,7 +765,61 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "plugin_mode", item.plugin_mode, (value, field) =>
     cleanChoice(value || "auto", ["auto", "none"], field),
   );
+  option.supported_domains = shouldInferSupportedDomains(item.supported_domains)
+    ? inferAccountSupportedDomains(platform, option)
+    : normalizeSupportedDomains(item.supported_domains, `account option ${platform}[${index}].supported_domains`);
   return option;
+}
+
+function shouldInferSupportedDomains(value) {
+  if (value === undefined || value === null) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  return String(value).trim() === "";
+}
+
+function supportedDomainsForAccount(platform, option) {
+  if (Array.isArray(option?.supported_domains) && option.supported_domains.length) {
+    return normalizeSupportedDomains(option.supported_domains, "supported_domains");
+  }
+  return inferAccountSupportedDomains(platform, option || {});
+}
+
+function inferAccountSupportedDomains(platform, option) {
+  const tokens = [
+    option?.key,
+    option?.label,
+    option?.target_name,
+    option?.account_selector,
+    option?.account_scope,
+    option?.deployment_selector,
+    option?.service_name,
+  ]
+    .join(" ")
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+  if (platform === "longbridge" && tokens.includes("hk")) return ["hk_equity"];
+  return ["us_equity"];
+}
+
+function normalizeSupportedDomains(value, fieldName) {
+  const items = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[\s,;]+/);
+  if (!items.length || items.length > SUPPORTED_STRATEGY_DOMAINS.length) {
+    throw new Error(`${fieldName} must list one or more strategy domains`);
+  }
+  const result = [];
+  for (const item of items) {
+    const domain = cleanStrategyDomain(item, fieldName);
+    if (!result.includes(domain)) result.push(domain);
+  }
+  if (!result.length) throw new Error(`${fieldName} must list one or more strategy domains`);
+  return result;
+}
+
+function cleanStrategyDomain(value, fieldName) {
+  return cleanChoice(value, SUPPORTED_STRATEGY_DOMAINS, fieldName);
 }
 
 function addConfigOptional(target, key, value, cleaner) {
@@ -1389,3 +1458,12 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
 }
+
+export const __test = {
+  assertConfiguredAccount,
+  assertStrategyAllowedForAccount,
+  inferAccountSupportedDomains,
+  normalizeAccountOptionsPayload,
+  normalizeStrategyProfilesPayload,
+  supportedDomainsForAccount,
+};

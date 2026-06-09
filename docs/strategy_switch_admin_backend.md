@@ -8,7 +8,7 @@ Goal: keep the open-source switch page public and read-only by default, while al
 - Public access: unsigned visitors can view the page, but cannot dispatch the workflow.
 - Allowed switch users/orgs: `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, KV `auth_config.allowed_logins`, KV `auth_config.allowed_orgs`, and all admins.
 - Admin users/orgs: `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, KV `auth_config.admin_logins`, and KV `auth_config.admin_orgs`.
-- Account dropdowns: KV `account_options` first, falling back to `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
+- Account dropdowns and account strategy domains: KV `account_options` first, falling back to `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
 - Audit log: each admin save appends to KV `audit_log`, capped at 50 entries.
 
 ## Cloudflare KV
@@ -42,6 +42,7 @@ Without the KV binding, `/admin` is read-only and the Worker falls back to secre
 ## Security Boundary
 
 - The admin backend stores GitHub logins, GitHub organization names, and account routing metadata only.
+- Account config may include `supported_domains`, such as `us_equity` or `hk_equity`, so unsupported strategies are filtered in the UI and rejected by the Worker.
 - OAuth requests the `read:org` scope to verify membership in configured admin or allowlist organizations.
 - Broker passwords, tokens, API keys, and cloud credentials stay out of this config.
 - Admin writes use POST and same-origin checks.

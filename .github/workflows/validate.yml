@@ -25,6 +25,7 @@ jobs:
           python3 scripts/sync_strategy_switch_page_asset.py
           git diff --exit-code -- web/strategy-switch-console/page_asset.js web/strategy-switch-console/strategy_profiles_asset.js
           jq empty web/strategy-switch-console/strategy-profiles.example.json
+          node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           sed -n '/<script>/,/<\/script>/p' web/strategy-switch-console/index.html | sed '1d;$d' | node --check --input-type=commonjs
           node --check --input-type=module < web/strategy-switch-console/page_asset.js
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js

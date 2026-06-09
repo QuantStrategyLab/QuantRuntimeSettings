@@ -5,21 +5,24 @@
       "label": "hk",
       "target_name": "hk",
       "account_selector": "HK",
-      "default_strategy_profile": "hk_low_vol_dividend_quality_snapshot"
+      "default_strategy_profile": "hk_low_vol_dividend_quality_snapshot",
+      "supported_domains": ["hk_equity"]
     },
     {
       "key": "sg",
       "label": "sg",
       "target_name": "sg",
       "account_selector": "SG",
-      "default_strategy_profile": "tqqq_growth_income"
+      "default_strategy_profile": "tqqq_growth_income",
+      "supported_domains": ["us_equity"]
     },
     {
       "key": "paper",
       "label": "paper",
       "target_name": "paper",
       "account_selector": "PAPER",
-      "default_strategy_profile": "mega_cap_leader_rotation_top50_balanced"
+      "default_strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+      "supported_domains": ["us_equity"]
     }
   ],
   "ibkr": [
@@ -31,7 +34,8 @@
       "deployment_selector": "live-u1599-tqqq",
       "account_scope": "live-u1599-tqqq",
       "service_name": "interactive-brokers-live-u1599-tqqq-service",
-      "default_strategy_profile": "tqqq_growth_income"
+      "default_strategy_profile": "tqqq_growth_income",
+      "supported_domains": ["us_equity"]
     },
     {
       "key": "u16608560",
@@ -41,7 +45,8 @@
       "deployment_selector": "live-u1660-soxl",
       "account_scope": "live-u1660-soxl",
       "service_name": "interactive-brokers-live-u1660-soxl-service",
-      "default_strategy_profile": "soxl_soxx_trend_income"
+      "default_strategy_profile": "soxl_soxx_trend_income",
+      "supported_domains": ["us_equity"]
     },
     {
       "key": "u18336562",
@@ -51,7 +56,8 @@
       "deployment_selector": "live-u1833-smart-dca",
       "account_scope": "live-u1833-smart-dca",
       "service_name": "interactive-brokers-live-u1833-smart-dca-service",
-      "default_strategy_profile": "nasdaq_sp500_smart_dca"
+      "default_strategy_profile": "nasdaq_sp500_smart_dca",
+      "supported_domains": ["us_equity"]
     }
   ],
   "schwab": [
@@ -59,7 +65,8 @@
       "key": "default",
       "label": "default",
       "target_name": "default",
-      "default_strategy_profile": "soxl_soxx_trend_income"
+      "default_strategy_profile": "soxl_soxx_trend_income",
+      "supported_domains": ["us_equity"]
     }
   ],
   "firstrade": [
@@ -67,7 +74,8 @@
       "key": "default",
       "label": "default",
       "target_name": "default",
-      "default_strategy_profile": "mega_cap_leader_rotation_top50_balanced"
+      "default_strategy_profile": "mega_cap_leader_rotation_top50_balanced",
+      "supported_domains": ["us_equity"]
     }
   ]
 }

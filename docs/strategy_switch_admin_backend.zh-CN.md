@@ -8,7 +8,7 @@
 - 公开访问：未登录用户只能看到只读切换页，不能触发 workflow。
 - 可切换用户/组织：来自 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、KV `auth_config.allowed_logins`、KV `auth_config.allowed_orgs` 和管理员配置。
 - 管理员用户/组织：来自 `STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS`、KV `auth_config.admin_logins` 和 KV `auth_config.admin_orgs`。
-- 账号下拉：优先读取 KV `account_options`，没有 KV 配置时回退 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
+- 账号下拉和账号策略市场范围：优先读取 KV `account_options`，没有 KV 配置时回退 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
 - 审计：管理员保存配置后写入 KV `audit_log`，保留最近 50 条。
 
 ## Cloudflare KV
@@ -42,6 +42,7 @@ audit_log
 ## 安全边界
 
 - 后台只保存 GitHub login、GitHub 组织名和账号路由信息。
+- 账号配置可以包含 `supported_domains`，例如 `us_equity` 或 `hk_equity`，用于前端过滤不支持的策略，并由 Worker 后端再次拒绝非法组合。
 - OAuth 会请求 `read:org` scope，用于校验登录用户是否属于配置的管理员组织或 allowlist 组织。
 - 不保存 broker 密码、token、API key 或云密钥。
 - 后台写操作使用 POST，并校验 Same-Origin。
