@@ -1059,7 +1059,6 @@
       strip.innerHTML = "";
       for (const platform of Object.keys(platformMeta)) {
         ensureAccountSelection(platform);
-        syncStrategyForAccount(platform);
         const meta = platformMeta[platform];
         const form = state.forms[platform];
         const account = selectedAccount(platform);
