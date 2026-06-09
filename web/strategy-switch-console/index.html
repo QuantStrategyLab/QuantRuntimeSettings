@@ -362,6 +362,9 @@
       outline: none;
       font-size: 14px;
       font-weight: 680;
+      overflow: hidden;
+      padding-right: 42px;
+      text-overflow: ellipsis;
       transition: border-color 150ms ease, box-shadow 150ms ease;
     }
 
@@ -551,6 +554,10 @@
         grid-template-columns: 1fr;
         gap: 3px;
       }
+
+      select {
+        font-size: 13px;
+      }
     }
 
     @media (prefers-reduced-motion: no-preference) {
@@ -736,8 +743,8 @@
         mode: "模式",
         live: "实盘",
         paper: "Dry run",
-        summary: "切换摘要",
-        copySummary: "复制摘要",
+        summary: "当前配置状态",
+        copySummary: "复制状态",
         loginToRun: "登录后切换",
         configureAccounts: "配置账号后切换",
         runSwitch: "一键切换",
@@ -758,7 +765,7 @@
         action: "动作",
         actionValue: "切换并同步",
         confirm: "确认词",
-        copied: "已复制摘要",
+        copied: "已复制状态",
         dispatching: "正在触发 workflow...",
         dispatched: "已触发 workflow",
         dispatchFailed: "触发失败",
@@ -766,6 +773,14 @@
         strategyMeta: "该账号仅显示 {domains} 策略",
         usEquity: "美股",
         hkEquity: "港股",
+        currentStrategy: "当前策略",
+        currentMode: "当前模式",
+        readSource: "读取来源",
+        nextStrategy: "选择策略",
+        nextMode: "选择模式",
+        notRead: "未读取",
+        publicPreview: "公开示例",
+        accountConfigLoaded: "账号配置已加载",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -779,8 +794,8 @@
         mode: "Mode",
         live: "Live",
         paper: "Dry run",
-        summary: "Switch Summary",
-        copySummary: "Copy summary",
+        summary: "Current Config",
+        copySummary: "Copy state",
         loginToRun: "Sign in to switch",
         configureAccounts: "Configure accounts",
         runSwitch: "Switch now",
@@ -801,7 +816,7 @@
         action: "Action",
         actionValue: "Switch and sync",
         confirm: "Confirm",
-        copied: "Summary copied",
+        copied: "State copied",
         dispatching: "Dispatching workflow...",
         dispatched: "Workflow dispatched",
         dispatchFailed: "Dispatch failed",
@@ -809,6 +824,14 @@
         strategyMeta: "This account only shows {domains} strategies",
         usEquity: "US equity",
         hkEquity: "HK equity",
+        currentStrategy: "Current strategy",
+        currentMode: "Current mode",
+        readSource: "Read source",
+        nextStrategy: "Selected strategy",
+        nextMode: "Selected mode",
+        notRead: "Not read",
+        publicPreview: "Public preview",
+        accountConfigLoaded: "Account config loaded",
       },
     };
 
@@ -1081,15 +1104,20 @@
 
     function summaryRows(inputs) {
       const account = selectedAccount();
+      const currentEntry = currentEntryForAccount(state.selected, account);
+      const currentProfile = currentStrategyForAccount(state.selected, account);
+      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const source = currentEntry?.source
+        || (state.configSource === "private" ? t("accountConfigLoaded") : t("publicPreview"));
       return [
         [t("repository"), repositories[state.selected]],
         [t("selectedAccount"), account.label],
-        [t("selectedStrategy"), strategyLabel(inputs.strategy_profile)],
-        [t("selectedMode"), modeLabel(inputs.execution_mode)],
+        [t("currentStrategy"), currentProfile ? strategyLabel(currentProfile) : t("notRead")],
+        [t("currentMode"), currentMode ? modeLabel(currentMode) : t("notRead")],
+        [t("readSource"), source],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
-        [t("target"), inputs.target_name],
-        [t("accountSelector"), inputs.account_selector || "auto"],
-        [t("service"), inputs.service_name || derivedService(state.selected, inputs.target_name)],
+        [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
+        [t("nextMode"), modeLabel(inputs.execution_mode)],
         [t("action"), t("actionValue")],
         [t("confirm"), inputs.confirm_apply],
       ];
@@ -1192,7 +1220,10 @@
         list.appendChild(row);
       }
 
-      el("mode-pill").textContent = modeLabel(inputs.execution_mode);
+      const account = selectedAccount();
+      const currentEntry = currentEntryForAccount(state.selected, account);
+      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
     }
 
     function renderAuth() {
