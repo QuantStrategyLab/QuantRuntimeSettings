@@ -43,6 +43,11 @@ const crossOriginError = captureError(
 assert.match(crossOriginError.message, /cross-origin request rejected/);
 assert.equal(crossOriginError.status, 403);
 
+assert.equal(
+  await __test.withTimeout(new Promise((resolve) => setTimeout(() => resolve("late"), 25)), 1, "fallback"),
+  "fallback",
+);
+
 function captureError(fn) {
   try {
     fn();

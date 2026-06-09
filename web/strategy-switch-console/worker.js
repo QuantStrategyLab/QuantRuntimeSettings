@@ -11,6 +11,7 @@ const ACCOUNT_OPTIONS_KEY = "account_options";
 const STRATEGY_PROFILES_KEY = "strategy_profiles";
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
+const CURRENT_STRATEGIES_TIMEOUT_MS = 3500;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity"];
@@ -452,11 +453,10 @@ async function configPayload(request, env) {
   if (!session?.allowed) return { accountOptions: null };
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
-  const currentStrategies = await loadCurrentStrategies(accountConfig.options, env);
   return {
     accountOptions: accountConfig.options,
     strategyProfiles,
-    currentStrategies,
+    currentStrategies: await loadCurrentStrategiesSafely(accountConfig.options, env),
   };
 }
 
@@ -501,6 +501,26 @@ async function loadCurrentStrategies(accountOptions, env) {
     if (Object.keys(platformStrategies).length) currentStrategies[platform] = platformStrategies;
   }
   return currentStrategies;
+}
+
+async function loadCurrentStrategiesSafely(accountOptions, env) {
+  try {
+    return await withTimeout(
+      loadCurrentStrategies(accountOptions, env),
+      CURRENT_STRATEGIES_TIMEOUT_MS,
+      {},
+    );
+  } catch {
+    return {};
+  }
+}
+
+function withTimeout(promise, timeoutMs, fallback) {
+  let timeoutId;
+  const timeout = new Promise((resolve) => {
+    timeoutId = setTimeout(() => resolve(fallback), timeoutMs);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
 async function resolveCurrentStrategyForAccount({ platform, option, optionsCount, repository, readVariable }) {
@@ -1488,4 +1508,5 @@ export const __test = {
   requireSameOrigin,
   responseHeaders,
   supportedDomainsForAccount,
+  withTimeout,
 };
