@@ -845,6 +845,7 @@
         live: "实盘",
         paper: "Dry run",
         summary: "当前配置状态",
+        publicSummary: "公开预览",
         copySummary: "复制状态",
         loginToRun: "登录后切换",
         loadingConfig: "读取配置中",
@@ -894,6 +895,7 @@
         live: "Live",
         paper: "Dry run",
         summary: "Current Config",
+        publicSummary: "Public Preview",
         copySummary: "Copy state",
         loginToRun: "Sign in to switch",
         loadingConfig: "Loading config",
@@ -1197,13 +1199,16 @@
     function summaryRows(inputs) {
       const account = selectedAccount();
       const currentProfile = currentStrategyForAccount(state.selected, account);
-      return [
+      const rows = [
         [t("repository"), repositories[state.selected]],
         [t("selectedAccount"), account.label],
-        [t("currentStrategy"), currentProfile ? strategyLabel(currentProfile) : t("notRead")],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
         [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
       ];
+      if (state.auth.allowed) {
+        rows.splice(2, 0, [t("currentStrategy"), currentProfile ? strategyLabel(currentProfile) : t("notRead")]);
+      }
+      return rows;
     }
 
     function applyLanguage() {
@@ -1292,6 +1297,7 @@
       const inputs = buildInputs();
       const list = el("summary-list");
       list.replaceChildren();
+      document.querySelector(".summary-head h2").textContent = state.auth.allowed ? t("summary") : t("publicSummary");
       for (const [label, value] of summaryRows(inputs)) {
         const row = document.createElement("div");
         row.className = "summary-row";
@@ -1303,10 +1309,7 @@
         list.appendChild(row);
       }
 
-      const account = selectedAccount();
-      const currentEntry = currentEntryForAccount(state.selected, account);
-      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
-      el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
+      el("mode-pill").textContent = modeLabel(inputs.execution_mode);
     }
 
     function renderAuth() {

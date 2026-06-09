@@ -13,6 +13,7 @@ assert.equal(indexHtml.includes(".innerHTML"), false);
 assert.ok(indexHtml.includes('<body class="app-loading">'));
 assert.ok(indexHtml.includes('id="boot-screen"'));
 assert.ok(indexHtml.includes('id="app-shell"'));
+assert.ok(indexHtml.includes('publicSummary: "公开预览"'));
 assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
 
 const headers = __test.responseHeaders({ "Content-Type": "text/html; charset=utf-8" });
