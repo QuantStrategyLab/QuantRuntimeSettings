@@ -407,16 +407,28 @@
     .quick-form {
       display: grid;
       grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      align-items: start;
       gap: 14px;
     }
 
     .control-block {
       display: grid;
+      grid-template-rows: auto 48px minmax(20px, auto);
+      align-content: start;
       gap: 8px;
       min-width: 0;
       color: var(--muted);
       font-size: 12px;
       font-weight: 760;
+    }
+
+    .mode-block {
+      grid-column: 1;
+    }
+
+    .min-reserve-block,
+    .reserve-ratio-block {
+      grid-column: 2;
     }
 
     select,
@@ -635,6 +647,12 @@
         grid-template-columns: 1fr;
       }
 
+      .mode-block,
+      .min-reserve-block,
+      .reserve-ratio-block {
+        grid-column: auto;
+      }
+
       .switch-panel {
         padding: 18px;
       }
@@ -736,7 +754,7 @@
             <span class="selection-meta" id="strategy-meta"></span>
           </label>
 
-          <div class="control-block">
+          <div class="control-block mode-block">
             <span data-i18n="mode">模式</span>
             <div class="mode" id="mode-control">
               <button type="button" data-mode="live" class="active" data-i18n="live">实盘</button>
@@ -744,13 +762,13 @@
             </div>
           </div>
 
-          <label class="control-block">
+          <label class="control-block min-reserve-block">
             <span id="min-reserved-cash-label">最小预留现金</span>
             <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1" placeholder="150">
             <span class="selection-meta" data-i18n="reservedCashMeta">留空则沿用当前平台默认值。</span>
           </label>
 
-          <label class="control-block">
+          <label class="control-block reserve-ratio-block">
             <span data-i18n="reservedCashRatio">预留现金比例</span>
             <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01" placeholder="0.03">
             <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
@@ -940,7 +958,11 @@
       ? storedLang
       : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
     const clone = (value) => JSON.parse(JSON.stringify(value));
-    const defaultReserveForm = () => ({ minReservedCashUsd: "", reservedCashRatio: "" });
+    const defaultReserveForm = () => ({
+      minReservedCashUsd: "",
+      reservedCashRatio: "",
+      reservedCashTouched: false,
+    });
 
     const state = {
       selected: "longbridge",
@@ -1103,6 +1125,33 @@
       return profile || "";
     }
 
+    function currentReservePolicyForAccount(platform, account) {
+      const entry = currentEntryForAccount(platform, account);
+      return reservePolicyFromEntry(entry);
+    }
+
+    function reservePolicyFromEntry(entry) {
+      return {
+        minReservedCashUsd: cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd),
+        reservedCashRatio: cleanDisplayRatio(entry?.reserved_cash_ratio),
+      };
+    }
+
+    function cleanDisplayNumber(value) {
+      const text = String(value ?? "").trim();
+      if (!text || text.length > 32 || !/^(?:\d+|\d*\.\d+)$/.test(text)) return "";
+      const numeric = Number(text);
+      if (!Number.isFinite(numeric) || numeric < 0) return "";
+      return text;
+    }
+
+    function cleanDisplayRatio(value) {
+      const text = cleanDisplayNumber(value);
+      if (!text) return "";
+      const numeric = Number(text);
+      return numeric >= 0 && numeric <= 1 ? text : "";
+    }
+
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
       if (mode === "live" || mode === "paper") return mode;
@@ -1160,6 +1209,15 @@
         platform,
         account,
       );
+      syncReservePolicyForAccount(platform);
+    }
+
+    function syncReservePolicyForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form || form.reservedCashTouched) return;
+      const policy = currentReservePolicyForAccount(platform, selectedAccount(platform));
+      form.minReservedCashUsd = policy.minReservedCashUsd;
+      form.reservedCashRatio = policy.reservedCashRatio;
     }
 
     function ensureAccountSelection(platform) {
@@ -1167,7 +1225,9 @@
       if (!options.length) return;
       if (!options.some((option) => option.key === state.forms[platform].accountKey)) {
         state.forms[platform].accountKey = options[0].key;
+        state.forms[platform].reservedCashTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
+        syncReservePolicyForAccount(platform);
       }
     }
 
@@ -1226,14 +1286,27 @@
       return inputs;
     }
 
-    function reservedCashPolicyText(inputs) {
+    function reservedCashPolicyText(inputs, platform = state.selected, account = selectedAccount(platform), fallback = t("unchanged")) {
       const floor = inputs.min_reserved_cash_usd;
       const ratio = inputs.reserved_cash_ratio;
-      const currency = selectedCashCurrency();
-      if (!floor && !ratio) return t("unchanged");
+      const currency = selectedCashCurrency(platform, account);
+      if (!floor && !ratio) return fallback;
       if (floor && ratio) return `max(${floor} ${currency}, ${formatRatioPercent(ratio)})`;
       if (floor) return `${floor} ${currency}`;
       return formatRatioPercent(ratio);
+    }
+
+    function currentReservedCashPolicyText(platform = state.selected, account = selectedAccount(platform)) {
+      const policy = currentReservePolicyForAccount(platform, account);
+      return reservedCashPolicyText(
+        {
+          min_reserved_cash_usd: policy.minReservedCashUsd,
+          reserved_cash_ratio: policy.reservedCashRatio,
+        },
+        platform,
+        account,
+        t("notRead"),
+      );
     }
 
     function formatRatioPercent(value) {
@@ -1249,7 +1322,7 @@
         [t("repository"), state.repositories[state.selected] || defaultRepositories[state.selected]],
         [t("selectedAccount"), account.label],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
-        [t("reservedCashPolicy"), reservedCashPolicyText(inputs)],
+        [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
         [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
       ];
       if (state.auth.allowed) {
@@ -1562,6 +1635,8 @@
             strategy_profile: profile,
             execution_mode: normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only),
             dry_run_only: entry?.dry_run_only === true || entry?.dry_run_only === "true" || entry?.dry_run_only === "1",
+            min_reserved_cash_usd: cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd),
+            reserved_cash_ratio: cleanDisplayRatio(entry?.reserved_cash_ratio),
             source: entry?.source ? String(entry.source) : "",
           };
         }
@@ -1619,6 +1694,7 @@
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
+      state.forms[state.selected].reservedCashTouched = false;
       syncStrategyForAccount(state.selected);
       render();
     });
@@ -1636,11 +1712,13 @@
     });
 
     el("min-reserved-cash-input").addEventListener("input", () => {
+      state.forms[state.selected].reservedCashTouched = true;
       state.forms[state.selected].minReservedCashUsd = el("min-reserved-cash-input").value.trim();
       render();
     });
 
     el("reserved-cash-ratio-input").addEventListener("input", () => {
+      state.forms[state.selected].reservedCashTouched = true;
       state.forms[state.selected].reservedCashRatio = el("reserved-cash-ratio-input").value.trim();
       render();
     });
