@@ -96,13 +96,13 @@ Each account item supports:
 
 ```json
 {
-  "key": "u15998061",
-  "label": "u15998061",
-  "target_name": "u15998061",
-  "account_selector": "U15998061",
-  "deployment_selector": "live-u1599-tqqq",
-  "account_scope": "live-u1599-tqqq",
-  "service_name": "interactive-brokers-live-u1599-tqqq-service",
+  "key": "ibkr-primary",
+  "label": "ibkr-primary",
+  "target_name": "ibkr-primary",
+  "account_selector": "DEMO_IBKR_PRIMARY",
+  "deployment_selector": "demo-ibkr-tqqq",
+  "account_scope": "demo-ibkr-tqqq",
+  "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
   "default_strategy_profile": "tqqq_growth_income",
   "supported_domains": ["us_equity", "hk_equity"]
 }
