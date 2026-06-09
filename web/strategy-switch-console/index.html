@@ -746,9 +746,11 @@
         summary: "当前配置状态",
         copySummary: "复制状态",
         loginToRun: "登录后切换",
+        loadingConfig: "读取配置中",
         configureAccounts: "配置账号后切换",
         runSwitch: "一键切换",
         readonlyNote: "登录后才可执行切换。",
+        loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "点击后会触发 workflow，并同步目标平台服务。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
@@ -797,9 +799,11 @@
         summary: "Current Config",
         copySummary: "Copy state",
         loginToRun: "Sign in to switch",
+        loadingConfig: "Loading config",
         configureAccounts: "Configure accounts",
         runSwitch: "Switch now",
         readonlyNote: "Sign in to switch.",
+        loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "This dispatches the workflow and syncs the target platform service.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
@@ -1108,7 +1112,9 @@
       const currentProfile = currentStrategyForAccount(state.selected, account);
       const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
       const source = currentEntry?.source
-        || (state.configSource === "private" ? t("accountConfigLoaded") : t("publicPreview"));
+        || (state.configSource === "loading"
+          ? t("loadingConfig")
+          : (state.configSource === "private" ? t("accountConfigLoaded") : t("publicPreview")));
       return [
         [t("repository"), repositories[state.selected]],
         [t("selectedAccount"), account.label],
@@ -1242,16 +1248,19 @@
 
       const dispatch = el("dispatch-button");
       const hasPrivateAccounts = state.configSource === "private";
+      const loadingConfig = state.configSource === "loading";
       const hasValidStrategy = hasValidStrategySelection();
-      dispatch.disabled = !state.auth.allowed || !hasPrivateAccounts || !hasValidStrategy;
+      dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy;
       dispatch.textContent = state.auth.allowed
-        ? (hasPrivateAccounts ? t("runSwitch") : t("configureAccounts"))
+        ? (loadingConfig ? t("loadingConfig") : (hasPrivateAccounts ? t("runSwitch") : t("configureAccounts")))
         : t("loginToRun");
       const note = el("action-note");
       note.textContent = state.auth.allowed
-        ? (hasPrivateAccounts ? (hasValidStrategy ? t("readyNote") : t("invalidStrategyNote")) : t("missingConfigNote"))
+        ? (loadingConfig
+          ? t("loadingConfigNote")
+          : (hasPrivateAccounts ? (hasValidStrategy ? t("readyNote") : t("invalidStrategyNote")) : t("missingConfigNote")))
         : t("readonlyNote");
-      note.classList.toggle("warning", state.auth.allowed && (!hasPrivateAccounts || !hasValidStrategy));
+      note.classList.toggle("warning", state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy));
     }
 
     function render() {
@@ -1296,6 +1305,8 @@
 
     async function refreshConfig() {
       if (!state.auth.available || !state.auth.allowed) return;
+      state.configSource = "loading";
+      render();
       try {
         const response = await fetch("/api/config", { cache: "no-store" });
         if (!response.ok) throw new Error("no config");
