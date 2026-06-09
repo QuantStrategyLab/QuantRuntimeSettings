@@ -4,3 +4,7 @@ __pycache__/
 .venv/
 .wrangler/
 local/
+.env
+.env.*
+!*.env.example
+web/strategy-switch-console/wrangler.toml

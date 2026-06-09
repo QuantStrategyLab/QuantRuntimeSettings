@@ -26,8 +26,8 @@ QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategy
 ## 快速开始
 
 ```bash
-python -m pip install -e .
-python -m pytest -q
+python3 scripts/runtime_settings.py validate
+python3 -m unittest discover -s tests -v
 ```
 
 ## 一键切换策略
