@@ -19,7 +19,7 @@ assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !
 assert.equal(indexHtml.includes("publicSummary"), false);
 assert.ok(indexHtml.includes("function hasPrivateConfig()"));
 assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
-assert.equal(indexHtml.includes("u15998061"), false);
+assert.equal(indexHtml.includes("ibkr-primary"), false);
 assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(indexHtml.includes('account_selector: "SG"'), false);
 assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
@@ -28,7 +28,7 @@ const servedPageResponse = await worker.fetch(new Request("https://switch.exampl
 const servedHtml = await servedPageResponse.text();
 assert.equal(servedPageResponse.status, 200);
 assert.ok(servedHtml.includes("function hasPrivateConfig()"));
-assert.equal(servedHtml.includes("u15998061"), false);
+assert.equal(servedHtml.includes("ibkr-primary"), false);
 assert.equal(servedHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(servedHtml.includes('account_selector: "SG"'), false);
 
@@ -131,13 +131,13 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
     ],
     ibkr: [
       {
-        key: "u15998061",
-        label: "u15998061",
-        target_name: "u15998061",
-        account_selector: "U15998061",
-        deployment_selector: "live-u1599-tqqq",
-        account_scope: "live-u1599-tqqq",
-        service_name: "interactive-brokers-live-u1599-tqqq-service",
+        key: "ibkr-primary",
+        label: "ibkr-primary",
+        target_name: "ibkr-primary",
+        account_selector: "DEMO_IBKR_PRIMARY",
+        deployment_selector: "demo-ibkr-tqqq",
+        account_scope: "demo-ibkr-tqqq",
+        service_name: "interactive-brokers-demo-ibkr-tqqq-service",
       },
     ],
     schwab: [
@@ -260,11 +260,11 @@ __test.assertStrategyAllowedForAccount(
 const ibkrAccount = __test.assertConfiguredAccount(
   {
     platform: "ibkr",
-    target_name: "u15998061",
-    account_selector: "U15998061",
-    deployment_selector: "live-u1599-tqqq",
-    account_scope: "live-u1599-tqqq",
-    service_name: "interactive-brokers-live-u1599-tqqq-service",
+    target_name: "ibkr-primary",
+    account_selector: "DEMO_IBKR_PRIMARY",
+    deployment_selector: "demo-ibkr-tqqq",
+    account_scope: "demo-ibkr-tqqq",
+    service_name: "interactive-brokers-demo-ibkr-tqqq-service",
     strategy_profile: "tqqq_growth_income",
   },
   accountOptions,
