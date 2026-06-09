@@ -469,6 +469,13 @@
       padding-top: 2px;
     }
 
+    .public-note {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.55;
+      max-width: 560px;
+    }
+
     .run-button {
       min-height: 56px;
       border: 0;
@@ -705,7 +712,9 @@
           <h2 id="platform-title">LongBridge</h2>
         </div>
 
-        <div class="quick-form">
+        <p class="public-note" id="public-note" hidden data-i18n="publicReadonly">登录后查看账号配置。</p>
+
+        <div class="quick-form" id="quick-form">
           <label class="control-block">
             <span data-i18n="account">目标账号</span>
             <select id="account-select"></select>
@@ -727,7 +736,7 @@
           </div>
         </div>
 
-        <div class="run-area">
+        <div class="run-area" id="run-area">
           <button class="run-button" id="dispatch-button" type="button" disabled data-i18n="loginToRun">登录后切换</button>
           <p class="action-note" id="action-note">登录后才可执行切换。</p>
           <p class="toast" id="toast" aria-live="polite"></p>
@@ -781,50 +790,16 @@
 
     const defaultAccountOptions = {
       longbridge: [
-        { key: "hk", label: "hk", target_name: "hk", account_selector: "HK", default_strategy_profile: "hk_low_vol_dividend_quality_snapshot", supported_domains: ["us_equity", "hk_equity"] },
-        { key: "sg", label: "sg", target_name: "sg", account_selector: "SG", default_strategy_profile: "soxl_soxx_trend_income", supported_domains: ["us_equity", "hk_equity"] },
-        { key: "paper", label: "paper", target_name: "paper", account_selector: "PAPER", default_strategy_profile: "mega_cap_leader_rotation_top50_balanced", supported_domains: ["us_equity", "hk_equity"] },
+        { key: "preview", label: "LongBridge", target_name: "preview", supported_domains: ["us_equity", "hk_equity"] },
       ],
       ibkr: [
-        {
-          key: "u15998061",
-          label: "u15998061",
-          target_name: "u15998061",
-          account_selector: "U15998061",
-          deployment_selector: "live-u1599-tqqq",
-          account_scope: "live-u1599-tqqq",
-          service_name: "interactive-brokers-live-u1599-tqqq-service",
-          default_strategy_profile: "tqqq_growth_income",
-          supported_domains: ["us_equity", "hk_equity"],
-        },
-        {
-          key: "u16608560",
-          label: "u16608560",
-          target_name: "u16608560",
-          account_selector: "U16608560",
-          deployment_selector: "live-u1660-soxl",
-          account_scope: "live-u1660-soxl",
-          service_name: "interactive-brokers-live-u1660-soxl-service",
-          default_strategy_profile: "soxl_soxx_trend_income",
-          supported_domains: ["us_equity", "hk_equity"],
-        },
-        {
-          key: "u18336562",
-          label: "u18336562",
-          target_name: "u18336562",
-          account_selector: "U18336562",
-          deployment_selector: "live-u1833-smart-dca",
-          account_scope: "live-u1833-smart-dca",
-          service_name: "interactive-brokers-live-u1833-smart-dca-service",
-          default_strategy_profile: "nasdaq_sp500_smart_dca",
-          supported_domains: ["us_equity", "hk_equity"],
-        },
+        { key: "preview", label: "IBKR", target_name: "preview", supported_domains: ["us_equity", "hk_equity"] },
       ],
       schwab: [
-        { key: "default", label: "default", target_name: "default", default_strategy_profile: "soxl_soxx_trend_income", supported_domains: ["us_equity"] },
+        { key: "preview", label: "Schwab", target_name: "preview", supported_domains: ["us_equity"] },
       ],
       firstrade: [
-        { key: "default", label: "default", target_name: "default", default_strategy_profile: "mega_cap_leader_rotation_top50_balanced", supported_domains: ["us_equity"] },
+        { key: "preview", label: "Firstrade", target_name: "preview", supported_domains: ["us_equity"] },
       ],
     };
 
@@ -855,6 +830,7 @@
         configureAccounts: "配置账号后切换",
         runSwitch: "一键切换",
         readonlyNote: "登录后才可执行切换。",
+        publicReadonly: "登录后查看账号配置。",
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "点击后会触发 workflow，并同步目标平台服务。",
@@ -902,6 +878,7 @@
         configureAccounts: "Configure accounts",
         runSwitch: "Switch now",
         readonlyNote: "Sign in to switch.",
+        publicReadonly: "Sign in to view account config.",
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "This dispatches the workflow and syncs the target platform service.",
@@ -941,10 +918,10 @@
       currentStrategies: {},
       configSource: "default",
       forms: {
-        longbridge: { accountKey: "hk", strategy: "hk_low_vol_dividend_quality_snapshot", executionMode: "live" },
-        ibkr: { accountKey: "u15998061", strategy: "tqqq_growth_income", executionMode: "live" },
-        schwab: { accountKey: "default", strategy: "soxl_soxx_trend_income", executionMode: "live" },
-        firstrade: { accountKey: "default", strategy: "mega_cap_leader_rotation_top50_balanced", executionMode: "live" },
+        longbridge: { accountKey: "preview", strategy: "", executionMode: "live" },
+        ibkr: { accountKey: "preview", strategy: "", executionMode: "live" },
+        schwab: { accountKey: "preview", strategy: "", executionMode: "live" },
+        firstrade: { accountKey: "preview", strategy: "", executionMode: "live" },
       },
     };
 
@@ -961,6 +938,10 @@
       const options = optionsFor(platform);
       const form = state.forms[platform];
       return options.find((option) => option.key === form.accountKey) || options[0];
+    }
+
+    function hasPrivateConfig() {
+      return Boolean(state.auth.allowed && state.configSource === "private");
     }
 
     function cleanStrategyProfile(value) {
@@ -1220,6 +1201,7 @@
     function renderPlatforms() {
       const strip = el("platform-strip");
       strip.replaceChildren();
+      const showPrivateConfig = hasPrivateConfig();
       for (const platform of Object.keys(platformMeta)) {
         ensureAccountSelection(platform);
         const meta = platformMeta[platform];
@@ -1237,11 +1219,14 @@
         copyNode.className = "platform-copy";
         const labelNode = document.createElement("strong");
         labelNode.textContent = meta.label;
-        const accountNode = document.createElement("span");
-        accountNode.textContent = account.label;
-        const strategyNode = document.createElement("small");
-        strategyNode.textContent = strategyLabel(form.strategy);
-        copyNode.append(labelNode, accountNode, strategyNode);
+        copyNode.append(labelNode);
+        if (showPrivateConfig) {
+          const accountNode = document.createElement("span");
+          accountNode.textContent = account.label;
+          const strategyNode = document.createElement("small");
+          strategyNode.textContent = strategyLabel(form.strategy);
+          copyNode.append(accountNode, strategyNode);
+        }
         button.append(mark, copyNode);
         strip.appendChild(button);
       }
@@ -1256,9 +1241,22 @@
       const choices = strategyChoicesForAccount(platform, account);
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
+      const showPrivateControls = hasPrivateConfig();
 
       el("switch-panel").style.setProperty("--platform-color", meta.accent);
       el("platform-title").textContent = meta.label;
+      el("quick-form").hidden = !showPrivateControls;
+      el("run-area").hidden = !showPrivateControls;
+      el("public-note").hidden = showPrivateControls;
+      el("public-note").textContent = state.auth.allowed ? t("missingConfigNote") : t("publicReadonly");
+
+      if (!showPrivateControls) {
+        accountSelect.replaceChildren();
+        strategySelect.replaceChildren();
+        el("account-meta").textContent = "";
+        el("strategy-meta").textContent = "";
+        return;
+      }
 
       accountSelect.replaceChildren();
       if (accounts.length) {
@@ -1292,7 +1290,7 @@
     }
 
     function renderSummary() {
-      const showSummary = Boolean(state.auth.allowed);
+      const showSummary = hasPrivateConfig();
       const summaryPanel = document.querySelector(".summary-panel");
       const switchSurface = document.querySelector(".switch-surface");
       summaryPanel.hidden = !showSummary;
