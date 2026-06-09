@@ -21,6 +21,7 @@ assert.ok(indexHtml.includes("function hasPrivateConfig()"));
 assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
 assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
 assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
+assert.ok(indexHtml.includes('function selectedCashCurrency('));
 assert.equal(indexHtml.includes("ibkr-primary"), false);
 assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(indexHtml.includes('account_selector: "SG"'), false);
@@ -135,6 +136,7 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
         target_name: "hk",
         account_selector: "HK",
         default_strategy_profile: "hk_low_vol_dividend_quality_snapshot",
+        cash_currency: "HKD",
       },
       {
         key: "sg",
@@ -178,6 +180,7 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
 assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
+assert.equal(accountOptions.longbridge[0].cash_currency, "HKD");
 
 const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",

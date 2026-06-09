@@ -745,7 +745,7 @@
           </div>
 
           <label class="control-block">
-            <span data-i18n="minReservedCash">最小预留现金</span>
+            <span id="min-reserved-cash-label">最小预留现金</span>
             <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1" placeholder="150">
             <span class="selection-meta" data-i18n="reservedCashMeta">留空则沿用当前平台默认值。</span>
           </label>
@@ -844,7 +844,7 @@
         mode: "模式",
         live: "实盘",
         paper: "Dry run",
-        minReservedCash: "最小预留现金",
+        minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
         reservedCashMeta: "留空则沿用当前平台默认值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
@@ -898,7 +898,7 @@
         mode: "Mode",
         live: "Live",
         paper: "Dry run",
-        minReservedCash: "Minimum reserved cash",
+        minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
         reservedCashMeta: "Leave blank to keep the platform default.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
@@ -992,6 +992,20 @@
     function domainLabel(domain) {
       if (domain === "hk_equity") return t("hkEquity");
       return t("usEquity");
+    }
+
+    function strategyDomain(profile) {
+      return strategyCatalog[profile]?.domain || "";
+    }
+
+    function selectedCashCurrency(platform = state.selected, account = selectedAccount(platform)) {
+      const configured = String(account?.cash_currency || "").trim().toUpperCase();
+      if (configured === "USD" || configured === "HKD") return configured;
+      const domain = strategyDomain(state.forms[platform]?.strategy);
+      if (domain === "hk_equity") return "HKD";
+      const supported = supportedDomainsForAccount(platform, account);
+      if (supported.length === 1 && supported[0] === "hk_equity") return "HKD";
+      return "USD";
     }
 
     function applyStrategyProfiles(rawProfiles) {
@@ -1215,9 +1229,10 @@
     function reservedCashPolicyText(inputs) {
       const floor = inputs.min_reserved_cash_usd;
       const ratio = inputs.reserved_cash_ratio;
+      const currency = selectedCashCurrency();
       if (!floor && !ratio) return t("unchanged");
-      if (floor && ratio) return `max($${floor}, ${formatRatioPercent(ratio)})`;
-      if (floor) return `$${floor}`;
+      if (floor && ratio) return `max(${floor} ${currency}, ${formatRatioPercent(ratio)})`;
+      if (floor) return `${floor} ${currency}`;
       return formatRatioPercent(ratio);
     }
 
@@ -1340,6 +1355,10 @@
       el("strategy-meta").textContent = account
         ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
         : "";
+      el("min-reserved-cash-label").textContent = t("minReservedCash").replace(
+        "{currency}",
+        selectedCashCurrency(platform, account),
+      );
       minReservedCashInput.value = form.minReservedCashUsd;
       reservedCashRatioInput.value = form.reservedCashRatio;
 
@@ -1507,6 +1526,9 @@
           deployment_selector: item.deployment_selector ? String(item.deployment_selector) : "",
           account_scope: item.account_scope ? String(item.account_scope) : "",
           service_name: item.service_name ? String(item.service_name) : "",
+          cash_currency: item.cash_currency || item.market_currency || item.trading_currency
+            ? String(item.cash_currency || item.market_currency || item.trading_currency).trim().toUpperCase()
+            : "",
           supported_domains: normalizeSupportedDomains(platform, item),
           default_strategy_profile: item.default_strategy_profile || item.strategy_profile
             ? String(item.default_strategy_profile || item.strategy_profile)
