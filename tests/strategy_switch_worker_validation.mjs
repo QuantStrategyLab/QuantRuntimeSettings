@@ -19,6 +19,8 @@ assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !
 assert.equal(indexHtml.includes("publicSummary"), false);
 assert.ok(indexHtml.includes("function hasPrivateConfig()"));
 assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
+assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
+assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.equal(indexHtml.includes("ibkr-primary"), false);
 assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(indexHtml.includes('account_selector: "SG"'), false);
@@ -176,6 +178,32 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
 assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
+
+const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  account_selector: "DEMO_IBKR_PRIMARY",
+  deployment_selector: "demo-ibkr-tqqq",
+  account_scope: "demo-ibkr-tqqq",
+  service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+  apply: "true",
+  trigger_platform_sync: "true",
+  reserved_cash_ratio: "0.03",
+  min_reserved_cash_usd: "150",
+});
+assert.equal(normalizedReservedCashInputs.reserved_cash_ratio, "0.03");
+assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    reserved_cash_ratio: "1.25",
+  }),
+  /reserved_cash_ratio must be between 0 and 1/,
+);
 
 const updatedAccountOptions = __test.updateAccountOptionsDefaultStrategy(
   accountOptions,

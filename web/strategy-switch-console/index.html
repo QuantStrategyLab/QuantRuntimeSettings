@@ -45,7 +45,8 @@
     }
 
     button,
-    select {
+    select,
+    input {
       font: inherit;
       letter-spacing: 0;
     }
@@ -60,6 +61,7 @@
 
     button:focus-visible,
     select:focus-visible,
+    input:focus-visible,
     a:focus-visible {
       outline: 3px solid color-mix(in srgb, var(--platform-color, var(--accent)) 24%, transparent);
       outline-offset: 2px;
@@ -417,7 +419,8 @@
       font-weight: 760;
     }
 
-    select {
+    select,
+    input {
       width: 100%;
       min-width: 0;
       height: 48px;
@@ -435,9 +438,15 @@
       transition: border-color 150ms ease, box-shadow 150ms ease;
     }
 
-    select:focus {
+    select:focus,
+    input:focus {
       border-color: var(--platform-color, var(--accent));
       box-shadow: 0 0 0 3px rgba(19, 111, 99, 0.12);
+    }
+
+    input::placeholder {
+      color: #9aa3ad;
+      opacity: 1;
     }
 
     .selection-meta {
@@ -734,6 +743,18 @@
               <button type="button" data-mode="paper" data-i18n="paper">模拟</button>
             </div>
           </div>
+
+          <label class="control-block">
+            <span data-i18n="minReservedCash">最小预留现金</span>
+            <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1" placeholder="150">
+            <span class="selection-meta" data-i18n="reservedCashMeta">留空则沿用当前平台默认值。</span>
+          </label>
+
+          <label class="control-block">
+            <span data-i18n="reservedCashRatio">预留现金比例</span>
+            <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01" placeholder="0.03">
+            <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
+          </label>
         </div>
 
         <div class="run-area" id="run-area">
@@ -823,6 +844,10 @@
         mode: "模式",
         live: "实盘",
         paper: "Dry run",
+        minReservedCash: "最小预留现金",
+        reservedCashRatio: "预留现金比例",
+        reservedCashMeta: "留空则沿用当前平台默认值。",
+        reservedCashRatioMeta: "例如 0.03 表示 3%。",
         summary: "当前配置状态",
         copySummary: "复制状态",
         loginToRun: "登录后切换",
@@ -840,6 +865,8 @@
         repository: "平台仓库",
         selectedAccount: "账号",
         selectedMarket: "市场",
+        reservedCashPolicy: "预留现金",
+        unchanged: "不变",
         copied: "已复制状态",
         dispatching: "正在触发 workflow...",
         dispatched: "已触发 workflow",
@@ -871,6 +898,10 @@
         mode: "Mode",
         live: "Live",
         paper: "Dry run",
+        minReservedCash: "Minimum reserved cash",
+        reservedCashRatio: "Reserved cash ratio",
+        reservedCashMeta: "Leave blank to keep the platform default.",
+        reservedCashRatioMeta: "Use 0.03 for 3%.",
         summary: "Current Config",
         copySummary: "Copy state",
         loginToRun: "Sign in to switch",
@@ -888,6 +919,8 @@
         repository: "Repository",
         selectedAccount: "Account",
         selectedMarket: "Market",
+        reservedCashPolicy: "Reserved cash",
+        unchanged: "Unchanged",
         copied: "State copied",
         dispatching: "Dispatching workflow...",
         dispatched: "Workflow dispatched",
@@ -907,6 +940,7 @@
       ? storedLang
       : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
     const clone = (value) => JSON.parse(JSON.stringify(value));
+    const defaultReserveForm = () => ({ minReservedCashUsd: "", reservedCashRatio: "" });
 
     const state = {
       selected: "longbridge",
@@ -919,10 +953,10 @@
       configSource: "default",
       repositories: clone(defaultRepositories),
       forms: {
-        longbridge: { accountKey: "preview", strategy: "", executionMode: "live" },
-        ibkr: { accountKey: "preview", strategy: "", executionMode: "live" },
-        schwab: { accountKey: "preview", strategy: "", executionMode: "live" },
-        firstrade: { accountKey: "preview", strategy: "", executionMode: "live" },
+        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
+        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
+        schwab: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
+        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
       },
     };
 
@@ -1173,7 +1207,24 @@
       ]) {
         if (account[field]) inputs[field] = account[field];
       }
+      if (form.reservedCashRatio) inputs.reserved_cash_ratio = form.reservedCashRatio;
+      if (form.minReservedCashUsd) inputs.min_reserved_cash_usd = form.minReservedCashUsd;
       return inputs;
+    }
+
+    function reservedCashPolicyText(inputs) {
+      const floor = inputs.min_reserved_cash_usd;
+      const ratio = inputs.reserved_cash_ratio;
+      if (!floor && !ratio) return t("unchanged");
+      if (floor && ratio) return `max($${floor}, ${formatRatioPercent(ratio)})`;
+      if (floor) return `$${floor}`;
+      return formatRatioPercent(ratio);
+    }
+
+    function formatRatioPercent(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return String(value);
+      return `${(numeric * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
     }
 
     function summaryRows(inputs) {
@@ -1183,6 +1234,7 @@
         [t("repository"), state.repositories[state.selected] || defaultRepositories[state.selected]],
         [t("selectedAccount"), account.label],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
+        [t("reservedCashPolicy"), reservedCashPolicyText(inputs)],
         [t("nextStrategy"), strategyLabel(inputs.strategy_profile)],
       ];
       if (state.auth.allowed) {
@@ -1242,6 +1294,8 @@
       const choices = strategyChoicesForAccount(platform, account);
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
+      const minReservedCashInput = el("min-reserved-cash-input");
+      const reservedCashRatioInput = el("reserved-cash-ratio-input");
       const showPrivateControls = hasPrivateConfig();
 
       el("switch-panel").style.setProperty("--platform-color", meta.accent);
@@ -1254,6 +1308,8 @@
       if (!showPrivateControls) {
         accountSelect.replaceChildren();
         strategySelect.replaceChildren();
+        minReservedCashInput.value = "";
+        reservedCashRatioInput.value = "";
         el("account-meta").textContent = "";
         el("strategy-meta").textContent = "";
         return;
@@ -1284,6 +1340,8 @@
       el("strategy-meta").textContent = account
         ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
         : "";
+      minReservedCashInput.value = form.minReservedCashUsd;
+      reservedCashRatioInput.value = form.reservedCashRatio;
 
       document.querySelectorAll("[data-mode]").forEach((button) => {
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
@@ -1552,6 +1610,16 @@
       const button = event.target.closest("[data-mode]");
       if (!button) return;
       state.forms[state.selected].executionMode = button.dataset.mode;
+      render();
+    });
+
+    el("min-reserved-cash-input").addEventListener("input", () => {
+      state.forms[state.selected].minReservedCashUsd = el("min-reserved-cash-input").value.trim();
+      render();
+    });
+
+    el("reserved-cash-ratio-input").addEventListener("input", () => {
+      state.forms[state.selected].reservedCashRatio = el("reserved-cash-ratio-input").value.trim();
       render();
     });
 

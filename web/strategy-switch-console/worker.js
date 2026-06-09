@@ -747,6 +747,8 @@ function normalizeSwitchInputs(raw) {
   addOptional(inputs, "account_scope", raw.account_scope, cleanSlug);
   addOptional(inputs, "service_name", raw.service_name, cleanSlug);
   addOptional(inputs, "custom_plugin_mounts_json", raw.custom_plugin_mounts_json, cleanJson);
+  addOptional(inputs, "reserved_cash_ratio", raw.reserved_cash_ratio, cleanRatio);
+  addOptional(inputs, "min_reserved_cash_usd", raw.min_reserved_cash_usd, cleanNonNegativeNumber);
   if (extraVariablesJson) inputs.extra_variables_json = extraVariablesJson;
   return inputs;
 }
@@ -1036,6 +1038,29 @@ function cleanBoolean(value) {
   if (value === true || value === "true") return true;
   if (value === false || value === "false" || value === "" || value === undefined || value === null) return false;
   throw new Error("boolean input is invalid");
+}
+
+function cleanRatio(value, field) {
+  const text = cleanNumberText(value, field);
+  const numeric = Number(text);
+  if (numeric < 0 || numeric > 1) throw new Error(`${field} must be between 0 and 1`);
+  return text;
+}
+
+function cleanNonNegativeNumber(value, field) {
+  const text = cleanNumberText(value, field);
+  if (Number(text) < 0) throw new Error(`${field} must be non-negative`);
+  return text;
+}
+
+function cleanNumberText(value, field) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 32 || !/^(?:\d+|\d*\.\d+)$/.test(text)) {
+    throw new Error(`${field} must be a finite decimal number`);
+  }
+  const numeric = Number(text);
+  if (!Number.isFinite(numeric)) throw new Error(`${field} must be finite`);
+  return text;
 }
 
 function cleanSlug(value, field) {
@@ -1674,6 +1699,7 @@ export const __test = {
   assertStrategyAllowedForAccount,
   inferAccountSupportedDomains,
   loadCurrentStrategies,
+  normalizeSwitchInputs,
   normalizeAccountOptionsPayload,
   normalizeStrategyProfilesPayload,
   platformRepositories,
