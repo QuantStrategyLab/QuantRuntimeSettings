@@ -399,6 +399,7 @@ jobs:
               headers={
                   "Authorization": f"Bearer {token}",
                   "Content-Type": "application/json",
+                  "User-Agent": "QuantRuntimeSettings-strategy-switch-sync",
               },
               method="POST",
           )
