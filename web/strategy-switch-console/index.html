@@ -363,6 +363,10 @@
       align-items: stretch;
     }
 
+    .switch-surface.summary-hidden {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
     .switch-panel,
     .summary-panel {
       min-width: 0;
@@ -845,7 +849,6 @@
         live: "实盘",
         paper: "Dry run",
         summary: "当前配置状态",
-        publicSummary: "公开预览",
         copySummary: "复制状态",
         loginToRun: "登录后切换",
         loadingConfig: "读取配置中",
@@ -872,8 +875,6 @@
         currentStrategy: "当前策略",
         nextStrategy: "选择策略",
         notRead: "未读取",
-        publicPreview: "公开示例",
-        accountConfigLoaded: "账号配置已加载",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -895,7 +896,6 @@
         live: "Live",
         paper: "Dry run",
         summary: "Current Config",
-        publicSummary: "Public Preview",
         copySummary: "Copy state",
         loginToRun: "Sign in to switch",
         loadingConfig: "Loading config",
@@ -922,8 +922,6 @@
         currentStrategy: "Current strategy",
         nextStrategy: "Selected strategy",
         notRead: "Not read",
-        publicPreview: "Public preview",
-        accountConfigLoaded: "Account config loaded",
       },
     };
 
@@ -1294,10 +1292,17 @@
     }
 
     function renderSummary() {
+      const showSummary = Boolean(state.auth.allowed);
+      const summaryPanel = document.querySelector(".summary-panel");
+      const switchSurface = document.querySelector(".switch-surface");
+      summaryPanel.hidden = !showSummary;
+      switchSurface.classList.toggle("summary-hidden", !showSummary);
+      if (!showSummary) return;
+
       const inputs = buildInputs();
       const list = el("summary-list");
       list.replaceChildren();
-      document.querySelector(".summary-head h2").textContent = state.auth.allowed ? t("summary") : t("publicSummary");
+      document.querySelector(".summary-head h2").textContent = t("summary");
       for (const [label, value] of summaryRows(inputs)) {
         const row = document.createElement("div");
         row.className = "summary-row";
@@ -1309,7 +1314,10 @@
         list.appendChild(row);
       }
 
-      el("mode-pill").textContent = modeLabel(inputs.execution_mode);
+      const account = selectedAccount();
+      const currentEntry = currentEntryForAccount(state.selected, account);
+      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
     }
 
     function renderAuth() {

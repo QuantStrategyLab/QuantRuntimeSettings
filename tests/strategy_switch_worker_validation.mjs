@@ -13,7 +13,10 @@ assert.equal(indexHtml.includes(".innerHTML"), false);
 assert.ok(indexHtml.includes('<body class="app-loading">'));
 assert.ok(indexHtml.includes('id="boot-screen"'));
 assert.ok(indexHtml.includes('id="app-shell"'));
-assert.ok(indexHtml.includes('publicSummary: "公开预览"'));
+assert.ok(indexHtml.includes(".switch-surface.summary-hidden"));
+assert.ok(indexHtml.includes('summaryPanel.hidden = !showSummary'));
+assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !showSummary)'));
+assert.equal(indexHtml.includes("publicSummary"), false);
 assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
 
 const headers = __test.responseHeaders({ "Content-Type": "text/html; charset=utf-8" });
