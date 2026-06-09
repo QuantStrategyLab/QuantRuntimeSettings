@@ -26,6 +26,23 @@ const DEFAULT_VARIABLE_SCOPE = {
   schwab: "repository",
   firstrade: "repository",
 };
+const SECURITY_HEADERS = {
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "base-uri 'none'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "img-src 'self' data:",
+    "connect-src 'self'",
+    "script-src 'self' 'unsafe-inline'",
+    "style-src 'self' 'unsafe-inline'",
+  ].join("; "),
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
+  "Referrer-Policy": "no-referrer",
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+};
 
 export default {
   async fetch(request, env) {
@@ -143,7 +160,7 @@ async function adminConfigResponse(request, env) {
 }
 
 async function saveAdminConfig(request, env) {
-  requireSameOrigin(request);
+  requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
   if (!session) return json({ ok: false, error: "login required" }, 401);
   if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
@@ -529,7 +546,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
 }
 
 function logout(request) {
-  requireSameOrigin(request);
+  requireSameOrigin(request, { requireOrigin: true });
   return json({ ok: true }, 200, {
     "Set-Cookie": clearCookie(SESSION_COOKIE),
   });
@@ -537,7 +554,7 @@ function logout(request) {
 
 async function dispatchSwitch(request, env) {
   requireEnv(env, "RUNTIME_SETTINGS_DISPATCH_TOKEN");
-  requireSameOrigin(request);
+  requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
 
@@ -848,9 +865,12 @@ function cleanLabel(value, field) {
   return text;
 }
 
-function requireSameOrigin(request) {
+function requireSameOrigin(request, options = {}) {
   const origin = request.headers.get("Origin");
-  if (!origin) return;
+  if (!origin) {
+    if (options.requireOrigin) throw new Error("Origin header is required");
+    return;
+  }
   if (origin !== new URL(request.url).origin) throw new Error("cross-origin request rejected");
 }
 
@@ -1421,16 +1441,21 @@ function redirect(location, headers = {}) {
   });
 }
 
-function responseHeaders(base, extra) {
-  const headers = new Headers(base);
-  for (const [name, value] of Object.entries(extra)) {
+function responseHeaders(base = {}, extra = {}) {
+  const headers = new Headers(SECURITY_HEADERS);
+  appendHeaderEntries(headers, base);
+  appendHeaderEntries(headers, extra);
+  return headers;
+}
+
+function appendHeaderEntries(headers, values) {
+  for (const [name, value] of Object.entries(values)) {
     if (Array.isArray(value)) {
       for (const item of value) headers.append(name, item);
     } else {
       headers.set(name, value);
     }
   }
-  return headers;
 }
 
 function renderMessage(title, message) {
@@ -1453,5 +1478,7 @@ export const __test = {
   inferAccountSupportedDomains,
   normalizeAccountOptionsPayload,
   normalizeStrategyProfilesPayload,
+  requireSameOrigin,
+  responseHeaders,
   supportedDomainsForAccount,
 };
