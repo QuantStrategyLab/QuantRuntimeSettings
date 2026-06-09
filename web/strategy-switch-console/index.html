@@ -38,7 +38,8 @@
     body {
       margin: 0;
       min-height: 100svh;
-      background: var(--bg);
+      background:
+        linear-gradient(180deg, #fbfcfd 0, #eef2f5 100%);
       color: var(--ink);
       letter-spacing: 0;
     }
@@ -55,6 +56,13 @@
 
     a {
       color: inherit;
+    }
+
+    button:focus-visible,
+    select:focus-visible,
+    a:focus-visible {
+      outline: 3px solid color-mix(in srgb, var(--platform-color, var(--accent)) 24%, transparent);
+      outline-offset: 2px;
     }
 
     [hidden] {
@@ -76,7 +84,7 @@
       gap: 20px;
       padding: 17px 28px;
       border-bottom: 1px solid var(--line);
-      background: rgba(250, 251, 252, 0.94);
+      background: rgba(250, 251, 252, 0.88);
       backdrop-filter: blur(14px);
       position: sticky;
       top: 0;
@@ -119,9 +127,9 @@
     .shell {
       width: min(1160px, calc(100vw - 36px));
       margin: 0 auto;
-      padding: 26px 0 32px;
+      padding: 22px 0 32px;
       display: grid;
-      gap: 18px;
+      gap: 16px;
     }
 
     .pill,
@@ -138,6 +146,7 @@
       white-space: nowrap;
       font-size: 13px;
       font-weight: 740;
+      box-shadow: 0 1px 0 rgba(22, 25, 31, 0.03);
     }
 
     .pill {
@@ -163,6 +172,11 @@
       background: #fafbfc;
     }
 
+    .lang-toggle {
+      min-width: 42px;
+      padding: 0 10px;
+    }
+
     .mode button {
       border: 0;
       border-radius: 6px;
@@ -180,25 +194,29 @@
 
     .platform-strip {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(140px, 1fr));
       gap: 10px;
     }
 
     .platform-button {
       min-width: 0;
-      min-height: 104px;
+      min-height: 92px;
       display: grid;
       grid-template-columns: auto 1fr;
       align-items: center;
       gap: 12px;
-      padding: 14px;
+      padding: 13px;
       border: 1px solid var(--line);
-      border-top: 4px solid var(--platform-color);
+      border-left: 4px solid var(--platform-color);
       border-radius: 8px;
       background: var(--surface);
       color: var(--ink);
       text-align: left;
-      transition: transform 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
+      transition:
+        transform 150ms ease,
+        border-color 150ms ease,
+        background 150ms ease,
+        box-shadow 150ms ease;
     }
 
     .platform-button:hover {
@@ -209,8 +227,8 @@
     .platform-button.active {
       border-color: var(--platform-color);
       background:
-        linear-gradient(180deg, color-mix(in srgb, var(--platform-color) 5%, white), #ffffff 62%);
-      box-shadow: 0 16px 36px rgba(22, 25, 31, 0.10);
+        linear-gradient(180deg, color-mix(in srgb, var(--platform-color) 7%, white), #ffffff 68%);
+      box-shadow: 0 14px 30px rgba(22, 25, 31, 0.09);
     }
 
     .platform-button[data-platform="longbridge"] {
@@ -240,6 +258,12 @@
       color: var(--platform-color);
       font-size: 13px;
       font-weight: 840;
+      transition: background 150ms ease, color 150ms ease;
+    }
+
+    .platform-button.active .mark {
+      background: var(--platform-color);
+      color: #ffffff;
     }
 
     .platform-copy {
@@ -271,7 +295,7 @@
 
     .switch-surface {
       display: grid;
-      grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+      grid-template-columns: minmax(0, 1.04fr) minmax(320px, 0.96fr);
       gap: 18px;
       align-items: stretch;
     }
@@ -282,7 +306,7 @@
       border: 1px solid var(--line);
       border-radius: 8px;
       background: var(--surface);
-      box-shadow: 0 18px 42px rgba(22, 25, 31, 0.08);
+      box-shadow: 0 14px 34px rgba(22, 25, 31, 0.07);
     }
 
     .switch-panel {
@@ -305,8 +329,8 @@
     }
 
     .panel-head h2 {
-      font-size: clamp(28px, 4vw, 46px);
-      line-height: 1.04;
+      font-size: clamp(24px, 3vw, 34px);
+      line-height: 1.08;
       font-weight: 820;
       overflow-wrap: anywhere;
     }
@@ -379,16 +403,16 @@
       min-height: 56px;
       border: 0;
       border-radius: 8px;
-      background: var(--accent);
+      background: var(--platform-color, var(--accent));
       color: var(--accent-ink);
       font-size: 16px;
       font-weight: 820;
-      transition: transform 150ms ease, background 150ms ease, opacity 150ms ease;
+      transition: transform 150ms ease, filter 150ms ease, opacity 150ms ease;
     }
 
     .run-button:hover:not(:disabled) {
       transform: translateY(-1px);
-      background: #0f5f55;
+      filter: brightness(0.92);
     }
 
     .run-button:disabled {
@@ -462,6 +486,7 @@
       color: var(--ink);
       font-size: 13px;
       line-height: 1.45;
+      font-weight: 680;
       overflow-wrap: anywhere;
     }
 
@@ -527,6 +552,28 @@
         gap: 3px;
       }
     }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .platform-strip,
+      .switch-surface {
+        animation: rise-in 260ms ease both;
+      }
+
+      .switch-surface {
+        animation-delay: 60ms;
+      }
+
+      @keyframes rise-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+    }
   </style>
 </head>
 <body>
@@ -537,6 +584,7 @@
     </div>
     <div class="top-actions">
       <span class="pill ready auth-status" id="auth-status" hidden></span>
+      <button class="btn lang-toggle" id="lang-button" type="button" aria-label="Language">EN</button>
       <a class="btn" id="login-link" href="/login" hidden data-i18n="login">登录</a>
       <button class="btn" id="logout-button" type="button" hidden data-i18n="logout">退出</button>
     </div>
@@ -1052,11 +1100,12 @@
       document.querySelectorAll("[data-i18n]").forEach((node) => {
         node.textContent = t(node.dataset.i18n);
       });
+      el("lang-button").textContent = state.lang === "zh" ? "EN" : "中";
     }
 
     function renderPlatforms() {
       const strip = el("platform-strip");
-      strip.innerHTML = "";
+      strip.replaceChildren();
       for (const platform of Object.keys(platformMeta)) {
         ensureAccountSelection(platform);
         const meta = platformMeta[platform];
@@ -1067,14 +1116,19 @@
         button.type = "button";
         button.dataset.platform = platform;
         button.classList.toggle("active", platform === state.selected);
-        button.innerHTML = `
-          <span class="mark">${meta.code}</span>
-          <span class="platform-copy">
-            <strong>${meta.label}</strong>
-            <span>${escapeHtml(account.label)}</span>
-            <small>${escapeHtml(strategyLabel(form.strategy))}</small>
-          </span>
-        `;
+        const mark = document.createElement("span");
+        mark.className = "mark";
+        mark.textContent = meta.code;
+        const copyNode = document.createElement("span");
+        copyNode.className = "platform-copy";
+        const labelNode = document.createElement("strong");
+        labelNode.textContent = meta.label;
+        const accountNode = document.createElement("span");
+        accountNode.textContent = account.label;
+        const strategyNode = document.createElement("small");
+        strategyNode.textContent = strategyLabel(form.strategy);
+        copyNode.append(labelNode, accountNode, strategyNode);
+        button.append(mark, copyNode);
         strip.appendChild(button);
       }
     }
@@ -1092,22 +1146,28 @@
       el("switch-panel").style.setProperty("--platform-color", meta.accent);
       el("platform-title").textContent = meta.label;
 
-      accountSelect.innerHTML = accounts.length
-        ? accounts.map((account) => (
-          `<option value="${escapeAttr(account.key)}" ${account.key === form.accountKey ? "selected" : ""}>${escapeHtml(account.label)}</option>`
-        )).join("")
-        : `<option value="">${t("noAccount")}</option>`;
+      accountSelect.replaceChildren();
+      if (accounts.length) {
+        for (const account of accounts) {
+          accountSelect.append(new Option(account.label, account.key, false, account.key === form.accountKey));
+        }
+      } else {
+        accountSelect.append(new Option(t("noAccount"), ""));
+      }
       el("account-meta").textContent = accounts.length ? accountMetaText(platform) : "";
 
       if (choices.length && !choices.includes(form.strategy)) {
         form.strategy = choices[0];
       }
       strategySelect.disabled = !choices.length;
-      strategySelect.innerHTML = choices.length
-        ? choices.map((strategy) => (
-          `<option value="${strategy}" ${strategy === form.strategy ? "selected" : ""}>${escapeHtml(strategyLabel(strategy))}</option>`
-        )).join("")
-        : `<option value="">${t("noStrategy")}</option>`;
+      strategySelect.replaceChildren();
+      if (choices.length) {
+        for (const strategy of choices) {
+          strategySelect.append(new Option(strategyLabel(strategy), strategy, false, strategy === form.strategy));
+        }
+      } else {
+        strategySelect.append(new Option(t("noStrategy"), ""));
+      }
       el("strategy-meta").textContent = account
         ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
         : "";
@@ -1120,12 +1180,17 @@
     function renderSummary() {
       const inputs = buildInputs();
       const list = el("summary-list");
-      list.innerHTML = summaryRows(inputs).map(([label, value]) => `
-        <div class="summary-row">
-          <dt>${escapeHtml(label)}</dt>
-          <dd>${escapeHtml(value)}</dd>
-        </div>
-      `).join("");
+      list.replaceChildren();
+      for (const [label, value] of summaryRows(inputs)) {
+        const row = document.createElement("div");
+        row.className = "summary-row";
+        const labelNode = document.createElement("dt");
+        labelNode.textContent = label;
+        const valueNode = document.createElement("dd");
+        valueNode.textContent = value;
+        row.append(labelNode, valueNode);
+        list.appendChild(row);
+      }
 
       el("mode-pill").textContent = modeLabel(inputs.execution_mode);
     }
@@ -1302,18 +1367,6 @@
       return summaryRows(inputs).map(([label, value]) => `${label}: ${value}`).join("\n");
     }
 
-    function escapeHtml(value) {
-      return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;");
-    }
-
-    function escapeAttr(value) {
-      return escapeHtml(value).replaceAll("'", "&#39;");
-    }
-
     el("platform-strip").addEventListener("click", (event) => {
       const button = event.target.closest("[data-platform]");
       if (!button) return;
@@ -1350,6 +1403,11 @@
 
     el("dispatch-button").addEventListener("click", dispatchSwitch);
     el("logout-button").addEventListener("click", handleLogout);
+    el("lang-button").addEventListener("click", () => {
+      state.lang = state.lang === "zh" ? "en" : "zh";
+      localStorage.setItem("qsl-switch-lang", state.lang);
+      render();
+    });
 
     applyStrategyProfiles(defaultStrategyProfiles);
     for (const platform of Object.keys(platformMeta)) syncStrategyForAccount(platform);

@@ -9,6 +9,37 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8");
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
+assert.equal(indexHtml.includes(".innerHTML"), false);
+
+const headers = __test.responseHeaders({ "Content-Type": "text/html; charset=utf-8" });
+assert.equal(headers.get("X-Frame-Options"), "DENY");
+assert.equal(headers.get("X-Content-Type-Options"), "nosniff");
+assert.equal(headers.get("Referrer-Policy"), "no-referrer");
+assert.match(headers.get("Content-Security-Policy") || "", /frame-ancestors 'none'/);
+
+assert.doesNotThrow(() => __test.requireSameOrigin(
+  new Request("https://switch.example/api/switch", {
+    method: "POST",
+    headers: { Origin: "https://switch.example" },
+  }),
+  { requireOrigin: true },
+));
+assert.throws(
+  () => __test.requireSameOrigin(new Request("https://switch.example/api/switch", { method: "POST" }), {
+    requireOrigin: true,
+  }),
+  /Origin header is required/,
+);
+assert.throws(
+  () => __test.requireSameOrigin(
+    new Request("https://switch.example/api/switch", {
+      method: "POST",
+      headers: { Origin: "https://evil.example" },
+    }),
+    { requireOrigin: true },
+  ),
+  /cross-origin request rejected/,
+);
 
 const strategyProfiles = __test.normalizeStrategyProfilesPayload(
   [
