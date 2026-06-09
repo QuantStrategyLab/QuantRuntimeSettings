@@ -62,10 +62,17 @@ export default {
       if (url.pathname === "/api/switch" && request.method === "POST") return dispatchSwitch(request, env);
       return html(PAGE_HTML);
     } catch (error) {
-      return json({ ok: false, error: error.message || "unexpected error" }, 500);
+      return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
     }
   },
 };
+
+class HttpError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
 
 async function startLogin(request, env) {
   requireEnv(env, "GITHUB_CLIENT_ID");
@@ -868,10 +875,10 @@ function cleanLabel(value, field) {
 function requireSameOrigin(request, options = {}) {
   const origin = request.headers.get("Origin");
   if (!origin) {
-    if (options.requireOrigin) throw new Error("Origin header is required");
+    if (options.requireOrigin) throw new HttpError("Origin header is required", 403);
     return;
   }
-  if (origin !== new URL(request.url).origin) throw new Error("cross-origin request rejected");
+  if (origin !== new URL(request.url).origin) throw new HttpError("cross-origin request rejected", 403);
 }
 
 async function fetchGithubVariable(token, repository, scope, githubEnvironment, name) {
