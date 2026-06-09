@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
-import { __test } from "../web/strategy-switch-console/worker.js";
+import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8");
@@ -50,6 +50,17 @@ const crossOriginError = captureError(
 );
 assert.match(crossOriginError.message, /cross-origin request rejected/);
 assert.equal(crossOriginError.status, 403);
+
+const unauthorizedSyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-account-default", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  }),
+  { STRATEGY_SWITCH_SYNC_TOKEN: "test-sync-token" },
+);
+assert.equal(unauthorizedSyncResponse.status, 401);
+assert.match((await unauthorizedSyncResponse.json()).error, /internal sync token is invalid/);
 
 assert.equal(
   await __test.withTimeout(new Promise((resolve) => setTimeout(() => resolve("late"), 25)), 1, "fallback"),
