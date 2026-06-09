@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 import { __test } from "../web/strategy-switch-console/worker.js";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const indexHtml = readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8");
+const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
+assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
 
 const strategyProfiles = __test.normalizeStrategyProfilesPayload(
   [
