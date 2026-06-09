@@ -22,6 +22,9 @@ assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
 assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
 assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.ok(indexHtml.includes('function selectedCashCurrency('));
+assert.ok(indexHtml.includes('function currentReservedCashPolicyText('));
+assert.ok(indexHtml.includes('reservedCashTouched: false'));
+assert.ok(indexHtml.includes('.reserve-ratio-block'));
 assert.equal(indexHtml.includes("ibkr-primary"), false);
 assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(indexHtml.includes('account_selector: "SG"'), false);
@@ -257,6 +260,18 @@ globalThis.fetch = async (url) => {
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response("", { status: 404 });
   }
+  if (requestUrl.endsWith("/SCHWAB_MIN_RESERVED_CASH_USD")) {
+    return new Response(JSON.stringify({ value: "150" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/SCHWAB_RESERVED_CASH_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.03" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (requestUrl.endsWith("/RUNTIME_TARGET_JSON")) {
     return new Response(JSON.stringify({
       value: JSON.stringify({
@@ -278,7 +293,48 @@ try {
   );
   assert.equal(currentStrategies.schwab.default.strategy_profile, "soxl_soxx_trend_income");
   assert.equal(currentStrategies.schwab.default.execution_mode, "live");
+  assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
+  assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.schwab.default.source, "RUNTIME_TARGET_JSON");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        targets: [
+          {
+            service: "interactive-brokers-demo-ibkr-tqqq-service",
+            ACCOUNT_GROUP: "demo-ibkr-tqqq",
+            IBKR_MIN_RESERVED_CASH_USD: "150",
+            IBKR_RESERVED_CASH_RATIO: "0.03",
+            runtime_target: {
+              platform_id: "ibkr",
+              strategy_profile: "tqqq_growth_income",
+              dry_run_only: false,
+              account_scope: "demo-ibkr-tqqq",
+              service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+              execution_mode: "live",
+            },
+          },
+        ],
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { ibkr: accountOptions.ibkr },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "tqqq_growth_income");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
 } finally {
   globalThis.fetch = originalFetch;
 }

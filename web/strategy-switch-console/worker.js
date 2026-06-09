@@ -33,6 +33,18 @@ const DEFAULT_VARIABLE_SCOPE = {
   schwab: "repository",
   firstrade: "repository",
 };
+const PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
+  longbridge: "LONGBRIDGE_RESERVED_CASH_RATIO",
+  ibkr: "IBKR_RESERVED_CASH_RATIO",
+  schwab: "SCHWAB_RESERVED_CASH_RATIO",
+  firstrade: "FIRSTRADE_RESERVED_CASH_RATIO",
+};
+const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
+  longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
+  ibkr: "IBKR_MIN_RESERVED_CASH_USD",
+  schwab: "SCHWAB_MIN_RESERVED_CASH_USD",
+  firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
+};
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -551,6 +563,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     return {
       strategy_profile: serviceTargetProfile,
       ...runtimeModePayload(serviceTarget),
+      ...reservedCashPayloadFromObject(platform, serviceTarget),
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -558,6 +571,13 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
 
   const variableScope = resolveVariableScope(platform, option);
   const githubEnvironment = resolveGithubEnvironment(platform, option, variableScope);
+  const reservedCashPayload = await readReservedCashVariables({
+    platform,
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
   const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
   const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
@@ -566,6 +586,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     return {
       strategy_profile: runtimeTargetProfile,
       ...runtimeModePayload(runtimeTarget),
+      ...reservedCashPayload,
       source: "RUNTIME_TARGET_JSON",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
@@ -578,6 +599,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     if (profile) {
       const current = {
         strategy_profile: profile,
+        ...reservedCashPayload,
         source: "STRATEGY_PROFILE",
         variable_scope: variableScope,
         github_environment: githubEnvironment || "",
@@ -1162,9 +1184,38 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
     return {
       ...runtimeTarget,
       strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
+      ...reservedCashPayloadFromObject(platform, entry),
     };
   }
   return null;
+}
+
+async function readReservedCashVariables({ platform, repository, variableScope, githubEnvironment, readVariable }) {
+  const [floorValue, ratioValue] = await Promise.all([
+    readVariable(repository, variableScope, githubEnvironment, PLATFORM_MIN_RESERVED_CASH_VARIABLES[platform]),
+    readVariable(repository, variableScope, githubEnvironment, PLATFORM_RESERVED_CASH_RATIO_VARIABLES[platform]),
+  ]);
+  return reservedCashPayloadFromValues(floorValue, ratioValue);
+}
+
+function reservedCashPayloadFromObject(platform, payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  return reservedCashPayloadFromValues(
+    payload[PLATFORM_MIN_RESERVED_CASH_VARIABLES[platform]] ??
+      payload.min_reserved_cash_usd ??
+      payload.reserved_cash_floor_usd,
+    payload[PLATFORM_RESERVED_CASH_RATIO_VARIABLES[platform]] ??
+      payload.reserved_cash_ratio,
+  );
+}
+
+function reservedCashPayloadFromValues(floorValue, ratioValue) {
+  const result = {};
+  const floor = cleanCurrentNonNegativeNumber(floorValue);
+  const ratio = cleanCurrentRatio(ratioValue);
+  if (floor) result.min_reserved_cash_usd = floor;
+  if (ratio) result.reserved_cash_ratio = ratio;
+  return result;
 }
 
 function runtimeModePayload(runtimeTarget) {
@@ -1189,6 +1240,22 @@ function cleanOptionalBoolean(value) {
   if (value === true || value === "true" || value === "1" || value === 1) return true;
   if (value === false || value === "false" || value === "0" || value === 0) return false;
   return null;
+}
+
+function cleanCurrentNonNegativeNumber(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text.length > 32 || !/^(?:\d+|\d*\.\d+)$/.test(text)) return "";
+  const numeric = Number(text);
+  if (!Number.isFinite(numeric) || numeric < 0) return "";
+  return text;
+}
+
+function cleanCurrentRatio(value) {
+  const text = cleanCurrentNonNegativeNumber(value);
+  if (!text) return "";
+  const numeric = Number(text);
+  if (numeric < 0 || numeric > 1) return "";
+  return text;
 }
 
 function runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry = {}) {
