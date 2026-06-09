@@ -480,14 +480,13 @@ async function loadCurrentStrategies(accountOptions, env) {
   };
 
   const currentStrategies = {};
-  for (const platform of SUPPORTED_PLATFORMS) {
+  const platformResults = await Promise.all(SUPPORTED_PLATFORMS.map(async (platform) => {
     const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
-    if (!options.length) continue;
+    if (!options.length) return [platform, {}];
     const repository = PLATFORM_REPOSITORIES[platform];
-    if (!repository) continue;
-    const platformStrategies = {};
+    if (!repository) return [platform, {}];
 
-    for (const option of options) {
+    const optionResults = await Promise.all(options.map(async (option) => {
       const current = await resolveCurrentStrategyForAccount({
         platform,
         option,
@@ -495,9 +494,17 @@ async function loadCurrentStrategies(accountOptions, env) {
         repository,
         readVariable,
       });
-      if (current) platformStrategies[option.key] = current;
-    }
+      return [option.key, current];
+    }));
 
+    const platformStrategies = {};
+    for (const [key, current] of optionResults) {
+      if (current) platformStrategies[key] = current;
+    }
+    return [platform, platformStrategies];
+  }));
+
+  for (const [platform, platformStrategies] of platformResults) {
     if (Object.keys(platformStrategies).length) currentStrategies[platform] = platformStrategies;
   }
   return currentStrategies;
@@ -1503,6 +1510,7 @@ export const __test = {
   assertConfiguredAccount,
   assertStrategyAllowedForAccount,
   inferAccountSupportedDomains,
+  loadCurrentStrategies,
   normalizeAccountOptionsPayload,
   normalizeStrategyProfilesPayload,
   requireSameOrigin,
