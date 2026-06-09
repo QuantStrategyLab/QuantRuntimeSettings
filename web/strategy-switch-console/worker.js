@@ -49,21 +49,23 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     try {
-      if (url.pathname === "/login") return startLogin(request, env);
-      if (url.pathname === "/callback") return finishLogin(request, env);
-      if (url.pathname === "/admin") return adminPage(request, env);
+      if (url.pathname === "/login") return await startLogin(request, env);
+      if (url.pathname === "/callback") return await finishLogin(request, env);
+      if (url.pathname === "/admin") return await adminPage(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/config") return json(await configPayload(request, env));
-      if (url.pathname === "/api/admin/config" && request.method === "GET") return adminConfigResponse(request, env);
+      if (url.pathname === "/api/admin/config" && request.method === "GET") {
+        return await adminConfigResponse(request, env);
+      }
       if (url.pathname === "/api/admin/config" && request.method === "POST") {
-        return saveAdminConfig(request, env);
+        return await saveAdminConfig(request, env);
       }
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
-        return syncAccountDefaultResponse(request, env);
+        return await syncAccountDefaultResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
-      if (url.pathname === "/api/switch" && request.method === "POST") return dispatchSwitch(request, env);
+      if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
       return html(PAGE_HTML);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
