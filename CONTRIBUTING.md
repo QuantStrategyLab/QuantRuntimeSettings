@@ -37,7 +37,8 @@ Run the lightweight whitespace check for every change and the repository test co
 
 ```bash
 git diff --check
-python -m pytest -q
+python3 scripts/runtime_settings.py validate
+python3 -m unittest discover -s tests -v
 ```
 
 For documentation-only changes, at minimum review Markdown links, headings, and bilingual consistency before opening the pull request.
