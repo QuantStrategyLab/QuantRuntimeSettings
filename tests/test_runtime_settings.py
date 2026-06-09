@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -152,6 +154,26 @@ class RuntimeSettingsTest(unittest.TestCase):
         plugin_payload = json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"])
         self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
         self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_schema_version"], "market_regime_control.v1")
+
+    def test_build_switch_target_uses_fork_repository_overrides(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "tqqq_growth_income",
+            ]
+        )
+
+        with patch.dict(os.environ, {"RUNTIME_SETTINGS_LONGBRIDGE_REPO": "ForkOrg/LongBridgePlatform"}):
+            target = build_runtime_switch.build_switch_target(args)
+
+        self.assertEqual(target["github"]["repository"], "ForkOrg/LongBridgePlatform")
+        with patch.dict(os.environ, {"RUNTIME_SETTINGS_LONGBRIDGE_REPO": "ForkOrg/LongBridgePlatform"}):
+            self.assertEqual(runtime_settings.validate_target(target), [])
 
     def test_build_switch_target_defaults_schwab_repository_scope(self):
         parser = build_runtime_switch.build_parser()

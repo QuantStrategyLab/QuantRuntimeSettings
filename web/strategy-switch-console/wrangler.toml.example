@@ -16,9 +16,17 @@ workers_dev = true
 # - STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON
 #
 # Optional non-secret variables can be placed here or in the Cloudflare dashboard:
-# RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
-# RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
-# RUNTIME_SETTINGS_REF = "main"
+[vars]
+RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
+RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
+RUNTIME_SETTINGS_REF = "main"
+
+# Forks can replace the platform repository mapping without editing source code.
+# STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON = '{"longbridge":"your-org/LongBridgePlatform","ibkr":"your-org/InteractiveBrokersPlatform","schwab":"your-org/CharlesSchwabPlatform","firstrade":"your-org/FirstradePlatform"}'
+# STRATEGY_SWITCH_LONGBRIDGE_REPO = "your-org/LongBridgePlatform"
+# STRATEGY_SWITCH_IBKR_REPO = "your-org/InteractiveBrokersPlatform"
+# STRATEGY_SWITCH_SCHWAB_REPO = "your-org/CharlesSchwabPlatform"
+# STRATEGY_SWITCH_FIRSTRADE_REPO = "your-org/FirstradePlatform"
 
 # Bind this namespace to enable editable /admin login and account management.
 # Without it, /admin is read-only and the Worker falls back to secrets.

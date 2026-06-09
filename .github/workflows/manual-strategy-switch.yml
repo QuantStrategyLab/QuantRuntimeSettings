@@ -155,6 +155,11 @@ jobs:
       PLATFORM_SYNC_WORKFLOW: ${{ inputs.platform_sync_workflow }}
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON: ${{ vars.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON }}
+      RUNTIME_SETTINGS_LONGBRIDGE_REPO: ${{ vars.RUNTIME_SETTINGS_LONGBRIDGE_REPO }}
+      RUNTIME_SETTINGS_IBKR_REPO: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO }}
+      RUNTIME_SETTINGS_SCHWAB_REPO: ${{ vars.RUNTIME_SETTINGS_SCHWAB_REPO }}
+      RUNTIME_SETTINGS_FIRSTRADE_REPO: ${{ vars.RUNTIME_SETTINGS_FIRSTRADE_REPO }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -195,24 +200,7 @@ jobs:
         id: platform
         run: |
           set -euo pipefail
-          case "${PLATFORM}" in
-            longbridge)
-              repo="QuantStrategyLab/LongBridgePlatform"
-              ;;
-            ibkr)
-              repo="QuantStrategyLab/InteractiveBrokersPlatform"
-              ;;
-            schwab)
-              repo="QuantStrategyLab/CharlesSchwabPlatform"
-              ;;
-            firstrade)
-              repo="QuantStrategyLab/FirstradePlatform"
-              ;;
-            *)
-              echo "Unsupported platform: ${PLATFORM}" >&2
-              exit 2
-              ;;
-          esac
+          repo="$(python3 scripts/runtime_settings.py repository "${PLATFORM}")"
           echo "repository=${repo}" >> "$GITHUB_OUTPUT"
 
       - name: Fetch existing service targets

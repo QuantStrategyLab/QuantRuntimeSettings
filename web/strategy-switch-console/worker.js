@@ -15,11 +15,17 @@ const CURRENT_STRATEGIES_TIMEOUT_MS = 3500;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity"];
-const PLATFORM_REPOSITORIES = {
+const DEFAULT_PLATFORM_REPOSITORIES = {
   longbridge: "QuantStrategyLab/LongBridgePlatform",
   ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
   schwab: "QuantStrategyLab/CharlesSchwabPlatform",
   firstrade: "QuantStrategyLab/FirstradePlatform",
+};
+const PLATFORM_REPOSITORY_ENV = {
+  longbridge: ["STRATEGY_SWITCH_LONGBRIDGE_REPO", "RUNTIME_SETTINGS_LONGBRIDGE_REPO"],
+  ibkr: ["STRATEGY_SWITCH_IBKR_REPO", "RUNTIME_SETTINGS_IBKR_REPO"],
+  schwab: ["STRATEGY_SWITCH_SCHWAB_REPO", "RUNTIME_SETTINGS_SCHWAB_REPO"],
+  firstrade: ["STRATEGY_SWITCH_FIRSTRADE_REPO", "RUNTIME_SETTINGS_FIRSTRADE_REPO"],
 };
 const DEFAULT_VARIABLE_SCOPE = {
   longbridge: "environment",
@@ -460,6 +466,7 @@ async function configPayload(request, env) {
   const strategyProfiles = await loadStrategyProfilesConfig(env);
   return {
     accountOptions: accountConfig.options,
+    platformRepositories: platformRepositories(env),
     strategyProfiles,
     currentStrategies: await loadCurrentStrategiesSafely(accountConfig.options, env),
   };
@@ -474,6 +481,7 @@ async function strategyProfilesPayload(env) {
 async function loadCurrentStrategies(accountOptions, env) {
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
   if (!token || !accountOptions) return {};
+  const repositories = platformRepositories(env);
 
   const variableCache = new Map();
   const readVariable = (repository, scope, githubEnvironment, name) => {
@@ -488,7 +496,7 @@ async function loadCurrentStrategies(accountOptions, env) {
   const platformResults = await Promise.all(SUPPORTED_PLATFORMS.map(async (platform) => {
     const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
     if (!options.length) return [platform, {}];
-    const repository = PLATFORM_REPOSITORIES[platform];
+    const repository = repositories[platform];
     if (!repository) return [platform, {}];
 
     const optionResults = await Promise.all(options.map(async (option) => {
@@ -954,6 +962,40 @@ function inferAccountSupportedDomains(platform, option) {
   return ["us_equity"];
 }
 
+function platformRepositories(env) {
+  const repositories = { ...DEFAULT_PLATFORM_REPOSITORIES };
+  const rawJson = String(
+    env.STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON ||
+      env.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON ||
+      "",
+  ).trim();
+  if (rawJson) {
+    let payload;
+    try {
+      payload = JSON.parse(rawJson);
+    } catch (error) {
+      throw new Error("platform repositories JSON must be valid JSON");
+    }
+    if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+      throw new Error("platform repositories JSON must be an object");
+    }
+    for (const [platform, repository] of Object.entries(payload)) {
+      if (!SUPPORTED_PLATFORMS.includes(platform)) {
+        throw new Error(`unsupported platform repository override: ${platform}`);
+      }
+      repositories[platform] = cleanRepositoryName(repository, `${platform} repository`);
+    }
+  }
+
+  for (const platform of SUPPORTED_PLATFORMS) {
+    for (const name of PLATFORM_REPOSITORY_ENV[platform] || []) {
+      const repository = String(env[name] || "").trim();
+      if (repository) repositories[platform] = cleanRepositoryName(repository, name);
+    }
+  }
+  return repositories;
+}
+
 function normalizeSupportedDomains(value, fieldName) {
   const items = Array.isArray(value)
     ? value
@@ -1000,6 +1042,14 @@ function cleanSlug(value, field) {
   const text = String(value || "").trim();
   if (!text || text.length > 120 || !/^[A-Za-z0-9._=-]+$/.test(text)) {
     throw new Error(`${field} must use letters, numbers, dot, underscore, dash, or equals`);
+  }
+  return text;
+}
+
+function cleanRepositoryName(value, field) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 160 || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(text)) {
+    throw new Error(`${field} must be owner/repo`);
   }
   return text;
 }
@@ -1626,6 +1676,7 @@ export const __test = {
   loadCurrentStrategies,
   normalizeAccountOptionsPayload,
   normalizeStrategyProfilesPayload,
+  platformRepositories,
   requireSameOrigin,
   responseHeaders,
   syncDefaultStrategyForAccount,

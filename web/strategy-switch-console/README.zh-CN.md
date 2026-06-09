@@ -27,8 +27,11 @@ STRATEGY_SWITCH_ADMIN_ORGS
 RUNTIME_SETTINGS_REPO=QuantStrategyLab/QuantRuntimeSettings
 RUNTIME_SETTINGS_WORKFLOW=manual-strategy-switch.yml
 RUNTIME_SETTINGS_REF=main
+STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON={"longbridge":"your-org/LongBridgePlatform","ibkr":"your-org/InteractiveBrokersPlatform","schwab":"your-org/CharlesSchwabPlatform","firstrade":"your-org/FirstradePlatform"}
 STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON=<account-options.example.json 的内容>
 ```
+
+Fork 用户也可以分别设置 `STRATEGY_SWITCH_LONGBRIDGE_REPO`、`STRATEGY_SWITCH_IBKR_REPO`、`STRATEGY_SWITCH_SCHWAB_REPO`、`STRATEGY_SWITCH_FIRSTRADE_REPO`。GitHub Actions workflow 侧也支持同样的映射，变量名是 `RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON` 或 `RUNTIME_SETTINGS_*_REPO`。
 
 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS` 和 `STRATEGY_SWITCH_ADMIN_ORGS` 用英文逗号分隔。个人系统建议用组织名做管理员入口，例如：
 
@@ -187,6 +190,8 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 ```bash
 wrangler deploy
 ```
+
+完整 fork 清单见 [docs/strategy_switch_fork_guide.zh-CN.md](../../docs/strategy_switch_fork_guide.zh-CN.md)。
 
 ## Token 权限
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -22,6 +23,12 @@ SUPPORTED_PLATFORMS = {
     "longbridge": {"plugin_mounts_prefix": "LONGBRIDGE_", "repository": "QuantStrategyLab/LongBridgePlatform"},
     "ibkr": {"plugin_mounts_prefix": "IBKR_", "repository": "QuantStrategyLab/InteractiveBrokersPlatform"},
     "firstrade": {"plugin_mounts_prefix": "FIRSTRADE_", "repository": "QuantStrategyLab/FirstradePlatform"},
+}
+PLATFORM_REPOSITORY_ENV = {
+    "schwab": "RUNTIME_SETTINGS_SCHWAB_REPO",
+    "longbridge": "RUNTIME_SETTINGS_LONGBRIDGE_REPO",
+    "ibkr": "RUNTIME_SETTINGS_IBKR_REPO",
+    "firstrade": "RUNTIME_SETTINGS_FIRSTRADE_REPO",
 }
 RUNTIME_REQUIRED_FIELDS = (
     "platform_id",
@@ -80,6 +87,52 @@ def env_string(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+def is_repository_name(value: str) -> bool:
+    if not isinstance(value, str) or "/" not in value or len(value) > 160:
+        return False
+    allowed = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-")
+    parts = value.split("/", 1)
+    return all(part and set(part) <= allowed for part in parts)
+
+
+def platform_repositories(env: dict[str, str] | None = None) -> dict[str, str]:
+    env = env or os.environ
+    repositories = {
+        platform: config["repository"]
+        for platform, config in SUPPORTED_PLATFORMS.items()
+    }
+    raw_json = str(env.get("RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON") or "").strip()
+    if raw_json:
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON must be a JSON object")
+        for platform, repository in payload.items():
+            if platform not in SUPPORTED_PLATFORMS:
+                raise ValueError(f"unsupported platform repository override: {platform}")
+            repository = str(repository or "").strip()
+            if not is_repository_name(repository):
+                raise ValueError(f"repository override for {platform} must be owner/repo")
+            repositories[platform] = repository
+
+    for platform, env_name in PLATFORM_REPOSITORY_ENV.items():
+        repository = str(env.get(env_name) or "").strip()
+        if not repository:
+            continue
+        if not is_repository_name(repository):
+            raise ValueError(f"{env_name} must be owner/repo")
+        repositories[platform] = repository
+    return repositories
+
+
+def platform_repository(platform: str, env: dict[str, str] | None = None) -> str:
+    if platform not in SUPPORTED_PLATFORMS:
+        raise ValueError(f"unsupported platform: {platform}")
+    return platform_repositories(env)[platform]
 
 
 def discover_target_paths(paths: list[str]) -> list[Path]:
@@ -350,14 +403,17 @@ def validate_target(target: dict[str, Any], path: Path | None = None) -> list[st
     runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
     github = target.get("github") if isinstance(target.get("github"), dict) else {}
     platform_id = runtime_target.get("platform_id")
-    if (
-        platform_id in SUPPORTED_PLATFORMS
-        and github.get("repository") != SUPPORTED_PLATFORMS[platform_id]["repository"]
-    ):
-        errors.append(
-            "github.repository does not match platform "
-            f"{platform_id}: expected {SUPPORTED_PLATFORMS[platform_id]['repository']}"
-        )
+    if platform_id in SUPPORTED_PLATFORMS:
+        try:
+            expected_repository = platform_repository(platform_id)
+        except ValueError as exc:
+            errors.append(str(exc))
+        else:
+            if github.get("repository") != expected_repository:
+                errors.append(
+                    "github.repository does not match platform "
+                    f"{platform_id}: expected {expected_repository}"
+                )
 
     return errors
 
@@ -476,6 +532,11 @@ def command_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_repository(args: argparse.Namespace) -> int:
+    print(platform_repository(args.platform))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -493,6 +554,10 @@ def build_parser() -> argparse.ArgumentParser:
     apply.add_argument("targets", nargs="*", help="target JSON files; defaults to all targets")
     apply.add_argument("--yes", action="store_true", help="apply updates with gh variable set")
     apply.set_defaults(func=command_apply)
+
+    repository = subparsers.add_parser("repository", help="print the configured platform repository")
+    repository.add_argument("platform", choices=sorted(SUPPORTED_PLATFORMS))
+    repository.set_defaults(func=command_repository)
 
     return parser
 
