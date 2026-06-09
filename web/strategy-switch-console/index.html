@@ -132,6 +132,69 @@
       gap: 16px;
     }
 
+    body.app-loading .shell {
+      display: none;
+    }
+
+    body:not(.app-loading) .boot-screen {
+      display: none;
+    }
+
+    .boot-screen {
+      width: min(680px, calc(100vw - 36px));
+      min-height: calc(100svh - 72px);
+      margin: 0 auto;
+      display: grid;
+      align-items: center;
+      padding: 34px 0;
+    }
+
+    .boot-panel {
+      display: grid;
+      gap: 13px;
+      padding: 8px 0;
+    }
+
+    .boot-kicker {
+      color: var(--accent);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .boot-panel h2 {
+      color: var(--ink);
+      font-size: clamp(28px, 5vw, 44px);
+      line-height: 1.04;
+      font-weight: 820;
+    }
+
+    .boot-panel p {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+      max-width: 520px;
+    }
+
+    .loading-track {
+      width: 100%;
+      height: 5px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #dde4ea;
+    }
+
+    .loading-track::before {
+      content: "";
+      display: block;
+      width: 42%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--accent);
+      animation: loading-sweep 1.05s ease-in-out infinite;
+    }
+
     .pill,
     .btn {
       min-height: 36px;
@@ -536,6 +599,12 @@
         width: 100%;
       }
 
+      .boot-screen {
+        width: min(100% - 28px, 680px);
+        min-height: calc(100svh - 122px);
+        padding-top: 22px;
+      }
+
       .shell {
         width: min(100% - 28px, 1160px);
         padding-top: 18px;
@@ -580,10 +649,26 @@
           transform: translateY(0);
         }
       }
+
+      @keyframes loading-sweep {
+        from {
+          transform: translateX(-110%);
+        }
+        to {
+          transform: translateX(260%);
+        }
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .loading-track::before {
+        animation: none;
+        transform: translateX(0);
+      }
     }
   </style>
 </head>
-<body>
+<body class="app-loading">
   <header class="topbar">
     <div class="brand">
       <h1 data-i18n="appTitle">策略切换</h1>
@@ -597,7 +682,16 @@
     </div>
   </header>
 
-  <main class="shell">
+  <main class="boot-screen" id="boot-screen" role="status" aria-live="polite">
+    <div class="boot-panel">
+      <span class="boot-kicker" data-i18n="bootKicker">初始化控制台</span>
+      <h2 data-i18n="bootTitle">读取策略配置</h2>
+      <p id="boot-message" data-i18n="bootMessage">正在读取登录状态、账号配置和当前状态。</p>
+      <div class="loading-track" aria-hidden="true"></div>
+    </div>
+  </main>
+
+  <main class="shell" id="app-shell">
     <nav class="platform-strip" id="platform-strip" aria-label="Platforms"></nav>
 
     <section class="switch-surface">
@@ -734,6 +828,13 @@
       zh: {
         appTitle: "策略切换",
         appSubtitle: "选平台、目标账号和策略，一次执行完成切换。",
+        bootKicker: "初始化控制台",
+        bootTitle: "读取策略配置",
+        bootMessage: "正在读取登录状态、账号配置和当前状态。",
+        bootStrategy: "正在读取策略目录。",
+        bootSession: "正在验证登录状态。",
+        bootConfig: "正在读取账号配置和当前状态。",
+        bootPublic: "公开预览已就绪。",
         login: "登录",
         logout: "退出",
         signedInAs: "已登录 {login}",
@@ -787,6 +888,13 @@
       en: {
         appTitle: "Strategy Switch",
         appSubtitle: "Pick platform, target account, and strategy. One action switches everything.",
+        bootKicker: "Starting console",
+        bootTitle: "Loading strategy config",
+        bootMessage: "Reading session, account config, and current state.",
+        bootStrategy: "Reading strategy catalog.",
+        bootSession: "Checking sign-in status.",
+        bootConfig: "Reading account config and current state.",
+        bootPublic: "Public preview is ready.",
         login: "Sign in",
         logout: "Sign out",
         signedInAs: "Signed in as {login}",
@@ -848,6 +956,8 @@
     const state = {
       selected: "longbridge",
       lang: initialLang,
+      appReady: false,
+      bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
       accountOptions: clone(defaultAccountOptions),
       currentStrategies: {},
@@ -1263,15 +1373,23 @@
       note.classList.toggle("warning", state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy));
     }
 
+    function renderAppVisibility() {
+      document.body.classList.toggle("app-loading", !state.appReady);
+      el("boot-message").textContent = t(state.bootMessageKey);
+    }
+
     function render() {
       applyLanguage();
       renderPlatforms();
       renderControls();
       renderSummary();
       renderAuth();
+      renderAppVisibility();
     }
 
     async function refreshSession() {
+      state.bootMessageKey = "bootSession";
+      render();
       try {
         const response = await fetch("/api/session", { cache: "no-store" });
         if (!response.ok) throw new Error("no backend");
@@ -1285,11 +1403,18 @@
       } catch {
         state.auth = { available: false, allowed: false, admin: false, login: null };
       }
-      render();
-      await refreshConfig();
+      if (state.auth.allowed) {
+        await refreshConfig();
+      } else {
+        state.bootMessageKey = "bootPublic";
+        state.appReady = true;
+        render();
+      }
     }
 
     async function refreshStrategyProfiles() {
+      state.bootMessageKey = "bootStrategy";
+      render();
       try {
         const response = await fetch("/api/strategy-profiles", { cache: "no-store" });
         if (!response.ok) throw new Error("no strategy profiles");
@@ -1306,6 +1431,7 @@
     async function refreshConfig() {
       if (!state.auth.available || !state.auth.allowed) return;
       state.configSource = "loading";
+      state.bootMessageKey = "bootConfig";
       render();
       try {
         const response = await fetch("/api/config", { cache: "no-store" });
@@ -1320,11 +1446,16 @@
             ensureAccountSelection(platform);
             syncStrategyForAccount(platform);
           }
-          render();
+        } else {
+          state.configSource = "default";
+          state.currentStrategies = {};
         }
       } catch {
         state.configSource = "default";
         state.currentStrategies = {};
+      } finally {
+        state.appReady = true;
+        render();
       }
     }
 
@@ -1454,8 +1585,12 @@
     applyStrategyProfiles(defaultStrategyProfiles);
     for (const platform of Object.keys(platformMeta)) syncStrategyForAccount(platform);
     render();
-    refreshStrategyProfiles();
-    refreshSession();
+    boot();
+
+    async function boot() {
+      await refreshStrategyProfiles();
+      await refreshSession();
+    }
   </script>
 </body>
 </html>
