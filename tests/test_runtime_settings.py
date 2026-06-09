@@ -176,7 +176,32 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn("environment", target["github"])
         self.assertEqual(target["runtime_target"]["service_name"], "charles-schwab-quant-service")
         self.assertEqual(assignments["SCHWAB_DRY_RUN_ONLY"], "false")
-        self.assertNotIn("SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON", assignments)
+        self.assertEqual(
+            json.loads(assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"]),
+            {"strategy_plugins": []},
+        )
+
+    def test_build_switch_target_clears_plugin_mounts_for_unmounted_strategy(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "soxl_soxx_trend_income",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["STRATEGY_PROFILE"], "soxl_soxx_trend_income")
+        self.assertEqual(
+            json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"]),
+            {"strategy_plugins": []},
+        )
 
     def test_build_switch_target_defaults_firstrade_repository_scope(self):
         parser = build_runtime_switch.build_parser()
@@ -294,6 +319,65 @@ class RuntimeSettingsTest(unittest.TestCase):
             "market_regime_control",
         )
         self.assertEqual(untouched["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
+
+    def test_build_switch_target_patches_ibkr_service_targets_with_empty_plugin_mounts(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "interactive-brokers-live-u1599-tqqq-service",
+                    "ACCOUNT_GROUP": "live-u1599-tqqq",
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "tqqq_growth_income",
+                        "dry_run_only": False,
+                        "deployment_selector": "live-u1599-tqqq",
+                        "account_selector": ["U15998061"],
+                        "account_scope": "live-u1599-tqqq",
+                        "service_name": "interactive-brokers-live-u1599-tqqq-service",
+                        "execution_mode": "live",
+                    },
+                    "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {
+                        "strategy_plugins": [
+                            {
+                                "strategy": "tqqq_growth_income",
+                                "plugin": "market_regime_control",
+                                "signal_path": "gs://bucket/old/latest_signal.json",
+                                "enabled": True,
+                                "expected_mode": "shadow",
+                            }
+                        ]
+                    },
+                },
+            ],
+        }
+        path = ROOT / ".pytest_runtime_service_targets_empty_mounts.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "live-u1599-tqqq",
+                "--strategy-profile",
+                "soxl_soxx_trend_income",
+                "--account-selector",
+                "U15998061",
+                "--service-name",
+                "interactive-brokers-live-u1599-tqqq-service",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        patched = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])
+        selected = patched["targets"][0]
+
+        self.assertEqual(selected["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
+        self.assertEqual(selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"], {"strategy_plugins": []})
 
 
 if __name__ == "__main__":

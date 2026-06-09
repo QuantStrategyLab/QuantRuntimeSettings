@@ -136,6 +136,49 @@ assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 
+const updatedAccountOptions = __test.updateAccountOptionsDefaultStrategy(
+  accountOptions,
+  {
+    platform: "longbridge",
+    target_name: "sg",
+    account_selector: "SG",
+    deployment_selector: "SG",
+    account_scope: "SG",
+    service_name: "longbridge-quant-sg-service",
+    github_environment: "longbridge-sg",
+    strategy_profile: "soxl_soxx_trend_income",
+    execution_mode: "live",
+    variable_scope: "environment",
+    plugin_mode: "auto",
+  },
+);
+assert.equal(updatedAccountOptions.changed, true);
+assert.equal(updatedAccountOptions.options.longbridge[1].default_strategy_profile, "soxl_soxx_trend_income");
+
+const kvWrites = new Map();
+const syncResult = await __test.syncDefaultStrategyForAccount(
+  {
+    STRATEGY_SWITCH_CONFIG: {
+      get: async (key) => key === "audit_log" ? "[]" : null,
+      put: async (key, value) => kvWrites.set(key, value),
+    },
+  },
+  accountOptions,
+  {
+    platform: "longbridge",
+    target_name: "sg",
+    account_selector: "SG",
+    strategy_profile: "soxl_soxx_trend_income",
+    execution_mode: "live",
+    variable_scope: "default",
+    plugin_mode: "auto",
+  },
+  { login: "pigbibi" },
+);
+assert.equal(syncResult.synced, true);
+assert.equal(syncResult.changed, true);
+assert.equal(JSON.parse(kvWrites.get("account_options")).longbridge[1].default_strategy_profile, "soxl_soxx_trend_income");
+
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {
   const requestUrl = String(url);
