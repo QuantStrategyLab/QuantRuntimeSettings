@@ -103,11 +103,12 @@ Each account item supports:
   "deployment_selector": "live-u1599-tqqq",
   "account_scope": "live-u1599-tqqq",
   "service_name": "interactive-brokers-live-u1599-tqqq-service",
-  "default_strategy_profile": "tqqq_growth_income"
+  "default_strategy_profile": "tqqq_growth_income",
+  "supported_domains": ["us_equity"]
 }
 ```
 
-The Worker validates dispatch inputs against this config. Keep only routing metadata here. Do not store broker passwords, tokens, or API keys in this config.
+The Worker validates dispatch inputs against this config, including whether the selected strategy domain is supported by the selected account. Keep only routing metadata here. Do not store broker passwords, tokens, or API keys in this config.
 
 `/api/strategy-profiles` returns the public live-enabled strategy catalog for the dropdown. It reads the KV `strategy_profiles` key first, then `STRATEGY_SWITCH_STRATEGY_PROFILES_JSON`, then `strategy-profiles.example.json`.
 
@@ -121,12 +122,13 @@ When adding or renaming a strategy profile:
 
 - Add the runtime-enabled profile id and display label to `strategy-profiles.example.json`.
 - Run `python3 scripts/sync_strategy_switch_page_asset.py` so `strategy_profiles_asset.js` is regenerated.
-- Set each affected account's `default_strategy_profile` in `account-options.example.json` and the deployed KV account config.
+- Set `domain` on each strategy profile. Current values are `us_equity` and `hk_equity`.
+- Set each affected account's `default_strategy_profile` and `supported_domains` in `account-options.example.json` and the deployed KV account config.
 - Update the deployed KV `strategy_profiles` key from `strategy-profiles.example.json`.
 - Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.
 - Use lower-case ids with letters, numbers, dot, underscore, dash, or equals only. Do not encode account names or secrets in profile ids.
 
-The console can display a dynamically read unknown profile, but the profile should still be added to the catalog so the UI and docs stay aligned.
+The console only allows live-enabled profiles whose `domain` is included in the selected account's `supported_domains`. If a profile is dynamically read from GitHub Variables but is missing from the catalog, add it to the catalog before switching to it.
 
 ## GitHub OAuth App
 
