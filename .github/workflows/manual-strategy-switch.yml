@@ -126,6 +126,7 @@ jobs:
   switch:
     name: Build and apply runtime switch
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: runtime-strategy-switch
     permissions:
       contents: read

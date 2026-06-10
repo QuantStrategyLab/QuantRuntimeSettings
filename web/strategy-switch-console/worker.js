@@ -12,6 +12,7 @@ const STRATEGY_PROFILES_KEY = "strategy_profiles";
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 3500;
+const GITHUB_API_TIMEOUT_MS = 8000;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity"];
@@ -125,7 +126,7 @@ async function finishLogin(request, env) {
     return html(renderMessage("登录失败", "OAuth state 校验失败，请重新登录。"), 400, clearOAuthCookie());
   }
 
-  const tokenResponse = await fetch("https://github.com/login/oauth/access_token", {
+  const tokenResponse = await fetchWithTimeout("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -143,7 +144,7 @@ async function finishLogin(request, env) {
     return html(renderMessage("登录失败", "GitHub token exchange 失败。"), 502, clearOAuthCookie());
   }
 
-  const userResponse = await fetch("https://api.github.com/user", {
+  const userResponse = await fetchWithTimeout("https://api.github.com/user", {
     headers: githubHeaders(tokenPayload.access_token),
   });
   const user = await userResponse.json();
@@ -555,6 +556,19 @@ function withTimeout(promise, timeoutMs, fallback) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
+async function fetchWithTimeout(resource, init = {}, timeoutMs = GITHUB_API_TIMEOUT_MS, fetchImpl = fetch) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchImpl(resource, { ...init, signal: controller.signal });
+  } catch (error) {
+    if (error?.name === "AbortError") throw new Error("GitHub request timed out");
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 async function resolveCurrentStrategyForAccount({ platform, option, optionsCount, repository, readVariable }) {
   const serviceTargetsValue = await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON");
   const serviceTarget = runtimeTargetFromServiceTargets(serviceTargetsValue, platform, option);
@@ -654,7 +668,7 @@ async function dispatchSwitch(request, env) {
   const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
   const workflow = env.RUNTIME_SETTINGS_WORKFLOW || DEFAULT_WORKFLOW;
   const apiUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/dispatches`;
-  const response = await fetch(apiUrl, {
+  const response = await fetchWithTimeout(apiUrl, {
     method: "POST",
     headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
     body: JSON.stringify({
@@ -1150,7 +1164,7 @@ async function fetchGithubVariable(token, repository, scope, githubEnvironment, 
   const apiUrl = githubVariableUrl(repository, scope, githubEnvironment, name);
   if (!apiUrl) return "";
   try {
-    const response = await fetch(apiUrl, {
+    const response = await fetchWithTimeout(apiUrl, {
       headers: githubHeaders(token),
     });
     if (response.status === 404 || response.status === 403) return "";
@@ -1409,7 +1423,7 @@ function githubHeaders(token) {
 async function fetchGithubOrgLogins(token) {
   const orgs = [];
   for (let page = 1; page <= 5; page += 1) {
-    const response = await fetch(`https://api.github.com/user/orgs?per_page=100&page=${page}`, {
+    const response = await fetchWithTimeout(`https://api.github.com/user/orgs?per_page=100&page=${page}`, {
       headers: githubHeaders(token),
     });
     if (!response.ok) return orgs;
@@ -1800,6 +1814,7 @@ export const __test = {
   platformRepositories,
   requireSameOrigin,
   responseHeaders,
+  fetchWithTimeout,
   syncDefaultStrategyForAccount,
   supportedDomainsForAccount,
   updateAccountOptionsDefaultStrategy,

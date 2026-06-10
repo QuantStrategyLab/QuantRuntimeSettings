@@ -111,6 +111,32 @@ assert.equal(
   await __test.withTimeout(new Promise(() => {}), 1, "fallback"),
   "fallback",
 );
+const timeoutFetchResponse = await __test.fetchWithTimeout(
+  "https://api.github.test/user",
+  { headers: { Accept: "application/json" } },
+  100,
+  async (_resource, init) => {
+    assert.ok(init.signal instanceof AbortSignal);
+    assert.equal(init.headers.Accept, "application/json");
+    return new Response('{"ok":true}', { status: 200 });
+  },
+);
+assert.equal(timeoutFetchResponse.status, 200);
+await assert.rejects(
+  () => __test.fetchWithTimeout(
+    "https://api.github.test/slow",
+    {},
+    1,
+    (_resource, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+    }),
+  ),
+  /GitHub request timed out/,
+);
 
 function captureError(fn) {
   try {
