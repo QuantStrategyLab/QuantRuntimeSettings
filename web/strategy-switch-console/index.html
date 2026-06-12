@@ -1686,7 +1686,7 @@
 
       status.hidden = !signedIn;
       status.textContent = signedIn ? t("signedInAs").replace("{login}", state.auth.login) : "";
-      loginLink.hidden = !state.auth.available || signedIn;
+      loginLink.hidden = signedIn;
       loginLink.href = "/login";
       loginLink.textContent = t("login");
       logoutButton.hidden = !signedIn;

@@ -20,6 +20,8 @@ assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !
 assert.equal(indexHtml.includes("publicSummary"), false);
 assert.ok(indexHtml.includes("function hasPrivateConfig()"));
 assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
+assert.ok(indexHtml.includes("loginLink.hidden = signedIn"));
+assert.equal(indexHtml.includes("loginLink.hidden = !state.auth.available || signedIn"), false);
 assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
 assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
