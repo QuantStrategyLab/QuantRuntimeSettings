@@ -278,6 +278,8 @@ class RuntimeSettingsTest(unittest.TestCase):
                 {
                     "service": "interactive-brokers-demo-ibkr-tqqq-service",
                     "ACCOUNT_GROUP": "demo-ibkr-tqqq",
+                    "IBKR_MIN_RESERVED_CASH_USD": "150",
+                    "IBKR_RESERVED_CASH_RATIO": "0.03",
                     "runtime_target": {
                         "platform_id": "ibkr",
                         "strategy_profile": "old_strategy",
@@ -336,11 +338,65 @@ class RuntimeSettingsTest(unittest.TestCase):
         untouched = patched_targets[1]
         self.assertEqual(selected["runtime_target"]["strategy_profile"], "tqqq_growth_income")
         self.assertEqual(selected["IBKR_DRY_RUN_ONLY"], "false")
+        self.assertEqual(selected["IBKR_MIN_RESERVED_CASH_USD"], "150")
+        self.assertEqual(selected["IBKR_RESERVED_CASH_RATIO"], "0.03")
         self.assertEqual(
             selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],
             "market_regime_control",
         )
         self.assertEqual(untouched["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
+
+    def test_build_switch_target_can_clear_preserved_ibkr_reserved_cash_fields(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "interactive-brokers-demo-ibkr-tqqq-service",
+                    "ACCOUNT_GROUP": "demo-ibkr-tqqq",
+                    "IBKR_MIN_RESERVED_CASH_USD": "150",
+                    "IBKR_RESERVED_CASH_RATIO": "0.03",
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "old_strategy",
+                        "dry_run_only": False,
+                        "deployment_selector": "demo-ibkr-tqqq",
+                        "account_selector": ["DEMO_IBKR_PRIMARY"],
+                        "account_scope": "demo-ibkr-tqqq",
+                        "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+                        "execution_mode": "live",
+                    },
+                },
+            ],
+        }
+        path = ROOT / ".pytest_runtime_service_targets_reserved_cash.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "demo-ibkr-tqqq",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--account-selector",
+                "DEMO_IBKR_PRIMARY",
+                "--service-name",
+                "interactive-brokers-demo-ibkr-tqqq-service",
+                "--existing-service-targets-json-file",
+                str(path),
+                "--extra-variables-json",
+                '{"IBKR_MIN_RESERVED_CASH_USD":"","IBKR_RESERVED_CASH_RATIO":""}',
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        patched = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])
+        selected = patched["targets"][0]
+
+        self.assertEqual(selected["IBKR_MIN_RESERVED_CASH_USD"], "")
+        self.assertEqual(selected["IBKR_RESERVED_CASH_RATIO"], "")
 
     def test_build_switch_target_patches_ibkr_service_targets_with_empty_plugin_mounts(self):
         existing = {

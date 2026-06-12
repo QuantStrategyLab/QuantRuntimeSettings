@@ -264,6 +264,20 @@ def _build_target_entry(
     return entry
 
 
+def _preserve_reserved_cash_fields(
+    *,
+    platform: str,
+    current_entry: dict[str, Any],
+    replacement: dict[str, Any],
+) -> None:
+    for variable in (
+        PLATFORM_MIN_RESERVED_CASH_VARIABLES.get(platform),
+        PLATFORM_RESERVED_CASH_RATIO_VARIABLES.get(platform),
+    ):
+        if variable and variable not in replacement and variable in current_entry:
+            replacement[variable] = current_entry[variable]
+
+
 def _patch_service_targets(
     *,
     current_payload: dict[str, Any],
@@ -297,6 +311,11 @@ def _patch_service_targets(
             str(entry.get("ACCOUNT_GROUP") or "").strip(),
         }
         if service_name in candidates or account_scope in candidates:
+            _preserve_reserved_cash_fields(
+                platform=platform,
+                current_entry=entry,
+                replacement=replacement,
+            )
             entries[index] = {**entry, **replacement}
             replaced = True
             break

@@ -426,6 +426,7 @@
       grid-column: 1;
     }
 
+    .reserve-policy-block,
     .min-reserve-block,
     .reserve-ratio-block {
       grid-column: 2;
@@ -660,6 +661,7 @@
       }
 
       .mode-block,
+      .reserve-policy-block,
       .min-reserve-block,
       .reserve-ratio-block {
         grid-column: auto;
@@ -774,10 +776,16 @@
             </div>
           </div>
 
+          <label class="control-block reserve-policy-block">
+            <span data-i18n="reservedCashMode">预留现金策略</span>
+            <select id="reserve-policy-mode-select"></select>
+            <span class="selection-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
+          </label>
+
           <label class="control-block min-reserve-block">
             <span id="min-reserved-cash-label">最小预留现金</span>
             <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
-            <span class="selection-meta" data-i18n="reservedCashMeta">留空则沿用当前平台默认值。</span>
+            <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
           </label>
 
           <label class="control-block reserve-ratio-block">
@@ -820,6 +828,20 @@
       ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
       schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
       firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+    };
+
+    const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
+    const platformMinReservedCashVariables = {
+      longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
+      ibkr: "IBKR_MIN_RESERVED_CASH_USD",
+      schwab: "SCHWAB_MIN_RESERVED_CASH_USD",
+      firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
+    };
+    const platformReservedCashRatioVariables = {
+      longbridge: "LONGBRIDGE_RESERVED_CASH_RATIO",
+      ibkr: "IBKR_RESERVED_CASH_RATIO",
+      schwab: "SCHWAB_RESERVED_CASH_RATIO",
+      firstrade: "FIRSTRADE_RESERVED_CASH_RATIO",
     };
 
     const defaultStrategyProfiles = [
@@ -876,7 +898,15 @@
         paper: "Dry run",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
-        reservedCashMeta: "例如 150；留空则不覆盖当前值。",
+        reservedCashMode: "预留现金策略",
+        reservePolicyCurrent: "沿用当前配置",
+        reservePolicyNone: "不设置平台预留现金",
+        reservePolicyRatio: "仅按比例",
+        reservePolicyFloor: "仅按固定金额",
+        reservePolicyMax: "固定金额和比例取较大值",
+        reservedCashModeMeta: "选择是否沿用、清空或覆盖平台预留现金。",
+        reservedCashNone: "不设置",
+        reservedCashMeta: "固定金额下限，可单独设置或与比例取较大值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
         summary: "当前 / 待提交",
         copySummary: "复制状态",
@@ -892,6 +922,7 @@
         readyNote: "点击后会触发 workflow，并同步目标平台服务。",
         noChangesNote: "当前选择与已读取配置一致。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
+        invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -934,7 +965,15 @@
         paper: "Dry run",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
-        reservedCashMeta: "Example: 150. Leave blank to avoid overriding the current value.",
+        reservedCashMode: "Reserved cash policy",
+        reservePolicyCurrent: "Keep current config",
+        reservePolicyNone: "No platform reserve",
+        reservePolicyRatio: "Ratio only",
+        reservePolicyFloor: "Fixed amount only",
+        reservePolicyMax: "Max of amount and ratio",
+        reservedCashModeMeta: "Choose whether to keep, clear, or override platform reserved cash.",
+        reservedCashNone: "None",
+        reservedCashMeta: "Fixed cash floor. Use alone or with a ratio.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
         summary: "Current / Pending",
         copySummary: "Copy state",
@@ -950,6 +989,7 @@
         readyNote: "This dispatches the workflow and syncs the target platform service.",
         noChangesNote: "The current selection matches the readable config.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
+        invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -979,6 +1019,7 @@
       : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
     const clone = (value) => JSON.parse(JSON.stringify(value));
     const defaultReserveForm = () => ({
+      reservePolicyMode: "current",
       minReservedCashUsd: "",
       reservedCashRatio: "",
       reservedCashTouched: false,
@@ -1245,6 +1286,7 @@
       const form = state.forms[platform];
       if (!form || form.reservedCashTouched) return;
       const policy = currentReservePolicyForAccount(platform, selectedAccount(platform));
+      form.reservePolicyMode = "current";
       form.minReservedCashUsd = policy.minReservedCashUsd;
       form.reservedCashRatio = policy.reservedCashRatio;
     }
@@ -1278,10 +1320,53 @@
         .replace("{domains}", supportedDomainLabel(platform, account));
     }
 
-    function hasValidStrategySelection(platform = state.selected) {
+    function hasRunnableStrategySelection(platform = state.selected) {
       const form = state.forms[platform];
       const account = selectedAccount(platform);
       return Boolean(form?.strategy && account && strategyAllowedForAccount(platform, account, form.strategy));
+    }
+
+    function hasValidReservePolicy(platform = state.selected) {
+      const form = state.forms[platform];
+      const mode = normalizeReservePolicyMode(form?.reservePolicyMode);
+      if (mode === "current" || mode === "none") return true;
+      return Boolean(reservePolicyOverrideForForm(form, platform));
+    }
+
+    function hasValidStrategySelection(platform = state.selected) {
+      return hasRunnableStrategySelection(platform) && hasValidReservePolicy(platform);
+    }
+
+    function normalizeReservePolicyMode(value) {
+      return reservePolicyModes.includes(value) ? value : "current";
+    }
+
+    function reservePolicyOverrideForForm(form, platform = state.selected) {
+      const mode = normalizeReservePolicyMode(form?.reservePolicyMode);
+      const floor = cleanDisplayNumber(form?.minReservedCashUsd);
+      const ratio = cleanDisplayRatio(form?.reservedCashRatio);
+      const extraVariables = {};
+      if (mode === "current") return null;
+      if (mode === "none") {
+        extraVariables[platformMinReservedCashVariables[platform]] = "";
+        extraVariables[platformReservedCashRatioVariables[platform]] = "";
+        return { inputs: {}, extraVariables };
+      }
+      if (mode === "ratio") {
+        if (!ratio) return null;
+        extraVariables[platformMinReservedCashVariables[platform]] = "";
+        return { inputs: { reserved_cash_ratio: ratio }, extraVariables };
+      }
+      if (mode === "floor") {
+        if (!floor) return null;
+        extraVariables[platformReservedCashRatioVariables[platform]] = "";
+        return { inputs: { min_reserved_cash_usd: floor }, extraVariables };
+      }
+      if (mode === "max") {
+        if (!floor || !ratio) return null;
+        return { inputs: { min_reserved_cash_usd: floor, reserved_cash_ratio: ratio }, extraVariables };
+      }
+      return null;
     }
 
     function buildInputs(platform = state.selected) {
@@ -1310,20 +1395,27 @@
       ]) {
         if (account[field]) inputs[field] = account[field];
       }
-      if (form.reservedCashTouched) {
-        if (form.reservedCashRatio) inputs.reserved_cash_ratio = form.reservedCashRatio;
-        if (form.minReservedCashUsd) inputs.min_reserved_cash_usd = form.minReservedCashUsd;
+      const reserveOverride = reservePolicyOverrideForForm(form, platform);
+      const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
+      inputs.reserved_cash_policy_mode = reserveMode;
+      if (reserveOverride) {
+        Object.assign(inputs, reserveOverride.inputs);
+        if (Object.keys(reserveOverride.extraVariables).length) {
+          inputs.extra_variables_json = JSON.stringify(reserveOverride.extraVariables);
+        }
       }
       return inputs;
     }
 
     function reservedCashPolicyText(inputs, platform = state.selected, account = selectedAccount(platform), fallback = t("unchanged")) {
-      const floor = inputs.min_reserved_cash_usd;
-      const ratio = inputs.reserved_cash_ratio;
+      if (inputs?.reserved_cash_policy_mode === "none") return t("reservedCashNone");
+      const floor = cleanDisplayNumber(inputs?.min_reserved_cash_usd);
+      const ratio = cleanDisplayRatio(inputs?.reserved_cash_ratio);
       const currency = selectedCashCurrency(platform, account);
-      if (!floor && !ratio) return fallback;
-      if (floor && ratio) return `max(${floor} ${currency}, ${formatRatioPercent(ratio)})`;
-      if (floor) return `${floor} ${currency}`;
+      const hasEffectiveFloor = Boolean(floor && !(ratio && Number(floor) === 0));
+      if (!hasEffectiveFloor && !ratio) return fallback;
+      if (hasEffectiveFloor && ratio) return `max(${floor} ${currency}, ${formatRatioPercent(ratio)})`;
+      if (hasEffectiveFloor) return `${floor} ${currency}`;
       return formatRatioPercent(ratio);
     }
 
@@ -1346,19 +1438,32 @@
 
     function pendingReservePolicy(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const current = currentReservePolicyForAccount(platform, account);
-      const floorOverride = cleanDisplayNumber(inputs.min_reserved_cash_usd);
-      const ratioOverride = cleanDisplayRatio(inputs.reserved_cash_ratio);
-      const changed = Boolean(
-        (floorOverride && floorOverride !== current.minReservedCashUsd) ||
-          (ratioOverride && ratioOverride !== current.reservedCashRatio),
-      );
-      return {
-        changed,
-        inputs: {
-          min_reserved_cash_usd: floorOverride || current.minReservedCashUsd,
-          reserved_cash_ratio: ratioOverride || current.reservedCashRatio,
-        },
+      const currentFloor = cleanDisplayNumber(current.minReservedCashUsd);
+      const currentRatio = cleanDisplayRatio(current.reservedCashRatio);
+      const mode = normalizeReservePolicyMode(inputs.reserved_cash_policy_mode);
+      if (mode === "current") {
+        return {
+          changed: false,
+          inputs: {
+            min_reserved_cash_usd: currentFloor,
+            reserved_cash_ratio: currentRatio,
+          },
+        };
+      }
+
+      const next = {
+        min_reserved_cash_usd: cleanDisplayNumber(inputs.min_reserved_cash_usd),
+        reserved_cash_ratio: cleanDisplayRatio(inputs.reserved_cash_ratio),
       };
+      if (mode === "none") {
+        next.reserved_cash_policy_mode = "none";
+      }
+      const changed = Boolean(
+        next.min_reserved_cash_usd !== currentFloor ||
+          next.reserved_cash_ratio !== currentRatio ||
+          (mode === "none" && (currentFloor || currentRatio)),
+      );
+      return { changed, inputs: next };
     }
 
     function pendingChangeState(inputs, platform = state.selected, account = selectedAccount(platform)) {
@@ -1463,6 +1568,7 @@
       const choices = strategyChoicesForAccount(platform, account);
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
+      const reservePolicyModeSelect = el("reserve-policy-mode-select");
       const minReservedCashInput = el("min-reserved-cash-input");
       const reservedCashRatioInput = el("reserved-cash-ratio-input");
       const showPrivateControls = hasPrivateConfig();
@@ -1477,6 +1583,7 @@
       if (!showPrivateControls) {
         accountSelect.replaceChildren();
         strategySelect.replaceChildren();
+        reservePolicyModeSelect.replaceChildren();
         minReservedCashInput.value = "";
         reservedCashRatioInput.value = "";
         el("account-meta").textContent = "";
@@ -1509,12 +1616,19 @@
       el("strategy-meta").textContent = account
         ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
         : "";
+      reservePolicyModeSelect.replaceChildren();
+      for (const mode of reservePolicyModes) {
+        reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
+      }
+      const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
       el("min-reserved-cash-label").textContent = t("minReservedCash").replace(
         "{currency}",
         selectedCashCurrency(platform, account),
       );
-      minReservedCashInput.value = form.minReservedCashUsd;
-      reservedCashRatioInput.value = form.reservedCashRatio;
+      minReservedCashInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
+      reservedCashRatioInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
+      minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
+      reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
 
       document.querySelectorAll("[data-mode]").forEach((button) => {
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
@@ -1568,7 +1682,9 @@
       const dispatch = el("dispatch-button");
       const hasPrivateAccounts = state.configSource === "private";
       const loadingConfig = state.configSource === "loading";
-      const hasValidStrategy = hasValidStrategySelection();
+      const hasRunnableStrategy = hasRunnableStrategySelection();
+      const hasValidReserve = hasValidReservePolicy();
+      const hasValidStrategy = hasRunnableStrategy && hasValidReserve;
       const hasPendingChange = hasPrivateAccounts && hasValidStrategy && hasPendingChanges(buildInputs());
       dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
       dispatch.textContent = state.auth.allowed
@@ -1581,7 +1697,7 @@
         ? (loadingConfig
           ? t("loadingConfigNote")
           : (hasPrivateAccounts
-            ? (hasValidStrategy ? (hasPendingChange ? t("readyNote") : t("noChangesNote")) : t("invalidStrategyNote"))
+            ? (hasRunnableStrategy ? (hasValidReserve ? (hasPendingChange ? t("readyNote") : t("noChangesNote")) : t("invalidReservePolicyNote")) : t("invalidStrategyNote"))
             : t("missingConfigNote")))
         : t("readonlyNote");
       note.classList.toggle(
@@ -1801,6 +1917,14 @@
       const button = event.target.closest("[data-mode]");
       if (!button) return;
       state.forms[state.selected].executionMode = button.dataset.mode;
+      render();
+    });
+
+    el("reserve-policy-mode-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.reservePolicyMode = normalizeReservePolicyMode(el("reserve-policy-mode-select").value);
+      form.reservedCashTouched = form.reservePolicyMode !== "current";
+      if (form.reservePolicyMode === "current") syncReservePolicyForAccount(state.selected);
       render();
     });
 

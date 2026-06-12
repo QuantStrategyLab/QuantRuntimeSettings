@@ -22,6 +22,14 @@ assert.ok(indexHtml.includes("function hasPrivateConfig()"));
 assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
 assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
 assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
+assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
+assert.ok(indexHtml.includes('reservePolicyNone'));
+assert.ok(indexHtml.includes('reservePolicyRatio'));
+assert.ok(indexHtml.includes('reservePolicyFloor'));
+assert.ok(indexHtml.includes('reservePolicyMax'));
+assert.ok(indexHtml.includes('platformMinReservedCashVariables'));
+assert.ok(indexHtml.includes('platformReservedCashRatioVariables'));
+assert.ok(indexHtml.includes('extra_variables_json'));
 assert.ok(indexHtml.includes('function selectedCashCurrency('));
 assert.ok(indexHtml.includes('function currentReservedCashPolicyText('));
 assert.ok(indexHtml.includes('function hasPendingChanges('));
@@ -272,6 +280,23 @@ const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
 });
 assert.equal(normalizedReservedCashInputs.reserved_cash_ratio, "0.03");
 assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
+const normalizedReserveClearInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  extra_variables_json: JSON.stringify({
+    IBKR_MIN_RESERVED_CASH_USD: "",
+    IBKR_RESERVED_CASH_RATIO: "",
+  }),
+});
+assert.equal(
+  normalizedReserveClearInputs.extra_variables_json,
+  JSON.stringify({
+    IBKR_MIN_RESERVED_CASH_USD: "",
+    IBKR_RESERVED_CASH_RATIO: "",
+  }),
+);
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
