@@ -11,7 +11,7 @@ const ACCOUNT_OPTIONS_KEY = "account_options";
 const STRATEGY_PROFILES_KEY = "strategy_profiles";
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
-const CURRENT_STRATEGIES_TIMEOUT_MS = 3500;
+const CURRENT_STRATEGIES_TIMEOUT_MS = 10000;
 const GITHUB_API_TIMEOUT_MS = 8000;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
@@ -594,14 +594,18 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
 
   const variableScope = resolveVariableScope(platform, option);
   const githubEnvironment = resolveGithubEnvironment(platform, option, variableScope);
-  const reservedCashPayload = await readReservedCashVariables({
+  const reservedCashPayloadPromise = readReservedCashVariables({
     platform,
     repository,
     variableScope,
     githubEnvironment,
     readVariable,
   });
-  const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
+  const runtimeTargetValuePromise = readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
+  const [reservedCashPayload, runtimeTargetValue] = await Promise.all([
+    reservedCashPayloadPromise,
+    runtimeTargetValuePromise,
+  ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
   const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
   const runtimeTargetProfile = runtimeTargetMatches ? cleanCurrentStrategy(runtimeTarget.strategy_profile) : "";
@@ -1805,6 +1809,7 @@ function escapeHtml(value) {
 
 export const __test = {
   assertConfiguredAccount,
+  currentStrategiesTimeoutMs: CURRENT_STRATEGIES_TIMEOUT_MS,
   assertStrategyAllowedForAccount,
   inferAccountSupportedDomains,
   loadCurrentStrategies,

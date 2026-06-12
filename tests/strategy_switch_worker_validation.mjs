@@ -7,6 +7,7 @@ import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8");
+assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
 assert.equal(indexHtml.includes(".innerHTML"), false);
@@ -403,6 +404,59 @@ try {
   assert.equal(currentStrategies.longbridge.hk.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.longbridge.hk.source, "RESERVED_CASH_VARIABLES");
 } finally {
+  globalThis.fetch = originalFetch;
+}
+
+let releaseReservedVariables;
+let reservedVariableRequests = 0;
+let reservedVariablesFinished = false;
+let runtimeTargetStartedBeforeReservedVariablesFinished = false;
+const reservedVariablesGate = new Promise((resolve) => {
+  releaseReservedVariables = () => {
+    reservedVariablesFinished = true;
+    resolve();
+  };
+});
+const reservedVariableFallback = setTimeout(releaseReservedVariables, 100);
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response("", { status: 404 });
+  }
+  if (requestUrl.endsWith("/SCHWAB_MIN_RESERVED_CASH_USD") || requestUrl.endsWith("/SCHWAB_RESERVED_CASH_RATIO")) {
+    reservedVariableRequests += 1;
+    await reservedVariablesGate;
+    return new Response(JSON.stringify({ value: requestUrl.endsWith("/SCHWAB_RESERVED_CASH_RATIO") ? "0.03" : "150" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/RUNTIME_TARGET_JSON")) {
+    runtimeTargetStartedBeforeReservedVariablesFinished = reservedVariableRequests === 2 && !reservedVariablesFinished;
+    releaseReservedVariables();
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        platform_id: "schwab",
+        strategy_profile: "soxl_soxx_trend_income",
+        dry_run_only: false,
+        account_scope: "schwab",
+        service_name: "charles-schwab-quant-service",
+        execution_mode: "live",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { schwab: accountOptions.schwab },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
+  assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
+  assert.equal(runtimeTargetStartedBeforeReservedVariablesFinished, true);
+} finally {
+  clearTimeout(reservedVariableFallback);
   globalThis.fetch = originalFetch;
 }
 
