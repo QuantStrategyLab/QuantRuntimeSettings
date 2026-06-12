@@ -406,7 +406,7 @@
 
     .quick-form {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+      grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 0.5fr));
       align-items: start;
       gap: 14px;
     }
@@ -422,14 +422,22 @@
       font-weight: 760;
     }
 
+    .account-block,
     .mode-block {
       grid-column: 1;
     }
 
-    .reserve-policy-block,
-    .min-reserve-block,
-    .reserve-ratio-block {
+    .strategy-block,
+    .reserve-policy-block {
+      grid-column: 2 / span 2;
+    }
+
+    .min-reserve-block {
       grid-column: 2;
+    }
+
+    .reserve-ratio-block {
+      grid-column: 3;
     }
 
     select,
@@ -660,6 +668,8 @@
         grid-template-columns: 1fr;
       }
 
+      .account-block,
+      .strategy-block,
       .mode-block,
       .reserve-policy-block,
       .min-reserve-block,
@@ -756,13 +766,13 @@
         <p class="public-note" id="public-note" hidden data-i18n="publicReadonly">登录后查看账号配置。</p>
 
         <div class="quick-form" id="quick-form">
-          <label class="control-block">
+          <label class="control-block account-block">
             <span data-i18n="account">目标账号</span>
             <select id="account-select"></select>
             <span class="selection-meta" id="account-meta"></span>
           </label>
 
-          <label class="control-block">
+          <label class="control-block strategy-block">
             <span data-i18n="strategy">策略</span>
             <select id="strategy-select"></select>
             <span class="selection-meta" id="strategy-meta"></span>
@@ -906,6 +916,7 @@
         reservePolicyMax: "固定金额和比例取较大值",
         reservedCashModeMeta: "选择是否沿用、清空或覆盖平台预留现金。",
         reservedCashNone: "不设置",
+        reservedCashDefault: "未配置（使用平台内置默认）",
         reservedCashMeta: "固定金额下限，可单独设置或与比例取较大值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
         summary: "当前 / 待提交",
@@ -973,6 +984,7 @@
         reservePolicyMax: "Max of amount and ratio",
         reservedCashModeMeta: "Choose whether to keep, clear, or override platform reserved cash.",
         reservedCashNone: "None",
+        reservedCashDefault: "Not configured (uses platform built-in default)",
         reservedCashMeta: "Fixed cash floor. Use alone or with a ratio.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
         summary: "Current / Pending",
@@ -1420,6 +1432,7 @@
     }
 
     function currentReservedCashPolicyText(platform = state.selected, account = selectedAccount(platform)) {
+      const entry = currentEntryForAccount(platform, account);
       const policy = currentReservePolicyForAccount(platform, account);
       return reservedCashPolicyText(
         {
@@ -1428,7 +1441,7 @@
         },
         platform,
         account,
-        t("notRead"),
+        entry ? t("reservedCashDefault") : t("notRead"),
       );
     }
 
