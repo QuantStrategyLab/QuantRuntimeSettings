@@ -221,6 +221,41 @@ assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.equal(accountOptions.longbridge[0].cash_currency, "HKD");
 
+const kvUnboundSyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-account-default", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-sync-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      platform: "ibkr",
+      target_name: "ibkr-primary",
+      account_selector: "DEMO_IBKR_PRIMARY",
+      deployment_selector: "demo-ibkr-tqqq",
+      account_scope: "demo-ibkr-tqqq",
+      service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+      strategy_profile: "tqqq_growth_income",
+      execution_mode: "live",
+      variable_scope: "default",
+      plugin_mode: "auto",
+    }),
+  }),
+  {
+    STRATEGY_SWITCH_SYNC_TOKEN: "test-sync-token",
+    STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify(accountOptions),
+    STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(strategyProfiles),
+  },
+);
+assert.equal(kvUnboundSyncResponse.status, 200);
+const kvUnboundSyncBody = await kvUnboundSyncResponse.json();
+assert.equal(kvUnboundSyncBody.ok, true);
+assert.deepEqual(kvUnboundSyncBody.account_options_sync, {
+  synced: false,
+  reason: "kv_not_bound",
+  skipped: true,
+});
+
 const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",

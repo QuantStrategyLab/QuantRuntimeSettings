@@ -740,7 +740,12 @@ async function syncAccountDefaultResponse(request, env) {
   const result = await syncDefaultStrategyForAccount(env, accountConfig.options, inputs, {
     login: "github-actions",
   });
-  return json({ ok: result.synced, account_options_sync: result }, result.synced ? 200 : 500);
+  const kvSyncSkipped = result.reason === "kv_not_bound";
+  const accountOptionsSync = kvSyncSkipped ? { ...result, skipped: true } : result;
+  return json(
+    { ok: result.synced || kvSyncSkipped, account_options_sync: accountOptionsSync },
+    result.synced || kvSyncSkipped ? 200 : 500,
+  );
 }
 
 function requireInternalSyncToken(request, env) {
