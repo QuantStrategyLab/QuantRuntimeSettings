@@ -406,7 +406,7 @@
 
     .quick-form {
       display: grid;
-      grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(0, 0.5fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       align-items: start;
       gap: 14px;
     }
@@ -424,20 +424,20 @@
 
     .account-block,
     .mode-block {
-      grid-column: 1;
+      grid-column: 1 / span 2;
     }
 
     .strategy-block,
     .reserve-policy-block {
-      grid-column: 2 / span 2;
+      grid-column: 3 / span 2;
     }
 
     .min-reserve-block {
-      grid-column: 2;
+      grid-column: 1 / span 2;
     }
 
     .reserve-ratio-block {
-      grid-column: 3;
+      grid-column: 3 / span 2;
     }
 
     select,
@@ -916,7 +916,7 @@
         reservePolicyMax: "固定金额和比例取较大值",
         reservedCashModeMeta: "选择是否沿用、清空或覆盖平台预留现金。",
         reservedCashNone: "不设置",
-        reservedCashDefault: "未配置（使用平台内置默认）",
+        reservedCashDefault: "未配置（平台默认：0 {currency} / 0%）",
         reservedCashMeta: "固定金额下限，可单独设置或与比例取较大值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
         summary: "当前 / 待提交",
@@ -984,7 +984,7 @@
         reservePolicyMax: "Max of amount and ratio",
         reservedCashModeMeta: "Choose whether to keep, clear, or override platform reserved cash.",
         reservedCashNone: "None",
-        reservedCashDefault: "Not configured (uses platform built-in default)",
+        reservedCashDefault: "Not configured (platform default: 0 {currency} / 0%)",
         reservedCashMeta: "Fixed cash floor. Use alone or with a ratio.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
         summary: "Current / Pending",
@@ -1431,6 +1431,10 @@
       return formatRatioPercent(ratio);
     }
 
+    function platformReservedCashDefaultText(platform = state.selected, account = selectedAccount(platform)) {
+      return t("reservedCashDefault").replace("{currency}", selectedCashCurrency(platform, account));
+    }
+
     function currentReservedCashPolicyText(platform = state.selected, account = selectedAccount(platform)) {
       const entry = currentEntryForAccount(platform, account);
       const policy = currentReservePolicyForAccount(platform, account);
@@ -1441,7 +1445,7 @@
         },
         platform,
         account,
-        entry ? t("reservedCashDefault") : t("notRead"),
+        entry ? platformReservedCashDefaultText(platform, account) : t("notRead"),
       );
     }
 
