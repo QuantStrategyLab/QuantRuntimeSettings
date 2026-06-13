@@ -63,14 +63,38 @@ class Assignment:
     name: str
     value: str
 
-    def gh_command(self) -> list[str]:
-        command = ["gh", "variable", "set", self.name, "--repo", self.repository, "--body", self.value]
+    def gh_command(self, *, redact_body: bool = False, redact_metadata: bool = False) -> list[str]:
+        body = redacted_value() if redact_body else self.value
+        repository = redacted_value() if redact_metadata else self.repository
+        command = ["gh", "variable", "set", self.name, "--repo", repository, "--body", body]
         if self.variable_scope == "environment":
-            command.extend(["--env", self.environment or ""])
+            environment = redacted_value() if redact_metadata else (self.environment or "")
+            command.extend(["--env", environment])
         return command
 
-    def shell_command(self) -> str:
-        return " ".join(shlex.quote(part) for part in self.gh_command())
+    def shell_command(self, *, redact_body: bool = False, redact_metadata: bool = False) -> str:
+        return " ".join(
+            shlex.quote(part)
+            for part in self.gh_command(redact_body=redact_body, redact_metadata=redact_metadata)
+        )
+
+
+def redacted_value() -> str:
+    return "<redacted>"
+
+
+def assignment_payload(assignment: Assignment, *, redact_values: bool = False) -> dict[str, Any]:
+    payload = {
+        "target_id": assignment.target_id,
+        "repository": assignment.repository,
+        "variable_scope": assignment.variable_scope,
+        "environment": assignment.environment,
+        "name": assignment.name,
+        "value": redacted_value() if redact_values else assignment.value,
+    }
+    if redact_values:
+        payload["value_redacted"] = True
+    return payload
 
 
 def compact_json(value: Any) -> str:
@@ -482,14 +506,7 @@ def command_render(args: argparse.Namespace) -> int:
         print(
             json.dumps(
                 [
-                    {
-                        "target_id": assignment.target_id,
-                        "repository": assignment.repository,
-                        "variable_scope": assignment.variable_scope,
-                        "environment": assignment.environment,
-                        "name": assignment.name,
-                        "value": assignment.value,
-                    }
+                    assignment_payload(assignment, redact_values=args.redact_values)
                     for assignment in all_assignments
                 ],
                 ensure_ascii=False,
@@ -500,7 +517,7 @@ def command_render(args: argparse.Namespace) -> int:
 
     if args.format == "gh":
         for assignment in all_assignments:
-            print(assignment.shell_command())
+            print(assignment.shell_command(redact_body=args.redact_values, redact_metadata=args.redact_values))
         return 0
 
     current_target = None
@@ -511,7 +528,8 @@ def command_render(args: argparse.Namespace) -> int:
             if assignment.environment:
                 suffix += f":{assignment.environment}"
             print(f"# {assignment.target_id} -> {assignment.repository} ({suffix})")
-        print(f"{assignment.name}={shlex.quote(assignment.value)}")
+        value = redacted_value() if args.redact_values else assignment.value
+        print(f"{assignment.name}={shlex.quote(value)}")
     return 0
 
 
@@ -521,10 +539,15 @@ def command_apply(args: argparse.Namespace) -> int:
         all_assignments.extend(build_assignments(target))
 
     for assignment in all_assignments:
-        print(assignment.shell_command())
+        redact_preview = not args.show_values
+        print(assignment.shell_command(redact_body=redact_preview, redact_metadata=redact_preview))
 
     if not args.yes:
-        print("\nDry run only. Re-run with --yes to apply these GitHub variables.")
+        if args.show_values:
+            print("\nDry run only. Re-run with --yes to apply these GitHub variables.")
+        else:
+            print("\nDry run only. Re-run with --yes to apply these GitHub variables.")
+            print("Values are redacted by default; add --show-values only in a private local terminal.")
         return 0
 
     for assignment in all_assignments:
@@ -548,11 +571,17 @@ def build_parser() -> argparse.ArgumentParser:
     render = subparsers.add_parser("render", help="render generated variables")
     render.add_argument("targets", nargs="*", help="target JSON files; defaults to all targets")
     render.add_argument("--format", choices=("env", "gh", "json"), default="env")
+    render.add_argument("--redact-values", action="store_true", help="hide assignment values in rendered output")
     render.set_defaults(func=command_render)
 
     apply = subparsers.add_parser("apply", help="preview or apply GitHub variable updates")
     apply.add_argument("targets", nargs="*", help="target JSON files; defaults to all targets")
     apply.add_argument("--yes", action="store_true", help="apply updates with gh variable set")
+    apply.add_argument(
+        "--show-values",
+        action="store_true",
+        help="print exact values in the preview; avoid this in public CI logs",
+    )
     apply.set_defaults(func=command_apply)
 
     repository = subparsers.add_parser("repository", help="print the configured platform repository")

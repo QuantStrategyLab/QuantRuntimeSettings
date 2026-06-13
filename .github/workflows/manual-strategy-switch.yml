@@ -297,8 +297,7 @@ jobs:
       - name: Preview assignments
         run: |
           set -euo pipefail
-          python3 scripts/runtime_settings.py render "${TARGET_FILE}" --format env
-          python3 scripts/runtime_settings.py render "${TARGET_FILE}" --format json > "${RUNNER_TEMP}/assignments.json"
+          python3 scripts/runtime_settings.py render "${TARGET_FILE}" --format json --redact-values > "${RUNNER_TEMP}/assignments.json"
           python - <<'PY' "${TARGET_FILE}" "${RUNNER_TEMP}/assignments.json" >> "$GITHUB_STEP_SUMMARY"
           import json
           import sys
@@ -307,20 +306,20 @@ jobs:
           assignments = json.load(open(sys.argv[2], encoding="utf-8"))
           print("## Runtime switch preview")
           print()
-          print(f"- target_id: `{target['target_id']}`")
-          print(f"- repository: `{target['github']['repository']}`")
+          print(f"- platform: `{target['runtime_target']['platform_id']}`")
+          print("- target_id: `<redacted>`")
+          print("- repository: `<redacted>`")
           print(f"- variable_scope: `{target['github']['variable_scope']}`")
           if target["github"].get("environment"):
-              print(f"- environment: `{target['github']['environment']}`")
-          print(f"- strategy_profile: `{target['runtime_target']['strategy_profile']}`")
-          print(f"- service_name: `{target['runtime_target']['service_name']}`")
+              print("- environment: `<redacted>`")
+          print("- strategy_profile: `<redacted>`")
+          print("- service_name: `<redacted>`")
           print(f"- execution_mode: `{target['runtime_target']['execution_mode']}`")
+          print("- values: `<redacted>`")
           print()
           print("### Variables")
           for assignment in assignments:
-              value = str(assignment["value"])
-              preview = value if len(value) <= 220 else value[:220] + "..."
-              print(f"- `{assignment['name']}` = `{preview}`")
+              print(f"- `{assignment['name']}` = `{assignment['value']}`")
           PY
 
       - name: Apply GitHub variable updates

@@ -69,6 +69,38 @@ class RuntimeSettingsTest(unittest.TestCase):
             assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"],
         )
 
+    def test_assignment_payload_can_redact_values(self):
+        _, target = self.load_target("examples/targets/longbridge/sg.example.json")
+        assignment = next(
+            item
+            for item in runtime_settings.build_assignments(target)
+            if item.name == "RUNTIME_TARGET_JSON"
+        )
+
+        payload = runtime_settings.assignment_payload(assignment, redact_values=True)
+
+        self.assertEqual(payload["value"], "<redacted>")
+        self.assertTrue(payload["value_redacted"])
+        self.assertNotIn(target["runtime_target"]["strategy_profile"], json.dumps(payload))
+        self.assertNotIn(target["runtime_target"]["service_name"], json.dumps(payload))
+
+    def test_assignment_shell_command_can_redact_body_and_metadata(self):
+        _, target = self.load_target("examples/targets/longbridge/sg.example.json")
+        assignment = next(
+            item
+            for item in runtime_settings.build_assignments(target)
+            if item.name == "RUNTIME_TARGET_JSON"
+        )
+
+        command = assignment.shell_command(redact_body=True, redact_metadata=True)
+
+        self.assertIn("--repo '<redacted>'", command)
+        self.assertIn("--body '<redacted>'", command)
+        self.assertIn("--env '<redacted>'", command)
+        self.assertNotIn(assignment.value, command)
+        self.assertNotIn(assignment.repository, command)
+        self.assertNotIn(assignment.environment, command)
+
     def test_plugin_mount_schema_version_must_be_non_empty_string(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["plugin_mounts"][0]["expected_schema_version"] = ""
