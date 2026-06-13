@@ -54,6 +54,12 @@ assert.ok(indexHtml.includes('.summary-row.pending'));
 assert.ok(indexHtml.includes('function currentEntryHasState('));
 assert.ok(indexHtml.includes('changes.reserveCashChanged'));
 assert.ok(indexHtml.includes('!hasPendingChange'));
+assert.ok(indexHtml.includes('hasPendingChange ? t("readyNote") : ""'));
+assert.equal(indexHtml.includes('hasPendingChange ? t("readyNote") : t("noChangesNote")'), false);
+assert.equal(
+  indexHtml.includes('state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy || !hasPendingChange)'),
+  false,
+);
 assert.ok(indexHtml.includes('noChangesNote'));
 assert.equal(indexHtml.includes('placeholder="150"'), false);
 assert.equal(indexHtml.includes('placeholder="0.03"'), false);

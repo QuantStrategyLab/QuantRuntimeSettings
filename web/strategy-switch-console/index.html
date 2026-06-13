@@ -1714,12 +1714,12 @@
         ? (loadingConfig
           ? t("loadingConfigNote")
           : (hasPrivateAccounts
-            ? (hasRunnableStrategy ? (hasValidReserve ? (hasPendingChange ? t("readyNote") : t("noChangesNote")) : t("invalidReservePolicyNote")) : t("invalidStrategyNote"))
+            ? (hasRunnableStrategy ? (hasValidReserve ? (hasPendingChange ? t("readyNote") : "") : t("invalidReservePolicyNote")) : t("invalidStrategyNote"))
             : t("missingConfigNote")))
         : t("readonlyNote");
       note.classList.toggle(
         "warning",
-        state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy || !hasPendingChange),
+        state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy),
       );
     }
 
