@@ -35,6 +35,8 @@ assert.ok(indexHtml.includes('reservePolicyRatio'));
 assert.ok(indexHtml.includes('reservePolicyFloor'));
 assert.ok(indexHtml.includes('reservePolicyMax'));
 assert.ok(indexHtml.includes('reservedCashDefault'));
+assert.ok(indexHtml.includes('paper: "模拟"'));
+assert.ok(indexHtml.includes('paper: "Dry run"'));
 assert.ok(indexHtml.includes('平台默认：0 {currency} / 0%'));
 assert.equal(indexHtml.includes('比例沿用策略默认，通常 3%'), false);
 assert.equal(indexHtml.includes('平台默认：max(0 {currency}, 3%)'), false);
