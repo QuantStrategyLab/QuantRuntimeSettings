@@ -377,7 +377,8 @@ jobs:
           base_url = os.environ["STRATEGY_SWITCH_CONSOLE_URL"].rstrip("/")
           token = os.environ["STRATEGY_SWITCH_SYNC_TOKEN"]
           if not token:
-              raise SystemExit("STRATEGY_SWITCH_SYNC_TOKEN is required when STRATEGY_SWITCH_CONSOLE_URL is set")
+              print("::warning::STRATEGY_SWITCH_SYNC_TOKEN is missing; account default sync skipped")
+              raise SystemExit(0)
           with open(os.environ["TARGET_FILE"], encoding="utf-8") as handle:
               target = json.load(handle)
           runtime_target = target["runtime_target"]
@@ -412,7 +413,10 @@ jobs:
                   body = response.read().decode("utf-8")
           except urllib.error.HTTPError as exc:
               body = exc.read().decode("utf-8", errors="replace")
-              print(body, file=sys.stderr)
-              raise
+              print(f"::warning::Strategy switch account default sync failed: HTTP {exc.code}: {body[:1000]}")
+              raise SystemExit(0)
+          except Exception as exc:  # noqa: BLE001
+              print(f"::warning::Strategy switch account default sync failed: {exc}")
+              raise SystemExit(0)
           print(body)
           PY
