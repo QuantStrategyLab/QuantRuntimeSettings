@@ -1260,6 +1260,22 @@
 
     const el = (id) => document.getElementById(id);
     const t = (key) => copy[state.lang][key] || copy.en[key] || key;
+    let toastTimer = null;
+
+    function showToast(message, { duration = 4000 } = {}) {
+      const node = el("toast");
+      if (toastTimer) {
+        window.clearTimeout(toastTimer);
+        toastTimer = null;
+      }
+      node.textContent = message || "";
+      if (message && duration > 0) {
+        toastTimer = window.setTimeout(() => {
+          node.textContent = "";
+          toastTimer = null;
+        }, duration);
+      }
+    }
 
     function optionsFor(platform) {
       return state.accountOptions[platform] && state.accountOptions[platform].length
@@ -2663,7 +2679,7 @@
 
     async function dispatchSwitch() {
       if (!state.auth.allowed) return;
-      el("toast").textContent = t("dispatching");
+      showToast(t("dispatching"), { duration: 0 });
       try {
         const response = await fetch("/api/switch", {
           method: "POST",
@@ -2672,10 +2688,10 @@
         });
         const payload = await response.json();
         if (!response.ok || !payload.ok) throw new Error(payload.error || t("dispatchFailed"));
-        el("toast").textContent = t("dispatched");
+        showToast(t("dispatched"), { duration: 4000 });
         if (payload.actions_url) window.open(payload.actions_url, "_blank", "noopener,noreferrer");
       } catch (error) {
-        el("toast").textContent = `${t("dispatchFailed")}: ${error.message}`;
+        showToast(`${t("dispatchFailed")}: ${error.message}`, { duration: 12000 });
       }
     }
 
@@ -2798,9 +2814,9 @@
     el("copy-button").addEventListener("click", async () => {
       try {
         await navigator.clipboard.writeText(summaryText());
-        el("toast").textContent = t("copied");
+        showToast(t("copied"), { duration: 3000 });
       } catch {
-        el("toast").textContent = summaryText();
+        showToast(summaryText(), { duration: 0 });
       }
     });
 
