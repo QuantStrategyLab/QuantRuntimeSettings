@@ -423,20 +423,15 @@
     }
 
     .account-block,
-    .mode-block {
+    .mode-block,
+    .reserve-policy-block,
+    .reserve-ratio-block {
       grid-column: 1 / span 2;
     }
 
     .strategy-block,
-    .reserve-policy-block {
-      grid-column: 3 / span 2;
-    }
-
+    .plugin-mode-block,
     .min-reserve-block {
-      grid-column: 1 / span 2;
-    }
-
-    .reserve-ratio-block {
       grid-column: 3 / span 2;
     }
 
@@ -671,6 +666,7 @@
       .account-block,
       .strategy-block,
       .mode-block,
+      .plugin-mode-block,
       .reserve-policy-block,
       .min-reserve-block,
       .reserve-ratio-block {
@@ -786,6 +782,12 @@
             </div>
           </div>
 
+          <label class="control-block plugin-mode-block">
+            <span data-i18n="pluginMode">策略插件</span>
+            <select id="plugin-mode-select"></select>
+            <span class="selection-meta" data-i18n="pluginModeMeta">控制本次切换是否启用策略插件。</span>
+          </label>
+
           <label class="control-block reserve-policy-block">
             <span data-i18n="reservedCashMode">预留现金策略</span>
             <select id="reserve-policy-mode-select"></select>
@@ -841,6 +843,7 @@
     };
 
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
+    const pluginModes = ["auto", "none"];
     const platformMinReservedCashVariables = {
       longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
       ibkr: "IBKR_MIN_RESERVED_CASH_USD",
@@ -906,6 +909,10 @@
         mode: "模式",
         live: "实盘",
         paper: "模拟",
+        pluginMode: "策略插件",
+        pluginModeAuto: "按策略配置启用",
+        pluginModeNone: "禁用插件",
+        pluginModeMeta: "控制本次切换是否启用策略插件。",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
         reservedCashMode: "预留现金策略",
@@ -942,6 +949,8 @@
         reservedCashPolicy: "当前预留现金",
         pendingReservedCashPolicy: "待提交预留现金",
         pendingMode: "待提交模式",
+        currentPluginMode: "当前插件",
+        pendingPluginMode: "待提交插件",
         unchanged: "不变",
         copied: "已复制状态",
         dispatching: "正在触发 workflow...",
@@ -974,6 +983,10 @@
         mode: "Mode",
         live: "Live",
         paper: "Dry run",
+        pluginMode: "Strategy plugins",
+        pluginModeAuto: "Use strategy default",
+        pluginModeNone: "Disable plugins",
+        pluginModeMeta: "Controls whether this switch enables strategy plugins.",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
         reservedCashMode: "Reserved cash policy",
@@ -1010,6 +1023,8 @@
         reservedCashPolicy: "Current reserved cash",
         pendingReservedCashPolicy: "Pending reserved cash",
         pendingMode: "Pending mode",
+        currentPluginMode: "Current plugins",
+        pendingPluginMode: "Pending plugins",
         unchanged: "Unchanged",
         copied: "State copied",
         dispatching: "Dispatching workflow...",
@@ -1048,10 +1063,10 @@
       configSource: "default",
       repositories: clone(defaultRepositories),
       forms: {
-        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
-        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
-        schwab: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
-        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", ...defaultReserveForm() },
+        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
       },
     };
 
@@ -1179,6 +1194,14 @@
       return mode === "paper" ? t("paper") : t("live");
     }
 
+    function normalizePluginMode(value) {
+      return pluginModes.includes(value) ? value : "auto";
+    }
+
+    function pluginModeLabel(mode) {
+      return mode === "none" ? t("pluginModeNone") : t("pluginModeAuto");
+    }
+
     function currentEntryForAccount(platform, account) {
       const byPlatform = state.currentStrategies[platform] || {};
       const keys = [account?.key, account?.target_name, account?.label]
@@ -1210,6 +1233,11 @@
     function currentReservePolicyForAccount(platform, account) {
       const entry = currentEntryForAccount(platform, account);
       return reservePolicyFromEntry(entry);
+    }
+
+    function currentPluginModeForAccount(platform, account) {
+      void platform;
+      return normalizePluginMode(account?.plugin_mode);
     }
 
     function reservePolicyFromEntry(entry) {
@@ -1291,6 +1319,7 @@
         platform,
         account,
       );
+      state.forms[platform].pluginMode = currentPluginModeForAccount(platform, account);
       syncReservePolicyForAccount(platform);
     }
 
@@ -1310,6 +1339,7 @@
         state.forms[platform].accountKey = options[0].key;
         state.forms[platform].reservedCashTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
+        state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncReservePolicyForAccount(platform);
       }
     }
@@ -1391,7 +1421,7 @@
         strategy_profile: form.strategy,
         execution_mode: form.executionMode,
         variable_scope: account.variable_scope || "default",
-        plugin_mode: account.plugin_mode || "auto",
+        plugin_mode: normalizePluginMode(form.pluginMode),
         service_targets_mode: "auto",
         apply: "true",
         trigger_platform_sync: "true",
@@ -1488,13 +1518,18 @@
       const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
       const currentEntry = currentEntryForAccount(platform, account);
       const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const currentPluginMode = currentPluginModeForAccount(platform, account);
+      const nextPluginMode = normalizePluginMode(inputs.plugin_mode);
       const reserve = pendingReservePolicy(inputs, platform, account);
       return {
         currentProfile,
         nextProfile,
         currentMode,
+        currentPluginMode,
+        nextPluginMode,
         strategyChanged: Boolean(nextProfile && (!currentProfile || currentProfile !== nextProfile)),
         modeChanged: Boolean(currentMode && inputs.execution_mode && currentMode !== inputs.execution_mode),
+        pluginModeChanged: Boolean(currentPluginMode && nextPluginMode && currentPluginMode !== nextPluginMode),
         reserveCashChanged: reserve.changed,
         reserve,
       };
@@ -1502,7 +1537,7 @@
 
     function hasPendingChanges(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const changes = pendingChangeState(inputs, platform, account);
-      return Boolean(changes.strategyChanged || changes.modeChanged || changes.reserveCashChanged);
+      return Boolean(changes.strategyChanged || changes.modeChanged || changes.pluginModeChanged || changes.reserveCashChanged);
     }
 
     function formatRatioPercent(value) {
@@ -1520,6 +1555,7 @@
         [t("selectedAccount"), account.label],
         [t("currentStrategy"), currentStrategyText],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
+        [t("currentPluginMode"), pluginModeLabel(changes.currentPluginMode)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
       ];
       if (changes.reserveCashChanged) {
@@ -1527,6 +1563,9 @@
       }
       if (changes.modeChanged) {
         rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
+      }
+      if (changes.pluginModeChanged) {
+        rows.push([t("pendingPluginMode"), pluginModeLabel(changes.nextPluginMode), "pending"]);
       }
       if (changes.strategyChanged && changes.nextProfile) {
         rows.push([t("nextStrategy"), strategyLabel(changes.nextProfile), "pending"]);
@@ -1585,6 +1624,7 @@
       const choices = strategyChoicesForAccount(platform, account);
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
+      const pluginModeSelect = el("plugin-mode-select");
       const reservePolicyModeSelect = el("reserve-policy-mode-select");
       const minReservedCashInput = el("min-reserved-cash-input");
       const reservedCashRatioInput = el("reserved-cash-ratio-input");
@@ -1600,6 +1640,7 @@
       if (!showPrivateControls) {
         accountSelect.replaceChildren();
         strategySelect.replaceChildren();
+        pluginModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
         minReservedCashInput.value = "";
         reservedCashRatioInput.value = "";
@@ -1633,6 +1674,10 @@
       el("strategy-meta").textContent = account
         ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
         : "";
+      pluginModeSelect.replaceChildren();
+      for (const mode of pluginModes) {
+        pluginModeSelect.append(new Option(pluginModeLabel(mode), mode, false, mode === normalizePluginMode(form.pluginMode)));
+      }
       reservePolicyModeSelect.replaceChildren();
       for (const mode of reservePolicyModes) {
         reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
@@ -1934,6 +1979,11 @@
       const button = event.target.closest("[data-mode]");
       if (!button) return;
       state.forms[state.selected].executionMode = button.dataset.mode;
+      render();
+    });
+
+    el("plugin-mode-select").addEventListener("change", () => {
+      state.forms[state.selected].pluginMode = normalizePluginMode(el("plugin-mode-select").value);
       render();
     });
 

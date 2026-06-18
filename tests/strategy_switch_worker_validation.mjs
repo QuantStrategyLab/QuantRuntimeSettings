@@ -25,6 +25,7 @@ assert.equal(indexHtml.includes("loginLink.hidden = !state.auth.available || sig
 assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
 assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
+assert.ok(indexHtml.includes('id="plugin-mode-select"'));
 assert.ok(indexHtml.includes("account-block"));
 assert.ok(indexHtml.includes("strategy-block"));
 assert.ok(indexHtml.includes("grid-template-columns: repeat(4, minmax(0, 1fr));"));
@@ -34,6 +35,8 @@ assert.ok(indexHtml.includes('reservePolicyNone'));
 assert.ok(indexHtml.includes('reservePolicyRatio'));
 assert.ok(indexHtml.includes('reservePolicyFloor'));
 assert.ok(indexHtml.includes('reservePolicyMax'));
+assert.ok(indexHtml.includes('pluginModeAuto'));
+assert.ok(indexHtml.includes('pluginModeNone'));
 assert.ok(indexHtml.includes('reservedCashDefault'));
 assert.ok(indexHtml.includes('paper: "模拟"'));
 assert.ok(indexHtml.includes('paper: "Dry run"'));
@@ -53,6 +56,7 @@ assert.ok(indexHtml.includes('.reserve-ratio-block'));
 assert.ok(indexHtml.includes('.summary-row.pending'));
 assert.ok(indexHtml.includes('function currentEntryHasState('));
 assert.ok(indexHtml.includes('changes.reserveCashChanged'));
+assert.ok(indexHtml.includes('changes.pluginModeChanged'));
 assert.ok(indexHtml.includes('!hasPendingChange'));
 assert.ok(indexHtml.includes('hasPendingChange ? t("readyNote") : ""'));
 assert.equal(indexHtml.includes('hasPendingChange ? t("readyNote") : t("noChangesNote")'), false);
@@ -300,6 +304,14 @@ const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
 });
 assert.equal(normalizedReservedCashInputs.reserved_cash_ratio, "0.03");
 assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
+const normalizedPluginInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  plugin_mode: "none",
+});
+assert.equal(normalizedPluginInputs.plugin_mode, "none");
 const normalizedReserveClearInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -345,6 +357,21 @@ const updatedAccountOptions = __test.updateAccountOptionsDefaultStrategy(
 );
 assert.equal(updatedAccountOptions.changed, true);
 assert.equal(updatedAccountOptions.options.longbridge[1].default_strategy_profile, "soxl_soxx_trend_income");
+
+const updatedPluginModeOptions = __test.updateAccountOptionsDefaultStrategy(
+  accountOptions,
+  {
+    platform: "longbridge",
+    target_name: "sg",
+    account_selector: "SG",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    variable_scope: "default",
+    plugin_mode: "none",
+  },
+);
+assert.equal(updatedPluginModeOptions.changed, true);
+assert.equal(updatedPluginModeOptions.options.longbridge[1].plugin_mode, "none");
 
 const kvWrites = new Map();
 const syncResult = await __test.syncDefaultStrategyForAccount(

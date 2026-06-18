@@ -764,9 +764,22 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
   const updatedPlatformOptions = platformOptions.map((option) => {
     if (!accountOptionMatchesInputs(option, inputs)) return option;
     matched = true;
-    if (option.default_strategy_profile === inputs.strategy_profile) return option;
-    changed = true;
-    return { ...option, default_strategy_profile: inputs.strategy_profile };
+    const nextOption = { ...option };
+    let optionChanged = false;
+    if (nextOption.default_strategy_profile !== inputs.strategy_profile) {
+      nextOption.default_strategy_profile = inputs.strategy_profile;
+      optionChanged = true;
+    }
+    if (inputs.plugin_mode === "auto" || inputs.plugin_mode === "none") {
+      const currentPluginMode = nextOption.plugin_mode || "auto";
+      if (currentPluginMode !== inputs.plugin_mode) {
+        nextOption.plugin_mode = inputs.plugin_mode;
+        optionChanged = true;
+      }
+    }
+    changed = changed || optionChanged;
+    if (!optionChanged) return option;
+    return nextOption;
   });
   if (!matched) throw new Error("switch inputs do not match configured account options");
   return {
@@ -857,7 +870,6 @@ function accountOptionMatchesInputs(option, inputs) {
     "service_name",
     "github_environment",
     "variable_scope",
-    "plugin_mode",
   ];
   for (const field of fields) {
     const expected = option[field] || "";
