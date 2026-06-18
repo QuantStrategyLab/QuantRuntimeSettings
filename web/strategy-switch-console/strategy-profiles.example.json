@@ -24,6 +24,14 @@
     "runtime_enabled": true
   },
   {
+    "profile": "ibit_smart_dca",
+    "label": "IBIT Smart DCA",
+    "label_en": "IBIT Smart DCA",
+    "label_zh": "IBIT 比特币 ETF 智能定投",
+    "domain": "us_equity",
+    "runtime_enabled": true
+  },
+  {
     "profile": "global_etf_rotation",
     "label": "Global ETF Rotation",
     "label_en": "Global ETF Rotation",

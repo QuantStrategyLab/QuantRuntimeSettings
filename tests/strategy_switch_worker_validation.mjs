@@ -35,6 +35,8 @@ assert.ok(indexHtml.includes('el("income-layer-mode-select").addEventListener("c
 assert.ok(indexHtml.includes('el("income-layer-start-usd-input").addEventListener("input"'));
 assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListener("input"'));
 assert.ok(indexHtml.includes('label_zh: "纳斯达克 / 标普智能定投"'));
+assert.ok(indexHtml.includes('profile: "ibit_smart_dca"'));
+assert.ok(indexHtml.includes('IBIT 比特币 ETF 智能定投'));
 assert.ok(indexHtml.includes('localStrategyLabels'));
 assert.ok(indexHtml.includes('function strategyLabelSet('));
 assert.ok(indexHtml.includes("account-block"));
