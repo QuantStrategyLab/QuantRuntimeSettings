@@ -32,6 +32,43 @@ MARKET_REGIME_CONTROL_PROFILES = frozenset(
         "mega_cap_leader_rotation_top50_balanced",
     }
 )
+US_DAILY_SCHEDULER = {
+    "timezone": "America/New_York",
+    "main_time": "45 15 * * *",
+    "probe_time": "35 9,15 * * *",
+    "precheck_time": "45 9 * * *",
+}
+US_DCA_SCHEDULER = {
+    "timezone": "America/New_York",
+    "main_time": "45 15 25-29 * *",
+    "probe_time": "35 9,15 25-29 * *",
+    "precheck_time": "45 9 25-29 * *",
+}
+US_SNAPSHOT_SCHEDULER = {
+    "timezone": "America/New_York",
+    "main_time": "45 15 1-7 * *",
+    "probe_time": "35 9,15 1-7 * *",
+    "precheck_time": "45 9 1-7 * *",
+}
+HK_DAILY_SCHEDULER = {
+    "timezone": "Asia/Hong_Kong",
+    "main_time": "45 15 * * *",
+    "probe_time": "35 9,15 * * *",
+    "precheck_time": "45 9 * * *",
+}
+HK_SNAPSHOT_SCHEDULER = {
+    "timezone": "Asia/Hong_Kong",
+    "main_time": "45 15 1-7 * *",
+    "probe_time": "35 9,15 1-7 * *",
+    "precheck_time": "45 9 1-7 * *",
+}
+STRATEGY_SCHEDULER_PROFILES = {
+    "nasdaq_sp500_smart_dca": US_DCA_SCHEDULER,
+    "ibit_smart_dca": US_DCA_SCHEDULER,
+    "russell_1000_multi_factor_defensive": US_SNAPSHOT_SCHEDULER,
+    "mega_cap_leader_rotation_top50_balanced": US_SNAPSHOT_SCHEDULER,
+    "hk_low_vol_dividend_quality_snapshot": HK_SNAPSHOT_SCHEDULER,
+}
 PLATFORM_DRY_RUN_VARIABLES = {
     "schwab": "SCHWAB_DRY_RUN_ONLY",
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
@@ -216,6 +253,14 @@ def _execution_mode_and_dry_run(raw_mode: str) -> tuple[str, bool]:
     raise ValueError("execution_mode must be live or paper")
 
 
+def _scheduler_plan_for_strategy(strategy_profile: str) -> dict[str, str]:
+    profile = str(strategy_profile or "").strip().lower()
+    scheduler = STRATEGY_SCHEDULER_PROFILES.get(profile)
+    if scheduler is None:
+        scheduler = HK_DAILY_SCHEDULER if profile.startswith("hk_") else US_DAILY_SCHEDULER
+    return dict(scheduler)
+
+
 def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     platform = _normalize_platform(args.platform)
     target_name = _normalize_target_name(args.target_name)
@@ -232,15 +277,17 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     )
     account_selector = _split_csv(args.account_selector) or _account_selector_default(platform, account_scope)
     service_name = args.service_name.strip() if args.service_name else _default_service_name(platform, target_name)
+    strategy_profile = args.strategy_profile.strip().lower()
     runtime_target: dict[str, Any] = {
         "platform_id": platform,
-        "strategy_profile": args.strategy_profile.strip().lower(),
+        "strategy_profile": strategy_profile,
         "dry_run_only": dry_run_only,
         "deployment_selector": deployment_selector,
         "account_selector": account_selector,
         "account_scope": account_scope,
         "service_name": service_name,
         "execution_mode": execution_mode,
+        "scheduler": _scheduler_plan_for_strategy(strategy_profile),
     }
     execution_windows = _load_json_object(args.execution_windows_json, field_name="execution_windows_json")
     if execution_windows:

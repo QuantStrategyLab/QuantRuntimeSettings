@@ -44,6 +44,7 @@ WINDOW_MODES = {
     "precheck": {"notify_only", "dry_run"},
     "execution": {"live", "paper", "dry_run"},
 }
+SCHEDULER_FIELDS = frozenset({"timezone", "main_time", "probe_time", "precheck_time"})
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
 SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
 PLATFORM_DRY_RUN_VARIABLES = {
@@ -310,6 +311,24 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                         "runtime_target.execution_windows only supports precheck and execution"
                     )
                     break
+
+    scheduler = runtime_target.get("scheduler")
+    if scheduler is not None:
+        if not isinstance(scheduler, dict):
+            errors.append("runtime_target.scheduler must be an object when present")
+        else:
+            for field in scheduler:
+                if field not in SCHEDULER_FIELDS:
+                    errors.append(f"runtime_target.scheduler.{field} is unsupported")
+            timezone = scheduler.get("timezone")
+            if not isinstance(timezone, str) or not timezone.strip():
+                errors.append("runtime_target.scheduler.timezone must be a non-empty string")
+            for field in ("main_time", "probe_time", "precheck_time"):
+                value = scheduler.get(field)
+                if not isinstance(value, str) or len(value.split()) not in {2, 5}:
+                    errors.append(
+                        f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields"
+                    )
 
 
 def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
