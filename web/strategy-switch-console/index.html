@@ -423,16 +423,19 @@
     }
 
     .account-block,
-    .mode-block,
-    .reserve-policy-block,
-    .reserve-ratio-block {
+    .plugin-mode-block,
+    .min-reserve-block {
       grid-column: 1 / span 2;
     }
 
     .strategy-block,
-    .plugin-mode-block,
-    .min-reserve-block {
+    .reserve-policy-block,
+    .reserve-ratio-block {
       grid-column: 3 / span 2;
+    }
+
+    .mode-block {
+      grid-column: 1 / -1;
     }
 
     select,
@@ -783,9 +786,9 @@
           </div>
 
           <label class="control-block plugin-mode-block">
-            <span data-i18n="pluginMode">策略插件</span>
+            <span data-i18n="pluginMode">插件启用范围</span>
             <select id="plugin-mode-select"></select>
-            <span class="selection-meta" data-i18n="pluginModeMeta">控制本次切换是否启用策略插件。</span>
+            <span class="selection-meta" data-i18n="pluginModeMeta">选择本次切换使用策略默认插件，或完全关闭插件。</span>
           </label>
 
           <label class="control-block reserve-policy-block">
@@ -909,10 +912,10 @@
         mode: "模式",
         live: "实盘",
         paper: "模拟",
-        pluginMode: "策略插件",
-        pluginModeAuto: "按策略配置启用",
-        pluginModeNone: "禁用插件",
-        pluginModeMeta: "控制本次切换是否启用策略插件。",
+        pluginMode: "插件启用范围",
+        pluginModeAuto: "按策略默认",
+        pluginModeNone: "完全禁用",
+        pluginModeMeta: "选择本次切换使用策略默认插件，或完全关闭插件。",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
         reservedCashMode: "预留现金策略",
@@ -949,8 +952,8 @@
         reservedCashPolicy: "当前预留现金",
         pendingReservedCashPolicy: "待提交预留现金",
         pendingMode: "待提交模式",
-        currentPluginMode: "当前插件",
-        pendingPluginMode: "待提交插件",
+        currentPluginMode: "当前插件范围",
+        pendingPluginMode: "待提交插件范围",
         unchanged: "不变",
         copied: "已复制状态",
         dispatching: "正在触发 workflow...",
@@ -983,10 +986,10 @@
         mode: "Mode",
         live: "Live",
         paper: "Dry run",
-        pluginMode: "Strategy plugins",
-        pluginModeAuto: "Use strategy default",
-        pluginModeNone: "Disable plugins",
-        pluginModeMeta: "Controls whether this switch enables strategy plugins.",
+        pluginMode: "Plugin scope",
+        pluginModeAuto: "Strategy default",
+        pluginModeNone: "Disabled",
+        pluginModeMeta: "Use the strategy's default plugin set, or disable all plugins for this switch.",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
         reservedCashMode: "Reserved cash policy",
@@ -1023,8 +1026,8 @@
         reservedCashPolicy: "Current reserved cash",
         pendingReservedCashPolicy: "Pending reserved cash",
         pendingMode: "Pending mode",
-        currentPluginMode: "Current plugins",
-        pendingPluginMode: "Pending plugins",
+        currentPluginMode: "Current plugin scope",
+        pendingPluginMode: "Pending plugin scope",
         unchanged: "Unchanged",
         copied: "State copied",
         dispatching: "Dispatching workflow...",
