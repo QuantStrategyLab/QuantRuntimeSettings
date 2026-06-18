@@ -836,16 +836,17 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
         optionChanged = true;
       }
     }
+    const dcaControls = dcaControlsFromInputs(inputs);
     if (isDcaProfile(inputs.strategy_profile)) {
-      if (inputs.dca_mode && nextOption.dca_mode !== inputs.dca_mode) {
-        nextOption.dca_mode = inputs.dca_mode;
+      if (dcaControls.dca_mode && nextOption.dca_mode !== dcaControls.dca_mode) {
+        nextOption.dca_mode = dcaControls.dca_mode;
         optionChanged = true;
       }
       if (
-        inputs.dca_base_investment_usd &&
-        nextOption.dca_base_investment_usd !== inputs.dca_base_investment_usd
+        dcaControls.dca_base_investment_usd &&
+        nextOption.dca_base_investment_usd !== dcaControls.dca_base_investment_usd
       ) {
-        nextOption.dca_base_investment_usd = inputs.dca_base_investment_usd;
+        nextOption.dca_base_investment_usd = dcaControls.dca_base_investment_usd;
         optionChanged = true;
       }
     } else {
@@ -886,8 +887,9 @@ function normalizeSwitchInputs(raw) {
     extraVariables[name] !== undefined && String(extraVariables[name] || "").trim() !== "",
   );
   if (directDcaVariables.length) {
-    throw new Error("use dca_mode and dca_base_investment_usd instead of extra_variables_json for DCA settings");
+    throw new Error("use dca_mode and dca_base_investment_usd control fields instead of DCA_MODE variables");
   }
+  const dcaExtraControls = dcaPayloadFromObject(extraVariables);
 
   const inputs = {
     platform,
@@ -913,18 +915,27 @@ function normalizeSwitchInputs(raw) {
   addOptional(inputs, "min_reserved_cash_usd", raw.min_reserved_cash_usd, cleanNonNegativeNumber);
   addOptional(inputs, "income_layer_start_usd", raw.income_layer_start_usd, cleanNonNegativeNumber);
   addOptional(inputs, "income_layer_max_ratio", raw.income_layer_max_ratio, cleanRatio);
-  const hasDcaMode = raw.dca_mode !== undefined && raw.dca_mode !== null && String(raw.dca_mode).trim() !== "";
-  const hasDcaBase = raw.dca_base_investment_usd !== undefined &&
+  const rawHasDcaMode = raw.dca_mode !== undefined && raw.dca_mode !== null && String(raw.dca_mode).trim() !== "";
+  const rawHasDcaBase = raw.dca_base_investment_usd !== undefined &&
     raw.dca_base_investment_usd !== null &&
     String(raw.dca_base_investment_usd).trim() !== "";
+  const dcaModeValue = rawHasDcaMode ? raw.dca_mode : dcaExtraControls.dca_mode;
+  const dcaBaseInvestmentValue = rawHasDcaBase
+    ? raw.dca_base_investment_usd
+    : dcaExtraControls.dca_base_investment_usd;
+  const hasDcaMode = Boolean(String(dcaModeValue || "").trim());
+  const hasDcaBase = Boolean(String(dcaBaseInvestmentValue || "").trim());
   if (!isDcaProfile(strategyProfile) && (hasDcaMode || hasDcaBase)) {
     throw new Error("DCA settings are only supported for DCA strategy profiles");
   }
   if (isDcaProfile(strategyProfile)) {
-    addOptional(inputs, "dca_mode", raw.dca_mode, cleanDcaMode);
-    addOptional(inputs, "dca_base_investment_usd", raw.dca_base_investment_usd, cleanPositiveNumber);
+    if (hasDcaMode) extraVariables.dca_mode = cleanDcaMode(dcaModeValue);
+    if (hasDcaBase) extraVariables.dca_base_investment_usd = cleanPositiveNumber(
+      dcaBaseInvestmentValue,
+      "dca_base_investment_usd",
+    );
   }
-  if (extraVariablesJson) inputs.extra_variables_json = extraVariablesJson;
+  if (Object.keys(extraVariables).length) inputs.extra_variables_json = JSON.stringify(extraVariables);
   return inputs;
 }
 
@@ -1492,6 +1503,14 @@ function dcaPayloadFromValues(modeValue, baseInvestmentValue) {
   if (mode) result.dca_mode = mode;
   if (baseInvestmentUsd) result.dca_base_investment_usd = baseInvestmentUsd;
   return result;
+}
+
+function dcaControlsFromInputs(inputs) {
+  const payload = inputs?.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+  return {
+    ...dcaPayloadFromObject(payload),
+    ...dcaPayloadFromObject(inputs),
+  };
 }
 
 function dcaPayloadForProfile(profile, payload) {

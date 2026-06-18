@@ -71,7 +71,7 @@ on:
         required: false
         type: string
       extra_variables_json:
-        description: "Optional JSON object of non-secret extra GitHub variables or target env fields."
+        description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields."
         required: false
         type: string
       reserved_cash_ratio:
@@ -96,14 +96,6 @@ on:
         type: string
       qqqi_income_ratio:
         description: "Optional TQQQ QQQI income ratio override."
-        required: false
-        type: string
-      dca_mode:
-        description: "Optional DCA mode for DCA profiles only: fixed or smart."
-        required: false
-        type: string
-      dca_base_investment_usd:
-        description: "Optional base DCA investment amount for DCA profiles only."
         required: false
         type: string
       service_targets_mode:
@@ -167,8 +159,6 @@ jobs:
       INCOME_LAYER_MAX_RATIO: ${{ inputs.income_layer_max_ratio }}
       INCOME_THRESHOLD_USD: ${{ inputs.income_threshold_usd }}
       QQQI_INCOME_RATIO: ${{ inputs.qqqi_income_ratio }}
-      DCA_MODE: ${{ inputs.dca_mode }}
-      DCA_BASE_INVESTMENT_USD: ${{ inputs.dca_base_investment_usd }}
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
@@ -312,12 +302,6 @@ jobs:
           fi
           if [ -n "${QQQI_INCOME_RATIO:-}" ]; then
             args+=(--qqqi-income-ratio "${QQQI_INCOME_RATIO}")
-          fi
-          if [ -n "${DCA_MODE:-}" ]; then
-            args+=(--dca-mode "${DCA_MODE}")
-          fi
-          if [ -n "${DCA_BASE_INVESTMENT_USD:-}" ]; then
-            args+=(--dca-base-investment-usd "${DCA_BASE_INVESTMENT_USD}")
           fi
           if [ -s "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
             args+=(--existing-service-targets-json-file "${EXISTING_SERVICE_TARGETS_JSON_FILE}")

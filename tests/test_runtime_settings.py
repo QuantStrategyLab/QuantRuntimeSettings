@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import sys
 import unittest
 from pathlib import Path
@@ -26,6 +27,24 @@ SWITCH_SPEC.loader.exec_module(build_runtime_switch)
 
 
 class RuntimeSettingsTest(unittest.TestCase):
+    def test_manual_strategy_switch_workflow_stays_within_dispatch_input_limit(self):
+        workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
+        input_names: list[str] = []
+        in_inputs = False
+        for line in workflow.splitlines():
+            if line.strip() == "inputs:":
+                in_inputs = True
+                continue
+            if in_inputs and line.startswith("concurrency:"):
+                break
+            match = re.match(r"      ([A-Za-z0-9_]+):$", line)
+            if in_inputs and match:
+                input_names.append(match.group(1))
+
+        self.assertLessEqual(len(input_names), 25)
+        self.assertNotIn("dca_mode", input_names)
+        self.assertNotIn("dca_base_investment_usd", input_names)
+
     def load_target(self, relative_path: str):
         path = ROOT / relative_path
         return path, runtime_settings.load_target(path)
@@ -382,6 +401,31 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(assignments["DCA_MODE"], "smart")
         self.assertEqual(assignments["DCA_BASE_INVESTMENT_USD"], "500")
 
+    def test_build_switch_target_accepts_dca_control_fields_from_extra_variables_json(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "dca",
+                "--strategy-profile",
+                "nasdaq_sp500_smart_dca",
+                "--plugin-mode",
+                "none",
+                "--extra-variables-json",
+                '{"dca_mode":"smart","dca_base_investment_usd":"500"}',
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["DCA_MODE"], "smart")
+        self.assertEqual(assignments["DCA_BASE_INVESTMENT_USD"], "500")
+        self.assertNotIn("dca_mode", target["extra_variables"])
+        self.assertNotIn("dca_base_investment_usd", target["extra_variables"])
+
     def test_build_switch_target_rejects_dca_settings_for_non_dca_profile(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
@@ -415,7 +459,7 @@ class RuntimeSettingsTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "use --dca-mode"):
+        with self.assertRaisesRegex(ValueError, "control fields"):
             build_runtime_switch.build_switch_target(args)
 
     def test_build_switch_target_preserves_dca_fields_in_service_targets_when_omitted(self):
