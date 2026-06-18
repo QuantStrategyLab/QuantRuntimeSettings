@@ -27,6 +27,13 @@ assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
 assert.ok(indexHtml.includes('id="runtime-target-enabled-select"'));
 assert.ok(indexHtml.includes('id="plugin-mode-select"'));
+assert.ok(indexHtml.includes('id="income-layer-start-usd-input"'));
+assert.ok(indexHtml.includes('incomeLayerStartUsd: "收入层起始金额"'));
+assert.ok(indexHtml.includes('incomeLayerStartUsd: "Income layer start amount"'));
+assert.ok(indexHtml.includes('incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD"'));
+assert.ok(indexHtml.includes('el("income-layer-mode-select").addEventListener("change"'));
+assert.ok(indexHtml.includes('el("income-layer-start-usd-input").addEventListener("input"'));
+assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListener("input"'));
 assert.ok(indexHtml.includes("account-block"));
 assert.ok(indexHtml.includes("strategy-block"));
 assert.ok(indexHtml.includes("grid-template-columns: repeat(4, minmax(0, 1fr));"));
@@ -312,9 +319,13 @@ const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
   trigger_platform_sync: "true",
   reserved_cash_ratio: "0.03",
   min_reserved_cash_usd: "150",
+  income_layer_start_usd: "250000",
+  income_layer_max_ratio: "0.55",
 });
 assert.equal(normalizedReservedCashInputs.reserved_cash_ratio, "0.03");
 assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
+assert.equal(normalizedReservedCashInputs.income_layer_start_usd, "250000");
+assert.equal(normalizedReservedCashInputs.income_layer_max_ratio, "0.55");
 const normalizedPluginInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -426,6 +437,18 @@ globalThis.fetch = async (url) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  if (requestUrl.endsWith("/INCOME_LAYER_START_USD")) {
+    return new Response(JSON.stringify({ value: "150000" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/INCOME_LAYER_MAX_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.95" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (requestUrl.endsWith("/RUNTIME_TARGET_ENABLED")) {
     return new Response(JSON.stringify({ value: "false" }), {
       status: 200,
@@ -455,6 +478,8 @@ try {
   assert.equal(currentStrategies.schwab.default.execution_mode, "live");
   assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.schwab.default.income_layer_start_usd, "150000");
+  assert.equal(currentStrategies.schwab.default.income_layer_max_ratio, "0.95");
   assert.equal(currentStrategies.schwab.default.runtime_target_enabled, false);
   assert.equal(currentStrategies.schwab.default.source, "RUNTIME_TARGET_JSON");
 } finally {
@@ -472,6 +497,8 @@ globalThis.fetch = async (url) => {
             ACCOUNT_GROUP: "demo-ibkr-tqqq",
             IBKR_MIN_RESERVED_CASH_USD: "150",
             IBKR_RESERVED_CASH_RATIO: "0.03",
+            INCOME_LAYER_START_USD: "250000",
+            INCOME_LAYER_MAX_RATIO: "0.55",
             RUNTIME_TARGET_ENABLED: "false",
             runtime_target: {
               platform_id: "ibkr",
@@ -496,6 +523,8 @@ try {
   assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "tqqq_growth_income");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_start_usd, "250000");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_max_ratio, "0.55");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].runtime_target_enabled, false);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
 } finally {

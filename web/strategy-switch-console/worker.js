@@ -47,6 +47,7 @@ const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
   firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
 };
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
+const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
 const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
 const RUNTIME_TARGET_ENABLED_VARIABLE = "RUNTIME_TARGET_ENABLED";
 const SECURITY_HEADERS = {
@@ -864,6 +865,8 @@ function normalizeSwitchInputs(raw) {
   addOptional(inputs, "custom_plugin_mounts_json", raw.custom_plugin_mounts_json, cleanJson);
   addOptional(inputs, "reserved_cash_ratio", raw.reserved_cash_ratio, cleanRatio);
   addOptional(inputs, "min_reserved_cash_usd", raw.min_reserved_cash_usd, cleanNonNegativeNumber);
+  addOptional(inputs, "income_layer_start_usd", raw.income_layer_start_usd, cleanNonNegativeNumber);
+  addOptional(inputs, "income_layer_max_ratio", raw.income_layer_max_ratio, cleanRatio);
   if (extraVariablesJson) inputs.extra_variables_json = extraVariablesJson;
   return inputs;
 }
@@ -1293,11 +1296,12 @@ async function readReservedCashVariables({ platform, repository, variableScope, 
 }
 
 async function readIncomeLayerVariables({ repository, variableScope, githubEnvironment, readVariable }) {
-  const [enabledValue, maxRatioValue] = await Promise.all([
+  const [enabledValue, startUsdValue, maxRatioValue] = await Promise.all([
     readVariable(repository, variableScope, githubEnvironment, INCOME_LAYER_ENABLED_VARIABLE),
+    readVariable(repository, variableScope, githubEnvironment, INCOME_LAYER_START_USD_VARIABLE),
     readVariable(repository, variableScope, githubEnvironment, INCOME_LAYER_MAX_RATIO_VARIABLE),
   ]);
-  return incomeLayerPayloadFromValues(enabledValue, maxRatioValue);
+  return incomeLayerPayloadFromValues(enabledValue, startUsdValue, maxRatioValue);
 }
 
 async function readRuntimeTargetEnabledVariable({ repository, variableScope, githubEnvironment, readVariable }) {
@@ -1329,15 +1333,18 @@ function incomeLayerPayloadFromObject(payload) {
   if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
   return incomeLayerPayloadFromValues(
     payload[INCOME_LAYER_ENABLED_VARIABLE] ?? payload.income_layer_enabled,
+    payload[INCOME_LAYER_START_USD_VARIABLE] ?? payload.income_layer_start_usd,
     payload[INCOME_LAYER_MAX_RATIO_VARIABLE] ?? payload.income_layer_max_ratio,
   );
 }
 
-function incomeLayerPayloadFromValues(enabledValue, maxRatioValue) {
+function incomeLayerPayloadFromValues(enabledValue, startUsdValue, maxRatioValue) {
   const result = {};
   const enabled = cleanOptionalBoolean(enabledValue);
+  const startUsd = cleanCurrentNonNegativeNumber(startUsdValue);
   const maxRatio = cleanCurrentRatio(maxRatioValue);
   if (enabled !== null) result.income_layer_enabled = enabled;
+  if (startUsd) result.income_layer_start_usd = startUsd;
   if (maxRatio) result.income_layer_max_ratio = maxRatio;
   return result;
 }
