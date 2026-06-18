@@ -64,10 +64,17 @@ class Assignment:
     name: str
     value: str
 
+    @property
+    def deletes_variable(self) -> bool:
+        return self.value == ""
+
     def gh_command(self, *, redact_body: bool = False, redact_metadata: bool = False) -> list[str]:
-        body = redacted_value() if redact_body else self.value
         repository = redacted_value() if redact_metadata else self.repository
-        command = ["gh", "variable", "set", self.name, "--repo", repository, "--body", body]
+        if self.deletes_variable:
+            command = ["gh", "variable", "delete", self.name, "--repo", repository]
+        else:
+            body = redacted_value() if redact_body else self.value
+            command = ["gh", "variable", "set", self.name, "--repo", repository, "--body", body]
         if self.variable_scope == "environment":
             environment = redacted_value() if redact_metadata else (self.environment or "")
             command.extend(["--env", environment])
@@ -91,6 +98,7 @@ def assignment_payload(assignment: Assignment, *, redact_values: bool = False) -
         "variable_scope": assignment.variable_scope,
         "environment": assignment.environment,
         "name": assignment.name,
+        "action": "delete" if assignment.deletes_variable else "set",
         "value": redacted_value() if redact_values else assignment.value,
     }
     if redact_values:
@@ -570,7 +578,24 @@ def command_apply(args: argparse.Namespace) -> int:
         return 0
 
     for assignment in all_assignments:
-        subprocess.run(assignment.gh_command(), check=True)
+        result = subprocess.run(
+            assignment.gh_command(),
+            text=True,
+            capture_output=assignment.deletes_variable,
+            check=False,
+        )
+        if result.returncode == 0:
+            continue
+        if assignment.deletes_variable:
+            detail = f"{result.stderr}\n{result.stdout}".lower()
+            if "not found" in detail or "could not find" in detail or "http 404" in detail:
+                print(f"{assignment.name} was already absent; delete skipped.")
+                continue
+            if result.stderr:
+                print(result.stderr, file=sys.stderr, end="")
+            if result.stdout:
+                print(result.stdout, file=sys.stderr, end="")
+        raise subprocess.CalledProcessError(result.returncode, assignment.gh_command())
     return 0
 
 
