@@ -423,13 +423,16 @@
     }
 
     .account-block,
-    .plugin-mode-block,
-    .min-reserve-block {
+    .account-status-block,
+    .income-layer-mode-block,
+    .income-layer-ratio-block {
       grid-column: 1 / span 2;
     }
 
     .strategy-block,
+    .plugin-mode-block,
     .reserve-policy-block,
+    .min-reserve-block,
     .reserve-ratio-block {
       grid-column: 3 / span 2;
     }
@@ -669,8 +672,11 @@
       .account-block,
       .strategy-block,
       .mode-block,
+      .account-status-block,
       .plugin-mode-block,
       .reserve-policy-block,
+      .income-layer-mode-block,
+      .income-layer-ratio-block,
       .min-reserve-block,
       .reserve-ratio-block {
         grid-column: auto;
@@ -785,16 +791,34 @@
             </div>
           </div>
 
+          <label class="control-block account-status-block">
+            <span data-i18n="runtimeTargetMode">账号运行状态</span>
+            <select id="runtime-target-enabled-select"></select>
+            <span class="selection-meta" data-i18n="runtimeTargetModeMeta">停用后正式运行会跳过，模拟运行和健康检查仍可用。</span>
+          </label>
+
           <label class="control-block plugin-mode-block">
             <span data-i18n="pluginMode">插件启用范围</span>
             <select id="plugin-mode-select"></select>
             <span class="selection-meta" data-i18n="pluginModeMeta">选择本次切换使用策略默认插件，或完全关闭插件。</span>
           </label>
 
+          <label class="control-block income-layer-mode-block">
+            <span data-i18n="incomeLayerMode">收入层状态</span>
+            <select id="income-layer-mode-select"></select>
+            <span class="selection-meta" id="income-layer-mode-meta"></span>
+          </label>
+
           <label class="control-block reserve-policy-block">
             <span data-i18n="reservedCashMode">预留现金策略</span>
             <select id="reserve-policy-mode-select"></select>
             <span class="selection-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
+          </label>
+
+          <label class="control-block income-layer-ratio-block">
+            <span data-i18n="incomeLayerMaxRatio">收入层最高比例</span>
+            <input id="income-layer-max-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+            <span class="selection-meta" id="income-layer-ratio-meta"></span>
           </label>
 
           <label class="control-block min-reserve-block">
@@ -846,7 +870,12 @@
     };
 
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
+    const incomeLayerModes = ["current", "enabled", "disabled"];
+    const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["auto", "none"];
+    const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
+    const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
+    const incomeLayerMaxRatioVariable = "INCOME_LAYER_MAX_RATIO";
     const platformMinReservedCashVariables = {
       longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
       ibkr: "IBKR_MIN_RESERVED_CASH_USD",
@@ -871,6 +900,34 @@
       { profile: "hk_global_etf_tactical_rotation", label: "HK Global ETF Tactical Rotation", domain: "hk_equity", runtime_enabled: true },
       { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Low-Vol Dividend Quality Snapshot", domain: "hk_equity", runtime_enabled: true },
     ];
+
+    const incomeLayerDefaults = {
+      tqqq_growth_income: {
+        startUsd: 250000,
+        maxRatio: "0.55",
+        allocations: { SCHD: 0.30, DGRO: 0.20, SGOV: 0.40, SPYI: 0.08, QQQI: 0.02 },
+      },
+      soxl_soxx_trend_income: {
+        startUsd: 150000,
+        maxRatio: "0.95",
+        allocations: { SCHD: 0.15, DGRO: 0.10, SGOV: 0.70, SPYI: 0.04, QQQI: 0.01 },
+      },
+      global_etf_rotation: {
+        startUsd: 500000,
+        maxRatio: "0.15",
+        allocations: { SCHD: 0.40, DGRO: 0.25, SGOV: 0.30, SPYI: 0.05 },
+      },
+      russell_1000_multi_factor_defensive: {
+        startUsd: 400000,
+        maxRatio: "0.20",
+        allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 },
+      },
+      mega_cap_leader_rotation_top50_balanced: {
+        startUsd: 300000,
+        maxRatio: "0.25",
+        allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 },
+      },
+    };
 
     const strategyDomains = ["us_equity", "hk_equity"];
     let strategyOptions = [];
@@ -912,10 +969,25 @@
         mode: "模式",
         live: "实盘",
         paper: "模拟",
+        runtimeTargetMode: "账号运行状态",
+        runtimeTargetCurrent: "沿用当前状态",
+        runtimeTargetEnabled: "启用正式运行",
+        runtimeTargetDisabled: "停用正式运行",
+        runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
         pluginMode: "插件启用范围",
         pluginModeAuto: "按策略默认",
         pluginModeNone: "完全禁用",
         pluginModeMeta: "选择本次切换使用策略默认插件，或完全关闭插件。",
+        incomeLayerMode: "收入层状态",
+        incomeLayerCurrent: "沿用当前配置",
+        incomeLayerEnabled: "开启收入层",
+        incomeLayerDisabled: "关闭收入层",
+        incomeLayerNotSupported: "该策略未定义收入层",
+        incomeLayerMaxRatio: "收入层最高比例",
+        incomeLayerModeMeta: "仅对已定义收入层的美股策略生效。",
+        incomeLayerDefaultMeta: "策略默认：起始 {start} 美元，最高 {ratio}。",
+        incomeLayerAllocationMeta: "默认分配：{allocations}。",
+        incomeLayerRatioMeta: "例如 0.55 表示最高 55%。",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
         reservedCashMode: "预留现金策略",
@@ -940,32 +1012,43 @@
         publicReadonly: "登录后查看账号配置。",
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
-        readyNote: "点击后会触发 workflow，并同步目标平台服务。",
+        readyNote: "点击后会触发工作流，并同步目标平台服务。",
         noChangesNote: "当前选择与已读取配置一致。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
+        invalidIncomeLayerNote: "请填写有效的收入层最高比例。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
         selectedAccount: "账号",
         selectedMarket: "市场",
+        currentRuntimeTarget: "当前账号状态",
+        pendingRuntimeTarget: "待提交账号状态",
         reservedCashPolicy: "当前预留现金",
+        currentIncomeLayer: "当前收入层",
+        pendingIncomeLayer: "待提交收入层",
         pendingReservedCashPolicy: "待提交预留现金",
         pendingMode: "待提交模式",
         currentPluginMode: "当前插件范围",
         pendingPluginMode: "待提交插件范围",
         unchanged: "不变",
         copied: "已复制状态",
-        dispatching: "正在触发 workflow...",
-        dispatched: "已触发 workflow",
+        dispatching: "正在触发工作流...",
+        dispatched: "已触发工作流",
         dispatchFailed: "触发失败",
-        targetMeta: "target {target} · service {service} · 市场 {domains}",
+        targetMeta: "目标 {target} · 服务 {service} · 市场 {domains}",
         strategyMeta: "该账号仅显示 {domains} 策略",
         usEquity: "美股",
         hkEquity: "港股",
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
         notRead: "未读取",
+        runtimeTargetDefault: "未配置（默认启用）",
+        runtimeTargetOn: "启用正式运行",
+        runtimeTargetOff: "停用正式运行",
+        incomeLayerDefault: "策略默认：开启，最高 {ratio}",
+        incomeLayerOff: "关闭",
+        incomeLayerOn: "开启，最高 {ratio}",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -986,10 +1069,25 @@
         mode: "Mode",
         live: "Live",
         paper: "Dry run",
+        runtimeTargetMode: "Account status",
+        runtimeTargetCurrent: "Keep current status",
+        runtimeTargetEnabled: "Enable live runs",
+        runtimeTargetDisabled: "Disable live runs",
+        runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work.",
         pluginMode: "Plugin scope",
         pluginModeAuto: "Strategy default",
         pluginModeNone: "Disabled",
         pluginModeMeta: "Use the strategy's default plugin set, or disable all plugins for this switch.",
+        incomeLayerMode: "Income layer",
+        incomeLayerCurrent: "Keep current config",
+        incomeLayerEnabled: "Enable income layer",
+        incomeLayerDisabled: "Disable income layer",
+        incomeLayerNotSupported: "No income layer for this strategy",
+        incomeLayerMaxRatio: "Income layer max ratio",
+        incomeLayerModeMeta: "Only applies to US equity strategies with an income layer.",
+        incomeLayerDefaultMeta: "Strategy default: starts at {start} USD, max {ratio}.",
+        incomeLayerAllocationMeta: "Default allocation: {allocations}.",
+        incomeLayerRatioMeta: "Use 0.55 for a 55% cap.",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
         reservedCashMode: "Reserved cash policy",
@@ -1018,12 +1116,17 @@
         noChangesNote: "The current selection matches the readable config.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
+        invalidIncomeLayerNote: "Enter a valid income layer max ratio.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
         selectedAccount: "Account",
         selectedMarket: "Market",
+        currentRuntimeTarget: "Current account status",
+        pendingRuntimeTarget: "Pending account status",
         reservedCashPolicy: "Current reserved cash",
+        currentIncomeLayer: "Current income layer",
+        pendingIncomeLayer: "Pending income layer",
         pendingReservedCashPolicy: "Pending reserved cash",
         pendingMode: "Pending mode",
         currentPluginMode: "Current plugin scope",
@@ -1040,6 +1143,12 @@
         currentStrategy: "Current strategy",
         nextStrategy: "Switch strategy",
         notRead: "Not read",
+        runtimeTargetDefault: "Not configured (enabled by default)",
+        runtimeTargetOn: "Live runs enabled",
+        runtimeTargetOff: "Live runs disabled",
+        incomeLayerDefault: "Strategy default: enabled, max {ratio}",
+        incomeLayerOff: "Disabled",
+        incomeLayerOn: "Enabled, max {ratio}",
       },
     };
 
@@ -1053,6 +1162,11 @@
       minReservedCashUsd: "",
       reservedCashRatio: "",
       reservedCashTouched: false,
+      incomeLayerMode: "current",
+      incomeLayerMaxRatio: "",
+      incomeLayerTouched: false,
+      runtimeTargetMode: "current",
+      runtimeTargetTouched: false,
     });
 
     const state = {
@@ -1205,6 +1319,55 @@
       return mode === "none" ? t("pluginModeNone") : t("pluginModeAuto");
     }
 
+    function normalizeRuntimeTargetMode(value) {
+      return runtimeTargetModes.includes(value) ? value : "current";
+    }
+
+    function runtimeTargetModeLabel(mode) {
+      if (mode === "enabled") return t("runtimeTargetEnabled");
+      if (mode === "disabled") return t("runtimeTargetDisabled");
+      return t("runtimeTargetCurrent");
+    }
+
+    function runtimeTargetEnabledForAccount(platform, account) {
+      return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.runtime_target_enabled);
+    }
+
+    function currentRuntimeTargetText(platform = state.selected, account = selectedAccount(platform)) {
+      const enabled = runtimeTargetEnabledForAccount(platform, account);
+      if (enabled === null) return t("runtimeTargetDefault");
+      return enabled ? t("runtimeTargetOn") : t("runtimeTargetOff");
+    }
+
+    function incomeLayerDefaultForStrategy(profile) {
+      return incomeLayerDefaults[cleanStrategyProfile(profile)] || null;
+    }
+
+    function incomeLayerSupported(profile) {
+      return Boolean(incomeLayerDefaultForStrategy(profile));
+    }
+
+    function normalizeIncomeLayerMode(value) {
+      return incomeLayerModes.includes(value) ? value : "current";
+    }
+
+    function incomeLayerModeLabel(mode) {
+      if (mode === "enabled") return t("incomeLayerEnabled");
+      if (mode === "disabled") return t("incomeLayerDisabled");
+      return t("incomeLayerCurrent");
+    }
+
+    function currentIncomeLayerForAccount(platform, account) {
+      return incomeLayerFromEntry(currentEntryForAccount(platform, account));
+    }
+
+    function incomeLayerFromEntry(entry) {
+      return {
+        enabled: cleanOptionalBoolean(entry?.income_layer_enabled),
+        maxRatio: cleanDisplayRatio(entry?.income_layer_max_ratio),
+      };
+    }
+
     function currentEntryForAccount(platform, account) {
       const byPlatform = state.currentStrategies[platform] || {};
       const keys = [account?.key, account?.target_name, account?.label]
@@ -1223,6 +1386,9 @@
         cleanStrategyProfile(entry.strategy_profile) ||
           cleanDisplayNumber(entry.min_reserved_cash_usd ?? entry.reserved_cash_floor_usd) ||
           cleanDisplayRatio(entry.reserved_cash_ratio) ||
+          cleanOptionalBoolean(entry.income_layer_enabled) !== null ||
+          cleanDisplayRatio(entry.income_layer_max_ratio) ||
+          cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
           normalizeExecutionMode(entry.execution_mode, entry.dry_run_only),
       );
     }
@@ -1271,6 +1437,12 @@
       if (dryRunOnly === true || dryRunOnly === "true" || dryRunOnly === "1" || dryRunOnly === 1) return "paper";
       if (dryRunOnly === false || dryRunOnly === "false" || dryRunOnly === "0" || dryRunOnly === 0) return "live";
       return "";
+    }
+
+    function cleanOptionalBoolean(value) {
+      if (value === true || value === "true" || value === "1" || value === 1) return true;
+      if (value === false || value === "false" || value === "0" || value === 0) return false;
+      return null;
     }
 
     function defaultExecutionModeForAccount(platform, account, fallback = "live") {
@@ -1323,7 +1495,15 @@
         account,
       );
       state.forms[platform].pluginMode = currentPluginModeForAccount(platform, account);
+      syncRuntimeTargetForAccount(platform);
       syncReservePolicyForAccount(platform);
+      syncIncomeLayerForAccount(platform);
+    }
+
+    function syncRuntimeTargetForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form || form.runtimeTargetTouched) return;
+      form.runtimeTargetMode = "current";
     }
 
     function syncReservePolicyForAccount(platform) {
@@ -1335,15 +1515,28 @@
       form.reservedCashRatio = policy.reservedCashRatio;
     }
 
+    function syncIncomeLayerForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form || form.incomeLayerTouched) return;
+      const defaults = incomeLayerDefaultForStrategy(form.strategy);
+      const current = currentIncomeLayerForAccount(platform, selectedAccount(platform));
+      form.incomeLayerMode = "current";
+      form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
+    }
+
     function ensureAccountSelection(platform) {
       const options = optionsFor(platform);
       if (!options.length) return;
       if (!options.some((option) => option.key === state.forms[platform].accountKey)) {
         state.forms[platform].accountKey = options[0].key;
+        state.forms[platform].runtimeTargetTouched = false;
         state.forms[platform].reservedCashTouched = false;
+        state.forms[platform].incomeLayerTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
+        syncRuntimeTargetForAccount(platform);
         syncReservePolicyForAccount(platform);
+        syncIncomeLayerForAccount(platform);
       }
     }
 
@@ -1378,8 +1571,16 @@
       return Boolean(reservePolicyOverrideForForm(form, platform));
     }
 
+    function hasValidIncomeLayerPolicy(platform = state.selected) {
+      const form = state.forms[platform];
+      if (!incomeLayerSupported(form?.strategy)) return true;
+      const mode = normalizeIncomeLayerMode(form?.incomeLayerMode);
+      if (mode === "current" || mode === "disabled") return true;
+      return Boolean(cleanDisplayRatio(form?.incomeLayerMaxRatio || incomeLayerDefaultForStrategy(form?.strategy)?.maxRatio));
+    }
+
     function hasValidStrategySelection(platform = state.selected) {
-      return hasRunnableStrategySelection(platform) && hasValidReservePolicy(platform);
+      return hasRunnableStrategySelection(platform) && hasValidReservePolicy(platform) && hasValidIncomeLayerPolicy(platform);
     }
 
     function normalizeReservePolicyMode(value) {
@@ -1414,6 +1615,40 @@
       return null;
     }
 
+    function runtimeTargetOverrideForForm(form) {
+      const mode = normalizeRuntimeTargetMode(form?.runtimeTargetMode);
+      if (mode === "current") return null;
+      return {
+        inputs: { runtime_target_enabled_mode: mode },
+        extraVariables: { [runtimeTargetEnabledVariable]: mode === "enabled" ? "true" : "false" },
+      };
+    }
+
+    function incomeLayerOverrideForForm(form) {
+      const defaults = incomeLayerDefaultForStrategy(form?.strategy);
+      if (!defaults) return null;
+      const mode = normalizeIncomeLayerMode(form?.incomeLayerMode);
+      if (mode === "current") return null;
+      const extraVariables = {};
+      if (mode === "disabled") {
+        extraVariables[incomeLayerEnabledVariable] = "false";
+        extraVariables[incomeLayerMaxRatioVariable] = "";
+        return { inputs: { income_layer_mode: mode }, extraVariables };
+      }
+      const maxRatio = cleanDisplayRatio(form?.incomeLayerMaxRatio || defaults.maxRatio);
+      if (!maxRatio) return null;
+      extraVariables[incomeLayerEnabledVariable] = "true";
+      extraVariables[incomeLayerMaxRatioVariable] = maxRatio;
+      return { inputs: { income_layer_mode: mode, income_layer_max_ratio: maxRatio }, extraVariables };
+    }
+
+    function mergeExtraVariables(inputs, extraVariables) {
+      if (!extraVariables || !Object.keys(extraVariables).length) return;
+      const merged = inputs.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+      Object.assign(merged, extraVariables);
+      inputs.extra_variables_json = JSON.stringify(merged);
+    }
+
     function buildInputs(platform = state.selected) {
       const form = state.forms[platform];
       const account = selectedAccount(platform);
@@ -1445,9 +1680,19 @@
       inputs.reserved_cash_policy_mode = reserveMode;
       if (reserveOverride) {
         Object.assign(inputs, reserveOverride.inputs);
-        if (Object.keys(reserveOverride.extraVariables).length) {
-          inputs.extra_variables_json = JSON.stringify(reserveOverride.extraVariables);
-        }
+        mergeExtraVariables(inputs, reserveOverride.extraVariables);
+      }
+      const runtimeTargetOverride = runtimeTargetOverrideForForm(form);
+      inputs.runtime_target_enabled_mode = normalizeRuntimeTargetMode(form.runtimeTargetMode);
+      if (runtimeTargetOverride) {
+        Object.assign(inputs, runtimeTargetOverride.inputs);
+        mergeExtraVariables(inputs, runtimeTargetOverride.extraVariables);
+      }
+      const incomeOverride = incomeLayerOverrideForForm(form);
+      inputs.income_layer_mode = normalizeIncomeLayerMode(form.incomeLayerMode);
+      if (incomeOverride) {
+        Object.assign(inputs, incomeOverride.inputs);
+        mergeExtraVariables(inputs, incomeOverride.extraVariables);
       }
       return inputs;
     }
@@ -1516,6 +1761,90 @@
       return { changed, inputs: next };
     }
 
+    function currentIncomeLayerText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
+      const defaults = incomeLayerDefaultForStrategy(profile);
+      if (!defaults) return t("incomeLayerNotSupported");
+      const current = currentIncomeLayerForAccount(platform, account);
+      const enabled = current.enabled ?? true;
+      const ratio = current.maxRatio || defaults.maxRatio;
+      if (!current.maxRatio && current.enabled === null) {
+        return t("incomeLayerDefault").replace("{ratio}", formatRatioPercent(defaults.maxRatio));
+      }
+      return enabled
+        ? t("incomeLayerOn").replace("{ratio}", formatRatioPercent(ratio))
+        : t("incomeLayerOff");
+    }
+
+    function pendingIncomeLayerText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingIncomeLayer(inputs, platform, account);
+      if (!pending.supported) return t("incomeLayerNotSupported");
+      if (!pending.changed) return t("unchanged");
+      if (pending.inputs.income_layer_enabled === false) return t("incomeLayerOff");
+      return t("incomeLayerOn").replace("{ratio}", formatRatioPercent(pending.inputs.income_layer_max_ratio));
+    }
+
+    function pendingRuntimeTargetText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingRuntimeTarget(inputs, platform, account);
+      if (!pending.changed) return t("unchanged");
+      return pending.inputs.runtime_target_enabled ? t("runtimeTargetOn") : t("runtimeTargetOff");
+    }
+
+    function pendingRuntimeTarget(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const mode = normalizeRuntimeTargetMode(inputs.runtime_target_enabled_mode);
+      const current = runtimeTargetEnabledForAccount(platform, account);
+      const currentEnabled = current ?? true;
+      if (mode === "current") {
+        return {
+          changed: false,
+          inputs: { runtime_target_enabled: currentEnabled },
+        };
+      }
+      const nextEnabled = mode === "enabled";
+      return {
+        changed: currentEnabled !== nextEnabled,
+        inputs: { runtime_target_enabled: nextEnabled },
+      };
+    }
+
+    function pendingIncomeLayer(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
+      const defaults = incomeLayerDefaultForStrategy(profile);
+      if (!defaults) return { supported: false, changed: false, inputs: {} };
+      const mode = normalizeIncomeLayerMode(inputs.income_layer_mode);
+      const current = currentIncomeLayerForAccount(platform, account);
+      const currentEnabled = current.enabled ?? true;
+      const currentRatio = current.maxRatio || defaults.maxRatio;
+      if (mode === "current") {
+        return {
+          supported: true,
+          changed: false,
+          inputs: {
+            income_layer_enabled: currentEnabled,
+            income_layer_max_ratio: currentRatio,
+          },
+        };
+      }
+      if (mode === "disabled") {
+        return {
+          supported: true,
+          changed: currentEnabled !== false || Boolean(current.maxRatio),
+          inputs: {
+            income_layer_enabled: false,
+            income_layer_max_ratio: "",
+          },
+        };
+      }
+      const nextRatio = cleanDisplayRatio(inputs.income_layer_max_ratio || defaults.maxRatio);
+      return {
+        supported: true,
+        changed: Boolean(currentEnabled !== true || nextRatio !== currentRatio),
+        inputs: {
+          income_layer_enabled: true,
+          income_layer_max_ratio: nextRatio,
+        },
+      };
+    }
+
     function pendingChangeState(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const currentProfile = currentStrategyForAccount(platform, account);
       const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
@@ -1523,7 +1852,9 @@
       const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
       const currentPluginMode = currentPluginModeForAccount(platform, account);
       const nextPluginMode = normalizePluginMode(inputs.plugin_mode);
+      const runtimeTarget = pendingRuntimeTarget(inputs, platform, account);
       const reserve = pendingReservePolicy(inputs, platform, account);
+      const income = pendingIncomeLayer(inputs, platform, account);
       return {
         currentProfile,
         nextProfile,
@@ -1533,20 +1864,51 @@
         strategyChanged: Boolean(nextProfile && (!currentProfile || currentProfile !== nextProfile)),
         modeChanged: Boolean(currentMode && inputs.execution_mode && currentMode !== inputs.execution_mode),
         pluginModeChanged: Boolean(currentPluginMode && nextPluginMode && currentPluginMode !== nextPluginMode),
+        runtimeTargetChanged: runtimeTarget.changed,
         reserveCashChanged: reserve.changed,
+        incomeLayerChanged: income.changed,
+        runtimeTarget,
         reserve,
+        income,
       };
     }
 
     function hasPendingChanges(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const changes = pendingChangeState(inputs, platform, account);
-      return Boolean(changes.strategyChanged || changes.modeChanged || changes.pluginModeChanged || changes.reserveCashChanged);
+      return Boolean(
+        changes.strategyChanged ||
+          changes.modeChanged ||
+          changes.pluginModeChanged ||
+          changes.runtimeTargetChanged ||
+          changes.reserveCashChanged ||
+          changes.incomeLayerChanged,
+      );
     }
 
     function formatRatioPercent(value) {
       const numeric = Number(value);
       if (!Number.isFinite(numeric)) return String(value);
       return `${(numeric * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
+    }
+
+    function formatUsd(value) {
+      const numeric = Number(value);
+      if (!Number.isFinite(numeric)) return String(value);
+      return `$${numeric.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+    }
+
+    function incomeLayerAllocationText(defaults) {
+      if (!defaults?.allocations) return "";
+      return Object.entries(defaults.allocations)
+        .map(([symbol, ratio]) => `${symbol} ${formatRatioPercent(ratio)}`)
+        .join(" / ");
+    }
+
+    function incomeLayerDefaultMetaText(defaults) {
+      if (!defaults) return t("incomeLayerModeMeta");
+      return t("incomeLayerDefaultMeta")
+        .replace("{start}", formatUsd(defaults.startUsd))
+        .replace("{ratio}", formatRatioPercent(defaults.maxRatio));
     }
 
     function summaryRows(inputs) {
@@ -1558,17 +1920,27 @@
         [t("selectedAccount"), account.label],
         [t("currentStrategy"), currentStrategyText],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
+        [t("currentRuntimeTarget"), currentRuntimeTargetText(state.selected, account)],
         [t("currentPluginMode"), pluginModeLabel(changes.currentPluginMode)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
       ];
+      if (incomeLayerSupported(inputs.strategy_profile)) {
+        rows.push([t("currentIncomeLayer"), currentIncomeLayerText(state.selected, account, inputs.strategy_profile)]);
+      }
       if (changes.reserveCashChanged) {
         rows.push([t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"]);
+      }
+      if (changes.incomeLayerChanged) {
+        rows.push([t("pendingIncomeLayer"), pendingIncomeLayerText(inputs, state.selected, account), "pending"]);
       }
       if (changes.modeChanged) {
         rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
       }
       if (changes.pluginModeChanged) {
         rows.push([t("pendingPluginMode"), pluginModeLabel(changes.nextPluginMode), "pending"]);
+      }
+      if (changes.runtimeTargetChanged) {
+        rows.push([t("pendingRuntimeTarget"), pendingRuntimeTargetText(inputs, state.selected, account), "pending"]);
       }
       if (changes.strategyChanged && changes.nextProfile) {
         rows.push([t("nextStrategy"), strategyLabel(changes.nextProfile), "pending"]);
@@ -1627,7 +1999,10 @@
       const choices = strategyChoicesForAccount(platform, account);
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
+      const runtimeTargetEnabledSelect = el("runtime-target-enabled-select");
       const pluginModeSelect = el("plugin-mode-select");
+      const incomeLayerModeSelect = el("income-layer-mode-select");
+      const incomeLayerMaxRatioInput = el("income-layer-max-ratio-input");
       const reservePolicyModeSelect = el("reserve-policy-mode-select");
       const minReservedCashInput = el("min-reserved-cash-input");
       const reservedCashRatioInput = el("reserved-cash-ratio-input");
@@ -1643,12 +2018,17 @@
       if (!showPrivateControls) {
         accountSelect.replaceChildren();
         strategySelect.replaceChildren();
+        runtimeTargetEnabledSelect.replaceChildren();
         pluginModeSelect.replaceChildren();
+        incomeLayerModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
+        incomeLayerMaxRatioInput.value = "";
         minReservedCashInput.value = "";
         reservedCashRatioInput.value = "";
         el("account-meta").textContent = "";
         el("strategy-meta").textContent = "";
+        el("income-layer-mode-meta").textContent = "";
+        el("income-layer-ratio-meta").textContent = "";
         return;
       }
 
@@ -1677,9 +2057,33 @@
       el("strategy-meta").textContent = account
         ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
         : "";
+      runtimeTargetEnabledSelect.replaceChildren();
+      for (const mode of runtimeTargetModes) {
+        runtimeTargetEnabledSelect.append(
+          new Option(runtimeTargetModeLabel(mode), mode, false, mode === normalizeRuntimeTargetMode(form.runtimeTargetMode)),
+        );
+      }
       pluginModeSelect.replaceChildren();
       for (const mode of pluginModes) {
         pluginModeSelect.append(new Option(pluginModeLabel(mode), mode, false, mode === normalizePluginMode(form.pluginMode)));
+      }
+      const incomeDefaults = incomeLayerDefaultForStrategy(form.strategy);
+      incomeLayerModeSelect.replaceChildren();
+      if (incomeDefaults) {
+        incomeLayerModeSelect.disabled = false;
+        for (const mode of incomeLayerModes) {
+          incomeLayerModeSelect.append(new Option(incomeLayerModeLabel(mode), mode, false, mode === normalizeIncomeLayerMode(form.incomeLayerMode)));
+        }
+        el("income-layer-mode-meta").textContent = incomeLayerDefaultMetaText(incomeDefaults);
+        el("income-layer-ratio-meta").textContent = t("incomeLayerAllocationMeta").replace(
+          "{allocations}",
+          incomeLayerAllocationText(incomeDefaults),
+        );
+      } else {
+        incomeLayerModeSelect.disabled = true;
+        incomeLayerModeSelect.append(new Option(t("incomeLayerNotSupported"), "current"));
+        el("income-layer-mode-meta").textContent = t("incomeLayerModeMeta");
+        el("income-layer-ratio-meta").textContent = t("incomeLayerRatioMeta");
       }
       reservePolicyModeSelect.replaceChildren();
       for (const mode of reservePolicyModes) {
@@ -1694,6 +2098,12 @@
       reservedCashRatioInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
       minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
       reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
+      const incomeMode = normalizeIncomeLayerMode(form.incomeLayerMode);
+      incomeLayerMaxRatioInput.disabled = !incomeDefaults || incomeMode !== "enabled";
+      if (incomeDefaults && incomeMode === "enabled" && !cleanDisplayRatio(form.incomeLayerMaxRatio)) {
+        form.incomeLayerMaxRatio = incomeDefaults.maxRatio;
+      }
+      incomeLayerMaxRatioInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerMaxRatio : "";
 
       document.querySelectorAll("[data-mode]").forEach((button) => {
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
@@ -1903,14 +2313,28 @@
           const profile = cleanStrategyProfile(entry?.strategy_profile);
           const minReservedCashUsd = cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd);
           const reservedCashRatio = cleanDisplayRatio(entry?.reserved_cash_ratio);
+          const incomeLayerEnabled = cleanOptionalBoolean(entry?.income_layer_enabled);
+          const incomeLayerMaxRatio = cleanDisplayRatio(entry?.income_layer_max_ratio);
+          const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
           const executionMode = normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
-          if (!profile && !minReservedCashUsd && !reservedCashRatio && !executionMode) continue;
+          if (
+            !profile &&
+            !minReservedCashUsd &&
+            !reservedCashRatio &&
+            incomeLayerEnabled === null &&
+            !incomeLayerMaxRatio &&
+            runtimeTargetEnabled === null &&
+            !executionMode
+          ) continue;
           normalized[platform][String(key)] = {
             strategy_profile: profile,
             execution_mode: executionMode,
             dry_run_only: entry?.dry_run_only === true || entry?.dry_run_only === "true" || entry?.dry_run_only === "1",
             min_reserved_cash_usd: minReservedCashUsd,
             reserved_cash_ratio: reservedCashRatio,
+            income_layer_enabled: incomeLayerEnabled,
+            income_layer_max_ratio: incomeLayerMaxRatio,
+            runtime_target_enabled: runtimeTargetEnabled,
             source: entry?.source ? String(entry.source) : "",
           };
         }
@@ -1968,13 +2392,17 @@
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
+      state.forms[state.selected].runtimeTargetTouched = false;
       state.forms[state.selected].reservedCashTouched = false;
+      state.forms[state.selected].incomeLayerTouched = false;
       syncStrategyForAccount(state.selected);
       render();
     });
 
     el("strategy-select").addEventListener("change", () => {
       state.forms[state.selected].strategy = el("strategy-select").value;
+      state.forms[state.selected].incomeLayerTouched = false;
+      syncIncomeLayerForAccount(state.selected);
       render();
     });
 
@@ -1987,6 +2415,13 @@
 
     el("plugin-mode-select").addEventListener("change", () => {
       state.forms[state.selected].pluginMode = normalizePluginMode(el("plugin-mode-select").value);
+      render();
+    });
+
+    el("runtime-target-enabled-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.runtimeTargetMode = normalizeRuntimeTargetMode(el("runtime-target-enabled-select").value);
+      form.runtimeTargetTouched = form.runtimeTargetMode !== "current";
       render();
     });
 

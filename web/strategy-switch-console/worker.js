@@ -46,6 +46,9 @@ const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
   schwab: "SCHWAB_MIN_RESERVED_CASH_USD",
   firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
 };
+const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
+const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
+const RUNTIME_TARGET_ENABLED_VARIABLE = "RUNTIME_TARGET_ENABLED";
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -574,19 +577,29 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTarget = runtimeTargetFromServiceTargets(serviceTargetsValue, platform, option);
   const serviceTargetProfile = cleanCurrentStrategy(serviceTarget?.strategy_profile);
   const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
+  const serviceTargetIncomeLayerPayload = incomeLayerPayloadFromObject(serviceTarget);
+  const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
   if (serviceTargetProfile) {
     return {
       strategy_profile: serviceTargetProfile,
       ...runtimeModePayload(serviceTarget),
       ...serviceTargetReservedCashPayload,
+      ...serviceTargetIncomeLayerPayload,
+      ...serviceTargetRuntimeTargetEnabledPayload,
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
   }
-  if (Object.keys(serviceTargetReservedCashPayload).length) {
+  if (
+    Object.keys(serviceTargetReservedCashPayload).length ||
+    Object.keys(serviceTargetIncomeLayerPayload).length ||
+    Object.keys(serviceTargetRuntimeTargetEnabledPayload).length
+  ) {
     return {
       ...runtimeModePayload(serviceTarget),
       ...serviceTargetReservedCashPayload,
+      ...serviceTargetIncomeLayerPayload,
+      ...serviceTargetRuntimeTargetEnabledPayload,
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -601,9 +614,23 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
+  const incomeLayerPayloadPromise = readIncomeLayerVariables({
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
+  const runtimeTargetEnabledPayloadPromise = readRuntimeTargetEnabledVariable({
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
   const runtimeTargetValuePromise = readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
-  const [reservedCashPayload, runtimeTargetValue] = await Promise.all([
+  const [reservedCashPayload, incomeLayerPayload, runtimeTargetEnabledPayload, runtimeTargetValue] = await Promise.all([
     reservedCashPayloadPromise,
+    incomeLayerPayloadPromise,
+    runtimeTargetEnabledPayloadPromise,
     runtimeTargetValuePromise,
   ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
@@ -614,6 +641,8 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       strategy_profile: runtimeTargetProfile,
       ...runtimeModePayload(runtimeTarget),
       ...reservedCashPayload,
+      ...incomeLayerPayload,
+      ...runtimeTargetEnabledPayload,
       source: "RUNTIME_TARGET_JSON",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
@@ -627,6 +656,8 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       const current = {
         strategy_profile: profile,
         ...reservedCashPayload,
+        ...incomeLayerPayload,
+        ...runtimeTargetEnabledPayload,
         source: "STRATEGY_PROFILE",
         variable_scope: variableScope,
         github_environment: githubEnvironment || "",
@@ -638,10 +669,18 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     }
   }
 
-  if (Object.keys(reservedCashPayload).length) {
+  if (
+    Object.keys(reservedCashPayload).length ||
+    Object.keys(incomeLayerPayload).length ||
+    Object.keys(runtimeTargetEnabledPayload).length
+  ) {
     return {
       ...reservedCashPayload,
-      source: "RESERVED_CASH_VARIABLES",
+      ...incomeLayerPayload,
+      ...runtimeTargetEnabledPayload,
+      source: Object.keys(reservedCashPayload).length
+        ? "RESERVED_CASH_VARIABLES"
+        : (Object.keys(incomeLayerPayload).length ? "INCOME_LAYER_VARIABLES" : "RUNTIME_TARGET_ENABLED_VARIABLE"),
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
     };
@@ -1238,6 +1277,8 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ...runtimeTarget,
       strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
       ...reservedCashPayloadFromObject(platform, entry),
+      ...incomeLayerPayloadFromObject(entry),
+      ...runtimeTargetEnabledPayloadFromObject(entry),
     };
   }
   return null;
@@ -1249,6 +1290,19 @@ async function readReservedCashVariables({ platform, repository, variableScope, 
     readVariable(repository, variableScope, githubEnvironment, PLATFORM_RESERVED_CASH_RATIO_VARIABLES[platform]),
   ]);
   return reservedCashPayloadFromValues(floorValue, ratioValue);
+}
+
+async function readIncomeLayerVariables({ repository, variableScope, githubEnvironment, readVariable }) {
+  const [enabledValue, maxRatioValue] = await Promise.all([
+    readVariable(repository, variableScope, githubEnvironment, INCOME_LAYER_ENABLED_VARIABLE),
+    readVariable(repository, variableScope, githubEnvironment, INCOME_LAYER_MAX_RATIO_VARIABLE),
+  ]);
+  return incomeLayerPayloadFromValues(enabledValue, maxRatioValue);
+}
+
+async function readRuntimeTargetEnabledVariable({ repository, variableScope, githubEnvironment, readVariable }) {
+  const value = await readVariable(repository, variableScope, githubEnvironment, RUNTIME_TARGET_ENABLED_VARIABLE);
+  return runtimeTargetEnabledPayloadFromValue(value);
 }
 
 function reservedCashPayloadFromObject(platform, payload) {
@@ -1269,6 +1323,35 @@ function reservedCashPayloadFromValues(floorValue, ratioValue) {
   if (floor) result.min_reserved_cash_usd = floor;
   if (ratio) result.reserved_cash_ratio = ratio;
   return result;
+}
+
+function incomeLayerPayloadFromObject(payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  return incomeLayerPayloadFromValues(
+    payload[INCOME_LAYER_ENABLED_VARIABLE] ?? payload.income_layer_enabled,
+    payload[INCOME_LAYER_MAX_RATIO_VARIABLE] ?? payload.income_layer_max_ratio,
+  );
+}
+
+function incomeLayerPayloadFromValues(enabledValue, maxRatioValue) {
+  const result = {};
+  const enabled = cleanOptionalBoolean(enabledValue);
+  const maxRatio = cleanCurrentRatio(maxRatioValue);
+  if (enabled !== null) result.income_layer_enabled = enabled;
+  if (maxRatio) result.income_layer_max_ratio = maxRatio;
+  return result;
+}
+
+function runtimeTargetEnabledPayloadFromObject(payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  return runtimeTargetEnabledPayloadFromValue(
+    payload[RUNTIME_TARGET_ENABLED_VARIABLE] ?? payload.runtime_target_enabled,
+  );
+}
+
+function runtimeTargetEnabledPayloadFromValue(value) {
+  const enabled = cleanOptionalBoolean(value);
+  return enabled === null ? {} : { runtime_target_enabled: enabled };
 }
 
 function runtimeModePayload(runtimeTarget) {

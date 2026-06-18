@@ -25,6 +25,7 @@ assert.equal(indexHtml.includes("loginLink.hidden = !state.auth.available || sig
 assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
 assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
+assert.ok(indexHtml.includes('id="runtime-target-enabled-select"'));
 assert.ok(indexHtml.includes('id="plugin-mode-select"'));
 assert.ok(indexHtml.includes("account-block"));
 assert.ok(indexHtml.includes("strategy-block"));
@@ -38,6 +39,10 @@ assert.ok(indexHtml.includes('reservePolicyFloor'));
 assert.ok(indexHtml.includes('reservePolicyMax'));
 assert.ok(indexHtml.includes('pluginModeAuto'));
 assert.ok(indexHtml.includes('pluginModeNone'));
+assert.ok(indexHtml.includes('runtimeTargetMode: "账号运行状态"'));
+assert.ok(indexHtml.includes('runtimeTargetEnabled: "启用正式运行"'));
+assert.ok(indexHtml.includes('runtimeTargetDisabled: "停用正式运行"'));
+assert.ok(indexHtml.includes('runtimeTargetMode: "Account status"'));
 assert.ok(indexHtml.includes('pluginMode: "插件启用范围"'));
 assert.ok(indexHtml.includes('pluginModeAuto: "按策略默认"'));
 assert.ok(indexHtml.includes('pluginModeNone: "完全禁用"'));
@@ -62,6 +67,7 @@ assert.ok(indexHtml.includes('.summary-row.pending'));
 assert.ok(indexHtml.includes('function currentEntryHasState('));
 assert.ok(indexHtml.includes('changes.reserveCashChanged'));
 assert.ok(indexHtml.includes('changes.pluginModeChanged'));
+assert.ok(indexHtml.includes('changes.runtimeTargetChanged'));
 assert.ok(indexHtml.includes('!hasPendingChange'));
 assert.ok(indexHtml.includes('hasPendingChange ? t("readyNote") : ""'));
 assert.equal(indexHtml.includes('hasPendingChange ? t("readyNote") : t("noChangesNote")'), false);
@@ -420,6 +426,12 @@ globalThis.fetch = async (url) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  if (requestUrl.endsWith("/RUNTIME_TARGET_ENABLED")) {
+    return new Response(JSON.stringify({ value: "false" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (requestUrl.endsWith("/RUNTIME_TARGET_JSON")) {
     return new Response(JSON.stringify({
       value: JSON.stringify({
@@ -443,6 +455,7 @@ try {
   assert.equal(currentStrategies.schwab.default.execution_mode, "live");
   assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.schwab.default.runtime_target_enabled, false);
   assert.equal(currentStrategies.schwab.default.source, "RUNTIME_TARGET_JSON");
 } finally {
   globalThis.fetch = originalFetch;
@@ -459,6 +472,7 @@ globalThis.fetch = async (url) => {
             ACCOUNT_GROUP: "demo-ibkr-tqqq",
             IBKR_MIN_RESERVED_CASH_USD: "150",
             IBKR_RESERVED_CASH_RATIO: "0.03",
+            RUNTIME_TARGET_ENABLED: "false",
             runtime_target: {
               platform_id: "ibkr",
               strategy_profile: "tqqq_growth_income",
@@ -482,6 +496,7 @@ try {
   assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "tqqq_growth_income");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].runtime_target_enabled, false);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
 } finally {
   globalThis.fetch = originalFetch;
