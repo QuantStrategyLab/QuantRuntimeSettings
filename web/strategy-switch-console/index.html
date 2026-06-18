@@ -406,9 +406,9 @@
 
     .quick-form {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: start;
-      gap: 14px;
+      gap: 16px 14px;
     }
 
     .control-block {
@@ -422,20 +422,21 @@
       font-weight: 760;
     }
 
-    .account-block,
-    .account-status-block,
-    .income-layer-mode-block,
-    .income-layer-start-block,
-    .min-reserve-block {
-      grid-column: 1 / span 2;
+    .form-section {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      align-items: start;
+      gap: 14px;
     }
 
-    .strategy-block,
-    .plugin-mode-block,
-    .reserve-policy-block,
-    .income-layer-ratio-block,
-    .reserve-ratio-block {
-      grid-column: 3 / span 2;
+    .form-section + .form-section {
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-wide {
+      grid-column: 1 / -1;
     }
 
     .mode-block {
@@ -666,21 +667,13 @@
       }
 
       .platform-strip,
-      .quick-form {
+      .quick-form,
+      .form-section {
         grid-template-columns: 1fr;
       }
 
-      .account-block,
-      .strategy-block,
       .mode-block,
-      .account-status-block,
-      .plugin-mode-block,
-      .reserve-policy-block,
-      .income-layer-mode-block,
-      .income-layer-start-block,
-      .income-layer-ratio-block,
-      .min-reserve-block,
-      .reserve-ratio-block {
+      .section-wide {
         grid-column: auto;
       }
 
@@ -793,53 +786,59 @@
             </div>
           </div>
 
-          <label class="control-block account-status-block">
-            <span data-i18n="runtimeTargetMode">账号运行状态</span>
-            <select id="runtime-target-enabled-select"></select>
-            <span class="selection-meta" data-i18n="runtimeTargetModeMeta">停用后正式运行会跳过，模拟运行和健康检查仍可用。</span>
-          </label>
+          <div class="form-section runtime-section">
+            <label class="control-block account-status-block">
+              <span data-i18n="runtimeTargetMode">账号运行状态</span>
+              <select id="runtime-target-enabled-select"></select>
+              <span class="selection-meta" data-i18n="runtimeTargetModeMeta">停用后正式运行会跳过，模拟运行和健康检查仍可用。</span>
+            </label>
 
-          <label class="control-block plugin-mode-block">
-            <span data-i18n="pluginMode">插件启用范围</span>
-            <select id="plugin-mode-select"></select>
-            <span class="selection-meta" data-i18n="pluginModeMeta">选择本次切换使用策略默认插件，或完全关闭插件。</span>
-          </label>
+            <label class="control-block plugin-mode-block">
+              <span data-i18n="pluginMode">插件启用范围</span>
+              <select id="plugin-mode-select"></select>
+              <span class="selection-meta" data-i18n="pluginModeMeta">选择本次切换使用策略默认插件，或完全关闭插件。</span>
+            </label>
+          </div>
 
-          <label class="control-block income-layer-mode-block">
-            <span data-i18n="incomeLayerMode">收入层状态</span>
-            <select id="income-layer-mode-select"></select>
-            <span class="selection-meta" id="income-layer-mode-meta"></span>
-          </label>
+          <div class="form-section income-layer-section">
+            <label class="control-block income-layer-mode-block section-wide">
+              <span data-i18n="incomeLayerMode">收入层状态</span>
+              <select id="income-layer-mode-select"></select>
+              <span class="selection-meta" id="income-layer-mode-meta"></span>
+            </label>
 
-          <label class="control-block income-layer-start-block">
-            <span data-i18n="incomeLayerStartUsd">收入层起始金额</span>
-            <input id="income-layer-start-usd-input" type="number" inputmode="decimal" min="0" step="1000">
-            <span class="selection-meta" id="income-layer-start-meta"></span>
-          </label>
+            <label class="control-block income-layer-start-block">
+              <span data-i18n="incomeLayerStartUsd">收入层起始金额</span>
+              <input id="income-layer-start-usd-input" type="number" inputmode="decimal" min="0" step="1000">
+              <span class="selection-meta" id="income-layer-start-meta"></span>
+            </label>
 
-          <label class="control-block reserve-policy-block">
-            <span data-i18n="reservedCashMode">预留现金策略</span>
-            <select id="reserve-policy-mode-select"></select>
-            <span class="selection-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
-          </label>
+            <label class="control-block income-layer-ratio-block">
+              <span data-i18n="incomeLayerMaxRatio">收入层最高比例</span>
+              <input id="income-layer-max-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+              <span class="selection-meta" id="income-layer-ratio-meta"></span>
+            </label>
+          </div>
 
-          <label class="control-block income-layer-ratio-block">
-            <span data-i18n="incomeLayerMaxRatio">收入层最高比例</span>
-            <input id="income-layer-max-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-            <span class="selection-meta" id="income-layer-ratio-meta"></span>
-          </label>
+          <div class="form-section reserve-policy-section">
+            <label class="control-block reserve-policy-block section-wide">
+              <span data-i18n="reservedCashMode">预留现金策略</span>
+              <select id="reserve-policy-mode-select"></select>
+              <span class="selection-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
+            </label>
 
-          <label class="control-block min-reserve-block">
-            <span id="min-reserved-cash-label">最小预留现金</span>
-            <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
-            <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
-          </label>
+            <label class="control-block min-reserve-block">
+              <span id="min-reserved-cash-label">最小预留现金</span>
+              <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
+              <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
+            </label>
 
-          <label class="control-block reserve-ratio-block">
-            <span data-i18n="reservedCashRatio">预留现金比例</span>
-            <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-            <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
-          </label>
+            <label class="control-block reserve-ratio-block">
+              <span data-i18n="reservedCashRatio">预留现金比例</span>
+              <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+              <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
+            </label>
+          </div>
         </div>
 
         <div class="run-area" id="run-area">
@@ -901,7 +900,7 @@
     const defaultStrategyProfiles = [
       { profile: "tqqq_growth_income", label: "TQQQ Growth Income", label_en: "TQQQ Growth Income", label_zh: "TQQQ 增长收益", domain: "us_equity", runtime_enabled: true },
       { profile: "soxl_soxx_trend_income", label: "SOXL/SOXX Semiconductor Trend Income", label_en: "SOXL/SOXX Semiconductor Trend Income", label_zh: "SOXL/SOXX 半导体趋势收益", domain: "us_equity", runtime_enabled: true },
-      { profile: "nasdaq_sp500_smart_dca", label: "Nasdaq/S&P 500 Smart DCA", label_en: "Nasdaq/S&P 500 Smart DCA", label_zh: "纳斯达克 / 标普智能定投", domain: "us_equity", runtime_enabled: true },
+      { profile: "nasdaq_sp500_smart_dca", label: "Nasdaq 100 / S&P 500 Smart DCA", label_en: "Nasdaq 100 / S&P 500 Smart DCA", label_zh: "纳指100 / 标普500 智能定投", domain: "us_equity", runtime_enabled: true },
       { profile: "ibit_smart_dca", label: "IBIT Smart DCA", label_en: "IBIT Smart DCA", label_zh: "IBIT 比特币 ETF 智能定投", domain: "us_equity", runtime_enabled: true },
       { profile: "global_etf_rotation", label: "Global ETF Rotation", label_en: "Global ETF Rotation", label_zh: "全球 ETF 轮动", domain: "us_equity", runtime_enabled: true },
       { profile: "russell_1000_multi_factor_defensive", label: "Russell 1000 Multi-Factor Defensive", label_en: "Russell 1000 Multi-Factor Defensive", label_zh: "罗素 1000 多因子防御", domain: "us_equity", runtime_enabled: true },
@@ -914,7 +913,7 @@
     const localStrategyLabels = {
       tqqq_growth_income: { zh: "TQQQ 增长收益", en: "TQQQ Growth Income" },
       soxl_soxx_trend_income: { zh: "SOXL/SOXX 半导体趋势收益", en: "SOXL/SOXX Semiconductor Trend Income" },
-      nasdaq_sp500_smart_dca: { zh: "纳斯达克 / 标普智能定投", en: "Nasdaq/S&P 500 Smart DCA" },
+      nasdaq_sp500_smart_dca: { zh: "纳指100 / 标普500 智能定投", en: "Nasdaq 100 / S&P 500 Smart DCA" },
       ibit_smart_dca: { zh: "IBIT 比特币 ETF 智能定投", en: "IBIT Smart DCA" },
       global_etf_rotation: { zh: "全球 ETF 轮动", en: "Global ETF Rotation" },
       russell_1000_multi_factor_defensive: { zh: "罗素 1000 多因子防御", en: "Russell 1000 Multi-Factor Defensive" },

@@ -17,9 +17,9 @@
   },
   {
     "profile": "nasdaq_sp500_smart_dca",
-    "label": "Nasdaq/S&P 500 Smart DCA",
-    "label_en": "Nasdaq/S&P 500 Smart DCA",
-    "label_zh": "纳斯达克 / 标普智能定投",
+    "label": "Nasdaq 100 / S&P 500 Smart DCA",
+    "label_en": "Nasdaq 100 / S&P 500 Smart DCA",
+    "label_zh": "纳指100 / 标普500 智能定投",
     "domain": "us_equity",
     "runtime_enabled": true
   },
