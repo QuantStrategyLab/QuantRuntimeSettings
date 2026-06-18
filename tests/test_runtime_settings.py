@@ -128,6 +128,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn("--body", assignment.shell_command())
         self.assertEqual(runtime_settings.assignment_payload(assignment)["action"], "delete")
 
+    def test_manual_switch_account_default_sync_is_warning_only(self):
+        workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("Strategy switch account default sync failed", workflow)
+        self.assertIn("::warning::", workflow)
+        self.assertIn("raise SystemExit(0)", workflow)
+
     def test_plugin_mount_schema_version_must_be_non_empty_string(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["plugin_mounts"][0]["expected_schema_version"] = ""
