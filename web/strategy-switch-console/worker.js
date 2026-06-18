@@ -50,6 +50,12 @@ const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
 const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
 const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
 const RUNTIME_TARGET_ENABLED_VARIABLE = "RUNTIME_TARGET_ENABLED";
+const DCA_MODE_VARIABLE = "DCA_MODE";
+const DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD";
+const DCA_PROFILE_CONFIG = {
+  nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
+  ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
+};
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -580,6 +586,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
   const serviceTargetIncomeLayerPayload = incomeLayerPayloadFromObject(serviceTarget);
   const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
+  const serviceTargetDcaPayload = dcaPayloadFromObject(serviceTarget);
   if (serviceTargetProfile) {
     return {
       strategy_profile: serviceTargetProfile,
@@ -587,6 +594,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
+      ...dcaPayloadForProfile(serviceTargetProfile, serviceTargetDcaPayload),
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -627,11 +635,18 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
+  const dcaPayloadPromise = readDcaVariables({
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
   const runtimeTargetValuePromise = readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
-  const [reservedCashPayload, incomeLayerPayload, runtimeTargetEnabledPayload, runtimeTargetValue] = await Promise.all([
+  const [reservedCashPayload, incomeLayerPayload, runtimeTargetEnabledPayload, dcaPayload, runtimeTargetValue] = await Promise.all([
     reservedCashPayloadPromise,
     incomeLayerPayloadPromise,
     runtimeTargetEnabledPayloadPromise,
+    dcaPayloadPromise,
     runtimeTargetValuePromise,
   ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
@@ -644,6 +659,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...reservedCashPayload,
       ...incomeLayerPayload,
       ...runtimeTargetEnabledPayload,
+      ...dcaPayloadForProfile(runtimeTargetProfile, dcaPayload),
       source: "RUNTIME_TARGET_JSON",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
@@ -659,6 +675,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
         ...reservedCashPayload,
         ...incomeLayerPayload,
         ...runtimeTargetEnabledPayload,
+        ...dcaPayloadForProfile(profile, dcaPayload),
         source: "STRATEGY_PROFILE",
         variable_scope: variableScope,
         github_environment: githubEnvironment || "",
@@ -681,7 +698,9 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...runtimeTargetEnabledPayload,
       source: Object.keys(reservedCashPayload).length
         ? "RESERVED_CASH_VARIABLES"
-        : (Object.keys(incomeLayerPayload).length ? "INCOME_LAYER_VARIABLES" : "RUNTIME_TARGET_ENABLED_VARIABLE"),
+        : (Object.keys(incomeLayerPayload).length
+          ? "INCOME_LAYER_VARIABLES"
+          : "RUNTIME_TARGET_ENABLED_VARIABLE"),
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
     };
@@ -817,6 +836,26 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
         optionChanged = true;
       }
     }
+    if (isDcaProfile(inputs.strategy_profile)) {
+      if (inputs.dca_mode && nextOption.dca_mode !== inputs.dca_mode) {
+        nextOption.dca_mode = inputs.dca_mode;
+        optionChanged = true;
+      }
+      if (
+        inputs.dca_base_investment_usd &&
+        nextOption.dca_base_investment_usd !== inputs.dca_base_investment_usd
+      ) {
+        nextOption.dca_base_investment_usd = inputs.dca_base_investment_usd;
+        optionChanged = true;
+      }
+    } else {
+      for (const field of ["dca_mode", "dca_base_investment_usd"]) {
+        if (field in nextOption) {
+          delete nextOption[field];
+          optionChanged = true;
+        }
+      }
+    }
     changed = changed || optionChanged;
     if (!optionChanged) return option;
     return nextOption;
@@ -842,6 +881,13 @@ function normalizeSwitchInputs(raw) {
   const apply = cleanBoolean(raw.apply);
   const triggerPlatformSync = cleanBoolean(raw.trigger_platform_sync) && apply;
   const extraVariablesJson = cleanOptionalJsonObject(raw.extra_variables_json || "", "extra_variables_json");
+  const extraVariables = extraVariablesJson ? JSON.parse(extraVariablesJson) : {};
+  const directDcaVariables = [DCA_MODE_VARIABLE, DCA_BASE_INVESTMENT_VARIABLE].filter((name) =>
+    extraVariables[name] !== undefined && String(extraVariables[name] || "").trim() !== "",
+  );
+  if (directDcaVariables.length) {
+    throw new Error("use dca_mode and dca_base_investment_usd instead of extra_variables_json for DCA settings");
+  }
 
   const inputs = {
     platform,
@@ -867,6 +913,17 @@ function normalizeSwitchInputs(raw) {
   addOptional(inputs, "min_reserved_cash_usd", raw.min_reserved_cash_usd, cleanNonNegativeNumber);
   addOptional(inputs, "income_layer_start_usd", raw.income_layer_start_usd, cleanNonNegativeNumber);
   addOptional(inputs, "income_layer_max_ratio", raw.income_layer_max_ratio, cleanRatio);
+  const hasDcaMode = raw.dca_mode !== undefined && raw.dca_mode !== null && String(raw.dca_mode).trim() !== "";
+  const hasDcaBase = raw.dca_base_investment_usd !== undefined &&
+    raw.dca_base_investment_usd !== null &&
+    String(raw.dca_base_investment_usd).trim() !== "";
+  if (!isDcaProfile(strategyProfile) && (hasDcaMode || hasDcaBase)) {
+    throw new Error("DCA settings are only supported for DCA strategy profiles");
+  }
+  if (isDcaProfile(strategyProfile)) {
+    addOptional(inputs, "dca_mode", raw.dca_mode, cleanDcaMode);
+    addOptional(inputs, "dca_base_investment_usd", raw.dca_base_investment_usd, cleanPositiveNumber);
+  }
   if (extraVariablesJson) inputs.extra_variables_json = extraVariablesJson;
   return inputs;
 }
@@ -1017,6 +1074,18 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       cleanLabel,
     );
     entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
+    const dcaDefaults = DCA_PROFILE_CONFIG[profile] || null;
+    if (dcaDefaults) {
+      entry.dca_enabled = true;
+      entry.dca_default_mode = cleanDcaMode(item.dca_default_mode || item.default_dca_mode || dcaDefaults?.default_mode || "fixed");
+      entry.dca_default_base_investment_usd = cleanPositiveNumber(
+        item.dca_default_base_investment_usd ||
+          item.default_dca_base_investment_usd ||
+          dcaDefaults?.default_base_investment_usd ||
+          "1000",
+        `${fieldName}[${index}].dca_default_base_investment_usd`,
+      );
+    }
     result.push(entry);
   }
   return result;
@@ -1074,6 +1143,8 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "plugin_mode", item.plugin_mode, (value, field) =>
     cleanChoice(value || "auto", ["auto", "none"], field),
   );
+  addConfigOptional(option, "dca_mode", item.dca_mode, cleanDcaMode);
+  addConfigOptional(option, "dca_base_investment_usd", item.dca_base_investment_usd, cleanPositiveNumber);
   option.supported_domains = shouldInferSupportedDomains(item.supported_domains)
     ? inferAccountSupportedDomains(platform, option)
     : normalizeSupportedDomains(item.supported_domains, `account option ${platform}[${index}].supported_domains`);
@@ -1173,6 +1244,22 @@ function cleanChoice(value, allowed, field) {
   return text;
 }
 
+function isDcaProfile(profile) {
+  return Boolean(DCA_PROFILE_CONFIG[cleanCurrentStrategy(profile)]);
+}
+
+function cleanDcaMode(value, field = "dca_mode") {
+  const mode = String(value || "").trim().toLowerCase();
+  const aliases = {
+    ordinary: "fixed",
+    ordinary_dca: "fixed",
+    fixed_dca: "fixed",
+    smart_dca: "smart",
+  };
+  const normalized = aliases[mode] || mode;
+  return cleanChoice(normalized, ["fixed", "smart"], field);
+}
+
 function cleanBoolean(value) {
   if (value === true || value === "true") return true;
   if (value === false || value === "false" || value === "" || value === undefined || value === null) return false;
@@ -1189,6 +1276,12 @@ function cleanRatio(value, field) {
 function cleanNonNegativeNumber(value, field) {
   const text = cleanNumberText(value, field);
   if (Number(text) < 0) throw new Error(`${field} must be non-negative`);
+  return text;
+}
+
+function cleanPositiveNumber(value, field) {
+  const text = cleanNumberText(value, field);
+  if (Number(text) <= 0) throw new Error(`${field} must be greater than 0`);
   return text;
 }
 
@@ -1294,6 +1387,7 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ...reservedCashPayloadFromObject(platform, entry),
       ...incomeLayerPayloadFromObject(entry),
       ...runtimeTargetEnabledPayloadFromObject(entry),
+      ...dcaPayloadFromObject(entry),
     };
   }
   return null;
@@ -1319,6 +1413,14 @@ async function readIncomeLayerVariables({ repository, variableScope, githubEnvir
 async function readRuntimeTargetEnabledVariable({ repository, variableScope, githubEnvironment, readVariable }) {
   const value = await readVariable(repository, variableScope, githubEnvironment, RUNTIME_TARGET_ENABLED_VARIABLE);
   return runtimeTargetEnabledPayloadFromValue(value);
+}
+
+async function readDcaVariables({ repository, variableScope, githubEnvironment, readVariable }) {
+  const [modeValue, baseInvestmentValue] = await Promise.all([
+    readVariable(repository, variableScope, githubEnvironment, DCA_MODE_VARIABLE),
+    readVariable(repository, variableScope, githubEnvironment, DCA_BASE_INVESTMENT_VARIABLE),
+  ]);
+  return dcaPayloadFromValues(modeValue, baseInvestmentValue);
 }
 
 function reservedCashPayloadFromObject(platform, payload) {
@@ -1373,6 +1475,29 @@ function runtimeTargetEnabledPayloadFromValue(value) {
   return enabled === null ? {} : { runtime_target_enabled: enabled };
 }
 
+function dcaPayloadFromObject(payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  return dcaPayloadFromValues(
+    payload[DCA_MODE_VARIABLE] ?? payload.dca_mode,
+    payload[DCA_BASE_INVESTMENT_VARIABLE] ??
+      payload.dca_base_investment_usd ??
+      payload.base_investment_usd,
+  );
+}
+
+function dcaPayloadFromValues(modeValue, baseInvestmentValue) {
+  const result = {};
+  const mode = cleanCurrentDcaMode(modeValue);
+  const baseInvestmentUsd = cleanCurrentPositiveNumber(baseInvestmentValue);
+  if (mode) result.dca_mode = mode;
+  if (baseInvestmentUsd) result.dca_base_investment_usd = baseInvestmentUsd;
+  return result;
+}
+
+function dcaPayloadForProfile(profile, payload) {
+  return isDcaProfile(profile) ? payload : {};
+}
+
 function runtimeModePayload(runtimeTarget) {
   const executionMode = normalizeRuntimeExecutionMode(runtimeTarget?.execution_mode, runtimeTarget?.dry_run_only);
   const payload = {};
@@ -1411,6 +1536,20 @@ function cleanCurrentRatio(value) {
   const numeric = Number(text);
   if (numeric < 0 || numeric > 1) return "";
   return text;
+}
+
+function cleanCurrentPositiveNumber(value) {
+  const text = cleanCurrentNonNegativeNumber(value);
+  if (!text || Number(text) <= 0) return "";
+  return text;
+}
+
+function cleanCurrentDcaMode(value) {
+  try {
+    return cleanDcaMode(value || "");
+  } catch {
+    return "";
+  }
 }
 
 function runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry = {}) {

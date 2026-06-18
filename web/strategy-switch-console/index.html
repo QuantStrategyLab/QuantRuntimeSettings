@@ -820,6 +820,20 @@
             </label>
           </div>
 
+          <div class="form-section dca-section">
+            <label class="control-block dca-mode-block">
+              <span data-i18n="dcaMode">定投模式</span>
+              <select id="dca-mode-select"></select>
+              <span class="selection-meta" id="dca-mode-meta"></span>
+            </label>
+
+            <label class="control-block dca-base-block">
+              <span data-i18n="dcaBaseInvestmentUsd">定投基准金额</span>
+              <input id="dca-base-investment-usd-input" type="number" inputmode="decimal" min="1" step="100">
+              <span class="selection-meta" id="dca-base-meta"></span>
+            </label>
+          </div>
+
           <div class="form-section reserve-policy-section">
             <label class="control-block reserve-policy-block section-wide">
               <span data-i18n="reservedCashMode">预留现金策略</span>
@@ -880,10 +894,15 @@
     const incomeLayerModes = ["current", "enabled", "disabled"];
     const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["auto", "none"];
+    const dcaModes = ["fixed", "smart"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
     const incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD";
     const incomeLayerMaxRatioVariable = "INCOME_LAYER_MAX_RATIO";
+    const dcaProfileDefaults = {
+      nasdaq_sp500_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
+      ibit_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
+    };
     const platformMinReservedCashVariables = {
       longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
       ibkr: "IBKR_MIN_RESERVED_CASH_USD",
@@ -900,8 +919,8 @@
     const defaultStrategyProfiles = [
       { profile: "tqqq_growth_income", label: "TQQQ Growth Income", label_en: "TQQQ Growth Income", label_zh: "TQQQ 增长收益", domain: "us_equity", runtime_enabled: true },
       { profile: "soxl_soxx_trend_income", label: "SOXL/SOXX Semiconductor Trend Income", label_en: "SOXL/SOXX Semiconductor Trend Income", label_zh: "SOXL/SOXX 半导体趋势收益", domain: "us_equity", runtime_enabled: true },
-      { profile: "nasdaq_sp500_smart_dca", label: "Nasdaq 100 / S&P 500 Smart DCA", label_en: "Nasdaq 100 / S&P 500 Smart DCA", label_zh: "纳指100 / 标普500 智能定投", domain: "us_equity", runtime_enabled: true },
-      { profile: "ibit_smart_dca", label: "IBIT Smart DCA", label_en: "IBIT Smart DCA", label_zh: "IBIT 比特币 ETF 智能定投", domain: "us_equity", runtime_enabled: true },
+      { profile: "nasdaq_sp500_smart_dca", label: "Nasdaq 100 / S&P 500 DCA", label_en: "Nasdaq 100 / S&P 500 DCA", label_zh: "纳指100 / 标普500 定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
+      { profile: "ibit_smart_dca", label: "IBIT Bitcoin ETF DCA", label_en: "IBIT Bitcoin ETF DCA", label_zh: "IBIT 比特币定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
       { profile: "global_etf_rotation", label: "Global ETF Rotation", label_en: "Global ETF Rotation", label_zh: "全球 ETF 轮动", domain: "us_equity", runtime_enabled: true },
       { profile: "russell_1000_multi_factor_defensive", label: "Russell 1000 Multi-Factor Defensive", label_en: "Russell 1000 Multi-Factor Defensive", label_zh: "罗素 1000 多因子防御", domain: "us_equity", runtime_enabled: true },
       { profile: "mega_cap_leader_rotation_top50_balanced", label: "Mega Cap Leader Rotation Top50 Balanced", label_en: "Mega Cap Leader Rotation Top50 Balanced", label_zh: "美股巨头 Top50 均衡轮动", domain: "us_equity", runtime_enabled: true },
@@ -913,8 +932,8 @@
     const localStrategyLabels = {
       tqqq_growth_income: { zh: "TQQQ 增长收益", en: "TQQQ Growth Income" },
       soxl_soxx_trend_income: { zh: "SOXL/SOXX 半导体趋势收益", en: "SOXL/SOXX Semiconductor Trend Income" },
-      nasdaq_sp500_smart_dca: { zh: "纳指100 / 标普500 智能定投", en: "Nasdaq 100 / S&P 500 Smart DCA" },
-      ibit_smart_dca: { zh: "IBIT 比特币 ETF 智能定投", en: "IBIT Smart DCA" },
+      nasdaq_sp500_smart_dca: { zh: "纳指100 / 标普500 定投", en: "Nasdaq 100 / S&P 500 DCA" },
+      ibit_smart_dca: { zh: "IBIT 比特币定投", en: "IBIT Bitcoin ETF DCA" },
       global_etf_rotation: { zh: "全球 ETF 轮动", en: "Global ETF Rotation" },
       russell_1000_multi_factor_defensive: { zh: "罗素 1000 多因子防御", en: "Russell 1000 Multi-Factor Defensive" },
       mega_cap_leader_rotation_top50_balanced: { zh: "美股巨头 Top50 均衡轮动", en: "Mega Cap Leader Rotation Top50 Balanced" },
@@ -1012,6 +1031,16 @@
         incomeLayerAllocationMeta: "默认分配：{allocations}。",
         incomeLayerStartMeta: "总资产达到该金额后启用收入层。",
         incomeLayerRatioMeta: "例如 0.55 表示最高 55%。",
+        dcaMode: "定投模式",
+        dcaModeFixed: "定额定投",
+        dcaModeSmart: "智能定投",
+        dcaBaseInvestmentUsd: "定投基准金额",
+        dcaModeMeta: "仅定投策略可配置。",
+        dcaDefaultMeta: "默认：{mode}，基准金额 {amount}。",
+        dcaNotSupported: "该策略不是定投策略",
+        currentDca: "当前定投设置",
+        pendingDca: "待提交定投设置",
+        dcaText: "{mode}，基准金额 {amount}",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
         reservedCashMode: "预留现金策略",
@@ -1041,6 +1070,7 @@
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
+        invalidDcaNote: "请填写有效的定投模式和基准金额。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -1114,6 +1144,16 @@
         incomeLayerAllocationMeta: "Default allocation: {allocations}.",
         incomeLayerStartMeta: "Income layer activates after total assets reach this amount.",
         incomeLayerRatioMeta: "Use 0.55 for a 55% cap.",
+        dcaMode: "DCA mode",
+        dcaModeFixed: "Fixed DCA",
+        dcaModeSmart: "Smart DCA",
+        dcaBaseInvestmentUsd: "Base DCA amount",
+        dcaModeMeta: "Only DCA strategies can use this.",
+        dcaDefaultMeta: "Default: {mode}, base amount {amount}.",
+        dcaNotSupported: "This is not a DCA strategy",
+        currentDca: "Current DCA settings",
+        pendingDca: "Pending DCA settings",
+        dcaText: "{mode}, base amount {amount}",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
         reservedCashMode: "Reserved cash policy",
@@ -1143,6 +1183,7 @@
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
+        invalidDcaNote: "Enter a valid DCA mode and base amount.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -1194,6 +1235,9 @@
       incomeLayerTouched: false,
       runtimeTargetMode: "current",
       runtimeTargetTouched: false,
+      dcaMode: "fixed",
+      dcaBaseInvestmentUsd: "",
+      dcaTouched: false,
     });
 
     const state = {
@@ -1285,6 +1329,19 @@
           domain,
           runtime_enabled: true,
         };
+        const dcaDefaults = dcaProfileDefaults[profile] || null;
+        if (dcaDefaults) {
+          nextCatalog[profile].dca_enabled = true;
+          nextCatalog[profile].dca_default_mode = normalizeDcaMode(
+            item?.dca_default_mode || item?.default_dca_mode || dcaDefaults?.defaultMode || "fixed",
+          );
+          nextCatalog[profile].dca_default_base_investment_usd = cleanDisplayPositiveNumber(
+            item?.dca_default_base_investment_usd ||
+              item?.default_dca_base_investment_usd ||
+              dcaDefaults?.defaultBaseInvestmentUsd ||
+              "1000",
+          ) || "1000";
+        }
       }
       if (!nextOptions.length && profiles !== defaultStrategyProfiles) return applyStrategyProfiles(defaultStrategyProfiles);
       strategyOptions = nextOptions;
@@ -1363,6 +1420,33 @@
       return mode === "none" ? t("pluginModeNone") : t("pluginModeAuto");
     }
 
+    function dcaConfigForStrategy(profile) {
+      const cleanProfile = cleanStrategyProfile(profile);
+      const catalog = strategyCatalog[cleanProfile] || {};
+      if (catalog.dca_enabled === true) {
+        return {
+          defaultMode: normalizeDcaMode(catalog.dca_default_mode || "fixed"),
+          defaultBaseInvestmentUsd: cleanDisplayPositiveNumber(catalog.dca_default_base_investment_usd) || "1000",
+        };
+      }
+      return dcaProfileDefaults[cleanProfile] || null;
+    }
+
+    function dcaSupported(profile) {
+      return Boolean(dcaConfigForStrategy(profile));
+    }
+
+    function normalizeDcaMode(value) {
+      const mode = String(value || "").trim().toLowerCase();
+      if (mode === "smart_dca") return "smart";
+      if (mode === "fixed_dca" || mode === "ordinary" || mode === "ordinary_dca") return "fixed";
+      return dcaModes.includes(mode) ? mode : "fixed";
+    }
+
+    function dcaModeLabel(mode) {
+      return normalizeDcaMode(mode) === "smart" ? t("dcaModeSmart") : t("dcaModeFixed");
+    }
+
     function normalizeRuntimeTargetMode(value) {
       return runtimeTargetModes.includes(value) ? value : "current";
     }
@@ -1413,6 +1497,19 @@
       };
     }
 
+    function currentDcaForAccount(platform, account, profile = state.forms[platform]?.strategy) {
+      const defaults = dcaConfigForStrategy(profile);
+      if (!defaults) return { supported: false, mode: "", baseInvestmentUsd: "" };
+      const entry = currentEntryForAccount(platform, account);
+      return {
+        supported: true,
+        mode: normalizeDcaMode(entry?.dca_mode || account?.dca_mode || defaults.defaultMode),
+        baseInvestmentUsd: cleanDisplayPositiveNumber(entry?.dca_base_investment_usd) ||
+          cleanDisplayPositiveNumber(account?.dca_base_investment_usd) ||
+          defaults.defaultBaseInvestmentUsd,
+      };
+    }
+
     function currentEntryForAccount(platform, account) {
       const byPlatform = state.currentStrategies[platform] || {};
       const keys = [account?.key, account?.target_name, account?.label]
@@ -1435,6 +1532,8 @@
           cleanDisplayNumber(entry.income_layer_start_usd) ||
           cleanDisplayRatio(entry.income_layer_max_ratio) ||
           cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
+          normalizeDcaMode(entry.dca_mode || "") !== "fixed" ||
+          cleanDisplayPositiveNumber(entry.dca_base_investment_usd) ||
           normalizeExecutionMode(entry.execution_mode, entry.dry_run_only),
       );
     }
@@ -1475,6 +1574,11 @@
       if (!text) return "";
       const numeric = Number(text);
       return numeric >= 0 && numeric <= 1 ? text : "";
+    }
+
+    function cleanDisplayPositiveNumber(value) {
+      const text = cleanDisplayNumber(value);
+      return text && Number(text) > 0 ? text : "";
     }
 
     function normalizeExecutionMode(value, dryRunOnly) {
@@ -1544,6 +1648,7 @@
       syncRuntimeTargetForAccount(platform);
       syncReservePolicyForAccount(platform);
       syncIncomeLayerForAccount(platform);
+      syncDcaForAccount(platform);
     }
 
     function syncRuntimeTargetForAccount(platform) {
@@ -1571,6 +1676,14 @@
       form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
     }
 
+    function syncDcaForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form || form.dcaTouched) return;
+      const current = currentDcaForAccount(platform, selectedAccount(platform), form.strategy);
+      form.dcaMode = current.supported ? current.mode : "fixed";
+      form.dcaBaseInvestmentUsd = current.supported ? current.baseInvestmentUsd : "";
+    }
+
     function ensureAccountSelection(platform) {
       const options = optionsFor(platform);
       if (!options.length) return;
@@ -1579,11 +1692,13 @@
         state.forms[platform].runtimeTargetTouched = false;
         state.forms[platform].reservedCashTouched = false;
         state.forms[platform].incomeLayerTouched = false;
+        state.forms[platform].dcaTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncRuntimeTargetForAccount(platform);
         syncReservePolicyForAccount(platform);
         syncIncomeLayerForAccount(platform);
+        syncDcaForAccount(platform);
       }
     }
 
@@ -1629,8 +1744,17 @@
       return Boolean(startUsd && maxRatio);
     }
 
+    function hasValidDcaPolicy(platform = state.selected) {
+      const form = state.forms[platform];
+      if (!dcaSupported(form?.strategy)) return true;
+      return Boolean(dcaModes.includes(normalizeDcaMode(form?.dcaMode)) && cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd));
+    }
+
     function hasValidStrategySelection(platform = state.selected) {
-      return hasRunnableStrategySelection(platform) && hasValidReservePolicy(platform) && hasValidIncomeLayerPolicy(platform);
+      return hasRunnableStrategySelection(platform) &&
+        hasValidReservePolicy(platform) &&
+        hasValidIncomeLayerPolicy(platform) &&
+        hasValidDcaPolicy(platform);
     }
 
     function normalizeReservePolicyMode(value) {
@@ -1695,6 +1819,14 @@
       return { inputs: { income_layer_mode: mode, income_layer_start_usd: startUsd, income_layer_max_ratio: maxRatio }, extraVariables };
     }
 
+    function dcaOverrideForForm(form) {
+      if (!dcaSupported(form?.strategy)) return null;
+      const mode = normalizeDcaMode(form?.dcaMode);
+      const baseInvestmentUsd = cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd);
+      if (!baseInvestmentUsd) return null;
+      return { inputs: { dca_mode: mode, dca_base_investment_usd: baseInvestmentUsd } };
+    }
+
     function mergeExtraVariables(inputs, extraVariables) {
       if (!extraVariables || !Object.keys(extraVariables).length) return;
       const merged = inputs.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
@@ -1746,6 +1878,10 @@
       if (incomeOverride) {
         Object.assign(inputs, incomeOverride.inputs);
         mergeExtraVariables(inputs, incomeOverride.extraVariables);
+      }
+      const dcaOverride = dcaOverrideForForm(form);
+      if (dcaOverride) {
+        Object.assign(inputs, dcaOverride.inputs);
       }
       return inputs;
     }
@@ -1849,6 +1985,23 @@
       return pending.inputs.runtime_target_enabled ? t("runtimeTargetOn") : t("runtimeTargetOff");
     }
 
+    function currentDcaText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
+      const current = currentDcaForAccount(platform, account, profile);
+      if (!current.supported) return t("dcaNotSupported");
+      return t("dcaText")
+        .replace("{mode}", dcaModeLabel(current.mode))
+        .replace("{amount}", formatUsd(current.baseInvestmentUsd));
+    }
+
+    function pendingDcaText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingDca(inputs, platform, account);
+      if (!pending.supported) return t("dcaNotSupported");
+      if (!pending.changed) return t("unchanged");
+      return t("dcaText")
+        .replace("{mode}", dcaModeLabel(pending.inputs.dca_mode))
+        .replace("{amount}", formatUsd(pending.inputs.dca_base_investment_usd));
+    }
+
     function pendingRuntimeTarget(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const mode = normalizeRuntimeTargetMode(inputs.runtime_target_enabled_mode);
       const current = runtimeTargetEnabledForAccount(platform, account);
@@ -1910,6 +2063,23 @@
       };
     }
 
+    function pendingDca(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
+      const defaults = dcaConfigForStrategy(profile);
+      if (!defaults) return { supported: false, changed: false, inputs: {} };
+      const current = currentDcaForAccount(platform, account, profile);
+      const nextMode = normalizeDcaMode(inputs.dca_mode || defaults.defaultMode);
+      const nextBase = cleanDisplayPositiveNumber(inputs.dca_base_investment_usd || defaults.defaultBaseInvestmentUsd);
+      return {
+        supported: true,
+        changed: Boolean(current.mode !== nextMode || current.baseInvestmentUsd !== nextBase),
+        inputs: {
+          dca_mode: nextMode,
+          dca_base_investment_usd: nextBase,
+        },
+      };
+    }
+
     function pendingChangeState(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const currentProfile = currentStrategyForAccount(platform, account);
       const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
@@ -1920,6 +2090,7 @@
       const runtimeTarget = pendingRuntimeTarget(inputs, platform, account);
       const reserve = pendingReservePolicy(inputs, platform, account);
       const income = pendingIncomeLayer(inputs, platform, account);
+      const dca = pendingDca(inputs, platform, account);
       return {
         currentProfile,
         nextProfile,
@@ -1932,9 +2103,11 @@
         runtimeTargetChanged: runtimeTarget.changed,
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
+        dcaChanged: dca.changed,
         runtimeTarget,
         reserve,
         income,
+        dca,
       };
     }
 
@@ -1946,7 +2119,8 @@
           changes.pluginModeChanged ||
           changes.runtimeTargetChanged ||
           changes.reserveCashChanged ||
-          changes.incomeLayerChanged,
+          changes.incomeLayerChanged ||
+          changes.dcaChanged,
       );
     }
 
@@ -1992,11 +2166,17 @@
       if (incomeLayerSupported(inputs.strategy_profile)) {
         rows.push([t("currentIncomeLayer"), currentIncomeLayerText(state.selected, account, inputs.strategy_profile)]);
       }
+      if (dcaSupported(inputs.strategy_profile)) {
+        rows.push([t("currentDca"), currentDcaText(state.selected, account, inputs.strategy_profile)]);
+      }
       if (changes.reserveCashChanged) {
         rows.push([t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"]);
       }
       if (changes.incomeLayerChanged) {
         rows.push([t("pendingIncomeLayer"), pendingIncomeLayerText(inputs, state.selected, account), "pending"]);
+      }
+      if (changes.dcaChanged) {
+        rows.push([t("pendingDca"), pendingDcaText(inputs, state.selected, account), "pending"]);
       }
       if (changes.modeChanged) {
         rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
@@ -2069,6 +2249,8 @@
       const incomeLayerModeSelect = el("income-layer-mode-select");
       const incomeLayerStartUsdInput = el("income-layer-start-usd-input");
       const incomeLayerMaxRatioInput = el("income-layer-max-ratio-input");
+      const dcaModeSelect = el("dca-mode-select");
+      const dcaBaseInvestmentUsdInput = el("dca-base-investment-usd-input");
       const reservePolicyModeSelect = el("reserve-policy-mode-select");
       const minReservedCashInput = el("min-reserved-cash-input");
       const reservedCashRatioInput = el("reserved-cash-ratio-input");
@@ -2087,9 +2269,11 @@
         runtimeTargetEnabledSelect.replaceChildren();
         pluginModeSelect.replaceChildren();
         incomeLayerModeSelect.replaceChildren();
+        dcaModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
         incomeLayerStartUsdInput.value = "";
         incomeLayerMaxRatioInput.value = "";
+        dcaBaseInvestmentUsdInput.value = "";
         minReservedCashInput.value = "";
         reservedCashRatioInput.value = "";
         el("account-meta").textContent = "";
@@ -2097,6 +2281,8 @@
         el("income-layer-mode-meta").textContent = "";
         el("income-layer-start-meta").textContent = "";
         el("income-layer-ratio-meta").textContent = "";
+        el("dca-mode-meta").textContent = "";
+        el("dca-base-meta").textContent = "";
         return;
       }
 
@@ -2181,6 +2367,31 @@
       incomeLayerStartUsdInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerStartUsd : "";
       incomeLayerMaxRatioInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerMaxRatio : "";
 
+      const dcaDefaults = dcaConfigForStrategy(form.strategy);
+      dcaModeSelect.replaceChildren();
+      if (dcaDefaults) {
+        dcaModeSelect.disabled = false;
+        for (const mode of dcaModes) {
+          dcaModeSelect.append(new Option(dcaModeLabel(mode), mode, false, mode === normalizeDcaMode(form.dcaMode)));
+        }
+        if (!cleanDisplayPositiveNumber(form.dcaBaseInvestmentUsd)) {
+          form.dcaBaseInvestmentUsd = dcaDefaults.defaultBaseInvestmentUsd;
+        }
+        dcaBaseInvestmentUsdInput.disabled = false;
+        dcaBaseInvestmentUsdInput.value = form.dcaBaseInvestmentUsd;
+        el("dca-mode-meta").textContent = t("dcaDefaultMeta")
+          .replace("{mode}", dcaModeLabel(dcaDefaults.defaultMode))
+          .replace("{amount}", formatUsd(dcaDefaults.defaultBaseInvestmentUsd));
+        el("dca-base-meta").textContent = t("dcaModeMeta");
+      } else {
+        dcaModeSelect.disabled = true;
+        dcaModeSelect.append(new Option(t("dcaNotSupported"), "fixed"));
+        dcaBaseInvestmentUsdInput.disabled = true;
+        dcaBaseInvestmentUsdInput.value = "";
+        el("dca-mode-meta").textContent = t("dcaModeMeta");
+        el("dca-base-meta").textContent = t("dcaModeMeta");
+      }
+
       document.querySelectorAll("[data-mode]").forEach((button) => {
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
       });
@@ -2235,7 +2446,9 @@
       const loadingConfig = state.configSource === "loading";
       const hasRunnableStrategy = hasRunnableStrategySelection();
       const hasValidReserve = hasValidReservePolicy();
-      const hasValidStrategy = hasRunnableStrategy && hasValidReserve;
+      const hasValidIncomeLayer = hasValidIncomeLayerPolicy();
+      const hasValidDca = hasValidDcaPolicy();
+      const hasValidStrategy = hasRunnableStrategy && hasValidReserve && hasValidIncomeLayer && hasValidDca;
       const hasPendingChange = hasPrivateAccounts && hasValidStrategy && hasPendingChanges(buildInputs());
       dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
       dispatch.textContent = state.auth.allowed
@@ -2248,7 +2461,13 @@
         ? (loadingConfig
           ? t("loadingConfigNote")
           : (hasPrivateAccounts
-            ? (hasRunnableStrategy ? (hasValidReserve ? (hasPendingChange ? t("readyNote") : "") : t("invalidReservePolicyNote")) : t("invalidStrategyNote"))
+            ? (hasRunnableStrategy
+              ? (hasValidReserve
+                ? (hasValidIncomeLayer
+                  ? (hasValidDca ? (hasPendingChange ? t("readyNote") : "") : t("invalidDcaNote"))
+                  : t("invalidIncomeLayerNote"))
+                : t("invalidReservePolicyNote"))
+              : t("invalidStrategyNote"))
             : t("missingConfigNote")))
         : t("readonlyNote");
       note.classList.toggle(
@@ -2366,6 +2585,8 @@
           github_environment: item.github_environment ? String(item.github_environment) : "",
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
+          dca_mode: item.dca_mode ? normalizeDcaMode(item.dca_mode) : "",
+          dca_base_investment_usd: cleanDisplayPositiveNumber(item.dca_base_investment_usd),
         }));
       }
       return normalized;
@@ -2393,6 +2614,8 @@
           const incomeLayerStartUsd = cleanDisplayNumber(entry?.income_layer_start_usd);
           const incomeLayerMaxRatio = cleanDisplayRatio(entry?.income_layer_max_ratio);
           const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
+          const dcaMode = entry?.dca_mode ? normalizeDcaMode(entry.dca_mode) : "";
+          const dcaBaseInvestmentUsd = cleanDisplayPositiveNumber(entry?.dca_base_investment_usd);
           const executionMode = normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
           if (
             !profile &&
@@ -2402,6 +2625,8 @@
             !incomeLayerStartUsd &&
             !incomeLayerMaxRatio &&
             runtimeTargetEnabled === null &&
+            !dcaMode &&
+            !dcaBaseInvestmentUsd &&
             !executionMode
           ) continue;
           normalized[platform][String(key)] = {
@@ -2414,6 +2639,8 @@
             income_layer_start_usd: incomeLayerStartUsd,
             income_layer_max_ratio: incomeLayerMaxRatio,
             runtime_target_enabled: runtimeTargetEnabled,
+            dca_mode: dcaMode,
+            dca_base_investment_usd: dcaBaseInvestmentUsd,
             source: entry?.source ? String(entry.source) : "",
           };
         }
@@ -2474,6 +2701,7 @@
       state.forms[state.selected].runtimeTargetTouched = false;
       state.forms[state.selected].reservedCashTouched = false;
       state.forms[state.selected].incomeLayerTouched = false;
+      state.forms[state.selected].dcaTouched = false;
       syncStrategyForAccount(state.selected);
       render();
     });
@@ -2481,7 +2709,9 @@
     el("strategy-select").addEventListener("change", () => {
       state.forms[state.selected].strategy = el("strategy-select").value;
       state.forms[state.selected].incomeLayerTouched = false;
+      state.forms[state.selected].dcaTouched = false;
       syncIncomeLayerForAccount(state.selected);
+      syncDcaForAccount(state.selected);
       render();
     });
 
@@ -2528,6 +2758,20 @@
       form.incomeLayerTouched = true;
       form.incomeLayerMode = "enabled";
       form.incomeLayerMaxRatio = el("income-layer-max-ratio-input").value.trim();
+      render();
+    });
+
+    el("dca-mode-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.dcaTouched = true;
+      form.dcaMode = normalizeDcaMode(el("dca-mode-select").value);
+      render();
+    });
+
+    el("dca-base-investment-usd-input").addEventListener("input", () => {
+      const form = state.forms[state.selected];
+      form.dcaTouched = true;
+      form.dcaBaseInvestmentUsd = el("dca-base-investment-usd-input").value.trim();
       render();
     });
 

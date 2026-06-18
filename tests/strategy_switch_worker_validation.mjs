@@ -31,14 +31,24 @@ assert.ok(indexHtml.includes('id="income-layer-start-usd-input"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsd: "收入层起始金额"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsd: "Income layer start amount"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD"'));
+assert.ok(indexHtml.includes('id="dca-mode-select"'));
+assert.ok(indexHtml.includes('id="dca-base-investment-usd-input"'));
+assert.ok(indexHtml.includes('dcaMode: "定投模式"'));
+assert.ok(indexHtml.includes('dcaModeFixed: "定额定投"'));
+assert.ok(indexHtml.includes('dcaModeSmart: "智能定投"'));
+assert.ok(indexHtml.includes('dcaMode: "DCA mode"'));
+assert.ok(indexHtml.includes('dcaProfileDefaults'));
 assert.ok(indexHtml.includes('el("income-layer-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes('el("income-layer-start-usd-input").addEventListener("input"'));
 assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListener("input"'));
-assert.ok(indexHtml.includes('label_zh: "纳指100 / 标普500 智能定投"'));
+assert.ok(indexHtml.includes('el("dca-mode-select").addEventListener("change"'));
+assert.ok(indexHtml.includes('el("dca-base-investment-usd-input").addEventListener("input"'));
+assert.ok(indexHtml.includes('label_zh: "纳指100 / 标普500 定投"'));
 assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
+assert.ok(indexHtml.includes('class="form-section dca-section"'));
 assert.ok(indexHtml.includes('class="control-block reserve-policy-block section-wide"'));
 assert.ok(indexHtml.includes('profile: "ibit_smart_dca"'));
-assert.ok(indexHtml.includes('IBIT 比特币 ETF 智能定投'));
+assert.ok(indexHtml.includes('IBIT 比特币定投'));
 assert.ok(indexHtml.includes('localStrategyLabels'));
 assert.ok(indexHtml.includes('function strategyLabelSet('));
 assert.ok(indexHtml.includes("account-block"));
@@ -221,11 +231,21 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       domain: "hk_equity",
       runtime_enabled: true,
     },
+    {
+      profile: "nasdaq_sp500_smart_dca",
+      label: "Nasdaq 100 / S&P 500 DCA",
+      label_zh: "纳指100 / 标普500 定投",
+      domain: "us_equity",
+      runtime_enabled: true,
+    },
   ],
   "test_strategy_profiles",
 );
 assert.equal(strategyProfiles[0].label_en, "TQQQ Growth Income");
 assert.equal(strategyProfiles[0].label_zh, "TQQQ 增长收益");
+assert.equal(strategyProfiles[2].dca_enabled, true);
+assert.equal(strategyProfiles[2].dca_default_mode, "fixed");
+assert.equal(strategyProfiles[2].dca_default_base_investment_usd, "1000");
 
 const accountOptions = __test.normalizeAccountOptionsPayload(
   {
@@ -345,6 +365,45 @@ const normalizedPluginInputs = __test.normalizeSwitchInputs({
   plugin_mode: "none",
 });
 assert.equal(normalizedPluginInputs.plugin_mode, "none");
+const normalizedDcaInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "nasdaq_sp500_smart_dca",
+  execution_mode: "live",
+  plugin_mode: "auto",
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
+});
+assert.equal(normalizedDcaInputs.dca_mode, "smart");
+assert.equal(normalizedDcaInputs.dca_base_investment_usd, "500");
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    dca_mode: "smart",
+  }),
+  /DCA settings are only supported/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "nasdaq_sp500_smart_dca",
+    dca_mode: "smart",
+    dca_base_investment_usd: "0",
+  }),
+  /dca_base_investment_usd must be greater than 0/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    extra_variables_json: JSON.stringify({ DCA_MODE: "smart" }),
+  }),
+  /instead of extra_variables_json/,
+);
 const normalizedReserveClearInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -466,11 +525,23 @@ globalThis.fetch = async (url) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  if (requestUrl.endsWith("/DCA_MODE")) {
+    return new Response(JSON.stringify({ value: "smart" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/DCA_BASE_INVESTMENT_USD")) {
+    return new Response(JSON.stringify({ value: "500" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (requestUrl.endsWith("/RUNTIME_TARGET_JSON")) {
     return new Response(JSON.stringify({
       value: JSON.stringify({
         platform_id: "schwab",
-        strategy_profile: "soxl_soxx_trend_income",
+        strategy_profile: "nasdaq_sp500_smart_dca",
         dry_run_only: false,
         account_scope: "schwab",
         service_name: "charles-schwab-quant-service",
@@ -485,13 +556,15 @@ try {
     { schwab: accountOptions.schwab },
     { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
   );
-  assert.equal(currentStrategies.schwab.default.strategy_profile, "soxl_soxx_trend_income");
+  assert.equal(currentStrategies.schwab.default.strategy_profile, "nasdaq_sp500_smart_dca");
   assert.equal(currentStrategies.schwab.default.execution_mode, "live");
   assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.schwab.default.income_layer_start_usd, "150000");
   assert.equal(currentStrategies.schwab.default.income_layer_max_ratio, "0.95");
   assert.equal(currentStrategies.schwab.default.runtime_target_enabled, false);
+  assert.equal(currentStrategies.schwab.default.dca_mode, "smart");
+  assert.equal(currentStrategies.schwab.default.dca_base_investment_usd, "500");
   assert.equal(currentStrategies.schwab.default.source, "RUNTIME_TARGET_JSON");
 } finally {
   globalThis.fetch = originalFetch;
@@ -511,9 +584,11 @@ globalThis.fetch = async (url) => {
             INCOME_LAYER_START_USD: "250000",
             INCOME_LAYER_MAX_RATIO: "0.55",
             RUNTIME_TARGET_ENABLED: "false",
+            DCA_MODE: "smart",
+            DCA_BASE_INVESTMENT_USD: "700",
             runtime_target: {
               platform_id: "ibkr",
-              strategy_profile: "tqqq_growth_income",
+              strategy_profile: "ibit_smart_dca",
               dry_run_only: false,
               account_scope: "demo-ibkr-tqqq",
               service_name: "interactive-brokers-demo-ibkr-tqqq-service",
@@ -531,12 +606,14 @@ try {
     { ibkr: accountOptions.ibkr },
     { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
   );
-  assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "tqqq_growth_income");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "ibit_smart_dca");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_start_usd, "250000");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_max_ratio, "0.55");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].runtime_target_enabled, false);
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].dca_mode, "smart");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].dca_base_investment_usd, "700");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
 } finally {
   globalThis.fetch = originalFetch;
