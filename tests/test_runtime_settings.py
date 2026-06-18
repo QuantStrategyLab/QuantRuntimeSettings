@@ -101,6 +101,33 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn(assignment.repository, command)
         self.assertNotIn(assignment.environment, command)
 
+    def test_empty_assignment_deletes_variable_instead_of_setting_empty_body(self):
+        assignment = runtime_settings.Assignment(
+            "longbridge/sg",
+            "QuantStrategyLab/LongBridgePlatform",
+            "environment",
+            "longbridge-sg",
+            "LONGBRIDGE_MIN_RESERVED_CASH_USD",
+            "",
+        )
+
+        self.assertTrue(assignment.deletes_variable)
+        self.assertEqual(
+            assignment.gh_command(),
+            [
+                "gh",
+                "variable",
+                "delete",
+                "LONGBRIDGE_MIN_RESERVED_CASH_USD",
+                "--repo",
+                "QuantStrategyLab/LongBridgePlatform",
+                "--env",
+                "longbridge-sg",
+            ],
+        )
+        self.assertNotIn("--body", assignment.shell_command())
+        self.assertEqual(runtime_settings.assignment_payload(assignment)["action"], "delete")
+
     def test_plugin_mount_schema_version_must_be_non_empty_string(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["plugin_mounts"][0]["expected_schema_version"] = ""
