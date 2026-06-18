@@ -108,6 +108,8 @@ DCA_RUNTIME_VARIABLES = (
     DCA_MODE_VARIABLE,
     DCA_BASE_INVESTMENT_VARIABLE,
 )
+DCA_MODE_CONTROL_FIELD = "dca_mode"
+DCA_BASE_INVESTMENT_CONTROL_FIELD = "dca_base_investment_usd"
 DEFAULT_VARIABLE_SCOPE = {
     "longbridge": "environment",
     "ibkr": "repository",
@@ -236,10 +238,29 @@ def _normalize_positive_decimal(value: str, *, field_name: str) -> str:
     return text
 
 
-def _dca_extra_variables(args: argparse.Namespace, strategy_profile: str) -> dict[str, Any]:
+def _extract_dca_control_fields(extra_variables: dict[str, Any]) -> dict[str, Any]:
+    controls: dict[str, Any] = {}
+    for field_name in (DCA_MODE_CONTROL_FIELD, DCA_BASE_INVESTMENT_CONTROL_FIELD):
+        if field_name in extra_variables:
+            controls[field_name] = extra_variables.pop(field_name)
+    return controls
+
+
+def _dca_extra_variables(
+    args: argparse.Namespace,
+    strategy_profile: str,
+    controls: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    controls = dict(controls or {})
     is_dca_profile = strategy_profile in DCA_PROFILES
-    has_dca_mode = bool(str(args.dca_mode or "").strip())
-    has_dca_base = bool(str(args.dca_base_investment_usd or "").strip())
+    dca_mode = args.dca_mode if str(args.dca_mode or "").strip() else controls.get(DCA_MODE_CONTROL_FIELD, "")
+    dca_base_investment_usd = (
+        args.dca_base_investment_usd
+        if str(args.dca_base_investment_usd or "").strip()
+        else controls.get(DCA_BASE_INVESTMENT_CONTROL_FIELD, "")
+    )
+    has_dca_mode = bool(str(dca_mode or "").strip())
+    has_dca_base = bool(str(dca_base_investment_usd or "").strip())
     if not is_dca_profile:
         if has_dca_mode or has_dca_base:
             raise ValueError("DCA settings are only supported for DCA strategy profiles")
@@ -247,10 +268,10 @@ def _dca_extra_variables(args: argparse.Namespace, strategy_profile: str) -> dic
 
     extra_variables: dict[str, Any] = {}
     if has_dca_mode:
-        extra_variables[DCA_MODE_VARIABLE] = _normalize_dca_mode(args.dca_mode)
+        extra_variables[DCA_MODE_VARIABLE] = _normalize_dca_mode(dca_mode)
     if has_dca_base:
         extra_variables[DCA_BASE_INVESTMENT_VARIABLE] = _normalize_positive_decimal(
-            args.dca_base_investment_usd,
+            dca_base_investment_usd,
             field_name="dca_base_investment_usd",
         )
     return extra_variables
@@ -264,7 +285,9 @@ def _reject_direct_dca_extra_variables(extra_variables: dict[str, Any]) -> None:
     ]
     if provided:
         names = ", ".join(provided)
-        raise ValueError(f"use --dca-mode and --dca-base-investment-usd instead of extra_variables_json for {names}")
+        raise ValueError(
+            f"use dca_mode and dca_base_investment_usd control fields instead of extra_variables_json for {names}"
+        )
 
 
 def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str) -> list[dict[str, Any]]:
@@ -463,6 +486,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     mounts = _plugin_mounts(args, runtime_target["strategy_profile"])
     mounts_variable = f"{SUPPORTED_PLATFORMS[platform]['plugin_mounts_prefix']}STRATEGY_PLUGIN_MOUNTS_JSON"
     extra_variables = _parse_extra_variables(args.extra_variable, args.extra_variables_json)
+    dca_controls = _extract_dca_control_fields(extra_variables)
     _reject_direct_dca_extra_variables(extra_variables)
 
     if args.set_platform_dry_run_variable:
@@ -479,7 +503,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         extra_variables["INCOME_THRESHOLD_USD"] = args.income_threshold_usd
     if args.qqqi_income_ratio:
         extra_variables["QQQI_INCOME_RATIO"] = args.qqqi_income_ratio
-    extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"]))
+    extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"], dca_controls))
 
     service_targets = _load_json_from_file(
         args.existing_service_targets_json_file,

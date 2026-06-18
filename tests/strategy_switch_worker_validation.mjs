@@ -374,8 +374,27 @@ const normalizedDcaInputs = __test.normalizeSwitchInputs({
   dca_mode: "smart",
   dca_base_investment_usd: "500",
 });
-assert.equal(normalizedDcaInputs.dca_mode, "smart");
-assert.equal(normalizedDcaInputs.dca_base_investment_usd, "500");
+assert.equal(normalizedDcaInputs.dca_mode, undefined);
+assert.equal(normalizedDcaInputs.dca_base_investment_usd, undefined);
+assert.deepEqual(JSON.parse(normalizedDcaInputs.extra_variables_json), {
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
+});
+const normalizedDcaJsonInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "nasdaq_sp500_smart_dca",
+  execution_mode: "live",
+  plugin_mode: "auto",
+  extra_variables_json: JSON.stringify({
+    dca_mode: "smart",
+    dca_base_investment_usd: "500",
+  }),
+});
+assert.deepEqual(JSON.parse(normalizedDcaJsonInputs.extra_variables_json), {
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
+});
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
@@ -402,7 +421,7 @@ assert.throws(
     strategy_profile: "tqqq_growth_income",
     extra_variables_json: JSON.stringify({ DCA_MODE: "smart" }),
   }),
-  /instead of extra_variables_json/,
+  /control fields/,
 );
 const normalizedReserveClearInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
