@@ -1004,6 +1004,18 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       label: cleanLabel(item.label || item.display_name || profile, `${fieldName}[${index}].label`),
       runtime_enabled: cleanProfileBoolean(item.runtime_enabled ?? item.live_enabled ?? true),
     };
+    addConfigOptional(
+      entry,
+      "label_en",
+      item.label_en || item.display_name_en || item.label,
+      cleanLabel,
+    );
+    addConfigOptional(
+      entry,
+      "label_zh",
+      item.label_zh || item.display_name_zh,
+      cleanLabel,
+    );
     entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
     result.push(entry);
   }

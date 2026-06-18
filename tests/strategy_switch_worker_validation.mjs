@@ -34,6 +34,9 @@ assert.ok(indexHtml.includes('incomeLayerStartUsdVariable = "INCOME_LAYER_START_
 assert.ok(indexHtml.includes('el("income-layer-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes('el("income-layer-start-usd-input").addEventListener("input"'));
 assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListener("input"'));
+assert.ok(indexHtml.includes('label_zh: "纳斯达克 / 标普智能定投"'));
+assert.ok(indexHtml.includes('localStrategyLabels'));
+assert.ok(indexHtml.includes('function strategyLabelSet('));
 assert.ok(indexHtml.includes("account-block"));
 assert.ok(indexHtml.includes("strategy-block"));
 assert.ok(indexHtml.includes("grid-template-columns: repeat(4, minmax(0, 1fr));"));
@@ -203,6 +206,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
     {
       profile: "tqqq_growth_income",
       label: "TQQQ Growth Income",
+      label_zh: "TQQQ 增长收益",
       domain: "us_equity",
       runtime_enabled: true,
     },
@@ -215,6 +219,8 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
   ],
   "test_strategy_profiles",
 );
+assert.equal(strategyProfiles[0].label_en, "TQQQ Growth Income");
+assert.equal(strategyProfiles[0].label_zh, "TQQQ 增长收益");
 
 const accountOptions = __test.normalizeAccountOptionsPayload(
   {
