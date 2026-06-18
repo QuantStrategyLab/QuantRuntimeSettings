@@ -82,6 +82,14 @@ on:
         description: "Optional platform minimum reserved cash override."
         required: false
         type: string
+      income_layer_start_usd:
+        description: "Optional income layer activation asset amount."
+        required: false
+        type: string
+      income_layer_max_ratio:
+        description: "Optional income layer maximum allocation ratio."
+        required: false
+        type: string
       income_threshold_usd:
         description: "Optional TQQQ income threshold override."
         required: false
@@ -147,6 +155,8 @@ jobs:
       EXTRA_VARIABLES_JSON: ${{ inputs.extra_variables_json }}
       RESERVED_CASH_RATIO: ${{ inputs.reserved_cash_ratio }}
       MIN_RESERVED_CASH_USD: ${{ inputs.min_reserved_cash_usd }}
+      INCOME_LAYER_START_USD: ${{ inputs.income_layer_start_usd }}
+      INCOME_LAYER_MAX_RATIO: ${{ inputs.income_layer_max_ratio }}
       INCOME_THRESHOLD_USD: ${{ inputs.income_threshold_usd }}
       QQQI_INCOME_RATIO: ${{ inputs.qqqi_income_ratio }}
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
@@ -280,6 +290,12 @@ jobs:
           fi
           if [ -n "${MIN_RESERVED_CASH_USD:-}" ]; then
             args+=(--min-reserved-cash-usd "${MIN_RESERVED_CASH_USD}")
+          fi
+          if [ -n "${INCOME_LAYER_START_USD:-}" ]; then
+            args+=(--income-layer-start-usd "${INCOME_LAYER_START_USD}")
+          fi
+          if [ -n "${INCOME_LAYER_MAX_RATIO:-}" ]; then
+            args+=(--income-layer-max-ratio "${INCOME_LAYER_MAX_RATIO}")
           fi
           if [ -n "${INCOME_THRESHOLD_USD:-}" ]; then
             args+=(--income-threshold-usd "${INCOME_THRESHOLD_USD}")

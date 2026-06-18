@@ -425,14 +425,15 @@
     .account-block,
     .account-status-block,
     .income-layer-mode-block,
-    .income-layer-ratio-block {
+    .income-layer-start-block,
+    .min-reserve-block {
       grid-column: 1 / span 2;
     }
 
     .strategy-block,
     .plugin-mode-block,
     .reserve-policy-block,
-    .min-reserve-block,
+    .income-layer-ratio-block,
     .reserve-ratio-block {
       grid-column: 3 / span 2;
     }
@@ -676,6 +677,7 @@
       .plugin-mode-block,
       .reserve-policy-block,
       .income-layer-mode-block,
+      .income-layer-start-block,
       .income-layer-ratio-block,
       .min-reserve-block,
       .reserve-ratio-block {
@@ -809,6 +811,12 @@
             <span class="selection-meta" id="income-layer-mode-meta"></span>
           </label>
 
+          <label class="control-block income-layer-start-block">
+            <span data-i18n="incomeLayerStartUsd">收入层起始金额</span>
+            <input id="income-layer-start-usd-input" type="number" inputmode="decimal" min="0" step="1000">
+            <span class="selection-meta" id="income-layer-start-meta"></span>
+          </label>
+
           <label class="control-block reserve-policy-block">
             <span data-i18n="reservedCashMode">预留现金策略</span>
             <select id="reserve-policy-mode-select"></select>
@@ -875,6 +883,7 @@
     const pluginModes = ["auto", "none"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
+    const incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD";
     const incomeLayerMaxRatioVariable = "INCOME_LAYER_MAX_RATIO";
     const platformMinReservedCashVariables = {
       longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
@@ -983,10 +992,12 @@
         incomeLayerEnabled: "开启收入层",
         incomeLayerDisabled: "关闭收入层",
         incomeLayerNotSupported: "该策略未定义收入层",
+        incomeLayerStartUsd: "收入层起始金额",
         incomeLayerMaxRatio: "收入层最高比例",
         incomeLayerModeMeta: "仅对已定义收入层的美股策略生效。",
-        incomeLayerDefaultMeta: "策略默认：起始 {start} 美元，最高 {ratio}。",
+        incomeLayerDefaultMeta: "策略默认：起始 {start}，最高 {ratio}。",
         incomeLayerAllocationMeta: "默认分配：{allocations}。",
+        incomeLayerStartMeta: "总资产达到该金额后启用收入层。",
         incomeLayerRatioMeta: "例如 0.55 表示最高 55%。",
         minReservedCash: "最小预留现金 ({currency})",
         reservedCashRatio: "预留现金比例",
@@ -1016,7 +1027,7 @@
         noChangesNote: "当前选择与已读取配置一致。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
-        invalidIncomeLayerNote: "请填写有效的收入层最高比例。",
+        invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -1046,9 +1057,9 @@
         runtimeTargetDefault: "未配置（默认启用）",
         runtimeTargetOn: "启用正式运行",
         runtimeTargetOff: "停用正式运行",
-        incomeLayerDefault: "策略默认：开启，最高 {ratio}",
+        incomeLayerDefault: "策略默认：开启，起始 {start}，最高 {ratio}",
         incomeLayerOff: "关闭",
-        incomeLayerOn: "开启，最高 {ratio}",
+        incomeLayerOn: "开启，起始 {start}，最高 {ratio}",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -1083,10 +1094,12 @@
         incomeLayerEnabled: "Enable income layer",
         incomeLayerDisabled: "Disable income layer",
         incomeLayerNotSupported: "No income layer for this strategy",
+        incomeLayerStartUsd: "Income layer start amount",
         incomeLayerMaxRatio: "Income layer max ratio",
         incomeLayerModeMeta: "Only applies to US equity strategies with an income layer.",
-        incomeLayerDefaultMeta: "Strategy default: starts at {start} USD, max {ratio}.",
+        incomeLayerDefaultMeta: "Strategy default: starts at {start}, max {ratio}.",
         incomeLayerAllocationMeta: "Default allocation: {allocations}.",
+        incomeLayerStartMeta: "Income layer activates after total assets reach this amount.",
         incomeLayerRatioMeta: "Use 0.55 for a 55% cap.",
         minReservedCash: "Minimum reserved cash ({currency})",
         reservedCashRatio: "Reserved cash ratio",
@@ -1116,7 +1129,7 @@
         noChangesNote: "The current selection matches the readable config.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
-        invalidIncomeLayerNote: "Enter a valid income layer max ratio.",
+        invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -1146,9 +1159,9 @@
         runtimeTargetDefault: "Not configured (enabled by default)",
         runtimeTargetOn: "Live runs enabled",
         runtimeTargetOff: "Live runs disabled",
-        incomeLayerDefault: "Strategy default: enabled, max {ratio}",
+        incomeLayerDefault: "Strategy default: enabled, starts at {start}, max {ratio}",
         incomeLayerOff: "Disabled",
-        incomeLayerOn: "Enabled, max {ratio}",
+        incomeLayerOn: "Enabled, starts at {start}, max {ratio}",
       },
     };
 
@@ -1163,6 +1176,7 @@
       reservedCashRatio: "",
       reservedCashTouched: false,
       incomeLayerMode: "current",
+      incomeLayerStartUsd: "",
       incomeLayerMaxRatio: "",
       incomeLayerTouched: false,
       runtimeTargetMode: "current",
@@ -1364,6 +1378,7 @@
     function incomeLayerFromEntry(entry) {
       return {
         enabled: cleanOptionalBoolean(entry?.income_layer_enabled),
+        startUsd: cleanDisplayNumber(entry?.income_layer_start_usd),
         maxRatio: cleanDisplayRatio(entry?.income_layer_max_ratio),
       };
     }
@@ -1387,6 +1402,7 @@
           cleanDisplayNumber(entry.min_reserved_cash_usd ?? entry.reserved_cash_floor_usd) ||
           cleanDisplayRatio(entry.reserved_cash_ratio) ||
           cleanOptionalBoolean(entry.income_layer_enabled) !== null ||
+          cleanDisplayNumber(entry.income_layer_start_usd) ||
           cleanDisplayRatio(entry.income_layer_max_ratio) ||
           cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
           normalizeExecutionMode(entry.execution_mode, entry.dry_run_only),
@@ -1521,6 +1537,7 @@
       const defaults = incomeLayerDefaultForStrategy(form.strategy);
       const current = currentIncomeLayerForAccount(platform, selectedAccount(platform));
       form.incomeLayerMode = "current";
+      form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
       form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
     }
 
@@ -1576,7 +1593,10 @@
       if (!incomeLayerSupported(form?.strategy)) return true;
       const mode = normalizeIncomeLayerMode(form?.incomeLayerMode);
       if (mode === "current" || mode === "disabled") return true;
-      return Boolean(cleanDisplayRatio(form?.incomeLayerMaxRatio || incomeLayerDefaultForStrategy(form?.strategy)?.maxRatio));
+      const defaults = incomeLayerDefaultForStrategy(form?.strategy);
+      const startUsd = cleanDisplayNumber(form?.incomeLayerStartUsd || defaults?.startUsd);
+      const maxRatio = cleanDisplayRatio(form?.incomeLayerMaxRatio || defaults?.maxRatio);
+      return Boolean(startUsd && maxRatio);
     }
 
     function hasValidStrategySelection(platform = state.selected) {
@@ -1632,14 +1652,17 @@
       const extraVariables = {};
       if (mode === "disabled") {
         extraVariables[incomeLayerEnabledVariable] = "false";
+        extraVariables[incomeLayerStartUsdVariable] = "";
         extraVariables[incomeLayerMaxRatioVariable] = "";
         return { inputs: { income_layer_mode: mode }, extraVariables };
       }
+      const startUsd = cleanDisplayNumber(form?.incomeLayerStartUsd || defaults.startUsd);
       const maxRatio = cleanDisplayRatio(form?.incomeLayerMaxRatio || defaults.maxRatio);
-      if (!maxRatio) return null;
+      if (!startUsd || !maxRatio) return null;
       extraVariables[incomeLayerEnabledVariable] = "true";
+      extraVariables[incomeLayerStartUsdVariable] = startUsd;
       extraVariables[incomeLayerMaxRatioVariable] = maxRatio;
-      return { inputs: { income_layer_mode: mode, income_layer_max_ratio: maxRatio }, extraVariables };
+      return { inputs: { income_layer_mode: mode, income_layer_start_usd: startUsd, income_layer_max_ratio: maxRatio }, extraVariables };
     }
 
     function mergeExtraVariables(inputs, extraVariables) {
@@ -1766,12 +1789,17 @@
       if (!defaults) return t("incomeLayerNotSupported");
       const current = currentIncomeLayerForAccount(platform, account);
       const enabled = current.enabled ?? true;
+      const startUsd = current.startUsd || String(defaults.startUsd);
       const ratio = current.maxRatio || defaults.maxRatio;
-      if (!current.maxRatio && current.enabled === null) {
-        return t("incomeLayerDefault").replace("{ratio}", formatRatioPercent(defaults.maxRatio));
+      if (!current.startUsd && !current.maxRatio && current.enabled === null) {
+        return t("incomeLayerDefault")
+          .replace("{start}", formatUsd(defaults.startUsd))
+          .replace("{ratio}", formatRatioPercent(defaults.maxRatio));
       }
       return enabled
-        ? t("incomeLayerOn").replace("{ratio}", formatRatioPercent(ratio))
+        ? t("incomeLayerOn")
+          .replace("{start}", formatUsd(startUsd))
+          .replace("{ratio}", formatRatioPercent(ratio))
         : t("incomeLayerOff");
     }
 
@@ -1780,7 +1808,9 @@
       if (!pending.supported) return t("incomeLayerNotSupported");
       if (!pending.changed) return t("unchanged");
       if (pending.inputs.income_layer_enabled === false) return t("incomeLayerOff");
-      return t("incomeLayerOn").replace("{ratio}", formatRatioPercent(pending.inputs.income_layer_max_ratio));
+      return t("incomeLayerOn")
+        .replace("{start}", formatUsd(pending.inputs.income_layer_start_usd))
+        .replace("{ratio}", formatRatioPercent(pending.inputs.income_layer_max_ratio));
     }
 
     function pendingRuntimeTargetText(inputs, platform = state.selected, account = selectedAccount(platform)) {
@@ -1813,6 +1843,7 @@
       const mode = normalizeIncomeLayerMode(inputs.income_layer_mode);
       const current = currentIncomeLayerForAccount(platform, account);
       const currentEnabled = current.enabled ?? true;
+      const currentStartUsd = current.startUsd || String(defaults.startUsd);
       const currentRatio = current.maxRatio || defaults.maxRatio;
       if (mode === "current") {
         return {
@@ -1820,6 +1851,7 @@
           changed: false,
           inputs: {
             income_layer_enabled: currentEnabled,
+            income_layer_start_usd: currentStartUsd,
             income_layer_max_ratio: currentRatio,
           },
         };
@@ -1827,19 +1859,22 @@
       if (mode === "disabled") {
         return {
           supported: true,
-          changed: currentEnabled !== false || Boolean(current.maxRatio),
+          changed: currentEnabled !== false || Boolean(current.startUsd || current.maxRatio),
           inputs: {
             income_layer_enabled: false,
+            income_layer_start_usd: "",
             income_layer_max_ratio: "",
           },
         };
       }
+      const nextStartUsd = cleanDisplayNumber(inputs.income_layer_start_usd || defaults.startUsd);
       const nextRatio = cleanDisplayRatio(inputs.income_layer_max_ratio || defaults.maxRatio);
       return {
         supported: true,
-        changed: Boolean(currentEnabled !== true || nextRatio !== currentRatio),
+        changed: Boolean(currentEnabled !== true || nextStartUsd !== currentStartUsd || nextRatio !== currentRatio),
         inputs: {
           income_layer_enabled: true,
+          income_layer_start_usd: nextStartUsd,
           income_layer_max_ratio: nextRatio,
         },
       };
@@ -2002,6 +2037,7 @@
       const runtimeTargetEnabledSelect = el("runtime-target-enabled-select");
       const pluginModeSelect = el("plugin-mode-select");
       const incomeLayerModeSelect = el("income-layer-mode-select");
+      const incomeLayerStartUsdInput = el("income-layer-start-usd-input");
       const incomeLayerMaxRatioInput = el("income-layer-max-ratio-input");
       const reservePolicyModeSelect = el("reserve-policy-mode-select");
       const minReservedCashInput = el("min-reserved-cash-input");
@@ -2022,12 +2058,14 @@
         pluginModeSelect.replaceChildren();
         incomeLayerModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
+        incomeLayerStartUsdInput.value = "";
         incomeLayerMaxRatioInput.value = "";
         minReservedCashInput.value = "";
         reservedCashRatioInput.value = "";
         el("account-meta").textContent = "";
         el("strategy-meta").textContent = "";
         el("income-layer-mode-meta").textContent = "";
+        el("income-layer-start-meta").textContent = "";
         el("income-layer-ratio-meta").textContent = "";
         return;
       }
@@ -2075,6 +2113,7 @@
           incomeLayerModeSelect.append(new Option(incomeLayerModeLabel(mode), mode, false, mode === normalizeIncomeLayerMode(form.incomeLayerMode)));
         }
         el("income-layer-mode-meta").textContent = incomeLayerDefaultMetaText(incomeDefaults);
+        el("income-layer-start-meta").textContent = t("incomeLayerStartMeta");
         el("income-layer-ratio-meta").textContent = t("incomeLayerAllocationMeta").replace(
           "{allocations}",
           incomeLayerAllocationText(incomeDefaults),
@@ -2083,6 +2122,7 @@
         incomeLayerModeSelect.disabled = true;
         incomeLayerModeSelect.append(new Option(t("incomeLayerNotSupported"), "current"));
         el("income-layer-mode-meta").textContent = t("incomeLayerModeMeta");
+        el("income-layer-start-meta").textContent = t("incomeLayerStartMeta");
         el("income-layer-ratio-meta").textContent = t("incomeLayerRatioMeta");
       }
       reservePolicyModeSelect.replaceChildren();
@@ -2099,10 +2139,16 @@
       minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
       reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
       const incomeMode = normalizeIncomeLayerMode(form.incomeLayerMode);
-      incomeLayerMaxRatioInput.disabled = !incomeDefaults || incomeMode !== "enabled";
-      if (incomeDefaults && incomeMode === "enabled" && !cleanDisplayRatio(form.incomeLayerMaxRatio)) {
+      const incomeLayerInputsDisabled = !incomeDefaults || incomeMode === "disabled";
+      incomeLayerStartUsdInput.disabled = incomeLayerInputsDisabled;
+      incomeLayerMaxRatioInput.disabled = incomeLayerInputsDisabled;
+      if (incomeDefaults && incomeMode !== "disabled" && !cleanDisplayNumber(form.incomeLayerStartUsd)) {
+        form.incomeLayerStartUsd = String(incomeDefaults.startUsd);
+      }
+      if (incomeDefaults && incomeMode !== "disabled" && !cleanDisplayRatio(form.incomeLayerMaxRatio)) {
         form.incomeLayerMaxRatio = incomeDefaults.maxRatio;
       }
+      incomeLayerStartUsdInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerStartUsd : "";
       incomeLayerMaxRatioInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerMaxRatio : "";
 
       document.querySelectorAll("[data-mode]").forEach((button) => {
@@ -2314,6 +2360,7 @@
           const minReservedCashUsd = cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd);
           const reservedCashRatio = cleanDisplayRatio(entry?.reserved_cash_ratio);
           const incomeLayerEnabled = cleanOptionalBoolean(entry?.income_layer_enabled);
+          const incomeLayerStartUsd = cleanDisplayNumber(entry?.income_layer_start_usd);
           const incomeLayerMaxRatio = cleanDisplayRatio(entry?.income_layer_max_ratio);
           const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
           const executionMode = normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
@@ -2322,6 +2369,7 @@
             !minReservedCashUsd &&
             !reservedCashRatio &&
             incomeLayerEnabled === null &&
+            !incomeLayerStartUsd &&
             !incomeLayerMaxRatio &&
             runtimeTargetEnabled === null &&
             !executionMode
@@ -2333,6 +2381,7 @@
             min_reserved_cash_usd: minReservedCashUsd,
             reserved_cash_ratio: reservedCashRatio,
             income_layer_enabled: incomeLayerEnabled,
+            income_layer_start_usd: incomeLayerStartUsd,
             income_layer_max_ratio: incomeLayerMaxRatio,
             runtime_target_enabled: runtimeTargetEnabled,
             source: entry?.source ? String(entry.source) : "",
@@ -2422,6 +2471,33 @@
       const form = state.forms[state.selected];
       form.runtimeTargetMode = normalizeRuntimeTargetMode(el("runtime-target-enabled-select").value);
       form.runtimeTargetTouched = form.runtimeTargetMode !== "current";
+      render();
+    });
+
+    el("income-layer-mode-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.incomeLayerMode = normalizeIncomeLayerMode(el("income-layer-mode-select").value);
+      form.incomeLayerTouched = form.incomeLayerMode !== "current";
+      if (form.incomeLayerMode === "current") {
+        form.incomeLayerTouched = false;
+        syncIncomeLayerForAccount(state.selected);
+      }
+      render();
+    });
+
+    el("income-layer-start-usd-input").addEventListener("input", () => {
+      const form = state.forms[state.selected];
+      form.incomeLayerTouched = true;
+      form.incomeLayerMode = "enabled";
+      form.incomeLayerStartUsd = el("income-layer-start-usd-input").value.trim();
+      render();
+    });
+
+    el("income-layer-max-ratio-input").addEventListener("input", () => {
+      const form = state.forms[state.selected];
+      form.incomeLayerTouched = true;
+      form.incomeLayerMode = "enabled";
+      form.incomeLayerMaxRatio = el("income-layer-max-ratio-input").value.trim();
       render();
     });
 

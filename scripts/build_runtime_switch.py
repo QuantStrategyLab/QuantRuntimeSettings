@@ -52,6 +52,7 @@ PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
 }
 INCOME_LAYER_VARIABLES = (
     "INCOME_LAYER_ENABLED",
+    "INCOME_LAYER_START_USD",
     "INCOME_LAYER_MAX_RATIO",
 )
 RUNTIME_TARGET_VARIABLES = (
@@ -353,6 +354,10 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         extra_variables[PLATFORM_RESERVED_CASH_RATIO_VARIABLES[platform]] = args.reserved_cash_ratio
     if args.min_reserved_cash_usd:
         extra_variables[PLATFORM_MIN_RESERVED_CASH_VARIABLES[platform]] = args.min_reserved_cash_usd
+    if args.income_layer_start_usd:
+        extra_variables["INCOME_LAYER_START_USD"] = args.income_layer_start_usd
+    if args.income_layer_max_ratio:
+        extra_variables["INCOME_LAYER_MAX_RATIO"] = args.income_layer_max_ratio
     if args.income_threshold_usd:
         extra_variables["INCOME_THRESHOLD_USD"] = args.income_threshold_usd
     if args.qqqi_income_ratio:
@@ -418,6 +423,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extra-variable", action="append", default=[], help="NAME=VALUE non-secret extra variable")
     parser.add_argument("--reserved-cash-ratio", default="")
     parser.add_argument("--min-reserved-cash-usd", default="")
+    parser.add_argument("--income-layer-start-usd", default="")
+    parser.add_argument("--income-layer-max-ratio", default="")
     parser.add_argument("--income-threshold-usd", default="")
     parser.add_argument("--qqqi-income-ratio", default="")
     parser.add_argument("--existing-service-targets-json-file", default="")
