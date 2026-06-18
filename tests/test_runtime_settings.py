@@ -312,6 +312,9 @@ class RuntimeSettingsTest(unittest.TestCase):
                     "ACCOUNT_GROUP": "demo-ibkr-tqqq",
                     "IBKR_MIN_RESERVED_CASH_USD": "150",
                     "IBKR_RESERVED_CASH_RATIO": "0.03",
+                    "INCOME_LAYER_ENABLED": "true",
+                    "INCOME_LAYER_MAX_RATIO": "0.55",
+                    "RUNTIME_TARGET_ENABLED": "false",
                     "runtime_target": {
                         "platform_id": "ibkr",
                         "strategy_profile": "old_strategy",
@@ -372,6 +375,9 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(selected["IBKR_DRY_RUN_ONLY"], "false")
         self.assertEqual(selected["IBKR_MIN_RESERVED_CASH_USD"], "150")
         self.assertEqual(selected["IBKR_RESERVED_CASH_RATIO"], "0.03")
+        self.assertEqual(selected["INCOME_LAYER_ENABLED"], "true")
+        self.assertEqual(selected["INCOME_LAYER_MAX_RATIO"], "0.55")
+        self.assertEqual(selected["RUNTIME_TARGET_ENABLED"], "false")
         self.assertEqual(
             selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],
             "market_regime_control",

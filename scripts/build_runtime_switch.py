@@ -50,6 +50,13 @@ PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
     "ibkr": "IBKR_MIN_RESERVED_CASH_USD",
     "firstrade": "FIRSTRADE_MIN_RESERVED_CASH_USD",
 }
+INCOME_LAYER_VARIABLES = (
+    "INCOME_LAYER_ENABLED",
+    "INCOME_LAYER_MAX_RATIO",
+)
+RUNTIME_TARGET_VARIABLES = (
+    "RUNTIME_TARGET_ENABLED",
+)
 DEFAULT_VARIABLE_SCOPE = {
     "longbridge": "environment",
     "ibkr": "repository",
@@ -273,6 +280,8 @@ def _preserve_reserved_cash_fields(
     for variable in (
         PLATFORM_MIN_RESERVED_CASH_VARIABLES.get(platform),
         PLATFORM_RESERVED_CASH_RATIO_VARIABLES.get(platform),
+        *INCOME_LAYER_VARIABLES,
+        *RUNTIME_TARGET_VARIABLES,
     ):
         if variable and variable not in replacement and variable in current_entry:
             replacement[variable] = current_entry[variable]
