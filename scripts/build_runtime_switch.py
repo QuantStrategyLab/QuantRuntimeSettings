@@ -95,6 +95,19 @@ INCOME_LAYER_VARIABLES = (
 RUNTIME_TARGET_VARIABLES = (
     "RUNTIME_TARGET_ENABLED",
 )
+DCA_PROFILES = frozenset(
+    {
+        "nasdaq_sp500_smart_dca",
+        "ibit_smart_dca",
+    }
+)
+DCA_MODES = frozenset({"fixed", "smart"})
+DCA_MODE_VARIABLE = "DCA_MODE"
+DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD"
+DCA_RUNTIME_VARIABLES = (
+    DCA_MODE_VARIABLE,
+    DCA_BASE_INVESTMENT_VARIABLE,
+)
 DEFAULT_VARIABLE_SCOPE = {
     "longbridge": "environment",
     "ibkr": "repository",
@@ -197,6 +210,61 @@ def _parse_extra_variables(pairs: list[str], raw_json: str) -> dict[str, Any]:
             raise ValueError(f"extra variable must be NAME=VALUE, got: {pair!r}")
         extras[name.strip()] = value
     return extras
+
+
+def _normalize_dca_mode(value: str) -> str:
+    mode = str(value or "").strip().lower()
+    aliases = {
+        "ordinary": "fixed",
+        "ordinary_dca": "fixed",
+        "fixed_dca": "fixed",
+        "smart_dca": "smart",
+    }
+    mode = aliases.get(mode, mode)
+    if mode not in DCA_MODES:
+        raise ValueError("dca_mode must be fixed or smart")
+    return mode
+
+
+def _normalize_positive_decimal(value: str, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not re.fullmatch(r"(?:\d+|\d*\.\d+)", text):
+        raise ValueError(f"{field_name} must be a positive decimal number")
+    numeric = float(text)
+    if not numeric > 0:
+        raise ValueError(f"{field_name} must be greater than 0")
+    return text
+
+
+def _dca_extra_variables(args: argparse.Namespace, strategy_profile: str) -> dict[str, Any]:
+    is_dca_profile = strategy_profile in DCA_PROFILES
+    has_dca_mode = bool(str(args.dca_mode or "").strip())
+    has_dca_base = bool(str(args.dca_base_investment_usd or "").strip())
+    if not is_dca_profile:
+        if has_dca_mode or has_dca_base:
+            raise ValueError("DCA settings are only supported for DCA strategy profiles")
+        return {variable: "" for variable in DCA_RUNTIME_VARIABLES}
+
+    extra_variables: dict[str, Any] = {}
+    if has_dca_mode:
+        extra_variables[DCA_MODE_VARIABLE] = _normalize_dca_mode(args.dca_mode)
+    if has_dca_base:
+        extra_variables[DCA_BASE_INVESTMENT_VARIABLE] = _normalize_positive_decimal(
+            args.dca_base_investment_usd,
+            field_name="dca_base_investment_usd",
+        )
+    return extra_variables
+
+
+def _reject_direct_dca_extra_variables(extra_variables: dict[str, Any]) -> None:
+    provided = [
+        variable
+        for variable in DCA_RUNTIME_VARIABLES
+        if variable in extra_variables and str(extra_variables.get(variable) or "").strip()
+    ]
+    if provided:
+        names = ", ".join(provided)
+        raise ValueError(f"use --dca-mode and --dca-base-investment-usd instead of extra_variables_json for {names}")
 
 
 def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str) -> list[dict[str, Any]]:
@@ -330,6 +398,7 @@ def _preserve_reserved_cash_fields(
         PLATFORM_RESERVED_CASH_RATIO_VARIABLES.get(platform),
         *INCOME_LAYER_VARIABLES,
         *RUNTIME_TARGET_VARIABLES,
+        *DCA_RUNTIME_VARIABLES,
     ):
         if variable and variable not in replacement and variable in current_entry:
             replacement[variable] = current_entry[variable]
@@ -394,6 +463,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     mounts = _plugin_mounts(args, runtime_target["strategy_profile"])
     mounts_variable = f"{SUPPORTED_PLATFORMS[platform]['plugin_mounts_prefix']}STRATEGY_PLUGIN_MOUNTS_JSON"
     extra_variables = _parse_extra_variables(args.extra_variable, args.extra_variables_json)
+    _reject_direct_dca_extra_variables(extra_variables)
 
     if args.set_platform_dry_run_variable:
         extra_variables[PLATFORM_DRY_RUN_VARIABLES[platform]] = env_string(runtime_target["dry_run_only"])
@@ -409,6 +479,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         extra_variables["INCOME_THRESHOLD_USD"] = args.income_threshold_usd
     if args.qqqi_income_ratio:
         extra_variables["QQQI_INCOME_RATIO"] = args.qqqi_income_ratio
+    extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"]))
 
     service_targets = _load_json_from_file(
         args.existing_service_targets_json_file,
@@ -474,6 +545,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--income-layer-max-ratio", default="")
     parser.add_argument("--income-threshold-usd", default="")
     parser.add_argument("--qqqi-income-ratio", default="")
+    parser.add_argument("--dca-mode", default="")
+    parser.add_argument("--dca-base-investment-usd", default="")
     parser.add_argument("--existing-service-targets-json-file", default="")
     parser.add_argument("--no-platform-dry-run-variable", dest="set_platform_dry_run_variable", action="store_false")
     parser.set_defaults(set_platform_dry_run_variable=True)

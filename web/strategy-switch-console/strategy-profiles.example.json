@@ -17,19 +17,25 @@
   },
   {
     "profile": "nasdaq_sp500_smart_dca",
-    "label": "Nasdaq 100 / S&P 500 Smart DCA",
-    "label_en": "Nasdaq 100 / S&P 500 Smart DCA",
-    "label_zh": "纳指100 / 标普500 智能定投",
+    "label": "Nasdaq 100 / S&P 500 DCA",
+    "label_en": "Nasdaq 100 / S&P 500 DCA",
+    "label_zh": "纳指100 / 标普500 定投",
     "domain": "us_equity",
-    "runtime_enabled": true
+    "runtime_enabled": true,
+    "dca_enabled": true,
+    "dca_default_mode": "fixed",
+    "dca_default_base_investment_usd": "1000"
   },
   {
     "profile": "ibit_smart_dca",
-    "label": "IBIT Smart DCA",
-    "label_en": "IBIT Smart DCA",
-    "label_zh": "IBIT 比特币 ETF 智能定投",
+    "label": "IBIT Bitcoin ETF DCA",
+    "label_en": "IBIT Bitcoin ETF DCA",
+    "label_zh": "IBIT 比特币定投",
     "domain": "us_equity",
-    "runtime_enabled": true
+    "runtime_enabled": true,
+    "dca_enabled": true,
+    "dca_default_mode": "fixed",
+    "dca_default_base_investment_usd": "1000"
   },
   {
     "profile": "global_etf_rotation",
