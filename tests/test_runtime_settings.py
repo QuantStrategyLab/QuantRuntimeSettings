@@ -181,6 +181,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(target["github"]["environment"], "longbridge-sg")
         self.assertEqual(target["runtime_target"]["service_name"], "longbridge-quant-sg-service")
         self.assertEqual(target["runtime_target"]["account_scope"], "SG")
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            {
+                "timezone": "America/New_York",
+                "main_time": "45 15 * * *",
+                "probe_time": "35 9,15 * * *",
+                "precheck_time": "45 9 * * *",
+            },
+        )
         self.assertEqual(assignments["STRATEGY_PROFILE"], "tqqq_growth_income")
         self.assertEqual(assignments["LONGBRIDGE_DRY_RUN_ONLY"], "false")
         plugin_payload = json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"])
@@ -284,6 +293,74 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(assignments["STRATEGY_PROFILE"], "tqqq_growth_income")
         plugin_payload = json.loads(assignments["FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON"])
         self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
+
+    def test_build_switch_target_uses_dca_monthly_scheduler_window(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "dca",
+                "--strategy-profile",
+                "nasdaq_sp500_smart_dca",
+                "--plugin-mode",
+                "none",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            {
+                "timezone": "America/New_York",
+                "main_time": "45 15 25-29 * *",
+                "probe_time": "35 9,15 25-29 * *",
+                "precheck_time": "45 9 25-29 * *",
+            },
+        )
+
+    def test_build_switch_target_uses_snapshot_scheduler_window(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "hk",
+                "--strategy-profile",
+                "hk_low_vol_dividend_quality_snapshot",
+                "--plugin-mode",
+                "none",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            {
+                "timezone": "Asia/Hong_Kong",
+                "main_time": "45 15 1-7 * *",
+                "probe_time": "35 9,15 1-7 * *",
+                "precheck_time": "45 9 1-7 * *",
+            },
+        )
+
+    def test_runtime_target_scheduler_rejects_invalid_cron_shape(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["runtime_target"]["scheduler"] = {
+            "timezone": "America/New_York",
+            "main_time": "45",
+            "probe_time": "35 9,15 * * *",
+            "precheck_time": "45 9 * * *",
+        }
+
+        self.assertIn(
+            "runtime_target.scheduler.main_time must have 2 time fields or 5 cron fields",
+            runtime_settings.validate_target(target),
+        )
 
     def test_build_switch_target_rejects_secret_extra_variable(self):
         parser = build_runtime_switch.build_parser()
