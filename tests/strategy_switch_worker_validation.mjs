@@ -670,6 +670,165 @@ try {
   globalThis.fetch = originalFetch;
 }
 
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.includes("/LongBridgePlatform/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        targets: [
+          {
+            service: "longbridge-quant-sg-service",
+            strategy_profile: "mega_cap_leader_rotation_top50_balanced",
+            runtime_target: {
+              platform_id: "longbridge",
+              strategy_profile: "mega_cap_leader_rotation_top50_balanced",
+              account_scope: "SG",
+              service_name: "longbridge-quant-sg-service",
+              execution_mode: "live",
+            },
+          },
+        ],
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (requestUrl.includes("/LongBridgePlatform/environments/longbridge-sg/variables/RUNTIME_TARGET_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        platform_id: "longbridge",
+        strategy_profile: "tqqq_growth_income",
+        dry_run_only: false,
+        account_scope: "SG",
+        service_name: "longbridge-quant-sg-service",
+        execution_mode: "live",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (requestUrl.includes("/LongBridgePlatform/environments/longbridge-sg/variables/LONGBRIDGE_MIN_RESERVED_CASH_USD")) {
+    return new Response(JSON.stringify({ value: "25" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/LongBridgePlatform/environments/longbridge-sg/variables/LONGBRIDGE_RESERVED_CASH_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.04" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/InteractiveBrokersPlatform/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        targets: [
+          {
+            service: "interactive-brokers-demo-ibkr-tqqq-service",
+            ACCOUNT_GROUP: "demo-ibkr-tqqq",
+            IBKR_MIN_RESERVED_CASH_USD: "150",
+            IBKR_RESERVED_CASH_RATIO: "0.03",
+            runtime_target: {
+              platform_id: "ibkr",
+              strategy_profile: "tqqq_growth_income",
+              dry_run_only: false,
+              account_scope: "demo-ibkr-tqqq",
+              service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+              execution_mode: "live",
+            },
+          },
+        ],
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (requestUrl.includes("/CharlesSchwabPlatform/actions/variables/RUNTIME_TARGET_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        platform_id: "schwab",
+        strategy_profile: "soxl_soxx_trend_income",
+        dry_run_only: false,
+        account_scope: "default",
+        service_name: "charles-schwab-quant-service",
+        execution_mode: "live",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (requestUrl.includes("/CharlesSchwabPlatform/actions/variables/SCHWAB_MIN_RESERVED_CASH_USD")) {
+    return new Response(JSON.stringify({ value: "150" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/CharlesSchwabPlatform/actions/variables/SCHWAB_RESERVED_CASH_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.03" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/FirstradePlatform/actions/variables/RUNTIME_TARGET_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        platform_id: "firstrade",
+        strategy_profile: "ibit_smart_dca",
+        dry_run_only: false,
+        account_scope: "US",
+        service_name: "firstrade-quant-service",
+        execution_mode: "live",
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (requestUrl.includes("/FirstradePlatform/actions/variables/FIRSTRADE_MIN_RESERVED_CASH_USD")) {
+    return new Response(JSON.stringify({ value: "50" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/FirstradePlatform/actions/variables/FIRSTRADE_RESERVED_CASH_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.02" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/FirstradePlatform/actions/variables/DCA_MODE")) {
+    return new Response(JSON.stringify({ value: "fixed" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.includes("/FirstradePlatform/actions/variables/DCA_BASE_INVESTMENT_USD")) {
+    return new Response(JSON.stringify({ value: "50" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    {
+      longbridge: [accountOptions.longbridge[1]],
+      ibkr: accountOptions.ibkr,
+      schwab: accountOptions.schwab,
+      firstrade: accountOptions.firstrade,
+    },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.longbridge.sg.strategy_profile, "tqqq_growth_income");
+  assert.equal(currentStrategies.longbridge.sg.min_reserved_cash_usd, "25");
+  assert.equal(currentStrategies.longbridge.sg.reserved_cash_ratio, "0.04");
+  assert.equal(currentStrategies.longbridge.sg.source, "RUNTIME_TARGET_JSON");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "tqqq_growth_income");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
+  assert.equal(currentStrategies.schwab.default.strategy_profile, "soxl_soxx_trend_income");
+  assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
+  assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.firstrade.default.strategy_profile, "ibit_smart_dca");
+  assert.equal(currentStrategies.firstrade.default.min_reserved_cash_usd, "50");
+  assert.equal(currentStrategies.firstrade.default.reserved_cash_ratio, "0.02");
+  assert.equal(currentStrategies.firstrade.default.dca_mode, "fixed");
+  assert.equal(currentStrategies.firstrade.default.dca_base_investment_usd, "50");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
 let releaseReservedVariables;
 let reservedVariableRequests = 0;
 let reservedVariablesFinished = false;
