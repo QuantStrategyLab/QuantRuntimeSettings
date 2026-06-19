@@ -682,10 +682,10 @@ globalThis.fetch = async (url) => {
         targets: [
           {
             service: "longbridge-quant-sg-service",
-            strategy_profile: "russell_top50_leader_rotation_aggressive",
+            strategy_profile: "russell_top50_leader_rotation",
             runtime_target: {
               platform_id: "longbridge",
-              strategy_profile: "russell_top50_leader_rotation_aggressive",
+              strategy_profile: "russell_top50_leader_rotation",
               account_scope: "SG",
               service_name: "longbridge-quant-sg-service",
               execution_mode: "live",

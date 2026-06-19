@@ -22,7 +22,7 @@
       "label": "paper",
       "target_name": "paper",
       "account_selector": "PAPER",
-      "default_strategy_profile": "russell_top50_leader_rotation_aggressive",
+      "default_strategy_profile": "russell_top50_leader_rotation",
       "supported_domains": ["us_equity", "hk_equity"]
     }
   ],
@@ -80,7 +80,7 @@
       "label": "default",
       "target_name": "default",
       "cash_currency": "USD",
-      "default_strategy_profile": "russell_top50_leader_rotation_aggressive",
+      "default_strategy_profile": "russell_top50_leader_rotation",
       "supported_domains": ["us_equity"]
     }
   ]

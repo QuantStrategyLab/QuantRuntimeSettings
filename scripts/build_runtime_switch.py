@@ -28,7 +28,7 @@ MARKET_REGIME_CONTROL_PROFILES = frozenset(
     {
         "tqqq_growth_income",
         "global_etf_rotation",
-        "russell_top50_leader_rotation_aggressive",
+        "russell_top50_leader_rotation",
     }
 )
 US_DAILY_SCHEDULER = {
@@ -64,7 +64,7 @@ HK_SNAPSHOT_SCHEDULER = {
 STRATEGY_SCHEDULER_PROFILES = {
     "nasdaq_sp500_smart_dca": US_DCA_SCHEDULER,
     "ibit_smart_dca": US_DCA_SCHEDULER,
-    "russell_top50_leader_rotation_aggressive": US_SNAPSHOT_SCHEDULER,
+    "russell_top50_leader_rotation": US_SNAPSHOT_SCHEDULER,
     "hk_low_vol_dividend_quality_snapshot": HK_SNAPSHOT_SCHEDULER,
 }
 PLATFORM_DRY_RUN_VARIABLES = {
