@@ -580,7 +580,9 @@ async function fetchWithTimeout(resource, init = {}, timeoutMs = GITHUB_API_TIME
 }
 
 async function resolveCurrentStrategyForAccount({ platform, option, optionsCount, repository, readVariable }) {
-  const serviceTargetsValue = await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON");
+  const serviceTargetsValue = usesServiceTargetsAsRuntimeSource(platform)
+    ? await readVariable(repository, "repository", "", "CLOUD_RUN_SERVICE_TARGETS_JSON")
+    : "";
   const serviceTarget = runtimeTargetFromServiceTargets(serviceTargetsValue, platform, option);
   const serviceTargetProfile = cleanCurrentStrategy(serviceTarget?.strategy_profile);
   const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
@@ -707,6 +709,10 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   }
 
   return null;
+}
+
+function usesServiceTargetsAsRuntimeSource(platform) {
+  return platform === "ibkr";
 }
 
 function logout(request) {
