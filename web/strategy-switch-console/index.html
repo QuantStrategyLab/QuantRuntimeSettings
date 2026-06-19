@@ -612,6 +612,38 @@
       font-weight: 800;
     }
 
+    .summary-status {
+      min-height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 9px;
+      border: 1px solid rgba(19, 111, 99, 0.28);
+      border-radius: 999px;
+      background: #eff9f6;
+      color: var(--accent);
+      font-size: 12px;
+      line-height: 1.2;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .summary-status.disabled {
+      border-color: rgba(181, 65, 55, 0.32);
+      background: #fff1ef;
+      color: var(--danger);
+    }
+
+    .summary-status.neutral {
+      border-color: var(--line);
+      background: #f6f7f8;
+      color: var(--muted);
+    }
+
+    .summary-row.pending .summary-status {
+      font-weight: 840;
+    }
+
     .summary-actions {
       display: flex;
       gap: 10px;
@@ -1012,8 +1044,8 @@
         paper: "模拟",
         runtimeTargetMode: "账号运行状态",
         runtimeTargetCurrent: "沿用当前状态",
-        runtimeTargetEnabled: "启用正式运行",
-        runtimeTargetDisabled: "停用正式运行",
+        runtimeTargetEnabled: "启用",
+        runtimeTargetDisabled: "禁用",
         runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
         pluginMode: "插件启用范围",
         pluginModeAuto: "启用插件",
@@ -1097,9 +1129,8 @@
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
         notRead: "未读取",
-        runtimeTargetDefault: "未配置（默认启用）",
-        runtimeTargetOn: "启用正式运行",
-        runtimeTargetOff: "停用正式运行",
+        runtimeTargetOn: "启用",
+        runtimeTargetOff: "禁用",
         incomeLayerDefault: "策略默认：开启，起始 {start}，最高 {ratio}",
         incomeLayerOff: "关闭",
         incomeLayerOn: "开启，起始 {start}，最高 {ratio}",
@@ -1125,8 +1156,8 @@
         paper: "Dry run",
         runtimeTargetMode: "Account status",
         runtimeTargetCurrent: "Keep current status",
-        runtimeTargetEnabled: "Enable live runs",
-        runtimeTargetDisabled: "Disable live runs",
+        runtimeTargetEnabled: "Enabled",
+        runtimeTargetDisabled: "Disabled",
         runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work.",
         pluginMode: "Plugin scope",
         pluginModeAuto: "Enabled",
@@ -1210,9 +1241,8 @@
         currentStrategy: "Current strategy",
         nextStrategy: "Switch strategy",
         notRead: "Not read",
-        runtimeTargetDefault: "Not configured (enabled by default)",
-        runtimeTargetOn: "Live runs enabled",
-        runtimeTargetOff: "Live runs disabled",
+        runtimeTargetOn: "Enabled",
+        runtimeTargetOff: "Disabled",
         incomeLayerDefault: "Strategy default: enabled, starts at {start}, max {ratio}",
         incomeLayerOff: "Disabled",
         incomeLayerOn: "Enabled, starts at {start}, max {ratio}",
@@ -1477,10 +1507,31 @@
       return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.runtime_target_enabled);
     }
 
-    function currentRuntimeTargetText(platform = state.selected, account = selectedAccount(platform)) {
-      const enabled = runtimeTargetEnabledForAccount(platform, account);
-      if (enabled === null) return t("runtimeTargetDefault");
+    function runtimeTargetStateForAccount(platform = state.selected, account = selectedAccount(platform)) {
+      const entry = currentEntryForAccount(platform, account);
+      if (!entry) return { known: false, enabled: null };
+      const configured = cleanOptionalBoolean(entry.runtime_target_enabled);
+      return { known: true, enabled: configured ?? true };
+    }
+
+    function runtimeTargetText(enabled) {
       return enabled ? t("runtimeTargetOn") : t("runtimeTargetOff");
+    }
+
+    function runtimeTargetTone(enabled) {
+      return enabled ? "enabled" : "disabled";
+    }
+
+    function currentRuntimeTargetText(platform = state.selected, account = selectedAccount(platform)) {
+      const target = runtimeTargetStateForAccount(platform, account);
+      if (!target.known) return t("notRead");
+      return runtimeTargetText(target.enabled);
+    }
+
+    function currentRuntimeTargetTone(platform = state.selected, account = selectedAccount(platform)) {
+      const target = runtimeTargetStateForAccount(platform, account);
+      if (!target.known) return "neutral";
+      return runtimeTargetTone(target.enabled);
     }
 
     function incomeLayerDefaultForStrategy(profile) {
@@ -1998,7 +2049,13 @@
     function pendingRuntimeTargetText(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const pending = pendingRuntimeTarget(inputs, platform, account);
       if (!pending.changed) return t("unchanged");
-      return pending.inputs.runtime_target_enabled ? t("runtimeTargetOn") : t("runtimeTargetOff");
+      return runtimeTargetText(pending.inputs.runtime_target_enabled);
+    }
+
+    function pendingRuntimeTargetTone(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingRuntimeTarget(inputs, platform, account);
+      if (!pending.changed) return "neutral";
+      return runtimeTargetTone(pending.inputs.runtime_target_enabled);
     }
 
     function currentDcaText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
@@ -2175,7 +2232,12 @@
         [t("selectedAccount"), account.label],
         [t("currentStrategy"), currentStrategyText],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
-        [t("currentRuntimeTarget"), currentRuntimeTargetText(state.selected, account)],
+        [
+          t("currentRuntimeTarget"),
+          currentRuntimeTargetText(state.selected, account),
+          "",
+          currentRuntimeTargetTone(state.selected, account),
+        ],
         [t("currentPluginMode"), pluginModeLabel(changes.currentPluginMode)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
       ];
@@ -2201,7 +2263,12 @@
         rows.push([t("pendingPluginMode"), pluginModeLabel(changes.nextPluginMode), "pending"]);
       }
       if (changes.runtimeTargetChanged) {
-        rows.push([t("pendingRuntimeTarget"), pendingRuntimeTargetText(inputs, state.selected, account), "pending"]);
+        rows.push([
+          t("pendingRuntimeTarget"),
+          pendingRuntimeTargetText(inputs, state.selected, account),
+          "pending",
+          pendingRuntimeTargetTone(inputs, state.selected, account),
+        ]);
       }
       if (changes.strategyChanged && changes.nextProfile) {
         rows.push([t("nextStrategy"), strategyLabel(changes.nextProfile), "pending"]);
@@ -2425,14 +2492,21 @@
       const list = el("summary-list");
       list.replaceChildren();
       document.querySelector(".summary-head h2").textContent = t("summary");
-      for (const [label, value, rowClass] of summaryRows(inputs)) {
+      for (const [label, value, rowClass, valueTone] of summaryRows(inputs)) {
         const row = document.createElement("div");
         row.className = "summary-row";
         if (rowClass) row.classList.add(rowClass);
         const labelNode = document.createElement("dt");
         labelNode.textContent = label;
         const valueNode = document.createElement("dd");
-        valueNode.textContent = value;
+        if (valueTone) {
+          const badge = document.createElement("span");
+          badge.className = `summary-status ${valueTone}`;
+          badge.textContent = value;
+          valueNode.appendChild(badge);
+        } else {
+          valueNode.textContent = value;
+        }
         row.append(labelNode, valueNode);
         list.appendChild(row);
       }
