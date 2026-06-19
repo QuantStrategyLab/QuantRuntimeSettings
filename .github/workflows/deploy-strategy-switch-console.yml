@@ -1,0 +1,138 @@
+name: Deploy Strategy Switch Console
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deploy-strategy-switch-console.yml"
+      - "scripts/sync_strategy_switch_page_asset.py"
+      - "web/strategy-switch-console/**"
+  workflow_dispatch:
+    inputs:
+      sync_strategy_profiles:
+        description: "After deploy, write the bundled strategy profile catalog to KV."
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 15
+    env:
+      WORKER_DIR: web/strategy-switch-console
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
+      STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
+      STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Regenerate bundled assets
+        run: |
+          set -euo pipefail
+          python3 scripts/sync_strategy_switch_page_asset.py
+          git diff --exit-code -- web/strategy-switch-console/page_asset.js web/strategy-switch-console/strategy_profiles_asset.js
+
+      - name: Validate Worker assets
+        run: |
+          set -euo pipefail
+          jq empty web/strategy-switch-console/strategy-profiles.example.json
+          node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
+          sed -n '/<script>/,/<\/script>/p' web/strategy-switch-console/index.html | sed '1d;$d' | node --check --input-type=commonjs
+          node --check --input-type=module < web/strategy-switch-console/page_asset.js
+          node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
+          node --check --input-type=module < web/strategy-switch-console/worker.js
+
+      - name: Prepare Wrangler config
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
+            echo "CLOUDFLARE_API_TOKEN or CLOUDFLARE_WRANGLER_CONFIG_TOML is required to deploy the strategy switch console." >&2
+            exit 2
+          fi
+          if [ -n "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
+            mkdir -p "$HOME/.config/.wrangler/config"
+            printf '%s' "$CLOUDFLARE_WRANGLER_CONFIG_TOML" > "$HOME/.config/.wrangler/config/default.toml"
+            chmod 600 "$HOME/.config/.wrangler/config/default.toml"
+          fi
+          if [ -z "${STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:-}" ]; then
+            echo "STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID is required so deploy does not drop the STRATEGY_SWITCH_CONFIG binding." >&2
+            exit 2
+          fi
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          root = Path(os.environ["WORKER_DIR"])
+          source = root / "wrangler.toml.example"
+          target = root / "wrangler.toml"
+          text = source.read_text(encoding="utf-8")
+          account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
+          if account_id and "\naccount_id" not in text:
+              text = text.replace("\n[vars]\n", f"\naccount_id = \"{account_id}\"\n\n[vars]\n", 1)
+
+          kv_id = os.environ["STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID"].strip()
+          commented_kv = "\n".join([
+              "# [[kv_namespaces]]",
+              "# binding = \"STRATEGY_SWITCH_CONFIG\"",
+              "# id = \"replace-with-cloudflare-kv-namespace-id\"",
+              "",
+          ])
+          active_kv = "\n".join([
+              "[[kv_namespaces]]",
+              "binding = \"STRATEGY_SWITCH_CONFIG\"",
+              f"id = \"{kv_id}\"",
+              "",
+          ])
+          if commented_kv in text:
+              text = text.replace(commented_kv, active_kv, 1)
+          elif 'binding = "STRATEGY_SWITCH_CONFIG"' not in text:
+              text = text.rstrip() + "\n\n" + active_kv
+          target.write_text(text, encoding="utf-8")
+          PY
+
+      - name: Deploy Worker
+        working-directory: web/strategy-switch-console
+        run: npx wrangler@latest deploy --config wrangler.toml
+
+      - name: Sync bundled strategy profiles to KV
+        if: github.event_name != 'workflow_dispatch' || inputs.sync_strategy_profiles
+        run: |
+          set -euo pipefail
+          if [ -z "${STRATEGY_SWITCH_CONSOLE_URL:-}" ]; then
+            echo "STRATEGY_SWITCH_CONSOLE_URL is required to sync strategy profiles." >&2
+            exit 2
+          fi
+          if [ -z "${STRATEGY_SWITCH_SYNC_TOKEN:-}" ]; then
+            echo "STRATEGY_SWITCH_SYNC_TOKEN or RUNTIME_SETTINGS_GH_TOKEN is required to sync strategy profiles." >&2
+            exit 2
+          fi
+          curl --fail --show-error --silent \
+            --request POST \
+            --header "Authorization: Bearer ${STRATEGY_SWITCH_SYNC_TOKEN}" \
+            --header "Content-Type: application/json" \
+            --data '{"source":"github-actions"}' \
+            "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/internal/sync-strategy-profiles" \
+            | python3 -m json.tool

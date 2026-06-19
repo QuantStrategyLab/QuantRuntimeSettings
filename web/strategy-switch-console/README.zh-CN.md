@@ -140,7 +140,7 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 - 给每个策略 profile 设置 `domain`。当前支持 `us_equity` 和 `hk_equity`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `default_strategy_profile` 和 `supported_domains`。
 - LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。
-- 用 `strategy-profiles.example.json` 更新已部署 KV 的 `strategy_profiles` key。
+- main 分支部署 workflow 会在 Worker 部署后，用 `strategy-profiles.example.json` 自动更新已部署 KV 的 `strategy_profiles` key。手动部署时，可用 Worker 同步 token 调用 `/api/internal/sync-strategy-profiles`。
 - 确认平台仓库当前的 `RUNTIME_TARGET_JSON.strategy_profile` 或账号级 `CLOUD_RUN_SERVICE_TARGETS_JSON` 使用同一个 id。
 - 让 `manual-strategy-switch.yml` 统一管理平台 plugin mounts。策略不需要插件时，它会写入空的 `*_STRATEGY_PLUGIN_MOUNTS_JSON`，清掉旧策略留下的插件配置。
 - profile id 只使用小写字母、数字、点、下划线、短横线或等号。不要把账号名、密码、token、密钥信息写进 profile id。
@@ -187,6 +187,8 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 ```
 
 然后把返回的 namespace id 加到 `wrangler.toml`。
+
+GitHub Actions 自动部署需要在 `runtime-strategy-switch` environment 配置 `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`、`STRATEGY_SWITCH_CONSOLE_URL`、`STRATEGY_SWITCH_SYNC_TOKEN`，以及 `CLOUDFLARE_API_TOKEN` 或 `CLOUDFLARE_WRANGLER_CONFIG_TOML` 二选一（只有当 `RUNTIME_SETTINGS_GH_TOKEN` 与 Worker 同步密钥相同时才复用它）。如果 Wrangler 能从 token 推断账号，`CLOUDFLARE_ACCOUNT_ID` 可不配。workflow 会先部署 Worker，再把内置策略 profile 目录同步到 KV，避免网站继续使用旧的 profile/plugin 元数据。
 
 部署：
 

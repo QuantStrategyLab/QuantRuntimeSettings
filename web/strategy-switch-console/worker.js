@@ -96,6 +96,9 @@ export default {
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
         return await syncAccountDefaultResponse(request, env);
       }
+      if (url.pathname === "/api/internal/sync-strategy-profiles" && request.method === "POST") {
+        return await syncStrategyProfilesResponse(request, env);
+      }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
       return html(PAGE_HTML);
@@ -846,6 +849,52 @@ function requireInternalSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("internal sync token is invalid", 401);
+}
+
+async function syncStrategyProfilesResponse(request, env) {
+  requireInternalSyncToken(request, env);
+  const result = await syncStrategyProfilesConfig(env, { login: "github-actions" });
+  const kvSyncSkipped = result.reason === "kv_not_bound";
+  const strategyProfilesSync = kvSyncSkipped ? { ...result, skipped: true } : result;
+  return json(
+    {
+      ok: result.synced || kvSyncSkipped,
+      strategy_profiles_sync: strategyProfilesSync,
+      strategy_profiles_count: result.count,
+    },
+    result.synced || kvSyncSkipped ? 200 : 500,
+  );
+}
+
+async function syncStrategyProfilesConfig(env, session) {
+  const profiles = normalizeStrategyProfilesPayload(DEFAULT_STRATEGY_PROFILES, "DEFAULT_STRATEGY_PROFILES");
+  if (!hasConfigStore(env)) return { synced: false, reason: "kv_not_bound", count: profiles.length };
+  let changed = true;
+  try {
+    const current = await readConfigJson(env, STRATEGY_PROFILES_KEY);
+    if (current) {
+      const normalizedCurrent = normalizeStrategyProfilesPayload(current, STRATEGY_PROFILES_KEY);
+      changed = JSON.stringify(normalizedCurrent) !== JSON.stringify(profiles);
+    }
+  } catch {
+    changed = true;
+  }
+  let auditLogged = false;
+  if (changed) {
+    await writeConfigJson(env, STRATEGY_PROFILES_KEY, profiles);
+    try {
+      await appendAuditLog(env, {
+        ts: new Date().toISOString(),
+        login: session?.login || "",
+        action: "sync_strategy_profiles",
+        count: profiles.length,
+      });
+      auditLogged = true;
+    } catch {
+      auditLogged = false;
+    }
+  }
+  return { synced: true, changed, count: profiles.length, audit_logged: auditLogged };
 }
 
 function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
@@ -2222,6 +2271,7 @@ export const __test = {
   requireSameOrigin,
   responseHeaders,
   fetchWithTimeout,
+  syncDefaultStrategyProfiles: syncStrategyProfilesConfig,
   syncDefaultStrategyForAccount,
   supportedDomainsForAccount,
   updateAccountOptionsDefaultStrategy,

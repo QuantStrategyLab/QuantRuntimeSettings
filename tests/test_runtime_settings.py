@@ -156,6 +156,20 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("::warning::", workflow)
         self.assertIn("raise SystemExit(0)", workflow)
 
+    def test_strategy_switch_console_deploy_workflow_syncs_bundled_profiles(self):
+        workflow = (ROOT / ".github" / "workflows" / "deploy-strategy-switch-console.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("environment: runtime-strategy-switch", workflow)
+        self.assertIn("npx wrangler@latest deploy --config wrangler.toml", workflow)
+        self.assertIn("/api/internal/sync-strategy-profiles", workflow)
+        self.assertIn("STRATEGY_SWITCH_CONSOLE_URL", workflow)
+        self.assertIn("STRATEGY_SWITCH_SYNC_TOKEN", workflow)
+        self.assertIn("CLOUDFLARE_WRANGLER_CONFIG_TOML", workflow)
+        self.assertIn("STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID", workflow)
+        self.assertIn("scripts/sync_strategy_switch_page_asset.py", workflow)
+
     def test_plugin_mount_schema_version_must_be_non_empty_string(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["plugin_mounts"][0]["expected_schema_version"] = ""
