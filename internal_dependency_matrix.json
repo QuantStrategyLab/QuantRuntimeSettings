@@ -62,7 +62,7 @@
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "361338f60900182e3be535cd5fd2be2b9a07b422"
+      "ref": "d789c5cacea6b82cccc0202561bd53482294b14a"
     },
     {
       "consumer_repo": "FirstradePlatform",
@@ -76,7 +76,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
+      "ref": "d789c5cacea6b82cccc0202561bd53482294b14a"
     },
     {
       "consumer_repo": "HkEquityStrategies",
@@ -97,7 +97,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
+      "ref": "d789c5cacea6b82cccc0202561bd53482294b14a"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
@@ -118,7 +118,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
+      "ref": "d789c5cacea6b82cccc0202561bd53482294b14a"
     },
     {
       "consumer_repo": "LongBridgePlatform",
@@ -130,16 +130,23 @@
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
       "path": "pyproject.toml",
+      "package": "quant-platform-kit",
+      "source_repo": "QuantPlatformKit",
+      "ref": "9d9682533578c7e5a9e02ea80040b7014898e4dd"
+    },
+    {
+      "consumer_repo": "UsEquitySnapshotPipelines",
+      "path": "pyproject.toml",
       "package": "quant-strategy-plugins",
       "source_repo": "QuantStrategyPlugins",
-      "ref": "v0.1.4"
+      "ref": "eedaa71de8472448c4665b8b7b3be679fe7db83d"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "7d35772d1125b534d0bcca557cb6dbaf28914719"
+      "ref": "bf10f1efceb8744298a039276d58543f8979f50b"
     },
     {
       "consumer_repo": "UsEquityStrategies",
