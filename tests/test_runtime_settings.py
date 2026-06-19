@@ -375,9 +375,9 @@ class RuntimeSettingsTest(unittest.TestCase):
             target["runtime_target"]["scheduler"],
             {
                 "timezone": "America/New_York",
-                "main_time": "45 15 25-29 * *",
-                "probe_time": "35 9,15 25-29 * *",
-                "precheck_time": "45 9 25-29 * *",
+                "main_time": "45 15 25-28 * *",
+                "probe_time": "35 9,15 25-28 * *",
+                "precheck_time": "45 9 25-28 * *",
             },
         )
 
