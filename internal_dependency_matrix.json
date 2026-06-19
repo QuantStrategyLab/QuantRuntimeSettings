@@ -62,7 +62,7 @@
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "31406abfb15507270992e62ead8d1068c03328d0"
+      "ref": "ced1f78827e6112292af24d32dfe0e0f009e2833"
     },
     {
       "consumer_repo": "FirstradePlatform",
@@ -76,7 +76,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "31406abfb15507270992e62ead8d1068c03328d0"
+      "ref": "ced1f78827e6112292af24d32dfe0e0f009e2833"
     },
     {
       "consumer_repo": "HkEquityStrategies",
@@ -97,7 +97,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "31406abfb15507270992e62ead8d1068c03328d0"
+      "ref": "ced1f78827e6112292af24d32dfe0e0f009e2833"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
@@ -118,7 +118,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "31406abfb15507270992e62ead8d1068c03328d0"
+      "ref": "ced1f78827e6112292af24d32dfe0e0f009e2833"
     },
     {
       "consumer_repo": "LongBridgePlatform",

@@ -830,6 +830,12 @@
               <select id="plugin-mode-select"></select>
               <span class="selection-meta" data-i18n="pluginModeMeta">选择是否启用该策略的插件。</span>
             </label>
+
+            <label class="control-block ibit-zscore-exit-mode-block" id="ibit-zscore-exit-mode-block" hidden>
+              <span data-i18n="ibitZscoreExitMode">IBIT Z-Score 逃顶</span>
+              <select id="ibit-zscore-exit-mode-select"></select>
+              <span class="selection-meta" id="ibit-zscore-exit-mode-meta"></span>
+            </label>
           </div>
 
           <div class="form-section income-layer-section">
@@ -927,6 +933,7 @@
     const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["auto", "none"];
     const dcaModes = ["fixed", "smart"];
+    const ibitZscoreExitModes = ["paper", "live", "disabled"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
     const incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD";
@@ -1042,6 +1049,11 @@
         pluginModeAuto: "启用插件",
         pluginModeNone: "禁用插件",
         pluginModeMeta: "选择是否启用该策略的插件。",
+        ibitZscoreExitMode: "IBIT Z-Score 逃顶",
+        ibitZscoreExitPaper: "观察模式（不卖出）",
+        ibitZscoreExitLive: "实盘执行（按信号调仓）",
+        ibitZscoreExitDisabled: "禁用逃顶（只买不卖）",
+        ibitZscoreExitModeMeta: "插件启用后默认实盘消费动态 Z-Score 信号；可改为观察模式，或禁用后只买不卖。",
         incomeLayerMode: "收入层状态",
         incomeLayerCurrent: "沿用当前配置",
         incomeLayerEnabled: "开启收入层",
@@ -1094,6 +1106,7 @@
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         invalidDcaNote: "请填写有效的定投模式和基准金额。",
+        invalidIbitZscoreExitNote: "请选择有效的 IBIT Z-Score 逃顶模式。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -1108,6 +1121,8 @@
         pendingMode: "待提交模式",
         currentPluginMode: "当前插件范围",
         pendingPluginMode: "待提交插件范围",
+        currentIbitZscoreExit: "当前 Z-Score 逃顶",
+        pendingIbitZscoreExit: "待提交 Z-Score 逃顶",
         unchanged: "不变",
         copied: "已复制状态",
         dispatching: "正在触发工作流...",
@@ -1154,6 +1169,11 @@
         pluginModeAuto: "Enabled",
         pluginModeNone: "Disabled",
         pluginModeMeta: "Choose whether to enable this strategy's plugins.",
+        ibitZscoreExitMode: "IBIT Z-Score exit",
+        ibitZscoreExitPaper: "Paper mode (signals only)",
+        ibitZscoreExitLive: "Live execution (rebalance on signals)",
+        ibitZscoreExitDisabled: "Disabled (buy only)",
+        ibitZscoreExitModeMeta: "When plugins are enabled, live consumption is the default. Paper mode observes only; disabled mode keeps buy-only DCA.",
         incomeLayerMode: "Income layer",
         incomeLayerCurrent: "Keep current config",
         incomeLayerEnabled: "Enable income layer",
@@ -1206,6 +1226,7 @@
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         invalidDcaNote: "Enter a valid DCA mode and base amount.",
+        invalidIbitZscoreExitNote: "Choose a valid IBIT Z-Score exit mode.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -1220,6 +1241,8 @@
         pendingMode: "Pending mode",
         currentPluginMode: "Current plugin scope",
         pendingPluginMode: "Pending plugin scope",
+        currentIbitZscoreExit: "Current Z-Score exit",
+        pendingIbitZscoreExit: "Pending Z-Score exit",
         unchanged: "Unchanged",
         copied: "State copied",
         dispatching: "Dispatching workflow...",
@@ -1259,6 +1282,8 @@
       dcaMode: "fixed",
       dcaBaseInvestmentUsd: "",
       dcaTouched: false,
+      ibitZscoreExitMode: "live",
+      ibitZscoreExitTouched: false,
     });
 
     const state = {
@@ -1457,6 +1482,37 @@
       return mode === "none" ? t("pluginModeNone") : t("pluginModeAuto");
     }
 
+    function ibitZscoreExitSupported(profile) {
+      return cleanStrategyProfile(profile) === "ibit_smart_dca";
+    }
+
+    function cleanIbitZscoreExitMode(value) {
+      const mode = String(value || "").trim().toLowerCase();
+      const aliases = {
+        off: "disabled",
+        none: "disabled",
+        false: "disabled",
+        disable: "disabled",
+        enabled: "live",
+        shadow: "paper",
+        dry_run: "paper",
+        "dry-run": "paper",
+      };
+      const normalized = aliases[mode] || mode;
+      return ibitZscoreExitModes.includes(normalized) ? normalized : "";
+    }
+
+    function normalizeIbitZscoreExitMode(value) {
+      return cleanIbitZscoreExitMode(value) || "live";
+    }
+
+    function ibitZscoreExitModeLabel(mode) {
+      const normalized = normalizeIbitZscoreExitMode(mode);
+      if (normalized === "live") return t("ibitZscoreExitLive");
+      if (normalized === "disabled") return t("ibitZscoreExitDisabled");
+      return t("ibitZscoreExitPaper");
+    }
+
     function dcaConfigForStrategy(profile) {
       const cleanProfile = cleanStrategyProfile(profile);
       const catalog = strategyCatalog[cleanProfile] || {};
@@ -1592,6 +1648,7 @@
           cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
           normalizeDcaMode(entry.dca_mode || "") !== "fixed" ||
           cleanDisplayPositiveNumber(entry.dca_base_investment_usd) ||
+          cleanIbitZscoreExitMode(entry.ibit_zscore_exit_mode) ||
           normalizeExecutionMode(entry.execution_mode, entry.dry_run_only),
       );
     }
@@ -1610,6 +1667,18 @@
     function currentPluginModeForAccount(platform, account) {
       void platform;
       return normalizePluginMode(account?.plugin_mode);
+    }
+
+    function currentIbitZscoreExitForAccount(platform, account, profile = state.forms[platform]?.strategy) {
+      if (!ibitZscoreExitSupported(profile)) return { supported: false, mode: "" };
+      const entry = currentEntryForAccount(platform, account);
+      const mode = cleanIbitZscoreExitMode(entry?.ibit_zscore_exit_mode) ||
+        cleanIbitZscoreExitMode(account?.ibit_zscore_exit_mode);
+      if (mode) return { supported: true, mode };
+      if (currentPluginModeForAccount(platform, account) === "none") {
+        return { supported: true, mode: "disabled" };
+      }
+      return { supported: true, mode: "" };
     }
 
     function reservePolicyFromEntry(entry) {
@@ -1707,6 +1776,7 @@
       syncReservePolicyForAccount(platform);
       syncIncomeLayerForAccount(platform);
       syncDcaForAccount(platform);
+      syncIbitZscoreExitForAccount(platform);
     }
 
     function syncRuntimeTargetForAccount(platform) {
@@ -1742,6 +1812,18 @@
       form.dcaBaseInvestmentUsd = current.supported ? current.baseInvestmentUsd : "";
     }
 
+    function syncIbitZscoreExitForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form) return;
+      if (!ibitZscoreExitSupported(form.strategy) || normalizePluginMode(form.pluginMode) === "none") {
+        form.ibitZscoreExitMode = "disabled";
+        return;
+      }
+      if (form.ibitZscoreExitTouched) return;
+      const current = currentIbitZscoreExitForAccount(platform, selectedAccount(platform), form.strategy);
+      form.ibitZscoreExitMode = current.mode || "live";
+    }
+
     function ensureAccountSelection(platform) {
       const options = optionsFor(platform);
       if (!options.length) return;
@@ -1751,12 +1833,14 @@
         state.forms[platform].reservedCashTouched = false;
         state.forms[platform].incomeLayerTouched = false;
         state.forms[platform].dcaTouched = false;
+        state.forms[platform].ibitZscoreExitTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncRuntimeTargetForAccount(platform);
         syncReservePolicyForAccount(platform);
         syncIncomeLayerForAccount(platform);
         syncDcaForAccount(platform);
+        syncIbitZscoreExitForAccount(platform);
       }
     }
 
@@ -1808,11 +1892,19 @@
       return Boolean(dcaModes.includes(normalizeDcaMode(form?.dcaMode)) && cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd));
     }
 
+    function hasValidIbitZscoreExitPolicy(platform = state.selected) {
+      const form = state.forms[platform];
+      if (!ibitZscoreExitSupported(form?.strategy)) return true;
+      if (normalizePluginMode(form?.pluginMode) === "none") return true;
+      return Boolean(cleanIbitZscoreExitMode(form?.ibitZscoreExitMode));
+    }
+
     function hasValidStrategySelection(platform = state.selected) {
       return hasRunnableStrategySelection(platform) &&
         hasValidReservePolicy(platform) &&
         hasValidIncomeLayerPolicy(platform) &&
-        hasValidDcaPolicy(platform);
+        hasValidDcaPolicy(platform) &&
+        hasValidIbitZscoreExitPolicy(platform);
     }
 
     function normalizeReservePolicyMode(value) {
@@ -1885,6 +1977,14 @@
       return { inputs: { dca_mode: mode, dca_base_investment_usd: baseInvestmentUsd } };
     }
 
+    function ibitZscoreExitOverrideForForm(form) {
+      if (!ibitZscoreExitSupported(form?.strategy)) return null;
+      const mode = normalizePluginMode(form?.pluginMode) === "none"
+        ? "disabled"
+        : normalizeIbitZscoreExitMode(form?.ibitZscoreExitMode);
+      return { inputs: {}, extraVariables: { ibit_zscore_exit_mode: mode } };
+    }
+
     function mergeExtraVariables(inputs, extraVariables) {
       if (!extraVariables || !Object.keys(extraVariables).length) return;
       const merged = inputs.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
@@ -1940,6 +2040,11 @@
       const dcaOverride = dcaOverrideForForm(form);
       if (dcaOverride) {
         Object.assign(inputs, dcaOverride.inputs);
+      }
+      const ibitZscoreOverride = ibitZscoreExitOverrideForForm(form);
+      if (ibitZscoreOverride) {
+        Object.assign(inputs, ibitZscoreOverride.inputs);
+        mergeExtraVariables(inputs, ibitZscoreOverride.extraVariables);
       }
       return inputs;
     }
@@ -2066,6 +2171,28 @@
         .replace("{amount}", formatUsd(pending.inputs.dca_base_investment_usd));
     }
 
+    function currentIbitZscoreExitText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
+      const current = currentIbitZscoreExitForAccount(platform, account, profile);
+      if (!current.supported) return "";
+      return current.mode ? ibitZscoreExitModeLabel(current.mode) : t("notRead");
+    }
+
+    function pendingIbitZscoreExitText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingIbitZscoreExit(inputs, platform, account);
+      if (!pending.supported) return "";
+      if (!pending.changed) return t("unchanged");
+      return ibitZscoreExitModeLabel(pending.inputs.ibit_zscore_exit_mode);
+    }
+
+    function ibitZscoreExitModeFromInputs(inputs) {
+      try {
+        const payload = inputs?.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+        return cleanIbitZscoreExitMode(payload.ibit_zscore_exit_mode || inputs?.ibit_zscore_exit_mode);
+      } catch {
+        return cleanIbitZscoreExitMode(inputs?.ibit_zscore_exit_mode);
+      }
+    }
+
     function pendingRuntimeTarget(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const mode = normalizeRuntimeTargetMode(inputs.runtime_target_enabled_mode);
       const current = runtimeTargetEnabledForAccount(platform, account);
@@ -2144,6 +2271,19 @@
       };
     }
 
+    function pendingIbitZscoreExit(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
+      if (!ibitZscoreExitSupported(profile)) return { supported: false, changed: false, inputs: {} };
+      const current = currentIbitZscoreExitForAccount(platform, account, profile);
+      const nextMode = ibitZscoreExitModeFromInputs(inputs) ||
+        (normalizePluginMode(inputs.plugin_mode) === "none" ? "disabled" : "live");
+      return {
+        supported: true,
+        changed: current.mode ? current.mode !== nextMode : true,
+        inputs: { ibit_zscore_exit_mode: nextMode },
+      };
+    }
+
     function pendingChangeState(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const currentProfile = currentStrategyForAccount(platform, account);
       const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
@@ -2155,6 +2295,7 @@
       const reserve = pendingReservePolicy(inputs, platform, account);
       const income = pendingIncomeLayer(inputs, platform, account);
       const dca = pendingDca(inputs, platform, account);
+      const ibitZscoreExit = pendingIbitZscoreExit(inputs, platform, account);
       return {
         currentProfile,
         nextProfile,
@@ -2168,10 +2309,12 @@
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
         dcaChanged: dca.changed,
+        ibitZscoreExitChanged: ibitZscoreExit.changed,
         runtimeTarget,
         reserve,
         income,
         dca,
+        ibitZscoreExit,
       };
     }
 
@@ -2184,7 +2327,8 @@
           changes.runtimeTargetChanged ||
           changes.reserveCashChanged ||
           changes.incomeLayerChanged ||
-          changes.dcaChanged,
+          changes.dcaChanged ||
+          changes.ibitZscoreExitChanged,
       );
     }
 
@@ -2238,6 +2382,9 @@
       if (dcaSupported(inputs.strategy_profile)) {
         rows.push([t("currentDca"), currentDcaText(state.selected, account, inputs.strategy_profile)]);
       }
+      if (ibitZscoreExitSupported(inputs.strategy_profile)) {
+        rows.push([t("currentIbitZscoreExit"), currentIbitZscoreExitText(state.selected, account, inputs.strategy_profile)]);
+      }
       if (changes.reserveCashChanged) {
         rows.push([t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"]);
       }
@@ -2246,6 +2393,9 @@
       }
       if (changes.dcaChanged) {
         rows.push([t("pendingDca"), pendingDcaText(inputs, state.selected, account), "pending"]);
+      }
+      if (changes.ibitZscoreExitChanged) {
+        rows.push([t("pendingIbitZscoreExit"), pendingIbitZscoreExitText(inputs, state.selected, account), "pending"]);
       }
       if (changes.modeChanged) {
         rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
@@ -2320,6 +2470,7 @@
       const strategySelect = el("strategy-select");
       const runtimeTargetEnabledSelect = el("runtime-target-enabled-select");
       const pluginModeSelect = el("plugin-mode-select");
+      const ibitZscoreExitModeSelect = el("ibit-zscore-exit-mode-select");
       const incomeLayerModeSelect = el("income-layer-mode-select");
       const incomeLayerStartUsdInput = el("income-layer-start-usd-input");
       const incomeLayerMaxRatioInput = el("income-layer-max-ratio-input");
@@ -2342,6 +2493,7 @@
         strategySelect.replaceChildren();
         runtimeTargetEnabledSelect.replaceChildren();
         pluginModeSelect.replaceChildren();
+        ibitZscoreExitModeSelect.replaceChildren();
         incomeLayerModeSelect.replaceChildren();
         dcaModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
@@ -2352,6 +2504,8 @@
         reservedCashRatioInput.value = "";
         el("account-meta").textContent = "";
         el("strategy-meta").textContent = "";
+        el("ibit-zscore-exit-mode-block").hidden = true;
+        el("ibit-zscore-exit-mode-meta").textContent = "";
         el("income-layer-mode-meta").textContent = "";
         el("income-layer-start-meta").textContent = "";
         el("income-layer-ratio-meta").textContent = "";
@@ -2394,6 +2548,30 @@
       pluginModeSelect.replaceChildren();
       for (const mode of pluginModes) {
         pluginModeSelect.append(new Option(pluginModeLabel(mode), mode, false, mode === normalizePluginMode(form.pluginMode)));
+      }
+      syncIbitZscoreExitForAccount(platform);
+      const ibitZscoreSupported = ibitZscoreExitSupported(form.strategy);
+      const ibitZscoreBlock = el("ibit-zscore-exit-mode-block");
+      ibitZscoreBlock.hidden = !ibitZscoreSupported;
+      ibitZscoreExitModeSelect.replaceChildren();
+      if (ibitZscoreSupported) {
+        const pluginsDisabled = normalizePluginMode(form.pluginMode) === "none";
+        if (pluginsDisabled) form.ibitZscoreExitMode = "disabled";
+        form.ibitZscoreExitMode = pluginsDisabled ? "disabled" : normalizeIbitZscoreExitMode(form.ibitZscoreExitMode);
+        ibitZscoreExitModeSelect.disabled = pluginsDisabled;
+        for (const mode of ibitZscoreExitModes) {
+          ibitZscoreExitModeSelect.append(new Option(
+            ibitZscoreExitModeLabel(mode),
+            mode,
+            false,
+            mode === form.ibitZscoreExitMode,
+          ));
+        }
+        el("ibit-zscore-exit-mode-meta").textContent = t("ibitZscoreExitModeMeta");
+      } else {
+        ibitZscoreExitModeSelect.disabled = true;
+        ibitZscoreExitModeSelect.append(new Option(t("ibitZscoreExitDisabled"), "disabled"));
+        el("ibit-zscore-exit-mode-meta").textContent = "";
       }
       const incomeDefaults = incomeLayerDefaultForStrategy(form.strategy);
       incomeLayerModeSelect.replaceChildren();
@@ -2529,7 +2707,8 @@
       const hasValidReserve = hasValidReservePolicy();
       const hasValidIncomeLayer = hasValidIncomeLayerPolicy();
       const hasValidDca = hasValidDcaPolicy();
-      const hasValidStrategy = hasRunnableStrategy && hasValidReserve && hasValidIncomeLayer && hasValidDca;
+      const hasValidIbitZscoreExit = hasValidIbitZscoreExitPolicy();
+      const hasValidStrategy = hasRunnableStrategy && hasValidReserve && hasValidIncomeLayer && hasValidDca && hasValidIbitZscoreExit;
       const hasPendingChange = hasPrivateAccounts && hasValidStrategy && hasPendingChanges(buildInputs());
       dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
       dispatch.textContent = state.auth.allowed
@@ -2545,7 +2724,9 @@
             ? (hasRunnableStrategy
               ? (hasValidReserve
                 ? (hasValidIncomeLayer
-                  ? (hasValidDca ? (hasPendingChange ? t("readyNote") : "") : t("invalidDcaNote"))
+                  ? (hasValidDca
+                    ? (hasValidIbitZscoreExit ? (hasPendingChange ? t("readyNote") : "") : t("invalidIbitZscoreExitNote"))
+                    : t("invalidDcaNote"))
                   : t("invalidIncomeLayerNote"))
                 : t("invalidReservePolicyNote"))
               : t("invalidStrategyNote"))
@@ -2668,6 +2849,7 @@
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
           dca_mode: item.dca_mode ? normalizeDcaMode(item.dca_mode) : "",
           dca_base_investment_usd: cleanDisplayPositiveNumber(item.dca_base_investment_usd),
+          ibit_zscore_exit_mode: cleanIbitZscoreExitMode(item.ibit_zscore_exit_mode),
         }));
       }
       return normalized;
@@ -2697,6 +2879,7 @@
           const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
           const dcaMode = entry?.dca_mode ? normalizeDcaMode(entry.dca_mode) : "";
           const dcaBaseInvestmentUsd = cleanDisplayPositiveNumber(entry?.dca_base_investment_usd);
+          const ibitZscoreExitMode = cleanIbitZscoreExitMode(entry?.ibit_zscore_exit_mode);
           const executionMode = normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
           if (
             !profile &&
@@ -2708,6 +2891,7 @@
             runtimeTargetEnabled === null &&
             !dcaMode &&
             !dcaBaseInvestmentUsd &&
+            !ibitZscoreExitMode &&
             !executionMode
           ) continue;
           normalized[platform][String(key)] = {
@@ -2722,6 +2906,7 @@
             runtime_target_enabled: runtimeTargetEnabled,
             dca_mode: dcaMode,
             dca_base_investment_usd: dcaBaseInvestmentUsd,
+            ibit_zscore_exit_mode: ibitZscoreExitMode,
             source: entry?.source ? String(entry.source) : "",
           };
         }
@@ -2783,6 +2968,7 @@
       state.forms[state.selected].reservedCashTouched = false;
       state.forms[state.selected].incomeLayerTouched = false;
       state.forms[state.selected].dcaTouched = false;
+      state.forms[state.selected].ibitZscoreExitTouched = false;
       syncStrategyForAccount(state.selected);
       render();
     });
@@ -2791,8 +2977,10 @@
       state.forms[state.selected].strategy = el("strategy-select").value;
       state.forms[state.selected].incomeLayerTouched = false;
       state.forms[state.selected].dcaTouched = false;
+      state.forms[state.selected].ibitZscoreExitTouched = false;
       syncIncomeLayerForAccount(state.selected);
       syncDcaForAccount(state.selected);
+      syncIbitZscoreExitForAccount(state.selected);
       render();
     });
 
@@ -2804,7 +2992,17 @@
     });
 
     el("plugin-mode-select").addEventListener("change", () => {
-      state.forms[state.selected].pluginMode = normalizePluginMode(el("plugin-mode-select").value);
+      const form = state.forms[state.selected];
+      form.pluginMode = normalizePluginMode(el("plugin-mode-select").value);
+      form.ibitZscoreExitTouched = false;
+      syncIbitZscoreExitForAccount(state.selected);
+      render();
+    });
+
+    el("ibit-zscore-exit-mode-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.ibitZscoreExitTouched = true;
+      form.ibitZscoreExitMode = normalizeIbitZscoreExitMode(el("ibit-zscore-exit-mode-select").value);
       render();
     });
 

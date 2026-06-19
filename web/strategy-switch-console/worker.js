@@ -52,6 +52,9 @@ const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
 const RUNTIME_TARGET_ENABLED_VARIABLE = "RUNTIME_TARGET_ENABLED";
 const DCA_MODE_VARIABLE = "DCA_MODE";
 const DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD";
+const IBIT_ZSCORE_EXIT_MODE_VARIABLE = "IBIT_ZSCORE_EXIT_MODE";
+const IBIT_ZSCORE_EXIT_ENABLED_VARIABLE = "IBIT_ZSCORE_EXIT_ENABLED";
+const IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE = "IBIT_ZSCORE_EXIT_PARKING_SYMBOL";
 const DCA_PROFILE_CONFIG = {
   nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
@@ -589,6 +592,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetIncomeLayerPayload = incomeLayerPayloadFromObject(serviceTarget);
   const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
   const serviceTargetDcaPayload = dcaPayloadFromObject(serviceTarget);
+  const serviceTargetIbitZscorePayload = ibitZscoreExitPayloadFromObject(serviceTarget);
   if (serviceTargetProfile) {
     return {
       strategy_profile: serviceTargetProfile,
@@ -597,6 +601,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
       ...dcaPayloadForProfile(serviceTargetProfile, serviceTargetDcaPayload),
+      ...ibitZscoreExitPayloadForProfile(serviceTargetProfile, serviceTargetIbitZscorePayload),
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -604,13 +609,15 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   if (
     Object.keys(serviceTargetReservedCashPayload).length ||
     Object.keys(serviceTargetIncomeLayerPayload).length ||
-    Object.keys(serviceTargetRuntimeTargetEnabledPayload).length
+    Object.keys(serviceTargetRuntimeTargetEnabledPayload).length ||
+    Object.keys(serviceTargetIbitZscorePayload).length
   ) {
     return {
       ...runtimeModePayload(serviceTarget),
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
+      ...serviceTargetIbitZscorePayload,
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
       variable_scope: "repository",
     };
@@ -643,12 +650,26 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
+  const ibitZscorePayloadPromise = readIbitZscoreExitVariables({
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
   const runtimeTargetValuePromise = readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
-  const [reservedCashPayload, incomeLayerPayload, runtimeTargetEnabledPayload, dcaPayload, runtimeTargetValue] = await Promise.all([
+  const [
+    reservedCashPayload,
+    incomeLayerPayload,
+    runtimeTargetEnabledPayload,
+    dcaPayload,
+    ibitZscorePayload,
+    runtimeTargetValue,
+  ] = await Promise.all([
     reservedCashPayloadPromise,
     incomeLayerPayloadPromise,
     runtimeTargetEnabledPayloadPromise,
     dcaPayloadPromise,
+    ibitZscorePayloadPromise,
     runtimeTargetValuePromise,
   ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
@@ -662,6 +683,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...incomeLayerPayload,
       ...runtimeTargetEnabledPayload,
       ...dcaPayloadForProfile(runtimeTargetProfile, dcaPayload),
+      ...ibitZscoreExitPayloadForProfile(runtimeTargetProfile, ibitZscorePayload),
       source: "RUNTIME_TARGET_JSON",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
@@ -678,6 +700,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
         ...incomeLayerPayload,
         ...runtimeTargetEnabledPayload,
         ...dcaPayloadForProfile(profile, dcaPayload),
+        ...ibitZscoreExitPayloadForProfile(profile, ibitZscorePayload),
         source: "STRATEGY_PROFILE",
         variable_scope: variableScope,
         github_environment: githubEnvironment || "",
@@ -692,17 +715,21 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   if (
     Object.keys(reservedCashPayload).length ||
     Object.keys(incomeLayerPayload).length ||
-    Object.keys(runtimeTargetEnabledPayload).length
+    Object.keys(runtimeTargetEnabledPayload).length ||
+    Object.keys(ibitZscorePayload).length
   ) {
     return {
       ...reservedCashPayload,
       ...incomeLayerPayload,
       ...runtimeTargetEnabledPayload,
+      ...ibitZscorePayload,
       source: Object.keys(reservedCashPayload).length
         ? "RESERVED_CASH_VARIABLES"
         : (Object.keys(incomeLayerPayload).length
           ? "INCOME_LAYER_VARIABLES"
-          : "RUNTIME_TARGET_ENABLED_VARIABLE"),
+          : (Object.keys(runtimeTargetEnabledPayload).length
+            ? "RUNTIME_TARGET_ENABLED_VARIABLE"
+            : "IBIT_ZSCORE_EXIT_VARIABLES")),
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
     };
@@ -863,6 +890,16 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
         }
       }
     }
+    const ibitZscoreMode = ibitZscoreExitModeFromInputs(inputs);
+    if (inputs.strategy_profile === "ibit_smart_dca" && ibitZscoreMode) {
+      if (nextOption.ibit_zscore_exit_mode !== ibitZscoreMode) {
+        nextOption.ibit_zscore_exit_mode = ibitZscoreMode;
+        optionChanged = true;
+      }
+    } else if ("ibit_zscore_exit_mode" in nextOption) {
+      delete nextOption.ibit_zscore_exit_mode;
+      optionChanged = true;
+    }
     changed = changed || optionChanged;
     if (!optionChanged) return option;
     return nextOption;
@@ -895,7 +932,16 @@ function normalizeSwitchInputs(raw) {
   if (directDcaVariables.length) {
     throw new Error("use dca_mode and dca_base_investment_usd control fields instead of DCA_MODE variables");
   }
+  const directIbitZscoreVariables = [
+    IBIT_ZSCORE_EXIT_ENABLED_VARIABLE,
+    IBIT_ZSCORE_EXIT_MODE_VARIABLE,
+    IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE,
+  ].filter((name) => extraVariables[name] !== undefined && String(extraVariables[name] || "").trim() !== "");
+  if (directIbitZscoreVariables.length) {
+    throw new Error("use ibit_zscore_exit_* control fields instead of IBIT_ZSCORE_EXIT variables");
+  }
   const dcaExtraControls = dcaPayloadFromObject(extraVariables);
+  const ibitZscoreExtraControls = ibitZscoreExitPayloadFromObject(extraVariables);
 
   const inputs = {
     platform,
@@ -940,6 +986,19 @@ function normalizeSwitchInputs(raw) {
       dcaBaseInvestmentValue,
       "dca_base_investment_usd",
     );
+  }
+  const rawHasIbitZscoreMode = raw.ibit_zscore_exit_mode !== undefined &&
+    raw.ibit_zscore_exit_mode !== null &&
+    String(raw.ibit_zscore_exit_mode).trim() !== "";
+  const ibitZscoreModeValue = rawHasIbitZscoreMode
+    ? raw.ibit_zscore_exit_mode
+    : ibitZscoreExtraControls.ibit_zscore_exit_mode;
+  const hasIbitZscoreMode = Boolean(String(ibitZscoreModeValue || "").trim());
+  if (strategyProfile !== "ibit_smart_dca" && hasIbitZscoreMode) {
+    throw new Error("IBIT Z-Score exit settings are only supported for ibit_smart_dca");
+  }
+  if (strategyProfile === "ibit_smart_dca" && hasIbitZscoreMode) {
+    extraVariables.ibit_zscore_exit_mode = cleanIbitZscoreExitMode(ibitZscoreModeValue);
   }
   if (Object.keys(extraVariables).length) inputs.extra_variables_json = JSON.stringify(extraVariables);
   return inputs;
@@ -1160,6 +1219,7 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "plugin_mode", item.plugin_mode, (value, field) =>
     cleanChoice(value || "auto", ["auto", "none"], field),
   );
+  addConfigOptional(option, "ibit_zscore_exit_mode", item.ibit_zscore_exit_mode, cleanIbitZscoreExitMode);
   addConfigOptional(option, "dca_mode", item.dca_mode, cleanDcaMode);
   addConfigOptional(option, "dca_base_investment_usd", item.dca_base_investment_usd, cleanPositiveNumber);
   option.supported_domains = shouldInferSupportedDomains(item.supported_domains)
@@ -1275,6 +1335,21 @@ function cleanDcaMode(value, field = "dca_mode") {
   };
   const normalized = aliases[mode] || mode;
   return cleanChoice(normalized, ["fixed", "smart"], field);
+}
+
+function cleanIbitZscoreExitMode(value, field = "ibit_zscore_exit_mode") {
+  const mode = String(value || "").trim().toLowerCase();
+  const aliases = {
+    off: "disabled",
+    none: "disabled",
+    false: "disabled",
+    disable: "disabled",
+    enabled: "live",
+    shadow: "paper",
+    dry_run: "paper",
+    "dry-run": "paper",
+  };
+  return cleanChoice(aliases[mode] || mode, ["disabled", "paper", "live"], field);
 }
 
 function cleanBoolean(value) {
@@ -1405,6 +1480,7 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ...incomeLayerPayloadFromObject(entry),
       ...runtimeTargetEnabledPayloadFromObject(entry),
       ...dcaPayloadFromObject(entry),
+      ...ibitZscoreExitPayloadFromObject(entry),
     };
   }
   return null;
@@ -1438,6 +1514,17 @@ async function readDcaVariables({ repository, variableScope, githubEnvironment, 
     readVariable(repository, variableScope, githubEnvironment, DCA_BASE_INVESTMENT_VARIABLE),
   ]);
   return dcaPayloadFromValues(modeValue, baseInvestmentValue);
+}
+
+async function readIbitZscoreExitVariables({ repository, variableScope, githubEnvironment, readVariable }) {
+  const [enabledValue, modeValue] = await Promise.all([
+    readVariable(repository, variableScope, githubEnvironment, IBIT_ZSCORE_EXIT_ENABLED_VARIABLE),
+    readVariable(repository, variableScope, githubEnvironment, IBIT_ZSCORE_EXIT_MODE_VARIABLE),
+  ]);
+  return ibitZscoreExitPayloadFromObject({
+    [IBIT_ZSCORE_EXIT_ENABLED_VARIABLE]: enabledValue,
+    [IBIT_ZSCORE_EXIT_MODE_VARIABLE]: modeValue,
+  });
 }
 
 function reservedCashPayloadFromObject(platform, payload) {
@@ -1502,6 +1589,34 @@ function dcaPayloadFromObject(payload) {
   );
 }
 
+function ibitZscoreExitPayloadFromObject(payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  const mode = cleanCurrentIbitZscoreExitMode(
+    payload.ibit_zscore_exit_mode ??
+      payload[IBIT_ZSCORE_EXIT_MODE_VARIABLE] ??
+      payload.ibit_zscore_exit_mode,
+    payload.ibit_zscore_exit_enabled ?? payload[IBIT_ZSCORE_EXIT_ENABLED_VARIABLE],
+  );
+  return mode ? { ibit_zscore_exit_mode: mode } : {};
+}
+
+function cleanCurrentIbitZscoreExitMode(modeValue, enabledValue) {
+  const enabled = cleanOptionalBoolean(enabledValue);
+  if (enabled === false) return "disabled";
+  const text = String(modeValue || "").trim();
+  if (!text) return enabled === true ? "live" : "";
+  try {
+    return cleanIbitZscoreExitMode(text);
+  } catch {
+    return "";
+  }
+}
+
+function ibitZscoreExitModeFromInputs(inputs) {
+  const payload = inputs?.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+  return ibitZscoreExitPayloadFromObject(payload).ibit_zscore_exit_mode || "";
+}
+
 function dcaPayloadFromValues(modeValue, baseInvestmentValue) {
   const result = {};
   const mode = cleanCurrentDcaMode(modeValue);
@@ -1521,6 +1636,10 @@ function dcaControlsFromInputs(inputs) {
 
 function dcaPayloadForProfile(profile, payload) {
   return isDcaProfile(profile) ? payload : {};
+}
+
+function ibitZscoreExitPayloadForProfile(profile, payload) {
+  return cleanCurrentStrategy(profile) === "ibit_smart_dca" ? payload : {};
 }
 
 function runtimeModePayload(runtimeTarget) {
