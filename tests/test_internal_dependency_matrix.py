@@ -73,10 +73,13 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
             projects_root=ROOT.parent,
         )
 
-        expected_paths = sorted({f"{pin.consumer_repo}/{pin.path}" for pin in matrix_pins})
         if report.missing_files:
-            self.assertEqual(sorted(report.missing_files), expected_paths)
-            self.assertEqual(report.checked_files, 0)
+            missing_inside_checked_out_repos = [
+                item
+                for item in report.missing_files
+                if (ROOT.parent / item.split("/", 1)[0]).exists()
+            ]
+            self.assertEqual(missing_inside_checked_out_repos, [])
             self.assertEqual(report.issues, [])
             return
 

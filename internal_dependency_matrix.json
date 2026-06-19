@@ -34,14 +34,14 @@
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "3b6a0a9bedde72773e188041e0dc48516b38aadc"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "8278048366f1cd83e29e0c921e4048e7e25ae227"
+      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
     },
     {
       "consumer_repo": "CryptoStrategies",
@@ -55,77 +55,77 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "3b6a0a9bedde72773e188041e0dc48516b38aadc"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     },
     {
       "consumer_repo": "FirstradePlatform",
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "8278048366f1cd83e29e0c921e4048e7e25ae227"
+      "ref": "361338f60900182e3be535cd5fd2be2b9a07b422"
     },
     {
       "consumer_repo": "FirstradePlatform",
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "3b6a0a9bedde72773e188041e0dc48516b38aadc"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     },
     {
       "consumer_repo": "FirstradePlatform",
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "8278048366f1cd83e29e0c921e4048e7e25ae227"
+      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
     },
     {
       "consumer_repo": "HkEquityStrategies",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "023641c88506c732624a7329e48b51b9dbbe3c2a"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "3b6a0a9bedde72773e188041e0dc48516b38aadc"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "8278048366f1cd83e29e0c921e4048e7e25ae227"
+      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "requirements.txt",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "b690fcfd1e26648840723a5ab8b12c873f038b9b"
+      "ref": "4007746ac21379f7ce7cf8e999d2bb37123f6767"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "023641c88506c732624a7329e48b51b9dbbe3c2a"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "7d35772d1125b534d0bcca557cb6dbaf28914719"
+      "ref": "0cd90a37f3ea5e4b6fe27c9a435834df7df3a25f"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "requirements.txt",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "2e0075004239e7ede7ba256763a3441d4ec4ca73"
+      "ref": "4007746ac21379f7ce7cf8e999d2bb37123f6767"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -146,7 +146,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "023641c88506c732624a7329e48b51b9dbbe3c2a"
+      "ref": "b846c9d777a450e95d23c264853997d671f47dd9"
     }
   ]
 }
