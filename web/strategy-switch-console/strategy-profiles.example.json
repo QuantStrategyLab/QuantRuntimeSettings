@@ -54,14 +54,6 @@
     "runtime_enabled": true
   },
   {
-    "profile": "hk_dividend_gold_defensive_rotation",
-    "label": "HK Dividend-Gold Defensive Rotation",
-    "label_en": "HK Dividend-Gold Defensive Rotation",
-    "label_zh": "港股红利黄金防御轮动",
-    "domain": "hk_equity",
-    "runtime_enabled": true
-  },
-  {
     "profile": "hk_global_etf_tactical_rotation",
     "label": "HK Global ETF Tactical Rotation",
     "label_en": "HK Global ETF Tactical Rotation",
