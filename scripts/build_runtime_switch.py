@@ -23,7 +23,7 @@ from runtime_settings import (  # noqa: E402
 )
 
 
-DEFAULT_ARTIFACT_BUCKET_URI = "gs://qsl-runtime-logs-interactivebrokersquant"
+DEFAULT_ARTIFACT_BUCKET_URI = "gs://qsl-runtime-logs-shared"
 MARKET_REGIME_CONTROL_PROFILES = frozenset(
     {
         "tqqq_growth_income",

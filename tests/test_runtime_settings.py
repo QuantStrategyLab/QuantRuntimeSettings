@@ -249,6 +249,11 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(assignments["LONGBRIDGE_DRY_RUN_ONLY"], "false")
         plugin_payload = json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"])
         self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
+        self.assertEqual(
+            plugin_payload["strategy_plugins"][0]["signal_path"],
+            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+            "tqqq_growth_income/plugins/market_regime_control/latest_signal.json",
+        )
         self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_schema_version"], "market_regime_control.v1")
 
     def test_build_switch_target_uses_fork_repository_overrides(self):
@@ -653,6 +658,11 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(
             selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],
             "market_regime_control",
+        )
+        self.assertEqual(
+            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["signal_path"],
+            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+            "tqqq_growth_income/plugins/market_regime_control/latest_signal.json",
         )
         self.assertEqual(untouched["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
 
