@@ -133,7 +133,7 @@ When adding or renaming a strategy profile:
 - Set `domain` on each strategy profile. Current values are `us_equity` and `hk_equity`.
 - Set each affected account's `default_strategy_profile` and `supported_domains` in `account-options.example.json` and the deployed KV account config.
 - Use `["us_equity", "hk_equity"]` for LongBridge and IBKR accounts unless you intentionally want to narrow a specific account.
-- Update the deployed KV `strategy_profiles` key from `strategy-profiles.example.json`.
+- The main-branch deploy workflow updates the deployed KV `strategy_profiles` key from `strategy-profiles.example.json` after deploying the Worker. For manual deploys, call `/api/internal/sync-strategy-profiles` with the Worker sync token.
 - Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.
 - Let `manual-strategy-switch.yml` manage platform plugin mounts. It writes an empty `*_STRATEGY_PLUGIN_MOUNTS_JSON` payload for strategies without plugin mounts, so old strategy plugin config is cleared instead of lingering.
 - Use lower-case ids with letters, numbers, dot, underscore, dash, or equals only. Do not encode account names or secrets in profile ids.
@@ -180,6 +180,8 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 ```
 
 Add the returned namespace id to `wrangler.toml`.
+
+For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
 
 Deploy:
 

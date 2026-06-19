@@ -186,6 +186,17 @@ const unauthorizedSyncResponse = await worker.fetch(
 assert.equal(unauthorizedSyncResponse.status, 401);
 assert.match((await unauthorizedSyncResponse.json()).error, /internal sync token is invalid/);
 
+const unauthorizedProfileSyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-profiles", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: "{}",
+  }),
+  { STRATEGY_SWITCH_SYNC_TOKEN: "test-sync-token" },
+);
+assert.equal(unauthorizedProfileSyncResponse.status, 401);
+assert.match((await unauthorizedProfileSyncResponse.json()).error, /internal sync token is invalid/);
+
 assert.equal(
   await __test.withTimeout(new Promise(() => {}), 1, "fallback"),
   "fallback",
@@ -346,6 +357,48 @@ assert.deepEqual(kvUnboundSyncBody.account_options_sync, {
   reason: "kv_not_bound",
   skipped: true,
 });
+
+const kvUnboundProfileSyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-profiles", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-sync-token",
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  }),
+  { STRATEGY_SWITCH_SYNC_TOKEN: "test-sync-token" },
+);
+assert.equal(kvUnboundProfileSyncResponse.status, 200);
+const kvUnboundProfileSyncBody = await kvUnboundProfileSyncResponse.json();
+assert.equal(kvUnboundProfileSyncBody.ok, true);
+assert.equal(kvUnboundProfileSyncBody.strategy_profiles_sync.reason, "kv_not_bound");
+assert.equal(kvUnboundProfileSyncBody.strategy_profiles_sync.skipped, true);
+
+const profileKvWrites = new Map();
+const profileSyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-profiles", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-sync-token",
+      "Content-Type": "application/json",
+    },
+    body: "{}",
+  }),
+  {
+    STRATEGY_SWITCH_SYNC_TOKEN: "test-sync-token",
+    STRATEGY_SWITCH_CONFIG: {
+      get: async (key) => (key === "strategy_profiles" ? JSON.stringify([{ profile: "stale" }]) : null),
+      put: async (key, value) => profileKvWrites.set(key, value),
+    },
+  },
+);
+assert.equal(profileSyncResponse.status, 200);
+const profileSyncBody = await profileSyncResponse.json();
+assert.equal(profileSyncBody.ok, true);
+assert.equal(profileSyncBody.strategy_profiles_sync.synced, true);
+assert.equal(profileSyncBody.strategy_profiles_sync.changed, true);
+assert.ok(JSON.parse(profileKvWrites.get("strategy_profiles")).some((item) => item.profile === "ibit_smart_dca"));
 
 const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
