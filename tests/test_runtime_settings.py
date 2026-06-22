@@ -44,6 +44,8 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertLessEqual(len(input_names), 25)
         self.assertNotIn("dca_mode", input_names)
         self.assertNotIn("dca_base_investment_usd", input_names)
+        self.assertNotIn("income_threshold_usd", input_names)
+        self.assertNotIn("qqqi_income_ratio", input_names)
 
     def load_target(self, relative_path: str):
         path = ROOT / relative_path
@@ -200,6 +202,24 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertIn(
             "extra_variables.STRATEGY_PROFILE duplicates a generated variable",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_research_only_option_overlay_variables_are_rejected(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["extra_variables"] = {"OPTION_GROWTH_OVERLAY_ENABLED": "true"}
+
+        self.assertIn(
+            "extra_variables.OPTION_GROWTH_OVERLAY_ENABLED is research-only and must not be stored in live switch settings",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_legacy_income_layer_variables_are_rejected(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["extra_variables"] = {"INCOME_THRESHOLD_USD": "250000"}
+
+        self.assertIn(
+            "extra_variables.INCOME_THRESHOLD_USD is research-only and must not be stored in live switch settings",
             runtime_settings.validate_target(target),
         )
 
@@ -594,6 +614,42 @@ class RuntimeSettingsTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "control fields"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_build_switch_target_rejects_research_only_option_overlay_extra_variables(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--extra-variables-json",
+                '{"option_growth_overlay_enabled":"true"}',
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "research-only"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_build_switch_target_rejects_legacy_income_extra_variables(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--extra-variables-json",
+                '{"INCOME_THRESHOLD_USD":"250000"}',
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "legacy income"):
             build_runtime_switch.build_switch_target(args)
 
     def test_build_switch_target_preserves_dca_fields_in_service_targets_when_omitted(self):

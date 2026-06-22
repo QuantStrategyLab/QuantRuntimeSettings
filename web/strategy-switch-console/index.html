@@ -1439,12 +1439,12 @@
     };
 
     const defaultStrategyProfiles = [
-      { profile: "tqqq_growth_income", label: "TQQQ Growth Income", label_en: "TQQQ Growth Income", label_zh: "TQQQ 增长收益", domain: "us_equity", runtime_enabled: true },
-      { profile: "soxl_soxx_trend_income", label: "SOXL/SOXX Semiconductor Trend Income", label_en: "SOXL/SOXX Semiconductor Trend Income", label_zh: "SOXL/SOXX 半导体趋势收益", domain: "us_equity", runtime_enabled: true },
+      { profile: "tqqq_growth_income", label: "TQQQ Growth Income", label_en: "TQQQ Growth Income", label_zh: "TQQQ 增长收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "250000", income_layer_max_ratio: "0.55", income_layer_allocations: { SCHD: 0.30, DGRO: 0.20, SGOV: 0.40, SPYI: 0.08, QQQI: 0.02 } },
+      { profile: "soxl_soxx_trend_income", label: "SOXL/SOXX Semiconductor Trend Income", label_en: "SOXL/SOXX Semiconductor Trend Income", label_zh: "SOXL/SOXX 半导体趋势收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "150000", income_layer_max_ratio: "0.95", income_layer_allocations: { SCHD: 0.15, DGRO: 0.10, SGOV: 0.70, SPYI: 0.04, QQQI: 0.01 } },
       { profile: "nasdaq_sp500_smart_dca", label: "Nasdaq 100 / S&P 500 DCA", label_en: "Nasdaq 100 / S&P 500 DCA", label_zh: "纳指100 / 标普500 定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
       { profile: "ibit_smart_dca", label: "IBIT Bitcoin ETF DCA", label_en: "IBIT Bitcoin ETF DCA", label_zh: "IBIT 比特币定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
-      { profile: "global_etf_rotation", label: "Global ETF Rotation", label_en: "Global ETF Rotation", label_zh: "全球 ETF 轮动", domain: "us_equity", runtime_enabled: true },
-      { profile: "russell_top50_leader_rotation", label: "Russell Top50 Leader Rotation", label_en: "Russell Top50 Leader Rotation", label_zh: "罗素 Top50 领涨轮动", domain: "us_equity", runtime_enabled: true },
+      { profile: "global_etf_rotation", label: "Global ETF Rotation", label_en: "Global ETF Rotation", label_zh: "全球 ETF 轮动", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "500000", income_layer_max_ratio: "0.15", income_layer_allocations: { SCHD: 0.40, DGRO: 0.25, SGOV: 0.30, SPYI: 0.05 } },
+      { profile: "russell_top50_leader_rotation", label: "Russell Top50 Leader Rotation", label_en: "Russell Top50 Leader Rotation", label_zh: "罗素 Top50 领涨轮动", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", income_layer_allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 } },
       { profile: "hk_global_etf_tactical_rotation", label: "HK Global ETF Tactical Rotation", label_en: "HK Global ETF Tactical Rotation", label_zh: "港股全球 ETF 战术轮动", domain: "hk_equity", runtime_enabled: true },
       { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Low-Vol Dividend Quality Snapshot", label_en: "HK Low-Vol Dividend Quality Snapshot", label_zh: "港股低波红利质量快照", domain: "hk_equity", runtime_enabled: true },
     ];
@@ -1460,7 +1460,7 @@
       hk_low_vol_dividend_quality_snapshot: { zh: "港股低波红利质量快照", en: "HK Low-Vol Dividend Quality Snapshot" },
     };
 
-    const incomeLayerDefaults = {
+    const fallbackIncomeLayerDefaults = {
       tqqq_growth_income: {
         startUsd: 250000,
         maxRatio: "0.55",
@@ -1482,6 +1482,7 @@
         allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 },
       },
     };
+    let incomeLayerDefaults = {};
 
     const strategyDomains = ["us_equity", "hk_equity"];
     let strategyOptions = [];
@@ -1870,6 +1871,7 @@
       const nextOptions = [];
       const nextLabels = {};
       const nextCatalog = {};
+      const nextIncomeLayerDefaults = {};
       for (const item of profiles) {
         const profile = cleanStrategyProfile(item?.profile || item?.strategy_profile);
         if (!profile || nextOptions.includes(profile)) continue;
@@ -1897,13 +1899,54 @@
               item?.default_dca_base_investment_usd ||
               dcaDefaults?.defaultBaseInvestmentUsd ||
               "1000",
-          ) || "1000";
+            ) || "1000";
+        }
+        const profileIncomeDefaults = incomeLayerDefaultsFromProfileItem(item);
+        const incomeDefaults = profileIncomeDefaults === false
+          ? null
+          : (profileIncomeDefaults || fallbackIncomeLayerDefaults[profile] || null);
+        if (incomeDefaults) {
+          nextIncomeLayerDefaults[profile] = incomeDefaults;
+          nextCatalog[profile].income_layer_enabled = true;
+          nextCatalog[profile].income_layer_start_usd = String(incomeDefaults.startUsd);
+          nextCatalog[profile].income_layer_max_ratio = incomeDefaults.maxRatio;
+          nextCatalog[profile].income_layer_allocations = incomeDefaults.allocations;
         }
       }
       if (!nextOptions.length && profiles !== defaultStrategyProfiles) return applyStrategyProfiles(defaultStrategyProfiles);
       strategyOptions = nextOptions;
       strategyLabels = nextLabels;
       strategyCatalog = nextCatalog;
+      incomeLayerDefaults = nextIncomeLayerDefaults;
+    }
+
+    function incomeLayerDefaultsFromProfileItem(item) {
+      const enabled = cleanOptionalBoolean(item?.income_layer_enabled);
+      const hasConfig = enabled !== null ||
+        item?.income_layer_start_usd !== undefined ||
+        item?.income_layer_max_ratio !== undefined ||
+        item?.income_layer_allocations !== undefined;
+      if (!hasConfig) return null;
+      if (enabled === false) return false;
+      const startUsd = cleanDisplayNumber(item?.income_layer_start_usd);
+      const maxRatio = cleanDisplayRatio(item?.income_layer_max_ratio);
+      const allocations = cleanIncomeLayerAllocations(item?.income_layer_allocations);
+      if (!startUsd || !maxRatio || !allocations) return null;
+      return { startUsd, maxRatio, allocations };
+    }
+
+    function cleanIncomeLayerAllocations(value) {
+      if (!value || Array.isArray(value) || typeof value !== "object") return null;
+      const allocations = {};
+      let total = 0;
+      for (const [rawSymbol, rawRatio] of Object.entries(value)) {
+        const symbol = String(rawSymbol || "").trim().toUpperCase();
+        const ratio = cleanDisplayPositiveNumber(rawRatio);
+        if (!/^[A-Z0-9.-]{1,12}$/.test(symbol) || !ratio) continue;
+        allocations[symbol] = Number(ratio);
+        total += Number(ratio);
+      }
+      return total > 0 && Object.keys(allocations).length ? allocations : null;
     }
 
     function supportedDomainsForAccount(platform, account) {

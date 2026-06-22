@@ -94,6 +94,30 @@ INCOME_LAYER_VARIABLES = (
     "INCOME_LAYER_START_USD",
     "INCOME_LAYER_MAX_RATIO",
 )
+LEGACY_INCOME_LAYER_VARIABLES = (
+    "INCOME_THRESHOLD_USD",
+    "QQQI_INCOME_RATIO",
+    "INCOME_LAYER_QQQI_WEIGHT",
+    "INCOME_LAYER_SPYI_WEIGHT",
+)
+LEGACY_INCOME_LAYER_CONTROL_FIELDS = (
+    "income_threshold_usd",
+    "qqqi_income_ratio",
+    "income_layer_qqqi_weight",
+    "income_layer_spyi_weight",
+)
+OPTION_OVERLAY_CONTROL_FIELDS = (
+    "option_overlay_enabled",
+    "option_growth_overlay_enabled",
+    "option_growth_overlay_recipe",
+    "option_growth_overlay_start_usd",
+    "option_growth_overlay_nav_budget_ratio",
+    "option_income_overlay_enabled",
+    "option_income_overlay_recipe",
+    "option_income_overlay_start_usd",
+    "option_income_overlay_nav_risk_ratio",
+)
+OPTION_OVERLAY_VARIABLES = tuple(field.upper() for field in OPTION_OVERLAY_CONTROL_FIELDS)
 RUNTIME_TARGET_VARIABLES = (
     "RUNTIME_TARGET_ENABLED",
 )
@@ -377,6 +401,25 @@ def _reject_direct_ibit_zscore_exit_extra_variables(extra_variables: dict[str, A
         raise ValueError(
             "use ibit_zscore_exit_* control fields instead of extra_variables_json "
             f"for {names}"
+        )
+
+
+def _reject_research_only_extra_variables(extra_variables: dict[str, Any]) -> None:
+    blocked = [
+        name
+        for name in (
+            *OPTION_OVERLAY_CONTROL_FIELDS,
+            *OPTION_OVERLAY_VARIABLES,
+            *LEGACY_INCOME_LAYER_CONTROL_FIELDS,
+            *LEGACY_INCOME_LAYER_VARIABLES,
+        )
+        if name in extra_variables
+    ]
+    if blocked:
+        names = ", ".join(blocked)
+        raise ValueError(
+            "direct option overlay settings and legacy income controls are research-only "
+            f"and are not supported by live strategy switch settings: {names}"
         )
 
 
@@ -699,6 +742,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     ibit_zscore_exit_controls = _extract_ibit_zscore_exit_control_fields(extra_variables)
     _reject_direct_dca_extra_variables(extra_variables)
     _reject_direct_ibit_zscore_exit_extra_variables(extra_variables)
+    _reject_research_only_extra_variables(extra_variables)
 
     if args.set_platform_dry_run_variable:
         extra_variables[PLATFORM_DRY_RUN_VARIABLES[platform]] = env_string(runtime_target["dry_run_only"])
@@ -710,10 +754,6 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         extra_variables["INCOME_LAYER_START_USD"] = args.income_layer_start_usd
     if args.income_layer_max_ratio:
         extra_variables["INCOME_LAYER_MAX_RATIO"] = args.income_layer_max_ratio
-    if args.income_threshold_usd:
-        extra_variables["INCOME_THRESHOLD_USD"] = args.income_threshold_usd
-    if args.qqqi_income_ratio:
-        extra_variables["QQQI_INCOME_RATIO"] = args.qqqi_income_ratio
     extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"], dca_controls))
     extra_variables.update(
         _ibit_zscore_exit_extra_variables(
@@ -786,8 +826,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-reserved-cash-usd", default="")
     parser.add_argument("--income-layer-start-usd", default="")
     parser.add_argument("--income-layer-max-ratio", default="")
-    parser.add_argument("--income-threshold-usd", default="")
-    parser.add_argument("--qqqi-income-ratio", default="")
     parser.add_argument("--dca-mode", default="")
     parser.add_argument("--dca-base-investment-usd", default="")
     parser.add_argument("--ibit-zscore-exit-mode", choices=("disabled", "paper", "live"), default="")

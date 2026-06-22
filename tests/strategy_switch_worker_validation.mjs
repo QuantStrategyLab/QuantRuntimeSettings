@@ -32,6 +32,10 @@ assert.ok(indexHtml.includes('id="income-layer-start-usd-input"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsd: "收入层起始金额"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsd: "Income layer start amount"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD"'));
+assert.ok(indexHtml.includes("fallbackIncomeLayerDefaults"));
+assert.ok(indexHtml.includes("incomeLayerDefaultsFromProfileItem"));
+assert.equal(indexHtml.includes('id="option-overlay'), false);
+assert.equal(indexHtml.includes("option_growth_overlay"), false);
 assert.ok(indexHtml.includes('id="dca-mode-select"'));
 assert.ok(indexHtml.includes('id="dca-base-investment-usd-input"'));
 assert.ok(indexHtml.includes('dcaMode: "定投模式"'));
@@ -245,6 +249,18 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       label_zh: "TQQQ 增长收益",
       domain: "us_equity",
       runtime_enabled: true,
+      income_layer_enabled: true,
+      income_layer_start_usd: "250000",
+      income_layer_max_ratio: "0.55",
+      income_layer_allocations: { SCHD: 0.3, DGRO: 0.2, SGOV: 0.4, SPYI: 0.08, QQQI: 0.02 },
+      option_overlay_enabled: true,
+      option_overlay_live_gate: "promotion_required",
+      option_overlay_live_status: "research_only",
+      option_growth_overlay_enabled: true,
+      option_growth_overlay_recipe: "tqqq_leaps_growth_v1",
+      option_growth_overlay_start_usd: "250000",
+      option_growth_overlay_nav_budget_ratio: "0.03",
+      option_income_overlay_enabled: false,
     },
     {
       profile: "hk_low_vol_dividend_quality_snapshot",
@@ -264,6 +280,24 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
 );
 assert.equal(strategyProfiles[0].label_en, "TQQQ Growth Income");
 assert.equal(strategyProfiles[0].label_zh, "TQQQ 增长收益");
+assert.equal(strategyProfiles[0].income_layer_enabled, true);
+assert.equal(strategyProfiles[0].income_layer_start_usd, "250000");
+assert.equal(strategyProfiles[0].income_layer_max_ratio, "0.55");
+assert.deepEqual(strategyProfiles[0].income_layer_allocations, {
+  SCHD: 0.3,
+  DGRO: 0.2,
+  SGOV: 0.4,
+  SPYI: 0.08,
+  QQQI: 0.02,
+});
+assert.equal(strategyProfiles[0].option_overlay_enabled, true);
+assert.equal(strategyProfiles[0].option_overlay_live_gate, "promotion_required");
+assert.equal(strategyProfiles[0].option_overlay_live_status, "research_only");
+assert.equal(strategyProfiles[0].option_growth_overlay_enabled, true);
+assert.equal(strategyProfiles[0].option_growth_overlay_recipe, "tqqq_leaps_growth_v1");
+assert.equal(strategyProfiles[0].option_growth_overlay_start_usd, "250000");
+assert.equal(strategyProfiles[0].option_growth_overlay_nav_budget_ratio, "0.03");
+assert.equal(strategyProfiles[0].option_income_overlay_enabled, false);
 assert.equal(strategyProfiles[2].dca_enabled, true);
 assert.equal(strategyProfiles[2].dca_default_mode, "fixed");
 assert.equal(strategyProfiles[2].dca_default_base_investment_usd, "1000");
@@ -505,6 +539,24 @@ assert.throws(
     extra_variables_json: JSON.stringify({ DCA_MODE: "smart" }),
   }),
   /control fields/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    extra_variables_json: JSON.stringify({ option_growth_overlay_enabled: "true" }),
+  }),
+  /research-only/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    extra_variables_json: JSON.stringify({ INCOME_THRESHOLD_USD: "250000" }),
+  }),
+  /research-only/,
 );
 const normalizedReserveClearInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",

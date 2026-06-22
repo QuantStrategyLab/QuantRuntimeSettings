@@ -55,6 +55,35 @@ const DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD";
 const IBIT_ZSCORE_EXIT_MODE_VARIABLE = "IBIT_ZSCORE_EXIT_MODE";
 const IBIT_ZSCORE_EXIT_ENABLED_VARIABLE = "IBIT_ZSCORE_EXIT_ENABLED";
 const IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE = "IBIT_ZSCORE_EXIT_PARKING_SYMBOL";
+const LEGACY_INCOME_LAYER_CONTROL_FIELDS = [
+  "income_threshold_usd",
+  "qqqi_income_ratio",
+  "income_layer_qqqi_weight",
+  "income_layer_spyi_weight",
+];
+const LEGACY_INCOME_LAYER_VARIABLES = [
+  "INCOME_THRESHOLD_USD",
+  "QQQI_INCOME_RATIO",
+  "INCOME_LAYER_QQQI_WEIGHT",
+  "INCOME_LAYER_SPYI_WEIGHT",
+];
+const OPTION_OVERLAY_CONTROL_FIELDS = [
+  "option_overlay_enabled",
+  "option_growth_overlay_enabled",
+  "option_growth_overlay_recipe",
+  "option_growth_overlay_start_usd",
+  "option_growth_overlay_nav_budget_ratio",
+  "option_income_overlay_enabled",
+  "option_income_overlay_recipe",
+  "option_income_overlay_start_usd",
+  "option_income_overlay_nav_risk_ratio",
+];
+const OPTION_OVERLAY_VARIABLES = OPTION_OVERLAY_CONTROL_FIELDS.map((field) => field.toUpperCase());
+const OPTION_OVERLAY_PROFILE_FIELDS = [
+  ...OPTION_OVERLAY_CONTROL_FIELDS,
+  "option_overlay_live_gate",
+  "option_overlay_live_status",
+];
 const DCA_PROFILE_CONFIG = {
   nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
@@ -989,6 +1018,7 @@ function normalizeSwitchInputs(raw) {
   if (directIbitZscoreVariables.length) {
     throw new Error("use ibit_zscore_exit_* control fields instead of IBIT_ZSCORE_EXIT variables");
   }
+  rejectResearchOnlyExtraVariables(extraVariables);
   const dcaExtraControls = dcaPayloadFromObject(extraVariables);
   const ibitZscoreExtraControls = ibitZscoreExitPayloadFromObject(extraVariables);
 
@@ -1211,8 +1241,119 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
         `${fieldName}[${index}].dca_default_base_investment_usd`,
       );
     }
+    const incomeLayerConfig = incomeLayerConfigFromProfileItem(item, `${fieldName}[${index}]`);
+    if (incomeLayerConfig) Object.assign(entry, incomeLayerConfig);
+    const optionOverlayConfig = optionOverlayConfigFromProfileItem(item, `${fieldName}[${index}]`);
+    if (optionOverlayConfig) Object.assign(entry, optionOverlayConfig);
     result.push(entry);
   }
+  return result;
+}
+
+function rejectResearchOnlyExtraVariables(extraVariables) {
+  const blocked = [
+    ...LEGACY_INCOME_LAYER_CONTROL_FIELDS,
+    ...LEGACY_INCOME_LAYER_VARIABLES,
+    ...OPTION_OVERLAY_CONTROL_FIELDS,
+    ...OPTION_OVERLAY_VARIABLES,
+  ].filter((name) => extraVariables[name] !== undefined);
+  if (blocked.length) {
+    throw new Error(
+      `direct option overlay settings and legacy income controls are research-only: ${blocked.join(", ")}`,
+    );
+  }
+}
+
+function incomeLayerConfigFromProfileItem(item, fieldName) {
+  const hasIncomeLayerConfig = [
+    "income_layer_enabled",
+    "income_layer_start_usd",
+    "income_layer_max_ratio",
+    "income_layer_allocations",
+  ].some((field) => item[field] !== undefined && item[field] !== null && String(item[field]).trim() !== "");
+  if (!hasIncomeLayerConfig) return null;
+  const enabled = item.income_layer_enabled === undefined || item.income_layer_enabled === null
+    ? true
+    : cleanProfileBoolean(item.income_layer_enabled);
+  if (!enabled) return { income_layer_enabled: false };
+  return {
+    income_layer_enabled: true,
+    income_layer_start_usd: cleanNonNegativeNumber(
+      item.income_layer_start_usd,
+      `${fieldName}.income_layer_start_usd`,
+    ),
+    income_layer_max_ratio: cleanRatio(item.income_layer_max_ratio, `${fieldName}.income_layer_max_ratio`),
+    income_layer_allocations: cleanIncomeLayerAllocations(
+      item.income_layer_allocations,
+      `${fieldName}.income_layer_allocations`,
+    ),
+  };
+}
+
+function optionOverlayConfigFromProfileItem(item, fieldName) {
+  const hasOptionOverlayConfig = OPTION_OVERLAY_PROFILE_FIELDS.some((field) =>
+    item[field] !== undefined && item[field] !== null && String(item[field]).trim() !== "",
+  );
+  if (!hasOptionOverlayConfig) return null;
+  const enabled = item.option_overlay_enabled === undefined || item.option_overlay_enabled === null
+    ? true
+    : cleanProfileBoolean(item.option_overlay_enabled);
+  const result = { option_overlay_enabled: enabled };
+  addConfigOptional(result, "option_overlay_live_gate", item.option_overlay_live_gate || (enabled ? "promotion_required" : "disabled"), (value, field) =>
+    cleanChoice(value, ["promotion_required", "live_allowed", "disabled"], field),
+  );
+  addConfigOptional(result, "option_overlay_live_status", item.option_overlay_live_status || (enabled ? "research_only" : "disabled"), (value, field) =>
+    cleanChoice(value, ["research_only", "live_allowed", "disabled"], field),
+  );
+  if (!enabled) return result;
+
+  addOptionalOptionFamilyConfig(result, item, "growth", fieldName);
+  addOptionalOptionFamilyConfig(result, item, "income", fieldName);
+  return result;
+}
+
+function addOptionalOptionFamilyConfig(target, item, family, fieldName) {
+  const prefix = `option_${family}_overlay`;
+  const enabledField = `${prefix}_enabled`;
+  if (item[enabledField] === undefined || item[enabledField] === null || String(item[enabledField]).trim() === "") {
+    return;
+  }
+  const enabled = cleanProfileBoolean(item[enabledField]);
+  target[enabledField] = enabled;
+  if (!enabled) return;
+
+  target[`${prefix}_recipe`] = cleanSlug(item[`${prefix}_recipe`], `${fieldName}.${prefix}_recipe`);
+  target[`${prefix}_start_usd`] = cleanNonNegativeNumber(
+    item[`${prefix}_start_usd`],
+    `${fieldName}.${prefix}_start_usd`,
+  );
+  if (family === "growth") {
+    target.option_growth_overlay_nav_budget_ratio = cleanRatio(
+      item.option_growth_overlay_nav_budget_ratio,
+      `${fieldName}.option_growth_overlay_nav_budget_ratio`,
+    );
+  } else {
+    target.option_income_overlay_nav_risk_ratio = cleanRatio(
+      item.option_income_overlay_nav_risk_ratio,
+      `${fieldName}.option_income_overlay_nav_risk_ratio`,
+    );
+  }
+}
+
+function cleanIncomeLayerAllocations(value, fieldName) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  const result = {};
+  let total = 0;
+  for (const [rawSymbol, rawWeight] of Object.entries(value)) {
+    const symbol = String(rawSymbol || "").trim().toUpperCase();
+    if (!/^[A-Z0-9.-]{1,12}$/.test(symbol)) throw new Error(`${fieldName} contains an invalid symbol`);
+    const weight = Number(cleanPositiveNumber(rawWeight, `${fieldName}.${symbol}`));
+    total += weight;
+    result[symbol] = weight;
+  }
+  if (!Object.keys(result).length || total <= 0) throw new Error(`${fieldName} must contain positive allocations`);
   return result;
 }
 
