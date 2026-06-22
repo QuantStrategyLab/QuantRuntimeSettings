@@ -47,6 +47,28 @@ WINDOW_MODES = {
 SCHEDULER_FIELDS = frozenset({"timezone", "main_time", "probe_time", "precheck_time"})
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
 SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
+LEGACY_INCOME_LAYER_VARIABLES = frozenset(
+    {
+        "INCOME_THRESHOLD_USD",
+        "QQQI_INCOME_RATIO",
+        "INCOME_LAYER_QQQI_WEIGHT",
+        "INCOME_LAYER_SPYI_WEIGHT",
+    }
+)
+OPTION_OVERLAY_VARIABLES = frozenset(
+    {
+        "OPTION_OVERLAY_ENABLED",
+        "OPTION_GROWTH_OVERLAY_ENABLED",
+        "OPTION_GROWTH_OVERLAY_RECIPE",
+        "OPTION_GROWTH_OVERLAY_START_USD",
+        "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
+        "OPTION_INCOME_OVERLAY_ENABLED",
+        "OPTION_INCOME_OVERLAY_RECIPE",
+        "OPTION_INCOME_OVERLAY_START_USD",
+        "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
+    }
+)
+RESEARCH_ONLY_EXTRA_VARIABLES = LEGACY_INCOME_LAYER_VARIABLES | OPTION_OVERLAY_VARIABLES
 PLATFORM_DRY_RUN_VARIABLES = {
     "schwab": "SCHWAB_DRY_RUN_ONLY",
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
@@ -421,6 +443,10 @@ def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
     for name, value in extra_variables.items():
         if name in generated_names:
             errors.append(f"extra_variables.{name} duplicates a generated variable")
+        if name in RESEARCH_ONLY_EXTRA_VARIABLES:
+            errors.append(
+                f"extra_variables.{name} is research-only and must not be stored in live switch settings"
+            )
         if is_secret_variable_name(name):
             errors.append(f"extra_variables.{name} looks like a secret and must not be stored here")
         if isinstance(value, str) and "\n" in value:

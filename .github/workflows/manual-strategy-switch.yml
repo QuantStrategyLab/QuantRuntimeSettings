@@ -71,7 +71,7 @@ on:
         required: false
         type: string
       extra_variables_json:
-        description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields."
+        description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields. Research-only option overlays are rejected."
         required: false
         type: string
       reserved_cash_ratio:
@@ -88,14 +88,6 @@ on:
         type: string
       income_layer_max_ratio:
         description: "Optional income layer maximum allocation ratio."
-        required: false
-        type: string
-      income_threshold_usd:
-        description: "Optional TQQQ income threshold override."
-        required: false
-        type: string
-      qqqi_income_ratio:
-        description: "Optional TQQQ QQQI income ratio override."
         required: false
         type: string
       service_targets_mode:
@@ -157,8 +149,6 @@ jobs:
       MIN_RESERVED_CASH_USD: ${{ inputs.min_reserved_cash_usd }}
       INCOME_LAYER_START_USD: ${{ inputs.income_layer_start_usd }}
       INCOME_LAYER_MAX_RATIO: ${{ inputs.income_layer_max_ratio }}
-      INCOME_THRESHOLD_USD: ${{ inputs.income_threshold_usd }}
-      QQQI_INCOME_RATIO: ${{ inputs.qqqi_income_ratio }}
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
@@ -296,12 +286,6 @@ jobs:
           fi
           if [ -n "${INCOME_LAYER_MAX_RATIO:-}" ]; then
             args+=(--income-layer-max-ratio "${INCOME_LAYER_MAX_RATIO}")
-          fi
-          if [ -n "${INCOME_THRESHOLD_USD:-}" ]; then
-            args+=(--income-threshold-usd "${INCOME_THRESHOLD_USD}")
-          fi
-          if [ -n "${QQQI_INCOME_RATIO:-}" ]; then
-            args+=(--qqqi-income-ratio "${QQQI_INCOME_RATIO}")
           fi
           if [ -s "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
             args+=(--existing-service-targets-json-file "${EXISTING_SERVICE_TARGETS_JSON_FILE}")
