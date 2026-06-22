@@ -88,6 +88,21 @@ class RuntimeSettingsTest(unittest.TestCase):
             assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"],
         )
 
+    def test_auto_market_regime_control_profiles_cover_published_strategy_artifacts(self):
+        strategy_profiles = {
+            item["profile"]
+            for item in json.loads(
+                (ROOT / "web/strategy-switch-console/strategy-profiles.example.json").read_text(encoding="utf-8")
+            )
+        }
+        published_strategy_artifact_profiles = {
+            "tqqq_growth_income",
+            "soxl_soxx_trend_income",
+        }
+
+        self.assertLessEqual(published_strategy_artifact_profiles, strategy_profiles)
+        self.assertEqual(published_strategy_artifact_profiles, build_runtime_switch.MARKET_REGIME_CONTROL_PROFILES)
+
     def test_assignment_payload_can_redact_values(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")
         assignment = next(
@@ -300,8 +315,6 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "live",
                 "--strategy-profile",
                 "soxl_soxx_trend_income",
-                "--plugin-mode",
-                "none",
             ]
         )
 
@@ -313,12 +326,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn("environment", target["github"])
         self.assertEqual(target["runtime_target"]["service_name"], "charles-schwab-quant-service")
         self.assertEqual(assignments["SCHWAB_DRY_RUN_ONLY"], "false")
+        plugin_payload = json.loads(assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"])
+        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
         self.assertEqual(
-            json.loads(assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"]),
-            {"strategy_plugins": []},
+            plugin_payload["strategy_plugins"][0]["signal_path"],
+            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+            "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
         )
 
-    def test_build_switch_target_clears_plugin_mounts_for_unmounted_strategy(self):
+    def test_build_switch_target_auto_mounts_market_regime_control_for_soxl(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -335,9 +351,12 @@ class RuntimeSettingsTest(unittest.TestCase):
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
 
         self.assertEqual(assignments["STRATEGY_PROFILE"], "soxl_soxx_trend_income")
+        plugin_payload = json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"])
+        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
         self.assertEqual(
-            json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"]),
-            {"strategy_plugins": []},
+            plugin_payload["strategy_plugins"][0]["signal_path"],
+            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+            "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
         )
 
     def test_build_switch_target_defaults_firstrade_repository_scope(self):
@@ -828,7 +847,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(selected["IBKR_MIN_RESERVED_CASH_USD"], "")
         self.assertEqual(selected["IBKR_RESERVED_CASH_RATIO"], "")
 
-    def test_build_switch_target_patches_ibkr_service_targets_with_empty_plugin_mounts(self):
+    def test_build_switch_target_patches_ibkr_service_targets_with_soxl_plugin_mounts(self):
         existing = {
             "targets": [
                 {
@@ -885,7 +904,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         selected = patched["targets"][0]
 
         self.assertEqual(selected["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
-        self.assertEqual(selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"], {"strategy_plugins": []})
+        self.assertEqual(
+            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],
+            "market_regime_control",
+        )
+        self.assertEqual(
+            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["signal_path"],
+            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+            "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
+        )
 
 
 if __name__ == "__main__":

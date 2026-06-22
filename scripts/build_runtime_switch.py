@@ -24,11 +24,13 @@ from runtime_settings import (  # noqa: E402
 
 
 DEFAULT_ARTIFACT_BUCKET_URI = "gs://qsl-runtime-logs-shared"
+# Keep this list limited to strategy-scope artifacts that the publisher
+# currently produces. QPK may parse broader explicit mounts for forward
+# compatibility, but auto mode must not generate missing latest_signal paths.
 MARKET_REGIME_CONTROL_PROFILES = frozenset(
     {
         "tqqq_growth_income",
-        "global_etf_rotation",
-        "russell_top50_leader_rotation",
+        "soxl_soxx_trend_income",
     }
 )
 IBIT_ZSCORE_EXIT_STRATEGY_PROFILE = "ibit_smart_dca"
