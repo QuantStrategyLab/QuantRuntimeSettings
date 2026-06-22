@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>QuantRuntimeSettings Strategy Switch</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='38' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%230b8a80'/%3E%3Cstop offset='1' stop-color='%23075f62'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='24' cy='24' r='22' fill='url(%23g)'/%3E%3Cpath d='M17 31 31 17M22 16h10v10' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <style>
     :root {
       --bg: #f5f6f8;
@@ -664,12 +665,470 @@
       color: var(--muted);
     }
 
+    /* Modern visual polish layer: keeps the existing markup and behavior intact. */
+    :root {
+      --bg: #f4f8fb;
+      --surface: rgba(255, 255, 255, 0.94);
+      --soft: #f1f5f8;
+      --ink: #101725;
+      --muted: #617083;
+      --line: #d9e2ea;
+      --line-strong: #b8c7d4;
+      --accent: #08796f;
+      --accent-ink: #ffffff;
+      --danger: #b54137;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --shadow-soft: 0 18px 48px rgba(16, 23, 37, 0.08);
+      --shadow-panel: 0 22px 70px rgba(25, 45, 68, 0.11);
+    }
+
+    body {
+      position: relative;
+      overflow-x: hidden;
+      background:
+        radial-gradient(circle at 14% 0%, rgba(8, 121, 111, 0.12), transparent 34%),
+        radial-gradient(circle at 86% 4%, rgba(47, 95, 159, 0.11), transparent 32%),
+        linear-gradient(180deg, #fbfdff 0%, var(--bg) 55%, #eef4f8 100%);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      pointer-events: none;
+      opacity: 0.42;
+      background-image:
+        linear-gradient(rgba(8, 121, 111, 0.07) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(47, 95, 159, 0.055) 1px, transparent 1px),
+        linear-gradient(135deg, transparent 0 44%, rgba(8, 121, 111, 0.08) 45% 46%, transparent 47% 100%);
+      background-size: 72px 72px, 72px 72px, 340px 190px;
+      -webkit-mask-image: linear-gradient(180deg, #000 0, rgba(0, 0, 0, 0.72) 260px, transparent 680px);
+      mask-image: linear-gradient(180deg, #000 0, rgba(0, 0, 0, 0.72) 260px, transparent 680px);
+    }
+
+    .topbar {
+      width: min(1400px, calc(100vw - 28px));
+      min-height: 88px;
+      margin: 10px auto 0;
+      padding: 18px 22px;
+      top: 10px;
+      border: 1px solid rgba(210, 222, 232, 0.9);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.82);
+      box-shadow: 0 14px 42px rgba(22, 35, 53, 0.08);
+      backdrop-filter: blur(22px);
+    }
+
+    .brand {
+      grid-template-columns: 46px minmax(0, 1fr);
+      column-gap: 12px;
+      align-items: center;
+    }
+
+    .brand::before {
+      content: "↗";
+      grid-row: 1 / 3;
+      width: 44px;
+      height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at 34% 28%, rgba(255, 255, 255, 0.88), transparent 28%),
+        linear-gradient(135deg, #0b8a80, #075f62 72%);
+      color: #ffffff;
+      font-size: 22px;
+      font-weight: 860;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25), 0 10px 24px rgba(8, 121, 111, 0.22);
+    }
+
+    h1 {
+      font-size: clamp(24px, 2vw, 30px);
+      letter-spacing: -0.03em;
+    }
+
+    .brand p {
+      color: #66758a;
+      font-size: 13px;
+    }
+
+    .btn,
+    .pill {
+      min-height: 40px;
+      border-color: rgba(203, 215, 226, 0.9);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.82);
+      color: #45566b;
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75), 0 8px 20px rgba(22, 35, 53, 0.05);
+    }
+
+    .btn:hover {
+      border-color: rgba(145, 163, 181, 0.86);
+      background: #ffffff;
+      box-shadow: 0 12px 24px rgba(22, 35, 53, 0.08);
+    }
+
+    .shell {
+      width: min(1400px, calc(100vw - 36px));
+      padding: 12px 0 42px;
+      gap: 12px;
+    }
+
+    .platform-strip {
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 16px;
+      padding: 16px;
+      border: 1px solid rgba(210, 222, 232, 0.85);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.74);
+      box-shadow: var(--shadow-soft);
+      backdrop-filter: blur(16px);
+    }
+
+    .platform-button {
+      position: relative;
+      min-height: 72px;
+      gap: 14px;
+      padding: 14px 46px 14px 14px;
+      border: 1px solid rgba(207, 218, 229, 0.9);
+      border-left: 1px solid rgba(207, 218, 229, 0.9);
+      border-radius: var(--radius-md);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(250, 252, 254, 0.9));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
+
+    .platform-button:hover {
+      transform: translateY(-2px);
+      border-color: color-mix(in srgb, var(--platform-color) 34%, var(--line));
+      box-shadow: 0 14px 28px rgba(22, 35, 53, 0.08);
+    }
+
+    .platform-button.active {
+      border-color: color-mix(in srgb, var(--platform-color) 58%, var(--line));
+      background:
+        radial-gradient(circle at 12% 18%, color-mix(in srgb, var(--platform-color) 16%, transparent), transparent 42%),
+        linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--platform-color) 5%, #ffffff));
+      box-shadow: 0 16px 34px color-mix(in srgb, var(--platform-color) 18%, transparent);
+    }
+
+    .platform-button.active::after {
+      content: "✓";
+      position: absolute;
+      top: 50%;
+      right: 16px;
+      width: 24px;
+      height: 24px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: var(--platform-color);
+      color: #ffffff;
+      font-size: 14px;
+      font-weight: 880;
+      transform: translateY(-50%);
+      box-shadow: 0 8px 18px color-mix(in srgb, var(--platform-color) 24%, transparent);
+    }
+
+    .mark {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: color-mix(in srgb, var(--platform-color) 10%, #f7fafc);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--platform-color) 10%, transparent);
+    }
+
+    .platform-button.active .mark {
+      background: linear-gradient(135deg, var(--platform-color), color-mix(in srgb, var(--platform-color) 72%, #052f36));
+      box-shadow: 0 12px 24px color-mix(in srgb, var(--platform-color) 22%, transparent);
+    }
+
+    .platform-copy strong {
+      color: #121a28;
+      font-size: 16px;
+      letter-spacing: -0.015em;
+    }
+
+    .platform-copy span,
+    .platform-copy small {
+      line-height: 1.35;
+    }
+
+    .switch-surface {
+      grid-template-columns: minmax(0, 1.56fr) minmax(390px, 0.94fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .switch-panel,
+    .summary-panel {
+      border: 1px solid rgba(210, 222, 232, 0.92);
+      border-radius: var(--radius-lg);
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: var(--shadow-panel);
+      backdrop-filter: blur(18px);
+    }
+
+    .switch-panel {
+      gap: 18px;
+      padding: 24px;
+    }
+
+    .panel-head {
+      padding-bottom: 2px;
+    }
+
+    .eyebrow {
+      color: #64748b;
+      font-size: 12px;
+      letter-spacing: 0.04em;
+    }
+
+    .panel-head h2 {
+      color: #111827;
+      font-size: clamp(31px, 3vw, 42px);
+      letter-spacing: -0.045em;
+    }
+
+    .public-note {
+      max-width: 720px;
+      color: #53657a;
+      font-size: 15px;
+    }
+
+    .public-preview {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 4px;
+    }
+
+    .public-preview-card {
+      min-width: 0;
+      display: grid;
+      gap: 6px;
+      padding: 16px;
+      border: 1px solid rgba(212, 223, 234, 0.86);
+      border-radius: var(--radius-md);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 252, 0.88));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+    }
+
+    .public-preview-card strong {
+      color: #152033;
+      font-size: 14px;
+      line-height: 1.3;
+      font-weight: 800;
+    }
+
+    .public-preview-card span {
+      color: #64748b;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .quick-form {
+      gap: 14px;
+    }
+
+    .form-section {
+      position: relative;
+      gap: 14px 16px;
+      padding: 16px;
+      border: 1px solid rgba(215, 225, 235, 0.86);
+      border-radius: var(--radius-md);
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--platform-color, var(--accent)) 5%, transparent), transparent 32%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 252, 254, 0.88));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.84);
+    }
+
+    .form-section + .form-section {
+      padding-top: 16px;
+      border-top: 1px solid rgba(215, 225, 235, 0.86);
+    }
+
+    .control-block {
+      grid-template-rows: auto 46px minmax(20px, auto);
+      gap: 8px;
+      color: #53657a;
+      font-size: 12px;
+      line-height: 1.25;
+      font-weight: 790;
+    }
+
+    .control-block > span:first-child {
+      color: #293548;
+    }
+
+    select,
+    input,
+    .mode {
+      min-height: 46px;
+      border-color: rgba(207, 219, 230, 0.92);
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 8px 20px rgba(22, 35, 53, 0.035);
+    }
+
+    select,
+    input {
+      height: 46px;
+      color: #172033;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    select:disabled,
+    input:disabled {
+      background: rgba(241, 245, 249, 0.72);
+      color: #7d8da1;
+      box-shadow: none;
+    }
+
+    .mode {
+      height: 46px;
+      background: rgba(238, 244, 248, 0.9);
+    }
+
+    .mode button {
+      border-radius: 9px;
+      color: #5c6e84;
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .mode button.active {
+      background: #ffffff;
+      color: var(--platform-color, var(--accent));
+      box-shadow: 0 10px 20px rgba(22, 35, 53, 0.08);
+    }
+
+    .selection-meta {
+      color: #758397;
+      font-size: 12px;
+    }
+
+    .run-area {
+      grid-template-columns: minmax(0, 1fr) minmax(220px, 260px);
+      align-items: center;
+      gap: 12px 16px;
+      padding: 16px;
+      border: 1px solid rgba(215, 225, 235, 0.9);
+      border-radius: var(--radius-md);
+      background:
+        linear-gradient(90deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 251, 0.9));
+    }
+
+    .run-button {
+      min-height: 58px;
+      border-radius: 12px;
+      background:
+        linear-gradient(135deg, var(--platform-color, var(--accent)), color-mix(in srgb, var(--platform-color, var(--accent)) 76%, #042e35));
+      box-shadow: 0 18px 36px color-mix(in srgb, var(--platform-color, var(--accent)) 24%, transparent);
+      letter-spacing: 0.02em;
+    }
+
+    .run-button:hover:not(:disabled) {
+      filter: none;
+      box-shadow: 0 22px 42px color-mix(in srgb, var(--platform-color, var(--accent)) 30%, transparent);
+    }
+
+    .run-button:disabled {
+      box-shadow: none;
+    }
+
+    .action-note {
+      color: #53657a;
+      font-size: 13px;
+    }
+
+    .toast {
+      grid-column: 1 / -1;
+      color: var(--platform-color, var(--accent));
+      font-weight: 720;
+    }
+
+    .summary-panel {
+      position: sticky;
+      top: 112px;
+      overflow: hidden;
+    }
+
+    .summary-head {
+      padding: 24px 24px 18px;
+      border-bottom-color: rgba(218, 227, 236, 0.9);
+    }
+
+    .summary-head h2 {
+      color: #111827;
+      font-size: 22px;
+      letter-spacing: -0.03em;
+    }
+
+    .summary-list {
+      padding: 4px 24px 18px;
+    }
+
+    .summary-row {
+      grid-template-columns: 132px minmax(0, 1fr);
+      gap: 14px;
+      padding: 14px 0;
+      border-bottom-color: rgba(229, 236, 242, 0.96);
+    }
+
+    .summary-row dt {
+      color: #66758a;
+      font-size: 12px;
+      font-weight: 790;
+    }
+
+    .summary-row dd {
+      color: #263244;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .summary-row.pending {
+      margin: 0 -24px;
+      padding-inline: 21px 24px;
+      border-left: 3px solid var(--platform-color, var(--accent));
+      background:
+        linear-gradient(90deg, color-mix(in srgb, var(--platform-color, var(--accent)) 9%, #ffffff), rgba(255, 255, 255, 0.72));
+    }
+
+    .summary-status {
+      min-height: 26px;
+      border-color: color-mix(in srgb, var(--platform-color, var(--accent)) 26%, #d9e2ea);
+      background: color-mix(in srgb, var(--platform-color, var(--accent)) 9%, #ffffff);
+      color: var(--platform-color, var(--accent));
+    }
+
+    .summary-actions {
+      padding: 16px 24px 24px;
+      border-top-color: rgba(218, 227, 236, 0.9);
+      background: transparent;
+    }
+
     @media (max-width: 980px) {
       .platform-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .switch-surface {
+        grid-template-columns: 1fr;
+      }
+
+      .summary-panel {
+        position: static;
+      }
+
+      .public-preview {
         grid-template-columns: 1fr;
       }
     }
@@ -704,6 +1163,11 @@
         grid-template-columns: 1fr;
       }
 
+      .platform-strip {
+        gap: 10px;
+        padding: 10px;
+      }
+
       .mode-block,
       .section-wide {
         grid-column: auto;
@@ -716,6 +1180,10 @@
       .summary-row {
         grid-template-columns: 1fr;
         gap: 3px;
+      }
+
+      .run-area {
+        grid-template-columns: 1fr;
       }
 
       select {
@@ -796,6 +1264,21 @@
         </div>
 
         <p class="public-note" id="public-note" hidden data-i18n="publicReadonly">登录后查看账号配置。</p>
+
+        <div class="public-preview" id="public-preview" hidden>
+          <div class="public-preview-card">
+            <strong data-i18n="publicOauthTitle">GitHub OAuth 保护</strong>
+            <span data-i18n="publicOauthText">只允许白名单账号进入私有配置。</span>
+          </div>
+          <div class="public-preview-card">
+            <strong data-i18n="publicWorkerTitle">Worker 端触发</strong>
+            <span data-i18n="publicWorkerText">令牌保留在服务端，浏览器只提交切换意图。</span>
+          </div>
+          <div class="public-preview-card">
+            <strong data-i18n="publicAuditTitle">变更可回溯</strong>
+            <span data-i18n="publicAuditText">切换由 GitHub Actions 执行，便于审计和回滚。</span>
+          </div>
+        </div>
 
         <div class="quick-form" id="quick-form">
           <label class="control-block account-block">
@@ -1107,6 +1590,12 @@
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         invalidDcaNote: "请填写有效的定投模式和基准金额。",
         invalidIbitZscoreExitNote: "请选择有效的 IBIT Z-Score 逃顶模式。",
+        publicOauthTitle: "GitHub OAuth 保护",
+        publicOauthText: "只允许白名单账号进入私有配置。",
+        publicWorkerTitle: "Worker 端触发",
+        publicWorkerText: "令牌保留在服务端，浏览器只提交切换意图。",
+        publicAuditTitle: "变更可回溯",
+        publicAuditText: "切换由 GitHub Actions 执行，便于审计和回滚。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -1227,6 +1716,12 @@
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         invalidDcaNote: "Enter a valid DCA mode and base amount.",
         invalidIbitZscoreExitNote: "Choose a valid IBIT Z-Score exit mode.",
+        publicOauthTitle: "Protected by GitHub OAuth",
+        publicOauthText: "Only allowlisted accounts can open private config.",
+        publicWorkerTitle: "Worker-side dispatch",
+        publicWorkerText: "Tokens stay server-side; the browser submits intent only.",
+        publicAuditTitle: "Traceable changes",
+        publicAuditText: "Switches run through GitHub Actions for audit and rollback.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -2486,6 +2981,7 @@
       el("quick-form").hidden = !showPrivateControls;
       el("run-area").hidden = !showPrivateControls;
       el("public-note").hidden = showPrivateControls;
+      el("public-preview").hidden = showPrivateControls;
       el("public-note").textContent = state.auth.allowed ? t("missingConfigNote") : t("publicReadonly");
 
       if (!showPrivateControls) {
