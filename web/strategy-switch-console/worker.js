@@ -49,6 +49,7 @@ const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
 const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
 const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
+const OPTION_OVERLAY_ENABLED_VARIABLE = "OPTION_OVERLAY_ENABLED";
 const RUNTIME_TARGET_ENABLED_VARIABLE = "RUNTIME_TARGET_ENABLED";
 const DCA_MODE_VARIABLE = "DCA_MODE";
 const DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD";
@@ -84,6 +85,7 @@ const OPTION_OVERLAY_PROFILE_FIELDS = [
   "option_overlay_live_gate",
   "option_overlay_live_status",
 ];
+const OPTION_OVERLAY_MODES = ["current", "enabled", "disabled"];
 const DCA_PROFILE_CONFIG = {
   nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
@@ -622,6 +624,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetProfile = cleanCurrentStrategy(serviceTarget?.strategy_profile);
   const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
   const serviceTargetIncomeLayerPayload = incomeLayerPayloadFromObject(serviceTarget);
+  const serviceTargetOptionOverlayPayload = optionOverlayPayloadFromObject(serviceTarget);
   const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
   const serviceTargetDcaPayload = dcaPayloadFromObject(serviceTarget);
   const serviceTargetIbitZscorePayload = ibitZscoreExitPayloadFromObject(serviceTarget);
@@ -631,6 +634,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...runtimeModePayload(serviceTarget),
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
+      ...serviceTargetOptionOverlayPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
       ...dcaPayloadForProfile(serviceTargetProfile, serviceTargetDcaPayload),
       ...ibitZscoreExitPayloadForProfile(serviceTargetProfile, serviceTargetIbitZscorePayload),
@@ -641,6 +645,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   if (
     Object.keys(serviceTargetReservedCashPayload).length ||
     Object.keys(serviceTargetIncomeLayerPayload).length ||
+    Object.keys(serviceTargetOptionOverlayPayload).length ||
     Object.keys(serviceTargetRuntimeTargetEnabledPayload).length ||
     Object.keys(serviceTargetIbitZscorePayload).length
   ) {
@@ -648,6 +653,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...runtimeModePayload(serviceTarget),
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
+      ...serviceTargetOptionOverlayPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
       ...serviceTargetIbitZscorePayload,
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
@@ -665,6 +671,12 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     readVariable,
   });
   const incomeLayerPayloadPromise = readIncomeLayerVariables({
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
+  const optionOverlayPayloadPromise = readOptionOverlayVariables({
     repository,
     variableScope,
     githubEnvironment,
@@ -692,6 +704,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const [
     reservedCashPayload,
     incomeLayerPayload,
+    optionOverlayPayload,
     runtimeTargetEnabledPayload,
     dcaPayload,
     ibitZscorePayload,
@@ -699,6 +712,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   ] = await Promise.all([
     reservedCashPayloadPromise,
     incomeLayerPayloadPromise,
+    optionOverlayPayloadPromise,
     runtimeTargetEnabledPayloadPromise,
     dcaPayloadPromise,
     ibitZscorePayloadPromise,
@@ -713,6 +727,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...runtimeModePayload(runtimeTarget),
       ...reservedCashPayload,
       ...incomeLayerPayload,
+      ...optionOverlayPayload,
       ...runtimeTargetEnabledPayload,
       ...dcaPayloadForProfile(runtimeTargetProfile, dcaPayload),
       ...ibitZscoreExitPayloadForProfile(runtimeTargetProfile, ibitZscorePayload),
@@ -730,6 +745,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
         strategy_profile: profile,
         ...reservedCashPayload,
         ...incomeLayerPayload,
+        ...optionOverlayPayload,
         ...runtimeTargetEnabledPayload,
         ...dcaPayloadForProfile(profile, dcaPayload),
         ...ibitZscoreExitPayloadForProfile(profile, ibitZscorePayload),
@@ -747,12 +763,14 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   if (
     Object.keys(reservedCashPayload).length ||
     Object.keys(incomeLayerPayload).length ||
+    Object.keys(optionOverlayPayload).length ||
     Object.keys(runtimeTargetEnabledPayload).length ||
     Object.keys(ibitZscorePayload).length
   ) {
     return {
       ...reservedCashPayload,
       ...incomeLayerPayload,
+      ...optionOverlayPayload,
       ...runtimeTargetEnabledPayload,
       ...ibitZscorePayload,
       source: Object.keys(reservedCashPayload).length
@@ -761,7 +779,9 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
           ? "INCOME_LAYER_VARIABLES"
           : (Object.keys(runtimeTargetEnabledPayload).length
             ? "RUNTIME_TARGET_ENABLED_VARIABLE"
-            : "IBIT_ZSCORE_EXIT_VARIABLES")),
+            : (Object.keys(optionOverlayPayload).length
+              ? "OPTION_OVERLAY_VARIABLES"
+              : "IBIT_ZSCORE_EXIT_VARIABLES"))),
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
     };
@@ -947,6 +967,12 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
         optionChanged = true;
       }
     }
+    if (inputs.option_overlay_mode === "enabled" || inputs.option_overlay_mode === "disabled") {
+      if (nextOption.option_overlay_mode !== inputs.option_overlay_mode) {
+        nextOption.option_overlay_mode = inputs.option_overlay_mode;
+        optionChanged = true;
+      }
+    }
     const dcaControls = dcaControlsFromInputs(inputs);
     if (isDcaProfile(inputs.strategy_profile)) {
       if (dcaControls.dca_mode && nextOption.dca_mode !== dcaControls.dca_mode) {
@@ -995,6 +1021,7 @@ function normalizeSwitchInputs(raw) {
   const strategyProfile = cleanSlug(raw.strategy_profile, "strategy_profile").toLowerCase();
   const executionMode = cleanChoice(raw.execution_mode || "live", ["live", "paper"], "execution_mode");
   const pluginMode = cleanChoice(raw.plugin_mode || "auto", ["auto", "none", "custom"], "plugin_mode");
+  const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "current", OPTION_OVERLAY_MODES, "option_overlay_mode");
   const variableScope = cleanChoice(
     raw.variable_scope || "default",
     ["default", "repository", "environment"],
@@ -1029,6 +1056,7 @@ function normalizeSwitchInputs(raw) {
     execution_mode: executionMode,
     variable_scope: variableScope,
     plugin_mode: pluginMode,
+    option_overlay_mode: optionOverlayMode,
     service_targets_mode: "auto",
     apply: apply ? "true" : "false",
     trigger_platform_sync: triggerPlatformSync ? "true" : "false",
@@ -1112,6 +1140,9 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
     throw new Error(
       `strategy domain ${strategy.domain} is not supported by ${inputs.platform}/${accountOption.key}`,
     );
+  }
+  if (inputs.option_overlay_mode === "enabled" && strategy.option_overlay_enabled !== true) {
+    throw new Error(`strategy ${inputs.strategy_profile} does not define an option overlay`);
   }
 }
 
@@ -1409,6 +1440,9 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "plugin_mode", item.plugin_mode, (value, field) =>
     cleanChoice(value || "auto", ["auto", "none"], field),
   );
+  addConfigOptional(option, "option_overlay_mode", item.option_overlay_mode, (value, field) =>
+    cleanChoice(value || "current", OPTION_OVERLAY_MODES, field),
+  );
   addConfigOptional(option, "ibit_zscore_exit_mode", item.ibit_zscore_exit_mode, cleanIbitZscoreExitMode);
   addConfigOptional(option, "dca_mode", item.dca_mode, cleanDcaMode);
   addConfigOptional(option, "dca_base_investment_usd", item.dca_base_investment_usd, cleanPositiveNumber);
@@ -1668,6 +1702,7 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
       ...reservedCashPayloadFromObject(platform, entry),
       ...incomeLayerPayloadFromObject(entry),
+      ...optionOverlayPayloadFromObject(entry),
       ...runtimeTargetEnabledPayloadFromObject(entry),
       ...dcaPayloadFromObject(entry),
       ...ibitZscoreExitPayloadFromObject(entry),
@@ -1691,6 +1726,11 @@ async function readIncomeLayerVariables({ repository, variableScope, githubEnvir
     readVariable(repository, variableScope, githubEnvironment, INCOME_LAYER_MAX_RATIO_VARIABLE),
   ]);
   return incomeLayerPayloadFromValues(enabledValue, startUsdValue, maxRatioValue);
+}
+
+async function readOptionOverlayVariables({ repository, variableScope, githubEnvironment, readVariable }) {
+  const enabledValue = await readVariable(repository, variableScope, githubEnvironment, OPTION_OVERLAY_ENABLED_VARIABLE);
+  return optionOverlayPayloadFromValue(enabledValue);
 }
 
 async function readRuntimeTargetEnabledVariable({ repository, variableScope, githubEnvironment, readVariable }) {
@@ -1755,6 +1795,18 @@ function incomeLayerPayloadFromValues(enabledValue, startUsdValue, maxRatioValue
   if (startUsd) result.income_layer_start_usd = startUsd;
   if (maxRatio) result.income_layer_max_ratio = maxRatio;
   return result;
+}
+
+function optionOverlayPayloadFromObject(payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  return optionOverlayPayloadFromValue(
+    payload[OPTION_OVERLAY_ENABLED_VARIABLE] ?? payload.option_overlay_enabled,
+  );
+}
+
+function optionOverlayPayloadFromValue(value) {
+  const enabled = cleanOptionalBoolean(value);
+  return enabled === null ? {} : { option_overlay_enabled: enabled };
 }
 
 function runtimeTargetEnabledPayloadFromObject(payload) {
