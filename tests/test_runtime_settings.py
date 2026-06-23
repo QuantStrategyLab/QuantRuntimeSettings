@@ -205,12 +205,26 @@ class RuntimeSettingsTest(unittest.TestCase):
             runtime_settings.validate_target(target),
         )
 
-    def test_research_only_option_overlay_variables_are_rejected(self):
+    def test_controlled_option_overlay_variables_are_allowed_and_validated(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
-        target["extra_variables"] = {"OPTION_GROWTH_OVERLAY_ENABLED": "true"}
+        target["extra_variables"] = {
+            "OPTION_OVERLAY_ENABLED": "true",
+            "OPTION_GROWTH_OVERLAY_ENABLED": "true",
+            "OPTION_GROWTH_OVERLAY_RECIPE": "tqqq_leaps_growth_v1",
+            "OPTION_GROWTH_OVERLAY_START_USD": "250000",
+            "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO": "0.03",
+            "OPTION_INCOME_OVERLAY_ENABLED": "false",
+            "OPTION_INCOME_OVERLAY_RECIPE": "",
+            "OPTION_INCOME_OVERLAY_START_USD": "",
+            "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO": "",
+        }
+
+        self.assertEqual(runtime_settings.validate_target(target), [])
+
+        target["extra_variables"] = {"OPTION_OVERLAY_ENABLED": "true"}
 
         self.assertIn(
-            "extra_variables.OPTION_GROWTH_OVERLAY_ENABLED is research-only and must not be stored in live switch settings",
+            "extra_variables.OPTION_OVERLAY_ENABLED is true but no option overlay family is enabled",
             runtime_settings.validate_target(target),
         )
 
@@ -634,6 +648,73 @@ class RuntimeSettingsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "research-only"):
             build_runtime_switch.build_switch_target(args)
 
+    def test_build_switch_target_sets_option_overlay_profile_defaults(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "schwab",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--option-overlay-mode",
+                "enabled",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["OPTION_OVERLAY_ENABLED"], "true")
+        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_ENABLED"], "true")
+        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_RECIPE"], "tqqq_leaps_growth_v1")
+        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_START_USD"], "250000")
+        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO"], "0.03")
+        self.assertEqual(assignments["OPTION_INCOME_OVERLAY_ENABLED"], "false")
+        self.assertEqual(assignments["OPTION_INCOME_OVERLAY_RECIPE"], "")
+
+    def test_build_switch_target_can_disable_option_overlay(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "schwab",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "nasdaq_sp500_smart_dca",
+                "--option-overlay-mode",
+                "disabled",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["OPTION_OVERLAY_ENABLED"], "false")
+        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_ENABLED"], "false")
+        self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_RECIPE"], "")
+        self.assertEqual(assignments["OPTION_INCOME_OVERLAY_ENABLED"], "false")
+
+    def test_build_switch_target_rejects_enabled_option_overlay_without_profile_defaults(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "schwab",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "nasdaq_sp500_smart_dca",
+                "--option-overlay-mode",
+                "enabled",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "option overlay defaults"):
+            build_runtime_switch.build_switch_target(args)
+
     def test_build_switch_target_rejects_legacy_income_extra_variables(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
@@ -775,6 +856,12 @@ class RuntimeSettingsTest(unittest.TestCase):
                     "INCOME_LAYER_ENABLED": "true",
                     "INCOME_LAYER_START_USD": "250000",
                     "INCOME_LAYER_MAX_RATIO": "0.55",
+                    "OPTION_OVERLAY_ENABLED": "true",
+                    "OPTION_GROWTH_OVERLAY_ENABLED": "true",
+                    "OPTION_GROWTH_OVERLAY_RECIPE": "tqqq_leaps_growth_v1",
+                    "OPTION_GROWTH_OVERLAY_START_USD": "250000",
+                    "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO": "0.03",
+                    "OPTION_INCOME_OVERLAY_ENABLED": "false",
                     "RUNTIME_TARGET_ENABLED": "false",
                     "runtime_target": {
                         "platform_id": "ibkr",
@@ -839,6 +926,9 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(selected["INCOME_LAYER_ENABLED"], "true")
         self.assertEqual(selected["INCOME_LAYER_START_USD"], "250000")
         self.assertEqual(selected["INCOME_LAYER_MAX_RATIO"], "0.55")
+        self.assertEqual(selected["OPTION_OVERLAY_ENABLED"], "true")
+        self.assertEqual(selected["OPTION_GROWTH_OVERLAY_RECIPE"], "tqqq_leaps_growth_v1")
+        self.assertEqual(selected["OPTION_INCOME_OVERLAY_ENABLED"], "false")
         self.assertEqual(selected["RUNTIME_TARGET_ENABLED"], "false")
         self.assertEqual(
             selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],

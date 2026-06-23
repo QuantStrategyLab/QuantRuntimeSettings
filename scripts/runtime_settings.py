@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -68,7 +69,32 @@ OPTION_OVERLAY_VARIABLES = frozenset(
         "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
     }
 )
-RESEARCH_ONLY_EXTRA_VARIABLES = LEGACY_INCOME_LAYER_VARIABLES | OPTION_OVERLAY_VARIABLES
+OPTION_OVERLAY_ENABLED_VARIABLES = frozenset(
+    {
+        "OPTION_OVERLAY_ENABLED",
+        "OPTION_GROWTH_OVERLAY_ENABLED",
+        "OPTION_INCOME_OVERLAY_ENABLED",
+    }
+)
+OPTION_OVERLAY_RECIPE_VARIABLES = frozenset(
+    {
+        "OPTION_GROWTH_OVERLAY_RECIPE",
+        "OPTION_INCOME_OVERLAY_RECIPE",
+    }
+)
+OPTION_OVERLAY_AMOUNT_VARIABLES = frozenset(
+    {
+        "OPTION_GROWTH_OVERLAY_START_USD",
+        "OPTION_INCOME_OVERLAY_START_USD",
+    }
+)
+OPTION_OVERLAY_RATIO_VARIABLES = frozenset(
+    {
+        "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
+        "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
+    }
+)
+RESEARCH_ONLY_EXTRA_VARIABLES = LEGACY_INCOME_LAYER_VARIABLES
 PLATFORM_DRY_RUN_VARIABLES = {
     "schwab": "SCHWAB_DRY_RUN_ONLY",
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
@@ -429,6 +455,72 @@ def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"{strategy_profile} requires an enabled {plugin} plugin mount")
 
 
+def option_bool_value(value: Any) -> bool | None:
+    text = str(value if value is not None else "").strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
+def validate_option_overlay_variables(extra_variables: dict[str, Any], errors: list[str]) -> None:
+    if not any(name in extra_variables for name in OPTION_OVERLAY_VARIABLES):
+        return
+
+    values = {
+        name: str(extra_variables.get(name) if extra_variables.get(name) is not None else "").strip()
+        for name in OPTION_OVERLAY_VARIABLES
+    }
+    for name in OPTION_OVERLAY_ENABLED_VARIABLES:
+        if values[name] and option_bool_value(values[name]) is None:
+            errors.append(f"extra_variables.{name} must be true or false")
+    for name in OPTION_OVERLAY_RECIPE_VARIABLES:
+        if values[name] and not re.fullmatch(r"[A-Za-z0-9._=-]{1,120}", values[name]):
+            errors.append(f"extra_variables.{name} must be a recipe slug")
+    for name in OPTION_OVERLAY_AMOUNT_VARIABLES:
+        if values[name] and not re.fullmatch(r"(?:\d+|\d*\.\d+)", values[name]):
+            errors.append(f"extra_variables.{name} must be a non-negative decimal")
+    for name in OPTION_OVERLAY_RATIO_VARIABLES:
+        if values[name]:
+            if not re.fullmatch(r"(?:\d+|\d*\.\d+)", values[name]):
+                errors.append(f"extra_variables.{name} must be a ratio between 0 and 1")
+                continue
+            numeric = float(values[name])
+            if numeric < 0 or numeric > 1:
+                errors.append(f"extra_variables.{name} must be a ratio between 0 and 1")
+
+    overlay_enabled = option_bool_value(values["OPTION_OVERLAY_ENABLED"]) if values["OPTION_OVERLAY_ENABLED"] else None
+    family_enabled: dict[str, bool | None] = {}
+    family_fields = {
+        "GROWTH": (
+            "OPTION_GROWTH_OVERLAY_ENABLED",
+            "OPTION_GROWTH_OVERLAY_RECIPE",
+            "OPTION_GROWTH_OVERLAY_START_USD",
+            "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO",
+        ),
+        "INCOME": (
+            "OPTION_INCOME_OVERLAY_ENABLED",
+            "OPTION_INCOME_OVERLAY_RECIPE",
+            "OPTION_INCOME_OVERLAY_START_USD",
+            "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO",
+        ),
+    }
+    for family, (enabled_name, recipe_name, start_name, ratio_name) in family_fields.items():
+        enabled = option_bool_value(values[enabled_name]) if values[enabled_name] else None
+        family_enabled[family] = enabled
+        family_payload = [values[recipe_name], values[start_name], values[ratio_name]]
+        if enabled is True and not all(family_payload):
+            errors.append(f"extra_variables.{enabled_name} requires recipe, start_usd, and ratio fields")
+        if enabled is False and any(family_payload):
+            errors.append(f"extra_variables.{enabled_name} is false but {family.lower()} overlay fields are still set")
+
+    if overlay_enabled is True and not any(value is True for value in family_enabled.values()):
+        errors.append("extra_variables.OPTION_OVERLAY_ENABLED is true but no option overlay family is enabled")
+    if overlay_enabled is False and any(value is True for value in family_enabled.values()):
+        errors.append("extra_variables.OPTION_OVERLAY_ENABLED is false but an option overlay family is enabled")
+
+
 def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
     extra_variables = target.get("extra_variables", {})
     if not isinstance(extra_variables, dict):
@@ -451,6 +543,8 @@ def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"extra_variables.{name} looks like a secret and must not be stored here")
         if isinstance(value, str) and "\n" in value:
             errors.append(f"extra_variables.{name} must be a single-line value")
+
+    validate_option_overlay_variables(extra_variables, errors)
 
     runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
     dry_run_only = runtime_target.get("dry_run_only")

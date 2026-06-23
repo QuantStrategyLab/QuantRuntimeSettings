@@ -1341,6 +1341,14 @@
             </label>
           </div>
 
+          <div class="form-section option-overlay-section">
+            <label class="control-block option-overlay-mode-block section-wide">
+              <span data-i18n="optionOverlayMode">期权层状态</span>
+              <select id="option-overlay-mode-select"></select>
+              <span class="selection-meta" id="option-overlay-mode-meta"></span>
+            </label>
+          </div>
+
           <div class="form-section dca-section">
             <label class="control-block dca-mode-block">
               <span data-i18n="dcaMode">定投模式</span>
@@ -1413,6 +1421,7 @@
 
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
     const incomeLayerModes = ["current", "enabled", "disabled"];
+    const optionOverlayModes = ["current", "enabled", "disabled"];
     const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["auto", "none"];
     const dcaModes = ["fixed", "smart"];
@@ -1483,6 +1492,37 @@
       },
     };
     let incomeLayerDefaults = {};
+    const fallbackOptionOverlayDefaults = {
+      tqqq_growth_income: {
+        liveGate: "promotion_required",
+        liveStatus: "research_only",
+        families: [
+          { family: "growth", recipe: "tqqq_leaps_growth_v1", startUsd: "250000", ratio: "0.03", ratioKind: "budget" },
+        ],
+      },
+      soxl_soxx_trend_income: {
+        liveGate: "promotion_required",
+        liveStatus: "research_only",
+        families: [
+          { family: "income", recipe: "soxx_put_credit_spread_income_v1", startUsd: "150000", ratio: "0.01", ratioKind: "risk" },
+        ],
+      },
+      global_etf_rotation: {
+        liveGate: "promotion_required",
+        liveStatus: "research_only",
+        families: [
+          { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "500000", ratio: "0.015", ratioKind: "budget" },
+        ],
+      },
+      russell_top50_leader_rotation: {
+        liveGate: "promotion_required",
+        liveStatus: "research_only",
+        families: [
+          { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "300000", ratio: "0.015", ratioKind: "budget" },
+        ],
+      },
+    };
+    let optionOverlayDefaults = {};
 
     const strategyDomains = ["us_equity", "hk_equity"];
     let strategyOptions = [];
@@ -1550,6 +1590,17 @@
         incomeLayerAllocationMeta: "默认分配：{allocations}。",
         incomeLayerStartMeta: "总资产达到该金额后启用收入层。",
         incomeLayerRatioMeta: "例如 0.55 表示最高 55%。",
+        optionOverlayMode: "期权层状态",
+        optionOverlayCurrent: "沿用当前配置",
+        optionOverlayEnabled: "启用期权层",
+        optionOverlayDisabled: "关闭期权层",
+        optionOverlayNotSupported: "该策略未定义期权层",
+        optionOverlayModeMeta: "启用时使用策略默认的最佳 recipe 和预算，不在这里手动调比例。",
+        optionOverlayDefaultMeta: "策略默认：{defaults}。",
+        optionOverlayFamilyGrowth: "增长",
+        optionOverlayFamilyIncome: "收入",
+        optionOverlayBudgetRatio: "预算 {ratio}",
+        optionOverlayRiskRatio: "风险 {ratio}",
         dcaMode: "定投模式",
         dcaModeFixed: "定额定投",
         dcaModeSmart: "智能定投",
@@ -1589,6 +1640,7 @@
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
+        invalidOptionOverlayNote: "当前策略未定义可启用的期权层。",
         invalidDcaNote: "请填写有效的定投模式和基准金额。",
         invalidIbitZscoreExitNote: "请选择有效的 IBIT Z-Score 逃顶模式。",
         publicOauthTitle: "GitHub OAuth 保护",
@@ -1607,6 +1659,8 @@
         reservedCashPolicy: "当前预留现金",
         currentIncomeLayer: "当前收入层",
         pendingIncomeLayer: "待提交收入层",
+        currentOptionOverlay: "当前期权层",
+        pendingOptionOverlay: "待提交期权层",
         pendingReservedCashPolicy: "待提交预留现金",
         pendingMode: "待提交模式",
         currentPluginMode: "当前插件范围",
@@ -1630,6 +1684,8 @@
         incomeLayerDefault: "策略默认：开启，起始 {start}，最高 {ratio}",
         incomeLayerOff: "关闭",
         incomeLayerOn: "开启，起始 {start}，最高 {ratio}",
+        optionOverlayOff: "关闭",
+        optionOverlayOn: "开启（策略默认）",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -1676,6 +1732,17 @@
         incomeLayerAllocationMeta: "Default allocation: {allocations}.",
         incomeLayerStartMeta: "Income layer activates after total assets reach this amount.",
         incomeLayerRatioMeta: "Use 0.55 for a 55% cap.",
+        optionOverlayMode: "Option layer",
+        optionOverlayCurrent: "Keep current config",
+        optionOverlayEnabled: "Enable option layer",
+        optionOverlayDisabled: "Disable option layer",
+        optionOverlayNotSupported: "No option layer for this strategy",
+        optionOverlayModeMeta: "Enabled mode uses the strategy's default recipe and budget; ratios are not edited here.",
+        optionOverlayDefaultMeta: "Strategy default: {defaults}.",
+        optionOverlayFamilyGrowth: "Growth",
+        optionOverlayFamilyIncome: "Income",
+        optionOverlayBudgetRatio: "budget {ratio}",
+        optionOverlayRiskRatio: "risk {ratio}",
         dcaMode: "DCA mode",
         dcaModeFixed: "Fixed DCA",
         dcaModeSmart: "Smart DCA",
@@ -1715,6 +1782,7 @@
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
+        invalidOptionOverlayNote: "This strategy does not define an option layer to enable.",
         invalidDcaNote: "Enter a valid DCA mode and base amount.",
         invalidIbitZscoreExitNote: "Choose a valid IBIT Z-Score exit mode.",
         publicOauthTitle: "Protected by GitHub OAuth",
@@ -1733,6 +1801,8 @@
         reservedCashPolicy: "Current reserved cash",
         currentIncomeLayer: "Current income layer",
         pendingIncomeLayer: "Pending income layer",
+        currentOptionOverlay: "Current option layer",
+        pendingOptionOverlay: "Pending option layer",
         pendingReservedCashPolicy: "Pending reserved cash",
         pendingMode: "Pending mode",
         currentPluginMode: "Current plugin scope",
@@ -1756,6 +1826,8 @@
         incomeLayerDefault: "Strategy default: enabled, starts at {start}, max {ratio}",
         incomeLayerOff: "Disabled",
         incomeLayerOn: "Enabled, starts at {start}, max {ratio}",
+        optionOverlayOff: "Disabled",
+        optionOverlayOn: "Enabled (strategy default)",
       },
     };
 
@@ -1773,6 +1845,8 @@
       incomeLayerStartUsd: "",
       incomeLayerMaxRatio: "",
       incomeLayerTouched: false,
+      optionOverlayMode: "current",
+      optionOverlayTouched: false,
       runtimeTargetMode: "current",
       runtimeTargetTouched: false,
       dcaMode: "fixed",
@@ -1872,6 +1946,7 @@
       const nextLabels = {};
       const nextCatalog = {};
       const nextIncomeLayerDefaults = {};
+      const nextOptionOverlayDefaults = {};
       for (const item of profiles) {
         const profile = cleanStrategyProfile(item?.profile || item?.strategy_profile);
         if (!profile || nextOptions.includes(profile)) continue;
@@ -1912,12 +1987,23 @@
           nextCatalog[profile].income_layer_max_ratio = incomeDefaults.maxRatio;
           nextCatalog[profile].income_layer_allocations = incomeDefaults.allocations;
         }
+        const profileOptionDefaults = optionOverlayDefaultsFromProfileItem(item);
+        const optionDefaults = profileOptionDefaults === false
+          ? null
+          : (profileOptionDefaults || fallbackOptionOverlayDefaults[profile] || null);
+        if (optionDefaults) {
+          nextOptionOverlayDefaults[profile] = optionDefaults;
+          nextCatalog[profile].option_overlay_enabled = true;
+          nextCatalog[profile].option_overlay_live_gate = optionDefaults.liveGate || "";
+          nextCatalog[profile].option_overlay_live_status = optionDefaults.liveStatus || "";
+        }
       }
       if (!nextOptions.length && profiles !== defaultStrategyProfiles) return applyStrategyProfiles(defaultStrategyProfiles);
       strategyOptions = nextOptions;
       strategyLabels = nextLabels;
       strategyCatalog = nextCatalog;
       incomeLayerDefaults = nextIncomeLayerDefaults;
+      optionOverlayDefaults = nextOptionOverlayDefaults;
     }
 
     function incomeLayerDefaultsFromProfileItem(item) {
@@ -1947,6 +2033,47 @@
         total += Number(ratio);
       }
       return total > 0 && Object.keys(allocations).length ? allocations : null;
+    }
+
+    function optionOverlayDefaultsFromProfileItem(item) {
+      const enabled = cleanOptionalBoolean(item?.option_overlay_enabled);
+      const hasConfig = enabled !== null ||
+        item?.option_growth_overlay_enabled !== undefined ||
+        item?.option_income_overlay_enabled !== undefined ||
+        item?.option_overlay_live_gate !== undefined ||
+        item?.option_overlay_live_status !== undefined;
+      if (!hasConfig) return null;
+      if (enabled === false) return false;
+      const families = [
+        optionOverlayFamilyDefaultsFromProfileItem(item, "growth"),
+        optionOverlayFamilyDefaultsFromProfileItem(item, "income"),
+      ].filter(Boolean);
+      if (!families.length) return null;
+      return {
+        liveGate: String(item?.option_overlay_live_gate || "promotion_required"),
+        liveStatus: String(item?.option_overlay_live_status || "research_only"),
+        families,
+      };
+    }
+
+    function optionOverlayFamilyDefaultsFromProfileItem(item, family) {
+      const prefix = `option_${family}_overlay`;
+      const enabled = cleanOptionalBoolean(item?.[`${prefix}_enabled`]);
+      if (enabled !== true) return null;
+      const recipe = cleanStrategyProfile(item?.[`${prefix}_recipe`]);
+      const startUsd = cleanDisplayNumber(item?.[`${prefix}_start_usd`]);
+      const ratioField = family === "growth"
+        ? "option_growth_overlay_nav_budget_ratio"
+        : "option_income_overlay_nav_risk_ratio";
+      const ratio = cleanDisplayRatio(item?.[ratioField]);
+      if (!recipe || !startUsd || !ratio) return null;
+      return {
+        family,
+        recipe,
+        startUsd,
+        ratio,
+        ratioKind: family === "growth" ? "budget" : "risk",
+      };
     }
 
     function supportedDomainsForAccount(platform, account) {
@@ -2137,6 +2264,38 @@
       return t("incomeLayerCurrent");
     }
 
+    function optionOverlayDefaultForStrategy(profile) {
+      return optionOverlayDefaults[cleanStrategyProfile(profile)] || null;
+    }
+
+    function optionOverlaySupported(profile) {
+      return Boolean(optionOverlayDefaultForStrategy(profile));
+    }
+
+    function normalizeOptionOverlayMode(value) {
+      return optionOverlayModes.includes(value) ? value : "current";
+    }
+
+    function optionOverlayModeLabel(mode) {
+      if (mode === "enabled") return t("optionOverlayEnabled");
+      if (mode === "disabled") return t("optionOverlayDisabled");
+      return t("optionOverlayCurrent");
+    }
+
+    function optionOverlayText(enabled) {
+      return enabled ? t("optionOverlayOn") : t("optionOverlayOff");
+    }
+
+    function currentOptionOverlayForAccount(platform, account) {
+      return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.option_overlay_enabled);
+    }
+
+    function currentOptionOverlayText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
+      const enabled = currentOptionOverlayForAccount(platform, account);
+      if (!optionOverlaySupported(profile) && enabled === null) return t("optionOverlayNotSupported");
+      return enabled === null ? t("notRead") : optionOverlayText(enabled);
+    }
+
     function currentIncomeLayerForAccount(platform, account) {
       return incomeLayerFromEntry(currentEntryForAccount(platform, account));
     }
@@ -2183,6 +2342,7 @@
           cleanOptionalBoolean(entry.income_layer_enabled) !== null ||
           cleanDisplayNumber(entry.income_layer_start_usd) ||
           cleanDisplayRatio(entry.income_layer_max_ratio) ||
+          cleanOptionalBoolean(entry.option_overlay_enabled) !== null ||
           cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
           normalizeDcaMode(entry.dca_mode || "") !== "fixed" ||
           cleanDisplayPositiveNumber(entry.dca_base_investment_usd) ||
@@ -2313,6 +2473,7 @@
       syncRuntimeTargetForAccount(platform);
       syncReservePolicyForAccount(platform);
       syncIncomeLayerForAccount(platform);
+      syncOptionOverlayForAccount(platform);
       syncDcaForAccount(platform);
       syncIbitZscoreExitForAccount(platform);
     }
@@ -2340,6 +2501,18 @@
       form.incomeLayerMode = "current";
       form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
       form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
+    }
+
+    function syncOptionOverlayForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form || form.optionOverlayTouched) return;
+      const account = selectedAccount(platform);
+      const configured = normalizeOptionOverlayMode(account?.option_overlay_mode);
+      if (configured !== "current") {
+        form.optionOverlayMode = configured;
+        return;
+      }
+      form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "enabled" : "disabled";
     }
 
     function syncDcaForAccount(platform) {
@@ -2370,6 +2543,7 @@
         state.forms[platform].runtimeTargetTouched = false;
         state.forms[platform].reservedCashTouched = false;
         state.forms[platform].incomeLayerTouched = false;
+        state.forms[platform].optionOverlayTouched = false;
         state.forms[platform].dcaTouched = false;
         state.forms[platform].ibitZscoreExitTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
@@ -2377,6 +2551,7 @@
         syncRuntimeTargetForAccount(platform);
         syncReservePolicyForAccount(platform);
         syncIncomeLayerForAccount(platform);
+        syncOptionOverlayForAccount(platform);
         syncDcaForAccount(platform);
         syncIbitZscoreExitForAccount(platform);
       }
@@ -2424,6 +2599,12 @@
       return Boolean(startUsd && maxRatio);
     }
 
+    function hasValidOptionOverlayPolicy(platform = state.selected) {
+      const form = state.forms[platform];
+      const mode = normalizeOptionOverlayMode(form?.optionOverlayMode);
+      return mode !== "enabled" || optionOverlaySupported(form?.strategy);
+    }
+
     function hasValidDcaPolicy(platform = state.selected) {
       const form = state.forms[platform];
       if (!dcaSupported(form?.strategy)) return true;
@@ -2441,6 +2622,7 @@
       return hasRunnableStrategySelection(platform) &&
         hasValidReservePolicy(platform) &&
         hasValidIncomeLayerPolicy(platform) &&
+        hasValidOptionOverlayPolicy(platform) &&
         hasValidDcaPolicy(platform) &&
         hasValidIbitZscoreExitPolicy(platform);
     }
@@ -2505,6 +2687,13 @@
       extraVariables[incomeLayerStartUsdVariable] = startUsd;
       extraVariables[incomeLayerMaxRatioVariable] = maxRatio;
       return { inputs: { income_layer_mode: mode, income_layer_start_usd: startUsd, income_layer_max_ratio: maxRatio }, extraVariables };
+    }
+
+    function optionOverlayOverrideForForm(form) {
+      const mode = normalizeOptionOverlayMode(form?.optionOverlayMode);
+      if (mode === "current") return null;
+      if (mode === "enabled" && !optionOverlaySupported(form?.strategy)) return null;
+      return { inputs: { option_overlay_mode: mode } };
     }
 
     function dcaOverrideForForm(form) {
@@ -2574,6 +2763,11 @@
       if (incomeOverride) {
         Object.assign(inputs, incomeOverride.inputs);
         mergeExtraVariables(inputs, incomeOverride.extraVariables);
+      }
+      const optionOverlayOverride = optionOverlayOverrideForForm(form);
+      inputs.option_overlay_mode = normalizeOptionOverlayMode(form.optionOverlayMode);
+      if (optionOverlayOverride) {
+        Object.assign(inputs, optionOverlayOverride.inputs);
       }
       const dcaOverride = dcaOverrideForForm(form);
       if (dcaOverride) {
@@ -2678,6 +2872,13 @@
       return t("incomeLayerOn")
         .replace("{start}", formatUsd(pending.inputs.income_layer_start_usd))
         .replace("{ratio}", formatRatioPercent(pending.inputs.income_layer_max_ratio));
+    }
+
+    function pendingOptionOverlayText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingOptionOverlay(inputs, platform, account);
+      if (!pending.supported && pending.inputs.option_overlay_enabled !== false) return t("optionOverlayNotSupported");
+      if (!pending.changed) return t("unchanged");
+      return optionOverlayText(pending.inputs.option_overlay_enabled);
     }
 
     function pendingRuntimeTargetText(inputs, platform = state.selected, account = selectedAccount(platform)) {
@@ -2792,6 +2993,32 @@
       };
     }
 
+    function pendingOptionOverlay(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
+      const supported = optionOverlaySupported(profile);
+      const mode = normalizeOptionOverlayMode(inputs.option_overlay_mode);
+      const current = currentOptionOverlayForAccount(platform, account);
+      if (mode === "current") {
+        return {
+          supported,
+          changed: false,
+          inputs: { option_overlay_enabled: current },
+        };
+      }
+      if (mode === "enabled") {
+        return {
+          supported,
+          changed: supported && current !== true,
+          inputs: { option_overlay_enabled: true },
+        };
+      }
+      return {
+        supported,
+        changed: current === true,
+        inputs: { option_overlay_enabled: false },
+      };
+    }
+
     function pendingDca(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
       const defaults = dcaConfigForStrategy(profile);
@@ -2832,6 +3059,7 @@
       const runtimeTarget = pendingRuntimeTarget(inputs, platform, account);
       const reserve = pendingReservePolicy(inputs, platform, account);
       const income = pendingIncomeLayer(inputs, platform, account);
+      const optionOverlay = pendingOptionOverlay(inputs, platform, account);
       const dca = pendingDca(inputs, platform, account);
       const ibitZscoreExit = pendingIbitZscoreExit(inputs, platform, account);
       return {
@@ -2846,11 +3074,13 @@
         runtimeTargetChanged: runtimeTarget.changed,
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
+        optionOverlayChanged: optionOverlay.changed,
         dcaChanged: dca.changed,
         ibitZscoreExitChanged: ibitZscoreExit.changed,
         runtimeTarget,
         reserve,
         income,
+        optionOverlay,
         dca,
         ibitZscoreExit,
       };
@@ -2865,6 +3095,7 @@
           changes.runtimeTargetChanged ||
           changes.reserveCashChanged ||
           changes.incomeLayerChanged ||
+          changes.optionOverlayChanged ||
           changes.dcaChanged ||
           changes.ibitZscoreExitChanged,
       );
@@ -2896,6 +3127,18 @@
         .replace("{ratio}", formatRatioPercent(defaults.maxRatio));
     }
 
+    function optionOverlayDefaultMetaText(defaults) {
+      if (!defaults?.families?.length) return t("optionOverlayModeMeta");
+      const familyText = defaults.families.map((item) => {
+        const family = item.family === "income" ? t("optionOverlayFamilyIncome") : t("optionOverlayFamilyGrowth");
+        const ratioText = item.ratioKind === "risk"
+          ? t("optionOverlayRiskRatio").replace("{ratio}", formatRatioPercent(item.ratio))
+          : t("optionOverlayBudgetRatio").replace("{ratio}", formatRatioPercent(item.ratio));
+        return `${family}: ${item.recipe}, ${formatUsd(item.startUsd)}, ${ratioText}`;
+      }).join(" / ");
+      return t("optionOverlayDefaultMeta").replace("{defaults}", familyText);
+    }
+
     function summaryRows(inputs) {
       const account = selectedAccount();
       const changes = pendingChangeState(inputs, state.selected, account);
@@ -2917,6 +3160,9 @@
       if (incomeLayerSupported(inputs.strategy_profile)) {
         rows.push([t("currentIncomeLayer"), currentIncomeLayerText(state.selected, account, inputs.strategy_profile)]);
       }
+      if (optionOverlaySupported(inputs.strategy_profile) || changes.optionOverlayChanged) {
+        rows.push([t("currentOptionOverlay"), currentOptionOverlayText(state.selected, account, inputs.strategy_profile)]);
+      }
       if (dcaSupported(inputs.strategy_profile)) {
         rows.push([t("currentDca"), currentDcaText(state.selected, account, inputs.strategy_profile)]);
       }
@@ -2928,6 +3174,9 @@
       }
       if (changes.incomeLayerChanged) {
         rows.push([t("pendingIncomeLayer"), pendingIncomeLayerText(inputs, state.selected, account), "pending"]);
+      }
+      if (changes.optionOverlayChanged) {
+        rows.push([t("pendingOptionOverlay"), pendingOptionOverlayText(inputs, state.selected, account), "pending"]);
       }
       if (changes.dcaChanged) {
         rows.push([t("pendingDca"), pendingDcaText(inputs, state.selected, account), "pending"]);
@@ -3012,6 +3261,7 @@
       const incomeLayerModeSelect = el("income-layer-mode-select");
       const incomeLayerStartUsdInput = el("income-layer-start-usd-input");
       const incomeLayerMaxRatioInput = el("income-layer-max-ratio-input");
+      const optionOverlayModeSelect = el("option-overlay-mode-select");
       const dcaModeSelect = el("dca-mode-select");
       const dcaBaseInvestmentUsdInput = el("dca-base-investment-usd-input");
       const reservePolicyModeSelect = el("reserve-policy-mode-select");
@@ -3034,6 +3284,7 @@
         pluginModeSelect.replaceChildren();
         ibitZscoreExitModeSelect.replaceChildren();
         incomeLayerModeSelect.replaceChildren();
+        optionOverlayModeSelect.replaceChildren();
         dcaModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
         incomeLayerStartUsdInput.value = "";
@@ -3048,6 +3299,7 @@
         el("income-layer-mode-meta").textContent = "";
         el("income-layer-start-meta").textContent = "";
         el("income-layer-ratio-meta").textContent = "";
+        el("option-overlay-mode-meta").textContent = "";
         el("dca-mode-meta").textContent = "";
         el("dca-base-meta").textContent = "";
         return;
@@ -3158,6 +3410,29 @@
       incomeLayerStartUsdInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerStartUsd : "";
       incomeLayerMaxRatioInput.value = incomeDefaults && incomeMode !== "disabled" ? form.incomeLayerMaxRatio : "";
 
+      const optionDefaults = optionOverlayDefaultForStrategy(form.strategy);
+      optionOverlayModeSelect.replaceChildren();
+      if (optionDefaults) {
+        optionOverlayModeSelect.disabled = false;
+        for (const mode of optionOverlayModes) {
+          optionOverlayModeSelect.append(
+            new Option(optionOverlayModeLabel(mode), mode, false, mode === normalizeOptionOverlayMode(form.optionOverlayMode)),
+          );
+        }
+        el("option-overlay-mode-meta").textContent = optionOverlayDefaultMetaText(optionDefaults);
+      } else {
+        optionOverlayModeSelect.disabled = false;
+        const rawMode = normalizeOptionOverlayMode(form.optionOverlayMode);
+        const mode = rawMode === "disabled" ? "disabled" : "current";
+        for (const option of [
+          new Option(t("optionOverlayCurrent"), "current", false, mode === "current"),
+          new Option(t("optionOverlayDisabled"), "disabled", false, mode === "disabled"),
+        ]) {
+          optionOverlayModeSelect.append(option);
+        }
+        el("option-overlay-mode-meta").textContent = t("optionOverlayModeMeta");
+      }
+
       const dcaDefaults = dcaConfigForStrategy(form.strategy);
       dcaModeSelect.replaceChildren();
       if (dcaDefaults) {
@@ -3245,9 +3520,15 @@
       const hasRunnableStrategy = hasRunnableStrategySelection();
       const hasValidReserve = hasValidReservePolicy();
       const hasValidIncomeLayer = hasValidIncomeLayerPolicy();
+      const hasValidOptionOverlay = hasValidOptionOverlayPolicy();
       const hasValidDca = hasValidDcaPolicy();
       const hasValidIbitZscoreExit = hasValidIbitZscoreExitPolicy();
-      const hasValidStrategy = hasRunnableStrategy && hasValidReserve && hasValidIncomeLayer && hasValidDca && hasValidIbitZscoreExit;
+      const hasValidStrategy = hasRunnableStrategy &&
+        hasValidReserve &&
+        hasValidIncomeLayer &&
+        hasValidOptionOverlay &&
+        hasValidDca &&
+        hasValidIbitZscoreExit;
       const hasPendingChange = hasPrivateAccounts && hasValidStrategy && hasPendingChanges(buildInputs());
       dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
       dispatch.textContent = state.auth.allowed
@@ -3263,9 +3544,11 @@
             ? (hasRunnableStrategy
               ? (hasValidReserve
                 ? (hasValidIncomeLayer
-                  ? (hasValidDca
-                    ? (hasValidIbitZscoreExit ? (hasPendingChange ? t("readyNote") : "") : t("invalidIbitZscoreExitNote"))
-                    : t("invalidDcaNote"))
+                  ? (hasValidOptionOverlay
+                    ? (hasValidDca
+                      ? (hasValidIbitZscoreExit ? (hasPendingChange ? t("readyNote") : "") : t("invalidIbitZscoreExitNote"))
+                      : t("invalidDcaNote"))
+                    : t("invalidOptionOverlayNote"))
                   : t("invalidIncomeLayerNote"))
                 : t("invalidReservePolicyNote"))
               : t("invalidStrategyNote"))
@@ -3386,6 +3669,7 @@
           github_environment: item.github_environment ? String(item.github_environment) : "",
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
+          option_overlay_mode: item.option_overlay_mode ? normalizeOptionOverlayMode(item.option_overlay_mode) : "",
           dca_mode: item.dca_mode ? normalizeDcaMode(item.dca_mode) : "",
           dca_base_investment_usd: cleanDisplayPositiveNumber(item.dca_base_investment_usd),
           ibit_zscore_exit_mode: cleanIbitZscoreExitMode(item.ibit_zscore_exit_mode),
@@ -3415,6 +3699,7 @@
           const incomeLayerEnabled = cleanOptionalBoolean(entry?.income_layer_enabled);
           const incomeLayerStartUsd = cleanDisplayNumber(entry?.income_layer_start_usd);
           const incomeLayerMaxRatio = cleanDisplayRatio(entry?.income_layer_max_ratio);
+          const optionOverlayEnabled = cleanOptionalBoolean(entry?.option_overlay_enabled);
           const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
           const dcaMode = entry?.dca_mode ? normalizeDcaMode(entry.dca_mode) : "";
           const dcaBaseInvestmentUsd = cleanDisplayPositiveNumber(entry?.dca_base_investment_usd);
@@ -3427,6 +3712,7 @@
             incomeLayerEnabled === null &&
             !incomeLayerStartUsd &&
             !incomeLayerMaxRatio &&
+            optionOverlayEnabled === null &&
             runtimeTargetEnabled === null &&
             !dcaMode &&
             !dcaBaseInvestmentUsd &&
@@ -3442,6 +3728,7 @@
             income_layer_enabled: incomeLayerEnabled,
             income_layer_start_usd: incomeLayerStartUsd,
             income_layer_max_ratio: incomeLayerMaxRatio,
+            option_overlay_enabled: optionOverlayEnabled,
             runtime_target_enabled: runtimeTargetEnabled,
             dca_mode: dcaMode,
             dca_base_investment_usd: dcaBaseInvestmentUsd,
@@ -3506,6 +3793,7 @@
       state.forms[state.selected].runtimeTargetTouched = false;
       state.forms[state.selected].reservedCashTouched = false;
       state.forms[state.selected].incomeLayerTouched = false;
+      state.forms[state.selected].optionOverlayTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].ibitZscoreExitTouched = false;
       syncStrategyForAccount(state.selected);
@@ -3515,9 +3803,11 @@
     el("strategy-select").addEventListener("change", () => {
       state.forms[state.selected].strategy = el("strategy-select").value;
       state.forms[state.selected].incomeLayerTouched = false;
+      state.forms[state.selected].optionOverlayTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].ibitZscoreExitTouched = false;
       syncIncomeLayerForAccount(state.selected);
+      syncOptionOverlayForAccount(state.selected);
       syncDcaForAccount(state.selected);
       syncIbitZscoreExitForAccount(state.selected);
       render();
@@ -3576,6 +3866,13 @@
       form.incomeLayerTouched = true;
       form.incomeLayerMode = "enabled";
       form.incomeLayerMaxRatio = el("income-layer-max-ratio-input").value.trim();
+      render();
+    });
+
+    el("option-overlay-mode-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.optionOverlayMode = normalizeOptionOverlayMode(el("option-overlay-mode-select").value);
+      form.optionOverlayTouched = form.optionOverlayMode !== "current";
       render();
     });
 

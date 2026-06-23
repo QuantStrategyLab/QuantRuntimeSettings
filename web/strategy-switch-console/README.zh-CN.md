@@ -127,7 +127,7 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 
 切换表单也支持可选的预留现金覆盖项：所选账号币种下的最小预留现金和预留现金比例。如果账号现金币种固定，可以在账号配置里把 `cash_currency` 设为 `USD` 或 `HKD`；否则页面会按所选策略推断，港股策略显示 HKD，美股策略显示 USD。沿用当前策略会保留平台现有变量；如果平台没有显式配置预留现金变量，源码默认是不额外预留（账号币种 `0`、比例 `0%`）。填写后，Worker 会把它们传给 `manual-strategy-switch.yml`，由 workflow 写入平台对应变量，例如 `IBKR_MIN_RESERVED_CASH_USD` 和 `IBKR_RESERVED_CASH_RATIO`。
 
-收入层控件来自 `strategy-profiles.example.json` 里的 live 验证策略元数据。切换页可以沿用当前配置、按 profile 默认起始金额和最高比例开启收入层，或关闭收入层。策略 profile 目录也可以携带默认期权层元数据，例如 `option_overlay_enabled`、默认 recipe、起始金额和预算；这些值只表达策略仓库的默认配置和 promotion gate 状态。手工切换请求仍不能通过 `extra_variables_json` 覆盖直接期权 overlay / LEAPS 字段，在有单独证据晋级前，Worker、构建脚本和 target 校验都会拒绝这些直接覆盖项。
+收入层控件来自 `strategy-profiles.example.json` 里的 live 验证策略元数据。切换页可以沿用当前配置、按 profile 默认起始金额和最高比例开启收入层，或关闭收入层。期权层也来自同一份策略 profile 元数据，但网页只暴露三态策略：沿用当前、启用 profile 默认 recipe 和预算、或关闭并清理期权层变量。手工切换请求仍不能通过 `extra_variables_json` 覆盖直接期权 overlay / LEAPS 字段；Worker 和构建脚本会拒绝这些直接覆盖项。
 
 策略切换成功后也会把当前账号的 `default_strategy_profile` 同步回 KV 的 `account_options` key。网页接口会在触发 workflow 成功后立即同步；如果 `runtime-strategy-switch` 环境变量里配置了 `STRATEGY_SWITCH_CONSOLE_URL`，手动 GitHub workflow 在写入平台变量后也会回调 Worker 内部接口同步。这个 workflow 回调需要 GitHub 环境 secret `STRATEGY_SWITCH_SYNC_TOKEN`，值要和 Worker 里同名 secret 保持一致。
 

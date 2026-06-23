@@ -13,6 +13,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
+ROOT = SCRIPT_DIR.parent
 
 from runtime_settings import (  # noqa: E402
     SUPPORTED_PLATFORMS,
@@ -118,6 +119,8 @@ OPTION_OVERLAY_CONTROL_FIELDS = (
     "option_income_overlay_nav_risk_ratio",
 )
 OPTION_OVERLAY_VARIABLES = tuple(field.upper() for field in OPTION_OVERLAY_CONTROL_FIELDS)
+OPTION_OVERLAY_MODES = frozenset({"current", "enabled", "disabled"})
+OPTION_OVERLAY_PROFILE_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
 RUNTIME_TARGET_VARIABLES = (
     "RUNTIME_TARGET_ENABLED",
 )
@@ -285,6 +288,16 @@ def _normalize_positive_decimal(value: str, *, field_name: str) -> str:
     return text
 
 
+def _normalize_nonnegative_decimal(value: str, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not re.fullmatch(r"(?:\d+|\d*\.\d+)", text):
+        raise ValueError(f"{field_name} must be a non-negative decimal number")
+    numeric = float(text)
+    if numeric < 0:
+        raise ValueError(f"{field_name} must be non-negative")
+    return text
+
+
 def _normalize_ratio_decimal(value: str, *, field_name: str) -> str:
     text = str(value or "").strip()
     if not text or not re.fullmatch(r"(?:\d+|\d*\.\d+)", text):
@@ -296,12 +309,26 @@ def _normalize_ratio_decimal(value: str, *, field_name: str) -> str:
 
 
 def _normalize_optional_bool_text(value: str, *, field_name: str) -> str:
-    text = str(value or "").strip().lower()
+    text = str(value if value is not None else "").strip().lower()
     if text in {"1", "true", "yes", "y", "on"}:
         return "true"
     if text in {"0", "false", "no", "n", "off"}:
         return "false"
     raise ValueError(f"{field_name} must be true or false")
+
+
+def _normalize_option_overlay_mode(value: str) -> str:
+    mode = str(value or "current").strip().lower()
+    if mode not in OPTION_OVERLAY_MODES:
+        raise ValueError("option_overlay_mode must be current, enabled, or disabled")
+    return mode
+
+
+def _normalize_option_recipe(value: str, *, field_name: str) -> str:
+    text = str(value or "").strip()
+    if not text or not re.fullmatch(r"[A-Za-z0-9._=-]{1,120}", text):
+        raise ValueError(f"{field_name} must be a recipe slug")
+    return text
 
 
 def _normalize_ibit_zscore_exit_mode(value: str) -> str:
@@ -344,6 +371,95 @@ def _extract_ibit_zscore_exit_control_fields(extra_variables: dict[str, Any]) ->
         if field_name in extra_variables:
             controls[field_name] = extra_variables.pop(field_name)
     return controls
+
+
+def _disabled_option_overlay_extra_variables() -> dict[str, str]:
+    values = {variable: "" for variable in OPTION_OVERLAY_VARIABLES}
+    values["OPTION_OVERLAY_ENABLED"] = "false"
+    values["OPTION_GROWTH_OVERLAY_ENABLED"] = "false"
+    values["OPTION_INCOME_OVERLAY_ENABLED"] = "false"
+    return values
+
+
+def _profile_bool(item: dict[str, Any], field_name: str, *, default: bool = False) -> bool:
+    if item.get(field_name) is None or str(item.get(field_name)).strip() == "":
+        return default
+    return _normalize_optional_bool_text(item[field_name], field_name=field_name) == "true"
+
+
+def _option_family_defaults(item: dict[str, Any], family: str) -> dict[str, str]:
+    control_prefix = f"option_{family}_overlay"
+    env_prefix = f"OPTION_{family.upper()}_OVERLAY"
+    enabled = _profile_bool(item, f"{control_prefix}_enabled", default=False)
+    values = {
+        f"{env_prefix}_ENABLED": "true" if enabled else "false",
+        f"{env_prefix}_RECIPE": "",
+        f"{env_prefix}_START_USD": "",
+    }
+    if family == "growth":
+        ratio_field = "option_growth_overlay_nav_budget_ratio"
+        ratio_variable = "OPTION_GROWTH_OVERLAY_NAV_BUDGET_RATIO"
+    else:
+        ratio_field = "option_income_overlay_nav_risk_ratio"
+        ratio_variable = "OPTION_INCOME_OVERLAY_NAV_RISK_RATIO"
+    values[ratio_variable] = ""
+    if not enabled:
+        return values
+
+    values[f"{env_prefix}_RECIPE"] = _normalize_option_recipe(
+        item.get(f"{control_prefix}_recipe"),
+        field_name=f"{control_prefix}_recipe",
+    )
+    values[f"{env_prefix}_START_USD"] = _normalize_nonnegative_decimal(
+        item.get(f"{control_prefix}_start_usd"),
+        field_name=f"{control_prefix}_start_usd",
+    )
+    values[ratio_variable] = _normalize_ratio_decimal(item.get(ratio_field), field_name=ratio_field)
+    return values
+
+
+def _load_option_overlay_profile_defaults() -> dict[str, dict[str, str]]:
+    try:
+        payload = json.loads(OPTION_OVERLAY_PROFILE_PATH.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise ValueError(f"cannot read {OPTION_OVERLAY_PROFILE_PATH}") from exc
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{OPTION_OVERLAY_PROFILE_PATH} must be valid JSON") from exc
+    if not isinstance(payload, list):
+        raise ValueError(f"{OPTION_OVERLAY_PROFILE_PATH} must contain a strategy profile list")
+
+    defaults: dict[str, dict[str, str]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        profile = str(item.get("profile") or item.get("strategy_profile") or "").strip().lower()
+        if not profile:
+            continue
+        if not _profile_bool(item, "option_overlay_enabled", default=False):
+            continue
+        values = _disabled_option_overlay_extra_variables()
+        values["OPTION_OVERLAY_ENABLED"] = "true"
+        values.update(_option_family_defaults(item, "growth"))
+        values.update(_option_family_defaults(item, "income"))
+        if values["OPTION_GROWTH_OVERLAY_ENABLED"] != "true" and values["OPTION_INCOME_OVERLAY_ENABLED"] != "true":
+            raise ValueError(f"{profile} option overlay is enabled without a growth or income family")
+        defaults[profile] = values
+    return defaults
+
+
+def _option_overlay_extra_variables(args: argparse.Namespace, strategy_profile: str) -> dict[str, str]:
+    mode = _normalize_option_overlay_mode(getattr(args, "option_overlay_mode", "current"))
+    if mode == "current":
+        return {}
+    if mode == "disabled":
+        return _disabled_option_overlay_extra_variables()
+
+    defaults = _load_option_overlay_profile_defaults().get(strategy_profile)
+    if not defaults:
+        raise ValueError(
+            "option_overlay_mode enabled is only supported for strategies with option overlay defaults"
+        )
+    return dict(defaults)
 
 
 def _dca_extra_variables(
@@ -670,6 +786,7 @@ def _preserve_reserved_cash_fields(
         PLATFORM_MIN_RESERVED_CASH_VARIABLES.get(platform),
         PLATFORM_RESERVED_CASH_RATIO_VARIABLES.get(platform),
         *INCOME_LAYER_VARIABLES,
+        *OPTION_OVERLAY_VARIABLES,
         *RUNTIME_TARGET_VARIABLES,
         *DCA_RUNTIME_VARIABLES,
         *IBIT_ZSCORE_EXIT_RUNTIME_VARIABLES,
@@ -754,6 +871,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         extra_variables["INCOME_LAYER_START_USD"] = args.income_layer_start_usd
     if args.income_layer_max_ratio:
         extra_variables["INCOME_LAYER_MAX_RATIO"] = args.income_layer_max_ratio
+    extra_variables.update(_option_overlay_extra_variables(args, runtime_target["strategy_profile"]))
     extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"], dca_controls))
     extra_variables.update(
         _ibit_zscore_exit_extra_variables(
@@ -826,6 +944,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--min-reserved-cash-usd", default="")
     parser.add_argument("--income-layer-start-usd", default="")
     parser.add_argument("--income-layer-max-ratio", default="")
+    parser.add_argument("--option-overlay-mode", choices=sorted(OPTION_OVERLAY_MODES), default="current")
     parser.add_argument("--dca-mode", default="")
     parser.add_argument("--dca-base-investment-usd", default="")
     parser.add_argument("--ibit-zscore-exit-mode", choices=("disabled", "paper", "live"), default="")

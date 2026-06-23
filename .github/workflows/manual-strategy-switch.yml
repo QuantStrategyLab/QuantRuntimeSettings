@@ -90,6 +90,15 @@ on:
         description: "Optional income layer maximum allocation ratio."
         required: false
         type: string
+      option_overlay_mode:
+        description: "Option overlay policy: current preserves variables, enabled applies profile defaults, disabled clears it."
+        required: true
+        type: choice
+        default: current
+        options:
+          - current
+          - enabled
+          - disabled
       service_targets_mode:
         description: "auto patches IBKR CLOUD_RUN_SERVICE_TARGETS_JSON when it exists."
         required: true
@@ -149,6 +158,7 @@ jobs:
       MIN_RESERVED_CASH_USD: ${{ inputs.min_reserved_cash_usd }}
       INCOME_LAYER_START_USD: ${{ inputs.income_layer_start_usd }}
       INCOME_LAYER_MAX_RATIO: ${{ inputs.income_layer_max_ratio }}
+      OPTION_OVERLAY_MODE: ${{ inputs.option_overlay_mode }}
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
@@ -249,6 +259,7 @@ jobs:
             --strategy-profile "${STRATEGY_PROFILE}"
             --execution-mode "${EXECUTION_MODE}"
             --plugin-mode "${PLUGIN_MODE}"
+            --option-overlay-mode "${OPTION_OVERLAY_MODE}"
             --output "${target_file}"
           )
           if [ "${VARIABLE_SCOPE}" != "default" ]; then
@@ -374,6 +385,7 @@ jobs:
               "execution_mode": runtime_target["execution_mode"],
               "variable_scope": github["variable_scope"],
               "plugin_mode": os.environ["PLUGIN_MODE"],
+              "option_overlay_mode": os.environ.get("OPTION_OVERLAY_MODE", "current"),
               "deployment_selector": runtime_target["deployment_selector"],
               "account_selector": ",".join(runtime_target["account_selector"]),
               "account_scope": runtime_target["account_scope"],

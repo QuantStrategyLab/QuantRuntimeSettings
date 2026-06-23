@@ -34,8 +34,12 @@ assert.ok(indexHtml.includes('incomeLayerStartUsd: "Income layer start amount"')
 assert.ok(indexHtml.includes('incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD"'));
 assert.ok(indexHtml.includes("fallbackIncomeLayerDefaults"));
 assert.ok(indexHtml.includes("incomeLayerDefaultsFromProfileItem"));
-assert.equal(indexHtml.includes('id="option-overlay'), false);
-assert.equal(indexHtml.includes("option_growth_overlay"), false);
+assert.ok(indexHtml.includes('id="option-overlay-mode-select"'));
+assert.ok(indexHtml.includes('optionOverlayMode: "期权层状态"'));
+assert.ok(indexHtml.includes('optionOverlayMode: "Option layer"'));
+assert.ok(indexHtml.includes("optionOverlayDefaultsFromProfileItem"));
+assert.equal(indexHtml.includes('id="option-growth-overlay'), false);
+assert.equal(indexHtml.includes('id="option-income-overlay'), false);
 assert.ok(indexHtml.includes('id="dca-mode-select"'));
 assert.ok(indexHtml.includes('id="dca-base-investment-usd-input"'));
 assert.ok(indexHtml.includes('dcaMode: "定投模式"'));
@@ -449,11 +453,13 @@ const normalizedReservedCashInputs = __test.normalizeSwitchInputs({
   min_reserved_cash_usd: "150",
   income_layer_start_usd: "250000",
   income_layer_max_ratio: "0.55",
+  option_overlay_mode: "enabled",
 });
 assert.equal(normalizedReservedCashInputs.reserved_cash_ratio, "0.03");
 assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
 assert.equal(normalizedReservedCashInputs.income_layer_start_usd, "250000");
 assert.equal(normalizedReservedCashInputs.income_layer_max_ratio, "0.55");
+assert.equal(normalizedReservedCashInputs.option_overlay_mode, "enabled");
 const normalizedPluginInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -619,6 +625,22 @@ const updatedPluginModeOptions = __test.updateAccountOptionsDefaultStrategy(
 assert.equal(updatedPluginModeOptions.changed, true);
 assert.equal(updatedPluginModeOptions.options.longbridge[1].plugin_mode, "none");
 
+const updatedOptionOverlayModeOptions = __test.updateAccountOptionsDefaultStrategy(
+  accountOptions,
+  {
+    platform: "longbridge",
+    target_name: "sg",
+    account_selector: "SG",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    variable_scope: "default",
+    plugin_mode: "auto",
+    option_overlay_mode: "disabled",
+  },
+);
+assert.equal(updatedOptionOverlayModeOptions.changed, true);
+assert.equal(updatedOptionOverlayModeOptions.options.longbridge[1].option_overlay_mode, "disabled");
+
 const updatedIbitZscoreModeOptions = __test.updateAccountOptionsDefaultStrategy(
   {
     ...accountOptions,
@@ -698,6 +720,12 @@ globalThis.fetch = async (url) => {
       headers: { "Content-Type": "application/json" },
     });
   }
+  if (requestUrl.endsWith("/OPTION_OVERLAY_ENABLED")) {
+    return new Response(JSON.stringify({ value: "true" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
   if (requestUrl.endsWith("/RUNTIME_TARGET_ENABLED")) {
     return new Response(JSON.stringify({ value: "false" }), {
       status: 200,
@@ -741,6 +769,7 @@ try {
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.schwab.default.income_layer_start_usd, "150000");
   assert.equal(currentStrategies.schwab.default.income_layer_max_ratio, "0.95");
+  assert.equal(currentStrategies.schwab.default.option_overlay_enabled, true);
   assert.equal(currentStrategies.schwab.default.runtime_target_enabled, false);
   assert.equal(currentStrategies.schwab.default.dca_mode, "smart");
   assert.equal(currentStrategies.schwab.default.dca_base_investment_usd, "500");
@@ -762,6 +791,7 @@ globalThis.fetch = async (url) => {
             IBKR_RESERVED_CASH_RATIO: "0.03",
             INCOME_LAYER_START_USD: "250000",
             INCOME_LAYER_MAX_RATIO: "0.55",
+            OPTION_OVERLAY_ENABLED: "true",
             RUNTIME_TARGET_ENABLED: "false",
             DCA_MODE: "smart",
             DCA_BASE_INVESTMENT_USD: "700",
@@ -792,6 +822,7 @@ try {
   assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_start_usd, "250000");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_max_ratio, "0.55");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].option_overlay_enabled, true);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].runtime_target_enabled, false);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].dca_mode, "smart");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].dca_base_investment_usd, "700");
