@@ -86,6 +86,24 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
         self.assertEqual(report.missing_files, [])
         self.assertEqual(report.issues, [])
 
+    def test_require_consumer_files_treats_missing_paths_as_issues(self):
+        projects_root = self._make_projects_root({})
+        expected = [
+            check_internal_dependency_matrix.DependencyPin(
+                consumer_repo="ExamplePlatform",
+                path="requirements.txt",
+                package="quant-platform-kit",
+                source_repo="QuantPlatformKit",
+                ref="v0.7.35",
+            )
+        ]
+
+        report = check_internal_dependency_matrix.check_matrix(matrix_pins=expected, projects_root=projects_root)
+
+        self.assertEqual(report.checked_files, 0)
+        self.assertEqual(report.missing_files, ["ExamplePlatform/requirements.txt"])
+        self.assertEqual(report.issues, [])
+
     def _make_projects_root(self, files: dict[str, str]) -> Path:
         import tempfile
 

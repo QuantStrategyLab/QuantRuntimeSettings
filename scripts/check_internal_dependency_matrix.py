@@ -129,20 +129,30 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--projects-root", type=Path, default=DEFAULT_PROJECTS_ROOT)
     parser.add_argument("--json", action="store_true", help="Print machine-readable report.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when drift is detected.")
+    parser.add_argument(
+        "--require-consumer-files",
+        action="store_true",
+        help="Treat missing consumer dependency files as validation failures.",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     report = check_matrix(matrix_pins=load_matrix(args.matrix), projects_root=args.projects_root)
+    issues = list(report.issues)
+    if args.require_consumer_files and report.missing_files:
+        for item in report.missing_files:
+            issues.append(f"missing consumer dependency file {item}")
+    ok = not issues
     if args.json:
         print(
             json.dumps(
                 {
                     "checked_files": report.checked_files,
                     "missing_files": report.missing_files,
-                    "issues": report.issues,
-                    "ok": report.ok,
+                    "issues": issues,
+                    "ok": ok,
                 },
                 ensure_ascii=False,
                 indent=2,
@@ -154,13 +164,13 @@ def main(argv: list[str] | None = None) -> int:
             print("missing_files:")
             for item in report.missing_files:
                 print(f"- {item}")
-        if report.issues:
+        if issues:
             print("issues:")
-            for issue in report.issues:
+            for issue in issues:
                 print(f"- {issue}")
-        if report.ok:
+        if ok:
             print("internal dependency matrix is current")
-    return 1 if args.strict and not report.ok else 0
+    return 1 if args.strict and not ok else 0
 
 
 if __name__ == "__main__":
