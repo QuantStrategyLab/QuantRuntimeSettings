@@ -35,7 +35,7 @@ jobs:
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -v
       - name: Report internal dependency matrix
-        run: python3 scripts/check_internal_dependency_matrix.py --projects-root .. --json
+        run: python3 scripts/check_internal_dependency_matrix.py --projects-root .. --json --strict
       - name: Validate strategy switch web assets
         run: |
           set -euo pipefail
