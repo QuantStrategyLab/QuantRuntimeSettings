@@ -125,7 +125,9 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 
 登录用户访问 `/api/config` 时，Worker 还会读取目标平台仓库的当前 GitHub Variables。读取优先级是账号匹配的 `CLOUD_RUN_SERVICE_TARGETS_JSON`、匹配的 `RUNTIME_TARGET_JSON.strategy_profile`、`STRATEGY_PROFILE`；都读不到时，页面才回退到 `default_strategy_profile`。
 
-切换表单也支持可选的预留现金覆盖项：所选账号币种下的最小预留现金和预留现金比例。如果账号现金币种固定，可以在账号配置里把 `cash_currency` 设为 `USD` 或 `HKD`；否则页面会按所选策略推断，港股策略显示 HKD，美股策略显示 USD。沿用当前策略会保留平台现有变量；如果平台没有显式配置预留现金变量，源码默认是不额外预留（账号币种 `0`、比例 `0%`）。填写后，Worker 会把它们传给 `manual-strategy-switch.yml`，由 workflow 写入平台对应变量，例如 `IBKR_MIN_RESERVED_CASH_USD` 和 `IBKR_RESERVED_CASH_RATIO`。
+切换表单也支持可选的预留现金覆盖项：所选账号币种下的最小预留现金和预留现金比例。如果账号现金币种固定，可以在账号配置里把 `cash_currency` 设为 `USD`、`HKD` 或 `CNY`；否则页面会按所选策略推断，A 股策略显示 CNY，港股策略显示 HKD，美股策略显示 USD。沿用当前策略会保留平台现有变量；如果平台没有显式配置预留现金变量，源码默认是不额外预留（账号币种 `0`、比例 `0%`）。填写后，Worker 会把它们传给 `manual-strategy-switch.yml`，由 workflow 写入平台对应变量，例如 `IBKR_MIN_RESERVED_CASH_USD` 和 `IBKR_RESERVED_CASH_RATIO`。
+
+「允许融资」与「预留现金覆盖」在网页上互斥：选「允许融资：是」会禁用预留现金覆盖；设置比例/金额类预留覆盖会禁用「允许融资：是」，并自动切到「否」。QMT（A 股）平台不展示这两项，现金约束在 CnEquityStrategies 策略参数 `execution_cash_reserve_ratio` 内配置。
 
 收入层控件来自 `strategy-profiles.example.json` 里的 live 验证策略元数据。切换页可以沿用当前配置、按 profile 默认起始金额和最高比例开启收入层，或关闭收入层。期权层也来自同一份策略 profile 元数据，但网页只暴露三态策略：沿用当前、启用 profile 默认 recipe 和预算、或关闭并清理期权层变量。手工切换请求仍不能通过 `extra_variables_json` 覆盖直接期权 overlay / LEAPS 字段；Worker 和构建脚本会拒绝这些直接覆盖项。
 
@@ -139,9 +141,11 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 
 - 在 `strategy-profiles.example.json` 增加 runtime-enabled profile id 和显示名称。
 - 运行 `python3 scripts/sync_strategy_switch_page_asset.py` 重新生成 `strategy_profiles_asset.js`。
-- 给每个策略 profile 设置 `domain`。当前支持 `us_equity` 和 `hk_equity`。
+- 给每个策略 profile 设置 `domain`。当前支持 `us_equity`、`hk_equity` 和 `cn_equity`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `default_strategy_profile` 和 `supported_domains`。
 - LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。
+- QMT 账号写 `supported_domains: ["cn_equity"]`，`cash_currency: "CNY"`，并指向 `QuantStrategyLab/QmtPlatform` 仓库里的 target（见 `examples/targets/qmt/`）。当前阶段 **仅 dry-run**，无 live 券商账号；控制台会锁定 paper 模式，Worker 拒绝 QMT live 切换。Worker 后端已支持 `qmt`；平台 Cloud Run sync 目前仍会在 workflow 里 skip，切换策略本身可正常触发。
+- 架构说明见 `examples/targets/qmt/README.zh-CN.md`。Runtime-enabled 的 A 股策略为 `cn_industry_etf_rotation`（主轨）与 `cn_dividend_quality_snapshot`；`cn_index_etf_tactical_rotation` 为 research-only，不要放进切换页策略目录。
 - main 分支部署 workflow 会在 Worker 部署后，用 `strategy-profiles.example.json` 自动更新已部署 KV 的 `strategy_profiles` key。手动部署时，可用 Worker 同步 token 调用 `/api/internal/sync-strategy-profiles`。
 - 确认平台仓库当前的 `RUNTIME_TARGET_JSON.strategy_profile` 或账号级 `CLOUD_RUN_SERVICE_TARGETS_JSON` 使用同一个 id。
 - 让 `manual-strategy-switch.yml` 统一管理平台 plugin mounts。策略不需要插件时，它会写入空的 `*_STRATEGY_PLUGIN_MOUNTS_JSON`，清掉旧策略留下的插件配置。

@@ -83,5 +83,33 @@
       "default_strategy_profile": "russell_top50_leader_rotation",
       "supported_domains": ["us_equity"]
     }
+  ],
+  "qmt": [
+    {
+      "key": "industry_etf_dry_run",
+      "label": "industry_etf_dry_run",
+      "target_name": "industry_etf_dry_run",
+      "variable_scope": "repository",
+      "deployment_selector": "qmt",
+      "account_selector": "qmt",
+      "account_scope": "CN",
+      "service_name": "qmt-quant-service",
+      "cash_currency": "CNY",
+      "default_strategy_profile": "cn_industry_etf_rotation",
+      "supported_domains": ["cn_equity"]
+    },
+    {
+      "key": "dividend_quality_dry_run",
+      "label": "dividend_quality_dry_run",
+      "target_name": "dividend_quality_dry_run",
+      "variable_scope": "repository",
+      "deployment_selector": "qmt",
+      "account_selector": "qmt",
+      "account_scope": "CN",
+      "service_name": "qmt-quant-service",
+      "cash_currency": "CNY",
+      "default_strategy_profile": "cn_dividend_quality_snapshot",
+      "supported_domains": ["cn_equity"]
+    }
   ]
 }

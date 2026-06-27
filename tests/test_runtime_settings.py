@@ -506,9 +506,9 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "--platform",
                 "qmt",
                 "--target-name",
-                "dry-run",
+                "industry-etf-dry-run",
                 "--strategy-profile",
-                "cn_index_etf_tactical_rotation",
+                "cn_industry_etf_rotation",
                 "--execution-mode",
                 "dry_run",
             ]
@@ -526,7 +526,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(target["runtime_target"]["service_name"], "qmt-quant-service")
         self.assertEqual(target["runtime_target"]["dry_run_only"], True)
         self.assertEqual(assignments["QMT_DRY_RUN_ONLY"], "true")
-        self.assertEqual(assignments["STRATEGY_PROFILE"], "cn_index_etf_tactical_rotation")
+        self.assertEqual(assignments["STRATEGY_PROFILE"], "cn_industry_etf_rotation")
         self.assertEqual(
             target["runtime_target"]["scheduler"],
             {

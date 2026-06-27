@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
-  "target_id": "qmt/dry_run",
-  "description": "Legacy alias target id; prefer qmt/industry_etf_dry_run for new deployments.",
+  "target_id": "qmt/industry_etf_dry_run",
+  "description": "Primary QMT dry-run target for cn_industry_etf_rotation (A-share industry ETF rotation).",
   "github": {
     "repository": "QuantStrategyLab/QmtPlatform",
     "variable_scope": "repository"

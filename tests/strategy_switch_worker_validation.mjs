@@ -39,7 +39,12 @@ assert.ok(indexHtml.includes('optionOverlayMode: "期权层状态"'));
 assert.ok(indexHtml.includes('optionOverlayMode: "Option layer"'));
 assert.ok(indexHtml.includes("optionOverlayDefaultsFromProfileItem"));
 assert.ok(indexHtml.includes('id="cash-only-execution-mode-select"'));
-assert.ok(indexHtml.includes('class="form-section cash-only-section"'));
+assert.ok(indexHtml.includes('class="form-section execution-cash-policy-section"'));
+assert.ok(indexHtml.includes('function reconcileExecutionCashPolicy('));
+assert.ok(indexHtml.includes('qmt: { label: "QMT"'));
+assert.ok(indexHtml.includes('cn_industry_etf_rotation'));
+assert.ok(indexHtml.includes('platformDryRunOnly'));
+assert.ok(indexHtml.includes('qmtDryRunOnlyNote'));
 assert.ok(indexHtml.includes('cashOnlyExecutionMode: "允许融资"'));
 assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "允许融资：是"'));
 assert.ok(indexHtml.includes('cashOnlyExecutionMode: "Allow margin"'));
@@ -63,7 +68,7 @@ assert.ok(indexHtml.includes('el("dca-base-investment-usd-input").addEventListen
 assert.ok(indexHtml.includes('label_zh: "纳指100 / 标普500 定投"'));
 assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
 assert.ok(indexHtml.includes('class="form-section dca-section"'));
-assert.ok(indexHtml.includes('class="control-block reserve-policy-block section-wide"'));
+assert.ok(indexHtml.includes('class="control-block reserve-policy-block policy-block"'));
 assert.ok(indexHtml.includes('profile: "ibit_smart_dca"'));
 assert.ok(indexHtml.includes('IBIT 比特币定投'));
 assert.ok(indexHtml.includes('localStrategyLabels'));
@@ -554,6 +559,22 @@ assert.throws(
   }),
   /IBIT Z-Score exit settings/,
 );
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "qmt",
+    target_name: "industry_etf_dry_run",
+    strategy_profile: "cn_industry_etf_rotation",
+    execution_mode: "live",
+  }),
+  /does not support live execution yet/,
+);
+const normalizedQmtDryRunInputs = __test.normalizeSwitchInputs({
+  platform: "qmt",
+  target_name: "industry_etf_dry_run",
+  strategy_profile: "cn_industry_etf_rotation",
+  execution_mode: "paper",
+});
+assert.equal(normalizedQmtDryRunInputs.execution_mode, "paper");
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
