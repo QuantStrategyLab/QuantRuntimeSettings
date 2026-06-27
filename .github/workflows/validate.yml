@@ -34,8 +34,12 @@ jobs:
         run: python3 scripts/runtime_settings.py validate
       - name: Run unit tests
         run: python3 -m unittest discover -s tests -v
+      - name: Checkout internal dependency consumer repos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/checkout_internal_dependency_consumers.sh --output-root ..
       - name: Report internal dependency matrix
-        run: python3 scripts/check_internal_dependency_matrix.py --projects-root .. --json --strict
+        run: python3 scripts/check_internal_dependency_matrix.py --projects-root .. --json --strict --require-consumer-files
       - name: Validate strategy switch web assets
         run: |
           set -euo pipefail
