@@ -346,40 +346,12 @@
       align-items: start;
     }
 
-    .reserve-policy-stack {
-      display: grid;
-      gap: 14px;
-      min-width: 0;
-    }
-
-    .margin-policy-stack {
-      display: grid;
-      gap: 14px;
-      min-width: 0;
-    }
-
-    .reserve-amounts-row {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 14px;
-      min-width: 0;
-    }
-
-    .reserve-policy-stack.policy-stack-muted,
-    .reserve-amounts-row.policy-stack-muted {
-      opacity: 0.58;
-    }
-
     .policy-block-muted .selection-meta {
       color: var(--danger);
     }
 
     @media (max-width: 720px) {
       .execution-cash-policy-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .reserve-amounts-row {
         grid-template-columns: 1fr;
       }
     }
@@ -1444,35 +1416,29 @@
             <p class="execution-cash-policy-note" id="execution-cash-policy-note" data-i18n="executionCashPolicyNote">允许融资与预留现金覆盖不能同时生效。</p>
             <p class="execution-cash-policy-note qmt-platform-cash-note" id="qmt-platform-cash-note" hidden data-i18n="qmtPlatformCashNote">A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。</p>
             <div class="execution-cash-policy-grid" id="execution-cash-policy-grid">
-              <div class="margin-policy-stack" id="margin-policy-stack">
-                <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
-                  <span data-i18n="cashOnlyExecutionMode">允许融资</span>
-                  <select id="cash-only-execution-mode-select"></select>
-                  <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
-                </label>
+              <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
+                <span data-i18n="cashOnlyExecutionMode">允许融资</span>
+                <select id="cash-only-execution-mode-select"></select>
+                <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
+              </label>
 
-                <div class="reserve-amounts-row" id="reserve-amounts-row">
-                  <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
-                    <span id="min-reserved-cash-label">最小预留现金</span>
-                    <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
-                    <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
-                  </label>
+              <label class="control-block reserve-policy-block policy-block" id="reserve-policy-block">
+                <span data-i18n="reservedCashMode">预留现金策略</span>
+                <select id="reserve-policy-mode-select"></select>
+                <span class="selection-meta" id="reserve-policy-mode-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
+              </label>
 
-                  <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
-                    <span data-i18n="reservedCashRatio">预留现金比例</span>
-                    <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-                    <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
-                  </label>
-                </div>
-              </div>
+              <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
+                <span id="min-reserved-cash-label">最小预留现金</span>
+                <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
+                <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
+              </label>
 
-              <div class="reserve-policy-stack" id="reserve-policy-stack">
-                <label class="control-block reserve-policy-block policy-block" id="reserve-policy-block">
-                  <span data-i18n="reservedCashMode">预留现金策略</span>
-                  <select id="reserve-policy-mode-select"></select>
-                  <span class="selection-meta" id="reserve-policy-mode-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
-                </label>
-              </div>
+              <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
+                <span data-i18n="reservedCashRatio">预留现金比例</span>
+                <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+                <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
+              </label>
             </div>
           </div>
 
@@ -3809,8 +3775,6 @@
         el("reserve-policy-block").classList.toggle("policy-block-muted", marginBlocksReserve);
         el("min-reserve-block").classList.toggle("policy-block-muted", marginBlocksReserve);
         el("reserve-ratio-block").classList.toggle("policy-block-muted", marginBlocksReserve);
-        el("reserve-policy-stack").classList.toggle("policy-stack-muted", marginBlocksReserve);
-        el("reserve-amounts-row").classList.toggle("policy-stack-muted", marginBlocksReserve);
         el("reserve-policy-mode-meta").textContent = marginBlocksReserve
           ? t("executionCashMarginBlocksReserve")
           : t("reservedCashModeMeta");
