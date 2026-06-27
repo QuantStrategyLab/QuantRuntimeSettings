@@ -167,7 +167,7 @@
       "path": "pyproject.toml",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "b16336a325a9e7f98ed2528e9a4575c3762c749c"
+      "ref": "92d3cfea1e979ab072718f6f5415b20f8d952351"
     },
     {
       "consumer_repo": "CnEquitySnapshotPipelines",
