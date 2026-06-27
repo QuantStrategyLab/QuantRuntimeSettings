@@ -147,6 +147,14 @@
     "runtime_enabled": true
   },
   {
+    "profile": "cn_industry_etf_rotation_aggressive",
+    "label": "CN Industry ETF Rotation Aggressive",
+    "label_en": "CN Industry ETF Rotation Aggressive",
+    "label_zh": "A股行业 ETF 轮动（Aggressive vol25%）",
+    "domain": "cn_equity",
+    "runtime_enabled": true
+  },
+  {
     "profile": "cn_dividend_quality_snapshot",
     "label": "CN Dividend Quality Snapshot",
     "label_en": "CN Dividend Quality Snapshot",

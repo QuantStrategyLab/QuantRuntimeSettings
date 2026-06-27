@@ -85,6 +85,7 @@ STRATEGY_SCHEDULER_PROFILES = {
     "hk_low_vol_dividend_quality_snapshot": HK_SNAPSHOT_SCHEDULER,
     "cn_index_etf_tactical_rotation": CN_DAILY_SCHEDULER,
     "cn_industry_etf_rotation": CN_DAILY_SCHEDULER,
+    "cn_industry_etf_rotation_aggressive": CN_DAILY_SCHEDULER,
     "cn_dividend_quality_snapshot": CN_SNAPSHOT_SCHEDULER,
 }
 PLATFORM_DRY_RUN_VARIABLES = {
