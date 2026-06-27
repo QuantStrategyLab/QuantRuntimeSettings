@@ -174,6 +174,27 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("raise SystemExit(0)", workflow)
         self.assertIn('"variable_scope": "default"', workflow)
         self.assertIn("runtime_settings.extract_account_sync_controls(target)", workflow)
+        self.assertIn('extra_variables.get("cash_only_execution_mode")', workflow)
+
+    def test_build_switch_target_sets_cash_only_execution_from_control_field(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "ibkr-primary",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--extra-variables-json",
+                '{"cash_only_execution_mode":"enabled"}',
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["IBKR_CASH_ONLY_EXECUTION"], "true")
 
     def test_extract_account_sync_controls_reads_ibkr_service_targets(self):
         target = {
@@ -791,6 +812,26 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_ENABLED"], "false")
         self.assertEqual(assignments["OPTION_GROWTH_OVERLAY_RECIPE"], "")
         self.assertEqual(assignments["OPTION_INCOME_OVERLAY_ENABLED"], "false")
+
+    def test_build_switch_target_sets_platform_cash_only_execution(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "ibkr-primary",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--cash-only-execution-mode",
+                "disabled",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["IBKR_CASH_ONLY_EXECUTION"], "false")
 
     def test_build_switch_target_rejects_enabled_option_overlay_without_profile_defaults(self):
         parser = build_runtime_switch.build_parser()

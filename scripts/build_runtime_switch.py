@@ -105,6 +105,12 @@ PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
     "ibkr": "IBKR_MIN_RESERVED_CASH_USD",
     "firstrade": "FIRSTRADE_MIN_RESERVED_CASH_USD",
 }
+PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
+    "schwab": "SCHWAB_CASH_ONLY_EXECUTION",
+    "longbridge": "LONGBRIDGE_CASH_ONLY_EXECUTION",
+    "ibkr": "IBKR_CASH_ONLY_EXECUTION",
+    "firstrade": "FIRSTRADE_CASH_ONLY_EXECUTION",
+}
 INCOME_LAYER_VARIABLES = (
     "INCOME_LAYER_ENABLED",
     "INCOME_LAYER_START_USD",
@@ -132,6 +138,8 @@ MARKET_SIGNAL_RUNTIME_VARIABLES = tuple(MARKET_SIGNAL_RUNTIME_SUFFIXES) + tuple(
     for suffix in MARKET_SIGNAL_RUNTIME_SUFFIXES
 )
 CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION"
+CASH_ONLY_EXECUTION_MODES = frozenset({"current", "enabled", "disabled"})
+CASH_ONLY_EXECUTION_CONTROL_FIELD = "cash_only_execution_mode"
 LEGACY_INCOME_LAYER_VARIABLES = (
     "INCOME_THRESHOLD_USD",
     "QQQI_INCOME_RATIO",
@@ -396,6 +404,25 @@ def _normalize_symbol_text(value: str, *, field_name: str) -> str:
     if not text or not re.fullmatch(r"[A-Z0-9.-]{1,12}", text):
         raise ValueError(f"{field_name} must be a symbol")
     return text
+
+
+def _cash_only_extra_variables(args: argparse.Namespace, platform: str) -> dict[str, str]:
+    mode = str(getattr(args, "cash_only_execution_mode", None) or "current").strip().lower()
+    if mode not in CASH_ONLY_EXECUTION_MODES:
+        raise ValueError("cash_only_execution_mode must be current, enabled, or disabled")
+    if mode == "current":
+        return {}
+    variable = PLATFORM_CASH_ONLY_EXECUTION_VARIABLES.get(platform)
+    if not variable:
+        return {}
+    return {variable: env_string(mode == "enabled")}
+
+
+def _extract_cash_only_control_fields(extra_variables: dict[str, Any]) -> dict[str, Any]:
+    controls: dict[str, Any] = {}
+    if CASH_ONLY_EXECUTION_CONTROL_FIELD in extra_variables:
+        controls[CASH_ONLY_EXECUTION_CONTROL_FIELD] = extra_variables.pop(CASH_ONLY_EXECUTION_CONTROL_FIELD)
+    return controls
 
 
 def _extract_dca_control_fields(extra_variables: dict[str, Any]) -> dict[str, Any]:
@@ -826,9 +853,10 @@ def _preserve_reserved_cash_fields(
     for variable in (
         PLATFORM_MIN_RESERVED_CASH_VARIABLES.get(platform),
         PLATFORM_RESERVED_CASH_RATIO_VARIABLES.get(platform),
+        PLATFORM_CASH_ONLY_EXECUTION_VARIABLES.get(platform),
+        CASH_ONLY_EXECUTION_VARIABLE,
         *INCOME_LAYER_VARIABLES,
         *OPTION_OVERLAY_VARIABLES,
-        CASH_ONLY_EXECUTION_VARIABLE,
         *RUNTIME_TARGET_VARIABLES,
         *DCA_RUNTIME_VARIABLES,
         *IBIT_ZSCORE_EXIT_RUNTIME_VARIABLES,
@@ -898,8 +926,13 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     runtime_target["scheduler"] = _scheduler_plan_for_strategy(runtime_target["strategy_profile"], mounts)
     mounts_variable = f"{SUPPORTED_PLATFORMS[platform]['plugin_mounts_prefix']}STRATEGY_PLUGIN_MOUNTS_JSON"
     extra_variables = _parse_extra_variables(args.extra_variable, args.extra_variables_json)
+    cash_only_controls = _extract_cash_only_control_fields(extra_variables)
     dca_controls = _extract_dca_control_fields(extra_variables)
     ibit_zscore_exit_controls = _extract_ibit_zscore_exit_control_fields(extra_variables)
+    if cash_only_controls.get(CASH_ONLY_EXECUTION_CONTROL_FIELD):
+        args.cash_only_execution_mode = str(
+            cash_only_controls[CASH_ONLY_EXECUTION_CONTROL_FIELD]
+        ).strip().lower()
     _reject_direct_dca_extra_variables(extra_variables)
     _reject_direct_ibit_zscore_exit_extra_variables(extra_variables)
     _reject_research_only_extra_variables(extra_variables)
@@ -914,6 +947,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         extra_variables["INCOME_LAYER_START_USD"] = args.income_layer_start_usd
     if args.income_layer_max_ratio:
         extra_variables["INCOME_LAYER_MAX_RATIO"] = args.income_layer_max_ratio
+    extra_variables.update(_cash_only_extra_variables(args, platform))
     extra_variables.update(_option_overlay_extra_variables(args, runtime_target["strategy_profile"]))
     extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"], dca_controls))
     extra_variables.update(
@@ -985,6 +1019,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--extra-variable", action="append", default=[], help="NAME=VALUE non-secret extra variable")
     parser.add_argument("--reserved-cash-ratio", default="")
     parser.add_argument("--min-reserved-cash-usd", default="")
+    parser.add_argument(
+        "--cash-only-execution-mode",
+        choices=sorted(CASH_ONLY_EXECUTION_MODES),
+        default="current",
+    )
     parser.add_argument("--income-layer-start-usd", default="")
     parser.add_argument("--income-layer-max-ratio", default="")
     parser.add_argument("--option-overlay-mode", choices=sorted(OPTION_OVERLAY_MODES), default="current")

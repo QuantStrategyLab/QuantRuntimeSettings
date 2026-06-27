@@ -72,7 +72,7 @@ on:
         required: false
         type: string
       extra_variables_json:
-        description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields. Research-only option overlays are rejected."
+        description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields. cash_only_execution_mode may be current, enabled, or disabled. Research-only option overlays are rejected."
         required: false
         type: string
       reserved_cash_ratio:
@@ -399,6 +399,15 @@ jobs:
               "account_scope": runtime_target["account_scope"],
               "service_name": runtime_target["service_name"],
           }
+          extra_variables_json = os.environ.get("EXTRA_VARIABLES_JSON", "").strip()
+          if extra_variables_json:
+              try:
+                  extra_variables = json.loads(extra_variables_json)
+              except json.JSONDecodeError:
+                  extra_variables = {}
+              cash_only_mode = str(extra_variables.get("cash_only_execution_mode") or "current").strip().lower()
+              if cash_only_mode in {"enabled", "disabled"}:
+                  payload["cash_only_execution_mode"] = cash_only_mode
           payload.update(runtime_settings.extract_account_sync_controls(target))
           if github.get("environment"):
               payload["github_environment"] = github["environment"]
