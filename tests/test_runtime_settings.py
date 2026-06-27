@@ -842,6 +842,60 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(selected["DCA_MODE"], "smart")
         self.assertEqual(selected["DCA_BASE_INVESTMENT_USD"], "500")
 
+    def test_build_switch_target_preserves_market_signal_fields_in_service_targets_when_omitted(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "interactive-brokers-demo-ibkr-dca-service",
+                    "ACCOUNT_GROUP": "demo-ibkr-dca",
+                    "IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI": "gs://signals/index.json",
+                    "IBKR_MARKET_SIGNAL_REQUIRED": "true",
+                    "IBKR_MARKET_SIGNAL_FALLBACK_MODE": "last_valid",
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "nasdaq_sp500_smart_dca",
+                        "dry_run_only": False,
+                        "deployment_selector": "demo-ibkr-dca",
+                        "account_selector": ["DEMO_IBKR_DCA"],
+                        "account_scope": "demo-ibkr-dca",
+                        "service_name": "interactive-brokers-demo-ibkr-dca-service",
+                        "execution_mode": "live",
+                    },
+                },
+            ],
+        }
+        path = ROOT / ".pytest_runtime_service_targets_market_signal.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "demo-ibkr-dca",
+                "--strategy-profile",
+                "ibit_smart_dca",
+                "--account-selector",
+                "DEMO_IBKR_DCA",
+                "--service-name",
+                "interactive-brokers-demo-ibkr-dca-service",
+                "--plugin-mode",
+                "none",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        selected = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])["targets"][0]
+
+        self.assertEqual(selected["runtime_target"]["strategy_profile"], "ibit_smart_dca")
+        self.assertEqual(selected["IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI"], "gs://signals/index.json")
+        self.assertEqual(selected["IBKR_MARKET_SIGNAL_REQUIRED"], "true")
+        self.assertEqual(selected["IBKR_MARKET_SIGNAL_FALLBACK_MODE"], "last_valid")
+
     def test_build_switch_target_uses_snapshot_scheduler_window(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(

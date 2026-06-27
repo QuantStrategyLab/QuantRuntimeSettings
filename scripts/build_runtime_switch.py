@@ -95,6 +95,26 @@ INCOME_LAYER_VARIABLES = (
     "INCOME_LAYER_START_USD",
     "INCOME_LAYER_MAX_RATIO",
 )
+MARKET_SIGNAL_RUNTIME_SUFFIXES = (
+    "MARKET_SIGNAL_HANDOFF_INDEX_URI",
+    "MARKET_SIGNAL_HANDOFF_MANIFEST_URI",
+    "MARKET_SIGNAL_CONSUMPTION_AUDIT_URI",
+    "MARKET_SIGNAL_CACHE_DIR",
+    "MARKET_SIGNAL_REQUIRED",
+    "MARKET_SIGNAL_FALLBACK_MODE",
+    "MARKET_SIGNAL_MAX_STALE_DAYS",
+)
+PLATFORM_MARKET_SIGNAL_PREFIXES = {
+    "schwab": "SCHWAB",
+    "longbridge": "LONGBRIDGE",
+    "ibkr": "IBKR",
+    "firstrade": "FIRSTRADE",
+}
+MARKET_SIGNAL_RUNTIME_VARIABLES = tuple(MARKET_SIGNAL_RUNTIME_SUFFIXES) + tuple(
+    f"{prefix}_{suffix}"
+    for prefix in PLATFORM_MARKET_SIGNAL_PREFIXES.values()
+    for suffix in MARKET_SIGNAL_RUNTIME_SUFFIXES
+)
 CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION"
 LEGACY_INCOME_LAYER_VARIABLES = (
     "INCOME_THRESHOLD_USD",
@@ -792,6 +812,7 @@ def _preserve_reserved_cash_fields(
         *RUNTIME_TARGET_VARIABLES,
         *DCA_RUNTIME_VARIABLES,
         *IBIT_ZSCORE_EXIT_RUNTIME_VARIABLES,
+        *MARKET_SIGNAL_RUNTIME_VARIABLES,
     ):
         if variable and variable not in replacement and variable in current_entry:
             replacement[variable] = current_entry[variable]
