@@ -45,10 +45,15 @@ assert.ok(indexHtml.includes('qmt: { label: "QMT"'));
 assert.ok(indexHtml.includes('cn_industry_etf_rotation'));
 assert.ok(indexHtml.includes('id="income-layer-section"'));
 assert.ok(indexHtml.includes('id="option-overlay-section"'));
-assert.ok(indexHtml.includes('id="margin-policy-stack"'));
-assert.ok(indexHtml.includes('class="margin-policy-stack"'));
 assert.ok(indexHtml.includes('id="reserve-policy-stack"'));
 assert.ok(indexHtml.includes('class="reserve-policy-stack"'));
+assert.equal(indexHtml.includes('id="margin-policy-stack"'), false);
+assert.ok(indexHtml.includes("cash_only_execution_mode: item.cash_only_execution_mode"));
+assert.ok(indexHtml.includes("function incomeLayerFieldsConfigured("));
+assert.ok(indexHtml.includes("function effectiveIncomeLayerForAccount("));
+assert.ok(indexHtml.includes('class="summary-list" id="summary-list" role="list"'));
+assert.ok(indexHtml.includes('labelNode.className = "summary-label"'));
+assert.equal(indexHtml.includes("noChangesNote"), false);
 assert.equal(indexHtml.match(/class="form-section dca-section"/g)?.length, 1);
 assert.ok(indexHtml.includes('qmtDryRunOnlyNote'));
 assert.ok(indexHtml.includes('optionOverlayDefaultSimple: "策略默认：开启"'));
@@ -141,7 +146,6 @@ assert.equal(
   indexHtml.includes('state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy || !hasPendingChange)'),
   false,
 );
-assert.ok(indexHtml.includes('noChangesNote'));
 assert.equal(indexHtml.includes('placeholder="150"'), false);
 assert.equal(indexHtml.includes('placeholder="0.03"'), false);
 assert.equal(indexHtml.includes("ibkr-primary"), false);
@@ -383,6 +387,21 @@ assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.equal(accountOptions.longbridge[0].cash_currency, "HKD");
+
+const accountOptionsWithCashOnlyMode = __test.normalizeAccountOptionsPayload(
+  {
+    longbridge: [
+      {
+        key: "sg",
+        label: "sg",
+        target_name: "sg",
+        cash_only_execution_mode: "enabled",
+      },
+    ],
+  },
+  "test_account_options",
+);
+assert.equal(accountOptionsWithCashOnlyMode.longbridge[0].cash_only_execution_mode, "enabled");
 
 const kvUnboundSyncResponse = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-account-default", {
@@ -899,6 +918,7 @@ globalThis.fetch = async (url) => {
             ACCOUNT_GROUP: "demo-ibkr-tqqq",
             IBKR_MIN_RESERVED_CASH_USD: "150",
             IBKR_RESERVED_CASH_RATIO: "0.03",
+            IBKR_CASH_ONLY_EXECUTION: "false",
             INCOME_LAYER_START_USD: "250000",
             INCOME_LAYER_MAX_RATIO: "0.55",
             OPTION_OVERLAY_ENABLED: "true",
@@ -930,6 +950,7 @@ try {
   assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "ibit_smart_dca");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].reserved_cash_ratio, "0.03");
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].cash_only_execution, false);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_start_usd, "250000");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].income_layer_max_ratio, "0.55");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].option_overlay_enabled, true);
