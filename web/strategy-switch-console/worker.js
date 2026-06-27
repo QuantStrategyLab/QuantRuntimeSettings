@@ -830,14 +830,16 @@ async function dispatchSwitch(request, env) {
     return json({ ok: false, error: `GitHub dispatch failed: ${text.slice(0, 600)}` }, 502);
   }
 
-  const accountOptionsSync = await syncDefaultStrategyForAccount(env, accountConfig.options, inputs, session);
   return json({
     ok: true,
     repository,
     workflow,
     actions_url: `https://github.com/${repository}/actions/workflows/${workflow}`,
-    account_options_synced: accountOptionsSync.synced,
-    account_options_sync: accountOptionsSync,
+    account_options_sync: {
+      synced: false,
+      deferred: true,
+      reason: "workflow_success_required",
+    },
     inputs,
   });
 }
@@ -1146,6 +1148,12 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
   }
 }
 
+function resolvedVariableScope(value, inputs) {
+  const text = String(value || "").trim();
+  if (!text || text === "default") return defaultInputValue("variable_scope", inputs);
+  return text;
+}
+
 function accountOptionMatchesInputs(option, inputs) {
   if (option.target_name !== inputs.target_name) return false;
   const fields = [
@@ -1157,6 +1165,12 @@ function accountOptionMatchesInputs(option, inputs) {
     "variable_scope",
   ];
   for (const field of fields) {
+    if (field === "variable_scope") {
+      if (resolvedVariableScope(option[field], inputs) !== resolvedVariableScope(inputs[field], inputs)) {
+        return false;
+      }
+      continue;
+    }
     const expected = option[field] || "";
     const actual = inputs[field] || "";
     if (expected && actual !== expected) return false;
@@ -2453,6 +2467,8 @@ function escapeHtml(value) {
 
 export const __test = {
   assertConfiguredAccount,
+  accountOptionMatchesInputs,
+  resolvedVariableScope,
   currentStrategiesTimeoutMs: CURRENT_STRATEGIES_TIMEOUT_MS,
   assertStrategyAllowedForAccount,
   inferAccountSupportedDomains,

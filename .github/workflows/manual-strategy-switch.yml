@@ -369,6 +369,10 @@ jobs:
           import urllib.error
           import urllib.request
 
+          root = os.environ.get("GITHUB_WORKSPACE") or os.getcwd()
+          sys.path.insert(0, os.path.join(root, "scripts"))
+          import runtime_settings
+
           base_url = os.environ["STRATEGY_SWITCH_CONSOLE_URL"].rstrip("/")
           token = os.environ["STRATEGY_SWITCH_SYNC_TOKEN"]
           if not token:
@@ -383,7 +387,7 @@ jobs:
               "target_name": target["target_id"].split("/", 1)[1],
               "strategy_profile": runtime_target["strategy_profile"],
               "execution_mode": runtime_target["execution_mode"],
-              "variable_scope": github["variable_scope"],
+              "variable_scope": "default",
               "plugin_mode": os.environ["PLUGIN_MODE"],
               "option_overlay_mode": os.environ.get("OPTION_OVERLAY_MODE", "current"),
               "deployment_selector": runtime_target["deployment_selector"],
@@ -391,11 +395,7 @@ jobs:
               "account_scope": runtime_target["account_scope"],
               "service_name": runtime_target["service_name"],
           }
-          extra_variables = target.get("extra_variables") or {}
-          if extra_variables.get("DCA_MODE"):
-              payload["dca_mode"] = extra_variables["DCA_MODE"]
-          if extra_variables.get("DCA_BASE_INVESTMENT_USD"):
-              payload["dca_base_investment_usd"] = extra_variables["DCA_BASE_INVESTMENT_USD"]
+          payload.update(runtime_settings.extract_account_sync_controls(target))
           if github.get("environment"):
               payload["github_environment"] = github["environment"]
 

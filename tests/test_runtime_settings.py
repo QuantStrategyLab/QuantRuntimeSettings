@@ -172,6 +172,63 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("Strategy switch account default sync failed", workflow)
         self.assertIn("::warning::", workflow)
         self.assertIn("raise SystemExit(0)", workflow)
+        self.assertIn('"variable_scope": "default"', workflow)
+        self.assertIn("runtime_settings.extract_account_sync_controls(target)", workflow)
+
+    def test_extract_account_sync_controls_reads_ibkr_service_targets(self):
+        target = {
+            "target_id": "ibkr/demo-ibkr-dca",
+            "runtime_target": {
+                "platform_id": "ibkr",
+                "strategy_profile": "nasdaq_sp500_smart_dca",
+                "service_name": "interactive-brokers-demo-ibkr-dca-service",
+                "account_scope": "demo-ibkr-dca",
+            },
+            "extra_variables": {
+                "CLOUD_RUN_SERVICE_TARGETS_JSON": {
+                    "targets": [
+                        {
+                            "service": "interactive-brokers-demo-ibkr-dca-service",
+                            "ACCOUNT_GROUP": "demo-ibkr-dca",
+                            "DCA_MODE": "smart",
+                            "DCA_BASE_INVESTMENT_USD": "500",
+                            "IBIT_ZSCORE_EXIT_MODE": "paper",
+                        }
+                    ]
+                }
+            },
+        }
+
+        controls = runtime_settings.extract_account_sync_controls(target)
+
+        self.assertEqual(
+            controls,
+            {
+                "dca_mode": "smart",
+                "dca_base_investment_usd": "500",
+                "ibit_zscore_exit_mode": "paper",
+            },
+        )
+
+    def test_extract_account_sync_controls_prefers_top_level_extra_variables(self):
+        target = {
+            "target_id": "firstrade/default",
+            "runtime_target": {
+                "platform_id": "firstrade",
+                "strategy_profile": "ibit_smart_dca",
+                "service_name": "firstrade-quant-service",
+                "account_scope": "US",
+            },
+            "extra_variables": {
+                "DCA_MODE": "fixed",
+                "DCA_BASE_INVESTMENT_USD": "50",
+            },
+        }
+
+        self.assertEqual(
+            runtime_settings.extract_account_sync_controls(target),
+            {"dca_mode": "fixed", "dca_base_investment_usd": "50"},
+        )
 
     def test_strategy_switch_console_deploy_workflow_syncs_bundled_profiles(self):
         workflow = (ROOT / ".github" / "workflows" / "deploy-strategy-switch-console.yml").read_text(

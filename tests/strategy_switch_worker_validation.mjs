@@ -610,6 +610,24 @@ const updatedAccountOptions = __test.updateAccountOptionsDefaultStrategy(
 assert.equal(updatedAccountOptions.changed, true);
 assert.equal(updatedAccountOptions.options.longbridge[1].default_strategy_profile, "soxl_soxx_trend_income");
 
+assert.equal(
+  __test.accountOptionMatchesInputs(
+    { target_name: "sg", variable_scope: "default" },
+    {
+      target_name: "sg",
+      platform: "longbridge",
+      variable_scope: "environment",
+      github_environment: "longbridge-sg",
+    },
+  ),
+  true,
+);
+
+assert.equal(
+  __test.resolvedVariableScope("default", { platform: "longbridge", target_name: "sg" }),
+  "environment",
+);
+
 const updatedPluginModeOptions = __test.updateAccountOptionsDefaultStrategy(
   accountOptions,
   {
