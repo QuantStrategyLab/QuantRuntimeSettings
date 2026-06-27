@@ -2512,7 +2512,7 @@
         form.optionOverlayMode = configured;
         return;
       }
-      form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "enabled" : "disabled";
+      form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "current" : "disabled";
     }
 
     function syncDcaForAccount(platform) {
@@ -3069,8 +3069,8 @@
         currentPluginMode,
         nextPluginMode,
         strategyChanged: Boolean(nextProfile && (!currentProfile || currentProfile !== nextProfile)),
-        modeChanged: Boolean(currentMode && inputs.execution_mode && currentMode !== inputs.execution_mode),
-        pluginModeChanged: Boolean(currentPluginMode && nextPluginMode && currentPluginMode !== nextPluginMode),
+        modeChanged: Boolean(inputs.execution_mode && (!currentMode || currentMode !== inputs.execution_mode)),
+        pluginModeChanged: Boolean(nextPluginMode && (!currentPluginMode || currentPluginMode !== nextPluginMode)),
         runtimeTargetChanged: runtimeTarget.changed,
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
@@ -3766,6 +3766,7 @@
         if (!response.ok || !payload.ok) throw new Error(payload.error || t("dispatchFailed"));
         showToast(t("dispatched"), { duration: 4000 });
         if (payload.actions_url) window.open(payload.actions_url, "_blank", "noopener,noreferrer");
+        await refreshConfig();
       } catch (error) {
         showToast(`${t("dispatchFailed")}: ${error.message}`, { duration: 12000 });
       }

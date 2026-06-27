@@ -724,6 +724,63 @@ def command_repository(args: argparse.Namespace) -> int:
     return 0
 
 
+ACCOUNT_SYNC_CONTROL_FIELDS = {
+    "DCA_MODE": "dca_mode",
+    "DCA_BASE_INVESTMENT_USD": "dca_base_investment_usd",
+    "IBIT_ZSCORE_EXIT_MODE": "ibit_zscore_exit_mode",
+}
+
+
+def _service_target_entry_matches(runtime_target: dict[str, Any], entry: dict[str, Any]) -> bool:
+    service_name = str(runtime_target.get("service_name") or "").strip()
+    account_scope = str(runtime_target.get("account_scope") or "").strip()
+    entry_runtime = entry.get("runtime_target") if isinstance(entry.get("runtime_target"), dict) else {}
+    candidates = {
+        str(entry.get("service") or "").strip(),
+        str(entry.get("service_name") or "").strip(),
+        str(entry_runtime.get("service_name") or "").strip(),
+        str(entry_runtime.get("account_scope") or "").strip(),
+        str(entry.get("ACCOUNT_GROUP") or "").strip(),
+    }
+    return service_name in candidates or account_scope in candidates
+
+
+def extract_account_sync_controls(target: dict[str, Any]) -> dict[str, str]:
+    extra_variables = dict(target.get("extra_variables") or {})
+    controls: dict[str, str] = {}
+    for source_key, payload_key in ACCOUNT_SYNC_CONTROL_FIELDS.items():
+        value = extra_variables.get(source_key)
+        if value not in (None, ""):
+            controls[payload_key] = str(value).strip()
+
+    service_targets = extra_variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
+    if isinstance(service_targets, str):
+        try:
+            service_targets = json.loads(service_targets)
+        except json.JSONDecodeError:
+            service_targets = None
+
+    runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
+    if isinstance(service_targets, dict):
+        entries = service_targets.get("targets") if isinstance(service_targets.get("targets"), list) else []
+        matched = next(
+            (
+                entry
+                for entry in entries
+                if isinstance(entry, dict) and _service_target_entry_matches(runtime_target, entry)
+            ),
+            None,
+        )
+        if matched:
+            for source_key, payload_key in ACCOUNT_SYNC_CONTROL_FIELDS.items():
+                if payload_key in controls:
+                    continue
+                value = matched.get(source_key)
+                if value not in (None, ""):
+                    controls[payload_key] = str(value).strip()
+    return controls
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
