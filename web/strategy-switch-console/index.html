@@ -352,6 +352,13 @@
       min-width: 0;
     }
 
+    .reserve-amounts-row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      min-width: 0;
+    }
+
     .reserve-policy-stack.policy-stack-muted {
       opacity: 0.58;
     }
@@ -362,6 +369,10 @@
 
     @media (max-width: 720px) {
       .execution-cash-policy-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .reserve-amounts-row {
         grid-template-columns: 1fr;
       }
     }
@@ -1439,17 +1450,19 @@
                   <span class="selection-meta" id="reserve-policy-mode-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
                 </label>
 
-                <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
-                  <span id="min-reserved-cash-label">最小预留现金</span>
-                  <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
-                  <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
-                </label>
+                <div class="reserve-amounts-row" id="reserve-amounts-row">
+                  <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
+                    <span id="min-reserved-cash-label">最小预留现金</span>
+                    <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
+                    <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
+                  </label>
 
-                <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
-                  <span data-i18n="reservedCashRatio">预留现金比例</span>
-                  <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-                  <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
-                </label>
+                  <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
+                    <span data-i18n="reservedCashRatio">预留现金比例</span>
+                    <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+                    <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
+                  </label>
+                </div>
               </div>
             </div>
           </div>
