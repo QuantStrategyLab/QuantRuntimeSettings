@@ -542,7 +542,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "dca",
                 "--strategy-profile",
@@ -569,7 +569,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "ibit",
                 "--strategy-profile",
@@ -579,7 +579,7 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         target = build_runtime_switch.build_switch_target(args)
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
-        plugin_payload = json.loads(assignments["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"])
+        plugin_payload = json.loads(assignments["FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON"])
 
         self.assertEqual(
             target["runtime_target"]["scheduler"],
@@ -601,7 +601,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "ibit",
                 "--strategy-profile",
@@ -625,7 +625,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "ibit",
                 "--strategy-profile",
@@ -647,7 +647,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "dca",
                 "--strategy-profile",
@@ -665,7 +665,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "dca",
                 "--strategy-profile",
@@ -690,7 +690,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
                 "dca",
                 "--strategy-profile",
@@ -728,12 +728,30 @@ class RuntimeSettingsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DCA settings are only supported"):
             build_runtime_switch.build_switch_target(args)
 
-    def test_build_switch_target_rejects_direct_dca_extra_variables(self):
+    def test_build_switch_target_rejects_dca_profile_on_non_firstrade_platform(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
                 "--platform",
                 "ibkr",
+                "--target-name",
+                "dca",
+                "--strategy-profile",
+                "nasdaq_sp500_smart_dca",
+                "--plugin-mode",
+                "none",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "DCA strategy profiles are only supported on firstrade"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_build_switch_target_rejects_direct_dca_extra_variables(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "firstrade",
                 "--target-name",
                 "dca",
                 "--strategy-profile",
@@ -799,7 +817,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "--target-name",
                 "live",
                 "--strategy-profile",
-                "nasdaq_sp500_smart_dca",
+                "tqqq_growth_income",
                 "--option-overlay-mode",
                 "disabled",
             ]
@@ -838,9 +856,9 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "schwab",
+                "firstrade",
                 "--target-name",
-                "live",
+                "default",
                 "--strategy-profile",
                 "nasdaq_sp500_smart_dca",
                 "--option-overlay-mode",
@@ -873,18 +891,18 @@ class RuntimeSettingsTest(unittest.TestCase):
         existing = {
             "targets": [
                 {
-                    "service": "interactive-brokers-demo-ibkr-dca-service",
-                    "ACCOUNT_GROUP": "demo-ibkr-dca",
+                    "service": "firstrade-quant-service",
+                    "ACCOUNT_GROUP": "firstrade",
                     "DCA_MODE": "smart",
                     "DCA_BASE_INVESTMENT_USD": "500",
                     "runtime_target": {
-                        "platform_id": "ibkr",
+                        "platform_id": "firstrade",
                         "strategy_profile": "nasdaq_sp500_smart_dca",
                         "dry_run_only": False,
-                        "deployment_selector": "demo-ibkr-dca",
-                        "account_selector": ["DEMO_IBKR_DCA"],
-                        "account_scope": "demo-ibkr-dca",
-                        "service_name": "interactive-brokers-demo-ibkr-dca-service",
+                        "deployment_selector": "firstrade",
+                        "account_selector": ["firstrade"],
+                        "account_scope": "US",
+                        "service_name": "firstrade-quant-service",
                         "execution_mode": "live",
                     },
                 },
@@ -897,15 +915,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         args = parser.parse_args(
             [
                 "--platform",
-                "ibkr",
+                "firstrade",
                 "--target-name",
-                "demo-ibkr-dca",
+                "default",
                 "--strategy-profile",
                 "nasdaq_sp500_smart_dca",
                 "--account-selector",
-                "DEMO_IBKR_DCA",
+                "firstrade",
                 "--service-name",
-                "interactive-brokers-demo-ibkr-dca-service",
+                "firstrade-quant-service",
                 "--plugin-mode",
                 "none",
                 "--existing-service-targets-json-file",
@@ -954,7 +972,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "--target-name",
                 "demo-ibkr-dca",
                 "--strategy-profile",
-                "ibit_smart_dca",
+                "tqqq_growth_income",
                 "--account-selector",
                 "DEMO_IBKR_DCA",
                 "--service-name",
@@ -970,7 +988,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
         selected = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])["targets"][0]
 
-        self.assertEqual(selected["runtime_target"]["strategy_profile"], "ibit_smart_dca")
+        self.assertEqual(selected["runtime_target"]["strategy_profile"], "tqqq_growth_income")
         self.assertEqual(selected["IBKR_MARKET_SIGNAL_HANDOFF_INDEX_URI"], "gs://signals/index.json")
         self.assertEqual(selected["IBKR_MARKET_SIGNAL_REQUIRED"], "true")
         self.assertEqual(selected["IBKR_MARKET_SIGNAL_FALLBACK_MODE"], "last_valid")

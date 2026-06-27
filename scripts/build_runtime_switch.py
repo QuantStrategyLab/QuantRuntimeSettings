@@ -177,6 +177,7 @@ DCA_PROFILES = frozenset(
         "ibit_smart_dca",
     }
 )
+DCA_SUPPORTED_PLATFORMS = frozenset({"firstrade"})
 DCA_MODES = frozenset({"fixed", "smart"})
 DCA_MODE_VARIABLE = "DCA_MODE"
 DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD"
@@ -327,6 +328,15 @@ def _normalize_dca_mode(value: str) -> str:
     if mode not in DCA_MODES:
         raise ValueError("dca_mode must be fixed or smart")
     return mode
+
+
+def _validate_dca_platform(platform: str, strategy_profile: str) -> None:
+    profile = str(strategy_profile or "").strip().lower()
+    if profile in DCA_PROFILES and platform not in DCA_SUPPORTED_PLATFORMS:
+        raise ValueError(
+            "DCA strategy profiles are only supported on firstrade; "
+            f"got platform={platform!r}, strategy_profile={profile!r}"
+        )
 
 
 def _normalize_positive_decimal(value: str, *, field_name: str) -> str:
@@ -810,6 +820,7 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     account_selector = _split_csv(args.account_selector) or _account_selector_default(platform, account_scope)
     service_name = args.service_name.strip() if args.service_name else _default_service_name(platform, target_name)
     strategy_profile = args.strategy_profile.strip().lower()
+    _validate_dca_platform(platform, strategy_profile)
     runtime_target: dict[str, Any] = {
         "platform_id": platform,
         "strategy_profile": strategy_profile,
