@@ -18,6 +18,7 @@
 | Profile | 输入 | 示例 target |
 | --- | --- | --- |
 | `cn_industry_etf_rotation` | `market_history` | `industry_etf_dry_run.example.json`（**主轨**） |
+| `cn_industry_etf_rotation_aggressive` | `market_history` | `industry_etf_aggressive_dry_run.example.json`（**optional，vol25%**） |
 | `cn_dividend_quality_snapshot` | `feature_snapshot` | `dividend_quality_dry_run.example.json` |
 
 `cn_index_etf_tactical_rotation` 在策略 catalog 中为 **research_backtest_only**，不要放进 `strategy-profiles.example.json` 的 runtime 列表。

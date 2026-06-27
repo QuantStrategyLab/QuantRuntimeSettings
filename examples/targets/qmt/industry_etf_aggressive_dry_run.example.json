@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "qmt/industry_etf_aggressive_dry_run",
+  "description": "Optional QMT dry-run target for cn_industry_etf_rotation_aggressive (vol25% industry ETF rotation).",
+  "github": {
+    "repository": "QuantStrategyLab/QmtPlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "qmt",
+    "strategy_profile": "cn_industry_etf_rotation_aggressive",
+    "dry_run_only": true,
+    "deployment_selector": "qmt",
+    "account_selector": ["qmt"],
+    "account_scope": "CN",
+    "service_name": "qmt-quant-service",
+    "execution_mode": "dry_run",
+    "scheduler": {
+      "timezone": "Asia/Shanghai",
+      "main_time": "45 15 * * *",
+      "probe_time": "35 9,15 * * *",
+      "precheck_time": "45 9 * * *"
+    }
+  },
+  "plugin_mounts_variable": "QMT_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [],
+  "extra_variables": {
+    "QMT_DRY_RUN_ONLY": "true",
+    "QMT_MARKET_HISTORY_PATH": "data/fixtures/market_history.sample.csv"
+  }
+}

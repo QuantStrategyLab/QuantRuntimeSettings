@@ -99,6 +99,19 @@
       "supported_domains": ["cn_equity"]
     },
     {
+      "key": "industry_etf_aggressive_dry_run",
+      "label": "industry_etf_aggressive_dry_run",
+      "target_name": "industry_etf_aggressive_dry_run",
+      "variable_scope": "repository",
+      "deployment_selector": "qmt",
+      "account_selector": "qmt",
+      "account_scope": "CN",
+      "service_name": "qmt-quant-service",
+      "cash_currency": "CNY",
+      "default_strategy_profile": "cn_industry_etf_rotation_aggressive",
+      "supported_domains": ["cn_equity"]
+    },
+    {
       "key": "dividend_quality_dry_run",
       "label": "dividend_quality_dry_run",
       "target_name": "dividend_quality_dry_run",
