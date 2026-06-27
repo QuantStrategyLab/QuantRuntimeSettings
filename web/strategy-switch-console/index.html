@@ -319,15 +319,25 @@
     }
 
     .execution-cash-policy-section {
-      grid-template-columns: 1fr;
+      gap: 12px 14px;
+    }
+
+    .form-section-head {
+      grid-column: 1 / -1;
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.3;
+      font-weight: 780;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--muted);
     }
 
     .execution-cash-policy-heading {
-      grid-column: 1 / -1;
-      margin: 0;
-      font-size: 13px;
-      font-weight: 780;
       color: var(--ink);
+      font-size: 13px;
+      letter-spacing: 0.03em;
+      text-transform: none;
     }
 
     .execution-cash-policy-note {
@@ -343,7 +353,43 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 14px;
-      align-items: start;
+      align-items: stretch;
+    }
+
+    .policy-card {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+      padding: 14px 14px 12px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--platform-color, var(--accent)) 4%, #ffffff), #ffffff 72%);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
+    }
+
+    .policy-card-title {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 780;
+      color: var(--ink);
+    }
+
+    .policy-card .control-block {
+      grid-template-rows: auto 48px minmax(18px, auto);
+    }
+
+    .policy-card .control-block > span:first-child:not(.selection-meta) {
+      display: none;
+    }
+
+    .policy-card.policy-card-muted {
+      opacity: 0.58;
+    }
+
+    .policy-card.policy-card-muted .selection-meta {
+      color: var(--danger);
     }
 
     .policy-block-muted .selection-meta {
@@ -452,7 +498,7 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       align-items: start;
-      gap: 16px 14px;
+      gap: 18px 14px;
     }
 
     .control-block {
@@ -475,7 +521,8 @@
     }
 
     .form-section + .form-section {
-      padding-top: 16px;
+      padding-top: 18px;
+      margin-top: 2px;
       border-top: 1px solid var(--line);
     }
 
@@ -1346,6 +1393,7 @@
           </div>
 
           <div class="form-section runtime-section">
+            <h3 class="form-section-head" data-i18n="runtimeSectionTitle">运行与插件</h3>
             <label class="control-block account-status-block">
               <span data-i18n="runtimeTargetMode">账号运行状态</span>
               <select id="runtime-target-enabled-select"></select>
@@ -1366,6 +1414,7 @@
           </div>
 
           <div class="form-section income-layer-section" id="income-layer-section">
+            <h3 class="form-section-head" data-i18n="incomeLayerSectionTitle">收入层</h3>
             <label class="control-block income-layer-mode-block section-wide">
               <span data-i18n="incomeLayerMode">收入层状态</span>
               <select id="income-layer-mode-select"></select>
@@ -1386,6 +1435,7 @@
           </div>
 
           <div class="form-section option-overlay-section" id="option-overlay-section">
+            <h3 class="form-section-head" data-i18n="optionOverlaySectionTitle">期权层</h3>
             <label class="control-block option-overlay-mode-block section-wide">
               <span data-i18n="optionOverlayMode">期权层状态</span>
               <select id="option-overlay-mode-select"></select>
@@ -1394,37 +1444,44 @@
           </div>
 
           <div class="form-section execution-cash-policy-section" id="execution-cash-policy-section">
-            <h3 class="execution-cash-policy-heading" data-i18n="executionCashPolicyTitle">现金与融资</h3>
+            <h3 class="form-section-head execution-cash-policy-heading" data-i18n="executionCashPolicyTitle">现金与融资</h3>
             <p class="execution-cash-policy-note" id="execution-cash-policy-note" data-i18n="executionCashPolicyNote">允许融资与预留现金覆盖不能同时生效。</p>
             <p class="execution-cash-policy-note qmt-platform-cash-note" id="qmt-platform-cash-note" hidden data-i18n="qmtPlatformCashNote">A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。</p>
             <div class="execution-cash-policy-grid" id="execution-cash-policy-grid">
-              <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
-                <span data-i18n="cashOnlyExecutionMode">允许融资</span>
-                <select id="cash-only-execution-mode-select"></select>
-                <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
-              </label>
+              <div class="policy-card" id="margin-policy-card">
+                <p class="policy-card-title" data-i18n="cashOnlyExecutionMode">允许融资</p>
+                <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
+                  <span data-i18n="cashOnlyExecutionMode">允许融资</span>
+                  <select id="cash-only-execution-mode-select"></select>
+                  <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
+                </label>
+              </div>
 
-              <label class="control-block reserve-policy-block policy-block" id="reserve-policy-block">
-                <span data-i18n="reservedCashMode">预留现金策略</span>
-                <select id="reserve-policy-mode-select"></select>
-                <span class="selection-meta" id="reserve-policy-mode-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
-              </label>
+              <div class="policy-card" id="reserve-policy-card">
+                <p class="policy-card-title" data-i18n="reservedCashMode">预留现金策略</p>
+                <label class="control-block reserve-policy-block policy-block" id="reserve-policy-block">
+                  <span data-i18n="reservedCashMode">预留现金策略</span>
+                  <select id="reserve-policy-mode-select"></select>
+                  <span class="selection-meta" id="reserve-policy-mode-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
+                </label>
 
-              <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
-                <span id="min-reserved-cash-label">最小预留现金</span>
-                <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
-                <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
-              </label>
+                <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
+                  <span id="min-reserved-cash-label">最小预留现金</span>
+                  <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
+                  <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
+                </label>
 
-              <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
-                <span data-i18n="reservedCashRatio">预留现金比例</span>
-                <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-                <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
-              </label>
+                <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
+                  <span data-i18n="reservedCashRatio">预留现金比例</span>
+                  <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+                  <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
+                </label>
+              </div>
             </div>
           </div>
 
           <div class="form-section dca-section">
+            <h3 class="form-section-head" data-i18n="dcaSectionTitle">定投</h3>
             <label class="control-block dca-mode-block">
               <span data-i18n="dcaMode">定投模式</span>
               <select id="dca-mode-select"></select>
@@ -1632,6 +1689,7 @@
         live: "实盘",
         paper: "模拟",
         runtimeTargetMode: "账号运行状态",
+        runtimeSectionTitle: "运行与插件",
         runtimeTargetCurrent: "沿用当前状态",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
@@ -1646,6 +1704,7 @@
         ibitZscoreExitDisabled: "禁用逃顶（只买不卖）",
         ibitZscoreExitModeMeta: "插件启用后默认实盘消费动态 Z-Score 信号；可改为观察模式，或禁用后只买不卖。",
         incomeLayerMode: "收入层状态",
+        incomeLayerSectionTitle: "收入层",
         incomeLayerCurrent: "沿用当前配置",
         incomeLayerEnabled: "开启收入层",
         incomeLayerDisabled: "关闭收入层",
@@ -1658,6 +1717,7 @@
         incomeLayerStartMeta: "总资产达到该金额后启用收入层。",
         incomeLayerRatioMeta: "例如 0.55 表示最高 55%。",
         optionOverlayMode: "期权层状态",
+        optionOverlaySectionTitle: "期权层",
         optionOverlayCurrent: "沿用当前配置",
         optionOverlayEnabled: "启用期权层",
         optionOverlayDisabled: "关闭期权层",
@@ -1685,6 +1745,7 @@
         qmtDryRunOnlyNote: "QMT 当前仅支持 dry-run（模拟），尚无 live 券商账号。",
         invalidExecutionCashPolicyNote: "允许融资与预留现金覆盖冲突，请只保留一种约束。",
         dcaMode: "定投模式",
+        dcaSectionTitle: "定投",
         dcaModeFixed: "定额定投",
         dcaModeSmart: "智能定投",
         dcaBaseInvestmentUsd: "定投基准金额",
@@ -1791,6 +1852,7 @@
         live: "Live",
         paper: "Dry run",
         runtimeTargetMode: "Account status",
+        runtimeSectionTitle: "Runtime and plugins",
         runtimeTargetCurrent: "Keep current status",
         runtimeTargetEnabled: "Enabled",
         runtimeTargetDisabled: "Disabled",
@@ -1805,6 +1867,7 @@
         ibitZscoreExitDisabled: "Disabled (buy only)",
         ibitZscoreExitModeMeta: "When plugins are enabled, live consumption is the default. Paper mode observes only; disabled mode keeps buy-only DCA.",
         incomeLayerMode: "Income layer",
+        incomeLayerSectionTitle: "Income layer",
         incomeLayerCurrent: "Keep current config",
         incomeLayerEnabled: "Enable income layer",
         incomeLayerDisabled: "Disable income layer",
@@ -1817,6 +1880,7 @@
         incomeLayerStartMeta: "Income layer activates after total assets reach this amount.",
         incomeLayerRatioMeta: "Use 0.55 for a 55% cap.",
         optionOverlayMode: "Option layer",
+        optionOverlaySectionTitle: "Option layer",
         optionOverlayCurrent: "Keep current config",
         optionOverlayEnabled: "Enable option layer",
         optionOverlayDisabled: "Disable option layer",
@@ -1844,6 +1908,7 @@
         qmtDryRunOnlyNote: "QMT is dry-run only for now; no live broker accounts are configured.",
         invalidExecutionCashPolicyNote: "Allow margin and reserve-cash overrides conflict. Keep only one constraint.",
         dcaMode: "DCA mode",
+        dcaSectionTitle: "DCA",
         dcaModeFixed: "Fixed DCA",
         dcaModeSmart: "Smart DCA",
         dcaBaseInvestmentUsd: "Base DCA amount",
@@ -3659,6 +3724,7 @@
         el("reserve-policy-block").classList.toggle("policy-block-muted", marginBlocksReserve);
         el("min-reserve-block").classList.toggle("policy-block-muted", marginBlocksReserve);
         el("reserve-ratio-block").classList.toggle("policy-block-muted", marginBlocksReserve);
+        el("reserve-policy-card").classList.toggle("policy-card-muted", marginBlocksReserve);
         el("reserve-policy-mode-meta").textContent = marginBlocksReserve
           ? t("executionCashMarginBlocksReserve")
           : t("reservedCashModeMeta");
@@ -3717,6 +3783,7 @@
           cashOnlyExecutionModeSelect.append(option);
         }
         el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
+        el("margin-policy-card").classList.toggle("policy-card-muted", reserveBlocksMargin);
         el("cash-only-execution-mode-meta").textContent = reserveBlocksMargin
           ? t("executionCashReserveBlocksMargin")
           : t("cashOnlyExecutionModeMeta");
