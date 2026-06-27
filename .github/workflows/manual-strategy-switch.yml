@@ -12,6 +12,7 @@ on:
           - ibkr
           - schwab
           - firstrade
+          - qmt
       target_name:
         description: "Target name, e.g. sg, live, live-u1599-tqqq."
         required: true
@@ -350,6 +351,9 @@ jobs:
               ;;
             schwab|firstrade)
               gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main
+              ;;
+            qmt)
+              echo "QMT platform Cloud Run sync workflow is not configured yet; skipped."
               ;;
             *)
               echo "No platform sync dispatch rule for ${PLATFORM}" >&2
