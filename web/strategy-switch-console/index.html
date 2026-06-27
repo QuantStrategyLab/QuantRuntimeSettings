@@ -1711,6 +1711,7 @@
         dcaModeMeta: "仅定投策略可配置。",
         dcaDefaultMeta: "默认：{mode}，基准金额 {amount}。",
         dcaNotSupported: "该策略不是定投策略",
+        dcaPlatformNotSupported: "定投策略仅支持 Firstrade",
         currentDca: "当前定投设置",
         pendingDca: "待提交定投设置",
         dcaText: "{mode}，基准金额 {amount}",
@@ -1876,6 +1877,7 @@
         dcaModeMeta: "Only DCA strategies can use this.",
         dcaDefaultMeta: "Default: {mode}, base amount {amount}.",
         dcaNotSupported: "This is not a DCA strategy",
+        dcaPlatformNotSupported: "DCA strategies are Firstrade-only",
         currentDca: "Current DCA settings",
         pendingDca: "Pending DCA settings",
         dcaText: "{mode}, base amount {amount}",
@@ -2268,10 +2270,15 @@
       return supportedDomainsForAccount(platform, account).map(domainLabel).join(" / ");
     }
 
+    function platformSupportsDca(platform = state.selected) {
+      return platform === "firstrade";
+    }
+
     function strategyAllowedForAccount(platform, account, profile) {
       const cleanProfile = cleanStrategyProfile(profile);
       const catalogEntry = strategyCatalog[cleanProfile];
       if (!catalogEntry || catalogEntry.runtime_enabled !== true) return false;
+      if (dcaConfigForStrategy(cleanProfile) && !platformSupportsDca(platform)) return false;
       return supportedDomainsForAccount(platform, account).includes(catalogEntry.domain);
     }
 
@@ -2898,7 +2905,7 @@
 
     function hasValidDcaPolicy(platform = state.selected) {
       const form = state.forms[platform];
-      if (!dcaSupported(form?.strategy)) return true;
+      if (!dcaSupported(form?.strategy) || !platformSupportsDca(platform)) return true;
       return Boolean(dcaModes.includes(normalizeDcaMode(form?.dcaMode)) && cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd));
     }
 
@@ -2996,7 +3003,7 @@
     }
 
     function dcaOverrideForForm(form) {
-      if (!dcaSupported(form?.strategy)) return null;
+      if (!dcaSupported(form?.strategy) || !platformSupportsDca(state.selected)) return null;
       const mode = normalizeDcaMode(form?.dcaMode);
       const baseInvestmentUsd = cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd);
       if (!baseInvestmentUsd) return null;
@@ -3843,7 +3850,8 @@
 
       const dcaDefaults = dcaConfigForStrategy(form.strategy);
       dcaModeSelect.replaceChildren();
-      if (dcaDefaults) {
+      const dcaAllowed = Boolean(dcaDefaults) && platformSupportsDca(platform);
+      if (dcaAllowed) {
         dcaModeSelect.disabled = false;
         for (const mode of dcaModes) {
           dcaModeSelect.append(new Option(dcaModeLabel(mode), mode, false, mode === normalizeDcaMode(form.dcaMode)));
@@ -3859,7 +3867,10 @@
         el("dca-base-meta").textContent = t("dcaModeMeta");
       } else {
         dcaModeSelect.disabled = true;
-        dcaModeSelect.append(new Option(t("dcaNotSupported"), "fixed"));
+        dcaModeSelect.append(new Option(
+          dcaDefaults && !platformSupportsDca(platform) ? t("dcaPlatformNotSupported") : t("dcaNotSupported"),
+          "fixed",
+        ));
         dcaBaseInvestmentUsdInput.disabled = true;
         dcaBaseInvestmentUsdInput.value = "";
         el("dca-mode-meta").textContent = t("dcaModeMeta");

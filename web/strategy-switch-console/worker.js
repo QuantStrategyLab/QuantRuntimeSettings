@@ -101,6 +101,7 @@ const DCA_PROFILE_CONFIG = {
   nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
 };
+const DCA_SUPPORTED_PLATFORMS = new Set(["firstrade"]);
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -1054,6 +1055,7 @@ function normalizeSwitchInputs(raw) {
   const platform = cleanChoice(raw.platform, SUPPORTED_PLATFORMS, "platform");
   const targetName = cleanSlug(raw.target_name, "target_name");
   const strategyProfile = cleanSlug(raw.strategy_profile, "strategy_profile").toLowerCase();
+  assertDcaPlatform(platform, strategyProfile);
   const executionMode = cleanChoice(raw.execution_mode || "live", ["live", "paper"], "execution_mode");
   if (platform === "qmt" && executionMode === "live") {
     throw new Error("QMT platform does not support live execution yet; use paper/dry_run mode");
@@ -1202,6 +1204,7 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
   if (inputs.option_overlay_mode === "enabled" && strategy.option_overlay_enabled !== true) {
     throw new Error(`strategy ${inputs.strategy_profile} does not define an option overlay`);
   }
+  assertDcaPlatform(inputs.platform, inputs.strategy_profile);
 }
 
 function resolvedVariableScope(value, inputs) {
@@ -1625,6 +1628,14 @@ function cleanChoice(value, allowed, field) {
 
 function isDcaProfile(profile) {
   return Boolean(DCA_PROFILE_CONFIG[cleanCurrentStrategy(profile)]);
+}
+
+function assertDcaPlatform(platform, strategyProfile) {
+  if (isDcaProfile(strategyProfile) && !DCA_SUPPORTED_PLATFORMS.has(platform)) {
+    throw new Error(
+      `DCA strategy profiles are only supported on firstrade; got platform=${platform}, strategy_profile=${strategyProfile}`,
+    );
+  }
 }
 
 function cleanDcaMode(value, field = "dca_mode") {

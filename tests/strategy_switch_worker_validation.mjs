@@ -541,8 +541,8 @@ const normalizedPluginInputs = __test.normalizeSwitchInputs({
 });
 assert.equal(normalizedPluginInputs.plugin_mode, "none");
 const normalizedDcaInputs = __test.normalizeSwitchInputs({
-  platform: "ibkr",
-  target_name: "ibkr-primary",
+  platform: "firstrade",
+  target_name: "default",
   strategy_profile: "nasdaq_sp500_smart_dca",
   execution_mode: "live",
   plugin_mode: "auto",
@@ -555,9 +555,21 @@ assert.deepEqual(JSON.parse(normalizedDcaInputs.extra_variables_json), {
   dca_mode: "smart",
   dca_base_investment_usd: "500",
 });
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "nasdaq_sp500_smart_dca",
+    execution_mode: "live",
+    plugin_mode: "auto",
+    dca_mode: "smart",
+    dca_base_investment_usd: "500",
+  }),
+  /DCA strategy profiles are only supported on firstrade/,
+);
 const normalizedDcaJsonInputs = __test.normalizeSwitchInputs({
-  platform: "ibkr",
-  target_name: "ibkr-primary",
+  platform: "firstrade",
+  target_name: "default",
   strategy_profile: "nasdaq_sp500_smart_dca",
   execution_mode: "live",
   plugin_mode: "auto",
@@ -571,8 +583,8 @@ assert.deepEqual(JSON.parse(normalizedDcaJsonInputs.extra_variables_json), {
   dca_base_investment_usd: "500",
 });
 const normalizedIbitZscoreInputs = __test.normalizeSwitchInputs({
-  platform: "ibkr",
-  target_name: "ibit-primary",
+  platform: "firstrade",
+  target_name: "default",
   strategy_profile: "ibit_smart_dca",
   execution_mode: "live",
   plugin_mode: "auto",
@@ -584,11 +596,22 @@ assert.deepEqual(JSON.parse(normalizedIbitZscoreInputs.extra_variables_json), {
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
+    target_name: "ibit-primary",
+    strategy_profile: "ibit_smart_dca",
+    execution_mode: "live",
+    plugin_mode: "auto",
+    ibit_zscore_exit_mode: "live",
+  }),
+  /DCA strategy profiles are only supported on firstrade/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
     target_name: "ibkr-primary",
     strategy_profile: "nasdaq_sp500_smart_dca",
     ibit_zscore_exit_mode: "live",
   }),
-  /IBIT Z-Score exit settings/,
+  /DCA strategy profiles are only supported on firstrade/,
 );
 assert.throws(
   () => __test.normalizeSwitchInputs({
@@ -617,8 +640,8 @@ assert.throws(
 );
 assert.throws(
   () => __test.normalizeSwitchInputs({
-    platform: "ibkr",
-    target_name: "ibkr-primary",
+    platform: "firstrade",
+    target_name: "default",
     strategy_profile: "nasdaq_sp500_smart_dca",
     dca_mode: "smart",
     dca_base_investment_usd: "0",
