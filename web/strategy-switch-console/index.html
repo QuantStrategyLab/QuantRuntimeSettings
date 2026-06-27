@@ -1789,7 +1789,7 @@
         optionOverlayOn: "开启（策略默认）",
         optionOverlayDefaultSimple: "策略默认：开启",
         optionOverlayDefault: "策略默认：开启，{detail}",
-        cashOnlyExecutionDefault: "平台默认：允许融资",
+        cashOnlyExecutionDefault: "平台默认：仅用现金",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -1955,7 +1955,7 @@
         optionOverlayOn: "Enabled (strategy default)",
         optionOverlayDefaultSimple: "Strategy default: enabled",
         optionOverlayDefault: "Strategy default: enabled, {detail}",
-        cashOnlyExecutionDefault: "Platform default: margin allowed",
+        cashOnlyExecutionDefault: "Platform default: cash only",
       },
     };
 
@@ -2475,7 +2475,7 @@
     }
 
     function platformCashOnlyExecutionDefault() {
-      return false;
+      return true;
     }
 
     function effectiveCashOnlyExecutionForAccount(platform, account) {
