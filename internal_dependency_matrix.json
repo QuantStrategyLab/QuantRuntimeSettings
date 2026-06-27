@@ -13,7 +13,7 @@
       "path": "requirements.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "v0.4.8"
+      "ref": "30b96ceec0e94b08c176d9d83b6d976375c180fb"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -27,7 +27,7 @@
       "path": "requirements-lock.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "v0.4.8"
+      "ref": "30b96ceec0e94b08c176d9d83b6d976375c180fb"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
@@ -104,7 +104,7 @@
       "path": "requirements.txt",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "e522688056229a0625031b2b14f34f360f3de548"
+      "ref": "69a2e89e5c04fd495659909029db115492c4c940"
     },
     {
       "consumer_repo": "LongBridgePlatform",
@@ -125,7 +125,7 @@
       "path": "requirements.txt",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "e522688056229a0625031b2b14f34f360f3de548"
+      "ref": "69a2e89e5c04fd495659909029db115492c4c940"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
