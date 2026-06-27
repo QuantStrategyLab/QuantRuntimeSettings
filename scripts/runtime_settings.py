@@ -24,12 +24,14 @@ SUPPORTED_PLATFORMS = {
     "longbridge": {"plugin_mounts_prefix": "LONGBRIDGE_", "repository": "QuantStrategyLab/LongBridgePlatform"},
     "ibkr": {"plugin_mounts_prefix": "IBKR_", "repository": "QuantStrategyLab/InteractiveBrokersPlatform"},
     "firstrade": {"plugin_mounts_prefix": "FIRSTRADE_", "repository": "QuantStrategyLab/FirstradePlatform"},
+    "qmt": {"plugin_mounts_prefix": "QMT_", "repository": "QuantStrategyLab/QmtPlatform"},
 }
 PLATFORM_REPOSITORY_ENV = {
     "schwab": "RUNTIME_SETTINGS_SCHWAB_REPO",
     "longbridge": "RUNTIME_SETTINGS_LONGBRIDGE_REPO",
     "ibkr": "RUNTIME_SETTINGS_IBKR_REPO",
     "firstrade": "RUNTIME_SETTINGS_FIRSTRADE_REPO",
+    "qmt": "RUNTIME_SETTINGS_QMT_REPO",
 }
 RUNTIME_REQUIRED_FIELDS = (
     "platform_id",

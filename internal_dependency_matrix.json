@@ -154,6 +154,27 @@
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
       "ref": "aee8121d530c2e92c72b68aee434bf174b3b9c85"
+    },
+    {
+      "consumer_repo": "QmtPlatform",
+      "path": "pyproject.toml",
+      "package": "quant-platform-kit",
+      "source_repo": "QuantPlatformKit",
+      "ref": "bc5351d3567b2bb60416dc969062c37eedbbf65e"
+    },
+    {
+      "consumer_repo": "QmtPlatform",
+      "path": "pyproject.toml",
+      "package": "cn-equity-strategies",
+      "source_repo": "CnEquityStrategies",
+      "ref": "b16336a325a9e7f98ed2528e9a4575c3762c749c"
+    },
+    {
+      "consumer_repo": "CnEquitySnapshotPipelines",
+      "path": "pyproject.toml",
+      "package": "cn-equity-strategies",
+      "source_repo": "CnEquityStrategies",
+      "ref": "a911cf05c58d1fd14c48a41a0295e50e03638ec2"
     }
   ]
 }

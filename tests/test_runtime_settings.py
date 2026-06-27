@@ -478,6 +478,44 @@ class RuntimeSettingsTest(unittest.TestCase):
         plugin_payload = json.loads(assignments["FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON"])
         self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
 
+    def test_build_switch_target_defaults_qmt_repository_scope(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "qmt",
+                "--target-name",
+                "dry-run",
+                "--strategy-profile",
+                "cn_index_etf_tactical_rotation",
+                "--execution-mode",
+                "dry_run",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(target["github"]["repository"], "QuantStrategyLab/QmtPlatform")
+        self.assertEqual(target["github"]["variable_scope"], "repository")
+        self.assertEqual(target["runtime_target"]["platform_id"], "qmt")
+        self.assertEqual(target["runtime_target"]["deployment_selector"], "qmt")
+        self.assertEqual(target["runtime_target"]["account_selector"], ["qmt"])
+        self.assertEqual(target["runtime_target"]["account_scope"], "CN")
+        self.assertEqual(target["runtime_target"]["service_name"], "qmt-quant-service")
+        self.assertEqual(target["runtime_target"]["dry_run_only"], True)
+        self.assertEqual(assignments["QMT_DRY_RUN_ONLY"], "true")
+        self.assertEqual(assignments["STRATEGY_PROFILE"], "cn_index_etf_tactical_rotation")
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            {
+                "timezone": "Asia/Shanghai",
+                "main_time": "45 15 * * *",
+                "probe_time": "35 9,15 * * *",
+                "precheck_time": "45 9 * * *",
+            },
+        )
+
     def test_build_switch_target_uses_dca_monthly_scheduler_window(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(

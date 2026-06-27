@@ -14,25 +14,28 @@ const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 10000;
 const GITHUB_API_TIMEOUT_MS = 8000;
 
-const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade"];
-const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity"];
+const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt"];
+const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity"];
 const DEFAULT_PLATFORM_REPOSITORIES = {
   longbridge: "QuantStrategyLab/LongBridgePlatform",
   ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
   schwab: "QuantStrategyLab/CharlesSchwabPlatform",
   firstrade: "QuantStrategyLab/FirstradePlatform",
+  qmt: "QuantStrategyLab/QmtPlatform",
 };
 const PLATFORM_REPOSITORY_ENV = {
   longbridge: ["STRATEGY_SWITCH_LONGBRIDGE_REPO", "RUNTIME_SETTINGS_LONGBRIDGE_REPO"],
   ibkr: ["STRATEGY_SWITCH_IBKR_REPO", "RUNTIME_SETTINGS_IBKR_REPO"],
   schwab: ["STRATEGY_SWITCH_SCHWAB_REPO", "RUNTIME_SETTINGS_SCHWAB_REPO"],
   firstrade: ["STRATEGY_SWITCH_FIRSTRADE_REPO", "RUNTIME_SETTINGS_FIRSTRADE_REPO"],
+  qmt: ["STRATEGY_SWITCH_QMT_REPO", "RUNTIME_SETTINGS_QMT_REPO"],
 };
 const DEFAULT_VARIABLE_SCOPE = {
   longbridge: "environment",
   ibkr: "repository",
   schwab: "repository",
   firstrade: "repository",
+  qmt: "repository",
 };
 const PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
   longbridge: "LONGBRIDGE_RESERVED_CASH_RATIO",
@@ -1186,14 +1189,17 @@ function defaultInputValue(field, inputs) {
   if (field === "plugin_mode") return "auto";
   if (field === "deployment_selector") {
     if (platform === "firstrade") return "firstrade";
+    if (platform === "qmt") return "qmt";
     return ["sg", "hk", "paper"].includes(targetName.toLowerCase()) ? targetName.toUpperCase() : targetName;
   }
   if (field === "account_scope") {
     if (platform === "firstrade") return "US";
+    if (platform === "qmt") return "CN";
     return inputs.deployment_selector || defaultInputValue("deployment_selector", inputs);
   }
   if (field === "account_selector") {
     if (platform === "firstrade") return "firstrade";
+    if (platform === "qmt") return "qmt";
     return inputs.account_scope || defaultInputValue("account_scope", inputs);
   }
   if (field === "github_environment") {
@@ -1206,6 +1212,7 @@ function defaultInputValue(field, inputs) {
   if (field === "service_name") {
     if (platform === "schwab") return "charles-schwab-quant-service";
     if (platform === "firstrade") return "firstrade-quant-service";
+    if (platform === "qmt") return "qmt-quant-service";
     if (platform === "longbridge") return `longbridge-quant-${targetName.toLowerCase()}-service`;
     if (platform === "ibkr") return `interactive-brokers-${targetName.toLowerCase()}-service`;
   }
@@ -1994,6 +2001,7 @@ function defaultCurrentServiceName(platform, targetName) {
   if (platform === "ibkr") return `interactive-brokers-${normalized}-service`;
   if (platform === "schwab") return "charles-schwab-quant-service";
   if (platform === "firstrade") return "firstrade-quant-service";
+  if (platform === "qmt") return "qmt-quant-service";
   return "";
 }
 
