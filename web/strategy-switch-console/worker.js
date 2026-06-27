@@ -49,6 +49,14 @@ const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
   schwab: "SCHWAB_MIN_RESERVED_CASH_USD",
   firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
 };
+const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
+  longbridge: "LONGBRIDGE_CASH_ONLY_EXECUTION",
+  ibkr: "IBKR_CASH_ONLY_EXECUTION",
+  schwab: "SCHWAB_CASH_ONLY_EXECUTION",
+  firstrade: "FIRSTRADE_CASH_ONLY_EXECUTION",
+};
+const LEGACY_CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION";
+const CASH_ONLY_EXECUTION_MODES = ["current", "enabled", "disabled"];
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
 const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
 const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
@@ -631,6 +639,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
   const serviceTargetDcaPayload = dcaPayloadFromObject(serviceTarget);
   const serviceTargetIbitZscorePayload = ibitZscoreExitPayloadFromObject(serviceTarget);
+  const serviceTargetCashOnlyPayload = cashOnlyPayloadFromObject(platform, serviceTarget);
   if (serviceTargetProfile) {
     return {
       strategy_profile: serviceTargetProfile,
@@ -639,6 +648,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetOptionOverlayPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
+      ...serviceTargetCashOnlyPayload,
       ...dcaPayloadForProfile(serviceTargetProfile, serviceTargetDcaPayload),
       ...ibitZscoreExitPayloadForProfile(serviceTargetProfile, serviceTargetIbitZscorePayload),
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
@@ -649,6 +659,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     Object.keys(serviceTargetReservedCashPayload).length ||
     Object.keys(serviceTargetIncomeLayerPayload).length ||
     Object.keys(serviceTargetOptionOverlayPayload).length ||
+    Object.keys(serviceTargetCashOnlyPayload).length ||
     Object.keys(serviceTargetRuntimeTargetEnabledPayload).length ||
     Object.keys(serviceTargetIbitZscorePayload).length
   ) {
@@ -657,6 +668,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...serviceTargetReservedCashPayload,
       ...serviceTargetIncomeLayerPayload,
       ...serviceTargetOptionOverlayPayload,
+      ...serviceTargetCashOnlyPayload,
       ...serviceTargetRuntimeTargetEnabledPayload,
       ...serviceTargetIbitZscorePayload,
       source: "CLOUD_RUN_SERVICE_TARGETS_JSON",
@@ -703,6 +715,13 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
+  const cashOnlyPayloadPromise = readCashOnlyVariables({
+    platform,
+    repository,
+    variableScope,
+    githubEnvironment,
+    readVariable,
+  });
   const runtimeTargetValuePromise = readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
   const [
     reservedCashPayload,
@@ -711,6 +730,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     runtimeTargetEnabledPayload,
     dcaPayload,
     ibitZscorePayload,
+    cashOnlyPayload,
     runtimeTargetValue,
   ] = await Promise.all([
     reservedCashPayloadPromise,
@@ -719,6 +739,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     runtimeTargetEnabledPayloadPromise,
     dcaPayloadPromise,
     ibitZscorePayloadPromise,
+    cashOnlyPayloadPromise,
     runtimeTargetValuePromise,
   ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
@@ -734,6 +755,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       ...runtimeTargetEnabledPayload,
       ...dcaPayloadForProfile(runtimeTargetProfile, dcaPayload),
       ...ibitZscoreExitPayloadForProfile(runtimeTargetProfile, ibitZscorePayload),
+      ...cashOnlyPayload,
       source: "RUNTIME_TARGET_JSON",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
@@ -752,6 +774,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
         ...runtimeTargetEnabledPayload,
         ...dcaPayloadForProfile(profile, dcaPayload),
         ...ibitZscoreExitPayloadForProfile(profile, ibitZscorePayload),
+        ...cashOnlyPayload,
         source: "STRATEGY_PROFILE",
         variable_scope: variableScope,
         github_environment: githubEnvironment || "",
@@ -978,6 +1001,13 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
         optionChanged = true;
       }
     }
+    const cashOnlyExecutionMode = cashOnlyExecutionModeFromInputs(inputs);
+    if (cashOnlyExecutionMode === "enabled" || cashOnlyExecutionMode === "disabled") {
+      if (nextOption.cash_only_execution_mode !== cashOnlyExecutionMode) {
+        nextOption.cash_only_execution_mode = cashOnlyExecutionMode;
+        optionChanged = true;
+      }
+    }
     const dcaControls = dcaControlsFromInputs(inputs);
     if (isDcaProfile(inputs.strategy_profile)) {
       if (dcaControls.dca_mode && nextOption.dca_mode !== dcaControls.dca_mode) {
@@ -1027,6 +1057,11 @@ function normalizeSwitchInputs(raw) {
   const executionMode = cleanChoice(raw.execution_mode || "live", ["live", "paper"], "execution_mode");
   const pluginMode = cleanChoice(raw.plugin_mode || "auto", ["auto", "none", "custom"], "plugin_mode");
   const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "current", OPTION_OVERLAY_MODES, "option_overlay_mode");
+  const cashOnlyExecutionMode = cleanChoice(
+    raw.cash_only_execution_mode || "current",
+    CASH_ONLY_EXECUTION_MODES,
+    "cash_only_execution_mode",
+  );
   const variableScope = cleanChoice(
     raw.variable_scope || "default",
     ["default", "repository", "environment"],
@@ -1051,6 +1086,13 @@ function normalizeSwitchInputs(raw) {
     throw new Error("use ibit_zscore_exit_* control fields instead of IBIT_ZSCORE_EXIT variables");
   }
   rejectResearchOnlyExtraVariables(extraVariables);
+  const directCashOnlyVariables = [
+    LEGACY_CASH_ONLY_EXECUTION_VARIABLE,
+    ...Object.values(PLATFORM_CASH_ONLY_EXECUTION_VARIABLES),
+  ].filter((name) => extraVariables[name] !== undefined && String(extraVariables[name] || "").trim() !== "");
+  if (directCashOnlyVariables.length) {
+    throw new Error("use cash_only_execution_mode instead of CASH_ONLY_EXECUTION variables");
+  }
   const dcaExtraControls = dcaPayloadFromObject(extraVariables);
   const ibitZscoreExtraControls = ibitZscoreExitPayloadFromObject(extraVariables);
 
@@ -1111,6 +1153,14 @@ function normalizeSwitchInputs(raw) {
   }
   if (strategyProfile === "ibit_smart_dca" && hasIbitZscoreMode) {
     extraVariables.ibit_zscore_exit_mode = cleanIbitZscoreExitMode(ibitZscoreModeValue);
+  }
+  const cashOnlyMode = cleanChoice(
+    raw.cash_only_execution_mode || extraVariables.cash_only_execution_mode || "current",
+    CASH_ONLY_EXECUTION_MODES,
+    "cash_only_execution_mode",
+  );
+  if (cashOnlyMode !== "current") {
+    extraVariables.cash_only_execution_mode = cashOnlyMode;
   }
   if (Object.keys(extraVariables).length) inputs.extra_variables_json = JSON.stringify(extraVariables);
   return inputs;
@@ -1464,6 +1514,9 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "option_overlay_mode", item.option_overlay_mode, (value, field) =>
     cleanChoice(value || "current", OPTION_OVERLAY_MODES, field),
   );
+  addConfigOptional(option, "cash_only_execution_mode", item.cash_only_execution_mode, (value, field) =>
+    cleanChoice(value || "current", CASH_ONLY_EXECUTION_MODES, field),
+  );
   addConfigOptional(option, "ibit_zscore_exit_mode", item.ibit_zscore_exit_mode, cleanIbitZscoreExitMode);
   addConfigOptional(option, "dca_mode", item.dca_mode, cleanDcaMode);
   addConfigOptional(option, "dca_base_investment_usd", item.dca_base_investment_usd, cleanPositiveNumber);
@@ -1727,9 +1780,34 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ...runtimeTargetEnabledPayloadFromObject(entry),
       ...dcaPayloadFromObject(entry),
       ...ibitZscoreExitPayloadFromObject(entry),
+      ...cashOnlyPayloadFromObject(platform, entry),
     };
   }
   return null;
+}
+
+async function readCashOnlyVariables({ platform, repository, variableScope, githubEnvironment, readVariable }) {
+  const platformVariable = PLATFORM_CASH_ONLY_EXECUTION_VARIABLES[platform];
+  const [platformValue, legacyValue] = await Promise.all([
+    readVariable(repository, variableScope, githubEnvironment, platformVariable),
+    readVariable(repository, variableScope, githubEnvironment, LEGACY_CASH_ONLY_EXECUTION_VARIABLE),
+  ]);
+  return cashOnlyPayloadFromValues(platformValue ?? legacyValue);
+}
+
+function cashOnlyPayloadFromObject(platform, payload) {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") return {};
+  return cashOnlyPayloadFromValues(
+    payload[PLATFORM_CASH_ONLY_EXECUTION_VARIABLES[platform]] ??
+      payload[LEGACY_CASH_ONLY_EXECUTION_VARIABLE] ??
+      payload.cash_only_execution,
+  );
+}
+
+function cashOnlyPayloadFromValues(value) {
+  const enabled = cleanOptionalBoolean(value);
+  if (enabled === null) return {};
+  return { cash_only_execution: enabled };
 }
 
 async function readReservedCashVariables({ platform, repository, variableScope, githubEnvironment, readVariable }) {
@@ -1895,6 +1973,18 @@ function dcaControlsFromInputs(inputs) {
     ...dcaPayloadFromObject(payload),
     ...dcaPayloadFromObject(inputs),
   };
+}
+
+function cashOnlyExecutionModeFromInputs(inputs) {
+  const direct = String(inputs?.cash_only_execution_mode || "").trim().toLowerCase();
+  if (direct === "enabled" || direct === "disabled") return direct;
+  try {
+    const payload = inputs?.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+    const mode = String(payload.cash_only_execution_mode || "").trim().toLowerCase();
+    return mode === "enabled" || mode === "disabled" ? mode : "";
+  } catch {
+    return "";
+  }
 }
 
 function dcaPayloadForProfile(profile, payload) {

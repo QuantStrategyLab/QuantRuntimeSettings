@@ -38,6 +38,14 @@ assert.ok(indexHtml.includes('id="option-overlay-mode-select"'));
 assert.ok(indexHtml.includes('optionOverlayMode: "期权层状态"'));
 assert.ok(indexHtml.includes('optionOverlayMode: "Option layer"'));
 assert.ok(indexHtml.includes("optionOverlayDefaultsFromProfileItem"));
+assert.ok(indexHtml.includes('id="cash-only-execution-mode-select"'));
+assert.ok(indexHtml.includes('class="form-section cash-only-section"'));
+assert.ok(indexHtml.includes('cashOnlyExecutionMode: "允许融资"'));
+assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "允许融资：是"'));
+assert.ok(indexHtml.includes('cashOnlyExecutionMode: "Allow margin"'));
+assert.ok(indexHtml.includes('el("cash-only-execution-mode-select").addEventListener("change"'));
+assert.ok(indexHtml.includes("function pendingCashOnlyExecution("));
+assert.ok(indexHtml.includes("function syncCashOnlyExecutionForAccount("));
 assert.equal(indexHtml.includes('id="option-growth-overlay'), false);
 assert.equal(indexHtml.includes('id="option-income-overlay'), false);
 assert.ok(indexHtml.includes('id="dca-mode-select"'));
@@ -460,6 +468,34 @@ assert.equal(normalizedReservedCashInputs.min_reserved_cash_usd, "150");
 assert.equal(normalizedReservedCashInputs.income_layer_start_usd, "250000");
 assert.equal(normalizedReservedCashInputs.income_layer_max_ratio, "0.55");
 assert.equal(normalizedReservedCashInputs.option_overlay_mode, "enabled");
+const normalizedCashOnlyInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  cash_only_execution_mode: "disabled",
+});
+assert.equal(normalizedCashOnlyInputs.cash_only_execution_mode, undefined);
+assert.deepEqual(JSON.parse(normalizedCashOnlyInputs.extra_variables_json), {
+  cash_only_execution_mode: "disabled",
+});
+assert.equal("cash_only_execution_mode" in normalizedCashOnlyInputs, false);
+
+const workflowYaml = readFileSync(resolve(root, ".github/workflows/manual-strategy-switch.yml"), "utf8");
+const workflowInputs = [...workflowYaml.matchAll(/^      ([A-Za-z0-9_]+):\n        description:/gm)].map((match) => match[1]);
+const dispatchInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  cash_only_execution_mode: "enabled",
+  apply: "true",
+  trigger_platform_sync: "true",
+  confirm_apply: "APPLY_AND_SYNC",
+});
+for (const key of Object.keys(dispatchInputs)) {
+  assert.ok(workflowInputs.includes(key), `workflow input missing for dispatch field: ${key}`);
+}
 const normalizedPluginInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -586,6 +622,15 @@ assert.throws(
     platform: "ibkr",
     target_name: "ibkr-primary",
     strategy_profile: "tqqq_growth_income",
+    extra_variables_json: JSON.stringify({ IBKR_CASH_ONLY_EXECUTION: "true" }),
+  }),
+  /cash_only_execution_mode instead of CASH_ONLY_EXECUTION/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
     reserved_cash_ratio: "1.25",
   }),
   /reserved_cash_ratio must be between 0 and 1/,
@@ -658,6 +703,22 @@ const updatedOptionOverlayModeOptions = __test.updateAccountOptionsDefaultStrate
 );
 assert.equal(updatedOptionOverlayModeOptions.changed, true);
 assert.equal(updatedOptionOverlayModeOptions.options.longbridge[1].option_overlay_mode, "disabled");
+
+const updatedCashOnlyModeOptions = __test.updateAccountOptionsDefaultStrategy(
+  accountOptions,
+  {
+    platform: "longbridge",
+    target_name: "sg",
+    account_selector: "SG",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    variable_scope: "default",
+    plugin_mode: "auto",
+    cash_only_execution_mode: "enabled",
+  },
+);
+assert.equal(updatedCashOnlyModeOptions.changed, true);
+assert.equal(updatedCashOnlyModeOptions.options.longbridge[1].cash_only_execution_mode, "enabled");
 
 const updatedIbitZscoreModeOptions = __test.updateAccountOptionsDefaultStrategy(
   {

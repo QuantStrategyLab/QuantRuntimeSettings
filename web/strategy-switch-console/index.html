@@ -1349,6 +1349,14 @@
             </label>
           </div>
 
+          <div class="form-section cash-only-section">
+            <label class="control-block cash-only-mode-block section-wide">
+              <span data-i18n="cashOnlyExecutionMode">允许融资</span>
+              <select id="cash-only-execution-mode-select"></select>
+              <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
+            </label>
+          </div>
+
           <div class="form-section dca-section">
             <label class="control-block dca-mode-block">
               <span data-i18n="dcaMode">定投模式</span>
@@ -1422,6 +1430,7 @@
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
     const incomeLayerModes = ["current", "enabled", "disabled"];
     const optionOverlayModes = ["current", "enabled", "disabled"];
+    const cashOnlyExecutionModes = ["current", "enabled", "disabled"];
     const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["auto", "none"];
     const dcaModes = ["fixed", "smart"];
@@ -1601,6 +1610,15 @@
         optionOverlayFamilyIncome: "收入",
         optionOverlayBudgetRatio: "预算 {ratio}",
         optionOverlayRiskRatio: "风险 {ratio}",
+        cashOnlyExecutionMode: "允许融资",
+        cashOnlyExecutionCurrent: "沿用当前配置",
+        cashOnlyExecutionYes: "是",
+        cashOnlyExecutionNo: "否",
+        cashOnlyExecutionModeMeta: "选「否」时只按真实现金下单，不会动用 margin 购买力。",
+        cashOnlyExecutionValueYes: "允许融资：是",
+        cashOnlyExecutionValueNo: "允许融资：否",
+        currentCashOnlyExecution: "当前允许融资",
+        pendingCashOnlyExecution: "待提交允许融资",
         dcaMode: "定投模式",
         dcaModeFixed: "定额定投",
         dcaModeSmart: "智能定投",
@@ -1743,6 +1761,15 @@
         optionOverlayFamilyIncome: "Income",
         optionOverlayBudgetRatio: "budget {ratio}",
         optionOverlayRiskRatio: "risk {ratio}",
+        cashOnlyExecutionMode: "Allow margin",
+        cashOnlyExecutionCurrent: "Keep current config",
+        cashOnlyExecutionYes: "Yes",
+        cashOnlyExecutionNo: "No",
+        cashOnlyExecutionModeMeta: "Choose No to use available cash only and avoid margin buying power.",
+        cashOnlyExecutionValueYes: "Allow margin: Yes",
+        cashOnlyExecutionValueNo: "Allow margin: No",
+        currentCashOnlyExecution: "Current allow margin",
+        pendingCashOnlyExecution: "Pending allow margin",
         dcaMode: "DCA mode",
         dcaModeFixed: "Fixed DCA",
         dcaModeSmart: "Smart DCA",
@@ -1847,6 +1874,8 @@
       incomeLayerTouched: false,
       optionOverlayMode: "current",
       optionOverlayTouched: false,
+      cashOnlyExecutionMode: "current",
+      cashOnlyExecutionTouched: false,
       runtimeTargetMode: "current",
       runtimeTargetTouched: false,
       dcaMode: "fixed",
@@ -2286,6 +2315,29 @@
       return enabled ? t("optionOverlayOn") : t("optionOverlayOff");
     }
 
+    function normalizeCashOnlyExecutionMode(value) {
+      return cashOnlyExecutionModes.includes(value) ? value : "current";
+    }
+
+    function cashOnlyExecutionModeLabel(mode) {
+      if (mode === "enabled") return t("cashOnlyExecutionNo");
+      if (mode === "disabled") return t("cashOnlyExecutionYes");
+      return t("cashOnlyExecutionCurrent");
+    }
+
+    function cashOnlyExecutionText(enabled) {
+      if (enabled === null) return t("notRead");
+      return enabled ? t("cashOnlyExecutionValueNo") : t("cashOnlyExecutionValueYes");
+    }
+
+    function currentCashOnlyExecutionForAccount(platform, account) {
+      return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.cash_only_execution);
+    }
+
+    function currentCashOnlyExecutionText(platform = state.selected, account = selectedAccount(platform)) {
+      return cashOnlyExecutionText(currentCashOnlyExecutionForAccount(platform, account));
+    }
+
     function currentOptionOverlayForAccount(platform, account) {
       return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.option_overlay_enabled);
     }
@@ -2343,6 +2395,7 @@
           cleanDisplayNumber(entry.income_layer_start_usd) ||
           cleanDisplayRatio(entry.income_layer_max_ratio) ||
           cleanOptionalBoolean(entry.option_overlay_enabled) !== null ||
+          cleanOptionalBoolean(entry.cash_only_execution) !== null ||
           cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
           normalizeDcaMode(entry.dca_mode || "") !== "fixed" ||
           cleanDisplayPositiveNumber(entry.dca_base_investment_usd) ||
@@ -2474,6 +2527,7 @@
       syncReservePolicyForAccount(platform);
       syncIncomeLayerForAccount(platform);
       syncOptionOverlayForAccount(platform);
+      syncCashOnlyExecutionForAccount(platform);
       syncDcaForAccount(platform);
       syncIbitZscoreExitForAccount(platform);
     }
@@ -2515,6 +2569,14 @@
       form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "current" : "disabled";
     }
 
+    function syncCashOnlyExecutionForAccount(platform) {
+      const form = state.forms[platform];
+      if (!form || form.cashOnlyExecutionTouched) return;
+      const account = selectedAccount(platform);
+      const configured = normalizeCashOnlyExecutionMode(account?.cash_only_execution_mode);
+      form.cashOnlyExecutionMode = configured !== "current" ? configured : "current";
+    }
+
     function syncDcaForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.dcaTouched) return;
@@ -2544,6 +2606,7 @@
         state.forms[platform].reservedCashTouched = false;
         state.forms[platform].incomeLayerTouched = false;
         state.forms[platform].optionOverlayTouched = false;
+        state.forms[platform].cashOnlyExecutionTouched = false;
         state.forms[platform].dcaTouched = false;
         state.forms[platform].ibitZscoreExitTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
@@ -2552,6 +2615,7 @@
         syncReservePolicyForAccount(platform);
         syncIncomeLayerForAccount(platform);
         syncOptionOverlayForAccount(platform);
+        syncCashOnlyExecutionForAccount(platform);
         syncDcaForAccount(platform);
         syncIbitZscoreExitForAccount(platform);
       }
@@ -2696,6 +2760,12 @@
       return { inputs: { option_overlay_mode: mode } };
     }
 
+    function cashOnlyExecutionOverrideForForm(form) {
+      const mode = normalizeCashOnlyExecutionMode(form?.cashOnlyExecutionMode);
+      if (mode === "current") return null;
+      return { inputs: { cash_only_execution_mode: mode } };
+    }
+
     function dcaOverrideForForm(form) {
       if (!dcaSupported(form?.strategy)) return null;
       const mode = normalizeDcaMode(form?.dcaMode);
@@ -2768,6 +2838,11 @@
       inputs.option_overlay_mode = normalizeOptionOverlayMode(form.optionOverlayMode);
       if (optionOverlayOverride) {
         Object.assign(inputs, optionOverlayOverride.inputs);
+      }
+      const cashOnlyOverride = cashOnlyExecutionOverrideForForm(form);
+      inputs.cash_only_execution_mode = normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode);
+      if (cashOnlyOverride) {
+        Object.assign(inputs, cashOnlyOverride.inputs);
       }
       const dcaOverride = dcaOverrideForForm(form);
       if (dcaOverride) {
@@ -2879,6 +2954,12 @@
       if (!pending.supported && pending.inputs.option_overlay_enabled !== false) return t("optionOverlayNotSupported");
       if (!pending.changed) return t("unchanged");
       return optionOverlayText(pending.inputs.option_overlay_enabled);
+    }
+
+    function pendingCashOnlyExecutionText(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const pending = pendingCashOnlyExecution(inputs, platform, account);
+      if (!pending.changed) return t("unchanged");
+      return cashOnlyExecutionText(pending.inputs.cash_only_execution);
     }
 
     function pendingRuntimeTargetText(inputs, platform = state.selected, account = selectedAccount(platform)) {
@@ -3019,6 +3100,22 @@
       };
     }
 
+    function pendingCashOnlyExecution(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const mode = normalizeCashOnlyExecutionMode(inputs.cash_only_execution_mode);
+      const current = currentCashOnlyExecutionForAccount(platform, account);
+      if (mode === "current") {
+        return {
+          changed: false,
+          inputs: { cash_only_execution: current },
+        };
+      }
+      const nextEnabled = mode === "enabled";
+      return {
+        changed: current !== nextEnabled,
+        inputs: { cash_only_execution: nextEnabled },
+      };
+    }
+
     function pendingDca(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
       const defaults = dcaConfigForStrategy(profile);
@@ -3060,6 +3157,7 @@
       const reserve = pendingReservePolicy(inputs, platform, account);
       const income = pendingIncomeLayer(inputs, platform, account);
       const optionOverlay = pendingOptionOverlay(inputs, platform, account);
+      const cashOnly = pendingCashOnlyExecution(inputs, platform, account);
       const dca = pendingDca(inputs, platform, account);
       const ibitZscoreExit = pendingIbitZscoreExit(inputs, platform, account);
       return {
@@ -3075,12 +3173,14 @@
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
         optionOverlayChanged: optionOverlay.changed,
+        cashOnlyChanged: cashOnly.changed,
         dcaChanged: dca.changed,
         ibitZscoreExitChanged: ibitZscoreExit.changed,
         runtimeTarget,
         reserve,
         income,
         optionOverlay,
+        cashOnly,
         dca,
         ibitZscoreExit,
       };
@@ -3096,6 +3196,7 @@
           changes.reserveCashChanged ||
           changes.incomeLayerChanged ||
           changes.optionOverlayChanged ||
+          changes.cashOnlyChanged ||
           changes.dcaChanged ||
           changes.ibitZscoreExitChanged,
       );
@@ -3156,6 +3257,7 @@
         ],
         [t("currentPluginMode"), pluginModeLabel(changes.currentPluginMode)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
+        [t("currentCashOnlyExecution"), currentCashOnlyExecutionText(state.selected, account)],
       ];
       if (incomeLayerSupported(inputs.strategy_profile)) {
         rows.push([t("currentIncomeLayer"), currentIncomeLayerText(state.selected, account, inputs.strategy_profile)]);
@@ -3177,6 +3279,9 @@
       }
       if (changes.optionOverlayChanged) {
         rows.push([t("pendingOptionOverlay"), pendingOptionOverlayText(inputs, state.selected, account), "pending"]);
+      }
+      if (changes.cashOnlyChanged) {
+        rows.push([t("pendingCashOnlyExecution"), pendingCashOnlyExecutionText(inputs, state.selected, account), "pending"]);
       }
       if (changes.dcaChanged) {
         rows.push([t("pendingDca"), pendingDcaText(inputs, state.selected, account), "pending"]);
@@ -3262,6 +3367,7 @@
       const incomeLayerStartUsdInput = el("income-layer-start-usd-input");
       const incomeLayerMaxRatioInput = el("income-layer-max-ratio-input");
       const optionOverlayModeSelect = el("option-overlay-mode-select");
+      const cashOnlyExecutionModeSelect = el("cash-only-execution-mode-select");
       const dcaModeSelect = el("dca-mode-select");
       const dcaBaseInvestmentUsdInput = el("dca-base-investment-usd-input");
       const reservePolicyModeSelect = el("reserve-policy-mode-select");
@@ -3285,6 +3391,7 @@
         ibitZscoreExitModeSelect.replaceChildren();
         incomeLayerModeSelect.replaceChildren();
         optionOverlayModeSelect.replaceChildren();
+        cashOnlyExecutionModeSelect.replaceChildren();
         dcaModeSelect.replaceChildren();
         reservePolicyModeSelect.replaceChildren();
         incomeLayerStartUsdInput.value = "";
@@ -3300,6 +3407,7 @@
         el("income-layer-start-meta").textContent = "";
         el("income-layer-ratio-meta").textContent = "";
         el("option-overlay-mode-meta").textContent = "";
+        el("cash-only-execution-mode-meta").textContent = "";
         el("dca-mode-meta").textContent = "";
         el("dca-base-meta").textContent = "";
         return;
@@ -3432,6 +3540,20 @@
         }
         el("option-overlay-mode-meta").textContent = t("optionOverlayModeMeta");
       }
+
+      syncCashOnlyExecutionForAccount(platform);
+      cashOnlyExecutionModeSelect.replaceChildren();
+      for (const mode of cashOnlyExecutionModes) {
+        cashOnlyExecutionModeSelect.append(
+          new Option(
+            cashOnlyExecutionModeLabel(mode),
+            mode,
+            false,
+            mode === normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode),
+          ),
+        );
+      }
+      el("cash-only-execution-mode-meta").textContent = t("cashOnlyExecutionModeMeta");
 
       const dcaDefaults = dcaConfigForStrategy(form.strategy);
       dcaModeSelect.replaceChildren();
@@ -3700,6 +3822,7 @@
           const incomeLayerStartUsd = cleanDisplayNumber(entry?.income_layer_start_usd);
           const incomeLayerMaxRatio = cleanDisplayRatio(entry?.income_layer_max_ratio);
           const optionOverlayEnabled = cleanOptionalBoolean(entry?.option_overlay_enabled);
+          const cashOnlyExecution = cleanOptionalBoolean(entry?.cash_only_execution);
           const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
           const dcaMode = entry?.dca_mode ? normalizeDcaMode(entry.dca_mode) : "";
           const dcaBaseInvestmentUsd = cleanDisplayPositiveNumber(entry?.dca_base_investment_usd);
@@ -3713,6 +3836,7 @@
             !incomeLayerStartUsd &&
             !incomeLayerMaxRatio &&
             optionOverlayEnabled === null &&
+            cashOnlyExecution === null &&
             runtimeTargetEnabled === null &&
             !dcaMode &&
             !dcaBaseInvestmentUsd &&
@@ -3729,6 +3853,7 @@
             income_layer_start_usd: incomeLayerStartUsd,
             income_layer_max_ratio: incomeLayerMaxRatio,
             option_overlay_enabled: optionOverlayEnabled,
+            cash_only_execution: cashOnlyExecution,
             runtime_target_enabled: runtimeTargetEnabled,
             dca_mode: dcaMode,
             dca_base_investment_usd: dcaBaseInvestmentUsd,
@@ -3795,6 +3920,7 @@
       state.forms[state.selected].reservedCashTouched = false;
       state.forms[state.selected].incomeLayerTouched = false;
       state.forms[state.selected].optionOverlayTouched = false;
+      state.forms[state.selected].cashOnlyExecutionTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].ibitZscoreExitTouched = false;
       syncStrategyForAccount(state.selected);
@@ -3874,6 +4000,13 @@
       const form = state.forms[state.selected];
       form.optionOverlayMode = normalizeOptionOverlayMode(el("option-overlay-mode-select").value);
       form.optionOverlayTouched = form.optionOverlayMode !== "current";
+      render();
+    });
+
+    el("cash-only-execution-mode-select").addEventListener("change", () => {
+      const form = state.forms[state.selected];
+      form.cashOnlyExecutionMode = normalizeCashOnlyExecutionMode(el("cash-only-execution-mode-select").value);
+      form.cashOnlyExecutionTouched = form.cashOnlyExecutionMode !== "current";
       render();
     });
 
