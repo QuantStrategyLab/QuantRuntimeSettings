@@ -1,5 +1,7 @@
 # Strategy Switch Console Worker
 
+[简体中文](README.zh-CN.md)
+
 This is the authenticated backend for the personal strategy switch console. It is intentionally thin:
 
 - Visitors who are not signed in, or are not in the allowlist, can only view the public page.

@@ -1,5 +1,7 @@
 # 内部依赖 pin 政策
 
+[English](internal_dependency_pin_policy.md)
+
 QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 Python 包。本文说明 pin 如何被追踪、何时使用 tag 与完整 commit SHA，以及如何安全升级依赖。
 
 ## 权威来源

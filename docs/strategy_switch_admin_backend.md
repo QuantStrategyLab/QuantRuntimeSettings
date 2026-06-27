@@ -1,5 +1,7 @@
 # Strategy Switch Admin Backend
 
+[简体中文](strategy_switch_admin_backend.zh-CN.md)
+
 Goal: keep the open-source switch page public and read-only by default, while allowing an authenticated admin to manage who can switch strategies and which account routes appear in the dropdown.
 
 ## Current Implementation

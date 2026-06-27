@@ -1,5 +1,7 @@
 # 手动策略切换权限控制方案
 
+[English](manual_strategy_switch_permission_control.md)
+
 这是个人量化系统的简化权限方案。默认目标不是做团队审批，而是让你自己能像让 Codex 切换一样直接操作，同时保留必要的防误触和防泄密边界。
 
 ## 默认方案：个人单人模式

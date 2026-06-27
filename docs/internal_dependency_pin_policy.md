@@ -1,5 +1,7 @@
 # Internal dependency pin policy
 
+[简体中文](internal_dependency_pin_policy.zh-CN.md)
+
 QuantStrategyLab shares Python packages across platforms, strategies, and pipelines via git URL pins. This document explains how pins are tracked, when to use tags versus full commit SHAs, and how to bump dependencies safely.
 
 ## Source of truth
