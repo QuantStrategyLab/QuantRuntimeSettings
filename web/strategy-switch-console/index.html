@@ -22,6 +22,7 @@
       --ib: #2f5f9f;
       --sw: #9b4153;
       --ft: #94651f;
+      --qmt: #b45309;
       font-family:
         Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -311,6 +312,48 @@
 
     .platform-button[data-platform="firstrade"] {
       --platform-color: var(--ft);
+    }
+
+    .platform-button[data-platform="qmt"] {
+      --platform-color: var(--qmt);
+    }
+
+    .execution-cash-policy-section {
+      grid-template-columns: 1fr;
+    }
+
+    .execution-cash-policy-heading {
+      grid-column: 1 / -1;
+      margin: 0;
+      font-size: 13px;
+      font-weight: 780;
+      color: var(--ink);
+    }
+
+    .execution-cash-policy-note {
+      grid-column: 1 / -1;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .execution-cash-policy-grid {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+
+    .policy-block-muted .selection-meta {
+      color: var(--danger);
+    }
+
+    @media (max-width: 720px) {
+      .execution-cash-policy-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     .mark {
@@ -1299,6 +1342,7 @@
               <button type="button" data-mode="live" class="active" data-i18n="live">实盘</button>
               <button type="button" data-mode="paper" data-i18n="paper">模拟</button>
             </div>
+            <span class="selection-meta" id="mode-meta"></span>
           </div>
 
           <div class="form-section runtime-section">
@@ -1349,12 +1393,35 @@
             </label>
           </div>
 
-          <div class="form-section cash-only-section">
-            <label class="control-block cash-only-mode-block section-wide">
-              <span data-i18n="cashOnlyExecutionMode">允许融资</span>
-              <select id="cash-only-execution-mode-select"></select>
-              <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
-            </label>
+          <div class="form-section execution-cash-policy-section" id="execution-cash-policy-section">
+            <h3 class="execution-cash-policy-heading" data-i18n="executionCashPolicyTitle">现金与融资</h3>
+            <p class="execution-cash-policy-note" id="execution-cash-policy-note" data-i18n="executionCashPolicyNote">允许融资与预留现金覆盖不能同时生效。</p>
+            <p class="execution-cash-policy-note qmt-platform-cash-note" id="qmt-platform-cash-note" hidden data-i18n="qmtPlatformCashNote">A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。</p>
+            <div class="execution-cash-policy-grid" id="execution-cash-policy-grid">
+              <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
+                <span data-i18n="cashOnlyExecutionMode">允许融资</span>
+                <select id="cash-only-execution-mode-select"></select>
+                <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
+              </label>
+
+              <label class="control-block reserve-policy-block policy-block" id="reserve-policy-block">
+                <span data-i18n="reservedCashMode">预留现金策略</span>
+                <select id="reserve-policy-mode-select"></select>
+                <span class="selection-meta" id="reserve-policy-mode-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
+              </label>
+
+              <label class="control-block min-reserve-block policy-block" id="min-reserve-block">
+                <span id="min-reserved-cash-label">最小预留现金</span>
+                <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
+                <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
+              </label>
+
+              <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
+                <span data-i18n="reservedCashRatio">预留现金比例</span>
+                <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+                <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
+              </label>
+            </div>
           </div>
 
           <div class="form-section dca-section">
@@ -1371,25 +1438,7 @@
             </label>
           </div>
 
-          <div class="form-section reserve-policy-section">
-            <label class="control-block reserve-policy-block section-wide">
-              <span data-i18n="reservedCashMode">预留现金策略</span>
-              <select id="reserve-policy-mode-select"></select>
-              <span class="selection-meta" data-i18n="reservedCashModeMeta">选择是否沿用、清空或覆盖平台预留现金。</span>
-            </label>
-
-            <label class="control-block min-reserve-block">
-              <span id="min-reserved-cash-label">最小预留现金</span>
-              <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
-              <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
-            </label>
-
-            <label class="control-block reserve-ratio-block">
-              <span data-i18n="reservedCashRatio">预留现金比例</span>
-              <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-              <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
-            </label>
-          </div>
+          <div class="form-section dca-section">
         </div>
 
         <div class="run-area" id="run-area">
@@ -1418,6 +1467,7 @@
       ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
       schwab: "QuantStrategyLab/CharlesSchwabPlatform",
       firstrade: "QuantStrategyLab/FirstradePlatform",
+      qmt: "QuantStrategyLab/QmtPlatform",
     };
 
     const platformMeta = {
@@ -1425,6 +1475,7 @@
       ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
       schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
       firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
     };
 
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
@@ -1465,6 +1516,8 @@
       { profile: "russell_top50_leader_rotation", label: "Russell Top50 Leader Rotation", label_en: "Russell Top50 Leader Rotation", label_zh: "罗素 Top50 领涨轮动", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", income_layer_allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 } },
       { profile: "hk_global_etf_tactical_rotation", label: "HK Global ETF Tactical Rotation", label_en: "HK Global ETF Tactical Rotation", label_zh: "港股全球 ETF 战术轮动", domain: "hk_equity", runtime_enabled: true },
       { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Low-Vol Dividend Quality Snapshot", label_en: "HK Low-Vol Dividend Quality Snapshot", label_zh: "港股低波红利质量快照", domain: "hk_equity", runtime_enabled: true },
+      { profile: "cn_industry_etf_rotation", label: "CN Industry ETF Rotation", label_en: "CN Industry ETF Rotation", label_zh: "A股行业 ETF 轮动", domain: "cn_equity", runtime_enabled: true },
+      { profile: "cn_dividend_quality_snapshot", label: "CN Dividend Quality Snapshot", label_en: "CN Dividend Quality Snapshot", label_zh: "A股红利质量快照", domain: "cn_equity", runtime_enabled: true },
     ];
 
     const localStrategyLabels = {
@@ -1476,6 +1529,8 @@
       russell_top50_leader_rotation: { zh: "罗素 Top50 领涨轮动", en: "Russell Top50 Leader Rotation" },
       hk_global_etf_tactical_rotation: { zh: "港股全球 ETF 战术轮动", en: "HK Global ETF Tactical Rotation" },
       hk_low_vol_dividend_quality_snapshot: { zh: "港股低波红利质量快照", en: "HK Low-Vol Dividend Quality Snapshot" },
+      cn_industry_etf_rotation: { zh: "A股行业 ETF 轮动", en: "CN Industry ETF Rotation" },
+      cn_dividend_quality_snapshot: { zh: "A股红利质量快照", en: "CN Dividend Quality Snapshot" },
     };
 
     const fallbackIncomeLayerDefaults = {
@@ -1533,7 +1588,7 @@
     };
     let optionOverlayDefaults = {};
 
-    const strategyDomains = ["us_equity", "hk_equity"];
+    const strategyDomains = ["us_equity", "hk_equity", "cn_equity"];
     let strategyOptions = [];
     let strategyLabels = {};
     let strategyCatalog = {};
@@ -1550,6 +1605,9 @@
       ],
       firstrade: [
         { key: "preview", label: "Firstrade", target_name: "preview", supported_domains: ["us_equity"] },
+      ],
+      qmt: [
+        { key: "preview", label: "QMT dry-run", target_name: "industry_etf_dry_run", cash_currency: "CNY", default_strategy_profile: "cn_industry_etf_rotation", supported_domains: ["cn_equity"] },
       ],
     };
 
@@ -1619,6 +1677,13 @@
         cashOnlyExecutionValueNo: "允许融资：否",
         currentCashOnlyExecution: "当前允许融资",
         pendingCashOnlyExecution: "待提交允许融资",
+        executionCashPolicyTitle: "现金与融资",
+        executionCashPolicyNote: "允许融资与预留现金覆盖不能同时生效；选「是」会清空预留覆盖，设预留覆盖会强制「否」。",
+        executionCashMarginBlocksReserve: "已选允许融资，预留现金覆盖已禁用。",
+        executionCashReserveBlocksMargin: "已设预留现金覆盖，不能选允许融资。",
+        qmtPlatformCashNote: "A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。",
+        qmtDryRunOnlyNote: "QMT 当前仅支持 dry-run（模拟），尚无 live 券商账号。",
+        invalidExecutionCashPolicyNote: "允许融资与预留现金覆盖冲突，请只保留一种约束。",
         dcaMode: "定投模式",
         dcaModeFixed: "定额定投",
         dcaModeSmart: "智能定投",
@@ -1694,6 +1759,7 @@
         strategyMeta: "该账号仅显示 {domains} 策略",
         usEquity: "美股",
         hkEquity: "港股",
+        cnEquity: "A股",
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
         notRead: "未读取",
@@ -1770,6 +1836,13 @@
         cashOnlyExecutionValueNo: "Allow margin: No",
         currentCashOnlyExecution: "Current allow margin",
         pendingCashOnlyExecution: "Pending allow margin",
+        executionCashPolicyTitle: "Cash and margin",
+        executionCashPolicyNote: "Allow margin and reserve-cash overrides cannot both apply. Yes clears reserve overrides; reserve overrides force No.",
+        executionCashMarginBlocksReserve: "Allow margin is selected; reserve-cash overrides are disabled.",
+        executionCashReserveBlocksMargin: "Reserve-cash override is active; allow margin Yes is disabled.",
+        qmtPlatformCashNote: "QMT A-share does not use margin or platform reserve cash; cash constraints live in strategy execution_cash_reserve_ratio.",
+        qmtDryRunOnlyNote: "QMT is dry-run only for now; no live broker accounts are configured.",
+        invalidExecutionCashPolicyNote: "Allow margin and reserve-cash overrides conflict. Keep only one constraint.",
         dcaMode: "DCA mode",
         dcaModeFixed: "Fixed DCA",
         dcaModeSmart: "Smart DCA",
@@ -1845,6 +1918,7 @@
         strategyMeta: "This account only shows {domains} strategies",
         usEquity: "US equity",
         hkEquity: "HK equity",
+        cnEquity: "CN A-share",
         currentStrategy: "Current strategy",
         nextStrategy: "Switch strategy",
         notRead: "Not read",
@@ -1900,6 +1974,7 @@
         ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
         schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
         firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "auto", ...defaultReserveForm() },
       },
     };
 
@@ -1950,7 +2025,46 @@
 
     function domainLabel(domain) {
       if (domain === "hk_equity") return t("hkEquity");
+      if (domain === "cn_equity") return t("cnEquity");
       return t("usEquity");
+    }
+
+    function platformSupportsMarginPolicy(platform = state.selected) {
+      return platform !== "qmt";
+    }
+
+    function platformSupportsReservedCashPolicy(platform = state.selected) {
+      return platform !== "qmt";
+    }
+
+    function platformDryRunOnly(platform = state.selected) {
+      return platform === "qmt";
+    }
+
+    function allowMarginExplicitlySelected(form) {
+      return normalizeCashOnlyExecutionMode(form?.cashOnlyExecutionMode) === "disabled";
+    }
+
+    function reserveCashOverrideActive(form) {
+      const mode = normalizeReservePolicyMode(form?.reservePolicyMode);
+      return mode === "ratio" || mode === "floor" || mode === "max";
+    }
+
+    function executionCashPolicyConflict(form) {
+      return allowMarginExplicitlySelected(form) && reserveCashOverrideActive(form);
+    }
+
+    function reconcileExecutionCashPolicy(form, changed) {
+      if (!form || !executionCashPolicyConflict(form)) return;
+      if (changed === "margin") {
+        form.reservePolicyMode = "none";
+        form.reservedCashTouched = true;
+        form.minReservedCashUsd = "";
+        form.reservedCashRatio = "";
+      } else if (changed === "reserve") {
+        form.cashOnlyExecutionMode = "enabled";
+        form.cashOnlyExecutionTouched = true;
+      }
     }
 
     function strategyDomain(profile) {
@@ -1959,11 +2073,13 @@
 
     function selectedCashCurrency(platform = state.selected, account = selectedAccount(platform)) {
       const configured = String(account?.cash_currency || "").trim().toUpperCase();
-      if (configured === "USD" || configured === "HKD") return configured;
+      if (configured === "USD" || configured === "HKD" || configured === "CNY") return configured;
       const domain = strategyDomain(state.forms[platform]?.strategy);
       if (domain === "hk_equity") return "HKD";
+      if (domain === "cn_equity") return "CNY";
       const supported = supportedDomainsForAccount(platform, account);
       if (supported.length === 1 && supported[0] === "hk_equity") return "HKD";
+      if (supported.length === 1 && supported[0] === "cn_equity") return "CNY";
       return "USD";
     }
 
@@ -2115,6 +2231,7 @@
 
     function inferSupportedDomains(platform, account) {
       void account;
+      if (platform === "qmt") return ["cn_equity"];
       if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
       return ["us_equity"];
     }
@@ -2474,6 +2591,7 @@
     }
 
     function defaultExecutionModeForAccount(platform, account, fallback = "live") {
+      if (platformDryRunOnly(platform)) return "paper";
       const currentMode = normalizeExecutionMode(
         currentEntryForAccount(platform, account)?.execution_mode,
         currentEntryForAccount(platform, account)?.dry_run_only,
@@ -2487,7 +2605,7 @@
         account?.account_scope,
         account?.service_name,
       ].join(" ").toLowerCase();
-      if (hint.split(/\s+/).includes("paper") || hint.includes("-paper") || hint.includes("_paper")) {
+      if (hint.split(/\s+/).includes("paper") || hint.includes("-paper") || hint.includes("_paper") || hint.includes("dry_run") || hint.includes("dry-run")) {
         return "paper";
       }
       return fallback;
@@ -2506,9 +2624,11 @@
         account?.account_scope,
         account?.service_name,
       ].join(" ").toLowerCase();
-      const hinted = hint.includes("smart-dca") || hint.includes("smart_dca")
+      const hinted = hint.includes("dividend")
+        ? "cn_dividend_quality_snapshot"
+        : (hint.includes("industry") ? "cn_industry_etf_rotation" : (hint.includes("smart-dca") || hint.includes("smart_dca")
         ? "nasdaq_sp500_smart_dca"
-        : (hint.includes("soxl") ? "soxl_soxx_trend_income" : (hint.includes("tqqq") ? "tqqq_growth_income" : ""));
+        : (hint.includes("soxl") ? "soxl_soxx_trend_income" : (hint.includes("tqqq") ? "tqqq_growth_income" : ""))));
       if (hinted && strategyAllowedForAccount(platform, account, hinted)) return hinted;
       if (fallback && strategyAllowedForAccount(platform, account, fallback)) return fallback;
       return strategyChoicesForAccount(platform, account)[0] || "";
@@ -2626,6 +2746,7 @@
       if (platform === "ibkr") return `interactive-brokers-${targetName.toLowerCase()}-service`;
       if (platform === "schwab") return "charles-schwab-quant-service";
       if (platform === "firstrade") return "firstrade-quant-service";
+      if (platform === "qmt") return "qmt-quant-service";
       return "";
     }
 
@@ -2646,10 +2767,17 @@
     }
 
     function hasValidReservePolicy(platform = state.selected) {
+      if (!platformSupportsReservedCashPolicy(platform)) return true;
       const form = state.forms[platform];
       const mode = normalizeReservePolicyMode(form?.reservePolicyMode);
       if (mode === "current" || mode === "none") return true;
       return Boolean(reservePolicyOverrideForForm(form, platform));
+    }
+
+    function hasValidExecutionCashPolicy(platform = state.selected) {
+      if (!platformSupportsMarginPolicy(platform) && !platformSupportsReservedCashPolicy(platform)) return true;
+      const form = state.forms[platform];
+      return !executionCashPolicyConflict(form) && hasValidReservePolicy(platform);
     }
 
     function hasValidIncomeLayerPolicy(platform = state.selected) {
@@ -2684,7 +2812,7 @@
 
     function hasValidStrategySelection(platform = state.selected) {
       return hasRunnableStrategySelection(platform) &&
-        hasValidReservePolicy(platform) &&
+        hasValidExecutionCashPolicy(platform) &&
         hasValidIncomeLayerPolicy(platform) &&
         hasValidOptionOverlayPolicy(platform) &&
         hasValidDcaPolicy(platform) &&
@@ -2696,6 +2824,7 @@
     }
 
     function reservePolicyOverrideForForm(form, platform = state.selected) {
+      if (!platformSupportsReservedCashPolicy(platform)) return null;
       const mode = normalizeReservePolicyMode(form?.reservePolicyMode);
       const floor = cleanDisplayNumber(form?.minReservedCashUsd);
       const ratio = cleanDisplayRatio(form?.reservedCashRatio);
@@ -2760,7 +2889,8 @@
       return { inputs: { option_overlay_mode: mode } };
     }
 
-    function cashOnlyExecutionOverrideForForm(form) {
+    function cashOnlyExecutionOverrideForForm(form, platform = state.selected) {
+      if (!platformSupportsMarginPolicy(platform)) return null;
       const mode = normalizeCashOnlyExecutionMode(form?.cashOnlyExecutionMode);
       if (mode === "current") return null;
       return { inputs: { cash_only_execution_mode: mode } };
@@ -2815,12 +2945,15 @@
       ]) {
         if (account[field]) inputs[field] = account[field];
       }
-      const reserveOverride = reservePolicyOverrideForForm(form, platform);
-      const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
-      inputs.reserved_cash_policy_mode = reserveMode;
-      if (reserveOverride) {
-        Object.assign(inputs, reserveOverride.inputs);
-        mergeExtraVariables(inputs, reserveOverride.extraVariables);
+      const reserveOverride = platformSupportsReservedCashPolicy(platform)
+        ? reservePolicyOverrideForForm(form, platform)
+        : null;
+      if (platformSupportsReservedCashPolicy(platform)) {
+        inputs.reserved_cash_policy_mode = normalizeReservePolicyMode(form.reservePolicyMode);
+        if (reserveOverride) {
+          Object.assign(inputs, reserveOverride.inputs);
+          mergeExtraVariables(inputs, reserveOverride.extraVariables);
+        }
       }
       const runtimeTargetOverride = runtimeTargetOverrideForForm(form);
       inputs.runtime_target_enabled_mode = normalizeRuntimeTargetMode(form.runtimeTargetMode);
@@ -2839,10 +2972,12 @@
       if (optionOverlayOverride) {
         Object.assign(inputs, optionOverlayOverride.inputs);
       }
-      const cashOnlyOverride = cashOnlyExecutionOverrideForForm(form);
-      inputs.cash_only_execution_mode = normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode);
-      if (cashOnlyOverride) {
-        Object.assign(inputs, cashOnlyOverride.inputs);
+      const cashOnlyOverride = cashOnlyExecutionOverrideForForm(form, platform);
+      if (platformSupportsMarginPolicy(platform)) {
+        inputs.cash_only_execution_mode = normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode);
+        if (cashOnlyOverride) {
+          Object.assign(inputs, cashOnlyOverride.inputs);
+        }
       }
       const dcaOverride = dcaOverrideForForm(form);
       if (dcaOverride) {
@@ -3473,6 +3608,8 @@
         el("ibit-zscore-exit-mode-meta").textContent = "";
       }
       const incomeDefaults = incomeLayerDefaultForStrategy(form.strategy);
+      el("income-layer-section").hidden = platform === "qmt";
+      el("option-overlay-section").hidden = platform === "qmt";
       incomeLayerModeSelect.replaceChildren();
       if (incomeDefaults) {
         incomeLayerModeSelect.disabled = false;
@@ -3492,19 +3629,44 @@
         el("income-layer-start-meta").textContent = t("incomeLayerStartMeta");
         el("income-layer-ratio-meta").textContent = t("incomeLayerRatioMeta");
       }
-      reservePolicyModeSelect.replaceChildren();
-      for (const mode of reservePolicyModes) {
-        reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
+      const supportsMargin = platformSupportsMarginPolicy(platform);
+      const supportsReserve = platformSupportsReservedCashPolicy(platform);
+      const executionCashPolicyGrid = el("execution-cash-policy-grid");
+      const qmtPlatformCashNote = el("qmt-platform-cash-note");
+      const executionCashPolicyNote = el("execution-cash-policy-note");
+      executionCashPolicyGrid.hidden = !supportsMargin && !supportsReserve;
+      qmtPlatformCashNote.hidden = supportsMargin || supportsReserve;
+      executionCashPolicyNote.hidden = !supportsMargin || !supportsReserve;
+
+      const marginBlocksReserve = supportsMargin && supportsReserve && allowMarginExplicitlySelected(form);
+      const reserveBlocksMargin = supportsMargin && supportsReserve && reserveCashOverrideActive(form);
+
+      if (supportsReserve) {
+        reservePolicyModeSelect.replaceChildren();
+        for (const mode of reservePolicyModes) {
+          reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
+        }
+        const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
+        el("min-reserved-cash-label").textContent = t("minReservedCash").replace(
+          "{currency}",
+          selectedCashCurrency(platform, account),
+        );
+        reservePolicyModeSelect.disabled = marginBlocksReserve;
+        minReservedCashInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
+        reservedCashRatioInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
+        minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
+        reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
+        el("reserve-policy-block").classList.toggle("policy-block-muted", marginBlocksReserve);
+        el("min-reserve-block").classList.toggle("policy-block-muted", marginBlocksReserve);
+        el("reserve-ratio-block").classList.toggle("policy-block-muted", marginBlocksReserve);
+        el("reserve-policy-mode-meta").textContent = marginBlocksReserve
+          ? t("executionCashMarginBlocksReserve")
+          : t("reservedCashModeMeta");
+      } else {
+        reservePolicyModeSelect.replaceChildren();
+        minReservedCashInput.value = "";
+        reservedCashRatioInput.value = "";
       }
-      const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
-      el("min-reserved-cash-label").textContent = t("minReservedCash").replace(
-        "{currency}",
-        selectedCashCurrency(platform, account),
-      );
-      minReservedCashInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
-      reservedCashRatioInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
-      minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
-      reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
       const incomeMode = normalizeIncomeLayerMode(form.incomeLayerMode);
       const incomeLayerInputsDisabled = !incomeDefaults || incomeMode === "disabled";
       incomeLayerStartUsdInput.disabled = incomeLayerInputsDisabled;
@@ -3541,19 +3703,27 @@
         el("option-overlay-mode-meta").textContent = t("optionOverlayModeMeta");
       }
 
-      syncCashOnlyExecutionForAccount(platform);
-      cashOnlyExecutionModeSelect.replaceChildren();
-      for (const mode of cashOnlyExecutionModes) {
-        cashOnlyExecutionModeSelect.append(
-          new Option(
+      if (supportsMargin) {
+        syncCashOnlyExecutionForAccount(platform);
+        cashOnlyExecutionModeSelect.replaceChildren();
+        for (const mode of cashOnlyExecutionModes) {
+          const option = new Option(
             cashOnlyExecutionModeLabel(mode),
             mode,
             false,
             mode === normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode),
-          ),
-        );
+          );
+          if (mode === "disabled" && reserveBlocksMargin) option.disabled = true;
+          cashOnlyExecutionModeSelect.append(option);
+        }
+        el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
+        el("cash-only-execution-mode-meta").textContent = reserveBlocksMargin
+          ? t("executionCashReserveBlocksMargin")
+          : t("cashOnlyExecutionModeMeta");
+      } else {
+        cashOnlyExecutionModeSelect.replaceChildren();
+        el("cash-only-execution-mode-meta").textContent = "";
       }
-      el("cash-only-execution-mode-meta").textContent = t("cashOnlyExecutionModeMeta");
 
       const dcaDefaults = dcaConfigForStrategy(form.strategy);
       dcaModeSelect.replaceChildren();
@@ -3580,9 +3750,15 @@
         el("dca-base-meta").textContent = t("dcaModeMeta");
       }
 
-      document.querySelectorAll("[data-mode]").forEach((button) => {
+      if (platformDryRunOnly(platform)) {
+        form.executionMode = "paper";
+      }
+      document.querySelectorAll("#mode-control [data-mode]").forEach((button) => {
+        const dryRunOnly = platformDryRunOnly(platform);
+        button.disabled = dryRunOnly && button.dataset.mode === "live";
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
       });
+      el("mode-meta").textContent = platformDryRunOnly(platform) ? t("qmtDryRunOnlyNote") : "";
     }
 
     function renderSummary() {
@@ -3640,7 +3816,7 @@
       const hasPrivateAccounts = state.configSource === "private";
       const loadingConfig = state.configSource === "loading";
       const hasRunnableStrategy = hasRunnableStrategySelection();
-      const hasValidReserve = hasValidReservePolicy();
+      const hasValidReserve = hasValidExecutionCashPolicy();
       const hasValidIncomeLayer = hasValidIncomeLayerPolicy();
       const hasValidOptionOverlay = hasValidOptionOverlayPolicy();
       const hasValidDca = hasValidDcaPolicy();
@@ -3672,7 +3848,9 @@
                       : t("invalidDcaNote"))
                     : t("invalidOptionOverlayNote"))
                   : t("invalidIncomeLayerNote"))
-                : t("invalidReservePolicyNote"))
+                : (executionCashPolicyConflict(state.forms[state.selected])
+                  ? t("invalidExecutionCashPolicyNote")
+                  : t("invalidReservePolicyNote")))
               : t("invalidStrategyNote"))
             : t("missingConfigNote")))
         : t("readonlyNote");
@@ -3942,7 +4120,8 @@
 
     el("mode-control").addEventListener("click", (event) => {
       const button = event.target.closest("[data-mode]");
-      if (!button) return;
+      if (!button || button.disabled) return;
+      if (platformDryRunOnly(state.selected) && button.dataset.mode === "live") return;
       state.forms[state.selected].executionMode = button.dataset.mode;
       render();
     });
@@ -4007,6 +4186,7 @@
       const form = state.forms[state.selected];
       form.cashOnlyExecutionMode = normalizeCashOnlyExecutionMode(el("cash-only-execution-mode-select").value);
       form.cashOnlyExecutionTouched = form.cashOnlyExecutionMode !== "current";
+      reconcileExecutionCashPolicy(form, "margin");
       render();
     });
 
@@ -4029,6 +4209,7 @@
       form.reservePolicyMode = normalizeReservePolicyMode(el("reserve-policy-mode-select").value);
       form.reservedCashTouched = form.reservePolicyMode !== "current";
       if (form.reservePolicyMode === "current") syncReservePolicyForAccount(state.selected);
+      reconcileExecutionCashPolicy(form, "reserve");
       render();
     });
 

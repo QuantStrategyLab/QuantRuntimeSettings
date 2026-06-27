@@ -1055,6 +1055,9 @@ function normalizeSwitchInputs(raw) {
   const targetName = cleanSlug(raw.target_name, "target_name");
   const strategyProfile = cleanSlug(raw.strategy_profile, "strategy_profile").toLowerCase();
   const executionMode = cleanChoice(raw.execution_mode || "live", ["live", "paper"], "execution_mode");
+  if (platform === "qmt" && executionMode === "live") {
+    throw new Error("QMT platform does not support live execution yet; use paper/dry_run mode");
+  }
   const pluginMode = cleanChoice(raw.plugin_mode || "auto", ["auto", "none", "custom"], "plugin_mode");
   const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "current", OPTION_OVERLAY_MODES, "option_overlay_mode");
   const cashOnlyExecutionMode = cleanChoice(
@@ -1541,6 +1544,7 @@ function supportedDomainsForAccount(platform, option) {
 
 function inferAccountSupportedDomains(platform, option) {
   void option;
+  if (platform === "qmt") return ["cn_equity"];
   if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
   return ["us_equity"];
 }

@@ -84,6 +84,7 @@ STRATEGY_SCHEDULER_PROFILES = {
     "russell_top50_leader_rotation": US_SNAPSHOT_SCHEDULER,
     "hk_low_vol_dividend_quality_snapshot": HK_SNAPSHOT_SCHEDULER,
     "cn_index_etf_tactical_rotation": CN_DAILY_SCHEDULER,
+    "cn_industry_etf_rotation": CN_DAILY_SCHEDULER,
     "cn_dividend_quality_snapshot": CN_SNAPSHOT_SCHEDULER,
 }
 PLATFORM_DRY_RUN_VARIABLES = {
@@ -782,7 +783,12 @@ def _scheduler_plan_for_strategy(
         return dict(US_DAILY_SCHEDULER)
     scheduler = STRATEGY_SCHEDULER_PROFILES.get(profile)
     if scheduler is None:
-        scheduler = HK_DAILY_SCHEDULER if profile.startswith("hk_") else US_DAILY_SCHEDULER
+        if profile.startswith("cn_"):
+            scheduler = CN_DAILY_SCHEDULER
+        elif profile.startswith("hk_"):
+            scheduler = HK_DAILY_SCHEDULER
+        else:
+            scheduler = US_DAILY_SCHEDULER
     return dict(scheduler)
 
 
