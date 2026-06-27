@@ -47,6 +47,8 @@ assert.ok(indexHtml.includes('id="income-layer-section"'));
 assert.ok(indexHtml.includes('id="option-overlay-section"'));
 assert.ok(indexHtml.includes('id="reserve-policy-stack"'));
 assert.ok(indexHtml.includes('class="reserve-policy-stack"'));
+assert.ok(indexHtml.includes('id="reserve-amounts-row"'));
+assert.ok(indexHtml.includes('class="reserve-amounts-row"'));
 assert.equal(indexHtml.includes('id="margin-policy-stack"'), false);
 assert.ok(indexHtml.includes("cash_only_execution_mode: item.cash_only_execution_mode"));
 assert.ok(indexHtml.includes("function incomeLayerFieldsConfigured("));
