@@ -1,5 +1,7 @@
 # QMT（A 股）Runtime Target 架构
 
+[English](README.md)
+
 当前阶段：**仅 dry-run，无 live 券商账号**。中信 / 国金等券商差异不在 `platform_id` 层建模，将来 live 时在 `account-options` 增加 target 项并在对应 miniQMT 部署侧区分即可。
 
 ## 分层

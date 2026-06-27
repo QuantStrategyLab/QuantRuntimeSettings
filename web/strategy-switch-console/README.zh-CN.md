@@ -1,5 +1,7 @@
 # 策略切换控制台
 
+[English](README.md)
+
 这是个人量化系统的登录版网页控制台示例。它用 Cloudflare Worker 提供一个很薄的后端：
 
 - 未登录或不在 allowlist：只能查看公开页面，不能触发切换。
