@@ -352,12 +352,6 @@
       min-width: 0;
     }
 
-    .margin-policy-stack {
-      display: grid;
-      gap: 14px;
-      min-width: 0;
-    }
-
     .reserve-policy-stack.policy-stack-muted {
       opacity: 0.58;
     }
@@ -628,6 +622,7 @@
       margin: 0;
       padding: 8px 16px;
       display: grid;
+      gap: 0;
     }
 
     .summary-row {
@@ -650,14 +645,14 @@
       background: color-mix(in srgb, var(--platform-color, var(--accent)) 6%, #ffffff);
     }
 
-    .summary-row dt {
+    .summary-label {
       color: var(--muted);
       font-size: 12px;
       line-height: 1.4;
       font-weight: 760;
     }
 
-    .summary-row dd {
+    .summary-value {
       margin: 0;
       min-width: 0;
       color: var(--ink);
@@ -667,7 +662,7 @@
       overflow-wrap: anywhere;
     }
 
-    .summary-row.pending dd {
+    .summary-row.pending .summary-value {
       color: var(--platform-color, var(--accent));
       font-weight: 800;
     }
@@ -1136,13 +1131,13 @@
       border-bottom-color: rgba(229, 236, 242, 0.96);
     }
 
-    .summary-row dt {
+    .summary-label {
       color: #66758a;
       font-size: 12px;
       font-weight: 790;
     }
 
-    .summary-row dd {
+    .summary-value {
       color: #263244;
       font-size: 13px;
       font-weight: 700;
@@ -1409,19 +1404,11 @@
             <p class="execution-cash-policy-note" id="execution-cash-policy-note" data-i18n="executionCashPolicyNote">允许融资与预留现金覆盖不能同时生效。</p>
             <p class="execution-cash-policy-note qmt-platform-cash-note" id="qmt-platform-cash-note" hidden data-i18n="qmtPlatformCashNote">A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。</p>
             <div class="execution-cash-policy-grid" id="execution-cash-policy-grid">
-              <div class="margin-policy-stack" id="margin-policy-stack">
-                <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
-                  <span data-i18n="cashOnlyExecutionMode">允许融资</span>
-                  <select id="cash-only-execution-mode-select"></select>
-                  <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
-                </label>
-
-                <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
-                  <span data-i18n="reservedCashRatio">预留现金比例</span>
-                  <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
-                  <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
-                </label>
-              </div>
+              <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
+                <span data-i18n="cashOnlyExecutionMode">允许融资</span>
+                <select id="cash-only-execution-mode-select"></select>
+                <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
+              </label>
 
               <div class="reserve-policy-stack" id="reserve-policy-stack">
                 <label class="control-block reserve-policy-block policy-block" id="reserve-policy-block">
@@ -1434,6 +1421,12 @@
                   <span id="min-reserved-cash-label">最小预留现金</span>
                   <input id="min-reserved-cash-input" type="number" inputmode="decimal" min="0" step="1">
                   <span class="selection-meta" data-i18n="reservedCashMeta">固定金额下限，可单独设置或与比例取较大值。</span>
+                </label>
+
+                <label class="control-block reserve-ratio-block policy-block" id="reserve-ratio-block">
+                  <span data-i18n="reservedCashRatio">预留现金比例</span>
+                  <input id="reserved-cash-ratio-input" type="number" inputmode="decimal" min="0" max="1" step="0.01">
+                  <span class="selection-meta" data-i18n="reservedCashRatioMeta">例如 0.03 表示 3%。</span>
                 </label>
               </div>
             </div>
@@ -1466,9 +1459,9 @@
           <h2 data-i18n="summary">切换摘要</h2>
           <span class="pill" id="mode-pill">live</span>
         </div>
-        <dl class="summary-list" id="summary-list"></dl>
+        <div class="summary-list" id="summary-list" role="list"></div>
         <div class="summary-actions">
-          <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制摘要</button>
+          <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制状态</button>
         </div>
       </aside>
     </section>
@@ -1736,7 +1729,6 @@
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "点击后会触发工作流，并同步目标平台服务。",
-        noChangesNote: "当前选择与已读取配置一致。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
@@ -1902,7 +1894,6 @@
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "This dispatches the workflow and syncs the target platform service.",
-        noChangesNote: "The current selection matches the readable config.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
@@ -2550,6 +2541,31 @@
       };
     }
 
+    function incomeLayerFieldsConfigured(entry) {
+      const current = incomeLayerFromEntry(entry);
+      return current.enabled !== null || Boolean(current.startUsd || current.maxRatio);
+    }
+
+    function effectiveIncomeLayerForAccount(platform, account, profile = state.forms[platform]?.strategy) {
+      const defaults = incomeLayerDefaultForStrategy(profile);
+      if (!defaults) return null;
+      const entry = currentEntryForAccount(platform, account);
+      if (!entry) return null;
+      const current = incomeLayerFromEntry(entry);
+      if (!incomeLayerFieldsConfigured(entry)) {
+        return {
+          enabled: true,
+          startUsd: String(defaults.startUsd),
+          maxRatio: defaults.maxRatio,
+        };
+      }
+      return {
+        enabled: current.enabled ?? true,
+        startUsd: current.startUsd || String(defaults.startUsd),
+        maxRatio: current.maxRatio || defaults.maxRatio,
+      };
+    }
+
     function currentDcaForAccount(platform, account, profile = state.forms[platform]?.strategy) {
       const defaults = dcaConfigForStrategy(profile);
       if (!defaults) return { supported: false, mode: "", baseInvestmentUsd: "" };
@@ -3131,15 +3147,17 @@
     function currentIncomeLayerText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
       const defaults = incomeLayerDefaultForStrategy(profile);
       if (!defaults) return t("incomeLayerNotSupported");
-      const current = currentIncomeLayerForAccount(platform, account);
-      const enabled = current.enabled ?? true;
-      const startUsd = current.startUsd || String(defaults.startUsd);
-      const ratio = current.maxRatio || defaults.maxRatio;
-      if (!current.startUsd && !current.maxRatio && current.enabled === null) {
+      const entry = currentEntryForAccount(platform, account);
+      if (!entry) return t("notRead");
+      const current = incomeLayerFromEntry(entry);
+      if (!incomeLayerFieldsConfigured(entry)) {
         return t("incomeLayerDefault")
           .replace("{start}", formatUsd(defaults.startUsd))
           .replace("{ratio}", formatRatioPercent(defaults.maxRatio));
       }
+      const enabled = current.enabled ?? true;
+      const startUsd = current.startUsd || String(defaults.startUsd);
+      const ratio = current.maxRatio || defaults.maxRatio;
       return enabled
         ? t("incomeLayerOn")
           .replace("{start}", formatUsd(startUsd))
@@ -3243,25 +3261,38 @@
       const defaults = incomeLayerDefaultForStrategy(profile);
       if (!defaults) return { supported: false, changed: false, inputs: {} };
       const mode = normalizeIncomeLayerMode(inputs.income_layer_mode);
-      const current = currentIncomeLayerForAccount(platform, account);
-      const currentEnabled = current.enabled ?? true;
-      const currentStartUsd = current.startUsd || String(defaults.startUsd);
-      const currentRatio = current.maxRatio || defaults.maxRatio;
+      const entry = currentEntryForAccount(platform, account);
+      const rawCurrent = currentIncomeLayerForAccount(platform, account);
+      const effective = effectiveIncomeLayerForAccount(platform, account, profile);
+      const currentEnabled = effective?.enabled ?? true;
+      const currentStartUsd = effective?.startUsd ?? String(defaults.startUsd);
+      const currentRatio = effective?.maxRatio ?? defaults.maxRatio;
       if (mode === "current") {
         return {
           supported: true,
           changed: false,
           inputs: {
-            income_layer_enabled: currentEnabled,
-            income_layer_start_usd: currentStartUsd,
-            income_layer_max_ratio: currentRatio,
+            income_layer_enabled: rawCurrent.enabled,
+            income_layer_start_usd: rawCurrent.startUsd,
+            income_layer_max_ratio: rawCurrent.maxRatio,
           },
         };
       }
       if (mode === "disabled") {
+        if (!entry) {
+          return {
+            supported: true,
+            changed: false,
+            inputs: {
+              income_layer_enabled: false,
+              income_layer_start_usd: "",
+              income_layer_max_ratio: "",
+            },
+          };
+        }
         return {
           supported: true,
-          changed: currentEnabled !== false || Boolean(current.startUsd || current.maxRatio),
+          changed: currentEnabled !== false || Boolean(rawCurrent.startUsd || rawCurrent.maxRatio),
           inputs: {
             income_layer_enabled: false,
             income_layer_start_usd: "",
@@ -3273,7 +3304,7 @@
       const nextRatio = cleanDisplayRatio(inputs.income_layer_max_ratio || defaults.maxRatio);
       return {
         supported: true,
-        changed: Boolean(currentEnabled !== true || nextStartUsd !== currentStartUsd || nextRatio !== currentRatio),
+        changed: !entry || Boolean(currentEnabled !== true || nextStartUsd !== currentStartUsd || nextRatio !== currentRatio),
         inputs: {
           income_layer_enabled: true,
           income_layer_start_usd: nextStartUsd,
@@ -3852,10 +3883,13 @@
       for (const [label, value, rowClass, valueTone] of summaryRows(inputs)) {
         const row = document.createElement("div");
         row.className = "summary-row";
+        row.setAttribute("role", "listitem");
         if (rowClass) row.classList.add(rowClass);
-        const labelNode = document.createElement("dt");
+        const labelNode = document.createElement("div");
+        labelNode.className = "summary-label";
         labelNode.textContent = label;
-        const valueNode = document.createElement("dd");
+        const valueNode = document.createElement("div");
+        valueNode.className = "summary-value";
         if (valueTone) {
           const badge = document.createElement("span");
           badge.className = `summary-status ${valueTone}`;
@@ -4046,6 +4080,9 @@
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",
           option_overlay_mode: item.option_overlay_mode ? normalizeOptionOverlayMode(item.option_overlay_mode) : "",
+          cash_only_execution_mode: item.cash_only_execution_mode
+            ? normalizeCashOnlyExecutionMode(item.cash_only_execution_mode)
+            : "",
           dca_mode: item.dca_mode ? normalizeDcaMode(item.dca_mode) : "",
           dca_base_investment_usd: cleanDisplayPositiveNumber(item.dca_base_investment_usd),
           ibit_zscore_exit_mode: cleanIbitZscoreExitMode(item.ibit_zscore_exit_mode),
