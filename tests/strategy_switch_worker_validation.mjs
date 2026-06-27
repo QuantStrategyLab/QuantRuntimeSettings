@@ -45,6 +45,8 @@ assert.ok(indexHtml.includes('qmt: { label: "QMT"'));
 assert.ok(indexHtml.includes('cn_industry_etf_rotation'));
 assert.ok(indexHtml.includes('id="income-layer-section"'));
 assert.ok(indexHtml.includes('id="option-overlay-section"'));
+assert.ok(indexHtml.includes('id="margin-policy-stack"'));
+assert.ok(indexHtml.includes('class="margin-policy-stack"'));
 assert.ok(indexHtml.includes('id="reserve-policy-stack"'));
 assert.ok(indexHtml.includes('class="reserve-policy-stack"'));
 assert.equal(indexHtml.match(/class="form-section dca-section"/g)?.length, 1);
