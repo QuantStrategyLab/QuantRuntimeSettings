@@ -68,6 +68,7 @@ Notes:
 
 ## Useful docs
 
+- [Internal dependency pin policy](docs/internal_dependency_pin_policy.md)
 - [Fork guide for the strategy switch console](docs/strategy_switch_fork_guide.md)
 - [Strategy switch console Worker](web/strategy-switch-console/README.md)
 - [Strategy switch admin backend](docs/strategy_switch_admin_backend.md)

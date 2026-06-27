@@ -68,6 +68,7 @@ confirm_apply=APPLY_AND_SYNC
 
 ## 延伸文档
 
+- [内部依赖 pin 政策](docs/internal_dependency_pin_policy.zh-CN.md)
 - [策略切换控制台 Fork 指南](docs/strategy_switch_fork_guide.zh-CN.md)
 - [策略切换控制台 Worker](web/strategy-switch-console/README.zh-CN.md)
 - [策略切换登录权限后台方案](docs/strategy_switch_admin_backend.zh-CN.md)
