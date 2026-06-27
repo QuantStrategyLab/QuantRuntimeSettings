@@ -1787,6 +1787,9 @@
         incomeLayerOn: "开启，起始 {start}，最高 {ratio}",
         optionOverlayOff: "关闭",
         optionOverlayOn: "开启（策略默认）",
+        optionOverlayDefaultSimple: "策略默认：开启",
+        optionOverlayDefault: "策略默认：开启，{detail}",
+        cashOnlyExecutionDefault: "平台默认：允许融资",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -1950,6 +1953,9 @@
         incomeLayerOn: "Enabled, starts at {start}, max {ratio}",
         optionOverlayOff: "Disabled",
         optionOverlayOn: "Enabled (strategy default)",
+        optionOverlayDefaultSimple: "Strategy default: enabled",
+        optionOverlayDefault: "Strategy default: enabled, {detail}",
+        cashOnlyExecutionDefault: "Platform default: margin allowed",
       },
     };
 
@@ -2468,22 +2474,68 @@
       return enabled ? t("cashOnlyExecutionValueNo") : t("cashOnlyExecutionValueYes");
     }
 
+    function platformCashOnlyExecutionDefault() {
+      return false;
+    }
+
+    function effectiveCashOnlyExecutionForAccount(platform, account) {
+      const configured = currentCashOnlyExecutionForAccount(platform, account);
+      if (configured !== null) return configured;
+      if (!platformSupportsMarginPolicy(platform)) return null;
+      return platformCashOnlyExecutionDefault();
+    }
+
     function currentCashOnlyExecutionForAccount(platform, account) {
       return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.cash_only_execution);
     }
 
     function currentCashOnlyExecutionText(platform = state.selected, account = selectedAccount(platform)) {
-      return cashOnlyExecutionText(currentCashOnlyExecutionForAccount(platform, account));
+      if (!platformSupportsMarginPolicy(platform)) return t("notRead");
+      const entry = currentEntryForAccount(platform, account);
+      if (!entry) return t("notRead");
+      const configured = cleanOptionalBoolean(entry.cash_only_execution);
+      if (configured === null) return t("cashOnlyExecutionDefault");
+      return cashOnlyExecutionText(configured);
     }
 
     function currentOptionOverlayForAccount(platform, account) {
       return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.option_overlay_enabled);
     }
 
+    function effectiveOptionOverlayForAccount(platform, account, profile = state.forms[platform]?.strategy) {
+      const configured = currentOptionOverlayForAccount(platform, account);
+      if (configured !== null) return configured;
+      if (!optionOverlaySupported(profile)) return null;
+      return true;
+    }
+
+    function optionOverlayDefaultSummaryDetail(defaults) {
+      if (!defaults?.families?.length) return "";
+      return defaults.families.map((item) => {
+        const family = item.family === "income" ? t("optionOverlayFamilyIncome") : t("optionOverlayFamilyGrowth");
+        const ratioText = item.ratioKind === "risk"
+          ? t("optionOverlayRiskRatio").replace("{ratio}", formatRatioPercent(item.ratio))
+          : t("optionOverlayBudgetRatio").replace("{ratio}", formatRatioPercent(item.ratio));
+        return `${family} ${ratioText}`;
+      }).join(" / ");
+    }
+
+    function optionOverlayDefaultText(profile) {
+      const defaults = optionOverlayDefaultForStrategy(profile);
+      if (!defaults) return t("optionOverlayNotSupported");
+      const detail = optionOverlayDefaultSummaryDetail(defaults);
+      return detail ? t("optionOverlayDefault").replace("{detail}", detail) : t("optionOverlayDefaultSimple");
+    }
+
     function currentOptionOverlayText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
-      const enabled = currentOptionOverlayForAccount(platform, account);
-      if (!optionOverlaySupported(profile) && enabled === null) return t("optionOverlayNotSupported");
-      return enabled === null ? t("notRead") : optionOverlayText(enabled);
+      const entry = currentEntryForAccount(platform, account);
+      if (!entry) return t("notRead");
+      const configured = cleanOptionalBoolean(entry.option_overlay_enabled);
+      if (!optionOverlaySupported(profile)) {
+        return configured === null ? t("optionOverlayNotSupported") : optionOverlayText(configured);
+      }
+      if (configured === null) return optionOverlayDefaultText(profile);
+      return optionOverlayText(configured);
     }
 
     function currentIncomeLayerForAccount(platform, account) {
@@ -3234,12 +3286,12 @@
       const profile = cleanStrategyProfile(inputs.strategy_profile || state.forms[platform]?.strategy);
       const supported = optionOverlaySupported(profile);
       const mode = normalizeOptionOverlayMode(inputs.option_overlay_mode);
-      const current = currentOptionOverlayForAccount(platform, account);
+      const current = effectiveOptionOverlayForAccount(platform, account, profile);
       if (mode === "current") {
         return {
           supported,
           changed: false,
-          inputs: { option_overlay_enabled: current },
+          inputs: { option_overlay_enabled: currentOptionOverlayForAccount(platform, account) },
         };
       }
       if (mode === "enabled") {
@@ -3258,11 +3310,11 @@
 
     function pendingCashOnlyExecution(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const mode = normalizeCashOnlyExecutionMode(inputs.cash_only_execution_mode);
-      const current = currentCashOnlyExecutionForAccount(platform, account);
+      const current = effectiveCashOnlyExecutionForAccount(platform, account);
       if (mode === "current") {
         return {
           changed: false,
-          inputs: { cash_only_execution: current },
+          inputs: { cash_only_execution: currentCashOnlyExecutionForAccount(platform, account) },
         };
       }
       const nextEnabled = mode === "enabled";
@@ -3413,8 +3465,10 @@
         ],
         [t("currentPluginMode"), pluginModeLabel(changes.currentPluginMode)],
         [t("reservedCashPolicy"), currentReservedCashPolicyText(state.selected, account)],
-        [t("currentCashOnlyExecution"), currentCashOnlyExecutionText(state.selected, account)],
       ];
+      if (platformSupportsMarginPolicy(state.selected)) {
+        rows.push([t("currentCashOnlyExecution"), currentCashOnlyExecutionText(state.selected, account)]);
+      }
       if (incomeLayerSupported(inputs.strategy_profile)) {
         rows.push([t("currentIncomeLayer"), currentIncomeLayerText(state.selected, account, inputs.strategy_profile)]);
       }
