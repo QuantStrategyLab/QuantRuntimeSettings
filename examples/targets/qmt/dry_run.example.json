@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "qmt/dry_run",
+  "description": "Example QMT repository-scoped dry-run deployment target for A-share strategies.",
+  "github": {
+    "repository": "QuantStrategyLab/QmtPlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "qmt",
+    "strategy_profile": "cn_index_etf_tactical_rotation",
+    "dry_run_only": true,
+    "deployment_selector": "qmt",
+    "account_selector": ["qmt"],
+    "account_scope": "CN",
+    "service_name": "qmt-quant-service",
+    "execution_mode": "dry_run",
+    "scheduler": {
+      "timezone": "Asia/Shanghai",
+      "main_time": "45 15 * * *",
+      "probe_time": "35 9,15 * * *",
+      "precheck_time": "45 9 * * *"
+    }
+  },
+  "plugin_mounts_variable": "QMT_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [],
+  "extra_variables": {
+    "QMT_DRY_RUN_ONLY": "true",
+    "QMT_MARKET_HISTORY_PATH": "data/fixtures/market_history.sample.csv"
+  }
+}

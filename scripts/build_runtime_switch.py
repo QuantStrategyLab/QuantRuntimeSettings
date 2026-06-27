@@ -66,17 +66,32 @@ HK_SNAPSHOT_SCHEDULER = {
     "probe_time": "35 9,15 1-7 * *",
     "precheck_time": "45 9 1-7 * *",
 }
+CN_DAILY_SCHEDULER = {
+    "timezone": "Asia/Shanghai",
+    "main_time": "45 15 * * *",
+    "probe_time": "35 9,15 * * *",
+    "precheck_time": "45 9 * * *",
+}
+CN_SNAPSHOT_SCHEDULER = {
+    "timezone": "Asia/Shanghai",
+    "main_time": "45 15 1-7 * *",
+    "probe_time": "35 9,15 1-7 * *",
+    "precheck_time": "45 9 1-7 * *",
+}
 STRATEGY_SCHEDULER_PROFILES = {
     "nasdaq_sp500_smart_dca": US_DCA_SCHEDULER,
     "ibit_smart_dca": US_DCA_SCHEDULER,
     "russell_top50_leader_rotation": US_SNAPSHOT_SCHEDULER,
     "hk_low_vol_dividend_quality_snapshot": HK_SNAPSHOT_SCHEDULER,
+    "cn_index_etf_tactical_rotation": CN_DAILY_SCHEDULER,
+    "cn_dividend_quality_snapshot": CN_SNAPSHOT_SCHEDULER,
 }
 PLATFORM_DRY_RUN_VARIABLES = {
     "schwab": "SCHWAB_DRY_RUN_ONLY",
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
     "ibkr": "IBKR_DRY_RUN_ONLY",
     "firstrade": "FIRSTRADE_DRY_RUN_ONLY",
+    "qmt": "QMT_DRY_RUN_ONLY",
 }
 PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
     "schwab": "SCHWAB_RESERVED_CASH_RATIO",
@@ -109,6 +124,7 @@ PLATFORM_MARKET_SIGNAL_PREFIXES = {
     "longbridge": "LONGBRIDGE",
     "ibkr": "IBKR",
     "firstrade": "FIRSTRADE",
+    "qmt": "QMT",
 }
 MARKET_SIGNAL_RUNTIME_VARIABLES = tuple(MARKET_SIGNAL_RUNTIME_SUFFIXES) + tuple(
     f"{prefix}_{suffix}"
@@ -186,10 +202,12 @@ DEFAULT_VARIABLE_SCOPE = {
     "ibkr": "repository",
     "schwab": "repository",
     "firstrade": "repository",
+    "qmt": "repository",
 }
 DEFAULT_SERVICE_NAME = {
     "schwab": "charles-schwab-quant-service",
     "firstrade": "firstrade-quant-service",
+    "qmt": "qmt-quant-service",
 }
 PLATFORM_ALIASES = {
     "firsttrade": "firstrade",
@@ -213,20 +231,22 @@ def _normalize_target_name(value: str) -> str:
 
 
 def _deployment_selector_default(platform: str, target_name: str) -> str:
-    if platform == "firstrade":
-        return "firstrade"
+    if platform in {"firstrade", "qmt"}:
+        return platform
     return target_name.upper() if target_name.lower() in {"sg", "hk", "paper"} else target_name
 
 
 def _account_scope_default(platform: str, deployment_selector: str) -> str:
     if platform == "firstrade":
         return "US"
+    if platform == "qmt":
+        return "CN"
     return deployment_selector
 
 
 def _account_selector_default(platform: str, account_scope: str) -> list[str]:
-    if platform == "firstrade":
-        return ["firstrade"]
+    if platform in {"firstrade", "qmt"}:
+        return [platform]
     return [account_scope]
 
 
