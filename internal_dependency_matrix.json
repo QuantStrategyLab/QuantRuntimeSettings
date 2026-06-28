@@ -13,7 +13,7 @@
       "path": "requirements.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "c028ee06ec15bb1f9b37655b78c9ee57e6c157e3"
+      "ref": "198027a0f7889e7411f97de3ed528aa90191e533"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -27,7 +27,7 @@
       "path": "requirements-lock.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "c028ee06ec15bb1f9b37655b78c9ee57e6c157e3"
+      "ref": "198027a0f7889e7411f97de3ed528aa90191e533"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
@@ -48,7 +48,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "bc5351d3567b2bb60416dc969062c37eedbbf65e"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "FirstradePlatform",
