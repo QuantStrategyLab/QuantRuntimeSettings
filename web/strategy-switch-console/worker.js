@@ -540,7 +540,7 @@ const PLATFORM_META = {
   schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
   firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
   qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
-  binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
+  binance: { label: "Binance", code: "₿", accent: "var(--bn)" },
 };
 
 async function configPayload(request, env) {
