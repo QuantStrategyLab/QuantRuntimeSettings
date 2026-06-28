@@ -3753,7 +3753,7 @@
       }
       const incomeDefaults = incomeLayerDefaultForStrategy(form.strategy);
       el("income-layer-section").hidden = platform === "qmt" || platform === "binance";
-      el("option-overlay-section").hidden = platform === "qmt" || platform === "binance" || platform === "longbridge";
+      el("option-overlay-section").hidden = platform === "qmt" || platform === "binance";
       incomeLayerModeSelect.replaceChildren();
       if (incomeDefaults) {
         incomeLayerModeSelect.disabled = false;
