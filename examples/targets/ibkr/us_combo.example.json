@@ -1,0 +1,32 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "ibkr/us_combo",
+  "description": "IBKR target for us_equity_combo (50/30/20 Global ETF/Russell/DCA with dynamic regime adjustment).",
+  "github": {
+    "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "ibkr",
+    "strategy_profile": "us_equity_combo",
+    "dry_run_only": false,
+    "deployment_selector": "ibkr",
+    "account_selector": ["ibkr"],
+    "account_scope": "US",
+    "service_name": "ibkr-quant-service",
+    "execution_mode": "live",
+    "scheduler": {
+      "timezone": "America/New_York",
+      "main_time": "30 16 * * *",
+      "probe_time": "0 10,16 * * *",
+      "precheck_time": "30 9 * * *"
+    }
+  },
+  "plugin_mounts_variable": "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [],
+  "extra_variables": {
+    "INCOME_LAYER_ENABLED": "true",
+    "INCOME_LAYER_START_USD": "300000",
+    "INCOME_LAYER_MAX_RATIO": "0.25"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "longbridge/us_combo_leveraged_sg",
+  "description": "LongBridge SG target for us_equity_combo_leveraged (40/20/40 TQQQ/SOXL/BOXX with SPY MA200 dynamic adjustment).",
+  "github": {
+    "repository": "QuantStrategyLab/LongBridgePlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "longbridge",
+    "strategy_profile": "us_equity_combo_leveraged",
+    "dry_run_only": false,
+    "deployment_selector": "longbridge_sg",
+    "account_selector": ["longbridge_sg"],
+    "account_scope": "US",
+    "service_name": "longbridge-quant-service",
+    "execution_mode": "live",
+    "scheduler": {
+      "timezone": "Asia/Singapore",
+      "main_time": "30 22 * * 1-5",
+      "probe_time": "0 9,22 * * 1-5",
+      "precheck_time": "30 8 * * 1-5"
+    }
+  },
+  "plugin_mounts_variable": "LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [],
+  "extra_variables": {
+    "DYNAMIC": "true",
+    "REBALANCE_FREQUENCY": "daily"
+  }
+}

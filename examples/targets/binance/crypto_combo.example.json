@@ -1,0 +1,29 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "binance/crypto_combo",
+  "description": "Binance target for crypto_equity_combo (50/50 BTC DCA/altcoin trend rotation with dynamic regime adjustment).",
+  "github": {
+    "repository": "QuantStrategyLab/BinancePlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "binance",
+    "strategy_profile": "crypto_equity_combo",
+    "dry_run_only": false,
+    "deployment_selector": "binance",
+    "account_selector": ["binance"],
+    "account_scope": "GLOBAL",
+    "service_name": "binance-quant-service",
+    "execution_mode": "live",
+    "scheduler": {
+      "timezone": "UTC",
+      "main_time": "0,30 * * * *",
+      "probe_time": "0 6,18 * * *",
+      "precheck_time": "55 5 * * *"
+    }
+  },
+  "extra_variables": {
+    "DYNAMIC_MODE": "true",
+    "REBALANCE_THRESHOLD": "0.05"
+  }
+}

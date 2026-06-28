@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "qmt/cn_combo_dry_run",
+  "description": "QMT dry-run target for cn_equity_combo (30/50/20 ETF/stock/dividend with dynamic regime adjustment).",
+  "github": {
+    "repository": "QuantStrategyLab/QmtPlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "qmt",
+    "strategy_profile": "cn_equity_combo",
+    "dry_run_only": true,
+    "deployment_selector": "qmt",
+    "account_selector": ["qmt"],
+    "account_scope": "CN",
+    "service_name": "qmt-quant-service",
+    "execution_mode": "dry_run",
+    "scheduler": {
+      "timezone": "Asia/Shanghai",
+      "main_time": "45 15 1-7 * *",
+      "probe_time": "35 9,15 1-7 * *",
+      "precheck_time": "45 9 1-7 * *"
+    }
+  },
+  "plugin_mounts_variable": "QMT_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [],
+  "extra_variables": {
+    "QMT_DRY_RUN_ONLY": "true",
+    "QMT_MARKET_HISTORY_PATH": "data/fixtures/market_history.sample.csv",
+    "QMT_FEATURE_SNAPSHOT_PATH": "data/fixtures/dividend_quality/cn_dividend_quality_snapshot_factor_snapshot_latest.csv",
+    "QMT_FEATURE_SNAPSHOT_MANIFEST_PATH": "data/fixtures/dividend_quality/cn_dividend_quality_snapshot_factor_snapshot_latest.csv.manifest.json"
+  }
+}

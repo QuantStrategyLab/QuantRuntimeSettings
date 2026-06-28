@@ -14,14 +14,15 @@ const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 10000;
 const GITHUB_API_TIMEOUT_MS = 8000;
 
-const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt"];
-const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity"];
+const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const DEFAULT_PLATFORM_REPOSITORIES = {
   longbridge: "QuantStrategyLab/LongBridgePlatform",
   ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
   schwab: "QuantStrategyLab/CharlesSchwabPlatform",
   firstrade: "QuantStrategyLab/FirstradePlatform",
   qmt: "QuantStrategyLab/QmtPlatform",
+  binance: "QuantStrategyLab/BinancePlatform",
 };
 const PLATFORM_REPOSITORY_ENV = {
   longbridge: ["STRATEGY_SWITCH_LONGBRIDGE_REPO", "RUNTIME_SETTINGS_LONGBRIDGE_REPO"],
@@ -29,6 +30,7 @@ const PLATFORM_REPOSITORY_ENV = {
   schwab: ["STRATEGY_SWITCH_SCHWAB_REPO", "RUNTIME_SETTINGS_SCHWAB_REPO"],
   firstrade: ["STRATEGY_SWITCH_FIRSTRADE_REPO", "RUNTIME_SETTINGS_FIRSTRADE_REPO"],
   qmt: ["STRATEGY_SWITCH_QMT_REPO", "RUNTIME_SETTINGS_QMT_REPO"],
+  binance: ["STRATEGY_SWITCH_BINANCE_REPO", "RUNTIME_SETTINGS_BINANCE_REPO"],
 };
 const DEFAULT_VARIABLE_SCOPE = {
   longbridge: "environment",
@@ -36,6 +38,7 @@ const DEFAULT_VARIABLE_SCOPE = {
   schwab: "repository",
   firstrade: "repository",
   qmt: "repository",
+  binance: "repository",
 };
 const PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
   longbridge: "LONGBRIDGE_RESERVED_CASH_RATIO",

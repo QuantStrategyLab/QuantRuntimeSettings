@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../schemas/runtime-target.schema.json",
+  "target_id": "longbridge/hk_combo_sg",
+  "description": "LongBridge SG target for hk_equity_combo (60/40 ETF momentum/dividend quality with dynamic regime adjustment).",
+  "github": {
+    "repository": "QuantStrategyLab/LongBridgePlatform",
+    "variable_scope": "repository"
+  },
+  "runtime_target": {
+    "platform_id": "longbridge",
+    "strategy_profile": "hk_equity_combo",
+    "dry_run_only": false,
+    "deployment_selector": "longbridge_sg",
+    "account_selector": ["longbridge_sg"],
+    "account_scope": "HK",
+    "service_name": "longbridge-quant-service",
+    "execution_mode": "live",
+    "scheduler": {
+      "timezone": "Asia/Hong_Kong",
+      "main_time": "45 16 * * *",
+      "probe_time": "35 9,16 * * *",
+      "precheck_time": "45 9 * * *"
+    }
+  },
+  "plugin_mounts_variable": "LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON",
+  "plugin_mounts": [],
+  "extra_variables": {
+    "DYNAMIC": "true",
+    "REBALANCE_FREQUENCY": "monthly"
+  }
+}

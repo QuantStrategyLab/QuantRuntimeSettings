@@ -17,11 +17,11 @@
 
 | Profile | 输入 | 示例 target |
 | --- | --- | --- |
-| `cn_industry_etf_rotation` | `market_history` | `industry_etf_dry_run.example.json`（**主轨**） |
-| `cn_industry_etf_rotation_aggressive` | `market_history` | `industry_etf_aggressive_dry_run.example.json`（**optional，vol25%**） |
+| `cn_industry_etf_rotation_aggressive` | `market_history` | `industry_etf_aggressive_dry_run.example.json`（**主轨，vol25%**） |
 | `cn_dividend_quality_snapshot` | `feature_snapshot` | `dividend_quality_dry_run.example.json` |
+| `cn_equity_combo` 🆕 | `market_history` + `feature_snapshot` | `cn_combo.example.json`（**组合策略，30/50/20 动态**） |
 
-`cn_index_etf_tactical_rotation` 在策略 catalog 中为 **research_backtest_only**，不要放进 `strategy-profiles.example.json` 的 runtime 列表。
+`cn_industry_etf_rotation`（保守版）和 `cn_index_etf_tactical_rotation` 在策略 catalog 中为 **research_backtest_only**，不要放进 runtime 列表。
 
 ## 账号路由（`account-options`）
 
