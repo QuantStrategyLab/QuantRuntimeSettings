@@ -3002,7 +3002,8 @@
     function accountMetaText(platform = state.selected) {
       const account = selectedAccount(platform);
       const targetName = account.target_name || account.key;
-      const service = account.service_name || derivedService(platform, targetName);
+      const raw = account.service_name || derivedService(platform, targetName);
+      const service = raw || (state.lang === "zh" ? "无" : "-");
       return t("targetMeta")
         .replace("{target}", targetName)
         .replace("{service}", service)
