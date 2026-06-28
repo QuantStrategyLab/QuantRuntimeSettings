@@ -11,7 +11,7 @@ const ACCOUNT_OPTIONS_KEY = "account_options";
 const STRATEGY_PROFILES_KEY = "strategy_profiles";
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
-const CURRENT_STRATEGIES_TIMEOUT_MS = 10000;
+const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const GITHUB_API_TIMEOUT_MS = 8000;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
@@ -610,13 +610,14 @@ async function loadCurrentStrategies(accountOptions, env) {
   };
 
   const currentStrategies = {};
-  // Process platforms sequentially with inter-platform delay to avoid
-  // GitHub secondary rate limiting from ~80+ concurrent requests.
+  // Process platforms sequentially: each platform's account list is also
+  // processed one at a time (not Promise.all). This keeps GitHub API
+  // concurrency low enough to avoid secondary rate limiting.
   for (const platform of SUPPORTED_PLATFORMS) {
     const platformStrategies = await loadStrategiesForPlatform(platform, accountOptions, repositories, readVariable);
     if (Object.keys(platformStrategies).length) currentStrategies[platform] = platformStrategies;
-    // 400ms gap between platforms lets the rate-limit window breathe
-    await new Promise((r) => setTimeout(r, 400));
+    // 500ms gap between platforms to respect GitHub secondary rate limit
+    await new Promise((r) => setTimeout(r, 500));
   }
   return currentStrategies;
 }
@@ -627,7 +628,10 @@ async function loadStrategiesForPlatform(platform, accountOptions, repositories,
   const repository = repositories[platform];
   if (!repository) return {};
 
-  const optionResults = await Promise.all(options.map(async (option) => {
+  // Process accounts sequentially within each platform to stay within
+  // GitHub's concurrent request budget per token (~30 burst limit).
+  const platformStrategies = {};
+  for (const option of options) {
     const current = await resolveCurrentStrategyForAccount({
       platform,
       option,
@@ -635,12 +639,7 @@ async function loadStrategiesForPlatform(platform, accountOptions, repositories,
       repository,
       readVariable,
     });
-    return [option.key, current];
-  }));
-
-  const platformStrategies = {};
-  for (const [key, current] of optionResults) {
-    if (current) platformStrategies[key] = current;
+    if (current) platformStrategies[option.key] = current;
   }
   return platformStrategies;
 }
@@ -773,26 +772,16 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
-  const runtimeTargetValuePromise = readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
-  const [
-    reservedCashPayload,
-    incomeLayerPayload,
-    optionOverlayPayload,
-    runtimeTargetEnabledPayload,
-    dcaPayload,
-    ibitZscorePayload,
-    cashOnlyPayload,
-    runtimeTargetValue,
-  ] = await Promise.all([
-    reservedCashPayloadPromise,
-    incomeLayerPayloadPromise,
-    optionOverlayPayloadPromise,
-    runtimeTargetEnabledPayloadPromise,
-    dcaPayloadPromise,
-    ibitZscorePayloadPromise,
-    cashOnlyPayloadPromise,
-    runtimeTargetValuePromise,
-  ]);
+  // Await sequentially to avoid bursting ~10 concurrent GitHub API calls
+  // per account that would trigger secondary rate limiting.
+  const reservedCashPayload = await reservedCashPayloadPromise;
+  const incomeLayerPayload = await incomeLayerPayloadPromise;
+  const optionOverlayPayload = await optionOverlayPayloadPromise;
+  const runtimeTargetEnabledPayload = await runtimeTargetEnabledPayloadPromise;
+  const dcaPayload = await dcaPayloadPromise;
+  const ibitZscorePayload = await ibitZscorePayloadPromise;
+  const cashOnlyPayload = await cashOnlyPayloadPromise;
+  const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
   const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
   const runtimeTargetProfile = runtimeTargetMatches ? cleanCurrentStrategy(runtimeTarget.strategy_profile) : "";
@@ -835,28 +824,6 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
       }
       return current;
     }
-  }
-
-  // Fallback: use default_strategy_profile from account options when
-  // GitHub variables are readable but account matching doesn't succeed.
-  // This ensures all platforms always show a strategy, regardless of
-  // GitHub variable matching quirks. The KV default is synced automatically
-  // after each strategy switch via syncDefaultStrategyForAccount.
-  const defaultProfile = cleanCurrentStrategy(option?.default_strategy_profile);
-  if (defaultProfile) {
-    return {
-      strategy_profile: defaultProfile,
-      ...reservedCashPayload,
-      ...incomeLayerPayload,
-      ...optionOverlayPayload,
-      ...runtimeTargetEnabledPayload,
-      ...dcaPayloadForProfile(defaultProfile, dcaPayload),
-      ...ibitZscoreExitPayloadForProfile(defaultProfile, ibitZscorePayload),
-      ...cashOnlyPayload,
-      source: "ACCOUNT_OPTIONS_DEFAULT",
-      variable_scope: variableScope,
-      github_environment: githubEnvironment || "",
-    };
   }
 
   if (
@@ -1826,6 +1793,37 @@ async function fetchGithubVariable(token, repository, scope, githubEnvironment, 
   } catch {
     return "";
   }
+}
+
+async function fetchAllGithubVariables(token, repository, scope, githubEnvironment) {
+  const apiUrl = githubVariableListUrl(repository, scope, githubEnvironment);
+  if (!apiUrl) return {};
+  try {
+    const response = await fetchWithTimeout(apiUrl, {
+      headers: githubHeaders(token),
+    });
+    if (!response.ok) return {};
+    const payload = await response.json();
+    const vars = Array.isArray(payload) ? payload : (payload?.variables || []);
+    const result = {};
+    for (const v of vars) {
+      result[v.name] = v.value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function githubVariableListUrl(repository, scope, githubEnvironment) {
+  const [owner, repo] = String(repository || "").split("/");
+  if (!owner || !repo) return "";
+  const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+  if (scope === "environment") {
+    if (!githubEnvironment) return "";
+    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables`;
+  }
+  return `${base}/actions/variables`;
 }
 
 function githubVariableUrl(repository, scope, githubEnvironment, name) {
