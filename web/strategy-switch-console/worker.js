@@ -534,24 +534,54 @@ async function renderAdminPage(state) {
 </html>`;
 }
 
-const PLATFORM_META = {
-  longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-  ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
-  schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
-  firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-  qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
-  binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
-};
+let _cachedSharedConfig = null;
+let _cachedPlatformMeta = null;
+
+async function loadSharedConfig() {
+  if (_cachedSharedConfig) return _cachedSharedConfig;
+  try {
+    const url = "https://raw.githubusercontent.com/QuantStrategyLab/QuantRuntimeSettings/main/platform-config.json";
+    const resp = await fetchWithTimeout(url, {}, 5000);
+    if (resp.ok) _cachedSharedConfig = await resp.json();
+  } catch { /* fallback to hardcoded */ }
+  return _cachedSharedConfig;
+}
+
+async function loadPlatformMeta() {
+  const merged = {
+    longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
+    ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
+    schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
+    firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+    qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
+    binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
+  };
+  try {
+    const config = await loadSharedConfig();
+    if (config && config.platforms) {
+      const raw = config.platforms;
+      for (const pid of Object.keys(raw)) {
+        merged[pid] = {
+          label: raw[pid].label,
+          code: raw[pid].code,
+          accent: raw[pid].accent_color,
+        };
+      }
+    }
+  } catch { /* keep defaults */ }
+  return merged;
+}
 
 async function configPayload(request, env) {
   const session = await readSession(request, env);
-  if (!session?.allowed) return { accountOptions: null, platformMeta: PLATFORM_META };
+  const meta = await loadPlatformMeta();
+  if (!session?.allowed) return { accountOptions: null, platformMeta: meta };
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
   return {
     accountOptions: accountConfig.options,
     platformRepositories: platformRepositories(env),
-    platformMeta: PLATFORM_META,
+    platformMeta: meta,
     strategyProfiles,
     currentStrategies: await loadCurrentStrategiesSafely(accountConfig.options, env),
   };
@@ -560,7 +590,7 @@ async function configPayload(request, env) {
 async function strategyProfilesPayload(env) {
   return {
     strategyProfiles: await loadStrategyProfilesConfig(env),
-    platformMeta: PLATFORM_META,
+    platformMeta: await loadPlatformMeta(),
   };
 }
 

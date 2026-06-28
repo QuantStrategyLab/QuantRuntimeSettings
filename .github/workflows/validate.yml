@@ -30,6 +30,8 @@ jobs:
           else
             git diff-tree --check --no-commit-id --root -r HEAD
           fi
+      - name: Validate platform config
+        run: python3 scripts/build_config.py --check
       - name: Validate runtime targets
         run: python3 scripts/runtime_settings.py validate
       - name: Run unit tests
@@ -43,6 +45,8 @@ jobs:
       - name: Validate strategy switch web assets
         run: |
           set -euo pipefail
+          python3 scripts/build_config.py --check
+          python3 scripts/build_config.py
           python3 scripts/sync_strategy_switch_page_asset.py
           git diff --exit-code -- web/strategy-switch-console/page_asset.js web/strategy-switch-console/strategy_profiles_asset.js
           jq empty web/strategy-switch-console/strategy-profiles.example.json

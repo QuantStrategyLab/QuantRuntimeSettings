@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/deploy-strategy-switch-console.yml"
+      - "platform-config.json"
+      - "scripts/build_config.py"
       - "scripts/sync_strategy_switch_page_asset.py"
       - "web/strategy-switch-console/**"
   workflow_dispatch:
@@ -48,6 +50,11 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "22"
+
+      - name: Build config from platform-config.json
+        run: |
+          set -euo pipefail
+          python3 scripts/build_config.py
 
       - name: Regenerate bundled assets
         run: |
