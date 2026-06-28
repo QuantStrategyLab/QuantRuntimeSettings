@@ -1487,7 +1487,7 @@
       binance: "QuantStrategyLab/BinancePlatform",
     };
 
-    const platformMeta = {
+    let platformMeta = {
       longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
       ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
       schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
@@ -4059,6 +4059,7 @@
         if (payload.accountOptions) {
           applyStrategyProfiles(payload.strategyProfiles || defaultStrategyProfiles);
           state.accountOptions = normalizeAccountOptions(payload.accountOptions);
+          if (payload.platformMeta) { platformMeta = payload.platformMeta; }
           state.repositories = normalizePlatformRepositories(payload.platformRepositories || {});
           state.currentStrategies = normalizeCurrentStrategies(payload.currentStrategies || {});
           state.configSource = "private";

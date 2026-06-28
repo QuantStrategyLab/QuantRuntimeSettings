@@ -534,14 +534,24 @@ async function renderAdminPage(state) {
 </html>`;
 }
 
+const PLATFORM_META = {
+  longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
+  ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
+  schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
+  firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+  qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
+  binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
+};
+
 async function configPayload(request, env) {
   const session = await readSession(request, env);
-  if (!session?.allowed) return { accountOptions: null };
+  if (!session?.allowed) return { accountOptions: null, platformMeta: PLATFORM_META };
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
   return {
     accountOptions: accountConfig.options,
     platformRepositories: platformRepositories(env),
+    platformMeta: PLATFORM_META,
     strategyProfiles,
     currentStrategies: await loadCurrentStrategiesSafely(accountConfig.options, env),
   };
@@ -550,6 +560,7 @@ async function configPayload(request, env) {
 async function strategyProfilesPayload(env) {
   return {
     strategyProfiles: await loadStrategyProfilesConfig(env),
+    platformMeta: PLATFORM_META,
   };
 }
 
