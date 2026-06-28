@@ -118,7 +118,6 @@ INCOME_LAYER_VARIABLES = (
     "INCOME_LAYER_START_USD",
     "INCOME_LAYER_MAX_RATIO",
 )
-<<<<<<< Updated upstream
 MARKET_SIGNAL_RUNTIME_SUFFIXES = (
     "MARKET_SIGNAL_HANDOFF_INDEX_URI",
     "MARKET_SIGNAL_HANDOFF_MANIFEST_URI",
@@ -169,9 +168,6 @@ OPTION_OVERLAY_CONTROL_FIELDS = (
 OPTION_OVERLAY_VARIABLES = tuple(field.upper() for field in OPTION_OVERLAY_CONTROL_FIELDS)
 OPTION_OVERLAY_MODES = frozenset({"current", "enabled", "disabled"})
 OPTION_OVERLAY_PROFILE_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
-=======
-CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION"
->>>>>>> Stashed changes
 RUNTIME_TARGET_VARIABLES = (
     "RUNTIME_TARGET_ENABLED",
 )
@@ -878,11 +874,7 @@ def _preserve_reserved_cash_fields(
         PLATFORM_CASH_ONLY_EXECUTION_VARIABLES.get(platform),
         CASH_ONLY_EXECUTION_VARIABLE,
         *INCOME_LAYER_VARIABLES,
-<<<<<<< Updated upstream
         *OPTION_OVERLAY_VARIABLES,
-=======
-        CASH_ONLY_EXECUTION_VARIABLE,
->>>>>>> Stashed changes
         *RUNTIME_TARGET_VARIABLES,
         *DCA_RUNTIME_VARIABLES,
         *IBIT_ZSCORE_EXIT_RUNTIME_VARIABLES,
