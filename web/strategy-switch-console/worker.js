@@ -13,7 +13,8 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-const CURRENT_STRATEGIES_CACHE_TTL_MS = 60_000;
+const CURRENT_STRATEGIES_CACHE_TTL_MS = 120_000;       // 2 min — return cached data without refresh
+const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
 const GITHUB_API_TIMEOUT_MS = 8000;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
@@ -576,10 +577,9 @@ async function loadPlatformMeta() {
 }
 
 // In-memory cache for the lifetime of this Worker isolate.
-// Falls back to KV on cold starts; KV write uses ctx.waitUntil
-// so it survives past the response.
 let _memCurrentStrategies = null;
 let _memCurrentStrategiesTs = 0;
+let _memRefreshing = false;  // prevent concurrent background refreshes
 
 async function configPayload(request, env, ctx) {
   const session = await readSession(request, env);
@@ -589,23 +589,57 @@ async function configPayload(request, env, ctx) {
   const strategyProfiles = await loadStrategyProfilesConfig(env);
 
   let currentStrategies = null;
+  let cacheFresh = false;
 
-  // 1) In-memory cache (fastest — same Worker isolate)
-  if (_memCurrentStrategies && (Date.now() - _memCurrentStrategiesTs) < CURRENT_STRATEGIES_CACHE_TTL_MS) {
-    currentStrategies = _memCurrentStrategies;
-  }
-
-  // 2) KV cache (survives cold starts)
-  if (!currentStrategies && hasConfigStore(env)) {
-    const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
-    if (cached?.ts && (Date.now() - cached.ts) < CURRENT_STRATEGIES_CACHE_TTL_MS && cached.data) {
-      currentStrategies = cached.data;
-      _memCurrentStrategies = cached.data;
-      _memCurrentStrategiesTs = cached.ts;
+  // 1) In-memory cache
+  if (_memCurrentStrategies) {
+    const age = Date.now() - _memCurrentStrategiesTs;
+    if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+      currentStrategies = _memCurrentStrategies;
+      cacheFresh = true;
+    } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
+      currentStrategies = _memCurrentStrategies;
+      // stale — trigger background refresh below
     }
   }
 
-  // 3) Cache miss — fetch from GitHub
+  // 2) KV cache
+  if (!currentStrategies && hasConfigStore(env)) {
+    const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+    if (cached?.ts && cached.data) {
+      const age = Date.now() - cached.ts;
+      if (age < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+        currentStrategies = cached.data;
+        cacheFresh = true;
+      } else if (age < CURRENT_STRATEGIES_STALE_TTL_MS) {
+        currentStrategies = cached.data;
+        // stale — trigger background refresh below
+      }
+      if (currentStrategies && !_memCurrentStrategies) {
+        _memCurrentStrategies = currentStrategies;
+        _memCurrentStrategiesTs = cached.ts;
+      }
+    }
+  }
+
+  // 3) Background refresh when stale (return old data immediately)
+  if (currentStrategies && !cacheFresh && !_memRefreshing && hasConfigStore(env) && ctx) {
+    _memRefreshing = true;
+    ctx.waitUntil((async () => {
+      try {
+        const fresh = await loadCurrentStrategiesSafely(accountConfig.options, env);
+        _memCurrentStrategies = fresh;
+        _memCurrentStrategiesTs = Date.now();
+        await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
+          ts: _memCurrentStrategiesTs,
+          data: fresh,
+        });
+      } catch { /* keep stale data */ }
+      finally { _memRefreshing = false; }
+    })());
+  }
+
+  // 4) Complete miss — must wait for GitHub
   if (!currentStrategies) {
     currentStrategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
     _memCurrentStrategies = currentStrategies;
