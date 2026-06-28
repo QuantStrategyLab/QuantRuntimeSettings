@@ -1483,23 +1483,36 @@
   </main>
 
   <script>
-    const defaultRepositories = {
-      longbridge: "QuantStrategyLab/LongBridgePlatform",
-      ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
-      schwab: "QuantStrategyLab/CharlesSchwabPlatform",
-      firstrade: "QuantStrategyLab/FirstradePlatform",
-      qmt: "QuantStrategyLab/QmtPlatform",
-      binance: "QuantStrategyLab/BinancePlatform",
-    };
 
     let platformMeta = {
-      longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
-      schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
-      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
       binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
+      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
+      longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
+      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
+      schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
     };
+
+    const platformRepositories = {
+      binance: "QuantStrategyLab/BinancePlatform",
+      firstrade: "QuantStrategyLab/FirstradePlatform",
+      ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
+      longbridge: "QuantStrategyLab/LongBridgePlatform",
+      qmt: "QuantStrategyLab/QmtPlatform",
+      schwab: "QuantStrategyLab/CharlesSchwabPlatform",
+    };
+    // Alias for backward compatibility
+    const defaultRepositories = platformRepositories;
+
+    const defaultAccountOptions = {
+      binance: [{"key": "preview", "label": "Binance", "target_name": "crypto_combo", "supported_domains": ["crypto"]}],
+      firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"]}],
+      ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"]}],
+      longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"]}],
+      qmt: [{"key": "preview", "label": "QMT dry-run", "target_name": "industry_etf_dry_run", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"]}],
+      schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"]}],
+    };
+
 
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
     const incomeLayerModes = ["current", "enabled", "disabled"];
@@ -1624,26 +1637,6 @@
     let strategyLabels = {};
     let strategyCatalog = {};
 
-    const defaultAccountOptions = {
-      longbridge: [
-        { key: "preview", label: "LongBridge", target_name: "preview", supported_domains: ["us_equity", "hk_equity"] },
-      ],
-      ibkr: [
-        { key: "preview", label: "IBKR", target_name: "preview", supported_domains: ["us_equity", "hk_equity"] },
-      ],
-      schwab: [
-        { key: "preview", label: "Schwab", target_name: "preview", supported_domains: ["us_equity"] },
-      ],
-      firstrade: [
-        { key: "preview", label: "Firstrade", target_name: "preview", supported_domains: ["us_equity"] },
-      ],
-      qmt: [
-        { key: "preview", label: "QMT dry-run", target_name: "industry_etf_dry_run", cash_currency: "CNY", default_strategy_profile: "cn_industry_etf_rotation", supported_domains: ["cn_equity"] },
-      ],
-      binance: [
-        { key: "preview", label: "Binance", target_name: "crypto_combo", supported_domains: ["crypto"] },
-      ],
-    };
 
     const copy = {
       zh: {
