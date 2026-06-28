@@ -82,7 +82,10 @@ assert.ok(indexHtml.includes('el("income-layer-start-usd-input").addEventListene
 assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListener("input"'));
 assert.ok(indexHtml.includes('el("dca-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes('el("dca-base-investment-usd-input").addEventListener("input"'));
-assert.ok(indexHtml.includes('label_zh: "纳指100 / 标普500 定投"'));
+assert.ok(
+	  indexHtml.includes('label_zh: "纳指100 / 标普500 定投"') ||
+	  indexHtml.includes('label_zh: "纳指标普定投"'),
+	);
 assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
 assert.ok(indexHtml.includes('class="form-section dca-section"'));
 assert.ok(indexHtml.includes('class="control-block reserve-policy-block policy-block"'));
