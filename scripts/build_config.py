@@ -179,7 +179,7 @@ def inject_into_index_html(config: dict) -> None:
     # Generate platform JS
     js_block = build_platform_meta_js(config)
 
-    # Remove ALL old hardcoded platform blocks (count=0 = replace all)
+    # Remove ALL old hardcoded platform blocks (count=0 = replace all).
     for pattern in [
         r"    const defaultRepositories = \{[\s\S]*?\n    \};\n(?:\s*// Alias for backward compatibility\n\s*const defaultRepositories = platformRepositories;\n)?",
         r"    const platformRepositories = \{[\s\S]*?\n    \};\n(?:\s*// Alias for backward compatibility\n\s*const defaultRepositories = platformRepositories;\n)?",
@@ -189,6 +189,9 @@ def inject_into_index_html(config: dict) -> None:
         r"    const platformConfig = \{[\s\S]*?\n    \};\n",
     ]:
         html = re.sub(pattern, "", html, count=0)
+
+    # Collapse runs of 3+ blank lines to 2 so builds are idempotent.
+    html = re.sub(r"\n{4,}", "\n\n\n", html)
 
     # Insert generated JS: right after the <script> tag opening
     script_marker = "\n  <script>\n"
