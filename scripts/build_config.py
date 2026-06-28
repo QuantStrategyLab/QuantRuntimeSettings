@@ -130,9 +130,10 @@ def build_platform_meta_js(config: dict) -> str:
     lines.append("    const defaultAccountOptions = {")
     for pid, pdata in sorted(platforms.items()):
         acct = dict(pdata["default_account"])
-        # Add deployment fields for capabilities
         dep = pdata.get("deployment", {})
-        caps = pdata.get("capabilities", {})
+        # Inject service_name into each account
+        if dep.get("service_name") and "service_name" not in acct:
+            acct["service_name"] = dep["service_name"]
         lines.append(f"      {pid}: [{json.dumps(acct, ensure_ascii=False)}],")
     lines.append("    };")
     # Domain labels for i18n
