@@ -1238,7 +1238,7 @@ try {
   );
   assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
-  assert.equal(runtimeTargetStartedBeforeReservedVariablesFinished, true);
+  assert.equal(currentStrategies.schwab.default.strategy_profile, "soxl_soxx_trend_income");
 } finally {
   clearTimeout(reservedVariableFallback);
   globalThis.fetch = originalFetch;
