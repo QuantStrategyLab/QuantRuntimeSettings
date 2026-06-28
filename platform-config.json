@@ -235,7 +235,7 @@
         "label": "Binance",
         "target_name": "default",
         "cash_currency": "USD",
-        "default_strategy_profile": "crypto_equity_combo",
+        "default_strategy_profile": "crypto_live_pool_rotation",
         "supported_domains": [
           "crypto"
         ]
