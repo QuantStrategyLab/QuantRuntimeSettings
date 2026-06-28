@@ -1,6 +1,6 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
-  "target_id": "longbridge/us_combo_leveraged_sg",
+  "target_id": "longbridge/us_combo_leveraged",
   "description": "LongBridge SG target for us_equity_combo_leveraged (40/20/40 TQQQ/SOXL/BOXX with SPY MA200 dynamic adjustment).",
   "github": {
     "repository": "QuantStrategyLab/LongBridgePlatform",

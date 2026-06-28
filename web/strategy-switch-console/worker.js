@@ -105,7 +105,7 @@ const DCA_PROFILE_CONFIG = {
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   crypto_btc_dca: { default_mode: "fixed", default_base_investment_usd: "100" },
 };
-const DCA_SUPPORTED_PLATFORMS = new Set(["firstrade"]);
+const DCA_SUPPORTED_PLATFORMS = new Set(["firstrade", "binance"]);
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -1795,36 +1795,6 @@ async function fetchGithubVariable(token, repository, scope, githubEnvironment, 
   }
 }
 
-async function fetchAllGithubVariables(token, repository, scope, githubEnvironment) {
-  const apiUrl = githubVariableListUrl(repository, scope, githubEnvironment);
-  if (!apiUrl) return {};
-  try {
-    const response = await fetchWithTimeout(apiUrl, {
-      headers: githubHeaders(token),
-    });
-    if (!response.ok) return {};
-    const payload = await response.json();
-    const vars = Array.isArray(payload) ? payload : (payload?.variables || []);
-    const result = {};
-    for (const v of vars) {
-      result[v.name] = v.value;
-    }
-    return result;
-  } catch {
-    return {};
-  }
-}
-
-function githubVariableListUrl(repository, scope, githubEnvironment) {
-  const [owner, repo] = String(repository || "").split("/");
-  if (!owner || !repo) return "";
-  const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  if (scope === "environment") {
-    if (!githubEnvironment) return "";
-    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables`;
-  }
-  return `${base}/actions/variables`;
-}
 
 function githubVariableUrl(repository, scope, githubEnvironment, name) {
   const [owner, repo] = String(repository || "").split("/");

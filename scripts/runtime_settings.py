@@ -25,6 +25,7 @@ SUPPORTED_PLATFORMS = {
     "ibkr": {"plugin_mounts_prefix": "IBKR_", "repository": "QuantStrategyLab/InteractiveBrokersPlatform"},
     "firstrade": {"plugin_mounts_prefix": "FIRSTRADE_", "repository": "QuantStrategyLab/FirstradePlatform"},
     "qmt": {"plugin_mounts_prefix": "QMT_", "repository": "QuantStrategyLab/QmtPlatform"},
+    "binance": {"plugin_mounts_prefix": "BINANCE_", "repository": "QuantStrategyLab/BinancePlatform"},
 }
 PLATFORM_REPOSITORY_ENV = {
     "schwab": "RUNTIME_SETTINGS_SCHWAB_REPO",
@@ -32,6 +33,7 @@ PLATFORM_REPOSITORY_ENV = {
     "ibkr": "RUNTIME_SETTINGS_IBKR_REPO",
     "firstrade": "RUNTIME_SETTINGS_FIRSTRADE_REPO",
     "qmt": "RUNTIME_SETTINGS_QMT_REPO",
+    "binance": "RUNTIME_SETTINGS_BINANCE_REPO",
 }
 RUNTIME_REQUIRED_FIELDS = (
     "platform_id",
@@ -102,6 +104,7 @@ PLATFORM_DRY_RUN_VARIABLES = {
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
     "ibkr": "IBKR_DRY_RUN_ONLY",
     "firstrade": "FIRSTRADE_DRY_RUN_ONLY",
+    "binance": "BINANCE_DRY_RUN",
 }
 
 
