@@ -1,6 +1,6 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
-  "target_id": "longbridge/hk_combo_sg",
+  "target_id": "longbridge/hk_combo",
   "description": "LongBridge SG target for hk_equity_combo (60/40 ETF momentum/dividend quality with dynamic regime adjustment).",
   "github": {
     "repository": "QuantStrategyLab/LongBridgePlatform",

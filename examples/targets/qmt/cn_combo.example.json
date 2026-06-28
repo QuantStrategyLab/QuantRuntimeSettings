@@ -1,6 +1,6 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
-  "target_id": "qmt/cn_combo_dry_run",
+  "target_id": "qmt/cn_combo",
   "description": "QMT dry-run target for cn_equity_combo (30/50/20 ETF/stock/dividend with dynamic regime adjustment).",
   "github": {
     "repository": "QuantStrategyLab/QmtPlatform",

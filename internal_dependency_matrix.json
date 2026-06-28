@@ -6,7 +6,7 @@
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "bc5351d3567b2bb60416dc969062c37eedbbf65e"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -20,7 +20,7 @@
       "path": "requirements-lock.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "bc5351d3567b2bb60416dc969062c37eedbbf65e"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -34,7 +34,7 @@
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
@@ -55,7 +55,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "FirstradePlatform",
@@ -69,7 +69,7 @@
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "FirstradePlatform",
@@ -83,14 +83,14 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
@@ -111,7 +111,7 @@
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "LongBridgePlatform",
@@ -132,7 +132,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "7b6e3ce33e6563db4794fa7b865db9ec428dc478"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -146,35 +146,35 @@
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "c7793bab6d63a434338bfcfd997a7ae9195dcddb"
+      "ref": "a9546362a27abdfc9cd5184b30ca8d26fd774187"
     },
     {
       "consumer_repo": "UsEquityStrategies",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "dfdbef6b58ab46f357d67800510bb9e8c4a01182"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "QmtPlatform",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "d18fe32b57a0a8bb746bebf6f11465dd68107eae"
+      "ref": "e86554b"
     },
     {
       "consumer_repo": "QmtPlatform",
       "path": "pyproject.toml",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "de6c76033e9d8a83fd6a8a31a51ce98690bb4262"
+      "ref": "357dba7e8896a7f488a484d4a3eea33894708ab9"
     },
     {
       "consumer_repo": "CnEquitySnapshotPipelines",
       "path": "pyproject.toml",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "0440651539dad4bb79c21bb5b965e97daec837de"
+      "ref": "357dba7e8896a7f488a484d4a3eea33894708ab9"
     }
   ]
 }
