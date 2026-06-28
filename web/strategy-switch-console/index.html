@@ -1720,6 +1720,7 @@
         executionCashReserveBlocksMargin: "已设预留现金覆盖，不能选允许融资。",
         qmtPlatformCashNote: "A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。",
         qmtDryRunOnlyNote: "QMT 当前仅支持 dry-run（模拟），尚无 live 券商账号。",
+        binancePlatformNote: "Binance 平台不使用券商级收入层与期权层；相关功能由策略内部实现。",
         invalidExecutionCashPolicyNote: "允许融资与预留现金覆盖冲突，请只保留一种约束。",
         dcaMode: "定投模式",
         dcaSectionTitle: "定投",
@@ -1887,6 +1888,7 @@
         executionCashReserveBlocksMargin: "Reserve-cash override is active; allow margin Yes is disabled.",
         qmtPlatformCashNote: "QMT A-share does not use margin or platform reserve cash; cash constraints live in strategy execution_cash_reserve_ratio.",
         qmtDryRunOnlyNote: "QMT is dry-run only for now; no live broker accounts are configured.",
+        binancePlatformNote: "Binance does not use broker-level income/option layers; features are implemented inside strategies.",
         invalidExecutionCashPolicyNote: "Allow margin and reserve-cash overrides conflict. Keep only one constraint.",
         dcaMode: "DCA mode",
         dcaSectionTitle: "DCA",
@@ -3752,8 +3754,8 @@
         el("ibit-zscore-exit-mode-meta").textContent = "";
       }
       const incomeDefaults = incomeLayerDefaultForStrategy(form.strategy);
-      el("income-layer-section").hidden = platform === "qmt" || platform === "binance";
-      el("option-overlay-section").hidden = platform === "qmt" || platform === "binance";
+      el("income-layer-section").hidden = false;
+      el("option-overlay-section").hidden = false;
       incomeLayerModeSelect.replaceChildren();
       if (incomeDefaults) {
         incomeLayerModeSelect.disabled = false;
