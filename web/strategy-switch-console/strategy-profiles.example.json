@@ -161,5 +161,88 @@
     "label_zh": "A股红利质量快照",
     "domain": "cn_equity",
     "runtime_enabled": true
+  },
+  {
+    "profile": "cn_equity_combo",
+    "label": "CN Equity Combo",
+    "label_en": "CN Equity Combo",
+    "label_zh": "A股组合策略（30/50/20）",
+    "domain": "cn_equity",
+    "runtime_enabled": true,
+    "combo_enabled": true,
+    "combo_mode": "dynamic"
+  },
+  {
+    "profile": "us_equity_combo",
+    "label": "US Equity Combo",
+    "label_en": "US Equity Combo",
+    "label_zh": "美股组合策略（50/30/20）",
+    "domain": "us_equity",
+    "runtime_enabled": true,
+    "combo_enabled": true,
+    "combo_mode": "dynamic",
+    "income_layer_enabled": true,
+    "income_layer_start_usd": "300000",
+    "income_layer_max_ratio": "0.25",
+    "income_layer_allocations": {
+      "SCHD": 0.25,
+      "DGRO": 0.25,
+      "SGOV": 0.2,
+      "SPYI": 0.15,
+      "QQQI": 0.15
+    },
+    "option_overlay_enabled": true,
+    "option_overlay_live_gate": "promotion_required",
+    "option_overlay_live_status": "research_only",
+    "option_growth_overlay_enabled": true,
+    "option_growth_overlay_recipe": "spy_leaps_growth_v1",
+    "option_growth_overlay_start_usd": "300000",
+    "option_growth_overlay_nav_budget_ratio": "0.015"
+  },
+  {
+    "profile": "us_equity_combo_leveraged",
+    "label": "US Equity Combo Leveraged",
+    "label_en": "US Equity Combo Leveraged",
+    "label_zh": "美股杠杆组合（40/20/40）",
+    "domain": "us_equity",
+    "runtime_enabled": true,
+    "combo_enabled": true,
+    "combo_mode": "dynamic"
+  },
+  {
+    "profile": "hk_equity_combo",
+    "label": "HK Equity Combo",
+    "label_en": "HK Equity Combo",
+    "label_zh": "港股组合策略（60/40）",
+    "domain": "hk_equity",
+    "runtime_enabled": true,
+    "combo_enabled": true,
+    "combo_mode": "dynamic"
+  },
+  {
+    "profile": "crypto_btc_dca",
+    "label": "Crypto BTC DCA",
+    "label_en": "Crypto BTC DCA",
+    "label_zh": "加密 BTC 定投",
+    "domain": "crypto",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "crypto_trend_rotation",
+    "label": "Crypto Trend Rotation",
+    "label_en": "Crypto Trend Rotation",
+    "label_zh": "加密趋势轮动",
+    "domain": "crypto",
+    "runtime_enabled": true
+  },
+  {
+    "profile": "crypto_equity_combo",
+    "label": "Crypto Equity Combo",
+    "label_en": "Crypto Equity Combo",
+    "label_zh": "加密组合策略（50/50）",
+    "domain": "crypto",
+    "runtime_enabled": true,
+    "combo_enabled": true,
+    "combo_mode": "dynamic"
   }
 ]
