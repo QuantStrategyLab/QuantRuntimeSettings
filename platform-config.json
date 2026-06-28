@@ -196,7 +196,7 @@
       "default_account": {
         "key": "default",
         "label": "QMT",
-        "target_name": "industry_etf_dry_run",
+        "target_name": "default",
         "cash_currency": "CNY",
         "default_strategy_profile": "cn_industry_etf_rotation",
         "supported_domains": [
@@ -233,7 +233,7 @@
       "default_account": {
         "key": "default",
         "label": "Binance",
-        "target_name": "crypto_combo",
+        "target_name": "default",
         "cash_currency": "USD",
         "default_strategy_profile": "crypto_equity_combo",
         "supported_domains": [

@@ -1188,6 +1188,28 @@
       }
     }
 
+
+    @media (max-width: 540px) {
+      .platform-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px;
+        padding: 6px 8px;
+      }
+      .platform-button {
+        min-height: 40px;
+        gap: 5px;
+        padding: 5px 7px;
+      }
+      .mark {
+        width: 26px;
+        height: 26px;
+        font-size: 10px;
+      }
+      .platform-copy strong {
+        font-size: 11px;
+      }
+    }
+
     @media (max-width: 680px) {
       .topbar {
         position: static;
@@ -1505,11 +1527,11 @@
     const defaultRepositories = platformRepositories;
 
     const defaultAccountOptions = {
-      binance: [{"key": "default", "label": "Binance", "target_name": "crypto_combo", "cash_currency": "USD", "default_strategy_profile": "crypto_equity_combo", "supported_domains": ["crypto"]}],
+      binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "default_strategy_profile": "crypto_equity_combo", "supported_domains": ["crypto"]}],
       firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "firstrade-quant-service"}],
       ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
       longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
-      qmt: [{"key": "default", "label": "QMT", "target_name": "industry_etf_dry_run", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
+      qmt: [{"key": "default", "label": "QMT", "target_name": "default", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
       schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "charles-schwab-quant-service"}],
     };
 
@@ -1588,6 +1610,11 @@
         default_execution_mode: "live"
       },
     };
+
+
+
+
+
 
 
 
