@@ -1659,6 +1659,7 @@
     const dcaProfileDefaults = {
       nasdaq_sp500_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
       ibit_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
+      crypto_btc_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "100" },
     };
     const platformMinReservedCashVariables = {
       longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
@@ -2282,7 +2283,7 @@
           runtime_enabled: true,
         };
         const dcaDefaults = dcaProfileDefaults[profile] || null;
-        if (dcaDefaults) {
+        if (dcaDefaults || item?.dca_enabled === true) {
           nextCatalog[profile].dca_enabled = true;
           nextCatalog[profile].dca_default_mode = normalizeDcaMode(
             item?.dca_default_mode || item?.default_dca_mode || dcaDefaults?.defaultMode || "fixed",

@@ -103,6 +103,7 @@ const OPTION_OVERLAY_MODES = ["current", "enabled", "disabled"];
 const DCA_PROFILE_CONFIG = {
   nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
+  crypto_btc_dca: { default_mode: "fixed", default_base_investment_usd: "100" },
 };
 const DCA_SUPPORTED_PLATFORMS = new Set(["firstrade"]);
 const SECURITY_HEADERS = {
@@ -1408,8 +1409,10 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       cleanLabel,
     );
     entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
-    const dcaDefaults = DCA_PROFILE_CONFIG[profile] || null;
-    if (dcaDefaults) {
+    // DCA detection: accept from item payload OR hardcoded DCA_PROFILE_CONFIG
+    const dcaEnabled = item.dca_enabled === true || Boolean(DCA_PROFILE_CONFIG[profile]);
+    if (dcaEnabled) {
+      const dcaDefaults = DCA_PROFILE_CONFIG[profile] || null;
       entry.dca_enabled = true;
       entry.dca_default_mode = cleanDcaMode(item.dca_default_mode || item.default_dca_mode || dcaDefaults?.default_mode || "fixed");
       entry.dca_default_base_investment_usd = cleanPositiveNumber(
@@ -1419,6 +1422,11 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
           "1000",
         `${fieldName}[${index}].dca_default_base_investment_usd`,
       );
+    }
+    // Pass through combo_enabled and combo_mode from item payload
+    if (item.combo_enabled === true) {
+      entry.combo_enabled = true;
+      entry.combo_mode = String(item.combo_mode || "dynamic").trim() || "dynamic";
     }
     const incomeLayerConfig = incomeLayerConfigFromProfileItem(item, `${fieldName}[${index}]`);
     if (incomeLayerConfig) Object.assign(entry, incomeLayerConfig);
