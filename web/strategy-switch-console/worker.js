@@ -609,34 +609,39 @@ async function loadCurrentStrategies(accountOptions, env) {
   };
 
   const currentStrategies = {};
-  const platformResults = await Promise.all(SUPPORTED_PLATFORMS.map(async (platform) => {
-    const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
-    if (!options.length) return [platform, {}];
-    const repository = repositories[platform];
-    if (!repository) return [platform, {}];
-
-    const optionResults = await Promise.all(options.map(async (option) => {
-      const current = await resolveCurrentStrategyForAccount({
-        platform,
-        option,
-        optionsCount: options.length,
-        repository,
-        readVariable,
-      });
-      return [option.key, current];
-    }));
-
-    const platformStrategies = {};
-    for (const [key, current] of optionResults) {
-      if (current) platformStrategies[key] = current;
-    }
-    return [platform, platformStrategies];
-  }));
-
-  for (const [platform, platformStrategies] of platformResults) {
+  // Process platforms sequentially with inter-platform delay to avoid
+  // GitHub secondary rate limiting from ~80+ concurrent requests.
+  for (const platform of SUPPORTED_PLATFORMS) {
+    const platformStrategies = await loadStrategiesForPlatform(platform, accountOptions, repositories, readVariable);
     if (Object.keys(platformStrategies).length) currentStrategies[platform] = platformStrategies;
+    // 400ms gap between platforms lets the rate-limit window breathe
+    await new Promise((r) => setTimeout(r, 400));
   }
   return currentStrategies;
+}
+
+async function loadStrategiesForPlatform(platform, accountOptions, repositories, readVariable) {
+  const options = Array.isArray(accountOptions[platform]) ? accountOptions[platform] : [];
+  if (!options.length) return {};
+  const repository = repositories[platform];
+  if (!repository) return {};
+
+  const optionResults = await Promise.all(options.map(async (option) => {
+    const current = await resolveCurrentStrategyForAccount({
+      platform,
+      option,
+      optionsCount: options.length,
+      repository,
+      readVariable,
+    });
+    return [option.key, current];
+  }));
+
+  const platformStrategies = {};
+  for (const [key, current] of optionResults) {
+    if (current) platformStrategies[key] = current;
+  }
+  return platformStrategies;
 }
 
 async function loadCurrentStrategiesSafely(accountOptions, env) {
@@ -832,8 +837,10 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   }
 
   // Fallback: use default_strategy_profile from account options when
-  // no GitHub variables can be read (e.g. token lacks repo access),
-  // or only partial cash/reserve data is available (RESERVED_CASH_VARIABLES).
+  // GitHub variables are readable but account matching doesn't succeed.
+  // This ensures all platforms always show a strategy, regardless of
+  // GitHub variable matching quirks. The KV default is synced automatically
+  // after each strategy switch via syncDefaultStrategyForAccount.
   const defaultProfile = cleanCurrentStrategy(option?.default_strategy_profile);
   if (defaultProfile) {
     return {
