@@ -8,16 +8,6 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='38' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%230b8a80'/%3E%3Cstop offset='1' stop-color='%23075f62'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='24' cy='24' r='22' fill='url(%23g)'/%3E%3Cpath d='M17 31 31 17M22 16h10v10' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <style>
     :root {
-      --bg: #f5f6f8;
-      --surface: #ffffff;
-      --soft: #eef1f4;
-      --ink: #16191f;
-      --muted: #66707c;
-      --line: #dce1e7;
-      --line-strong: #b8c2cc;
-      --accent: #136f63;
-      --accent-ink: #ffffff;
-      --danger: #b54137;
       --lb: #0f766e;
       --ib: #2f5f9f;
       --sw: #9b4153;
@@ -254,11 +244,6 @@
       transition: background 150ms ease, color 150ms ease;
     }
 
-    .mode button.active {
-      background: #ffffff;
-      color: var(--ink);
-      box-shadow: 0 1px 7px rgba(22, 25, 31, 0.08);
-    }
 
     .platform-strip {
       display: grid;
@@ -287,17 +272,7 @@
         box-shadow 150ms ease;
     }
 
-    .platform-button:hover {
-      transform: translateY(-1px);
-      border-color: var(--line-strong);
-    }
 
-    .platform-button.active {
-      border-color: var(--platform-color);
-      background:
-        linear-gradient(180deg, color-mix(in srgb, var(--platform-color) 7%, white), #ffffff 68%);
-      box-shadow: 0 14px 30px rgba(22, 25, 31, 0.09);
-    }
 
     .platform-button[data-platform="longbridge"] {
       --platform-color: var(--lb);
@@ -484,10 +459,6 @@
       gap: 14px;
     }
 
-    .form-section + .form-section {
-      padding-top: 16px;
-      border-top: 1px solid var(--line);
-    }
 
     .section-wide {
       grid-column: 1 / -1;
@@ -638,12 +609,6 @@
       border-bottom: 0;
     }
 
-    .summary-row.pending {
-      margin: 0 -16px;
-      padding-inline: 13px 16px;
-      border-left: 3px solid var(--platform-color, var(--accent));
-      background: color-mix(in srgb, var(--platform-color, var(--accent)) 6%, #ffffff);
-    }
 
     .summary-label {
       color: var(--muted);
@@ -4778,8 +4743,7 @@
     boot();
 
     async function boot() {
-      await refreshStrategyProfiles();
-      await refreshSession();
+      await Promise.all([refreshStrategyProfiles(), refreshSession()]);
     }
   </script>
 </body>
