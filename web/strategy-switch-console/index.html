@@ -3835,15 +3835,8 @@
         }
         el("option-overlay-mode-meta").textContent = optionOverlayDefaultMetaText(optionDefaults);
       } else {
-        optionOverlayModeSelect.disabled = false;
-        const rawMode = normalizeOptionOverlayMode(form.optionOverlayMode);
-        const mode = rawMode === "disabled" ? "disabled" : "current";
-        for (const option of [
-          new Option(t("optionOverlayCurrent"), "current", false, mode === "current"),
-          new Option(t("optionOverlayDisabled"), "disabled", false, mode === "disabled"),
-        ]) {
-          optionOverlayModeSelect.append(option);
-        }
+        optionOverlayModeSelect.disabled = true;
+        optionOverlayModeSelect.append(new Option(t("optionOverlayNotSupported"), "current"));
         el("option-overlay-mode-meta").textContent = t("optionOverlayModeMeta");
       }
 
