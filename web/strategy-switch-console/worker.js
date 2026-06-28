@@ -12,6 +12,8 @@ const STRATEGY_PROFILES_KEY = "strategy_profiles";
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
+const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
+const CURRENT_STRATEGIES_CACHE_TTL_MS = 60_000;
 const GITHUB_API_TIMEOUT_MS = 8000;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
@@ -579,12 +581,30 @@ async function configPayload(request, env) {
   if (!session?.allowed) return { accountOptions: null, platformMeta: meta };
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
+
+  let currentStrategies = null;
+  if (hasConfigStore(env)) {
+    const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
+    if (cached?.ts && (Date.now() - cached.ts) < CURRENT_STRATEGIES_CACHE_TTL_MS && cached.data) {
+      currentStrategies = cached.data;
+    }
+  }
+  if (!currentStrategies) {
+    currentStrategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
+    if (hasConfigStore(env)) {
+      // fire-and-forget: don't block the response on cache write
+      writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
+        ts: Date.now(),
+        data: currentStrategies,
+      }).catch(() => {});
+    }
+  }
   return {
     accountOptions: accountConfig.options,
     platformRepositories: platformRepositories(env),
     platformMeta: meta,
     strategyProfiles,
-    currentStrategies: await loadCurrentStrategiesSafely(accountConfig.options, env),
+    currentStrategies,
   };
 }
 
@@ -616,8 +636,8 @@ async function loadCurrentStrategies(accountOptions, env) {
   for (const platform of SUPPORTED_PLATFORMS) {
     const platformStrategies = await loadStrategiesForPlatform(platform, accountOptions, repositories, readVariable);
     if (Object.keys(platformStrategies).length) currentStrategies[platform] = platformStrategies;
-    // 500ms gap between platforms to respect GitHub secondary rate limit
-    await new Promise((r) => setTimeout(r, 500));
+    // 100ms gap between platforms to respect GitHub secondary rate limit
+    await new Promise((r) => setTimeout(r, 100));
   }
   return currentStrategies;
 }
@@ -772,16 +792,27 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
-  // Await sequentially to avoid bursting ~10 concurrent GitHub API calls
-  // per account that would trigger secondary rate limiting.
-  const reservedCashPayload = await reservedCashPayloadPromise;
-  const incomeLayerPayload = await incomeLayerPayloadPromise;
-  const optionOverlayPayload = await optionOverlayPayloadPromise;
-  const runtimeTargetEnabledPayload = await runtimeTargetEnabledPayloadPromise;
-  const dcaPayload = await dcaPayloadPromise;
-  const ibitZscorePayload = await ibitZscorePayloadPromise;
-  const cashOnlyPayload = await cashOnlyPayloadPromise;
-  const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
+  // Await in parallel: each reads a different variable so
+  // there is no risk of hammering the same GitHub API endpoint.
+  const [
+    reservedCashPayload,
+    incomeLayerPayload,
+    optionOverlayPayload,
+    runtimeTargetEnabledPayload,
+    dcaPayload,
+    ibitZscorePayload,
+    cashOnlyPayload,
+    runtimeTargetValue,
+  ] = await Promise.all([
+    reservedCashPayloadPromise,
+    incomeLayerPayloadPromise,
+    optionOverlayPayloadPromise,
+    runtimeTargetEnabledPayloadPromise,
+    dcaPayloadPromise,
+    ibitZscorePayloadPromise,
+    cashOnlyPayloadPromise,
+    readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON"),
+  ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
   const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
   const runtimeTargetProfile = runtimeTargetMatches ? cleanCurrentStrategy(runtimeTarget.strategy_profile) : "";
