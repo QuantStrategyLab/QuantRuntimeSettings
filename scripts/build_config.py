@@ -152,7 +152,8 @@ def inject_into_index_html(config: dict) -> None:
 
     # Remove old hardcoded platform blocks
     for pattern in [
-        r"    const defaultRepositories = \{[\s\S]*?\n    \};\n",
+        r"    const defaultRepositories = \{[\s\S]*?\n    \};\n(?:\s*// Alias for backward compatibility\n\s*const defaultRepositories = platformRepositories;\n)?",
+        r"    const platformRepositories = \{[\s\S]*?\n    \};\n(?:\s*// Alias for backward compatibility\n\s*const defaultRepositories = platformRepositories;\n)?",
         r"    let platformMeta = \{[\s\S]*?\n    \};\n",
         r"    const defaultAccountOptions = \{[\s\S]*?\n    \};\n",
     ]:
