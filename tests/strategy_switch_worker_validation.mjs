@@ -168,7 +168,9 @@ assert.equal(servedHtml.includes('account_selector: "SG"'), false);
 
 const publicConfigResponse = await worker.fetch(new Request("https://switch.example/api/config"), {});
 assert.equal(publicConfigResponse.status, 200);
-assert.deepEqual(await publicConfigResponse.json(), { accountOptions: null });
+const publicConfig = await publicConfigResponse.json();
+assert.equal(publicConfig.accountOptions, null);
+assert.ok(publicConfig.platformMeta?.longbridge?.label === "LongBridge");
 
 assert.equal(
   __test.platformRepositories({ STRATEGY_SWITCH_LONGBRIDGE_REPO: "ForkOrg/LongBridgePlatform" }).longbridge,
