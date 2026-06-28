@@ -127,7 +127,7 @@ const SECURITY_HEADERS = {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/login") return await startLogin(request, env);
@@ -135,7 +135,7 @@ export default {
       if (url.pathname === "/admin") return await adminPage(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
-      if (url.pathname === "/api/config") return json(await configPayload(request, env));
+      if (url.pathname === "/api/config") return json(await configPayload(request, env, ctx));
       if (url.pathname === "/api/admin/config" && request.method === "GET") {
         return await adminConfigResponse(request, env);
       }
@@ -575,7 +575,13 @@ async function loadPlatformMeta() {
   return merged;
 }
 
-async function configPayload(request, env) {
+// In-memory cache for the lifetime of this Worker isolate.
+// Falls back to KV on cold starts; KV write uses ctx.waitUntil
+// so it survives past the response.
+let _memCurrentStrategies = null;
+let _memCurrentStrategiesTs = 0;
+
+async function configPayload(request, env, ctx) {
   const session = await readSession(request, env);
   const meta = await loadPlatformMeta();
   if (!session?.allowed) return { accountOptions: null, platformMeta: meta };
@@ -583,22 +589,35 @@ async function configPayload(request, env) {
   const strategyProfiles = await loadStrategyProfilesConfig(env);
 
   let currentStrategies = null;
-  if (hasConfigStore(env)) {
+
+  // 1) In-memory cache (fastest — same Worker isolate)
+  if (_memCurrentStrategies && (Date.now() - _memCurrentStrategiesTs) < CURRENT_STRATEGIES_CACHE_TTL_MS) {
+    currentStrategies = _memCurrentStrategies;
+  }
+
+  // 2) KV cache (survives cold starts)
+  if (!currentStrategies && hasConfigStore(env)) {
     const cached = await readConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY);
     if (cached?.ts && (Date.now() - cached.ts) < CURRENT_STRATEGIES_CACHE_TTL_MS && cached.data) {
       currentStrategies = cached.data;
+      _memCurrentStrategies = cached.data;
+      _memCurrentStrategiesTs = cached.ts;
     }
   }
+
+  // 3) Cache miss — fetch from GitHub
   if (!currentStrategies) {
     currentStrategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
-    if (hasConfigStore(env)) {
-      // fire-and-forget: don't block the response on cache write
-      writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
-        ts: Date.now(),
+    _memCurrentStrategies = currentStrategies;
+    _memCurrentStrategiesTs = Date.now();
+    if (hasConfigStore(env) && ctx) {
+      ctx.waitUntil(writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
+        ts: _memCurrentStrategiesTs,
         data: currentStrategies,
-      }).catch(() => {});
+      }));
     }
   }
+
   return {
     accountOptions: accountConfig.options,
     platformRepositories: platformRepositories(env),
