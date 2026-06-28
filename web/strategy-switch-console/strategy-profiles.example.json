@@ -194,6 +194,14 @@
     "runtime_enabled": true
   },
   {
+    "profile": "cn_stock_momentum_rotation",
+    "label": "CN Stock Momentum",
+    "label_en": "CN Stock Momentum",
+    "label_zh": "A股个股动量",
+    "domain": "cn_equity",
+    "runtime_enabled": true
+  },
+  {
     "profile": "cn_dividend_quality_snapshot",
     "label": "CN Dividend Quality",
     "label_en": "CN Dividend Quality Snapshot",
