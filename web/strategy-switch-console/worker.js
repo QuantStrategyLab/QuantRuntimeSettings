@@ -156,6 +156,25 @@ export default {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
     }
   },
+
+  // Cron trigger: keep the current-strategies KV cache warm so
+  // users never wait for GitHub API on the /api/config endpoint.
+  async scheduled(event, env, ctx) {
+    if (!hasConfigStore(env)) return;
+    const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+    if (!token) return;
+
+    try {
+      const accountConfig = await loadAccountOptionsConfig(env);
+      const strategies = await loadCurrentStrategiesSafely(accountConfig.options, env);
+      await writeConfigJson(env, CURRENT_STRATEGIES_CACHE_KEY, {
+        ts: Date.now(),
+        data: strategies,
+      });
+    } catch {
+      // Silently skip — next user request will populate cache via SWR
+    }
+  },
 };
 
 class HttpError extends Error {

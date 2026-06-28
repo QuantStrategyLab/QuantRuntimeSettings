@@ -28,6 +28,11 @@ RUNTIME_SETTINGS_REF = "main"
 # STRATEGY_SWITCH_SCHWAB_REPO = "your-org/CharlesSchwabPlatform"
 # STRATEGY_SWITCH_FIRSTRADE_REPO = "your-org/FirstradePlatform"
 
+# Cron trigger: refresh KV cache so /api/config never blocks on GitHub API.
+# Runs every 5 minutes. Remove this block if you don't need cache warming.
+[triggers]
+crons = ["*/5 * * * *"]
+
 # Bind this namespace to enable editable /admin login and account management.
 # Without it, /admin is read-only and the Worker falls back to secrets.
 # [[kv_namespaces]]
