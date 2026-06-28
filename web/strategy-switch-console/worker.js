@@ -831,6 +831,26 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     }
   }
 
+  // Fallback: use default_strategy_profile from account options when
+  // no GitHub variables can be read (e.g. token lacks repo access),
+  // or only partial cash/reserve data is available (RESERVED_CASH_VARIABLES).
+  const defaultProfile = cleanCurrentStrategy(option?.default_strategy_profile);
+  if (defaultProfile) {
+    return {
+      strategy_profile: defaultProfile,
+      ...reservedCashPayload,
+      ...incomeLayerPayload,
+      ...optionOverlayPayload,
+      ...runtimeTargetEnabledPayload,
+      ...dcaPayloadForProfile(defaultProfile, dcaPayload),
+      ...ibitZscoreExitPayloadForProfile(defaultProfile, ibitZscorePayload),
+      ...cashOnlyPayload,
+      source: "ACCOUNT_OPTIONS_DEFAULT",
+      variable_scope: variableScope,
+      github_environment: githubEnvironment || "",
+    };
+  }
+
   if (
     Object.keys(reservedCashPayload).length ||
     Object.keys(incomeLayerPayload).length ||
@@ -853,25 +873,6 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
             : (Object.keys(optionOverlayPayload).length
               ? "OPTION_OVERLAY_VARIABLES"
               : "IBIT_ZSCORE_EXIT_VARIABLES"))),
-      variable_scope: variableScope,
-      github_environment: githubEnvironment || "",
-    };
-  }
-
-  // Fallback: use default_strategy_profile from account options when
-  // no GitHub variables can be read (e.g. token lacks repo access).
-  const defaultProfile = cleanCurrentStrategy(option?.default_strategy_profile);
-  if (defaultProfile) {
-    return {
-      strategy_profile: defaultProfile,
-      ...reservedCashPayload,
-      ...incomeLayerPayload,
-      ...optionOverlayPayload,
-      ...runtimeTargetEnabledPayload,
-      ...dcaPayloadForProfile(defaultProfile, dcaPayload),
-      ...ibitZscoreExitPayloadForProfile(defaultProfile, ibitZscorePayload),
-      ...cashOnlyPayload,
-      source: "ACCOUNT_OPTIONS_DEFAULT",
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
     };
