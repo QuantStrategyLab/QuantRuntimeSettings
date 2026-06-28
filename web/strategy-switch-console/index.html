@@ -2073,11 +2073,11 @@
     }
 
     function platformSupportsMarginPolicy(platform = state.selected) {
-      return platform !== "qmt";
+      return platform !== "qmt" && platform !== "binance";
     }
 
     function platformSupportsReservedCashPolicy(platform = state.selected) {
-      return platform !== "qmt";
+      return platform !== "qmt" && platform !== "binance";
     }
 
     function platformDryRunOnly(platform = state.selected) {
@@ -3744,8 +3744,8 @@
         el("ibit-zscore-exit-mode-meta").textContent = "";
       }
       const incomeDefaults = incomeLayerDefaultForStrategy(form.strategy);
-      el("income-layer-section").hidden = platform === "qmt";
-      el("option-overlay-section").hidden = platform === "qmt";
+      el("income-layer-section").hidden = platform === "qmt" || platform === "binance";
+      el("option-overlay-section").hidden = platform === "qmt" || platform === "binance";
       incomeLayerModeSelect.replaceChildren();
       if (incomeDefaults) {
         incomeLayerModeSelect.disabled = false;
