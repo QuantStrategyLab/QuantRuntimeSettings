@@ -2294,7 +2294,7 @@
     }
 
     function platformSupportsDca(platform = state.selected) {
-      return platform === "firstrade";
+      return platform === "firstrade" || platform === "binance";
     }
 
     function strategyAllowedForAccount(platform, account, profile) {

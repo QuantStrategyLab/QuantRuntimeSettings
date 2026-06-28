@@ -225,7 +225,10 @@
     "label_en": "Crypto BTC DCA",
     "label_zh": "BTC定投",
     "domain": "crypto",
-    "runtime_enabled": true
+    "runtime_enabled": true,
+    "dca_enabled": true,
+    "dca_default_mode": "fixed",
+    "dca_default_base_investment_usd": "100"
   },
   {
     "profile": "crypto_trend_rotation",
