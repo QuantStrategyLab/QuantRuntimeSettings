@@ -49,7 +49,9 @@
         "supported_domains": [
           "us_equity",
           "hk_equity"
-        ]
+        ],
+        "cash_currency": "USD",
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -57,7 +59,8 @@
         "env_repo_key": [
           "STRATEGY_SWITCH_LONGBRIDGE_REPO",
           "RUNTIME_SETTINGS_LONGBRIDGE_REPO"
-        ]
+        ],
+        "service_name": "longbridge-quant-service"
       }
     },
     "ibkr": {
@@ -85,7 +88,9 @@
         "supported_domains": [
           "us_equity",
           "hk_equity"
-        ]
+        ],
+        "cash_currency": "USD",
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -93,7 +98,8 @@
         "env_repo_key": [
           "STRATEGY_SWITCH_IBKR_REPO",
           "RUNTIME_SETTINGS_IBKR_REPO"
-        ]
+        ],
+        "service_name": "ibkr-quant-service"
       }
     },
     "schwab": {
@@ -119,7 +125,9 @@
         "target_name": "preview",
         "supported_domains": [
           "us_equity"
-        ]
+        ],
+        "cash_currency": "USD",
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -127,7 +135,8 @@
         "env_repo_key": [
           "STRATEGY_SWITCH_SCHWAB_REPO",
           "RUNTIME_SETTINGS_SCHWAB_REPO"
-        ]
+        ],
+        "service_name": "schwab-quant-service"
       }
     },
     "firstrade": {
@@ -153,7 +162,9 @@
         "target_name": "preview",
         "supported_domains": [
           "us_equity"
-        ]
+        ],
+        "cash_currency": "USD",
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -161,7 +172,8 @@
         "env_repo_key": [
           "STRATEGY_SWITCH_FIRSTRADE_REPO",
           "RUNTIME_SETTINGS_FIRSTRADE_REPO"
-        ]
+        ],
+        "service_name": "firstrade-quant-service"
       }
     },
     "qmt": {
@@ -197,7 +209,8 @@
         "env_repo_key": [
           "STRATEGY_SWITCH_QMT_REPO",
           "RUNTIME_SETTINGS_QMT_REPO"
-        ]
+        ],
+        "service_name": "qmt-quant-service"
       }
     },
     "binance": {
@@ -224,7 +237,9 @@
         "supported_domains": [
           "crypto"
         ],
-        "default_strategy_profile": "crypto_equity_combo"
+        "default_strategy_profile": "crypto_equity_combo",
+        "cash_currency": "USD",
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -232,7 +247,8 @@
         "env_repo_key": [
           "STRATEGY_SWITCH_BINANCE_REPO",
           "RUNTIME_SETTINGS_BINANCE_REPO"
-        ]
+        ],
+        "service_name": "binance-quant-service"
       }
     }
   },

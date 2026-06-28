@@ -111,8 +111,9 @@ def build_css_vars(config: dict) -> str:
 
 
 def build_platform_meta_js(config: dict) -> str:
-    """Generate platformMeta + defaultRepositories JS block."""
+    """Generate platformMeta + capabilities + domain labels + default repos."""
     platforms = config.get("platforms", {})
+    domains = config.get("domains", {})
     lines = []
     lines.append("    let platformMeta = {")
     for pid, pdata in sorted(platforms.items()):
@@ -128,8 +129,35 @@ def build_platform_meta_js(config: dict) -> str:
     lines.append("")
     lines.append("    const defaultAccountOptions = {")
     for pid, pdata in sorted(platforms.items()):
-        acct = pdata["default_account"]
+        acct = dict(pdata["default_account"])
+        # Add deployment fields for capabilities
+        dep = pdata.get("deployment", {})
+        caps = pdata.get("capabilities", {})
         lines.append(f"      {pid}: [{json.dumps(acct, ensure_ascii=False)}],")
+    lines.append("    };")
+    # Domain labels for i18n
+    lines.append("")
+    lines.append("    const domainLabels = {")
+    for did, ddata in sorted(domains.items()):
+        lines.append(f'      {did}: {{ zh: "{ddata["label_zh"]}", en: "{ddata["label_en"]}" }},')
+    lines.append("    };")
+    # Platform capabilities for behavior functions
+    lines.append("")
+    lines.append("    const platformConfig = {")
+    for pid, pdata in sorted(platforms.items()):
+        caps = pdata.get("capabilities", {})
+        dep = pdata.get("deployment", {})
+        lines.append(f'      {pid}: {{')
+        lines.append(f'        dry_run_only: {"true" if dep.get("dry_run_only") else "false"},')
+        lines.append(f'        margin_policy: {"true" if caps.get("margin_policy") else "false"},')
+        lines.append(f'        reserved_cash: {"true" if caps.get("reserved_cash") else "false"},')
+        lines.append(f'        income_layer: {"true" if caps.get("income_layer") else "false"},')
+        lines.append(f'        option_overlay: {"true" if caps.get("option_overlay") else "false"},')
+        lines.append(f'        dca: {"true" if caps.get("dca") else "false"},')
+        lines.append(f'        execution_mode: "{dep.get("default_execution_mode", "live")}",')
+        lines.append(f'        service_name: "{dep.get("service_name", "")}",')
+        lines.append(f'        default_execution_mode: "{dep.get("default_execution_mode", "live")}"')
+        lines.append("      },")
     lines.append("    };")
     return "\n".join(lines)
 

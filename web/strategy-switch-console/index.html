@@ -1505,13 +1505,92 @@
     const defaultRepositories = platformRepositories;
 
     const defaultAccountOptions = {
-      binance: [{"key": "preview", "label": "Binance", "target_name": "crypto_combo", "supported_domains": ["crypto"], "default_strategy_profile": "crypto_equity_combo"}],
-      firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"]}],
-      ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"]}],
-      longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"]}],
+      binance: [{"key": "preview", "label": "Binance", "target_name": "crypto_combo", "supported_domains": ["crypto"], "default_strategy_profile": "crypto_equity_combo", "cash_currency": "USD", "default_execution_mode": "live"}],
+      firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
+      ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
+      longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
       qmt: [{"key": "preview", "label": "QMT dry-run", "target_name": "industry_etf_dry_run", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"]}],
-      schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"]}],
+      schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
     };
+
+    const domainLabels = {
+      cn_equity: { zh: "A股", en: "CN A-share" },
+      crypto: { zh: "加密", en: "Crypto" },
+      hk_equity: { zh: "港股", en: "HK Equity" },
+      us_equity: { zh: "美股", en: "US Equity" },
+    };
+
+    const platformConfig = {
+      binance: {
+        dry_run_only: false,
+        margin_policy: false,
+        reserved_cash: false,
+        income_layer: false,
+        option_overlay: false,
+        dca: true,
+        execution_mode: "live",
+        service_name: "binance-quant-service",
+        default_execution_mode: "live"
+      },
+      firstrade: {
+        dry_run_only: false,
+        margin_policy: true,
+        reserved_cash: true,
+        income_layer: true,
+        option_overlay: true,
+        dca: true,
+        execution_mode: "live",
+        service_name: "firstrade-quant-service",
+        default_execution_mode: "live"
+      },
+      ibkr: {
+        dry_run_only: false,
+        margin_policy: true,
+        reserved_cash: true,
+        income_layer: true,
+        option_overlay: true,
+        dca: false,
+        execution_mode: "live",
+        service_name: "ibkr-quant-service",
+        default_execution_mode: "live"
+      },
+      longbridge: {
+        dry_run_only: false,
+        margin_policy: true,
+        reserved_cash: true,
+        income_layer: true,
+        option_overlay: true,
+        dca: false,
+        execution_mode: "live",
+        service_name: "longbridge-quant-service",
+        default_execution_mode: "live"
+      },
+      qmt: {
+        dry_run_only: true,
+        margin_policy: false,
+        reserved_cash: false,
+        income_layer: false,
+        option_overlay: false,
+        dca: false,
+        execution_mode: "paper",
+        service_name: "qmt-quant-service",
+        default_execution_mode: "paper"
+      },
+      schwab: {
+        dry_run_only: false,
+        margin_policy: true,
+        reserved_cash: true,
+        income_layer: true,
+        option_overlay: true,
+        dca: false,
+        execution_mode: "live",
+        service_name: "schwab-quant-service",
+        default_execution_mode: "live"
+      },
+    };
+
+
+
 
 
 
@@ -2074,21 +2153,21 @@
     }
 
     function domainLabel(domain) {
-      if (domain === "hk_equity") return t("hkEquity");
-      if (domain === "cn_equity") return t("cnEquity");
-      return t("usEquity");
+      const entry = domainLabels[domain];
+      if (entry) return state.lang === "zh" ? entry.zh : entry.en;
+      return domain;
     }
 
     function platformSupportsMarginPolicy(platform = state.selected) {
-      return platform !== "qmt" && platform !== "binance";
+      return platformConfig[platform]?.margin_policy ?? true;
     }
 
     function platformSupportsReservedCashPolicy(platform = state.selected) {
-      return platform !== "qmt" && platform !== "binance";
+      return platformConfig[platform]?.reserved_cash ?? true;
     }
 
     function platformDryRunOnly(platform = state.selected) {
-      return platform === "qmt";
+      return platformConfig[platform]?.dry_run_only ?? false;
     }
 
     function allowMarginExplicitlySelected(form) {
@@ -2127,9 +2206,6 @@
       const domain = strategyDomain(state.forms[platform]?.strategy);
       if (domain === "hk_equity") return "HKD";
       if (domain === "cn_equity") return "CNY";
-      const supported = supportedDomainsForAccount(platform, account);
-      if (supported.length === 1 && supported[0] === "hk_equity") return "HKD";
-      if (supported.length === 1 && supported[0] === "cn_equity") return "CNY";
       return "USD";
     }
 
@@ -2291,7 +2367,7 @@
     }
 
     function platformSupportsDca(platform = state.selected) {
-      return platform === "firstrade" || platform === "binance";
+      return platformConfig[platform]?.dca ?? false;
     }
 
     function strategyAllowedForAccount(platform, account, profile) {
