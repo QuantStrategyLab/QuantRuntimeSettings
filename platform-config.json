@@ -60,7 +60,7 @@
           "STRATEGY_SWITCH_LONGBRIDGE_REPO",
           "RUNTIME_SETTINGS_LONGBRIDGE_REPO"
         ],
-        "service_name": "longbridge-quant-service"
+        "service_name": ""
       }
     },
     "ibkr": {
@@ -99,7 +99,7 @@
           "STRATEGY_SWITCH_IBKR_REPO",
           "RUNTIME_SETTINGS_IBKR_REPO"
         ],
-        "service_name": "ibkr-quant-service"
+        "service_name": ""
       }
     },
     "schwab": {
@@ -136,7 +136,7 @@
           "STRATEGY_SWITCH_SCHWAB_REPO",
           "RUNTIME_SETTINGS_SCHWAB_REPO"
         ],
-        "service_name": "schwab-quant-service"
+        "service_name": "charles-schwab-quant-service"
       }
     },
     "firstrade": {
@@ -248,7 +248,7 @@
           "STRATEGY_SWITCH_BINANCE_REPO",
           "RUNTIME_SETTINGS_BINANCE_REPO"
         ],
-        "service_name": "binance-quant-service"
+        "service_name": ""
       }
     }
   },
