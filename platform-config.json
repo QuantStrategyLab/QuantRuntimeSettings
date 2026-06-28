@@ -194,8 +194,8 @@
         "dca": false
       },
       "default_account": {
-        "key": "preview",
-        "label": "QMT dry-run",
+        "key": "default",
+        "label": "QMT",
         "target_name": "industry_etf_dry_run",
         "cash_currency": "CNY",
         "default_strategy_profile": "cn_industry_etf_rotation",
@@ -231,15 +231,14 @@
         "dca": true
       },
       "default_account": {
-        "key": "preview",
+        "key": "default",
         "label": "Binance",
         "target_name": "crypto_combo",
+        "cash_currency": "USD",
+        "default_strategy_profile": "crypto_equity_combo",
         "supported_domains": [
           "crypto"
-        ],
-        "default_strategy_profile": "crypto_equity_combo",
-        "cash_currency": "USD",
-        "default_execution_mode": "live"
+        ]
       },
       "deployment": {
         "default_execution_mode": "live",

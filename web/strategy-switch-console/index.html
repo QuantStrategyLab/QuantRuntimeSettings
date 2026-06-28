@@ -1505,11 +1505,11 @@
     const defaultRepositories = platformRepositories;
 
     const defaultAccountOptions = {
-      binance: [{"key": "preview", "label": "Binance", "target_name": "crypto_combo", "supported_domains": ["crypto"], "default_strategy_profile": "crypto_equity_combo", "cash_currency": "USD", "default_execution_mode": "live"}],
+      binance: [{"key": "default", "label": "Binance", "target_name": "crypto_combo", "cash_currency": "USD", "default_strategy_profile": "crypto_equity_combo", "supported_domains": ["crypto"]}],
       firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "firstrade-quant-service"}],
       ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
       longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
-      qmt: [{"key": "preview", "label": "QMT dry-run", "target_name": "industry_etf_dry_run", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
+      qmt: [{"key": "default", "label": "QMT", "target_name": "industry_etf_dry_run", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
       schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "charles-schwab-quant-service"}],
     };
 
@@ -1588,6 +1588,11 @@
         default_execution_mode: "live"
       },
     };
+
+
+
+
+
 
 
 
