@@ -139,18 +139,10 @@
     "runtime_enabled": true
   },
   {
-    "profile": "cn_industry_etf_rotation",
-    "label": "CN Industry ETF Rotation",
-    "label_en": "CN Industry ETF Rotation",
-    "label_zh": "A股行业 ETF 轮动",
-    "domain": "cn_equity",
-    "runtime_enabled": true
-  },
-  {
     "profile": "cn_industry_etf_rotation_aggressive",
-    "label": "CN Industry ETF Rotation Aggressive",
+    "label": "CN ETF Rotation",
     "label_en": "CN Industry ETF Rotation Aggressive",
-    "label_zh": "A股行业 ETF 轮动（Aggressive vol25%）",
+    "label_zh": "A股行业ETF轮动",
     "domain": "cn_equity",
     "runtime_enabled": true
   },
@@ -164,9 +156,9 @@
   },
   {
     "profile": "cn_equity_combo",
-    "label": "CN Equity Combo",
+    "label": "CN Dynamic Combo",
     "label_en": "CN Equity Combo",
-    "label_zh": "A股组合策略（30/50/20）",
+    "label_zh": "A股进取组合",
     "domain": "cn_equity",
     "runtime_enabled": true,
     "combo_enabled": true,
@@ -174,9 +166,9 @@
   },
   {
     "profile": "us_equity_combo",
-    "label": "US Equity Combo",
+    "label": "US Balanced Combo",
     "label_en": "US Equity Combo",
-    "label_zh": "美股组合策略（50/30/20）",
+    "label_zh": "美股均衡组合",
     "domain": "us_equity",
     "runtime_enabled": true,
     "combo_enabled": true,
@@ -201,9 +193,9 @@
   },
   {
     "profile": "us_equity_combo_leveraged",
-    "label": "US Equity Combo Leveraged",
+    "label": "US Leveraged Combo",
     "label_en": "US Equity Combo Leveraged",
-    "label_zh": "美股杠杆组合（40/20/40）",
+    "label_zh": "美股杠杆组合",
     "domain": "us_equity",
     "runtime_enabled": true,
     "combo_enabled": true,
@@ -211,9 +203,9 @@
   },
   {
     "profile": "hk_equity_combo",
-    "label": "HK Equity Combo",
+    "label": "HK Dynamic Combo",
     "label_en": "HK Equity Combo",
-    "label_zh": "港股组合策略（60/40）",
+    "label_zh": "港股进取组合",
     "domain": "hk_equity",
     "runtime_enabled": true,
     "combo_enabled": true,
@@ -223,7 +215,7 @@
     "profile": "crypto_btc_dca",
     "label": "Crypto BTC DCA",
     "label_en": "Crypto BTC DCA",
-    "label_zh": "加密 BTC 定投",
+    "label_zh": "BTC定投",
     "domain": "crypto",
     "runtime_enabled": true
   },
@@ -231,15 +223,15 @@
     "profile": "crypto_trend_rotation",
     "label": "Crypto Trend Rotation",
     "label_en": "Crypto Trend Rotation",
-    "label_zh": "加密趋势轮动",
+    "label_zh": "山寨趋势轮动",
     "domain": "crypto",
     "runtime_enabled": true
   },
   {
     "profile": "crypto_equity_combo",
-    "label": "Crypto Equity Combo",
+    "label": "Crypto Dynamic Combo",
     "label_en": "Crypto Equity Combo",
-    "label_zh": "加密组合策略（50/50）",
+    "label_zh": "加密趋势组合",
     "domain": "crypto",
     "runtime_enabled": true,
     "combo_enabled": true,
