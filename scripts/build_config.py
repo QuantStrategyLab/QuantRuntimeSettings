@@ -179,14 +179,16 @@ def inject_into_index_html(config: dict) -> None:
     # Generate platform JS
     js_block = build_platform_meta_js(config)
 
-    # Remove old hardcoded platform blocks
+    # Remove ALL old hardcoded platform blocks (count=0 = replace all)
     for pattern in [
         r"    const defaultRepositories = \{[\s\S]*?\n    \};\n(?:\s*// Alias for backward compatibility\n\s*const defaultRepositories = platformRepositories;\n)?",
         r"    const platformRepositories = \{[\s\S]*?\n    \};\n(?:\s*// Alias for backward compatibility\n\s*const defaultRepositories = platformRepositories;\n)?",
         r"    let platformMeta = \{[\s\S]*?\n    \};\n",
         r"    const defaultAccountOptions = \{[\s\S]*?\n    \};\n",
+        r"    const domainLabels = \{[\s\S]*?\n    \};\n",
+        r"    const platformConfig = \{[\s\S]*?\n    \};\n",
     ]:
-        html = re.sub(pattern, "", html, count=1)
+        html = re.sub(pattern, "", html, count=0)
 
     # Insert generated JS: right after the <script> tag opening
     script_marker = "\n  <script>\n"
