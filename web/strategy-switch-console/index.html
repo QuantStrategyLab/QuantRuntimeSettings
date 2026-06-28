@@ -3779,7 +3779,7 @@
       const qmtPlatformCashNote = el("qmt-platform-cash-note");
       const executionCashPolicyNote = el("execution-cash-policy-note");
       executionCashPolicyGrid.hidden = !supportsMargin && !supportsReserve;
-      qmtPlatformCashNote.hidden = supportsMargin || supportsReserve;
+      qmtPlatformCashNote.hidden = supportsMargin || supportsReserve || platform !== "qmt";
       executionCashPolicyNote.hidden = !supportsMargin || !supportsReserve;
 
       const marginBlocksReserve = supportsMargin && supportsReserve && allowMarginExplicitlySelected(form);
