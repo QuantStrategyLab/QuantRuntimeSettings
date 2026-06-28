@@ -858,6 +858,25 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     };
   }
 
+  // Fallback: use default_strategy_profile from account options when
+  // no GitHub variables can be read (e.g. token lacks repo access).
+  const defaultProfile = cleanCurrentStrategy(option?.default_strategy_profile);
+  if (defaultProfile) {
+    return {
+      strategy_profile: defaultProfile,
+      ...reservedCashPayload,
+      ...incomeLayerPayload,
+      ...optionOverlayPayload,
+      ...runtimeTargetEnabledPayload,
+      ...dcaPayloadForProfile(defaultProfile, dcaPayload),
+      ...ibitZscoreExitPayloadForProfile(defaultProfile, ibitZscorePayload),
+      ...cashOnlyPayload,
+      source: "ACCOUNT_OPTIONS_DEFAULT",
+      variable_scope: variableScope,
+      github_environment: githubEnvironment || "",
+    };
+  }
+
   return null;
 }
 
