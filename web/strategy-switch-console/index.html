@@ -2653,7 +2653,12 @@
     }
 
     function currentCashOnlyExecutionForAccount(platform, account) {
-      return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.cash_only_execution);
+      const entry = currentEntryForAccount(platform, account);
+      if (entry) {
+        const val = cleanOptionalBoolean(entry.cash_only_execution);
+        if (val !== null) return val;
+      }
+      return platformCashOnlyExecutionDefault();
     }
 
     function currentCashOnlyExecutionText(platform = state.selected, account = selectedAccount(platform)) {
@@ -2789,7 +2794,9 @@
     function currentStrategyForAccount(platform, account) {
       const entry = currentEntryForAccount(platform, account);
       const profile = cleanStrategyProfile(entry?.strategy_profile);
-      return profile || "";
+      if (profile) return profile;
+      const fallback = account?.default_strategy_profile || account?.strategy_profile || "";
+      return cleanStrategyProfile(fallback);
     }
 
     function currentReservePolicyForAccount(platform, account) {
@@ -3526,8 +3533,9 @@ function hasValidStrategySelection(platform = state.selected) {
         };
       }
       const nextEnabled = mode === "enabled";
+      const entry = currentEntryForAccount(platform, account);
       return {
-        changed: current !== null && current !== nextEnabled,
+        changed: Boolean(entry && current !== null && current !== nextEnabled),
         inputs: { cash_only_execution: nextEnabled },
       };
     }
