@@ -4194,8 +4194,9 @@
           "{currency}",
           selectedCashCurrency(platform, account),
         );
-        minReservedCashInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
-        reservedCashRatioInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
+        reservePolicyModeSelect.disabled = marginBlocksReserve;
+        minReservedCashInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
+        reservedCashRatioInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
         minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
         reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
         el("reserve-policy-block").classList.toggle("policy-block-muted", marginBlocksReserve);
