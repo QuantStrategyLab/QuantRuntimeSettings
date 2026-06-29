@@ -108,7 +108,7 @@ const DCA_PROFILE_CONFIG = {
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   crypto_btc_dca: { default_mode: "fixed", default_base_investment_usd: "100" },
 };
-const DCA_SUPPORTED_PLATFORMS = new Set(["firstrade", "binance"]);
+const DCA_SUPPORTED_PLATFORMS = new Set(["schwab", "firstrade", "longbridge", "binance"]);
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
@@ -1782,7 +1782,7 @@ function isDcaProfile(profile) {
 function assertDcaPlatform(platform, strategyProfile) {
   if (isDcaProfile(strategyProfile) && !DCA_SUPPORTED_PLATFORMS.has(platform)) {
     throw new Error(
-      `DCA strategy profiles are only supported on firstrade; got platform=${platform}, strategy_profile=${strategyProfile}`,
+      `DCA strategy profiles are not supported on ${platform}; got strategy_profile=${strategyProfile}`,
     );
   }
 }
