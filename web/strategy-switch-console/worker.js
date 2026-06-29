@@ -694,8 +694,9 @@ async function loadCurrentStrategies(accountOptions, env) {
   const repositories = platformRepositories(env);
 
   const variableCache = new Map();
-  const readVariable = (repository, scope, githubEnvironment, name) => {
+  const readVariable = (repository, scope, githubEnvironment, name, { skipCache = false } = {}) => {
     const cacheKey = [repository, scope, githubEnvironment || "", name].join("|");
+    if (skipCache) variableCache.delete(cacheKey);
     if (!variableCache.has(cacheKey)) {
       variableCache.set(cacheKey, fetchGithubVariable(token, repository, scope, githubEnvironment, name));
     }
@@ -867,6 +868,12 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   });
   // Await in parallel: each reads a different variable so
   // there is no risk of hammering the same GitHub API endpoint.
+  // Read RUNTIME_TARGET_JSON first with retry — parallel reads inside
+  // Promise.all can hit GitHub secondary rate limits and return empty.
+  let runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
+  if (!runtimeTargetValue) {
+    runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON", { skipCache: true });
+  }
   const [
     reservedCashPayload,
     incomeLayerPayload,
@@ -875,7 +882,6 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     dcaPayload,
     ibitZscorePayload,
     cashOnlyPayload,
-    runtimeTargetValue,
   ] = await Promise.all([
     reservedCashPayloadPromise,
     incomeLayerPayloadPromise,
@@ -884,7 +890,6 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     dcaPayloadPromise,
     ibitZscorePayloadPromise,
     cashOnlyPayloadPromise,
-    readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON"),
   ]);
   const runtimeTarget = parseJsonObject(runtimeTargetValue);
   const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
