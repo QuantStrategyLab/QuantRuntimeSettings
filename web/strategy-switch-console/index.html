@@ -1728,7 +1728,6 @@
         maxRatio: "0.25",
         allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 },
       },
-    ,
       us_equity_combo: {
         startUsd: 300000,
         maxRatio: "0.25",
@@ -1764,7 +1763,6 @@
           { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "300000", ratio: "0.015", ratioKind: "budget" },
         ],
       },
-    ,
       us_equity_combo: {
         liveGate: "promotion_required",
         liveStatus: "research_only",
@@ -2147,6 +2145,7 @@
       dcaMode: "fixed",
       dcaBaseInvestmentUsd: "",
       dcaTouched: false,
+      strategyTouched: false,
       ibitZscoreExitMode: "live",
       ibitZscoreExitTouched: false,
     });
@@ -3574,7 +3573,7 @@ function hasValidStrategySelection(platform = state.selected) {
         currentMode,
         currentPluginMode,
         nextPluginMode,
-        strategyChanged: Boolean(nextProfile && currentProfile && currentProfile !== nextProfile),
+        strategyChanged: Boolean(nextProfile && ((state.forms[platform]?.strategyTouched) || (currentProfile && currentProfile !== nextProfile))),
         modeChanged: Boolean(inputs.execution_mode && currentMode && currentMode !== inputs.execution_mode),
         pluginModeChanged: Boolean(nextPluginMode && currentPluginMode && currentPluginMode !== nextPluginMode),
         runtimeTargetChanged: runtimeTarget.changed,
@@ -4364,6 +4363,7 @@ function hasValidStrategySelection(platform = state.selected) {
       const button = event.target.closest("[data-platform]");
       if (!button) return;
       state.selected = button.dataset.platform;
+      state.forms[state.selected].strategyTouched = false;
       render();
     });
 
@@ -4376,12 +4376,14 @@ function hasValidStrategySelection(platform = state.selected) {
       state.forms[state.selected].cashOnlyExecutionTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].ibitZscoreExitTouched = false;
+      state.forms[state.selected].strategyTouched = false;
       syncStrategyForAccount(state.selected);
       render();
     });
 
     el("strategy-select").addEventListener("change", () => {
       state.forms[state.selected].strategy = el("strategy-select").value;
+      state.forms[state.selected].strategyTouched = true;
       state.forms[state.selected].incomeLayerTouched = false;
       state.forms[state.selected].optionOverlayTouched = false;
       state.forms[state.selected].dcaTouched = false;
