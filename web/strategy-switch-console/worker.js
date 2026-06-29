@@ -65,7 +65,7 @@ const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
   firstrade: "FIRSTRADE_CASH_ONLY_EXECUTION",
 };
 const LEGACY_CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION";
-const CASH_ONLY_EXECUTION_MODES = ["current", "enabled", "disabled"];
+const CASH_ONLY_EXECUTION_MODES = ["enabled", "disabled"];
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
 const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
 const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
@@ -105,7 +105,7 @@ const OPTION_OVERLAY_PROFILE_FIELDS = [
   "option_overlay_live_gate",
   "option_overlay_live_status",
 ];
-const OPTION_OVERLAY_MODES = ["current", "enabled", "disabled"];
+const OPTION_OVERLAY_MODES = ["enabled", "disabled"];
 const DCA_PROFILE_CONFIG = {
   nasdaq_sp500_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
@@ -121,7 +121,7 @@ const SECURITY_HEADERS = {
     "img-src 'self' data:",
     "connect-src 'self'",
     "script-src 'self' 'unsafe-inline'",
-    "style-src 'self' 'unsafe-inline'",
+    "style-src 'self'",
   ].join("; "),
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
   "Referrer-Policy": "no-referrer",
@@ -1210,9 +1210,9 @@ function normalizeSwitchInputs(raw) {
     throw new Error("QMT platform does not support live execution yet; use paper/dry_run mode");
   }
   const pluginMode = cleanChoice(raw.plugin_mode || "auto", ["auto", "none", "custom"], "plugin_mode");
-  const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "current", OPTION_OVERLAY_MODES, "option_overlay_mode");
+  const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "enabled", OPTION_OVERLAY_MODES, "option_overlay_mode");
   const cashOnlyExecutionMode = cleanChoice(
-    raw.cash_only_execution_mode || "current",
+    raw.cash_only_execution_mode || "enabled",
     CASH_ONLY_EXECUTION_MODES,
     "cash_only_execution_mode",
   );
@@ -1309,7 +1309,7 @@ function normalizeSwitchInputs(raw) {
     extraVariables.ibit_zscore_exit_mode = cleanIbitZscoreExitMode(ibitZscoreModeValue);
   }
   const cashOnlyMode = cleanChoice(
-    raw.cash_only_execution_mode || extraVariables.cash_only_execution_mode || "current",
+    raw.cash_only_execution_mode || extraVariables.cash_only_execution_mode || "enabled",
     CASH_ONLY_EXECUTION_MODES,
     "cash_only_execution_mode",
   );
@@ -1674,10 +1674,10 @@ function cleanAccountOption(item, platform, index) {
     cleanChoice(value || "auto", ["auto", "none"], field),
   );
   addConfigOptional(option, "option_overlay_mode", item.option_overlay_mode, (value, field) =>
-    cleanChoice(value || "current", OPTION_OVERLAY_MODES, field),
+    cleanChoice(value || "enabled", OPTION_OVERLAY_MODES, field),
   );
   addConfigOptional(option, "cash_only_execution_mode", item.cash_only_execution_mode, (value, field) =>
-    cleanChoice(value || "current", CASH_ONLY_EXECUTION_MODES, field),
+    cleanChoice(value || "enabled", CASH_ONLY_EXECUTION_MODES, field),
   );
   addConfigOptional(option, "ibit_zscore_exit_mode", item.ibit_zscore_exit_mode, cleanIbitZscoreExitMode);
   addConfigOptional(option, "dca_mode", item.dca_mode, cleanDcaMode);
