@@ -3,7 +3,7 @@ import { PAGE_HTML } from "./page_asset.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 import {
   DCA_SUPPORTED_PLATFORMS,
-  DEFAULT_VARIABLE_SCOPES,
+  DEFAULT_VARIABLE_SCOPES as DEFAULT_VARIABLE_SCOPE,
   PLATFORM_REPOSITORIES,
   DOMAIN_LABELS,
   PLATFORM_MIN_RESERVED_CASH_VARIABLES,
@@ -15,6 +15,8 @@ import {
   DCA_PROFILE_DEFAULTS,
   STRATEGY_FEATURES,
 } from "./config.js";
+import { APP_CSS } from "./app_css.js";
+import { APP_JS } from "./app_js.js";
 
 const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
@@ -49,14 +51,6 @@ const PLATFORM_REPOSITORY_ENV = {
   firstrade: ["STRATEGY_SWITCH_FIRSTRADE_REPO", "RUNTIME_SETTINGS_FIRSTRADE_REPO"],
   qmt: ["STRATEGY_SWITCH_QMT_REPO", "RUNTIME_SETTINGS_QMT_REPO"],
   binance: ["STRATEGY_SWITCH_BINANCE_REPO", "RUNTIME_SETTINGS_BINANCE_REPO"],
-};
-const DEFAULT_VARIABLE_SCOPE = {
-  longbridge: "environment",
-  ibkr: "repository",
-  schwab: "repository",
-  firstrade: "repository",
-  qmt: "repository",
-  binance: "repository",
 };
 const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
   longbridge: "LONGBRIDGE_CASH_ONLY_EXECUTION",
@@ -120,7 +114,7 @@ const SECURITY_HEADERS = {
     "form-action 'self'",
     "img-src 'self' data:",
     "connect-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    "script-src 'self'",
     "style-src 'self'",
   ].join("; "),
   "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()",
@@ -153,6 +147,8 @@ export default {
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
+      if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
+      if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
       return html(PAGE_HTML);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
