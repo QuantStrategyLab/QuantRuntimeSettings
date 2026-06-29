@@ -1,6 +1,20 @@
-// deploy: 2026-06-30T01:30Z — force Worker rebuild for page_asset.js sync
+// deploy: 2026-06-30 — config driven by platform-config.json
 import { PAGE_HTML } from "./page_asset.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
+import {
+  DCA_SUPPORTED_PLATFORMS,
+  DEFAULT_VARIABLE_SCOPES,
+  PLATFORM_REPOSITORIES,
+  DOMAIN_LABELS,
+  PLATFORM_MIN_RESERVED_CASH_VARIABLES,
+  PLATFORM_RESERVED_CASH_RATIO_VARIABLES,
+  PLATFORM_CONFIG,
+  DEFAULT_ACCOUNT_OPTIONS,
+  FALLBACK_INCOME_LAYER_DEFAULTS,
+  FALLBACK_OPTION_OVERLAY_DEFAULTS,
+  DCA_PROFILE_DEFAULTS,
+  STRATEGY_FEATURES,
+} from "./config.js";
 
 const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
@@ -43,18 +57,6 @@ const DEFAULT_VARIABLE_SCOPE = {
   firstrade: "repository",
   qmt: "repository",
   binance: "repository",
-};
-const PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
-  longbridge: "LONGBRIDGE_RESERVED_CASH_RATIO",
-  ibkr: "IBKR_RESERVED_CASH_RATIO",
-  schwab: "SCHWAB_RESERVED_CASH_RATIO",
-  firstrade: "FIRSTRADE_RESERVED_CASH_RATIO",
-};
-const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {
-  longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
-  ibkr: "IBKR_MIN_RESERVED_CASH_USD",
-  schwab: "SCHWAB_MIN_RESERVED_CASH_USD",
-  firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
 };
 const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
   longbridge: "LONGBRIDGE_CASH_ONLY_EXECUTION",
@@ -109,7 +111,6 @@ const DCA_PROFILE_CONFIG = {
   ibit_smart_dca: { default_mode: "fixed", default_base_investment_usd: "1000" },
   crypto_btc_dca: { default_mode: "fixed", default_base_investment_usd: "100" },
 };
-const DCA_SUPPORTED_PLATFORMS = new Set(["schwab", "firstrade", "longbridge", "binance"]);
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
     "default-src 'self'",
