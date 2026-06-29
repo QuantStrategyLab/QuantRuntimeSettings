@@ -8,6 +8,16 @@
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='38' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%230b8a80'/%3E%3Cstop offset='1' stop-color='%23075f62'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='24' cy='24' r='22' fill='url(%23g)'/%3E%3Cpath d='M17 31 31 17M22 16h10v10' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <style>
     :root {
+      --bg: #f5f6f8;
+      --surface: #ffffff;
+      --soft: #eef1f4;
+      --ink: #16191f;
+      --muted: #66707c;
+      --line: #dce1e7;
+      --line-strong: #b8c2cc;
+      --accent: #136f63;
+      --accent-ink: #ffffff;
+      --danger: #b54137;
       --lb: #0f766e;
       --ib: #2f5f9f;
       --sw: #9b4153;
@@ -244,6 +254,11 @@
       transition: background 150ms ease, color 150ms ease;
     }
 
+    .mode button.active {
+      background: #ffffff;
+      color: var(--ink);
+      box-shadow: 0 1px 7px rgba(22, 25, 31, 0.08);
+    }
 
     .platform-strip {
       display: grid;
@@ -272,6 +287,17 @@
         box-shadow 150ms ease;
     }
 
+    .platform-button:hover {
+      transform: translateY(-1px);
+      border-color: var(--line-strong);
+    }
+
+    .platform-button.active {
+      border-color: var(--platform-color);
+      background:
+        linear-gradient(180deg, color-mix(in srgb, var(--platform-color) 7%, white), #ffffff 68%);
+      box-shadow: 0 14px 30px rgba(22, 25, 31, 0.09);
+    }
 
     .platform-button[data-platform="longbridge"] {
       --platform-color: var(--lb);
@@ -458,6 +484,10 @@
       gap: 14px;
     }
 
+    .form-section + .form-section {
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
 
     .section-wide {
       grid-column: 1 / -1;
@@ -608,6 +638,12 @@
       border-bottom: 0;
     }
 
+    .summary-row.pending {
+      margin: 0 -16px;
+      padding-inline: 13px 16px;
+      border-left: 3px solid var(--platform-color, var(--accent));
+      background: color-mix(in srgb, var(--platform-color, var(--accent)) 6%, #ffffff);
+    }
 
     .summary-label {
       color: var(--muted);
@@ -1128,87 +1164,15 @@
       background: transparent;
     }
 
-    /* ── Responsive breakpoints (descending max-width) ── */
-    /* L: 900-1199px — moderate spacing compression, execution cash policy → 1-col */
-    @media (max-width: 1199px) {
-      .topbar {
-        width: min(100% - 20px, 1400px);
-        padding: 16px 20px;
-        min-height: 78px;
-      }
-
-      .shell {
-        width: min(100% - 28px, 1400px);
-        gap: 14px;
-      }
-
-      .switch-surface {
-        grid-template-columns: minmax(0, 1.3fr) minmax(340px, 0.9fr);
-        gap: 14px;
-      }
-
-      .switch-panel {
-        padding: 22px;
-      }
-
-      .panel-head h2 {
-        font-size: clamp(27px, 3vw, 38px);
-      }
-
-      .execution-cash-policy-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .public-preview {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-    }
-
-    /* M: 680-899px — single-column main layout, form sections → 1-col, platform strip → 3-col */
-    @media (max-width: 899px) {
-      .topbar {
-        border-radius: 0;
-        margin: 0;
-        top: 0;
-        width: 100%;
-        min-height: 68px;
-        padding: 14px 18px;
-      }
-
-      .brand {
-        column-gap: 10px;
-        grid-template-columns: 38px minmax(0, 1fr);
-      }
-
-      .brand::before {
-        width: 38px;
-        height: 38px;
-        font-size: 19px;
-      }
-
-      h1 {
-        font-size: clamp(19px, 2.5vw, 26px);
-      }
-
-      .brand p {
-        font-size: 12px;
-      }
-
-      .shell {
-        width: min(100% - 24px, 1400px);
-        padding: 10px 0 32px;
-        gap: 12px;
-      }
-
+    @media (max-width: 820px) {
       .platform-strip {
         grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 6px;
         padding: 8px 10px;
       }
 
-      .platform-button {
-        min-height: 48px;
-        padding: 8px 24px 8px 8px;
+      .platform-copy strong {
+        font-size: 12px;
       }
 
       .switch-surface {
@@ -1219,51 +1183,39 @@
         position: static;
       }
 
-      .quick-form {
-        grid-template-columns: 1fr;
-      }
-
-      .form-section {
-        grid-template-columns: 1fr;
-      }
-
       .public-preview {
         grid-template-columns: 1fr;
       }
+    }
 
-      .switch-panel {
-        padding: 20px;
-        gap: 16px;
+
+    @media (max-width: 540px) {
+      .platform-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 5px;
+        padding: 6px 8px;
       }
-
-      .panel-head h2 {
-        font-size: clamp(24px, 4vw, 32px);
+      .platform-button {
+        min-height: 40px;
+        gap: 5px;
+        padding: 5px 7px;
       }
-
-      .summary-row {
-        grid-template-columns: 1fr;
-        gap: 3px;
-        padding: 10px 0;
+      .mark {
+        width: 26px;
+        height: 26px;
+        font-size: 10px;
       }
-
-      .mode-block,
-      .section-wide {
-        grid-column: auto;
+      .platform-copy strong {
+        font-size: 11px;
       }
     }
 
-    /* S: 480-679px — topbar stacks vertically, platform strip → 2-col, tighter spacing */
-    @media (max-width: 679px) {
+    @media (max-width: 680px) {
       .topbar {
         position: static;
-        flex-direction: column;
         align-items: flex-start;
-        gap: 12px;
-        padding: 14px 16px;
-      }
-
-      .brand {
-        width: 100%;
+        flex-direction: column;
+        padding: 18px;
       }
 
       .top-actions {
@@ -1271,264 +1223,59 @@
         width: 100%;
       }
 
-      .btn,
-      .pill {
-        min-height: 36px;
-        font-size: 12px;
-      }
-
       .boot-screen {
-        width: min(100% - 24px, 680px);
-        min-height: calc(100svh - 130px);
-        padding: 20px 0;
-      }
-
-      .boot-panel h2 {
-        font-size: clamp(24px, 6vw, 34px);
+        width: min(100% - 28px, 680px);
+        min-height: calc(100svh - 122px);
+        padding-top: 22px;
       }
 
       .shell {
-        width: min(100% - 20px, 1160px);
-        padding-top: 14px;
-        gap: 10px;
+        width: min(100% - 28px, 1160px);
+        padding-top: 18px;
+      }
+
+      .platform-strip,
+      .quick-form,
+      .form-section {
+        grid-template-columns: 1fr;
       }
 
       .platform-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(5, minmax(68px, 1fr));
         gap: 6px;
         padding: 8px;
+        overflow-x: auto;
       }
 
       .platform-button {
-        min-height: 44px;
-      }
-
-      .platform-copy strong {
-        font-size: 12px;
-      }
-
-      .mark {
-        width: 28px;
-        height: 28px;
-        font-size: 10px;
-        border-radius: 8px;
-      }
-
-      .switch-panel {
-        padding: 16px;
-        gap: 14px;
-      }
-
-      .summary-head {
-        padding: 16px 18px 14px;
-      }
-
-      .summary-list {
-        padding: 4px 18px 14px;
-      }
-
-      .summary-actions {
-        padding: 14px 18px 18px;
-      }
-
-      .summary-row.pending {
-        margin: 0 -18px;
-        padding-inline: 15px 18px;
-      }
-
-      select,
-      input {
-        font-size: 13px;
-      }
-    }
-
-    /* XS: < 480px — hide subtitle, compact platform buttons, minimal chrome */
-    @media (max-width: 479px) {
-      .topbar {
-        padding: 12px 14px;
-      }
-
-      .brand p {
-        display: none;
-      }
-
-      .brand::before {
-        width: 34px;
-        height: 34px;
-        font-size: 17px;
-      }
-
-      .brand {
-        grid-template-columns: 34px minmax(0, 1fr);
-        column-gap: 8px;
-      }
-
-      h1 {
-        font-size: 19px;
-      }
-
-      .btn,
-      .pill {
-        min-height: 34px;
-        padding: 0 10px;
-        border-radius: 10px;
-        font-size: 12px;
-      }
-
-      .boot-panel h2 {
-        font-size: clamp(22px, 7vw, 28px);
-      }
-
-      .boot-panel p {
-        font-size: 13px;
-      }
-
-      .shell {
-        width: min(100% - 16px, 1160px);
-        padding-top: 10px;
-        gap: 8px;
-      }
-
-      .platform-strip {
-        gap: 5px;
-        padding: 6px;
-      }
-
-      .platform-button {
-        min-height: 40px;
-        gap: 6px;
-        padding: 6px 22px 6px 6px;
-      }
-
-      .platform-button.active::after {
-        right: 5px;
-        width: 16px;
-        height: 16px;
-        font-size: 10px;
-      }
-
-      .mark {
-        width: 26px;
-        height: 26px;
-        font-size: 9px;
-        border-radius: 7px;
+        min-height: 48px;
+        padding-inline: 8px 24px;
       }
 
       .platform-copy strong {
         font-size: 11px;
       }
 
-      .switch-panel {
-        padding: 14px;
-        gap: 12px;
-      }
-
-      .panel-head h2 {
-        font-size: clamp(21px, 6vw, 26px);
-      }
-
-      .quick-form {
-        gap: 10px;
-      }
-
-      .form-section {
-        padding: 12px;
-        gap: 10px;
-      }
-
-      select,
-      input {
-        height: 42px;
-        min-height: 42px;
-        font-size: 12px;
-        padding: 0 10px;
-        padding-right: 36px;
-      }
-
-      .mode {
-        height: 42px;
-        min-height: 42px;
-      }
-
-      .mode button {
-        font-size: 12px;
-        border-radius: 7px;
-      }
-
-      .control-block {
-        grid-template-rows: auto 42px minmax(16px, auto);
-        gap: 6px;
-      }
-
-      .run-button {
-        min-height: 50px;
-        font-size: 15px;
-      }
-
-      .summary-head {
-        padding: 14px 14px 12px;
-      }
-
-      .summary-head h2 {
-        font-size: 18px;
-      }
-
-      .summary-list {
-        padding: 2px 14px 12px;
-      }
-
-      .summary-actions {
-        padding: 12px 14px 14px;
-      }
-
-      .summary-row.pending {
-        margin: 0 -14px;
-        padding-inline: 11px 14px;
-      }
-    }
-
-    /* XXS: < 375px — safety net for tiny screens */
-    @media (max-width: 374px) {
-      body {
-        word-break: break-word;
-      }
-
-      .topbar {
-        padding: 10px 10px;
-      }
-
-      h1 {
-        font-size: 17px;
-      }
-
-      .brand::before {
-        width: 30px;
-        height: 30px;
-        font-size: 15px;
-      }
-
-      .brand {
-        grid-template-columns: 30px minmax(0, 1fr);
-        column-gap: 6px;
-      }
-
-      .shell {
-        width: min(100% - 12px, 1160px);
-      }
-
-      .platform-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 4px;
-        padding: 4px;
-      }
-
-      .platform-button {
-        min-height: 38px;
-        padding: 4px 18px 4px 4px;
+      .mode-block,
+      .section-wide {
+        grid-column: auto;
       }
 
       .switch-panel {
-        padding: 10px;
+        padding: 18px;
+      }
+
+      .summary-row {
+        grid-template-columns: 1fr;
+        gap: 3px;
+      }
+
+      .run-area {
+        grid-template-columns: 1fr;
+      }
+
+      select {
+        font-size: 13px;
       }
     }
 
@@ -1697,7 +1444,6 @@
             <p class="execution-cash-policy-note qmt-platform-cash-note" id="qmt-platform-cash-note" hidden data-i18n="qmtPlatformCashNote">A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。</p>
             <div class="execution-cash-policy-grid" id="execution-cash-policy-grid">
               <label class="control-block cash-only-mode-block policy-block" id="cash-only-policy-block">
-                <span data-i18n="cashOnlyExecutionMode">允许融资</span>
                 <select id="cash-only-execution-mode-select"></select>
                 <span class="selection-meta" id="cash-only-execution-mode-meta"></span>
               </label>
@@ -1780,7 +1526,7 @@
     const defaultRepositories = platformRepositories;
 
     const defaultAccountOptions = {
-      binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "default_strategy_profile": "crypto_live_pool_rotation", "supported_domains": ["crypto"]}],
+      binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "default_strategy_profile": "crypto_equity_combo", "supported_domains": ["crypto"]}],
       firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "firstrade-quant-service"}],
       ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
       longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
@@ -1835,7 +1581,7 @@
         reserved_cash: true,
         income_layer: true,
         option_overlay: true,
-        dca: false,
+        dca: true,
         execution_mode: "live",
         service_name: "",
         default_execution_mode: "live"
@@ -1857,12 +1603,44 @@
         reserved_cash: true,
         income_layer: true,
         option_overlay: true,
-        dca: false,
+        dca: true,
         execution_mode: "live",
         service_name: "charles-schwab-quant-service",
         default_execution_mode: "live"
       },
     };
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
     const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
@@ -1950,7 +1728,12 @@
         maxRatio: "0.25",
         allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 },
       },
-    };
+    ,
+      us_equity_combo: {
+        startUsd: 300000,
+        maxRatio: "0.25",
+        allocations: { SCHD: 0.25, DGRO: 0.25, SGOV: 0.20, SPYI: 0.15, QQQI: 0.15 },
+      }};
     let incomeLayerDefaults = {};
     const fallbackOptionOverlayDefaults = {
       tqqq_growth_income: {
@@ -1981,7 +1764,19 @@
           { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "300000", ratio: "0.015", ratioKind: "budget" },
         ],
       },
-    };
+    ,
+      us_equity_combo: {
+        liveGate: "promotion_required",
+        liveStatus: "research_only",
+        families: [
+          { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "300000", ratio: "0.015", ratioKind: "budget" },
+        ],
+      },
+      us_equity_combo_leveraged: {
+        liveGate: "promotion_required",
+        liveStatus: "research_only",
+        families: [],
+      }};
     let optionOverlayDefaults = {};
 
     const strategyDomains = ["us_equity", "hk_equity", "cn_equity", "crypto"];
@@ -2045,7 +1840,7 @@
         optionOverlayDisabled: "关闭期权层",
         optionOverlayNotSupported: "该策略未定义期权层",
         optionOverlayModeMeta: "启用时使用策略默认的最佳 recipe 和预算，不在这里手动调比例。",
-        optionOverlayDefaultMeta: "策略默认：{defaults}。",
+        optionOverlayDefaultMeta: "{defaults}",
         optionOverlayFamilyGrowth: "增长",
         optionOverlayFamilyIncome: "收入",
         optionOverlayBudgetRatio: "预算 {ratio}",
@@ -2055,8 +1850,8 @@
         cashOnlyExecutionYes: "是",
         cashOnlyExecutionNo: "否",
         cashOnlyExecutionModeMeta: "选「否」时只按真实现金下单，不会动用 margin 购买力。",
-        cashOnlyExecutionValueYes: "允许融资：是",
-        cashOnlyExecutionValueNo: "允许融资：否",
+        cashOnlyExecutionValueYes: "是",
+        cashOnlyExecutionValueNo: "否",
         currentCashOnlyExecution: "当前允许融资",
         pendingCashOnlyExecution: "待提交允许融资",
         executionCashPolicyTitle: "现金与融资",
@@ -2075,7 +1870,7 @@
         dcaModeMeta: "仅定投策略可配置。",
         dcaDefaultMeta: "默认：{mode}，基准金额 {amount}。",
         dcaNotSupported: "该策略不是定投策略",
-        dcaPlatformNotSupported: "定投策略仅支持 Firstrade",
+        dcaPlatformNotSupported: "当前平台不支持定投策略",
         currentDca: "当前定投设置",
         pendingDca: "待提交定投设置",
         dcaText: "{mode}，基准金额 {amount}",
@@ -2147,17 +1942,17 @@
         cryptoEquity: "加密",
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
-        notRead: "未读取",
+        notRead: "读取失败",
         runtimeTargetOn: "启用",
         runtimeTargetOff: "禁用",
-        incomeLayerDefault: "策略默认：开启，起始 {start}，最高 {ratio}",
+        incomeLayerDefault: "开启，{start}起 {ratio}",
         incomeLayerOff: "关闭",
         incomeLayerOn: "开启，起始 {start}，最高 {ratio}",
         optionOverlayOff: "关闭",
-        optionOverlayOn: "开启（策略默认）",
-        optionOverlayDefaultSimple: "策略默认：开启",
-        optionOverlayDefault: "策略默认：开启，{detail}",
-        cashOnlyExecutionDefault: "平台默认：仅用现金",
+        optionOverlayOn: "开启",
+        optionOverlayDefaultSimple: "开启",
+        optionOverlayDefault: "开启，{detail}",
+        cashOnlyExecutionDefault: "仅用现金",
       },
       en: {
         appTitle: "Strategy Switch",
@@ -2213,7 +2008,7 @@
         optionOverlayDisabled: "Disable option layer",
         optionOverlayNotSupported: "No option layer for this strategy",
         optionOverlayModeMeta: "Enabled mode uses the strategy's default recipe and budget; ratios are not edited here.",
-        optionOverlayDefaultMeta: "Strategy default: {defaults}.",
+        optionOverlayDefaultMeta: "{defaults}",
         optionOverlayFamilyGrowth: "Growth",
         optionOverlayFamilyIncome: "Income",
         optionOverlayBudgetRatio: "budget {ratio}",
@@ -2223,8 +2018,8 @@
         cashOnlyExecutionYes: "Yes",
         cashOnlyExecutionNo: "No",
         cashOnlyExecutionModeMeta: "Choose No to use available cash only and avoid margin buying power.",
-        cashOnlyExecutionValueYes: "Allow margin: Yes",
-        cashOnlyExecutionValueNo: "Allow margin: No",
+        cashOnlyExecutionValueYes: "Yes",
+        cashOnlyExecutionValueNo: "No",
         currentCashOnlyExecution: "Current allow margin",
         pendingCashOnlyExecution: "Pending allow margin",
         executionCashPolicyTitle: "Cash and margin",
@@ -2243,7 +2038,7 @@
         dcaModeMeta: "Only DCA strategies can use this.",
         dcaDefaultMeta: "Default: {mode}, base amount {amount}.",
         dcaNotSupported: "This is not a DCA strategy",
-        dcaPlatformNotSupported: "DCA strategies are Firstrade-only",
+        dcaPlatformNotSupported: "DCA not supported on this platform",
         currentDca: "Current DCA settings",
         pendingDca: "Pending DCA settings",
         dcaText: "{mode}, base amount {amount}",
@@ -2318,14 +2113,14 @@
         notRead: "Not read",
         runtimeTargetOn: "Enabled",
         runtimeTargetOff: "Disabled",
-        incomeLayerDefault: "Strategy default: enabled, starts at {start}, max {ratio}",
+        incomeLayerDefault: "Enabled, {start} start, {ratio} max",
         incomeLayerOff: "Disabled",
         incomeLayerOn: "Enabled, starts at {start}, max {ratio}",
         optionOverlayOff: "Disabled",
-        optionOverlayOn: "Enabled (strategy default)",
+        optionOverlayOn: "Enabled",
         optionOverlayDefaultSimple: "Strategy default: enabled",
-        optionOverlayDefault: "Strategy default: enabled, {detail}",
-        cashOnlyExecutionDefault: "Platform default: cash only",
+        optionOverlayDefault: "Enabled, {detail}",
+        cashOnlyExecutionDefault: "Cash only",
       },
     };
 
@@ -2453,20 +2248,13 @@
     }
 
     function reconcileExecutionCashPolicy(form, changed) {
-      if (!form) return;
-      if (changed === "margin" && allowMarginExplicitlySelected(form)) {
-        // Save current reserve state so it can be restored if margin is later disabled
-        if (form.reservePolicyMode !== "none" && (form.minReservedCashUsd || form.reservedCashRatio)) {
-          form._prevReserve = {
-            mode: form.reservePolicyMode,
-            floor: form.minReservedCashUsd,
-            ratio: form.reservedCashRatio,
-          };
-        }
+      if (!form || !executionCashPolicyConflict(form)) return;
+      if (changed === "margin") {
         form.reservePolicyMode = "none";
         form.reservedCashTouched = true;
-        // Keep minReservedCashUsd and reservedCashRatio — they'll be restored if margin is toggled back
-      } else if (changed === "reserve" && reserveCashOverrideActive(form)) {
+        form.minReservedCashUsd = "";
+        form.reservedCashRatio = "";
+      } else if (changed === "reserve") {
         form.cashOnlyExecutionMode = "enabled";
         form.cashOnlyExecutionTouched = true;
       }
@@ -3128,41 +2916,21 @@
       syncCashOnlyExecutionForAccount(platform);
       syncDcaForAccount(platform);
       syncIbitZscoreExitForAccount(platform);
-      // Enforce mutual exclusion after sync: if margin is enabled, reserve must be cleared
-      const form = state.forms[platform];
-      if (form && allowMarginExplicitlySelected(form)) {
-        form.reservePolicyMode = "none";
-        form.minReservedCashUsd = "";
-        form.reservedCashRatio = "";
-      }
     }
 
     function syncRuntimeTargetForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.runtimeTargetTouched) return;
-      // Resolve to a concrete value so the UI shows enabled/disabled directly
-      const target = runtimeTargetStateForAccount(platform, selectedAccount(platform));
-      form.runtimeTargetMode = target.known ? (target.enabled ? "enabled" : "disabled") : "current";
+      form.runtimeTargetMode = "current";
     }
 
     function syncReservePolicyForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.reservedCashTouched) return;
       const policy = currentReservePolicyForAccount(platform, selectedAccount(platform));
+      form.reservePolicyMode = "current";
       form.minReservedCashUsd = policy.minReservedCashUsd;
       form.reservedCashRatio = policy.reservedCashRatio;
-      // Resolve to a concrete mode so the UI shows actual values instead of "keep current"
-      const hasFloor = Boolean(policy.minReservedCashUsd);
-      const hasRatio = Boolean(policy.reservedCashRatio);
-      if (hasFloor && hasRatio) {
-        form.reservePolicyMode = "max";
-      } else if (hasFloor) {
-        form.reservePolicyMode = "floor";
-      } else if (hasRatio) {
-        form.reservePolicyMode = "ratio";
-      } else {
-        form.reservePolicyMode = "none";
-      }
     }
 
     function syncIncomeLayerForAccount(platform) {
@@ -3170,17 +2938,9 @@
       if (!form || form.incomeLayerTouched) return;
       const defaults = incomeLayerDefaultForStrategy(form.strategy);
       const current = currentIncomeLayerForAccount(platform, selectedAccount(platform));
+      form.incomeLayerMode = "current";
       form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
       form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
-      // Resolve to a concrete mode so the UI shows enabled/disabled directly
-      const effective = effectiveIncomeLayerForAccount(platform, selectedAccount(platform), form.strategy);
-      if (effective) {
-        form.incomeLayerMode = effective.enabled ? "enabled" : "disabled";
-      } else if (defaults) {
-        form.incomeLayerMode = "enabled";
-      } else {
-        form.incomeLayerMode = "current";
-      }
     }
 
     function syncOptionOverlayForAccount(platform) {
@@ -3192,17 +2952,7 @@
         form.optionOverlayMode = configured;
         return;
       }
-      // Resolve to a concrete mode so the UI shows enabled/disabled directly
-      if (!optionOverlaySupported(form.strategy)) {
-        form.optionOverlayMode = "disabled";
-        return;
-      }
-      const effective = effectiveOptionOverlayForAccount(platform, account, form.strategy);
-      if (effective !== null && effective !== undefined) {
-        form.optionOverlayMode = effective ? "enabled" : "disabled";
-      } else {
-        form.optionOverlayMode = "enabled";
-      }
+      form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "current" : "disabled";
     }
 
     function syncCashOnlyExecutionForAccount(platform) {
@@ -3210,13 +2960,7 @@
       if (!form || form.cashOnlyExecutionTouched) return;
       const account = selectedAccount(platform);
       const configured = normalizeCashOnlyExecutionMode(account?.cash_only_execution_mode);
-      if (configured !== "current") {
-        form.cashOnlyExecutionMode = configured;
-        return;
-      }
-      // Resolve "current" to a concrete value so the UI shows yes/no directly
-      const effective = effectiveCashOnlyExecutionForAccount(platform, account);
-      form.cashOnlyExecutionMode = effective === true ? "enabled" : (effective === false ? "disabled" : "current");
+      form.cashOnlyExecutionMode = configured !== "current" ? configured : "current";
     }
 
     function syncDcaForAccount(platform) {
@@ -3251,7 +2995,6 @@
         state.forms[platform].cashOnlyExecutionTouched = false;
         state.forms[platform].dcaTouched = false;
         state.forms[platform].ibitZscoreExitTouched = false;
-        delete state.forms[platform]._prevReserve;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncRuntimeTargetForAccount(platform);
@@ -3261,13 +3004,6 @@
         syncCashOnlyExecutionForAccount(platform);
         syncDcaForAccount(platform);
         syncIbitZscoreExitForAccount(platform);
-        // Enforce mutual exclusion after sync: if margin is enabled, reserve must be cleared
-        const form2 = state.forms[platform];
-        if (form2 && allowMarginExplicitlySelected(form2)) {
-          form2.reservePolicyMode = "none";
-          form2.minReservedCashUsd = "";
-          form2.reservedCashRatio = "";
-        }
       }
     }
 
@@ -3334,14 +3070,9 @@
       return Boolean(dcaModes.includes(normalizeDcaMode(form?.dcaMode)) && cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd));
     }
 
-    function hasValidIbitZscoreExitPolicy(platform = state.selected) {
-      const form = state.forms[platform];
-      if (!ibitZscoreExitSupported(form?.strategy)) return true;
-      if (normalizePluginMode(form?.pluginMode) === "none") return true;
-      return Boolean(cleanIbitZscoreExitMode(form?.ibitZscoreExitMode));
-    }
+    function hasValidIbitZscoreExitPolicy() { return true; }
 
-    function hasValidStrategySelection(platform = state.selected) {
+function hasValidStrategySelection(platform = state.selected) {
       return hasRunnableStrategySelection(platform) &&
         hasValidExecutionCashPolicy(platform) &&
         hasValidIncomeLayerPolicy(platform) &&
@@ -3514,11 +3245,7 @@
       if (dcaOverride) {
         Object.assign(inputs, dcaOverride.inputs);
       }
-      const ibitZscoreOverride = ibitZscoreExitOverrideForForm(form);
-      if (ibitZscoreOverride) {
-        Object.assign(inputs, ibitZscoreOverride.inputs);
-        mergeExtraVariables(inputs, ibitZscoreOverride.extraVariables);
-      }
+      inputs.ibit_zscore_exit_mode = normalizeDcaMode(form.dcaMode) === "smart" ? "enabled" : "disabled";
       return inputs;
     }
 
@@ -3746,7 +3473,7 @@
       const nextRatio = cleanDisplayRatio(inputs.income_layer_max_ratio || defaults.maxRatio);
       return {
         supported: true,
-        changed: !entry || Boolean(currentEnabled !== true || nextStartUsd !== currentStartUsd || nextRatio !== currentRatio),
+        changed: Boolean(entry && (currentEnabled !== true || nextStartUsd !== currentStartUsd || nextRatio !== currentRatio)),
         inputs: {
           income_layer_enabled: true,
           income_layer_start_usd: nextStartUsd,
@@ -3770,7 +3497,7 @@
       if (mode === "enabled") {
         return {
           supported,
-          changed: supported && current !== true,
+          changed: supported && current !== null && current !== true,
           inputs: { option_overlay_enabled: true },
         };
       }
@@ -3792,7 +3519,7 @@
       }
       const nextEnabled = mode === "enabled";
       return {
-        changed: current !== nextEnabled,
+        changed: current !== null && current !== nextEnabled,
         inputs: { cash_only_execution: nextEnabled },
       };
     }
@@ -3847,16 +3574,15 @@
         currentMode,
         currentPluginMode,
         nextPluginMode,
-        strategyChanged: Boolean(nextProfile && (!currentProfile || currentProfile !== nextProfile)),
-        modeChanged: Boolean(inputs.execution_mode && (!currentMode || currentMode !== inputs.execution_mode)),
-        pluginModeChanged: Boolean(nextPluginMode && (!currentPluginMode || currentPluginMode !== nextPluginMode)),
+        strategyChanged: Boolean(nextProfile && currentProfile && currentProfile !== nextProfile),
+        modeChanged: Boolean(inputs.execution_mode && currentMode && currentMode !== inputs.execution_mode),
+        pluginModeChanged: Boolean(nextPluginMode && currentPluginMode && currentPluginMode !== nextPluginMode),
         runtimeTargetChanged: runtimeTarget.changed,
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
         optionOverlayChanged: optionOverlay.changed,
         cashOnlyChanged: cashOnly.changed,
         dcaChanged: dca.changed,
-        ibitZscoreExitChanged: ibitZscoreExit.changed,
         runtimeTarget,
         reserve,
         income,
@@ -3878,8 +3604,7 @@
           changes.incomeLayerChanged ||
           changes.optionOverlayChanged ||
           changes.cashOnlyChanged ||
-          changes.dcaChanged ||
-          changes.ibitZscoreExitChanged,
+          changes.dcaChanged,
       );
     }
 
@@ -3951,9 +3676,7 @@
       if (dcaSupported(inputs.strategy_profile)) {
         rows.push([t("currentDca"), currentDcaText(state.selected, account, inputs.strategy_profile)]);
       }
-      if (ibitZscoreExitSupported(inputs.strategy_profile)) {
-        rows.push([t("currentIbitZscoreExit"), currentIbitZscoreExitText(state.selected, account, inputs.strategy_profile)]);
-      }
+
       if (changes.reserveCashChanged) {
         rows.push([t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"]);
       }
@@ -3969,9 +3692,7 @@
       if (changes.dcaChanged) {
         rows.push([t("pendingDca"), pendingDcaText(inputs, state.selected, account), "pending"]);
       }
-      if (changes.ibitZscoreExitChanged) {
-        rows.push([t("pendingIbitZscoreExit"), pendingIbitZscoreExitText(inputs, state.selected, account), "pending"]);
-      }
+      
       if (changes.modeChanged) {
         rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
       }
@@ -4123,7 +3844,6 @@
         : "";
       runtimeTargetEnabledSelect.replaceChildren();
       for (const mode of runtimeTargetModes) {
-        if (mode === "current") continue;
         runtimeTargetEnabledSelect.append(
           new Option(runtimeTargetModeLabel(mode), mode, false, mode === normalizeRuntimeTargetMode(form.runtimeTargetMode)),
         );
@@ -4135,7 +3855,7 @@
       syncIbitZscoreExitForAccount(platform);
       const ibitZscoreSupported = ibitZscoreExitSupported(form.strategy);
       const ibitZscoreBlock = el("ibit-zscore-exit-mode-block");
-      ibitZscoreBlock.hidden = !ibitZscoreSupported;
+      ibitZscoreBlock.hidden = true;
       ibitZscoreExitModeSelect.replaceChildren();
       if (ibitZscoreSupported) {
         const pluginsDisabled = normalizePluginMode(form.pluginMode) === "none";
@@ -4163,7 +3883,6 @@
       if (incomeDefaults) {
         incomeLayerModeSelect.disabled = false;
         for (const mode of incomeLayerModes) {
-          if (mode === "current") continue;
           incomeLayerModeSelect.append(new Option(incomeLayerModeLabel(mode), mode, false, mode === normalizeIncomeLayerMode(form.incomeLayerMode)));
         }
         el("income-layer-mode-meta").textContent = incomeLayerDefaultMetaText(incomeDefaults);
@@ -4194,7 +3913,6 @@
       if (supportsReserve) {
         reservePolicyModeSelect.replaceChildren();
         for (const mode of reservePolicyModes) {
-          if (mode === "current") continue;
           reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
         }
         const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
@@ -4236,7 +3954,6 @@
       if (optionDefaults) {
         optionOverlayModeSelect.disabled = false;
         for (const mode of optionOverlayModes) {
-          if (mode === "current") continue;
           optionOverlayModeSelect.append(
             new Option(optionOverlayModeLabel(mode), mode, false, mode === normalizeOptionOverlayMode(form.optionOverlayMode)),
           );
@@ -4252,13 +3969,13 @@
         syncCashOnlyExecutionForAccount(platform);
         cashOnlyExecutionModeSelect.replaceChildren();
         for (const mode of cashOnlyExecutionModes) {
-          if (mode === "current") continue;
           const option = new Option(
             cashOnlyExecutionModeLabel(mode),
             mode,
             false,
             mode === normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode),
           );
+          if (mode === "disabled" && reserveBlocksMargin) option.disabled = true;
           cashOnlyExecutionModeSelect.append(option);
         }
         el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
@@ -4639,7 +4356,8 @@
 
     function summaryText() {
       const inputs = buildInputs();
-      return summaryRows(inputs).map(([label, value]) => `${label}: ${value}`).join("\n");
+      return summaryRows(inputs).map(([label, value]) => `${label}: ${value}`).join("\
+");
     }
 
     el("platform-strip").addEventListener("click", (event) => {
@@ -4658,7 +4376,6 @@
       state.forms[state.selected].cashOnlyExecutionTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].ibitZscoreExitTouched = false;
-      delete state.forms[state.selected]._prevReserve;
       syncStrategyForAccount(state.selected);
       render();
     });
@@ -4744,14 +4461,6 @@
       const form = state.forms[state.selected];
       form.cashOnlyExecutionMode = normalizeCashOnlyExecutionMode(el("cash-only-execution-mode-select").value);
       form.cashOnlyExecutionTouched = form.cashOnlyExecutionMode !== "current";
-      // Restore saved reserve state when disabling margin
-      if (!allowMarginExplicitlySelected(form) && form._prevReserve) {
-        form.reservePolicyMode = form._prevReserve.mode;
-        form.minReservedCashUsd = form._prevReserve.floor;
-        form.reservedCashRatio = form._prevReserve.ratio;
-        form.reservedCashTouched = true;
-        delete form._prevReserve;
-      }
       reconcileExecutionCashPolicy(form, "margin");
       render();
     });
@@ -4814,7 +4523,8 @@
     boot();
 
     async function boot() {
-      await Promise.all([refreshStrategyProfiles(), refreshSession()]);
+      await refreshStrategyProfiles();
+      await refreshSession();
     }
   </script>
 </body>
