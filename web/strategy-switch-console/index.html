@@ -4115,6 +4115,7 @@
         : "";
       runtimeTargetEnabledSelect.replaceChildren();
       for (const mode of runtimeTargetModes) {
+        if (mode === "current") continue;
         runtimeTargetEnabledSelect.append(
           new Option(runtimeTargetModeLabel(mode), mode, false, mode === normalizeRuntimeTargetMode(form.runtimeTargetMode)),
         );
@@ -4154,6 +4155,7 @@
       if (incomeDefaults) {
         incomeLayerModeSelect.disabled = false;
         for (const mode of incomeLayerModes) {
+          if (mode === "current") continue;
           incomeLayerModeSelect.append(new Option(incomeLayerModeLabel(mode), mode, false, mode === normalizeIncomeLayerMode(form.incomeLayerMode)));
         }
         el("income-layer-mode-meta").textContent = incomeLayerDefaultMetaText(incomeDefaults);
@@ -4184,6 +4186,7 @@
       if (supportsReserve) {
         reservePolicyModeSelect.replaceChildren();
         for (const mode of reservePolicyModes) {
+          if (mode === "current") continue;
           reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
         }
         const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
@@ -4224,6 +4227,7 @@
       if (optionDefaults) {
         optionOverlayModeSelect.disabled = false;
         for (const mode of optionOverlayModes) {
+          if (mode === "current") continue;
           optionOverlayModeSelect.append(
             new Option(optionOverlayModeLabel(mode), mode, false, mode === normalizeOptionOverlayMode(form.optionOverlayMode)),
           );
@@ -4239,6 +4243,7 @@
         syncCashOnlyExecutionForAccount(platform);
         cashOnlyExecutionModeSelect.replaceChildren();
         for (const mode of cashOnlyExecutionModes) {
+          if (mode === "current") continue;
           const option = new Option(
             cashOnlyExecutionModeLabel(mode),
             mode,
