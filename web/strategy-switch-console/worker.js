@@ -1,3 +1,4 @@
+// deploy: 2026-06-30T01:30Z — force Worker rebuild for page_asset.js sync
 import { PAGE_HTML } from "./page_asset.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 
