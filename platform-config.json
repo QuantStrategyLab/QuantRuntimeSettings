@@ -40,7 +40,7 @@
         "reserved_cash": true,
         "income_layer": true,
         "option_overlay": true,
-        "dca": false
+        "dca": true
       },
       "default_account": {
         "key": "preview",
@@ -51,7 +51,10 @@
           "hk_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live"
+        "default_execution_mode": "live",
+        "default_strategy_profile": "tqqq_growth_income",
+        "reserved_cash_ratio": "0.03",
+        "min_reserved_cash_usd": ""
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -90,7 +93,10 @@
           "hk_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live"
+        "default_execution_mode": "live",
+        "default_strategy_profile": "soxl_soxx_trend_income",
+        "reserved_cash_ratio": "0.03",
+        "min_reserved_cash_usd": ""
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -117,7 +123,7 @@
         "reserved_cash": true,
         "income_layer": true,
         "option_overlay": true,
-        "dca": false
+        "dca": true
       },
       "default_account": {
         "key": "preview",
@@ -127,7 +133,10 @@
           "us_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live"
+        "default_execution_mode": "live",
+        "default_strategy_profile": "soxl_soxx_trend_income",
+        "reserved_cash_ratio": "0.03",
+        "min_reserved_cash_usd": "150"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -164,7 +173,10 @@
           "us_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live"
+        "default_execution_mode": "live",
+        "default_strategy_profile": "ibit_smart_dca",
+        "reserved_cash_ratio": "0.03",
+        "min_reserved_cash_usd": ""
       },
       "deployment": {
         "default_execution_mode": "live",
