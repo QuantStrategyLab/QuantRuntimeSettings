@@ -1,0 +1,709 @@
+/**
+ * 现金与融资（Cash & Financing）模块单元测试
+ *
+ * 测试范围：
+ *   1. allowMarginExplicitlySelected / reserveCashOverrideActive
+ *   2. executionCashPolicyConflict
+ *   3. reconcileExecutionCashPolicy — 互斥逻辑（修复后）
+ *   4. syncReservePolicyForAccount — 解析为具体模式
+ *   5. syncCashOnlyExecutionForAccount — 解析为具体值
+ *   6. 初始加载互斥检查
+ *   7. 边界情况 & 回归测试
+ *
+ * 运行：node tests/test_cash_financing.js
+ */
+
+// --------------- 测试框架 ---------------
+let passed = 0;
+let failed = 0;
+const failures = [];
+
+function assert(condition, label) {
+  if (condition) {
+    passed++;
+  } else {
+    failed++;
+    failures.push(label);
+    console.error(`  ✗ FAIL: ${label}`);
+  }
+}
+
+function summary() {
+  console.log(`\n${'='.repeat(60)}`);
+  console.log(`Results: ${passed} passed, ${failed} failed`);
+  if (failures.length) {
+    console.log(`\nFailures:`);
+    failures.forEach((f, i) => console.log(`  ${i + 1}. ${f}`));
+    process.exitCode = 1;
+  } else {
+    console.log(`✓ All tests passed.`);
+  }
+}
+
+// --------------- 从 index.html 提取的核心函数 ---------------
+
+const reservePolicyModes = ["current", "none", "ratio", "floor", "max"];
+const cashOnlyExecutionModes = ["current", "enabled", "disabled"];
+
+const platformConfig = {
+  binance:    { margin_policy: false, reserved_cash: false },
+  firstrade:  { margin_policy: true,  reserved_cash: true },
+  ibkr:       { margin_policy: true,  reserved_cash: true },
+  longbridge: { margin_policy: true,  reserved_cash: true },
+  qmt:        { margin_policy: false, reserved_cash: false },
+  schwab:     { margin_policy: true,  reserved_cash: true },
+};
+
+function platformSupportsMarginPolicy(platform) {
+  return platformConfig[platform]?.margin_policy ?? true;
+}
+
+function platformSupportsReservedCashPolicy(platform) {
+  return platformConfig[platform]?.reserved_cash ?? true;
+}
+
+function normalizeCashOnlyExecutionMode(value) {
+  return cashOnlyExecutionModes.includes(value) ? value : "current";
+}
+
+function normalizeReservePolicyMode(value) {
+  return reservePolicyModes.includes(value) ? value : "current";
+}
+
+function allowMarginExplicitlySelected(form) {
+  return normalizeCashOnlyExecutionMode(form?.cashOnlyExecutionMode) === "disabled";
+}
+
+function reserveCashOverrideActive(form) {
+  const mode = normalizeReservePolicyMode(form?.reservePolicyMode);
+  return mode === "ratio" || mode === "floor" || mode === "max";
+}
+
+function executionCashPolicyConflict(form) {
+  return allowMarginExplicitlySelected(form) && reserveCashOverrideActive(form);
+}
+
+// --- 修复后的 reconcileExecutionCashPolicy ---
+function reconcileExecutionCashPolicy(form, changed) {
+  if (!form) return;
+  if (changed === "margin" && allowMarginExplicitlySelected(form)) {
+    form.reservePolicyMode = "none";
+    form.reservedCashTouched = true;
+    form.minReservedCashUsd = "";
+    form.reservedCashRatio = "";
+  } else if (changed === "reserve" && reserveCashOverrideActive(form)) {
+    form.cashOnlyExecutionMode = "enabled";
+    form.cashOnlyExecutionTouched = true;
+  }
+}
+
+// --- 数据辅助函数 ---
+function cleanOptionalBoolean(value) {
+  if (value === true || value === "true" || value === "1" || value === 1) return true;
+  if (value === false || value === "false" || value === "0" || value === 0) return false;
+  return null;
+}
+
+function cleanDisplayNumber(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text.length > 32 || !/^(?:\d+|\d*\.\d+)$/.test(text)) return "";
+  const numeric = Number(text);
+  if (!Number.isFinite(numeric) || numeric < 0) return "";
+  return text;
+}
+
+function cleanDisplayRatio(value) {
+  const text = cleanDisplayNumber(value);
+  if (!text) return "";
+  const numeric = Number(text);
+  return numeric >= 0 && numeric <= 1 ? text : "";
+}
+
+// --- 模拟 currentStrategies ---
+function makeCurrentStrategies(platform, overrides = {}) {
+  return {
+    [platform]: {
+      preview: {
+        cash_only_execution: overrides.cash_only_execution ?? null,
+        min_reserved_cash_usd: overrides.min_reserved_cash_usd ?? null,
+        reserved_cash_ratio: overrides.reserved_cash_ratio ?? null,
+        ...overrides.extra,
+      },
+    },
+  };
+}
+
+function currentEntryForAccount(state, platform, account) {
+  const byPlatform = state.currentStrategies[platform] || {};
+  const keys = [account?.key, account?.target_name, account?.label].filter(Boolean).map(String);
+  for (const key of keys) {
+    const entry = byPlatform[key];
+    if (entry && typeof entry === "object") return entry;
+  }
+  return null;
+}
+
+function currentReservePolicyForAccount(state, platform, account) {
+  const entry = currentEntryForAccount(state, platform, account);
+  return {
+    minReservedCashUsd: cleanDisplayNumber(entry?.min_reserved_cash_usd ?? entry?.reserved_cash_floor_usd),
+    reservedCashRatio: cleanDisplayRatio(entry?.reserved_cash_ratio),
+  };
+}
+
+function currentCashOnlyExecutionForAccount(state, platform, account) {
+  return cleanOptionalBoolean(currentEntryForAccount(state, platform, account)?.cash_only_execution);
+}
+
+function platformCashOnlyExecutionDefault() {
+  return true; // 默认：仅用现金（不允许融资）
+}
+
+function effectiveCashOnlyExecutionForAccount(state, platform, account) {
+  const configured = currentCashOnlyExecutionForAccount(state, platform, account);
+  if (configured !== null) return configured;
+  if (!platformSupportsMarginPolicy(platform)) return null;
+  return platformCashOnlyExecutionDefault();
+}
+
+// --- 修复后的 syncReservePolicyForAccount ---
+function syncReservePolicyForAccount(state, form, platform, account) {
+  if (!form || form.reservedCashTouched) return;
+  const policy = currentReservePolicyForAccount(state, platform, account);
+  form.minReservedCashUsd = policy.minReservedCashUsd;
+  form.reservedCashRatio = policy.reservedCashRatio;
+  // Resolve to a concrete mode so the UI shows actual values instead of "keep current"
+  const hasFloor = Boolean(policy.minReservedCashUsd);
+  const hasRatio = Boolean(policy.reservedCashRatio);
+  if (hasFloor && hasRatio) {
+    form.reservePolicyMode = "max";
+  } else if (hasFloor) {
+    form.reservePolicyMode = "floor";
+  } else if (hasRatio) {
+    form.reservePolicyMode = "ratio";
+  } else {
+    form.reservePolicyMode = "none";
+  }
+}
+
+// --- 修复后的 syncCashOnlyExecutionForAccount ---
+function syncCashOnlyExecutionForAccount(state, form, platform, account) {
+  if (!form || form.cashOnlyExecutionTouched) return;
+  const configured = normalizeCashOnlyExecutionMode(account?.cash_only_execution_mode);
+  if (configured !== "current") {
+    form.cashOnlyExecutionMode = configured;
+    return;
+  }
+  // Resolve "current" to a concrete value so the UI shows yes/no directly
+  const effective = effectiveCashOnlyExecutionForAccount(state, platform, account);
+  form.cashOnlyExecutionMode = effective === true ? "enabled" : (effective === false ? "disabled" : "current");
+}
+
+// --- 初始加载互斥检查（从 syncStrategyForAccount 提取） ---
+function enforceMutualExclusionAfterSync(form) {
+  if (form && allowMarginExplicitlySelected(form)) {
+    form.reservePolicyMode = "none";
+    form.minReservedCashUsd = "";
+    form.reservedCashRatio = "";
+  }
+}
+
+// --- 表单工厂 ---
+function defaultReserveForm() {
+  return {
+    reservePolicyMode: "current",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    reservedCashTouched: false,
+    cashOnlyExecutionMode: "current",
+    cashOnlyExecutionTouched: false,
+  };
+}
+
+function makeAccount(key = "preview", cash_only_execution_mode) {
+  const acc = { key, label: key, target_name: key };
+  if (cash_only_execution_mode !== undefined) acc.cash_only_execution_mode = cash_only_execution_mode;
+  return acc;
+}
+
+// ============================================================
+// 测试开始
+// ============================================================
+
+console.log("=== 1. allowMarginExplicitlySelected / reserveCashOverrideActive ===\n");
+
+// 1a: margin enabled
+{
+  const form = { cashOnlyExecutionMode: "disabled" };
+  assert(allowMarginExplicitlySelected(form) === true, "1a: margin='disabled' → allowMargin");
+  assert(allowMarginExplicitlySelected({ cashOnlyExecutionMode: "enabled" }) === false, "1a: margin='enabled' → !allowMargin");
+  assert(allowMarginExplicitlySelected({ cashOnlyExecutionMode: "current" }) === false, "1a: margin='current' → !allowMargin");
+  assert(allowMarginExplicitlySelected({}) === false, "1a: missing cashOnlyExecutionMode → !allowMargin");
+  assert(allowMarginExplicitlySelected(null) === false, "1a: null form → !allowMargin");
+}
+
+// 1b: reserve override active
+{
+  assert(reserveCashOverrideActive({ reservePolicyMode: "ratio" }) === true, "1b: 'ratio' → override active");
+  assert(reserveCashOverrideActive({ reservePolicyMode: "floor" }) === true, "1b: 'floor' → override active");
+  assert(reserveCashOverrideActive({ reservePolicyMode: "max" }) === true, "1b: 'max' → override active");
+  assert(reserveCashOverrideActive({ reservePolicyMode: "current" }) === false, "1b: 'current' → no override");
+  assert(reserveCashOverrideActive({ reservePolicyMode: "none" }) === false, "1b: 'none' → no override");
+  assert(reserveCashOverrideActive({ reservePolicyMode: "invalid" }) === false, "1b: 'invalid' → no override");
+  assert(reserveCashOverrideActive({}) === false, "1b: missing → no override");
+}
+
+console.log("\n=== 2. executionCashPolicyConflict ===\n");
+
+{
+  // Both active
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "disabled", reservePolicyMode: "ratio" }) === true,
+    "2: disabled + ratio → conflict");
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "disabled", reservePolicyMode: "floor" }) === true,
+    "2: disabled + floor → conflict");
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "disabled", reservePolicyMode: "max" }) === true,
+    "2: disabled + max → conflict");
+
+  // Only one active
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "disabled", reservePolicyMode: "current" }) === false,
+    "2: disabled + current → no conflict (reserve not active)");
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "enabled", reservePolicyMode: "ratio" }) === false,
+    "2: enabled + ratio → no conflict (margin not active)");
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "current", reservePolicyMode: "current" }) === false,
+    "2: both 'current' → no conflict");
+  assert(executionCashPolicyConflict({ cashOnlyExecutionMode: "disabled", reservePolicyMode: "none" }) === false,
+    "2: disabled + none → no conflict (reserve explicitly none)");
+}
+
+console.log("\n=== 3. reconcileExecutionCashPolicy (修复后) ===\n");
+
+// 3a: 选择"允许融资: 是" → 清除预留现金
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "current",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+    reservedCashTouched: false,
+    cashOnlyExecutionTouched: true,
+  };
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "3a: margin=yes → reservePolicyMode='none'");
+  assert(form.minReservedCashUsd === "", "3a: margin=yes → minReservedCashUsd cleared");
+  assert(form.reservedCashRatio === "", "3a: margin=yes → reservedCashRatio cleared");
+  assert(form.reservedCashTouched === true, "3a: margin=yes → reservedCashTouched=true");
+}
+
+// 3b: 选择"允许融资: 是"，当前 reserve=current，无值
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "current",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    reservedCashTouched: false,
+  };
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "3b: margin=yes (no values) → still 'none'");
+  assert(form.minReservedCashUsd === "", "3b: margin=yes (no values) → floor cleared");
+}
+
+// 3c: 选择"允许融资: 否" → 不影响预留现金
+{
+  const form = {
+    cashOnlyExecutionMode: "enabled",
+    reservePolicyMode: "max",
+    minReservedCashUsd: "5000",
+    reservedCashRatio: "0.03",
+    reservedCashTouched: true,
+  };
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "max", "3c: margin=no → reserve unchanged");
+  assert(form.minReservedCashUsd === "5000", "3c: margin=no → floor unchanged");
+  assert(form.reservedCashRatio === "0.03", "3c: margin=no → ratio unchanged");
+}
+
+// 3d: 选择预留现金覆盖 → 强制不允许融资
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "ratio",
+    minReservedCashUsd: "",
+    reservedCashRatio: "0.05",
+    reservedCashTouched: true,
+    cashOnlyExecutionTouched: false,
+  };
+  reconcileExecutionCashPolicy(form, "reserve");
+  assert(form.cashOnlyExecutionMode === "enabled", "3d: reserve=ratio → cashOnlyExecutionMode='enabled'");
+  assert(form.cashOnlyExecutionTouched === true, "3d: reserve=ratio → cashOnlyExecutionTouched=true");
+}
+
+// 3e: 选择预留现金为 "none" → 不影响融资
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "none",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    reservedCashTouched: true,
+    cashOnlyExecutionTouched: true,
+  };
+  reconcileExecutionCashPolicy(form, "reserve");
+  assert(form.cashOnlyExecutionMode === "disabled", "3e: reserve=none → margin unchanged");
+}
+
+// 3f: 选择预留现金为 "current" → 不影响融资
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "current",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "",
+    reservedCashTouched: false,
+  };
+  reconcileExecutionCashPolicy(form, "reserve");
+  assert(form.cashOnlyExecutionMode === "disabled", "3f: reserve=current → margin unchanged");
+}
+
+// 3g: null form
+{
+  reconcileExecutionCashPolicy(null, "margin"); // should not throw
+  assert(true, "3g: null form → no error");
+}
+
+console.log("\n=== 4. syncReservePolicyForAccount (解析为具体模式) ===\n");
+
+// 4a: both floor and ratio set
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { min_reserved_cash_usd: "10000", reserved_cash_ratio: "0.05" }) };
+  const form = defaultReserveForm();
+  const account = makeAccount("preview");
+  syncReservePolicyForAccount(state, form, "ibkr", account);
+  assert(form.reservePolicyMode === "max", "4a: both set → mode='max'");
+  assert(form.minReservedCashUsd === "10000", "4a: floor value preserved");
+  assert(form.reservedCashRatio === "0.05", "4a: ratio value preserved");
+}
+
+// 4b: only floor
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { min_reserved_cash_usd: "5000" }) };
+  const form = defaultReserveForm();
+  syncReservePolicyForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.reservePolicyMode === "floor", "4b: only floor → mode='floor'");
+  assert(form.minReservedCashUsd === "5000", "4b: floor value preserved");
+  assert(form.reservedCashRatio === "", "4b: ratio empty");
+}
+
+// 4c: only ratio
+{
+  const state = { currentStrategies: makeCurrentStrategies("schwab", { reserved_cash_ratio: "0.03" }) };
+  const form = defaultReserveForm();
+  syncReservePolicyForAccount(state, form, "schwab", makeAccount("preview"));
+  assert(form.reservePolicyMode === "ratio", "4c: only ratio → mode='ratio'");
+  assert(form.minReservedCashUsd === "", "4c: floor empty");
+  assert(form.reservedCashRatio === "0.03", "4c: ratio value preserved");
+}
+
+// 4d: neither set
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {}) };
+  const form = defaultReserveForm();
+  syncReservePolicyForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.reservePolicyMode === "none", "4d: neither set → mode='none'");
+  assert(form.minReservedCashUsd === "", "4d: floor empty");
+  assert(form.reservedCashRatio === "", "4d: ratio empty");
+}
+
+// 4e: already touched → skip sync
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { min_reserved_cash_usd: "99999" }) };
+  const form = { ...defaultReserveForm(), reservedCashTouched: true, reservePolicyMode: "floor", minReservedCashUsd: "100" };
+  syncReservePolicyForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.minReservedCashUsd === "100", "4e: touched → floor NOT overwritten");
+  assert(form.reservePolicyMode === "floor", "4e: touched → mode NOT overwritten");
+}
+
+// 4f: zero values → should be treated as not set
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { min_reserved_cash_usd: "0", reserved_cash_ratio: "0" }) };
+  const form = defaultReserveForm();
+  syncReservePolicyForAccount(state, form, "ibkr", makeAccount("preview"));
+  // cleanDisplayNumber("0") returns "0" → Boolean("0") is true!
+  // "0" is a valid value, so it's treated as set
+  assert(form.reservePolicyMode === "max", "4f: '0' values → mode='max' (0 is a valid value)");
+}
+
+console.log("\n=== 5. syncCashOnlyExecutionForAccount (解析为具体值) ===\n");
+
+// 5a: account has explicit "disabled" → resolve immediately
+{
+  const form = defaultReserveForm();
+  const account = makeAccount("preview", "disabled");
+  syncCashOnlyExecutionForAccount({}, form, "ibkr", account);
+  assert(form.cashOnlyExecutionMode === "disabled", "5a: account.disabled → disabled");
+}
+
+// 5b: account has explicit "enabled" → resolve immediately
+{
+  const form = defaultReserveForm();
+  const account = makeAccount("preview", "enabled");
+  syncCashOnlyExecutionForAccount({}, form, "ibkr", account);
+  assert(form.cashOnlyExecutionMode === "enabled", "5b: account.enabled → enabled");
+}
+
+// 5c: account has no mode → resolve from current entry (cash_only_execution: false → allow margin)
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { cash_only_execution: false }) };
+  const form = defaultReserveForm();
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.cashOnlyExecutionMode === "disabled", "5c: entry.cash_only_execution=false → 'disabled' (allow margin)");
+}
+
+// 5d: account has no mode → resolve from current entry (cash_only_execution: true → cash only)
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { cash_only_execution: true }) };
+  const form = defaultReserveForm();
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.cashOnlyExecutionMode === "enabled", "5d: entry.cash_only_execution=true → 'enabled' (cash only)");
+}
+
+// 5e: no account mode, no entry → platform default (true → cash only)
+{
+  const state = { currentStrategies: {} };
+  const form = defaultReserveForm();
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.cashOnlyExecutionMode === "enabled", "5e: no config → platform default → 'enabled' (cash only)");
+}
+
+// 5f: already touched → skip sync
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { cash_only_execution: false }) };
+  const form = { ...defaultReserveForm(), cashOnlyExecutionTouched: true, cashOnlyExecutionMode: "enabled" };
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.cashOnlyExecutionMode === "enabled", "5f: touched → NOT overwritten");
+}
+
+// 5g: unsupported platform → effective returns null → stays "current"
+{
+  const state = { currentStrategies: {} };
+  const form = defaultReserveForm();
+  syncCashOnlyExecutionForAccount(state, form, "binance", makeAccount("preview"));
+  assert(form.cashOnlyExecutionMode === "current", "5g: unsupported platform → stays 'current'");
+}
+
+console.log("\n=== 6. 初始加载互斥检查 (enforceMutualExclusionAfterSync) ===\n");
+
+// 6a: margin enabled + reserve set → clear reserve
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "max",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+  };
+  enforceMutualExclusionAfterSync(form);
+  assert(form.reservePolicyMode === "none", "6a: margin enabled → reserve cleared");
+  assert(form.minReservedCashUsd === "", "6a: margin enabled → floor cleared");
+  assert(form.reservedCashRatio === "", "6a: margin enabled → ratio cleared");
+}
+
+// 6b: margin disabled + reserve set → no change
+{
+  const form = {
+    cashOnlyExecutionMode: "enabled",
+    reservePolicyMode: "max",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+  };
+  enforceMutualExclusionAfterSync(form);
+  assert(form.reservePolicyMode === "max", "6b: margin disabled → reserve unchanged");
+  assert(form.minReservedCashUsd === "10000", "6b: margin disabled → floor unchanged");
+}
+
+// 6c: margin enabled + reserve "none" → still "none"
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "none",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+  };
+  enforceMutualExclusionAfterSync(form);
+  assert(form.reservePolicyMode === "none", "6c: margin enabled, reserve already none");
+}
+
+// 6d: margin "current" + reserve set → no change (margin not explicitly enabled)
+{
+  const form = {
+    cashOnlyExecutionMode: "current",
+    reservePolicyMode: "max",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+  };
+  enforceMutualExclusionAfterSync(form);
+  assert(form.reservePolicyMode === "max", "6d: margin='current' → reserve unchanged");
+}
+
+console.log("\n=== 7. 端到端场景 ===\n");
+
+// 7a: 用户加载页面 → 平台已有 margin enabled → reserve 应被清除
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {
+    cash_only_execution: false,     // margin IS enabled
+    min_reserved_cash_usd: "10000", // reserve values exist
+    reserved_cash_ratio: "0.05",
+  })};
+  const form = defaultReserveForm();
+  const account = makeAccount("preview");
+  // Step 1: sync reserve
+  syncReservePolicyForAccount(state, form, "ibkr", account);
+  assert(form.reservePolicyMode === "max", "7a-step1: reserve resolved to 'max'");
+  // Step 2: sync cash_only
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", account);
+  assert(form.cashOnlyExecutionMode === "disabled", "7a-step2: margin resolved to 'disabled'");
+  // Step 3: mutual exclusion
+  enforceMutualExclusionAfterSync(form);
+  assert(form.reservePolicyMode === "none", "7a-step3: reserve cleared by mutual exclusion");
+  assert(form.minReservedCashUsd === "", "7a-step3: floor cleared");
+  assert(form.reservedCashRatio === "", "7a-step3: ratio cleared");
+  assert(form.cashOnlyExecutionMode === "disabled", "7a-step3: margin still enabled");
+}
+
+// 7b: 用户选择 margin=yes → reserve 清除 → 再选 margin=no → reserve 保持 none
+{
+  const form = {
+    cashOnlyExecutionMode: "current",
+    reservePolicyMode: "max",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+    reservedCashTouched: true,
+    cashOnlyExecutionTouched: false,
+  };
+  // 用户选 margin=yes
+  form.cashOnlyExecutionMode = "disabled";
+  form.cashOnlyExecutionTouched = true;
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "7b-step1: margin=yes clears reserve");
+
+  // 用户选 margin=no
+  form.cashOnlyExecutionMode = "enabled";
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "7b-step2: margin=no → reserve stays 'none'");
+  // 注意：用户需要手动再设置 reserve 值
+}
+
+// 7c: 用户设置 reserve=ratio → margin 被强制 disabled → 冲突解决
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "current",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    reservedCashTouched: false,
+    cashOnlyExecutionTouched: true,
+  };
+  form.reservePolicyMode = "ratio";
+  form.reservedCashRatio = "0.03";
+  form.reservedCashTouched = true;
+  reconcileExecutionCashPolicy(form, "reserve");
+  assert(form.cashOnlyExecutionMode === "enabled", "7c: reserve=ratio → margin forced 'enabled'");
+}
+
+// 7d: 平台不支持 margin 和 reserve → 所有函数应无影响
+{
+  const form = defaultReserveForm();
+  const account = makeAccount("preview");
+  // sync on binance (no margin, no reserve)
+  const state = { currentStrategies: {} };
+  syncReservePolicyForAccount(state, form, "binance", account);
+  assert(form.reservePolicyMode === "none", "7d: binance → reserve='none' (no values)");
+  syncCashOnlyExecutionForAccount(state, form, "binance", account);
+  assert(form.cashOnlyExecutionMode === "current", "7d: binance → margin='current' (no support)");
+}
+
+// 7e: 用户第一次打开表单，平台从未配置过 → 所有默认为具体值
+{
+  const state = { currentStrategies: {} }; // 空配置
+  const form = defaultReserveForm();
+  const account = makeAccount("preview");
+  syncReservePolicyForAccount(state, form, "ibkr", account);
+  assert(form.reservePolicyMode === "none", "7e: empty config → reserve='none'");
+  assert(form.minReservedCashUsd === "", "7e: empty config → floor empty");
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", account);
+  assert(form.cashOnlyExecutionMode === "enabled", "7e: empty config → margin='enabled' (platform default)");
+  // 互斥检查
+  enforceMutualExclusionAfterSync(form);
+  // margin 是 "enabled" (not "disabled"), 所以 reserve 不变
+  assert(form.reservePolicyMode === "none", "7e: mutual exclusion → reserve still 'none'");
+}
+
+// 7f: 切换账户时应重新解析（touched=false）
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {
+    cash_only_execution: null,
+    min_reserved_cash_usd: "3000",
+    reserved_cash_ratio: "0.02",
+  })};
+  const form = defaultReserveForm(); // touched=false
+  const account = makeAccount("preview");
+  syncReservePolicyForAccount(state, form, "ibkr", account);
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", account);
+  assert(form.reservePolicyMode === "max", "7f: new account → mode='max'");
+  assert(form.cashOnlyExecutionMode === "enabled", "7f: new account → margin='enabled' (platform default)");
+}
+
+console.log("\n=== 8. 回归测试：旧行为不应出现 ===\n");
+
+// 8a: 旧 bug — margin=yes + reserve=current 时不应保持 current
+{
+  // 模拟旧代码行为：executionCashPolicyConflict 返回 false → 不清除
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "current",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+  };
+  // 旧守卫条件：executionCashPolicyConflict(form) → false
+  const oldGuard = !executionCashPolicyConflict(form); // true（没有冲突）
+  assert(oldGuard === true, "8a: old guard would have skipped reconciliation");
+  // 新代码：直接执行
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "8a: new code → reserve cleared regardless");
+  assert(form.minReservedCashUsd === "", "8a: new code → values cleared");
+}
+
+// 8b: 旧 bug — 初始加载 margin=enabled 时 reserve 仍显示值
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {
+    cash_only_execution: false,     // margin enabled
+    min_reserved_cash_usd: "10000",
+    reserved_cash_ratio: "0.05",
+  })};
+  const form = defaultReserveForm();
+  const account = makeAccount("preview");
+  syncReservePolicyForAccount(state, form, "ibkr", account);
+  syncCashOnlyExecutionForAccount(state, form, "ibkr", account);
+  // 旧代码：两者都同步完成，没有互斥检查 → reserve 仍为 "max"
+  // 新代码：互斥检查
+  enforceMutualExclusionAfterSync(form);
+  assert(form.reservePolicyMode === "none", "8b: initial load → margin enabled clears reserve");
+}
+
+// 8c: 平台同时设置了 margin=disabled (allow margin) 和 reserve → 互斥生效
+{
+  const state = { currentStrategies: makeCurrentStrategies("schwab", {
+    cash_only_execution: false,     // margin enabled
+    min_reserved_cash_usd: "20000",
+    reserved_cash_ratio: "0.10",
+  })};
+  const form = defaultReserveForm();
+  const account = makeAccount("preview");
+  syncReservePolicyForAccount(state, form, "schwab", account);
+  syncCashOnlyExecutionForAccount(state, form, "schwab", account);
+  enforceMutualExclusionAfterSync(form);
+  assert(form.cashOnlyExecutionMode === "disabled", "8c: schwab margin remains 'disabled'");
+  assert(form.reservePolicyMode === "none", "8c: schwab reserve cleared to 'none'");
+}
+
+// ============================================================
+summary();

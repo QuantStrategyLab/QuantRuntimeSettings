@@ -2453,13 +2453,13 @@
     }
 
     function reconcileExecutionCashPolicy(form, changed) {
-      if (!form || !executionCashPolicyConflict(form)) return;
-      if (changed === "margin") {
+      if (!form) return;
+      if (changed === "margin" && allowMarginExplicitlySelected(form)) {
         form.reservePolicyMode = "none";
         form.reservedCashTouched = true;
         form.minReservedCashUsd = "";
         form.reservedCashRatio = "";
-      } else if (changed === "reserve") {
+      } else if (changed === "reserve" && reserveCashOverrideActive(form)) {
         form.cashOnlyExecutionMode = "enabled";
         form.cashOnlyExecutionTouched = true;
       }
@@ -3121,6 +3121,13 @@
       syncCashOnlyExecutionForAccount(platform);
       syncDcaForAccount(platform);
       syncIbitZscoreExitForAccount(platform);
+      // Enforce mutual exclusion after sync: if margin is enabled, reserve must be cleared
+      const form = state.forms[platform];
+      if (form && allowMarginExplicitlySelected(form)) {
+        form.reservePolicyMode = "none";
+        form.minReservedCashUsd = "";
+        form.reservedCashRatio = "";
+      }
     }
 
     function syncRuntimeTargetForAccount(platform) {
@@ -3133,9 +3140,20 @@
       const form = state.forms[platform];
       if (!form || form.reservedCashTouched) return;
       const policy = currentReservePolicyForAccount(platform, selectedAccount(platform));
-      form.reservePolicyMode = "current";
       form.minReservedCashUsd = policy.minReservedCashUsd;
       form.reservedCashRatio = policy.reservedCashRatio;
+      // Resolve to a concrete mode so the UI shows actual values instead of "keep current"
+      const hasFloor = Boolean(policy.minReservedCashUsd);
+      const hasRatio = Boolean(policy.reservedCashRatio);
+      if (hasFloor && hasRatio) {
+        form.reservePolicyMode = "max";
+      } else if (hasFloor) {
+        form.reservePolicyMode = "floor";
+      } else if (hasRatio) {
+        form.reservePolicyMode = "ratio";
+      } else {
+        form.reservePolicyMode = "none";
+      }
     }
 
     function syncIncomeLayerForAccount(platform) {
@@ -3165,7 +3183,13 @@
       if (!form || form.cashOnlyExecutionTouched) return;
       const account = selectedAccount(platform);
       const configured = normalizeCashOnlyExecutionMode(account?.cash_only_execution_mode);
-      form.cashOnlyExecutionMode = configured !== "current" ? configured : "current";
+      if (configured !== "current") {
+        form.cashOnlyExecutionMode = configured;
+        return;
+      }
+      // Resolve "current" to a concrete value so the UI shows yes/no directly
+      const effective = effectiveCashOnlyExecutionForAccount(platform, account);
+      form.cashOnlyExecutionMode = effective === true ? "enabled" : (effective === false ? "disabled" : "current");
     }
 
     function syncDcaForAccount(platform) {
@@ -3209,6 +3233,13 @@
         syncCashOnlyExecutionForAccount(platform);
         syncDcaForAccount(platform);
         syncIbitZscoreExitForAccount(platform);
+        // Enforce mutual exclusion after sync: if margin is enabled, reserve must be cleared
+        const form2 = state.forms[platform];
+        if (form2 && allowMarginExplicitlySelected(form2)) {
+          form2.reservePolicyMode = "none";
+          form2.minReservedCashUsd = "";
+          form2.reservedCashRatio = "";
+        }
       }
     }
 
