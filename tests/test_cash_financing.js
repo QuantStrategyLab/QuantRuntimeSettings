@@ -83,17 +83,35 @@ function executionCashPolicyConflict(form) {
   return allowMarginExplicitlySelected(form) && reserveCashOverrideActive(form);
 }
 
-// --- 修复后的 reconcileExecutionCashPolicy ---
+// --- 修复后的 reconcileExecutionCashPolicy (save/restore) ---
 function reconcileExecutionCashPolicy(form, changed) {
   if (!form) return;
   if (changed === "margin" && allowMarginExplicitlySelected(form)) {
+    // Save current reserve state so it can be restored if margin is later disabled
+    if (form.reservePolicyMode !== "none" && (form.minReservedCashUsd || form.reservedCashRatio)) {
+      form._prevReserve = {
+        mode: form.reservePolicyMode,
+        floor: form.minReservedCashUsd,
+        ratio: form.reservedCashRatio,
+      };
+    }
     form.reservePolicyMode = "none";
     form.reservedCashTouched = true;
-    form.minReservedCashUsd = "";
-    form.reservedCashRatio = "";
+    // Keep minReservedCashUsd and reservedCashRatio — will be restored if margin toggled back
   } else if (changed === "reserve" && reserveCashOverrideActive(form)) {
     form.cashOnlyExecutionMode = "enabled";
     form.cashOnlyExecutionTouched = true;
+  }
+}
+
+// --- cash-only change handler restore logic (extracted for testing) ---
+function restoreReserveAfterMarginDisabled(form) {
+  if (!allowMarginExplicitlySelected(form) && form._prevReserve) {
+    form.reservePolicyMode = form._prevReserve.mode;
+    form.minReservedCashUsd = form._prevReserve.floor;
+    form.reservedCashRatio = form._prevReserve.ratio;
+    form.reservedCashTouched = true;
+    delete form._prevReserve;
   }
 }
 
@@ -289,9 +307,12 @@ console.log("\n=== 3. reconcileExecutionCashPolicy (修复后) ===\n");
   };
   reconcileExecutionCashPolicy(form, "margin");
   assert(form.reservePolicyMode === "none", "3a: margin=yes → reservePolicyMode='none'");
-  assert(form.minReservedCashUsd === "", "3a: margin=yes → minReservedCashUsd cleared");
-  assert(form.reservedCashRatio === "", "3a: margin=yes → reservedCashRatio cleared");
+  assert(form.minReservedCashUsd === "10000", "3a: margin=yes → minReservedCashUsd PRESERVED");
+  assert(form.reservedCashRatio === "0.05", "3a: margin=yes → reservedCashRatio PRESERVED");
   assert(form.reservedCashTouched === true, "3a: margin=yes → reservedCashTouched=true");
+  assert(form._prevReserve.mode === "current", "3a: margin=yes → _prevReserve saved");
+  assert(form._prevReserve.floor === "10000", "3a: margin=yes → _prevReserve.floor saved");
+  assert(form._prevReserve.ratio === "0.05", "3a: margin=yes → _prevReserve.ratio saved");
 }
 
 // 3b: 选择"允许融资: 是"，当前 reserve=current，无值
@@ -305,7 +326,8 @@ console.log("\n=== 3. reconcileExecutionCashPolicy (修复后) ===\n");
   };
   reconcileExecutionCashPolicy(form, "margin");
   assert(form.reservePolicyMode === "none", "3b: margin=yes (no values) → still 'none'");
-  assert(form.minReservedCashUsd === "", "3b: margin=yes (no values) → floor cleared");
+  assert(form.minReservedCashUsd === "", "3b: margin=yes (no values) → floor empty");
+  assert(form._prevReserve === undefined, "3b: no values → _prevReserve NOT saved");
 }
 
 // 3c: 选择"允许融资: 否" → 不影响预留现金
@@ -669,7 +691,7 @@ console.log("\n=== 8. 回归测试：旧行为不应出现 ===\n");
   // 新代码：直接执行
   reconcileExecutionCashPolicy(form, "margin");
   assert(form.reservePolicyMode === "none", "8a: new code → reserve cleared regardless");
-  assert(form.minReservedCashUsd === "", "8a: new code → values cleared");
+  assert(form.minReservedCashUsd === "10000", "8a: new code → values preserved for restore");
 }
 
 // 8b: 旧 bug — 初始加载 margin=enabled 时 reserve 仍显示值
@@ -977,6 +999,120 @@ console.log("\n=== 12. 互斥 UI 不再禁用选项 ===\n");
   assert(form.cashOnlyExecutionMode === "enabled", "12b: reserve=ratio → margin disabled");
   assert(form.reservePolicyMode === "ratio", "12b: reserve stays 'ratio'");
   assert(executionCashPolicyConflict(form) === false, "12b: no conflict after reconciliation");
+}
+
+// ============================================================
+// 13. 融资切换 save/restore 预留现金配置
+// ============================================================
+
+console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
+
+// 13a: 用户开融资 → 值保留 → 关融资 → 值恢复
+{
+  const form = {
+    cashOnlyExecutionMode: "enabled",   // 当前：不允许融资
+    reservePolicyMode: "ratio",
+    minReservedCashUsd: "",
+    reservedCashRatio: "0.05",
+    reservedCashTouched: true,
+    cashOnlyExecutionTouched: false,
+  };
+  // 用户选"允许融资: 是"
+  form.cashOnlyExecutionMode = "disabled";
+  form.cashOnlyExecutionTouched = true;
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "13a-step1: reserve cleared to 'none'");
+  assert(form.reservedCashRatio === "0.05", "13a-step1: ratio value preserved");
+  assert(form._prevReserve.mode === "ratio", "13a-step1: prev mode saved");
+  assert(form._prevReserve.ratio === "0.05", "13a-step1: prev ratio saved");
+
+  // 用户选"允许融资: 否" → 恢复
+  form.cashOnlyExecutionMode = "enabled";
+  restoreReserveAfterMarginDisabled(form);
+  assert(form.reservePolicyMode === "ratio", "13a-step2: reserve restored to 'ratio'");
+  assert(form.reservedCashRatio === "0.05", "13a-step2: ratio restored");
+  assert(form._prevReserve === undefined, "13a-step2: _prevReserve cleaned up");
+}
+
+// 13b: 用户开融资 → 关融资 → 手动改 reserve → 再开再关不复原旧值
+{
+  const form = {
+    cashOnlyExecutionMode: "enabled",
+    reservePolicyMode: "max",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.03",
+    reservedCashTouched: true,
+    cashOnlyExecutionTouched: false,
+  };
+  // 开融资
+  form.cashOnlyExecutionMode = "disabled";
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form.reservePolicyMode === "none", "13b-step1: cleared");
+  assert(form._prevReserve.mode === "max", "13b-step1: prev 'max' saved");
+
+  // 关融资 → 恢复
+  form.cashOnlyExecutionMode = "enabled";
+  restoreReserveAfterMarginDisabled(form);
+  assert(form.reservePolicyMode === "max", "13b-step2: restored to 'max'");
+
+  // 用户手动改为 floor
+  form.reservePolicyMode = "floor";
+  form.minReservedCashUsd = "5000";
+  form.reservedCashRatio = "";
+  delete form._prevReserve;
+
+  // 再开融资
+  form.cashOnlyExecutionMode = "disabled";
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form._prevReserve.mode === "floor", "13b-step3: prev 'floor' saved");
+  assert(form._prevReserve.floor === "5000", "13b-step3: prev floor saved");
+
+  // 再关融资 → 恢复 floor
+  form.cashOnlyExecutionMode = "enabled";
+  restoreReserveAfterMarginDisabled(form);
+  assert(form.reservePolicyMode === "floor", "13b-step4: restored to 'floor'");
+  assert(form.minReservedCashUsd === "5000", "13b-step4: floor restored");
+}
+
+// 13c: reserve=none 时开融资不应保存 _prevReserve
+{
+  const form = {
+    cashOnlyExecutionMode: "enabled",
+    reservePolicyMode: "none",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    reservedCashTouched: false,
+  };
+  form.cashOnlyExecutionMode = "disabled";
+  reconcileExecutionCashPolicy(form, "margin");
+  assert(form._prevReserve === undefined, "13c: reserve=none → no _prevReserve saved");
+}
+
+// 13d: margin 切到 "enabled" 但无 _prevReserve → 不动
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "none",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    _prevReserve: undefined,
+  };
+  form.cashOnlyExecutionMode = "enabled";
+  restoreReserveAfterMarginDisabled(form);
+  assert(form.reservePolicyMode === "none", "13d: no _prevReserve → stays 'none'");
+}
+
+// 13e: account switch 清除 _prevReserve
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "none",
+    minReservedCashUsd: "10000",
+    reservedCashRatio: "0.05",
+    _prevReserve: { mode: "max", floor: "10000", ratio: "0.05" },
+  };
+  delete form._prevReserve;  // simulate account switch
+  assert(form._prevReserve === undefined, "13e: account switch clears _prevReserve");
 }
 
 // ============================================================

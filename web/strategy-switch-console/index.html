@@ -2455,10 +2455,17 @@
     function reconcileExecutionCashPolicy(form, changed) {
       if (!form) return;
       if (changed === "margin" && allowMarginExplicitlySelected(form)) {
+        // Save current reserve state so it can be restored if margin is later disabled
+        if (form.reservePolicyMode !== "none" && (form.minReservedCashUsd || form.reservedCashRatio)) {
+          form._prevReserve = {
+            mode: form.reservePolicyMode,
+            floor: form.minReservedCashUsd,
+            ratio: form.reservedCashRatio,
+          };
+        }
         form.reservePolicyMode = "none";
         form.reservedCashTouched = true;
-        form.minReservedCashUsd = "";
-        form.reservedCashRatio = "";
+        // Keep minReservedCashUsd and reservedCashRatio — they'll be restored if margin is toggled back
       } else if (changed === "reserve" && reserveCashOverrideActive(form)) {
         form.cashOnlyExecutionMode = "enabled";
         form.cashOnlyExecutionTouched = true;
@@ -3244,6 +3251,7 @@
         state.forms[platform].cashOnlyExecutionTouched = false;
         state.forms[platform].dcaTouched = false;
         state.forms[platform].ibitZscoreExitTouched = false;
+        delete state.forms[platform]._prevReserve;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncRuntimeTargetForAccount(platform);
@@ -4650,6 +4658,7 @@
       state.forms[state.selected].cashOnlyExecutionTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].ibitZscoreExitTouched = false;
+      delete state.forms[state.selected]._prevReserve;
       syncStrategyForAccount(state.selected);
       render();
     });
@@ -4735,6 +4744,14 @@
       const form = state.forms[state.selected];
       form.cashOnlyExecutionMode = normalizeCashOnlyExecutionMode(el("cash-only-execution-mode-select").value);
       form.cashOnlyExecutionTouched = form.cashOnlyExecutionMode !== "current";
+      // Restore saved reserve state when disabling margin
+      if (!allowMarginExplicitlySelected(form) && form._prevReserve) {
+        form.reservePolicyMode = form._prevReserve.mode;
+        form.minReservedCashUsd = form._prevReserve.floor;
+        form.reservedCashRatio = form._prevReserve.ratio;
+        form.reservedCashTouched = true;
+        delete form._prevReserve;
+      }
       reconcileExecutionCashPolicy(form, "margin");
       render();
     });
