@@ -2937,7 +2937,12 @@
       if (!form || form.incomeLayerTouched) return;
       const defaults = incomeLayerDefaultForStrategy(form.strategy);
       const current = currentIncomeLayerForAccount(platform, selectedAccount(platform));
-      form.incomeLayerMode = "current";
+      const entry = currentEntryForAccount(platform, selectedAccount(platform));
+      if (entry && incomeLayerFieldsConfigured(entry)) {
+        form.incomeLayerMode = current.enabled === false ? "disabled" : "enabled";
+      } else {
+        form.incomeLayerMode = "current";
+      }
       form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
       form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
     }
@@ -2945,10 +2950,10 @@
     function syncOptionOverlayForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.optionOverlayTouched) return;
-      const account = selectedAccount(platform);
-      const configured = normalizeOptionOverlayMode(account?.option_overlay_mode);
-      if (configured !== "current") {
-        form.optionOverlayMode = configured;
+      const entry = currentEntryForAccount(platform, selectedAccount(platform));
+      const rawValue = cleanOptionalBoolean(entry?.option_overlay_enabled);
+      if (rawValue !== null) {
+        form.optionOverlayMode = rawValue ? "enabled" : "disabled";
         return;
       }
       form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "current" : "disabled";
@@ -2957,9 +2962,13 @@
     function syncCashOnlyExecutionForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.cashOnlyExecutionTouched) return;
-      const account = selectedAccount(platform);
-      const configured = normalizeCashOnlyExecutionMode(account?.cash_only_execution_mode);
-      form.cashOnlyExecutionMode = configured !== "current" ? configured : "current";
+      const entry = currentEntryForAccount(platform, selectedAccount(platform));
+      const rawValue = cleanOptionalBoolean(entry?.cash_only_execution);
+      if (rawValue !== null) {
+        form.cashOnlyExecutionMode = rawValue ? "enabled" : "disabled";
+        return;
+      }
+      form.cashOnlyExecutionMode = "current";
     }
 
     function syncDcaForAccount(platform) {
