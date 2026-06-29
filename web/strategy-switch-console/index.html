@@ -3133,7 +3133,9 @@
     function syncRuntimeTargetForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.runtimeTargetTouched) return;
-      form.runtimeTargetMode = "current";
+      // Resolve to a concrete value so the UI shows enabled/disabled directly
+      const target = runtimeTargetStateForAccount(platform, selectedAccount(platform));
+      form.runtimeTargetMode = target.known ? (target.enabled ? "enabled" : "disabled") : "current";
     }
 
     function syncReservePolicyForAccount(platform) {
@@ -3161,9 +3163,17 @@
       if (!form || form.incomeLayerTouched) return;
       const defaults = incomeLayerDefaultForStrategy(form.strategy);
       const current = currentIncomeLayerForAccount(platform, selectedAccount(platform));
-      form.incomeLayerMode = "current";
       form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
       form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
+      // Resolve to a concrete mode so the UI shows enabled/disabled directly
+      const effective = effectiveIncomeLayerForAccount(platform, selectedAccount(platform), form.strategy);
+      if (effective) {
+        form.incomeLayerMode = effective.enabled ? "enabled" : "disabled";
+      } else if (defaults) {
+        form.incomeLayerMode = "enabled";
+      } else {
+        form.incomeLayerMode = "current";
+      }
     }
 
     function syncOptionOverlayForAccount(platform) {
@@ -3175,7 +3185,17 @@
         form.optionOverlayMode = configured;
         return;
       }
-      form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "current" : "disabled";
+      // Resolve to a concrete mode so the UI shows enabled/disabled directly
+      if (!optionOverlaySupported(form.strategy)) {
+        form.optionOverlayMode = "disabled";
+        return;
+      }
+      const effective = effectiveOptionOverlayForAccount(platform, account, form.strategy);
+      if (effective !== null && effective !== undefined) {
+        form.optionOverlayMode = effective ? "enabled" : "disabled";
+      } else {
+        form.optionOverlayMode = "enabled";
+      }
     }
 
     function syncCashOnlyExecutionForAccount(platform) {
@@ -4171,9 +4191,8 @@
           "{currency}",
           selectedCashCurrency(platform, account),
         );
-        reservePolicyModeSelect.disabled = marginBlocksReserve;
-        minReservedCashInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
-        reservedCashRatioInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
+        minReservedCashInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
+        reservedCashRatioInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
         minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
         reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
         el("reserve-policy-block").classList.toggle("policy-block-muted", marginBlocksReserve);
@@ -4226,7 +4245,6 @@
             false,
             mode === normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode),
           );
-          if (mode === "disabled" && reserveBlocksMargin) option.disabled = true;
           cashOnlyExecutionModeSelect.append(option);
         }
         el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
