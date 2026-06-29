@@ -706,4 +706,278 @@ console.log("\n=== 8. 回归测试：旧行为不应出现 ===\n");
 }
 
 // ============================================================
+// 9. syncRuntimeTargetForAccount (解析为具体值)
+// ============================================================
+
+// --- 辅助函数 ---
+function runtimeTargetStateForAccount(state, platform, account) {
+  const entry = currentEntryForAccount(state, platform, account);
+  if (!entry) return { known: false, enabled: null };
+  const configured = cleanOptionalBoolean(entry.runtime_target_enabled);
+  return { known: true, enabled: configured ?? true };
+}
+
+function syncRuntimeTargetForAccount(state, form, platform, account) {
+  if (!form || form.runtimeTargetTouched) return;
+  const target = runtimeTargetStateForAccount(state, platform, account);
+  form.runtimeTargetMode = target.known ? (target.enabled ? "enabled" : "disabled") : "current";
+}
+
+// --- 测试 ---
+console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
+
+// 9a: runtime_target_enabled: true → enabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: true } }) };
+  const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
+  syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.runtimeTargetMode === "enabled", "9a: runtime_target=true → 'enabled'");
+}
+
+// 9b: runtime_target_enabled: false → disabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: false } }) };
+  const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
+  syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.runtimeTargetMode === "disabled", "9b: runtime_target=false → 'disabled'");
+}
+
+// 9c: no entry → stays "current"
+{
+  const state = { currentStrategies: {} };
+  const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
+  syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.runtimeTargetMode === "current", "9c: no entry → 'current'");
+}
+
+// 9d: touched → skip
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: false } }) };
+  const form = { runtimeTargetMode: "enabled", runtimeTargetTouched: true };
+  syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.runtimeTargetMode === "enabled", "9d: touched → not overwritten");
+}
+
+// ============================================================
+// 10. syncIncomeLayerForAccount (解析为具体值)
+// ============================================================
+
+// --- 辅助函数 ---
+function incomeLayerFromEntry(entry) {
+  return {
+    enabled: cleanOptionalBoolean(entry?.income_layer_enabled),
+    startUsd: cleanDisplayNumber(entry?.income_layer_start_usd),
+    maxRatio: cleanDisplayRatio(entry?.income_layer_max_ratio),
+  };
+}
+
+function incomeLayerFieldsConfigured(entry) {
+  const current = incomeLayerFromEntry(entry);
+  return current.enabled !== null || Boolean(current.startUsd || current.maxRatio);
+}
+
+function incomeLayerDefaultForStrategy(profile) {
+  return profile ? { startUsd: 100000, maxRatio: "0.30" } : null;
+}
+
+function effectiveIncomeLayerForAccount(state, platform, account, profile) {
+  const defaults = incomeLayerDefaultForStrategy(profile);
+  if (!defaults) return null;
+  const entry = currentEntryForAccount(state, platform, account);
+  if (!entry) return null;
+  const current = incomeLayerFromEntry(entry);
+  if (!incomeLayerFieldsConfigured(entry)) {
+    return { enabled: true, startUsd: String(defaults.startUsd), maxRatio: defaults.maxRatio };
+  }
+  return {
+    enabled: current.enabled ?? true,
+    startUsd: current.startUsd || String(defaults.startUsd),
+    maxRatio: current.maxRatio || defaults.maxRatio,
+  };
+}
+
+function syncIncomeLayerForAccount(state, form, platform, account) {
+  if (!form || form.incomeLayerTouched) return;
+  const defaults = incomeLayerDefaultForStrategy(form.strategy);
+  const current = incomeLayerFromEntry(currentEntryForAccount(state, platform, account));
+  form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
+  form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
+  const effective = effectiveIncomeLayerForAccount(state, platform, account, form.strategy);
+  if (effective) {
+    form.incomeLayerMode = effective.enabled ? "enabled" : "disabled";
+  } else if (defaults) {
+    form.incomeLayerMode = "enabled";
+  } else {
+    form.incomeLayerMode = "current";
+  }
+}
+
+console.log("\n=== 10. syncIncomeLayerForAccount (解析为具体值) ===\n");
+
+// 10a: income_layer_enabled: true → enabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {
+    extra: { income_layer_enabled: true, income_layer_start_usd: "200000", income_layer_max_ratio: "0.25" }
+  }) };
+  const form = { incomeLayerMode: "current", incomeLayerTouched: false, strategy: "some_profile" };
+  syncIncomeLayerForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.incomeLayerMode === "enabled", "10a: income_layer enabled → 'enabled'");
+}
+
+// 10b: income_layer_enabled: false → disabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {
+    extra: { income_layer_enabled: false, income_layer_start_usd: "200000", income_layer_max_ratio: "0.25" }
+  }) };
+  const form = { incomeLayerMode: "current", incomeLayerTouched: false, strategy: "some_profile" };
+  syncIncomeLayerForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.incomeLayerMode === "disabled", "10b: income_layer disabled → 'disabled'");
+}
+
+// 10c: no entry + has defaults → enabled (default)
+{
+  const state = { currentStrategies: {} };
+  const form = { incomeLayerMode: "current", incomeLayerTouched: false, strategy: "some_profile" };
+  syncIncomeLayerForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.incomeLayerMode === "enabled", "10c: no entry + defaults → 'enabled'");
+}
+
+// 10d: touched → skip
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", {
+    extra: { income_layer_enabled: false }
+  }) };
+  const form = { incomeLayerMode: "enabled", incomeLayerTouched: true, strategy: "some_profile" };
+  syncIncomeLayerForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.incomeLayerMode === "enabled", "10d: touched → not overwritten");
+}
+
+// ============================================================
+// 11. syncOptionOverlayForAccount (解析为具体值)
+// ============================================================
+
+function optionOverlaySupported(profile) { return profile !== "no_overlay"; }
+function currentOptionOverlayForAccount(state, platform, account) {
+  return cleanOptionalBoolean(currentEntryForAccount(state, platform, account)?.option_overlay_enabled);
+}
+function effectiveOptionOverlayForAccount(state, platform, account, profile) {
+  const configured = currentOptionOverlayForAccount(state, platform, account);
+  if (configured !== null) return configured;
+  if (!optionOverlaySupported(profile)) return null;
+  return true;
+}
+function normalizeOptionOverlayMode(value) {
+  return ["current", "enabled", "disabled"].includes(value) ? value : "current";
+}
+
+function syncOptionOverlayForAccount(state, form, platform, account) {
+  if (!form || form.optionOverlayTouched) return;
+  const configured = normalizeOptionOverlayMode(account?.option_overlay_mode);
+  if (configured !== "current") {
+    form.optionOverlayMode = configured;
+    return;
+  }
+  if (!optionOverlaySupported(form.strategy)) {
+    form.optionOverlayMode = "disabled";
+    return;
+  }
+  const effective = effectiveOptionOverlayForAccount(state, platform, account, form.strategy);
+  if (effective !== null && effective !== undefined) {
+    form.optionOverlayMode = effective ? "enabled" : "disabled";
+  } else {
+    form.optionOverlayMode = "enabled";
+  }
+}
+
+console.log("\n=== 11. syncOptionOverlayForAccount (解析为具体值) ===\n");
+
+// 11a: option_overlay_enabled: true → enabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { option_overlay_enabled: true } }) };
+  const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
+  syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.optionOverlayMode === "enabled", "11a: option overlay enabled → 'enabled'");
+}
+
+// 11b: option_overlay_enabled: false → disabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { option_overlay_enabled: false } }) };
+  const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
+  syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.optionOverlayMode === "disabled", "11b: option overlay disabled → 'disabled'");
+}
+
+// 11c: no entry + supported → enabled (default)
+{
+  const state = { currentStrategies: {} };
+  const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
+  syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.optionOverlayMode === "enabled", "11c: no entry + supported → 'enabled'");
+}
+
+// 11d: not supported → disabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { option_overlay_enabled: true } }) };
+  const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "no_overlay" };
+  syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.optionOverlayMode === "disabled", "11d: not supported → 'disabled'");
+}
+
+// 11e: account has explicit mode → use it
+{
+  const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
+  syncOptionOverlayForAccount({}, form, "ibkr", { key: "preview", option_overlay_mode: "disabled" });
+  assert(form.optionOverlayMode === "disabled", "11e: account explicit 'disabled' → 'disabled'");
+}
+
+// ============================================================
+// 12. 互斥 UI 不再禁用选项 (回归测试)
+// ============================================================
+
+console.log("\n=== 12. 互斥 UI 不再禁用选项 ===\n");
+
+// 12a: 预留现金覆盖活跃时，select cash-only=disabled 不应因 option.disabled 被阻挡
+// (此测试验证 reconcileExecutionCashPolicy 可处理用户选择，无需前置禁用)
+{
+  const form = {
+    cashOnlyExecutionMode: "enabled",  // 当前：不允许融资
+    reservePolicyMode: "ratio",
+    minReservedCashUsd: "",
+    reservedCashRatio: "0.05",
+    reservedCashTouched: true,
+    cashOnlyExecutionTouched: false,
+  };
+  // 用户选择"允许融资: 是"
+  form.cashOnlyExecutionMode = "disabled";
+  form.cashOnlyExecutionTouched = true;
+  reconcileExecutionCashPolicy(form, "margin");
+  // 预留现金应被清除
+  assert(form.reservePolicyMode === "none", "12a: margin=yes → reserve cleared");
+  assert(form.cashOnlyExecutionMode === "disabled", "12a: margin stays 'disabled'");
+  // 不再冲突
+  assert(executionCashPolicyConflict(form) === false, "12a: no conflict after reconciliation");
+}
+
+// 12b: margin 启用时，reserve 下拉框不应 disabled，用户可选 ratio
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",  // margin enabled
+    reservePolicyMode: "none",
+    minReservedCashUsd: "",
+    reservedCashRatio: "",
+    reservedCashTouched: false,
+    cashOnlyExecutionTouched: true,
+  };
+  // 用户选择预留现金策略: ratio
+  form.reservePolicyMode = "ratio";
+  form.reservedCashRatio = "0.03";
+  form.reservedCashTouched = true;
+  reconcileExecutionCashPolicy(form, "reserve");
+  // 融资应被禁用
+  assert(form.cashOnlyExecutionMode === "enabled", "12b: reserve=ratio → margin disabled");
+  assert(form.reservePolicyMode === "ratio", "12b: reserve stays 'ratio'");
+  assert(executionCashPolicyConflict(form) === false, "12b: no conflict after reconciliation");
+}
+
+// ============================================================
 summary();
