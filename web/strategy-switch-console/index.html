@@ -2769,6 +2769,20 @@
         const entry = byPlatform[key];
         if (currentEntryHasState(entry)) return entry;
       }
+      // No prior switch-console entry — build a synthetic entry from
+      // account-option defaults so the UI still shows meaningful values.
+      const profile = cleanStrategyProfile(account?.default_strategy_profile || account?.strategy_profile || "");
+      if (profile || account?.cash_only_execution_mode || account?.reserved_cash_policy_mode) {
+        const synth = { strategy_profile: profile };
+        if (account?.cash_only_execution_mode === "enabled" || account?.cash_only_execution_mode === "disabled") {
+          synth.cash_only_execution = account.cash_only_execution_mode === "enabled";
+        }
+        if (account?.min_reserved_cash_usd) synth.min_reserved_cash_usd = account.min_reserved_cash_usd;
+        if (account?.reserved_cash_ratio) synth.reserved_cash_ratio = account.reserved_cash_ratio;
+        if (account?.reserve_policy_mode) synth.reserve_policy_mode = account.reserve_policy_mode;
+        if (account?.runtime_target_enabled !== undefined) synth.runtime_target_enabled = account.runtime_target_enabled;
+        return synth;
+      }
       return null;
     }
 
