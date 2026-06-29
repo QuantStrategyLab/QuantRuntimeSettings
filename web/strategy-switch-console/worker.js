@@ -1,6 +1,7 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { PAGE_HTML } from "./page_asset.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
+import { APP_CSS } from "./app_css.js";
 import {
   DCA_SUPPORTED_PLATFORMS,
   DEFAULT_VARIABLE_SCOPES,
@@ -153,6 +154,12 @@ export default {
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
+      if (url.pathname === "/app.css") {
+        return new Response(APP_CSS, {
+          status: 200,
+          headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "public, max-age=3600" },
+        });
+      }
       return html(PAGE_HTML);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
