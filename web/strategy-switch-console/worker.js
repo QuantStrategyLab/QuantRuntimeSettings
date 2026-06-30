@@ -30,7 +30,7 @@ const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
 const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
-const CURRENT_STRATEGIES_CACHE_TTL_MS = 120_000;       // 2 min — return cached data without refresh
+const CURRENT_STRATEGIES_CACHE_TTL_MS = 5_000;       // 5 sec — rapid refresh during active development
 const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
 const GITHUB_API_TIMEOUT_MS = 8000;
 
