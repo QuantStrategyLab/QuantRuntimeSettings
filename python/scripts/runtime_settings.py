@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
 EXAMPLE_TARGETS_DIR = ROOT / "examples" / "targets"
 LOCAL_POLICY_PATH = ROOT / "local" / "policy.json"

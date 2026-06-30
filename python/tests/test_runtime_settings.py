@@ -10,15 +10,15 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "runtime_settings.py"
+ROOT = Path(__file__).resolve().parents[2]
+MODULE_PATH = ROOT / "python" / "scripts" / "runtime_settings.py"
 SPEC = importlib.util.spec_from_file_location("runtime_settings", MODULE_PATH)
 runtime_settings = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = runtime_settings
 SPEC.loader.exec_module(runtime_settings)
 
-SWITCH_MODULE_PATH = ROOT / "scripts" / "build_runtime_switch.py"
+SWITCH_MODULE_PATH = ROOT / "python" / "scripts" / "build_runtime_switch.py"
 SWITCH_SPEC = importlib.util.spec_from_file_location("build_runtime_switch", SWITCH_MODULE_PATH)
 build_runtime_switch = importlib.util.module_from_spec(SWITCH_SPEC)
 assert SWITCH_SPEC.loader is not None
@@ -263,7 +263,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("STRATEGY_SWITCH_SYNC_TOKEN", workflow)
         self.assertIn("CLOUDFLARE_WRANGLER_CONFIG_TOML", workflow)
         self.assertIn("STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID", workflow)
-        self.assertIn("scripts/sync_strategy_switch_page_asset.py", workflow)
+        self.assertIn("python/scripts/sync_strategy_switch_page_asset.py", workflow)
 
     def test_plugin_mount_schema_version_must_be_non_empty_string(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")

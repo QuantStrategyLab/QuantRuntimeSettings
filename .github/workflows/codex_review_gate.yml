@@ -54,7 +54,7 @@ jobs:
         id: gate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python scripts/gate_codex_app_review.py
+        run: python python/scripts/gate_codex_app_review.py
 
       - name: Upload gate diagnostics
         if: always()

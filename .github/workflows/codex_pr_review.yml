@@ -42,7 +42,7 @@ jobs:
           OPENAI_MODEL: ${{ vars.OPENAI_MODEL || 'gpt-5.4-mini' }}
           CODEX_AUDIT_SERVICE_URL: ${{ secrets.CODEX_AUDIT_SERVICE_URL }}
           CODEX_AUDIT_SERVICE_AUDIENCE: ${{ vars.CODEX_AUDIT_SERVICE_AUDIENCE || 'quant-codex-audit' }}
-        run: python scripts/run_codex_pr_review.py
+        run: python python/scripts/run_codex_pr_review.py
 
       - name: Upload review diagnostics
         if: always()

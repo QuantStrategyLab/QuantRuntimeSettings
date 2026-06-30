@@ -13,7 +13,7 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
-ROOT = SCRIPT_DIR.parent
+ROOT = SCRIPT_DIR.parents[1]
 
 from runtime_settings import (  # noqa: E402
     SUPPORTED_PLATFORMS,

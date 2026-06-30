@@ -47,7 +47,7 @@ fi
 export GH_TOKEN="${GH_TOKEN:-${GITHUB_TOKEN}}"
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "${script_dir}/.." && pwd)"
+repo_root="$(cd "${script_dir}/../.." && pwd)"
 matrix_file="${matrix_path}"
 if [ ! -f "${matrix_file}" ]; then
   matrix_file="${repo_root}/${matrix_path}"

@@ -19,20 +19,23 @@ QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategy
 
 ## 仓库结构
 
-- `tests/`：单元测试、契约测试和回归测试。
+- `python/`：Python 工具链（脚本、测试、pyproject.toml）— 校验、代码生成、部署工具。
+- `web/`：JavaScript Web 应用（Cloudflare Workers 策略切换控制台）。
+- `schemas/`：JSON Schema 文件，Python 和 JS 共享。
+- `tests/`：JavaScript 单元测试和集成测试。
 - `.github/workflows/`：CI、定时任务、发布或部署 workflow。
-- `scripts/`：运维脚本和本地辅助工具。
+- `docs/ARCHITECTURE.md`：详细架构文档。
 
 ## 快速开始
 
 ```bash
-python3 scripts/runtime_settings.py validate
-python3 -m unittest discover -s tests -v
+python3 python/scripts/runtime_settings.py validate
+python3 -m unittest discover -s python/tests -v
 ```
 
 ## 一键切换策略
 
-`.github/workflows/manual-strategy-switch.yml` 提供手动触发的中控切换入口。它会根据表单参数生成运行目标，复用 `scripts/runtime_settings.py` 校验并写入目标平台仓库的 GitHub variables。当前支持 `longbridge`、`ibkr`、`schwab`、`firstrade`。
+`.github/workflows/manual-strategy-switch.yml` 提供手动触发的中控切换入口。它会根据表单参数生成运行目标，复用 `python/scripts/runtime_settings.py` 校验并写入目标平台仓库的 GitHub variables。当前支持 `longbridge`、`ibkr`、`schwab`、`firstrade`。
 
 推荐流程：
 
