@@ -25,7 +25,7 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 API_BASE = "https://api.github.com"
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = ROOT / ".github" / "codex_auto_merge_policy.json"
 PROMPT_TEMPLATE_PATH = ROOT / "prompts" / "pr_review.md"
 DEFAULT_SERVICE_AUDIENCE = "quant-codex-audit"

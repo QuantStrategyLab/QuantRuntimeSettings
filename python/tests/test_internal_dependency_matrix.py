@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "scripts" / "check_internal_dependency_matrix.py"
+ROOT = Path(__file__).resolve().parents[2]
+MODULE_PATH = ROOT / "python" / "scripts" / "check_internal_dependency_matrix.py"
 SPEC = importlib.util.spec_from_file_location("check_internal_dependency_matrix", MODULE_PATH)
 check_internal_dependency_matrix = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None

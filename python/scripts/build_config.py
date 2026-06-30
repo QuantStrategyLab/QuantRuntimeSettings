@@ -2,8 +2,8 @@
 """Build pipeline: platform-config.json → all derived files.
 
 Usage:
-    python3 scripts/build_config.py            # full build
-    python3 scripts/build_config.py --check    # only validate config
+    python3 python/scripts/build_config.py            # full build
+    python3 python/scripts/build_config.py --check    # only validate config
 
 Adds/modifies:
     web/strategy-switch-console/strategy-profiles.example.json
@@ -20,7 +20,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "platform-config.json"
 STRATEGY_PROFILES_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
 STRATEGY_PROFILES_ASSET = ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js"
@@ -207,7 +207,7 @@ def inject_into_index_html(config: dict) -> None:
 
 def run_sync_script() -> None:
     """Run the existing sync script to regenerate page_asset.js + strategy_profiles_asset.js."""
-    sync_script = ROOT / "scripts" / "sync_strategy_switch_page_asset.py"
+    sync_script = ROOT / "python" / "scripts" / "sync_strategy_switch_page_asset.py"
     if sync_script.exists():
         subprocess.run([sys.executable, str(sync_script)], cwd=ROOT, check=True)
         print("  Ran sync_strategy_switch_page_asset.py")

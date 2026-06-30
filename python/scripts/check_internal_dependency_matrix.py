@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MATRIX_PATH = ROOT / "internal_dependency_matrix.json"
 DEFAULT_PROJECTS_ROOT = ROOT.parent
 DEPENDENCY_PATTERN = re.compile(

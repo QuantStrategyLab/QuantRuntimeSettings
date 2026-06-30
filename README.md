@@ -19,20 +19,23 @@ It supports the system but does not decide which strategy should be live. Strate
 
 ## Repository layout
 
-- `tests/`: unit, contract, and regression tests.
+- `python/`: Python tooling (scripts, tests, pyproject.toml) — validation, code generation, deployment scripts.
+- `web/`: JavaScript web app (Cloudflare Workers strategy switch console).
+- `schemas/`: JSON Schema files shared by both Python and JS.
+- `tests/`: JavaScript unit/integration tests.
 - `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
-- `scripts/`: operator scripts and local helpers.
+- `docs/ARCHITECTURE.md`: Detailed architecture documentation.
 
 ## Quick start
 
 ```bash
-python3 scripts/runtime_settings.py validate
-python3 -m unittest discover -s tests -v
+python3 python/scripts/runtime_settings.py validate
+python3 -m unittest discover -s python/tests -v
 ```
 
 ## Manual Strategy Switch
 
-`.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It currently supports `longbridge`, `ibkr`, `schwab`, and `firstrade`.
+`.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `python/scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It currently supports `longbridge`, `ibkr`, `schwab`, and `firstrade`.
 
 Recommended flow:
 

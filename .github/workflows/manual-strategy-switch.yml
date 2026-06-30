@@ -212,7 +212,7 @@ jobs:
         id: platform
         run: |
           set -euo pipefail
-          repo="$(python3 scripts/runtime_settings.py repository "${PLATFORM}")"
+          repo="$(python3 python/scripts/runtime_settings.py repository "${PLATFORM}")"
           echo "repository=${repo}" >> "$GITHUB_OUTPUT"
 
       - name: Fetch existing service targets
@@ -302,14 +302,14 @@ jobs:
           if [ -s "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
             args+=(--existing-service-targets-json-file "${EXISTING_SERVICE_TARGETS_JSON_FILE}")
           fi
-          python3 scripts/build_runtime_switch.py "${args[@]}"
-          python3 scripts/runtime_settings.py validate "${target_file}"
+          python3 python/scripts/build_runtime_switch.py "${args[@]}"
+          python3 python/scripts/runtime_settings.py validate "${target_file}"
           echo "TARGET_FILE=${target_file}" >> "$GITHUB_ENV"
 
       - name: Preview assignments
         run: |
           set -euo pipefail
-          python3 scripts/runtime_settings.py render "${TARGET_FILE}" --format json --redact-values > "${RUNNER_TEMP}/assignments.json"
+          python3 python/scripts/runtime_settings.py render "${TARGET_FILE}" --format json --redact-values > "${RUNNER_TEMP}/assignments.json"
           python - <<'PY' "${TARGET_FILE}" "${RUNNER_TEMP}/assignments.json" >> "$GITHUB_STEP_SUMMARY"
           import json
           import sys
@@ -336,7 +336,7 @@ jobs:
 
       - name: Apply GitHub variable updates
         if: env.APPLY_SWITCH == 'true'
-        run: python3 scripts/runtime_settings.py apply "${TARGET_FILE}" --yes
+        run: python3 python/scripts/runtime_settings.py apply "${TARGET_FILE}" --yes
 
       - name: Dispatch platform sync workflow
         if: env.APPLY_SWITCH == 'true' && env.TRIGGER_PLATFORM_SYNC == 'true'
@@ -374,7 +374,7 @@ jobs:
           import urllib.request
 
           root = os.environ.get("GITHUB_WORKSPACE") or os.getcwd()
-          sys.path.insert(0, os.path.join(root, "scripts"))
+          sys.path.insert(0, os.path.join(root, "python", "scripts"))
           import runtime_settings
 
           base_url = os.environ["STRATEGY_SWITCH_CONSOLE_URL"].rstrip("/")
