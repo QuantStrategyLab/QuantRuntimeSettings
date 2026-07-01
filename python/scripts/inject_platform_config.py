@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Inject platform-config globals into index.html before </head>."""
+
 import json
 from pathlib import Path
 
@@ -16,67 +17,117 @@ def main() -> int:
     pc, dao, dca, inc_layer, opt_overlay = {}, {}, {}, {}, {}
     for pid, pdata in platforms.items():
         caps, depl = pdata["capabilities"], pdata["deployment"]
-        pc[pid] = dict(dry_run_only=depl.get("dry_run_only", False),
-                       margin_policy=caps.get("margin_policy", False),
-                       reserved_cash=caps.get("reserved_cash", False),
-                       income_layer=caps.get("income_layer", False),
-                       option_overlay=caps.get("option_overlay", False),
-                       dca=caps.get("dca", False),
-                       execution_mode=depl.get("default_execution_mode", "live"),
-                       service_name=depl.get("service_name", ""),
-                       default_execution_mode=depl.get("default_execution_mode", "live"))
+        pc[pid] = dict(
+            dry_run_only=depl.get("dry_run_only", False),
+            margin_policy=caps.get("margin_policy", False),
+            reserved_cash=caps.get("reserved_cash", False),
+            income_layer=caps.get("income_layer", False),
+            option_overlay=caps.get("option_overlay", False),
+            dca=caps.get("dca", False),
+            execution_mode=depl.get("default_execution_mode", "live"),
+            service_name=depl.get("service_name", ""),
+            default_execution_mode=depl.get("default_execution_mode", "live"),
+        )
         acct = pdata.get("default_account", {})
-        entry = dict(key=acct.get("key", pid), label=acct.get("label", pdata.get("label", pid)),
-                     target_name=acct.get("target_name", acct.get("key", pid)),
-                     supported_domains=acct.get("supported_domains", pdata.get("supported_domains", [])),
-                     cash_currency=acct.get("cash_currency", "USD"))
-        for fld in ("default_strategy_profile", "service_name", "account_scope",
-                     "deployment_selector", "account_selector", "default_execution_mode",
-                     "min_reserved_cash_usd", "reserved_cash_ratio",
-                     "cash_only_execution_mode", "dca_mode", "dca_base_investment_usd"):
-            if acct.get(fld): entry[fld] = acct[fld]
-        if "service_name" not in entry: entry["service_name"] = depl.get("service_name", "")
-        if "default_execution_mode" not in entry: entry["default_execution_mode"] = depl.get("default_execution_mode", "live")
+        entry = dict(
+            key=acct.get("key", pid),
+            label=acct.get("label", pdata.get("label", pid)),
+            target_name=acct.get("target_name", acct.get("key", pid)),
+            supported_domains=acct.get("supported_domains", pdata.get("supported_domains", [])),
+            cash_currency=acct.get("cash_currency", "USD"),
+        )
+        for fld in (
+            "default_strategy_profile",
+            "service_name",
+            "account_scope",
+            "deployment_selector",
+            "account_selector",
+            "default_execution_mode",
+            "min_reserved_cash_usd",
+            "reserved_cash_ratio",
+            "cash_only_execution_mode",
+            "dca_mode",
+            "dca_base_investment_usd",
+        ):
+            if acct.get(fld):
+                entry[fld] = acct[fld]
+        if "service_name" not in entry:
+            entry["service_name"] = depl.get("service_name", "")
+        if "default_execution_mode" not in entry:
+            entry["default_execution_mode"] = depl.get("default_execution_mode", "live")
         dao[pid] = [entry]
     for sid, sdata in strategies.items():
         feat = sdata.get("features", {})
         dd = sdata.get("dca_defaults")
-        if dd: dca[sid] = dict(defaultMode=dd.get("default_mode", "fixed"),
-                                defaultBaseInvestmentUsd=str(dd.get("default_base_investment_usd", "1000")))
+        if dd:
+            dca[sid] = dict(
+                defaultMode=dd.get("default_mode", "fixed"),
+                defaultBaseInvestmentUsd=str(dd.get("default_base_investment_usd", "1000")),
+            )
         if feat.get("income_layer"):
             idl = sdata.get("income_layer_defaults", {})
-            inc_layer[sid] = dict(startUsd=int(idl.get("start_usd", 0)),
-                                  maxRatio=str(idl.get("max_ratio", "")),
-                                  allocations=idl.get("allocations", {}))
+            inc_layer[sid] = dict(
+                startUsd=int(idl.get("start_usd", 0)),
+                maxRatio=str(idl.get("max_ratio", "")),
+                allocations=idl.get("allocations", {}),
+            )
         if feat.get("option_overlay"):
             odl = sdata.get("option_overlay_defaults", {})
             families = []
             if odl.get("growth_enabled"):
-                families.append(dict(family="growth", recipe=odl["growth_recipe"],
-                    startUsd=odl["growth_start_usd"], ratio=str(odl.get("nav_budget_ratio", "")), ratioKind="budget"))
+                families.append(
+                    dict(
+                        family="growth",
+                        recipe=odl["growth_recipe"],
+                        startUsd=odl["growth_start_usd"],
+                        ratio=str(odl.get("nav_budget_ratio", "")),
+                        ratioKind="budget",
+                    )
+                )
             if odl.get("income_enabled"):
-                families.append(dict(family="income", recipe=odl["income_recipe"],
-                    startUsd=odl["income_start_usd"], ratio=str(odl.get("nav_risk_ratio", "")), ratioKind="risk"))
-            opt_overlay[sid] = dict(liveGate=odl.get("live_gate", ""), liveStatus=odl.get("live_status", ""), families=families)
+                families.append(
+                    dict(
+                        family="income",
+                        recipe=odl["income_recipe"],
+                        startUsd=odl["income_start_usd"],
+                        ratio=str(odl.get("nav_risk_ratio", "")),
+                        ratioKind="risk",
+                    )
+                )
+            opt_overlay[sid] = dict(
+                liveGate=odl.get("live_gate", ""), liveStatus=odl.get("live_status", ""), families=families
+            )
 
-    block = "\n".join([
-        "<!-- Generated by inject_platform_config.py -->",
-        '<script id="platform-config">',
-        "window.__PLATFORM_CONFIG__ = " + json.dumps(pc, ensure_ascii=False) + ";",
-        "window.__DEFAULT_ACCOUNT_OPTIONS__ = " + json.dumps(dao, ensure_ascii=False) + ";",
-        "window.__DCA_PROFILE_DEFAULTS__ = " + json.dumps(dca, ensure_ascii=False) + ";",
-        "window.__INCOME_LAYER_DEFAULTS__ = " + json.dumps(inc_layer, ensure_ascii=False) + ";",
-        "window.__OPTION_OVERLAY_DEFAULTS__ = " + json.dumps(opt_overlay, ensure_ascii=False) + ";",
-        "</script>",
-    ])
+    block = "\n".join(
+        [
+            "<!-- Generated by inject_platform_config.py -->",
+            '<script id="platform-config">',
+            "window.__PLATFORM_CONFIG__ = " + json.dumps(pc, ensure_ascii=False) + ";",
+            "window.__DEFAULT_ACCOUNT_OPTIONS__ = " + json.dumps(dao, ensure_ascii=False) + ";",
+            "window.__DCA_PROFILE_DEFAULTS__ = " + json.dumps(dca, ensure_ascii=False) + ";",
+            "window.__INCOME_LAYER_DEFAULTS__ = " + json.dumps(inc_layer, ensure_ascii=False) + ";",
+            "window.__OPTION_OVERLAY_DEFAULTS__ = " + json.dumps(opt_overlay, ensure_ascii=False) + ";",
+            "</script>",
+        ]
+    )
 
     html = SOURCE.read_text(encoding="utf-8")
+    marker = "<!-- Generated by inject_platform_config.py -->"
     existing = html.find('<script id="platform-config">')
     if existing >= 0:
-        end = html.find('</script>', existing) + 9
-        html = html[:existing] + block + html[end:]
+        start = existing
+        while True:
+            prefix = html[:start].rstrip()
+            marker_start = prefix.rfind(marker)
+            if marker_start < 0:
+                break
+            if prefix[marker_start:].strip() != marker:
+                break
+            start = marker_start
+        end = html.find("</script>", existing) + 9
+        html = html[:start].rstrip() + "\n\n" + block + html[end:]
     else:
-        head_end = html.find('</head>')
+        head_end = html.find("</head>")
         html = html[:head_end] + "\n" + block + "\n" + html[head_end:]
 
     SOURCE.write_text(html, encoding="utf-8")

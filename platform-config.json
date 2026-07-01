@@ -247,7 +247,7 @@
         "label": "Binance",
         "target_name": "default",
         "cash_currency": "USD",
-        "default_strategy_profile": "crypto_live_pool_rotation",
+        "default_strategy_profile": "crypto_equity_combo",
         "supported_domains": [
           "crypto"
         ]
@@ -502,6 +502,18 @@
         "dca": false,
         "combo": true,
         "combo_mode": "dynamic"
+      }
+    },
+    "cn_industry_etf_rotation": {
+      "label": "A股行业ETF轮动",
+      "label_en": "CN Industry ETF Rotation",
+      "domain": "cn_equity",
+      "runtime_enabled": true,
+      "features": {
+        "income_layer": false,
+        "option_overlay": false,
+        "dca": false,
+        "combo": false
       }
     },
     "cn_industry_etf_rotation_aggressive": {

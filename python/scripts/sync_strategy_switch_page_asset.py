@@ -35,15 +35,13 @@ def main() -> int:
 
     app_css = APP_CSS_SOURCE.read_text(encoding="utf-8")
     APP_CSS_TARGET.write_text(
-        "// Generated — CSS asset\n"
-        f"export const APP_CSS = {json.dumps(app_css, ensure_ascii=False)};\n",
+        f"// Generated — CSS asset\nexport const APP_CSS = {json.dumps(app_css, ensure_ascii=False)};\n",
         encoding="utf-8",
     )
 
     app_js = APP_JS_SOURCE.read_text(encoding="utf-8")
     APP_JS_TARGET.write_text(
-        "// Generated — JS asset\n"
-        f"export const APP_JS = {json.dumps(app_js, ensure_ascii=False)};\n",
+        f"// Generated — JS asset\nexport const APP_JS = {json.dumps(app_js, ensure_ascii=False)};\n",
         encoding="utf-8",
     )
     return 0

@@ -47,6 +47,36 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn("income_threshold_usd", input_names)
         self.assertNotIn("qqqi_income_ratio", input_names)
 
+    def test_manual_switch_platform_choices_cover_supported_platforms(self):
+        workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
+        platform_choices: list[str] = []
+        in_platform_options = False
+        for line in workflow.splitlines():
+            if line.strip() == "platform:":
+                in_platform_options = False
+                continue
+            if line.strip() == "options:" and not platform_choices:
+                in_platform_options = True
+                continue
+            if in_platform_options:
+                match = re.match(r"\s+- ([A-Za-z0-9_-]+)$", line)
+                if match:
+                    platform_choices.append(match.group(1))
+                    continue
+                if platform_choices and line.strip() and not line.strip().startswith("-"):
+                    break
+
+        self.assertEqual(set(platform_choices), set(runtime_settings.SUPPORTED_PLATFORMS))
+
+    def test_platform_config_default_strategy_profiles_exist(self):
+        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        profiles = set(config["strategies"])
+        for platform, data in config["platforms"].items():
+            default_profile = data.get("default_account", {}).get("default_strategy_profile")
+            if default_profile:
+                with self.subTest(platform=platform):
+                    self.assertIn(default_profile, profiles)
+
     def load_target(self, relative_path: str):
         path = ROOT / relative_path
         return path, runtime_settings.load_target(path)
@@ -74,11 +104,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                 _, target = self.load_target(relative_path)
                 profile = target["runtime_target"]["strategy_profile"]
                 self.assertTrue(
-                    any(
-                        mount["strategy"] == profile
-                        and mount["enabled"] is True
-                        for mount in target["plugin_mounts"]
-                    )
+                    any(mount["strategy"] == profile and mount["enabled"] is True for mount in target["plugin_mounts"])
                 )
 
     def test_plugin_mount_schema_version_is_rendered_for_platform_parser(self):
@@ -108,9 +134,7 @@ class RuntimeSettingsTest(unittest.TestCase):
     def test_assignment_payload_can_redact_values(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")
         assignment = next(
-            item
-            for item in runtime_settings.build_assignments(target)
-            if item.name == "RUNTIME_TARGET_JSON"
+            item for item in runtime_settings.build_assignments(target) if item.name == "RUNTIME_TARGET_JSON"
         )
 
         payload = runtime_settings.assignment_payload(assignment, redact_values=True)
@@ -123,9 +147,7 @@ class RuntimeSettingsTest(unittest.TestCase):
     def test_assignment_shell_command_can_redact_body_and_metadata(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")
         assignment = next(
-            item
-            for item in runtime_settings.build_assignments(target)
-            if item.name == "RUNTIME_TARGET_JSON"
+            item for item in runtime_settings.build_assignments(target) if item.name == "RUNTIME_TARGET_JSON"
         )
 
         command = assignment.shell_command(redact_body=True, redact_metadata=True)
@@ -165,9 +187,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(runtime_settings.assignment_payload(assignment)["action"], "delete")
 
     def test_manual_switch_account_default_sync_is_warning_only(self):
-        workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(
-            encoding="utf-8"
-        )
+        workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
 
         self.assertIn("Strategy switch account default sync failed", workflow)
         self.assertIn("::warning::", workflow)
@@ -252,13 +272,12 @@ class RuntimeSettingsTest(unittest.TestCase):
         )
 
     def test_strategy_switch_console_deploy_workflow_syncs_bundled_profiles(self):
-        workflow = (ROOT / ".github" / "workflows" / "deploy-strategy-switch-console.yml").read_text(
-            encoding="utf-8"
-        )
+        workflow = (ROOT / ".github" / "workflows" / "deploy-strategy-switch-console.yml").read_text(encoding="utf-8")
 
         self.assertIn("environment: runtime-strategy-switch", workflow)
-        self.assertIn("npx wrangler@latest deploy --config wrangler.toml", workflow)
+        self.assertIn("npx wrangler@4.106.0 deploy --config wrangler.toml", workflow)
         self.assertIn("/api/internal/sync-strategy-profiles", workflow)
+        self.assertNotIn("continue-on-error: true", workflow)
         self.assertIn("STRATEGY_SWITCH_CONSOLE_URL", workflow)
         self.assertIn("STRATEGY_SWITCH_SYNC_TOKEN", workflow)
         self.assertIn("CLOUDFLARE_WRANGLER_CONFIG_TOML", workflow)
@@ -536,6 +555,29 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "precheck_time": "45 9 * * *",
             },
         )
+
+    def test_build_switch_target_defaults_binance_repository_scope(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "binance",
+                "--target-name",
+                "default",
+                "--strategy-profile",
+                "crypto_equity_combo",
+                "--plugin-mode",
+                "none",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(target["github"]["repository"], "QuantStrategyLab/BinancePlatform")
+        self.assertEqual(target["github"]["variable_scope"], "repository")
+        self.assertEqual(target["runtime_target"]["platform_id"], "binance")
+        self.assertEqual(assignments["BINANCE_DRY_RUN"], "false")
 
     def test_build_switch_target_uses_dca_monthly_scheduler_window(self):
         parser = build_runtime_switch.build_parser()

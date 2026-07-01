@@ -117,7 +117,9 @@ def build_platform_meta_js(config: dict) -> str:
     lines = []
     lines.append("    let platformMeta = {")
     for pid, pdata in sorted(platforms.items()):
-        lines.append(f'      {pid}: {{ label: "{pdata["label"]}", code: "{pdata["code"]}", accent: "{pdata["accent_color"]}" }},')
+        lines.append(
+            f'      {pid}: {{ label: "{pdata["label"]}", code: "{pdata["code"]}", accent: "{pdata["accent_color"]}" }},'
+        )
     lines.append("    };")
     lines.append("")
     lines.append("    const platformRepositories = {")
@@ -148,13 +150,13 @@ def build_platform_meta_js(config: dict) -> str:
     for pid, pdata in sorted(platforms.items()):
         caps = pdata.get("capabilities", {})
         dep = pdata.get("deployment", {})
-        lines.append(f'      {pid}: {{')
-        lines.append(f'        dry_run_only: {"true" if dep.get("dry_run_only") else "false"},')
-        lines.append(f'        margin_policy: {"true" if caps.get("margin_policy") else "false"},')
-        lines.append(f'        reserved_cash: {"true" if caps.get("reserved_cash") else "false"},')
-        lines.append(f'        income_layer: {"true" if caps.get("income_layer") else "false"},')
-        lines.append(f'        option_overlay: {"true" if caps.get("option_overlay") else "false"},')
-        lines.append(f'        dca: {"true" if caps.get("dca") else "false"},')
+        lines.append(f"      {pid}: {{")
+        lines.append(f"        dry_run_only: {'true' if dep.get('dry_run_only') else 'false'},")
+        lines.append(f"        margin_policy: {'true' if caps.get('margin_policy') else 'false'},")
+        lines.append(f"        reserved_cash: {'true' if caps.get('reserved_cash') else 'false'},")
+        lines.append(f"        income_layer: {'true' if caps.get('income_layer') else 'false'},")
+        lines.append(f"        option_overlay: {'true' if caps.get('option_overlay') else 'false'},")
+        lines.append(f"        dca: {'true' if caps.get('dca') else 'false'},")
         lines.append(f'        execution_mode: "{dep.get("default_execution_mode", "live")}",')
         lines.append(f'        service_name: "{dep.get("service_name", "")}",')
         lines.append(f'        default_execution_mode: "{dep.get("default_execution_mode", "live")}"')

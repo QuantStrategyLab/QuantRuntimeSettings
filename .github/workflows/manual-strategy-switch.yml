@@ -13,6 +13,7 @@ on:
           - schwab
           - firstrade
           - qmt
+          - binance
       target_name:
         description: "Target name, e.g. sg, live, live-u1599-tqqq."
         required: true
@@ -172,6 +173,8 @@ jobs:
       RUNTIME_SETTINGS_IBKR_REPO: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO }}
       RUNTIME_SETTINGS_SCHWAB_REPO: ${{ vars.RUNTIME_SETTINGS_SCHWAB_REPO }}
       RUNTIME_SETTINGS_FIRSTRADE_REPO: ${{ vars.RUNTIME_SETTINGS_FIRSTRADE_REPO }}
+      RUNTIME_SETTINGS_QMT_REPO: ${{ vars.RUNTIME_SETTINGS_QMT_REPO }}
+      RUNTIME_SETTINGS_BINANCE_REPO: ${{ vars.RUNTIME_SETTINGS_BINANCE_REPO }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -352,8 +355,9 @@ jobs:
             schwab|firstrade)
               gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main
               ;;
-            qmt)
-              echo "QMT platform Cloud Run sync workflow is not configured yet; skipped."
+            qmt|binance)
+              echo "${PLATFORM} platform Cloud Run sync workflow is not configured yet; skipped."
+              exit 0
               ;;
             *)
               echo "No platform sync dispatch rule for ${PLATFORM}" >&2
