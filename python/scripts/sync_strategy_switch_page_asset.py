@@ -12,6 +12,10 @@ SOURCE = ROOT / "web" / "strategy-switch-console" / "index.html"
 TARGET = ROOT / "web" / "strategy-switch-console" / "page_asset.js"
 PROFILE_SOURCE = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
 PROFILE_TARGET = ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js"
+APP_CSS_SOURCE = ROOT / "web" / "strategy-switch-console" / "app.css"
+APP_CSS_TARGET = ROOT / "web" / "strategy-switch-console" / "app_css.js"
+APP_JS_SOURCE = ROOT / "web" / "strategy-switch-console" / "app.js"
+APP_JS_TARGET = ROOT / "web" / "strategy-switch-console" / "app_js.js"
 
 
 def main() -> int:
@@ -28,6 +32,20 @@ def main() -> int:
         f"export const DEFAULT_STRATEGY_PROFILES = {json.dumps(profiles, ensure_ascii=False)};\n"
     )
     PROFILE_TARGET.write_text(profile_payload, encoding="utf-8")
+
+    app_css = APP_CSS_SOURCE.read_text(encoding="utf-8")
+    APP_CSS_TARGET.write_text(
+        "// Generated — CSS asset\n"
+        f"export const APP_CSS = {json.dumps(app_css, ensure_ascii=False)};\n",
+        encoding="utf-8",
+    )
+
+    app_js = APP_JS_SOURCE.read_text(encoding="utf-8")
+    APP_JS_TARGET.write_text(
+        "// Generated — JS asset\n"
+        f"export const APP_JS = {json.dumps(app_js, ensure_ascii=False)};\n",
+        encoding="utf-8",
+    )
     return 0
 
 

@@ -2105,6 +2105,7 @@ function hasValidStrategySelection(platform = state.selected) {
         optionOverlayChanged: optionOverlay.changed,
         cashOnlyChanged: cashOnly.changed,
         dcaChanged: dca.changed,
+        ibitZscoreExitChanged: ibitZscoreExit.changed,
         runtimeTarget,
         reserve,
         income,
@@ -2126,7 +2127,8 @@ function hasValidStrategySelection(platform = state.selected) {
           changes.incomeLayerChanged ||
           changes.optionOverlayChanged ||
           changes.cashOnlyChanged ||
-          changes.dcaChanged,
+          changes.dcaChanged ||
+          changes.ibitZscoreExitChanged,
       );
     }
 
@@ -2198,6 +2200,9 @@ function hasValidStrategySelection(platform = state.selected) {
       if (dcaSupported(inputs.strategy_profile)) {
         rows.push([t("currentDca"), currentDcaText(state.selected, account, inputs.strategy_profile)]);
       }
+      if (ibitZscoreExitSupported(inputs.strategy_profile)) {
+        rows.push([t("currentIbitZscoreExit"), currentIbitZscoreExitText(state.selected, account, inputs.strategy_profile)]);
+      }
 
       if (changes.reserveCashChanged) {
         rows.push([t("pendingReservedCashPolicy"), pendingReservedCashPolicyText(inputs, state.selected, account), "pending"]);
@@ -2214,7 +2219,10 @@ function hasValidStrategySelection(platform = state.selected) {
       if (changes.dcaChanged) {
         rows.push([t("pendingDca"), pendingDcaText(inputs, state.selected, account), "pending"]);
       }
-      
+      if (changes.ibitZscoreExitChanged) {
+        rows.push([t("pendingIbitZscoreExit"), pendingIbitZscoreExitText(inputs, state.selected, account), "pending"]);
+      }
+
       if (changes.modeChanged) {
         rows.push([t("pendingMode"), modeLabel(inputs.execution_mode), "pending"]);
       }
@@ -3051,4 +3059,3 @@ function hasValidStrategySelection(platform = state.selected) {
       await refreshStrategyProfiles();
       await refreshSession();
     }
-  
