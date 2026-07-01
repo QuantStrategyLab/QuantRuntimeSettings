@@ -154,13 +154,6 @@
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
       "ref": "d786c1140967f0e96e35599d057f0655e5a9ba25"
-    },
-    {
-      "consumer_repo": "QuantStrategyLifecycle",
-      "path": "pyproject.toml",
-      "package": "quant-platform-kit",
-      "source_repo": "QuantPlatformKit",
-      "ref": "6d3675914eb5d3fe072d3212a90dfb55fe1c1df4"
     }
   ]
 }
