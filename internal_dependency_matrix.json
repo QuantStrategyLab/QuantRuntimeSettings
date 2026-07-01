@@ -6,28 +6,28 @@
       "path": "requirements-lock.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "2c152cf"
+      "ref": "84e7bf5566167861f7b53bf74261364d055cd30f"
     },
     {
       "consumer_repo": "BinancePlatform",
       "path": "requirements-lock.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "86f03fb8e83c0d372f4e1c64cccf3e6da50b8dd4"
+      "ref": "6d3675914eb5d3fe072d3212a90dfb55fe1c1df4"
     },
     {
       "consumer_repo": "BinancePlatform",
       "path": "requirements.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "2c152cf"
+      "ref": "84e7bf5566167861f7b53bf74261364d055cd30f"
     },
     {
       "consumer_repo": "BinancePlatform",
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "86f03fb8e83c0d372f4e1c64cccf3e6da50b8dd4"
+      "ref": "6d3675914eb5d3fe072d3212a90dfb55fe1c1df4"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
@@ -125,7 +125,7 @@
       "path": "pyproject.toml",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "357dba7e8896a7f488a484d4a3eea33894708ab9"
+      "ref": "f9a0009d55e71d37c037d5787193226c3acb0d1a"
     },
     {
       "consumer_repo": "QmtPlatform",
@@ -154,6 +154,13 @@
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
       "ref": "d786c1140967f0e96e35599d057f0655e5a9ba25"
+    },
+    {
+      "consumer_repo": "QuantStrategyLifecycle",
+      "path": "pyproject.toml",
+      "package": "quant-platform-kit",
+      "source_repo": "QuantPlatformKit",
+      "ref": "6d3675914eb5d3fe072d3212a90dfb55fe1c1df4"
     }
   ]
 }
