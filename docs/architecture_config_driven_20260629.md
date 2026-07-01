@@ -10,7 +10,7 @@
 |------|------|------|
 | `index.html` | `platformMeta`(6), `defaultRepositories`(6), `defaultAccountOptions`(6), `state.forms`(6), `defaultStrategyProfiles`(18), `strategyDomains`(4), `platformSupportsMargin`(1), `platformSupportsReservedCash`(1), `platformSupportsDca`(1), `platformDryRunOnly`(1), `dcaProfileDefaults`(2), i18n domain labels(3) | 数据+逻辑 |
 | `worker.js` | `SUPPORTED_PLATFORMS`(6), `SUPPORTED_STRATEGY_DOMAINS`(4), `PLATFORM_META`(6), `DEFAULT_PLATFORM_REPOSITORIES`(6), `PLATFORM_REPOSITORY_ENV`(6), `DEFAULT_VARIABLE_SCOPE`(6), `PLATFORM_RESERVED_CASH_*`(4) | 数据 |
-| `strategy-profiles.example.json` | 18个策略完整定义 | 数据 |
+| `strategy-profiles.example.json` | 19个策略完整定义 | 数据 |
 | `examples/targets/*/` | 每个组合独立的 target JSON | 数据 |
 
 ### 核心问题

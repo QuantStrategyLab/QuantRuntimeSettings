@@ -135,8 +135,7 @@ class Assignment:
 
     def shell_command(self, *, redact_body: bool = False, redact_metadata: bool = False) -> str:
         return " ".join(
-            shlex.quote(part)
-            for part in self.gh_command(redact_body=redact_body, redact_metadata=redact_metadata)
+            shlex.quote(part) for part in self.gh_command(redact_body=redact_body, redact_metadata=redact_metadata)
         )
 
 
@@ -185,10 +184,7 @@ def is_repository_name(value: str) -> bool:
 
 def platform_repositories(env: dict[str, str] | None = None) -> dict[str, str]:
     env = env or os.environ
-    repositories = {
-        platform: config["repository"]
-        for platform, config in SUPPORTED_PLATFORMS.items()
-    }
+    repositories = {platform: config["repository"] for platform, config in SUPPORTED_PLATFORMS.items()}
     raw_json = str(env.get("RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON") or "").strip()
     if raw_json:
         try:
@@ -347,13 +343,9 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                     continue
                 for field in window:
                     if field not in {"enabled", "offset_minutes", "mode"}:
-                        errors.append(
-                            f"runtime_target.execution_windows.{window_name}.{field} is unsupported"
-                        )
+                        errors.append(f"runtime_target.execution_windows.{window_name}.{field} is unsupported")
                 if "enabled" in window and not isinstance(window["enabled"], bool):
-                    errors.append(
-                        f"runtime_target.execution_windows.{window_name}.enabled must be boolean"
-                    )
+                    errors.append(f"runtime_target.execution_windows.{window_name}.enabled must be boolean")
                 if "offset_minutes" in window:
                     offset_minutes = window["offset_minutes"]
                     if not isinstance(offset_minutes, int) or offset_minutes < 0:
@@ -368,9 +360,7 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                     )
             for window_name in execution_windows:
                 if window_name not in WINDOW_MODES:
-                    errors.append(
-                        "runtime_target.execution_windows only supports precheck and execution"
-                    )
+                    errors.append("runtime_target.execution_windows only supports precheck and execution")
                     break
 
     scheduler = runtime_target.get("scheduler")
@@ -387,9 +377,7 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
             for field in ("main_time", "probe_time", "precheck_time"):
                 value = scheduler.get(field)
                 if not isinstance(value, str) or len(value.split()) not in {2, 5}:
-                    errors.append(
-                        f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields"
-                    )
+                    errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
 
 
 def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
@@ -541,9 +529,7 @@ def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
         if name in generated_names:
             errors.append(f"extra_variables.{name} duplicates a generated variable")
         if name in RESEARCH_ONLY_EXTRA_VARIABLES:
-            errors.append(
-                f"extra_variables.{name} is research-only and must not be stored in live switch settings"
-            )
+            errors.append(f"extra_variables.{name} is research-only and must not be stored in live switch settings")
         if is_secret_variable_name(name):
             errors.append(f"extra_variables.{name} looks like a secret and must not be stored here")
         if isinstance(value, str) and "\n" in value:
@@ -587,8 +573,7 @@ def validate_target(target: dict[str, Any], path: Path | None = None) -> list[st
         else:
             if github.get("repository") != expected_repository:
                 errors.append(
-                    "github.repository does not match platform "
-                    f"{platform_id}: expected {expected_repository}"
+                    f"github.repository does not match platform {platform_id}: expected {expected_repository}"
                 )
 
     return errors
@@ -657,10 +642,7 @@ def command_render(args: argparse.Namespace) -> int:
     if args.format == "json":
         print(
             json.dumps(
-                [
-                    assignment_payload(assignment, redact_values=args.redact_values)
-                    for assignment in all_assignments
-                ],
+                [assignment_payload(assignment, redact_values=args.redact_values) for assignment in all_assignments],
                 ensure_ascii=False,
                 indent=2,
             )

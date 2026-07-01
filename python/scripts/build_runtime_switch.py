@@ -94,6 +94,7 @@ PLATFORM_DRY_RUN_VARIABLES = {
     "ibkr": "IBKR_DRY_RUN_ONLY",
     "firstrade": "FIRSTRADE_DRY_RUN_ONLY",
     "qmt": "QMT_DRY_RUN_ONLY",
+    "binance": "BINANCE_DRY_RUN",
 }
 PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
     "schwab": "SCHWAB_RESERVED_CASH_RATIO",
@@ -168,9 +169,7 @@ OPTION_OVERLAY_CONTROL_FIELDS = (
 OPTION_OVERLAY_VARIABLES = tuple(field.upper() for field in OPTION_OVERLAY_CONTROL_FIELDS)
 OPTION_OVERLAY_MODES = frozenset({"current", "enabled", "disabled"})
 OPTION_OVERLAY_PROFILE_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
-RUNTIME_TARGET_VARIABLES = (
-    "RUNTIME_TARGET_ENABLED",
-)
+RUNTIME_TARGET_VARIABLES = ("RUNTIME_TARGET_ENABLED",)
 DCA_PROFILES = frozenset(
     {
         "nasdaq_sp500_smart_dca",
@@ -214,11 +213,13 @@ DEFAULT_VARIABLE_SCOPE = {
     "schwab": "repository",
     "firstrade": "repository",
     "qmt": "repository",
+    "binance": "repository",
 }
 DEFAULT_SERVICE_NAME = {
     "schwab": "charles-schwab-quant-service",
     "firstrade": "firstrade-quant-service",
     "qmt": "qmt-quant-service",
+    "binance": "",
 }
 PLATFORM_ALIASES = {
     "firsttrade": "firstrade",
@@ -536,9 +537,7 @@ def _option_overlay_extra_variables(args: argparse.Namespace, strategy_profile: 
 
     defaults = _load_option_overlay_profile_defaults().get(strategy_profile)
     if not defaults:
-        raise ValueError(
-            "option_overlay_mode enabled is only supported for strategies with option overlay defaults"
-        )
+        raise ValueError("option_overlay_mode enabled is only supported for strategies with option overlay defaults")
     return dict(defaults)
 
 
@@ -594,10 +593,7 @@ def _reject_direct_ibit_zscore_exit_extra_variables(extra_variables: dict[str, A
     ]
     if provided:
         names = ", ".join(provided)
-        raise ValueError(
-            "use ibit_zscore_exit_* control fields instead of extra_variables_json "
-            f"for {names}"
-        )
+        raise ValueError(f"use ibit_zscore_exit_* control fields instead of extra_variables_json for {names}")
 
 
 def _reject_research_only_extra_variables(extra_variables: dict[str, Any]) -> None:
@@ -813,9 +809,7 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
         else _deployment_selector_default(platform, target_name)
     )
     account_scope = (
-        args.account_scope.strip()
-        if args.account_scope
-        else _account_scope_default(platform, deployment_selector)
+        args.account_scope.strip() if args.account_scope else _account_scope_default(platform, deployment_selector)
     )
     account_selector = _split_csv(args.account_selector) or _account_selector_default(platform, account_scope)
     service_name = args.service_name.strip() if args.service_name else _default_service_name(platform, target_name)
@@ -948,9 +942,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     dca_controls = _extract_dca_control_fields(extra_variables)
     ibit_zscore_exit_controls = _extract_ibit_zscore_exit_control_fields(extra_variables)
     if cash_only_controls.get(CASH_ONLY_EXECUTION_CONTROL_FIELD):
-        args.cash_only_execution_mode = str(
-            cash_only_controls[CASH_ONLY_EXECUTION_CONTROL_FIELD]
-        ).strip().lower()
+        args.cash_only_execution_mode = str(cash_only_controls[CASH_ONLY_EXECUTION_CONTROL_FIELD]).strip().lower()
     _reject_direct_dca_extra_variables(extra_variables)
     _reject_direct_ibit_zscore_exit_extra_variables(extra_variables)
     _reject_research_only_extra_variables(extra_variables)

@@ -46,9 +46,7 @@ class ReviewError(RuntimeError):
 # ---------------------------------------------------------------------------
 
 
-def github_request(
-    token: str, method: str, path: str, payload: dict[str, Any] | None = None
-) -> Any:
+def github_request(token: str, method: str, path: str, payload: dict[str, Any] | None = None) -> Any:
     url = path if path.startswith("https://") else f"{API_BASE}{path}"
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
@@ -141,12 +139,8 @@ def _fail_closed(reason: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def classify_file_risk(
-    file_path: str, policy: dict[str, Any]
-) -> tuple[str, str]:
+def classify_file_risk(file_path: str, policy: dict[str, Any]) -> tuple[str, str]:
     """Return (risk_level, reason) for a single file path."""
-    policy_errors = policy.get("policy_errors", [])
-
     # Blocked patterns (secrets, credentials, etc.)
     blocked_patterns = policy.get("blocked_path_patterns", [])
     for pattern in blocked_patterns:
@@ -160,9 +154,7 @@ def classify_file_risk(
     low = risk_policy.get("low", {})
     low_prefixes = low.get("prefixes", [])
     low_exact = set(low.get("exact", []))
-    medium_exact = set(
-        risk_policy.get("medium", {}).get("exact", [])
-    )
+    medium_exact = set(risk_policy.get("medium", {}).get("exact", []))
 
     # Normalize path
     normalized = file_path.strip()
@@ -172,9 +164,7 @@ def classify_file_risk(
     if not normalized:
         return ("high", "empty path")
 
-    if normalized in low_exact or any(
-        normalized.startswith(prefix) for prefix in low_prefixes
-    ):
+    if normalized in low_exact or any(normalized.startswith(prefix) for prefix in low_prefixes):
         return ("low", "docs/test/readme change")
 
     if normalized in medium_exact:
@@ -315,9 +305,7 @@ def request_github_oidc_token(audience: str) -> str:
     request_url = env_value("ACTIONS_ID_TOKEN_REQUEST_URL")
     request_token = env_value("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
     if not request_url or not request_token:
-        raise ReviewError(
-            "GitHub OIDC environment unavailable. Set permissions: id-token: write."
-        )
+        raise ReviewError("GitHub OIDC environment unavailable. Set permissions: id-token: write.")
     separator = "&" if "?" in request_url else "?"
     url = f"{request_url}{separator}audience={urllib.parse.quote(audience)}"
     req = urllib.request.Request(
@@ -389,9 +377,7 @@ def run_codex_service_review(prompt: str, timeout_minutes: int) -> str:
     raise ReviewError("Codex service job timed out")
 
 
-def _service_request(
-    method: str, url: str, oidc_token: str, payload: dict[str, Any] | None
-) -> dict[str, Any]:
+def _service_request(method: str, url: str, oidc_token: str, payload: dict[str, Any] | None) -> dict[str, Any]:
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = urllib.request.Request(
         url,
@@ -432,8 +418,7 @@ def run_direct_api_review(prompt: str) -> str:
         return _run_openai_review(prompt, openai_key)
 
     raise ReviewError(
-        "No Codex service URL or API key configured. "
-        "Set CODEX_AUDIT_SERVICE_URL, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
+        "No Codex service URL or API key configured. Set CODEX_AUDIT_SERVICE_URL, ANTHROPIC_API_KEY, or OPENAI_API_KEY."
     )
 
 
@@ -468,9 +453,7 @@ def _run_anthropic_review(prompt: str, api_key: str) -> str:
     if not isinstance(content, list):
         raise ReviewError("Unexpected Anthropic response format")
     text_parts = [
-        str(block.get("text", ""))
-        for block in content
-        if isinstance(block, dict) and block.get("type") == "text"
+        str(block.get("text", "")) for block in content if isinstance(block, dict) and block.get("type") == "text"
     ]
     return "\n\n".join(text_parts)
 
@@ -519,9 +502,7 @@ def parse_review_output(text: str) -> dict[str, Any]:
     stripped = text.strip()
 
     # Try to extract from markdown code fence
-    fence_match = re.fullmatch(
-        r"```(?:json)?\s*(.*?)\s*```", stripped, flags=re.DOTALL | re.IGNORECASE
-    )
+    fence_match = re.fullmatch(r"```(?:json)?\s*(.*?)\s*```", stripped, flags=re.DOTALL | re.IGNORECASE)
     if fence_match:
         stripped = fence_match.group(1).strip()
 
@@ -610,14 +591,10 @@ def evaluate_findings(
     all_findings = blocking + non_blocking
     summary_parts = []
     if blocked:
-        summary_parts.append(
-            f"🚫 **Merge blocked**: {len(blocking)} serious issue(s) found in high-risk files"
-        )
+        summary_parts.append(f"🚫 **Merge blocked**: {len(blocking)} serious issue(s) found in high-risk files")
     elif all_findings:
         total = len(all_findings)
-        summary_parts.append(
-            f"✅ **Merge allowed**: {total} finding(s) reported but none are blocking"
-        )
+        summary_parts.append(f"✅ **Merge allowed**: {total} finding(s) reported but none are blocking")
     else:
         summary_parts.append("✅ **Merge allowed**: No issues found")
 
@@ -647,28 +624,34 @@ def build_pr_comment(decision: dict[str, Any], pr_url: str) -> str:
 
     blocking = decision["blocking_findings"]
     if blocking:
-        lines.extend([
-            "### 🚫 Blocking Issues",
-            "",
-            "These issues must be fixed before this PR can be merged:",
-            "",
-        ])
+        lines.extend(
+            [
+                "### 🚫 Blocking Issues",
+                "",
+                "These issues must be fixed before this PR can be merged:",
+                "",
+            ]
+        )
         for i, f in enumerate(blocking, 1):
             lines.extend(_format_finding(i, f))
 
     non_blocking = decision["non_blocking_findings"]
     if non_blocking:
-        lines.extend([
-            "### ℹ️ Other Findings",
-            "",
-        ])
+        lines.extend(
+            [
+                "### ℹ️ Other Findings",
+                "",
+            ]
+        )
         for i, f in enumerate(non_blocking, 1):
             lines.extend(_format_finding(i, f))
 
-    lines.extend([
-        "---",
-        f"*Review by Codex PR Review bot • [PR]({pr_url})*",
-    ])
+    lines.extend(
+        [
+            "---",
+            f"*Review by Codex PR Review bot • [PR]({pr_url})*",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -685,7 +668,7 @@ def _format_finding(index: int, finding: dict[str, Any]) -> list[str]:
 
     lines = [
         f"#### {index}. {emoji} [{severity.upper()}] {category.title()} in `{file_path}`",
-        f"",
+        "",
         f"> {description}",
     ]
     if line:
@@ -701,9 +684,7 @@ def _format_finding(index: int, finding: dict[str, Any]) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def find_existing_review_comment(
-    token: str, repo: str, pr_number: int
-) -> int | None:
+def find_existing_review_comment(token: str, repo: str, pr_number: int) -> int | None:
     """Find an existing Codex review comment on the PR."""
     marker = "<!-- codex-pr-review -->"
     page = 1
@@ -724,9 +705,7 @@ def find_existing_review_comment(
     return None
 
 
-def upsert_pr_comment(
-    token: str, repo: str, pr_number: int, body: str
-) -> None:
+def upsert_pr_comment(token: str, repo: str, pr_number: int, body: str) -> None:
     """Create or update the Codex review comment on the PR."""
     existing_id = find_existing_review_comment(token, repo, pr_number)
     if existing_id:
@@ -785,8 +764,10 @@ def main() -> int:
     # Fetch changed files for risk classification
     changed_files = fetch_pr_files(token, repo, pr_number)
     changed_paths = [f.get("filename", "") for f in changed_files]
-    print(f"Changed files ({len(changed_paths)}): {', '.join(changed_paths[:10])}"
-          + (f" and {len(changed_paths) - 10} more..." if len(changed_paths) > 10 else ""))
+    print(
+        f"Changed files ({len(changed_paths)}): {', '.join(changed_paths[:10])}"
+        + (f" and {len(changed_paths) - 10} more..." if len(changed_paths) > 10 else "")
+    )
 
     # Load policy
     policy = load_policy()
@@ -794,9 +775,7 @@ def main() -> int:
         print(f"::warning::Policy errors: {policy['policy_errors']}")
 
     # First pass: classify files. If all files are low-risk, skip review.
-    all_low_risk = all(
-        classify_file_risk(p, policy)[0] == "low" for p in changed_paths
-    )
+    all_low_risk = all(classify_file_risk(p, policy)[0] == "low" for p in changed_paths)
     if all_low_risk and changed_paths:
         print("All changed files are low-risk (docs/tests). Skipping Codex review.")
         decision = {

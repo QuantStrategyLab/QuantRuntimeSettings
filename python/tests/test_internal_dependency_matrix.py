@@ -64,9 +64,7 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
         )
 
     def test_current_matrix_matches_local_workspace(self):
-        matrix_pins = check_internal_dependency_matrix.load_matrix(
-            ROOT / "internal_dependency_matrix.json"
-        )
+        matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
 
         report = check_internal_dependency_matrix.check_matrix(
             matrix_pins=matrix_pins,
@@ -75,9 +73,7 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
 
         if report.missing_files:
             missing_inside_checked_out_repos = [
-                item
-                for item in report.missing_files
-                if (ROOT.parent / item.split("/", 1)[0]).exists()
+                item for item in report.missing_files if (ROOT.parent / item.split("/", 1)[0]).exists()
             ]
             self.assertEqual(missing_inside_checked_out_repos, [])
             self.assertEqual(report.issues, [])

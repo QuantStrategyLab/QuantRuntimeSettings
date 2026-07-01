@@ -59,7 +59,6 @@ jobs:
           python3 python/scripts/sync_strategy_switch_page_asset.py
 
       - name: Validate Worker assets
-        continue-on-error: true
         run: |
           set -euo pipefail
           jq empty web/strategy-switch-console/strategy-profiles.example.json
@@ -117,7 +116,7 @@ jobs:
 
       - name: Deploy Worker
         working-directory: web/strategy-switch-console
-        run: npx wrangler@latest deploy --config wrangler.toml
+        run: npx wrangler@4.106.0 deploy --config wrangler.toml
 
       - name: Sync bundled strategy profiles to KV
         if: github.event_name != 'workflow_dispatch' || inputs.sync_strategy_profiles
