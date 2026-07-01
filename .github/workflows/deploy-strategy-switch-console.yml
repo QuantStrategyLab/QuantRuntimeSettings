@@ -130,10 +130,69 @@ jobs:
             echo "STRATEGY_SWITCH_SYNC_TOKEN or RUNTIME_SETTINGS_GH_TOKEN is required to sync strategy profiles." >&2
             exit 2
           fi
+
+          expected_count="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          profiles = json.loads(Path("web/strategy-switch-console/strategy-profiles.example.json").read_text())
+          if not isinstance(profiles, list):
+              raise SystemExit("strategy-profiles.example.json must contain a JSON list")
+          print(len(profiles))
+          PY
+          )"
+          sync_body="$(mktemp)"
+          live_body="$(mktemp)"
+          cleanup() { rm -f "$sync_body" "$live_body"; }
+          trap cleanup EXIT
+
+          for attempt in 1 2 3 4 5 6; do
+            curl --fail --show-error --silent \
+              --request POST \
+              --header "Authorization: Bearer ${STRATEGY_SWITCH_SYNC_TOKEN}" \
+              --header "Content-Type: application/json" \
+              --header "Cache-Control: no-cache" \
+              --data '{"source":"github-actions"}' \
+              --output "$sync_body" \
+              "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/internal/sync-strategy-profiles"
+            python3 -m json.tool "$sync_body"
+
+            actual_count="$(python3 - "$sync_body" <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(payload.get("strategy_profiles_count", ""))
+          PY
+            )"
+            if [ "$actual_count" = "$expected_count" ]; then
+              break
+            fi
+            if [ "$attempt" = "6" ]; then
+              echo "Synced strategy profile count ${actual_count:-unknown}; expected $expected_count." >&2
+              exit 2
+            fi
+            echo "Synced strategy profile count ${actual_count:-unknown}; expected $expected_count. Waiting for deployed Worker propagation..." >&2
+            sleep 5
+          done
+
           curl --fail --show-error --silent \
-            --request POST \
-            --header "Authorization: Bearer ${STRATEGY_SWITCH_SYNC_TOKEN}" \
-            --header "Content-Type: application/json" \
-            --data '{"source":"github-actions"}' \
-            "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/internal/sync-strategy-profiles" \
-            | python3 -m json.tool
+            --header "Cache-Control: no-cache" \
+            --output "$live_body" \
+            "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/strategy-profiles"
+          live_count="$(python3 - "$live_body" <<'PY'
+          import json
+          import sys
+
+          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          profiles = payload.get("strategyProfiles")
+          if not isinstance(profiles, list):
+              raise SystemExit("/api/strategy-profiles did not return strategyProfiles list")
+          print(len(profiles))
+          PY
+          )"
+          if [ "$live_count" != "$expected_count" ]; then
+            echo "Live strategy profile count $live_count; expected $expected_count." >&2
+            exit 2
+          fi
+          echo "Strategy profile KV sync verified with $live_count profiles."
