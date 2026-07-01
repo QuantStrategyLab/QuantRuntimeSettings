@@ -6,7 +6,11 @@ import { dirname, resolve } from "node:path";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const indexHtml = readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8");
+const indexHtml = [
+  readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8"),
+  readFileSync(resolve(root, "web/strategy-switch-console/app.css"), "utf8"),
+  readFileSync(resolve(root, "web/strategy-switch-console/app.js"), "utf8"),
+].join("\n");
 assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
@@ -58,12 +62,12 @@ assert.ok(indexHtml.includes('labelNode.className = "summary-label"'));
 assert.equal(indexHtml.includes("noChangesNote"), false);
 assert.equal(indexHtml.match(/class="form-section dca-section"/g)?.length, 1);
 assert.ok(indexHtml.includes('qmtDryRunOnlyNote'));
-assert.ok(indexHtml.includes('optionOverlayDefaultSimple: "策略默认：开启"'));
-assert.ok(indexHtml.includes('cashOnlyExecutionDefault: "平台默认：仅用现金"'));
+assert.ok(indexHtml.includes('optionOverlayDefaultSimple: "开启"'));
+assert.ok(indexHtml.includes('cashOnlyExecutionDefault: "仅用现金"'));
 assert.match(indexHtml, /function platformCashOnlyExecutionDefault\(\) \{\s+return true;/);
 assert.ok(indexHtml.includes("function effectiveOptionOverlayForAccount("));
 assert.ok(indexHtml.includes("function effectiveCashOnlyExecutionForAccount("));
-assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "允许融资：是"'));
+assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "是"'));
 assert.ok(indexHtml.includes('cashOnlyExecutionMode: "Allow margin"'));
 assert.ok(indexHtml.includes('el("cash-only-execution-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes("function pendingCashOnlyExecution("));
@@ -161,10 +165,18 @@ assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
 const servedPageResponse = await worker.fetch(new Request("https://switch.example/"), {});
 const servedHtml = await servedPageResponse.text();
 assert.equal(servedPageResponse.status, 200);
-assert.ok(servedHtml.includes("function hasPrivateConfig()"));
 assert.equal(servedHtml.includes("ibkr-primary"), false);
 assert.equal(servedHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(servedHtml.includes('account_selector: "SG"'), false);
+
+const servedAppResponse = await worker.fetch(new Request("https://switch.example/app.js"), {});
+const servedAppJs = await servedAppResponse.text();
+assert.equal(servedAppResponse.status, 200);
+assert.ok(servedAppJs.includes("function hasPrivateConfig()"));
+assert.ok(servedAppJs.includes("changes.ibitZscoreExitChanged"));
+assert.equal(servedAppJs.includes("ibkr-primary"), false);
+assert.equal(servedAppJs.includes("longbridge-quant-sg-service"), false);
+assert.equal(servedAppJs.includes('account_selector: "SG"'), false);
 
 const publicConfigResponse = await worker.fetch(new Request("https://switch.example/api/config"), {});
 assert.equal(publicConfigResponse.status, 200);
@@ -559,6 +571,7 @@ assert.equal(normalizedDcaInputs.dca_base_investment_usd, undefined);
 assert.deepEqual(JSON.parse(normalizedDcaInputs.extra_variables_json), {
   dca_mode: "smart",
   dca_base_investment_usd: "500",
+  cash_only_execution_mode: "enabled",
 });
 assert.throws(
   () => __test.normalizeSwitchInputs({
@@ -570,7 +583,7 @@ assert.throws(
     dca_mode: "smart",
     dca_base_investment_usd: "500",
   }),
-  /DCA strategy profiles are only supported on firstrade/,
+  /DCA strategy profiles are not supported on ibkr/,
 );
 const normalizedDcaJsonInputs = __test.normalizeSwitchInputs({
   platform: "firstrade",
@@ -586,6 +599,7 @@ const normalizedDcaJsonInputs = __test.normalizeSwitchInputs({
 assert.deepEqual(JSON.parse(normalizedDcaJsonInputs.extra_variables_json), {
   dca_mode: "smart",
   dca_base_investment_usd: "500",
+  cash_only_execution_mode: "enabled",
 });
 const normalizedIbitZscoreInputs = __test.normalizeSwitchInputs({
   platform: "firstrade",
@@ -597,6 +611,7 @@ const normalizedIbitZscoreInputs = __test.normalizeSwitchInputs({
 });
 assert.deepEqual(JSON.parse(normalizedIbitZscoreInputs.extra_variables_json), {
   ibit_zscore_exit_mode: "live",
+  cash_only_execution_mode: "enabled",
 });
 assert.throws(
   () => __test.normalizeSwitchInputs({
@@ -607,7 +622,7 @@ assert.throws(
     plugin_mode: "auto",
     ibit_zscore_exit_mode: "live",
   }),
-  /DCA strategy profiles are only supported on firstrade/,
+  /DCA strategy profiles are not supported on ibkr/,
 );
 assert.throws(
   () => __test.normalizeSwitchInputs({
@@ -616,7 +631,7 @@ assert.throws(
     strategy_profile: "nasdaq_sp500_smart_dca",
     ibit_zscore_exit_mode: "live",
   }),
-  /DCA strategy profiles are only supported on firstrade/,
+  /DCA strategy profiles are not supported on ibkr/,
 );
 assert.throws(
   () => __test.normalizeSwitchInputs({
@@ -690,13 +705,11 @@ const normalizedReserveClearInputs = __test.normalizeSwitchInputs({
     IBKR_RESERVED_CASH_RATIO: "",
   }),
 });
-assert.equal(
-  normalizedReserveClearInputs.extra_variables_json,
-  JSON.stringify({
-    IBKR_MIN_RESERVED_CASH_USD: "",
-    IBKR_RESERVED_CASH_RATIO: "",
-  }),
-);
+assert.deepEqual(JSON.parse(normalizedReserveClearInputs.extra_variables_json), {
+  IBKR_MIN_RESERVED_CASH_USD: "",
+  IBKR_RESERVED_CASH_RATIO: "",
+  cash_only_execution_mode: "enabled",
+});
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
