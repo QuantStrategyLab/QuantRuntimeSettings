@@ -153,6 +153,7 @@
       nasdaq_sp500_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
       ibit_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
     };
+    const APP_BOOT_TIMEOUT_MS = 15000;
     const platformMinReservedCashVariables = {
       longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
       ibkr: "IBKR_MIN_RESERVED_CASH_USD",
@@ -286,6 +287,7 @@
         bootStrategy: "正在读取策略目录。",
         bootSession: "正在验证登录状态。",
         bootConfig: "正在读取账号配置和当前状态。",
+        bootTimeout: "加载超时，已切换到公开预览（登录后可重试）。",
         bootPublic: "公开预览已就绪。",
         login: "登录",
         logout: "退出",
@@ -446,6 +448,7 @@
         bootStrategy: "Reading strategy catalog.",
         bootSession: "Checking sign-in status.",
         bootConfig: "Reading account config and current state.",
+        bootTimeout: "Loading timed out; switched to public preview. Retry after signing in.",
         bootPublic: "Public preview is ready.",
         login: "Sign in",
         logout: "Sign out",
@@ -662,6 +665,31 @@
           toastTimer = null;
         }, duration);
       }
+    }
+
+    async function fetchWithTimeout(url, init = {}, timeoutMs = APP_BOOT_TIMEOUT_MS) {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...init, signal: controller.signal });
+      } catch (error) {
+        if (error?.name === "AbortError") {
+          throw new Error("request timeout");
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    }
+
+    async function requestJson(url, init = {}, timeoutMs = APP_BOOT_TIMEOUT_MS) {
+      const response = await fetchWithTimeout(url, { ...init, cache: "no-store" }, timeoutMs);
+      if (!response.ok) throw new Error("request failed");
+      return response.json();
+    }
+
+    function isRequestTimeoutError(error) {
+      return String(error?.message || "").toLowerCase() === "request timeout";
     }
 
     function optionsFor(platform) {
@@ -2513,9 +2541,7 @@
       state.bootMessageKey = "bootSession";
       render();
       try {
-        const response = await fetch("/api/session", { cache: "no-store" });
-        if (!response.ok) throw new Error("no backend");
-        const session = await response.json();
+        const session = await requestJson("/api/session");
         state.auth = {
           available: true,
           allowed: Boolean(session.allowed),
@@ -2538,9 +2564,7 @@
       state.bootMessageKey = "bootStrategy";
       render();
       try {
-        const response = await fetch("/api/strategy-profiles", { cache: "no-store" });
-        if (!response.ok) throw new Error("no strategy profiles");
-        const payload = await response.json();
+        const payload = await requestJson("/api/strategy-profiles");
         applyStrategyProfiles(payload.strategyProfiles || []);
         if (payload.platformMeta) platformMeta = payload.platformMeta;
         for (const platform of Object.keys(platformMeta)) syncStrategyForAccount(platform);
@@ -2557,9 +2581,7 @@
       state.bootMessageKey = "bootConfig";
       render();
       try {
-        const response = await fetch("/api/config", { cache: "no-store" });
-        if (!response.ok) throw new Error("no config");
-        const payload = await response.json();
+        const payload = await requestJson("/api/config");
         if (payload.accountOptions) {
           applyStrategyProfiles(payload.strategyProfiles || defaultStrategyProfiles);
           state.accountOptions = normalizeAccountOptions(payload.accountOptions);
@@ -2575,9 +2597,14 @@
           state.configSource = "default";
           state.currentStrategies = {};
         }
-      } catch {
+      } catch (error) {
         state.configSource = "default";
         state.currentStrategies = {};
+        if (isRequestTimeoutError(error)) {
+          state.bootMessageKey = "bootTimeout";
+        } else {
+          state.bootMessageKey = "bootPublic";
+        }
       } finally {
         state.appReady = true;
         render();
@@ -2876,6 +2903,15 @@
     boot();
 
     async function boot() {
-      await refreshStrategyProfiles();
-      await refreshSession();
+      try {
+        await refreshStrategyProfiles();
+        await refreshSession();
+      } catch {
+        state.auth = { available: false, allowed: false, admin: false, login: null };
+        state.configSource = "default";
+        state.currentStrategies = {};
+        state.bootMessageKey = "bootTimeout";
+        state.appReady = true;
+        render();
+      }
     }
