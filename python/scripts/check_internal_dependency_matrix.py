@@ -19,6 +19,14 @@ DEPENDENCY_PATTERN = re.compile(
     r"git\+https://github\.com/QuantStrategyLab/"
     r"(?P<source_repo>[A-Za-z0-9_.-]+)\.git@(?P<ref>[A-Za-z0-9_.-]+)"
 )
+TRACKED_DEPENDENCY_PATHS = ("requirements.txt", "requirements-lock.txt", "pyproject.toml")
+
+
+def _sort_dependency_pins(pins: list[DependencyPin]) -> list[DependencyPin]:
+    return sorted(
+        set(pins),
+        key=lambda pin: (pin.consumer_repo, pin.path, pin.package, pin.source_repo, pin.ref),
+    )
 
 
 @dataclass(frozen=True)
@@ -46,6 +54,33 @@ class MatrixReport:
     @property
     def ok(self) -> bool:
         return not self.issues
+
+
+def matrix_payload(pins: list[DependencyPin]) -> dict[str, Any]:
+    return {
+        "schema_version": 1,
+        "dependencies": [
+            {
+                "consumer_repo": pin.consumer_repo,
+                "path": pin.path,
+                "package": pin.package,
+                "source_repo": pin.source_repo,
+                "ref": pin.ref,
+            }
+            for pin in _sort_dependency_pins(pins)
+        ],
+    }
+
+
+def collect_dependency_pins_from_projects(projects_root: Path) -> list[DependencyPin]:
+    pins: list[DependencyPin] = []
+    for project_dir in sorted(p for p in projects_root.iterdir() if p.is_dir() and not p.name.startswith(".")):
+        for relative_path in TRACKED_DEPENDENCY_PATHS:
+            path = project_dir / relative_path
+            if not path.is_file():
+                continue
+            pins.extend(parse_dependency_pins(project_dir.name, relative_path, path.read_text(encoding="utf-8")))
+    return _sort_dependency_pins(pins)
 
 
 def load_matrix(path: Path) -> list[DependencyPin]:
@@ -127,6 +162,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Report QuantStrategyLab internal dependency pin drift.")
     parser.add_argument("--matrix", type=Path, default=DEFAULT_MATRIX_PATH)
     parser.add_argument("--projects-root", type=Path, default=DEFAULT_PROJECTS_ROOT)
+    parser.add_argument(
+        "--generate",
+        action="store_true",
+        help="Generate internal dependency matrix payload from local consumer dependency files.",
+    )
+    parser.add_argument(
+        "--sync",
+        action="store_true",
+        help="Overwrite --matrix with generated internal dependency payload.",
+    )
     parser.add_argument("--json", action="store_true", help="Print machine-readable report.")
     parser.add_argument("--strict", action="store_true", help="Exit non-zero when drift is detected.")
     parser.add_argument(
@@ -139,6 +184,16 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.generate or args.sync:
+        generated_payload = matrix_payload(collect_dependency_pins_from_projects(projects_root=args.projects_root))
+        rendered_payload = json.dumps(generated_payload, ensure_ascii=False, indent=2)
+        print(rendered_payload)
+        if args.sync:
+            args.matrix.write_text(rendered_payload + "\n", encoding="utf-8")
+            if not args.json:
+                print(f"synced matrix -> {args.matrix}")
+        return 0
+
     report = check_matrix(matrix_pins=load_matrix(args.matrix), projects_root=args.projects_root)
     issues = list(report.issues)
     if args.require_consumer_files and report.missing_files:

@@ -13,6 +13,13 @@ QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 
 python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
 ```
 
+若本地 consumer 文件与 matrix 漂移，可先从本地消费方依赖文件重建并同步：
+
+```bash
+python3 scripts/check_internal_dependency_matrix.py --projects-root .. --generate --json > /tmp/internal_dependency_matrix.json
+python3 scripts/check_internal_dependency_matrix.py --projects-root .. --sync
+```
+
 该脚本会将 matrix 条目与各 consumer 仓库中的 `requirements.txt`、`requirements-lock.txt`、`pyproject.toml` 对比。启用 `--strict` 时，即使本地未 checkout  sibling 仓库，ref 不一致也会导致 CI 失败。
 
 ## Pin 格式

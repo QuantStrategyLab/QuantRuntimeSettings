@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -99,6 +100,66 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
         self.assertEqual(report.checked_files, 0)
         self.assertEqual(report.missing_files, ["ExamplePlatform/requirements.txt"])
         self.assertEqual(report.issues, [])
+
+    def test_collect_dependency_pins_from_projects(self):
+        projects_root = self._make_projects_root(
+            {
+                "ExampleA/pyproject.toml": "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@a11",
+                "ExampleB/requirements.txt": "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@b22",
+                "ExampleB/requirements-lock.txt": "crypto-strategies @ git+https://github.com/QuantStrategyLab/CryptoStrategies.git@c33",
+            }
+        )
+
+        pins = check_internal_dependency_matrix.collect_dependency_pins_from_projects(projects_root)
+        rows = [(pin.consumer_repo, pin.path, pin.package, pin.source_repo, pin.ref) for pin in pins]
+
+        self.assertEqual(rows, [
+            ("ExampleA", "pyproject.toml", "quant-platform-kit", "QuantPlatformKit", "a11"),
+            ("ExampleB", "requirements-lock.txt", "crypto-strategies", "CryptoStrategies", "c33"),
+            ("ExampleB", "requirements.txt", "us-equity-strategies", "UsEquityStrategies", "b22"),
+        ])
+
+    def test_sync_rewrites_matrix_with_stable_order(self):
+        projects_root = self._make_projects_root(
+            {
+                "ExampleB/requirements.txt": "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@b22",
+                "ExampleA/pyproject.toml": "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@a11",
+            }
+        )
+        matrix_path = projects_root / "internal_dependency_matrix.json"
+        matrix_path.write_text(
+            (
+                "{\n"
+                '  "schema_version": 1,\n'
+                '  "dependencies": [\n'
+                '    {\n'
+                '      "consumer_repo": "ExampleB",\n'
+                '      "path": "requirements.txt",\n'
+                '      "package": "us-equity-strategies",\n'
+                '      "source_repo": "UsEquityStrategies",\n'
+                '      "ref": "b22"\n'
+                "    }\n"
+                "  ]\n"
+                "}\n"
+            ),
+            encoding="utf-8",
+        )
+
+        projects_payload = check_internal_dependency_matrix.matrix_payload(
+            check_internal_dependency_matrix.collect_dependency_pins_from_projects(projects_root)
+        )
+        exit_code = check_internal_dependency_matrix.main(
+            ["--sync", "--projects-root", str(projects_root), "--matrix", str(matrix_path)]
+        )
+        synced_payload = json.loads(matrix_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(synced_payload["schema_version"], 1)
+        self.assertEqual(synced_payload["dependencies"], projects_payload["dependencies"])
+        self.assertLess(
+            synced_payload["dependencies"][0]["path"],
+            synced_payload["dependencies"][-1]["path"],
+        )
 
     def _make_projects_root(self, files: dict[str, str]) -> Path:
         import tempfile
