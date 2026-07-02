@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import { DEFAULT_ACCOUNT_OPTIONS } from "../web/strategy-switch-console/config.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = [
@@ -67,6 +68,7 @@ assert.ok(indexHtml.includes('optionOverlayDefaultSimple: "开启"'));
 assert.ok(indexHtml.includes('cashOnlyExecutionDefault: "仅用现金"'));
 assert.match(indexHtml, /function platformCashOnlyExecutionDefault\(\) \{\s+return true;/);
 assert.ok(indexHtml.includes("function effectiveOptionOverlayForAccount("));
+assert.ok(indexHtml.includes("selectedAccount(platform)?.option_overlay_mode"));
 assert.ok(indexHtml.includes("function effectiveCashOnlyExecutionForAccount("));
 assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "是"'));
 assert.ok(indexHtml.includes('cashOnlyExecutionMode: "Allow margin"'));
@@ -406,6 +408,12 @@ assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.equal(accountOptions.longbridge[0].cash_currency, "HKD");
+for (const platformOptions of Object.values(DEFAULT_ACCOUNT_OPTIONS)) {
+  for (const option of platformOptions) {
+    assert.equal("reserved_cash_ratio" in option, false);
+    assert.equal("min_reserved_cash_usd" in option, false);
+  }
+}
 
 const accountOptionsWithCashOnlyMode = __test.normalizeAccountOptionsPayload(
   {
@@ -421,6 +429,21 @@ const accountOptionsWithCashOnlyMode = __test.normalizeAccountOptionsPayload(
   "test_account_options",
 );
 assert.equal(accountOptionsWithCashOnlyMode.longbridge[0].cash_only_execution_mode, "enabled");
+
+const accountOptionsWithOptionOverlayMode = __test.normalizeAccountOptionsPayload(
+  {
+    ibkr: [
+      {
+        key: "ibkr-primary",
+        label: "ibkr-primary",
+        target_name: "ibkr-primary",
+        option_overlay_mode: "disabled",
+      },
+    ],
+  },
+  "test_account_options",
+);
+assert.equal(accountOptionsWithOptionOverlayMode.ibkr[0].option_overlay_mode, "disabled");
 
 const kvUnboundSyncResponse = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-account-default", {
@@ -1111,6 +1134,30 @@ try {
   assert.equal(currentStrategies.longbridge.hk.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.longbridge.hk.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.longbridge.hk.source, "RESERVED_CASH_VARIABLES");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response("", { status: 404 });
+  }
+  if (requestUrl.endsWith("/IBKR_CASH_ONLY_EXECUTION")) {
+    return new Response(JSON.stringify({ value: "false" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { ibkr: accountOptions.ibkr },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].cash_only_execution, false);
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CASH_ONLY_EXECUTION_VARIABLE");
 } finally {
   globalThis.fetch = originalFetch;
 }

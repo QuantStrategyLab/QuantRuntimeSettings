@@ -288,6 +288,16 @@ function enforceMutualExclusionAfterSync(form) {
   }
 }
 
+function executionCashControlDisabledState(form) {
+  const reserveMode = normalizeReservePolicyMode(form?.reservePolicyMode);
+  return {
+    reservePolicyModeDisabled: false,
+    minReservedCashDisabled: reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio",
+    reservedCashRatioDisabled: reserveMode === "current" || reserveMode === "none" || reserveMode === "floor",
+    allowMarginYesDisabled: false,
+  };
+}
+
 // --- 表单工厂 ---
 function defaultReserveForm() {
   return {
@@ -835,6 +845,23 @@ console.log("\n=== 15. syncStrategyForAccount 初始互斥纠偏 ===\n");
   assert(form.reservedCashRatio === "0.05", "15b: reserve ratio preserved");
 }
 
+// 15c: 账号配置指定允许融资 + 当前只读到预留现金时，也应以融资为准清空预留
+{
+  const state = {
+    currentStrategies: {
+      ibkr: {
+        soxl: {
+          reserved_cash_ratio: "0.03",
+        },
+      },
+    },
+  };
+  const form = defaultReserveForm();
+  syncStrategyForAccount(state, form, "ibkr", makeAccount("soxl", "disabled"));
+  assert(form.cashOnlyExecutionMode === "disabled", "15c: account mode disabled → allow margin");
+  assert(form.reservePolicyMode === "none", "15c: account allow-margin clears current reserve ratio");
+}
+
 // ============================================================
 // 9. syncRuntimeTargetForAccount (解析为具体值)
 // ============================================================
@@ -1327,6 +1354,19 @@ console.log("\n=== 13. 互斥 UI 不再禁用选项 ===\n");
   assert(form.cashOnlyExecutionMode === "enabled", "13b: reserve=ratio → margin disabled");
   assert(form.reservePolicyMode === "ratio", "13b: reserve stays 'ratio'");
   assert(executionCashPolicyConflict(form) === false, "13b: no conflict after reconciliation");
+}
+
+// 13c: 即使进入初始冲突态，也不应形成两个选择器互相禁用的 UI 死锁
+{
+  const form = {
+    cashOnlyExecutionMode: "disabled",
+    reservePolicyMode: "ratio",
+    minReservedCashUsd: "",
+    reservedCashRatio: "0.03",
+  };
+  const disabled = executionCashControlDisabledState(form);
+  assert(disabled.reservePolicyModeDisabled === false, "13c: reserve policy select remains usable");
+  assert(disabled.allowMarginYesDisabled === false, "13c: allow-margin yes option remains usable");
 }
 
 // ============================================================

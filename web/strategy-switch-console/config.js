@@ -83,8 +83,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
       "cash_currency": "USD",
       "default_strategy_profile": "tqqq_growth_income",
       "default_execution_mode": "live",
-      "min_reserved_cash_usd": "",
-      "reserved_cash_ratio": "0.03",
       "service_name": ""
     }
   ],
@@ -100,8 +98,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
       "cash_currency": "USD",
       "default_strategy_profile": "soxl_soxx_trend_income",
       "default_execution_mode": "live",
-      "min_reserved_cash_usd": "",
-      "reserved_cash_ratio": "0.03",
       "service_name": ""
     }
   ],
@@ -116,8 +112,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
       "cash_currency": "USD",
       "default_strategy_profile": "soxl_soxx_trend_income",
       "default_execution_mode": "live",
-      "min_reserved_cash_usd": "150",
-      "reserved_cash_ratio": "0.03",
       "service_name": "charles-schwab-quant-service"
     }
   ],
@@ -132,8 +126,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
       "cash_currency": "USD",
       "default_strategy_profile": "ibit_smart_dca",
       "default_execution_mode": "live",
-      "min_reserved_cash_usd": "",
-      "reserved_cash_ratio": "0.03",
       "service_name": "firstrade-quant-service"
     }
   ],
