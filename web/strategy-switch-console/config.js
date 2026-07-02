@@ -19,7 +19,7 @@ export const PLATFORM_CONFIG = {
     "reserved_cash": true,
     "income_layer": true,
     "option_overlay": true,
-    "dca": false,
+    "dca": true,
     "execution_mode": "live",
     "service_name": "",
     "default_execution_mode": "live"
@@ -176,7 +176,7 @@ export const PLATFORM_REPOSITORIES = {
   "binance": "QuantStrategyLab/BinancePlatform"
 };
 
-export const DCA_SUPPORTED_PLATFORMS = new Set(["longbridge", "schwab", "firstrade", "binance"]);
+export const DCA_SUPPORTED_PLATFORMS = new Set(["longbridge", "ibkr", "schwab", "firstrade", "binance"]);
 
 export const DEFAULT_VARIABLE_SCOPES = {
   "longbridge": "environment",
