@@ -13,6 +13,13 @@ QuantStrategyLab shares Python packages across platforms, strategies, and pipeli
 python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
 ```
 
+When drift is found repeatedly, you can regenerate the matrix from local consumer files in a single step:
+
+```bash
+python3 scripts/check_internal_dependency_matrix.py --projects-root .. --generate --json > /tmp/internal_dependency_matrix.json
+python3 scripts/check_internal_dependency_matrix.py --projects-root .. --sync
+```
+
 The checker compares matrix entries against consumer `requirements.txt`, `requirements-lock.txt`, and `pyproject.toml` files in sibling repositories. With `--strict`, ref mismatches fail CI even when sibling repos are not checked out locally.
 
 ## Pin formats

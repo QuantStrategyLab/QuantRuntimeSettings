@@ -8,6 +8,14 @@ permissions:
   contents: read
 
 jobs:
+  actionlint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Actionlint
+        uses: docker://rhysd/actionlint:1.7.12
+
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 15
