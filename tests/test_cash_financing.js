@@ -158,12 +158,40 @@ function makeCurrentStrategies(platform, overrides = {}) {
 
 function currentEntryForAccount(state, platform, account) {
   const byPlatform = state.currentStrategies[platform] || {};
+  const normalizeAccountLookupKey = (value) => String(value || "").trim().toLowerCase();
   const keys = [account?.key, account?.target_name, account?.label].filter(Boolean).map(String);
+
+  const candidates = [...new Set(keys.map(normalizeAccountLookupKey).filter(Boolean))];
+
   for (const key of keys) {
     const entry = byPlatform[key];
-    if (entry && typeof entry === "object") return entry;
+    if (entry && typeof entry === "object") {
+      if (!entry.strategy_profile) {
+        return { ...entry, strategy_profile: account?.default_strategy_profile || "", source: "worker+account_defaults" };
+      }
+      return entry;
+    }
   }
-  return null;
+
+  for (const [rawKey, entry] of Object.entries(byPlatform)) {
+    if (!entry || typeof entry !== "object") continue;
+    if (candidates.includes(normalizeAccountLookupKey(rawKey))) {
+      if (!entry.strategy_profile) {
+        return {
+          ...entry,
+          strategy_profile: account?.default_strategy_profile || "",
+          source: "worker+account_defaults",
+        };
+      }
+      return entry;
+    }
+  }
+
+  return {
+    runtime_target_enabled: true,
+    strategy_profile: account?.default_strategy_profile || account?.strategy_profile || "",
+    source: "account_defaults",
+  };
 }
 
 function currentReservePolicyForAccount(state, platform, account) {
@@ -813,12 +841,12 @@ console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
   assert(form.runtimeTargetMode === "disabled", "9d: runtime_target='FALSE' → 'disabled'");
 }
 
-// 9e: no entry → stays "current"
+// 9e: no entry → use default enabled状态
 {
   const state = { currentStrategies: {} };
   const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
   syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
-  assert(form.runtimeTargetMode === "current", "9c: no entry → 'current'");
+  assert(form.runtimeTargetMode === "enabled", "9e: no entry → default enabled");
 }
 
 // 9f: touched → skip
@@ -937,7 +965,99 @@ console.log("\n=== 10. syncIncomeLayerForAccount (解析为具体值) ===\n");
 }
 
 // ============================================================
-// 11. syncOptionOverlayForAccount (解析为具体值)
+// 11. currentEntryForAccount 映射健壮性 ===
+// ============================================================
+
+console.log("\n=== 11. currentEntryForAccount 映射健壮性 ===\n");
+
+// 11a: 按原 key 命中
+{
+  const state = {
+    currentStrategies: {
+      ibkr: {
+        preview: { runtime_target_enabled: true },
+      },
+    },
+  };
+  const account = makeAccount("preview");
+  const entry = currentEntryForAccount(state, "ibkr", account);
+  assert(entry && entry.runtime_target_enabled === true, "11a: exact key should hit current entry");
+}
+
+// 11b: key 大小写不一致也能命中
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: { runtime_target_enabled: false },
+      },
+    },
+  };
+  const account = {
+    key: "SG",
+    target_name: "sg",
+    label: "SG",
+  };
+  const entry = currentEntryForAccount(state, "longbridge", account);
+  assert(entry && entry.runtime_target_enabled === false, "11b: case-insensitive key should match normalized");
+}
+
+// 11c: key 前后空白也能命中
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: { runtime_target_enabled: false },
+      },
+    },
+  };
+  const account = {
+    key: " sg ",
+    target_name: "SG",
+    label: "longbridge sg",
+  };
+  const entry = currentEntryForAccount(state, "longbridge", account);
+  assert(entry && entry.runtime_target_enabled === false, "11c: whitespace-trimmed key should match");
+}
+
+// 11d: 无 key 命中时回退到默认账号配置
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {},
+    },
+  };
+  const account = {
+    key: "sg",
+    target_name: "sg",
+    label: "sg",
+    default_strategy_profile: "tqqq_growth_income",
+  };
+  const entry = currentEntryForAccount(state, "longbridge", account);
+  assert(Boolean(entry), "11d: missing entry should return synthesized defaults");
+  assert(entry.runtime_target_enabled === true, "11d: missing entry should default runtime_target_enabled=enabled");
+}
+
+// 11e: 当前条目存在 strategy_profile 时不改写策略
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: { strategy_profile: "soxl_soxx_trend_income", runtime_target_enabled: false },
+      },
+    },
+  };
+  const account = {
+    key: "SG",
+    target_name: "SG",
+    label: "sg",
+  };
+  const entry = currentEntryForAccount(state, "longbridge", account);
+  assert(entry?.strategy_profile === "soxl_soxx_trend_income", "11e: existing strategy_profile should be preserved");
+}
+
+// ============================================================
+// 12. syncOptionOverlayForAccount (解析为具体值)
 // ============================================================
 
 function optionOverlaySupported(profile) { return profile !== "no_overlay"; }
@@ -973,54 +1093,54 @@ function syncOptionOverlayForAccount(state, form, platform, account) {
   }
 }
 
-console.log("\n=== 11. syncOptionOverlayForAccount (解析为具体值) ===\n");
+console.log("\n=== 12. syncOptionOverlayForAccount (解析为具体值) ===\n");
 
-// 11a: option_overlay_enabled: true → enabled
+// 12a: option_overlay_enabled: true → enabled
 {
   const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { option_overlay_enabled: true } }) };
   const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
   syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
-  assert(form.optionOverlayMode === "enabled", "11a: option overlay enabled → 'enabled'");
+  assert(form.optionOverlayMode === "enabled", "12a: option overlay enabled → 'enabled'");
 }
 
-// 11b: option_overlay_enabled: false → disabled
+// 12b: option_overlay_enabled: false → disabled
 {
   const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { option_overlay_enabled: false } }) };
   const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
   syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
-  assert(form.optionOverlayMode === "disabled", "11b: option overlay disabled → 'disabled'");
+  assert(form.optionOverlayMode === "disabled", "12b: option overlay disabled → 'disabled'");
 }
 
-// 11c: no entry + supported → enabled (default)
+// 12c: no entry + supported → enabled (default)
 {
   const state = { currentStrategies: {} };
   const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
   syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
-  assert(form.optionOverlayMode === "enabled", "11c: no entry + supported → 'enabled'");
+  assert(form.optionOverlayMode === "enabled", "12c: no entry + supported → 'enabled'");
 }
 
-// 11d: not supported → disabled
+// 12d: not supported → disabled
 {
   const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { option_overlay_enabled: true } }) };
   const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "no_overlay" };
   syncOptionOverlayForAccount(state, form, "ibkr", makeAccount("preview"));
-  assert(form.optionOverlayMode === "disabled", "11d: not supported → 'disabled'");
+  assert(form.optionOverlayMode === "disabled", "12d: not supported → 'disabled'");
 }
 
-// 11e: account has explicit mode → use it
+// 12e: account has explicit mode → use it
 {
   const form = { optionOverlayMode: "current", optionOverlayTouched: false, strategy: "some_profile" };
   syncOptionOverlayForAccount({}, form, "ibkr", { key: "preview", option_overlay_mode: "disabled" });
-  assert(form.optionOverlayMode === "disabled", "11e: account explicit 'disabled' → 'disabled'");
+  assert(form.optionOverlayMode === "disabled", "12e: account explicit 'disabled' → 'disabled'");
 }
 
 // ============================================================
-// 12. 互斥 UI 不再禁用选项 (回归测试)
+// 13. 互斥 UI 不再禁用选项 (回归测试)
 // ============================================================
 
-console.log("\n=== 12. 互斥 UI 不再禁用选项 ===\n");
+console.log("\n=== 13. 互斥 UI 不再禁用选项 ===\n");
 
-// 12a: 预留现金覆盖活跃时，select cash-only=disabled 不应因 option.disabled 被阻挡
+// 13a: 预留现金覆盖活跃时，select cash-only=disabled 不应因 option.disabled 被阻挡
 // (此测试验证 reconcileExecutionCashPolicy 可处理用户选择，无需前置禁用)
 {
   const form = {
@@ -1036,13 +1156,13 @@ console.log("\n=== 12. 互斥 UI 不再禁用选项 ===\n");
   form.cashOnlyExecutionTouched = true;
   reconcileExecutionCashPolicy(form, "margin");
   // 预留现金应被清除
-  assert(form.reservePolicyMode === "none", "12a: margin=yes → reserve cleared");
-  assert(form.cashOnlyExecutionMode === "disabled", "12a: margin stays 'disabled'");
+  assert(form.reservePolicyMode === "none", "13a: margin=yes → reserve cleared");
+  assert(form.cashOnlyExecutionMode === "disabled", "13a: margin stays 'disabled'");
   // 不再冲突
-  assert(executionCashPolicyConflict(form) === false, "12a: no conflict after reconciliation");
+  assert(executionCashPolicyConflict(form) === false, "13a: no conflict after reconciliation");
 }
 
-// 12b: margin 启用时，reserve 下拉框不应 disabled，用户可选 ratio
+// 13b: margin 启用时，reserve 下拉框不应 disabled，用户可选 ratio
 {
   const form = {
     cashOnlyExecutionMode: "disabled",  // margin enabled
@@ -1058,18 +1178,18 @@ console.log("\n=== 12. 互斥 UI 不再禁用选项 ===\n");
   form.reservedCashTouched = true;
   reconcileExecutionCashPolicy(form, "reserve");
   // 融资应被禁用
-  assert(form.cashOnlyExecutionMode === "enabled", "12b: reserve=ratio → margin disabled");
-  assert(form.reservePolicyMode === "ratio", "12b: reserve stays 'ratio'");
-  assert(executionCashPolicyConflict(form) === false, "12b: no conflict after reconciliation");
+  assert(form.cashOnlyExecutionMode === "enabled", "13b: reserve=ratio → margin disabled");
+  assert(form.reservePolicyMode === "ratio", "13b: reserve stays 'ratio'");
+  assert(executionCashPolicyConflict(form) === false, "13b: no conflict after reconciliation");
 }
 
 // ============================================================
-// 13. 融资切换 save/restore 预留现金配置
+// 14. 融资切换 save/restore 预留现金配置
 // ============================================================
 
-console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
+console.log("\n=== 14. Save/Restore 预留现金配置 ===\n");
 
-// 13a: 用户开融资 → 值保留 → 关融资 → 值恢复
+// 14a: 用户开融资 → 值保留 → 关融资 → 值恢复
 {
   const form = {
     cashOnlyExecutionMode: "enabled",   // 当前：不允许融资
@@ -1083,20 +1203,20 @@ console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
   form.cashOnlyExecutionMode = "disabled";
   form.cashOnlyExecutionTouched = true;
   reconcileExecutionCashPolicy(form, "margin");
-  assert(form.reservePolicyMode === "none", "13a-step1: reserve cleared to 'none'");
-  assert(form.reservedCashRatio === "0.05", "13a-step1: ratio value preserved");
-  assert(form._prevReserve.mode === "ratio", "13a-step1: prev mode saved");
-  assert(form._prevReserve.ratio === "0.05", "13a-step1: prev ratio saved");
+  assert(form.reservePolicyMode === "none", "14a-step1: reserve cleared to 'none'");
+  assert(form.reservedCashRatio === "0.05", "14a-step1: ratio value preserved");
+  assert(form._prevReserve.mode === "ratio", "14a-step1: prev mode saved");
+  assert(form._prevReserve.ratio === "0.05", "14a-step1: prev ratio saved");
 
   // 用户选"允许融资: 否" → 恢复
   form.cashOnlyExecutionMode = "enabled";
   restoreReserveAfterMarginDisabled(form);
-  assert(form.reservePolicyMode === "ratio", "13a-step2: reserve restored to 'ratio'");
-  assert(form.reservedCashRatio === "0.05", "13a-step2: ratio restored");
-  assert(form._prevReserve === undefined, "13a-step2: _prevReserve cleaned up");
+  assert(form.reservePolicyMode === "ratio", "14a-step2: reserve restored to 'ratio'");
+  assert(form.reservedCashRatio === "0.05", "14a-step2: ratio restored");
+  assert(form._prevReserve === undefined, "14a-step2: _prevReserve cleaned up");
 }
 
-// 13b: 用户开融资 → 关融资 → 手动改 reserve → 再开再关不复原旧值
+// 14b: 用户开融资 → 关融资 → 手动改 reserve → 再开再关不复原旧值
 {
   const form = {
     cashOnlyExecutionMode: "enabled",
@@ -1109,13 +1229,13 @@ console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
   // 开融资
   form.cashOnlyExecutionMode = "disabled";
   reconcileExecutionCashPolicy(form, "margin");
-  assert(form.reservePolicyMode === "none", "13b-step1: cleared");
-  assert(form._prevReserve.mode === "max", "13b-step1: prev 'max' saved");
+  assert(form.reservePolicyMode === "none", "14b-step1: cleared");
+  assert(form._prevReserve.mode === "max", "14b-step1: prev 'max' saved");
 
   // 关融资 → 恢复
   form.cashOnlyExecutionMode = "enabled";
   restoreReserveAfterMarginDisabled(form);
-  assert(form.reservePolicyMode === "max", "13b-step2: restored to 'max'");
+  assert(form.reservePolicyMode === "max", "14b-step2: restored to 'max'");
 
   // 用户手动改为 floor
   form.reservePolicyMode = "floor";
@@ -1126,17 +1246,17 @@ console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
   // 再开融资
   form.cashOnlyExecutionMode = "disabled";
   reconcileExecutionCashPolicy(form, "margin");
-  assert(form._prevReserve.mode === "floor", "13b-step3: prev 'floor' saved");
-  assert(form._prevReserve.floor === "5000", "13b-step3: prev floor saved");
+  assert(form._prevReserve.mode === "floor", "14b-step3: prev 'floor' saved");
+  assert(form._prevReserve.floor === "5000", "14b-step3: prev floor saved");
 
   // 再关融资 → 恢复 floor
   form.cashOnlyExecutionMode = "enabled";
   restoreReserveAfterMarginDisabled(form);
-  assert(form.reservePolicyMode === "floor", "13b-step4: restored to 'floor'");
-  assert(form.minReservedCashUsd === "5000", "13b-step4: floor restored");
+  assert(form.reservePolicyMode === "floor", "14b-step4: restored to 'floor'");
+  assert(form.minReservedCashUsd === "5000", "14b-step4: floor restored");
 }
 
-// 13c: reserve=none 时开融资不应保存 _prevReserve
+// 14c: reserve=none 时开融资不应保存 _prevReserve
 {
   const form = {
     cashOnlyExecutionMode: "enabled",
@@ -1147,10 +1267,10 @@ console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
   };
   form.cashOnlyExecutionMode = "disabled";
   reconcileExecutionCashPolicy(form, "margin");
-  assert(form._prevReserve === undefined, "13c: reserve=none → no _prevReserve saved");
+  assert(form._prevReserve === undefined, "14c: reserve=none → no _prevReserve saved");
 }
 
-// 13d: margin 切到 "enabled" 但无 _prevReserve → 不动
+// 14d: margin 切到 "enabled" 但无 _prevReserve → 不动
 {
   const form = {
     cashOnlyExecutionMode: "disabled",
@@ -1161,10 +1281,10 @@ console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
   };
   form.cashOnlyExecutionMode = "enabled";
   restoreReserveAfterMarginDisabled(form);
-  assert(form.reservePolicyMode === "none", "13d: no _prevReserve → stays 'none'");
+  assert(form.reservePolicyMode === "none", "14d: no _prevReserve → stays 'none'");
 }
 
-// 13e: account switch 清除 _prevReserve
+// 14e: account switch 清除 _prevReserve
 {
   const form = {
     cashOnlyExecutionMode: "disabled",
@@ -1174,7 +1294,7 @@ console.log("\n=== 13. Save/Restore 预留现金配置 ===\n");
     _prevReserve: { mode: "max", floor: "10000", ratio: "0.05" },
   };
   delete form._prevReserve;  // simulate account switch
-  assert(form._prevReserve === undefined, "13e: account switch clears _prevReserve");
+  assert(form._prevReserve === undefined, "14e: account switch clears _prevReserve");
 }
 
 // ============================================================
