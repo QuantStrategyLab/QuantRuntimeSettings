@@ -714,7 +714,6 @@ def command_repository(args: argparse.Namespace) -> int:
 ACCOUNT_SYNC_CONTROL_FIELDS = {
     "DCA_MODE": "dca_mode",
     "DCA_BASE_INVESTMENT_USD": "dca_base_investment_usd",
-    "IBIT_ZSCORE_EXIT_MODE": "ibit_zscore_exit_mode",
 }
 
 

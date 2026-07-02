@@ -247,7 +247,6 @@ class RuntimeSettingsTest(unittest.TestCase):
             {
                 "dca_mode": "smart",
                 "dca_base_investment_usd": "500",
-                "ibit_zscore_exit_mode": "paper",
             },
         )
 
@@ -609,7 +608,7 @@ class RuntimeSettingsTest(unittest.TestCase):
             },
         )
 
-    def test_build_switch_target_uses_daily_scheduler_when_ibit_zscore_plugin_is_auto_mounted(self):
+    def test_build_switch_target_uses_daily_scheduler_when_ibit_smart_dca_is_smart(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -619,6 +618,8 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "ibit",
                 "--strategy-profile",
                 "ibit_smart_dca",
+                "--dca-mode",
+                "smart",
             ]
         )
 
@@ -641,7 +642,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "true")
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "live")
 
-    def test_build_switch_target_sets_ibit_zscore_exit_runtime_controls(self):
+    def test_build_switch_target_ignores_legacy_ibit_zscore_controls(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -651,6 +652,8 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "ibit",
                 "--strategy-profile",
                 "ibit_smart_dca",
+                "--dca-mode",
+                "smart",
                 "--extra-variables-json",
                 '{"ibit_zscore_exit_mode":"live","ibit_zscore_exit_parking_symbol":"SGOV"}',
             ]
@@ -661,9 +664,31 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "true")
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "live")
-        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_PARKING_SYMBOL"], "SGOV")
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_PARKING_SYMBOL"], "BOXX")
         self.assertNotIn("ibit_zscore_exit_mode", target["extra_variables"])
         self.assertNotIn("ibit_zscore_exit_parking_symbol", target["extra_variables"])
+
+    def test_build_switch_target_disables_ibit_zscore_exit_for_fixed_dca(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "firstrade",
+                "--target-name",
+                "ibit",
+                "--strategy-profile",
+                "ibit_smart_dca",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        plugin_payload = json.loads(assignments["FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON"])
+
+        self.assertEqual(target["runtime_target"]["scheduler"], build_runtime_switch.US_DCA_SCHEDULER)
+        self.assertEqual(plugin_payload["strategy_plugins"], [])
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "false")
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "paper")
 
     def test_build_switch_target_disables_ibit_zscore_exit_when_plugins_are_disabled(self):
         parser = build_runtime_switch.build_parser()
@@ -675,6 +700,8 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "ibit",
                 "--strategy-profile",
                 "ibit_smart_dca",
+                "--dca-mode",
+                "smart",
                 "--plugin-mode",
                 "none",
             ]
@@ -687,7 +714,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "false")
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "paper")
 
-    def test_build_switch_target_rejects_ibit_zscore_controls_for_other_profiles(self):
+    def test_build_switch_target_ignores_legacy_ibit_zscore_controls_for_other_profiles(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -702,8 +729,12 @@ class RuntimeSettingsTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "IBIT Z-Score exit settings"):
-            build_runtime_switch.build_switch_target(args)
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "")
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "")
+        self.assertNotIn("ibit_zscore_exit_mode", target["extra_variables"])
 
     def test_build_switch_target_sets_dca_settings_for_dca_profile(self):
         parser = build_runtime_switch.build_parser()

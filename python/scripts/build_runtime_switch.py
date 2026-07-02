@@ -394,25 +394,6 @@ def _normalize_option_recipe(value: str, *, field_name: str) -> str:
     return text
 
 
-def _normalize_ibit_zscore_exit_mode(value: str) -> str:
-    mode = str(value or "").strip().lower()
-    aliases = {
-        "off": "disabled",
-        "none": "disabled",
-        "false": "disabled",
-        "0": "disabled",
-        "disable": "disabled",
-        "enabled": "live",
-        "shadow": "paper",
-        "dry_run": "paper",
-        "dry-run": "paper",
-    }
-    mode = aliases.get(mode, mode)
-    if mode not in {"disabled", "paper", "live"}:
-        raise ValueError("ibit_zscore_exit_mode must be disabled, paper, or live")
-    return mode
-
-
 def _normalize_symbol_text(value: str, *, field_name: str) -> str:
     text = str(value or "").strip().upper().removesuffix(".US")
     if not text or not re.fullmatch(r"[A-Z0-9.-]{1,12}", text):
@@ -573,6 +554,18 @@ def _dca_extra_variables(
     return extra_variables
 
 
+def _effective_dca_mode(
+    args: argparse.Namespace,
+    strategy_profile: str,
+    controls: dict[str, Any] | None = None,
+) -> str:
+    if strategy_profile not in DCA_PROFILES:
+        return ""
+    controls = dict(controls or {})
+    raw_mode = args.dca_mode if str(args.dca_mode or "").strip() else controls.get(DCA_MODE_CONTROL_FIELD, "")
+    return _normalize_dca_mode(raw_mode) if str(raw_mode or "").strip() else "fixed"
+
+
 def _reject_direct_dca_extra_variables(extra_variables: dict[str, Any]) -> None:
     provided = [
         variable
@@ -594,7 +587,10 @@ def _reject_direct_ibit_zscore_exit_extra_variables(extra_variables: dict[str, A
     ]
     if provided:
         names = ", ".join(provided)
-        raise ValueError(f"use ibit_zscore_exit_* control fields instead of extra_variables_json for {names}")
+        raise ValueError(
+            "IBIT_ZSCORE_EXIT variables are derived from ibit_smart_dca smart DCA mode; "
+            f"do not set them directly: {names}"
+        )
 
 
 def _reject_research_only_extra_variables(extra_variables: dict[str, Any]) -> None:
@@ -620,81 +616,36 @@ def _ibit_zscore_exit_extra_variables(
     args: argparse.Namespace,
     strategy_profile: str,
     plugin_mode: str,
-    controls: dict[str, Any] | None = None,
+    dca_mode: str,
 ) -> dict[str, Any]:
-    controls = dict(controls or {})
-    cli_mode = str(getattr(args, "ibit_zscore_exit_mode", "") or "").strip()
-    mode_value = cli_mode or controls.get("ibit_zscore_exit_mode", "")
-    has_controls = bool(mode_value) or any(
-        str(controls.get(field, "") or "").strip()
-        for field in IBIT_ZSCORE_EXIT_CONTROL_FIELDS
-        if field != "ibit_zscore_exit_mode"
-    )
-    has_cli_controls = any(
-        str(getattr(args, attr, "") or "").strip()
-        for attr in (
-            "ibit_zscore_exit_parking_symbol",
-            "ibit_zscore_exit_risk_reduced_exposure",
-            "ibit_zscore_exit_risk_off_exposure",
-            "ibit_zscore_exit_allow_outside_execution_window",
-        )
-    )
     is_ibit_profile = strategy_profile == IBIT_ZSCORE_EXIT_STRATEGY_PROFILE
     if not is_ibit_profile:
-        if has_controls or has_cli_controls:
-            raise ValueError("IBIT Z-Score exit settings are only supported for ibit_smart_dca")
         return {variable: "" for variable in IBIT_ZSCORE_EXIT_RUNTIME_VARIABLES}
 
-    if not mode_value:
-        mode = "disabled" if plugin_mode == "none" else "live"
-    else:
-        mode = _normalize_ibit_zscore_exit_mode(mode_value)
-    if plugin_mode == "none" and mode != "disabled":
-        raise ValueError("IBIT Z-Score exit live/paper modes require plugin_mode auto or custom")
-
-    parking_symbol = (
-        getattr(args, "ibit_zscore_exit_parking_symbol", "")
-        or controls.get("ibit_zscore_exit_parking_symbol")
-        or "BOXX"
-    )
-    risk_reduced_exposure = (
-        getattr(args, "ibit_zscore_exit_risk_reduced_exposure", "")
-        or controls.get("ibit_zscore_exit_risk_reduced_exposure")
-        or "0.50"
-    )
-    risk_off_exposure = (
-        getattr(args, "ibit_zscore_exit_risk_off_exposure", "")
-        or controls.get("ibit_zscore_exit_risk_off_exposure")
-        or "0.25"
-    )
-    allow_outside_window = (
-        getattr(args, "ibit_zscore_exit_allow_outside_execution_window", "")
-        or controls.get("ibit_zscore_exit_allow_outside_execution_window")
-        or "true"
-    )
+    mode = "live" if plugin_mode != "none" and dca_mode == "smart" else "disabled"
     return {
         IBIT_ZSCORE_EXIT_ENABLED_VARIABLE: "true" if mode != "disabled" else "false",
         IBIT_ZSCORE_EXIT_MODE_VARIABLE: "paper" if mode == "disabled" else mode,
         IBIT_ZSCORE_EXIT_PARKING_SYMBOL_VARIABLE: _normalize_symbol_text(
-            parking_symbol,
+            "BOXX",
             field_name="ibit_zscore_exit_parking_symbol",
         ),
         IBIT_ZSCORE_EXIT_RISK_REDUCED_EXPOSURE_VARIABLE: _normalize_ratio_decimal(
-            risk_reduced_exposure,
+            "0.50",
             field_name="ibit_zscore_exit_risk_reduced_exposure",
         ),
         IBIT_ZSCORE_EXIT_RISK_OFF_EXPOSURE_VARIABLE: _normalize_ratio_decimal(
-            risk_off_exposure,
+            "0.25",
             field_name="ibit_zscore_exit_risk_off_exposure",
         ),
         IBIT_ZSCORE_EXIT_ALLOW_OUTSIDE_WINDOW_VARIABLE: _normalize_optional_bool_text(
-            allow_outside_window,
+            "true",
             field_name="ibit_zscore_exit_allow_outside_execution_window",
         ),
     }
 
 
-def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str) -> list[dict[str, Any]]:
+def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str, dca_mode: str = "") -> list[dict[str, Any]]:
     prefix = artifact_bucket_uri.rstrip("/")
     mounts: list[dict[str, Any]] = []
     if strategy_profile in MARKET_REGIME_CONTROL_PROFILES:
@@ -711,7 +662,7 @@ def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str) -> list
                 "expected_schema_version": "market_regime_control.v1",
             }
         )
-    if strategy_profile == IBIT_ZSCORE_EXIT_STRATEGY_PROFILE:
+    if strategy_profile == IBIT_ZSCORE_EXIT_STRATEGY_PROFILE and dca_mode == "smart":
         mounts.append(
             {
                 "strategy": strategy_profile,
@@ -743,12 +694,12 @@ def _custom_plugin_mounts(raw_json: str) -> list[dict[str, Any]]:
     return [dict(item) for item in payload]
 
 
-def _plugin_mounts(args: argparse.Namespace, strategy_profile: str) -> list[dict[str, Any]]:
+def _plugin_mounts(args: argparse.Namespace, strategy_profile: str, dca_mode: str = "") -> list[dict[str, Any]]:
     mode = str(args.plugin_mode or "auto").strip().lower()
     if mode == "none":
         return []
     if mode == "auto":
-        return _auto_plugin_mounts(strategy_profile, args.artifact_bucket_uri)
+        return _auto_plugin_mounts(strategy_profile, args.artifact_bucket_uri, dca_mode)
     if mode == "custom":
         return _custom_plugin_mounts(args.custom_plugin_mounts_json)
     raise ValueError(f"unsupported plugin_mode {args.plugin_mode!r}")
@@ -935,13 +886,14 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError("variable_scope must be repository or environment")
     github_environment = args.github_environment or _default_github_environment(platform, target_name, variable_scope)
     runtime_target = _build_runtime_target(args)
-    mounts = _plugin_mounts(args, runtime_target["strategy_profile"])
-    runtime_target["scheduler"] = _scheduler_plan_for_strategy(runtime_target["strategy_profile"], mounts)
-    mounts_variable = f"{SUPPORTED_PLATFORMS[platform]['plugin_mounts_prefix']}STRATEGY_PLUGIN_MOUNTS_JSON"
     extra_variables = _parse_extra_variables(args.extra_variable, args.extra_variables_json)
     cash_only_controls = _extract_cash_only_control_fields(extra_variables)
     dca_controls = _extract_dca_control_fields(extra_variables)
-    ibit_zscore_exit_controls = _extract_ibit_zscore_exit_control_fields(extra_variables)
+    _extract_ibit_zscore_exit_control_fields(extra_variables)
+    effective_dca_mode = _effective_dca_mode(args, runtime_target["strategy_profile"], dca_controls)
+    mounts = _plugin_mounts(args, runtime_target["strategy_profile"], effective_dca_mode)
+    runtime_target["scheduler"] = _scheduler_plan_for_strategy(runtime_target["strategy_profile"], mounts)
+    mounts_variable = f"{SUPPORTED_PLATFORMS[platform]['plugin_mounts_prefix']}STRATEGY_PLUGIN_MOUNTS_JSON"
     if cash_only_controls.get(CASH_ONLY_EXECUTION_CONTROL_FIELD):
         args.cash_only_execution_mode = str(cash_only_controls[CASH_ONLY_EXECUTION_CONTROL_FIELD]).strip().lower()
     _reject_direct_dca_extra_variables(extra_variables)
@@ -966,7 +918,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
             args,
             runtime_target["strategy_profile"],
             str(args.plugin_mode or "auto").strip().lower(),
-            ibit_zscore_exit_controls,
+            effective_dca_mode,
         )
     )
 
@@ -1040,11 +992,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--option-overlay-mode", choices=sorted(OPTION_OVERLAY_MODES), default="current")
     parser.add_argument("--dca-mode", default="")
     parser.add_argument("--dca-base-investment-usd", default="")
-    parser.add_argument("--ibit-zscore-exit-mode", choices=("disabled", "paper", "live"), default="")
-    parser.add_argument("--ibit-zscore-exit-parking-symbol", default="")
-    parser.add_argument("--ibit-zscore-exit-risk-reduced-exposure", default="")
-    parser.add_argument("--ibit-zscore-exit-risk-off-exposure", default="")
-    parser.add_argument("--ibit-zscore-exit-allow-outside-execution-window", default="")
     parser.add_argument("--existing-service-targets-json-file", default="")
     parser.add_argument("--no-platform-dry-run-variable", dest="set_platform_dry_run_variable", action="store_false")
     parser.set_defaults(set_platform_dry_run_variable=True)

@@ -229,10 +229,7 @@
     "label_en": "BTC DCA",
     "label_zh": "BTC定投",
     "domain": "crypto",
-    "runtime_enabled": true,
-    "dca_enabled": true,
-    "dca_default_mode": "fixed",
-    "dca_default_base_investment_usd": "100"
+    "runtime_enabled": true
   },
   {
     "profile": "crypto_equity_combo",
