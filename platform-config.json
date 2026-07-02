@@ -82,7 +82,7 @@
         "reserved_cash": true,
         "income_layer": true,
         "option_overlay": true,
-        "dca": false
+        "dca": true
       },
       "default_account": {
         "key": "preview",

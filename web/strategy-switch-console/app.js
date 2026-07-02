@@ -65,7 +65,7 @@
         reserved_cash: true,
         income_layer: true,
         option_overlay: true,
-        dca: false,
+        dca: true,
         execution_mode: "live",
         service_name: "",
         default_execution_mode: "live"
@@ -1942,6 +1942,12 @@ function hasValidStrategySelection(platform = state.selected) {
 
     function pendingRuntimeTarget(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const mode = normalizeRuntimeTargetMode(inputs.runtime_target_enabled_mode);
+      if (mode === "current") {
+        return {
+          changed: false,
+          inputs: { runtime_target_enabled: runtimeTargetEnabledForAccount(platform, account) ?? true },
+        };
+      }
       const current = runtimeTargetEnabledForAccount(platform, account);
       const currentEnabled = current ?? true;
       const nextEnabled = mode === "enabled";
