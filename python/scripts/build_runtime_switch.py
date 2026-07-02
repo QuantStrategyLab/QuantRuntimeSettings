@@ -176,7 +176,7 @@ DCA_PROFILES = frozenset(
         "ibit_smart_dca",
     }
 )
-DCA_SUPPORTED_PLATFORMS = frozenset({"firstrade"})
+DCA_SUPPORTED_PLATFORMS = frozenset({"longbridge", "ibkr", "schwab", "firstrade"})
 DCA_MODES = frozenset({"fixed", "smart"})
 DCA_MODE_VARIABLE = "DCA_MODE"
 DCA_BASE_INVESTMENT_VARIABLE = "DCA_BASE_INVESTMENT_USD"
@@ -334,8 +334,9 @@ def _normalize_dca_mode(value: str) -> str:
 def _validate_dca_platform(platform: str, strategy_profile: str) -> None:
     profile = str(strategy_profile or "").strip().lower()
     if profile in DCA_PROFILES and platform not in DCA_SUPPORTED_PLATFORMS:
+        supported = ", ".join(sorted(DCA_SUPPORTED_PLATFORMS))
         raise ValueError(
-            "DCA strategy profiles are only supported on firstrade; "
+            f"DCA strategy profiles are only supported on {supported}; "
             f"got platform={platform!r}, strategy_profile={profile!r}"
         )
 

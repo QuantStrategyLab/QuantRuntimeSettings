@@ -574,18 +574,20 @@ assert.deepEqual(JSON.parse(normalizedDcaInputs.extra_variables_json), {
   dca_base_investment_usd: "500",
   cash_only_execution_mode: "enabled",
 });
-assert.throws(
-  () => __test.normalizeSwitchInputs({
-    platform: "ibkr",
-    target_name: "ibkr-primary",
-    strategy_profile: "nasdaq_sp500_smart_dca",
-    execution_mode: "live",
-    plugin_mode: "auto",
-    dca_mode: "smart",
-    dca_base_investment_usd: "500",
-  }),
-  /DCA strategy profiles are not supported on ibkr/,
-);
+const normalizedIbkrDcaInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "nasdaq_sp500_smart_dca",
+  execution_mode: "live",
+  plugin_mode: "auto",
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
+});
+assert.deepEqual(JSON.parse(normalizedIbkrDcaInputs.extra_variables_json), {
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
+  cash_only_execution_mode: "enabled",
+});
 const normalizedDcaJsonInputs = __test.normalizeSwitchInputs({
   platform: "firstrade",
   target_name: "default",
@@ -614,17 +616,18 @@ assert.deepEqual(JSON.parse(normalizedIbitZscoreInputs.extra_variables_json), {
   ibit_zscore_exit_mode: "live",
   cash_only_execution_mode: "enabled",
 });
-assert.throws(
-  () => __test.normalizeSwitchInputs({
-    platform: "ibkr",
-    target_name: "ibit-primary",
-    strategy_profile: "ibit_smart_dca",
-    execution_mode: "live",
-    plugin_mode: "auto",
-    ibit_zscore_exit_mode: "live",
-  }),
-  /DCA strategy profiles are not supported on ibkr/,
-);
+const normalizedIbkrIbitZscoreInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibit-primary",
+  strategy_profile: "ibit_smart_dca",
+  execution_mode: "live",
+  plugin_mode: "auto",
+  ibit_zscore_exit_mode: "live",
+});
+assert.deepEqual(JSON.parse(normalizedIbkrIbitZscoreInputs.extra_variables_json), {
+  ibit_zscore_exit_mode: "live",
+  cash_only_execution_mode: "enabled",
+});
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
@@ -632,7 +635,7 @@ assert.throws(
     strategy_profile: "nasdaq_sp500_smart_dca",
     ibit_zscore_exit_mode: "live",
   }),
-  /DCA strategy profiles are not supported on ibkr/,
+  /IBIT Z-Score exit settings/,
 );
 assert.throws(
   () => __test.normalizeSwitchInputs({

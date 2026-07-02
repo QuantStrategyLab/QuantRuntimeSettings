@@ -745,6 +745,34 @@ function syncRuntimeTargetForAccount(state, form, platform, account) {
   form.runtimeTargetMode = target.known ? (target.enabled ? "enabled" : "disabled") : "current";
 }
 
+function normalizeRuntimeTargetMode(value) {
+  return ["current", "enabled", "disabled"].includes(value) ? value : "current";
+}
+
+function runtimeTargetEnabledForAccount(state, platform, account) {
+  return cleanOptionalBoolean(currentEntryForAccount(state, platform, account)?.runtime_target_enabled);
+}
+
+function pendingRuntimeTarget(state, inputs, platform, account) {
+  const mode = normalizeRuntimeTargetMode(inputs.runtime_target_enabled_mode);
+  if (mode === "current") {
+    return {
+      changed: false,
+      inputs: {
+        runtime_target_enabled: runtimeTargetEnabledForAccount(state, platform, account) ?? true,
+      },
+    };
+  }
+  const current = runtimeTargetEnabledForAccount(state, platform, account);
+  const currentEnabled = current ?? true;
+  const nextEnabled = mode === "enabled";
+  const entry = currentEntryForAccount(state, platform, account);
+  return {
+    changed: Boolean(entry && current !== null && currentEnabled !== nextEnabled),
+    inputs: { runtime_target_enabled: nextEnabled },
+  };
+}
+
 // --- 测试 ---
 console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
 
@@ -778,6 +806,19 @@ console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
   const form = { runtimeTargetMode: "enabled", runtimeTargetTouched: true };
   syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
   assert(form.runtimeTargetMode === "enabled", "9d: touched → not overwritten");
+}
+
+// 9e: summary/pending should not mark "current" as a disable change
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: true } }) };
+  const pending = pendingRuntimeTarget(
+    state,
+    { runtime_target_enabled_mode: "current" },
+    "ibkr",
+    makeAccount("preview"),
+  );
+  assert(pending.changed === false, "9e: current runtime target mode → unchanged");
+  assert(pending.inputs.runtime_target_enabled === true, "9e: current runtime target keeps enabled value");
 }
 
 // ============================================================

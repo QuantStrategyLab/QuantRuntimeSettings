@@ -773,7 +773,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "DCA settings are only supported"):
             build_runtime_switch.build_switch_target(args)
 
-    def test_build_switch_target_rejects_dca_profile_on_non_firstrade_platform(self):
+    def test_build_switch_target_accepts_dca_profile_on_ibkr(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -788,8 +788,10 @@ class RuntimeSettingsTest(unittest.TestCase):
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "DCA strategy profiles are only supported on firstrade"):
-            build_runtime_switch.build_switch_target(args)
+        target = build_runtime_switch.build_switch_target(args)
+
+        self.assertEqual(target["runtime_target"]["strategy_profile"], "nasdaq_sp500_smart_dca")
+        self.assertEqual(target["runtime_target"]["platform_id"], "ibkr")
 
     def test_build_switch_target_rejects_direct_dca_extra_variables(self):
         parser = build_runtime_switch.build_parser()
