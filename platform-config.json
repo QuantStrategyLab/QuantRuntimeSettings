@@ -52,9 +52,7 @@
         ],
         "cash_currency": "USD",
         "default_execution_mode": "live",
-        "default_strategy_profile": "tqqq_growth_income",
-        "reserved_cash_ratio": "0.03",
-        "min_reserved_cash_usd": ""
+        "default_strategy_profile": "tqqq_growth_income"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -94,9 +92,7 @@
         ],
         "cash_currency": "USD",
         "default_execution_mode": "live",
-        "default_strategy_profile": "soxl_soxx_trend_income",
-        "reserved_cash_ratio": "0.03",
-        "min_reserved_cash_usd": ""
+        "default_strategy_profile": "soxl_soxx_trend_income"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -134,9 +130,7 @@
         ],
         "cash_currency": "USD",
         "default_execution_mode": "live",
-        "default_strategy_profile": "soxl_soxx_trend_income",
-        "reserved_cash_ratio": "0.03",
-        "min_reserved_cash_usd": "150"
+        "default_strategy_profile": "soxl_soxx_trend_income"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -174,9 +168,7 @@
         ],
         "cash_currency": "USD",
         "default_execution_mode": "live",
-        "default_strategy_profile": "ibit_smart_dca",
-        "reserved_cash_ratio": "0.03",
-        "min_reserved_cash_usd": ""
+        "default_strategy_profile": "ibit_smart_dca"
       },
       "deployment": {
         "default_execution_mode": "live",

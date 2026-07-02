@@ -926,20 +926,24 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     Object.keys(reservedCashPayload).length ||
     Object.keys(incomeLayerPayload).length ||
     Object.keys(optionOverlayPayload).length ||
-    Object.keys(runtimeTargetEnabledPayload).length
+    Object.keys(runtimeTargetEnabledPayload).length ||
+    Object.keys(cashOnlyPayload).length
   ) {
     return {
       ...reservedCashPayload,
       ...incomeLayerPayload,
       ...optionOverlayPayload,
       ...runtimeTargetEnabledPayload,
+      ...cashOnlyPayload,
       source: Object.keys(reservedCashPayload).length
         ? "RESERVED_CASH_VARIABLES"
         : (Object.keys(incomeLayerPayload).length
           ? "INCOME_LAYER_VARIABLES"
           : (Object.keys(runtimeTargetEnabledPayload).length
             ? "RUNTIME_TARGET_ENABLED_VARIABLE"
-            : "OPTION_OVERLAY_VARIABLES")),
+            : (Object.keys(optionOverlayPayload).length
+              ? "OPTION_OVERLAY_VARIABLES"
+              : "CASH_ONLY_EXECUTION_VARIABLE"))),
       variable_scope: variableScope,
       github_environment: githubEnvironment || "",
     };

@@ -344,8 +344,8 @@
         pendingCashOnlyExecution: "待提交允许融资",
         executionCashPolicyTitle: "现金与融资",
         executionCashPolicyNote: "允许融资与预留现金覆盖不能同时生效；选「是」会清空预留覆盖，设预留覆盖会强制「否」。",
-        executionCashMarginBlocksReserve: "已选允许融资，预留现金覆盖已禁用。",
-        executionCashReserveBlocksMargin: "已设预留现金覆盖，不能选允许融资。",
+        executionCashMarginBlocksReserve: "已选允许融资；提交时会清空预留现金覆盖。",
+        executionCashReserveBlocksMargin: "已设预留现金覆盖；提交时会强制不允许融资。",
         qmtPlatformCashNote: "A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。",
         qmtDryRunOnlyNote: "QMT 当前仅支持 dry-run（模拟），尚无 live 券商账号。",
         binancePlatformNote: "Binance 平台不使用券商级收入层与期权层；相关功能由策略内部实现。",
@@ -505,8 +505,8 @@
         pendingCashOnlyExecution: "Pending allow margin",
         executionCashPolicyTitle: "Cash and margin",
         executionCashPolicyNote: "Allow margin and reserve-cash overrides cannot both apply. Yes clears reserve overrides; reserve overrides force No.",
-        executionCashMarginBlocksReserve: "Allow margin is selected; reserve-cash overrides are disabled.",
-        executionCashReserveBlocksMargin: "Reserve-cash override is active; allow margin Yes is disabled.",
+        executionCashMarginBlocksReserve: "Allow margin is selected; submitting will clear reserve-cash overrides.",
+        executionCashReserveBlocksMargin: "Reserve-cash override is active; submitting will force allow margin to No.",
         qmtPlatformCashNote: "QMT A-share does not use margin or platform reserve cash; cash constraints live in strategy execution_cash_reserve_ratio.",
         qmtDryRunOnlyNote: "QMT is dry-run only for now; no live broker accounts are configured.",
         binancePlatformNote: "Binance does not use broker-level income/option layers; features are implemented inside strategies.",
@@ -750,16 +750,30 @@
     }
 
     function reconcileExecutionCashPolicy(form, changed) {
-      if (!form || !executionCashPolicyConflict(form)) return;
-      if (changed === "margin") {
+      if (!form) return;
+      if (changed === "margin" && allowMarginExplicitlySelected(form)) {
+        if (form.reservePolicyMode !== "none" && (form.minReservedCashUsd || form.reservedCashRatio)) {
+          form._prevReserve = {
+            mode: form.reservePolicyMode,
+            floor: form.minReservedCashUsd,
+            ratio: form.reservedCashRatio,
+          };
+        }
         form.reservePolicyMode = "none";
         form.reservedCashTouched = true;
-        form.minReservedCashUsd = "";
-        form.reservedCashRatio = "";
-      } else if (changed === "reserve") {
+      } else if (changed === "reserve" && reserveCashOverrideActive(form)) {
         form.cashOnlyExecutionMode = "enabled";
         form.cashOnlyExecutionTouched = true;
       }
+    }
+
+    function restoreReserveAfterMarginDisabled(form) {
+      if (!form || allowMarginExplicitlySelected(form) || !form._prevReserve) return;
+      form.reservePolicyMode = form._prevReserve.mode;
+      form.minReservedCashUsd = form._prevReserve.floor;
+      form.reservedCashRatio = form._prevReserve.ratio;
+      form.reservedCashTouched = true;
+      delete form._prevReserve;
     }
 
     function strategyDomain(profile) {
@@ -1491,6 +1505,11 @@
     function syncOptionOverlayForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.optionOverlayTouched) return;
+      const configured = normalizeOptionOverlayMode(selectedAccount(platform)?.option_overlay_mode);
+      if (configured !== "current") {
+        form.optionOverlayMode = configured;
+        return;
+      }
       const entry = currentEntryForAccount(platform, selectedAccount(platform));
       const rawValue = cleanOptionalBoolean(entry?.option_overlay_enabled);
       if (rawValue !== null) {
@@ -1503,6 +1522,11 @@
     function syncCashOnlyExecutionForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.cashOnlyExecutionTouched) return;
+      const configured = normalizeCashOnlyExecutionMode(selectedAccount(platform)?.cash_only_execution_mode);
+      if (configured !== "current") {
+        form.cashOnlyExecutionMode = configured;
+        return;
+      }
       const entry = currentEntryForAccount(platform, selectedAccount(platform));
       const rawValue = cleanOptionalBoolean(entry?.cash_only_execution);
       if (rawValue !== null) {
@@ -2344,6 +2368,8 @@
       }
       const supportsMargin = platformSupportsMarginPolicy(platform);
       const supportsReserve = platformSupportsReservedCashPolicy(platform);
+      if (supportsMargin) syncCashOnlyExecutionForAccount(platform);
+      reconcileExecutionCashPolicy(form, "margin");
       const executionCashPolicyGrid = el("execution-cash-policy-grid");
       const qmtPlatformCashNote = el("qmt-platform-cash-note");
       const executionCashPolicyNote = el("execution-cash-policy-note");
@@ -2364,9 +2390,9 @@
           "{currency}",
           selectedCashCurrency(platform, account),
         );
-        reservePolicyModeSelect.disabled = marginBlocksReserve;
-        minReservedCashInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
-        reservedCashRatioInput.disabled = marginBlocksReserve || reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
+        reservePolicyModeSelect.disabled = false;
+        minReservedCashInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "ratio";
+        reservedCashRatioInput.disabled = reserveMode === "current" || reserveMode === "none" || reserveMode === "floor";
         minReservedCashInput.value = reserveMode === "ratio" || reserveMode === "none" ? "" : form.minReservedCashUsd;
         reservedCashRatioInput.value = reserveMode === "floor" || reserveMode === "none" ? "" : form.reservedCashRatio;
         el("reserve-policy-block").classList.toggle("policy-block-muted", marginBlocksReserve);
@@ -2410,7 +2436,6 @@
       }
 
       if (supportsMargin) {
-        syncCashOnlyExecutionForAccount(platform);
         cashOnlyExecutionModeSelect.replaceChildren();
         for (const mode of cashOnlyExecutionModes) {
           const option = new Option(
@@ -2419,7 +2444,6 @@
             false,
             mode === normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode),
           );
-          if (mode === "disabled" && reserveBlocksMargin) option.disabled = true;
           cashOnlyExecutionModeSelect.append(option);
         }
         el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
@@ -2887,7 +2911,8 @@
       const form = state.forms[state.selected];
       form.cashOnlyExecutionMode = normalizeCashOnlyExecutionMode(el("cash-only-execution-mode-select").value);
       form.cashOnlyExecutionTouched = form.cashOnlyExecutionMode !== "current";
-      reconcileExecutionCashPolicy(form, "margin");
+      if (allowMarginExplicitlySelected(form)) reconcileExecutionCashPolicy(form, "margin");
+      else restoreReserveAfterMarginDisabled(form);
       render();
     });
 
