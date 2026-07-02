@@ -1248,10 +1248,7 @@
         if (compact) candidates.add(compact);
 
         const parts = key.split(/[^a-z0-9]+/).filter(Boolean);
-        for (const part of parts) candidates.add(part);
-        if (parts.length > 1) {
-          candidates.add(parts[parts.length - 1]);
-        }
+        if (parts.length > 1) candidates.add(parts[parts.length - 1]);
       }
       return [...candidates];
     }

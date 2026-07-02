@@ -1165,6 +1165,43 @@ console.log("\n=== 11. currentEntryForAccount 映射健壮性 ===\n");
   assert(entry && entry.runtime_target_enabled === true, "11g: separator variants should fallback-match");
 }
 
+// 11h: 避免平台前缀歧义导致误匹配（longbridge/ibkr 多账号）
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        "longbridge-hk": { runtime_target_enabled: false, reserved_cash_ratio: "0.11" },
+        "longbridge-sg": { runtime_target_enabled: true, reserved_cash_ratio: "0.03" },
+      },
+      ibkr: {
+        "ibkr-primary": { runtime_target_enabled: false, reserved_cash_ratio: "0.20" },
+        "ibkr-soxl": { runtime_target_enabled: true, reserved_cash_ratio: "0.05" },
+      },
+    },
+  };
+  const longbridgeSg = { key: "longbridge-sg", label: "LB|SG", target_name: "longbridge-sg" };
+  const longbridgeEntry = currentEntryForAccount(state, "longbridge", longbridgeSg);
+  assert(
+    longbridgeEntry && longbridgeEntry.runtime_target_enabled === true,
+    "11h-a: longbridge-sg should match longbridge-sg entry instead of longbridge-hk",
+  );
+  assert(
+    longbridgeEntry && longbridgeEntry.reserved_cash_ratio === "0.03",
+    "11h-b: longbridge-sg should use its own reserved_cash_ratio",
+  );
+
+  const ibkrSoxl = { key: "ibkr-soxl", label: "IBKR-SOXL", target_name: "ibkr-soxl" };
+  const ibkrEntry = currentEntryForAccount(state, "ibkr", ibkrSoxl);
+  assert(
+    ibkrEntry && ibkrEntry.runtime_target_enabled === true,
+    "11h-c: ibkr-soxl should match ibkr-soxl entry instead of ibkr-primary",
+  );
+  assert(
+    ibkrEntry && ibkrEntry.reserved_cash_ratio === "0.05",
+    "11h-d: ibkr-soxl should use its own reserved_cash_ratio",
+  );
+}
+
 // ============================================================
 // 12. syncOptionOverlayForAccount (解析为具体值)
 // ============================================================
