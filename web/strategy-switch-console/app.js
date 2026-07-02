@@ -1232,21 +1232,44 @@
       };
     }
 
+    function normalizeAccountLookupKey(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function resolveCurrentEntryByKey(byPlatform, keys) {
+      const candidates = [...new Set(keys
+        .map(normalizeAccountLookupKey)
+        .filter(Boolean))];
+      if (!candidates.length) return null;
+
+      for (const key of keys) {
+        const entry = byPlatform[key];
+        if (currentEntryHasState(entry)) return entry;
+      }
+
+      for (const [rawKey, entry] of Object.entries(byPlatform)) {
+        if (!currentEntryHasState(entry)) continue;
+        if (candidates.includes(normalizeAccountLookupKey(rawKey))) return entry;
+      }
+
+      return null;
+    }
+
     function currentEntryForAccount(platform, account) {
       const byPlatform = state.currentStrategies[platform] || {};
       const keys = [account?.key, account?.target_name, account?.label]
         .filter(Boolean)
         .map((value) => String(value));
-      for (const key of keys) {
-        const entry = byPlatform[key];
-        if (currentEntryHasState(entry)) {
-          if (!entry.strategy_profile) {
-            const gd = window.__DEFAULT_ACCOUNT_OPTIONS__?.[platform]?.[0] || {};
-            entry.strategy_profile = account?.default_strategy_profile || gd.default_strategy_profile || "";
-            entry.source = (entry.source || "worker") + "+account_defaults";
-          }
-          return entry;
+      const entry = resolveCurrentEntryByKey(byPlatform, keys);
+      if (entry) {
+        if (!entry.strategy_profile) {
+          const gd = window.__DEFAULT_ACCOUNT_OPTIONS__?.[platform]?.[0] || {};
+          const entryCopy = { ...entry };
+          entryCopy.strategy_profile = account?.default_strategy_profile || gd.default_strategy_profile || "";
+          entryCopy.source = (entryCopy.source || "worker") + "+account_defaults";
+          return entryCopy;
         }
+        return entry;
       }
       const globalDefaults = window.__DEFAULT_ACCOUNT_OPTIONS__?.[platform]?.[0] || {};
       const merged = { ...globalDefaults, ...(account || {}) };
