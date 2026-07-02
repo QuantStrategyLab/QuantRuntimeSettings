@@ -1236,11 +1236,29 @@
       return String(value || "").trim().toLowerCase();
     }
 
+    function collectAccountLookupCandidates(keys) {
+      const candidates = new Set();
+      for (const rawKey of keys) {
+        const key = normalizeAccountLookupKey(rawKey);
+        if (!key) continue;
+
+        candidates.add(key);
+
+        const compact = key.replace(/[^a-z0-9]+/g, "");
+        if (compact) candidates.add(compact);
+
+        const parts = key.split(/[^a-z0-9]+/).filter(Boolean);
+        for (const part of parts) candidates.add(part);
+        if (parts.length > 1) {
+          candidates.add(parts[parts.length - 1]);
+        }
+      }
+      return [...candidates];
+    }
+
     function resolveCurrentEntryByKey(byPlatform, keys) {
-      const candidates = [...new Set(keys
-        .map(normalizeAccountLookupKey)
-        .filter(Boolean))];
-      if (!candidates.length) return null;
+      const candidates = new Set(collectAccountLookupCandidates(keys));
+      if (!candidates.size) return null;
 
       for (const key of keys) {
         const entry = byPlatform[key];
@@ -1249,7 +1267,9 @@
 
       for (const [rawKey, entry] of Object.entries(byPlatform)) {
         if (!currentEntryHasState(entry)) continue;
-        if (candidates.includes(normalizeAccountLookupKey(rawKey))) return entry;
+        const rawCandidates = collectAccountLookupCandidates([rawKey]);
+        const hasMatch = rawCandidates.some((candidate) => candidates.has(candidate));
+        if (hasMatch) return entry;
       }
 
       return null;

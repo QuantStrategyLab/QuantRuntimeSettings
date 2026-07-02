@@ -159,9 +159,28 @@ function makeCurrentStrategies(platform, overrides = {}) {
 function currentEntryForAccount(state, platform, account) {
   const byPlatform = state.currentStrategies[platform] || {};
   const normalizeAccountLookupKey = (value) => String(value || "").trim().toLowerCase();
+  const collectAccountLookupCandidates = (keys) => {
+    const candidates = new Set();
+    for (const rawKey of keys) {
+      const key = normalizeAccountLookupKey(rawKey);
+      if (!key) continue;
+
+      candidates.add(key);
+
+      const compact = key.replace(/[^a-z0-9]+/g, "");
+      if (compact) candidates.add(compact);
+
+      const parts = key.split(/[^a-z0-9]+/).filter(Boolean);
+      for (const part of parts) candidates.add(part);
+      if (parts.length > 1) {
+        candidates.add(parts[parts.length - 1]);
+      }
+    }
+    return [...candidates];
+  };
   const keys = [account?.key, account?.target_name, account?.label].filter(Boolean).map(String);
 
-  const candidates = [...new Set(keys.map(normalizeAccountLookupKey).filter(Boolean))];
+  const candidates = new Set(collectAccountLookupCandidates(keys));
 
   for (const key of keys) {
     const entry = byPlatform[key];
@@ -175,7 +194,9 @@ function currentEntryForAccount(state, platform, account) {
 
   for (const [rawKey, entry] of Object.entries(byPlatform)) {
     if (!entry || typeof entry !== "object") continue;
-    if (candidates.includes(normalizeAccountLookupKey(rawKey))) {
+    const rawCandidates = collectAccountLookupCandidates([rawKey]);
+    const hasMatch = rawCandidates.some((candidate) => candidates.has(candidate));
+    if (hasMatch) {
       if (!entry.strategy_profile) {
         return {
           ...entry,
@@ -1054,6 +1075,40 @@ console.log("\n=== 11. currentEntryForAccount 映射健壮性 ===\n");
   };
   const entry = currentEntryForAccount(state, "longbridge", account);
   assert(entry?.strategy_profile === "soxl_soxx_trend_income", "11e: existing strategy_profile should be preserved");
+}
+
+// 11f: 账号 key 带平台前缀时能命中（longbridge sg -> sg）
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: { runtime_target_enabled: true },
+      },
+    },
+  };
+  const account = {
+    key: "longbridge sg",
+    label: "LongBridge SG",
+  };
+  const entry = currentEntryForAccount(state, "longbridge", account);
+  assert(entry && entry.runtime_target_enabled === true, "11f: platform-prefixed key should fallback-match by token");
+}
+
+// 11g: 账号 key 带分隔符时能命中（longbridge-sg / LB|SG）
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: { runtime_target_enabled: true },
+      },
+    },
+  };
+  const account = {
+    key: "longbridge-sg",
+    label: "LB|SG",
+  };
+  const entry = currentEntryForAccount(state, "longbridge", account);
+  assert(entry && entry.runtime_target_enabled === true, "11g: separator variants should fallback-match");
 }
 
 // ============================================================
