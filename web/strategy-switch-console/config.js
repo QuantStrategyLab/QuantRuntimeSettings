@@ -63,7 +63,7 @@ export const PLATFORM_CONFIG = {
     "reserved_cash": false,
     "income_layer": false,
     "option_overlay": false,
-    "dca": true,
+    "dca": false,
     "execution_mode": "live",
     "service_name": "",
     "default_execution_mode": "live"
@@ -176,7 +176,7 @@ export const PLATFORM_REPOSITORIES = {
   "binance": "QuantStrategyLab/BinancePlatform"
 };
 
-export const DCA_SUPPORTED_PLATFORMS = new Set(["longbridge", "ibkr", "schwab", "firstrade", "binance"]);
+export const DCA_SUPPORTED_PLATFORMS = new Set(["longbridge", "ibkr", "schwab", "firstrade"]);
 
 export const DEFAULT_VARIABLE_SCOPES = {
   "longbridge": "environment",
@@ -337,10 +337,6 @@ export const DCA_PROFILE_DEFAULTS = {
   "ibit_smart_dca": {
     "defaultMode": "fixed",
     "defaultBaseInvestmentUsd": "1000"
-  },
-  "crypto_btc_dca": {
-    "defaultMode": "fixed",
-    "defaultBaseInvestmentUsd": "100"
   }
 };
 
@@ -444,7 +440,7 @@ export const STRATEGY_FEATURES = {
   "crypto_btc_dca": {
     "income_layer": false,
     "option_overlay": false,
-    "dca": true,
+    "dca": false,
     "combo": false
   },
   "crypto_trend_rotation": {

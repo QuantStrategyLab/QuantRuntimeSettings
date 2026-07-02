@@ -32,7 +32,7 @@ assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
 assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
 assert.ok(indexHtml.includes('id="runtime-target-enabled-select"'));
 assert.ok(indexHtml.includes('id="plugin-mode-select"'));
-assert.ok(indexHtml.includes('id="ibit-zscore-exit-mode-select"'));
+assert.equal(indexHtml.includes('id="ibit-zscore-exit-mode-select"'), false);
 assert.ok(indexHtml.includes('id="income-layer-start-usd-input"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsd: "收入层起始金额"'));
 assert.ok(indexHtml.includes('incomeLayerStartUsd: "Income layer start amount"'));
@@ -123,11 +123,9 @@ assert.ok(indexHtml.includes('pluginModeAuto: "启用插件"'));
 assert.ok(indexHtml.includes('pluginModeNone: "禁用插件"'));
 assert.ok(indexHtml.includes('pluginModeAuto: "Enabled"'));
 assert.ok(indexHtml.includes('pluginMode: "Plugin scope"'));
-assert.ok(indexHtml.includes('ibitZscoreExitMode: "IBIT Z-Score 逃顶"'));
-assert.ok(indexHtml.includes('ibitZscoreExitLive: "实盘执行（按信号调仓）"'));
-assert.ok(indexHtml.includes('ibitZscoreExitMode: "IBIT Z-Score exit"'));
-assert.ok(indexHtml.includes('changes.ibitZscoreExitChanged'));
-assert.ok(indexHtml.includes('el("ibit-zscore-exit-mode-select").addEventListener("change"'));
+assert.equal(indexHtml.includes('id="ibit-zscore-exit-mode-select"'), false);
+assert.equal(indexHtml.includes("ibitZscoreExit"), false);
+assert.equal(indexHtml.includes("ibit_zscore_exit_mode"), false);
 assert.ok(indexHtml.includes('reservedCashDefault'));
 assert.ok(indexHtml.includes('paper: "模拟"'));
 assert.ok(indexHtml.includes('paper: "Dry run"'));
@@ -174,7 +172,8 @@ const servedAppResponse = await worker.fetch(new Request("https://switch.example
 const servedAppJs = await servedAppResponse.text();
 assert.equal(servedAppResponse.status, 200);
 assert.ok(servedAppJs.includes("function hasPrivateConfig()"));
-assert.ok(servedAppJs.includes("changes.ibitZscoreExitChanged"));
+assert.equal(servedAppJs.includes("ibitZscoreExit"), false);
+assert.equal(servedAppJs.includes("ibit_zscore_exit_mode"), false);
 assert.equal(servedAppJs.includes("ibkr-primary"), false);
 assert.equal(servedAppJs.includes("longbridge-quant-sg-service"), false);
 assert.equal(servedAppJs.includes('account_selector: "SG"'), false);
@@ -604,39 +603,48 @@ assert.deepEqual(JSON.parse(normalizedDcaJsonInputs.extra_variables_json), {
   dca_base_investment_usd: "500",
   cash_only_execution_mode: "enabled",
 });
-const normalizedIbitZscoreInputs = __test.normalizeSwitchInputs({
+const normalizedIbitSmartDcaInputs = __test.normalizeSwitchInputs({
   platform: "firstrade",
   target_name: "default",
   strategy_profile: "ibit_smart_dca",
   execution_mode: "live",
   plugin_mode: "auto",
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
   ibit_zscore_exit_mode: "live",
 });
-assert.deepEqual(JSON.parse(normalizedIbitZscoreInputs.extra_variables_json), {
-  ibit_zscore_exit_mode: "live",
+assert.deepEqual(JSON.parse(normalizedIbitSmartDcaInputs.extra_variables_json), {
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
   cash_only_execution_mode: "enabled",
 });
-const normalizedIbkrIbitZscoreInputs = __test.normalizeSwitchInputs({
+const normalizedIbkrIbitSmartDcaInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibit-primary",
   strategy_profile: "ibit_smart_dca",
   execution_mode: "live",
   plugin_mode: "auto",
-  ibit_zscore_exit_mode: "live",
-});
-assert.deepEqual(JSON.parse(normalizedIbkrIbitZscoreInputs.extra_variables_json), {
-  ibit_zscore_exit_mode: "live",
-  cash_only_execution_mode: "enabled",
-});
-assert.throws(
-  () => __test.normalizeSwitchInputs({
-    platform: "ibkr",
-    target_name: "ibkr-primary",
-    strategy_profile: "nasdaq_sp500_smart_dca",
+  extra_variables_json: JSON.stringify({
+    dca_mode: "smart",
+    dca_base_investment_usd: "500",
     ibit_zscore_exit_mode: "live",
   }),
-  /IBIT Z-Score exit settings/,
-);
+});
+assert.deepEqual(JSON.parse(normalizedIbkrIbitSmartDcaInputs.extra_variables_json), {
+  dca_mode: "smart",
+  dca_base_investment_usd: "500",
+  cash_only_execution_mode: "enabled",
+});
+const normalizedNonIbitLegacyZscoreInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  extra_variables_json: JSON.stringify({ ibit_zscore_exit_mode: "live" }),
+});
+assert.deepEqual(JSON.parse(normalizedNonIbitLegacyZscoreInputs.extra_variables_json), {
+  cash_only_execution_mode: "enabled",
+});
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "qmt",
@@ -826,6 +834,7 @@ const updatedIbitZscoreModeOptions = __test.updateAccountOptionsDefaultStrategy(
         target_name: "ibit-primary",
         default_strategy_profile: "ibit_smart_dca",
         supported_domains: ["us_equity"],
+        ibit_zscore_exit_mode: "live",
       },
     ],
   },
@@ -836,11 +845,10 @@ const updatedIbitZscoreModeOptions = __test.updateAccountOptionsDefaultStrategy(
     execution_mode: "live",
     variable_scope: "repository",
     plugin_mode: "auto",
-    extra_variables_json: JSON.stringify({ ibit_zscore_exit_mode: "live" }),
   },
 );
 assert.equal(updatedIbitZscoreModeOptions.changed, true);
-assert.equal(updatedIbitZscoreModeOptions.options.ibkr[0].ibit_zscore_exit_mode, "live");
+assert.equal("ibit_zscore_exit_mode" in updatedIbitZscoreModeOptions.options.ibkr[0], false);
 
 const kvWrites = new Map();
 const syncResult = await __test.syncDefaultStrategyForAccount(
@@ -1004,7 +1012,7 @@ try {
   assert.equal(currentStrategies.ibkr["ibkr-primary"].runtime_target_enabled, false);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].dca_mode, "smart");
   assert.equal(currentStrategies.ibkr["ibkr-primary"].dca_base_investment_usd, "700");
-  assert.equal(currentStrategies.ibkr["ibkr-primary"].ibit_zscore_exit_mode, "live");
+  assert.equal("ibit_zscore_exit_mode" in currentStrategies.ibkr["ibkr-primary"], false);
   assert.equal(currentStrategies.ibkr["ibkr-primary"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
 } finally {
   globalThis.fetch = originalFetch;
@@ -1203,7 +1211,7 @@ try {
   assert.equal(currentStrategies.firstrade.default.reserved_cash_ratio, "0.02");
   assert.equal(currentStrategies.firstrade.default.dca_mode, "fixed");
   assert.equal(currentStrategies.firstrade.default.dca_base_investment_usd, "50");
-  assert.equal(currentStrategies.firstrade.default.ibit_zscore_exit_mode, "live");
+  assert.equal("ibit_zscore_exit_mode" in currentStrategies.firstrade.default, false);
 } finally {
   globalThis.fetch = originalFetch;
 }

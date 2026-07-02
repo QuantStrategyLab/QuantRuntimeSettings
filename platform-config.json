@@ -240,7 +240,7 @@
         "reserved_cash": false,
         "income_layer": false,
         "option_overlay": false,
-        "dca": true
+        "dca": false
       },
       "default_account": {
         "key": "default",
@@ -573,12 +573,8 @@
       "features": {
         "income_layer": false,
         "option_overlay": false,
-        "dca": true,
+        "dca": false,
         "combo": false
-      },
-      "dca_defaults": {
-        "default_mode": "fixed",
-        "default_base_investment_usd": "100"
       }
     },
     "crypto_trend_rotation": {
