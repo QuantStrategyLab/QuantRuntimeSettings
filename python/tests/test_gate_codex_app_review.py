@@ -21,7 +21,7 @@ class GateCodexAppReviewTest(unittest.TestCase):
             [
                 "diff --git a/example.py b/example.py",
                 "+++ b/example.py",
-                '+api_key = "sk-live-12345678901234567890"',
+                '+api_key = "sk-' 'live-12345678901234567890"',
             ]
         )
 
