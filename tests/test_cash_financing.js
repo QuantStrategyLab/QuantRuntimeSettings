@@ -117,8 +117,13 @@ function restoreReserveAfterMarginDisabled(form) {
 
 // --- 数据辅助函数 ---
 function cleanOptionalBoolean(value) {
-  if (value === true || value === "true" || value === "1" || value === 1) return true;
-  if (value === false || value === "false" || value === "0" || value === 0) return false;
+  if (value === true || value === 1) return true;
+  if (value === false || value === 0) return false;
+  if (typeof value === "string") {
+    const text = value.trim().toLowerCase();
+    if (text === "true" || text === "1") return true;
+    if (text === "false" || text === "0") return false;
+  }
   return null;
 }
 
@@ -792,7 +797,23 @@ console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
   assert(form.runtimeTargetMode === "disabled", "9b: runtime_target=false → 'disabled'");
 }
 
-// 9c: no entry → stays "current"
+// 9c: runtime_target_enabled: TRUE → enabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: "TRUE" } }) };
+  const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
+  syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.runtimeTargetMode === "enabled", "9c: runtime_target='TRUE' → 'enabled'");
+}
+
+// 9d: runtime_target_enabled: FALSE → disabled
+{
+  const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: "FALSE" } }) };
+  const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
+  syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
+  assert(form.runtimeTargetMode === "disabled", "9d: runtime_target='FALSE' → 'disabled'");
+}
+
+// 9e: no entry → stays "current"
 {
   const state = { currentStrategies: {} };
   const form = { runtimeTargetMode: "current", runtimeTargetTouched: false };
@@ -800,15 +821,15 @@ console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
   assert(form.runtimeTargetMode === "current", "9c: no entry → 'current'");
 }
 
-// 9d: touched → skip
+// 9f: touched → skip
 {
   const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: false } }) };
   const form = { runtimeTargetMode: "enabled", runtimeTargetTouched: true };
   syncRuntimeTargetForAccount(state, form, "ibkr", makeAccount("preview"));
-  assert(form.runtimeTargetMode === "enabled", "9d: touched → not overwritten");
+  assert(form.runtimeTargetMode === "enabled", "9f: touched → not overwritten");
 }
 
-// 9e: summary/pending should not mark "current" as a disable change
+// 9g: summary/pending should not mark "current" as a disable change
 {
   const state = { currentStrategies: makeCurrentStrategies("ibkr", { extra: { runtime_target_enabled: true } }) };
   const pending = pendingRuntimeTarget(
@@ -817,8 +838,8 @@ console.log("\n=== 9. syncRuntimeTargetForAccount (解析为具体值) ===\n");
     "ibkr",
     makeAccount("preview"),
   );
-  assert(pending.changed === false, "9e: current runtime target mode → unchanged");
-  assert(pending.inputs.runtime_target_enabled === true, "9e: current runtime target keeps enabled value");
+  assert(pending.changed === false, "9g: current runtime target mode → unchanged");
+  assert(pending.inputs.runtime_target_enabled === true, "9g: current runtime target keeps enabled value");
 }
 
 // ============================================================

@@ -965,6 +965,71 @@ try {
 globalThis.fetch = async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response("", { status: 404 });
+  }
+  if (requestUrl.endsWith("/SCHWAB_MIN_RESERVED_CASH_USD")) {
+    return new Response(JSON.stringify({ value: "150" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/SCHWAB_RESERVED_CASH_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.03" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/INCOME_LAYER_START_USD")) {
+    return new Response(JSON.stringify({ value: "150000" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/INCOME_LAYER_MAX_RATIO")) {
+    return new Response(JSON.stringify({ value: "0.95" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/OPTION_OVERLAY_ENABLED")) {
+    return new Response(JSON.stringify({ value: "true" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/RUNTIME_TARGET_ENABLED")) {
+    return new Response(JSON.stringify({ value: "TRUE" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/DCA_MODE")) {
+    return new Response(JSON.stringify({ value: "smart" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (requestUrl.endsWith("/DCA_BASE_INVESTMENT_USD")) {
+    return new Response(JSON.stringify({ value: "500" }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { schwab: accountOptions.schwab },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.schwab.default.runtime_target_enabled, true);
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response(JSON.stringify({
       value: JSON.stringify({
         targets: [
