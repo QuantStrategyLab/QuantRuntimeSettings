@@ -1451,6 +1451,7 @@
       syncIncomeLayerForAccount(platform);
       syncOptionOverlayForAccount(platform);
       syncCashOnlyExecutionForAccount(platform);
+      reconcileExecutionCashPolicy(state.forms[platform], "margin");
       syncDcaForAccount(platform);
     }
 

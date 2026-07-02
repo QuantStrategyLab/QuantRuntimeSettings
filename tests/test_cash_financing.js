@@ -271,6 +271,14 @@ function syncCashOnlyExecutionForAccount(state, form, platform, account) {
   form.cashOnlyExecutionMode = effective === true ? "enabled" : (effective === false ? "disabled" : "current");
 }
 
+function syncStrategyForAccount(state, form, platform, account) {
+  if (!form) return;
+  const selected = account || makeAccount("preview");
+  syncReservePolicyForAccount(state, form, platform, selected);
+  syncCashOnlyExecutionForAccount(state, form, platform, selected);
+  reconcileExecutionCashPolicy(form, "margin");
+}
+
 // --- 初始加载互斥检查（从 syncStrategyForAccount 提取） ---
 function enforceMutualExclusionAfterSync(form) {
   if (form && allowMarginExplicitlySelected(form)) {
@@ -779,6 +787,52 @@ console.log("\n=== 8. 回归测试：旧行为不应出现 ===\n");
   enforceMutualExclusionAfterSync(form);
   assert(form.cashOnlyExecutionMode === "disabled", "8c: schwab margin remains 'disabled'");
   assert(form.reservePolicyMode === "none", "8c: schwab reserve cleared to 'none'");
+}
+
+// ============================================================
+// 15. syncStrategyForAccount 初始互斥纠偏
+// ============================================================
+
+console.log("\n=== 15. syncStrategyForAccount 初始互斥纠偏 ===\n");
+
+// 15a: 融资映射+预留现金配置时，应在同步后清空为 none（修复初始映射 bug）
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: {
+          cash_only_execution: false,     // financing allowed
+          min_reserved_cash_usd: "10000",
+          reserved_cash_ratio: "0.05",
+        },
+      },
+    },
+  };
+  const form = defaultReserveForm();
+  syncStrategyForAccount(state, form, "longbridge", makeAccount("sg"));
+  assert(form.cashOnlyExecutionMode === "disabled", "15a: cash-only mode resolves to disabled (allow margin)");
+  assert(form.reservePolicyMode === "none", "15a: reserve policy auto-cleared to none");
+}
+
+// 15b: cash-only=enabled 时，不应清空已有预留现金
+{
+  const state = {
+    currentStrategies: {
+      longbridge: {
+        sg: {
+          cash_only_execution: true,      // no financing
+          min_reserved_cash_usd: "10000",
+          reserved_cash_ratio: "0.05",
+        },
+      },
+    },
+  };
+  const form = defaultReserveForm();
+  syncStrategyForAccount(state, form, "longbridge", makeAccount("sg"));
+  assert(form.cashOnlyExecutionMode === "enabled", "15b: cash-only mode resolves to enabled (no margin)");
+  assert(form.reservePolicyMode === "max", "15b: reserve policy keeps max");
+  assert(form.minReservedCashUsd === "10000", "15b: reserve floor preserved");
+  assert(form.reservedCashRatio === "0.05", "15b: reserve ratio preserved");
 }
 
 // ============================================================
