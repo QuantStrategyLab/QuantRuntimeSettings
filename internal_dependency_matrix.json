@@ -6,28 +6,28 @@
       "path": "requirements-lock.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "84e7bf5566167861f7b53bf74261364d055cd30f"
+      "ref": "64a62781f9194a23548a373c7724e132ef311f1f"
     },
     {
       "consumer_repo": "BinancePlatform",
       "path": "requirements-lock.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "6d3675914eb5d3fe072d3212a90dfb55fe1c1df4"
+      "ref": "7032cde4547e7ec59af15df8935d142461a77051"
     },
     {
       "consumer_repo": "BinancePlatform",
       "path": "requirements.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "84e7bf5566167861f7b53bf74261364d055cd30f"
+      "ref": "64a62781f9194a23548a373c7724e132ef311f1f"
     },
     {
       "consumer_repo": "BinancePlatform",
       "path": "requirements.txt",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "6d3675914eb5d3fe072d3212a90dfb55fe1c1df4"
+      "ref": "7032cde4547e7ec59af15df8935d142461a77051"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
