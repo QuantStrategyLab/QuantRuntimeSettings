@@ -57,7 +57,7 @@ python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 - UsEquityStrategies: `9f0e5e2deca8a9c16d711eb4772f08a7901da101`
 - HkEquityStrategies: `00dd0e5b62a6fa65bd9262e15c083468e8b8c191`
 - CnEquityStrategies: `c6d680d6d2690fe6ff77872355719751c021f9a0`
-- CryptoStrategies: `c0203b66746efb63e79f4d4bc9a65758c342817e`
+- CryptoStrategies: `64a62781f9194a23548a373c7724e132ef311f1f`
 - QuantStrategyPlugins: `1f3a27b8fd83d71b583f4f5160a748e95fbefaa1`
 - MarketSignalSources: `bda8ab10b80a646e4b579ef4c0d5dfe90776e908`
 
