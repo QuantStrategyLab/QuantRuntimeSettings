@@ -101,6 +101,31 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
         self.assertEqual(report.missing_files, ["ExamplePlatform/requirements.txt"])
         self.assertEqual(report.issues, [])
 
+    def test_check_matrix_accepts_pyproject_for_migrated_legacy_requirements(self):
+        projects_root = self._make_projects_root(
+            {
+                "ExamplePlatform/pyproject.toml": (
+                    "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
+                    "QuantPlatformKit.git@v0.7.35"
+                )
+            }
+        )
+        expected = [
+            check_internal_dependency_matrix.DependencyPin(
+                consumer_repo="ExamplePlatform",
+                path="requirements.txt",
+                package="quant-platform-kit",
+                source_repo="QuantPlatformKit",
+                ref="v0.7.35",
+            )
+        ]
+
+        report = check_internal_dependency_matrix.check_matrix(matrix_pins=expected, projects_root=projects_root)
+
+        self.assertEqual(report.checked_files, 0)
+        self.assertEqual(report.missing_files, [])
+        self.assertEqual(report.issues, [])
+
     def test_collect_dependency_pins_from_projects(self):
         projects_root = self._make_projects_root(
             {

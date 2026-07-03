@@ -20,6 +20,8 @@ DEPENDENCY_PATTERN = re.compile(
     r"(?P<source_repo>[A-Za-z0-9_.-]+)\.git@(?P<ref>[A-Za-z0-9_.-]+)"
 )
 TRACKED_DEPENDENCY_PATHS = ("requirements.txt", "requirements-lock.txt", "pyproject.toml")
+LEGACY_DEPENDENCY_PATHS = ("requirements.txt", "requirements-lock.txt")
+PYPROJECT_FALLBACK_PATH = "pyproject.toml"
 
 
 def _sort_dependency_pins(pins: list[DependencyPin]) -> list[DependencyPin]:
@@ -126,6 +128,40 @@ def parse_dependency_pins(consumer_repo: str, path: str, text: str) -> list[Depe
     ]
 
 
+def _parse_repo_pins(projects_root: Path, consumer_repo: str, relative_path: str) -> list[DependencyPin]:
+    path = projects_root / consumer_repo / relative_path
+    if not path.is_file():
+        return []
+    return parse_dependency_pins(consumer_repo, relative_path, path.read_text(encoding="utf-8"))
+
+
+def _fallback_path_for_legacy_requirements(projects_root: Path, consumer_repo: str, expected_path: str) -> str | None:
+    if expected_path not in LEGACY_DEPENDENCY_PATHS:
+        return None
+    pyproject_path = projects_root / consumer_repo / PYPROJECT_FALLBACK_PATH
+    if pyproject_path.is_file():
+        return PYPROJECT_FALLBACK_PATH
+    return None
+
+
+def _compare_dependency_pins(
+    *, expected_pins: list[DependencyPin], actual_pins: list[DependencyPin], issues: list[str]
+) -> None:
+    actual_by_key = {pin.key: pin for pin in actual_pins}
+    expected_by_key = {pin.key: pin for pin in expected_pins}
+
+    for key, expected in sorted(expected_by_key.items()):
+        actual = actual_by_key.get(key)
+        if actual is None:
+            issues.append(f"missing {expected.label()} expected @{expected.ref}")
+        elif actual.ref != expected.ref:
+            issues.append(f"ref mismatch {expected.label()}: expected @{expected.ref}, found @{actual.ref}")
+
+    for key, actual in sorted(actual_by_key.items()):
+        if key not in expected_by_key:
+            issues.append(f"untracked internal dependency {actual.label()} @{actual.ref}")
+
+
 def check_matrix(*, matrix_pins: list[DependencyPin], projects_root: Path) -> MatrixReport:
     expected_by_file: dict[tuple[str, str], list[DependencyPin]] = {}
     for pin in matrix_pins:
@@ -137,23 +173,30 @@ def check_matrix(*, matrix_pins: list[DependencyPin], projects_root: Path) -> Ma
     for (consumer_repo, relative_path), expected_pins in sorted(expected_by_file.items()):
         path = projects_root / consumer_repo / relative_path
         if not path.exists():
+            fallback_path = _fallback_path_for_legacy_requirements(projects_root, consumer_repo, relative_path)
+            if fallback_path is not None:
+                fallback_pins = _parse_repo_pins(projects_root, consumer_repo, fallback_path)
+                if fallback_pins:
+                    _compare_dependency_pins(
+                        expected_pins=[
+                            DependencyPin(
+                                consumer_repo=pin.consumer_repo,
+                                path=fallback_path,
+                                package=pin.package,
+                                source_repo=pin.source_repo,
+                                ref=pin.ref,
+                            )
+                            for pin in expected_pins
+                        ],
+                        actual_pins=fallback_pins,
+                        issues=issues,
+                    )
+                    continue
             missing_files.append(f"{consumer_repo}/{relative_path}")
             continue
         checked_files += 1
         actual_pins = parse_dependency_pins(consumer_repo, relative_path, path.read_text(encoding="utf-8"))
-        actual_by_key = {pin.key: pin for pin in actual_pins}
-        expected_by_key = {pin.key: pin for pin in expected_pins}
-
-        for key, expected in sorted(expected_by_key.items()):
-            actual = actual_by_key.get(key)
-            if actual is None:
-                issues.append(f"missing {expected.label()} expected @{expected.ref}")
-            elif actual.ref != expected.ref:
-                issues.append(f"ref mismatch {expected.label()}: expected @{expected.ref}, found @{actual.ref}")
-
-        for key, actual in sorted(actual_by_key.items()):
-            if key not in expected_by_key:
-                issues.append(f"untracked internal dependency {actual.label()} @{actual.ref}")
+        _compare_dependency_pins(expected_pins=expected_pins, actual_pins=actual_pins, issues=issues)
 
     return MatrixReport(checked_files=checked_files, missing_files=missing_files, issues=issues)
 
