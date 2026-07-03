@@ -42,6 +42,29 @@ def _read_toml(path: Path) -> dict[str, Any]:
         return tomllib.load(handle)
 
 
+def _get_bundle(config: dict[str, Any]) -> str:
+    bundle = config.get("bundle") or config.get("compat")
+    if isinstance(bundle, dict):
+        bundle = bundle.get("bundle")
+    if not isinstance(bundle, str) or not bundle.strip():
+        raise ValueError("qsl.bundle (or qsl.compat.bundle) is required")
+    return bundle.strip()
+
+
+def _get_upgrade_ring(config: dict[str, Any]) -> str:
+    upgrade_ring = config.get("upgrade_ring", config.get("ring"))
+    if upgrade_ring is None or str(upgrade_ring).strip() == "":
+        raise ValueError("qsl.upgrade_ring (or qsl.ring) is required")
+    return str(upgrade_ring).strip()
+
+
+def _get_enforce_bundle(config: dict[str, Any]) -> bool:
+    compat = config.get("compat")
+    if isinstance(compat, dict) and "enforce_bundle" in compat:
+        return bool(compat["enforce_bundle"])
+    return bool(config.get("enforce_bundle", True))
+
+
 def _load_qsl_config(repo_root: Path) -> dict[str, str | bool]:
     qsl_path = repo_root / "qsl.toml"
     if not qsl_path.exists():
@@ -52,25 +75,23 @@ def _load_qsl_config(repo_root: Path) -> dict[str, str | bool]:
     if not isinstance(config, dict):
         raise TypeError("qsl section must be a table")
 
-    bundle = config.get("bundle") or config.get("compat")
-    if not isinstance(bundle, str) or not bundle.strip():
-        raise ValueError("qsl.bundle (or qsl.compat) is required")
+    bundle = _get_bundle(config)
 
     tier = config.get("tier")
     if not isinstance(tier, str) or not tier.strip():
         raise ValueError("qsl.tier is required")
 
-    upgrade_ring = config.get("upgrade_ring")
-    if not isinstance(upgrade_ring, str) or not upgrade_ring.strip():
-        raise ValueError("qsl.upgrade_ring is required")
+    upgrade_ring = _get_upgrade_ring(config)
 
     allow_legacy = bool(config.get("allow_legacy", False))
+    enforce_bundle = _get_enforce_bundle(config)
 
     return {
-        "bundle": bundle.strip(),
+        "bundle": bundle,
         "tier": tier.strip(),
-        "upgrade_ring": str(upgrade_ring).strip(),
+        "upgrade_ring": upgrade_ring,
         "allow_legacy": allow_legacy,
+        "enforce_bundle": enforce_bundle,
         "qsl_path": qsl_path.as_posix(),
     }
 
@@ -148,12 +169,14 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
     tier = str(qsl_cfg["tier"])
     upgrade_ring = str(qsl_cfg["upgrade_ring"])
     allow_legacy = bool(qsl_cfg["allow_legacy"])
+    enforce_bundle = bool(qsl_cfg["enforce_bundle"])
     qsl_path = str(qsl_cfg["qsl_path"])
 
     notes.append(f"qsl={qsl_path}")
     notes.append(f"bundle={bundle}")
     notes.append(f"tier={tier}")
     notes.append(f"upgrade_ring={upgrade_ring}")
+    notes.append(f"enforce_bundle={enforce_bundle}")
 
     bundle_refs = _load_bundle(compat_root, bundle)
 
@@ -172,7 +195,7 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
                         f"{legacy_ref.repo}@{legacy_ref.ref}"
                     )
                     continue
-                _validate_ref(legacy_ref, bundle_refs[legacy_ref.repo], issues)
+                _validate_ref(legacy_ref, bundle_refs[legacy_ref.repo], issues, warnings, enforce_bundle)
 
     discovered = _gather_repo_refs(repo_root)
     for pin in discovered:
@@ -180,23 +203,31 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
             issues.append(f"unmanaged qsl dependency in {pin.source}:{pin.line_no}: {pin.repo}@{pin.ref}")
             continue
         expected_ref = bundle_refs[pin.repo]
-        _validate_ref(pin, expected_ref, issues)
+        _validate_ref(pin, expected_ref, issues, warnings, enforce_bundle)
 
     return (len(issues) == 0, issues, warnings, notes)
 
 
-def _validate_ref(pin: GitRef, expected_ref: str, issues: list[str]) -> None:
+def _validate_ref(pin: GitRef, expected_ref: str, issues: list[str], warnings: list[str], enforce_bundle: bool) -> None:
     if _is_main_ref(pin.ref):
         issues.append(f"forbidden ref 'main' in {pin.source}:{pin.line_no}: {pin.repo}")
         return
     if not _is_full_sha(pin.ref):
-        issues.append(f"forbidden short/invalid ref '{pin.ref}' in {pin.source}:{pin.line_no}: {pin.repo}")
+        message = f"forbidden short/invalid ref '{pin.ref}' in {pin.source}:{pin.line_no}: {pin.repo}"
+        if enforce_bundle:
+            issues.append(message)
+        else:
+            warnings.append(message)
         return
     if pin.ref != expected_ref:
-        issues.append(
+        message = (
             f"bundle pin mismatch for {pin.repo} in {pin.source}:{pin.line_no}: "
             f"expected {expected_ref}, found {pin.ref}"
         )
+        if enforce_bundle:
+            issues.append(message)
+        else:
+            warnings.append(message)
 
 
 def build_parser() -> argparse.ArgumentParser:

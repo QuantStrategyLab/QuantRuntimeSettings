@@ -31,6 +31,20 @@ def _read_toml(path: Path) -> dict:
         return tomllib.load(handle)
 
 
+def _get_bundle(config: dict) -> str:
+    bundle = config.get("bundle") or config.get("compat")
+    if isinstance(bundle, dict):
+        bundle = bundle.get("bundle")
+    if not isinstance(bundle, str) or not bundle.strip():
+        raise ValueError("qsl.bundle (or qsl.compat.bundle) is required")
+    return bundle.strip()
+
+
+def _get_upgrade_ring(config: dict) -> str:
+    upgrade_ring = config.get("upgrade_ring", config.get("ring"))
+    return "" if upgrade_ring is None else str(upgrade_ring).strip()
+
+
 def _load_qsl_config(repo_root: Path) -> dict[str, str | bool]:
     qsl_path = repo_root / "qsl.toml"
     payload = _read_toml(qsl_path)
@@ -38,13 +52,10 @@ def _load_qsl_config(repo_root: Path) -> dict[str, str | bool]:
     if not isinstance(config, dict):
         raise TypeError("qsl section must be a table")
 
-    bundle = config.get("bundle") or config.get("compat")
-    if not isinstance(bundle, str) or not bundle.strip():
-        raise ValueError("qsl.bundle (or qsl.compat) is required")
     return {
-        "bundle": bundle.strip(),
+        "bundle": _get_bundle(config),
         "tier": str(config.get("tier", "")),
-        "upgrade_ring": str(config.get("upgrade_ring", "")),
+        "upgrade_ring": _get_upgrade_ring(config),
     }
 
 

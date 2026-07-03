@@ -31,6 +31,7 @@ compat = "2026.07.0"   # 兼容检查入口（与 bundle 相同）
 tier = "ops/tooling"
 upgrade_ring = "ring_e"
 allow_legacy = false     # 需要临时兼容时可先放开
+enforce_bundle = true    # 过渡仓库可设 false；ref drift 会降级为 warning
 ```
 
 2. 在 `pyproject.toml`/`uv.lock` 中用完整 SHA 固定 QuantStrategyLab 的内部 git 依赖。
