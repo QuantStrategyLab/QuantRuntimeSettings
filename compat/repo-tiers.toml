@@ -1,0 +1,29 @@
+[tiers]
+core = { name = "core", description = "平台最小闭环、运行核心与共享基础设施" }
+strategy_lib = { name = "strategy-lib", description = "策略库、插件与市场信号源" }
+pipeline = { name = "pipeline", description = "策略研发与快照流水线" }
+runtime = { name = "runtime", description = "平台运行时与执行服务" }
+ops = { name = "ops/tooling", description = "运维/发布与中央配置仓库" }
+
+[upgrade_rings]
+ring_a = "core"
+ring_b = "strategy-lib"
+ring_c = "pipeline"
+ring_d = "runtime"
+ring_e = "ops/tooling"
+
+[upgrade_rules]
+# 允许上升方向：稳定性从低到高（ops/tooling -> runtime -> pipeline -> strategy-lib -> core）
+# 建议原则：较外层可回退引用内层，内层通常不直接引用同级以上的低稳定性 ring。
+allow_drift = [
+  "ops/tooling:runtime",
+  "ops/tooling:pipeline",
+  "ops/tooling:strategy-lib",
+  "ops/tooling:core",
+  "runtime:pipeline",
+  "runtime:strategy-lib",
+  "runtime:core",
+  "pipeline:strategy-lib",
+  "pipeline:core",
+  "strategy-lib:core",
+]

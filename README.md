@@ -21,10 +21,22 @@ It supports the system but does not decide which strategy should be live. Strate
 
 - `python/`: Python tooling (scripts, tests, pyproject.toml) — validation, code generation, deployment scripts.
 - `web/`: JavaScript web app (Cloudflare Workers strategy switch console).
+- `compat/`: QSL compatibility manifests (bundle matrix and repo tier rules).
 - `schemas/`: JSON Schema files shared by both Python and JS.
 - `tests/`: JavaScript unit/integration tests.
 - `.github/workflows/`: CI, scheduled jobs, release, or deployment workflows.
 - `docs/ARCHITECTURE.md`: Detailed architecture documentation.
+
+## QSL compatibility manifest (phase 1)
+
+This repository is the central manifest source for QSL compatibility checks.
+
+- `qsl.toml`: current repo QSL metadata (`tier`, `upgrade_ring`, `bundle`).
+- `scripts/check_qsl_compat.py`: validate a repo's QSL compliance in `pyproject.toml`/`uv.lock` against central bundle.
+- `scripts/render_qsl_dependency_graph.py`: render dependency graph for review.
+- `compat/bundles/2026.07.0.toml`: first compatibility bundle (CalVer).
+- `compat/repo-tiers.toml`: repo tier and upgrade ring policy notes.
+- [QSL compatibility docs](docs/qsl_compat_upgrade.md)
 
 ## Quick start
 
