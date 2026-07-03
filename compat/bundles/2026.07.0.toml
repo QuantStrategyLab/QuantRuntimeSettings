@@ -1,0 +1,12 @@
+name = "2026.07.0"
+description = "Phase-1 QSL compatibility bundle"
+created_at = "2026-07-03"
+
+[repos]
+QuantPlatformKit = "0063af3b4a974650ea58a7d3f26dd1b94f65d3e8"
+UsEquityStrategies = "46887bc3f5454d5b59623b1f5efb7c65912c6b8b"
+HkEquityStrategies = "61993bf261aeccf64b5a75428b9405f4e1d1d682"
+CnEquityStrategies = "ffbdf7303179ba6e7f9d3e28c21202f77e04762c"
+CryptoStrategies = "8039ddddde7634ad3615496c9b79d2918996938c"
+QuantStrategyPlugins = "6c10aef8989f52d82571e676092b14d315401989"
+MarketSignalSources = "ea8771b6b65f356e7edc4a2b08cd621186726646"
