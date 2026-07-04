@@ -24,6 +24,6 @@
   },
   "extra_variables": {
     "DYNAMIC_MODE": "true",
-    "REBALANCE_THRESHOLD": "0.05"
+    "DYNAMIC_REGIME_OFF_CUT": "0.50"
   }
 }
