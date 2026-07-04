@@ -65,7 +65,13 @@ def _get_enforce_bundle(config: dict[str, Any]) -> bool:
     return bool(config.get("enforce_bundle", True))
 
 
-def _load_qsl_config(repo_root: Path) -> dict[str, str | bool]:
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _load_qsl_config(repo_root: Path) -> dict[str, str | bool | list[str]]:
     qsl_path = repo_root / "qsl.toml"
     if not qsl_path.exists():
         raise FileNotFoundError(f"missing qsl.toml: {qsl_path}")
@@ -84,14 +90,21 @@ def _load_qsl_config(repo_root: Path) -> dict[str, str | bool]:
     upgrade_ring = _get_upgrade_ring(config)
 
     allow_legacy = bool(config.get("allow_legacy", False))
+    legacy_reason = str(config.get("legacy_reason", "")).strip()
     enforce_bundle = _get_enforce_bundle(config)
+    live_constraint_files = _string_list(config.get("live_constraint_files"))
+    compat = config.get("compat")
+    if isinstance(compat, dict):
+        live_constraint_files.extend(_string_list(compat.get("live_constraint_files")))
 
     return {
         "bundle": bundle,
         "tier": tier.strip(),
         "upgrade_ring": upgrade_ring,
         "allow_legacy": allow_legacy,
+        "legacy_reason": legacy_reason,
         "enforce_bundle": enforce_bundle,
+        "live_constraint_files": sorted(set(live_constraint_files)),
         "qsl_path": qsl_path.as_posix(),
     }
 
@@ -170,6 +183,8 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
     upgrade_ring = str(qsl_cfg["upgrade_ring"])
     allow_legacy = bool(qsl_cfg["allow_legacy"])
     enforce_bundle = bool(qsl_cfg["enforce_bundle"])
+    legacy_reason = str(qsl_cfg["legacy_reason"])
+    live_constraint_files = set(qsl_cfg["live_constraint_files"]) if isinstance(qsl_cfg["live_constraint_files"], list) else set()
     qsl_path = str(qsl_cfg["qsl_path"])
 
     notes.append(f"qsl={qsl_path}")
@@ -177,6 +192,10 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
     notes.append(f"tier={tier}")
     notes.append(f"upgrade_ring={upgrade_ring}")
     notes.append(f"enforce_bundle={enforce_bundle}")
+    if legacy_reason:
+        notes.append("legacy_reason=" + legacy_reason)
+    if live_constraint_files:
+        notes.append("live_constraint_files=" + ",".join(sorted(live_constraint_files)))
 
     bundle_refs = _load_bundle(compat_root, bundle)
 
@@ -187,7 +206,9 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
     else:
         legacy_refs = _gather_legacy_refs(repo_root)
         if legacy_refs:
-            warnings.append("legacy dependency files detected but allowed by qsl.allow_legacy=true")
+            static_legacy_refs = [ref for ref in legacy_refs if ref.source not in live_constraint_files]
+            if static_legacy_refs and not legacy_reason:
+                warnings.append("legacy dependency files detected but allowed by qsl.allow_legacy=true")
             for legacy_ref in legacy_refs:
                 if legacy_ref.repo not in bundle_refs:
                     issues.append(
@@ -195,7 +216,10 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
                         f"{legacy_ref.repo}@{legacy_ref.ref}"
                     )
                     continue
-                _validate_ref(legacy_ref, bundle_refs[legacy_ref.repo], issues, warnings, enforce_bundle)
+                if legacy_ref.source in live_constraint_files:
+                    _validate_live_ref(legacy_ref, issues, warnings, enforce_bundle)
+                else:
+                    _validate_ref(legacy_ref, bundle_refs[legacy_ref.repo], issues, warnings, enforce_bundle)
 
     discovered = _gather_repo_refs(repo_root)
     for pin in discovered:
@@ -224,6 +248,18 @@ def _validate_ref(pin: GitRef, expected_ref: str, issues: list[str], warnings: l
             f"bundle pin mismatch for {pin.repo} in {pin.source}:{pin.line_no}: "
             f"expected {expected_ref}, found {pin.ref}"
         )
+        if enforce_bundle:
+            issues.append(message)
+        else:
+            warnings.append(message)
+
+
+def _validate_live_ref(pin: GitRef, issues: list[str], warnings: list[str], enforce_bundle: bool) -> None:
+    if _is_main_ref(pin.ref):
+        issues.append(f"forbidden ref 'main' in {pin.source}:{pin.line_no}: {pin.repo}")
+        return
+    if not _is_full_sha(pin.ref):
+        message = f"forbidden short/invalid ref '{pin.ref}' in {pin.source}:{pin.line_no}: {pin.repo}"
         if enforce_bundle:
             issues.append(message)
         else:

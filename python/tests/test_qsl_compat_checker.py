@@ -99,6 +99,103 @@ class QSLCompatCheckerTest(unittest.TestCase):
             self.assertTrue(any("bundle pin mismatch for QuantPlatformKit" in warning for warning in warnings))
             self.assertEqual(notes[0], "qsl=" + str(repo_root / "qsl.toml"))
 
+    def test_live_constraint_files_allow_full_sha_drift_from_bundle(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_bundle(
+                compat_root,
+                "2026.07.1",
+                {"QuantPlatformKit": "a" * 40},
+            )
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "core"\n'
+                    "ring = 0\n"
+                    "allow_legacy = true\n"
+                    "[compat]\n"
+                    'bundle = "2026.07.1"\n'
+                    'live_constraint_files = ["constraints.txt"]\n'
+                ),
+                pyproject="",
+            )
+            (repo_root / "constraints.txt").write_text(
+                "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
+                f"QuantPlatformKit.git@{'b' * 40}\n",
+                encoding="utf-8",
+            )
+
+            ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
+
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+            self.assertEqual(warnings, [])
+            self.assertIn("live_constraint_files=constraints.txt", notes)
+
+    def test_live_constraint_files_still_block_short_refs(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_bundle(
+                compat_root,
+                "2026.07.1",
+                {"QuantPlatformKit": "a" * 40},
+            )
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "core"\n'
+                    "ring = 0\n"
+                    "allow_legacy = true\n"
+                    "[compat]\n"
+                    'bundle = "2026.07.1"\n'
+                    'live_constraint_files = ["constraints.txt"]\n'
+                ),
+                pyproject="",
+            )
+            (repo_root / "constraints.txt").write_text(
+                "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@abc123\n",
+                encoding="utf-8",
+            )
+
+            ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
+
+            self.assertFalse(ok)
+            self.assertEqual(len(issues), 1)
+            self.assertIn("forbidden short/invalid ref 'abc123'", issues[0])
+            self.assertEqual(warnings, [])
+
+    def test_legacy_reason_suppresses_allowed_legacy_warning(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_bundle(
+                compat_root,
+                "2026.07.1",
+                {"QuantPlatformKit": "a" * 40},
+            )
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "pipeline"\n'
+                    "ring = 2\n"
+                    "allow_legacy = true\n"
+                    'legacy_reason = "runtime deployment compatibility"\n'
+                    "[compat]\n"
+                    'bundle = "2026.07.1"\n'
+                    "enforce_bundle = false\n"
+                ),
+                pyproject="",
+            )
+            (repo_root / "requirements.txt").write_text(
+                "quant-platform-kit @ git+https://github.com/QuantStrategyLab/"
+                f"QuantPlatformKit.git@{'b' * 40}\n",
+                encoding="utf-8",
+            )
+
+            ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
+
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("bundle pin mismatch", warnings[0])
+            self.assertIn("legacy_reason=runtime deployment compatibility", notes)
+
 
 if __name__ == "__main__":
     unittest.main()
