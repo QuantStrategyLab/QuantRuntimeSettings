@@ -90,7 +90,7 @@
       "path": "requirements.txt",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "67e1ed69d7b9c318f94c8809121d2b9481d6b11a"
+      "ref": "1643f37d723c4d0fdc475ce1030b3d911c07aacb"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",

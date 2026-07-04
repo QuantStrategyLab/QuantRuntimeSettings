@@ -17,6 +17,8 @@ Use `qslctl` for repository and workspace checks:
 ```bash
 python3 python/scripts/qslctl.py check --repo-root ../UsEquityStrategies
 python3 python/scripts/qslctl.py check-all --projects-root /Users/lisiyi/Projects
+python3 python/scripts/qslctl.py report --projects-root /Users/lisiyi/Projects
+python3 python/scripts/qslctl.py plan --projects-root /Users/lisiyi/Projects
 python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --check
 python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --sync
 ```
@@ -27,3 +29,9 @@ python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/P
 2. Apply that bundle by ring: core → strategy libraries → pipelines/research → runtime platforms → ops/tooling.
 3. Regenerate `internal_dependency_matrix.json` after consumer pins are updated.
 4. Keep strict checks enabled only after a ring is converged.
+
+## Workspace report / plan
+
+- `qslctl report` is read-only. It groups the current workspace by ring, status, and bundle hotspot.
+- `qslctl plan` is read-only. It renders the ring-by-ring convergence order and highlights which repos should be fixed before the next ring starts.
+- Use `report` to answer “what is broken right now?” and `plan` to answer “what should we fix first?”
