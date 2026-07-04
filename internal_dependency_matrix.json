@@ -6,7 +6,7 @@
       "path": "requirements-lock.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "6fe378adc6602412a1763ca115b5d17d311a65a9"
+      "ref": "746440683f63c3f696a12278aff9c7af030700c2"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -20,7 +20,7 @@
       "path": "requirements.txt",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "6fe378adc6602412a1763ca115b5d17d311a65a9"
+      "ref": "746440683f63c3f696a12278aff9c7af030700c2"
     },
     {
       "consumer_repo": "BinancePlatform",
