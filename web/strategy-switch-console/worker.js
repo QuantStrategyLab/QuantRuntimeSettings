@@ -59,7 +59,7 @@ const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
   firstrade: "FIRSTRADE_CASH_ONLY_EXECUTION",
 };
 const LEGACY_CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION";
-const CASH_ONLY_EXECUTION_MODES = ["enabled", "disabled"];
+const CASH_ONLY_EXECUTION_MODES = ["current", "enabled", "disabled"];
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
 const INCOME_LAYER_START_USD_VARIABLE = "INCOME_LAYER_START_USD";
 const INCOME_LAYER_MAX_RATIO_VARIABLE = "INCOME_LAYER_MAX_RATIO";
@@ -99,7 +99,7 @@ const OPTION_OVERLAY_PROFILE_FIELDS = [
   "option_overlay_live_gate",
   "option_overlay_live_status",
 ];
-const OPTION_OVERLAY_MODES = ["enabled", "disabled"];
+const OPTION_OVERLAY_MODES = ["current", "enabled", "disabled"];
 const DCA_PROFILE_CONFIG = Object.fromEntries(
   Object.entries(DCA_PROFILE_DEFAULTS).map(([profile, defaults]) => [
     profile,
@@ -1739,7 +1739,7 @@ function cleanStrategyDomain(value, fieldName) {
 }
 
 function cleanCashCurrency(value, fieldName) {
-  return cleanChoice(String(value || "").trim().toUpperCase(), ["USD", "HKD"], fieldName);
+  return cleanChoice(String(value || "").trim().toUpperCase(), ["USD", "HKD", "CNY"], fieldName);
 }
 
 function addConfigOptional(target, key, value, cleaner) {
