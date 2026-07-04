@@ -12,6 +12,9 @@ const indexHtml = [
   readFileSync(resolve(root, "web/strategy-switch-console/app.css"), "utf8"),
   readFileSync(resolve(root, "web/strategy-switch-console/app.js"), "utf8"),
 ].join("\n");
+const bundledStrategyProfiles = JSON.parse(
+  readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"),
+);
 assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
@@ -74,6 +77,7 @@ assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "是"'));
 assert.ok(indexHtml.includes('cashOnlyExecutionMode: "Allow margin"'));
 assert.ok(indexHtml.includes('el("cash-only-execution-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes("function pendingCashOnlyExecution("));
+assert.ok(indexHtml.includes('!platformSupportsMarginPolicy(platform) || mode === "current"'));
 assert.ok(indexHtml.includes("function syncCashOnlyExecutionForAccount("));
 assert.equal(indexHtml.includes('id="option-growth-overlay'), false);
 assert.equal(indexHtml.includes('id="option-income-overlay'), false);
@@ -97,7 +101,11 @@ assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
 assert.ok(indexHtml.includes('class="form-section dca-section"'));
 assert.ok(indexHtml.includes('class="control-block reserve-policy-block policy-block"'));
 assert.ok(indexHtml.includes('profile: "ibit_smart_dca"'));
-assert.ok(indexHtml.includes('IBIT 比特币定投'));
+for (const profile of bundledStrategyProfiles) {
+  assert.ok(indexHtml.includes(`profile: ${JSON.stringify(profile.profile)}`), `fallback missing ${profile.profile}`);
+  assert.ok(indexHtml.includes(`label_en: ${JSON.stringify(profile.label_en)}`), `fallback English label mismatch for ${profile.profile}`);
+  assert.ok(indexHtml.includes(`label_zh: ${JSON.stringify(profile.label_zh)}`), `fallback Chinese label mismatch for ${profile.profile}`);
+}
 assert.ok(indexHtml.includes('localStrategyLabels'));
 assert.ok(indexHtml.includes('function strategyLabelSet('));
 assert.ok(indexHtml.includes("account-block"));

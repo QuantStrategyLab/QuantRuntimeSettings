@@ -168,37 +168,47 @@
     };
 
     const defaultStrategyProfiles = [
-      { profile: "tqqq_growth_income", label: "NASDAQ Growth Income", label_en: "TQQQ Growth Income", label_zh: "纳斯达克增长收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "250000", income_layer_max_ratio: "0.55", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "tqqq_leaps_growth_v1", option_growth_overlay_start_usd: "250000", option_growth_overlay_nav_budget_ratio: "0.03", income_layer_allocations: { SCHD: 0.3, DGRO: 0.2, SGOV: 0.4, SPYI: 0.08, QQQI: 0.02 } },
-      { profile: "soxl_soxx_trend_income", label: "Semiconductor Trend Income", label_en: "SOXL/SOXX Semiconductor Trend Income", label_zh: "半导体趋势收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "150000", income_layer_max_ratio: "0.95", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: false, income_layer_allocations: { SCHD: 0.15, DGRO: 0.1, SGOV: 0.7, SPYI: 0.04, QQQI: 0.01 } },
-      { profile: "nasdaq_sp500_smart_dca", label: "NASDAQ/S&P 500 DCA", label_en: "Nasdaq 100 / S&P 500 DCA", label_zh: "纳指标普定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
-      { profile: "ibit_smart_dca", label: "IBIT Bitcoin DCA", label_en: "IBIT Bitcoin ETF DCA", label_zh: "IBIT比特币定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
+      { profile: "tqqq_growth_income", label: "NASDAQ Growth Income", label_en: "NASDAQ Growth Income", label_zh: "纳斯达克增长收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "250000", income_layer_max_ratio: "0.55", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "tqqq_leaps_growth_v1", option_growth_overlay_start_usd: "250000", option_growth_overlay_nav_budget_ratio: "0.03", income_layer_allocations: { SCHD: 0.3, DGRO: 0.2, SGOV: 0.4, SPYI: 0.08, QQQI: 0.02 } },
+      { profile: "soxl_soxx_trend_income", label: "Semiconductor Trend Income", label_en: "Semiconductor Trend Income", label_zh: "半导体趋势收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "150000", income_layer_max_ratio: "0.95", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: false, income_layer_allocations: { SCHD: 0.15, DGRO: 0.1, SGOV: 0.7, SPYI: 0.04, QQQI: 0.01 } },
+      { profile: "nasdaq_sp500_smart_dca", label: "NASDAQ/S&P 500 DCA", label_en: "NASDAQ/S&P 500 DCA", label_zh: "纳指标普定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
+      { profile: "ibit_smart_dca", label: "IBIT Bitcoin DCA", label_en: "IBIT Bitcoin DCA", label_zh: "IBIT比特币定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
       { profile: "global_etf_rotation", label: "Global ETF Rotation", label_en: "Global ETF Rotation", label_zh: "全球ETF轮动", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "500000", income_layer_max_ratio: "0.15", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "500000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.4, DGRO: 0.25, SGOV: 0.3, SPYI: 0.05 } },
-      { profile: "russell_top50_leader_rotation", label: "Russell Top50 Leaders", label_en: "Russell Top50 Leader Rotation", label_zh: "罗素Top50领涨", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "300000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.45, DGRO: 0.3, SGOV: 0.25 } },
-      { profile: "us_equity_combo", label: "US Core Combo", label_en: "US Equity Combo", label_zh: "美股核心组合", domain: "us_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic", income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "300000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.25, DGRO: 0.25, SGOV: 0.2, SPYI: 0.15, QQQI: 0.15 } },
-      { profile: "us_equity_combo_leveraged", label: "US Alpha Combo", label_en: "US Equity Combo Leveraged", label_zh: "美股Alpha组合", domain: "us_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
-      { profile: "hk_global_etf_tactical_rotation", label: "HK ETF Tactical Rotation", label_en: "HK Global ETF Tactical Rotation", label_zh: "港股ETF战术轮动", domain: "hk_equity", runtime_enabled: true },
-      { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Dividend Quality", label_en: "HK Low-Vol Dividend Quality Snapshot", label_zh: "港股红利质量", domain: "hk_equity", runtime_enabled: true },
-      { profile: "hk_equity_combo", label: "HK Core Combo", label_en: "HK Equity Combo", label_zh: "港股核心组合", domain: "hk_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
-      { profile: "cn_industry_etf_rotation_aggressive", label: "CN ETF Rotation", label_en: "CN Industry ETF Rotation Aggressive", label_zh: "A股ETF轮动", domain: "cn_equity", runtime_enabled: true },
+      { profile: "russell_top50_leader_rotation", label: "Russell Top50 Leaders", label_en: "Russell Top50 Leaders", label_zh: "罗素Top50领涨", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "300000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.45, DGRO: 0.3, SGOV: 0.25 } },
+      { profile: "us_equity_combo", label: "US Core Combo", label_en: "US Core Combo", label_zh: "美股核心组合", domain: "us_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic", income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "300000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.25, DGRO: 0.25, SGOV: 0.2, SPYI: 0.15, QQQI: 0.15 } },
+      { profile: "us_equity_combo_leveraged", label: "US Alpha Combo", label_en: "US Alpha Combo", label_zh: "美股加速组合", domain: "us_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
+      { profile: "hk_global_etf_tactical_rotation", label: "HK ETF Tactical Rotation", label_en: "HK ETF Tactical Rotation", label_zh: "港股ETF战术轮动", domain: "hk_equity", runtime_enabled: true },
+      { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Dividend Quality", label_en: "HK Dividend Quality", label_zh: "港股红利质量", domain: "hk_equity", runtime_enabled: true },
+      { profile: "hk_equity_combo", label: "HK Core Combo", label_en: "HK Core Combo", label_zh: "港股恒生组合", domain: "hk_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
+      { profile: "cn_industry_etf_rotation_aggressive", label: "CN ETF Rotation", label_en: "CN ETF Rotation", label_zh: "A股ETF轮动", domain: "cn_equity", runtime_enabled: true },
       { profile: "cn_stock_momentum_rotation", label: "CN Stock Momentum", label_en: "CN Stock Momentum", label_zh: "A股个股动量", domain: "cn_equity", runtime_enabled: true },
-      { profile: "cn_dividend_quality_snapshot", label: "CN Dividend Quality", label_en: "CN Dividend Quality Snapshot", label_zh: "A股红利质量", domain: "cn_equity", runtime_enabled: true },
-      { profile: "cn_equity_combo", label: "CN Alpha Combo", label_en: "CN Equity Combo", label_zh: "A股Alpha组合", domain: "cn_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
-      { profile: "crypto_btc_dca", label: "BTC DCA", label_en: "Crypto BTC DCA", label_zh: "BTC定投", domain: "crypto", runtime_enabled: true },
-      { profile: "crypto_trend_rotation", label: "Altcoin Trend", label_en: "Crypto Trend Rotation", label_zh: "山寨趋势轮动", domain: "crypto", runtime_enabled: true },
-      { profile: "crypto_equity_combo", label: "Crypto Core Combo", label_en: "Crypto Equity Combo", label_zh: "加密核心组合", domain: "crypto", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" }
+      { profile: "cn_dividend_quality_snapshot", label: "CN Dividend Quality", label_en: "CN Dividend Quality", label_zh: "A股红利质量", domain: "cn_equity", runtime_enabled: true },
+      { profile: "cn_industry_etf_rotation", label: "CN Industry ETF Rotation", label_en: "CN Industry ETF Rotation", label_zh: "A股行业ETF轮动", domain: "cn_equity", runtime_enabled: true },
+      { profile: "cn_equity_combo", label: "CN Alpha Combo", label_en: "CN Alpha Combo", label_zh: "A股进取组合", domain: "cn_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
+      { profile: "crypto_btc_dca", label: "BTC DCA", label_en: "BTC DCA", label_zh: "BTC定投", domain: "crypto", runtime_enabled: true },
+      { profile: "crypto_trend_rotation", label: "Altcoin Trend", label_en: "Altcoin Trend", label_zh: "山寨趋势轮动", domain: "crypto", runtime_enabled: true },
+      { profile: "crypto_equity_combo", label: "Crypto Core Combo", label_en: "Crypto Core Combo", label_zh: "加密动量组合", domain: "crypto", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" }
     ];
 
     const localStrategyLabels = {
-      tqqq_growth_income: { zh: "TQQQ 增长收益", en: "TQQQ Growth Income" },
-      soxl_soxx_trend_income: { zh: "SOXL/SOXX 半导体趋势收益", en: "SOXL/SOXX Semiconductor Trend Income" },
-      nasdaq_sp500_smart_dca: { zh: "纳指100 / 标普500 定投", en: "Nasdaq 100 / S&P 500 DCA" },
-      ibit_smart_dca: { zh: "IBIT 比特币定投", en: "IBIT Bitcoin ETF DCA" },
-      global_etf_rotation: { zh: "全球 ETF 轮动", en: "Global ETF Rotation" },
-      russell_top50_leader_rotation: { zh: "罗素 Top50 领涨轮动", en: "Russell Top50 Leader Rotation" },
-      hk_global_etf_tactical_rotation: { zh: "港股全球 ETF 战术轮动", en: "HK Global ETF Tactical Rotation" },
-      hk_low_vol_dividend_quality_snapshot: { zh: "港股低波红利质量快照", en: "HK Low-Vol Dividend Quality Snapshot" },
-      cn_industry_etf_rotation: { zh: "A股行业 ETF 轮动", en: "CN Industry ETF Rotation" },
-      cn_dividend_quality_snapshot: { zh: "A股红利质量快照", en: "CN Dividend Quality Snapshot" },
+      tqqq_growth_income: { zh: "纳斯达克增长收益", en: "NASDAQ Growth Income" },
+      soxl_soxx_trend_income: { zh: "半导体趋势收益", en: "Semiconductor Trend Income" },
+      nasdaq_sp500_smart_dca: { zh: "纳指标普定投", en: "NASDAQ/S&P 500 DCA" },
+      ibit_smart_dca: { zh: "IBIT比特币定投", en: "IBIT Bitcoin DCA" },
+      global_etf_rotation: { zh: "全球ETF轮动", en: "Global ETF Rotation" },
+      russell_top50_leader_rotation: { zh: "罗素Top50领涨", en: "Russell Top50 Leaders" },
+      hk_global_etf_tactical_rotation: { zh: "港股ETF战术轮动", en: "HK ETF Tactical Rotation" },
+      hk_low_vol_dividend_quality_snapshot: { zh: "港股红利质量", en: "HK Dividend Quality" },
+      cn_industry_etf_rotation: { zh: "A股行业ETF轮动", en: "CN Industry ETF Rotation" },
+      cn_dividend_quality_snapshot: { zh: "A股红利质量", en: "CN Dividend Quality" },
+      us_equity_combo: { zh: "美股核心组合", en: "US Core Combo" },
+      us_equity_combo_leveraged: { zh: "美股加速组合", en: "US Alpha Combo" },
+      hk_equity_combo: { zh: "港股恒生组合", en: "HK Core Combo" },
+      cn_industry_etf_rotation_aggressive: { zh: "A股ETF轮动", en: "CN ETF Rotation" },
+      cn_stock_momentum_rotation: { zh: "A股个股动量", en: "CN Stock Momentum" },
+      cn_equity_combo: { zh: "A股进取组合", en: "CN Alpha Combo" },
+      crypto_btc_dca: { zh: "BTC定投", en: "BTC DCA" },
+      crypto_trend_rotation: { zh: "山寨趋势轮动", en: "Altcoin Trend" },
+      crypto_equity_combo: { zh: "加密动量组合", en: "Crypto Core Combo" },
     };
 
     const fallbackIncomeLayerDefaults = {
@@ -2028,6 +2038,9 @@
 
     function pendingCashOnlyExecution(inputs, platform = state.selected, account = selectedAccount(platform)) {
       const mode = normalizeCashOnlyExecutionMode(inputs.cash_only_execution_mode);
+      if (!platformSupportsMarginPolicy(platform) || mode === "current") {
+        return { changed: false, inputs: {} };
+      }
       const current = effectiveCashOnlyExecutionForAccount(platform, account);
       const nextEnabled = mode === "enabled";
       const entry = currentEntryForAccount(platform, account);
