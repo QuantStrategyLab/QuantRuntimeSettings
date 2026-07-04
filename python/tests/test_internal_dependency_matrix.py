@@ -29,6 +29,22 @@ quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.gi
         self.assertEqual([pin.source_repo for pin in pins], ["QuantPlatformKit", "UsEquityStrategies"])
         self.assertEqual([pin.ref for pin in pins], ["v0.7.35", "abc123"])
 
+    def test_parse_dependency_pins_from_uv_lock_text(self):
+        text = """
+[[package]]
+name = "example"
+dependencies = [
+    { name = "quant-platform-kit", git = "https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=7032cde4547e7ec59af15df8935d142461a77051" },
+]
+"""
+
+        pins = check_internal_dependency_matrix.parse_dependency_pins("ExamplePlatform", "uv.lock", text)
+
+        self.assertEqual(len(pins), 1)
+        self.assertEqual(pins[0].package, "quant-platform-kit")
+        self.assertEqual(pins[0].source_repo, "QuantPlatformKit")
+        self.assertEqual(pins[0].ref, "7032cde4547e7ec59af15df8935d142461a77051")
+
     def test_check_matrix_reports_ref_drift_and_untracked_dependency(self):
         projects_root = self._make_projects_root(
             {
