@@ -14,12 +14,18 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_MATRIX_PATH = ROOT / "internal_dependency_matrix.json"
 DEFAULT_PROJECTS_ROOT = ROOT.parent
-DEPENDENCY_PATTERN = re.compile(
+PYPROJECT_DEPENDENCY_PATTERN = re.compile(
     r"(?P<package>[A-Za-z0-9_.-]+)\s*@\s*"
     r"git\+https://github\.com/QuantStrategyLab/"
     r"(?P<source_repo>[A-Za-z0-9_.-]+)\.git@(?P<ref>[A-Za-z0-9_.-]+)"
 )
-TRACKED_DEPENDENCY_PATHS = ("requirements.txt", "requirements-lock.txt", "pyproject.toml")
+UV_DEPENDENCY_PATTERN = re.compile(
+    r"name\s*=\s*\"(?P<package>[A-Za-z0-9_.-]+)\"[^\n]*"
+    r"git\s*=\s*\"https://github\.com/QuantStrategyLab/"
+    r"(?P<source_repo>[A-Za-z0-9_.-]+)\.git\?rev=(?P<ref>[A-Za-z0-9_.-]+)"
+)
+DEPENDENCY_PATTERNS = (PYPROJECT_DEPENDENCY_PATTERN, UV_DEPENDENCY_PATTERN)
+TRACKED_DEPENDENCY_PATHS = ("requirements.txt", "requirements-lock.txt", "pyproject.toml", "uv.lock")
 LEGACY_DEPENDENCY_PATHS = ("requirements.txt", "requirements-lock.txt")
 PYPROJECT_FALLBACK_PATH = "pyproject.toml"
 
@@ -116,16 +122,19 @@ def _required_string(item: dict[str, Any], key: str, index: int) -> str:
 
 
 def parse_dependency_pins(consumer_repo: str, path: str, text: str) -> list[DependencyPin]:
-    return [
-        DependencyPin(
-            consumer_repo=consumer_repo,
-            path=path,
-            package=match.group("package"),
-            source_repo=match.group("source_repo"),
-            ref=match.group("ref"),
+    pins: list[DependencyPin] = []
+    for pattern in DEPENDENCY_PATTERNS:
+        pins.extend(
+            DependencyPin(
+                consumer_repo=consumer_repo,
+                path=path,
+                package=match.group("package"),
+                source_repo=match.group("source_repo"),
+                ref=match.group("ref"),
+            )
+            for match in pattern.finditer(text)
         )
-        for match in DEPENDENCY_PATTERN.finditer(text)
-    ]
+    return _sort_dependency_pins(pins)
 
 
 def _parse_repo_pins(projects_root: Path, consumer_repo: str, relative_path: str) -> list[DependencyPin]:
