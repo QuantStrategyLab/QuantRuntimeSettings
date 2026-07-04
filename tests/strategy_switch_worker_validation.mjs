@@ -408,6 +408,8 @@ assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.ibkr[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.equal(accountOptions.longbridge[0].cash_currency, "HKD");
+const defaultAccountOptions = __test.normalizeAccountOptionsPayload(DEFAULT_ACCOUNT_OPTIONS, "default_account_options");
+assert.equal(defaultAccountOptions.qmt[0].cash_currency, "CNY");
 for (const platformOptions of Object.values(DEFAULT_ACCOUNT_OPTIONS)) {
   for (const option of platformOptions) {
     assert.equal("reserved_cash_ratio" in option, false);
@@ -463,6 +465,8 @@ const kvUnboundSyncResponse = await worker.fetch(
       execution_mode: "live",
       variable_scope: "default",
       plugin_mode: "auto",
+      option_overlay_mode: "current",
+      cash_only_execution_mode: "current",
     }),
   }),
   {
