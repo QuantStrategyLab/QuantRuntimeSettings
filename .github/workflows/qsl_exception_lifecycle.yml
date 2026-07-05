@@ -1,0 +1,115 @@
+name: QSL Exception Lifecycle
+
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: qsl-exception-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Prepare QuantStrategyLab workspace
+        id: workspace
+        env:
+          GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          workspace="${RUNNER_TEMP}/qsl-workspace"
+          rm -rf "$workspace"
+          mkdir -p "$workspace"
+          ln -s "$GITHUB_WORKSPACE" "$workspace/QuantRuntimeSettings"
+
+          python3 - <<'PY' > qsl-bundle-repos.tsv
+          import os
+          import tomllib
+          from pathlib import Path
+
+          qsl_payload = tomllib.loads(Path("qsl.toml").read_text(encoding="utf-8"))
+          qsl_config = qsl_payload.get("qsl", qsl_payload)
+          bundle = qsl_config.get("bundle") or qsl_config.get("compat")
+          if isinstance(bundle, dict):
+              bundle = bundle.get("bundle")
+          if not isinstance(bundle, str) or not bundle.strip():
+              raise SystemExit("qsl.toml missing qsl.bundle")
+          bundle = bundle.strip()
+          bundle_path = Path("compat/bundles") / f"{bundle}.toml"
+          if not bundle_path.exists():
+              raise SystemExit(f"bundle manifest not found: {bundle_path}")
+          payload = tomllib.loads(bundle_path.read_text(encoding="utf-8"))
+          repos = payload.get("repos")
+          if not isinstance(repos, dict) or not repos:
+              raise SystemExit(f"bundle manifest missing [repos]: {bundle_path}")
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"bundle={bundle}\n")
+              output.write(f"workspace={os.environ['RUNNER_TEMP']}/qsl-workspace\n")
+          for repo, ref in sorted(repos.items()):
+              print(f"{repo}\t{ref}")
+          PY
+
+          while IFS=$'\t' read -r repo ref; do
+            [ -n "$repo" ] || continue
+            if [ -e "$workspace/$repo" ]; then
+              continue
+            fi
+            gh repo clone "QuantStrategyLab/$repo" "$workspace/$repo"
+            git -C "$workspace/$repo" checkout --detach "$ref"
+          done < qsl-bundle-repos.tsv
+
+      - name: Generate QSL compatibility report
+        id: report
+        run: |
+          set -euo pipefail
+          python3 python/scripts/qslctl.py report \
+            --projects-root "${{ steps.workspace.outputs.workspace }}" \
+            --compat-root . \
+            --json > qsl-report.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          report = json.loads(Path("qsl-report.json").read_text(encoding="utf-8"))
+          lines = [
+              "## QSL Exception Lifecycle Report",
+              f"- Bundle: `${os.environ['QSL_BUNDLE']}`",
+              f"- Workspace: `${os.environ['QSL_WORKSPACE']}`",
+              f"- Total repositories: `{report['total_repositories']}`",
+              f"- Strict repositories: `{report['strict_repositories']}`",
+              f"- Warning repositories: `{report['warning_repositories']}`",
+              f"- Clean repositories: `{report['clean_repositories']}`",
+              "",
+              "### Repository status",
+          ]
+          for repo in report["repositories"]:
+              status = "strict" if repo["issues"] else "warning" if repo["warnings"] else "clean"
+              lines.append(
+                  f"- `{repo['repo']}`: `{status}` "
+                  f"(issues={len(repo['issues'])}, warnings={len(repo['warnings'])})"
+              )
+              for message in repo["issues"] + repo["warnings"]:
+                  lines.append(f"  - {message}")
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+
+          if report["strict_repositories"] or report["warning_repositories"]:
+              raise SystemExit(1)
+          PY
+        env:
+          QSL_BUNDLE: ${{ steps.workspace.outputs.bundle }}
+          QSL_WORKSPACE: ${{ steps.workspace.outputs.workspace }}
