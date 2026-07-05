@@ -26,6 +26,15 @@ STRATEGY_PROFILES_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-pr
 STRATEGY_PROFILES_ASSET = ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js"
 INDEX_HTML = ROOT / "web" / "strategy-switch-console" / "index.html"
 LIVE_CANDIDATE_QUEUE_STAGES = {"ai_monitored_candidate", "shadow_candidate", "live_candidate"}
+CRITICAL_STRATEGY_PROFILE_FIELDS = {
+    "profile",
+    "domain",
+    "runtime_enabled",
+    "lifecycle_stage",
+    "can_switch_live",
+    "allowed_execution_modes",
+    "blocked_live_reason",
+}
 
 
 def load_config() -> dict:
@@ -157,6 +166,122 @@ def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[d
         )
 
     return sorted(queue, key=lambda item: (stage_rank.get(str(item["lifecycle_stage"]), 99), str(item["domain"]), str(item["profile"])))
+
+
+def report_strategy_profile_derivation_drift(config: dict, strategy_catalog: object | None = None) -> list[str]:
+    """Report whether the generated strategy profile catalog drifts from platform-config.json."""
+    expected = strategy_to_json_compat(config.get("strategies", {}))
+    expected_by_profile = {entry["profile"]: entry for entry in expected}
+    catalog = _strategy_catalog_by_profile(strategy_catalog)
+    missing = [entry["profile"] for entry in expected if entry["profile"] not in catalog]
+    errors: list[str] = []
+    if missing:
+        errors.append(f"strategy_profiles: missing generated profiles: {', '.join(sorted(missing))}")
+    if len(catalog) != len(expected):
+        errors.append(f"strategy_profiles: profile count {len(catalog)} does not match platform-config strategies {len(expected)}")
+    for profile, expected_entry in expected_by_profile.items():
+        actual_entry = catalog.get(profile)
+        if actual_entry is None:
+            continue
+        for field in sorted(CRITICAL_STRATEGY_PROFILE_FIELDS):
+            if actual_entry.get(field) != expected_entry.get(field):
+                errors.append(
+                    f"strategy_profiles: {profile}.{field}={actual_entry.get(field)!r} "
+                    f"does not match platform-config value {expected_entry.get(field)!r}"
+                )
+                break
+        if errors and errors[-1].startswith(f"strategy_profiles: {profile}."):
+            break
+    unexpected = sorted(set(catalog) - set(expected_by_profile))
+    if unexpected:
+        errors.append(f"strategy_profiles: unexpected generated profiles: {', '.join(unexpected)}")
+    return errors
+
+
+def build_platform_health_report(
+    config: dict | None = None,
+    strategy_catalog: object | None = None,
+) -> dict[str, object]:
+    """Build a machine-readable platform health report for scheduled automation."""
+    config = config if config is not None else load_config()
+    catalog = _strategy_catalog_by_profile(strategy_catalog)
+    config_errors = validate(config)
+    default_profile_errors = report_default_strategy_profile_drift(config, catalog)
+    derivation_errors = report_strategy_profile_derivation_drift(config, catalog)
+    live_candidate_queue = build_live_candidate_queue(catalog)
+    runtime_enabled_profiles = [
+        profile
+        for profile, strategy in catalog.items()
+        if strategy.get("runtime_enabled") is True and strategy.get("can_switch_live") is True
+    ]
+    checks = [
+        {
+            "name": "platform_config_schema",
+            "status": "fail" if config_errors else "pass",
+            "severity": "critical",
+            "messages": config_errors,
+        },
+        {
+            "name": "default_strategy_profile_gate",
+            "status": "fail" if default_profile_errors else "pass",
+            "severity": "critical",
+            "messages": default_profile_errors,
+        },
+        {
+            "name": "strategy_profile_derivation",
+            "status": "fail" if derivation_errors else "pass",
+            "severity": "critical",
+            "messages": derivation_errors,
+        },
+        {
+            "name": "live_candidate_queue",
+            "status": "warn" if live_candidate_queue else "pass",
+            "severity": "warning",
+            "messages": [
+                f"{len(live_candidate_queue)} profiles require promotion/shadow review"
+            ]
+            if live_candidate_queue
+            else [],
+        },
+    ]
+    failed_checks = [check for check in checks if check["status"] == "fail"]
+    warning_checks = [check for check in checks if check["status"] == "warn"]
+    status = "unhealthy" if failed_checks else "attention_required" if warning_checks else "healthy"
+    recommended_action = (
+        "attempt_codex_fix"
+        if failed_checks
+        else "review_candidates"
+        if warning_checks
+        else "continue"
+    )
+    return {
+        "schema_version": "platform_health_report.v1",
+        "status": status,
+        "recommended_action": recommended_action,
+        "checks": checks,
+        "summary": {
+            "platform_count": len(config.get("platforms", {})),
+            "strategy_profile_count": len(catalog),
+            "runtime_enabled_switchable_count": len(runtime_enabled_profiles),
+            "live_candidate_queue_count": len(live_candidate_queue),
+        },
+        "live_candidate_queue": live_candidate_queue,
+        "codex_repair_context": {
+            "safe_to_attempt": bool(failed_checks),
+            "scope": "QuantRuntimeSettings platform-config and generated strategy switch assets",
+            "suggested_commands": [
+                "python3 python/scripts/build_config.py --check",
+                "python3 python/scripts/runtime_settings.py validate",
+                "python3 python/scripts/build_config.py",
+                "node tests/strategy_switch_worker_validation.mjs",
+            ],
+            "instructions": [
+                "Keep fixes limited to platform-config, generated strategy profile assets, tests, or docs unless a failing check proves a wider change is required.",
+                "Do not enable live switching for research, shadow, or live_candidate profiles without an evidence package and explicit approval.",
+                "If the failure affects secrets, broker credentials, or live execution permissions, stop and request human review.",
+            ],
+        },
+    }
 
 
 def strategy_to_json_compat(strategies: dict) -> list[dict]:
@@ -377,9 +502,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Build all derived config files from platform-config.json")
     parser.add_argument("--check", action="store_true", help="Only validate config, don't write files")
     parser.add_argument("--live-candidate-queue", action="store_true", help="Print live-candidate queue JSON and exit")
+    parser.add_argument("--platform-health-report", action="store_true", help="Print platform health report JSON and exit")
     args = parser.parse_args()
 
     config = load_config()
+    if args.platform_health_report:
+        report = build_platform_health_report(config)
+        print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if report["status"] != "unhealthy" else 1
+
     errors = validate(config)
     if args.check:
         errors.extend(report_default_strategy_profile_drift(config))
