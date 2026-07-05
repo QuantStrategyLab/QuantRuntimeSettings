@@ -61,6 +61,16 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn("income_threshold_usd", input_names)
         self.assertNotIn("qqqi_income_ratio", input_names)
 
+    def test_platform_health_monitor_workflow_creates_codex_ready_issue(self):
+        workflow = (ROOT / ".github/workflows/platform-health-monitor.yml").read_text(encoding="utf-8")
+
+        self.assertIn("schedule:", workflow)
+        self.assertIn("python3 python/scripts/build_config.py --platform-health-report", workflow)
+        self.assertIn("python3 python/scripts/runtime_settings.py validate", workflow)
+        self.assertIn("platform-health-report", workflow)
+        self.assertIn("codex-repair-ready", workflow)
+        self.assertIn("Do not enable live switching", workflow)
+
     def test_manual_switch_platform_choices_cover_supported_platforms(self):
         workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
         platform_choices: list[str] = []
@@ -204,6 +214,54 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         printed.assert_called_once()
         self.assertEqual(json.loads(printed.call_args.args[0]), [{"profile": "candidate"}])
+
+    def test_platform_health_report_summarizes_current_config(self):
+        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        catalog = json.loads(
+            (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(encoding="utf-8")
+        )
+
+        report = build_config.build_platform_health_report(config, catalog)
+
+        self.assertIn(report["status"], {"healthy", "attention_required"})
+        self.assertEqual(report["schema_version"], "platform_health_report.v1")
+        self.assertGreaterEqual(report["summary"]["runtime_enabled_switchable_count"], 1)
+        self.assertIn("codex_repair_context", report)
+        self.assertIn("python3 python/scripts/build_config.py --check", report["codex_repair_context"]["suggested_commands"])
+
+    def test_platform_health_report_fails_on_default_profile_drift(self):
+        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        catalog = json.loads(
+            (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(encoding="utf-8")
+        )
+        profile = config["platforms"]["longbridge"]["default_account"]["default_strategy_profile"]
+        for item in catalog:
+            if item["profile"] == profile:
+                item["can_switch_live"] = False
+                break
+
+        report = build_config.build_platform_health_report(config, catalog)
+
+        self.assertEqual(report["status"], "unhealthy")
+        self.assertEqual(report["recommended_action"], "attempt_codex_fix")
+        self.assertTrue(report["codex_repair_context"]["safe_to_attempt"])
+
+    def test_platform_health_report_cli_outputs_json(self):
+        report = {
+            "schema_version": "platform_health_report.v1",
+            "status": "attention_required",
+            "recommended_action": "review_candidates",
+        }
+        with (
+            patch.object(sys, "argv", ["build_config.py", "--platform-health-report"]),
+            patch.object(build_config, "load_config", return_value={"platforms": {}, "strategies": {}}),
+            patch.object(build_config, "build_platform_health_report", return_value=report),
+            patch("builtins.print") as printed,
+        ):
+            self.assertEqual(build_config.main(), 0)
+
+        printed.assert_called_once()
+        self.assertEqual(json.loads(printed.call_args.args[0])["schema_version"], "platform_health_report.v1")
 
     def test_runtime_target_rejects_live_switch_for_non_runtime_profile(self):
         _, target = self.load_target("examples/targets/qmt/cn_combo.example.json")

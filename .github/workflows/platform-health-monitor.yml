@@ -1,0 +1,186 @@
+name: Platform Health Monitor
+
+on:
+  workflow_dispatch:
+    inputs:
+      attempt_codex_fix:
+        description: "Create or update a Codex-ready repair issue when health checks fail."
+        required: true
+        type: boolean
+        default: true
+  schedule:
+    - cron: "17 2 * * 1"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: platform-health-monitor
+  cancel-in-progress: false
+
+jobs:
+  platform-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Build platform health report
+        id: platform_health
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p data/output/platform-health
+          python3 python/scripts/build_config.py --platform-health-report \
+            | tee data/output/platform-health/report.json
+
+      - name: Validate platform config and runtime targets
+        id: runtime_validation
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 python/scripts/build_config.py --check
+          python3 python/scripts/runtime_settings.py validate
+
+      - name: Validate strategy switch assets
+        id: web_validation
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 python/scripts/build_config.py
+          python3 python/scripts/sync_strategy_switch_page_asset.py
+          git diff --exit-code -- \
+            web/strategy-switch-console/config.js \
+            web/strategy-switch-console/index.html \
+            web/strategy-switch-console/page_asset.js \
+            web/strategy-switch-console/strategy_profiles_asset.js \
+            web/strategy-switch-console/app_css.js \
+            web/strategy-switch-console/app_js.js
+          jq empty web/strategy-switch-console/strategy-profiles.example.json
+          node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
+          node --check --input-type=module < web/strategy-switch-console/page_asset.js
+          node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
+          node --check --input-type=module < web/strategy-switch-console/app_css.js
+          node --check --input-type=module < web/strategy-switch-console/app_js.js
+          node --check --input-type=module < web/strategy-switch-console/worker.js
+
+      - name: Summarize platform health
+        if: always()
+        env:
+          PLATFORM_HEALTH_OUTCOME: ${{ steps.platform_health.outcome }}
+          RUNTIME_VALIDATION_OUTCOME: ${{ steps.runtime_validation.outcome }}
+          WEB_VALIDATION_OUTCOME: ${{ steps.web_validation.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          import os
+          from pathlib import Path
+
+          report_path = Path("data/output/platform-health/report.json")
+          print("## Platform Health Monitor")
+          print()
+          print(f"- platform health step: `{os.environ['PLATFORM_HEALTH_OUTCOME']}`")
+          print(f"- runtime validation step: `{os.environ['RUNTIME_VALIDATION_OUTCOME']}`")
+          print(f"- web validation step: `{os.environ['WEB_VALIDATION_OUTCOME']}`")
+          if report_path.exists():
+              report = json.loads(report_path.read_text(encoding="utf-8"))
+              print(f"- report status: `{report.get('status')}`")
+              print(f"- recommended action: `{report.get('recommended_action')}`")
+              summary = report.get("summary", {})
+              print(f"- strategy profiles: `{summary.get('strategy_profile_count')}`")
+              print(f"- live candidate queue: `{summary.get('live_candidate_queue_count')}`")
+          PY
+
+      - name: Upload platform health report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: platform-health-report
+          path: data/output/platform-health/
+          if-no-files-found: warn
+
+      - name: Create or update Codex-ready repair issue
+        if: >
+          always()
+          && (steps.platform_health.outcome == 'failure'
+            || steps.runtime_validation.outcome == 'failure'
+            || steps.web_validation.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ATTEMPT_CODEX_FIX: ${{ github.event_name == 'schedule' && 'true' || inputs.attempt_codex_fix }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${ATTEMPT_CODEX_FIX}" != "true" ]; then
+            echo "attempt_codex_fix=false; skipping issue creation."
+            exit 0
+          fi
+
+          gh label create platform-health \
+            --description "Platform health monitor findings" \
+            --color 5319e7 \
+            --force >/dev/null
+          gh label create codex-repair-ready \
+            --description "Issue contains enough context for Codex-assisted repair" \
+            --color 0e8a16 \
+            --force >/dev/null
+
+          body="$(mktemp)"
+          {
+            echo "## Platform health failure"
+            echo
+            echo "- Run: ${RUN_URL}"
+            echo "- platform_health: ${{ steps.platform_health.outcome }}"
+            echo "- runtime_validation: ${{ steps.runtime_validation.outcome }}"
+            echo "- web_validation: ${{ steps.web_validation.outcome }}"
+            echo
+            echo "### Codex repair context"
+            echo
+            echo '```json'
+            if [ -s data/output/platform-health/report.json ]; then
+              python3 -m json.tool data/output/platform-health/report.json
+            else
+              echo '{"status":"report_missing","recommended_action":"manual_triage"}'
+            fi
+            echo '```'
+            echo
+            echo "### Guardrails"
+            echo
+            echo "- Do not enable live switching for research/shadow/live_candidate profiles without an evidence package."
+            echo "- Do not change secrets, broker credentials, or live execution permissions automatically."
+            echo "- Prefer a minimal config/test/generated-asset fix; escalate complex cases for human review."
+          } > "$body"
+
+          existing="$(
+            gh issue list \
+              --state open \
+              --label platform-health \
+              --json number \
+              --jq '.[0].number // ""'
+          )"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body"
+          else
+            gh issue create \
+              --title "Platform health monitor requires repair" \
+              --label platform-health \
+              --label codex-repair-ready \
+              --body-file "$body"
+          fi
+
+      - name: Fail if platform health failed
+        if: >
+          steps.platform_health.outcome == 'failure'
+          || steps.runtime_validation.outcome == 'failure'
+          || steps.web_validation.outcome == 'failure'
+        run: exit 1
