@@ -302,7 +302,7 @@ def main() -> int:
         encoding="utf-8",
     )
     STRATEGY_EXAMPLE_TARGET.write_text(
-        json.dumps(profiles, indent=2, ensure_ascii=False) + "\n",
+        json.dumps(profiles, ensure_ascii=False, separators=(",", ":")) + "\n",
         encoding="utf-8",
     )
 

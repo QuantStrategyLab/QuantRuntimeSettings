@@ -219,7 +219,8 @@ def build_platform_meta_js(config: dict) -> str:
 
 def write_strategy_profiles(strategies: list[dict]) -> None:
     with open(STRATEGY_PROFILES_PATH, "w") as f:
-        json.dump(strategies, f, indent=2, ensure_ascii=False)
+        json.dump(strategies, f, ensure_ascii=False, separators=(",", ":"))
+        f.write("\n")
     print(f"  Generated: {STRATEGY_PROFILES_PATH.relative_to(ROOT)} ({len(strategies)} profiles)")
 
 
