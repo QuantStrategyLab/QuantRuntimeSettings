@@ -38,7 +38,6 @@ platform-config.json  (single source of truth)
 │   │   ├── check_internal_dependency_matrix.py
 │   │   ├── gate_codex_app_review.py     # PR merge gate
 │   │   ├── inject_platform_config.py    # Inject config into index.html
-│   │   ├── run_codex_pr_review.py       # Codex AI PR review
 │   │   └── sync_strategy_switch_page_asset.py
 │   ├── tests/                           # Python unit tests
 │   │   ├── test_runtime_settings.py
@@ -74,7 +73,7 @@ platform-config.json  (single source of truth)
     ├── validate.yml                     # Python + JS validation (split jobs)
     ├── deploy-strategy-switch-console.yml
     ├── manual-strategy-switch.yml
-    ├── codex_pr_review.yml
+    ├── codex_pr_review.yml             # Reusable caller to AIAuditBridge
     └── codex_review_gate.yml
 ```
 
