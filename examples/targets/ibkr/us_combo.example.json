@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "ibkr/us_combo",
-  "description": "IBKR target for us_equity_combo (50/30/20 Global ETF/Russell/DCA with dynamic regime adjustment).",
+  "description": "IBKR paper target for us_equity_combo shadow validation.",
   "github": {
     "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
     "variable_scope": "repository"
@@ -9,12 +9,14 @@
   "runtime_target": {
     "platform_id": "ibkr",
     "strategy_profile": "us_equity_combo",
-    "dry_run_only": false,
+    "dry_run_only": true,
     "deployment_selector": "ibkr",
-    "account_selector": ["ibkr"],
+    "account_selector": [
+      "ibkr"
+    ],
     "account_scope": "US",
     "service_name": "ibkr-quant-service",
-    "execution_mode": "live",
+    "execution_mode": "paper",
     "scheduler": {
       "timezone": "America/New_York",
       "main_time": "30 16 * * *",

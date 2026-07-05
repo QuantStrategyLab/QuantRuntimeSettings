@@ -25,6 +25,20 @@ assert SWITCH_SPEC.loader is not None
 sys.modules[SWITCH_SPEC.name] = build_runtime_switch
 SWITCH_SPEC.loader.exec_module(build_runtime_switch)
 
+PLATFORM_CONFIG_MODULE_PATH = ROOT / "python" / "scripts" / "build_platform_config.py"
+PLATFORM_CONFIG_SPEC = importlib.util.spec_from_file_location("build_platform_config", PLATFORM_CONFIG_MODULE_PATH)
+build_platform_config = importlib.util.module_from_spec(PLATFORM_CONFIG_SPEC)
+assert PLATFORM_CONFIG_SPEC.loader is not None
+sys.modules[PLATFORM_CONFIG_SPEC.name] = build_platform_config
+PLATFORM_CONFIG_SPEC.loader.exec_module(build_platform_config)
+
+BUILD_CONFIG_MODULE_PATH = ROOT / "python" / "scripts" / "build_config.py"
+BUILD_CONFIG_SPEC = importlib.util.spec_from_file_location("build_config", BUILD_CONFIG_MODULE_PATH)
+build_config = importlib.util.module_from_spec(BUILD_CONFIG_SPEC)
+assert BUILD_CONFIG_SPEC.loader is not None
+sys.modules[BUILD_CONFIG_SPEC.name] = build_config
+BUILD_CONFIG_SPEC.loader.exec_module(build_config)
+
 
 class RuntimeSettingsTest(unittest.TestCase):
     def test_manual_strategy_switch_workflow_stays_within_dispatch_input_limit(self):
@@ -76,6 +90,34 @@ class RuntimeSettingsTest(unittest.TestCase):
             if default_profile:
                 with self.subTest(platform=platform):
                     self.assertIn(default_profile, profiles)
+
+    def test_platform_config_default_strategy_profiles_are_live_switchable(self):
+        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        for platform, data in config["platforms"].items():
+            default_profile = data.get("default_account", {}).get("default_strategy_profile")
+            if not default_profile:
+                continue
+            strategy = config["strategies"][default_profile]
+            with self.subTest(platform=platform):
+                self.assertTrue(strategy["runtime_enabled"])
+                self.assertTrue(strategy["can_switch_live"])
+                self.assertEqual(strategy["lifecycle_stage"], "runtime_enabled")
+
+    def test_runtime_target_rejects_live_switch_for_non_runtime_profile(self):
+        _, target = self.load_target("examples/targets/qmt/cn_combo.example.json")
+        target["runtime_target"]["execution_mode"] = "live"
+        target["runtime_target"]["dry_run_only"] = False
+
+        errors = runtime_settings.validate_target(target)
+
+        self.assertIn(
+            "runtime_target.strategy_profile cn_equity_combo is not runtime_enabled",
+            errors,
+        )
+        self.assertIn(
+            "runtime_target.strategy_profile cn_equity_combo cannot switch live",
+            errors,
+        )
 
     def load_target(self, relative_path: str):
         path = ROOT / relative_path
@@ -130,6 +172,45 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertLessEqual(published_strategy_artifact_profiles, strategy_profiles)
         self.assertEqual(published_strategy_artifact_profiles, build_runtime_switch.MARKET_REGIME_CONTROL_PROFILES)
+
+    def test_build_config_strategy_to_json_compat_includes_strategy_gate_fields(self):
+        strategies = {
+            "sample": {
+                "label": "样例策略",
+                "domain": "us_equity",
+                "runtime_enabled": False,
+                "lifecycle_stage": "beta",
+                "can_switch_live": False,
+                "allowed_execution_modes": ["paper", "dry_run"],
+                "blocked_live_reason": "manual-review",
+                "features": {},
+            },
+        }
+
+        payload = build_config.strategy_to_json_compat(strategies)
+        profile = payload[0]
+        self.assertEqual(profile["runtime_enabled"], False)
+        self.assertEqual(profile["lifecycle_stage"], "beta")
+        self.assertFalse(profile["can_switch_live"])
+        self.assertEqual(profile["allowed_execution_modes"], ["paper", "dry_run"])
+        self.assertEqual(profile["blocked_live_reason"], "manual-review")
+
+    def test_build_platform_config_build_strategy_profile_entries_defaults_gate_fields(self):
+        payload = build_platform_config.build_strategy_profile_entries({
+            "strategies": {
+                "sample": {
+                    "label": "样例策略",
+                    "domain": "us_equity",
+                    "features": {},
+                },
+            },
+        })
+        profile = payload[0]
+
+        self.assertEqual(profile["lifecycle_stage"], "runtime_enabled")
+        self.assertTrue(profile["can_switch_live"])
+        self.assertEqual(profile["allowed_execution_modes"], ["live", "paper", "dry_run"])
+        self.assertEqual(profile["blocked_live_reason"], "")
 
     def test_assignment_payload_can_redact_values(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")
@@ -567,7 +648,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "--target-name",
                 "default",
                 "--strategy-profile",
-                "crypto_equity_combo",
+                "crypto_live_pool_rotation",
                 "--plugin-mode",
                 "none",
             ]

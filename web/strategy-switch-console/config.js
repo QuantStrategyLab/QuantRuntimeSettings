@@ -152,7 +152,7 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "crypto"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "crypto_equity_combo",
+      "default_strategy_profile": "crypto_live_pool_rotation",
       "service_name": "",
       "default_execution_mode": "live"
     }
@@ -369,9 +369,21 @@ export const STRATEGY_FEATURES = {
     "dca": false,
     "combo": false
   },
+  "tecl_xlk_trend_income": {
+    "income_layer": false,
+    "option_overlay": false,
+    "dca": false,
+    "combo": false
+  },
   "us_equity_combo": {
     "income_layer": true,
     "option_overlay": true,
+    "dca": false,
+    "combo": true
+  },
+  "us_equity_combo_core": {
+    "income_layer": false,
+    "option_overlay": false,
     "dca": false,
     "combo": true
   },
@@ -411,7 +423,19 @@ export const STRATEGY_FEATURES = {
     "dca": false,
     "combo": false
   },
-  "cn_stock_momentum_rotation": {
+  "cn_index_etf_tactical_rotation": {
+    "income_layer": false,
+    "option_overlay": false,
+    "dca": false,
+    "combo": false
+  },
+  "cn_chinext_tactical_rotation": {
+    "income_layer": false,
+    "option_overlay": false,
+    "dca": false,
+    "combo": false
+  },
+  "cn_chinext_growth_momentum_quality": {
     "income_layer": false,
     "option_overlay": false,
     "dca": false,
@@ -423,11 +447,29 @@ export const STRATEGY_FEATURES = {
     "dca": false,
     "combo": false
   },
+  "cn_chinext_growth_momentum_quality_snapshot": {
+    "income_layer": false,
+    "option_overlay": false,
+    "dca": false,
+    "combo": false
+  },
+  "cn_star_growth_momentum_quality": {
+    "income_layer": false,
+    "option_overlay": false,
+    "dca": false,
+    "combo": false
+  },
   "cn_equity_combo": {
     "income_layer": false,
     "option_overlay": false,
     "dca": false,
     "combo": true
+  },
+  "crypto_live_pool_rotation": {
+    "income_layer": false,
+    "option_overlay": false,
+    "dca": false,
+    "combo": false
   },
   "crypto_btc_dca": {
     "income_layer": false,

@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "longbridge/us_combo_leveraged",
-  "description": "LongBridge SG target for us_equity_combo_leveraged (40/20/40 TQQQ/SOXL/BOXX with SPY MA200 dynamic adjustment).",
+  "description": "LongBridge paper target for us_equity_combo_leveraged shadow validation.",
   "github": {
     "repository": "QuantStrategyLab/LongBridgePlatform",
     "variable_scope": "repository"
@@ -9,12 +9,14 @@
   "runtime_target": {
     "platform_id": "longbridge",
     "strategy_profile": "us_equity_combo_leveraged",
-    "dry_run_only": false,
+    "dry_run_only": true,
     "deployment_selector": "longbridge_sg",
-    "account_selector": ["longbridge_sg"],
+    "account_selector": [
+      "longbridge_sg"
+    ],
     "account_scope": "US",
     "service_name": "longbridge-quant-service",
-    "execution_mode": "live",
+    "execution_mode": "paper",
     "scheduler": {
       "timezone": "Asia/Singapore",
       "main_time": "30 22 * * 1-5",

@@ -94,22 +94,26 @@ assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListene
 assert.ok(indexHtml.includes('el("dca-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes('el("dca-base-investment-usd-input").addEventListener("input"'));
 assert.ok(
-	  indexHtml.includes('label_zh: "纳指100 / 标普500 定投"') ||
-	  indexHtml.includes('label_zh: "纳指标普定投"'),
+	  indexHtml.includes('"label_zh": "纳指100 / 标普500 定投"') ||
+	  indexHtml.includes('"label_zh": "纳指标普定投"'),
 	);
 assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
 assert.ok(indexHtml.includes('class="form-section dca-section"'));
 assert.ok(indexHtml.includes('class="control-block reserve-policy-block policy-block"'));
-assert.ok(indexHtml.includes('profile: "ibit_smart_dca"'));
+assert.ok(indexHtml.includes('"profile": "ibit_smart_dca"'));
 for (const profile of bundledStrategyProfiles) {
-  assert.ok(indexHtml.includes(`profile: ${JSON.stringify(profile.profile)}`), `fallback missing ${profile.profile}`);
-  assert.ok(indexHtml.includes(`label_en: ${JSON.stringify(profile.label_en)}`), `fallback English label mismatch for ${profile.profile}`);
-  assert.ok(indexHtml.includes(`label_zh: ${JSON.stringify(profile.label_zh)}`), `fallback Chinese label mismatch for ${profile.profile}`);
+  assert.ok(indexHtml.includes(`"profile": ${JSON.stringify(profile.profile)}`), `fallback missing ${profile.profile}`);
+  assert.ok(indexHtml.includes(`"label_en": ${JSON.stringify(profile.label_en)}`), `fallback English label mismatch for ${profile.profile}`);
+  assert.ok(indexHtml.includes(`"label_zh": ${JSON.stringify(profile.label_zh)}`), `fallback Chinese label mismatch for ${profile.profile}`);
 }
 assert.ok(indexHtml.includes('localStrategyLabels'));
 assert.ok(indexHtml.includes('function strategyLabelSet('));
+assert.ok(indexHtml.includes('function strategyDisplayMetaText('));
+assert.ok(indexHtml.includes('function strategyChoiceLabel('));
+assert.ok(indexHtml.includes('function strategyCanSwitchLive('));
 assert.ok(indexHtml.includes("account-block"));
 assert.ok(indexHtml.includes("strategy-block"));
+assert.ok(indexHtml.includes("white-space: pre-line"));
 assert.ok(indexHtml.includes(".form-section {"));
 assert.ok(indexHtml.includes(".form-section + .form-section"));
 assert.ok(indexHtml.includes("grid-template-columns: repeat(2, minmax(0, 1fr));"));
@@ -309,6 +313,9 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       label_zh: "TQQQ 增长收益",
       domain: "us_equity",
       runtime_enabled: true,
+      lifecycle_stage: "live",
+      can_switch_live: true,
+      allowed_execution_modes: ["live", "paper"],
       income_layer_enabled: true,
       income_layer_start_usd: "250000",
       income_layer_max_ratio: "0.55",
@@ -316,6 +323,8 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       option_overlay_enabled: true,
       option_overlay_live_gate: "promotion_required",
       option_overlay_live_status: "research_only",
+      latest_evidence_status: "live_allowed",
+      plugin_gate_status: "live_allowed",
       option_growth_overlay_enabled: true,
       option_growth_overlay_recipe: "tqqq_leaps_growth_v1",
       option_growth_overlay_start_usd: "250000",
@@ -329,6 +338,18 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       runtime_enabled: true,
     },
     {
+      profile: "us_equity_combo_leveraged",
+      label: "US Alpha Combo",
+      domain: "us_equity",
+      runtime_enabled: true,
+      lifecycle_stage: "research",
+      can_switch_live: false,
+      allowed_execution_modes: ["paper"],
+      blocked_live_reason: "promotion_required",
+      latest_evidence_status: "research_only",
+      plugin_gate_status: "blocked",
+    },
+    {
       profile: "nasdaq_sp500_smart_dca",
       label: "Nasdaq 100 / S&P 500 DCA",
       label_zh: "纳指100 / 标普500 定投",
@@ -340,6 +361,9 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
 );
 assert.equal(strategyProfiles[0].label_en, "TQQQ Growth Income");
 assert.equal(strategyProfiles[0].label_zh, "TQQQ 增长收益");
+assert.equal(strategyProfiles[0].lifecycle_stage, "live");
+assert.equal(strategyProfiles[0].can_switch_live, true);
+assert.deepEqual(strategyProfiles[0].allowed_execution_modes, ["live", "paper"]);
 assert.equal(strategyProfiles[0].income_layer_enabled, true);
 assert.equal(strategyProfiles[0].income_layer_start_usd, "250000");
 assert.equal(strategyProfiles[0].income_layer_max_ratio, "0.55");
@@ -358,9 +382,41 @@ assert.equal(strategyProfiles[0].option_growth_overlay_recipe, "tqqq_leaps_growt
 assert.equal(strategyProfiles[0].option_growth_overlay_start_usd, "250000");
 assert.equal(strategyProfiles[0].option_growth_overlay_nav_budget_ratio, "0.03");
 assert.equal(strategyProfiles[0].option_income_overlay_enabled, false);
-assert.equal(strategyProfiles[2].dca_enabled, true);
-assert.equal(strategyProfiles[2].dca_default_mode, "fixed");
-assert.equal(strategyProfiles[2].dca_default_base_investment_usd, "1000");
+assert.equal(strategyProfiles[0].latest_evidence_status, "live_allowed");
+assert.equal(strategyProfiles[0].plugin_gate_status, "live_allowed");
+assert.equal(strategyProfiles[2].lifecycle_stage, "research");
+assert.equal(strategyProfiles[2].can_switch_live, false);
+assert.deepEqual(strategyProfiles[2].allowed_execution_modes, ["paper"]);
+assert.equal(strategyProfiles[2].blocked_live_reason, "promotion_required");
+assert.equal(strategyProfiles[2].latest_evidence_status, "research_only");
+assert.equal(strategyProfiles[2].plugin_gate_status, "blocked");
+assert.equal(strategyProfiles[3].dca_enabled, true);
+assert.equal(strategyProfiles[3].dca_default_mode, "fixed");
+assert.equal(strategyProfiles[3].dca_default_base_investment_usd, "1000");
+
+assert.doesNotThrow(() =>
+  __test.assertStrategyAllowedForAccount(
+    { platform: "longbridge", strategy_profile: "tqqq_growth_income", execution_mode: "live" },
+    DEFAULT_ACCOUNT_OPTIONS.longbridge[0],
+    strategyProfiles,
+  ),
+);
+assert.throws(
+  () =>
+    __test.assertStrategyAllowedForAccount(
+      { platform: "longbridge", strategy_profile: "us_equity_combo_leveraged", execution_mode: "live" },
+      DEFAULT_ACCOUNT_OPTIONS.longbridge[0],
+      strategyProfiles,
+    ),
+  /not live-enabled/,
+);
+assert.doesNotThrow(() =>
+  __test.assertStrategyAllowedForAccount(
+    { platform: "longbridge", strategy_profile: "us_equity_combo_leveraged", execution_mode: "paper" },
+    DEFAULT_ACCOUNT_OPTIONS.longbridge[0],
+    strategyProfiles,
+  ),
+);
 
 const accountOptions = __test.normalizeAccountOptionsPayload(
   {

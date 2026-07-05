@@ -1318,14 +1318,29 @@ function assertConfiguredAccount(inputs, accountOptions) {
 
 function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles) {
   const strategy = strategyProfiles.find((item) => item.profile === inputs.strategy_profile);
-  if (!strategy || strategy.runtime_enabled !== true) {
-    throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
+  if (!strategy) {
+    throw new Error(`strategy ${inputs.strategy_profile} is not configured`);
   }
   const supportedDomains = supportedDomainsForAccount(inputs.platform, accountOption);
   if (!supportedDomains.includes(strategy.domain)) {
     throw new Error(
       `strategy domain ${strategy.domain} is not supported by ${inputs.platform}/${accountOption.key}`,
     );
+  }
+  const executionMode = cleanExecutionMode(inputs.execution_mode);
+  const allowedModes = strategy.allowed_execution_modes || [];
+  if (executionMode === "live") {
+    if (strategy.runtime_enabled !== true || strategy.can_switch_live === false) {
+      throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
+    }
+    if (allowedModes.length && !allowedModes.includes(executionMode)) {
+      throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
+    }
+    if (strategy.blocked_live_reason) {
+      throw new Error(`strategy ${inputs.strategy_profile} is blocked for live: ${strategy.blocked_live_reason}`);
+    }
+  } else if (allowedModes.length && !allowedModes.includes(executionMode)) {
+    throw new Error(`strategy ${inputs.strategy_profile} does not allow ${executionMode} execution`);
   }
   if (inputs.option_overlay_mode === "enabled" && strategy.option_overlay_enabled !== true) {
     throw new Error(`strategy ${inputs.strategy_profile} does not define an option overlay`);
@@ -1463,6 +1478,14 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       cleanLabel,
     );
     entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
+    addConfigOptional(entry, "lifecycle_stage", item.lifecycle_stage || item.lifecycleStage, cleanLifecycleStage);
+    const canSwitchLive = cleanOptionalBoolean(item.can_switch_live);
+    if (canSwitchLive !== null) entry.can_switch_live = canSwitchLive;
+    const allowedExecutionModes = cleanAllowedExecutionModes(item.allowed_execution_modes);
+    if (allowedExecutionModes.length) entry.allowed_execution_modes = allowedExecutionModes;
+    addConfigOptional(entry, "blocked_live_reason", item.blocked_live_reason, cleanLabel);
+    addConfigOptional(entry, "latest_evidence_status", item.latest_evidence_status, cleanLifecycleStage);
+    addConfigOptional(entry, "plugin_gate_status", item.plugin_gate_status, cleanLifecycleStage);
     // DCA detection: accept from item payload OR hardcoded DCA_PROFILE_CONFIG
     const dcaEnabled = item.dca_enabled === true || Boolean(DCA_PROFILE_CONFIG[profile]);
     if (dcaEnabled) {
@@ -1839,6 +1862,34 @@ function cleanLabel(value, field) {
     throw new Error(`${field} is invalid`);
   }
   return text;
+}
+
+function cleanLifecycleStage(value, field = "lifecycle_stage") {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || text.length > 80 || !/^[a-z0-9._-]+$/.test(text)) {
+    throw new Error(`${field} is invalid`);
+  }
+  return text;
+}
+
+function cleanAllowedExecutionModes(value) {
+  const items = Array.isArray(value)
+    ? value
+    : String(value || "").split(/[,\s/|]+/);
+  const modes = [];
+  for (const item of items) {
+    const mode = String(item || "").trim().toLowerCase();
+    if (!mode) continue;
+    if (!["live", "paper", "dry_run"].includes(mode)) {
+      throw new Error(`allowed_execution_modes contains unsupported mode ${mode}`);
+    }
+    if (!modes.includes(mode)) modes.push(mode);
+  }
+  return modes;
+}
+
+function cleanExecutionMode(value) {
+  return cleanChoice(value || "live", ["live", "paper"], "execution_mode");
 }
 
 function requireSameOrigin(request, options = {}) {
