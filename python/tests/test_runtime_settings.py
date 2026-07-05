@@ -103,6 +103,108 @@ class RuntimeSettingsTest(unittest.TestCase):
                 self.assertTrue(strategy["can_switch_live"])
                 self.assertEqual(strategy["lifecycle_stage"], "runtime_enabled")
 
+    def test_default_strategy_profile_catalog_matches_platform_gate_fields(self):
+        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        catalog = json.loads(
+            (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(build_config.report_default_strategy_profile_drift(config, catalog), [])
+
+    def test_default_strategy_profile_catalog_reports_gate_drift(self):
+        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
+        catalog = {
+            item["profile"]: item
+            for item in json.loads(
+                (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        }
+        profile = config["platforms"]["longbridge"]["default_account"]["default_strategy_profile"]
+        catalog[profile] = {
+            **catalog[profile],
+            "runtime_enabled": False,
+            "can_switch_live": False,
+            "lifecycle_stage": "research_backtest_only",
+        }
+
+        errors = build_config.report_default_strategy_profile_drift(config, catalog)
+
+        self.assertIn(
+            "platform longbridge: default_strategy_profile tqqq_growth_income is not runtime_enabled",
+            errors,
+        )
+        self.assertIn(
+            "platform longbridge: default_strategy_profile tqqq_growth_income cannot switch live",
+            errors,
+        )
+        self.assertIn(
+            "platform longbridge: default_strategy_profile tqqq_growth_income lifecycle_stage is not runtime_enabled",
+            errors,
+        )
+
+    def test_build_config_check_includes_default_strategy_profile_drift(self):
+        with (
+            patch.object(sys, "argv", ["build_config.py", "--check"]),
+            patch.object(build_config, "load_config", return_value={"platforms": {}, "strategies": {}}),
+            patch.object(build_config, "validate", return_value=[]),
+            patch.object(build_config, "report_default_strategy_profile_drift", return_value=["drift"]) as drift,
+            patch("builtins.print"),
+        ):
+            self.assertEqual(build_config.main(), 1)
+
+        drift.assert_called_once_with({"platforms": {}, "strategies": {}})
+
+    def test_live_candidate_queue_lists_profiles_needing_promotion_review(self):
+        catalog = [
+            {
+                "profile": "ready_next",
+                "label_zh": "候选",
+                "domain": "cn_equity",
+                "lifecycle_stage": "live_candidate",
+                "can_switch_live": False,
+                "allowed_execution_modes": ["paper", "dry_run"],
+                "blocked_live_reason": "live_candidate_requires_evidence_package",
+            },
+            {
+                "profile": "shadow_next",
+                "label": "Shadow",
+                "domain": "crypto",
+                "lifecycle_stage": "shadow_candidate",
+                "can_switch_live": False,
+                "blocked_live_reason": "shadow_candidate_requires_evidence_package",
+            },
+            {
+                "profile": "live_now",
+                "domain": "us_equity",
+                "lifecycle_stage": "runtime_enabled",
+                "can_switch_live": True,
+            },
+        ]
+
+        queue = build_config.build_live_candidate_queue(catalog)
+
+        self.assertEqual([item["profile"] for item in queue], ["ready_next", "shadow_next"])
+        self.assertEqual(queue[0]["recommended_action"], "review_evidence_package")
+        self.assertEqual(queue[0]["label"], "候选")
+        self.assertTrue(queue[0]["approval_required"])
+        self.assertEqual(queue[1]["recommended_action"], "collect_shadow_evidence")
+
+    def test_live_candidate_queue_cli_outputs_json_only(self):
+        with (
+            patch.object(sys, "argv", ["build_config.py", "--live-candidate-queue"]),
+            patch.object(build_config, "load_config", return_value={"platforms": {}, "strategies": {}}),
+            patch.object(build_config, "validate", return_value=[]),
+            patch.object(build_config, "report_default_strategy_profile_drift", return_value=[]),
+            patch.object(build_config, "build_live_candidate_queue", return_value=[{"profile": "candidate"}]),
+            patch("builtins.print") as printed,
+        ):
+            self.assertEqual(build_config.main(), 0)
+
+        printed.assert_called_once()
+        self.assertEqual(json.loads(printed.call_args.args[0]), [{"profile": "candidate"}])
+
     def test_runtime_target_rejects_live_switch_for_non_runtime_profile(self):
         _, target = self.load_target("examples/targets/qmt/cn_combo.example.json")
         target["runtime_target"]["execution_mode"] = "live"
