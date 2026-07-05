@@ -15,6 +15,11 @@ def main() -> int:
     strategies = config["strategies"]
 
     pc, dao, dca, inc_layer, opt_overlay = {}, {}, {}, {}, {}
+    strategy_profiles = []
+    domain_labels = {
+        did: {"zh": ddata.get("label_zh", did), "en": ddata.get("label_en", did)}
+        for did, ddata in config.get("domains", {}).items()
+    }
     for pid, pdata in platforms.items():
         caps, depl = pdata["capabilities"], pdata["deployment"]
         pc[pid] = dict(
@@ -58,6 +63,7 @@ def main() -> int:
         dao[pid] = [entry]
     for sid, sdata in strategies.items():
         feat = sdata.get("features", {})
+        strategy_profiles.append(_strategy_profile_entry(sid, sdata))
         dd = sdata.get("dca_defaults")
         if dd:
             dca[sid] = dict(
@@ -104,6 +110,8 @@ def main() -> int:
             '<script id="platform-config">',
             "window.__PLATFORM_CONFIG__ = " + json.dumps(pc, ensure_ascii=False) + ";",
             "window.__DEFAULT_ACCOUNT_OPTIONS__ = " + json.dumps(dao, ensure_ascii=False) + ";",
+            "window.__DOMAIN_LABELS__ = " + json.dumps(domain_labels, ensure_ascii=False) + ";",
+            "window.__DEFAULT_STRATEGY_PROFILES__ = " + json.dumps(strategy_profiles, ensure_ascii=False) + ";",
             "window.__DCA_PROFILE_DEFAULTS__ = " + json.dumps(dca, ensure_ascii=False) + ";",
             "window.__INCOME_LAYER_DEFAULTS__ = " + json.dumps(inc_layer, ensure_ascii=False) + ";",
             "window.__OPTION_OVERLAY_DEFAULTS__ = " + json.dumps(opt_overlay, ensure_ascii=False) + ";",
@@ -133,6 +141,53 @@ def main() -> int:
     SOURCE.write_text(html, encoding="utf-8")
     print("Injected platform-config into index.html")
     return 0
+
+
+def _strategy_profile_entry(sid: str, sdata: dict) -> dict:
+    feat = sdata.get("features", {})
+    runtime_enabled = sdata.get("runtime_enabled", True)
+    lifecycle_stage = str(
+        sdata.get("lifecycle_stage") or ("runtime_enabled" if runtime_enabled else "research_backtest_only")
+    ).strip()
+    can_switch_live = sdata.get("can_switch_live", runtime_enabled and lifecycle_stage == "runtime_enabled")
+    blocked_live_reason = sdata.get("blocked_live_reason")
+    if blocked_live_reason is None and not can_switch_live:
+        blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
+    entry = {
+        "profile": sid,
+        "label": sdata.get("label", sid),
+        "label_en": sdata.get("label_en", sid),
+        "label_zh": sdata.get("label", sid),
+        "domain": sdata.get("domain", ""),
+        "runtime_enabled": runtime_enabled,
+        "lifecycle_stage": lifecycle_stage,
+        "can_switch_live": can_switch_live,
+        "allowed_execution_modes": _normalize_allowed_execution_modes(sdata.get("allowed_execution_modes")),
+        "blocked_live_reason": "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
+        "income_layer_enabled": feat.get("income_layer", False),
+        "option_overlay_enabled": feat.get("option_overlay", False),
+        "combo_enabled": feat.get("combo", False),
+    }
+    if feat.get("combo"):
+        entry["combo_mode"] = feat.get("combo_mode", "dynamic")
+    return entry
+
+
+def _normalize_allowed_execution_modes(raw_modes: object) -> list[str]:
+    if raw_modes is None:
+        return ["live", "paper", "dry_run"]
+    if isinstance(raw_modes, str):
+        modes = [raw_modes.strip()]
+    elif isinstance(raw_modes, list):
+        modes = [str(mode).strip() for mode in raw_modes]
+    elif isinstance(raw_modes, tuple):
+        modes = [str(mode).strip() for mode in raw_modes]
+    elif isinstance(raw_modes, set):
+        modes = [str(mode).strip() for mode in sorted(raw_modes)]
+    else:
+        modes = ["live", "paper", "dry_run"]
+    modes = [mode for mode in modes if mode]
+    return modes if modes else ["live", "paper", "dry_run"]
 
 
 if __name__ == "__main__":

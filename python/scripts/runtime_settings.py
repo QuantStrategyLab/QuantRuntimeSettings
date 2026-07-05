@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[2]
 LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
 EXAMPLE_TARGETS_DIR = ROOT / "examples" / "targets"
 LOCAL_POLICY_PATH = ROOT / "local" / "policy.json"
+PLATFORM_CONFIG_PATH = ROOT / "platform-config.json"
 
 SUPPORTED_PLATFORMS = {
     "schwab": {"plugin_mounts_prefix": "SCHWAB_", "repository": "QuantStrategyLab/CharlesSchwabPlatform"},
@@ -248,6 +249,14 @@ def load_local_policy() -> dict[str, Any]:
     return policy
 
 
+def load_platform_config() -> dict[str, Any]:
+    if not PLATFORM_CONFIG_PATH.exists():
+        return {}
+    with PLATFORM_CONFIG_PATH.open("r", encoding="utf-8") as handle:
+        config = json.load(handle)
+    return config if isinstance(config, dict) else {}
+
+
 def target_path_id(path: Path) -> str | None:
     relative = None
     for base in (LOCAL_TARGETS_DIR, EXAMPLE_TARGETS_DIR):
@@ -328,6 +337,8 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
     execution_mode = runtime_target.get("execution_mode")
     if execution_mode not in {"live", "paper", "dry_run"}:
         errors.append("runtime_target.execution_mode must be live, paper, or dry_run")
+    else:
+        validate_runtime_target_strategy_policy(runtime_target, errors)
 
     execution_windows = runtime_target.get("execution_windows")
     if execution_windows is not None:
@@ -378,6 +389,58 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                 value = scheduler.get(field)
                 if not isinstance(value, str) or len(value.split()) not in {2, 5}:
                     errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
+
+
+def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], errors: list[str]) -> None:
+    config = load_platform_config()
+    strategies = config.get("strategies", {})
+    platforms = config.get("platforms", {})
+    if not isinstance(strategies, dict) or not isinstance(platforms, dict):
+        return
+    profile = str(runtime_target.get("strategy_profile") or "").strip()
+    strategy = strategies.get(profile)
+    if not isinstance(strategy, dict):
+        return
+
+    platform_id = str(runtime_target.get("platform_id") or "").strip()
+    platform = platforms.get(platform_id)
+    domain = str(strategy.get("domain") or "").strip()
+    supported_domains = platform.get("supported_domains", []) if isinstance(platform, dict) else []
+    if domain and isinstance(supported_domains, list) and supported_domains and domain not in supported_domains:
+        errors.append(f"runtime_target.strategy_profile domain {domain} is not supported by {platform_id}")
+
+    execution_mode = str(runtime_target.get("execution_mode") or "").strip().lower()
+    allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
+    if allowed_modes and execution_mode not in allowed_modes:
+        errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")
+
+    if execution_mode != "live":
+        return
+    lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
+    if strategy.get("runtime_enabled") is not True:
+        errors.append(f"runtime_target.strategy_profile {profile} is not runtime_enabled")
+    if strategy.get("can_switch_live") is False:
+        errors.append(f"runtime_target.strategy_profile {profile} cannot switch live")
+    if lifecycle_stage and lifecycle_stage != "runtime_enabled":
+        errors.append(f"runtime_target.strategy_profile {profile} lifecycle_stage must be runtime_enabled for live")
+    blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
+    if blocked_reason:
+        errors.append(f"runtime_target.strategy_profile {profile} is blocked for live: {blocked_reason}")
+
+
+def normalize_allowed_execution_modes(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_modes = re.split(r"[,\s/|]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        raw_modes = list(value)
+    else:
+        return []
+    modes: list[str] = []
+    for item in raw_modes:
+        mode = str(item or "").strip().lower()
+        if mode and mode not in modes:
+            modes.append(mode)
+    return modes
 
 
 def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:

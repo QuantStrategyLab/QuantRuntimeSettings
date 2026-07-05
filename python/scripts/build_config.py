@@ -41,6 +41,23 @@ def validate(config: dict) -> list[str]:
             errors.append(f"platform {pid}: missing default_account")
         if "supported_domains" not in pdata:
             errors.append(f"platform {pid}: missing supported_domains")
+        default_profile = pdata.get("default_account", {}).get("default_strategy_profile")
+        if default_profile:
+            strategy = config.get("strategies", {}).get(default_profile)
+            if not isinstance(strategy, dict):
+                errors.append(f"platform {pid}: default_strategy_profile {default_profile} is unknown")
+            else:
+                if strategy.get("domain") not in pdata.get("supported_domains", []):
+                    errors.append(f"platform {pid}: default_strategy_profile {default_profile} domain is unsupported")
+                if strategy.get("runtime_enabled") is not True:
+                    errors.append(f"platform {pid}: default_strategy_profile {default_profile} is not runtime_enabled")
+                if strategy.get("can_switch_live") is False:
+                    errors.append(f"platform {pid}: default_strategy_profile {default_profile} cannot switch live")
+                lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
+                if lifecycle_stage and lifecycle_stage != "runtime_enabled":
+                    errors.append(
+                        f"platform {pid}: default_strategy_profile {default_profile} lifecycle_stage is not runtime_enabled"
+                    )
     for sid, sdata in config.get("strategies", {}).items():
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
@@ -59,6 +76,7 @@ def strategy_to_json_compat(strategies: dict) -> list[dict]:
             "domain": s["domain"],
             "runtime_enabled": s.get("runtime_enabled", True),
         }
+        entry.update(_strategy_profile_gate_fields(s))
         f = s.get("features", {})
         if f.get("income_layer"):
             entry["income_layer_enabled"] = True
@@ -98,6 +116,40 @@ def strategy_to_json_compat(strategies: dict) -> list[dict]:
 def _sort_key(sdata: dict) -> tuple[int, str]:
     domain_order = {"us_equity": 0, "hk_equity": 1, "cn_equity": 2, "crypto": 3}
     return (domain_order.get(sdata.get("domain", ""), 99), sdata.get("label", ""))
+
+
+def _normalize_allowed_execution_modes(raw_modes: object) -> list[str]:
+    if raw_modes is None:
+        return ["live", "paper", "dry_run"]
+    if isinstance(raw_modes, str):
+        modes = [raw_modes.strip()]
+    elif isinstance(raw_modes, list):
+        modes = [str(mode).strip() for mode in raw_modes]
+    elif isinstance(raw_modes, tuple):
+        modes = [str(mode).strip() for mode in raw_modes]
+    elif isinstance(raw_modes, set):
+        modes = [str(mode).strip() for mode in sorted(raw_modes)]
+    else:
+        modes = ["live", "paper", "dry_run"]
+    modes = [mode for mode in modes if mode]
+    return modes if modes else ["live", "paper", "dry_run"]
+
+
+def _strategy_profile_gate_fields(sdata: dict) -> dict[str, object]:
+    runtime_enabled = sdata.get("runtime_enabled", True)
+    lifecycle_stage = str(
+        sdata.get("lifecycle_stage") or ("runtime_enabled" if runtime_enabled else "research_backtest_only")
+    ).strip()
+    blocked_live_reason = sdata.get("blocked_live_reason")
+    can_switch_live = sdata.get("can_switch_live", runtime_enabled and lifecycle_stage == "runtime_enabled")
+    if blocked_live_reason is None and not can_switch_live:
+        blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
+    return {
+        "lifecycle_stage": lifecycle_stage,
+        "can_switch_live": can_switch_live,
+        "allowed_execution_modes": _normalize_allowed_execution_modes(sdata.get("allowed_execution_modes")),
+        "blocked_live_reason": "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
+    }
 
 
 def build_css_vars(config: dict) -> str:
@@ -209,6 +261,14 @@ def inject_into_index_html(config: dict) -> None:
 
 def run_sync_script() -> None:
     """Run the existing sync script to regenerate page_asset.js + strategy_profiles_asset.js."""
+    build_platform_config_script = ROOT / "python" / "scripts" / "build_platform_config.py"
+    if build_platform_config_script.exists():
+        subprocess.run([sys.executable, str(build_platform_config_script)], cwd=ROOT, check=True)
+        print("  Ran build_platform_config.py")
+    inject_platform_config_script = ROOT / "python" / "scripts" / "inject_platform_config.py"
+    if inject_platform_config_script.exists():
+        subprocess.run([sys.executable, str(inject_platform_config_script)], cwd=ROOT, check=True)
+        print("  Ran inject_platform_config.py")
     sync_script = ROOT / "python" / "scripts" / "sync_strategy_switch_page_asset.py"
     if sync_script.exists():
         subprocess.run([sys.executable, str(sync_script)], cwd=ROOT, check=True)

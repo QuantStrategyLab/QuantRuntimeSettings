@@ -20,7 +20,7 @@
     // Alias for backward compatibility
     const defaultRepositories = platformRepositories;
 
-    const defaultAccountOptions = {
+    const defaultAccountOptions = window.__DEFAULT_ACCOUNT_OPTIONS__ || {
       binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "default_strategy_profile": "crypto_equity_combo", "supported_domains": ["crypto"]}],
       firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "firstrade-quant-service"}],
       ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
@@ -29,14 +29,14 @@
       schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "charles-schwab-quant-service"}],
     };
 
-    const domainLabels = {
+    const domainLabels = window.__DOMAIN_LABELS__ || {
       cn_equity: { zh: "A股", en: "CN A-share" },
       crypto: { zh: "加密", en: "Crypto" },
       hk_equity: { zh: "港股", en: "HK Equity" },
       us_equity: { zh: "美股", en: "US Equity" },
     };
 
-    const platformConfig = {
+    const platformConfig = window.__PLATFORM_CONFIG__ || {
       binance: {
         dry_run_only: false,
         margin_policy: false,
@@ -149,7 +149,7 @@
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
     const incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD";
     const incomeLayerMaxRatioVariable = "INCOME_LAYER_MAX_RATIO";
-    const dcaProfileDefaults = {
+    const dcaProfileDefaults = window.__DCA_PROFILE_DEFAULTS__ || {
       nasdaq_sp500_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
       ibit_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
     };
@@ -167,26 +167,558 @@
       firstrade: "FIRSTRADE_RESERVED_CASH_RATIO",
     };
 
-    const defaultStrategyProfiles = [
-      { profile: "tqqq_growth_income", label: "NASDAQ Growth Income", label_en: "NASDAQ Growth Income", label_zh: "纳斯达克增长收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "250000", income_layer_max_ratio: "0.55", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "tqqq_leaps_growth_v1", option_growth_overlay_start_usd: "250000", option_growth_overlay_nav_budget_ratio: "0.03", income_layer_allocations: { SCHD: 0.3, DGRO: 0.2, SGOV: 0.4, SPYI: 0.08, QQQI: 0.02 } },
-      { profile: "soxl_soxx_trend_income", label: "Semiconductor Trend Income", label_en: "Semiconductor Trend Income", label_zh: "半导体趋势收益", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "150000", income_layer_max_ratio: "0.95", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: false, income_layer_allocations: { SCHD: 0.15, DGRO: 0.1, SGOV: 0.7, SPYI: 0.04, QQQI: 0.01 } },
-      { profile: "nasdaq_sp500_smart_dca", label: "NASDAQ/S&P 500 DCA", label_en: "NASDAQ/S&P 500 DCA", label_zh: "纳指标普定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
-      { profile: "ibit_smart_dca", label: "IBIT Bitcoin DCA", label_en: "IBIT Bitcoin DCA", label_zh: "IBIT比特币定投", domain: "us_equity", runtime_enabled: true, dca_enabled: true, dca_default_mode: "fixed", dca_default_base_investment_usd: "1000" },
-      { profile: "global_etf_rotation", label: "Global ETF Rotation", label_en: "Global ETF Rotation", label_zh: "全球ETF轮动", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "500000", income_layer_max_ratio: "0.15", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "500000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.4, DGRO: 0.25, SGOV: 0.3, SPYI: 0.05 } },
-      { profile: "russell_top50_leader_rotation", label: "Russell Top50 Leaders", label_en: "Russell Top50 Leaders", label_zh: "罗素Top50领涨", domain: "us_equity", runtime_enabled: true, income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "300000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.45, DGRO: 0.3, SGOV: 0.25 } },
-      { profile: "us_equity_combo", label: "US Core Combo", label_en: "US Core Combo", label_zh: "美股核心组合", domain: "us_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic", income_layer_enabled: true, income_layer_start_usd: "300000", income_layer_max_ratio: "0.25", option_overlay_enabled: true, option_overlay_live_gate: "promotion_required", option_overlay_live_status: "research_only", option_growth_overlay_enabled: true, option_growth_overlay_recipe: "spy_leaps_growth_v1", option_growth_overlay_start_usd: "300000", option_growth_overlay_nav_budget_ratio: "0.015", income_layer_allocations: { SCHD: 0.25, DGRO: 0.25, SGOV: 0.2, SPYI: 0.15, QQQI: 0.15 } },
-      { profile: "us_equity_combo_leveraged", label: "US Alpha Combo", label_en: "US Alpha Combo", label_zh: "美股加速组合", domain: "us_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
-      { profile: "hk_global_etf_tactical_rotation", label: "HK ETF Tactical Rotation", label_en: "HK ETF Tactical Rotation", label_zh: "港股ETF战术轮动", domain: "hk_equity", runtime_enabled: true },
-      { profile: "hk_low_vol_dividend_quality_snapshot", label: "HK Dividend Quality", label_en: "HK Dividend Quality", label_zh: "港股红利质量", domain: "hk_equity", runtime_enabled: true },
-      { profile: "hk_equity_combo", label: "HK Core Combo", label_en: "HK Core Combo", label_zh: "港股恒生组合", domain: "hk_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
-      { profile: "cn_industry_etf_rotation_aggressive", label: "CN ETF Rotation", label_en: "CN ETF Rotation", label_zh: "A股ETF轮动", domain: "cn_equity", runtime_enabled: true },
-      { profile: "cn_stock_momentum_rotation", label: "CN Stock Momentum", label_en: "CN Stock Momentum", label_zh: "A股个股动量", domain: "cn_equity", runtime_enabled: true },
-      { profile: "cn_dividend_quality_snapshot", label: "CN Dividend Quality", label_en: "CN Dividend Quality", label_zh: "A股红利质量", domain: "cn_equity", runtime_enabled: true },
-      { profile: "cn_industry_etf_rotation", label: "CN Industry ETF Rotation", label_en: "CN Industry ETF Rotation", label_zh: "A股行业ETF轮动", domain: "cn_equity", runtime_enabled: true },
-      { profile: "cn_equity_combo", label: "CN Alpha Combo", label_en: "CN Alpha Combo", label_zh: "A股进取组合", domain: "cn_equity", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" },
-      { profile: "crypto_btc_dca", label: "BTC DCA", label_en: "BTC DCA", label_zh: "BTC定投", domain: "crypto", runtime_enabled: true },
-      { profile: "crypto_trend_rotation", label: "Altcoin Trend", label_en: "Altcoin Trend", label_zh: "山寨趋势轮动", domain: "crypto", runtime_enabled: true },
-      { profile: "crypto_equity_combo", label: "Crypto Core Combo", label_en: "Crypto Core Combo", label_zh: "加密动量组合", domain: "crypto", runtime_enabled: true, combo_enabled: true, combo_mode: "dynamic" }
+    const defaultStrategyProfiles = window.__DEFAULT_STRATEGY_PROFILES__ || [
+      {
+        "profile": "tqqq_growth_income",
+        "label": "纳斯达克增长收益",
+        "label_en": "NASDAQ Growth Income",
+        "label_zh": "纳斯达克增长收益",
+        "domain": "us_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": true,
+        "option_overlay_enabled": true,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "",
+        "income_layer_start_usd": "250000",
+        "income_layer_max_ratio": "0.55",
+        "income_layer_allocations": {
+          "SCHD": 0.3,
+          "DGRO": 0.2,
+          "SGOV": 0.4,
+          "SPYI": 0.08,
+          "QQQI": 0.02
+        },
+        "option_overlay_live_gate": "promotion_required",
+        "option_overlay_live_status": "research_only",
+        "option_growth_overlay_enabled": true,
+        "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
+        "option_growth_overlay_start_usd": "250000",
+        "option_growth_overlay_nav_budget_ratio": "0.03"
+      },
+      {
+        "profile": "soxl_soxx_trend_income",
+        "label": "半导体趋势收益",
+        "label_en": "Semiconductor Trend Income",
+        "label_zh": "半导体趋势收益",
+        "domain": "us_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": true,
+        "option_overlay_enabled": true,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "",
+        "income_layer_start_usd": "150000",
+        "income_layer_max_ratio": "0.95",
+        "income_layer_allocations": {
+          "SCHD": 0.15,
+          "DGRO": 0.1,
+          "SGOV": 0.7,
+          "SPYI": 0.04,
+          "QQQI": 0.01
+        },
+        "option_overlay_live_gate": "promotion_required",
+        "option_overlay_live_status": "research_only",
+        "option_income_overlay_enabled": true,
+        "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
+        "option_income_overlay_start_usd": "150000",
+        "option_income_overlay_nav_risk_ratio": "0.01"
+      },
+      {
+        "profile": "nasdaq_sp500_smart_dca",
+        "label": "纳指标普定投",
+        "label_en": "NASDAQ/S&P 500 DCA",
+        "label_zh": "纳指标普定投",
+        "domain": "us_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "",
+        "dca_enabled": true,
+        "dca_default_mode": "fixed",
+        "dca_default_base_investment_usd": "1000"
+      },
+      {
+        "profile": "ibit_smart_dca",
+        "label": "IBIT比特币定投",
+        "label_en": "IBIT Bitcoin DCA",
+        "label_zh": "IBIT比特币定投",
+        "domain": "us_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "",
+        "dca_enabled": true,
+        "dca_default_mode": "fixed",
+        "dca_default_base_investment_usd": "1000"
+      },
+      {
+        "profile": "global_etf_rotation",
+        "label": "全球ETF轮动",
+        "label_en": "Global ETF Rotation",
+        "label_zh": "全球ETF轮动",
+        "domain": "us_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": true,
+        "option_overlay_enabled": true,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "",
+        "income_layer_start_usd": "500000",
+        "income_layer_max_ratio": "0.15",
+        "income_layer_allocations": {
+          "SCHD": 0.4,
+          "DGRO": 0.25,
+          "SGOV": 0.3,
+          "SPYI": 0.05
+        },
+        "option_overlay_live_gate": "promotion_required",
+        "option_overlay_live_status": "research_only",
+        "option_growth_overlay_enabled": true,
+        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
+        "option_growth_overlay_start_usd": "500000",
+        "option_growth_overlay_nav_budget_ratio": "0.015"
+      },
+      {
+        "profile": "russell_top50_leader_rotation",
+        "label": "罗素Top50领涨",
+        "label_en": "Russell Top50 Leaders",
+        "label_zh": "罗素Top50领涨",
+        "domain": "us_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": true,
+        "option_overlay_enabled": true,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "",
+        "income_layer_start_usd": "300000",
+        "income_layer_max_ratio": "0.25",
+        "income_layer_allocations": {
+          "SCHD": 0.45,
+          "DGRO": 0.3,
+          "SGOV": 0.25
+        },
+        "option_overlay_live_gate": "promotion_required",
+        "option_overlay_live_status": "research_only",
+        "option_growth_overlay_enabled": true,
+        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
+        "option_growth_overlay_start_usd": "300000",
+        "option_growth_overlay_nav_budget_ratio": "0.015"
+      },
+      {
+        "profile": "tecl_xlk_trend_income",
+        "label": "TECL/XLK趋势收益",
+        "label_en": "TECL/XLK Trend Income",
+        "label_zh": "TECL/XLK趋势收益",
+        "domain": "us_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "failed_promotion_vs_live_profiles"
+      },
+      {
+        "profile": "us_equity_combo",
+        "label": "美股核心组合",
+        "label_en": "US Core Combo",
+        "label_zh": "美股核心组合",
+        "domain": "us_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": true,
+        "option_overlay_enabled": true,
+        "combo_enabled": true,
+        "lifecycle_stage": "shadow_candidate",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "shadow_candidate_requires_evidence_package",
+        "combo_mode": "dynamic",
+        "income_layer_start_usd": "300000",
+        "income_layer_max_ratio": "0.25",
+        "income_layer_allocations": {
+          "SCHD": 0.25,
+          "DGRO": 0.25,
+          "SGOV": 0.2,
+          "SPYI": 0.15,
+          "QQQI": 0.15
+        },
+        "option_overlay_live_gate": "promotion_required",
+        "option_overlay_live_status": "research_only",
+        "option_growth_overlay_enabled": true,
+        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
+        "option_growth_overlay_start_usd": "300000",
+        "option_growth_overlay_nav_budget_ratio": "0.015"
+      },
+      {
+        "profile": "us_equity_combo_core",
+        "label": "美股核心组合影子",
+        "label_en": "US Core Combo Shadow",
+        "label_zh": "美股核心组合影子",
+        "domain": "us_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": true,
+        "lifecycle_stage": "shadow_candidate",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "shadow_candidate_requires_evidence_package",
+        "combo_mode": "dynamic"
+      },
+      {
+        "profile": "us_equity_combo_leveraged",
+        "label": "美股加速组合",
+        "label_en": "US Alpha Combo",
+        "label_zh": "美股加速组合",
+        "domain": "us_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": true,
+        "lifecycle_stage": "shadow_candidate",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "shadow_candidate_requires_evidence_package",
+        "combo_mode": "dynamic"
+      },
+      {
+        "profile": "hk_global_etf_tactical_rotation",
+        "label": "港股ETF战术轮动",
+        "label_en": "HK ETF Tactical Rotation",
+        "label_zh": "港股ETF战术轮动",
+        "domain": "hk_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": ""
+      },
+      {
+        "profile": "hk_low_vol_dividend_quality_snapshot",
+        "label": "港股红利质量",
+        "label_en": "HK Dividend Quality",
+        "label_zh": "港股红利质量",
+        "domain": "hk_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": ""
+      },
+      {
+        "profile": "hk_equity_combo",
+        "label": "港股恒生组合",
+        "label_en": "HK Core Combo",
+        "label_zh": "港股恒生组合",
+        "domain": "hk_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+        "combo_mode": "dynamic"
+      },
+      {
+        "profile": "cn_industry_etf_rotation",
+        "label": "A股行业ETF轮动",
+        "label_en": "CN Industry ETF Rotation",
+        "label_zh": "A股行业ETF轮动",
+        "domain": "cn_equity",
+        "runtime_enabled": true,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": ""
+      },
+      {
+        "profile": "cn_industry_etf_rotation_aggressive",
+        "label": "A股ETF轮动",
+        "label_en": "CN ETF Rotation",
+        "label_zh": "A股ETF轮动",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "live_candidate",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "live_candidate_requires_evidence_package"
+      },
+      {
+        "profile": "cn_index_etf_tactical_rotation",
+        "label": "A股宽基ETF战术轮动",
+        "label_en": "CN Index ETF Tactical Rotation",
+        "label_zh": "A股宽基ETF战术轮动",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "cn_chinext_tactical_rotation",
+        "label": "创业板战术轮动",
+        "label_en": "CN ChiNext Tactical Rotation",
+        "label_zh": "创业板战术轮动",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "cn_chinext_growth_momentum_quality",
+        "label": "创业板成长动量质量",
+        "label_en": "CN ChiNext Growth Momentum Quality",
+        "label_zh": "创业板成长动量质量",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "cn_dividend_quality_snapshot",
+        "label": "A股红利质量",
+        "label_en": "CN Dividend Quality",
+        "label_zh": "A股红利质量",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "cn_chinext_growth_momentum_quality_snapshot",
+        "label": "创业板成长质量快照",
+        "label_en": "CN ChiNext Growth Quality Snapshot",
+        "label_zh": "创业板成长质量快照",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "cn_star_growth_momentum_quality",
+        "label": "科创板成长动量质量",
+        "label_en": "CN STAR Growth Momentum Quality",
+        "label_zh": "科创板成长动量质量",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "cn_equity_combo",
+        "label": "A股进取组合",
+        "label_en": "CN Alpha Combo",
+        "label_zh": "A股进取组合",
+        "domain": "cn_equity",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+        "combo_mode": "dynamic"
+      },
+      {
+        "profile": "crypto_live_pool_rotation",
+        "label": "加密实时池轮动",
+        "label_en": "Crypto Live Pool Rotation",
+        "label_zh": "加密实时池轮动",
+        "domain": "crypto",
+        "runtime_enabled": true,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "runtime_enabled",
+        "can_switch_live": true,
+        "allowed_execution_modes": [
+          "live",
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": ""
+      },
+      {
+        "profile": "crypto_btc_dca",
+        "label": "BTC定投",
+        "label_en": "BTC DCA",
+        "label_zh": "BTC定投",
+        "domain": "crypto",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "shadow_candidate",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "paper",
+          "dry_run"
+        ],
+        "blocked_live_reason": "shadow_candidate_requires_evidence_package"
+      },
+      {
+        "profile": "crypto_trend_rotation",
+        "label": "山寨趋势轮动",
+        "label_en": "Altcoin Trend",
+        "label_zh": "山寨趋势轮动",
+        "domain": "crypto",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": false,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+      },
+      {
+        "profile": "crypto_equity_combo",
+        "label": "加密动量组合",
+        "label_en": "Crypto Core Combo",
+        "label_zh": "加密动量组合",
+        "domain": "crypto",
+        "runtime_enabled": false,
+        "income_layer_enabled": false,
+        "option_overlay_enabled": false,
+        "combo_enabled": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
+        "allowed_execution_modes": [
+          "dry_run"
+        ],
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+        "combo_mode": "dynamic"
+      }
     ];
 
     const localStrategyLabels = {
@@ -211,7 +743,7 @@
       crypto_equity_combo: { zh: "加密动量组合", en: "Crypto Core Combo" },
     };
 
-    const fallbackIncomeLayerDefaults = {
+    const fallbackIncomeLayerDefaults = window.__INCOME_LAYER_DEFAULTS__ || {
       tqqq_growth_income: {
         startUsd: 250000,
         maxRatio: "0.55",
@@ -238,7 +770,7 @@
         allocations: { SCHD: 0.25, DGRO: 0.25, SGOV: 0.20, SPYI: 0.15, QQQI: 0.15 },
       }};
     let incomeLayerDefaults = {};
-    const fallbackOptionOverlayDefaults = {
+    const fallbackOptionOverlayDefaults = window.__OPTION_OVERLAY_DEFAULTS__ || {
       tqqq_growth_income: {
         liveGate: "promotion_required",
         liveStatus: "research_only",
@@ -431,6 +963,9 @@
         dispatchFailed: "触发失败",
         targetMeta: "目标 {target} · 服务 {service} · 市场 {domains}",
         strategyMeta: "该账号仅显示 {domains} 策略",
+        strategyLifecycleMeta: "当前门槛 {stage}",
+        strategyBlockedCountMeta: "{count} 个策略未达 live 门槛",
+        strategyDefaultBlockedMeta: "默认策略 {profile} 已阻断：{reason}",
         usEquity: "美股",
         hkEquity: "港股",
         cnEquity: "A股",
@@ -592,6 +1127,9 @@
         dispatchFailed: "Dispatch failed",
         targetMeta: "target {target} · service {service} · market {domains}",
         strategyMeta: "This account only shows {domains} strategies",
+        strategyLifecycleMeta: "current gate {stage}",
+        strategyBlockedCountMeta: "{count} strategies are blocked from live",
+        strategyDefaultBlockedMeta: "Default strategy {profile} is blocked: {reason}",
         usEquity: "US equity",
         hkEquity: "HK equity",
         cnEquity: "CN A-share",
@@ -811,7 +1349,6 @@
       for (const item of profiles) {
         const profile = cleanStrategyProfile(item?.profile || item?.strategy_profile);
         if (!profile || nextOptions.includes(profile)) continue;
-        if (item?.runtime_enabled === false || item?.live_enabled === false) continue;
         const domain = cleanStrategyDomain(item?.domain || "us_equity");
         if (!domain) continue;
         nextOptions.push(profile);
@@ -822,8 +1359,20 @@
           label_en: nextLabels[profile].en || "",
           label_zh: nextLabels[profile].zh || "",
           domain,
-          runtime_enabled: true,
+          runtime_enabled: cleanOptionalBoolean(item?.runtime_enabled ?? item?.live_enabled ?? true) !== false,
         };
+        const lifecycleStage = normalizeLifecycleStage(item?.lifecycle_stage ?? item?.lifecycleStage);
+        if (lifecycleStage) nextCatalog[profile].lifecycle_stage = lifecycleStage;
+        const allowedExecutionModes = normalizeAllowedExecutionModes(item?.allowed_execution_modes);
+        if (allowedExecutionModes.length) nextCatalog[profile].allowed_execution_modes = allowedExecutionModes;
+        const canSwitchLive = cleanOptionalBoolean(item?.can_switch_live);
+        if (canSwitchLive !== null) nextCatalog[profile].can_switch_live = canSwitchLive;
+        const blockedLiveReason = cleanDisplayText(item?.blocked_live_reason);
+        if (blockedLiveReason) nextCatalog[profile].blocked_live_reason = blockedLiveReason;
+        const latestEvidenceStatus = cleanDisplayText(item?.latest_evidence_status);
+        if (latestEvidenceStatus) nextCatalog[profile].latest_evidence_status = latestEvidenceStatus;
+        const pluginGateStatus = cleanDisplayText(item?.plugin_gate_status);
+        if (pluginGateStatus) nextCatalog[profile].plugin_gate_status = pluginGateStatus;
         const dcaDefaults = dcaProfileDefaults[profile] || null;
         if (dcaDefaults || item?.dca_enabled === true) {
           nextCatalog[profile].dca_enabled = true;
@@ -960,25 +1509,140 @@
       return platformConfig[platform]?.dca ?? false;
     }
 
-    function strategyAllowedForAccount(platform, account, profile) {
-      const cleanProfile = cleanStrategyProfile(profile);
-      const catalogEntry = strategyCatalog[cleanProfile];
-      if (!catalogEntry || catalogEntry.runtime_enabled !== true) return false;
-      if (dcaConfigForStrategy(cleanProfile) && !platformSupportsDca(platform)) return false;
-      return supportedDomainsForAccount(platform, account).includes(catalogEntry.domain);
+    function strategyCatalogEntry(profile) {
+      return strategyCatalog[cleanStrategyProfile(profile)] || {};
     }
 
-    function strategyChoicesForAccount(platform = state.selected, account = selectedAccount(platform)) {
-      const choices = strategyOptions.filter((profile) => strategyAllowedForAccount(platform, account, profile));
+    function normalizeLifecycleStage(value) {
+      const text = String(value || "").trim().toLowerCase();
+      if (!text || text.length > 40 || !/^[a-z0-9._-]+$/.test(text)) return "";
+      return text;
+    }
+
+    function normalizeAllowedExecutionModes(value) {
+      const items = Array.isArray(value)
+        ? value
+        : String(value || "").split(/[,\s/|]+/);
+      const modes = [];
+      for (const item of items) {
+        const mode = String(item || "").trim().toLowerCase();
+        if (!mode || mode.length > 32 || !/^[a-z0-9._-]+$/.test(mode)) continue;
+        if (!modes.includes(mode)) modes.push(mode);
+      }
+      return modes;
+    }
+
+    function cleanDisplayText(value) {
+      const text = String(value ?? "").trim();
+      if (!text || text.length > 120 || /[<>]/.test(text)) return "";
+      return text;
+    }
+
+    function strategyCanSwitchLive(entry) {
+      if (!entry || typeof entry !== "object") return false;
+      if (entry.runtime_enabled === false) return false;
+      const allowedModes = normalizeAllowedExecutionModes(entry.allowed_execution_modes);
+      if (allowedModes.length && !allowedModes.includes("live")) return false;
+      if (cleanOptionalBoolean(entry.can_switch_live) === false) return false;
+      const lifecycleStage = normalizeLifecycleStage(entry.lifecycle_stage);
+      if (lifecycleStage && ["research", "draft", "blocked", "archived", "disabled"].includes(lifecycleStage)) return false;
+      const blockedReason = cleanDisplayText(entry.blocked_live_reason);
+      if (blockedReason) return false;
+      const evidenceStatus = cleanDisplayText(entry.latest_evidence_status);
+      if (evidenceStatus && ["research_only", "blocked", "pending"].includes(evidenceStatus.toLowerCase())) return false;
+      const pluginGateStatus = cleanDisplayText(entry.plugin_gate_status);
+      if (pluginGateStatus && ["blocked", "locked", "disabled"].includes(pluginGateStatus.toLowerCase())) return false;
+      return true;
+    }
+
+    function strategyBlockedLiveReason(entry) {
+      if (!entry || typeof entry !== "object") return "";
+      const explicit = cleanDisplayText(entry.blocked_live_reason);
+      if (explicit) return explicit;
+      if (entry.runtime_enabled === false) return "runtime_enabled=false";
+      const allowedModes = normalizeAllowedExecutionModes(entry.allowed_execution_modes);
+      if (allowedModes.length && !allowedModes.includes("live")) {
+        return `allowed_execution_modes=${allowedModes.join(",")}`;
+      }
+      if (cleanOptionalBoolean(entry.can_switch_live) === false) return "can_switch_live=false";
+      const lifecycleStage = normalizeLifecycleStage(entry.lifecycle_stage);
+      if (lifecycleStage && ["research", "draft", "blocked", "archived", "disabled"].includes(lifecycleStage)) {
+        return `lifecycle_stage=${lifecycleStage}`;
+      }
+      const evidenceStatus = cleanDisplayText(entry.latest_evidence_status);
+      if (evidenceStatus && evidenceStatus.toLowerCase() !== "live_allowed") {
+        return `latest_evidence_status=${evidenceStatus}`;
+      }
+      const pluginGateStatus = cleanDisplayText(entry.plugin_gate_status);
+      if (pluginGateStatus && pluginGateStatus.toLowerCase() !== "live_allowed") {
+        return `plugin_gate_status=${pluginGateStatus}`;
+      }
+      return "";
+    }
+
+    function strategyDisplayMetaText(platform, account, profile) {
+      const entry = strategyCatalogEntry(profile);
+      if (!entry.profile) {
+        return t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account));
+      }
+      const lines = [];
+      if (entry.lifecycle_stage) lines.push(`lifecycle_stage: ${entry.lifecycle_stage}`);
+      lines.push(`runtime_enabled: ${entry.runtime_enabled === false ? "false" : "true"}`);
+      lines.push(`can_switch_live: ${strategyCanSwitchLive(entry) ? "true" : "false"}`);
+      if (entry.allowed_execution_modes?.length) {
+        lines.push(`allowed_execution_modes: ${entry.allowed_execution_modes.join(", ")}`);
+      }
+      const blockedReason = strategyBlockedLiveReason(entry);
+      if (blockedReason) lines.push(`blocked_live_reason: ${blockedReason}`);
+      if (entry.latest_evidence_status) lines.push(`latest_evidence_status: ${entry.latest_evidence_status}`);
+      if (entry.plugin_gate_status) lines.push(`plugin_gate_status: ${entry.plugin_gate_status}`);
+      lines.push(`domains: ${supportedDomainLabel(platform, account)}`);
+      return lines.join("\n");
+    }
+
+    function strategyActionNoteText(platform = state.selected, account = selectedAccount(platform)) {
+      const profile = state.forms[platform]?.strategy || "";
+      const meta = strategyDisplayMetaText(platform, account, profile);
+      return meta ? `${t("invalidStrategyNote")}\n${meta}` : t("invalidStrategyNote");
+    }
+
+    function strategyChoiceLabel(profile, platform = state.selected, account = selectedAccount(platform), executionMode = state.forms[platform]?.executionMode) {
+      const label = strategyLabel(profile);
+      const entry = strategyCatalogEntry(profile);
+      if (!entry.profile) return label;
+      if (normalizeExecutionMode(executionMode, false) === "live" && !strategyCanSwitchLive(entry)) {
+        return `${label} [blocked live]`;
+      }
+      if (entry.runtime_enabled === false) {
+        return `${label} [disabled]`;
+      }
+      return label;
+    }
+
+    function strategyAllowedForAccount(platform, account, profile, executionMode = state.forms[platform]?.executionMode) {
+      const cleanProfile = cleanStrategyProfile(profile);
+      const catalogEntry = strategyCatalogEntry(cleanProfile);
+      if (!catalogEntry.profile) return false;
+      if (dcaConfigForStrategy(cleanProfile) && !platformSupportsDca(platform)) return false;
+      if (!supportedDomainsForAccount(platform, account).includes(catalogEntry.domain)) return false;
+      const mode = normalizeExecutionMode(executionMode, false);
+      if (mode === "live") return strategyCanSwitchLive(catalogEntry);
+      const allowedModes = normalizeAllowedExecutionModes(catalogEntry.allowed_execution_modes);
+      if (allowedModes.length && !allowedModes.includes(mode)) return false;
+      if (catalogEntry.runtime_enabled !== true && !allowedModes.length) return false;
+      return true;
+    }
+
+    function strategyChoicesForAccount(platform = state.selected, account = selectedAccount(platform), executionMode = state.forms[platform]?.executionMode) {
+      const choices = strategyOptions.filter((profile) => strategyAllowedForAccount(platform, account, profile, executionMode));
       const addChoice = (value) => {
         const profile = cleanStrategyProfile(value);
-        if (profile && !choices.includes(profile) && strategyAllowedForAccount(platform, account, profile)) {
+        if (profile && !choices.includes(profile) && strategyAllowedForAccount(platform, account, profile, executionMode)) {
           choices.push(profile);
         }
       };
       if (account) {
         addChoice(account.default_strategy_profile || account.strategy_profile);
-        addChoice(currentStrategyForAccount(platform, account));
       }
       return choices;
     }
@@ -1437,7 +2101,7 @@
 
     function defaultStrategyForAccount(platform, account, fallback = "tqqq_growth_income") {
       const currentProfile = currentStrategyForAccount(platform, account);
-      if (currentProfile && strategyAllowedForAccount(platform, account, currentProfile)) return currentProfile;
+      if (currentProfile) return currentProfile;
       const profile = cleanStrategyProfile(account?.default_strategy_profile || account?.strategy_profile);
       if (profile && strategyAllowedForAccount(platform, account, profile)) return profile;
       const hint = [
@@ -1600,7 +2264,7 @@
     function hasRunnableStrategySelection(platform = state.selected) {
       const form = state.forms[platform];
       const account = selectedAccount(platform);
-      return Boolean(form?.strategy && account && strategyAllowedForAccount(platform, account, form.strategy));
+      return Boolean(form?.strategy && account && strategyAllowedForAccount(platform, account, form.strategy, form.executionMode));
     }
 
     function hasValidReservePolicy(platform = state.selected) {
@@ -2270,7 +2934,12 @@
       const form = state.forms[platform];
       const accounts = optionsFor(platform);
       const account = selectedAccount(platform);
-      const choices = strategyChoicesForAccount(platform, account);
+      const choices = strategyChoicesForAccount(platform, account, form.executionMode);
+      const currentStrategy = currentStrategyForAccount(platform, account);
+      const currentStrategyBlocked = Boolean(
+        currentStrategy &&
+          !strategyAllowedForAccount(platform, account, currentStrategy, form.executionMode),
+      );
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
       const runtimeTargetEnabledSelect = el("runtime-target-enabled-select");
@@ -2332,20 +3001,32 @@
       }
       el("account-meta").textContent = accounts.length ? accountMetaText(platform) : "";
 
-      if (choices.length && !choices.includes(form.strategy)) {
+      if (choices.length && !choices.includes(form.strategy) && !currentStrategyBlocked) {
         form.strategy = choices[0];
       }
       strategySelect.disabled = !choices.length;
       strategySelect.replaceChildren();
+      if (currentStrategyBlocked) {
+        const blockedOption = new Option(
+          strategyChoiceLabel(currentStrategy, platform, account, form.executionMode),
+          currentStrategy,
+          true,
+          currentStrategy === form.strategy,
+        );
+        blockedOption.disabled = true;
+        strategySelect.append(blockedOption);
+      }
       if (choices.length) {
         for (const strategy of choices) {
-          strategySelect.append(new Option(strategyLabel(strategy), strategy, false, strategy === form.strategy));
+          strategySelect.append(
+            new Option(strategyChoiceLabel(strategy, platform, account, form.executionMode), strategy, false, strategy === form.strategy),
+          );
         }
       } else {
         strategySelect.append(new Option(t("noStrategy"), ""));
       }
       el("strategy-meta").textContent = account
-        ? t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account))
+        ? strategyDisplayMetaText(platform, account, form.strategy)
         : "";
       runtimeTargetEnabledSelect.replaceChildren();
       for (const mode of runtimeTargetModes) {
@@ -2597,7 +3278,7 @@
                 : (executionCashPolicyConflict(state.forms[state.selected])
                   ? t("invalidExecutionCashPolicyNote")
                   : t("invalidReservePolicyNote")))
-              : t("invalidStrategyNote"))
+              : strategyActionNoteText())
             : t("missingConfigNote")))
         : t("readonlyNote");
       note.classList.toggle(

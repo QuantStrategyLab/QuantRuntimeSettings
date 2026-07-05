@@ -1,17 +1,19 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "binance/crypto_combo",
-  "description": "Binance target for crypto_equity_combo R5 cash-cap shadow parameters (50/50 risk-on, 40/20 neutral, 25/0 hard risk-off).",
+  "description": "Binance live target for the runtime-enabled crypto_live_pool_rotation profile.",
   "github": {
     "repository": "QuantStrategyLab/BinancePlatform",
     "variable_scope": "repository"
   },
   "runtime_target": {
     "platform_id": "binance",
-    "strategy_profile": "crypto_equity_combo",
+    "strategy_profile": "crypto_live_pool_rotation",
     "dry_run_only": false,
     "deployment_selector": "binance",
-    "account_selector": ["binance"],
+    "account_selector": [
+      "binance"
+    ],
     "account_scope": "GLOBAL",
     "service_name": "binance-quant-service",
     "execution_mode": "live",
@@ -22,18 +24,5 @@
       "precheck_time": "55 5 * * *"
     }
   },
-  "extra_variables": {
-    "BTC_WEIGHT": "0.50",
-    "TREND_WEIGHT": "0.50",
-    "DYNAMIC_MODE": "true",
-    "DYNAMIC_REGIME_MODE": "cash_cap",
-    "DYNAMIC_REGIME_OFF_CUT": "0.00",
-    "DYNAMIC_HARD_SMA200_RATIO": "0.95",
-    "DYNAMIC_HARD_MA200_SLOPE": "0.00",
-    "DYNAMIC_SOFT_SMA200_RATIO": "1.00",
-    "DYNAMIC_HARD_BTC_WEIGHT": "0.25",
-    "DYNAMIC_HARD_TREND_WEIGHT": "0.00",
-    "DYNAMIC_SOFT_BTC_WEIGHT": "0.40",
-    "DYNAMIC_SOFT_TREND_WEIGHT": "0.20"
-  }
+  "extra_variables": {}
 }

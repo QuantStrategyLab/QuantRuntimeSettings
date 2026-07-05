@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "longbridge/hk_combo",
-  "description": "LongBridge SG target for hk_equity_combo (60/40 ETF momentum/dividend quality with dynamic regime adjustment).",
+  "description": "LongBridge dry-run target for hk_equity_combo research validation.",
   "github": {
     "repository": "QuantStrategyLab/LongBridgePlatform",
     "variable_scope": "repository"
@@ -9,12 +9,14 @@
   "runtime_target": {
     "platform_id": "longbridge",
     "strategy_profile": "hk_equity_combo",
-    "dry_run_only": false,
+    "dry_run_only": true,
     "deployment_selector": "longbridge_sg",
-    "account_selector": ["longbridge_sg"],
+    "account_selector": [
+      "longbridge_sg"
+    ],
     "account_scope": "HK",
     "service_name": "longbridge-quant-service",
-    "execution_mode": "live",
+    "execution_mode": "dry_run",
     "scheduler": {
       "timezone": "Asia/Hong_Kong",
       "main_time": "45 16 * * *",
