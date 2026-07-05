@@ -25,6 +25,7 @@ CONFIG_PATH = ROOT / "platform-config.json"
 STRATEGY_PROFILES_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json"
 STRATEGY_PROFILES_ASSET = ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js"
 INDEX_HTML = ROOT / "web" / "strategy-switch-console" / "index.html"
+LIVE_CANDIDATE_QUEUE_STAGES = {"ai_monitored_candidate", "shadow_candidate", "live_candidate"}
 
 
 def load_config() -> dict:
@@ -51,10 +52,10 @@ def validate(config: dict) -> list[str]:
                     errors.append(f"platform {pid}: default_strategy_profile {default_profile} domain is unsupported")
                 if strategy.get("runtime_enabled") is not True:
                     errors.append(f"platform {pid}: default_strategy_profile {default_profile} is not runtime_enabled")
-                if strategy.get("can_switch_live") is False:
+                if strategy.get("can_switch_live") is not True:
                     errors.append(f"platform {pid}: default_strategy_profile {default_profile} cannot switch live")
                 lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
-                if lifecycle_stage and lifecycle_stage != "runtime_enabled":
+                if lifecycle_stage != "runtime_enabled":
                     errors.append(
                         f"platform {pid}: default_strategy_profile {default_profile} lifecycle_stage is not runtime_enabled"
                     )
@@ -62,6 +63,100 @@ def validate(config: dict) -> list[str]:
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
     return errors
+
+
+def _strategy_catalog_by_profile(strategy_catalog: object | None) -> dict[str, dict]:
+    if strategy_catalog is None:
+        if not STRATEGY_PROFILES_PATH.exists():
+            return {}
+        try:
+            strategy_catalog = json.loads(STRATEGY_PROFILES_PATH.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            return {}
+    if isinstance(strategy_catalog, dict):
+        if all(isinstance(value, dict) for value in strategy_catalog.values()):
+            return {str(profile): value for profile, value in strategy_catalog.items()}
+        return {}
+    if not isinstance(strategy_catalog, list):
+        return {}
+
+    catalog: dict[str, dict] = {}
+    for item in strategy_catalog:
+        if not isinstance(item, dict):
+            continue
+        profile = item.get("profile")
+        if isinstance(profile, str) and profile.strip():
+            catalog[profile] = item
+    return catalog
+
+
+def report_default_strategy_profile_drift(config: dict, strategy_catalog: object | None = None) -> list[str]:
+    """Report whether platform default_strategy_profile entries drift from the strategy catalog."""
+    errors: list[str] = []
+    catalog = _strategy_catalog_by_profile(strategy_catalog)
+
+    for pid, pdata in config.get("platforms", {}).items():
+        default_profile = pdata.get("default_account", {}).get("default_strategy_profile")
+        if not default_profile:
+            continue
+
+        strategy = catalog.get(default_profile)
+        if not isinstance(strategy, dict):
+            errors.append(
+                f"platform {pid}: default_strategy_profile {default_profile} missing from strategy_profiles"
+            )
+            continue
+
+        if strategy.get("runtime_enabled") is not True:
+            errors.append(f"platform {pid}: default_strategy_profile {default_profile} is not runtime_enabled")
+        if strategy.get("can_switch_live") is not True:
+            errors.append(f"platform {pid}: default_strategy_profile {default_profile} cannot switch live")
+        lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
+        if lifecycle_stage != "runtime_enabled":
+            errors.append(
+                f"platform {pid}: default_strategy_profile {default_profile} lifecycle_stage is not runtime_enabled"
+            )
+
+    return errors
+
+
+def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[dict[str, object]]:
+    """Build a control-plane queue of profiles that may need live-promotion review."""
+    catalog = _strategy_catalog_by_profile(strategy_catalog)
+    queue: list[dict[str, object]] = []
+    stage_rank = {
+        "live_candidate": 0,
+        "shadow_candidate": 1,
+        "ai_monitored_candidate": 2,
+    }
+
+    for profile, strategy in catalog.items():
+        lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
+        if lifecycle_stage not in LIVE_CANDIDATE_QUEUE_STAGES:
+            continue
+        can_switch_live = strategy.get("can_switch_live") is True
+        blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
+        if lifecycle_stage == "live_candidate":
+            recommended_action = "review_evidence_package"
+        elif lifecycle_stage == "shadow_candidate":
+            recommended_action = "collect_shadow_evidence"
+        else:
+            recommended_action = "continue_ai_monitoring"
+        queue.append(
+            {
+                "profile": profile,
+                "label": strategy.get("label_zh") or strategy.get("label") or profile,
+                "domain": strategy.get("domain", ""),
+                "lifecycle_stage": lifecycle_stage,
+                "can_switch_live": can_switch_live,
+                "allowed_execution_modes": strategy.get("allowed_execution_modes") or [],
+                "blocked_live_reason": blocked_reason,
+                "approval_required": not can_switch_live,
+                "recommended_action": recommended_action,
+            }
+        )
+
+    return sorted(queue, key=lambda item: (stage_rank.get(str(item["lifecycle_stage"]), 99), str(item["domain"]), str(item["profile"])))
 
 
 def strategy_to_json_compat(strategies: dict) -> list[dict]:
@@ -281,15 +376,23 @@ def run_sync_script() -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build all derived config files from platform-config.json")
     parser.add_argument("--check", action="store_true", help="Only validate config, don't write files")
+    parser.add_argument("--live-candidate-queue", action="store_true", help="Print live-candidate queue JSON and exit")
     args = parser.parse_args()
 
     config = load_config()
     errors = validate(config)
+    if args.check:
+        errors.extend(report_default_strategy_profile_drift(config))
     if errors:
         print("Validation ERRORS:")
         for e in errors:
             print(f"  ❌ {e}")
         return 1
+
+    if args.live_candidate_queue:
+        print(json.dumps(build_live_candidate_queue(), ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+
     print("✅ Config validation passed")
 
     if args.check:
