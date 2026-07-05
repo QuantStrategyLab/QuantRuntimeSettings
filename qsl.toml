@@ -1,8 +1,8 @@
 [qsl]
 # QuantRuntimeSettings 作为 QSL 中央仓库
 repo = "QuantRuntimeSettings"
-bundle = "2026.07.0"
-compat = "2026.07.0"
+bundle = "2026.07.2"
+compat = "2026.07.2"
 tier = "ops/tooling"
 upgrade_ring = "ring_e"
 allow_legacy = false

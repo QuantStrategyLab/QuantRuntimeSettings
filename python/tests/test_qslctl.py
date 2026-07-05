@@ -24,11 +24,11 @@ class QslCtlTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)
             compat_root = root / "QuantRuntimeSettings"
-            self._write_bundle(compat_root, "2026.07.1", {"QuantPlatformKit": "a" * 40})
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"})
             good = root / "GoodRepo"
             bad = root / "BadRepo"
-            self._write_repo(good, "2026.07.1", "a" * 40)
-            self._write_repo(bad, "2026.07.1", "b" * 40)
+            self._write_repo(good, "2026.07.2", "37c81901160c5b31127a27dba1c63944933fb6bf")
+            self._write_repo(bad, "2026.07.2", "b" * 40)
 
             with patch.object(qslctl, "_is_quant_repo", return_value=True):
                 results = qslctl.check_all(projects_root=root, compat_root=compat_root)
@@ -44,17 +44,17 @@ class QslCtlTest(unittest.TestCase):
             compat_root = root / "QuantRuntimeSettings"
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
-                {"QuantPlatformKit": "a" * 40},
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
             )
             self._write_repo_tiers(compat_root)
 
             core = root / "CoreRepo"
             warning = root / "WarningRepo"
             clean = root / "CleanRepo"
-            self._write_repo(core, "2026.07.1", "b" * 40, tier="core", ring="ring_a")
-            self._write_repo(warning, "2026.07.1", "b" * 40, tier="strategy-lib", ring="ring_b", enforce_bundle=False)
-            self._write_repo(clean, "2026.07.1", "a" * 40, tier="pipeline", ring="ring_c")
+            self._write_repo(core, "2026.07.2", "b" * 40, tier="core", ring="ring_a")
+            self._write_repo(warning, "2026.07.2", "b" * 40, tier="strategy-lib", ring="ring_b", enforce_bundle=False)
+            self._write_repo(clean, "2026.07.2", "37c81901160c5b31127a27dba1c63944933fb6bf", tier="pipeline", ring="ring_c")
 
             buf = io.StringIO()
             with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
@@ -83,14 +83,14 @@ class QslCtlTest(unittest.TestCase):
             compat_root = root / "QuantRuntimeSettings"
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
-                {"QuantPlatformKit": "a" * 40},
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
             )
             self._write_repo_tiers(compat_root)
 
-            self._write_repo(root / "CoreRepo", "2026.07.1", "b" * 40, tier="core", ring="ring_a")
-            self._write_repo(root / "WarningRepo", "2026.07.1", "b" * 40, tier="strategy-lib", ring="ring_b", enforce_bundle=False)
-            self._write_repo(root / "CleanRepo", "2026.07.1", "a" * 40, tier="pipeline", ring="ring_c")
+            self._write_repo(root / "CoreRepo", "2026.07.2", "b" * 40, tier="core", ring="ring_a")
+            self._write_repo(root / "WarningRepo", "2026.07.2", "b" * 40, tier="strategy-lib", ring="ring_b", enforce_bundle=False)
+            self._write_repo(root / "CleanRepo", "2026.07.2", "37c81901160c5b31127a27dba1c63944933fb6bf", tier="pipeline", ring="ring_c")
 
             buf = io.StringIO()
             with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):

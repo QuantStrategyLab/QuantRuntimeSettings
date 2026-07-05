@@ -35,7 +35,7 @@ This repository is the central manifest source for QSL compatibility checks.
 - `scripts/check_qsl_compat.py`: validate a repo's QSL compliance in `pyproject.toml`/`uv.lock` against central bundle.
 - `python/scripts/qslctl.py`: unified QSL version-control CLI for repo checks, workspace checks, ring reports/plans, and matrix generation.
 - `scripts/render_qsl_dependency_graph.py`: render dependency graph for review.
-- `compat/bundles/2026.07.0.toml`: first compatibility bundle (CalVer).
+- `compat/bundles/2026.07.2.toml`: current compatibility bundle baseline (CalVer).
 - `compat/repo-tiers.toml`: repo tier and upgrade ring policy notes.
 - [QSL compatibility docs](docs/qsl_compat_upgrade.md)
 
