@@ -7,6 +7,7 @@ import argparse
 import json
 import re
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +66,13 @@ def _get_enforce_bundle(config: dict[str, Any]) -> bool:
     return bool(config.get("enforce_bundle", True))
 
 
+def _compat_value(config: dict[str, Any], name: str, default: str = "") -> str:
+    compat = config.get("compat")
+    if isinstance(compat, dict) and name in compat:
+        return str(compat.get(name, default)).strip()
+    return str(config.get(name, default)).strip()
+
+
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, list):
         return []
@@ -92,6 +100,9 @@ def _load_qsl_config(repo_root: Path) -> dict[str, str | bool | list[str]]:
     allow_legacy = bool(config.get("allow_legacy", False))
     legacy_reason = str(config.get("legacy_reason", "")).strip()
     enforce_bundle = _get_enforce_bundle(config)
+    exception_owner = _compat_value(config, "owner")
+    exception_expires_at = _compat_value(config, "expires_at")
+    exception_next_action = _compat_value(config, "next_action")
     live_constraint_files = _string_list(config.get("live_constraint_files"))
     compat = config.get("compat")
     if isinstance(compat, dict):
@@ -104,6 +115,9 @@ def _load_qsl_config(repo_root: Path) -> dict[str, str | bool | list[str]]:
         "allow_legacy": allow_legacy,
         "legacy_reason": legacy_reason,
         "enforce_bundle": enforce_bundle,
+        "owner": exception_owner,
+        "expires_at": exception_expires_at,
+        "next_action": exception_next_action,
         "live_constraint_files": sorted(set(live_constraint_files)),
         "qsl_path": qsl_path.as_posix(),
     }
@@ -184,6 +198,9 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
     allow_legacy = bool(qsl_cfg["allow_legacy"])
     enforce_bundle = bool(qsl_cfg["enforce_bundle"])
     legacy_reason = str(qsl_cfg["legacy_reason"])
+    exception_owner = str(qsl_cfg["owner"])
+    exception_expires_at = str(qsl_cfg["expires_at"])
+    exception_next_action = str(qsl_cfg["next_action"])
     live_constraint_files = set(qsl_cfg["live_constraint_files"]) if isinstance(qsl_cfg["live_constraint_files"], list) else set()
     qsl_path = str(qsl_cfg["qsl_path"])
 
@@ -194,8 +211,22 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
     notes.append(f"enforce_bundle={enforce_bundle}")
     if legacy_reason:
         notes.append("legacy_reason=" + legacy_reason)
+    if exception_owner:
+        notes.append("owner=" + exception_owner)
+    if exception_expires_at:
+        notes.append("expires_at=" + exception_expires_at)
+    if exception_next_action:
+        notes.append("next_action=" + exception_next_action)
     if live_constraint_files:
         notes.append("live_constraint_files=" + ",".join(sorted(live_constraint_files)))
+
+    if not enforce_bundle:
+        _validate_bundle_exception_metadata(
+            owner=exception_owner,
+            expires_at=exception_expires_at,
+            next_action=exception_next_action,
+            warnings=warnings,
+        )
 
     bundle_refs = _load_bundle(compat_root, bundle)
 
@@ -230,6 +261,24 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
         _validate_ref(pin, expected_ref, issues, warnings, enforce_bundle)
 
     return (len(issues) == 0, issues, warnings, notes)
+
+
+def _validate_bundle_exception_metadata(*, owner: str, expires_at: str, next_action: str, warnings: list[str]) -> None:
+    missing = [
+        field
+        for field, value in (("owner", owner), ("expires_at", expires_at), ("next_action", next_action))
+        if not value
+    ]
+    if missing:
+        warnings.append("enforce_bundle=false missing exception metadata: " + ", ".join(missing))
+    if expires_at:
+        try:
+            expiry = date.fromisoformat(expires_at)
+        except ValueError:
+            warnings.append("enforce_bundle=false expires_at must use YYYY-MM-DD")
+        else:
+            if expiry < date.today():
+                warnings.append(f"enforce_bundle=false exception expired on {expires_at}")
 
 
 def _validate_ref(pin: GitRef, expected_ref: str, issues: list[str], warnings: list[str], enforce_bundle: bool) -> None:

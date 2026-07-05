@@ -35,19 +35,19 @@ class QSLCompatCheckerTest(unittest.TestCase):
             compat_root = Path(workspace)
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
-                {"QuantPlatformKit": "7032cde4547e7ec59af15df8935d142461a77051"},
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
             )
             repo_root = self._make_repo_root(
                 qsl_toml=(
                     "tier = \"ops/tooling\"\n"
                     "ring = \"ring_e\"\n"
                     "[compat]\n"
-                    'bundle = "2026.07.1"\n'
+                    'bundle = "2026.07.2"\n'
                 ),
                 pyproject=(
                     "dependencies = [\n"
-                    '  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@7032cde4547e7ec59af15df8935d142461a77051"\n'
+                    '  "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@37c81901160c5b31127a27dba1c63944933fb6bf"\n'
                     "]\n"
                 ),
             )
@@ -57,7 +57,7 @@ class QSLCompatCheckerTest(unittest.TestCase):
             self.assertTrue(ok)
             self.assertEqual(issues, [])
             self.assertEqual(warnings, [])
-            self.assertIn("bundle=2026.07.1", notes)
+            self.assertIn("bundle=2026.07.2", notes)
             self.assertIn("upgrade_ring=ring_e", notes)
 
     def test_not_enforced_bundle_reports_warning_for_short_sha_and_mismatch_but_main_stays_issue(self):
@@ -65,10 +65,10 @@ class QSLCompatCheckerTest(unittest.TestCase):
             compat_root = Path(workspace)
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
+                "2026.07.2",
                 {
-                    "QuantPlatformKit": "7032cde4547e7ec59af15df8935d142461a77051",
-                    "UsEquityStrategies": "9f0e5e2deca8a9c16d711eb4772f08a7901da101",
+                    "QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf",
+                    "UsEquityStrategies": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166",
                 },
             )
             repo_root = self._make_repo_root(
@@ -76,7 +76,7 @@ class QSLCompatCheckerTest(unittest.TestCase):
                     "tier = \"ops/tooling\"\n"
                     "ring = \"ring_e\"\n"
                     "[compat]\n"
-                    'bundle = "2026.07.1"\n'
+                    'bundle = "2026.07.2"\n'
                     "enforce_bundle = false\n"
                 ),
                 pyproject=(
@@ -94,9 +94,10 @@ class QSLCompatCheckerTest(unittest.TestCase):
             self.assertFalse(ok)
             self.assertEqual(len(issues), 1)
             self.assertIn("forbidden ref 'main'", issues[0])
-            self.assertEqual(len(warnings), 2)
+            self.assertEqual(len(warnings), 3)
             self.assertTrue(any("forbidden short/invalid ref 'abc123'" in warning for warning in warnings))
             self.assertTrue(any("bundle pin mismatch for QuantPlatformKit" in warning for warning in warnings))
+            self.assertTrue(any("missing exception metadata" in warning for warning in warnings))
             self.assertEqual(notes[0], "qsl=" + str(repo_root / "qsl.toml"))
 
     def test_live_constraint_files_allow_full_sha_drift_from_bundle(self):
@@ -104,8 +105,8 @@ class QSLCompatCheckerTest(unittest.TestCase):
             compat_root = Path(workspace)
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
-                {"QuantPlatformKit": "a" * 40},
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
             )
             repo_root = self._make_repo_root(
                 qsl_toml=(
@@ -113,7 +114,7 @@ class QSLCompatCheckerTest(unittest.TestCase):
                     "ring = 0\n"
                     "allow_legacy = true\n"
                     "[compat]\n"
-                    'bundle = "2026.07.1"\n'
+                    'bundle = "2026.07.2"\n'
                     'live_constraint_files = ["constraints.txt"]\n'
                 ),
                 pyproject="",
@@ -136,8 +137,8 @@ class QSLCompatCheckerTest(unittest.TestCase):
             compat_root = Path(workspace)
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
-                {"QuantPlatformKit": "a" * 40},
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
             )
             repo_root = self._make_repo_root(
                 qsl_toml=(
@@ -145,7 +146,7 @@ class QSLCompatCheckerTest(unittest.TestCase):
                     "ring = 0\n"
                     "allow_legacy = true\n"
                     "[compat]\n"
-                    'bundle = "2026.07.1"\n'
+                    'bundle = "2026.07.2"\n'
                     'live_constraint_files = ["constraints.txt"]\n'
                 ),
                 pyproject="",
@@ -162,13 +163,45 @@ class QSLCompatCheckerTest(unittest.TestCase):
             self.assertIn("forbidden short/invalid ref 'abc123'", issues[0])
             self.assertEqual(warnings, [])
 
+
+    def test_not_enforced_bundle_exception_metadata_notes(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_bundle(
+                compat_root,
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
+            )
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "pipeline"\n'
+                    "ring = 2\n"
+                    'owner = "pipeline-team"\n'
+                    'expires_at = "2099-12-31"\n'
+                    'next_action = "remove transition pin drift"\n'
+                    "[compat]\n"
+                    'bundle = "2026.07.2"\n'
+                    "enforce_bundle = false\n"
+                ),
+                pyproject="",
+            )
+
+            ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
+
+            self.assertTrue(ok)
+            self.assertEqual(issues, [])
+            self.assertEqual(warnings, [])
+            self.assertIn("owner=pipeline-team", notes)
+            self.assertIn("expires_at=2099-12-31", notes)
+            self.assertIn("next_action=remove transition pin drift", notes)
+
     def test_legacy_reason_suppresses_allowed_legacy_warning(self):
         with tempfile.TemporaryDirectory() as workspace:
             compat_root = Path(workspace)
             self._write_bundle(
                 compat_root,
-                "2026.07.1",
-                {"QuantPlatformKit": "a" * 40},
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
             )
             repo_root = self._make_repo_root(
                 qsl_toml=(
@@ -176,8 +209,11 @@ class QSLCompatCheckerTest(unittest.TestCase):
                     "ring = 2\n"
                     "allow_legacy = true\n"
                     'legacy_reason = "runtime deployment compatibility"\n'
+                    'owner = "runtime-team"\n'
+                    'expires_at = "2099-12-31"\n'
+                    'next_action = "replace runtime deployment requirements"\n'
                     "[compat]\n"
-                    'bundle = "2026.07.1"\n'
+                    'bundle = "2026.07.2"\n'
                     "enforce_bundle = false\n"
                 ),
                 pyproject="",

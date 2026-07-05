@@ -5,7 +5,7 @@ This repository defines the QSL central compatibility manifest and its upgrade p
 ## 文件结构
 
 - `compat/bundles/*.toml`
-  - 每个 bundle 用 Calendar Version 命名（当前：`2026.07.1`）。
+  - 每个 bundle 用 Calendar Version 命名（当前：`2026.07.2`）。
   - 记录 QSL 管控的固定内部仓库提交。
 - `compat/repo-tiers.toml`
   - 记录仓库层级（`core/strategy-lib/pipeline/runtime/ops`）与升级 ring 规则。
@@ -26,8 +26,8 @@ This repository defines the QSL central compatibility manifest and its upgrade p
 
 ```toml
 [qsl]
-bundle = "2026.07.1"   # 选择要对齐的 central bundle
-compat = "2026.07.1"   # 兼容检查入口（与 bundle 相同）
+bundle = "2026.07.2"   # 选择要对齐的 central bundle
+compat = "2026.07.2"   # 兼容检查入口（与 bundle 相同）
 tier = "ops/tooling"
 upgrade_ring = "ring_e"
 allow_legacy = false     # 需要临时兼容时可先放开
@@ -48,16 +48,17 @@ python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 - 阶段过渡仓可设置 `enforce_bundle = false`（建议限时）：
   - `forbidden short/invalid` 与 `bundle pin mismatch` 降级为 warning。
   - `forbidden ref 'main'` 始终为 issue，不降级。
+  - 当前 checker 已识别 `legacy_reason` 和 `live_constraint_files`；`owner` / `expires_at` / `next_action` 已进入 checker warning，用于约束过渡例外的负责人、到期日和下一步动作。
 - `--non-strict` 仅用于本地快速预览，不作为发布门禁依据。
 
 ## 当前中心兼容基线
 
-- Bundle: `2026.07.1`
-- QPK: `7032cde4547e7ec59af15df8935d142461a77051`
-- UsEquityStrategies: `9f0e5e2deca8a9c16d711eb4772f08a7901da101`
-- HkEquityStrategies: `dbbefb688cd144837aa59581b1930a14c11411ad`
-- CnEquityStrategies: `357dba7e8896a7f488a484d4a3eea33894708ab9`
-- CryptoStrategies: `64a62781f9194a23548a373c7724e132ef311f1f`
+- Bundle: `2026.07.2`
+- QPK: `37c81901160c5b31127a27dba1c63944933fb6bf`
+- UsEquityStrategies: `17ddb86c72d44b2c7b78ba7a10d8f71b21180166`
+- HkEquityStrategies: `b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd`
+- CnEquityStrategies: `8dfadcf8a4dc6cc516f27a4013248474603d8ce2`
+- CryptoStrategies: `39bf4733cef922bdeacfd0adef394e7819a04908`
 - QuantStrategyPlugins: `1f3a27b8fd83d71b583f4f5160a748e95fbefaa1`
 - MarketSignalSources: `bda8ab10b80a646e4b579ef4c0d5dfe90776e908`
 
