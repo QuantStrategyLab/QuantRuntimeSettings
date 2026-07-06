@@ -79,14 +79,20 @@ for repo in repos:
 PY
 )
 
+consumer_ref="${QSL_CONSUMER_REF:-${GITHUB_HEAD_REF:-${GITHUB_REF_NAME:-main}}}"
+
 for consumer_repo in "${consumer_repos[@]}"; do
   target_dir="${output_root}/${consumer_repo}"
   if [ -d "${target_dir}/.git" ]; then
     echo "Already checked out ${consumer_repo} at ${target_dir}"
     continue
   fi
-  echo "Cloning QuantStrategyLab/${consumer_repo} into ${target_dir}"
-  gh repo clone "QuantStrategyLab/${consumer_repo}" "${target_dir}" -- --depth 1 --branch main
+  checkout_ref="main"
+  if [ -n "${consumer_ref}" ] && gh api "repos/QuantStrategyLab/${consumer_repo}/branches/${consumer_ref}" >/dev/null 2>&1; then
+    checkout_ref="${consumer_ref}"
+  fi
+  echo "Cloning QuantStrategyLab/${consumer_repo}@${checkout_ref} into ${target_dir}"
+  gh repo clone "QuantStrategyLab/${consumer_repo}" "${target_dir}" -- --depth 1 --branch "${checkout_ref}"
 done
 
 echo "Checked out ${#consumer_repos[@]} internal dependency consumer repositories under ${output_root}."

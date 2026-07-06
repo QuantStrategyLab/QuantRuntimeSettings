@@ -145,3 +145,4 @@ Neither job depends on the other. This ensures that a change to Python scripts d
 - **Modify build logic**: Edit files in `python/scripts/`, run `python3 -m unittest discover -s python/tests`.
 - **Modify web UI**: Edit files in `web/strategy-switch-console/`, run `node tests/strategy_switch_worker_validation.mjs`.
 - **Update runner**: Run both Python and JS validation locally before committing.
+- **Org-level QSL governance**: See [QSL Org Architecture & Health Checks](qsl_org_architecture.md).

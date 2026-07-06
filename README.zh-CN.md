@@ -1,5 +1,14 @@
 # QuantRuntimeSettings
 
+
+## QSL 架构角色
+
+- **层级**：`运行配置控制面`。
+- **职责**：中央 runtime settings 与兼容性控制面。
+- **事实源/归属**：platform-config.json、compat bundles、dependency matrix、switch tooling。
+- **消费对象**：所有 runtime platforms 和内部依赖消费者。
+- **禁止事项**：提交券商订单或替代策略证据门禁。
+
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
