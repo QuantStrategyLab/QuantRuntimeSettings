@@ -49,7 +49,7 @@ python3 -m unittest discover -s python/tests -v
 推荐流程：
 
 1. 第一次运行保持 `apply=false`，只看 preview。
-2. 确认 `repository`、`environment`、`strategy_profile`、`service_name`、`execution_mode` 和插件挂载正确。
+2. 确认 `repository`、`environment`、`strategy_profile`、`service_name`、`execution_mode`，以及由 `strategy_profile` 派生的 `scheduler` / 插件挂载正确。
 3. 再运行 `apply=true`，并填写 `confirm_apply=APPLY`，写入目标仓库变量。
 4. 如果要让平台仓同步 Cloud Run 环境，额外设置 `trigger_platform_sync=true`，并填写 `confirm_apply=APPLY_AND_SYNC`。
 

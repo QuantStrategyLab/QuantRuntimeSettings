@@ -77,6 +77,24 @@
           "type": "string",
           "enum": ["live", "paper", "dry_run"]
         },
+        "scheduler": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "timezone": {
+              "type": "string"
+            },
+            "main_time": {
+              "type": "string"
+            },
+            "probe_time": {
+              "type": "string"
+            },
+            "precheck_time": {
+              "type": "string"
+            }
+          }
+        },
         "execution_windows": {
           "type": "object",
           "additionalProperties": false,

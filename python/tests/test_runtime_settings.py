@@ -710,6 +710,7 @@ class RuntimeSettingsTest(unittest.TestCase):
             "tqqq_growth_income/plugins/market_regime_control/latest_signal.json",
         )
         self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_schema_version"], "market_regime_control.v1")
+        self.assertEqual(runtime_settings.validate_target(target), [])
 
     def test_build_switch_target_uses_fork_repository_overrides(self):
         parser = build_runtime_switch.build_parser()
@@ -1402,6 +1403,24 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertIn(
             "runtime_target.scheduler.main_time must have 2 time fields or 5 cron fields",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_runtime_target_scheduler_rejects_extra_fields(self):
+        _, target = self.load_target("examples/targets/longbridge/hk_combo.example.json")
+        target["runtime_target"]["scheduler"]["offset_minutes"] = 10
+
+        self.assertIn(
+            "runtime_target.scheduler.offset_minutes is unsupported",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_runtime_target_scheduler_requires_timezone(self):
+        _, target = self.load_target("examples/targets/longbridge/hk_combo.example.json")
+        target["runtime_target"]["scheduler"].pop("timezone")
+
+        self.assertIn(
+            "runtime_target.scheduler.timezone must be a non-empty string",
             runtime_settings.validate_target(target),
         )
 
