@@ -26,6 +26,7 @@ STRATEGY_PROFILES_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-pr
 STRATEGY_PROFILES_ASSET = ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js"
 INDEX_HTML = ROOT / "web" / "strategy-switch-console" / "index.html"
 LIVE_CANDIDATE_QUEUE_STAGES = {"ai_monitored_candidate", "shadow_candidate", "live_candidate"}
+AUTOMATION_REGISTRY_SCHEMA_VERSION = "strategy_automation_registry.v1"
 CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "profile",
     "domain",
@@ -168,6 +169,81 @@ def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[d
     return sorted(queue, key=lambda item: (stage_rank.get(str(item["lifecycle_stage"]), 99), str(item["domain"]), str(item["profile"])))
 
 
+def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, object]:
+    lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
+    can_switch_live = strategy.get("can_switch_live") is True
+    runtime_enabled = strategy.get("runtime_enabled") is True
+    blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
+    features = strategy.get("features") if isinstance(strategy.get("features"), dict) else {}
+    if runtime_enabled and can_switch_live and lifecycle_stage == "runtime_enabled":
+        lane = "live_equivalent_optimization"
+        triggers = ["health_degradation", "parameter_drift", "scheduled_retest", "market_regime_shift"]
+        max_autonomy = "auto_pr_or_trusted_live_equivalent"
+        approval_required = False
+        evidence_required = ["backtest", "shadow_or_regression", "rollback_plan"]
+    elif lifecycle_stage == "live_candidate":
+        lane = "promotion_review"
+        triggers = ["evidence_package_ready", "shadow_outperformance"]
+        max_autonomy = "human_review_required"
+        approval_required = True
+        evidence_required = ["live_candidate_evidence", "operator_approval"]
+    elif lifecycle_stage in {"shadow_candidate", "ai_monitored_candidate"}:
+        lane = "shadow_research"
+        triggers = ["shadow_disagreement", "web_research_signal", "scheduled_retest"]
+        max_autonomy = "auto_pr_research_only"
+        approval_required = True
+        evidence_required = ["shadow_metrics", "risk_review"]
+    else:
+        lane = "research_backlog"
+        triggers = ["web_research_signal", "manual_request", "scheduled_research"]
+        max_autonomy = "auto_pr_research_only"
+        approval_required = True
+        evidence_required = ["backtest", "design_review"]
+    return {
+        "profile": profile,
+        "label": strategy.get("label_zh") or strategy.get("label") or profile,
+        "domain": strategy.get("domain", ""),
+        "lifecycle_stage": lifecycle_stage,
+        "automation_lane": lane,
+        "max_autonomy": max_autonomy,
+        "approval_required": approval_required,
+        "can_switch_live": can_switch_live,
+        "blocked_live_reason": blocked_reason,
+        "triggers": triggers,
+        "evidence_required": evidence_required,
+        "position_control_sensitive": bool(features.get("combo") or features.get("option_overlay")),
+    }
+
+
+def build_strategy_automation_registry(config: dict | None = None) -> dict[str, object]:
+    """Build strategy-level automation policy for AIAuditBridge and management UIs."""
+    config = config if config is not None else load_config()
+    profiles = [
+        _automation_policy_for_strategy(profile, strategy)
+        for profile, strategy in sorted(config.get("strategies", {}).items())
+        if isinstance(strategy, dict)
+    ]
+    lane_counts: dict[str, int] = {}
+    for item in profiles:
+        lane = str(item["automation_lane"])
+        lane_counts[lane] = lane_counts.get(lane, 0) + 1
+    return {
+        "schema_version": AUTOMATION_REGISTRY_SCHEMA_VERSION,
+        "summary": {
+            "strategy_profile_count": len(profiles),
+            "lane_counts": lane_counts,
+            "live_switchable_count": sum(1 for item in profiles if item["can_switch_live"]),
+            "approval_required_count": sum(1 for item in profiles if item["approval_required"]),
+        },
+        "profiles": profiles,
+        "guardrails": [
+            "Do not auto-promote new or reconstructed strategies to live.",
+            "Live-equivalent optimization still requires trusted proof before auto-merge.",
+            "Position-control-sensitive changes require human review unless service proof explicitly narrows the change.",
+        ],
+    }
+
+
 def report_strategy_profile_derivation_drift(config: dict, strategy_catalog: object | None = None) -> list[str]:
     """Report whether the generated strategy profile catalog drifts from platform-config.json."""
     expected = strategy_to_json_compat(config.get("strategies", {}))
@@ -209,6 +285,7 @@ def build_platform_health_report(
     default_profile_errors = report_default_strategy_profile_drift(config, catalog)
     derivation_errors = report_strategy_profile_derivation_drift(config, catalog)
     live_candidate_queue = build_live_candidate_queue(catalog)
+    automation_registry = build_strategy_automation_registry(config)
     runtime_enabled_profiles = [
         profile
         for profile, strategy in catalog.items()
@@ -264,8 +341,10 @@ def build_platform_health_report(
             "strategy_profile_count": len(catalog),
             "runtime_enabled_switchable_count": len(runtime_enabled_profiles),
             "live_candidate_queue_count": len(live_candidate_queue),
+            "automation_lane_counts": automation_registry["summary"]["lane_counts"],
         },
         "live_candidate_queue": live_candidate_queue,
+        "automation_registry": automation_registry,
         "codex_repair_context": {
             "safe_to_attempt": bool(failed_checks),
             "scope": "QuantRuntimeSettings platform-config and generated strategy switch assets",
@@ -503,6 +582,7 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="Only validate config, don't write files")
     parser.add_argument("--live-candidate-queue", action="store_true", help="Print live-candidate queue JSON and exit")
     parser.add_argument("--platform-health-report", action="store_true", help="Print platform health report JSON and exit")
+    parser.add_argument("--automation-registry", action="store_true", help="Print strategy automation registry JSON and exit")
     args = parser.parse_args()
 
     config = load_config()
@@ -510,6 +590,9 @@ def main() -> int:
         report = build_platform_health_report(config)
         print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if report["status"] != "unhealthy" else 1
+    if args.automation_registry:
+        print(json.dumps(build_strategy_automation_registry(config), ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
 
     errors = validate(config)
     if args.check:

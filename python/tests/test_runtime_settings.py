@@ -215,6 +215,56 @@ class RuntimeSettingsTest(unittest.TestCase):
         printed.assert_called_once()
         self.assertEqual(json.loads(printed.call_args.args[0]), [{"profile": "candidate"}])
 
+    def test_strategy_automation_registry_classifies_lanes(self):
+        registry = build_config.build_strategy_automation_registry(
+            {
+                "strategies": {
+                    "live": {
+                        "label": "Live",
+                        "domain": "us_equity",
+                        "runtime_enabled": True,
+                        "lifecycle_stage": "runtime_enabled",
+                        "can_switch_live": True,
+                        "features": {"option_overlay": True},
+                    },
+                    "candidate": {
+                        "label": "Candidate",
+                        "domain": "cn_equity",
+                        "runtime_enabled": False,
+                        "lifecycle_stage": "live_candidate",
+                        "can_switch_live": False,
+                        "features": {},
+                    },
+                    "research": {
+                        "label": "Research",
+                        "domain": "crypto",
+                        "runtime_enabled": False,
+                        "lifecycle_stage": "research_backtest_only",
+                        "can_switch_live": False,
+                        "features": {},
+                    },
+                },
+            }
+        )
+
+        lanes = {item["profile"]: item["automation_lane"] for item in registry["profiles"]}
+        self.assertEqual(registry["schema_version"], "strategy_automation_registry.v1")
+        self.assertEqual(lanes["live"], "live_equivalent_optimization")
+        self.assertEqual(lanes["candidate"], "promotion_review")
+        self.assertEqual(lanes["research"], "research_backlog")
+        self.assertTrue(next(item for item in registry["profiles"] if item["profile"] == "live")["position_control_sensitive"])
+
+    def test_automation_registry_cli_outputs_json(self):
+        with (
+            patch.object(sys, "argv", ["build_config.py", "--automation-registry"]),
+            patch.object(build_config, "load_config", return_value={"strategies": {}}),
+            patch("builtins.print") as printed,
+        ):
+            self.assertEqual(build_config.main(), 0)
+
+        printed.assert_called_once()
+        self.assertEqual(json.loads(printed.call_args.args[0])["schema_version"], "strategy_automation_registry.v1")
+
     def test_platform_health_report_summarizes_current_config(self):
         config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
         catalog = json.loads(
@@ -227,6 +277,8 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(report["schema_version"], "platform_health_report.v1")
         self.assertGreaterEqual(report["summary"]["runtime_enabled_switchable_count"], 1)
         self.assertIn("codex_repair_context", report)
+        self.assertIn("automation_registry", report)
+        self.assertIn("automation_lane_counts", report["summary"])
         self.assertIn("python3 python/scripts/build_config.py --check", report["codex_repair_context"]["suggested_commands"])
 
     def test_platform_health_report_fails_on_default_profile_drift(self):
