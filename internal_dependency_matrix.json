@@ -62,14 +62,14 @@
       "path": "pyproject.toml",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "275679cf1fc539132f00f875a5f00b3c8d650b94"
+      "ref": "73844e92a8570a61e5a9dc6c245809d0b27b89bc"
     },
     {
       "consumer_repo": "CnEquitySnapshotPipelines",
       "path": "uv.lock",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "275679cf1fc539132f00f875a5f00b3c8d650b94"
+      "ref": "73844e92a8570a61e5a9dc6c245809d0b27b89bc"
     },
     {
       "consumer_repo": "CnEquityStrategies",
