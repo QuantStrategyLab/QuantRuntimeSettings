@@ -1584,13 +1584,13 @@
       const cleanProfile = cleanStrategyProfile(profile);
       const catalogEntry = strategyCatalogEntry(cleanProfile);
       if (!catalogEntry.profile) return false;
+      if (catalogEntry.runtime_enabled !== true) return false;
       if (dcaConfigForStrategy(cleanProfile) && !platformSupportsDca(platform)) return false;
       if (!supportedDomainsForAccount(platform, account).includes(catalogEntry.domain)) return false;
       const mode = normalizeExecutionMode(executionMode, false);
       if (mode === "live") return strategyCanSwitchLive(catalogEntry);
       const allowedModes = normalizeAllowedExecutionModes(catalogEntry.allowed_execution_modes);
       if (allowedModes.length && !allowedModes.includes(mode)) return false;
-      if (catalogEntry.runtime_enabled !== true && !allowedModes.length) return false;
       return true;
     }
 
