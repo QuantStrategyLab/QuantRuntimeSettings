@@ -52,7 +52,7 @@
         ],
         "cash_currency": "USD",
         "default_execution_mode": "live",
-        "default_strategy_profile": "tqqq_growth_income"
+        "default_strategy_profile": "soxl_soxx_trend_income"
       },
       "deployment": {
         "default_execution_mode": "live",

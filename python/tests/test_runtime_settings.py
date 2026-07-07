@@ -142,15 +142,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         errors = build_config.report_default_strategy_profile_drift(config, catalog)
 
         self.assertIn(
-            "platform longbridge: default_strategy_profile tqqq_growth_income is not runtime_enabled",
+            "platform longbridge: default_strategy_profile soxl_soxx_trend_income is not runtime_enabled",
             errors,
         )
         self.assertIn(
-            "platform longbridge: default_strategy_profile tqqq_growth_income cannot switch live",
+            "platform longbridge: default_strategy_profile soxl_soxx_trend_income cannot switch live",
             errors,
         )
         self.assertIn(
-            "platform longbridge: default_strategy_profile tqqq_growth_income lifecycle_stage is not runtime_enabled",
+            "platform longbridge: default_strategy_profile soxl_soxx_trend_income lifecycle_stage is not runtime_enabled",
             errors,
         )
 

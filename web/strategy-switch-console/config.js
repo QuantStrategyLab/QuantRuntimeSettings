@@ -81,7 +81,7 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "hk_equity"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "tqqq_growth_income",
+      "default_strategy_profile": "soxl_soxx_trend_income",
       "default_execution_mode": "live",
       "service_name": ""
     }

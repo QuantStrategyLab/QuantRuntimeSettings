@@ -2099,7 +2099,7 @@
       return fallback;
     }
 
-    function defaultStrategyForAccount(platform, account, fallback = "tqqq_growth_income") {
+    function defaultStrategyForAccount(platform, account, fallback = "soxl_soxx_trend_income") {
       const currentProfile = currentStrategyForAccount(platform, account);
       if (currentProfile) return currentProfile;
       const profile = cleanStrategyProfile(account?.default_strategy_profile || account?.strategy_profile);
