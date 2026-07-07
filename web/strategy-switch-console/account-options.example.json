@@ -6,7 +6,6 @@
       "target_name": "hk",
       "account_selector": "HK",
       "cash_currency": "HKD",
-      "default_strategy_profile": "hk_low_vol_dividend_quality_snapshot",
       "supported_domains": ["us_equity", "hk_equity"]
     },
     {
@@ -14,7 +13,6 @@
       "label": "sg",
       "target_name": "sg",
       "account_selector": "SG",
-      "default_strategy_profile": "soxl_soxx_trend_income",
       "supported_domains": ["us_equity", "hk_equity"]
     },
     {
@@ -22,7 +20,6 @@
       "label": "paper",
       "target_name": "paper",
       "account_selector": "PAPER",
-      "default_strategy_profile": "russell_top50_leader_rotation",
       "supported_domains": ["us_equity", "hk_equity"]
     }
   ],
@@ -36,7 +33,6 @@
       "account_scope": "demo-ibkr-tqqq",
       "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
       "cash_currency": "USD",
-      "default_strategy_profile": "tqqq_growth_income",
       "supported_domains": ["us_equity", "hk_equity"]
     },
     {
@@ -48,7 +44,6 @@
       "account_scope": "demo-ibkr-soxl",
       "service_name": "interactive-brokers-demo-ibkr-soxl-service",
       "cash_currency": "USD",
-      "default_strategy_profile": "soxl_soxx_trend_income",
       "supported_domains": ["us_equity", "hk_equity"]
     },
     {
@@ -60,7 +55,6 @@
       "account_scope": "demo-ibkr-dca",
       "service_name": "interactive-brokers-demo-ibkr-dca-service",
       "cash_currency": "USD",
-      "default_strategy_profile": "nasdaq_sp500_smart_dca",
       "supported_domains": ["us_equity", "hk_equity"]
     }
   ],
@@ -70,7 +64,6 @@
       "label": "default",
       "target_name": "default",
       "cash_currency": "USD",
-      "default_strategy_profile": "soxl_soxx_trend_income",
       "supported_domains": ["us_equity"]
     }
   ],
@@ -80,7 +73,6 @@
       "label": "default",
       "target_name": "default",
       "cash_currency": "USD",
-      "default_strategy_profile": "russell_top50_leader_rotation",
       "supported_domains": ["us_equity"]
     }
   ],
@@ -95,7 +87,6 @@
       "account_scope": "CN",
       "service_name": "qmt-quant-service",
       "cash_currency": "CNY",
-      "default_strategy_profile": "cn_industry_etf_rotation",
       "supported_domains": ["cn_equity"]
     },
     {
@@ -108,7 +99,6 @@
       "account_scope": "CN",
       "service_name": "qmt-quant-service",
       "cash_currency": "CNY",
-      "default_strategy_profile": "cn_industry_etf_rotation_aggressive",
       "supported_domains": ["cn_equity"]
     },
     {
@@ -121,7 +111,6 @@
       "account_scope": "CN",
       "service_name": "qmt-quant-service",
       "cash_currency": "CNY",
-      "default_strategy_profile": "cn_dividend_quality_snapshot",
       "supported_domains": ["cn_equity"]
     }
   ]

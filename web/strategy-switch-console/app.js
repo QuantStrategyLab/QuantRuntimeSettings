@@ -21,11 +21,11 @@
     const defaultRepositories = platformRepositories;
 
     const defaultAccountOptions = window.__DEFAULT_ACCOUNT_OPTIONS__ || {
-      binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "default_strategy_profile": "crypto_equity_combo", "supported_domains": ["crypto"]}],
+      binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "supported_domains": ["crypto"]}],
       firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "firstrade-quant-service"}],
       ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
       longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
-      qmt: [{"key": "default", "label": "QMT", "target_name": "default", "cash_currency": "CNY", "default_strategy_profile": "cn_industry_etf_rotation", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
+      qmt: [{"key": "default", "label": "QMT", "target_name": "default", "cash_currency": "CNY", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
       schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "charles-schwab-quant-service"}],
     };
 
@@ -1641,9 +1641,6 @@
           choices.push(profile);
         }
       };
-      if (account) {
-        addChoice(account.default_strategy_profile || account.strategy_profile);
-      }
       return choices;
     }
 
@@ -1966,21 +1963,11 @@
         .filter(Boolean)
         .map((value) => String(value));
       const entry = resolveCurrentEntryByKey(byPlatform, keys);
-      if (entry) {
-        if (!entry.strategy_profile) {
-          const gd = window.__DEFAULT_ACCOUNT_OPTIONS__?.[platform]?.[0] || {};
-          const entryCopy = { ...entry };
-          entryCopy.strategy_profile = account?.default_strategy_profile || gd.default_strategy_profile || "";
-          entryCopy.source = (entryCopy.source || "worker") + "+account_defaults";
-          return entryCopy;
-        }
-        return entry;
-      }
+      if (entry) return entry;
       const globalDefaults = window.__DEFAULT_ACCOUNT_OPTIONS__?.[platform]?.[0] || {};
       const merged = { ...globalDefaults, ...(account || {}) };
-      const profile = cleanStrategyProfile(merged.default_strategy_profile || merged.strategy_profile || "");
       const synth = {
-        strategy_profile: profile || merged.default_strategy_profile || "",
+        strategy_profile: "",
         source: "account_defaults",
       };
       const cashMode = merged.cash_only_execution_mode;
@@ -2016,10 +2003,7 @@
 
     function currentStrategyForAccount(platform, account) {
       const entry = currentEntryForAccount(platform, account);
-      const profile = cleanStrategyProfile(entry?.strategy_profile);
-      if (profile) return profile;
-      const fallback = account?.default_strategy_profile || account?.strategy_profile || "";
-      return cleanStrategyProfile(fallback);
+      return cleanStrategyProfile(entry?.strategy_profile) || "";
     }
 
     function currentReservePolicyForAccount(platform, account) {
@@ -2099,33 +2083,16 @@
       return fallback;
     }
 
-    function defaultStrategyForAccount(platform, account, fallback = "soxl_soxx_trend_income") {
+    function defaultStrategyForAccount(platform, account) {
       const currentProfile = currentStrategyForAccount(platform, account);
       if (currentProfile) return currentProfile;
-      const profile = cleanStrategyProfile(account?.default_strategy_profile || account?.strategy_profile);
-      if (profile && strategyAllowedForAccount(platform, account, profile)) return profile;
-      const hint = [
-        account?.key,
-        account?.label,
-        account?.target_name,
-        account?.deployment_selector,
-        account?.account_scope,
-        account?.service_name,
-      ].join(" ").toLowerCase();
-      const hinted = hint.includes("dividend")
-        ? "cn_dividend_quality_snapshot"
-        : (hint.includes("industry") ? "cn_industry_etf_rotation" : (hint.includes("smart-dca") || hint.includes("smart_dca")
-        ? "nasdaq_sp500_smart_dca"
-        : (hint.includes("soxl") ? "soxl_soxx_trend_income" : (hint.includes("tqqq") ? "tqqq_growth_income" : ""))));
-      if (hinted && strategyAllowedForAccount(platform, account, hinted)) return hinted;
-      if (fallback && strategyAllowedForAccount(platform, account, fallback)) return fallback;
-      return strategyChoicesForAccount(platform, account)[0] || "";
+      return "";
     }
 
     function syncStrategyForAccount(platform) {
       const account = selectedAccount(platform);
       if (!account) return;
-      state.forms[platform].strategy = defaultStrategyForAccount(platform, account, state.forms[platform].strategy);
+      state.forms[platform].strategy = defaultStrategyForAccount(platform, account);
       state.forms[platform].executionMode = defaultExecutionModeForAccount(
         platform,
         account,
@@ -2230,7 +2197,7 @@
         state.forms[platform].optionOverlayTouched = false;
         state.forms[platform].cashOnlyExecutionTouched = false;
         state.forms[platform].dcaTouched = false;
-        state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0], state.forms[platform].strategy);
+        state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0]);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncRuntimeTargetForAccount(platform);
         syncReservePolicyForAccount(platform);
@@ -3391,9 +3358,6 @@
             ? String(item.cash_currency || item.market_currency || item.trading_currency).trim().toUpperCase()
             : "",
           supported_domains: normalizeSupportedDomains(platform, item),
-          default_strategy_profile: item.default_strategy_profile || item.strategy_profile
-            ? String(item.default_strategy_profile || item.strategy_profile)
-            : "",
           github_environment: item.github_environment ? String(item.github_environment) : "",
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",
           plugin_mode: item.plugin_mode ? String(item.plugin_mode) : "",

@@ -81,7 +81,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "hk_equity"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "soxl_soxx_trend_income",
       "default_execution_mode": "live",
       "service_name": ""
     }
@@ -96,7 +95,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "hk_equity"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "soxl_soxx_trend_income",
       "default_execution_mode": "live",
       "service_name": ""
     }
@@ -110,7 +108,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "us_equity"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "soxl_soxx_trend_income",
       "default_execution_mode": "live",
       "service_name": "charles-schwab-quant-service"
     }
@@ -124,7 +121,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "us_equity"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "ibit_smart_dca",
       "default_execution_mode": "live",
       "service_name": "firstrade-quant-service"
     }
@@ -138,7 +134,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "cn_equity"
       ],
       "cash_currency": "CNY",
-      "default_strategy_profile": "cn_industry_etf_rotation",
       "service_name": "qmt-quant-service",
       "default_execution_mode": "paper"
     }
@@ -152,7 +147,6 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "crypto"
       ],
       "cash_currency": "USD",
-      "default_strategy_profile": "crypto_live_pool_rotation",
       "service_name": "",
       "default_execution_mode": "live"
     }

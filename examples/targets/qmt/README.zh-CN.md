@@ -34,7 +34,7 @@
 - `service_name`：`qmt-quant-service`
 - `cash_currency`：`CNY`
 - `supported_domains`：`["cn_equity"]`
-- `default_strategy_profile`：与该 target 默认策略一致
+- 策略 profile 通过 GitHub 变量 `RUNTIME_TARGET_JSON.strategy_profile` 管理，不存储在账号配置中
 
 **不要**在账号配置里放 miniQMT 密码、券商 token 或本机路径；fixture 路径走 QmtPlatform 仓库变量（如 `QMT_MARKET_HISTORY_PATH`）。
 

@@ -51,8 +51,7 @@
           "hk_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live",
-        "default_strategy_profile": "soxl_soxx_trend_income"
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -91,8 +90,7 @@
           "hk_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live",
-        "default_strategy_profile": "soxl_soxx_trend_income"
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -129,8 +127,7 @@
           "us_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live",
-        "default_strategy_profile": "soxl_soxx_trend_income"
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -167,8 +164,7 @@
           "us_equity"
         ],
         "cash_currency": "USD",
-        "default_execution_mode": "live",
-        "default_strategy_profile": "ibit_smart_dca"
+        "default_execution_mode": "live"
       },
       "deployment": {
         "default_execution_mode": "live",
@@ -202,7 +198,6 @@
         "label": "QMT",
         "target_name": "default",
         "cash_currency": "CNY",
-        "default_strategy_profile": "cn_industry_etf_rotation",
         "supported_domains": [
           "cn_equity"
         ]
@@ -239,7 +234,6 @@
         "label": "Binance",
         "target_name": "default",
         "cash_currency": "USD",
-        "default_strategy_profile": "crypto_live_pool_rotation",
         "supported_domains": [
           "crypto"
         ]
