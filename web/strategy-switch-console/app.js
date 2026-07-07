@@ -962,7 +962,7 @@
         dispatched: "已触发工作流",
         dispatchFailed: "触发失败",
         targetMeta: "目标 {target} · 服务 {service} · 市场 {domains}",
-        strategyMeta: "该账号仅显示 {domains} 策略",
+        strategyMeta: "支持市场：{domains}",
         strategyLifecycleMeta: "当前门槛 {stage}",
         strategyBlockedCountMeta: "{count} 个策略未达 live 门槛",
         strategyDefaultBlockedMeta: "默认策略 {profile} 已阻断：{reason}",
@@ -1126,7 +1126,7 @@
         dispatched: "Workflow dispatched",
         dispatchFailed: "Dispatch failed",
         targetMeta: "target {target} · service {service} · market {domains}",
-        strategyMeta: "This account only shows {domains} strategies",
+        strategyMeta: "Markets: {domains}",
         strategyLifecycleMeta: "current gate {stage}",
         strategyBlockedCountMeta: "{count} strategies are blocked from live",
         strategyDefaultBlockedMeta: "Default strategy {profile} is blocked: {reason}",
@@ -1555,49 +1555,9 @@
       return true;
     }
 
-    function strategyBlockedLiveReason(entry) {
-      if (!entry || typeof entry !== "object") return "";
-      const explicit = cleanDisplayText(entry.blocked_live_reason);
-      if (explicit) return explicit;
-      if (entry.runtime_enabled === false) return "runtime_enabled=false";
-      const allowedModes = normalizeAllowedExecutionModes(entry.allowed_execution_modes);
-      if (allowedModes.length && !allowedModes.includes("live")) {
-        return `allowed_execution_modes=${allowedModes.join(",")}`;
-      }
-      if (cleanOptionalBoolean(entry.can_switch_live) === false) return "can_switch_live=false";
-      const lifecycleStage = normalizeLifecycleStage(entry.lifecycle_stage);
-      if (lifecycleStage && ["research", "draft", "blocked", "archived", "disabled"].includes(lifecycleStage)) {
-        return `lifecycle_stage=${lifecycleStage}`;
-      }
-      const evidenceStatus = cleanDisplayText(entry.latest_evidence_status);
-      if (evidenceStatus && evidenceStatus.toLowerCase() !== "live_allowed") {
-        return `latest_evidence_status=${evidenceStatus}`;
-      }
-      const pluginGateStatus = cleanDisplayText(entry.plugin_gate_status);
-      if (pluginGateStatus && pluginGateStatus.toLowerCase() !== "live_allowed") {
-        return `plugin_gate_status=${pluginGateStatus}`;
-      }
-      return "";
-    }
-
     function strategyDisplayMetaText(platform, account, profile) {
-      const entry = strategyCatalogEntry(profile);
-      if (!entry.profile) {
-        return t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account));
-      }
-      const lines = [];
-      if (entry.lifecycle_stage) lines.push(`lifecycle_stage: ${entry.lifecycle_stage}`);
-      lines.push(`runtime_enabled: ${entry.runtime_enabled === false ? "false" : "true"}`);
-      lines.push(`can_switch_live: ${strategyCanSwitchLive(entry) ? "true" : "false"}`);
-      if (entry.allowed_execution_modes?.length) {
-        lines.push(`allowed_execution_modes: ${entry.allowed_execution_modes.join(", ")}`);
-      }
-      const blockedReason = strategyBlockedLiveReason(entry);
-      if (blockedReason) lines.push(`blocked_live_reason: ${blockedReason}`);
-      if (entry.latest_evidence_status) lines.push(`latest_evidence_status: ${entry.latest_evidence_status}`);
-      if (entry.plugin_gate_status) lines.push(`plugin_gate_status: ${entry.plugin_gate_status}`);
-      lines.push(`domains: ${supportedDomainLabel(platform, account)}`);
-      return lines.join("\n");
+      void profile;
+      return t("strategyMeta").replace("{domains}", supportedDomainLabel(platform, account));
     }
 
     function strategyActionNoteText(platform = state.selected, account = selectedAccount(platform)) {
@@ -1609,12 +1569,13 @@
     function strategyChoiceLabel(profile, platform = state.selected, account = selectedAccount(platform), executionMode = state.forms[platform]?.executionMode) {
       const label = strategyLabel(profile);
       const entry = strategyCatalogEntry(profile);
+      const domain = entry.domain ? domainLabel(entry.domain) : "";
       if (!entry.profile) return label;
       if (normalizeExecutionMode(executionMode, false) === "live" && !strategyCanSwitchLive(entry)) {
-        return `${label} [blocked live]`;
+        return domain ? `${label}（${domain}）` : label;
       }
       if (entry.runtime_enabled === false) {
-        return `${label} [disabled]`;
+        return domain ? `${label}（${domain}）` : label;
       }
       return label;
     }
