@@ -92,80 +92,6 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertEqual(set(platform_choices), set(runtime_settings.SUPPORTED_PLATFORMS))
 
-    def test_platform_config_default_strategy_profiles_exist(self):
-        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
-        profiles = set(config["strategies"])
-        for platform, data in config["platforms"].items():
-            default_profile = data.get("default_account", {}).get("default_strategy_profile")
-            if default_profile:
-                with self.subTest(platform=platform):
-                    self.assertIn(default_profile, profiles)
-
-    def test_platform_config_default_strategy_profiles_are_live_switchable(self):
-        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
-        for platform, data in config["platforms"].items():
-            default_profile = data.get("default_account", {}).get("default_strategy_profile")
-            if not default_profile:
-                continue
-            strategy = config["strategies"][default_profile]
-            with self.subTest(platform=platform):
-                self.assertTrue(strategy["runtime_enabled"])
-                self.assertTrue(strategy["can_switch_live"])
-                self.assertEqual(strategy["lifecycle_stage"], "runtime_enabled")
-
-    def test_default_strategy_profile_catalog_matches_platform_gate_fields(self):
-        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
-        catalog = json.loads(
-            (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(encoding="utf-8")
-        )
-
-        self.assertEqual(build_config.report_default_strategy_profile_drift(config, catalog), [])
-
-    def test_default_strategy_profile_catalog_reports_gate_drift(self):
-        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
-        catalog = {
-            item["profile"]: item
-            for item in json.loads(
-                (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-        }
-        profile = config["platforms"]["longbridge"]["default_account"]["default_strategy_profile"]
-        catalog[profile] = {
-            **catalog[profile],
-            "runtime_enabled": False,
-            "can_switch_live": False,
-            "lifecycle_stage": "research_backtest_only",
-        }
-
-        errors = build_config.report_default_strategy_profile_drift(config, catalog)
-
-        self.assertIn(
-            "platform longbridge: default_strategy_profile soxl_soxx_trend_income is not runtime_enabled",
-            errors,
-        )
-        self.assertIn(
-            "platform longbridge: default_strategy_profile soxl_soxx_trend_income cannot switch live",
-            errors,
-        )
-        self.assertIn(
-            "platform longbridge: default_strategy_profile soxl_soxx_trend_income lifecycle_stage is not runtime_enabled",
-            errors,
-        )
-
-    def test_build_config_check_includes_default_strategy_profile_drift(self):
-        with (
-            patch.object(sys, "argv", ["build_config.py", "--check"]),
-            patch.object(build_config, "load_config", return_value={"platforms": {}, "strategies": {}}),
-            patch.object(build_config, "validate", return_value=[]),
-            patch.object(build_config, "report_default_strategy_profile_drift", return_value=["drift"]) as drift,
-            patch("builtins.print"),
-        ):
-            self.assertEqual(build_config.main(), 1)
-
-        drift.assert_called_once_with({"platforms": {}, "strategies": {}})
-
     def test_live_candidate_queue_lists_profiles_needing_promotion_review(self):
         catalog = [
             {
@@ -206,7 +132,6 @@ class RuntimeSettingsTest(unittest.TestCase):
             patch.object(sys, "argv", ["build_config.py", "--live-candidate-queue"]),
             patch.object(build_config, "load_config", return_value={"platforms": {}, "strategies": {}}),
             patch.object(build_config, "validate", return_value=[]),
-            patch.object(build_config, "report_default_strategy_profile_drift", return_value=[]),
             patch.object(build_config, "build_live_candidate_queue", return_value=[{"profile": "candidate"}]),
             patch("builtins.print") as printed,
         ):
@@ -280,23 +205,6 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
         self.assertIn("python3 python/scripts/build_config.py --check", report["codex_repair_context"]["suggested_commands"])
-
-    def test_platform_health_report_fails_on_default_profile_drift(self):
-        config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))
-        catalog = json.loads(
-            (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(encoding="utf-8")
-        )
-        profile = config["platforms"]["longbridge"]["default_account"]["default_strategy_profile"]
-        for item in catalog:
-            if item["profile"] == profile:
-                item["can_switch_live"] = False
-                break
-
-        report = build_config.build_platform_health_report(config, catalog)
-
-        self.assertEqual(report["status"], "unhealthy")
-        self.assertEqual(report["recommended_action"], "attempt_codex_fix")
-        self.assertTrue(report["codex_repair_context"]["safe_to_attempt"])
 
     def test_platform_health_report_cli_outputs_json(self):
         report = {

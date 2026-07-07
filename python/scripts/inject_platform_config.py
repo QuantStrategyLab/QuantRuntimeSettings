@@ -42,7 +42,6 @@ def main() -> int:
             cash_currency=acct.get("cash_currency", "USD"),
         )
         for fld in (
-            "default_strategy_profile",
             "service_name",
             "account_scope",
             "deployment_selector",

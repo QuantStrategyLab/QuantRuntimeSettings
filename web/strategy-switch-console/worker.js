@@ -1125,10 +1125,6 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
     const nextOption = { ...option };
     let optionChanged = false;
     if ("ibit_zscore_exit_mode" in rawOption) optionChanged = true;
-    if (nextOption.default_strategy_profile !== inputs.strategy_profile) {
-      nextOption.default_strategy_profile = inputs.strategy_profile;
-      optionChanged = true;
-    }
     if (inputs.plugin_mode === "auto" || inputs.plugin_mode === "none") {
       const currentPluginMode = nextOption.plugin_mode || "auto";
       if (currentPluginMode !== inputs.plugin_mode) {
@@ -1665,7 +1661,6 @@ function cleanAccountOption(item, platform, index) {
     item.cash_currency || item.market_currency || item.trading_currency,
     cleanCashCurrency,
   );
-  addConfigOptional(option, "default_strategy_profile", item.default_strategy_profile || item.strategy_profile, cleanSlug);
   addConfigOptional(option, "github_environment", item.github_environment, cleanSlug);
   addConfigOptional(option, "variable_scope", item.variable_scope, (value, field) =>
     cleanChoice(value || "default", ["default", "repository", "environment"], field),

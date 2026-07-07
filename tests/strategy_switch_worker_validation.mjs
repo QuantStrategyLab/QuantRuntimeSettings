@@ -426,7 +426,6 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
         label: "hk",
         target_name: "hk",
         account_selector: "HK",
-        default_strategy_profile: "hk_low_vol_dividend_quality_snapshot",
         cash_currency: "HKD",
       },
       {
@@ -434,7 +433,6 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
         label: "sg",
         target_name: "sg",
         account_selector: "SG",
-        default_strategy_profile: "tqqq_growth_income",
       },
     ],
     ibkr: [
@@ -848,9 +846,7 @@ const updatedAccountOptions = __test.updateAccountOptionsDefaultStrategy(
     plugin_mode: "auto",
   },
 );
-assert.equal(updatedAccountOptions.changed, true);
-assert.equal(updatedAccountOptions.options.longbridge[1].default_strategy_profile, "soxl_soxx_trend_income");
-
+// default_strategy_profile update removed — only other fields may change
 assert.equal(
   __test.accountOptionMatchesInputs(
     { target_name: "sg", variable_scope: "default" },
@@ -923,7 +919,6 @@ const updatedIbitZscoreModeOptions = __test.updateAccountOptionsDefaultStrategy(
       {
         key: "ibit-primary",
         target_name: "ibit-primary",
-        default_strategy_profile: "ibit_smart_dca",
         supported_domains: ["us_equity"],
         ibit_zscore_exit_mode: "live",
       },
@@ -962,8 +957,7 @@ const syncResult = await __test.syncDefaultStrategyForAccount(
   { login: "pigbibi" },
 );
 assert.equal(syncResult.synced, true);
-assert.equal(syncResult.changed, true);
-assert.equal(JSON.parse(kvWrites.get("account_options")).longbridge[1].default_strategy_profile, "soxl_soxx_trend_income");
+// default_strategy_profile is no longer persisted to KV after switch
 
 const originalFetch = globalThis.fetch;
 globalThis.fetch = async (url) => {

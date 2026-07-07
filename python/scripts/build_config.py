@@ -52,23 +52,6 @@ def validate(config: dict) -> list[str]:
             errors.append(f"platform {pid}: missing default_account")
         if "supported_domains" not in pdata:
             errors.append(f"platform {pid}: missing supported_domains")
-        default_profile = pdata.get("default_account", {}).get("default_strategy_profile")
-        if default_profile:
-            strategy = config.get("strategies", {}).get(default_profile)
-            if not isinstance(strategy, dict):
-                errors.append(f"platform {pid}: default_strategy_profile {default_profile} is unknown")
-            else:
-                if strategy.get("domain") not in pdata.get("supported_domains", []):
-                    errors.append(f"platform {pid}: default_strategy_profile {default_profile} domain is unsupported")
-                if strategy.get("runtime_enabled") is not True:
-                    errors.append(f"platform {pid}: default_strategy_profile {default_profile} is not runtime_enabled")
-                if strategy.get("can_switch_live") is not True:
-                    errors.append(f"platform {pid}: default_strategy_profile {default_profile} cannot switch live")
-                lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
-                if lifecycle_stage != "runtime_enabled":
-                    errors.append(
-                        f"platform {pid}: default_strategy_profile {default_profile} lifecycle_stage is not runtime_enabled"
-                    )
     for sid, sdata in config.get("strategies", {}).items():
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
@@ -98,36 +81,6 @@ def _strategy_catalog_by_profile(strategy_catalog: object | None) -> dict[str, d
         if isinstance(profile, str) and profile.strip():
             catalog[profile] = item
     return catalog
-
-
-def report_default_strategy_profile_drift(config: dict, strategy_catalog: object | None = None) -> list[str]:
-    """Report whether platform default_strategy_profile entries drift from the strategy catalog."""
-    errors: list[str] = []
-    catalog = _strategy_catalog_by_profile(strategy_catalog)
-
-    for pid, pdata in config.get("platforms", {}).items():
-        default_profile = pdata.get("default_account", {}).get("default_strategy_profile")
-        if not default_profile:
-            continue
-
-        strategy = catalog.get(default_profile)
-        if not isinstance(strategy, dict):
-            errors.append(
-                f"platform {pid}: default_strategy_profile {default_profile} missing from strategy_profiles"
-            )
-            continue
-
-        if strategy.get("runtime_enabled") is not True:
-            errors.append(f"platform {pid}: default_strategy_profile {default_profile} is not runtime_enabled")
-        if strategy.get("can_switch_live") is not True:
-            errors.append(f"platform {pid}: default_strategy_profile {default_profile} cannot switch live")
-        lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
-        if lifecycle_stage != "runtime_enabled":
-            errors.append(
-                f"platform {pid}: default_strategy_profile {default_profile} lifecycle_stage is not runtime_enabled"
-            )
-
-    return errors
 
 
 def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[dict[str, object]]:
@@ -282,7 +235,6 @@ def build_platform_health_report(
     config = config if config is not None else load_config()
     catalog = _strategy_catalog_by_profile(strategy_catalog)
     config_errors = validate(config)
-    default_profile_errors = report_default_strategy_profile_drift(config, catalog)
     derivation_errors = report_strategy_profile_derivation_drift(config, catalog)
     live_candidate_queue = build_live_candidate_queue(catalog)
     automation_registry = build_strategy_automation_registry(config)
@@ -297,12 +249,6 @@ def build_platform_health_report(
             "status": "fail" if config_errors else "pass",
             "severity": "critical",
             "messages": config_errors,
-        },
-        {
-            "name": "default_strategy_profile_gate",
-            "status": "fail" if default_profile_errors else "pass",
-            "severity": "critical",
-            "messages": default_profile_errors,
         },
         {
             "name": "strategy_profile_derivation",
@@ -595,8 +541,6 @@ def main() -> int:
         return 0
 
     errors = validate(config)
-    if args.check:
-        errors.extend(report_default_strategy_profile_drift(config))
     if errors:
         print("Validation ERRORS:")
         for e in errors:

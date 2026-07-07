@@ -109,7 +109,6 @@ Each account item supports:
   "account_scope": "demo-ibkr-tqqq",
   "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
   "cash_currency": "USD",
-  "default_strategy_profile": "tqqq_growth_income",
   "supported_domains": ["us_equity", "hk_equity"]
 }
 ```
@@ -118,13 +117,13 @@ The Worker validates dispatch inputs against this config, including whether the 
 
 `/api/strategy-profiles` returns the public live-enabled strategy catalog for the dropdown. It reads the KV `strategy_profiles` key first, then `STRATEGY_SWITCH_STRATEGY_PROFILES_JSON`, then `strategy-profiles.example.json`.
 
-For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`; if none can be read safely, the page falls back to `default_strategy_profile`.
+For signed-in users, `/api/config` also reads the target repositories' current GitHub Variables. It prefers account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON`, then matching `RUNTIME_TARGET_JSON.strategy_profile`, then `STRATEGY_PROFILE`. If no strategy is configured in GitHub variables, the page shows an empty (unconfigured) state rather than falling back to a hardcoded default.
 
 The switch form also accepts optional reserved-cash overrides: minimum reserved cash in the selected account currency and reserved-cash ratio. Set `cash_currency` to `USD` or `HKD` in account config when the account has a fixed cash currency; otherwise the page infers HKD for HK-equity strategy selections and USD for US-equity selections. Keeping the current policy leaves existing platform variables unchanged; when no explicit platform variables are configured, the platform source default is no extra reserve (`0` in the account currency and `0%`). When set, the Worker passes the values to `manual-strategy-switch.yml`, which writes the platform-specific variables such as `IBKR_MIN_RESERVED_CASH_USD` and `IBKR_RESERVED_CASH_RATIO`.
 
 Income-layer controls are sourced from `strategy-profiles.example.json` metadata for live-validated US equity strategies. The switch form can keep the current setting, enable the income layer with the profile default start amount and cap, or disable it. Option-layer controls use the same strategy profile metadata but only expose a three-state policy: keep current, enable the profile default recipe and budget, or disable and clear option overlay variables. Manual switch requests still cannot override direct option overlay or LEAPS fields through `extra_variables_json`; the Worker and build script reject those direct overrides.
 
-Successful strategy switches also sync the selected account's `default_strategy_profile` back to the KV `account_options` key. The web endpoint does this immediately after dispatching the workflow, and the manual GitHub workflow calls the Worker's internal sync endpoint after applying platform variables when the `runtime-strategy-switch` environment variable `STRATEGY_SWITCH_CONSOLE_URL` is set. For that workflow callback, set the GitHub environment secret `STRATEGY_SWITCH_SYNC_TOKEN` to the same value as the Worker secret with that name.
+Successful strategy switches sync account-level settings (plugin_mode, option_overlay_mode, cash_only_execution_mode, DCA mode) back to the KV `account_options` key. The strategy profile itself is stored only in GitHub variables (`RUNTIME_TARGET_JSON` / `STRATEGY_PROFILE`) and is not duplicated in KV.
 
 ## Strategy Profile Alignment
 
@@ -135,7 +134,7 @@ When adding or renaming a strategy profile:
 - Add the runtime-enabled profile id and display label to `strategy-profiles.example.json`.
 - Run `python3 scripts/sync_strategy_switch_page_asset.py` so `strategy_profiles_asset.js` is regenerated.
 - Set `domain` on each strategy profile. Current values are `us_equity` and `hk_equity`.
-- Set each affected account's `default_strategy_profile` and `supported_domains` in `account-options.example.json` and the deployed KV account config.
+- Set each affected account's `supported_domains` in `account-options.example.json` and the deployed KV account config. Strategy profiles are managed exclusively through GitHub variables via the strategy switch workflow.
 - Use `["us_equity", "hk_equity"]` for LongBridge and IBKR accounts unless you intentionally want to narrow a specific account.
 - The main-branch deploy workflow updates the deployed KV `strategy_profiles` key from `strategy-profiles.example.json` after deploying the Worker. For manual deploys, call `/api/internal/sync-strategy-profiles` with the Worker sync token.
 - Make sure the platform repository's current `RUNTIME_TARGET_JSON.strategy_profile` or account-specific `CLOUD_RUN_SERVICE_TARGETS_JSON` uses the same id.

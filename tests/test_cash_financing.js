@@ -186,7 +186,7 @@ function currentEntryForAccount(state, platform, account) {
     const entry = byPlatform[key];
     if (entry && typeof entry === "object") {
       if (!entry.strategy_profile) {
-        return { ...entry, strategy_profile: account?.default_strategy_profile || "", source: "worker+account_defaults" };
+        return entry;
       }
       return entry;
     }
@@ -198,11 +198,7 @@ function currentEntryForAccount(state, platform, account) {
     const hasMatch = rawCandidates.some((candidate) => candidates.has(candidate));
     if (hasMatch) {
       if (!entry.strategy_profile) {
-        return {
-          ...entry,
-          strategy_profile: account?.default_strategy_profile || "",
-          source: "worker+account_defaults",
-        };
+        return entry;
       }
       return entry;
     }
@@ -210,7 +206,7 @@ function currentEntryForAccount(state, platform, account) {
 
   return {
     runtime_target_enabled: true,
-    strategy_profile: account?.default_strategy_profile || account?.strategy_profile || "",
+    strategy_profile: "",
     source: "account_defaults",
   };
 }
@@ -1133,7 +1129,6 @@ console.log("\n=== 11. currentEntryForAccount 映射健壮性 ===\n");
     key: "sg",
     target_name: "sg",
     label: "sg",
-    default_strategy_profile: "tqqq_growth_income",
   };
   const entry = currentEntryForAccount(state, "longbridge", account);
   assert(Boolean(entry), "11d: missing entry should return synthesized defaults");

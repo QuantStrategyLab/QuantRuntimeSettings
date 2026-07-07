@@ -62,7 +62,6 @@ def build_config_module(config: dict) -> str:
             "cash_currency": acct.get("cash_currency", "USD"),
         }
         for fld in (
-            "default_strategy_profile",
             "service_name",
             "account_scope",
             "deployment_selector",
