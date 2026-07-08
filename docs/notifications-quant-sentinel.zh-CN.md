@@ -16,15 +16,16 @@
 | 变量 | 说明 |
 |------|------|
 | `TELEGRAM_TOKEN` | bot token（Cloud Run 由 secret ref 注入；VPS 由 `load_telegram_env.sh`） |
-| `GLOBAL_TELEGRAM_CHAT_ID` | `5992562050` |
+| `GLOBAL_TELEGRAM_CHAT_ID` | org/repo variable 或 VPS systemd（勿写入公开仓库） |
 
 别名见 `platform-config.json` → `notifications.quant_sentinel.env_aliases`。
 
 ## VPS
 
 ```bash
+# AIAuditBridge/ops/quant-monitor
 scripts/load_telegram_env.sh /run/quant-monitor/telegram.env
-systemd/quant-monitor.service.example   # ExecStartPre + EnvironmentFile
+systemd/codex-quant.service.example     # ExecStartPre + EnvironmentFile
 scripts/daily_briefing_pipeline.sh      # → AIAuditBridge --dispatch
 ```
 
