@@ -30,7 +30,7 @@ scripts/daily_briefing_pipeline.sh      # → AIAuditBridge --dispatch
 
 ## Cloud Run
 
-`STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME=quant-sentinel-telegram-bot-token`  
+`STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME=quant-sentinel-telegram-bot-token`
 `GLOBAL_TELEGRAM_CHAT_ID` 来自 repo variable。
 
 平台执行日报仍用各平台 `TELEGRAM_TOKEN_SECRET_NAME`（独立 bot）。
