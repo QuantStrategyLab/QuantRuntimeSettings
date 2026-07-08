@@ -2,8 +2,27 @@
   "$schema": "https://quantstratalab.github.io/configs/platform-config.schema.json",
   "schema_version": 1,
   "meta": {
-    "last_updated": "2026-07-06",
+    "last_updated": "2026-07-09",
     "description": "Single source of truth for all platforms, domains, and strategies"
+  },
+  "notifications": {
+    "quant_sentinel": {
+      "label_zh": "量化哨兵",
+      "label_en": "QuantSentinel",
+      "telegram_bot_token_secret_name": "quant-sentinel-telegram-bot-token",
+      "telegram_chat_id": "5992562050",
+      "gcp_projects": [
+        "firstradequant",
+        "longbridgequant",
+        "charlesschwabquant",
+        "interactivebrokersquant"
+      ],
+      "env_aliases": {
+        "bot_token": ["TELEGRAM_TOKEN", "TG_TOKEN", "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"],
+        "chat_id": ["GLOBAL_TELEGRAM_CHAT_ID", "QSL_GLOBAL_TELEGRAM_CHAT_ID", "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"]
+      },
+      "deprecated_secret_names": ["crisis-alert-telegram-bot-token"]
+    }
   },
   "domains": {
     "us_equity": {
