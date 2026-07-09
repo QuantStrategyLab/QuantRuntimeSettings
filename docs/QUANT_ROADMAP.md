@@ -524,14 +524,16 @@ GCP Secret quant-sentinel-telegram-bot-token  ← 各平台 GCP 项目副本
 | 2026-07-09 | VPS quant-monitor 二次验真 | qvps sync `cd7f140` + timer 健康检查通过 |
 | 2026-07-09 | 任务 3c：BacktestOrchestrator 推广 | 四策略仓 PR 已合并（Cn [#46](https://github.com/QuantStrategyLab/CnEquityStrategies/pull/46) / Hk [#79](https://github.com/QuantStrategyLab/HkEquityStrategies/pull/79) / Us [#218](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/218) / Crypto [#72](https://github.com/QuantStrategyLab/CryptoStrategies/pull/72)） |
 | 2026-07-09 | 任务 5：PerformanceMonitor 全链路 | QPK [#204](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/204) + 平台 equity telemetry（LB [#313](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/313) / Schwab [#253](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/253) / Firstrade [#214](https://github.com/QuantStrategyLab/FirstradePlatform/pull/214) / IBKR [#320](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/320)）已合并 |
+| 2026-07-09 | QPK_PIN 手动 bump + 下游对齐 | QPK [#205](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/205) → `53b2ca73`；九仓 pin PR 已合并（Cn [#47](https://github.com/QuantStrategyLab/CnEquityStrategies/pull/47) / Hk [#80](https://github.com/QuantStrategyLab/HkEquityStrategies/pull/80) / Us [#219](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/219) / Crypto [#73](https://github.com/QuantStrategyLab/CryptoStrategies/pull/73) / IBKR [#321](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/321) / LB [#314](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/314) / Schwab [#254](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/254) / Firstrade [#215](https://github.com/QuantStrategyLab/FirstradePlatform/pull/215) / Binance [#111](https://github.com/QuantStrategyLab/BinancePlatform/pull/111)） |
+| 2026-07-10 | VPS `codex-daily-briefing` 验真 | timer active；手动触发成功，四域 JSON 写入 `daily-reports/2026-07-09/`，dispatch=`quiet` |
 
-## 当前真实待办（2026-07-09 晚）
+## 当前真实待办（2026-07-10 凌晨）
 
 | 项目 | 状态 | 说明 |
 |---|---|---|
 | 任务 12：模型分层路由 | 部分完成 / 暂缓 | AIAuditBridge 已路由；Codex 未恢复前不做 VPS/CI gateway 收口 |
-| 任务 1–11 / 3c / 5 / Binance / QPK 自动化 / VPS 验真 | 已完成 | 见上文各任务「当前状态」与已完成改动表 |
-| `codex-daily-briefing` VPS timer | 待确认 | timer 已装但尚无 journal 记录；下次 06:30 触发后复核 |
+| `QSL_REPO_SYNC_TOKEN` → QPK 授权 | 待修 | org secret 存在但 QPK workflow 读不到；需在 org secret 策略中授权 `QuantPlatformKit`，或复制为 repo secret |
+| 任务 1–11 / 3c / 5 / Binance / pin 对齐 / VPS 验真 / briefing | 已完成 | 见上文各任务「当前状态」与已完成改动表 |
 | 复杂 research 回测脚本迁移 | 可选 | combo / dividend snapshot / DCA 等仍用 ad-hoc 脚本，非阻塞 |
 
 ---
