@@ -526,7 +526,7 @@ GCP Secret quant-sentinel-telegram-bot-token  ← 各平台 GCP 项目副本
 | 2026-07-09 | 任务 5：PerformanceMonitor 全链路 | QPK [#204](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/204) + 平台 equity telemetry（LB [#313](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/313) / Schwab [#253](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/253) / Firstrade [#214](https://github.com/QuantStrategyLab/FirstradePlatform/pull/214) / IBKR [#320](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/320)）已合并 |
 | 2026-07-09 | QPK_PIN 手动 bump + 下游对齐 | QPK [#205](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/205) → `53b2ca73`；九仓 pin PR 已合并（Cn [#47](https://github.com/QuantStrategyLab/CnEquityStrategies/pull/47) / Hk [#80](https://github.com/QuantStrategyLab/HkEquityStrategies/pull/80) / Us [#219](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/219) / Crypto [#73](https://github.com/QuantStrategyLab/CryptoStrategies/pull/73) / IBKR [#321](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/321) / LB [#314](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/314) / Schwab [#254](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/254) / Firstrade [#215](https://github.com/QuantStrategyLab/FirstradePlatform/pull/215) / Binance [#111](https://github.com/QuantStrategyLab/BinancePlatform/pull/111)） |
 | 2026-07-10 | VPS `codex-daily-briefing` 验真 | timer active；手动触发成功，四域 JSON 写入 `daily-reports/2026-07-09/`，dispatch=`quiet` |
-| 2026-07-10 | QPK 下游 pin 自动化 token | `QSL_REPO_SYNC_TOKEN` 存为 **QuantPlatformKit 仓库级 secret**；workflow 验真九仓 `no changes needed` |
+| 2026-07-10 | QPK 下游 pin 自动化 token | Classic PAT → QPK repo secret；下游 + pin workflow 验真通过 |
 
 ## 当前真实待办（2026-07-10 凌晨）
 
@@ -535,7 +535,6 @@ GCP Secret quant-sentinel-telegram-bot-token  ← 各平台 GCP 项目副本
 | 任务 12：模型分层路由 | 部分完成 / 暂缓 | AIAuditBridge 已路由；Codex 未恢复前不做 VPS/CI gateway 收口 |
 | 任务 1–11 / 3c / 5 / Binance / pin 对齐 / VPS 验真 / briefing / sync token | 已完成 | 见上文各任务「当前状态」与已完成改动表 |
 | 复杂 research 回测脚本迁移 | 可选 | combo / dividend snapshot / DCA 等仍用 ad-hoc 脚本，非阻塞 |
-| `QSL_REPO_SYNC_TOKEN` 轮换 | 可选 | 当前为 bootstrap token；见 QPK `docs/qpk_repo_sync_auth.zh-CN.md` 换专用 fine-grained PAT |
 
 ---
 
