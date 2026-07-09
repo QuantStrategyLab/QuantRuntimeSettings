@@ -535,7 +535,7 @@ GCP Secret quant-sentinel-telegram-bot-token  ← 各平台 GCP 项目副本
 | 任务 12：模型分层路由 | 部分完成 / 暂缓 | AIAuditBridge 已路由；Codex 未恢复前不做 VPS/CI gateway 收口 |
 | 任务 1–11 / 3c / 5 / Binance / pin 对齐 / VPS 验真 / briefing / sync token | 已完成 | 见上文各任务「当前状态」与已完成改动表 |
 | 复杂 research 回测脚本迁移 | 可选 | combo / dividend snapshot / DCA 等仍用 ad-hoc 脚本，非阻塞 |
-| `QSL_REPO_SYNC_TOKEN` 轮换 | 可选 | 当前为 bootstrap token；见 QPK `docs/qpk_sync_token.zh-CN.md` 换专用 fine-grained PAT |
+| `QSL_REPO_SYNC_TOKEN` 轮换 | 可选 | 当前为 bootstrap token；见 QPK `docs/qpk_repo_sync_auth.zh-CN.md` 换专用 fine-grained PAT |
 
 ---
 
