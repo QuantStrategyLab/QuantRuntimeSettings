@@ -18,6 +18,23 @@ except ModuleNotFoundError:  # pragma: no cover - py<3.11 compatibility fallback
 
 
 GITHUB_OWNER = "QuantStrategyLab"
+LEGACY_TIER_ALIASES = {
+    "strategy-library": "strategy-lib",
+    "strategy_lib": "strategy-lib",
+    "runtime-platform": "runtime",
+    "runtime_plaform": "runtime",
+    "runtime-ops": "ops/tooling",
+    "platform-tooling": "ops/tooling",
+    "ops-tooling": "ops/tooling",
+    "research": "pipeline",
+}
+LEGACY_RING_ALIASES = {
+    "0": "ring_a",
+    "1": "ring_b",
+    "2": "ring_c",
+    "3": "ring_d",
+    "4": "ring_e",
+}
 
 
 @dataclass(frozen=True)
@@ -144,6 +161,133 @@ def _load_bundle(compat_root: Path, bundle: str) -> dict[str, str]:
     return parsed
 
 
+def _load_repo_tier_policy(compat_root: Path) -> tuple[set[str], dict[str, str], set[tuple[str, str]]]:
+    manifest_path = compat_root / "compat" / "repo-tiers.toml"
+    payload = _read_toml(manifest_path)
+
+    tiers = payload.get("tiers")
+    if not isinstance(tiers, dict) or not tiers:
+        raise ValueError(f"repo tier manifest missing [tiers] in {manifest_path}")
+    canonical_tiers: set[str] = set()
+    for name, meta in tiers.items():
+        if isinstance(meta, dict) and str(meta.get("name") or "").strip():
+            canonical_tiers.add(str(meta["name"]).strip())
+        elif isinstance(name, str) and name.strip():
+            canonical_tiers.add(name.strip())
+
+    upgrade_rings = payload.get("upgrade_rings")
+    if not isinstance(upgrade_rings, dict) or not upgrade_rings:
+        raise ValueError(f"repo tier manifest missing [upgrade_rings] in {manifest_path}")
+    ring_to_tier: dict[str, str] = {}
+    for ring, tier in upgrade_rings.items():
+        ring_name = str(ring or "").strip()
+        tier_name = str(tier or "").strip()
+        if not ring_name or not tier_name:
+            continue
+        ring_to_tier[ring_name] = tier_name
+
+    allowed_directions: set[tuple[str, str]] = set()
+    upgrade_rules = payload.get("upgrade_rules")
+    if isinstance(upgrade_rules, dict):
+        allow_drift = upgrade_rules.get("allow_drift")
+        if isinstance(allow_drift, list):
+            for item in allow_drift:
+                consumer_tier, _, dependency_tier = str(item or "").partition(":")
+                consumer_name = consumer_tier.strip()
+                dependency_name = dependency_tier.strip()
+                if consumer_name and dependency_name:
+                    allowed_directions.add((consumer_name, dependency_name))
+
+    return canonical_tiers, ring_to_tier, allowed_directions
+
+
+def _canonical_tier(value: str) -> str:
+    normalized = value.strip()
+    return LEGACY_TIER_ALIASES.get(normalized, normalized)
+
+
+def _canonical_ring(value: str) -> str:
+    normalized = value.strip().lower()
+    return LEGACY_RING_ALIASES.get(normalized, value.strip())
+
+
+def _resolve_repo_declared_tier(repo_root: Path) -> str | None:
+    qsl_path = repo_root / "qsl.toml"
+    if not qsl_path.exists():
+        return None
+    try:
+        payload = _read_toml(qsl_path)
+    except Exception:
+        return None
+    config = payload.get("qsl", payload)
+    if not isinstance(config, dict):
+        return None
+    tier = config.get("tier")
+    if not isinstance(tier, str) or not tier.strip():
+        return None
+    return _canonical_tier(tier)
+
+
+def _validate_repo_taxonomy(
+    *,
+    repo_root: Path,
+    compat_root: Path,
+    tier: str,
+    upgrade_ring: str,
+    issues: list[str],
+    warnings: list[str],
+) -> str:
+    canonical_tiers, ring_to_tier, _ = _load_repo_tier_policy(compat_root)
+    canonical_tier = _canonical_tier(tier)
+    canonical_ring = _canonical_ring(upgrade_ring)
+
+    if canonical_tier not in canonical_tiers:
+        issues.append(
+            f"invalid qsl.tier '{tier}' in {repo_root / 'qsl.toml'}; allowed: {', '.join(sorted(canonical_tiers))}"
+        )
+        return canonical_tier
+    if canonical_ring not in ring_to_tier:
+        issues.append(
+            f"invalid qsl.upgrade_ring '{upgrade_ring}' in {repo_root / 'qsl.toml'}; allowed: {', '.join(sorted(ring_to_tier))}"
+        )
+        return canonical_tier
+
+    expected_tier = ring_to_tier[canonical_ring]
+    if canonical_tier != expected_tier:
+        issues.append(
+            f"tier/ring mismatch in {repo_root / 'qsl.toml'}: tier={tier} upgrade_ring={upgrade_ring} "
+            f"resolves to {canonical_tier}/{canonical_ring}, expected tier {expected_tier}"
+        )
+    if tier.strip() != canonical_tier:
+        warnings.append(f"non-canonical qsl.tier '{tier}' in {repo_root / 'qsl.toml'}; use '{canonical_tier}'")
+    if upgrade_ring.strip() != canonical_ring:
+        warnings.append(
+            f"non-canonical qsl.upgrade_ring '{upgrade_ring}' in {repo_root / 'qsl.toml'}; use '{canonical_ring}'"
+        )
+    return canonical_tier
+
+
+def _validate_dependency_direction(
+    *,
+    consumer_repo: str,
+    consumer_tier: str,
+    pin: GitRef,
+    compat_root: Path,
+    issues: list[str],
+) -> None:
+    _, _, allowed_directions = _load_repo_tier_policy(compat_root)
+    dependency_repo_root = compat_root.parent / pin.repo
+    dependency_tier = _resolve_repo_declared_tier(dependency_repo_root)
+    if not dependency_tier or dependency_tier == consumer_tier:
+        return
+    if (consumer_tier, dependency_tier) in allowed_directions:
+        return
+    issues.append(
+        f"forbidden dependency direction {consumer_repo}({consumer_tier}) -> "
+        f"{pin.repo}({dependency_tier}) in {pin.source}:{pin.line_no}"
+    )
+
+
 def _extract_git_refs(path: Path) -> list[GitRef]:
     refs: list[GitRef] = []
     if not path.exists():
@@ -228,6 +372,15 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
             warnings=warnings,
         )
 
+    canonical_tier = _validate_repo_taxonomy(
+        repo_root=repo_root,
+        compat_root=compat_root,
+        tier=tier,
+        upgrade_ring=upgrade_ring,
+        issues=issues,
+        warnings=warnings,
+    )
+
     bundle_refs = _load_bundle(compat_root, bundle)
 
     if not allow_legacy:
@@ -251,6 +404,13 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
                     _validate_live_ref(legacy_ref, issues, warnings, enforce_bundle)
                 else:
                     _validate_ref(legacy_ref, bundle_refs[legacy_ref.repo], issues, warnings, enforce_bundle)
+                    _validate_dependency_direction(
+                        consumer_repo=repo_root.name,
+                        consumer_tier=canonical_tier,
+                        pin=legacy_ref,
+                        compat_root=compat_root,
+                        issues=issues,
+                    )
 
     discovered = _gather_repo_refs(repo_root)
     for pin in discovered:
@@ -259,6 +419,13 @@ def _check(repo_root: Path, compat_root: Path) -> tuple[bool, list[str], list[st
             continue
         expected_ref = bundle_refs[pin.repo]
         _validate_ref(pin, expected_ref, issues, warnings, enforce_bundle)
+        _validate_dependency_direction(
+            consumer_repo=repo_root.name,
+            consumer_tier=canonical_tier,
+            pin=pin,
+            compat_root=compat_root,
+            issues=issues,
+        )
 
     return (len(issues) == 0, issues, warnings, notes)
 

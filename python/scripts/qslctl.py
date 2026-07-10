@@ -187,6 +187,14 @@ def _status_bucket(result: RepoCheckResult) -> str:
 
 
 def _issue_kind(message: str) -> str:
+    if message.startswith("invalid qsl.tier "):
+        return "invalid qsl.tier"
+    if message.startswith("invalid qsl.upgrade_ring "):
+        return "invalid qsl.upgrade_ring"
+    if message.startswith("tier/ring mismatch "):
+        return "tier/ring mismatch"
+    if message.startswith("forbidden dependency direction "):
+        return "forbidden dependency direction"
     if message.startswith("bundle pin mismatch for "):
         return "bundle pin mismatch"
     if message.startswith("forbidden short/invalid ref "):
@@ -197,6 +205,10 @@ def _issue_kind(message: str) -> str:
         return "legacy dependency files detected"
     if message.startswith("unmanaged qsl dependency "):
         return "unmanaged qsl dependency"
+    if message.startswith("non-canonical qsl.tier "):
+        return "non-canonical qsl.tier"
+    if message.startswith("non-canonical qsl.upgrade_ring "):
+        return "non-canonical qsl.upgrade_ring"
     return "other"
 
 

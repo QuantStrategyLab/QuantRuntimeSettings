@@ -129,6 +129,9 @@ on:
         type: string
         default: sync-cloud-run-env.yml
 
+permissions:
+  contents: read
+
 concurrency:
   group: runtime-strategy-switch-${{ inputs.platform }}-${{ inputs.target_name }}
   cancel-in-progress: false
