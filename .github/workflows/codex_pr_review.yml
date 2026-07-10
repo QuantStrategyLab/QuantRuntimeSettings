@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Review logic is executed only from the protected AIAuditBridge workflow.
   review:
     uses: QuantStrategyLab/AIAuditBridge/.github/workflows/codex_pr_review.yml@main
     with:
