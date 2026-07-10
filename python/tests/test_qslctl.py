@@ -24,11 +24,12 @@ class QslCtlTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)
             compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
             self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"})
             good = root / "GoodRepo"
             bad = root / "BadRepo"
-            self._write_repo(good, "2026.07.2", "37c81901160c5b31127a27dba1c63944933fb6bf")
-            self._write_repo(bad, "2026.07.2", "b" * 40)
+            self._write_repo(good, "2026.07.2", "37c81901160c5b31127a27dba1c63944933fb6bf", tier="strategy-lib", ring="ring_b")
+            self._write_repo(bad, "2026.07.2", "b" * 40, tier="strategy-lib", ring="ring_b")
 
             with patch.object(qslctl, "_is_quant_repo", return_value=True):
                 results = qslctl.check_all(projects_root=root, compat_root=compat_root)
@@ -37,6 +38,40 @@ class QslCtlTest(unittest.TestCase):
         self.assertTrue(by_repo["GoodRepo"].ok)
         self.assertFalse(by_repo["BadRepo"].ok)
         self.assertIn("bundle pin mismatch", by_repo["BadRepo"].issues[0])
+
+    def test_check_all_reports_forbidden_dependency_direction(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(
+                compat_root,
+                "2026.07.2",
+                {"UsEquityStrategies": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"},
+            )
+            self._write_repo(
+                root / "QuantPlatformKit",
+                "2026.07.2",
+                "17ddb86c72d44b2c7b78ba7a10d8f71b21180166",
+                package="us-equity-strategies",
+                source_repo="UsEquityStrategies",
+                tier="core",
+                ring="ring_a",
+            )
+            self._write_repo(
+                root / "UsEquityStrategies",
+                "2026.07.2",
+                "a" * 40,
+                tier="strategy-lib",
+                ring="ring_b",
+            )
+
+            with patch.object(qslctl, "_is_quant_repo", return_value=True):
+                results = qslctl.check_all(projects_root=root, compat_root=compat_root)
+
+        by_repo = {result.repo: result for result in results}
+        self.assertFalse(by_repo["QuantPlatformKit"].ok)
+        self.assertTrue(any("forbidden dependency direction" in item for item in by_repo["QuantPlatformKit"].issues))
 
     def test_report_groups_repositories_by_ring(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:
@@ -139,7 +174,13 @@ class QslCtlTest(unittest.TestCase):
         path = compat_root / "compat" / "repo-tiers.toml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            "[upgrade_rings]\n"
+            "[tiers]\n"
+            'core = { name = "core" }\n'
+            'strategy_lib = { name = "strategy-lib" }\n'
+            'pipeline = { name = "pipeline" }\n'
+            'runtime = { name = "runtime" }\n'
+            'ops = { name = "ops/tooling" }\n'
+            "\n[upgrade_rings]\n"
             'ring_a = "core"\n'
             'ring_b = "strategy-lib"\n'
             'ring_c = "pipeline"\n'
@@ -154,18 +195,20 @@ class QslCtlTest(unittest.TestCase):
         bundle: str,
         ref: str,
         *,
-        tier: str = "strategy-library",
-        ring: str = "1",
+        package: str = "quant-platform-kit",
+        source_repo: str = "QuantPlatformKit",
+        tier: str = "strategy-lib",
+        ring: str = "ring_b",
         enforce_bundle: bool = True,
     ) -> None:
         repo_root.mkdir(parents=True, exist_ok=True)
         (repo_root / "qsl.toml").write_text(
-            f'tier = "{tier}"\nring = "{ring}"\n[compat]\nbundle = "{bundle}"\n'
+            f'tier = "{tier}"\nupgrade_ring = "{ring}"\n[compat]\nbundle = "{bundle}"\n'
             f'enforce_bundle = {"true" if enforce_bundle else "false"}\n',
             encoding="utf-8",
         )
         (repo_root / "pyproject.toml").write_text(
-            f'dependencies = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@{ref}"]\n',
+            f'dependencies = ["{package} @ git+https://github.com/QuantStrategyLab/{source_repo}.git@{ref}"]\n',
             encoding="utf-8",
         )
 
