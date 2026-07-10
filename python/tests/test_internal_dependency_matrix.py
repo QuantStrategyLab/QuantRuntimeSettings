@@ -99,6 +99,29 @@ dependencies = [
         self.assertEqual(report.missing_files, [])
         self.assertEqual(report.issues, [])
 
+    def test_qpk_rollout_consumers_use_canonical_pin(self):
+        canonical_pin = "2381aa4577e9fd6329053a73a1c888929170eaf3"
+        rollout_consumers = {
+            "BinancePlatform",
+            "CharlesSchwabPlatform",
+            "CnEquityStrategies",
+            "CryptoStrategies",
+            "FirstradePlatform",
+            "HkEquityStrategies",
+            "InteractiveBrokersPlatform",
+            "LongBridgePlatform",
+            "UsEquityStrategies",
+        }
+        matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
+        refs = {
+            (pin.consumer_repo, pin.path): pin.ref
+            for pin in matrix_pins
+            if pin.consumer_repo in rollout_consumers and pin.source_repo == "QuantPlatformKit"
+        }
+
+        self.assertEqual(len(refs), len(rollout_consumers) * 2)
+        self.assertEqual(set(refs.values()), {canonical_pin})
+
     def test_require_consumer_files_treats_missing_paths_as_issues(self):
         projects_root = self._make_projects_root({})
         expected = [
