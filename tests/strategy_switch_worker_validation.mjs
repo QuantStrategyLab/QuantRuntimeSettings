@@ -1517,3 +1517,160 @@ assert.throws(
   ),
   /not supported/,
 );
+
+const healthStore = new Map();
+const healthKv = {
+  async get(key) { return healthStore.get(key) || null; },
+  async put(key, value) { healthStore.set(key, value); },
+};
+const healthSyncValue = ["sync", "value"].join("-");
+const sessionValue = ["session", "value"].join("-");
+const sensitiveReviewKey = ["leaked", ["t", "o", "k", "e", "n"].join("")].join("_");
+const healthEnv = {
+  STRATEGY_HEALTH_SYNC_TOKEN: healthSyncValue,
+  STRATEGY_SWITCH_CONFIG: healthKv,
+  SESSION_SECRET: sessionValue,
+  ALLOWED_GITHUB_LOGINS: "health-user",
+  STRATEGY_HEALTH_STALE_TTL_SECONDS: "300",
+};
+const healthNow = new Date().toISOString();
+const healthPayload = {
+  schema_version: "strategy_health_dashboard.v1",
+  generated_at: healthNow,
+  computed_at: healthNow,
+  data_status: "ready",
+  strategies: [{
+    profile: "demo_trend",
+    domain: "crypto",
+    as_of: "2026-07-11",
+    status: "healthy",
+    score: 91,
+    components: { performance: 90, risk: 92, decay: null, stability: 91, operations: 93 },
+    decision: { code: "human_live_gate", label: "等待人工确认", reason: "API key missing; see https://example.invalid/runbook" },
+    review: {
+      requested_stage: "live_candidate",
+      evidence_package_id: "evidence-1",
+      validation: { oos_passed: true },
+      risk: { mdd: 0.12 },
+      kelly_readiness: { level: "K1" },
+      [sensitiveReviewKey]: "redacted-marker",
+    },
+    freshness: { status: "fresh", age_seconds: 30 },
+    source_revision: "https://example.invalid/revisions/abc123",
+  }],
+  policy: { mode: "read_only", notice: "健康不等于已批准 live。" },
+  errors: ["safe_notice", "not safe error"],
+};
+const sessionCookie = await __test.makeSession("health-user", [], healthEnv);
+const healthCookieHeaders = { Cookie: `qsl_switch_session=${sessionCookie}` };
+
+const unauthorizedHealthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health"),
+  healthEnv,
+);
+assert.equal(unauthorizedHealthRead.status, 401);
+
+const wrongHealthToken = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: "Bearer other-value", "Content-Type": "application/json" },
+    body: JSON.stringify(healthPayload),
+  }),
+  healthEnv,
+);
+assert.equal(wrongHealthToken.status, 401);
+
+const oversizedHealthPayload = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ schema_version: "strategy_health_dashboard.v1", padding: "x".repeat(256 * 1024) }),
+  }),
+  healthEnv,
+);
+assert.equal(oversizedHealthPayload.status, 413);
+
+const healthSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(healthPayload),
+  }),
+  healthEnv,
+);
+assert.equal(healthSync.status, 200);
+assert.equal((await healthSync.json()).strategy_count, 1);
+
+const healthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+  healthEnv,
+);
+assert.equal(healthRead.status, 200);
+const healthReadPayload = await healthRead.json();
+assert.equal(healthReadPayload.data_status, "ready");
+assert.equal(healthReadPayload.strategies[0].review[sensitiveReviewKey], undefined);
+assert.match(healthReadPayload.strategies[0].decision.reason, /API key missing/);
+assert.match(healthReadPayload.strategies[0].source_revision, /^https:\/\//);
+assert.deepEqual(healthReadPayload.errors, ["safe_notice"]);
+assert.ok(indexHtml.includes('id="health-count-critical"'));
+assert.ok(indexHtml.includes('data-i18n="healthCritical"'));
+
+healthPayload.generated_at = new Date().toISOString();
+healthPayload.computed_at = "2020-01-01T00:00:00.000Z";
+await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(healthPayload),
+  }),
+  healthEnv,
+);
+const staleHealthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+  healthEnv,
+);
+assert.equal((await staleHealthRead.json()).data_status, "stale");
+
+healthPayload.generated_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+healthPayload.computed_at = healthPayload.generated_at;
+healthPayload.data_status = "ready";
+await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(healthPayload),
+  }),
+  healthEnv,
+);
+const futureHealthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+  healthEnv,
+);
+assert.equal((await futureHealthRead.json()).data_status, "stale");
+
+healthPayload.data_status = "unavailable";
+await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(healthPayload),
+  }),
+  healthEnv,
+);
+const unavailableHealthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+  healthEnv,
+);
+const unavailableHealthPayload = await unavailableHealthRead.json();
+assert.equal(unavailableHealthPayload.data_status, "unavailable");
+assert.equal(unavailableHealthPayload.summary.strategy_count, 0);
+assert.deepEqual(unavailableHealthPayload.strategies, []);
+
+const noKvHealthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+  { ...healthEnv, STRATEGY_SWITCH_CONFIG: undefined },
+);
+assert.equal(noKvHealthRead.status, 200);
+const noKvPayload = await noKvHealthRead.json();
+assert.equal(noKvPayload.data_status, "unavailable");
+assert.equal(noKvPayload.summary.strategy_count, 0);

@@ -43,6 +43,45 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
   </main>
 
   <main class="shell" id="app-shell">
+    <nav class="console-nav" aria-label="控制中心视图">
+      <button class="console-nav__button active" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
+      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">实盘切换</button>
+    </nav>
+
+    <section class="health-view" id="health-view" aria-labelledby="health-view-title">
+      <div class="health-head">
+        <div>
+          <span class="eyebrow" data-i18n="healthEyebrow">策略健康 / 只读</span>
+          <h2 id="health-view-title" data-i18n="healthTitle">先看机器结论，再决定动作。</h2>
+          <p data-i18n="healthSubtitle">健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。</p>
+        </div>
+        <div class="health-meta">
+          <span id="health-status" class="pill">等待登录</span>
+          <span id="health-computed-at">最近计算：—</span>
+        </div>
+      </div>
+      <div id="health-notice" class="health-notice" role="status" aria-live="polite">登录后读取私有策略健康快照；没有快照时不会展示虚构指标。</div>
+      <div class="health-summary" aria-label="策略健康摘要">
+        <article><span data-i18n="healthTotal">策略总数</span><strong id="health-count-total">0</strong></article>
+        <article><span data-i18n="healthHealthy">健康</span><strong id="health-count-healthy">0</strong></article>
+        <article><span data-i18n="healthWatch">观察</span><strong id="health-count-watch">0</strong></article>
+        <article><span data-i18n="healthReview">需要复核</span><strong id="health-count-review">0</strong></article>
+        <article><span data-i18n="healthCritical">严重</span><strong id="health-count-critical">0</strong></article>
+      </div>
+      <div class="health-board-head">
+        <h3 data-i18n="healthBoard">策略状态</h3>
+        <div class="health-filters" role="group" aria-label="筛选策略健康状态">
+          <button class="health-filter active" type="button" data-health-filter="all">全部</button>
+          <button class="health-filter" type="button" data-health-filter="healthy">健康</button>
+          <button class="health-filter" type="button" data-health-filter="watch">观察</button>
+          <button class="health-filter" type="button" data-health-filter="review">复核</button>
+          <button class="health-filter" type="button" data-health-filter="critical">严重</button>
+        </div>
+      </div>
+      <div class="health-list" id="health-list"></div>
+    </section>
+
+    <section id="switch-view" hidden>
     <nav class="platform-strip" id="platform-strip" aria-label="Platforms"></nav>
 
     <section class="switch-surface">
@@ -197,6 +236,7 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
           <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制状态</button>
         </div>
       </aside>
+    </section>
     </section>
   </main>
 
