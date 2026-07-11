@@ -1147,8 +1147,12 @@ async function strategyHealthResponse(request, env) {
   }
 
   const ttlSeconds = strategyHealthStaleTtlSeconds(env);
-  const ageSeconds = snapshot.generated_at
-    ? Math.max(0, (Date.now() - Date.parse(snapshot.generated_at)) / 1000)
+  const freshnessTimestamps = [snapshot.generated_at, snapshot.computed_at]
+    .filter(Boolean)
+    .map((value) => Date.parse(value));
+  const freshnessAt = freshnessTimestamps.length ? Math.min(...freshnessTimestamps) : Number.NaN;
+  const ageSeconds = Number.isFinite(freshnessAt)
+    ? Math.max(0, (Date.now() - freshnessAt) / 1000)
     : Number.POSITIVE_INFINITY;
   if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) {
     snapshot.data_status = "stale";
@@ -1183,8 +1187,10 @@ function normalizeStrategyHealthSnapshot(payload, fieldName = "strategy health s
   if (payload.schema_version !== "strategy_health_dashboard.v1") {
     throw new Error(`${fieldName}.schema_version is unsupported`);
   }
-  const strategies = normalizeStrategyHealthStrategies(payload.strategies, fieldName);
   const status = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  const strategies = status === "unavailable"
+    ? []
+    : normalizeStrategyHealthStrategies(payload.strategies, fieldName);
   const summary = normalizeStrategyHealthSummary(payload.summary, strategies);
   const errors = normalizeStrategyHealthErrors(payload.errors);
   return {
@@ -1316,6 +1322,8 @@ function normalizeStrategyHealthText(value, fieldName, maxLength, nullable = fal
     !text ||
     text.length > maxLength ||
     /[<>\\]/.test(text) ||
+    /\b(token|secret|password|cookie|jwt|bearer)\b|api[_ -]?key|private[_ -]?key/i.test(text) ||
+    /(?:\/Users\/|\/home\/|[A-Za-z]:[\\/])/.test(text) ||
     text.startsWith("/") ||
     /^[A-Za-z]:[\\/]/.test(text) ||
     text.includes("://")
