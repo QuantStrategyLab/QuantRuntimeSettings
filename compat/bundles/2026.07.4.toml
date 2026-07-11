@@ -1,0 +1,12 @@
+name = "2026.07.3"
+description = "QSL compatibility bundle after the 2026-07-11 QPK pin convergence"
+created_at = "2026-07-11"
+
+[repos]
+QuantPlatformKit = "651c9ac4f37ce6e7fe1bac84dc7646cd5abc9e6e"
+UsEquityStrategies = "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+HkEquityStrategies = "b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd"
+CnEquityStrategies = "12c0cd4801060fcb2f9452ffd9a7f48df446ddd0"
+CryptoStrategies = "ef78312d7653095f585c4f75d45bf765bedc2751"
+QuantStrategyPlugins = "1f3a27b8fd83d71b583f4f5160a748e95fbefaa1"
+MarketSignalSources = "bda8ab10b80a646e4b579ef4c0d5dfe90776e908"
