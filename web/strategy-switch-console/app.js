@@ -823,6 +823,16 @@
       zh: {
         appTitle: "策略切换",
         appSubtitle: "选平台、目标账号和策略，一次执行完成切换。",
+        healthView: "策略健康",
+        switchView: "实盘切换",
+        healthEyebrow: "策略健康 / 只读",
+        healthTitle: "先看机器结论，再决定动作。",
+        healthSubtitle: "健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。",
+        healthTotal: "策略总数",
+        healthHealthy: "健康",
+        healthWatch: "观察",
+        healthReview: "需要复核",
+        healthBoard: "策略状态",
         bootKicker: "初始化控制台",
         bootTitle: "读取策略配置",
         bootMessage: "正在读取登录状态、账号配置和当前状态。",
@@ -987,6 +997,16 @@
       en: {
         appTitle: "Strategy Switch",
         appSubtitle: "Pick platform, target account, and strategy. One action switches everything.",
+        healthView: "Strategy Health",
+        switchView: "Live Switch",
+        healthEyebrow: "Strategy health / read only",
+        healthTitle: "Read the machine conclusion before choosing an action.",
+        healthSubtitle: "Health does not approve live; normal live, funding, and leverage changes still need a human.",
+        healthTotal: "Strategies",
+        healthHealthy: "Healthy",
+        healthWatch: "Watch",
+        healthReview: "Review",
+        healthBoard: "Strategy status",
         bootKicker: "Starting console",
         bootTitle: "Loading strategy config",
         bootMessage: "Reading session, account config, and current state.",
@@ -1179,11 +1199,21 @@
     const state = {
       selected: "longbridge",
       lang: initialLang,
+      view: "health",
       appReady: false,
       bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
       accountOptions: clone(defaultAccountOptions),
       currentStrategies: {},
+      health: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { strategy_count: 0, healthy: 0, watch: 0, review: 0, critical: 0 },
+          strategies: [],
+        },
+        filter: "all",
+      },
       configSource: "default",
       repositories: clone(defaultRepositories),
       forms: {
@@ -3220,8 +3250,106 @@
       el("boot-message").textContent = t(state.bootMessageKey);
     }
 
+    function healthStatusLabel(status) {
+      return { healthy: "健康", watch: "观察", review: "复核", critical: "严重" }[status] || "未知";
+    }
+
+    function normalizeHealthPayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid health payload");
+      const strategies = Array.isArray(payload.strategies) ? payload.strategies : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        strategies: strategies.filter((item) => item && typeof item === "object" && ["healthy", "watch", "review", "critical"].includes(item.status)),
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function renderHealth() {
+      const payload = state.health.payload;
+      const summary = payload.summary || {};
+      const statusText = payload.data_status === "ready"
+        ? "快照已加载"
+        : (payload.data_status === "stale" ? "快照已过期" : "等待可用快照");
+      el("health-status").textContent = statusText;
+      el("health-computed-at").textContent = payload.computed_at
+        ? `最近计算：${new Date(payload.computed_at).toLocaleString()}`
+        : "最近计算：—";
+      el("health-count-total").textContent = String(Number(summary.strategy_count) || 0);
+      el("health-count-healthy").textContent = String(Number(summary.healthy) || 0);
+      el("health-count-watch").textContent = String(Number(summary.watch) || 0);
+      el("health-count-review").textContent = String((Number(summary.review) || 0) + (Number(summary.critical) || 0));
+
+      const notice = el("health-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = "登录后读取私有策略健康快照；没有快照时不会展示虚构指标。";
+      } else if (payload.data_status === "stale") {
+        notice.textContent = "健康快照已超过允许的新鲜度窗口；页面保留原始状态，但不会把它当作当前健康结论。";
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = "还没有可用的策略健康快照；当前页面保持 fail-closed 空状态。";
+      } else if (payload.errors?.length) {
+        notice.textContent = `快照已加载，但有 ${payload.errors.length} 个上游提示；缺失数据不会被替换成虚构指标。`;
+      } else {
+        notice.textContent = "健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。";
+      }
+
+      const list = el("health-list");
+      list.replaceChildren();
+      const strategies = payload.strategies.filter((item) => state.health.filter === "all" || item.status === state.health.filter);
+      if (!strategies.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = "暂无可展示的策略健康快照。";
+        list.appendChild(empty);
+        return;
+      }
+      for (const item of strategies) {
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = `${healthStatusLabel(item.status)} · ${item.domain || "unknown"}`;
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = String(item.profile || "unknown");
+        const reason = document.createElement("p");
+        reason.className = "health-card__reason";
+        reason.textContent = `${item.decision?.label || "证据不足，保持研究态"}。${item.decision?.reason || "没有可用的机器检查结果。"}`;
+        const detail = document.createElement("div");
+        detail.className = "health-card__meta";
+        detail.textContent = `阶段：${item.review?.requested_stage || "未标记"} · 截至：${item.as_of || "—"}`;
+        main.append(meta, title, reason, detail);
+        const scoreBlock = document.createElement("div");
+        scoreBlock.className = "health-card__score";
+        const scoreLabel = document.createElement("small");
+        scoreLabel.textContent = "HEALTH";
+        const score = document.createElement("strong");
+        score.textContent = typeof item.score === "number" ? item.score.toFixed(1) : "—";
+        const decision = document.createElement("small");
+        decision.textContent = item.decision?.code || "evidence_missing";
+        scoreBlock.append(scoreLabel, score, decision);
+        card.append(main, scoreBlock);
+        list.appendChild(card);
+      }
+    }
+
+    function renderConsoleView() {
+      const healthButton = el("health-view-button");
+      const switchButton = el("switch-view-button");
+      const healthVisible = state.view === "health";
+      el("health-view").hidden = !healthVisible;
+      el("switch-view").hidden = healthVisible;
+      healthButton.classList.toggle("active", healthVisible);
+      switchButton.classList.toggle("active", !healthVisible);
+    }
+
     function render() {
       applyLanguage();
+      renderConsoleView();
+      renderHealth();
       renderPlatforms();
       renderControls();
       renderSummary();
@@ -3244,12 +3372,32 @@
         state.auth = { available: false, allowed: false, admin: false, login: null };
       }
       if (state.auth.allowed) {
+        await refreshHealth();
         await refreshConfig();
       } else {
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
         render();
       }
+    }
+
+    async function refreshHealth() {
+      if (!state.auth.allowed) {
+        renderHealth();
+        return;
+      }
+      try {
+        state.health.payload = normalizeHealthPayload(await requestJson("/api/strategy-health"));
+      } catch {
+        state.health.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { strategy_count: 0, healthy: 0, watch: 0, review: 0, critical: 0 },
+          strategies: [],
+          errors: ["health_request_failed"],
+        };
+      }
+      renderHealth();
     }
 
     async function refreshStrategyProfiles() {
@@ -3437,6 +3585,19 @@
       return summaryRows(inputs).map(([label, value]) => `${label}: ${value}`).join("\
 ");
     }
+
+    document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
+      state.view = button.dataset.view === "switch" ? "switch" : "health";
+      renderConsoleView();
+      if (state.view === "health") refreshHealth();
+    }));
+
+    document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
+      document.querySelectorAll("[data-health-filter]").forEach((node) => node.classList.remove("active"));
+      button.classList.add("active");
+      state.health.filter = button.dataset.healthFilter;
+      renderHealth();
+    }));
 
     el("platform-strip").addEventListener("click", (event) => {
       const button = event.target.closest("[data-platform]");

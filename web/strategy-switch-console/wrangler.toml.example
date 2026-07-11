@@ -9,6 +9,7 @@ workers_dev = true
 # - SESSION_SECRET
 # - RUNTIME_SETTINGS_DISPATCH_TOKEN
 # - STRATEGY_SWITCH_SYNC_TOKEN  # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
+# - STRATEGY_HEALTH_SYNC_TOKEN  # dedicated outbound health snapshot token; never reuse dispatch token
 # - ALLOWED_GITHUB_LOGINS
 # - ALLOWED_GITHUB_ORGS
 # - STRATEGY_SWITCH_ADMIN_LOGINS

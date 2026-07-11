@@ -33,6 +33,12 @@ const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
 const CURRENT_STRATEGIES_CACHE_TTL_MS = 5_000;       // 5 sec — rapid refresh during active development
 const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
 const GITHUB_API_TIMEOUT_MS = 8000;
+const STRATEGY_HEALTH_SNAPSHOT_KEY = "strategy_health_snapshot";
+const STRATEGY_HEALTH_MAX_BODY_BYTES = 256 * 1024;
+const STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
+const STRATEGY_HEALTH_STATUSES = ["healthy", "watch", "review", "critical"];
+const STRATEGY_HEALTH_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
+const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
@@ -148,6 +154,12 @@ export default {
       }
       if (url.pathname === "/api/internal/sync-strategy-profiles" && request.method === "POST") {
         return await syncStrategyProfilesResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-strategy-health" && request.method === "POST") {
+        return await syncStrategyHealthResponse(request, env);
+      }
+      if (url.pathname === "/api/strategy-health" && request.method === "GET") {
+        return await strategyHealthResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
@@ -1077,6 +1089,281 @@ async function syncStrategyProfilesResponse(request, env) {
     },
     result.synced || kvSyncSkipped ? 200 : 500,
   );
+}
+
+async function syncStrategyHealthResponse(request, env) {
+  requireDedicatedStrategyHealthSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "strategy health KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, STRATEGY_HEALTH_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid strategy health payload" }, error.status || 400);
+  }
+
+  let snapshot;
+  try {
+    snapshot = normalizeStrategyHealthSnapshot(raw, "strategy health snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid strategy health payload" }, 400);
+  }
+
+  await writeConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY, snapshot);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "strategy-health-sync",
+      action: "sync_strategy_health",
+      schema_version: snapshot.schema_version,
+      strategy_count: snapshot.summary.strategy_count,
+      data_status: snapshot.data_status,
+    });
+  } catch {
+    // Snapshot delivery remains successful; audit data must never expose the payload.
+  }
+  return json({
+    ok: true,
+    schema_version: snapshot.schema_version,
+    strategy_count: snapshot.summary.strategy_count,
+    generated_at: snapshot.generated_at,
+  });
+}
+
+async function strategyHealthResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyStrategyHealthPayload("snapshot_unavailable"));
+
+  let snapshot;
+  try {
+    const stored = await readConfigJson(env, STRATEGY_HEALTH_SNAPSHOT_KEY);
+    if (!stored) return json(emptyStrategyHealthPayload("snapshot_unavailable"));
+    snapshot = normalizeStrategyHealthSnapshot(stored, STRATEGY_HEALTH_SNAPSHOT_KEY);
+  } catch {
+    return json(emptyStrategyHealthPayload("snapshot_invalid"));
+  }
+
+  const ttlSeconds = strategyHealthStaleTtlSeconds(env);
+  const ageSeconds = snapshot.generated_at
+    ? Math.max(0, (Date.now() - Date.parse(snapshot.generated_at)) / 1000)
+    : Number.POSITIVE_INFINITY;
+  if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) {
+    snapshot.data_status = "stale";
+  }
+  return json(snapshot);
+}
+
+async function readBoundedJson(request, maxBytes) {
+  const declaredLength = Number(request.headers.get("Content-Length") || 0);
+  if (declaredLength > maxBytes) throw new HttpError("request body is too large", 413);
+  const bytes = await request.arrayBuffer();
+  if (bytes.byteLength > maxBytes) throw new HttpError("request body is too large", 413);
+  try {
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch {
+    throw new HttpError("request body must be valid JSON", 400);
+  }
+}
+
+function requireDedicatedStrategyHealthSyncToken(request, env) {
+  const expected = String(env.STRATEGY_HEALTH_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("strategy health sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("strategy health sync token is invalid", 401);
+}
+
+function normalizeStrategyHealthSnapshot(payload, fieldName = "strategy health snapshot") {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  if (payload.schema_version !== "strategy_health_dashboard.v1") {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const strategies = normalizeStrategyHealthStrategies(payload.strategies, fieldName);
+  const status = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  const summary = normalizeStrategyHealthSummary(payload.summary, strategies);
+  const errors = normalizeStrategyHealthErrors(payload.errors);
+  return {
+    schema_version: "strategy_health_dashboard.v1",
+    generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
+    computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
+    data_status: status,
+    summary,
+    strategies,
+    policy: normalizeStrategyHealthPolicy(payload.policy),
+    errors,
+  };
+}
+
+function normalizeStrategyHealthStrategies(value, fieldName) {
+  if (!Array.isArray(value) || value.length > 100) {
+    throw new Error(`${fieldName}.strategies must be an array with at most 100 items`);
+  }
+  const seen = new Set();
+  return value.map((item, index) => {
+    if (!item || Array.isArray(item) || typeof item !== "object") {
+      throw new Error(`${fieldName}.strategies[${index}] must be an object`);
+    }
+    const profile = cleanSlug(item.profile, `${fieldName}.strategies[${index}].profile`).toLowerCase();
+    if (seen.has(profile)) throw new Error(`${fieldName}.strategies contains duplicate profile`);
+    seen.add(profile);
+    return {
+      profile,
+      domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.strategies[${index}].domain`),
+      as_of: normalizeStrategyHealthText(item.as_of, `${fieldName}.strategies[${index}].as_of`, 64, true),
+      status: cleanChoice(item.status, STRATEGY_HEALTH_STATUSES, `${fieldName}.strategies[${index}].status`),
+      score: normalizeStrategyHealthScore(item.score, `${fieldName}.strategies[${index}].score`),
+      components: normalizeStrategyHealthComponents(item.components, `${fieldName}.strategies[${index}].components`),
+      decision: normalizeStrategyHealthDecision(item.decision, `${fieldName}.strategies[${index}].decision`),
+      review: normalizeStrategyHealthReview(item.review, `${fieldName}.strategies[${index}].review`),
+      freshness: normalizeStrategyHealthFreshness(item.freshness, `${fieldName}.strategies[${index}].freshness`),
+      source_revision: normalizeStrategyHealthText(item.source_revision, `${fieldName}.strategies[${index}].source_revision`, 120, true),
+    };
+  });
+}
+
+function normalizeStrategyHealthSummary(value, strategies) {
+  const counts = Object.fromEntries(STRATEGY_HEALTH_STATUSES.map((status) => [status, 0]));
+  for (const item of strategies) counts[item.status] += 1;
+  return { strategy_count: strategies.length, ...counts };
+}
+
+function normalizeStrategyHealthComponents(value, fieldName) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    performance: normalizeStrategyHealthScore(source.performance, `${fieldName}.performance`),
+    risk: normalizeStrategyHealthScore(source.risk, `${fieldName}.risk`),
+    decay: normalizeStrategyHealthScore(source.decay, `${fieldName}.decay`),
+    stability: normalizeStrategyHealthScore(source.stability, `${fieldName}.stability`),
+    operations: normalizeStrategyHealthScore(source.operations, `${fieldName}.operations`),
+  };
+}
+
+function normalizeStrategyHealthDecision(value, fieldName) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    code: cleanSlug(source.code || "evidence_missing", `${fieldName}.code`).toLowerCase(),
+    label: normalizeStrategyHealthText(source.label || "证据不足，保持研究态", `${fieldName}.label`, 120),
+    reason: normalizeStrategyHealthText(source.reason || "没有可用的机器检查结果。", `${fieldName}.reason`, 240),
+  };
+}
+
+function normalizeStrategyHealthReview(value, fieldName) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    requested_stage: normalizeStrategyHealthText(source.requested_stage, `${fieldName}.requested_stage`, 80, true),
+    evidence_package_id: normalizeStrategyHealthText(source.evidence_package_id, `${fieldName}.evidence_package_id`, 120, true),
+    validation: normalizeStrategyHealthSummaryObject(source.validation),
+    risk: normalizeStrategyHealthSummaryObject(source.risk),
+    kelly_readiness: normalizeStrategyHealthSummaryObject(source.kelly_readiness),
+  };
+}
+
+function normalizeStrategyHealthSummaryObject(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const result = {};
+  for (const [key, raw] of Object.entries(value).slice(0, 12)) {
+    if (!/^[A-Za-z0-9_.-]{1,48}$/.test(key)) continue;
+    if (/(token|secret|password|cookie|private|path|key)/i.test(key)) continue;
+    if (typeof raw === "boolean") result[key] = raw;
+    else if (typeof raw === "number" && Number.isFinite(raw)) result[key] = raw;
+    else if (typeof raw === "string" && normalizeStrategyHealthText(raw, "summary.value", 120, true)) {
+      result[key] = raw;
+    }
+  }
+  return result;
+}
+
+function normalizeStrategyHealthFreshness(value, fieldName) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    status: cleanChoice(source.status || "unknown", ["fresh", "stale", "unknown"], `${fieldName}.status`),
+    age_seconds: normalizeStrategyHealthAge(source.age_seconds, `${fieldName}.age_seconds`),
+  };
+}
+
+function normalizeStrategyHealthAge(value, fieldName) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 315360000) throw new Error(`${fieldName} is invalid`);
+  return Math.round(number);
+}
+
+function normalizeStrategyHealthScore(value, fieldName) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 100) throw new Error(`${fieldName} must be between 0 and 100`);
+  return number;
+}
+
+function normalizeStrategyHealthTimestamp(value, fieldName, nullable = false) {
+  if ((value === null || value === undefined || value === "") && nullable) return null;
+  const text = normalizeStrategyHealthText(value, fieldName, 64);
+  if (!/^\d{4}-\d{2}-\d{2}T.+(?:Z|[+-]\d{2}:\d{2})$/.test(text) || Number.isNaN(Date.parse(text))) {
+    throw new Error(`${fieldName} must be an ISO timestamp`);
+  }
+  return text;
+}
+
+function normalizeStrategyHealthText(value, fieldName, maxLength, nullable = false) {
+  if ((value === null || value === undefined || value === "") && nullable) return null;
+  const text = String(value || "").trim();
+  if (
+    !text ||
+    text.length > maxLength ||
+    /[<>\\]/.test(text) ||
+    text.startsWith("/") ||
+    /^[A-Za-z]:[\\/]/.test(text) ||
+    text.includes("://")
+  ) throw new Error(`${fieldName} is invalid`);
+  return text;
+}
+
+function normalizeStrategyHealthErrors(value) {
+  if (!Array.isArray(value)) return [];
+  return uniqueStrings(value.slice(0, 20).filter((item) => /^[a-z][a-z0-9_.-]{0,63}$/.test(String(item || ""))));
+}
+
+function normalizeStrategyHealthPolicy(value) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const list = (raw) => Array.isArray(raw)
+    ? raw.slice(0, 20).map((item) => normalizeStrategyHealthText(item, "policy.item", 120)).filter(Boolean)
+    : [];
+  return {
+    mode: normalizeStrategyHealthText(source.mode || "read_only", "policy.mode", 40),
+    automatic_stages: list(source.automatic_stages),
+    automatic_modes: list(source.automatic_modes),
+    human_gate_stages: list(source.human_gate_stages),
+    canary_requirements: list(source.canary_requirements),
+    human_actions: list(source.human_actions),
+    machine_checks: list(source.machine_checks),
+    notice: normalizeStrategyHealthText(source.notice || "健康不等于已批准 live。", "policy.notice", 240),
+  };
+}
+
+function emptyStrategyHealthPayload(errorCode) {
+  return {
+    schema_version: "strategy_health_dashboard.v1",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    summary: { strategy_count: 0, healthy: 0, watch: 0, review: 0, critical: 0 },
+    strategies: [],
+    policy: normalizeStrategyHealthPolicy({}),
+    errors: [errorCode],
+  };
+}
+
+function strategyHealthStaleTtlSeconds(env) {
+  const configured = Number(env.STRATEGY_HEALTH_STALE_TTL_SECONDS);
+  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
+    return STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS;
+  }
+  return Math.floor(configured);
 }
 
 async function syncStrategyProfilesConfig(env, session) {
@@ -2734,6 +3021,9 @@ export const __test = {
   fetchWithTimeout,
   syncDefaultStrategyProfiles: syncStrategyProfilesConfig,
   syncDefaultStrategyForAccount,
+  normalizeStrategyHealthSnapshot,
+  emptyStrategyHealthPayload,
+  makeSession,
   supportedDomainsForAccount,
   updateAccountOptionsDefaultStrategy,
   withTimeout,

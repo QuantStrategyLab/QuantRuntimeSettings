@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/strategy-health-dashboard.v1.schema.json",
+  "title": "Strategy Health Dashboard v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "computed_at",
+    "data_status",
+    "summary",
+    "strategies",
+    "policy",
+    "errors"
+  ],
+  "properties": {
+    "schema_version": { "const": "strategy_health_dashboard.v1" },
+    "generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy_count", "healthy", "watch", "review", "critical"],
+      "properties": {
+        "strategy_count": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "healthy": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "watch": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "review": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "critical": { "type": "integer", "minimum": 0, "maximum": 100 }
+      }
+    },
+    "strategies": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/strategy" }
+    },
+    "policy": { "$ref": "#/$defs/policy" },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  },
+  "$defs": {
+    "score": { "type": ["number", "null"], "minimum": 0, "maximum": 100 },
+    "strategy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile", "domain", "as_of", "status", "score", "components", "decision", "review", "freshness", "source_revision"],
+      "properties": {
+        "profile": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,120}$" },
+        "domain": { "enum": ["us_equity", "hk_equity", "cn_equity", "crypto"] },
+        "as_of": { "type": ["string", "null"], "maxLength": 64 },
+        "status": { "enum": ["healthy", "watch", "review", "critical"] },
+        "score": { "$ref": "#/$defs/score" },
+        "components": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["performance", "risk", "decay", "stability", "operations"],
+          "properties": {
+            "performance": { "$ref": "#/$defs/score" },
+            "risk": { "$ref": "#/$defs/score" },
+            "decay": { "$ref": "#/$defs/score" },
+            "stability": { "$ref": "#/$defs/score" },
+            "operations": { "$ref": "#/$defs/score" }
+          }
+        },
+        "decision": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "label", "reason"],
+          "properties": {
+            "code": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,120}$" },
+            "label": { "type": "string", "maxLength": 120 },
+            "reason": { "type": "string", "maxLength": 240 }
+          }
+        },
+        "review": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["requested_stage", "evidence_package_id", "validation", "risk", "kelly_readiness"],
+          "properties": {
+            "requested_stage": { "type": ["string", "null"], "maxLength": 80 },
+            "evidence_package_id": { "type": ["string", "null"], "maxLength": 120 },
+            "validation": { "type": "object", "additionalProperties": true },
+            "risk": { "type": "object", "additionalProperties": true },
+            "kelly_readiness": { "type": "object", "additionalProperties": true }
+          }
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "age_seconds"],
+          "properties": {
+            "status": { "enum": ["fresh", "stale", "unknown"] },
+            "age_seconds": { "type": ["integer", "null"], "minimum": 0, "maximum": 315360000 }
+          }
+        },
+        "source_revision": { "type": ["string", "null"], "maxLength": 120 }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "automatic_stages", "automatic_modes", "human_gate_stages", "canary_requirements", "human_actions", "machine_checks", "notice"],
+      "properties": {
+        "mode": { "type": "string", "maxLength": 40 },
+        "automatic_stages": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } },
+        "automatic_modes": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } },
+        "human_gate_stages": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } },
+        "canary_requirements": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } },
+        "human_actions": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } },
+        "machine_checks": { "type": "array", "maxItems": 20, "items": { "type": "string", "maxLength": 120 } },
+        "notice": { "type": "string", "maxLength": 240 }
+      }
+    }
+  }
+}

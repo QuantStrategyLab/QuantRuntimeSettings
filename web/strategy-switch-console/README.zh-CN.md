@@ -21,6 +21,7 @@ ALLOWED_GITHUB_LOGINS
 ALLOWED_GITHUB_ORGS
 STRATEGY_SWITCH_ADMIN_LOGINS
 STRATEGY_SWITCH_ADMIN_ORGS
+STRATEGY_HEALTH_SYNC_TOKEN
 ```
 
 可选：
@@ -66,6 +67,7 @@ auth_config
 account_options
 strategy_profiles
 audit_log
+strategy_health_snapshot
 ```
 
 没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
@@ -133,6 +135,18 @@ Worker 会校验 dispatch 参数必须匹配这里的某个账号项，也会校
 收入层控件来自 `strategy-profiles.example.json` 里的 live 验证策略元数据。切换页可以沿用当前配置、按 profile 默认起始金额和最高比例开启收入层，或关闭收入层。期权层也来自同一份策略 profile 元数据，但网页只暴露三态策略：沿用当前、启用 profile 默认 recipe 和预算、或关闭并清理期权层变量。手工切换请求仍不能通过 `extra_variables_json` 覆盖直接期权 overlay / LEAPS 字段；Worker 和构建脚本会拒绝这些直接覆盖项。
 
 策略切换成功后会将账号级设置（plugin_mode、option_overlay_mode、cash_only_execution_mode、DCA 模式）同步回 KV 的 `account_options` key。策略 profile 本身仅保存在 GitHub 变量（`RUNTIME_TARGET_JSON` / `STRATEGY_PROFILE`）中，不在 KV 中重复存储。
+
+## 策略健康只读接口
+
+quant-monitor 使用专用 `STRATEGY_HEALTH_SYNC_TOKEN` 调用：
+
+```text
+POST /api/internal/sync-strategy-health
+GET  /api/strategy-health
+```
+
+写入接口只接受专用 token、限制请求体大小，并把规范化的
+`strategy_health_dashboard.v1` 快照写入 `strategy_health_snapshot`。读取接口要求已登录且在 allowlist；缺失、无效或超过默认 2 小时 TTL 的快照会返回 `unavailable` / `stale`，不会伪造健康指标。该 token 不复用 workflow dispatch token。
 
 ## 策略 Profile 对齐规范
 
