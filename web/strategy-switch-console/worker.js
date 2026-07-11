@@ -1151,9 +1151,13 @@ async function strategyHealthResponse(request, env) {
     .filter(Boolean)
     .map((value) => Date.parse(value));
   const freshnessAt = freshnessTimestamps.length ? Math.min(...freshnessTimestamps) : Number.NaN;
-  const ageSeconds = Number.isFinite(freshnessAt)
-    ? Math.max(0, (Date.now() - freshnessAt) / 1000)
-    : Number.POSITIVE_INFINITY;
+  const now = Date.now();
+  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
+  const ageSeconds = futureBeyondClockSkew
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(freshnessAt)
+      ? Math.max(0, (now - freshnessAt) / 1000)
+      : Number.POSITIVE_INFINITY;
   if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) {
     snapshot.data_status = "stale";
   }
@@ -1220,14 +1224,14 @@ function normalizeStrategyHealthStrategies(value, fieldName) {
     return {
       profile,
       domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.strategies[${index}].domain`),
-      as_of: normalizeStrategyHealthText(item.as_of, `${fieldName}.strategies[${index}].as_of`, 64, true),
+      as_of: sanitizeStrategyHealthText(item.as_of, `${fieldName}.strategies[${index}].as_of`, 64, true),
       status: cleanChoice(item.status, STRATEGY_HEALTH_STATUSES, `${fieldName}.strategies[${index}].status`),
       score: normalizeStrategyHealthScore(item.score, `${fieldName}.strategies[${index}].score`),
       components: normalizeStrategyHealthComponents(item.components, `${fieldName}.strategies[${index}].components`),
       decision: normalizeStrategyHealthDecision(item.decision, `${fieldName}.strategies[${index}].decision`),
       review: normalizeStrategyHealthReview(item.review, `${fieldName}.strategies[${index}].review`),
       freshness: normalizeStrategyHealthFreshness(item.freshness, `${fieldName}.strategies[${index}].freshness`),
-      source_revision: normalizeStrategyHealthText(item.source_revision, `${fieldName}.strategies[${index}].source_revision`, 120, true),
+      source_revision: sanitizeStrategyHealthText(item.source_revision, `${fieldName}.strategies[${index}].source_revision`, 120, true),
     };
   });
 }
@@ -1253,16 +1257,16 @@ function normalizeStrategyHealthDecision(value, fieldName) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
     code: cleanSlug(source.code || "evidence_missing", `${fieldName}.code`).toLowerCase(),
-    label: normalizeStrategyHealthText(source.label || "证据不足，保持研究态", `${fieldName}.label`, 120),
-    reason: normalizeStrategyHealthText(source.reason || "没有可用的机器检查结果。", `${fieldName}.reason`, 240),
+    label: sanitizeStrategyHealthText(source.label, `${fieldName}.label`, 120, false, "证据不足，保持研究态"),
+    reason: sanitizeStrategyHealthText(source.reason, `${fieldName}.reason`, 240, false, "没有可用的机器检查结果。"),
   };
 }
 
 function normalizeStrategyHealthReview(value, fieldName) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
-    requested_stage: normalizeStrategyHealthText(source.requested_stage, `${fieldName}.requested_stage`, 80, true),
-    evidence_package_id: normalizeStrategyHealthText(source.evidence_package_id, `${fieldName}.evidence_package_id`, 120, true),
+    requested_stage: sanitizeStrategyHealthText(source.requested_stage, `${fieldName}.requested_stage`, 80, true),
+    evidence_package_id: sanitizeStrategyHealthText(source.evidence_package_id, `${fieldName}.evidence_package_id`, 120, true),
     validation: normalizeStrategyHealthSummaryObject(source.validation),
     risk: normalizeStrategyHealthSummaryObject(source.risk),
     kelly_readiness: normalizeStrategyHealthSummaryObject(source.kelly_readiness),
@@ -1277,8 +1281,9 @@ function normalizeStrategyHealthSummaryObject(value) {
     if (/(token|secret|password|cookie|private|path|key)/i.test(key)) continue;
     if (typeof raw === "boolean") result[key] = raw;
     else if (typeof raw === "number" && Number.isFinite(raw)) result[key] = raw;
-    else if (typeof raw === "string" && normalizeStrategyHealthText(raw, "summary.value", 120, true)) {
-      result[key] = raw;
+    else if (typeof raw === "string") {
+      const safe = sanitizeStrategyHealthText(raw, "summary.value", 120, true);
+      if (safe !== null) result[key] = safe;
     }
   }
   return result;
@@ -1322,12 +1327,26 @@ function normalizeStrategyHealthText(value, fieldName, maxLength, nullable = fal
     !text ||
     text.length > maxLength ||
     /[<>\\]/.test(text) ||
-    /\b(token|secret|password|cookie|jwt|bearer)\b|api[_ -]?key|private[_ -]?key/i.test(text) ||
-    /(?:\/Users\/|\/home\/|[A-Za-z]:[\\/])/.test(text) ||
     text.startsWith("/") ||
-    /^[A-Za-z]:[\\/]/.test(text) ||
-    text.includes("://")
+    /^[A-Za-z]:[\\/]/.test(text)
   ) throw new Error(`${fieldName} is invalid`);
+  return text;
+}
+
+function sanitizeStrategyHealthText(value, fieldName, maxLength, nullable = false, fallback = null) {
+  if (value === null || value === undefined || value === "") return nullable ? null : fallback;
+  let text;
+  try {
+    text = normalizeStrategyHealthText(value, fieldName, maxLength);
+  } catch {
+    return nullable ? null : fallback;
+  }
+  if (
+    /\bBearer\s+[A-Za-z0-9._~+/=-]{12,}/i.test(text) ||
+    /\b(?:token|secret|password|api[_ -]?key|private[_ -]?key|cookie)\s*[:=]\s*[^\s,;]{8,}/i.test(text) ||
+    /\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{20,})\b/.test(text) ||
+    /(?:^|[\s(])(?:\/Users\/|\/home\/|[A-Za-z]:[\\/])/.test(text)
+  ) return nullable ? null : fallback;
   return text;
 }
 
@@ -1339,17 +1358,17 @@ function normalizeStrategyHealthErrors(value) {
 function normalizeStrategyHealthPolicy(value) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const list = (raw) => Array.isArray(raw)
-    ? raw.slice(0, 20).map((item) => normalizeStrategyHealthText(item, "policy.item", 120)).filter(Boolean)
+    ? raw.slice(0, 20).map((item) => sanitizeStrategyHealthText(item, "policy.item", 120, true)).filter(Boolean)
     : [];
   return {
-    mode: normalizeStrategyHealthText(source.mode || "read_only", "policy.mode", 40),
+    mode: sanitizeStrategyHealthText(source.mode, "policy.mode", 40, false, "read_only"),
     automatic_stages: list(source.automatic_stages),
     automatic_modes: list(source.automatic_modes),
     human_gate_stages: list(source.human_gate_stages),
     canary_requirements: list(source.canary_requirements),
     human_actions: list(source.human_actions),
     machine_checks: list(source.machine_checks),
-    notice: normalizeStrategyHealthText(source.notice || "健康不等于已批准 live。", "policy.notice", 240),
+    notice: sanitizeStrategyHealthText(source.notice, "policy.notice", 240, false, "健康不等于已批准 live。"),
   };
 }
 

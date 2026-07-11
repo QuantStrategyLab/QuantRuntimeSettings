@@ -1546,7 +1546,7 @@ const healthPayload = {
     status: "healthy",
     score: 91,
     components: { performance: 90, risk: 92, decay: null, stability: 91, operations: 93 },
-    decision: { code: "human_live_gate", label: "等待人工确认", reason: "健康不等于已批准 live。" },
+    decision: { code: "human_live_gate", label: "等待人工确认", reason: "API key missing; see https://example.invalid/runbook" },
     review: {
       requested_stage: "live_candidate",
       evidence_package_id: "evidence-1",
@@ -1556,7 +1556,7 @@ const healthPayload = {
       [sensitiveReviewKey]: "redacted-marker",
     },
     freshness: { status: "fresh", age_seconds: 30 },
-    source_revision: "abc123",
+    source_revision: "https://example.invalid/revisions/abc123",
   }],
   policy: { mode: "read_only", notice: "健康不等于已批准 live。" },
   errors: ["safe_notice", "not safe error"],
@@ -1609,7 +1609,11 @@ assert.equal(healthRead.status, 200);
 const healthReadPayload = await healthRead.json();
 assert.equal(healthReadPayload.data_status, "ready");
 assert.equal(healthReadPayload.strategies[0].review[sensitiveReviewKey], undefined);
+assert.match(healthReadPayload.strategies[0].decision.reason, /API key missing/);
+assert.match(healthReadPayload.strategies[0].source_revision, /^https:\/\//);
 assert.deepEqual(healthReadPayload.errors, ["safe_notice"]);
+assert.ok(indexHtml.includes('id="health-count-critical"'));
+assert.ok(indexHtml.includes('data-i18n="healthCritical"'));
 
 healthPayload.generated_at = new Date().toISOString();
 healthPayload.computed_at = "2020-01-01T00:00:00.000Z";
@@ -1626,6 +1630,23 @@ const staleHealthRead = await worker.fetch(
   healthEnv,
 );
 assert.equal((await staleHealthRead.json()).data_status, "stale");
+
+healthPayload.generated_at = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+healthPayload.computed_at = healthPayload.generated_at;
+healthPayload.data_status = "ready";
+await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-strategy-health", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(healthPayload),
+  }),
+  healthEnv,
+);
+const futureHealthRead = await worker.fetch(
+  new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+  healthEnv,
+);
+assert.equal((await futureHealthRead.json()).data_status, "stale");
 
 healthPayload.data_status = "unavailable";
 await worker.fetch(

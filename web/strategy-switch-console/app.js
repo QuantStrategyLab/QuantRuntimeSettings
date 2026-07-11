@@ -832,6 +832,7 @@
         healthHealthy: "健康",
         healthWatch: "观察",
         healthReview: "需要复核",
+        healthCritical: "严重",
         healthBoard: "策略状态",
         bootKicker: "初始化控制台",
         bootTitle: "读取策略配置",
@@ -1006,6 +1007,7 @@
         healthHealthy: "Healthy",
         healthWatch: "Watch",
         healthReview: "Review",
+        healthCritical: "Critical",
         healthBoard: "Strategy status",
         bootKicker: "Starting console",
         bootTitle: "Loading strategy config",
@@ -3279,7 +3281,8 @@
       el("health-count-total").textContent = String(Number(summary.strategy_count) || 0);
       el("health-count-healthy").textContent = String(Number(summary.healthy) || 0);
       el("health-count-watch").textContent = String(Number(summary.watch) || 0);
-      el("health-count-review").textContent = String((Number(summary.review) || 0) + (Number(summary.critical) || 0));
+      el("health-count-review").textContent = String(Number(summary.review) || 0);
+      el("health-count-critical").textContent = String(Number(summary.critical) || 0);
 
       const notice = el("health-notice");
       if (!state.auth.allowed) {
