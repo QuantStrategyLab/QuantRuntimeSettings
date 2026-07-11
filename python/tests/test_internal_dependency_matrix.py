@@ -100,7 +100,7 @@ dependencies = [
         self.assertEqual(report.issues, [])
 
     def test_qpk_rollout_consumers_use_canonical_pin(self):
-        canonical_pin = "2381aa4577e9fd6329053a73a1c888929170eaf3"
+        canonical_pin = "651c9ac4f37ce6e7fe1bac84dc7646cd5abc9e6e"
         rollout_consumers = {
             "BinancePlatform",
             "CharlesSchwabPlatform",
