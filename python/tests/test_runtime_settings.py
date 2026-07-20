@@ -1365,6 +1365,31 @@ class RuntimeSettingsTest(unittest.TestCase):
             build_config.validate(config),
         )
 
+    def test_build_config_reports_malformed_scheduler_timezone(self):
+        config = build_config.load_config()
+        config["scheduling"]["profiles"]["us_daily"]["timezone"] = "../UTC"
+
+        self.assertIn(
+            "scheduler profile us_daily: invalid timezone '../UTC'",
+            build_config.validate(config),
+        )
+
+    def test_build_config_reports_non_string_scheduler_references(self):
+        config = build_config.load_config()
+        config["domains"]["us_equity"]["scheduler_profile"] = []
+        config["strategies"]["global_etf_rotation"]["scheduler_profile"] = ["us_daily"]
+        config["strategies"]["ibit_smart_dca"]["scheduler_profile_by_plugin"] = {
+            "ibit_zscore_exit": ["us_daily"]
+        }
+
+        errors = build_config.validate(config)
+        self.assertIn("domain us_equity: unknown scheduler_profile []", errors)
+        self.assertIn("strategy global_etf_rotation: scheduler_profile must be a string", errors)
+        self.assertIn(
+            "strategy ibit_smart_dca: plugin ibit_zscore_exit references unknown scheduler_profile ['us_daily']",
+            errors,
+        )
+
     def test_runtime_target_scheduler_rejects_invalid_cron_shape(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         target["runtime_target"]["scheduler"] = {

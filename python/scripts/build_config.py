@@ -64,7 +64,7 @@ def validate(config: dict) -> list[str]:
         timezone = scheduler.get("timezone")
         try:
             ZoneInfo(str(timezone or ""))
-        except ZoneInfoNotFoundError:
+        except (ZoneInfoNotFoundError, ValueError):
             errors.append(f"scheduler profile {profile}: invalid timezone {timezone!r}")
         for field in SCHEDULER_FIELDS - {"timezone"}:
             value = scheduler.get(field)
@@ -82,7 +82,7 @@ def validate(config: dict) -> list[str]:
     domains = config.get("domains", {})
     for domain, domain_data in domains.items():
         scheduler_profile = domain_data.get("scheduler_profile")
-        if scheduler_profile not in scheduler_profiles:
+        if not isinstance(scheduler_profile, str) or scheduler_profile not in scheduler_profiles:
             errors.append(
                 f"domain {domain}: unknown scheduler_profile {scheduler_profile!r}"
             )
@@ -91,8 +91,15 @@ def validate(config: dict) -> list[str]:
             errors.append(f"strategy {sid}: missing domain")
             continue
         domain_data = domains.get(sdata["domain"], {})
-        scheduler_profile = sdata.get("scheduler_profile") or domain_data.get("scheduler_profile")
-        if scheduler_profile not in scheduler_profiles:
+        strategy_scheduler_profile = sdata.get("scheduler_profile")
+        if strategy_scheduler_profile is not None and not isinstance(strategy_scheduler_profile, str):
+            errors.append(
+                f"strategy {sid}: scheduler_profile must be a string"
+            )
+            scheduler_profile = None
+        else:
+            scheduler_profile = strategy_scheduler_profile or domain_data.get("scheduler_profile")
+        if not isinstance(scheduler_profile, str) or scheduler_profile not in scheduler_profiles:
             errors.append(
                 f"strategy {sid}: unknown scheduler_profile {scheduler_profile!r}"
             )
@@ -101,7 +108,7 @@ def validate(config: dict) -> list[str]:
             errors.append(f"strategy {sid}: scheduler_profile_by_plugin must be an object")
         else:
             for plugin, override in plugin_overrides.items():
-                if override not in scheduler_profiles:
+                if not isinstance(override, str) or override not in scheduler_profiles:
                     errors.append(
                         f"strategy {sid}: plugin {plugin} references unknown scheduler_profile {override!r}"
                     )
