@@ -697,7 +697,11 @@ def _scheduler_plan_for_strategy(
     if not isinstance(plugin_overrides, dict):
         raise ValueError(f"strategy {profile!r} scheduler_profile_by_plugin must be an object")
     for mount in plugin_mounts:
-        if not isinstance(mount, dict) or mount.get("enabled") is not True:
+        if (
+            not isinstance(mount, dict)
+            or mount.get("strategy") != profile
+            or mount.get("enabled") is not True
+        ):
             continue
         plugin = str(mount.get("plugin") or "").strip()
         if plugin in plugin_overrides:

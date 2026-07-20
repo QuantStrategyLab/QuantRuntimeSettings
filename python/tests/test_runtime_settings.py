@@ -1333,6 +1333,25 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertEqual(resolved, scheduler)
 
+    def test_scheduler_plugin_override_ignores_mount_for_another_strategy(self):
+        config = build_runtime_switch._load_platform_config()
+
+        resolved = build_runtime_switch._scheduler_plan_for_strategy(
+            "ibit_smart_dca",
+            plugin_mounts=[
+                {
+                    "strategy": "another_strategy",
+                    "plugin": "ibit_zscore_exit",
+                    "enabled": True,
+                }
+            ],
+        )
+
+        self.assertEqual(
+            resolved,
+            config["scheduling"]["profiles"]["us_dca_month_end"],
+        )
+
     def test_build_config_rejects_unknown_strategy_scheduler_profile(self):
         config = build_config.load_config()
         config["strategies"] = dict(config["strategies"])
