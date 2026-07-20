@@ -25,6 +25,7 @@ from runtime_settings import (  # noqa: E402
 
 
 DEFAULT_ARTIFACT_BUCKET_URI = "gs://qsl-runtime-logs-shared"
+PLATFORM_CONFIG_PATH = ROOT / "platform-config.json"
 # Keep this list limited to strategy-scope artifacts that the publisher
 # currently produces. QPK may parse broader explicit mounts for forward
 # compatibility, but auto mode must not generate missing latest_signal paths.
@@ -36,58 +37,6 @@ MARKET_REGIME_CONTROL_PROFILES = frozenset(
 )
 IBIT_ZSCORE_EXIT_STRATEGY_PROFILE = "ibit_smart_dca"
 IBIT_ZSCORE_EXIT_PLUGIN = "ibit_zscore_exit"
-US_DAILY_SCHEDULER = {
-    "timezone": "America/New_York",
-    "main_time": "45 15 * * *",
-    "probe_time": "35 9,15 * * *",
-    "precheck_time": "45 9 * * *",
-}
-US_DCA_SCHEDULER = {
-    "timezone": "America/New_York",
-    "main_time": "45 15 25-28 * *",
-    "probe_time": "35 9,15 25-28 * *",
-    "precheck_time": "45 9 25-28 * *",
-}
-US_SNAPSHOT_SCHEDULER = {
-    "timezone": "America/New_York",
-    "main_time": "45 15 1-7 * *",
-    "probe_time": "35 9,15 1-7 * *",
-    "precheck_time": "45 9 1-7 * *",
-}
-HK_DAILY_SCHEDULER = {
-    "timezone": "Asia/Hong_Kong",
-    "main_time": "45 15 * * *",
-    "probe_time": "35 9,15 * * *",
-    "precheck_time": "45 9 * * *",
-}
-HK_SNAPSHOT_SCHEDULER = {
-    "timezone": "Asia/Hong_Kong",
-    "main_time": "45 15 1-7 * *",
-    "probe_time": "35 9,15 1-7 * *",
-    "precheck_time": "45 9 1-7 * *",
-}
-CN_DAILY_SCHEDULER = {
-    "timezone": "Asia/Shanghai",
-    "main_time": "45 15 * * *",
-    "probe_time": "35 9,15 * * *",
-    "precheck_time": "45 9 * * *",
-}
-CN_SNAPSHOT_SCHEDULER = {
-    "timezone": "Asia/Shanghai",
-    "main_time": "45 15 1-7 * *",
-    "probe_time": "35 9,15 1-7 * *",
-    "precheck_time": "45 9 1-7 * *",
-}
-STRATEGY_SCHEDULER_PROFILES = {
-    "nasdaq_sp500_smart_dca": US_DCA_SCHEDULER,
-    "ibit_smart_dca": US_DCA_SCHEDULER,
-    "russell_top50_leader_rotation": US_SNAPSHOT_SCHEDULER,
-    "hk_low_vol_dividend_quality_snapshot": HK_SNAPSHOT_SCHEDULER,
-    "cn_index_etf_tactical_rotation": CN_DAILY_SCHEDULER,
-    "cn_industry_etf_rotation": CN_DAILY_SCHEDULER,
-    "cn_industry_etf_rotation_aggressive": CN_DAILY_SCHEDULER,
-    "cn_dividend_quality_snapshot": CN_SNAPSHOT_SCHEDULER,
-}
 PLATFORM_DRY_RUN_VARIABLES = {
     "schwab": "SCHWAB_DRY_RUN_ONLY",
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
@@ -714,19 +663,14 @@ def _execution_mode_and_dry_run(raw_mode: str) -> tuple[str, bool]:
     raise ValueError("execution_mode must be live or paper")
 
 
-def _has_enabled_plugin_mount(
-    mounts: list[dict[str, Any]] | tuple[dict[str, Any], ...],
-    *,
-    strategy_profile: str,
-    plugin: str,
-) -> bool:
-    return any(
-        isinstance(mount, dict)
-        and mount.get("strategy") == strategy_profile
-        and mount.get("plugin") == plugin
-        and mount.get("enabled") is True
-        for mount in mounts
-    )
+def _load_platform_config() -> dict[str, Any]:
+    try:
+        payload = json.loads(PLATFORM_CONFIG_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"unable to load platform config {PLATFORM_CONFIG_PATH}: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("platform-config.json must contain an object")
+    return payload
 
 
 def _scheduler_plan_for_strategy(
@@ -734,21 +678,41 @@ def _scheduler_plan_for_strategy(
     plugin_mounts: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
 ) -> dict[str, str]:
     profile = str(strategy_profile or "").strip().lower()
-    if profile == IBIT_ZSCORE_EXIT_STRATEGY_PROFILE and _has_enabled_plugin_mount(
-        plugin_mounts,
-        strategy_profile=profile,
-        plugin=IBIT_ZSCORE_EXIT_PLUGIN,
-    ):
-        return dict(US_DAILY_SCHEDULER)
-    scheduler = STRATEGY_SCHEDULER_PROFILES.get(profile)
-    if scheduler is None:
-        if profile.startswith("cn_"):
-            scheduler = CN_DAILY_SCHEDULER
-        elif profile.startswith("hk_"):
-            scheduler = HK_DAILY_SCHEDULER
-        else:
-            scheduler = US_DAILY_SCHEDULER
-    return dict(scheduler)
+    config = _load_platform_config()
+    scheduling = config.get("scheduling")
+    strategies = config.get("strategies")
+    domains = config.get("domains")
+    if not isinstance(scheduling, dict) or not isinstance(strategies, dict) or not isinstance(domains, dict):
+        raise ValueError("platform-config.json must define scheduling, strategies, and domains")
+    scheduler_profiles = scheduling.get("profiles")
+    strategy = strategies.get(profile)
+    if not isinstance(scheduler_profiles, dict) or not isinstance(strategy, dict):
+        raise ValueError(f"strategy {profile!r} is missing from the scheduling catalog")
+
+    domain = domains.get(strategy.get("domain"))
+    if not isinstance(domain, dict):
+        raise ValueError(f"strategy {profile!r} has no configured scheduling domain")
+    scheduler_profile = strategy.get("scheduler_profile") or domain.get("scheduler_profile")
+    plugin_overrides = strategy.get("scheduler_profile_by_plugin") or {}
+    if not isinstance(plugin_overrides, dict):
+        raise ValueError(f"strategy {profile!r} scheduler_profile_by_plugin must be an object")
+    for mount in plugin_mounts:
+        if (
+            not isinstance(mount, dict)
+            or mount.get("strategy") != profile
+            or mount.get("enabled") is not True
+        ):
+            continue
+        plugin = str(mount.get("plugin") or "").strip()
+        if plugin in plugin_overrides:
+            scheduler_profile = plugin_overrides[plugin]
+
+    scheduler = scheduler_profiles.get(scheduler_profile)
+    if not isinstance(scheduler, dict):
+        raise ValueError(
+            f"strategy {profile!r} references unknown scheduler profile {scheduler_profile!r}"
+        )
+    return {str(key): str(value) for key, value in scheduler.items()}
 
 
 def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
