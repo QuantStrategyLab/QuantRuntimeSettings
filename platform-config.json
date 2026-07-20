@@ -27,19 +27,75 @@
   "domains": {
     "us_equity": {
       "label_zh": "美股",
-      "label_en": "US Equity"
+      "label_en": "US Equity",
+      "scheduler_profile": "us_daily"
     },
     "hk_equity": {
       "label_zh": "港股",
-      "label_en": "HK Equity"
+      "label_en": "HK Equity",
+      "scheduler_profile": "hk_daily"
     },
     "cn_equity": {
       "label_zh": "A股",
-      "label_en": "CN A-share"
+      "label_en": "CN A-share",
+      "scheduler_profile": "cn_daily"
     },
     "crypto": {
       "label_zh": "加密",
-      "label_en": "Crypto"
+      "label_en": "Crypto",
+      "scheduler_profile": "crypto_intraday"
+    }
+  },
+  "scheduling": {
+    "profiles": {
+      "us_daily": {
+        "timezone": "America/New_York",
+        "main_time": "45 15 * * *",
+        "probe_time": "35 9,15 * * *",
+        "precheck_time": "45 9 * * *"
+      },
+      "us_dca_month_end": {
+        "timezone": "America/New_York",
+        "main_time": "45 15 25-28 * *",
+        "probe_time": "35 9,15 25-28 * *",
+        "precheck_time": "45 9 25-28 * *"
+      },
+      "us_snapshot_month_start": {
+        "timezone": "America/New_York",
+        "main_time": "45 15 1-7 * *",
+        "probe_time": "35 9,15 1-7 * *",
+        "precheck_time": "45 9 1-7 * *"
+      },
+      "hk_daily": {
+        "timezone": "Asia/Hong_Kong",
+        "main_time": "45 15 * * *",
+        "probe_time": "35 9,15 * * *",
+        "precheck_time": "45 9 * * *"
+      },
+      "hk_snapshot_month_start": {
+        "timezone": "Asia/Hong_Kong",
+        "main_time": "45 15 1-7 * *",
+        "probe_time": "35 9,15 1-7 * *",
+        "precheck_time": "45 9 1-7 * *"
+      },
+      "cn_daily": {
+        "timezone": "Asia/Shanghai",
+        "main_time": "45 15 * * *",
+        "probe_time": "35 9,15 * * *",
+        "precheck_time": "45 9 * * *"
+      },
+      "cn_snapshot_month_start": {
+        "timezone": "Asia/Shanghai",
+        "main_time": "45 15 1-7 * *",
+        "probe_time": "35 9,15 1-7 * *",
+        "precheck_time": "45 9 1-7 * *"
+      },
+      "crypto_intraday": {
+        "timezone": "UTC",
+        "main_time": "0,30 * * * *",
+        "probe_time": "0 6,18 * * *",
+        "precheck_time": "55 5 * * *"
+      }
     }
   },
   "platforms": {
@@ -353,6 +409,7 @@
       "label": "纳指标普定投",
       "label_en": "NASDAQ/S&P 500 DCA",
       "domain": "us_equity",
+      "scheduler_profile": "us_dca_month_end",
       "runtime_enabled": true,
       "lifecycle_stage": "runtime_enabled",
       "can_switch_live": true,
@@ -377,6 +434,10 @@
       "label": "IBIT比特币定投",
       "label_en": "IBIT Bitcoin DCA",
       "domain": "us_equity",
+      "scheduler_profile": "us_dca_month_end",
+      "scheduler_profile_by_plugin": {
+        "ibit_zscore_exit": "us_daily"
+      },
       "runtime_enabled": true,
       "lifecycle_stage": "runtime_enabled",
       "can_switch_live": true,
@@ -440,6 +501,7 @@
       "label": "罗素Top50领涨",
       "label_en": "Russell Top50 Leaders",
       "domain": "us_equity",
+      "scheduler_profile": "us_snapshot_month_start",
       "runtime_enabled": true,
       "lifecycle_stage": "runtime_enabled",
       "can_switch_live": true,
@@ -596,6 +658,7 @@
       "label": "港股红利质量",
       "label_en": "HK Dividend Quality",
       "domain": "hk_equity",
+      "scheduler_profile": "hk_snapshot_month_start",
       "runtime_enabled": true,
       "lifecycle_stage": "runtime_enabled",
       "can_switch_live": true,
@@ -728,6 +791,7 @@
       "label": "A股红利质量",
       "label_en": "CN Dividend Quality",
       "domain": "cn_equity",
+      "scheduler_profile": "cn_snapshot_month_start",
       "runtime_enabled": false,
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
@@ -746,6 +810,7 @@
       "label": "创业板成长质量快照",
       "label_en": "CN ChiNext Growth Quality Snapshot",
       "domain": "cn_equity",
+      "scheduler_profile": "cn_snapshot_month_start",
       "runtime_enabled": false,
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,

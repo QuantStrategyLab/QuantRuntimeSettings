@@ -19,6 +19,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "platform-config.json"
@@ -36,6 +37,7 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "allowed_execution_modes",
     "blocked_live_reason",
 }
+SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 
 
 def load_config() -> dict:
@@ -45,6 +47,31 @@ def load_config() -> dict:
 
 def validate(config: dict) -> list[str]:
     errors: list[str] = []
+    scheduling = config.get("scheduling")
+    scheduler_profiles = scheduling.get("profiles") if isinstance(scheduling, dict) else None
+    if not isinstance(scheduler_profiles, dict) or not scheduler_profiles:
+        errors.append("scheduling.profiles must be a non-empty object")
+        scheduler_profiles = {}
+    for profile, scheduler in scheduler_profiles.items():
+        if not isinstance(scheduler, dict):
+            errors.append(f"scheduler profile {profile}: must be an object")
+            continue
+        if set(scheduler) != SCHEDULER_FIELDS:
+            errors.append(
+                f"scheduler profile {profile}: fields must be {sorted(SCHEDULER_FIELDS)}"
+            )
+            continue
+        timezone = scheduler.get("timezone")
+        try:
+            ZoneInfo(str(timezone or ""))
+        except ZoneInfoNotFoundError:
+            errors.append(f"scheduler profile {profile}: invalid timezone {timezone!r}")
+        for field in SCHEDULER_FIELDS - {"timezone"}:
+            value = scheduler.get(field)
+            if not isinstance(value, str) or len(value.split()) not in {2, 5}:
+                errors.append(
+                    f"scheduler profile {profile}: {field} must have 2 time fields or 5 cron fields"
+                )
     for pid, pdata in config.get("platforms", {}).items():
         if "capabilities" not in pdata:
             errors.append(f"platform {pid}: missing capabilities")
@@ -52,9 +79,32 @@ def validate(config: dict) -> list[str]:
             errors.append(f"platform {pid}: missing default_account")
         if "supported_domains" not in pdata:
             errors.append(f"platform {pid}: missing supported_domains")
+    domains = config.get("domains", {})
+    for domain, domain_data in domains.items():
+        scheduler_profile = domain_data.get("scheduler_profile")
+        if scheduler_profile not in scheduler_profiles:
+            errors.append(
+                f"domain {domain}: unknown scheduler_profile {scheduler_profile!r}"
+            )
     for sid, sdata in config.get("strategies", {}).items():
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
+            continue
+        domain_data = domains.get(sdata["domain"], {})
+        scheduler_profile = sdata.get("scheduler_profile") or domain_data.get("scheduler_profile")
+        if scheduler_profile not in scheduler_profiles:
+            errors.append(
+                f"strategy {sid}: unknown scheduler_profile {scheduler_profile!r}"
+            )
+        plugin_overrides = sdata.get("scheduler_profile_by_plugin", {})
+        if not isinstance(plugin_overrides, dict):
+            errors.append(f"strategy {sid}: scheduler_profile_by_plugin must be an object")
+        else:
+            for plugin, override in plugin_overrides.items():
+                if override not in scheduler_profiles:
+                    errors.append(
+                        f"strategy {sid}: plugin {plugin} references unknown scheduler_profile {override!r}"
+                    )
     return errors
 
 

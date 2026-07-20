@@ -782,6 +782,15 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(target["github"]["variable_scope"], "repository")
         self.assertEqual(target["runtime_target"]["platform_id"], "binance")
         self.assertEqual(assignments["BINANCE_DRY_RUN"], "false")
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            {
+                "timezone": "UTC",
+                "main_time": "0,30 * * * *",
+                "probe_time": "0 6,18 * * *",
+                "precheck_time": "55 5 * * *",
+            },
+        )
 
     def test_build_switch_target_uses_dca_monthly_scheduler_window(self):
         parser = build_runtime_switch.build_parser()
@@ -887,7 +896,10 @@ class RuntimeSettingsTest(unittest.TestCase):
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
         plugin_payload = json.loads(assignments["FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON"])
 
-        self.assertEqual(target["runtime_target"]["scheduler"], build_runtime_switch.US_DCA_SCHEDULER)
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            build_runtime_switch._load_platform_config()["scheduling"]["profiles"]["us_dca_month_end"],
+        )
         self.assertEqual(plugin_payload["strategy_plugins"], [])
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "false")
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "paper")
@@ -912,7 +924,10 @@ class RuntimeSettingsTest(unittest.TestCase):
         target = build_runtime_switch.build_switch_target(args)
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
 
-        self.assertEqual(target["runtime_target"]["scheduler"], build_runtime_switch.US_DCA_SCHEDULER)
+        self.assertEqual(
+            target["runtime_target"]["scheduler"],
+            build_runtime_switch._load_platform_config()["scheduling"]["profiles"]["us_dca_month_end"],
+        )
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "false")
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "paper")
 
@@ -1298,6 +1313,37 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "probe_time": "35 9,15 1-7 * *",
                 "precheck_time": "45 9 1-7 * *",
             },
+        )
+
+    def test_scheduler_plan_uses_catalog_strategy_override_without_code_mapping(self):
+        scheduler = {
+            "timezone": "Europe/London",
+            "main_time": "5 14 * * 1-5",
+            "probe_time": "55 13 * * 1-5",
+            "precheck_time": "0 14 * * 1-5",
+        }
+        config = {
+            "scheduling": {"profiles": {"custom_market": scheduler}},
+            "domains": {"custom_equity": {"scheduler_profile": "custom_market"}},
+            "strategies": {"custom_strategy": {"domain": "custom_equity"}},
+        }
+
+        with patch.object(build_runtime_switch, "_load_platform_config", return_value=config):
+            resolved = build_runtime_switch._scheduler_plan_for_strategy("custom_strategy")
+
+        self.assertEqual(resolved, scheduler)
+
+    def test_build_config_rejects_unknown_strategy_scheduler_profile(self):
+        config = build_config.load_config()
+        config["strategies"] = dict(config["strategies"])
+        config["strategies"]["global_etf_rotation"] = {
+            **config["strategies"]["global_etf_rotation"],
+            "scheduler_profile": "missing_profile",
+        }
+
+        self.assertIn(
+            "strategy global_etf_rotation: unknown scheduler_profile 'missing_profile'",
+            build_config.validate(config),
         )
 
     def test_runtime_target_scheduler_rejects_invalid_cron_shape(self):
