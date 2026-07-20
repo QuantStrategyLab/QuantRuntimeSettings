@@ -81,6 +81,9 @@ def validate(config: dict) -> list[str]:
             errors.append(f"platform {pid}: missing supported_domains")
     domains = config.get("domains", {})
     for domain, domain_data in domains.items():
+        if not isinstance(domain_data, dict):
+            errors.append(f"domain {domain}: must be an object")
+            continue
         scheduler_profile = domain_data.get("scheduler_profile")
         if not isinstance(scheduler_profile, str) or scheduler_profile not in scheduler_profiles:
             errors.append(
@@ -90,7 +93,17 @@ def validate(config: dict) -> list[str]:
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
             continue
-        domain_data = domains.get(sdata["domain"], {})
+        domain_ref = sdata["domain"]
+        if not isinstance(domain_ref, str):
+            errors.append(f"strategy {sid}: domain must be a string")
+            domain_data = {}
+        elif domain_ref not in domains:
+            errors.append(f"strategy {sid}: unknown domain {domain_ref!r}")
+            domain_data = {}
+        else:
+            domain_data = domains[domain_ref]
+            if not isinstance(domain_data, dict):
+                domain_data = {}
         strategy_scheduler_profile = sdata.get("scheduler_profile")
         if strategy_scheduler_profile is not None and not isinstance(strategy_scheduler_profile, str):
             errors.append(

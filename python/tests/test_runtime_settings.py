@@ -1378,6 +1378,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         config = build_config.load_config()
         config["domains"]["us_equity"]["scheduler_profile"] = []
         config["strategies"]["global_etf_rotation"]["scheduler_profile"] = ["us_daily"]
+        config["strategies"]["tqqq_growth_income"]["domain"] = []
         config["strategies"]["ibit_smart_dca"]["scheduler_profile_by_plugin"] = {
             "ibit_zscore_exit": ["us_daily"]
         }
@@ -1385,6 +1386,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         errors = build_config.validate(config)
         self.assertIn("domain us_equity: unknown scheduler_profile []", errors)
         self.assertIn("strategy global_etf_rotation: scheduler_profile must be a string", errors)
+        self.assertIn("strategy tqqq_growth_income: domain must be a string", errors)
         self.assertIn(
             "strategy ibit_smart_dca: plugin ibit_zscore_exit references unknown scheduler_profile ['us_daily']",
             errors,
