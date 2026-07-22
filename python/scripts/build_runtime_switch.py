@@ -802,6 +802,7 @@ def _patch_service_targets(
     mounts_variable: str,
     mounts: list[dict[str, Any]],
     extra_variables: dict[str, Any],
+    allow_create: bool,
 ) -> dict[str, Any]:
     payload = dict(current_payload)
     raw_entries = payload.get("targets") if isinstance(payload.get("targets"), list) else []
@@ -836,6 +837,11 @@ def _patch_service_targets(
             replaced = True
             break
 
+    if not replaced and not allow_create:
+        raise ValueError(
+            "existing IBKR service target was not found; "
+            "use --allow-create-service-target to append a new target"
+        )
     if not replaced:
         entries.append(replacement)
     payload["targets"] = entries
@@ -886,13 +892,13 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
         )
     )
 
-    service_targets = _load_json_from_file(
-        args.existing_service_targets_json_file,
-        field_name="existing_service_targets_json_file",
-    )
     top_level_mounts = mounts
     plugin_mounts_variable: str | None = mounts_variable
-    if service_targets:
+    if args.existing_service_targets_json_file:
+        service_targets = _load_json_from_file(
+            args.existing_service_targets_json_file,
+            field_name="existing_service_targets_json_file",
+        )
         patched_service_targets = _patch_service_targets(
             current_payload=service_targets,
             platform=platform,
@@ -900,6 +906,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
             mounts_variable=mounts_variable,
             mounts=mounts,
             extra_variables=extra_variables,
+            allow_create=args.allow_create_service_target,
         )
         extra_variables = {"CLOUD_RUN_SERVICE_TARGETS_JSON": patched_service_targets}
         top_level_mounts = []
@@ -957,6 +964,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dca-mode", default="")
     parser.add_argument("--dca-base-investment-usd", default="")
     parser.add_argument("--existing-service-targets-json-file", default="")
+    parser.add_argument("--allow-create-service-target", action="store_true")
     parser.add_argument("--no-platform-dry-run-variable", dest="set_platform_dry_run_variable", action="store_false")
     parser.set_defaults(set_platform_dry_run_variable=True)
     parser.add_argument("--output", default="-", help="output path, or '-' for stdout")

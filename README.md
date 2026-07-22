@@ -85,7 +85,7 @@ Notes:
 - LongBridge defaults to environment-scoped variables; `target_name=sg` resolves to `longbridge-sg`.
 - Schwab defaults to repository-scoped variables.
 - Firstrade defaults to repository-scoped variables; `target_name=live` uses `firstrade-quant-service` and `account_scope=US`.
-- IBKR patches the selected service/account-scope entry inside `CLOUD_RUN_SERVICE_TARGETS_JSON` when that variable exists, so other IBKR services are preserved.
+- IBKR `service_targets_mode=auto` only patches an existing service/account-scope entry inside `CLOUD_RUN_SERVICE_TARGETS_JSON`, so other services are preserved and an unknown target fails closed. Use `allow_create` only when intentionally provisioning a new target.
 - Cross-repository variable writes and workflow dispatches require a `RUNTIME_SETTINGS_GH_TOKEN` secret in this repository with sufficient target-repository variable/workflow permissions. The workflow does not fall back to the default `github.token` for remote writes.
 - IBKR `service_targets_mode=auto` must read and patch the target repository's `CLOUD_RUN_SERVICE_TARGETS_JSON`, so even preview mode requires `RUNTIME_SETTINGS_GH_TOKEN` for IBKR.
 - The workflow is bound to the `runtime-strategy-switch` GitHub Environment. For a personal system, required reviewers are optional; prefer storing `RUNTIME_SETTINGS_GH_TOKEN` as an Environment secret and rely on preview, confirmation text, and a least-privilege token for day-to-day safety.
