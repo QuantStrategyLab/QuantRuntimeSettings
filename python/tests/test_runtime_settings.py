@@ -92,6 +92,13 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertEqual(set(platform_choices), set(runtime_settings.SUPPORTED_PLATFORMS))
 
+    def test_manual_switch_reads_ibkr_targets_from_selected_environment_scope(self):
+        workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
+
+        assert 'if [ "${VARIABLE_SCOPE}" = "environment" ]; then' in workflow
+        assert 'target_environment="${GITHUB_ENVIRONMENT_NAME:-${TARGET_NAME}}"' in workflow
+        assert 'command.extend(["--env", environment])' in workflow
+
     def test_live_candidate_queue_lists_profiles_needing_promotion_review(self):
         catalog = [
             {

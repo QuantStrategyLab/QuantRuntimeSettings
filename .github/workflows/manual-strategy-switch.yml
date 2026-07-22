@@ -229,14 +229,21 @@ jobs:
         run: |
           set -euo pipefail
           output_file="${RUNNER_TEMP}/existing-service-targets.json"
-          python - <<'PY' "${TARGET_REPOSITORY}" "${output_file}"
+          target_environment=""
+          if [ "${VARIABLE_SCOPE}" = "environment" ]; then
+            target_environment="${GITHUB_ENVIRONMENT_NAME:-${TARGET_NAME}}"
+          fi
+          python - <<'PY' "${TARGET_REPOSITORY}" "${output_file}" "${target_environment}"
           import json
           import subprocess
           import sys
 
-          repo, output_path = sys.argv[1], sys.argv[2]
+          repo, output_path, environment = sys.argv[1:4]
+          command = ["gh", "variable", "list", "--repo", repo, "--json", "name,value"]
+          if environment:
+              command.extend(["--env", environment])
           raw = subprocess.check_output(
-              ["gh", "variable", "list", "--repo", repo, "--json", "name,value"],
+              command,
               text=True,
           )
           variables = json.loads(raw)
