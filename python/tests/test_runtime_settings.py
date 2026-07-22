@@ -98,6 +98,7 @@ class RuntimeSettingsTest(unittest.TestCase):
         assert 'if [ "${VARIABLE_SCOPE}" = "environment" ]; then' in workflow
         assert 'target_environment="${GITHUB_ENVIRONMENT_NAME:-${TARGET_NAME}}"' in workflow
         assert 'command.extend(["--env", environment])' in workflow
+        assert 'handle.write("{}")' in workflow
 
     def test_live_candidate_queue_lists_profiles_needing_promotion_review(self):
         catalog = [
@@ -1688,7 +1689,7 @@ class RuntimeSettingsTest(unittest.TestCase):
 
     def test_build_switch_target_can_explicitly_append_ibkr_service_target(self):
         path = ROOT / ".pytest_runtime_service_targets_create.json"
-        path.write_text('{"targets":[]}', encoding="utf-8")
+        path.write_text("{}", encoding="utf-8")
         self.addCleanup(lambda: path.unlink(missing_ok=True))
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(

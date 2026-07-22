@@ -253,7 +253,8 @@ jobs:
                   value = str(item.get("value") or "").strip()
                   break
           if not value:
-              open(output_path, "w", encoding="utf-8").close()
+              with open(output_path, "w", encoding="utf-8") as handle:
+                  handle.write("{}")
               raise SystemExit(0)
           try:
               payload = json.loads(value)
