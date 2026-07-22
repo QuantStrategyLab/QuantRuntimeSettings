@@ -1658,6 +1658,53 @@ class RuntimeSettingsTest(unittest.TestCase):
             "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
         )
 
+    def test_build_switch_target_rejects_unknown_ibkr_service_target_by_default(self):
+        path = ROOT / ".pytest_runtime_service_targets_unknown.json"
+        path.write_text('{"targets":[]}', encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "new-account",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "existing IBKR service target was not found"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_build_switch_target_can_explicitly_append_ibkr_service_target(self):
+        path = ROOT / ".pytest_runtime_service_targets_create.json"
+        path.write_text('{"targets":[]}', encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "new-account",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--existing-service-targets-json-file",
+                str(path),
+                "--allow-create-service-target",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        patched = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])
+
+        self.assertEqual(len(patched["targets"]), 1)
+        self.assertEqual(patched["targets"][0]["runtime_target"]["account_scope"], "new-account")
+
 
 if __name__ == "__main__":
     unittest.main()
