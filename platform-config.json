@@ -28,21 +28,33 @@
     "us_equity": {
       "label_zh": "美股",
       "label_en": "US Equity",
+      "market": "US",
+      "market_calendar": "NYSE",
+      "market_timezone": "America/New_York",
       "scheduler_profile": "us_daily"
     },
     "hk_equity": {
       "label_zh": "港股",
       "label_en": "HK Equity",
+      "market": "HK",
+      "market_calendar": "XHKG",
+      "market_timezone": "Asia/Hong_Kong",
       "scheduler_profile": "hk_daily"
     },
     "cn_equity": {
       "label_zh": "A股",
       "label_en": "CN A-share",
+      "market": "CN",
+      "market_calendar": "SSE",
+      "market_timezone": "Asia/Shanghai",
       "scheduler_profile": "cn_daily"
     },
     "crypto": {
       "label_zh": "加密",
       "label_en": "Crypto",
+      "market": "CRYPTO",
+      "market_calendar": "24/7",
+      "market_timezone": "UTC",
       "scheduler_profile": "crypto_intraday"
     }
   },
@@ -56,9 +68,9 @@
       },
       "us_dca_month_end": {
         "timezone": "America/New_York",
-        "main_time": "45 15 25-28 * *",
-        "probe_time": "35 9,15 25-28 * *",
-        "precheck_time": "45 9 25-28 * *"
+        "main_time": "45 15 25-29 * *",
+        "probe_time": "35 9,15 25-29 * *",
+        "precheck_time": "45 9 25-29 * *"
       },
       "us_snapshot_month_start": {
         "timezone": "America/New_York",
@@ -131,6 +143,9 @@
       "deployment": {
         "default_execution_mode": "live",
         "dry_run_only": false,
+        "runtime_model": "cloud_run",
+        "settings_activation": "cloud_run_sync_workflow",
+        "live_configured": true,
         "env_repo_key": [
           "STRATEGY_SWITCH_LONGBRIDGE_REPO",
           "RUNTIME_SETTINGS_LONGBRIDGE_REPO"
@@ -170,6 +185,9 @@
       "deployment": {
         "default_execution_mode": "live",
         "dry_run_only": false,
+        "runtime_model": "cloud_run",
+        "settings_activation": "cloud_run_sync_workflow",
+        "live_configured": true,
         "env_repo_key": [
           "STRATEGY_SWITCH_IBKR_REPO",
           "RUNTIME_SETTINGS_IBKR_REPO"
@@ -207,6 +225,9 @@
       "deployment": {
         "default_execution_mode": "live",
         "dry_run_only": false,
+        "runtime_model": "cloud_run",
+        "settings_activation": "cloud_run_sync_workflow",
+        "live_configured": true,
         "env_repo_key": [
           "STRATEGY_SWITCH_SCHWAB_REPO",
           "RUNTIME_SETTINGS_SCHWAB_REPO"
@@ -244,6 +265,9 @@
       "deployment": {
         "default_execution_mode": "live",
         "dry_run_only": false,
+        "runtime_model": "cloud_run",
+        "settings_activation": "cloud_run_sync_workflow",
+        "live_configured": true,
         "env_repo_key": [
           "STRATEGY_SWITCH_FIRSTRADE_REPO",
           "RUNTIME_SETTINGS_FIRSTRADE_REPO"
@@ -280,6 +304,9 @@
       "deployment": {
         "default_execution_mode": "paper",
         "dry_run_only": true,
+        "runtime_model": "not_configured",
+        "settings_activation": "not_wired",
+        "live_configured": false,
         "env_repo_key": [
           "STRATEGY_SWITCH_QMT_REPO",
           "RUNTIME_SETTINGS_QMT_REPO"
@@ -316,11 +343,14 @@
       "deployment": {
         "default_execution_mode": "live",
         "dry_run_only": false,
+        "runtime_model": "oracle_vps_self_hosted",
+        "settings_activation": "next_runtime_workflow_dispatch",
+        "live_configured": true,
         "env_repo_key": [
           "STRATEGY_SWITCH_BINANCE_REPO",
           "RUNTIME_SETTINGS_BINANCE_REPO"
         ],
-        "service_name": ""
+        "service_name": "binance-platform"
       }
     }
   },

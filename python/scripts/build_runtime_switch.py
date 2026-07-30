@@ -20,6 +20,7 @@ from runtime_settings import (  # noqa: E402
     compact_json,
     env_string,
     platform_repository,
+    select_service_target_entry_index,
     validate_target,
 )
 
@@ -168,7 +169,7 @@ DEFAULT_SERVICE_NAME = {
     "schwab": "charles-schwab-quant-service",
     "firstrade": "firstrade-quant-service",
     "qmt": "qmt-quant-service",
-    "binance": "",
+    "binance": "binance-platform",
 }
 PLATFORM_ALIASES = {
     "firsttrade": "firstrade",
@@ -249,11 +250,16 @@ def _load_json_object(value: str, *, field_name: str) -> dict[str, Any]:
     return payload
 
 
-def _load_json_from_file(path: str | None, *, field_name: str) -> dict[str, Any]:
+def _load_json_from_file(path: str | None, *, field_name: str) -> dict[str, Any] | list[Any]:
     if not path:
         return {}
-    text = Path(path).read_text(encoding="utf-8")
-    return _load_json_object(text, field_name=field_name)
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{field_name} must be valid JSON") from exc
+    if not isinstance(payload, (dict, list)):
+        raise ValueError(f"{field_name} must decode to an object or array")
+    return payload
 
 
 def _parse_extra_variables(pairs: list[str], raw_json: str) -> dict[str, Any]:
@@ -715,6 +721,29 @@ def _scheduler_plan_for_strategy(
     return {str(key): str(value) for key, value in scheduler.items()}
 
 
+def _market_plan_for_strategy(strategy_profile: str) -> dict[str, str]:
+    profile = str(strategy_profile or "").strip().lower()
+    config = _load_platform_config()
+    strategies = config.get("strategies")
+    domains = config.get("domains")
+    strategy = strategies.get(profile) if isinstance(strategies, dict) else None
+    if not isinstance(strategy, dict) or not isinstance(domains, dict):
+        raise ValueError(f"strategy {profile!r} is missing from the market catalog")
+    domain = domains.get(strategy.get("domain"))
+    if not isinstance(domain, dict):
+        raise ValueError(f"strategy {profile!r} has no configured market domain")
+    market = {
+        field: str(domain.get(field) or "").strip()
+        for field in ("market", "market_calendar", "market_timezone")
+    }
+    missing = [field for field, value in market.items() if not value]
+    if missing:
+        raise ValueError(
+            f"strategy {profile!r} market domain is missing {', '.join(missing)}"
+        )
+    return market
+
+
 def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     platform = _normalize_platform(args.platform)
     target_name = _normalize_target_name(args.target_name)
@@ -741,6 +770,7 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
         "service_name": service_name,
         "execution_mode": execution_mode,
         "scheduler": _scheduler_plan_for_strategy(strategy_profile),
+        **_market_plan_for_strategy(strategy_profile),
     }
     execution_windows = _load_json_object(args.execution_windows_json, field_name="execution_windows_json")
     if execution_windows:
@@ -796,19 +826,24 @@ def _preserve_reserved_cash_fields(
 
 def _patch_service_targets(
     *,
-    current_payload: dict[str, Any],
+    current_payload: dict[str, Any] | list[Any],
     platform: str,
     runtime_target: dict[str, Any],
     mounts_variable: str,
     mounts: list[dict[str, Any]],
     extra_variables: dict[str, Any],
     allow_create: bool,
-) -> dict[str, Any]:
-    payload = dict(current_payload)
-    raw_entries = payload.get("targets") if isinstance(payload.get("targets"), list) else []
-    entries = [dict(item) for item in raw_entries if isinstance(item, dict)]
-    service_name = str(runtime_target["service_name"])
-    account_scope = str(runtime_target["account_scope"])
+) -> dict[str, Any] | list[dict[str, Any]]:
+    payload = dict(current_payload) if isinstance(current_payload, dict) else None
+    if payload is not None:
+        raw_entries = payload.get("targets", [])
+        if not isinstance(raw_entries, list):
+            raise ValueError("service targets must be an array")
+    else:
+        raw_entries = current_payload
+    if any(not isinstance(item, dict) for item in raw_entries):
+        raise ValueError("service target entries must be objects")
+    entries = [dict(item) for item in raw_entries]
     replacement = _build_target_entry(
         platform=platform,
         runtime_target=runtime_target,
@@ -817,33 +852,29 @@ def _patch_service_targets(
         extra_variables=extra_variables,
     )
 
-    replaced = False
-    for index, entry in enumerate(entries):
-        entry_runtime_target = entry.get("runtime_target") if isinstance(entry.get("runtime_target"), dict) else {}
-        candidates = {
-            str(entry.get("service") or "").strip(),
-            str(entry.get("service_name") or "").strip(),
-            str(entry_runtime_target.get("service_name") or "").strip(),
-            str(entry_runtime_target.get("account_scope") or "").strip(),
-            str(entry.get("ACCOUNT_GROUP") or "").strip(),
-        }
-        if service_name in candidates or account_scope in candidates:
-            _preserve_reserved_cash_fields(
-                platform=platform,
-                current_entry=entry,
-                replacement=replacement,
-            )
-            entries[index] = {**entry, **replacement}
-            replaced = True
-            break
-
-    if not replaced and not allow_create:
+    matched_index = select_service_target_entry_index(
+        runtime_target,
+        entries,
+        allow_account_scope_fallback=not allow_create,
+    )
+    if matched_index is not None:
+        current_entry = entries[matched_index]
+        _preserve_reserved_cash_fields(
+            platform=platform,
+            current_entry=current_entry,
+            replacement=replacement,
+        )
+        entries[matched_index] = {**current_entry, **replacement}
+    elif not allow_create:
+        platform_label = "IBKR " if platform == "ibkr" else ""
         raise ValueError(
-            "existing IBKR service target was not found; "
+            f"existing {platform_label}service target was not found; "
             "use --allow-create-service-target to append a new target"
         )
-    if not replaced:
+    else:
         entries.append(replacement)
+    if payload is None:
+        return entries
     payload["targets"] = entries
     return payload
 
@@ -894,6 +925,7 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
 
     top_level_mounts = mounts
     plugin_mounts_variable: str | None = mounts_variable
+    repository_variables: dict[str, Any] = {}
     if args.existing_service_targets_json_file:
         service_targets = _load_json_from_file(
             args.existing_service_targets_json_file,
@@ -908,9 +940,12 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
             extra_variables=extra_variables,
             allow_create=args.allow_create_service_target,
         )
-        extra_variables = {"CLOUD_RUN_SERVICE_TARGETS_JSON": patched_service_targets}
-        top_level_mounts = []
-        plugin_mounts_variable = None
+        if variable_scope == "environment" and platform == "longbridge":
+            repository_variables = {"CLOUD_RUN_SERVICE_TARGETS_JSON": patched_service_targets}
+        else:
+            extra_variables = {"CLOUD_RUN_SERVICE_TARGETS_JSON": patched_service_targets}
+            top_level_mounts = []
+            plugin_mounts_variable = None
 
     target: dict[str, Any] = {
         "target_id": f"{platform}/{target_name}",
@@ -927,6 +962,8 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     if plugin_mounts_variable:
         target["plugin_mounts_variable"] = plugin_mounts_variable
         target["plugin_mounts"] = top_level_mounts
+    if repository_variables:
+        target["repository_variables"] = repository_variables
     errors = validate_target(target)
     if errors:
         raise ValueError("; ".join(errors))

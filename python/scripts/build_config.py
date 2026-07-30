@@ -38,6 +38,13 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "blocked_live_reason",
 }
 SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
+MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
+RUNTIME_MODELS = {"cloud_run", "oracle_vps_self_hosted", "not_configured"}
+SETTINGS_ACTIVATION_MODES = {
+    "cloud_run_sync_workflow",
+    "next_runtime_workflow_dispatch",
+    "not_wired",
+}
 
 
 def load_config() -> dict:
@@ -79,6 +86,34 @@ def validate(config: dict) -> list[str]:
             errors.append(f"platform {pid}: missing default_account")
         if "supported_domains" not in pdata:
             errors.append(f"platform {pid}: missing supported_domains")
+        deployment = pdata.get("deployment")
+        if not isinstance(deployment, dict):
+            errors.append(f"platform {pid}: missing deployment")
+            continue
+        runtime_model = deployment.get("runtime_model")
+        settings_activation = deployment.get("settings_activation")
+        if runtime_model not in RUNTIME_MODELS:
+            errors.append(f"platform {pid}: unsupported runtime_model {runtime_model!r}")
+        if settings_activation not in SETTINGS_ACTIVATION_MODES:
+            errors.append(
+                f"platform {pid}: unsupported settings_activation {settings_activation!r}"
+            )
+        if not isinstance(deployment.get("live_configured"), bool):
+            errors.append(f"platform {pid}: live_configured must be boolean")
+        if settings_activation == "cloud_run_sync_workflow" and runtime_model != "cloud_run":
+            errors.append(
+                f"platform {pid}: settings_activation {settings_activation!r} "
+                "requires runtime_model 'cloud_run'"
+            )
+        if settings_activation == "next_runtime_workflow_dispatch" and runtime_model != "oracle_vps_self_hosted":
+            errors.append(
+                f"platform {pid}: settings_activation {settings_activation!r} "
+                "requires runtime_model 'oracle_vps_self_hosted'"
+            )
+        if settings_activation == "not_wired" and deployment.get("live_configured") is not False:
+            errors.append(
+                f"platform {pid}: settings_activation 'not_wired' requires live_configured false"
+            )
     domains = config.get("domains", {})
     for domain, domain_data in domains.items():
         if not isinstance(domain_data, dict):
@@ -89,6 +124,31 @@ def validate(config: dict) -> list[str]:
             errors.append(
                 f"domain {domain}: unknown scheduler_profile {scheduler_profile!r}"
             )
+        for field in MARKET_FIELDS:
+            value = domain_data.get(field)
+            if not isinstance(value, str) or not value.strip():
+                errors.append(f"domain {domain}: {field} must be a non-empty string")
+        market_timezone = domain_data.get("market_timezone")
+        try:
+            ZoneInfo(str(market_timezone or ""))
+        except (ZoneInfoNotFoundError, ValueError):
+            errors.append(f"domain {domain}: invalid market_timezone {market_timezone!r}")
+        scheduler_data = (
+            scheduler_profiles.get(scheduler_profile)
+            if isinstance(scheduler_profile, str)
+            else None
+        )
+        if isinstance(scheduler_data, dict):
+            scheduler_timezone = scheduler_data.get("timezone")
+            if (
+                isinstance(scheduler_timezone, str)
+                and isinstance(market_timezone, str)
+                and scheduler_timezone != market_timezone
+            ):
+                errors.append(
+                    f"domain {domain}: scheduler timezone {scheduler_timezone!r} "
+                    f"must match market_timezone {market_timezone!r}"
+                )
     for sid, sdata in config.get("strategies", {}).items():
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
@@ -116,6 +176,23 @@ def validate(config: dict) -> list[str]:
             errors.append(
                 f"strategy {sid}: unknown scheduler_profile {scheduler_profile!r}"
             )
+        else:
+            scheduler_data = scheduler_profiles.get(scheduler_profile)
+            scheduler_timezone = (
+                scheduler_data.get("timezone")
+                if isinstance(scheduler_data, dict)
+                else None
+            )
+            market_timezone = domain_data.get("market_timezone")
+            if (
+                isinstance(scheduler_timezone, str)
+                and isinstance(market_timezone, str)
+                and scheduler_timezone != market_timezone
+            ):
+                errors.append(
+                    f"strategy {sid}: scheduler timezone {scheduler_timezone!r} "
+                    f"must match market_timezone {market_timezone!r}"
+                )
         plugin_overrides = sdata.get("scheduler_profile_by_plugin", {})
         if not isinstance(plugin_overrides, dict):
             errors.append(f"strategy {sid}: scheduler_profile_by_plugin must be an object")
@@ -124,6 +201,24 @@ def validate(config: dict) -> list[str]:
                 if not isinstance(override, str) or override not in scheduler_profiles:
                     errors.append(
                         f"strategy {sid}: plugin {plugin} references unknown scheduler_profile {override!r}"
+                    )
+                    continue
+                scheduler_data = scheduler_profiles.get(override)
+                scheduler_timezone = (
+                    scheduler_data.get("timezone")
+                    if isinstance(scheduler_data, dict)
+                    else None
+                )
+                market_timezone = domain_data.get("market_timezone")
+                if (
+                    isinstance(scheduler_timezone, str)
+                    and isinstance(market_timezone, str)
+                    and scheduler_timezone != market_timezone
+                ):
+                    errors.append(
+                        f"strategy {sid}: plugin {plugin} scheduler timezone "
+                        f"{scheduler_timezone!r} must match market_timezone "
+                        f"{market_timezone!r}"
                     )
     return errors
 

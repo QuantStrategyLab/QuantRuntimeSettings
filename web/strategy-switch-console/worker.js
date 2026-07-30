@@ -965,7 +965,7 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
 }
 
 function usesServiceTargetsAsRuntimeSource(platform) {
-  return platform === "ibkr";
+  return ["ibkr", "schwab", "firstrade"].includes(platform);
 }
 
 function logout(request) {
@@ -2256,15 +2256,18 @@ function resolveGithubEnvironment(platform, option, variableScope) {
 }
 
 function runtimeTargetFromServiceTargets(rawValue, platform, option) {
-  const payload = parseJsonObject(rawValue);
-  const targets = Array.isArray(payload?.targets) ? payload.targets : [];
+  const payload = parseJsonValue(rawValue);
+  const targets = Array.isArray(payload)
+    ? payload
+    : (Array.isArray(payload?.targets) ? payload.targets : []);
+  const matches = [];
   for (const entry of targets) {
     if (!entry || Array.isArray(entry) || typeof entry !== "object") continue;
     const runtimeTarget = entry.runtime_target && typeof entry.runtime_target === "object"
       ? entry.runtime_target
       : {};
     if (!runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry)) continue;
-    return {
+    matches.push({
       ...runtimeTarget,
       strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
       ...reservedCashPayloadFromObject(platform, entry),
@@ -2273,9 +2276,9 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ...runtimeTargetEnabledPayloadFromObject(entry),
       ...dcaPayloadFromObject(entry),
       ...cashOnlyPayloadFromObject(platform, entry),
-    };
+    });
   }
-  return null;
+  return matches.length === 1 ? matches[0] : null;
 }
 
 async function readCashOnlyVariables({ platform, repository, variableScope, githubEnvironment, readVariable }) {
@@ -2522,11 +2525,14 @@ function runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry = {}
   if (runtimePlatform && runtimePlatform !== platform) return false;
 
   const serviceName = String(option?.service_name || defaultCurrentServiceName(platform, option?.target_name || option?.key) || "");
-  if (serviceName && hasCandidate(serviceName, [
+  const serviceCandidates = [
     runtimeTarget?.service_name,
     entry?.service,
     entry?.service_name,
-  ])) return true;
+  ].filter((value) => normalizeMatchValue(value));
+  if (serviceName && serviceCandidates.length) {
+    return hasCandidate(serviceName, serviceCandidates);
+  }
 
   if (hasCandidate(option?.account_scope, [
     runtimeTarget?.account_scope,
@@ -2588,6 +2594,19 @@ function parseJsonObject(value) {
     try {
       const payload = JSON.parse(candidate);
       return payload && !Array.isArray(payload) && typeof payload === "object" ? payload : null;
+    } catch {
+      // Try the next representation.
+    }
+  }
+  return null;
+}
+
+function parseJsonValue(value) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  for (const candidate of [text, text.replaceAll("\\n", "\n")]) {
+    try {
+      return JSON.parse(candidate);
     } catch {
       // Try the next representation.
     }

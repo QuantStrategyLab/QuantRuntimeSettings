@@ -92,13 +92,56 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertEqual(set(platform_choices), set(runtime_settings.SUPPORTED_PLATFORMS))
 
+    def test_platform_deployment_topology_matches_runtime_hosts(self):
+        config = build_config.load_config()
+        cloud_run_platforms = {"longbridge", "ibkr", "schwab", "firstrade"}
+
+        for platform in cloud_run_platforms:
+            deployment = config["platforms"][platform]["deployment"]
+            self.assertEqual(deployment["runtime_model"], "cloud_run")
+            self.assertEqual(deployment["settings_activation"], "cloud_run_sync_workflow")
+            self.assertTrue(deployment["live_configured"])
+
+        binance = config["platforms"]["binance"]["deployment"]
+        self.assertEqual(binance["runtime_model"], "oracle_vps_self_hosted")
+        self.assertEqual(binance["settings_activation"], "next_runtime_workflow_dispatch")
+        self.assertTrue(binance["live_configured"])
+
+        qmt = config["platforms"]["qmt"]["deployment"]
+        self.assertEqual(qmt["runtime_model"], "not_configured")
+        self.assertEqual(qmt["settings_activation"], "not_wired")
+        self.assertFalse(qmt["live_configured"])
+
+    def test_manual_switch_rejects_unsupported_sync_before_variable_write(self):
+        workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
+
+        self.assertIn('runtime_settings.py settings-activation "${PLATFORM}"', workflow)
+        self.assertIn("Oracle/VPS runtime activates settings on its next externally scheduled", workflow)
+        self.assertIn("QMT has no live runtime configuration", workflow)
+        self.assertLess(
+            workflow.index('runtime_settings.py settings-activation "${PLATFORM}"'),
+            workflow.index("Apply GitHub variable updates"),
+        )
+
+    def test_settings_activation_comes_from_platform_config(self):
+        self.assertEqual(
+            runtime_settings.platform_settings_activation("binance"),
+            "next_runtime_workflow_dispatch",
+        )
+        self.assertEqual(runtime_settings.platform_settings_activation("qmt"), "not_wired")
+
     def test_manual_switch_reads_ibkr_targets_from_selected_environment_scope(self):
         workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
 
-        assert 'if [ "${VARIABLE_SCOPE}" = "environment" ]; then' in workflow
+        assert (
+            'if [ "${PLATFORM}" = "ibkr" ] && [ "${VARIABLE_SCOPE}" = "environment" ]; then'
+            in workflow
+        )
         assert 'target_environment="${GITHUB_ENVIRONMENT_NAME:-${TARGET_NAME}}"' in workflow
         assert 'command.extend(["--env", environment])' in workflow
         assert 'handle.write("{}")' in workflow
+        assert 'contains(fromJSON(\'["longbridge","ibkr","schwab","firstrade"]\'), env.PLATFORM)' in workflow
+        assert 'if [ -f "${output_file}" ]; then' in workflow
 
     def test_live_candidate_queue_lists_profiles_needing_promotion_review(self):
         catalog = [
@@ -459,6 +502,38 @@ class RuntimeSettingsTest(unittest.TestCase):
             },
         )
 
+    def test_extract_account_sync_controls_prefers_exact_service_when_scope_is_shared(self):
+        target = {
+            "target_id": "ibkr/shared-b",
+            "runtime_target": {
+                "platform_id": "ibkr",
+                "strategy_profile": "nasdaq_sp500_smart_dca",
+                "service_name": "interactive-brokers-shared-b-service",
+                "account_scope": "shared-account",
+            },
+            "extra_variables": {
+                "CLOUD_RUN_SERVICE_TARGETS_JSON": {
+                    "targets": [
+                        {
+                            "service": "interactive-brokers-shared-a-service",
+                            "ACCOUNT_GROUP": "shared-account",
+                            "DCA_MODE": "fixed",
+                        },
+                        {
+                            "service": "interactive-brokers-shared-b-service",
+                            "ACCOUNT_GROUP": "shared-account",
+                            "DCA_MODE": "smart",
+                        },
+                    ]
+                }
+            },
+        }
+
+        self.assertEqual(
+            runtime_settings.extract_account_sync_controls(target),
+            {"dca_mode": "smart"},
+        )
+
     def test_extract_account_sync_controls_prefers_top_level_extra_variables(self):
         target = {
             "target_id": "firstrade/default",
@@ -607,6 +682,9 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(target["github"]["environment"], "longbridge-sg")
         self.assertEqual(target["runtime_target"]["service_name"], "longbridge-quant-sg-service")
         self.assertEqual(target["runtime_target"]["account_scope"], "SG")
+        self.assertEqual(target["runtime_target"]["market"], "US")
+        self.assertEqual(target["runtime_target"]["market_calendar"], "NYSE")
+        self.assertEqual(target["runtime_target"]["market_timezone"], "America/New_York")
         self.assertEqual(
             target["runtime_target"]["scheduler"],
             {
@@ -627,6 +705,20 @@ class RuntimeSettingsTest(unittest.TestCase):
         )
         self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_schema_version"], "market_regime_control.v1")
         self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_market_plan_covers_every_catalog_strategy(self):
+        config = build_runtime_switch._load_platform_config()
+
+        for profile, strategy in config["strategies"].items():
+            domain = config["domains"][strategy["domain"]]
+            self.assertEqual(
+                build_runtime_switch._market_plan_for_strategy(profile),
+                {
+                    "market": domain["market"],
+                    "market_calendar": domain["market_calendar"],
+                    "market_timezone": domain["market_timezone"],
+                },
+            )
 
     def test_build_switch_target_uses_fork_repository_overrides(self):
         parser = build_runtime_switch.build_parser()
@@ -756,6 +848,9 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(target["runtime_target"]["account_scope"], "CN")
         self.assertEqual(target["runtime_target"]["service_name"], "qmt-quant-service")
         self.assertEqual(target["runtime_target"]["dry_run_only"], True)
+        self.assertEqual(target["runtime_target"]["market"], "CN")
+        self.assertEqual(target["runtime_target"]["market_calendar"], "SSE")
+        self.assertEqual(target["runtime_target"]["market_timezone"], "Asia/Shanghai")
         self.assertEqual(assignments["QMT_DRY_RUN_ONLY"], "true")
         self.assertEqual(assignments["STRATEGY_PROFILE"], "cn_industry_etf_rotation")
         self.assertEqual(
@@ -789,6 +884,10 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(target["github"]["repository"], "QuantStrategyLab/BinancePlatform")
         self.assertEqual(target["github"]["variable_scope"], "repository")
         self.assertEqual(target["runtime_target"]["platform_id"], "binance")
+        self.assertEqual(target["runtime_target"]["service_name"], "binance-platform")
+        self.assertEqual(target["runtime_target"]["market"], "CRYPTO")
+        self.assertEqual(target["runtime_target"]["market_calendar"], "24/7")
+        self.assertEqual(target["runtime_target"]["market_timezone"], "UTC")
         self.assertEqual(assignments["BINANCE_DRY_RUN"], "false")
         self.assertEqual(
             target["runtime_target"]["scheduler"],
@@ -821,9 +920,9 @@ class RuntimeSettingsTest(unittest.TestCase):
             target["runtime_target"]["scheduler"],
             {
                 "timezone": "America/New_York",
-                "main_time": "45 15 25-28 * *",
-                "probe_time": "35 9,15 25-28 * *",
-                "precheck_time": "45 9 25-28 * *",
+                "main_time": "45 15 25-29 * *",
+                "probe_time": "35 9,15 25-29 * *",
+                "precheck_time": "45 9 25-29 * *",
             },
         )
 
@@ -1382,6 +1481,57 @@ class RuntimeSettingsTest(unittest.TestCase):
             build_config.validate(config),
         )
 
+    def test_build_config_rejects_invalid_deployment_topology(self):
+        config = build_config.load_config()
+        config["platforms"]["binance"]["deployment"]["settings_activation"] = "cloud_run_sync_workflow"
+
+        self.assertIn(
+            "platform binance: settings_activation 'cloud_run_sync_workflow' "
+            "requires runtime_model 'cloud_run'",
+            build_config.validate(config),
+        )
+
+    def test_build_config_requires_complete_domain_market_metadata(self):
+        config = build_config.load_config()
+        config["domains"]["us_equity"].pop("market_calendar")
+
+        self.assertIn(
+            "domain us_equity: market_calendar must be a non-empty string",
+            build_config.validate(config),
+        )
+
+    def test_build_config_requires_scheduler_and_market_timezones_to_match(self):
+        config = build_config.load_config()
+        config["domains"]["us_equity"]["market_timezone"] = "America/Chicago"
+
+        self.assertIn(
+            "domain us_equity: scheduler timezone 'America/New_York' "
+            "must match market_timezone 'America/Chicago'",
+            build_config.validate(config),
+        )
+
+    def test_build_config_rejects_strategy_scheduler_market_timezone_mismatch(self):
+        config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"]["scheduler_profile"] = "hk_daily"
+
+        self.assertIn(
+            "strategy global_etf_rotation: scheduler timezone 'Asia/Hong_Kong' "
+            "must match market_timezone 'America/New_York'",
+            build_config.validate(config),
+        )
+
+    def test_build_config_rejects_plugin_scheduler_market_timezone_mismatch(self):
+        config = build_config.load_config()
+        config["strategies"]["ibit_smart_dca"]["scheduler_profile_by_plugin"] = {
+            "ibit_zscore_exit": "hk_daily"
+        }
+
+        self.assertIn(
+            "strategy ibit_smart_dca: plugin ibit_zscore_exit scheduler timezone "
+            "'Asia/Hong_Kong' must match market_timezone 'America/New_York'",
+            build_config.validate(config),
+        )
+
     def test_build_config_reports_non_string_scheduler_references(self):
         config = build_config.load_config()
         config["domains"]["us_equity"]["scheduler_profile"] = []
@@ -1429,6 +1579,15 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertIn(
             "runtime_target.scheduler.timezone must be a non-empty string",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_runtime_target_market_metadata_must_be_complete_when_present(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["runtime_target"]["market"] = "US"
+
+        self.assertIn(
+            "runtime_target market metadata must include market, market_calendar, and market_timezone together",
             runtime_settings.validate_target(target),
         )
 
@@ -1546,6 +1705,201 @@ class RuntimeSettingsTest(unittest.TestCase):
             "tqqq_growth_income/plugins/market_regime_control/latest_signal.json",
         )
         self.assertEqual(untouched["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
+
+    def test_build_switch_target_prefers_exact_service_when_account_scope_is_shared(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "interactive-brokers-shared-a-service",
+                    "ACCOUNT_GROUP": "shared-account",
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "global_etf_rotation",
+                        "dry_run_only": False,
+                        "deployment_selector": "shared-a",
+                        "account_selector": ["SHARED_ACCOUNT"],
+                        "account_scope": "shared-account",
+                        "service_name": "interactive-brokers-shared-a-service",
+                        "execution_mode": "live",
+                    },
+                },
+                {
+                    "service": "interactive-brokers-shared-b-service",
+                    "ACCOUNT_GROUP": "shared-account",
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "soxl_soxx_trend_income",
+                        "dry_run_only": False,
+                        "deployment_selector": "shared-b",
+                        "account_selector": ["SHARED_ACCOUNT"],
+                        "account_scope": "shared-account",
+                        "service_name": "interactive-brokers-shared-b-service",
+                        "execution_mode": "live",
+                    },
+                },
+            ]
+        }
+        path = ROOT / ".pytest_runtime_service_targets_shared_scope.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "shared-b",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--account-selector",
+                "SHARED_ACCOUNT",
+                "--account-scope",
+                "shared-account",
+                "--service-name",
+                "interactive-brokers-shared-b-service",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        patched = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])["targets"]
+
+        self.assertEqual(patched[0]["runtime_target"]["strategy_profile"], "global_etf_rotation")
+        self.assertEqual(patched[1]["runtime_target"]["strategy_profile"], "tqqq_growth_income")
+
+    def test_build_switch_target_allow_create_appends_service_with_shared_scope(self):
+        existing = [
+            {
+                "service": "interactive-brokers-shared-a-service",
+                "ACCOUNT_GROUP": "shared-account",
+                "runtime_target": {
+                    "platform_id": "ibkr",
+                    "strategy_profile": "global_etf_rotation",
+                    "account_scope": "shared-account",
+                    "service_name": "interactive-brokers-shared-a-service",
+                },
+            }
+        ]
+        path = ROOT / ".pytest_runtime_service_targets_shared_scope_create.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "shared-b",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--account-scope",
+                "shared-account",
+                "--service-name",
+                "interactive-brokers-shared-b-service",
+                "--existing-service-targets-json-file",
+                str(path),
+                "--allow-create-service-target",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        patched = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])
+
+        self.assertIsInstance(patched, list)
+        self.assertEqual(len(patched), 2)
+        self.assertEqual(
+            patched[0]["runtime_target"]["service_name"],
+            "interactive-brokers-shared-a-service",
+        )
+        self.assertEqual(
+            patched[1]["runtime_target"]["service_name"],
+            "interactive-brokers-shared-b-service",
+        )
+
+    def test_service_target_selection_does_not_treat_scope_as_service_identity(self):
+        runtime_target = {
+            "service_name": "interactive-brokers-new-service",
+            "account_scope": "shared-account",
+        }
+        entries = [
+            {
+                "service": "interactive-brokers-existing-service",
+                "ACCOUNT_GROUP": "shared-account",
+            }
+        ]
+
+        self.assertIsNone(
+            runtime_settings.select_service_target_entry_index(runtime_target, entries)
+        )
+        self.assertEqual(
+            runtime_settings.select_service_target_entry_index(
+                runtime_target,
+                [{"ACCOUNT_GROUP": "shared-account"}],
+            ),
+            0,
+        )
+
+    def test_build_switch_target_mirrors_longbridge_service_targets_at_repository_scope(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "longbridge-quant-sg-service",
+                    "runtime_target": {
+                        "platform_id": "longbridge",
+                        "strategy_profile": "soxl_soxx_trend_income",
+                        "dry_run_only": False,
+                        "deployment_selector": "SG",
+                        "account_selector": ["SG"],
+                        "account_scope": "SG",
+                        "service_name": "longbridge-quant-sg-service",
+                        "execution_mode": "live",
+                    },
+                }
+            ]
+        }
+        path = ROOT / ".pytest_longbridge_service_targets.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = runtime_settings.build_assignments(target)
+        repository_target = next(
+            item for item in assignments if item.name == "CLOUD_RUN_SERVICE_TARGETS_JSON"
+        )
+        patched = json.loads(repository_target.value)["targets"][0]["runtime_target"]
+
+        self.assertEqual(target["github"]["variable_scope"], "environment")
+        self.assertEqual(repository_target.variable_scope, "repository")
+        self.assertIsNone(repository_target.environment)
+        self.assertEqual(patched["strategy_profile"], "tqqq_growth_income")
+        self.assertEqual(patched["market_calendar"], "NYSE")
+        self.assertTrue(
+            any(
+                item.name == "LONGBRIDGE_DRY_RUN_ONLY"
+                and item.variable_scope == "environment"
+                for item in assignments
+            )
+        )
+        self.assertTrue(
+            any(
+                item.name == "LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"
+                and item.variable_scope == "environment"
+                for item in assignments
+            )
+        )
 
     def test_build_switch_target_can_clear_preserved_ibkr_reserved_cash_fields(self):
         existing = {
@@ -1685,6 +2039,54 @@ class RuntimeSettingsTest(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "existing IBKR service target was not found"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_build_switch_target_rejects_non_object_service_target_entry(self):
+        path = ROOT / ".pytest_runtime_service_targets_invalid_entry.json"
+        path.write_text(
+            '{"targets":[{"service":"interactive-brokers-demo-service",'
+            '"runtime_target":{"service_name":"interactive-brokers-demo-service"}},'
+            '"invalid"]}',
+            encoding="utf-8",
+        )
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "demo",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--service-name",
+                "interactive-brokers-demo-service",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "service target entries must be objects"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_build_switch_target_rejects_non_array_targets_wrapper(self):
+        path = ROOT / ".pytest_runtime_service_targets_invalid_wrapper.json"
+        path.write_text('{"targets":{}}', encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "demo",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--existing-service-targets-json-file",
+                str(path),
+                "--allow-create-service-target",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "service targets must be an array"):
             build_runtime_switch.build_switch_target(args)
 
     def test_build_switch_target_can_explicitly_append_ibkr_service_target(self):

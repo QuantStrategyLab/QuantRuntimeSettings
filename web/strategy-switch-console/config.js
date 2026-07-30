@@ -65,7 +65,7 @@ export const PLATFORM_CONFIG = {
     "option_overlay": false,
     "dca": false,
     "execution_mode": "live",
-    "service_name": "",
+    "service_name": "binance-platform",
     "default_execution_mode": "live"
   }
 };
@@ -147,7 +147,7 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
         "crypto"
       ],
       "cash_currency": "USD",
-      "service_name": "",
+      "service_name": "binance-platform",
       "default_execution_mode": "live"
     }
   ]

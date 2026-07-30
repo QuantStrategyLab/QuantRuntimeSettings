@@ -4,7 +4,23 @@
 
 QuantRuntimeSettings is a **config-driven** runtime settings package that serves as the central control plane for QuantStrategyLab deployments. It defines versioned strategy-to-platform assignments and hosts a Cloudflare Workers-based strategy switch console.
 
-The generated `RUNTIME_TARGET_JSON` payload is the canonical desired-state contract for a switch. `scheduler` and plugin mount outputs are derived from `strategy_profile`, while `execution_mode` is part of the target and validated against strategy-profile policy.
+The generated `RUNTIME_TARGET_JSON` payload is the canonical desired-state contract for one deployment target. `scheduler`, `market`, `market_calendar`, `market_timezone`, and plugin mount outputs are derived from `strategy_profile`, while `execution_mode` is validated against strategy-profile policy.
+
+### Multi-strategy identity and storage
+
+- A platform may run multiple strategies through multiple deployment targets, but one `service_name` has one active `strategy_profile`.
+- `service_name` is the primary target identity. `account_scope` may be shared by multiple services and is only a legacy fallback when an existing entry has no service identity.
+- `CLOUD_RUN_SERVICE_TARGETS_JSON` accepts either a bare target array or an object with `targets`.
+- Repository-scoped multi-service platforms update only the exact service entry. Creating a new service requires the explicit `allow_create` path.
+- LongBridge keeps its selected `RUNTIME_TARGET_JSON` and account variables in the GitHub Environment, while the repository-scoped service-target aggregate is updated in the same switch operation for deployment reconciliation.
+- Legacy targets may omit market metadata. Newly generated targets always carry the complete market metadata trio; partial metadata is rejected.
+
+### Deployment topology
+
+- LongBridge, IBKR, Schwab, and Firstrade use Cloud Run and may activate settings through their environment-sync workflows.
+- Binance uses an Oracle Cloud VPS self-hosted GitHub Actions runner. Settings become active on the next externally scheduled runtime workflow dispatch; the settings control plane never dispatches this live-capable workflow as a sync substitute and does not reconfigure the external VPS scheduler.
+- QMT has no live deployment configuration and remains dry-run only.
+- `platform-config.json` records `runtime_model`, `settings_activation`, and `live_configured` for every platform. Unsupported activation combinations fail validation.
 
 The repository has a **three-tier architecture** built around a single source of truth:
 
@@ -85,7 +101,7 @@ platform-config.json  (single source of truth)
 
 Defines the entire runtime configuration universe:
 
-- **4 domains**: `us_equity`, `hk_equity`, `cn_equity`, `crypto`
+- **4 domains**: `us_equity`, `hk_equity`, `cn_equity`, `crypto`, including market calendar and timezone metadata
 - **6 platforms**: `longbridge`, `ibkr`, `schwab`, `firstrade`, `qmt`, `binance`
 - **18 strategy profiles** with features: income layer, option overlay, DCA, combo
 - **Platform capabilities, CSS theming, default accounts, repositories, variable scopes**

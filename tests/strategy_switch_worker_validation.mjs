@@ -1170,6 +1170,148 @@ try {
 
 globalThis.fetch = async (url) => {
   const requestUrl = String(url);
+  if (requestUrl.includes("/CharlesSchwabPlatform/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify({
+        targets: [
+          {
+            service: "schwab-shared-a-service",
+            ACCOUNT_GROUP: "shared-account",
+            runtime_target: {
+              platform_id: "schwab",
+              strategy_profile: "global_etf_rotation",
+              account_scope: "shared-account",
+              service_name: "schwab-shared-a-service",
+            },
+          },
+          {
+            service: "schwab-shared-b-service",
+            ACCOUNT_GROUP: "shared-account",
+            runtime_target: {
+              platform_id: "schwab",
+              strategy_profile: "tqqq_growth_income",
+              account_scope: "shared-account",
+              service_name: "schwab-shared-b-service",
+            },
+          },
+        ],
+      }),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  if (requestUrl.includes("/FirstradePlatform/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify([
+        {
+          service: "firstrade-shared-a-service",
+          ACCOUNT_GROUP: "shared-account",
+          runtime_target: {
+            platform_id: "firstrade",
+            strategy_profile: "nasdaq_sp500_smart_dca",
+            account_scope: "shared-account",
+            service_name: "firstrade-shared-a-service",
+          },
+        },
+        {
+          service: "firstrade-shared-b-service",
+          ACCOUNT_GROUP: "shared-account",
+          runtime_target: {
+            platform_id: "firstrade",
+            strategy_profile: "ibit_smart_dca",
+            account_scope: "shared-account",
+            service_name: "firstrade-shared-b-service",
+          },
+        },
+      ]),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    {
+      schwab: [
+        {
+          key: "shared-a",
+          target_name: "shared-a",
+          account_scope: "shared-account",
+          service_name: "schwab-shared-a-service",
+        },
+        {
+          key: "shared-b",
+          target_name: "shared-b",
+          account_scope: "shared-account",
+          service_name: "schwab-shared-b-service",
+        },
+      ],
+      firstrade: [
+        {
+          key: "shared-a",
+          target_name: "shared-a",
+          account_scope: "shared-account",
+          service_name: "firstrade-shared-a-service",
+        },
+        {
+          key: "shared-b",
+          target_name: "shared-b",
+          account_scope: "shared-account",
+          service_name: "firstrade-shared-b-service",
+        },
+      ],
+    },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.schwab["shared-a"].strategy_profile, "global_etf_rotation");
+  assert.equal(currentStrategies.schwab["shared-b"].strategy_profile, "tqqq_growth_income");
+  assert.equal(currentStrategies.firstrade["shared-a"].strategy_profile, "nasdaq_sp500_smart_dca");
+  assert.equal(currentStrategies.firstrade["shared-b"].strategy_profile, "ibit_smart_dca");
+  assert.equal(currentStrategies.schwab["shared-b"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
+  assert.equal(currentStrategies.firstrade["shared-b"].source, "CLOUD_RUN_SERVICE_TARGETS_JSON");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
+  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
+    return new Response(JSON.stringify({
+      value: JSON.stringify([
+        {
+          service: "interactive-brokers-shared-a-service",
+          ACCOUNT_GROUP: "demo-ibkr-tqqq",
+          runtime_target: {
+            platform_id: "ibkr",
+            strategy_profile: "global_etf_rotation",
+            account_scope: "demo-ibkr-tqqq",
+            service_name: "interactive-brokers-shared-a-service",
+          },
+        },
+        {
+          service: "interactive-brokers-demo-ibkr-tqqq-service",
+          ACCOUNT_GROUP: "demo-ibkr-tqqq",
+          runtime_target: {
+            platform_id: "ibkr",
+            strategy_profile: "tqqq_growth_income",
+            account_scope: "demo-ibkr-tqqq",
+            service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+          },
+        },
+      ]),
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  }
+  return new Response("", { status: 404 });
+};
+try {
+  const currentStrategies = await __test.loadCurrentStrategies(
+    { ibkr: accountOptions.ibkr },
+    { RUNTIME_SETTINGS_DISPATCH_TOKEN: "test-token" },
+  );
+  assert.equal(currentStrategies.ibkr["ibkr-primary"].strategy_profile, "tqqq_growth_income");
+} finally {
+  globalThis.fetch = originalFetch;
+}
+
+globalThis.fetch = async (url) => {
+  const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response("", { status: 404 });
   }

@@ -13,6 +13,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
 LOCAL_TARGETS_DIR = ROOT / "local" / "targets"
@@ -51,6 +52,7 @@ WINDOW_MODES = {
     "execution": {"live", "paper", "dry_run"},
 }
 SCHEDULER_FIELDS = frozenset({"timezone", "main_time", "probe_time", "precheck_time"})
+MARKET_FIELDS = ("market", "market_calendar", "market_timezone")
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
 SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
 LEGACY_INCOME_LAYER_VARIABLES = frozenset(
@@ -216,6 +218,20 @@ def platform_repository(platform: str, env: dict[str, str] | None = None) -> str
     if platform not in SUPPORTED_PLATFORMS:
         raise ValueError(f"unsupported platform: {platform}")
     return platform_repositories(env)[platform]
+
+
+def platform_settings_activation(platform: str) -> str:
+    if platform not in SUPPORTED_PLATFORMS:
+        raise ValueError(f"unsupported platform: {platform}")
+    try:
+        payload = json.loads(PLATFORM_CONFIG_PATH.read_text(encoding="utf-8"))
+        value = payload["platforms"][platform]["deployment"]["settings_activation"]
+    except (KeyError, TypeError, json.JSONDecodeError) as exc:
+        raise ValueError(f"platform {platform} settings_activation is not configured") from exc
+    value = str(value or "").strip()
+    if not value:
+        raise ValueError(f"platform {platform} settings_activation is not configured")
+    return value
 
 
 def discover_target_paths(paths: list[str]) -> list[Path]:
@@ -389,6 +405,25 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                 value = scheduler.get(field)
                 if not isinstance(value, str) or len(value.split()) not in {2, 5}:
                     errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
+
+    configured_market_fields = []
+    for field in MARKET_FIELDS:
+        value = runtime_target.get(field)
+        if value is not None:
+            configured_market_fields.append(field)
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            errors.append(f"runtime_target.{field} must be a non-empty string when present")
+    if configured_market_fields and len(configured_market_fields) != len(MARKET_FIELDS):
+        errors.append(
+            "runtime_target market metadata must include "
+            "market, market_calendar, and market_timezone together"
+        )
+    market_timezone = runtime_target.get("market_timezone")
+    if isinstance(market_timezone, str) and market_timezone.strip():
+        try:
+            ZoneInfo(market_timezone)
+        except (ZoneInfoNotFoundError, ValueError):
+            errors.append(f"runtime_target.market_timezone is invalid: {market_timezone!r}")
 
 
 def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], errors: list[str]) -> None:
@@ -609,6 +644,29 @@ def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
         errors.append(f"extra_variables.{dry_run_variable} must match runtime_target.dry_run_only")
 
 
+def validate_repository_variables(target: dict[str, Any], errors: list[str]) -> None:
+    repository_variables = target.get("repository_variables", {})
+    if not isinstance(repository_variables, dict):
+        errors.append("repository_variables must be an object")
+        return
+
+    extra_variables = target.get("extra_variables")
+    extra_variable_names = set(extra_variables) if isinstance(extra_variables, dict) else set()
+    for name, value in repository_variables.items():
+        if name in GENERATED_VARIABLES:
+            errors.append(f"repository_variables.{name} duplicates a generated variable")
+        if name in extra_variable_names:
+            errors.append(f"repository_variables.{name} duplicates extra_variables.{name}")
+        if name in RESEARCH_ONLY_EXTRA_VARIABLES:
+            errors.append(
+                f"repository_variables.{name} is research-only and must not be stored in live switch settings"
+            )
+        if is_secret_variable_name(name):
+            errors.append(f"repository_variables.{name} looks like a secret and must not be stored here")
+        if isinstance(value, str) and "\n" in value:
+            errors.append(f"repository_variables.{name} must be a single-line value")
+
+
 def validate_target(target: dict[str, Any], path: Path | None = None) -> list[str]:
     errors: list[str] = []
     target_id = target.get("target_id")
@@ -624,6 +682,7 @@ def validate_target(target: dict[str, Any], path: Path | None = None) -> list[st
     validate_runtime_target(target, errors)
     validate_plugin_mounts(target, errors)
     validate_extra_variables(target, errors)
+    validate_repository_variables(target, errors)
 
     runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
     github = target.get("github") if isinstance(target.get("github"), dict) else {}
@@ -675,6 +734,18 @@ def build_assignments(target: dict[str, Any]) -> list[Assignment]:
 
     for name, value in sorted((target.get("extra_variables") or {}).items()):
         assignments.append(Assignment(target_id, repository, scope, environment, name, env_string(value)))
+
+    for name, value in sorted((target.get("repository_variables") or {}).items()):
+        assignments.append(
+            Assignment(
+                target_id,
+                repository,
+                "repository",
+                None,
+                name,
+                env_string(value),
+            )
+        )
 
     return assignments
 
@@ -774,24 +845,73 @@ def command_repository(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_settings_activation(args: argparse.Namespace) -> int:
+    print(platform_settings_activation(args.platform))
+    return 0
+
+
 ACCOUNT_SYNC_CONTROL_FIELDS = {
     "DCA_MODE": "dca_mode",
     "DCA_BASE_INVESTMENT_USD": "dca_base_investment_usd",
 }
 
 
-def _service_target_entry_matches(runtime_target: dict[str, Any], entry: dict[str, Any]) -> bool:
+def _service_target_identity(entry: dict[str, Any], field: str) -> set[str]:
+    entry_runtime = entry.get("runtime_target") if isinstance(entry.get("runtime_target"), dict) else {}
+    if field == "service_name":
+        values = (
+            entry.get("service"),
+            entry.get("service_name"),
+            entry_runtime.get("service_name"),
+        )
+    else:
+        values = (
+            entry.get("ACCOUNT_GROUP"),
+            entry.get("account_scope"),
+            entry_runtime.get("account_scope"),
+        )
+    return {str(value or "").strip() for value in values if str(value or "").strip()}
+
+
+def select_service_target_entry_index(
+    runtime_target: dict[str, Any],
+    entries: list[dict[str, Any]],
+    *,
+    allow_account_scope_fallback: bool = True,
+) -> int | None:
     service_name = str(runtime_target.get("service_name") or "").strip()
     account_scope = str(runtime_target.get("account_scope") or "").strip()
-    entry_runtime = entry.get("runtime_target") if isinstance(entry.get("runtime_target"), dict) else {}
-    candidates = {
-        str(entry.get("service") or "").strip(),
-        str(entry.get("service_name") or "").strip(),
-        str(entry_runtime.get("service_name") or "").strip(),
-        str(entry_runtime.get("account_scope") or "").strip(),
-        str(entry.get("ACCOUNT_GROUP") or "").strip(),
-    }
-    return service_name in candidates or account_scope in candidates
+    service_matches = [
+        index
+        for index, entry in enumerate(entries)
+        if service_name and service_name in _service_target_identity(entry, "service_name")
+    ]
+    if len(service_matches) > 1:
+        raise ValueError(f"multiple service targets match service_name {service_name!r}")
+    if service_matches:
+        return service_matches[0]
+
+    if not allow_account_scope_fallback:
+        return None
+    scope_matches = [
+        index
+        for index, entry in enumerate(entries)
+        if (
+            account_scope
+            and not _service_target_identity(entry, "service_name")
+            and account_scope in _service_target_identity(entry, "account_scope")
+        )
+    ]
+    if len(scope_matches) > 1:
+        raise ValueError(
+            f"multiple service targets match account_scope {account_scope!r}; "
+            "service_name must match an existing target"
+        )
+    return scope_matches[0] if scope_matches else None
+
+
+def _service_target_entry_matches(runtime_target: dict[str, Any], entry: dict[str, Any]) -> bool:
+    return select_service_target_entry_index(runtime_target, [entry]) == 0
 
 
 def extract_account_sync_controls(target: dict[str, Any]) -> dict[str, str]:
@@ -803,6 +923,10 @@ def extract_account_sync_controls(target: dict[str, Any]) -> dict[str, str]:
             controls[payload_key] = str(value).strip()
 
     service_targets = extra_variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
+    if service_targets is None:
+        repository_variables = target.get("repository_variables")
+        if isinstance(repository_variables, dict):
+            service_targets = repository_variables.get("CLOUD_RUN_SERVICE_TARGETS_JSON")
     if isinstance(service_targets, str):
         try:
             service_targets = json.loads(service_targets)
@@ -810,16 +934,11 @@ def extract_account_sync_controls(target: dict[str, Any]) -> dict[str, str]:
             service_targets = None
 
     runtime_target = target.get("runtime_target") if isinstance(target.get("runtime_target"), dict) else {}
-    if isinstance(service_targets, dict):
-        entries = service_targets.get("targets") if isinstance(service_targets.get("targets"), list) else []
-        matched = next(
-            (
-                entry
-                for entry in entries
-                if isinstance(entry, dict) and _service_target_entry_matches(runtime_target, entry)
-            ),
-            None,
-        )
+    if isinstance(service_targets, (dict, list)):
+        raw_entries = service_targets.get("targets") if isinstance(service_targets, dict) else service_targets
+        entries = [entry for entry in raw_entries or [] if isinstance(entry, dict)]
+        matched_index = select_service_target_entry_index(runtime_target, entries)
+        matched = entries[matched_index] if matched_index is not None else None
         if matched:
             for source_key, payload_key in ACCOUNT_SYNC_CONTROL_FIELDS.items():
                 if payload_key in controls:
@@ -857,6 +976,13 @@ def build_parser() -> argparse.ArgumentParser:
     repository = subparsers.add_parser("repository", help="print the configured platform repository")
     repository.add_argument("platform", choices=sorted(SUPPORTED_PLATFORMS))
     repository.set_defaults(func=command_repository)
+
+    settings_activation = subparsers.add_parser(
+        "settings-activation",
+        help="print how repository variable changes become active for a platform",
+    )
+    settings_activation.add_argument("platform", choices=sorted(SUPPORTED_PLATFORMS))
+    settings_activation.set_defaults(func=command_settings_activation)
 
     return parser
 

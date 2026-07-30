@@ -47,6 +47,11 @@
         "execution_mode"
       ],
       "additionalProperties": false,
+      "dependentRequired": {
+        "market": ["market_calendar", "market_timezone"],
+        "market_calendar": ["market", "market_timezone"],
+        "market_timezone": ["market", "market_calendar"]
+      },
       "properties": {
         "platform_id": {
           "type": "string"
@@ -76,6 +81,18 @@
         "execution_mode": {
           "type": "string",
           "enum": ["live", "paper", "dry_run"]
+        },
+        "market": {
+          "type": "string",
+          "minLength": 1
+        },
+        "market_calendar": {
+          "type": "string",
+          "minLength": 1
+        },
+        "market_timezone": {
+          "type": "string",
+          "minLength": 1
         },
         "scheduler": {
           "type": "object",
@@ -169,6 +186,12 @@
       }
     },
     "extra_variables": {
+      "type": "object",
+      "additionalProperties": {
+        "type": ["string", "number", "integer", "boolean", "object", "array", "null"]
+      }
+    },
+    "repository_variables": {
       "type": "object",
       "additionalProperties": {
         "type": ["string", "number", "integer", "boolean", "object", "array", "null"]
