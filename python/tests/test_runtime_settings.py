@@ -1591,6 +1591,61 @@ class RuntimeSettingsTest(unittest.TestCase):
             runtime_settings.validate_target(target),
         )
 
+    def test_runtime_target_market_metadata_must_match_strategy_domain(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "schwab",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+            ]
+        )
+        target = build_runtime_switch.build_switch_target(args)
+        target["runtime_target"].update(
+            {
+                "market": "HK",
+                "market_calendar": "XHKG",
+                "market_timezone": "Asia/Hong_Kong",
+            }
+        )
+
+        errors = runtime_settings.validate_target(target)
+
+        self.assertIn(
+            "runtime_target.market must match strategy domain us_equity: expected 'US'",
+            errors,
+        )
+        self.assertIn(
+            "runtime_target.market_calendar must match strategy domain us_equity: expected 'NYSE'",
+            errors,
+        )
+        self.assertIn(
+            "runtime_target.market_timezone must match strategy domain us_equity: expected 'America/New_York'",
+            errors,
+        )
+
+    def test_runtime_target_scheduler_timezone_must_match_strategy_domain(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "schwab",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+            ]
+        )
+        target = build_runtime_switch.build_switch_target(args)
+        target["runtime_target"]["scheduler"]["timezone"] = "Asia/Hong_Kong"
+
+        self.assertIn(
+            "runtime_target.scheduler.timezone must match strategy domain us_equity: "
+            "expected 'America/New_York'",
+            runtime_settings.validate_target(target),
+        )
+
     def test_build_switch_target_rejects_secret_extra_variable(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
@@ -1900,6 +1955,64 @@ class RuntimeSettingsTest(unittest.TestCase):
                 for item in assignments
             )
         )
+
+    def test_build_switch_target_keeps_repository_service_inventory_for_environment_switches(self):
+        cases = (
+            ("schwab", "charles-schwab-quant-service"),
+            ("firstrade", "firstrade-quant-service"),
+        )
+        for platform, service_name in cases:
+            with self.subTest(platform=platform):
+                existing = {
+                    "targets": [
+                        {
+                            "service": service_name,
+                            "runtime_target": {
+                                "platform_id": platform,
+                                "strategy_profile": "tqqq_growth_income",
+                                "dry_run_only": False,
+                                "deployment_selector": platform,
+                                "account_selector": [platform],
+                                "account_scope": "US",
+                                "service_name": service_name,
+                                "execution_mode": "live",
+                            },
+                        }
+                    ]
+                }
+                path = ROOT / f".pytest_{platform}_service_targets.json"
+                path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+                self.addCleanup(lambda path=path: path.unlink(missing_ok=True))
+                args = build_runtime_switch.build_parser().parse_args(
+                    [
+                        "--platform",
+                        platform,
+                        "--target-name",
+                        "live",
+                        "--strategy-profile",
+                        "soxl_soxx_trend_income",
+                        "--variable-scope",
+                        "environment",
+                        "--existing-service-targets-json-file",
+                        str(path),
+                    ]
+                )
+
+                target = build_runtime_switch.build_switch_target(args)
+                assignments = runtime_settings.build_assignments(target)
+                service_inventory = next(
+                    item for item in assignments if item.name == "CLOUD_RUN_SERVICE_TARGETS_JSON"
+                )
+
+                self.assertEqual(service_inventory.variable_scope, "repository")
+                self.assertIsNone(service_inventory.environment)
+                self.assertTrue(
+                    any(
+                        item.name == "RUNTIME_TARGET_JSON"
+                        and item.variable_scope == "environment"
+                        for item in assignments
+                    )
+                )
 
     def test_build_switch_target_can_clear_preserved_ibkr_reserved_cash_fields(self):
         existing = {

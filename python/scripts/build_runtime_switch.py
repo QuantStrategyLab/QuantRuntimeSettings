@@ -165,6 +165,9 @@ DEFAULT_VARIABLE_SCOPE = {
     "qmt": "repository",
     "binance": "repository",
 }
+REPOSITORY_SCOPED_SERVICE_INVENTORY_PLATFORMS = frozenset(
+    {"longbridge", "schwab", "firstrade"}
+)
 DEFAULT_SERVICE_NAME = {
     "schwab": "charles-schwab-quant-service",
     "firstrade": "firstrade-quant-service",
@@ -940,7 +943,10 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
             extra_variables=extra_variables,
             allow_create=args.allow_create_service_target,
         )
-        if variable_scope == "environment" and platform == "longbridge":
+        if (
+            variable_scope == "environment"
+            and platform in REPOSITORY_SCOPED_SERVICE_INVENTORY_PLATFORMS
+        ):
             repository_variables = {"CLOUD_RUN_SERVICE_TARGETS_JSON": patched_service_targets}
         else:
             extra_variables = {"CLOUD_RUN_SERVICE_TARGETS_JSON": patched_service_targets}

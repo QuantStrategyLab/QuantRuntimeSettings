@@ -430,7 +430,8 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
     config = load_platform_config()
     strategies = config.get("strategies", {})
     platforms = config.get("platforms", {})
-    if not isinstance(strategies, dict) or not isinstance(platforms, dict):
+    domains = config.get("domains", {})
+    if not isinstance(strategies, dict) or not isinstance(platforms, dict) or not isinstance(domains, dict):
         return
     profile = str(runtime_target.get("strategy_profile") or "").strip()
     strategy = strategies.get(profile)
@@ -440,9 +441,33 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
     platform_id = str(runtime_target.get("platform_id") or "").strip()
     platform = platforms.get(platform_id)
     domain = str(strategy.get("domain") or "").strip()
+    domain_config = domains.get(domain)
     supported_domains = platform.get("supported_domains", []) if isinstance(platform, dict) else []
     if domain and isinstance(supported_domains, list) and supported_domains and domain not in supported_domains:
         errors.append(f"runtime_target.strategy_profile domain {domain} is not supported by {platform_id}")
+
+    if isinstance(domain_config, dict):
+        if any(runtime_target.get(field) is not None for field in MARKET_FIELDS):
+            for field in MARKET_FIELDS:
+                actual = runtime_target.get(field)
+                expected = domain_config.get(field)
+                if isinstance(actual, str) and actual.strip() and actual.strip() != expected:
+                    errors.append(
+                        f"runtime_target.{field} must match strategy domain {domain}: expected {expected!r}"
+                    )
+            scheduler = runtime_target.get("scheduler")
+            if isinstance(scheduler, dict):
+                actual_timezone = scheduler.get("timezone")
+                expected_timezone = domain_config.get("market_timezone")
+                if (
+                    isinstance(actual_timezone, str)
+                    and actual_timezone.strip()
+                    and actual_timezone.strip() != expected_timezone
+                ):
+                    errors.append(
+                        "runtime_target.scheduler.timezone must match strategy domain "
+                        f"{domain}: expected {expected_timezone!r}"
+                    )
 
     execution_mode = str(runtime_target.get("execution_mode") or "").strip().lower()
     allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
