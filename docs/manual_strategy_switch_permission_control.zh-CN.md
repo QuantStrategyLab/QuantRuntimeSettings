@@ -42,7 +42,7 @@
 需要的能力只有：
 
 - 读取和写入 GitHub Actions variables。
-- 如果要自动同步 Cloud Run，允许 dispatch 目标平台 workflow。
+- 对已接入的 Cloud Run 平台，允许 dispatch 目标平台环境同步 workflow。
 
 不需要：
 
@@ -68,7 +68,8 @@
 - `apply=false` 默认只预览，不改远端。
 - `apply=true` 必须写确认词。
 - 没有 `RUNTIME_SETTINGS_GH_TOKEN` 时不能真实写入。
-- IBKR 会 patch 指定 target，不覆盖其他 IBKR 服务。
+- 多服务平台按 `service_name` 精确 patch target；`account_scope` 即使重复也不会覆盖其他策略服务。
+- LongBridge 会同时维护环境级运行目标和仓库级多服务清单，避免页面状态与实际部署输入分叉。
 - `extra_variables_json` 不能覆盖系统自动生成的核心变量。
 - `extra_variables_json` 会拒绝疑似 secret 的变量名，例如 `PASSWORD`、`TOKEN`、`API_KEY`、`ACCESS_KEY`、`CLIENT_SECRET`、`SECRET`。
 
@@ -79,7 +80,7 @@
 - 未登录或不在 allowlist：只能看页面、填参数、复制 preview，不能执行切换。
 - 已登录且 GitHub 用户名在 allowlist：页面启用“一键执行”，由后端触发 GitHub workflow。
 - 前端不保存 GitHub token，不保存 broker secret，不把敏感值写进 localStorage、URL 或日志。
-- 后端只做登录校验、allowlist 校验和 workflow dispatch，不直接写平台仓 variables，也不直接改 Cloud Run。
+- 后端只做登录校验、allowlist 校验和 workflow dispatch，不直接写平台仓 variables，也不直接改 Cloud Run 或 Oracle/VPS。
 - 后端使用 `RUNTIME_SETTINGS_DISPATCH_TOKEN` 触发 workflow；GitHub Actions 内部再使用 `RUNTIME_SETTINGS_GH_TOKEN` 写目标平台 variables。
 - 真正跨平台变量写入仍由 `Manual Strategy Switch` workflow 执行，继续复用 preview、确认词和 secret 变量名校验。
 
@@ -94,7 +95,7 @@
 1. 选择上一个稳定 `strategy_profile`。
 2. 保持同一个 `platform` 和 `target_name`。
 3. 运行 `apply=true`。
-4. 如果之前同步过 Cloud Run，这次也用 `APPLY_AND_SYNC`。
+4. Cloud Run 平台如果之前同步过运行环境，这次也用 `APPLY_AND_SYNC`；Binance 等待外部调度器下一次触发 VPS self-hosted runtime，QMT 当前没有实盘同步步骤。
 
 ## 可选增强
 

@@ -57,14 +57,14 @@ python3 -m unittest discover -s python/tests -v
 
 ## Manual Strategy Switch
 
-`.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `python/scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It currently supports `longbridge`, `ibkr`, `schwab`, and `firstrade`.
+`.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `python/scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It supports `longbridge`, `ibkr`, `schwab`, `firstrade`, `qmt`, and `binance`.
 
 Recommended flow:
 
 1. Run once with `apply=false` to preview the assignments.
 2. Check `repository`, `environment`, `strategy_profile`, `service_name`, `execution_mode`, and plugin mounts.
 3. Re-run with `apply=true` and `confirm_apply=APPLY` to write variables.
-4. Set `trigger_platform_sync=true` and `confirm_apply=APPLY_AND_SYNC` when the target platform should dispatch its Cloud Run env sync workflow.
+4. For a Cloud Run platform, set `trigger_platform_sync=true` and `confirm_apply=APPLY_AND_SYNC` to dispatch its environment sync workflow.
 
 Example:
 
@@ -82,12 +82,16 @@ confirm_apply=APPLY_AND_SYNC
 Notes:
 
 - This is a GitHub Actions `workflow_dispatch` form, not a public web app. The default `apply=false` mode only previews assignments and writes nothing remotely.
-- LongBridge defaults to environment-scoped variables; `target_name=sg` resolves to `longbridge-sg`.
+- LongBridge defaults to environment-scoped variables; `target_name=sg` resolves to `longbridge-sg`. When a repository-level multi-service target list exists, the same switch also updates its exact service entry.
+- Multi-service targets use `service_name` as their primary identity. Multiple services may share one `account_scope`; a switch never selects a sibling service by account scope.
+- `CLOUD_RUN_SERVICE_TARGETS_JSON` supports both a bare array and an object with `targets`. New services require the explicit `allow_create` mode.
 - Schwab defaults to repository-scoped variables.
 - Firstrade defaults to repository-scoped variables; `target_name=live` uses `firstrade-quant-service` and `account_scope=US`.
-- IBKR `service_targets_mode=auto` only patches an existing service/account-scope entry inside `CLOUD_RUN_SERVICE_TARGETS_JSON`, so other services are preserved and an unknown target fails closed. Use `allow_create` only when intentionally provisioning a new target.
+- IBKR `service_targets_mode=auto` patches the exact existing service entry inside `CLOUD_RUN_SERVICE_TARGETS_JSON`; account scope is only a fallback for a legacy entry with no service identity. Other services are preserved and an unknown target fails closed. Use `allow_create` only when intentionally provisioning a new target.
 - Cross-repository variable writes and workflow dispatches require a `RUNTIME_SETTINGS_GH_TOKEN` secret in this repository with sufficient target-repository variable/workflow permissions. The workflow does not fall back to the default `github.token` for remote writes.
-- IBKR `service_targets_mode=auto` must read and patch the target repository's `CLOUD_RUN_SERVICE_TARGETS_JSON`, so even preview mode requires `RUNTIME_SETTINGS_GH_TOKEN` for IBKR.
+- LongBridge, IBKR, Schwab, and Firstrade `service_targets_mode=auto` checks the target repository's multi-service inventory, so even preview mode requires `RUNTIME_SETTINGS_GH_TOKEN`.
+- Binance runs through an Oracle Cloud VPS self-hosted runner. Repository variable writes are consumed by the next externally scheduled `main.yml` dispatch; the central switch does not dispatch that runtime workflow because it may execute live trading. A strategy cadence change also requires a separate review of the external VPS scheduler.
+- QMT remains dry-run only and has no live deployment configuration. Its generated target can stage repository variables, but `trigger_platform_sync=true` is rejected.
 - The workflow is bound to the `runtime-strategy-switch` GitHub Environment. For a personal system, required reviewers are optional; prefer storing `RUNTIME_SETTINGS_GH_TOKEN` as an Environment secret and rely on preview, confirmation text, and a least-privilege token for day-to-day safety.
 - Follow the simplified permission-control plan before enabling real switches: [docs/manual_strategy_switch_permission_control.zh-CN.md](docs/manual_strategy_switch_permission_control.zh-CN.md).
 

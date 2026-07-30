@@ -56,7 +56,7 @@ on:
         required: false
         type: string
       service_name:
-        description: "Cloud Run service name. blank = platform default."
+        description: "Runtime service name. blank = platform default."
         required: false
         type: string
       plugin_mode:
@@ -102,7 +102,7 @@ on:
           - enabled
           - disabled
       service_targets_mode:
-        description: "auto updates an existing IBKR target; allow_create explicitly permits a new target."
+        description: "auto updates an existing multi-service target when configured; allow_create explicitly permits a new target."
         required: true
         type: choice
         default: auto
@@ -116,7 +116,7 @@ on:
         type: boolean
         default: false
       trigger_platform_sync:
-        description: "After apply, dispatch the target platform sync-cloud-run-env workflow."
+        description: "After apply, dispatch a supported Cloud Run environment sync workflow."
         required: true
         type: boolean
         default: false
@@ -125,7 +125,7 @@ on:
         required: false
         type: string
       platform_sync_workflow:
-        description: "Target platform workflow filename."
+        description: "Cloud Run target platform workflow filename."
         required: false
         type: string
         default: sync-cloud-run-env.yml
@@ -192,6 +192,28 @@ jobs:
             exit 2
           fi
 
+          settings_activation="$(
+            python3 python/scripts/runtime_settings.py settings-activation "${PLATFORM}"
+          )"
+          if [ "${TRIGGER_PLATFORM_SYNC}" = "true" ]; then
+            case "${settings_activation}" in
+              cloud_run_sync_workflow)
+                ;;
+              next_runtime_workflow_dispatch)
+                echo "Oracle/VPS runtime activates settings on its next externally scheduled GitHub Actions dispatch; trigger_platform_sync is unsupported for ${PLATFORM}." >&2
+                exit 2
+                ;;
+              not_wired)
+                echo "QMT has no live runtime configuration; trigger_platform_sync is unsupported." >&2
+                exit 2
+                ;;
+              *)
+                echo "Unsupported settings activation mode for ${PLATFORM}: ${settings_activation}" >&2
+                exit 2
+                ;;
+            esac
+          fi
+
           if [ "${APPLY_SWITCH}" = "true" ]; then
             if [ -z "${GH_TOKEN:-}" ]; then
               echo "RUNTIME_SETTINGS_GH_TOKEN is required for apply=true." >&2
@@ -208,12 +230,20 @@ jobs:
             fi
           fi
 
-          if [ "${PLATFORM}" = "ibkr" ] \
-            && [ "${SERVICE_TARGETS_MODE}" != "off" ] \
-            && [ -z "${GH_TOKEN:-}" ]; then
-            echo "RUNTIME_SETTINGS_GH_TOKEN is required for IBKR service-target preview because the workflow must read and patch CLOUD_RUN_SERVICE_TARGETS_JSON." >&2
-            exit 2
-          fi
+          case "${PLATFORM}" in
+            longbridge|ibkr|schwab|firstrade)
+              if [ "${SERVICE_TARGETS_MODE}" != "off" ] && [ -z "${GH_TOKEN:-}" ]; then
+                echo "RUNTIME_SETTINGS_GH_TOKEN is required for multi-service preview because the workflow must read and patch CLOUD_RUN_SERVICE_TARGETS_JSON." >&2
+                exit 2
+              fi
+              ;;
+            *)
+              if [ "${SERVICE_TARGETS_MODE}" = "allow_create" ]; then
+                echo "service_targets_mode=allow_create is not supported for ${PLATFORM}." >&2
+                exit 2
+              fi
+              ;;
+          esac
 
       - name: Resolve platform repository
         id: platform
@@ -223,22 +253,30 @@ jobs:
           echo "repository=${repo}" >> "$GITHUB_OUTPUT"
 
       - name: Fetch existing service targets
-        if: env.SERVICE_TARGETS_MODE != 'off' && env.PLATFORM == 'ibkr'
+        if: >-
+          (env.APPLY_SWITCH == 'true' || env.SERVICE_TARGETS_MODE != 'off') &&
+          contains(fromJSON('["longbridge","ibkr","schwab","firstrade"]'), env.PLATFORM)
         env:
           TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
         run: |
           set -euo pipefail
           output_file="${RUNNER_TEMP}/existing-service-targets.json"
           target_environment=""
-          if [ "${VARIABLE_SCOPE}" = "environment" ]; then
+          if [ "${PLATFORM}" = "ibkr" ] && [ "${VARIABLE_SCOPE}" = "environment" ]; then
             target_environment="${GITHUB_ENVIRONMENT_NAME:-${TARGET_NAME}}"
           fi
-          python - <<'PY' "${TARGET_REPOSITORY}" "${output_file}" "${target_environment}"
+          python - <<'PY' \
+            "${TARGET_REPOSITORY}" \
+            "${output_file}" \
+            "${target_environment}" \
+            "${PLATFORM}" \
+            "${SERVICE_TARGETS_MODE}"
           import json
+          import os
           import subprocess
           import sys
 
-          repo, output_path, environment = sys.argv[1:4]
+          repo, output_path, environment, platform, mode = sys.argv[1:6]
           command = ["gh", "variable", "list", "--repo", repo, "--json", "name,value"]
           if environment:
               command.extend(["--env", environment])
@@ -253,8 +291,14 @@ jobs:
                   value = str(item.get("value") or "").strip()
                   break
           if not value:
-              with open(output_path, "w", encoding="utf-8") as handle:
-                  handle.write("{}")
+              if (platform == "ibkr" and mode != "off") or mode == "allow_create":
+                  with open(output_path, "w", encoding="utf-8") as handle:
+                      handle.write("{}")
+              else:
+                  try:
+                      os.unlink(output_path)
+                  except FileNotFoundError:
+                      pass
               raise SystemExit(0)
           try:
               payload = json.loads(value)
@@ -263,7 +307,18 @@ jobs:
           with open(output_path, "w", encoding="utf-8") as handle:
               json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
           PY
-          echo "EXISTING_SERVICE_TARGETS_JSON_FILE=${output_file}" >> "$GITHUB_ENV"
+          if [ -f "${output_file}" ]; then
+            echo "EXISTING_SERVICE_TARGETS_JSON_FILE=${output_file}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Reject unsafe service inventory bypass
+        if: env.APPLY_SWITCH == 'true' && env.SERVICE_TARGETS_MODE == 'off'
+        run: |
+          set -euo pipefail
+          if [ -f "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
+            echo "existing CLOUD_RUN_SERVICE_TARGETS_JSON requires service_targets_mode=patch or allow_create" >&2
+            exit 2
+          fi
 
       - name: Build switch target
         run: |
@@ -369,10 +424,6 @@ jobs:
               ;;
             schwab|firstrade)
               gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main
-              ;;
-            qmt|binance)
-              echo "${PLATFORM} platform Cloud Run sync workflow is not configured yet; skipped."
-              exit 0
               ;;
             *)
               echo "No platform sync dispatch rule for ${PLATFORM}" >&2
