@@ -470,6 +470,13 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
                     )
 
     execution_mode = str(runtime_target.get("execution_mode") or "").strip().lower()
+    deployment = platform.get("deployment", {}) if isinstance(platform, dict) else {}
+    if (
+        execution_mode == "live"
+        and isinstance(deployment, dict)
+        and deployment.get("live_configured") is False
+    ):
+        errors.append(f"platform {platform_id} has no live runtime configuration")
     allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
     if allowed_modes and execution_mode not in allowed_modes:
         errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")

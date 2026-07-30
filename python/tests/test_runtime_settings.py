@@ -123,6 +123,23 @@ class RuntimeSettingsTest(unittest.TestCase):
             workflow.index("Apply GitHub variable updates"),
         )
 
+    def test_manual_switch_rejects_inventory_bypass_before_variable_write(self):
+        workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
+
+        self.assertIn("env.APPLY_SWITCH == 'true' ||", workflow)
+        self.assertIn(
+            "existing CLOUD_RUN_SERVICE_TARGETS_JSON requires "
+            "service_targets_mode=patch or allow_create",
+            workflow,
+        )
+        self.assertLess(
+            workflow.index(
+                "existing CLOUD_RUN_SERVICE_TARGETS_JSON requires "
+                "service_targets_mode=patch or allow_create"
+            ),
+            workflow.index("Apply GitHub variable updates"),
+        )
+
     def test_settings_activation_comes_from_platform_config(self):
         self.assertEqual(
             runtime_settings.platform_settings_activation("binance"),
@@ -862,6 +879,26 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "precheck_time": "45 9 * * *",
             },
         )
+
+    def test_build_switch_target_rejects_live_qmt_without_live_runtime_configuration(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "qmt",
+                "--target-name",
+                "industry-etf",
+                "--strategy-profile",
+                "cn_industry_etf_rotation",
+                "--execution-mode",
+                "live",
+            ]
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "platform qmt has no live runtime configuration",
+        ):
+            build_runtime_switch.build_switch_target(args)
 
     def test_build_switch_target_defaults_binance_repository_scope(self):
         parser = build_runtime_switch.build_parser()

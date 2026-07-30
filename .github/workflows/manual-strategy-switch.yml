@@ -254,7 +254,7 @@ jobs:
 
       - name: Fetch existing service targets
         if: >-
-          env.SERVICE_TARGETS_MODE != 'off' &&
+          (env.APPLY_SWITCH == 'true' || env.SERVICE_TARGETS_MODE != 'off') &&
           contains(fromJSON('["longbridge","ibkr","schwab","firstrade"]'), env.PLATFORM)
         env:
           TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
@@ -291,7 +291,7 @@ jobs:
                   value = str(item.get("value") or "").strip()
                   break
           if not value:
-              if platform == "ibkr" or mode == "allow_create":
+              if (platform == "ibkr" and mode != "off") or mode == "allow_create":
                   with open(output_path, "w", encoding="utf-8") as handle:
                       handle.write("{}")
               else:
@@ -309,6 +309,15 @@ jobs:
           PY
           if [ -f "${output_file}" ]; then
             echo "EXISTING_SERVICE_TARGETS_JSON_FILE=${output_file}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Reject unsafe service inventory bypass
+        if: env.APPLY_SWITCH == 'true' && env.SERVICE_TARGETS_MODE == 'off'
+        run: |
+          set -euo pipefail
+          if [ -f "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
+            echo "existing CLOUD_RUN_SERVICE_TARGETS_JSON requires service_targets_mode=patch or allow_create" >&2
+            exit 2
           fi
 
       - name: Build switch target
