@@ -99,28 +99,31 @@ dependencies = [
         self.assertEqual(report.missing_files, [])
         self.assertEqual(report.issues, [])
 
-    def test_qpk_migrated_consumers_use_current_canonical_pin(self):
-        canonical_pin = "92458590a463e7219f0369a3505031ee74414135"
-        migrated_consumers = {
-            "BinancePlatform",
-            "CharlesSchwabPlatform",
-            "CnEquityStrategies",
-            "CryptoStrategies",
-            "FirstradePlatform",
-            "HkEquityStrategies",
-            "InteractiveBrokersPlatform",
-            "LongBridgePlatform",
-            "UsEquityStrategies",
+    def test_qpk_migrated_consumers_use_current_baseline_pins(self):
+        expected_pins_by_consumer = {
+            "BinancePlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "CnEquityStrategies": "92458590a463e7219f0369a3505031ee74414135",
+            "CryptoStrategies": "92458590a463e7219f0369a3505031ee74414135",
+            "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "HkEquityStrategies": "92458590a463e7219f0369a3505031ee74414135",
+            "InteractiveBrokersPlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "LongBridgePlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "UsEquityStrategies": "8ba8276948ff71a8cc0a810f98b7437a1311c671",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
             (pin.consumer_repo, pin.path): pin.ref
             for pin in matrix_pins
-            if pin.consumer_repo in migrated_consumers and pin.source_repo == "QuantPlatformKit"
+            if pin.consumer_repo in expected_pins_by_consumer and pin.source_repo == "QuantPlatformKit"
+        }
+        expected_refs = {
+            (consumer_repo, path): ref
+            for consumer_repo, ref in expected_pins_by_consumer.items()
+            for path in ("pyproject.toml", "uv.lock")
         }
 
-        self.assertEqual(len(refs), len(migrated_consumers) * 2)
-        self.assertEqual(set(refs.values()), {canonical_pin})
+        self.assertEqual(refs, expected_refs)
 
     def test_require_consumer_files_treats_missing_paths_as_issues(self):
         projects_root = self._make_projects_root({})
