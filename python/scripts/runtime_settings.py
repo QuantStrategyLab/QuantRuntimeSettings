@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import os
 import re
@@ -175,6 +176,124 @@ def env_string(value: Any) -> str:
     if value is None:
         return ""
     return str(value)
+
+
+_QRS_PROFILE_KEYS = {"strategy_profile", "domain", "catalog_stage", "runtime_enabled", "bindings"}
+_QRS_BINDING_KEYS = {
+    "binding_id", "platform_id", "strategy_revision", "execution_mode", "enabled", "deployment_scope",
+    "config_digest", "readback_revision", "readback_at", "readback_source", "operating_state",
+}
+_QRS_ENUMS = {
+    "domain": {"us_equity", "hk_equity", "cn_equity", "crypto"},
+    "catalog_stage": {"research_backtest_only", "shadow_candidate", "live_candidate", "runtime_enabled"},
+    "platform_id": {"longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"},
+    "execution_mode": {"off", "dry_run", "paper", "live"},
+    "deployment_scope": {"disabled", "research", "paper", "production"},
+    "operating_state": {"normal", "watch", "reduced", "quarantined", "retired", "unknown"},
+}
+_QRS_TIMESTAMP = re.compile(
+    r"^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(?:\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+)
+
+
+def _qrs_time(value: Any) -> dt.datetime | None:
+    if not isinstance(value, str) or not value or value != value.strip():
+        return None
+    match = _QRS_TIMESTAMP.fullmatch(value)
+    if not match or any(int(match[index]) > limit for index, limit in ((4, 23), (5, 59), (6, 59))):
+        return None
+    zone = match[7]
+    if zone != "Z" and (int(zone[1:3]) > 23 or int(zone[4:]) > 59):
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _qrs_safe_source(value: Any) -> bool:
+    if not isinstance(value, str) or not 1 <= len(value) <= 120 or value != value.strip():
+        return False
+    lowered = value.lower()
+    if "<" in value or ">" in value or "\\" in value or value.startswith(("/", "~/")):
+        return False
+    if re.match(r"^[a-z]:[\\/]", value, re.I) or re.search(r"(?:^|[\s(])(?:/users/|/home/)", lowered):
+        return False
+    if re.search(r"\bbearer\s+\S+", value, re.I):
+        return False
+    if re.search(r"\b(?:api[_ -]?key|cookie|password|private[_ -]?key|secret|token)\s*[:=]", value, re.I):
+        return False
+    return not re.search(r"\b(?:gh[oprsu]_[a-z0-9_]{20,}|sk-[a-z0-9_-]{20,}|eyj[a-z0-9_.-]{16,})\b", value, re.I)
+
+
+def validate_deployment_bindings_payload(payload: Any, *, now: Any = None) -> list[str]:
+    errors: list[str] = []
+    top_keys = {"schema_version", "generated_at", "source_revision", "config_digest", "profiles"}
+    if not isinstance(payload, dict) or set(payload) != top_keys:
+        return ["deployment bindings payload must be a closed object"]
+    reference = _qrs_time(now if now is not None else dt.datetime.now(dt.timezone.utc).isoformat())
+    generated = _qrs_time(payload.get("generated_at"))
+    if payload.get("schema_version") != "strategy_deployment_bindings.v1":
+        errors.append("schema_version is unsupported")
+    if generated is None or reference is None:
+        errors.append("generated_at or reference time is invalid")
+    elif generated > reference + dt.timedelta(minutes=5):
+        errors.append("generated_at is outside the allowed window")
+    for field, length in (("source_revision", 40), ("config_digest", 64)):
+        if not isinstance(payload.get(field), str) or not re.fullmatch(rf"[0-9a-f]{{{length}}}", payload[field]):
+            errors.append(f"{field} must be lowercase hexadecimal")
+    profiles = payload.get("profiles")
+    if not isinstance(profiles, list) or len(profiles) > 100:
+        return errors + ["profiles must be an array with at most 100 items"]
+    seen_profiles: set[str] = set()
+    for profile in profiles:
+        if not isinstance(profile, dict) or set(profile) != _QRS_PROFILE_KEYS:
+            errors.append("profile must be a closed object")
+            continue
+        profile_id = profile.get("strategy_profile")
+        if not isinstance(profile_id, str) or not re.fullmatch(r"[A-Za-z0-9._=-]{1,120}", profile_id):
+            errors.append("strategy_profile is invalid")
+        elif profile_id.casefold() in seen_profiles:
+            errors.append("profiles contain duplicate case-normalized ID")
+        else:
+            seen_profiles.add(profile_id.casefold())
+        for field in ("domain", "catalog_stage"):
+            if profile.get(field) not in _QRS_ENUMS[field]:
+                errors.append(f"profile {field} is invalid")
+        if not isinstance(profile.get("runtime_enabled"), bool):
+            errors.append("runtime_enabled must be boolean")
+        bindings = profile.get("bindings")
+        if not isinstance(bindings, list) or len(bindings) > 100:
+            errors.append("bindings must be an array with at most 100 items")
+            continue
+        seen_bindings: set[str] = set()
+        for binding in bindings:
+            if not isinstance(binding, dict) or set(binding) != _QRS_BINDING_KEYS:
+                errors.append("binding must be a closed object")
+                continue
+            binding_id = binding.get("binding_id")
+            if not isinstance(binding_id, str) or not re.fullmatch(r"[A-Za-z0-9._=-]{1,120}", binding_id):
+                errors.append("binding_id is invalid")
+            elif binding_id.casefold() in seen_bindings:
+                errors.append("bindings contain duplicate case-normalized ID")
+            else:
+                seen_bindings.add(binding_id.casefold())
+            for field in ("platform_id", "execution_mode", "deployment_scope", "operating_state"):
+                if binding.get(field) not in _QRS_ENUMS[field]:
+                    errors.append(f"binding {field} is invalid")
+            for field, length in (("strategy_revision", 40), ("readback_revision", 40), ("config_digest", 64)):
+                if not isinstance(binding.get(field), str) or not re.fullmatch(rf"[0-9a-f]{{{length}}}", binding[field]):
+                    errors.append(f"binding {field} must be lowercase hexadecimal")
+            enabled, mode = binding.get("enabled"), binding.get("execution_mode")
+            if not isinstance(enabled, bool) or (enabled and mode == "off") or (not enabled and mode != "off"):
+                errors.append("binding enabled/execution_mode conflict")
+            readback = _qrs_time(binding.get("readback_at"))
+            if generated is None or reference is None or readback is None or not reference - dt.timedelta(days=7) <= readback <= reference + dt.timedelta(minutes=5):
+                errors.append("binding readback_at is outside the allowed window")
+            if not _qrs_safe_source(binding.get("readback_source")):
+                errors.append("binding readback_source is unsafe")
+    return errors
 
 
 def is_repository_name(value: str) -> bool:

@@ -15,11 +15,14 @@ Adds/modifies:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import subprocess
 import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+from runtime_settings import validate_deployment_bindings_payload
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "platform-config.json"
@@ -50,6 +53,65 @@ SETTINGS_ACTIVATION_MODES = {
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
         return json.load(f)
+
+
+def build_strategy_deployment_bindings(
+    config: dict, *, generated_at: str, source_revision: str, config_digest: str, now: object = None
+) -> dict:
+    raw_profiles = config.get("deployment_bindings") if isinstance(config, dict) else None
+    if not isinstance(raw_profiles, list):
+        raise ValueError("deployment_bindings must be an array")
+    profiles = []
+    for raw_profile in raw_profiles:
+        if not isinstance(raw_profile, dict):
+            raise ValueError("deployment_bindings entries must be objects")
+        raw_bindings = raw_profile.get("bindings")
+        if not isinstance(raw_bindings, list):
+            raise ValueError("deployment binding profile bindings must be an array")
+        bindings = []
+        for raw_binding in raw_bindings:
+            if not isinstance(raw_binding, dict):
+                raise ValueError("deployment binding entries must be objects")
+            source = str(raw_binding.get("readback_source") or "").strip()
+            bindings.append({
+                key: source if key == "readback_source" else raw_binding.get(key)
+                for key in (
+                    "binding_id", "platform_id", "strategy_revision", "execution_mode", "enabled",
+                    "deployment_scope", "config_digest", "readback_revision", "readback_at",
+                    "readback_source", "operating_state",
+                )
+            })
+        profiles.append({
+            "strategy_profile": raw_profile.get("strategy_profile"),
+            "domain": raw_profile.get("domain"),
+            "catalog_stage": raw_profile.get("catalog_stage"),
+            "runtime_enabled": raw_profile.get("runtime_enabled"),
+            "bindings": sorted(bindings, key=lambda item: str(item["binding_id"]).casefold()),
+        })
+    payload = {
+        "schema_version": "strategy_deployment_bindings.v1",
+        "generated_at": generated_at,
+        "source_revision": source_revision,
+        "config_digest": config_digest,
+        "profiles": sorted(profiles, key=lambda item: str(item["strategy_profile"]).casefold()),
+    }
+    reference_now = now if now is not None else dt.datetime.now(dt.timezone.utc).isoformat()
+    errors = validate_deployment_bindings_payload(payload, now=reference_now)
+    if errors:
+        raise ValueError("; ".join(errors))
+    return payload
+
+
+def write_strategy_deployment_bindings(
+    path: Path, config: dict, *, generated_at: str, source_revision: str, config_digest: str, now: object = None
+) -> dict:
+    payload = build_strategy_deployment_bindings(
+        config, generated_at=generated_at, source_revision=source_revision, config_digest=config_digest, now=now
+    )
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+    return payload
 
 
 def validate(config: dict) -> list[str]:

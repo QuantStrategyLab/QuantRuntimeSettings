@@ -1,0 +1,230 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.invalid/schemas/strategy-truth-dashboard.v1.schema.json",
+  "title": "Strategy truth dashboard V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "computed_at", "data_status", "input_provenance", "summary", "profiles", "errors"],
+  "properties": {
+    "schema_version": { "const": "strategy_truth_dashboard.v1" },
+    "generated_at": { "$ref": "#/$defs/nullableTimestamp" },
+    "computed_at": { "$ref": "#/$defs/nullableTimestamp" },
+    "data_status": { "enum": ["ready", "stale", "unavailable"] },
+    "input_provenance": { "$ref": "#/$defs/provenance" },
+    "summary": { "$ref": "#/$defs/summary" },
+    "profiles": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/profile" }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  },
+  "$defs": {
+    "timestamp": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "nullableTimestamp": {
+      "oneOf": [
+        { "$ref": "#/$defs/timestamp" },
+        { "type": "null" }
+      ]
+    },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "nullableRevision": {
+      "oneOf": [
+        { "$ref": "#/$defs/revision" },
+        { "type": "null" }
+      ]
+    },
+    "nullableDigest": {
+      "oneOf": [
+        { "$ref": "#/$defs/digest" },
+        { "type": "null" }
+      ]
+    },
+    "identity": { "type": "string", "pattern": "^[a-z0-9._=-]{1,120}$" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "source_revision", "config_digest", "freshness"],
+      "properties": {
+        "sha256": { "$ref": "#/$defs/nullableDigest" },
+        "source_revision": { "$ref": "#/$defs/nullableRevision" },
+        "config_digest": { "$ref": "#/$defs/nullableDigest" },
+        "freshness": { "enum": ["fresh", "stale", "unavailable"] }
+      }
+    },
+    "count": { "type": "integer", "minimum": 0, "maximum": 100 },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["profile_count", "live", "paper", "off", "research_only", "deployment_unknown"],
+      "properties": {
+        "profile_count": { "$ref": "#/$defs/count" },
+        "live": { "$ref": "#/$defs/count" },
+        "paper": { "$ref": "#/$defs/count" },
+        "off": { "$ref": "#/$defs/count" },
+        "research_only": { "$ref": "#/$defs/count" },
+        "deployment_unknown": { "$ref": "#/$defs/count" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["strategy_profile", "domain", "catalog_stage", "deployment_label", "bindings", "health_state", "health"],
+      "properties": {
+        "strategy_profile": { "$ref": "#/$defs/identity" },
+        "domain": { "enum": ["us_equity", "hk_equity", "cn_equity", "crypto"] },
+        "catalog_stage": { "enum": ["research_backtest_only", "shadow_candidate", "live_candidate", "runtime_enabled"] },
+        "deployment_label": { "enum": ["live", "paper", "off", "research_only", "deployment_unknown"] },
+        "bindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/binding" }
+        },
+        "health_state": { "enum": ["healthy", "watch", "review", "critical", "unavailable"] },
+        "health": {
+          "oneOf": [
+            { "$ref": "#/$defs/health" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "platform_id",
+        "strategy_revision",
+        "execution_mode",
+        "enabled",
+        "deployment_scope",
+        "config_digest",
+        "readback_revision",
+        "readback_at",
+        "readback_source",
+        "operating_state"
+      ],
+      "properties": {
+        "binding_id": { "$ref": "#/$defs/identity" },
+        "platform_id": { "enum": ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"] },
+        "strategy_revision": { "$ref": "#/$defs/revision" },
+        "execution_mode": { "enum": ["off", "dry_run", "paper", "live"] },
+        "enabled": { "type": "boolean" },
+        "deployment_scope": { "enum": ["production", "paper", "research", "disabled"] },
+        "config_digest": { "$ref": "#/$defs/digest" },
+        "readback_revision": { "$ref": "#/$defs/revision" },
+        "readback_at": { "$ref": "#/$defs/timestamp" },
+        "readback_source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "operating_state": { "enum": ["normal", "watch", "reduced", "quarantined", "retired", "unknown"] }
+      }
+    },
+    "nullableScore": {
+      "oneOf": [
+        { "type": "number", "minimum": 0, "maximum": 100 },
+        { "type": "null" }
+      ]
+    },
+    "nullableText120": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "maxLength": 120 },
+        { "type": "null" }
+      ]
+    },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["performance", "risk", "decay", "stability", "operations"],
+      "properties": {
+        "performance": { "$ref": "#/$defs/nullableScore" },
+        "risk": { "$ref": "#/$defs/nullableScore" },
+        "decay": { "$ref": "#/$defs/nullableScore" },
+        "stability": { "$ref": "#/$defs/nullableScore" },
+        "operations": { "$ref": "#/$defs/nullableScore" }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "label", "reason"],
+      "properties": {
+        "code": { "type": "string", "pattern": "^[a-z0-9._=-]{1,120}$" },
+        "label": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 240 }
+      }
+    },
+    "scalar": {
+      "oneOf": [
+        { "type": "boolean" },
+        { "type": "number", "minimum": -1000000, "maximum": 1000000 },
+        { "type": "string", "minLength": 1, "maxLength": 120 }
+      ]
+    },
+    "scalarMap": {
+      "type": "object",
+      "maxProperties": 12,
+      "propertyNames": { "pattern": "^[A-Za-z0-9_.-]{1,48}$" },
+      "additionalProperties": { "$ref": "#/$defs/scalar" }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested_stage", "evidence_package_id", "validation", "risk", "kelly_readiness"],
+      "properties": {
+        "requested_stage": { "$ref": "#/$defs/nullableText120" },
+        "evidence_package_id": { "$ref": "#/$defs/nullableText120" },
+        "validation": { "$ref": "#/$defs/scalarMap" },
+        "risk": { "$ref": "#/$defs/scalarMap" },
+        "kelly_readiness": { "$ref": "#/$defs/scalarMap" }
+      }
+    },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "age_seconds"],
+      "properties": {
+        "status": { "enum": ["fresh", "stale", "unknown"] },
+        "age_seconds": {
+          "oneOf": [
+            { "type": "integer", "minimum": 0, "maximum": 315360000 },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["as_of", "status", "score", "components", "decision", "review", "freshness", "source_revision"],
+      "properties": {
+        "as_of": {
+          "oneOf": [
+            { "type": "string", "minLength": 1, "maxLength": 64 },
+            { "type": "null" }
+          ]
+        },
+        "status": { "enum": ["healthy", "watch", "review", "critical"] },
+        "score": { "$ref": "#/$defs/nullableScore" },
+        "components": { "$ref": "#/$defs/components" },
+        "decision": { "$ref": "#/$defs/decision" },
+        "review": { "$ref": "#/$defs/review" },
+        "freshness": { "$ref": "#/$defs/freshness" },
+        "source_revision": { "$ref": "#/$defs/nullableText120" }
+      }
+    }
+  }
+}

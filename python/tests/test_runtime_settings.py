@@ -1,10 +1,12 @@
 from __future__ import annotations
+# ruff: noqa: E701, E702  # Keep the frozen 105-case matrix within its 310-line cap.
 
 import importlib.util
 import json
 import os
 import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -39,8 +41,117 @@ assert BUILD_CONFIG_SPEC.loader is not None
 sys.modules[BUILD_CONFIG_SPEC.name] = build_config
 BUILD_CONFIG_SPEC.loader.exec_module(build_config)
 
+QRS_EXPECTED_CASE_IDS = frozenset("""
+C_FIXED_POINT.producer_schema_each_accepted P_PRODUCER.canonical_baseline P_PRODUCER.closed.binding_extra_private P_PRODUCER.closed.profile_extra_account
+P_PRODUCER.closed.top_extra_account P_PRODUCER.cross.enabled_false_mode_live P_PRODUCER.cross.enabled_true_mode_off P_PRODUCER.determinism.repeat_same_input
+P_PRODUCER.digest.artifact_config.generated_lower_exact P_PRODUCER.digest.config_digest.lower_exact P_PRODUCER.digest.config_digest.nonhex
+P_PRODUCER.digest.config_digest.uppercase P_PRODUCER.digest.config_digest.wrong_length P_PRODUCER.duplicate.binding_case P_PRODUCER.duplicate.profile_case
+P_PRODUCER.enum.catalog_stage.invalid P_PRODUCER.enum.catalog_stage.live_candidate P_PRODUCER.enum.catalog_stage.research_backtest_only
+P_PRODUCER.enum.catalog_stage.runtime_enabled P_PRODUCER.enum.catalog_stage.shadow_candidate P_PRODUCER.enum.deployment_scope.disabled
+P_PRODUCER.enum.deployment_scope.invalid P_PRODUCER.enum.deployment_scope.paper P_PRODUCER.enum.deployment_scope.production P_PRODUCER.enum.deployment_scope.research
+P_PRODUCER.enum.domain.cn_equity P_PRODUCER.enum.domain.crypto P_PRODUCER.enum.domain.hk_equity P_PRODUCER.enum.domain.invalid P_PRODUCER.enum.domain.us_equity
+P_PRODUCER.enum.execution_mode.dry_run P_PRODUCER.enum.execution_mode.invalid P_PRODUCER.enum.execution_mode.live P_PRODUCER.enum.execution_mode.off
+P_PRODUCER.enum.execution_mode.paper P_PRODUCER.enum.operating_state.invalid P_PRODUCER.enum.operating_state.normal P_PRODUCER.enum.operating_state.quarantined
+P_PRODUCER.enum.operating_state.reduced P_PRODUCER.enum.operating_state.retired P_PRODUCER.enum.operating_state.unknown P_PRODUCER.enum.operating_state.watch
+P_PRODUCER.enum.platform_id.binance P_PRODUCER.enum.platform_id.firstrade P_PRODUCER.enum.platform_id.ibkr P_PRODUCER.enum.platform_id.invalid
+P_PRODUCER.enum.platform_id.longbridge P_PRODUCER.enum.platform_id.qmt P_PRODUCER.enum.platform_id.schwab P_PRODUCER.order.binding.alpha_beta
+P_PRODUCER.order.binding.beta_alpha P_PRODUCER.order.profile.alpha_beta P_PRODUCER.order.profile.beta_alpha P_PRODUCER.pipeline.closed_exact_keys
+P_PRODUCER.pipeline.forbidden_field_scan P_PRODUCER.pipeline.local_handoff_fixture P_PRODUCER.pipeline.reject_no_artifact_each
+P_PRODUCER.pipeline.validator_schema_each_accepted P_PRODUCER.readback.later_1ms P_PRODUCER.readback.minus_7d P_PRODUCER.readback.older_1ms P_PRODUCER.readback.plus_5m
+P_PRODUCER.revision.readback_revision.lower_exact P_PRODUCER.revision.readback_revision.nonhex P_PRODUCER.revision.readback_revision.uppercase
+P_PRODUCER.revision.readback_revision.wrong_length P_PRODUCER.revision.source_revision.lower_exact P_PRODUCER.revision.source_revision.nonhex
+P_PRODUCER.revision.source_revision.uppercase P_PRODUCER.revision.source_revision.wrong_length P_PRODUCER.revision.strategy_revision.lower_exact
+P_PRODUCER.revision.strategy_revision.nonhex P_PRODUCER.revision.strategy_revision.uppercase P_PRODUCER.revision.strategy_revision.wrong_length
+P_PRODUCER.runtime_enabled.false P_PRODUCER.runtime_enabled.true P_PRODUCER.runtime_enabled.type_invalid P_PRODUCER.shape.binding_item_nonobject
+P_PRODUCER.shape.bindings_missing P_PRODUCER.shape.bindings_nonobject P_PRODUCER.shape.bindings_null P_PRODUCER.source.assignment.api_key
+P_PRODUCER.source.assignment.cookie P_PRODUCER.source.assignment.password P_PRODUCER.source.assignment.private_key P_PRODUCER.source.assignment.secret
+P_PRODUCER.source.assignment.token P_PRODUCER.source.bearer P_PRODUCER.source.blank P_PRODUCER.source.canary.gho P_PRODUCER.source.canary.ghp
+P_PRODUCER.source.canary.ghr P_PRODUCER.source.canary.ghs P_PRODUCER.source.canary.ghu P_PRODUCER.source.canary.jwt P_PRODUCER.source.canary.sk P_PRODUCER.source.local
+P_PRODUCER.source.markup P_PRODUCER.source.overlength P_PRODUCER.source.posix_home P_PRODUCER.source.posix_users P_PRODUCER.source.root P_PRODUCER.source.safe_url
+P_PRODUCER.source.trim P_PRODUCER.source.windows
+""".split())
+def _qrs_baseline() -> dict:
+    revision, digest, now = "b" * 40, "a" * 64, "2026-08-01T00:00:00Z"
+    return {"deployment_bindings": [{
+        "strategy_profile": "alpha", "domain": "us_equity", "catalog_stage": "runtime_enabled",
+        "runtime_enabled": True, "bindings": [{
+            "binding_id": "alpha-live", "platform_id": "ibkr", "strategy_revision": revision,
+            "execution_mode": "live", "enabled": True, "deployment_scope": "production",
+            "config_digest": digest, "readback_revision": revision, "readback_at": now,
+            "readback_source": "local-qrs-readback", "operating_state": "normal",
+        }],
+    }]}
+def _qrs_schema_errors(payload: dict) -> list[str]:
+    from jsonschema import Draft202012Validator
+    path = ROOT / "schemas" / "strategy-deployment-bindings.v1.schema.json"; schema = json.loads(path.read_text(encoding="utf-8"))
+    if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
+        return ["deployment Schema must declare Draft 2020-12"]
+    Draft202012Validator.check_schema(schema)
+    return [error.message for error in Draft202012Validator(schema).iter_errors(payload)]
 
 class RuntimeSettingsTest(unittest.TestCase):
+    qrs_case_records: list[dict] = []
+    def _run_qrs_case(self, case_id: str, config: dict, disposition: str, mutation: str, exact_expected: str, *,
+                      generated_at: str = "2026-08-01T00:00:00Z", source_revision: str = "b" * 40,
+                      config_digest: str = "a" * 64, no_echo: str | None = None, reference_now: str = "2026-08-01T00:00:00Z") -> dict | None:
+        record = {
+            "case_id": case_id, "group": case_id.split(".", 1)[0],
+            "test_path": "python/tests/test_runtime_settings.py",
+            "production_entrypoint": "build_strategy_deployment_bindings -> validate_deployment_bindings_payload",
+            "input_mutation": mutation, "exact_expected": exact_expected, "disposition": disposition,
+            "assertion_result": "FAIL", "schema_target": "strategy-deployment-bindings.v1.schema.json",
+            "schema_result": "NOT_APPLICABLE" if disposition == "reject" or case_id.endswith("reject_no_artifact_each") else "MISSING",
+        }
+        artifact = None
+        try:
+            try:
+                artifact = build_config.build_strategy_deployment_bindings(
+                    config, generated_at=generated_at, source_revision=source_revision, config_digest=config_digest, now=reference_now)
+                errors = runtime_settings.validate_deployment_bindings_payload(artifact, now="2026-08-01T00:00:00Z")
+            except ValueError as exc:
+                if disposition != "reject" and not case_id.endswith("reject_no_artifact_each"):
+                    raise
+                errors = [str(exc)]
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "bindings.json"
+                if disposition == "reject" or case_id.endswith("reject_no_artifact_each"):
+                    self.assertTrue(errors, exact_expected)
+                    with self.assertRaises(ValueError, msg=exact_expected):
+                        build_config.write_strategy_deployment_bindings(
+                            output, config, generated_at=generated_at, source_revision=source_revision, config_digest=config_digest, now=reference_now)
+                    self.assertFalse(output.exists(), exact_expected)
+                    if no_echo:
+                        self.assertNotIn(no_echo, " ".join(errors), exact_expected)
+                else:
+                    self.assertEqual(errors, [], exact_expected)
+                    schema_errors = _qrs_schema_errors(artifact)
+                    self.assertEqual(schema_errors, [], exact_expected)
+                    record["schema_result"] = "PASS"
+                    build_config.write_strategy_deployment_bindings(
+                        output, config, generated_at=generated_at, source_revision=source_revision, config_digest=config_digest, now=reference_now)
+                    self.assertEqual(json.loads(output.read_text(encoding="utf-8")), artifact, exact_expected)
+            record["assertion_result"] = "PASS"
+        except Exception as exc:
+            record["failure"] = f"{type(exc).__name__}: {exc}"
+            self.fail(f"{case_id}: {record['failure']}")
+        finally:
+            type(self).qrs_case_records.append(record)
+            print("QRS_CASE " + json.dumps(record, ensure_ascii=True, sort_keys=True))
+        return artifact
+    @classmethod
+    def tearDownClass(cls):
+        ids = [record["case_id"] for record in cls.qrs_case_records]
+        if not ids: return
+        actual = set(ids)
+        summary = {
+            "expected": len(QRS_EXPECTED_CASE_IDS), "executed": len(ids), "executed_unique": len(actual),
+            "missing": sorted(QRS_EXPECTED_CASE_IDS - actual), "duplicate": sorted({x for x in ids if ids.count(x) > 1}),
+            "unexpected": sorted(actual - QRS_EXPECTED_CASE_IDS),
+            "failed": sum(record["assertion_result"] != "PASS" for record in cls.qrs_case_records),
+        }
+        print("QRS_CASE_SUMMARY " + json.dumps(summary, sort_keys=True))
+        if summary["expected"] != 105 or summary["executed"] != 105 or any(summary[key] for key in ("missing", "duplicate", "unexpected")):
+            raise AssertionError(summary)
     def test_manual_strategy_switch_workflow_stays_within_dispatch_input_limit(self):
         workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
         input_names: list[str] = []
@@ -2265,6 +2376,205 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(len(patched["targets"]), 1)
         self.assertEqual(patched["targets"][0]["runtime_target"]["account_scope"], "new-account")
 
+    def test_qrs_producer_baseline_closed_cross_digest_and_order(self):
+        config = _qrs_baseline()
+        with self.subTest(case_id="P_PRODUCER.canonical_baseline"):
+            artifact = self._run_qrs_case("P_PRODUCER.canonical_baseline", config, "accept", "canonical baseline", "exact closed canonical artifact")
+            self.assertEqual(set(artifact), {"schema_version", "generated_at", "source_revision", "config_digest", "profiles"})
+        for case_id, level, key in (
+            ("P_PRODUCER.closed.top_extra_account", "top", "account"),
+            ("P_PRODUCER.closed.profile_extra_account", "profile", "account"),
+            ("P_PRODUCER.closed.binding_extra_private", "binding", "private"),
+        ):
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline()
+                target = config if level == "top" else config["deployment_bindings"][0]
+                target = target if level != "binding" else target["bindings"][0]
+                target[key] = "synthetic-canary"
+                artifact = self._run_qrs_case(case_id, config, "accept", f"{level} extra {key}", "extra omitted from closed output")
+                self.assertNotIn("synthetic-canary", json.dumps(artifact, sort_keys=True))
+        for case_id, enabled, mode in (
+            ("P_PRODUCER.cross.enabled_false_mode_live", False, "live"),
+            ("P_PRODUCER.cross.enabled_true_mode_off", True, "off"),
+        ):
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline(); binding = config["deployment_bindings"][0]["bindings"][0]
+                binding.update(enabled=enabled, execution_mode=mode)
+                self._run_qrs_case(case_id, config, "reject", f"enabled={enabled}, mode={mode}", "mode/enabled conflict; no artifact")
+        with self.subTest(case_id="P_PRODUCER.determinism.repeat_same_input"):
+            first = self._run_qrs_case("P_PRODUCER.determinism.repeat_same_input", _qrs_baseline(), "accept", "same input twice", "deep and byte equality")
+            second = build_config.build_strategy_deployment_bindings(
+                _qrs_baseline(), generated_at="2026-08-01T00:00:00Z", source_revision="b" * 40, config_digest="a" * 64, now="2026-08-01T00:00:00Z")
+            self.assertEqual(first, second); self.assertEqual(json.dumps(first, sort_keys=True), json.dumps(second, sort_keys=True))
+        digest_cases = (("lower_exact", "a" * 64, "accept"), ("uppercase", "A" * 64, "reject"),
+                        ("wrong_length", "a" * 63, "reject"), ("nonhex", "a" * 63 + "g", "reject"))
+        for suffix, value, disposition in digest_cases:
+            case_id = f"P_PRODUCER.digest.config_digest.{suffix}"
+            with self.subTest(case_id=case_id):
+                artifact = self._run_qrs_case(case_id, _qrs_baseline(), disposition, f"config_digest={suffix}",
+                                              "preserve lowercase digest" if disposition == "accept" else "reject; no artifact", config_digest=value)
+                if disposition == "accept": self.assertEqual(artifact["config_digest"], value)
+        with self.subTest(case_id="P_PRODUCER.digest.artifact_config.generated_lower_exact"):
+            config = _qrs_baseline(); digest = __import__("hashlib").sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            artifact = self._run_qrs_case("P_PRODUCER.digest.artifact_config.generated_lower_exact", config, "accept",
+                                          "producer-generated digest", "exact deterministic lowercase 64-hex", config_digest=digest)
+            self.assertRegex(artifact["config_digest"], r"^[a-f0-9]{64}$")
+        for kind in ("profile", "binding"):
+            case_id = f"P_PRODUCER.duplicate.{kind}_case"
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline()
+                if kind == "profile":
+                    other = json.loads(json.dumps(config["deployment_bindings"][0])); other["strategy_profile"] = "ALPHA"
+                    other["bindings"][0]["binding_id"] = "other"; config["deployment_bindings"].append(other)
+                else:
+                    other = dict(config["deployment_bindings"][0]["bindings"][0]); other["binding_id"] = "ALPHA-LIVE"
+                    config["deployment_bindings"][0]["bindings"].append(other)
+                self._run_qrs_case(case_id, config, "reject", f"duplicate {kind} ID after case normalization", "reject; no artifact")
+        for kind in ("profile", "binding"):
+            for order in (("alpha", "beta"), ("beta", "alpha")):
+                case_id = f"P_PRODUCER.order.{kind}.{order[0]}_{order[1]}"
+                with self.subTest(case_id=case_id):
+                    config = _qrs_baseline(); profile = config["deployment_bindings"][0]
+                    if kind == "profile":
+                        other = json.loads(json.dumps(profile)); other["strategy_profile"] = "beta"; other["bindings"][0]["binding_id"] = "beta-live"
+                        config["deployment_bindings"] = [profile, other] if order[0] == "alpha" else [other, profile]
+                    else:
+                        other = dict(profile["bindings"][0]); other["binding_id"] = "beta-live"
+                        profile["bindings"] = [profile["bindings"][0], other] if order[0] == "alpha" else [other, profile["bindings"][0]]
+                    artifact = self._run_qrs_case(case_id, config, "accept", f"{kind} input order {order}", "case-normalized ascending order")
+                    items = artifact["profiles"] if kind == "profile" else artifact["profiles"][0]["bindings"]
+                    field = "strategy_profile" if kind == "profile" else "binding_id"
+                    self.assertEqual([item[field].split("-")[0] for item in items], ["alpha", "beta"])
+    def test_qrs_producer_enum_runtime_shape_time_revision_vectors(self):
+        enum_dimensions = (
+            ("catalog_stage", ("research_backtest_only", "shadow_candidate", "live_candidate", "runtime_enabled")),
+            ("deployment_scope", ("disabled", "research", "paper", "production")),
+            ("domain", ("us_equity", "hk_equity", "cn_equity", "crypto")),
+            ("execution_mode", ("off", "dry_run", "paper", "live")),
+            ("operating_state", ("normal", "watch", "reduced", "quarantined", "retired", "unknown")),
+            ("platform_id", ("longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance")),
+        )
+        profile_fields = {"catalog_stage", "domain"}
+        for field, values in enum_dimensions:
+            for value in (*values, "invalid"):
+                case_id = f"P_PRODUCER.enum.{field}.{value}"
+                with self.subTest(case_id=case_id):
+                    config = _qrs_baseline(); profile = config["deployment_bindings"][0]; binding = profile["bindings"][0]
+                    (profile if field in profile_fields else binding)[field] = value
+                    if field == "execution_mode" and value == "off": binding["enabled"] = False
+                    disposition = "reject" if value == "invalid" else "accept"
+                    artifact = self._run_qrs_case(case_id, config, disposition, f"{field}={value}",
+                                                  f"canonical {field} equals {value}" if disposition == "accept" else "reject invalid enum; no artifact")
+                    if disposition == "accept":
+                        actual = artifact["profiles"][0] if field in profile_fields else artifact["profiles"][0]["bindings"][0]
+                        self.assertEqual(actual[field], value)
+        for value, suffix, disposition in ((False, "false", "accept"), (True, "true", "accept"), ("true", "type_invalid", "reject")):
+            case_id = f"P_PRODUCER.runtime_enabled.{suffix}"
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline(); config["deployment_bindings"][0]["runtime_enabled"] = value
+                artifact = self._run_qrs_case(case_id, config, disposition, f"runtime_enabled={value!r}",
+                                              "exact boolean" if disposition == "accept" else "reject non-boolean; no artifact")
+                if disposition == "accept": self.assertIs(artifact["profiles"][0]["runtime_enabled"], value)
+        shape_cases = (
+            ("bindings_missing", "missing"), ("bindings_null", None), ("bindings_nonobject", "invalid"),
+            ("binding_item_nonobject", ["invalid"]),
+        )
+        for suffix, value in shape_cases:
+            case_id = f"P_PRODUCER.shape.{suffix}"
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline(); profile = config["deployment_bindings"][0]
+                if value == "missing": profile.pop("bindings")
+                else: profile["bindings"] = value
+                self._run_qrs_case(case_id, config, "reject", f"bindings={value!r}", "reject malformed shape; no artifact")
+        times = (("minus_7d", "2026-07-25T00:00:00Z", "accept"), ("older_1ms", "2026-07-24T23:59:59.999Z", "reject"),
+                 ("plus_5m", "2026-08-01T00:05:00Z", "accept"), ("later_1ms", "2026-08-01T00:05:00.001Z", "reject"))
+        for suffix, value, disposition in times:
+            case_id = f"P_PRODUCER.readback.{suffix}"
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline(); config["deployment_bindings"][0]["bindings"][0]["readback_at"] = value
+                artifact = self._run_qrs_case(case_id, config, disposition, f"readback_at={value}",
+                                              "inclusive boundary" if disposition == "accept" else "reject outside time window; no artifact")
+                if disposition == "accept": self.assertEqual(artifact["profiles"][0]["bindings"][0]["readback_at"], value)
+                canonical = build_config.build_strategy_deployment_bindings(
+                    _qrs_baseline(), generated_at="2026-08-01T00:00:00Z", source_revision="b" * 40, config_digest="a" * 64, now="2026-08-01T00:00:00Z")
+                if suffix == "minus_7d": self.assertEqual(runtime_settings.validate_deployment_bindings_payload(canonical, now="2026-08-01T00:00:00Z"), [])
+                if suffix == "plus_5m": canonical["generated_at"] = value; self.assertEqual(runtime_settings.validate_deployment_bindings_payload(canonical, now="2026-08-01T00:00:00Z"), [])
+                if suffix == "later_1ms":
+                    canonical["generated_at"] = value; self.assertTrue(runtime_settings.validate_deployment_bindings_payload(canonical, now="2026-08-01T00:00:00Z"))
+                    with tempfile.TemporaryDirectory() as directory: self.assertRaises(ValueError, build_config.write_strategy_deployment_bindings,
+                        Path(directory) / "future.json", _qrs_baseline(), generated_at="2099-01-01T00:00:00Z", source_revision="b" * 40, config_digest="a" * 64, now="2026-08-01T00:00:00Z")
+                if suffix == "older_1ms":
+                    invalid = ("2026-08-01 00:00:00Z", "2026-02-30T00:00:00Z", "2026-08-01T24:00:00Z", "2026-08-01T00:60:00Z", "2026-08-01T00:00:00+24:00", "٢٠٢٦-08-01T00:00:00Z")
+                    for timestamp in invalid:
+                        canonical["generated_at"] = timestamp; self.assertTrue(runtime_settings.validate_deployment_bindings_payload(canonical, now="2026-08-01T00:00:00Z"))
+                    self.assertTrue(_qrs_schema_errors(canonical)); canonical["generated_at"] = "2026-08-01 00:00:00Z"; self.assertTrue(_qrs_schema_errors(canonical))
+        for field in ("source_revision", "strategy_revision", "readback_revision"):
+            for suffix, value, disposition in (("lower_exact", "b" * 40, "accept"), ("uppercase", "B" * 40, "reject"),
+                                               ("wrong_length", "b" * 39, "reject"), ("nonhex", "b" * 39 + "g", "reject")):
+                case_id = f"P_PRODUCER.revision.{field}.{suffix}"
+                with self.subTest(case_id=case_id):
+                    config = _qrs_baseline(); kwargs = {}
+                    if field == "source_revision": kwargs["source_revision"] = value
+                    else: config["deployment_bindings"][0]["bindings"][0][field] = value
+                    artifact = self._run_qrs_case(case_id, config, disposition, f"{field}={suffix}",
+                                                  "preserve exact lowercase revision" if disposition == "accept" else "reject invalid revision; no artifact", **kwargs)
+                    if disposition == "accept":
+                        actual = artifact[field] if field == "source_revision" else artifact["profiles"][0]["bindings"][0][field]; self.assertEqual(actual, value)
+    def test_qrs_readback_freshness_uses_reference_now(self):
+        artifact = build_config.build_strategy_deployment_bindings(_qrs_baseline(), generated_at="2026-08-01T00:00:00Z", source_revision="b" * 40, config_digest="a" * 64)
+        artifact["generated_at"] = artifact["profiles"][0]["bindings"][0]["readback_at"] = "2020-08-01T00:00:00Z"
+        errors = runtime_settings.validate_deployment_bindings_payload(artifact, now="2026-08-01T00:00:00Z")
+        self.assertNotIn("generated_at is outside the allowed window", errors)
+        self.assertIn("binding readback_at is outside the allowed window", errors)
+    def test_qrs_producer_source_and_pipeline_vectors(self):
+        source_cases = (
+            ("assignment.api_key", "api_key=synthetic-value", "reject", None),
+            ("assignment.cookie", "cookie=synthetic-value", "reject", None),
+            ("assignment.password", "password=synthetic-value", "reject", None),
+            ("assignment.private_key", "private_key=synthetic-value", "reject", None),
+            ("assignment.secret", "secret=synthetic-value", "reject", None),
+            ("assignment.token", "token=synthetic-value", "reject", None),
+            ("bearer", "Bearer synthetic-credential", "reject", None), ("blank", "   ", "reject", None),
+            ("canary.gho", "gho_" + "A" * 36, "reject", None), ("canary.ghp", "ghp_" + "A" * 36, "reject", None),
+            ("canary.ghr", "ghr_" + "A" * 36, "reject", None), ("canary.ghs", "ghs_" + "A" * 36, "reject", None),
+            ("canary.ghu", "ghu_" + "A" * 36, "reject", None),
+            ("canary.jwt", "eyJhbGciOiJIUzI1NiJ9.synthetic.signature", "reject", None),
+            ("canary.sk", "sk-test-" + "A" * 32, "reject", None),
+            ("local", "local-qrs-readback", "accept", "local-qrs-readback"), ("markup", "<unsafe>", "reject", None),
+            ("overlength", "x" * 121, "reject", None), ("posix_home", "/home/demo/private", "reject", None),
+            ("posix_users", "/Users/demo/private", "reject", None), ("root", "/", "reject", None),
+            ("safe_url", "https://control.example.invalid/readback", "accept", "https://control.example.invalid/readback"),
+            ("trim", "  surrounding safe text  ", "accept", "surrounding safe text"),
+            ("windows", r"C:\private\file", "reject", None),
+        )
+        for suffix, value, disposition, expected in source_cases:
+            case_id = f"P_PRODUCER.source.{suffix}"
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline(); config["deployment_bindings"][0]["bindings"][0]["readback_source"] = value
+                artifact = self._run_qrs_case(case_id, config, disposition, f"readback_source={suffix}",
+                                              "trim and preserve safe canonical text" if disposition == "accept" else "reject, no write and no echo",
+                                              no_echo=value if disposition == "reject" else None)
+                if disposition == "accept": self.assertEqual(artifact["profiles"][0]["bindings"][0]["readback_source"], expected)
+        proof_cases = (
+            ("C_FIXED_POINT.producer_schema_each_accepted", "every accepted artifact validator and Schema PASS"),
+            ("P_PRODUCER.pipeline.closed_exact_keys", "exact top/profile/binding key sets"),
+            ("P_PRODUCER.pipeline.forbidden_field_scan", "forbidden fields and canary absent"),
+            ("P_PRODUCER.pipeline.local_handoff_fixture", "local handoff write equals canonical artifact"),
+            ("P_PRODUCER.pipeline.validator_schema_each_accepted", "validator and Draft 2020-12 Schema PASS"),
+        )
+        for case_id, expected in proof_cases:
+            with self.subTest(case_id=case_id):
+                config = _qrs_baseline(); config["account"] = "synthetic-account-canary"
+                artifact = self._run_qrs_case(case_id, config, "proof", "canonical baseline plus forbidden top extra", expected)
+                binding = artifact["profiles"][0]["bindings"][0]
+                self.assertEqual(set(artifact["profiles"][0]), {"strategy_profile", "domain", "catalog_stage", "runtime_enabled", "bindings"})
+                self.assertEqual(set(binding), {"binding_id", "platform_id", "strategy_revision", "execution_mode", "enabled", "deployment_scope",
+                                                "config_digest", "readback_revision", "readback_at", "readback_source", "operating_state"})
+                self.assertNotIn("synthetic-account-canary", json.dumps(artifact, sort_keys=True))
+        case_id = "P_PRODUCER.pipeline.reject_no_artifact_each"
+        with self.subTest(case_id=case_id):
+            config = _qrs_baseline(); config["deployment_bindings"][0]["domain"] = "invalid"
+            self._run_qrs_case(case_id, config, "proof", "invalid domain representative rejected producer", "no target artifact created")
 
 if __name__ == "__main__":
     unittest.main()

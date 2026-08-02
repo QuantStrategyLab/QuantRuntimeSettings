@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.invalid/schemas/strategy-deployment-bindings.v1.schema.json",
+  "title": "Strategy deployment bindings V1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "source_revision",
+    "config_digest",
+    "profiles"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "strategy_deployment_bindings.v1"
+    },
+    "generated_at": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+    },
+    "source_revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "config_digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "profiles": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "$ref": "#/$defs/profile"
+      }
+    }
+  },
+  "$defs": {
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "strategy_profile",
+        "domain",
+        "catalog_stage",
+        "runtime_enabled",
+        "bindings"
+      ],
+      "properties": {
+        "strategy_profile": {
+          "$ref": "#/$defs/identity"
+        },
+        "domain": {
+          "enum": ["us_equity", "hk_equity", "cn_equity", "crypto"]
+        },
+        "catalog_stage": {
+          "enum": ["research_backtest_only", "shadow_candidate", "live_candidate", "runtime_enabled"]
+        },
+        "runtime_enabled": {
+          "type": "boolean"
+        },
+        "bindings": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "$ref": "#/$defs/binding"
+          }
+        }
+      }
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binding_id",
+        "platform_id",
+        "strategy_revision",
+        "execution_mode",
+        "enabled",
+        "deployment_scope",
+        "config_digest",
+        "readback_revision",
+        "readback_at",
+        "readback_source",
+        "operating_state"
+      ],
+      "properties": {
+        "binding_id": {
+          "$ref": "#/$defs/identity"
+        },
+        "platform_id": {
+          "enum": ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"]
+        },
+        "strategy_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "execution_mode": {
+          "enum": ["off", "dry_run", "paper", "live"]
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "deployment_scope": {
+          "enum": ["disabled", "research", "paper", "production"]
+        },
+        "config_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "readback_revision": {
+          "$ref": "#/$defs/revision"
+        },
+        "readback_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+        },
+        "readback_source": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "operating_state": {
+          "enum": ["normal", "watch", "reduced", "quarantined", "retired", "unknown"]
+        }
+      }
+    },
+    "identity": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._=-]{1,120}$"
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

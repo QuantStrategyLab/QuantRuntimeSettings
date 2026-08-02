@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { spawnSync } from "node:child_process";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { DEFAULT_ACCOUNT_OPTIONS } from "../web/strategy-switch-console/config.js";
@@ -1816,3 +1818,592 @@ assert.equal(noKvHealthRead.status, 200);
 const noKvPayload = await noKvHealthRead.json();
 assert.equal(noKvPayload.data_status, "unavailable");
 assert.equal(noKvPayload.summary.strategy_count, 0);
+
+Error.stackTraceLimit = 0; const truthNow = Date.parse("2026-08-02T00:00:00Z"); const truthHex40 = "a".repeat(40); const truthHex64 = "b".repeat(64);
+const truthSchemaPath = resolve(root, "schemas/strategy-truth-dashboard.v1.schema.json"); let truthSchema = null; try { truthSchema = JSON.parse(readFileSync(truthSchemaPath, "utf8"));
+} catch {} const truthReceipts = []; const truthExpectedIds = []; const truthAccepted = []; function makeTruthBaseline() { return { schema_version: "strategy_truth_dashboard.v1",
+generated_at: "2026-08-02T00:00:00Z", computed_at: "2026-08-02T00:00:00Z", data_status: "ready", input_provenance: { sha256: truthHex64, source_revision: truthHex40,
+config_digest: truthHex64, freshness: "fresh", }, summary: { profile_count: 1, live: 1, paper: 0, off: 0, research_only: 0, deployment_unknown: 0 }, profiles: [{
+strategy_profile: "demo_alpha", domain: "us_equity", catalog_stage: "live_candidate", deployment_label: "live", bindings: [{ binding_id: "ibkr-primary", platform_id: "ibkr",
+strategy_revision: truthHex40, execution_mode: "live", enabled: true, deployment_scope: "production", config_digest: truthHex64, readback_revision: truthHex40,
+readback_at: "2026-08-02T00:00:00Z", readback_source: "https://control.example.invalid/readback", operating_state: "normal", }], health_state: "healthy", health: { as_of: "2026-08-01",
+status: "healthy", score: 90, components: { performance: 90, risk: 89, decay: null, stability: 88, operations: 91 },
+decision: { code: "human_live_gate", label: "Review", reason: "Evidence ready" }, review: { requested_stage: "live_candidate", evidence_package_id: "evidence-1", validation: { Pass: true },
+risk: {}, kelly_readiness: {}, }, freshness: { status: "fresh", age_seconds: 30 }, source_revision: "https://example.invalid/revision", }, }], errors: [], }; }
+function runTruthNormalize(caseId, raw, disposition, expected, inputMutation, schemaProof = disposition === "accept") { truthExpectedIds.push(caseId); const receipt = { case_id: caseId,
+group: caseId.split(".")[0], test_path: "tests/strategy_switch_worker_validation.mjs", production_entrypoint: "__test.normalizeStrategyTruthSnapshot(payload, fieldName, now)",
+input_mutation: inputMutation, exact_expected: expected, disposition, assertion_result: "FAIL",
+schema_target: schemaProof ? "schemas/strategy-truth-dashboard.v1.schema.json" : "NOT_APPLICABLE", schema_result: schemaProof ? "FAIL" : "NOT_APPLICABLE", }; try {
+assert.equal(typeof __test.normalizeStrategyTruthSnapshot, "function", "missing production normalizer entrypoint"); let actual; let thrown; try {
+actual = __test.normalizeStrategyTruthSnapshot(raw, "strategy truth snapshot", truthNow); } catch (error) { thrown = error; } if (disposition === "reject") {
+assert.ok(thrown, "expected whole-payload rejection"); } else { if (thrown) throw thrown; assert.deepEqual(actual, expected); if (schemaProof) {
+assert.ok(truthSchema, "missing truth Schema entrypoint"); truthAccepted.push({ case_id: caseId, value: actual }); receipt.schema_result = "PENDING_BATCH_VALIDATION"; } }
+receipt.assertion_result = "PASS"; } catch (error) { receipt.failure = String(error?.message || error); } truthReceipts.push(receipt); }
+function runTruthProof(caseId, productionEntrypoint, inputMutation, exactExpected, assertion, schemaTarget = "NOT_APPLICABLE") { truthExpectedIds.push(caseId); const receipt = {
+case_id: caseId, group: caseId.split(".")[0], test_path: "tests/strategy_switch_worker_validation.mjs", production_entrypoint: productionEntrypoint, input_mutation: inputMutation,
+exact_expected: exactExpected,
+disposition: caseId === "C_FIXED_POINT.schema_valid_noncanonical_excluded" ? "scope" : "proof", assertion_result: "FAIL", schema_target: schemaTarget,
+schema_result: schemaTarget === "NOT_APPLICABLE" ? "NOT_APPLICABLE" : "FAIL", }; try { assertion(); receipt.assertion_result = "PASS";
+if (schemaTarget !== "NOT_APPLICABLE") receipt.schema_result = "PASS"; } catch (error) { receipt.failure = String(error?.message || error); } truthReceipts.push(receipt); }
+async function runTruthRoute(caseId, request, env, inputMutation, exactExpected, assertion, disposition = "proof") { truthExpectedIds.push(caseId); const receipt = { case_id: caseId,
+group: caseId.split(".")[0], test_path: "tests/strategy_switch_worker_validation.mjs", production_entrypoint: `${request.method} ${new URL(request.url).pathname} -> production Worker route/storage`,
+input_mutation: inputMutation, exact_expected: exactExpected, disposition, assertion_result: "FAIL",
+schema_target: disposition === "accept" ? "schemas/strategy-truth-dashboard.v1.schema.json" : "NOT_APPLICABLE", schema_result: disposition === "accept" ? "FAIL" : "NOT_APPLICABLE", }; try {
+const response = await worker.fetch(request, env); await assertion(response); receipt.assertion_result = "PASS";
+if (disposition === "accept") receipt.schema_result = "PENDING_BATCH_VALIDATION"; } catch (error) { receipt.failure = String(error?.message || error); } truthReceipts.push(receipt); }
+runTruthProof(
+"W_SHAPE_ENUM.normalizer_export", "__test.normalizeStrategyTruthSnapshot", "read exported production entrypoint", "typeof entrypoint === function",
+() => assert.equal(typeof __test.normalizeStrategyTruthSnapshot, "function"), ); const literalTruth = makeTruthBaseline(); runTruthNormalize(
+"C_FIXED_POINT.literal_baseline", structuredClone(literalTruth), "accept", literalTruth, "independent already-canonical literal fixture", ); runTruthNormalize(
+"C_FIXED_POINT.producer_handoff_output", structuredClone(literalTruth), "accept", literalTruth, "explicit local producer handoff canonical fixture", );
+const numericFields = ["score", "performance", "risk", "decay", "stability", "operations"]; const numericAccept = [
+["missing", undefined, null],
+["null", null, null],
+["blank", "", null],
+["numeric_string", "12.5", 12.5],
+["zero", 0, 0],
+["hundred", 100, 100], ]; const numericReject = [
+["just_below", -0.01],
+["just_above", 100.01],
+["nan", Number.NaN],
+["infinity", Number.POSITIVE_INFINITY], ]; for (const field of numericFields) { for (const [suffix, rawValue, canonicalValue] of numericAccept) { const raw = makeTruthBaseline();
+const expected = makeTruthBaseline(); const rawTarget = field === "score" ? raw.profiles[0].health : raw.profiles[0].health.components;
+const expectedTarget = field === "score" ? expected.profiles[0].health : expected.profiles[0].health.components; if (suffix === "missing") delete rawTarget[field];
+else rawTarget[field] = rawValue; expectedTarget[field] = canonicalValue; runTruthNormalize(
+`W_NUMERIC.${field}.${suffix}`, raw, "accept", expected, `health ${field}=${suffix === "missing" ? "missing" : String(rawValue)}`, ); } for (const [suffix, rawValue] of numericReject) {
+const raw = makeTruthBaseline(); const target = field === "score" ? raw.profiles[0].health : raw.profiles[0].health.components; target[field] = rawValue;
+runTruthNormalize(`W_NUMERIC.${field}.${suffix}`, raw, "reject", "whole-payload reject", `health ${field}=${String(rawValue)}`); } } const ageAccept = [
+["missing", undefined, null],
+["null", null, null],
+["empty", "", null],
+["zero", 0, 0],
+["max", 315360000, 315360000],
+["number_1_49", 1.49, 1],
+["number_1_5", 1.5, 2],
+["string_1_49", "1.49", 1],
+["string_1_5", "1.5", 2], ]; for (const [suffix, rawValue, canonicalValue] of ageAccept) { const raw = makeTruthBaseline(); const expected = makeTruthBaseline();
+if (suffix === "missing") delete raw.profiles[0].health.freshness.age_seconds; else raw.profiles[0].health.freshness.age_seconds = rawValue;
+expected.profiles[0].health.freshness.age_seconds = canonicalValue;
+runTruthNormalize(`W_NUMERIC.age.${suffix}`, raw, "accept", expected, `age_seconds=${suffix}`); } for (const [suffix, rawValue] of [
+["below_raw_rounds_in", -0.49],
+["above_raw_rounds_in", 315360000.49],
+["nan", Number.NaN],
+["infinity", Number.POSITIVE_INFINITY], ]) { const raw = makeTruthBaseline(); raw.profiles[0].health.freshness.age_seconds = rawValue;
+runTruthNormalize(`W_NUMERIC.age.${suffix}`, raw, "reject", "reject before rounding", `age_seconds=${String(rawValue)}`); }
+for (const [suffix, count, disposition] of [["0", 0, "accept"], ["12", 12, "accept"], ["13", 13, "reject"]]) { const raw = makeTruthBaseline();
+const entries = Array.from({ length: count }, (_, index) => [`m${String(index).padStart(2, "0")}`, index]); raw.profiles[0].health.review.validation = Object.fromEntries(entries);
+const expected = makeTruthBaseline(); expected.profiles[0].health.review.validation = Object.fromEntries(entries); runTruthNormalize(
+`W_SCALAR.count.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject before filtering", `validation raw property count=${count}`, ); }
+const forbiddenScalarWords = ["cookie", "key", "password", "path", "private", "secret", "token"];
+const forbiddenScalarCases = [["lower", (word) => word], ["mixed", (word) => `${word[0].toUpperCase()}${word.slice(1)}`]]; forbiddenScalarCases.push(["upper", (word) => word.toUpperCase()]);
+for (const word of forbiddenScalarWords) { for (const [caseName, transform] of forbiddenScalarCases) { const key = `metric_${transform(word)}`; const raw = makeTruthBaseline();
+raw.profiles[0].health.review.validation = { safe: true, [key]: true }; const expected = makeTruthBaseline(); expected.profiles[0].health.review.validation = { safe: true };
+runTruthNormalize(`W_SCALAR.forbidden.${word}.${caseName}`, raw, "accept", expected, `validation key=${key}`); } } const scalarKeyCases = [
+["allowed_punctuation", "Az_09.-", true],
+["invalid_char", "bad/key", false],
+["length_0", "", false],
+["length_1", "A", true],
+["length_48", "x".repeat(48), true],
+["length_49", "x".repeat(49), false], ]; for (const [suffix, key, retained] of scalarKeyCases) { const raw = makeTruthBaseline(); raw.profiles[0].health.review.validation = { [key]: true };
+const expected = makeTruthBaseline(); expected.profiles[0].health.review.validation = retained ? { [key]: true } : {};
+runTruthNormalize(`W_SCALAR.key.${suffix}`, raw, "accept", expected, `validation key=${JSON.stringify(key)}`); } { const raw = makeTruthBaseline();
+raw.profiles[0].health.review.validation = { Pass: true, pass: false }; const expected = structuredClone(raw);
+runTruthNormalize("W_SCALAR.key.pass_case_pair", raw, "accept", expected, "validation has distinct Pass and pass keys"); } for (const mapName of ["kelly_readiness", "risk", "validation"]) {
+const raw = makeTruthBaseline(); raw.profiles[0].health.review[mapName] = { safe: true }; const expected = structuredClone(raw);
+runTruthNormalize(`W_SCALAR.map.${mapName}`, raw, "accept", expected, `${mapName}={safe:true}`); } for (const [suffix, entries] of [
+["permutation_a", [["z", 3], ["a", 1], ["m", 2]]],
+["permutation_b", [["m", 2], ["z", 3], ["a", 1]]], ]) { const raw = makeTruthBaseline(); raw.profiles[0].health.review.validation = Object.fromEntries(entries);
+const expected = makeTruthBaseline(); expected.profiles[0].health.review.validation = { a: 1, m: 2, z: 3 };
+runTruthNormalize(`W_SCALAR.order.${suffix}`, raw, "accept", expected, `input key order=${entries.map(([key]) => key).join(",")}`); }
+for (const [suffix, rawValue] of [["array", []], ["missing", undefined], ["nonobject", "x"], ["null", null]]) { const raw = makeTruthBaseline();
+if (suffix === "missing") delete raw.profiles[0].health.review.validation; else raw.profiles[0].health.review.validation = rawValue; const expected = makeTruthBaseline();
+expected.profiles[0].health.review.validation = {};
+runTruthNormalize(`W_SCALAR.shape.${suffix}`, raw, "accept", expected, `validation=${suffix}`); } const scalarValueCases = [
+["array", [], undefined, "accept"],
+["boolean_false", false, false, "accept"],
+["boolean_true", true, true, "accept"],
+["null", null, undefined, "accept"],
+["number_above", 1000000.01, undefined, "reject"],
+["number_below", -1000000.01, undefined, "reject"],
+["number_infinity", Number.POSITIVE_INFINITY, undefined, "reject"],
+["number_max", 1000000, 1000000, "accept"],
+["number_min", -1000000, -1000000, "accept"],
+["number_nan", Number.NaN, undefined, "reject"],
+["numeric_string", " 12 ", "12", "accept"],
+["object", {}, undefined, "accept"],
+["string_1", "x", "x", "accept"],
+["string_120", "x".repeat(120), "x".repeat(120), "accept"],
+["string_121", "x".repeat(121), undefined, "accept"],
+["string_blank", " ", undefined, "accept"],
+["string_credential", "secret=synthetic-value", undefined, "accept"],
+["string_markup", "<unsafe>", undefined, "accept"],
+["string_private_path", "/Users/demo/private", undefined, "accept"], ]; for (const [suffix, rawValue, canonicalValue, disposition] of scalarValueCases) { const raw = makeTruthBaseline();
+raw.profiles[0].health.review.validation = { metric: rawValue }; const expected = makeTruthBaseline();
+expected.profiles[0].health.review.validation = canonicalValue === undefined ? {} : { metric: canonicalValue }; runTruthNormalize(
+`W_SCALAR.value.${suffix}`, raw, disposition, disposition === "accept" ? expected : "whole-payload reject", `validation.metric=${suffix}`, ); } const truthEnumDimensions = [
+["catalog_stage", ["research_backtest_only", "shadow_candidate", "live_candidate", "runtime_enabled"]],
+["data_status", ["ready", "stale", "unavailable"]],
+["deployment_label", ["live", "paper", "off", "research_only", "deployment_unknown"]],
+["deployment_scope", ["production", "paper", "research", "disabled"]],
+["domain", ["us_equity", "hk_equity", "cn_equity", "crypto"]],
+["execution_mode", ["off", "dry_run", "paper", "live"]],
+["health_freshness_status", ["fresh", "stale", "unknown"]],
+["health_state", ["healthy", "watch", "review", "critical", "unavailable"]],
+["health_status", ["healthy", "watch", "review", "critical"]],
+["operating_state", ["normal", "watch", "reduced", "quarantined", "retired", "unknown"]],
+["platform_id", ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"]],
+["provenance_freshness", ["fresh", "stale", "unavailable"]], ]; for (const [field, values] of truthEnumDimensions) { for (const value of [...values, "invalid"]) {
+const raw = makeTruthBaseline(); const expected = makeTruthBaseline(); let disposition = value === "invalid" ? "reject" : "accept";
+if (field === "catalog_stage") raw.profiles[0].catalog_stage = expected.profiles[0].catalog_stage = value;
+if (field === "domain") raw.profiles[0].domain = expected.profiles[0].domain = value;
+if (field === "platform_id") raw.profiles[0].bindings[0].platform_id = expected.profiles[0].bindings[0].platform_id = value; if (field === "deployment_scope") {
+raw.profiles[0].bindings[0].deployment_scope = value; expected.profiles[0].bindings[0].deployment_scope = value; } if (field === "operating_state") {
+raw.profiles[0].bindings[0].operating_state = value; expected.profiles[0].bindings[0].operating_state = value; } if (field === "execution_mode") {
+raw.profiles[0].bindings[0].execution_mode = expected.profiles[0].bindings[0].execution_mode = value;
+raw.profiles[0].bindings[0].enabled = expected.profiles[0].bindings[0].enabled = value !== "off"; } if (field === "deployment_label") {
+raw.profiles[0].deployment_label = expected.profiles[0].deployment_label = value; raw.summary = { profile_count: 1, live: 0, paper: 0, off: 0, research_only: 0, deployment_unknown: 0 };
+if (value !== "invalid") raw.summary[value] = 1; expected.summary = structuredClone(raw.summary); } if (field === "health_freshness_status") {
+raw.profiles[0].health.freshness.status = expected.profiles[0].health.freshness.status = value; } if (field === "health_status") {
+raw.profiles[0].health.status = expected.profiles[0].health.status = value; if (value !== "invalid") raw.profiles[0].health_state = expected.profiles[0].health_state = value; }
+if (field === "health_state") { raw.profiles[0].health_state = expected.profiles[0].health_state = value;
+if (value === "unavailable") raw.profiles[0].health = expected.profiles[0].health = null;
+else if (value !== "invalid") raw.profiles[0].health.status = expected.profiles[0].health.status = value; } if (field === "data_status") { raw.data_status = expected.data_status = value;
+if (value === "unavailable") { raw.generated_at = expected.generated_at = null; raw.computed_at = expected.computed_at = null; raw.input_provenance = expected.input_provenance = {
+sha256: null, source_revision: null, config_digest: null, freshness: "unavailable", }; } } if (field === "provenance_freshness") {
+raw.input_provenance.freshness = expected.input_provenance.freshness = value; if (value === "unavailable") { raw.data_status = expected.data_status = "unavailable";
+raw.generated_at = expected.generated_at = null; raw.computed_at = expected.computed_at = null; raw.input_provenance.sha256 = expected.input_provenance.sha256 = null;
+raw.input_provenance.source_revision = expected.input_provenance.source_revision = null; raw.input_provenance.config_digest = expected.input_provenance.config_digest = null; } }
+runTruthNormalize(
+`W_SHAPE_ENUM.enum.${field}.${value}`, raw, disposition, disposition === "accept" ? expected : "whole-payload reject", `${field}=${value}`, ); } }
+for (const [suffix, rootValue] of [["array", []], ["empty", {}], ["nonobject", "truth"], ["null", null]]) {
+runTruthNormalize(`W_SHAPE_ENUM.root.${suffix}`, rootValue, "reject", "reject non-closed root", `root=${suffix}`); }
+for (const [suffix, value] of [["array", []], ["missing", undefined], ["nonobject", "provenance"], ["null", null]]) { const raw = makeTruthBaseline();
+if (suffix === "missing") delete raw.input_provenance; else raw.input_provenance = value;
+runTruthNormalize(`W_SHAPE_ENUM.provenance.${suffix}`, raw, "reject", "reject required provenance object", `provenance=${suffix}`); }
+for (const [suffix, value] of [["array", []], ["missing", undefined], ["nonobject", "summary"], ["null", null]]) { const raw = makeTruthBaseline();
+if (suffix === "missing") delete raw.summary; else raw.summary = value;
+runTruthNormalize(`W_SHAPE_ENUM.summary.${suffix}`, raw, "reject", "reject required summary object", `summary=${suffix}`); }
+for (const [suffix, field] of [["profile_count_mismatch", "profile_count"], ["label_count_mismatch", "live"]]) { const raw = makeTruthBaseline(); raw.summary[field] = 0;
+runTruthNormalize(`W_SHAPE_ENUM.summary.${suffix}`, raw, "reject", "reject cross-field count mismatch", `summary.${field}=0`); } for (const [collection, cases] of [
+["profiles", [["missing", undefined], ["nonarray", "profiles"], ["null", null]]],
+["bindings", [["missing", undefined], ["nonarray", "bindings"], ["null", null]]], ]) { for (const [suffix, value] of cases) { const raw = makeTruthBaseline();
+const target = collection === "profiles" ? raw : raw.profiles[0]; if (suffix === "missing") delete target[collection]; else target[collection] = value;
+runTruthNormalize(`W_SHAPE_ENUM.${collection}.${suffix}`, raw, "reject", `reject required ${collection} array`, `${collection}=${suffix}`); } } for (const [kind, collection, values] of [
+["profile_item", "profiles", [["array", []], ["nonobject", "profile"], ["null", null]]],
+["binding_item", "bindings", [["array", []], ["nonobject", "binding"], ["null", null]]], ]) { for (const [suffix, value] of values) { const raw = makeTruthBaseline();
+if (collection === "profiles") raw.profiles = [value]; else raw.profiles[0].bindings = [value];
+runTruthNormalize(`W_SHAPE_ENUM.${kind}.${suffix}`, raw, "reject", "reject non-object item", `${collection}[0]=${suffix}`); } }
+for (const [caseId, target] of [["profile.missing_key", "domain"], ["binding.missing_key", "platform_id"]]) { const raw = makeTruthBaseline();
+if (caseId.startsWith("profile")) delete raw.profiles[0][target]; else delete raw.profiles[0].bindings[0][target];
+runTruthNormalize(`W_SHAPE_ENUM.${caseId}`, raw, "reject", "reject closed item with missing key", `delete ${target}`); }
+for (const nested of ["components", "decision", "review", "freshness"]) { for (const [suffix, value] of [["array", []], ["missing", undefined], ["nonobject", nested], ["null", null]]) {
+const raw = makeTruthBaseline(); if (suffix === "missing") delete raw.profiles[0].health[nested]; else raw.profiles[0].health[nested] = value; const expected = makeTruthBaseline();
+if (nested === "components") { expected.profiles[0].health.components = { performance: null, risk: null, decay: null, stability: null, operations: null }; } if (nested === "decision") {
+expected.profiles[0].health.decision = { code: "evidence_missing", label: "证据不足，保持研究态", reason: "没有可用的机器检查结果。", }; } if (nested === "review") {
+expected.profiles[0].health.review = { requested_stage: null, evidence_package_id: null, validation: {}, risk: {}, kelly_readiness: {}, }; }
+if (nested === "freshness") expected.profiles[0].health.freshness = { status: "unknown", age_seconds: null };
+runTruthNormalize(`W_SHAPE_ENUM.${nested}.${suffix}`, raw, "accept", expected, `health.${nested}=${suffix}`); } } const healthShapeCases = [
+["available_array", "healthy", [], "reject"],
+["available_missing", "healthy", undefined, "reject"],
+["available_nonobject", "healthy", "health", "reject"],
+["available_null", "healthy", null, "reject"],
+["status_conflict", "healthy", structuredClone(makeTruthBaseline().profiles[0].health), "reject"],
+["unavailable_array", "unavailable", [], "reject"],
+["unavailable_nonobject", "unavailable", "health", "reject"],
+["unavailable_null", "unavailable", null, "accept"],
+["unavailable_object", "unavailable", structuredClone(makeTruthBaseline().profiles[0].health), "reject"], ]; healthShapeCases[4][2].status = "watch";
+for (const [suffix, healthState, healthValue, disposition] of healthShapeCases) { const raw = makeTruthBaseline(); raw.profiles[0].health_state = healthState;
+if (suffix === "available_missing") delete raw.profiles[0].health; else raw.profiles[0].health = healthValue; const expected = makeTruthBaseline();
+expected.profiles[0].health_state = "unavailable"; expected.profiles[0].health = null; runTruthNormalize(
+`W_SHAPE_ENUM.health.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject health iff/status conflict", `health_state=${healthState}; health=${suffix}`, ); }
+for (const [suffix, value] of [["missing", undefined], ["nonarray", "errors"], ["null", null]]) { const raw = makeTruthBaseline(); if (suffix === "missing") delete raw.errors;
+else raw.errors = value; const expected = makeTruthBaseline(); expected.errors = []; const disposition = suffix === "missing" ? "reject" : "accept"; runTruthNormalize(
+`W_SHAPE_ENUM.errors.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject missing required key", `errors=${suffix}`, ); } { const raw = makeTruthBaseline();
+raw.errors = ["duplicate", "duplicate", "safe"]; const expected = makeTruthBaseline(); expected.errors = ["duplicate", "safe"];
+runTruthNormalize("W_SHAPE_ENUM.errors.duplicate", raw, "accept", expected, "duplicate canonical error codes"); }
+for (const nested of ["components", "decision", "freshness", "health", "review"]) { const raw = makeTruthBaseline(); if (nested === "health") raw.profiles[0].health.extra = "drop";
+else raw.profiles[0].health[nested].extra = "drop"; const expected = makeTruthBaseline();
+runTruthNormalize(`W_SHAPE_ENUM.extra.${nested}`, raw, "accept", expected, `health.${nested}.extra=drop`); } for (const target of ["top", "profile", "binding"]) {
+const raw = makeTruthBaseline(); if (target === "top") raw.extra = "reject"; if (target === "profile") raw.profiles[0].extra = "reject";
+if (target === "binding") raw.profiles[0].bindings[0].extra = "reject";
+runTruthNormalize(`W_SHAPE_ENUM.extra.${target}`, raw, "reject", "reject closed raw shape", `${target}.extra=reject`); }
+for (const [suffix, target] of [["profile_case", "profile"], ["binding_case", "binding"]]) { const raw = makeTruthBaseline(); if (target === "profile") {
+const duplicate = structuredClone(raw.profiles[0]); duplicate.strategy_profile = raw.profiles[0].strategy_profile.toUpperCase(); raw.profiles.push(duplicate);
+raw.summary.profile_count = raw.summary.live = 2; } else { const duplicate = structuredClone(raw.profiles[0].bindings[0]);
+duplicate.binding_id = raw.profiles[0].bindings[0].binding_id.toUpperCase(); raw.profiles[0].bindings.push(duplicate); }
+runTruthNormalize(`W_SHAPE_ENUM.duplicate.${suffix}`, raw, "reject", "reject duplicate case-normalized ID", `${target} duplicate case`); } for (const [collection, count, disposition] of [
+["bindings", 0, "accept"],
+["bindings", 100, "accept"],
+["bindings", 101, "reject"],
+["profiles", 0, "accept"],
+["profiles", 100, "accept"],
+["profiles", 101, "reject"],
+["errors", 0, "accept"],
+["errors", 20, "accept"],
+["errors", 21, "accept"], ]) { const raw = makeTruthBaseline(); if (collection === "bindings") { raw.profiles[0].bindings = Array.from({ length: count }, (_, index) => {
+const binding = structuredClone(makeTruthBaseline().profiles[0].bindings[0]); binding.binding_id = `binding-${String(index).padStart(3, "0")}`; return binding; }); }
+if (collection === "profiles") { raw.profiles = Array.from({ length: count }, (_, index) => { const profile = structuredClone(makeTruthBaseline().profiles[0]);
+profile.strategy_profile = `profile-${String(index).padStart(3, "0")}`; return profile; }); raw.summary.profile_count = count; raw.summary.live = count; }
+if (collection === "errors") raw.errors = Array.from({ length: count }, (_, index) => `error_${String(index).padStart(2, "0")}`); const expected = structuredClone(raw);
+if (collection === "errors" && count === 21) expected.errors = raw.errors.slice(0, 20); runTruthNormalize(
+`W_SHAPE_ENUM.count.${collection}.${count === 0 ? "zero" : count}`, raw, disposition, disposition === "accept" ? expected : "reject over maximum collection size",
+`${collection} raw count=${count}`, ); } for (const idField of ["binding_id", "strategy_profile"]) { for (const [suffix, rawValue, canonicalValue, disposition] of [
+["invalid_char", "bad/id", null, "reject"],
+["length_0", "", null, "reject"],
+["length_1", "a", "a", "accept"],
+["length_120", "x".repeat(120), "x".repeat(120), "accept"],
+["length_121", "x".repeat(121), null, "reject"],
+["uppercase", "DEMO_ALPHA", "demo_alpha", "accept"], ]) { const raw = makeTruthBaseline(); const expected = makeTruthBaseline(); if (idField === "binding_id") {
+raw.profiles[0].bindings[0].binding_id = rawValue; expected.profiles[0].bindings[0].binding_id = canonicalValue; } else { raw.profiles[0].strategy_profile = rawValue;
+expected.profiles[0].strategy_profile = canonicalValue; } runTruthNormalize(
+`W_SHAPE_ENUM.identity.${idField}.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject invalid identity slug", `${idField}=${suffix}`, ); } } {
+const raw = makeTruthBaseline(); const second = structuredClone(raw.profiles[0].bindings[0]); second.binding_id = "a-binding";
+raw.profiles[0].bindings = [raw.profiles[0].bindings[0], second].reverse();
+runTruthNormalize("W_SHAPE_ENUM.order.bindings_preserved", raw, "accept", structuredClone(raw), "two bindings in reversed input order"); } { const raw = makeTruthBaseline();
+const second = structuredClone(raw.profiles[0]); second.strategy_profile = "a-profile"; raw.profiles = [raw.profiles[0], second].reverse(); raw.summary.profile_count = raw.summary.live = 2;
+runTruthNormalize("W_SHAPE_ENUM.order.profiles_preserved", raw, "accept", structuredClone(raw), "two profiles in reversed input order"); } const decisionCases = [
+["code_blank", "code", " ", null, "reject"],
+["code_invalid_char", "code", "bad/code", null, "reject"],
+["code_lower", "code", "review_gate", "review_gate", "accept"],
+["code_missing", "code", undefined, "evidence_missing", "accept"],
+["code_overlength", "code", "x".repeat(121), null, "reject"],
+["code_trim", "code", " review_gate ", "review_gate", "accept"],
+["code_upper", "code", "REVIEW_GATE", "review_gate", "accept"],
+["label_missing_fallback", "label", undefined, "证据不足，保持研究态", "accept"],
+["label_unsafe_fallback", "label", "<unsafe>", "证据不足，保持研究态", "accept"],
+["reason_missing_fallback", "reason", undefined, "没有可用的机器检查结果。", "accept"],
+["reason_unsafe_fallback", "reason", "<unsafe>", "没有可用的机器检查结果。", "accept"], ]; for (const [suffix, field, rawValue, canonicalValue, disposition] of decisionCases) {
+const raw = makeTruthBaseline(); const expected = makeTruthBaseline(); if (rawValue === undefined) delete raw.profiles[0].health.decision[field];
+else raw.profiles[0].health.decision[field] = rawValue; expected.profiles[0].health.decision[field] = canonicalValue; runTruthNormalize(
+`W_TEXT_DECISION.decision.${suffix}`, raw, disposition, disposition === "accept" ? expected : "whole-payload reject", `decision.${field}=${suffix}`, ); }
+for (const [suffix, rawValue] of [["object_missing", undefined], ["object_null", null]]) { const raw = makeTruthBaseline();
+if (suffix === "object_missing") delete raw.profiles[0].health.decision; else raw.profiles[0].health.decision = rawValue; const expected = makeTruthBaseline();
+expected.profiles[0].health.decision = { code: "evidence_missing", label: "证据不足，保持研究态", reason: "没有可用的机器检查结果。", };
+runTruthNormalize(`W_TEXT_DECISION.decision.${suffix}`, raw, "accept", expected, `decision=${suffix}`); }
+const credentialAssignments = ["api_key", "cookie", "password", "private_key", "secret", "token"]; const shapedCanaries = [
+["gho", `gho_${"x".repeat(36)}`],
+["ghp", `ghp_${"x".repeat(36)}`],
+["ghr", `ghr_${"x".repeat(36)}`],
+["ghs", `ghs_${"x".repeat(36)}`],
+["ghu", `ghu_${"x".repeat(36)}`],
+["jwt", `eyJ${"x".repeat(36)}.${"y".repeat(20)}.${"z".repeat(20)}`],
+["sk", `sk-${"x".repeat(40)}`], ]; const strictSourceCases = [
+["bearer", `Bearer ${"x".repeat(24)}`, null, "reject"],
+["blank", " ", null, "reject"],
+["local", "local-qrs-readback", "local-qrs-readback", "accept"],
+["markup", "<unsafe>", null, "reject"],
+["overlength", "x".repeat(121), null, "reject"],
+["posix_home", "/home/demo/private", null, "reject"],
+["posix_users", "/Users/demo/private", null, "reject"],
+["root", "/", null, "reject"],
+["safe_url", "https://control.example.invalid/readback", "https://control.example.invalid/readback", "accept"],
+["trim", " local-qrs-readback ", "local-qrs-readback", "accept"],
+["windows", "C:\\private\\file", null, "reject"], ];
+for (const keyword of credentialAssignments) strictSourceCases.push([`assignment.${keyword}`, `${keyword}=synthetic-value`, null, "reject"]);
+for (const [name, canary] of shapedCanaries) strictSourceCases.push([`canary.${name}`, canary, null, "reject"]);
+for (const [suffix, rawValue, canonicalValue, disposition] of strictSourceCases) { const raw = makeTruthBaseline(); raw.profiles[0].bindings[0].readback_source = rawValue;
+const expected = makeTruthBaseline(); expected.profiles[0].bindings[0].readback_source = canonicalValue; runTruthNormalize(
+`W_TEXT_DECISION.readback_source.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject strict unsafe readback_source without echo", `binding.readback_source=${suffix}`,
+); } const nullableSourceCases = [
+["bearer", `Bearer ${"x".repeat(24)}`, null],
+["blank", " ", null],
+["length_1", "x", "x"],
+["length_120", "x".repeat(120), "x".repeat(120)],
+["length_121", "x".repeat(121), null],
+["markup", "<unsafe>", null],
+["posix_home", "/home/demo/private", null],
+["posix_users", "/Users/demo/private", null],
+["root", "/", null],
+["safe", "safe", "safe"],
+["safe_url", "https://example.invalid/revision", "https://example.invalid/revision"],
+["trim", " safe ", "safe"],
+["windows", "C:\\private\\file", null], ]; for (const keyword of credentialAssignments) nullableSourceCases.push([`assignment.${keyword}`, `${keyword}=synthetic-value`, null]);
+for (const [name, canary] of shapedCanaries) nullableSourceCases.push([`canary.${name}`, canary, null]); for (const [suffix, rawValue, canonicalValue] of nullableSourceCases) {
+const raw = makeTruthBaseline(); raw.profiles[0].health.source_revision = rawValue; const expected = makeTruthBaseline(); expected.profiles[0].health.source_revision = canonicalValue;
+runTruthNormalize(
+`W_TEXT_DECISION.safe_text.source_revision.${suffix}`, raw, "accept", expected, `health.source_revision=${suffix}`, ); } for (const [field, maximum, target] of [
+["as_of", 64, "health"],
+["evidence_package_id", 120, "review"],
+["label", 120, "decision"],
+["reason", 240, "decision"],
+["requested_stage", 80, "review"], ]) { for (const [suffix, length] of [["at_limit", maximum], ["over_limit", maximum + 1]]) { const raw = makeTruthBaseline();
+const expected = makeTruthBaseline(); const rawTarget = target === "health" ? raw.profiles[0].health : raw.profiles[0].health[target];
+const expectedTarget = target === "health" ? expected.profiles[0].health : expected.profiles[0].health[target]; rawTarget[field] = "x".repeat(length);
+if (suffix === "at_limit") expectedTarget[field] = rawTarget[field]; else if (field === "label") expectedTarget[field] = "证据不足，保持研究态";
+else if (field === "reason") expectedTarget[field] = "没有可用的机器检查结果。"; else expectedTarget[field] = null; runTruthNormalize(
+`W_TEXT_DECISION.safe_text.${field}.${suffix}`, raw, "accept", expected, `${target}.${field} length=${length}`, ); } } for (const [kind, field] of [
+["revision.binding.readback_revision", "readback_revision"],
+["revision.binding.strategy_revision", "strategy_revision"], ]) { for (const [suffix, rawValue, disposition] of [
+["lower_exact", truthHex40, "accept"],
+["nonhex", `${"a".repeat(39)}g`, "reject"],
+["uppercase", "A".repeat(40), "reject"],
+["wrong_length", "a".repeat(39), "reject"], ]) { const raw = makeTruthBaseline(); raw.profiles[0].bindings[0][field] = rawValue; const expected = structuredClone(raw); runTruthNormalize(
+`W_TIME_IDENTITY.${kind}.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject invalid lowercase 40-hex revision", `${field}=${suffix}`, ); } }
+for (const [suffix, rawValue, disposition] of [
+["lower_exact", truthHex40, "accept"],
+["nonhex", `${"a".repeat(39)}g`, "reject"],
+["uppercase", "A".repeat(40), "reject"],
+["wrong_length", "a".repeat(39), "reject"], ]) { const raw = makeTruthBaseline(); raw.input_provenance.source_revision = rawValue; const expected = structuredClone(raw); runTruthNormalize(
+`W_TIME_IDENTITY.revision.provenance.source_revision.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject invalid lowercase 40-hex revision",
+`input_provenance.source_revision=${suffix}`, ); } for (const [kind, target] of [
+["digest.binding.config_digest", "binding"],
+["digest.provenance.config_digest", "provenance_config"],
+["digest.provenance.sha256", "provenance_sha"], ]) { for (const [suffix, rawValue, disposition] of [
+["lower_exact", truthHex64, "accept"],
+["nonhex", `${"b".repeat(63)}g`, "reject"],
+["uppercase", "B".repeat(64), "reject"],
+["wrong_length", "b".repeat(63), "reject"], ]) { const raw = makeTruthBaseline(); if (target === "binding") raw.profiles[0].bindings[0].config_digest = rawValue;
+if (target === "provenance_config") raw.input_provenance.config_digest = rawValue; if (target === "provenance_sha") raw.input_provenance.sha256 = rawValue;
+const expected = structuredClone(raw); runTruthNormalize(
+`W_TIME_IDENTITY.${kind}.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject invalid lowercase 64-hex digest", `${kind}=${suffix}`, ); } }
+const generatedTimestampCases = [
+["fraction_1", "2026-08-02T00:00:00.1Z", "2026-08-02T00:00:00.1Z", "accept"],
+["fraction_9", "2026-08-02T00:00:00.123456789Z", "2026-08-02T00:00:00.123456789Z", "accept"],
+["invalid_calendar", "2026-02-30T00:00:00Z", null, "reject"],
+["invalid_hour", "2026-08-02T24:00:00Z", null, "reject"],
+["invalid_minute", "2026-08-02T00:60:00Z", null, "reject"],
+["invalid_offset", "2026-08-02T00:00:00+24:00", null, "reject"],
+["leap_day", "2024-02-29T00:00:00Z", "2024-02-29T00:00:00Z", "accept"],
+["leap_second", "2026-08-02T00:00:60Z", null, "reject"],
+["no_zone", "2026-08-02T00:00:00", null, "reject"],
+["offset", "2026-08-02T08:00:00+08:00", "2026-08-02T08:00:00+08:00", "accept"],
+["plus_5m", "2026-08-02T00:05:00Z", "2026-08-02T00:05:00Z", "accept"],
+["plus_5m_1ms", "2026-08-02T00:05:00.001Z", null, "reject"],
+["trim", " 2026-08-02T00:00:00Z ", "2026-08-02T00:00:00Z", "accept"],
+["utc", "2026-08-02T00:00:00Z", "2026-08-02T00:00:00Z", "accept"], ]; for (const [suffix, rawValue, canonicalValue, disposition] of generatedTimestampCases) {
+const raw = makeTruthBaseline(); raw.generated_at = rawValue; const expected = makeTruthBaseline(); expected.generated_at = canonicalValue; runTruthNormalize(
+`W_TIME_IDENTITY.timestamp.generated_at.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject invalid or out-of-window timestamp", `generated_at=${rawValue}`, ); }
+for (const [suffix, rawValue, disposition] of [
+["plus_5m", "2026-08-02T00:05:00Z", "accept"],
+["plus_5m_1ms", "2026-08-02T00:05:00.001Z", "reject"], ]) { const raw = makeTruthBaseline(); raw.computed_at = rawValue; const expected = structuredClone(raw); runTruthNormalize(
+`W_TIME_IDENTITY.timestamp.computed_at.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject future timestamp beyond 5m", `computed_at=${rawValue}`, ); }
+for (const [suffix, rawValue, disposition] of [
+["later_1ms", "2026-08-02T00:05:00.001Z", "reject"],
+["minus_7d", "2026-07-26T00:00:00Z", "accept"],
+["older_1ms", "2026-07-25T23:59:59.999Z", "reject"],
+["plus_5m", "2026-08-02T00:05:00Z", "accept"], ]) { const raw = makeTruthBaseline(); raw.profiles[0].bindings[0].readback_at = rawValue; const expected = structuredClone(raw);
+runTruthNormalize(
+`W_TIME_IDENTITY.timestamp.readback_at.${suffix}`, raw, disposition, disposition === "accept" ? expected : "reject readback outside inclusive window", `readback_at=${rawValue}`, ); }
+for (const dataStatus of ["ready", "stale"]) { for (const [suffix, disposition] of [
+["computed_at_null", "reject"],
+["generated_at_null", "reject"],
+["provenance_config_digest_null", "reject"],
+["provenance_fresh", "accept"],
+["provenance_sha256_null", "reject"],
+["provenance_source_revision_null", "reject"],
+["provenance_stale", "accept"],
+["provenance_unavailable", "reject"], ]) { const raw = makeTruthBaseline(); raw.data_status = dataStatus; if (suffix === "computed_at_null") raw.computed_at = null;
+if (suffix === "generated_at_null") raw.generated_at = null; if (suffix === "provenance_config_digest_null") raw.input_provenance.config_digest = null;
+if (suffix === "provenance_sha256_null") raw.input_provenance.sha256 = null; if (suffix === "provenance_source_revision_null") raw.input_provenance.source_revision = null;
+if (suffix === "provenance_fresh") raw.input_provenance.freshness = "fresh"; if (suffix === "provenance_stale") raw.input_provenance.freshness = "stale";
+if (suffix === "provenance_unavailable") raw.input_provenance.freshness = "unavailable"; runTruthNormalize(
+`W_TIME_IDENTITY.nullability.${dataStatus}.${suffix}`, raw, disposition, disposition === "accept" ? structuredClone(raw) : "reject conditional nullability conflict",
+`data_status=${dataStatus}; ${suffix}`, ); } } for (const [suffix, disposition] of [
+["all_null", "accept"],
+["computed_at_nonnull", "reject"],
+["generated_at_nonnull", "reject"],
+["provenance_config_digest_nonnull", "reject"],
+["provenance_fresh", "reject"],
+["provenance_sha256_nonnull", "reject"],
+["provenance_source_revision_nonnull", "reject"],
+["provenance_stale", "reject"], ]) { const raw = makeTruthBaseline(); raw.data_status = "unavailable"; raw.generated_at = null; raw.computed_at = null;
+raw.input_provenance = { sha256: null, source_revision: null, config_digest: null, freshness: "unavailable" }; if (suffix === "computed_at_nonnull") raw.computed_at = "2026-08-02T00:00:00Z";
+if (suffix === "generated_at_nonnull") raw.generated_at = "2026-08-02T00:00:00Z"; if (suffix === "provenance_config_digest_nonnull") raw.input_provenance.config_digest = truthHex64;
+if (suffix === "provenance_sha256_nonnull") raw.input_provenance.sha256 = truthHex64; if (suffix === "provenance_source_revision_nonnull") raw.input_provenance.source_revision = truthHex40;
+if (suffix === "provenance_fresh") raw.input_provenance.freshness = "fresh"; if (suffix === "provenance_stale") raw.input_provenance.freshness = "stale"; runTruthNormalize(
+`W_TIME_IDENTITY.nullability.unavailable.${suffix}`, raw, disposition, disposition === "accept" ? structuredClone(raw) : "reject unavailable nullability conflict",
+`data_status=unavailable; ${suffix}`, ); } const crossCases = [
+["health.available_when_data_unavailable", "accept"],
+["health.unavailable_when_data_ready", "accept"],
+["mode.enabled_false_live", "reject"],
+["mode.enabled_true_off", "reject"],
+["provenance_binding.distinct_digest_unknown_label", "accept"],
+["provenance_binding.distinct_revision_unknown_label", "accept"],
+["provenance_binding.equal_digest", "accept"],
+["provenance_binding.equal_revision", "accept"], ]; for (const [suffix, disposition] of crossCases) { const raw = makeTruthBaseline();
+if (suffix === "health.available_when_data_unavailable") { raw.data_status = "unavailable"; raw.generated_at = raw.computed_at = null;
+raw.input_provenance = { sha256: null, source_revision: null, config_digest: null, freshness: "unavailable" }; } if (suffix === "health.unavailable_when_data_ready") {
+raw.profiles[0].health_state = "unavailable"; raw.profiles[0].health = null; } if (suffix === "mode.enabled_false_live") raw.profiles[0].bindings[0].enabled = false;
+if (suffix === "mode.enabled_true_off") raw.profiles[0].bindings[0].execution_mode = "off"; if (suffix.includes("unknown_label")) { raw.profiles[0].deployment_label = "deployment_unknown";
+raw.summary.live = 0; raw.summary.deployment_unknown = 1; } if (suffix.includes("distinct_digest")) raw.profiles[0].bindings[0].config_digest = "c".repeat(64);
+if (suffix.includes("distinct_revision")) raw.profiles[0].bindings[0].strategy_revision = "c".repeat(40);
+if (suffix.endsWith("equal_digest")) raw.profiles[0].bindings[0].config_digest = raw.input_provenance.config_digest;
+if (suffix.endsWith("equal_revision")) raw.profiles[0].bindings[0].strategy_revision = raw.input_provenance.source_revision; runTruthNormalize(
+`W_TIME_IDENTITY.cross.${suffix}`, raw, disposition, disposition === "accept" ? structuredClone(raw) : "reject enabled/execution_mode conflict", suffix, ); } const truthStore = new Map();
+const truthKv = { async get(key) { return truthStore.get(key) || null; }, async put(key, value) { truthStore.set(key, value); }, }; const truthToken = ["truth", "sync", "value"].join("-");
+const truthEnv = { ...healthEnv, STRATEGY_SWITCH_CONFIG: truthKv, STRATEGY_TRUTH_SYNC_TOKEN: truthToken, STRATEGY_TRUTH_STALE_TTL_SECONDS: "300", };
+const truthSession = await __test.makeSession("health-user", [], truthEnv); const truthHeaders = { Cookie: `qsl_switch_session=${truthSession}` }; const routeTruth = makeTruthBaseline();
+const routeNow = new Date(); routeTruth.generated_at = routeNow.toISOString(); routeTruth.computed_at = routeTruth.generated_at;
+routeTruth.profiles[0].bindings[0].readback_at = routeTruth.generated_at; const truthPostRequest = (payload) => new Request("https://switch.example/api/internal/sync-strategy-truth", {
+method: "POST", headers: { Authorization: `Bearer ${truthToken}`, "Content-Type": "application/json" }, body: JSON.stringify(payload), });
+const truthGetRequest = () => new Request("https://switch.example/api/strategy-truth", { headers: truthHeaders }); await runTruthRoute(
+"R_STORAGE.post.baseline", truthPostRequest(routeTruth), truthEnv, "authenticated canonical truth POST", "HTTP 200 metadata-only response; normalized canonical KV Schema PASS",
+async (response) => { assert.equal(response.status, 200); const body = await response.json(); assert.deepEqual(Object.keys(body).sort(), ["ok", "profile_count", "schema_version"]);
+const stored = JSON.parse(truthStore.get("strategy_truth_snapshot"));
+truthAccepted.push({ case_id: "R_STORAGE.post.baseline", value: stored }); }, "accept", ); await runTruthRoute(
+"C_FIXED_POINT.post_written_output", truthPostRequest(routeTruth), truthEnv, "POST normalized object then read exact truth KV bytes", "stored object re-normalizes deep-equal",
+async (response) => { assert.equal(response.status, 200); const stored = JSON.parse(truthStore.get("strategy_truth_snapshot"));
+const renormalized = __test.normalizeStrategyTruthSnapshot(stored, "stored truth", Date.now()); assert.deepEqual(renormalized, stored);
+truthAccepted.push({ case_id: "C_FIXED_POINT.post_written_output", value: stored }); }, "accept", ); runTruthProof(
+"R_STORAGE.kv.normalized_only", "POST /api/internal/sync-strategy-truth -> strategy_truth_snapshot KV", "raw route fixture contains detached nested objects",
+"KV bytes equal production-normalized canonical object and omit raw-only values", () => { const stored = JSON.parse(truthStore.get("strategy_truth_snapshot"));
+const canonical = __test.normalizeStrategyTruthSnapshot(routeTruth, "route truth", Date.now()); assert.deepEqual(stored, canonical);
+assert.notEqual(stored.profiles[0], routeTruth.profiles[0]); }, ); await runTruthRoute(
+"R_STORAGE.get.immediate_deep_equal", truthGetRequest(), truthEnv, "authenticated immediate GET after accepted POST", "GET body deep-equals producer-written canonical KV",
+async (response) => assert.deepEqual(await response.json(), JSON.parse(truthStore.get("strategy_truth_snapshot"))), ); const rejectedRouteTruth = structuredClone(routeTruth);
+const rejectedRouteCanary = "/Users/synthetic/private/rejected-post-canary"; rejectedRouteTruth.profiles[0].bindings[0].readback_source = rejectedRouteCanary;
+const beforeRejectedPost = truthStore.get("strategy_truth_snapshot"); const beforeRejectedAudit = truthStore.get("audit_log"); await runTruthRoute(
+"R_STORAGE.post.reject_no_write", truthPostRequest(rejectedRouteTruth), truthEnv, "strict readback_source private-path canary", "HTTP 400; prior KV byte-identical; error/audit omit canary",
+async (response) => { assert.equal(response.status, 400); assert.equal(truthStore.get("strategy_truth_snapshot"), beforeRejectedPost);
+assert.equal(truthStore.get("audit_log"), beforeRejectedAudit); assert.equal((await response.text()).includes(rejectedRouteCanary), false); }, "reject", );
+const savedTruthBytes = truthStore.get("strategy_truth_snapshot") || JSON.stringify(routeTruth);
+truthStore.delete("strategy_truth_snapshot"); await runTruthRoute(
+"R_STORAGE.get.missing_kv", truthGetRequest(), truthEnv, "delete strategy_truth_snapshot KV", "HTTP 200 canonical unavailable payload", async (response) => {
+assert.equal(response.status, 200); const body = await response.json(); assert.equal(body.data_status, "unavailable");
+truthAccepted.push({ case_id: "R_STORAGE.get.missing_kv", value: body }); }, "accept", ); truthStore.set("strategy_truth_snapshot", savedTruthBytes); const corruptStorageCases = [
+["corrupt_cross_field", "health/mode/count conflict", (value) => { value.profiles[0].health.status = "watch"; }],
+["corrupt_expired_readback", "readback older than seven days", (value) => { value.profiles[0].bindings[0].readback_at = new Date(Date.now() - 7 * 86400000 - 1).toISOString(); }],
+["corrupt_extra", "closed top extra", (value) => { value.extra = "raw-extra"; }],
+["corrupt_private_path", "binding private path canary", (value) => { value.profiles[0].bindings[0].readback_source = "/Users/synthetic/private/corrupt-get-canary"; }],
+["corrupt_range", "score above 100", (value) => { value.profiles[0].health.score = 100.01; }],
+["corrupt_type", "component object type", (value) => { value.profiles[0].health.components.risk = {}; }], ]; for (const [suffix, mutation, mutate] of corruptStorageCases) {
+const corrupt = JSON.parse(savedTruthBytes); mutate(corrupt); truthStore.set("strategy_truth_snapshot", JSON.stringify(corrupt)); await runTruthRoute(
+`R_STORAGE.get.${suffix}`, truthGetRequest(), truthEnv, mutation, "fail-closed canonical unavailable; no partial raw return", async (response) => { const body = await response.json();
+assert.equal(body.data_status, "unavailable"); assert.equal(JSON.stringify(body).includes("synthetic/private"), false); }, "reject", ); } { const corrupt = JSON.parse(savedTruthBytes);
+const unsafe = "/Users/synthetic/private/nullable-source"; corrupt.profiles[0].health.source_revision = unsafe; truthStore.set("strategy_truth_snapshot", JSON.stringify(corrupt));
+await runTruthRoute(
+"R_STORAGE.get.corrupt_nullable_unsafe_text", truthGetRequest(), truthEnv, "stored nullable health.source_revision private path",
+"re-normalize source_revision to null; return otherwise canonical; no echo", async (response) => { const body = await response.json();
+assert.equal(body.profiles[0].health.source_revision, null); assert.equal(JSON.stringify(body).includes(unsafe), false);
+truthAccepted.push({ case_id: "R_STORAGE.get.corrupt_nullable_unsafe_text", value: body }); }, "accept", ); } const realDateNow = Date.now; for (const [suffix, ageMs, expectedStatus] of [
+["exact", 300000, "ready"],
+["just_after", 300001, "stale"],
+["just_before", 299999, "ready"], ]) { const stored = structuredClone(routeTruth); stored.generated_at = stored.computed_at = new Date(truthNow - ageMs).toISOString();
+stored.profiles[0].bindings[0].readback_at = new Date(truthNow).toISOString(); const bytes = JSON.stringify(stored); truthStore.set("strategy_truth_snapshot", bytes);
+Date.now = () => truthNow; await runTruthRoute(
+`R_STORAGE.ttl.${suffix}`, truthGetRequest(), truthEnv, `stored ready age=${ageMs}ms with ttl=300s`, `response data_status=${expectedStatus}; KV byte-identical ready`, async (response) => {
+const body = await response.json(); assert.equal(body.data_status, expectedStatus); assert.equal(truthStore.get("strategy_truth_snapshot"), bytes);
+truthAccepted.push({ case_id: `R_STORAGE.ttl.${suffix}`, value: body }); }, "accept", ); Date.now = realDateNow; } { const stored = structuredClone(routeTruth);
+stored.generated_at = stored.computed_at = new Date(truthNow - 300001).toISOString(); stored.profiles[0].bindings[0].readback_at = new Date(truthNow).toISOString();
+const bytes = JSON.stringify(stored); truthStore.set("strategy_truth_snapshot", bytes); Date.now = () => truthNow; await runTruthRoute(
+"R_STORAGE.ttl.response_copy_only", truthGetRequest(), truthEnv, "stored ready age=ttl+1ms", "response copy stale; stored KV remains byte-identical ready", async (response) => {
+assert.equal((await response.json()).data_status, "stale"); assert.equal(JSON.parse(truthStore.get("strategy_truth_snapshot")).data_status, "ready");
+assert.equal(truthStore.get("strategy_truth_snapshot"), bytes); }, ); Date.now = realDateNow; }
+
+const securityCanaryFields = [
+"binding_readback_source", "decision_label", "decision_reason", "errors", "health_as_of", "health_source_revision",
+"review_evidence_package_id", "review_requested_stage", "scalar_kelly_readiness", "scalar_risk", "scalar_validation", ]; for (const field of securityCanaryFields) {
+for (const [kind, canary] of [
+["credential_shape", `ghp_${"x".repeat(36)}`],
+["private_path", "/Users/synthetic/private/security-canary"], ]) { const raw = structuredClone(routeTruth);
+if (field === "binding_readback_source") raw.profiles[0].bindings[0].readback_source = canary;
+if (field === "decision_label") raw.profiles[0].health.decision.label = canary; if (field === "decision_reason") raw.profiles[0].health.decision.reason = canary;
+if (field === "errors") raw.errors = [canary]; if (field === "health_as_of") raw.profiles[0].health.as_of = canary;
+if (field === "health_source_revision") raw.profiles[0].health.source_revision = canary;
+if (field === "review_evidence_package_id") raw.profiles[0].health.review.evidence_package_id = canary;
+if (field === "review_requested_stage") raw.profiles[0].health.review.requested_stage = canary;
+if (field.startsWith("scalar_")) raw.profiles[0].health.review[field.slice(7)] = { metric: canary }; const priorKv = truthStore.get("strategy_truth_snapshot");
+const priorAudit = truthStore.get("audit_log"); await runTruthRoute(
+`S_SECURITY_COMPAT.canary.${field}.${kind}`, truthPostRequest(raw), truthEnv, `${field}=${kind} synthetic canary via POST/KV/GET/audit/error`,
+"exact canary absent from POST response, KV bytes, GET body, audit_log and error surface", async (response) => { const postBytes = await response.text();
+const kvBytes = truthStore.get("strategy_truth_snapshot") || ""; const auditBytes = truthStore.get("audit_log") || "";
+const getResponse = await worker.fetch(truthGetRequest(), truthEnv); const getBytes = await getResponse.text(); assert.equal(getResponse.status, 200);
+for (const bytes of [postBytes, kvBytes, getBytes, auditBytes]) assert.equal(bytes.includes(canary), false);
+if (field === "binding_readback_source") { assert.equal(response.status, 400); assert.equal(kvBytes, priorKv); assert.equal(auditBytes, priorAudit); }
+else assert.equal(response.status, 200); }, ); } } const detachPaths = [
+"binding", "components", "decision", "errors", "freshness", "health", "input_provenance", "profile", "review", "scalar_map", "summary", ]; for (const pathName of detachPaths) {
+runTruthProof(
+`S_SECURITY_COMPAT.detach.${pathName}`, "__test.normalizeStrategyTruthSnapshot detached canonical output", `mutate caller/output nested ${pathName} after normalization`,
+"caller unchanged and output shares no mutable nested object", () => { const raw = makeTruthBaseline(); const original = structuredClone(raw);
+const output = __test.normalizeStrategyTruthSnapshot(raw, "detach proof", truthNow); assert.deepEqual(raw, original); assert.notEqual(output, raw);
+assert.notEqual(output.input_provenance, raw.input_provenance); assert.notEqual(output.summary, raw.summary); assert.notEqual(output.profiles[0], raw.profiles[0]);
+assert.notEqual(output.profiles[0].bindings[0], raw.profiles[0].bindings[0]); assert.notEqual(output.profiles[0].health, raw.profiles[0].health);
+assert.notEqual(output.profiles[0].health.components, raw.profiles[0].health.components); assert.notEqual(output.profiles[0].health.decision, raw.profiles[0].health.decision);
+assert.notEqual(output.profiles[0].health.review, raw.profiles[0].health.review); assert.notEqual(output.profiles[0].health.freshness, raw.profiles[0].health.freshness);
+assert.notEqual(output.errors, raw.errors); if (pathName === "binding") output.profiles[0].bindings[0].binding_id = "mutated";
+if (pathName === "components") output.profiles[0].health.components.performance = 1; if (pathName === "decision") output.profiles[0].health.decision.code = "mutated";
+if (pathName === "errors") output.errors.push("mutated_output"); if (pathName === "freshness") output.profiles[0].health.freshness.status = "stale";
+if (pathName === "health") output.profiles[0].health.as_of = "mutated"; if (pathName === "input_provenance") output.input_provenance.freshness = "stale";
+if (pathName === "profile") output.profiles[0].strategy_profile = "mutated"; if (pathName === "review") output.profiles[0].health.review.requested_stage = "mutated";
+if (pathName === "scalar_map") output.profiles[0].health.review.validation.Pass = false; if (pathName === "summary") output.summary.live = 0;
+assert.deepEqual(raw, original); }, ); }
+for (const forbidden of ["account", "capital", "leverage", "order", "position"]) { runTruthProof(
+`S_SECURITY_COMPAT.forbidden_field_scan.${forbidden}`, "__test.normalizeStrategyTruthSnapshot closed and sanitizing paths",
+`${forbidden} canary injected at top/profile/binding/health/error positions`, "strict positions reject; sanitizing positions omit field and canary", () => {
+const canary = `synthetic-${forbidden}-canary`; for (const target of ["top", "profile", "binding"]) { const raw = makeTruthBaseline(); if (target === "top") raw[forbidden] = canary;
+if (target === "profile") raw.profiles[0][forbidden] = canary; if (target === "binding") raw.profiles[0].bindings[0][forbidden] = canary;
+assert.throws(() => __test.normalizeStrategyTruthSnapshot(raw, "forbidden strict", truthNow)); } const raw = makeTruthBaseline(); raw.profiles[0].health[forbidden] = canary;
+raw.errors.push(canary); const canonical = __test.normalizeStrategyTruthSnapshot(raw, "forbidden sanitize", truthNow); assert.equal(JSON.stringify(canonical).includes(canary), false);
+assert.equal(JSON.stringify(canonical).includes(`\"${forbidden}\"`), false); }, ); } await runTruthRoute(
+"S_SECURITY_COMPAT.legacy.health_auth_error_fixture", new Request("https://switch.example/api/internal/sync-strategy-health", {
+method: "POST", headers: { Authorization: "Bearer wrong-value", "Content-Type": "application/json" }, body: "{}", }), healthEnv, "wrong dedicated legacy health token",
+"HTTP 401 redacted legacy error", async (response) => assert.equal(response.status, 401), ); await runTruthRoute(
+"S_SECURITY_COMPAT.legacy.health_get_fixture", new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }), healthEnv,
+"authenticated unchanged legacy health GET fixture", "HTTP 200 legacy strategy_health_dashboard.v1",
+async (response) => assert.equal((await response.json()).schema_version, "strategy_health_dashboard.v1"), ); await runTruthRoute(
+"S_SECURITY_COMPAT.legacy.health_sync_fixture", new Request("https://switch.example/api/internal/sync-strategy-health", { method: "POST",
+headers: { Authorization: `Bearer ${healthSyncValue}`, "Content-Type": "application/json" },
+body: JSON.stringify({ ...healthPayload, data_status: "ready", generated_at: new Date().toISOString(), computed_at: new Date().toISOString() }), }),
+healthEnv, "unchanged accepted legacy sync fixture",
+"HTTP 200 legacy strategy_count metadata", async (response) => assert.equal(response.status, 200), ); const legacyTtlStored = JSON.parse(healthStore.get("strategy_health_snapshot"));
+legacyTtlStored.computed_at = new Date(Date.now() - 301000).toISOString(); healthStore.set("strategy_health_snapshot", JSON.stringify(legacyTtlStored)); await runTruthRoute(
+"S_SECURITY_COMPAT.legacy.health_ttl_fixture", new Request("https://switch.example/api/strategy-health", { headers: healthCookieHeaders }),
+{ ...healthEnv, STRATEGY_HEALTH_STALE_TTL_SECONDS: "300" }, "legacy health GET with 300-second TTL", "legacy ready snapshot transitions response-only stale",
+async (response) => assert.equal((await response.json()).data_status, "stale"), ); runTruthProof(
+"S_SECURITY_COMPAT.legacy.helpers_source_unchanged", "legacy health helper source bytes", "hash exact helper slice from normalize components through errors",
+"SHA-256=faf52d4c428d0ea42bd3b378d7e3addac335f3016ae8068d17452dfe7dc0672e", () => { const source = readFileSync(resolve(root, "web/strategy-switch-console/worker.js"), "utf8");
+const helperSlice = source.slice(source.indexOf("function normalizeStrategyHealthComponents"), source.indexOf("function emptyStrategyHealthPayload"));
+assert.equal(createHash("sha256").update(helperSlice).digest("hex"), "faf52d4c428d0ea42bd3b378d7e3addac335f3016ae8068d17452dfe7dc0672e"); }, ); runTruthProof(
+"S_SECURITY_COMPAT.legacy.schema_digest", "schemas/strategy-health-dashboard.v1.schema.json", "hash exact-base legacy health Schema bytes",
+"SHA-256=3152782db387fb2a1f115355f6ee74bfd01ca577234f78673e9be73771a24765", () => assert.equal(
+createHash("sha256").update(readFileSync(resolve(root, "schemas/strategy-health-dashboard.v1.schema.json"))).digest("hex"),
+"3152782db387fb2a1f115355f6ee74bfd01ca577234f78673e9be73771a24765", ), ); truthStore.set("strategy_truth_snapshot", JSON.stringify(rejectedRouteTruth)); await runTruthRoute(
+"S_SECURITY_COMPAT.no_raw_echo.corrupt_get_private_path", truthGetRequest(), truthEnv, "corrupted stored binding private-path canary", "unavailable body omits exact canary",
+async (response) => { assert.equal(response.status, 200); const body = await response.json(); assert.equal(body.data_status, "unavailable");
+assert.equal(JSON.stringify(body).includes("/Users/synthetic/private"), false); }, ); await runTruthRoute(
+"S_SECURITY_COMPAT.no_raw_echo.rejected_post_private_path", truthPostRequest(rejectedRouteTruth), truthEnv, "rejected POST strict private-path canary",
+"HTTP 400 error body omits exact canary", async (response) => { assert.equal(response.status, 400); assert.equal((await response.text()).includes(rejectedRouteCanary), false); }, );
+const schemaRun = truthSchema ? spawnSync("python3", ["-c", [ "import json,sys", "from jsonschema import Draft202012Validator", "payload=json.load(sys.stdin)",
+"validator=Draft202012Validator(payload['schema'])", "[validator.validate(case['value']) for case in payload['cases']]", ].join("; ")], {
+input: JSON.stringify({ schema: truthSchema, cases: truthAccepted }), encoding: "utf8", }) : { status: 1, stderr: "missing truth Schema entrypoint" }; if (schemaRun.status === 0) {
+const schemaPassedIds = new Set(truthAccepted.map((item) => item.case_id)); for (const receipt of truthReceipts) {
+if (receipt.schema_target === "schemas/strategy-truth-dashboard.v1.schema.json" && schemaPassedIds.has(receipt.case_id)) { receipt.schema_result = "PASS"; } } } runTruthProof(
+"W_SCALAR.schema_each_accepted", "Draft202012Validator(strategy-truth-dashboard.v1.schema.json)", "all accepted W_SCALAR canonical outputs", "every accepted scalar output Schema PASS",
+() => {
+const scalarAccepted = truthReceipts.filter((item) => item.case_id.startsWith("W_SCALAR.") && item.disposition === "accept"); assert.ok(scalarAccepted.length > 0);
+assert.ok(scalarAccepted.every((item) => item.schema_result === "PASS")); }, "schemas/strategy-truth-dashboard.v1.schema.json", ); runTruthProof(
+"C_FIXED_POINT.each_worker_accepted_output", "normalizeStrategyTruthSnapshot -> truth Schema -> normalizeStrategyTruthSnapshot", "every accepted Worker raw-vector canonical output",
+"Schema PASS and immediate second normalization deep-equal", () => { assert.equal(schemaRun.status, 0, schemaRun.stderr); for (const item of truthAccepted) {
+const bindingTimes = item.value.profiles.flatMap((profile) => profile.bindings.map((binding) => Date.parse(binding.readback_at)));
+const fixedNow = Math.max(truthNow, Date.parse(item.value.generated_at || 0),
+Date.parse(item.value.computed_at || 0), ...bindingTimes);
+const second = __test.normalizeStrategyTruthSnapshot(item.value, `fixed point ${item.case_id}`, fixedNow); assert.deepEqual(second, item.value, item.case_id); } },
+"schemas/strategy-truth-dashboard.v1.schema.json", ); runTruthProof(
+"C_FIXED_POINT.worker_schema_each_accepted", "Draft202012Validator(strategy-truth-dashboard.v1.schema.json)", "all accepted Worker cases",
+"all 275 accepted exact canonical outputs Schema PASS", () => { assert.equal(schemaRun.status, 0, schemaRun.stderr); assert.equal(truthAccepted.length, 275); },
+"schemas/strategy-truth-dashboard.v1.schema.json", ); runTruthProof(
+"C_FIXED_POINT.readback_source_schema_envelope", "both canonical Schema readback_source definitions", "parse deployment and truth Schemas",
+"exact {type:string,minLength:1,maxLength:120}; no pattern", () => {
+const deploymentSchema = JSON.parse(readFileSync(resolve(root, "schemas/strategy-deployment-bindings.v1.schema.json"), "utf8"));
+const exactEnvelope = { type: "string", minLength: 1, maxLength: 120 }; assert.deepEqual(truthSchema.$defs.binding.properties.readback_source, exactEnvelope);
+assert.deepEqual(deploymentSchema.$defs.binding.properties.readback_source, exactEnvelope); },
+"schemas/strategy-truth-dashboard.v1.schema.json + schemas/strategy-deployment-bindings.v1.schema.json", ); runTruthProof(
+"C_FIXED_POINT.schema_valid_noncanonical_excluded", "truth Schema then normalizeStrategyTruthSnapshot", "Schema-valid canonical fixture with private-path readback_source",
+"Schema PASS does not authorize fixed point; Worker rejects", () => { const noncanonical = makeTruthBaseline();
+noncanonical.profiles[0].bindings[0].readback_source = "/Users/schema-valid/private/path"; const probe = spawnSync("python3", ["-c", [ "import json,sys",
+"from jsonschema import Draft202012Validator", "payload=json.load(sys.stdin)", "Draft202012Validator(payload['schema']).validate(payload['value'])",
+].join("; ")], { input: JSON.stringify({ schema: truthSchema, value: noncanonical }), encoding: "utf8" }); assert.equal(probe.status, 0, probe.stderr);
+assert.throws(() => __test.normalizeStrategyTruthSnapshot(noncanonical, "schema-valid noncanonical", truthNow)); }, "schemas/strategy-truth-dashboard.v1.schema.json", );
+const expectedTruthSet = new Set(truthExpectedIds); const executedTruthIds = truthReceipts.map((item) => item.case_id); const executedTruthSet = new Set(executedTruthIds);
+const missingTruthIds = [...expectedTruthSet].filter((caseId) => !executedTruthSet.has(caseId));
+const duplicateTruthIds = [...executedTruthSet].filter((caseId) => executedTruthIds.filter((item) => item === caseId).length > 1);
+const unexpectedTruthIds = [...executedTruthSet].filter((caseId) => !expectedTruthSet.has(caseId));
+const failedTruthIds = truthReceipts.filter((item) => item.assertion_result !== "PASS" || item.schema_result === "FAIL");
+const truthDispositionCounts = Object.fromEntries(["accept", "reject", "proof", "scope"].map((disposition) => [
+disposition, truthReceipts.filter((item) => item.disposition === disposition).length, ])); for (const receipt of truthReceipts) process.stdout.write(`${JSON.stringify(receipt)}\n`);
+const truthMatrixSummary = { expected_unique: expectedTruthSet.size, executed_unique: executedTruthSet.size, missing: missingTruthIds, duplicate: duplicateTruthIds,
+unexpected: unexpectedTruthIds, failed: failedTruthIds.map((item) => item.case_id), dispositions: truthDispositionCounts, };
+process.stdout.write(`${JSON.stringify({ qrs_v4_worker_matrix: truthMatrixSummary })}\n`); assert.deepEqual( { expected_unique: expectedTruthSet.size, executed_unique: executedTruthSet.size,
+missing: missingTruthIds, duplicate: duplicateTruthIds, unexpected: unexpectedTruthIds, dispositions: truthDispositionCounts, }, { expected_unique: 505, executed_unique: 505, missing: [],
+duplicate: [], unexpected: [], dispositions: { accept: 275, reject: 175, proof: 54, scope: 1 }, }, "QRS V4 Worker exact matrix set/disposition mismatch", );
+assert.equal(failedTruthIds.length, 0, "QRS V4 Worker production gaps remain");

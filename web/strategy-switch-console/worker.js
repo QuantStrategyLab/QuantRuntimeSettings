@@ -39,6 +39,9 @@ const STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
 const STRATEGY_HEALTH_STATUSES = ["healthy", "watch", "review", "critical"];
 const STRATEGY_HEALTH_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
+const STRATEGY_TRUTH_SNAPSHOT_KEY = "strategy_truth_snapshot";
+const STRATEGY_TRUTH_MAX_BODY_BYTES = 256 * 1024;
+const STRATEGY_TRUTH_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
@@ -160,6 +163,12 @@ export default {
       }
       if (url.pathname === "/api/strategy-health" && request.method === "GET") {
         return await strategyHealthResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-strategy-truth" && request.method === "POST") {
+        return await syncStrategyTruthResponse(request, env);
+      }
+      if (url.pathname === "/api/strategy-truth" && request.method === "GET") {
+        return await strategyTruthResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
@@ -1391,6 +1400,249 @@ function strategyHealthStaleTtlSeconds(env) {
     return STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS;
   }
   return Math.floor(configured);
+}
+
+async function syncStrategyTruthResponse(request, env) {
+  requireStrategyTruthSyncToken(request, env);
+  if (!hasConfigStore(env)) return json({ ok: false, error: "strategy truth KV is not configured" }, 503);
+  let snapshot;
+  try {
+    const raw = await readBoundedJson(request, STRATEGY_TRUTH_MAX_BODY_BYTES);
+    snapshot = normalizeStrategyTruthSnapshot(raw, "strategy truth snapshot", Date.now());
+  } catch (error) {
+    return json({ ok: false, error: "invalid strategy truth payload" }, error.status || 400);
+  }
+  await writeConfigJson(env, STRATEGY_TRUTH_SNAPSHOT_KEY, snapshot);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(), login: "strategy-truth-sync", action: "sync_strategy_truth",
+      schema_version: snapshot.schema_version, profile_count: snapshot.summary.profile_count,
+      data_status: snapshot.data_status,
+    });
+  } catch {}
+  return json({ ok: true, schema_version: snapshot.schema_version, profile_count: snapshot.summary.profile_count });
+}
+
+async function strategyTruthResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyStrategyTruthPayload("snapshot_unavailable"));
+  let snapshot;
+  try {
+    const stored = await readConfigJson(env, STRATEGY_TRUTH_SNAPSHOT_KEY);
+    if (!stored) return json(emptyStrategyTruthPayload("snapshot_unavailable"));
+    snapshot = normalizeStrategyTruthSnapshot(stored, STRATEGY_TRUTH_SNAPSHOT_KEY, Date.now());
+  } catch {
+    return json(emptyStrategyTruthPayload("snapshot_invalid"));
+  }
+  const copy = structuredClone(snapshot);
+  const timestamps = [copy.generated_at, copy.computed_at].filter(Boolean).map((value) => Date.parse(value));
+  const age = timestamps.length ? Math.max(0, Date.now() - Math.min(...timestamps)) : Number.POSITIVE_INFINITY;
+  if (copy.data_status === "ready" && age > strategyTruthStaleTtlSeconds(env) * 1000) copy.data_status = "stale";
+  return json(copy);
+}
+
+function requireStrategyTruthSyncToken(request, env) {
+  const expected = String(env.STRATEGY_TRUTH_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("strategy truth sync token is not configured", 500);
+  const supplied = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (supplied !== expected) throw new HttpError("strategy truth sync token is invalid", 401);
+}
+
+function truthObject(value, fieldName) {
+  if (!value || Array.isArray(value) || typeof value !== "object") throw new Error(`${fieldName} must be an object`);
+  return value;
+}
+
+function truthClosed(value, keys, fieldName) {
+  const source = truthObject(value, fieldName);
+  if (Object.keys(source).some((key) => !keys.includes(key)) || keys.some((key) => !(key in source))) {
+    throw new Error(`${fieldName} must be a closed object`);
+  }
+  return source;
+}
+
+function truthIdentity(value, fieldName) {
+  const text = String(value ?? "").trim().toLowerCase();
+  if (!/^[a-z0-9._=-]{1,120}$/.test(text)) throw new Error(`${fieldName} is invalid`);
+  return text;
+}
+
+function truthHex(value, length, fieldName, nullable = false) {
+  if (nullable && value === null) return null;
+  if (typeof value !== "string" || !new RegExp(`^[0-9a-f]{${length}}$`).test(value)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return value;
+}
+
+function truthTimestamp(value, fieldName, now, nullable = false, readback = false) {
+  if (nullable && value === null) return null;
+  const text = String(value ?? "").trim();
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-]\d{2}:\d{2})$/);
+  if (!match || Number(match[4]) > 23 || Number(match[5]) > 59 || Number(match[6]) > 59) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  if (match[7] !== "Z" && (Number(match[7].slice(1, 3)) > 23 || Number(match[7].slice(4)) > 59)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  const parsed = Date.parse(text);
+  const calendar = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (Number.isNaN(parsed) || calendar.getUTCFullYear() !== Number(match[1]) || calendar.getUTCMonth() + 1 !== Number(match[2])
+    || calendar.getUTCDate() !== Number(match[3]) || parsed > now + 300000 || (readback && parsed < now - 604800000)) {
+    throw new Error(`${fieldName} is outside the allowed window`);
+  }
+  return text;
+}
+
+function truthStrictSource(value, fieldName) {
+  const text = sanitizeStrategyHealthText(value, fieldName, 120, true);
+  if (text === null) throw new Error(`${fieldName} is unsafe`);
+  return text;
+}
+
+function truthScalarMap(value) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return {};
+  if (Object.keys(value).length > 12) throw new Error("scalar map has too many properties");
+  const result = {};
+  for (const key of Object.keys(value).sort()) {
+    if (!/^[A-Za-z0-9_.-]{1,48}$/.test(key) || /(cookie|key|password|path|private|secret|token)/i.test(key)) continue;
+    const raw = value[key];
+    if (typeof raw === "boolean") result[key] = raw;
+    else if (typeof raw === "number") {
+      if (!Number.isFinite(raw) || raw < -1000000 || raw > 1000000) throw new Error("scalar number is invalid");
+      result[key] = raw;
+    } else if (typeof raw === "string") {
+      const safe = sanitizeStrategyHealthText(raw, "scalar value", 120, true);
+      if (safe !== null) result[key] = safe;
+    }
+  }
+  return result;
+}
+
+function truthBinding(value, fieldName, now, seen) {
+  const keys = ["binding_id", "platform_id", "strategy_revision", "execution_mode", "enabled", "deployment_scope",
+    "config_digest", "readback_revision", "readback_at", "readback_source", "operating_state"];
+  const raw = truthClosed(value, keys, fieldName);
+  const bindingId = truthIdentity(raw.binding_id, `${fieldName}.binding_id`);
+  if (seen.has(bindingId)) throw new Error("duplicate binding ID");
+  seen.add(bindingId);
+  const executionMode = cleanChoice(raw.execution_mode, ["off", "dry_run", "paper", "live"], `${fieldName}.execution_mode`);
+  if (typeof raw.enabled !== "boolean" || (raw.enabled && executionMode === "off") || (!raw.enabled && executionMode !== "off")) {
+    throw new Error("binding enabled/execution_mode conflict");
+  }
+  return {
+    binding_id: bindingId,
+    platform_id: cleanChoice(raw.platform_id, ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"], `${fieldName}.platform_id`),
+    strategy_revision: truthHex(raw.strategy_revision, 40, `${fieldName}.strategy_revision`),
+    execution_mode: executionMode, enabled: raw.enabled,
+    deployment_scope: cleanChoice(raw.deployment_scope, ["production", "paper", "research", "disabled"], `${fieldName}.deployment_scope`),
+    config_digest: truthHex(raw.config_digest, 64, `${fieldName}.config_digest`),
+    readback_revision: truthHex(raw.readback_revision, 40, `${fieldName}.readback_revision`),
+    readback_at: truthTimestamp(raw.readback_at, `${fieldName}.readback_at`, now, false, true),
+    readback_source: truthStrictSource(raw.readback_source, `${fieldName}.readback_source`),
+    operating_state: cleanChoice(raw.operating_state, ["normal", "watch", "reduced", "quarantined", "retired", "unknown"], `${fieldName}.operating_state`),
+  };
+}
+
+function truthHealth(value, fieldName, healthState) {
+  if (healthState === "unavailable") {
+    if (value !== null) throw new Error(`${fieldName} must be null when unavailable`);
+    return null;
+  }
+  const raw = truthObject(value, fieldName);
+  const status = cleanChoice(raw.status, STRATEGY_HEALTH_STATUSES, `${fieldName}.status`);
+  if (status !== healthState) throw new Error(`${fieldName}.status conflicts with health_state`);
+  const components = normalizeStrategyHealthComponents(raw.components, `${fieldName}.components`);
+  const decision = normalizeStrategyHealthDecision(raw.decision, `${fieldName}.decision`);
+  const reviewSource = raw.review && !Array.isArray(raw.review) && typeof raw.review === "object" ? raw.review : {};
+  const freshnessSource = raw.freshness && !Array.isArray(raw.freshness) && typeof raw.freshness === "object" ? raw.freshness : {};
+  return {
+    as_of: sanitizeStrategyHealthText(raw.as_of, `${fieldName}.as_of`, 64, true), status,
+    score: normalizeStrategyHealthScore(raw.score, `${fieldName}.score`), components, decision,
+    review: {
+      requested_stage: sanitizeStrategyHealthText(reviewSource.requested_stage, `${fieldName}.review.requested_stage`, 80, true),
+      evidence_package_id: sanitizeStrategyHealthText(reviewSource.evidence_package_id, `${fieldName}.review.evidence_package_id`, 120, true),
+      validation: truthScalarMap(reviewSource.validation), risk: truthScalarMap(reviewSource.risk),
+      kelly_readiness: truthScalarMap(reviewSource.kelly_readiness),
+    },
+    freshness: {
+      status: cleanChoice(freshnessSource.status || "unknown", ["fresh", "stale", "unknown"], `${fieldName}.freshness.status`),
+      age_seconds: normalizeStrategyHealthAge(freshnessSource.age_seconds, `${fieldName}.freshness.age_seconds`),
+    },
+    source_revision: sanitizeStrategyHealthText(raw.source_revision, `${fieldName}.source_revision`, 120, true),
+  };
+}
+
+function normalizeStrategyTruthSnapshot(payload, fieldName = "strategy truth snapshot", now = Date.now()) {
+  const topKeys = ["schema_version", "generated_at", "computed_at", "data_status", "input_provenance", "summary", "profiles", "errors"];
+  const raw = truthClosed(payload, topKeys, fieldName);
+  if (raw.schema_version !== "strategy_truth_dashboard.v1") throw new Error(`${fieldName}.schema_version is unsupported`);
+  const dataStatus = cleanChoice(raw.data_status, ["ready", "stale", "unavailable"], `${fieldName}.data_status`);
+  const unavailable = dataStatus === "unavailable";
+  const provenance = truthClosed(raw.input_provenance, ["sha256", "source_revision", "config_digest", "freshness"], `${fieldName}.input_provenance`);
+  const normalizedProvenance = {
+    sha256: truthHex(provenance.sha256, 64, "input_provenance.sha256", unavailable),
+    source_revision: truthHex(provenance.source_revision, 40, "input_provenance.source_revision", unavailable),
+    config_digest: truthHex(provenance.config_digest, 64, "input_provenance.config_digest", unavailable),
+    freshness: cleanChoice(provenance.freshness, ["fresh", "stale", "unavailable"], "input_provenance.freshness"),
+  };
+  if (unavailable !== (normalizedProvenance.freshness === "unavailable") || unavailable !== Object.values(normalizedProvenance).slice(0, 3).every((item) => item === null)) {
+    throw new Error("data_status/provenance nullability conflict");
+  }
+  const generatedAt = truthTimestamp(raw.generated_at, `${fieldName}.generated_at`, now, unavailable);
+  const computedAt = truthTimestamp(raw.computed_at, `${fieldName}.computed_at`, now, unavailable);
+  if (unavailable !== (generatedAt === null && computedAt === null)) throw new Error("data_status/timestamp nullability conflict");
+  if (!Array.isArray(raw.profiles) || raw.profiles.length > 100) throw new Error(`${fieldName}.profiles is invalid`);
+  const seenProfiles = new Set();
+  const profiles = raw.profiles.map((value, index) => {
+    const keys = ["strategy_profile", "domain", "catalog_stage", "deployment_label", "bindings", "health_state", "health"];
+    const profile = truthClosed(value, keys, `${fieldName}.profiles[${index}]`);
+    const profileId = truthIdentity(profile.strategy_profile, "strategy_profile");
+    if (seenProfiles.has(profileId)) throw new Error("duplicate strategy profile ID");
+    seenProfiles.add(profileId);
+    if (!Array.isArray(profile.bindings) || profile.bindings.length > 100) throw new Error("bindings is invalid");
+    const bindingIds = new Set();
+    const healthState = cleanChoice(profile.health_state, [...STRATEGY_HEALTH_STATUSES, "unavailable"], "health_state");
+    return {
+      strategy_profile: profileId,
+      domain: cleanChoice(profile.domain, STRATEGY_HEALTH_DOMAINS, "domain"),
+      catalog_stage: cleanChoice(profile.catalog_stage, ["research_backtest_only", "shadow_candidate", "live_candidate", "runtime_enabled"], "catalog_stage"),
+      deployment_label: cleanChoice(profile.deployment_label, ["live", "paper", "off", "research_only", "deployment_unknown"], "deployment_label"),
+      bindings: profile.bindings.map((binding, bindingIndex) => truthBinding(binding, `bindings[${bindingIndex}]`, now, bindingIds)),
+      health_state: healthState, health: truthHealth(profile.health, "health", healthState),
+    };
+  });
+  const summary = truthClosed(raw.summary, ["profile_count", "live", "paper", "off", "research_only", "deployment_unknown"], `${fieldName}.summary`);
+  const expectedSummary = { profile_count: profiles.length, live: 0, paper: 0, off: 0, research_only: 0, deployment_unknown: 0 };
+  for (const profile of profiles) expectedSummary[profile.deployment_label] += 1;
+  if (Object.keys(expectedSummary).some((key) => summary[key] !== expectedSummary[key])) throw new Error("summary counts do not match profiles");
+  const rawErrors = Array.isArray(raw.errors) ? raw.errors : [];
+  return {
+    schema_version: "strategy_truth_dashboard.v1", generated_at: generatedAt, computed_at: computedAt,
+    data_status: dataStatus, input_provenance: normalizedProvenance, summary: expectedSummary, profiles,
+    errors: uniqueStrings(rawErrors.slice(0, 20).filter((item) => {
+      const text = String(item || "");
+      return /^[a-z][a-z0-9_.-]{0,63}$/.test(text)
+        && sanitizeStrategyHealthText(text, "truth error", 64, true) !== null
+        && !/(account|capital|leverage|order|position)/i.test(text);
+    })),
+  };
+}
+
+function emptyStrategyTruthPayload(errorCode) {
+  return {
+    schema_version: "strategy_truth_dashboard.v1", generated_at: null, computed_at: null,
+    data_status: "unavailable",
+    input_provenance: { sha256: null, source_revision: null, config_digest: null, freshness: "unavailable" },
+    summary: { profile_count: 0, live: 0, paper: 0, off: 0, research_only: 0, deployment_unknown: 0 },
+    profiles: [], errors: [errorCode],
+  };
+}
+
+function strategyTruthStaleTtlSeconds(env) {
+  const configured = Number(env.STRATEGY_TRUTH_STALE_TTL_SECONDS);
+  return Number.isFinite(configured) && configured >= 0 ? configured : STRATEGY_TRUTH_DEFAULT_STALE_TTL_SECONDS;
 }
 
 async function syncStrategyProfilesConfig(env, session) {
@@ -3068,6 +3320,7 @@ export const __test = {
   syncDefaultStrategyProfiles: syncStrategyProfilesConfig,
   syncDefaultStrategyForAccount,
   normalizeStrategyHealthSnapshot,
+  normalizeStrategyTruthSnapshot,
   emptyStrategyHealthPayload,
   makeSession,
   supportedDomainsForAccount,
