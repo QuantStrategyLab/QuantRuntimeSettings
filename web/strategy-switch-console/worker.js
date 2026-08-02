@@ -1497,7 +1497,7 @@ function truthTimestamp(value, fieldName, now, nullable = false, readback = fals
 
 function truthStrictSource(value, fieldName) {
   const text = sanitizeStrategyHealthText(value, fieldName, 120, true);
-  if (text === null) throw new Error(`${fieldName} is unsafe`);
+  if (text === null || /^file:/i.test(text)) throw new Error(`${fieldName} is unsafe`);
   return text;
 }
 
@@ -1642,7 +1642,8 @@ function emptyStrategyTruthPayload(errorCode) {
 
 function strategyTruthStaleTtlSeconds(env) {
   const configured = Number(env.STRATEGY_TRUTH_STALE_TTL_SECONDS);
-  return Number.isFinite(configured) && configured >= 0 ? configured : STRATEGY_TRUTH_DEFAULT_STALE_TTL_SECONDS;
+  if (!Number.isFinite(configured) || configured < 0 || configured > 604800) return STRATEGY_TRUTH_DEFAULT_STALE_TTL_SECONDS;
+  return configured;
 }
 
 async function syncStrategyProfilesConfig(env, session) {

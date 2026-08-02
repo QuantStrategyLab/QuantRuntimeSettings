@@ -103,7 +103,8 @@ dependencies = [
         expected_pins_by_consumer = {
             "BinancePlatform": "92458590a463e7219f0369a3505031ee74414135",
             "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "CnEquityStrategies": "92458590a463e7219f0369a3505031ee74414135",
+            "CnEquitySnapshotPipelines": "8ba8276948ff71a8cc0a810f98b7437a1311c671",
+            "CnEquityStrategies": "8ba8276948ff71a8cc0a810f98b7437a1311c671",
             "CryptoStrategies": "92458590a463e7219f0369a3505031ee74414135",
             "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
             "HkEquityStrategies": "92458590a463e7219f0369a3505031ee74414135",

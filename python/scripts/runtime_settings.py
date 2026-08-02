@@ -216,7 +216,7 @@ def _qrs_safe_source(value: Any) -> bool:
     if not isinstance(value, str) or not 1 <= len(value) <= 120 or value != value.strip():
         return False
     lowered = value.lower()
-    if "<" in value or ">" in value or "\\" in value or value.startswith(("/", "~/")):
+    if "<" in value or ">" in value or "\\" in value or value.startswith(("/", "~/")) or lowered.startswith("file:"):
         return False
     if re.match(r"^[a-z]:[\\/]", value, re.I) or re.search(r"(?:^|[\s(])(?:/users/|/home/)", lowered):
         return False

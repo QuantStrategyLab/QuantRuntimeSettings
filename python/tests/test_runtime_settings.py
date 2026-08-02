@@ -2521,7 +2521,7 @@ class RuntimeSettingsTest(unittest.TestCase):
                     if disposition == "accept":
                         actual = artifact[field] if field == "source_revision" else artifact["profiles"][0]["bindings"][0][field]; self.assertEqual(actual, value)
     def test_qrs_readback_freshness_uses_reference_now(self):
-        artifact = build_config.build_strategy_deployment_bindings(_qrs_baseline(), generated_at="2026-08-01T00:00:00Z", source_revision="b" * 40, config_digest="a" * 64)
+        artifact = build_config.build_strategy_deployment_bindings(_qrs_baseline(), generated_at="2026-08-01T00:00:00Z", source_revision="b" * 40, config_digest="a" * 64, now="2026-08-01T00:00:00Z")
         artifact["generated_at"] = artifact["profiles"][0]["bindings"][0]["readback_at"] = "2020-08-01T00:00:00Z"
         errors = runtime_settings.validate_deployment_bindings_payload(artifact, now="2026-08-01T00:00:00Z")
         self.assertNotIn("generated_at is outside the allowed window", errors)
@@ -2541,7 +2541,7 @@ class RuntimeSettingsTest(unittest.TestCase):
             ("canary.jwt", "eyJhbGciOiJIUzI1NiJ9.synthetic.signature", "reject", None),
             ("canary.sk", "sk-test-" + "A" * 32, "reject", None),
             ("local", "local-qrs-readback", "accept", "local-qrs-readback"), ("markup", "<unsafe>", "reject", None),
-            ("overlength", "x" * 121, "reject", None), ("posix_home", "/home/demo/private", "reject", None),
+            ("overlength", "x" * 121, "reject", None), ("posix_home", "FiLe:///home/demo/private", "reject", None),
             ("posix_users", "/Users/demo/private", "reject", None), ("root", "/", "reject", None),
             ("safe_url", "https://control.example.invalid/readback", "accept", "https://control.example.invalid/readback"),
             ("trim", "  surrounding safe text  ", "accept", "surrounding safe text"),

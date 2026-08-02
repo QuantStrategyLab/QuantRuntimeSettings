@@ -62,28 +62,42 @@
       "path": "pyproject.toml",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "73844e92a8570a61e5a9dc6c245809d0b27b89bc"
+      "ref": "00fa762466617d0961bb8b03821f56b1b9c2b866"
+    },
+    {
+      "consumer_repo": "CnEquitySnapshotPipelines",
+      "path": "pyproject.toml",
+      "package": "quant-platform-kit",
+      "source_repo": "QuantPlatformKit",
+      "ref": "8ba8276948ff71a8cc0a810f98b7437a1311c671"
     },
     {
       "consumer_repo": "CnEquitySnapshotPipelines",
       "path": "uv.lock",
       "package": "cn-equity-strategies",
       "source_repo": "CnEquityStrategies",
-      "ref": "73844e92a8570a61e5a9dc6c245809d0b27b89bc"
+      "ref": "00fa762466617d0961bb8b03821f56b1b9c2b866"
+    },
+    {
+      "consumer_repo": "CnEquitySnapshotPipelines",
+      "path": "uv.lock",
+      "package": "quant-platform-kit",
+      "source_repo": "QuantPlatformKit",
+      "ref": "8ba8276948ff71a8cc0a810f98b7437a1311c671"
     },
     {
       "consumer_repo": "CnEquityStrategies",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "92458590a463e7219f0369a3505031ee74414135"
+      "ref": "8ba8276948ff71a8cc0a810f98b7437a1311c671"
     },
     {
       "consumer_repo": "CnEquityStrategies",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "92458590a463e7219f0369a3505031ee74414135"
+      "ref": "8ba8276948ff71a8cc0a810f98b7437a1311c671"
     },
     {
       "consumer_repo": "CryptoLivePoolPipelines",

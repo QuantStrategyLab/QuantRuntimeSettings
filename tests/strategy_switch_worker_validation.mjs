@@ -2093,7 +2093,7 @@ const credentialAssignments = ["api_key", "cookie", "password", "private_key", "
 ["local", "local-qrs-readback", "local-qrs-readback", "accept"],
 ["markup", "<unsafe>", null, "reject"],
 ["overlength", "x".repeat(121), null, "reject"],
-["posix_home", "/home/demo/private", null, "reject"],
+["posix_home", "FiLe:///home/demo/private", null, "reject"],
 ["posix_users", "/Users/demo/private", null, "reject"],
 ["root", "/", null, "reject"],
 ["safe_url", "https://control.example.invalid/readback", "https://control.example.invalid/readback", "accept"],
@@ -2251,7 +2251,7 @@ const canonical = __test.normalizeStrategyTruthSnapshot(routeTruth, "route truth
 assert.notEqual(stored.profiles[0], routeTruth.profiles[0]); }, ); await runTruthRoute(
 "R_STORAGE.get.immediate_deep_equal", truthGetRequest(), truthEnv, "authenticated immediate GET after accepted POST", "GET body deep-equals producer-written canonical KV",
 async (response) => assert.deepEqual(await response.json(), JSON.parse(truthStore.get("strategy_truth_snapshot"))), ); const rejectedRouteTruth = structuredClone(routeTruth);
-const rejectedRouteCanary = "/Users/synthetic/private/rejected-post-canary"; rejectedRouteTruth.profiles[0].bindings[0].readback_source = rejectedRouteCanary;
+const rejectedRouteCanary = "file:///Users/synthetic/private/rejected-post-canary"; rejectedRouteTruth.profiles[0].bindings[0].readback_source = rejectedRouteCanary;
 const beforeRejectedPost = truthStore.get("strategy_truth_snapshot"); const beforeRejectedAudit = truthStore.get("audit_log"); await runTruthRoute(
 "R_STORAGE.post.reject_no_write", truthPostRequest(rejectedRouteTruth), truthEnv, "strict readback_source private-path canary", "HTTP 400; prior KV byte-identical; error/audit omit canary",
 async (response) => { assert.equal(response.status, 400); assert.equal(truthStore.get("strategy_truth_snapshot"), beforeRejectedPost);
@@ -2264,7 +2264,7 @@ truthAccepted.push({ case_id: "R_STORAGE.get.missing_kv", value: body }); }, "ac
 ["corrupt_cross_field", "health/mode/count conflict", (value) => { value.profiles[0].health.status = "watch"; }],
 ["corrupt_expired_readback", "readback older than seven days", (value) => { value.profiles[0].bindings[0].readback_at = new Date(Date.now() - 7 * 86400000 - 1).toISOString(); }],
 ["corrupt_extra", "closed top extra", (value) => { value.extra = "raw-extra"; }],
-["corrupt_private_path", "binding private path canary", (value) => { value.profiles[0].bindings[0].readback_source = "/Users/synthetic/private/corrupt-get-canary"; }],
+["corrupt_private_path", "binding private path canary", (value) => { value.profiles[0].bindings[0].readback_source = "file:///home/synthetic/private/corrupt-get-canary"; }],
 ["corrupt_range", "score above 100", (value) => { value.profiles[0].health.score = 100.01; }],
 ["corrupt_type", "component object type", (value) => { value.profiles[0].health.components.risk = {}; }], ]; for (const [suffix, mutation, mutate] of corruptStorageCases) {
 const corrupt = JSON.parse(savedTruthBytes); mutate(corrupt); truthStore.set("strategy_truth_snapshot", JSON.stringify(corrupt)); await runTruthRoute(
@@ -2288,7 +2288,16 @@ stored.generated_at = stored.computed_at = new Date(truthNow - 300001).toISOStri
 const bytes = JSON.stringify(stored); truthStore.set("strategy_truth_snapshot", bytes); Date.now = () => truthNow; await runTruthRoute(
 "R_STORAGE.ttl.response_copy_only", truthGetRequest(), truthEnv, "stored ready age=ttl+1ms", "response copy stale; stored KV remains byte-identical ready", async (response) => {
 assert.equal((await response.json()).data_status, "stale"); assert.equal(JSON.parse(truthStore.get("strategy_truth_snapshot")).data_status, "ready");
-assert.equal(truthStore.get("strategy_truth_snapshot"), bytes); }, ); Date.now = realDateNow; }
+assert.equal(truthStore.get("strategy_truth_snapshot"), bytes); const bounded = structuredClone(routeTruth);
+bounded.generated_at = bounded.computed_at = new Date(truthNow - 10800000).toISOString(); bounded.profiles[0].bindings[0].readback_at = new Date(truthNow).toISOString();
+for (const [configured, expected] of [["604800", "ready"], ["604801", "stale"], ["Infinity", "stale"], ["invalid", "stale"], ["-1", "stale"], ["0", "stale"]]) {
+truthStore.set("strategy_truth_snapshot", JSON.stringify(bounded));
+const ttlResponse = await worker.fetch(truthGetRequest(), { ...truthEnv, STRATEGY_TRUTH_STALE_TTL_SECONDS: configured }); const ttlBody = await ttlResponse.json();
+assert.equal(ttlBody.data_status, expected, `truth TTL ${configured}`); } for (const [ageMs, expected] of [[604800000, "ready"], [604800001, "unavailable"]]) {
+const ordered = structuredClone(routeTruth); ordered.generated_at = ordered.computed_at = ordered.profiles[0].bindings[0].readback_at = new Date(truthNow - ageMs).toISOString();
+truthStore.set("strategy_truth_snapshot", JSON.stringify(ordered));
+const orderedResponse = await worker.fetch(truthGetRequest(), { ...truthEnv, STRATEGY_TRUTH_STALE_TTL_SECONDS: "604800" }); const orderedBody = await orderedResponse.json();
+assert.equal(orderedBody.data_status, expected, `truth readback ordering ${ageMs}`); } truthStore.set("strategy_truth_snapshot", savedTruthBytes); }, ); Date.now = realDateNow; }
 
 const securityCanaryFields = [
 "binding_readback_source", "decision_label", "decision_reason", "errors", "health_as_of", "health_source_revision",
@@ -2390,7 +2399,7 @@ assert.deepEqual(deploymentSchema.$defs.binding.properties.readback_source, exac
 "schemas/strategy-truth-dashboard.v1.schema.json + schemas/strategy-deployment-bindings.v1.schema.json", ); runTruthProof(
 "C_FIXED_POINT.schema_valid_noncanonical_excluded", "truth Schema then normalizeStrategyTruthSnapshot", "Schema-valid canonical fixture with private-path readback_source",
 "Schema PASS does not authorize fixed point; Worker rejects", () => { const noncanonical = makeTruthBaseline();
-noncanonical.profiles[0].bindings[0].readback_source = "/Users/schema-valid/private/path"; const probe = spawnSync("python3", ["-c", [ "import json,sys",
+noncanonical.profiles[0].bindings[0].readback_source = "FiLe:///Users/schema-valid/private/path"; const probe = spawnSync("python3", ["-c", [ "import json,sys",
 "from jsonschema import Draft202012Validator", "payload=json.load(sys.stdin)", "Draft202012Validator(payload['schema']).validate(payload['value'])",
 ].join("; ")], { input: JSON.stringify({ schema: truthSchema, value: noncanonical }), encoding: "utf8" }); assert.equal(probe.status, 0, probe.stderr);
 assert.throws(() => __test.normalizeStrategyTruthSnapshot(noncanonical, "schema-valid noncanonical", truthNow)); }, "schemas/strategy-truth-dashboard.v1.schema.json", );
