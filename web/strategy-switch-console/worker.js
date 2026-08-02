@@ -1436,7 +1436,9 @@ async function strategyTruthResponse(request, env) {
     return json(emptyStrategyTruthPayload("snapshot_invalid"));
   }
   const copy = structuredClone(snapshot);
-  const timestamps = [copy.generated_at, copy.computed_at].filter(Boolean).map((value) => Date.parse(value));
+  const timestamps = [copy.generated_at, copy.computed_at,
+    ...copy.profiles.flatMap((profile) => profile.bindings.map((binding) => binding.readback_at)),
+  ].filter(Boolean).map((value) => Date.parse(value));
   const age = timestamps.length ? Math.max(0, Date.now() - Math.min(...timestamps)) : Number.POSITIVE_INFINITY;
   if (copy.data_status === "ready" && age > strategyTruthStaleTtlSeconds(env) * 1000) copy.data_status = "stale";
   return json(copy);
@@ -1463,7 +1465,8 @@ function truthClosed(value, keys, fieldName) {
 }
 
 function truthIdentity(value, fieldName) {
-  const text = String(value ?? "").trim().toLowerCase();
+  if (typeof value !== "string") throw new Error(`${fieldName} is invalid`);
+  const text = value.trim().toLowerCase();
   if (!/^[a-z0-9._=-]{1,120}$/.test(text)) throw new Error(`${fieldName} is invalid`);
   return text;
 }
@@ -1498,6 +1501,16 @@ function truthTimestamp(value, fieldName, now, nullable = false, readback = fals
 function truthStrictSource(value, fieldName) {
   const text = sanitizeStrategyHealthText(value, fieldName, 120, true);
   if (text === null || /^file:/i.test(text)) throw new Error(`${fieldName} is unsafe`);
+  let parsed;
+  try { parsed = new URL(text); } catch { return text; }
+  const credentialQueryKeys = new Set([
+    "accesstoken", "apikey", "authorization", "credential", "password", "secret", "sig", "signature", "token",
+    "xamzcredential", "xamzsecuritytoken", "xamzsignature",
+  ]);
+  if (parsed.username !== "" || parsed.password !== ""
+    || [...parsed.searchParams.keys()].some((key) => credentialQueryKeys.has(key.toLowerCase().replaceAll(/[-_]/g, "")))) {
+    throw new Error(`${fieldName} is unsafe`);
+  }
   return text;
 }
 

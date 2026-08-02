@@ -2053,6 +2053,7 @@ if (collection === "errors" && count === 21) expected.errors = raw.errors.slice(
 ["length_1", "a", "a", "accept"],
 ["length_120", "x".repeat(120), "x".repeat(120), "accept"],
 ["length_121", "x".repeat(121), null, "reject"],
+["number", 123, null, "reject"],
 ["uppercase", "DEMO_ALPHA", "demo_alpha", "accept"], ]) { const raw = makeTruthBaseline(); const expected = makeTruthBaseline(); if (idField === "binding_id") {
 raw.profiles[0].bindings[0].binding_id = rawValue; expected.profiles[0].bindings[0].binding_id = canonicalValue; } else { raw.profiles[0].strategy_profile = rawValue;
 expected.profiles[0].strategy_profile = canonicalValue; } runTruthNormalize(
@@ -2097,6 +2098,8 @@ const credentialAssignments = ["api_key", "cookie", "password", "private_key", "
 ["posix_users", "/Users/demo/private", null, "reject"],
 ["root", "/", null, "reject"],
 ["safe_url", "https://control.example.invalid/readback", "https://control.example.invalid/readback", "accept"],
+["credential_url.signed_query", "https://control.example.invalid/readback?X-Amz-Signature=synthetic-signature", null, "reject"],
+["credential_url.userinfo", "https://synthetic-user:synthetic-pass@control.example.invalid/readback", null, "reject"],
 ["trim", " local-qrs-readback ", "local-qrs-readback", "accept"],
 ["windows", "C:\\private\\file", null, "reject"], ];
 for (const keyword of credentialAssignments) strictSourceCases.push([`assignment.${keyword}`, `${keyword}=synthetic-value`, null, "reject"]);
@@ -2256,6 +2259,19 @@ const beforeRejectedPost = truthStore.get("strategy_truth_snapshot"); const befo
 "R_STORAGE.post.reject_no_write", truthPostRequest(rejectedRouteTruth), truthEnv, "strict readback_source private-path canary", "HTTP 400; prior KV byte-identical; error/audit omit canary",
 async (response) => { assert.equal(response.status, 400); assert.equal(truthStore.get("strategy_truth_snapshot"), beforeRejectedPost);
 assert.equal(truthStore.get("audit_log"), beforeRejectedAudit); assert.equal((await response.text()).includes(rejectedRouteCanary), false); }, "reject", );
+const credentialRouteTruth = structuredClone(routeTruth);
+const credentialRouteCanary = "https://synthetic-user:synthetic-pass@control.example.invalid/readback";
+credentialRouteTruth.profiles[0].bindings[0].readback_source = credentialRouteCanary;
+await runTruthRoute(
+"R_STORAGE.post.reject_credential_url_no_write", truthPostRequest(credentialRouteTruth), truthEnv, "credential-bearing readback_source URL",
+"HTTP 400; prior KV/audit byte-identical; response and persisted surfaces omit canary", async (response) => {
+const responseBytes = await response.text(); const getBytes = await (await worker.fetch(truthGetRequest(), truthEnv)).text();
+assert.equal(response.status, 400); assert.equal(truthStore.get("strategy_truth_snapshot"), beforeRejectedPost);
+assert.equal(truthStore.get("audit_log"), beforeRejectedAudit);
+for (const bytes of [responseBytes, truthStore.get("strategy_truth_snapshot") || "", truthStore.get("audit_log") || "", getBytes]) {
+assert.equal(bytes.includes(credentialRouteCanary), false); } }, "reject", );
+truthStore.set("strategy_truth_snapshot", beforeRejectedPost); if (beforeRejectedAudit === undefined) truthStore.delete("audit_log");
+else truthStore.set("audit_log", beforeRejectedAudit);
 const savedTruthBytes = truthStore.get("strategy_truth_snapshot") || JSON.stringify(routeTruth);
 truthStore.delete("strategy_truth_snapshot"); await runTruthRoute(
 "R_STORAGE.get.missing_kv", truthGetRequest(), truthEnv, "delete strategy_truth_snapshot KV", "HTTP 200 canonical unavailable payload", async (response) => {
@@ -2298,6 +2314,12 @@ const ordered = structuredClone(routeTruth); ordered.generated_at = ordered.comp
 truthStore.set("strategy_truth_snapshot", JSON.stringify(ordered));
 const orderedResponse = await worker.fetch(truthGetRequest(), { ...truthEnv, STRATEGY_TRUTH_STALE_TTL_SECONDS: "604800" }); const orderedBody = await orderedResponse.json();
 assert.equal(orderedBody.data_status, expected, `truth readback ordering ${ageMs}`); } truthStore.set("strategy_truth_snapshot", savedTruthBytes); }, ); Date.now = realDateNow; }
+{ const stored = structuredClone(routeTruth); stored.generated_at = stored.computed_at = new Date(truthNow).toISOString();
+stored.profiles[0].bindings[0].readback_at = new Date(truthNow - 300001).toISOString(); const bytes = JSON.stringify(stored);
+truthStore.set("strategy_truth_snapshot", bytes); Date.now = () => truthNow; await runTruthRoute(
+"R_STORAGE.ttl.binding_readback_just_after", truthGetRequest(), truthEnv, "fresh snapshot with binding readback ttl+1ms old",
+"response data_status=stale; KV byte-identical ready", async (response) => { const body = await response.json();
+assert.equal(body.data_status, "stale"); assert.equal(truthStore.get("strategy_truth_snapshot"), bytes); }, ); Date.now = realDateNow; }
 
 const securityCanaryFields = [
 "binding_readback_source", "decision_label", "decision_reason", "errors", "health_as_of", "health_source_revision",
@@ -2413,6 +2435,6 @@ disposition, truthReceipts.filter((item) => item.disposition === disposition).le
 const truthMatrixSummary = { expected_unique: expectedTruthSet.size, executed_unique: executedTruthSet.size, missing: missingTruthIds, duplicate: duplicateTruthIds,
 unexpected: unexpectedTruthIds, failed: failedTruthIds.map((item) => item.case_id), dispositions: truthDispositionCounts, };
 process.stdout.write(`${JSON.stringify({ qrs_v4_worker_matrix: truthMatrixSummary })}\n`); assert.deepEqual( { expected_unique: expectedTruthSet.size, executed_unique: executedTruthSet.size,
-missing: missingTruthIds, duplicate: duplicateTruthIds, unexpected: unexpectedTruthIds, dispositions: truthDispositionCounts, }, { expected_unique: 505, executed_unique: 505, missing: [],
-duplicate: [], unexpected: [], dispositions: { accept: 275, reject: 175, proof: 54, scope: 1 }, }, "QRS V4 Worker exact matrix set/disposition mismatch", );
+missing: missingTruthIds, duplicate: duplicateTruthIds, unexpected: unexpectedTruthIds, dispositions: truthDispositionCounts, }, { expected_unique: 511, executed_unique: 511, missing: [],
+duplicate: [], unexpected: [], dispositions: { accept: 275, reject: 180, proof: 55, scope: 1 }, }, "QRS V4 Worker exact matrix set/disposition mismatch", );
 assert.equal(failedTruthIds.length, 0, "QRS V4 Worker production gaps remain");

@@ -14,6 +14,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -223,6 +224,18 @@ def _qrs_safe_source(value: Any) -> bool:
     if re.search(r"\bbearer\s+\S+", value, re.I):
         return False
     if re.search(r"\b(?:api[_ -]?key|cookie|password|private[_ -]?key|secret|token)\s*[:=]", value, re.I):
+        return False
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return False
+    if parsed.username is not None or parsed.password is not None:
+        return False
+    credential_query_keys = {
+        "accesstoken", "apikey", "authorization", "credential", "password", "secret", "sig", "signature", "token",
+        "xamzcredential", "xamzsecuritytoken", "xamzsignature",
+    }
+    if any(re.sub(r"[-_]", "", key.casefold()) in credential_query_keys for key, _ in parse_qsl(parsed.query, keep_blank_values=True)):
         return False
     return not re.search(r"\b(?:gh[oprsu]_[a-z0-9_]{20,}|sk-[a-z0-9_-]{20,}|eyj[a-z0-9_.-]{16,})\b", value, re.I)
 

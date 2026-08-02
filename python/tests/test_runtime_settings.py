@@ -2555,6 +2555,21 @@ class RuntimeSettingsTest(unittest.TestCase):
                                               "trim and preserve safe canonical text" if disposition == "accept" else "reject, no write and no echo",
                                               no_echo=value if disposition == "reject" else None)
                 if disposition == "accept": self.assertEqual(artifact["profiles"][0]["bindings"][0]["readback_source"], expected)
+        for suffix, value in (
+            ("userinfo", "https://synthetic-user:synthetic-pass@control.example.invalid/readback"),
+            ("signed_query", "https://control.example.invalid/readback?X-Amz-Signature=synthetic-signature"),
+        ):
+            with self.subTest(case_id=f"P_PRODUCER.source.credential_url.{suffix}"):
+                self.assertFalse(runtime_settings._qrs_safe_source(value))
+                config = _qrs_baseline(); config["deployment_bindings"][0]["bindings"][0]["readback_source"] = value
+                with tempfile.TemporaryDirectory() as directory:
+                    output = Path(directory) / "bindings.json"
+                    with self.assertRaises(ValueError) as caught:
+                        build_config.write_strategy_deployment_bindings(
+                            output, config, generated_at="2026-08-01T00:00:00Z", source_revision="b" * 40,
+                            config_digest="a" * 64, now="2026-08-01T00:00:00Z")
+                    self.assertFalse(output.exists())
+                    self.assertNotIn(value, str(caught.exception))
         proof_cases = (
             ("C_FIXED_POINT.producer_schema_each_accepted", "every accepted artifact validator and Schema PASS"),
             ("P_PRODUCER.pipeline.closed_exact_keys", "exact top/profile/binding key sets"),
