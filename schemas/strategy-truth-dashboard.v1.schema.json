@@ -23,6 +23,33 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
     }
   },
+  "$comment": "Profile/binding tiers keep compact canonical payloads within the fixed 256 KiB truth sync route limit while preserving each individual 100-item maximum.",
+  "allOf": [
+    {
+      "if": { "properties": { "profiles": { "minItems": 3 } } },
+      "then": { "properties": { "profiles": { "items": { "properties": { "bindings": { "maxItems": 80 } } } } } }
+    },
+    {
+      "if": { "properties": { "profiles": { "minItems": 5 } } },
+      "then": { "properties": { "profiles": { "items": { "properties": { "bindings": { "maxItems": 48 } } } } } }
+    },
+    {
+      "if": { "properties": { "profiles": { "minItems": 9 } } },
+      "then": { "properties": { "profiles": { "items": { "properties": { "bindings": { "maxItems": 26 } } } } } }
+    },
+    {
+      "if": { "properties": { "profiles": { "minItems": 17 } } },
+      "then": { "properties": { "profiles": { "items": { "properties": { "bindings": { "maxItems": 14 } } } } } }
+    },
+    {
+      "if": { "properties": { "profiles": { "minItems": 33 } } },
+      "then": { "properties": { "profiles": { "items": { "properties": { "bindings": { "maxItems": 7 } } } } } }
+    },
+    {
+      "if": { "properties": { "profiles": { "minItems": 65 } } },
+      "then": { "properties": { "profiles": { "items": { "properties": { "bindings": { "maxItems": 3 } } } } } }
+    }
+  ],
   "$defs": {
     "timestamp": {
       "type": "string",

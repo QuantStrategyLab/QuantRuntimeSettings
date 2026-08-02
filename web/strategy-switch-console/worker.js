@@ -1498,11 +1498,18 @@ function truthTimestamp(value, fieldName, now, nullable = false, readback = fals
   return text;
 }
 
-function truthStrictSource(value, fieldName) {
+function truthStrictSource(value, fieldName, nullable = false) {
   const text = sanitizeStrategyHealthText(value, fieldName, 120, true);
-  if (text === null || /^file:/i.test(text)) throw new Error(`${fieldName} is unsafe`);
+  if (text === null) {
+    if (nullable) return null;
+    throw new Error(`${fieldName} is unsafe`);
+  }
+  if (/^file:/i.test(text)) throw new Error(`${fieldName} is unsafe`);
   let parsed;
-  try { parsed = new URL(text); } catch { return text; }
+  try { parsed = new URL(text); } catch {
+    if (/^[A-Za-z][A-Za-z0-9+.-]*:/.test(text)) throw new Error(`${fieldName} is unsafe`);
+    return text;
+  }
   const credentialQueryKeys = new Set([
     "accesstoken", "apikey", "authorization", "credential", "password", "secret", "sig", "signature", "token",
     "xamzcredential", "xamzsecuritytoken", "xamzsignature",
@@ -1512,6 +1519,22 @@ function truthStrictSource(value, fieldName) {
     throw new Error(`${fieldName} is unsafe`);
   }
   return text;
+}
+
+function truthHealthScore(value, fieldName) {
+  if (typeof value === "boolean") throw new Error(`${fieldName} is invalid`);
+  return normalizeStrategyHealthScore(value, fieldName);
+}
+
+function truthHealthComponents(value, fieldName) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    performance: truthHealthScore(source.performance, `${fieldName}.performance`),
+    risk: truthHealthScore(source.risk, `${fieldName}.risk`),
+    decay: truthHealthScore(source.decay, `${fieldName}.decay`),
+    stability: truthHealthScore(source.stability, `${fieldName}.stability`),
+    operations: truthHealthScore(source.operations, `${fieldName}.operations`),
+  };
 }
 
 function truthScalarMap(value) {
@@ -1566,15 +1589,15 @@ function truthHealth(value, fieldName, healthState) {
   const raw = truthObject(value, fieldName);
   const status = cleanChoice(raw.status, STRATEGY_HEALTH_STATUSES, `${fieldName}.status`);
   if (status !== healthState) throw new Error(`${fieldName}.status conflicts with health_state`);
-  const components = normalizeStrategyHealthComponents(raw.components, `${fieldName}.components`);
+  const components = truthHealthComponents(raw.components, `${fieldName}.components`);
   const decision = normalizeStrategyHealthDecision(raw.decision, `${fieldName}.decision`);
   const reviewSource = raw.review && !Array.isArray(raw.review) && typeof raw.review === "object" ? raw.review : {};
   const freshnessSource = raw.freshness && !Array.isArray(raw.freshness) && typeof raw.freshness === "object" ? raw.freshness : {};
   return {
     as_of: sanitizeStrategyHealthText(raw.as_of, `${fieldName}.as_of`, 64, true), status,
-    score: normalizeStrategyHealthScore(raw.score, `${fieldName}.score`), components, decision,
+    score: truthHealthScore(raw.score, `${fieldName}.score`), components, decision,
     review: {
-      requested_stage: sanitizeStrategyHealthText(reviewSource.requested_stage, `${fieldName}.review.requested_stage`, 80, true),
+      requested_stage: sanitizeStrategyHealthText(reviewSource.requested_stage, `${fieldName}.review.requested_stage`, 120, true),
       evidence_package_id: sanitizeStrategyHealthText(reviewSource.evidence_package_id, `${fieldName}.review.evidence_package_id`, 120, true),
       validation: truthScalarMap(reviewSource.validation), risk: truthScalarMap(reviewSource.risk),
       kelly_readiness: truthScalarMap(reviewSource.kelly_readiness),
@@ -1583,7 +1606,7 @@ function truthHealth(value, fieldName, healthState) {
       status: cleanChoice(freshnessSource.status || "unknown", ["fresh", "stale", "unknown"], `${fieldName}.freshness.status`),
       age_seconds: normalizeStrategyHealthAge(freshnessSource.age_seconds, `${fieldName}.freshness.age_seconds`),
     },
-    source_revision: sanitizeStrategyHealthText(raw.source_revision, `${fieldName}.source_revision`, 120, true),
+    source_revision: truthStrictSource(raw.source_revision, `${fieldName}.source_revision`, true),
   };
 }
 

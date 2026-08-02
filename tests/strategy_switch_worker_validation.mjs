@@ -1863,6 +1863,8 @@ const numericFields = ["score", "performance", "risk", "decay", "stability", "op
 ["numeric_string", "12.5", 12.5],
 ["zero", 0, 0],
 ["hundred", 100, 100], ]; const numericReject = [
+["boolean_false", false],
+["boolean_true", true],
 ["just_below", -0.01],
 ["just_above", 100.01],
 ["nan", Number.NaN],
@@ -2098,6 +2100,7 @@ const credentialAssignments = ["api_key", "cookie", "password", "private_key", "
 ["posix_users", "/Users/demo/private", null, "reject"],
 ["root", "/", null, "reject"],
 ["safe_url", "https://control.example.invalid/readback", "https://control.example.invalid/readback", "accept"],
+["credential_url.malformed", "https://synthetic-user:synthetic-pass@control.example.invalid:bad", null, "reject"],
 ["credential_url.signed_query", "https://control.example.invalid/readback?X-Amz-Signature=synthetic-signature", null, "reject"],
 ["credential_url.userinfo", "https://synthetic-user:synthetic-pass@control.example.invalid/readback", null, "reject"],
 ["trim", " local-qrs-readback ", "local-qrs-readback", "accept"],
@@ -2124,12 +2127,17 @@ const expected = makeTruthBaseline(); expected.profiles[0].bindings[0].readback_
 for (const [name, canary] of shapedCanaries) nullableSourceCases.push([`canary.${name}`, canary, null]); for (const [suffix, rawValue, canonicalValue] of nullableSourceCases) {
 const raw = makeTruthBaseline(); raw.profiles[0].health.source_revision = rawValue; const expected = makeTruthBaseline(); expected.profiles[0].health.source_revision = canonicalValue;
 runTruthNormalize(
-`W_TEXT_DECISION.safe_text.source_revision.${suffix}`, raw, "accept", expected, `health.source_revision=${suffix}`, ); } for (const [field, maximum, target] of [
+`W_TEXT_DECISION.safe_text.source_revision.${suffix}`, raw, "accept", expected, `health.source_revision=${suffix}`, ); } for (const [suffix, rawValue] of [
+["credential_url.malformed", "https://synthetic-user:synthetic-pass@example.invalid:bad"],
+["credential_url.signed_query", "https://example.invalid/revision?X-Amz-Signature=synthetic-signature"],
+["credential_url.userinfo", "https://synthetic-user:synthetic-pass@example.invalid/revision"], ]) { const raw = makeTruthBaseline();
+raw.profiles[0].health.source_revision = rawValue; runTruthNormalize(
+`W_TEXT_DECISION.source_revision.${suffix}`, raw, "reject", "reject unsafe URL source_revision without echo", `health.source_revision=${suffix}`, ); } for (const [field, maximum, target] of [
 ["as_of", 64, "health"],
 ["evidence_package_id", 120, "review"],
 ["label", 120, "decision"],
 ["reason", 240, "decision"],
-["requested_stage", 80, "review"], ]) { for (const [suffix, length] of [["at_limit", maximum], ["over_limit", maximum + 1]]) { const raw = makeTruthBaseline();
+["requested_stage", 120, "review"], ]) { for (const [suffix, length] of [["at_limit", maximum], ["over_limit", maximum + 1]]) { const raw = makeTruthBaseline();
 const expected = makeTruthBaseline(); const rawTarget = target === "health" ? raw.profiles[0].health : raw.profiles[0].health[target];
 const expectedTarget = target === "health" ? expected.profiles[0].health : expected.profiles[0].health[target]; rawTarget[field] = "x".repeat(length);
 if (suffix === "at_limit") expectedTarget[field] = rawTarget[field]; else if (field === "label") expectedTarget[field] = "证据不足，保持研究态";
@@ -2239,6 +2247,15 @@ const truthSession = await __test.makeSession("health-user", [], truthEnv); cons
 const routeNow = new Date(); routeTruth.generated_at = routeNow.toISOString(); routeTruth.computed_at = routeTruth.generated_at;
 routeTruth.profiles[0].bindings[0].readback_at = routeTruth.generated_at; const truthPostRequest = (payload) => new Request("https://switch.example/api/internal/sync-strategy-truth", {
 method: "POST", headers: { Authorization: `Bearer ${truthToken}`, "Content-Type": "application/json" }, body: JSON.stringify(payload), });
+function makeTruthTransportEnvelope(profileCount, bindingsPerProfile) { const payload = structuredClone(routeTruth);
+payload.profiles = Array.from({ length: profileCount }, (_, profileIndex) => { const profile = structuredClone(routeTruth.profiles[0]);
+profile.strategy_profile = `profile-${String(profileIndex).padStart(3, "0")}`;
+profile.bindings = Array.from({ length: bindingsPerProfile }, (_, bindingIndex) => { const binding = structuredClone(routeTruth.profiles[0].bindings[0]);
+binding.binding_id = `binding-${String(profileIndex).padStart(3, "0")}-${String(bindingIndex).padStart(3, "0")}`; return binding; }); return profile; });
+payload.summary.profile_count = profileCount; payload.summary.live = profileCount; return payload; }
+function truthSchemaResults(values) { const probe = spawnSync("python3", ["-c", ["import json,sys", "from jsonschema import Draft202012Validator",
+"payload=json.load(sys.stdin)", "validator=Draft202012Validator(payload['schema'])", "print(json.dumps([validator.is_valid(value) for value in payload['values']]))",
+].join("; ")], { input: JSON.stringify({ schema: truthSchema, values }), encoding: "utf8" }); assert.equal(probe.status, 0, probe.stderr); return JSON.parse(probe.stdout); }
 const truthGetRequest = () => new Request("https://switch.example/api/strategy-truth", { headers: truthHeaders }); await runTruthRoute(
 "R_STORAGE.post.baseline", truthPostRequest(routeTruth), truthEnv, "authenticated canonical truth POST", "HTTP 200 metadata-only response; normalized canonical KV Schema PASS",
 async (response) => { assert.equal(response.status, 200); const body = await response.json(); assert.deepEqual(Object.keys(body).sort(), ["ok", "profile_count", "schema_version"]);
@@ -2272,6 +2289,44 @@ for (const bytes of [responseBytes, truthStore.get("strategy_truth_snapshot") ||
 assert.equal(bytes.includes(credentialRouteCanary), false); } }, "reject", );
 truthStore.set("strategy_truth_snapshot", beforeRejectedPost); if (beforeRejectedAudit === undefined) truthStore.delete("audit_log");
 else truthStore.set("audit_log", beforeRejectedAudit);
+for (const [caseId, mutation, mutate] of [
+["R_STORAGE.post.reject_malformed_credential_url_no_write", "malformed credential-bearing readback_source URL", (raw) => {
+raw.profiles[0].bindings[0].readback_source = "https://synthetic-user:synthetic-pass@control.example.invalid:bad"; }],
+["R_STORAGE.post.reject_health_source_credential_url_no_write", "credential-bearing health.source_revision URL", (raw) => {
+raw.profiles[0].health.source_revision = "https://synthetic-user:synthetic-pass@example.invalid/revision"; }],
+["R_STORAGE.post.reject_boolean_score_no_write", "boolean health.score=false", (raw) => { raw.profiles[0].health.score = false; }],
+["R_STORAGE.post.reject_boolean_component_no_write", "boolean health.components.risk=true", (raw) => { raw.profiles[0].health.components.risk = true; }],
+]) { const raw = structuredClone(routeTruth); mutate(raw); const canary = JSON.stringify(raw); const priorKv = truthStore.get("strategy_truth_snapshot");
+const priorAudit = truthStore.get("audit_log"); await runTruthRoute(caseId, truthPostRequest(raw), truthEnv, mutation,
+"HTTP 400; prior KV/audit byte-identical; generic response does not echo input", async (response) => { assert.equal(response.status, 400);
+assert.equal(truthStore.get("strategy_truth_snapshot"), priorKv); assert.equal(truthStore.get("audit_log"), priorAudit);
+assert.equal((await response.text()).includes(canary), false); }, "reject", ); }
+{ const raw = structuredClone(routeTruth); raw.profiles[0].health.review.requested_stage = "x".repeat(120); const priorAudit = truthStore.get("audit_log"); await runTruthRoute(
+"R_STORAGE.post.requested_stage_length_120", truthPostRequest(raw), truthEnv, "schema-valid requested_stage length=120", "HTTP 200; stored requested_stage preserved exactly",
+async (response) => { assert.equal(response.status, 200); const stored = JSON.parse(truthStore.get("strategy_truth_snapshot"));
+assert.equal(stored.profiles[0].health.review.requested_stage, "x".repeat(120)); truthAccepted.push({ case_id: "R_STORAGE.post.requested_stage_length_120", value: stored }); }, "accept", );
+truthStore.set("strategy_truth_snapshot", beforeRejectedPost); if (priorAudit === undefined) truthStore.delete("audit_log"); else truthStore.set("audit_log", priorAudit); }
+const transportMaxima = [[1, 100], [2, 100], [3, 80], [4, 80], [5, 48], [8, 48], [9, 26], [16, 26], [17, 14], [26, 6], [32, 14], [33, 7], [64, 7], [65, 3], [100, 3]];
+const transportOverBounds = [[3, 81], [5, 49], [9, 27], [17, 15], [33, 8], [65, 4], [100, 7]];
+runTruthProof(
+"C_FIXED_POINT.schema_transport_envelope", "Draft202012Validator(strategy-truth-dashboard.v1.schema.json) + TextEncoder(JSON.stringify)",
+"piecewise profile/binding maxima including current 26x6 catalog envelope", "every schema-valid tier maximum is compactly <=256KiB; every next aggregate boundary is Schema-invalid",
+() => { const maxima = transportMaxima.map(([profiles, bindings]) => makeTruthTransportEnvelope(profiles, bindings));
+const overBounds = transportOverBounds.map(([profiles, bindings]) => makeTruthTransportEnvelope(profiles, bindings));
+assert.deepEqual(truthSchemaResults(maxima), maxima.map(() => true)); assert.deepEqual(truthSchemaResults(overBounds), overBounds.map(() => false));
+for (const value of maxima) assert.ok(new TextEncoder().encode(JSON.stringify(value)).byteLength <= 256 * 1024); }, "schemas/strategy-truth-dashboard.v1.schema.json", );
+{ const maximum = makeTruthTransportEnvelope(64, 7); const bytes = JSON.stringify(maximum); const priorAudit = truthStore.get("audit_log"); await runTruthRoute(
+"R_STORAGE.post.transport_maximum", truthPostRequest(maximum), truthEnv, "schema transport tier maximum 64 profiles x 7 bindings",
+"compact body <=256KiB; Schema PASS; route HTTP 200 and complete normalized KV", async (response) => { assert.ok(new TextEncoder().encode(bytes).byteLength <= 256 * 1024);
+assert.equal(truthSchemaResults([maximum])[0], true); assert.equal(response.status, 200); const stored = JSON.parse(truthStore.get("strategy_truth_snapshot"));
+assert.equal(stored.profiles.length, 64); assert.ok(stored.profiles.every((profile) => profile.bindings.length === 7));
+truthAccepted.push({ case_id: "R_STORAGE.post.transport_maximum", value: stored }); }, "accept", );
+truthStore.set("strategy_truth_snapshot", beforeRejectedPost); if (priorAudit === undefined) truthStore.delete("audit_log"); else truthStore.set("audit_log", priorAudit); }
+{ const oversized = makeTruthTransportEnvelope(100, 7); const priorKv = truthStore.get("strategy_truth_snapshot"); const priorAudit = truthStore.get("audit_log"); await runTruthRoute(
+"R_STORAGE.post.schema_transport_mismatch", truthPostRequest(oversized), truthEnv, "100 profiles x 7 bindings compact body exceeds fixed 256KiB route cap",
+"Schema reject; route HTTP 413; prior KV/audit byte-identical", async (response) => { assert.ok(new TextEncoder().encode(JSON.stringify(oversized)).byteLength > 256 * 1024);
+assert.equal(truthSchemaResults([oversized])[0], false); assert.equal(response.status, 413); assert.equal(truthStore.get("strategy_truth_snapshot"), priorKv);
+assert.equal(truthStore.get("audit_log"), priorAudit); }, ); }
 const savedTruthBytes = truthStore.get("strategy_truth_snapshot") || JSON.stringify(routeTruth);
 truthStore.delete("strategy_truth_snapshot"); await runTruthRoute(
 "R_STORAGE.get.missing_kv", truthGetRequest(), truthEnv, "delete strategy_truth_snapshot KV", "HTTP 200 canonical unavailable payload", async (response) => {
@@ -2411,7 +2466,7 @@ Date.parse(item.value.computed_at || 0), ...bindingTimes);
 const second = __test.normalizeStrategyTruthSnapshot(item.value, `fixed point ${item.case_id}`, fixedNow); assert.deepEqual(second, item.value, item.case_id); } },
 "schemas/strategy-truth-dashboard.v1.schema.json", ); runTruthProof(
 "C_FIXED_POINT.worker_schema_each_accepted", "Draft202012Validator(strategy-truth-dashboard.v1.schema.json)", "all accepted Worker cases",
-"all 275 accepted exact canonical outputs Schema PASS", () => { assert.equal(schemaRun.status, 0, schemaRun.stderr); assert.equal(truthAccepted.length, 275); },
+"all 277 accepted exact canonical outputs Schema PASS", () => { assert.equal(schemaRun.status, 0, schemaRun.stderr); assert.equal(truthAccepted.length, 277); },
 "schemas/strategy-truth-dashboard.v1.schema.json", ); runTruthProof(
 "C_FIXED_POINT.readback_source_schema_envelope", "both canonical Schema readback_source definitions", "parse deployment and truth Schemas",
 "exact {type:string,minLength:1,maxLength:120}; no pattern", () => {
@@ -2435,6 +2490,6 @@ disposition, truthReceipts.filter((item) => item.disposition === disposition).le
 const truthMatrixSummary = { expected_unique: expectedTruthSet.size, executed_unique: executedTruthSet.size, missing: missingTruthIds, duplicate: duplicateTruthIds,
 unexpected: unexpectedTruthIds, failed: failedTruthIds.map((item) => item.case_id), dispositions: truthDispositionCounts, };
 process.stdout.write(`${JSON.stringify({ qrs_v4_worker_matrix: truthMatrixSummary })}\n`); assert.deepEqual( { expected_unique: expectedTruthSet.size, executed_unique: executedTruthSet.size,
-missing: missingTruthIds, duplicate: duplicateTruthIds, unexpected: unexpectedTruthIds, dispositions: truthDispositionCounts, }, { expected_unique: 511, executed_unique: 511, missing: [],
-duplicate: [], unexpected: [], dispositions: { accept: 275, reject: 180, proof: 55, scope: 1 }, }, "QRS V4 Worker exact matrix set/disposition mismatch", );
+missing: missingTruthIds, duplicate: duplicateTruthIds, unexpected: unexpectedTruthIds, dispositions: truthDispositionCounts, }, { expected_unique: 535, executed_unique: 535, missing: [],
+duplicate: [], unexpected: [], dispositions: { accept: 277, reject: 200, proof: 57, scope: 1 }, }, "QRS V4 Worker exact matrix set/disposition mismatch", );
 assert.equal(failedTruthIds.length, 0, "QRS V4 Worker production gaps remain");
