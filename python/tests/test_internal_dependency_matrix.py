@@ -103,13 +103,13 @@ dependencies = [
         expected_pins_by_consumer = {
             "BinancePlatform": "92458590a463e7219f0369a3505031ee74414135",
             "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "CnEquityStrategies": "92458590a463e7219f0369a3505031ee74414135",
-            "CryptoStrategies": "92458590a463e7219f0369a3505031ee74414135",
+            "CnEquityStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
+            "CryptoStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
             "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "HkEquityStrategies": "92458590a463e7219f0369a3505031ee74414135",
-            "InteractiveBrokersPlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "HkEquityStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
+            "InteractiveBrokersPlatform": "776fe71e57e2924fcd1c73126f41d244242240bb",
             "LongBridgePlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "UsEquityStrategies": "8ba8276948ff71a8cc0a810f98b7437a1311c671",
+            "UsEquityStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
