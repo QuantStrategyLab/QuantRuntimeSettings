@@ -39,6 +39,7 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
 }
 SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
+FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path"}
 RUNTIME_MODELS = {"cloud_run", "oracle_vps_self_hosted", "not_configured"}
 SETTINGS_ACTIVATION_MODES = {
     "cloud_run_sync_workflow",
@@ -79,6 +80,13 @@ def validate(config: dict) -> list[str]:
                 errors.append(
                     f"scheduler profile {profile}: {field} must have 2 time fields or 5 cron fields"
                 )
+                continue
+            if profile.startswith("us_"):
+                cron = value.split()
+                if len(cron) != 5 or cron[2] != "*" or cron[4] != "1-5":
+                    errors.append(
+                        f"scheduler profile {profile}: {field} must be Mon-Fri cron with day-of-month '*'"
+                    )
     for pid, pdata in config.get("platforms", {}).items():
         if "capabilities" not in pdata:
             errors.append(f"platform {pid}: missing capabilities")
@@ -220,6 +228,56 @@ def validate(config: dict) -> list[str]:
                         f"{scheduler_timezone!r} must match market_timezone "
                         f"{market_timezone!r}"
                     )
+        runtime_artifacts = sdata.get("runtime_artifacts")
+        if runtime_artifacts is None:
+            continue
+        if not isinstance(runtime_artifacts, dict):
+            errors.append(f"strategy {sid}: runtime_artifacts must be an object")
+            continue
+        unsupported_artifacts = sorted(set(runtime_artifacts) - {"feature_snapshot"})
+        if unsupported_artifacts:
+            errors.append(
+                f"strategy {sid}: unsupported runtime_artifacts {unsupported_artifacts}"
+            )
+        feature_snapshot = runtime_artifacts.get("feature_snapshot")
+        if feature_snapshot is None:
+            continue
+        if not isinstance(feature_snapshot, dict):
+            errors.append(
+                f"strategy {sid}: runtime_artifacts.feature_snapshot must be an object"
+            )
+            continue
+        unsupported_fields = sorted(set(feature_snapshot) - FEATURE_SNAPSHOT_FIELDS)
+        if unsupported_fields:
+            errors.append(
+                f"strategy {sid}: unsupported feature snapshot fields {unsupported_fields}"
+            )
+        required = feature_snapshot.get("required")
+        if not isinstance(required, bool):
+            errors.append(
+                f"strategy {sid}: runtime_artifacts.feature_snapshot.required must be boolean"
+            )
+        snapshot_path = feature_snapshot.get("path")
+        manifest_path = feature_snapshot.get("manifest_path")
+        for field, value in (("path", snapshot_path), ("manifest_path", manifest_path)):
+            if value is not None and (
+                not isinstance(value, str) or not value.startswith("gs://")
+            ):
+                errors.append(
+                    f"strategy {sid}: runtime_artifacts.feature_snapshot.{field} must be a gs:// URI"
+                )
+        has_snapshot_path = isinstance(snapshot_path, str) and bool(snapshot_path.strip())
+        has_manifest_path = isinstance(manifest_path, str) and bool(manifest_path.strip())
+        if has_snapshot_path != has_manifest_path:
+            errors.append(
+                f"strategy {sid}: feature snapshot path and manifest_path must be configured together"
+            )
+        if required is True and sdata.get("can_switch_live") is True and not (
+            has_snapshot_path and has_manifest_path
+        ):
+            errors.append(
+                f"strategy {sid}: live feature snapshot requires path and manifest_path"
+            )
     return errors
 
 

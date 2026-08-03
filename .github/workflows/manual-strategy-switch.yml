@@ -407,6 +407,31 @@ jobs:
               print(f"- `{assignment['name']}` = `{assignment['value']}`")
           PY
 
+      - name: Preflight IBKR deployment plan
+        if: env.PLATFORM == 'ibkr' && env.SERVICE_TARGETS_MODE != 'off'
+        env:
+          TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
+        run: |
+          set -euo pipefail
+          platform_root="${RUNNER_TEMP}/interactive-brokers-platform"
+          repository_variables_file="${RUNNER_TEMP}/ibkr-repository-variables.json"
+          trap 'rm -f "${repository_variables_file}"' EXIT
+
+          gh auth setup-git
+          git clone --quiet --depth 1 --branch main \
+            "https://github.com/${TARGET_REPOSITORY}.git" \
+            "${platform_root}"
+          python3 -m pip install --quiet uv
+          uv sync --frozen --no-dev --quiet --project "${platform_root}"
+          gh variable list \
+            --repo "${TARGET_REPOSITORY}" \
+            --json name,value \
+            > "${repository_variables_file}"
+          python3 python/scripts/preflight_ibkr_switch.py \
+            --target-file "${TARGET_FILE}" \
+            --platform-root "${platform_root}" \
+            --repository-variables-file "${repository_variables_file}"
+
       - name: Apply GitHub variable updates
         if: env.APPLY_SWITCH == 'true'
         run: python3 python/scripts/runtime_settings.py apply "${TARGET_FILE}" --yes

@@ -64,6 +64,18 @@ PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
     "ibkr": "IBKR_CASH_ONLY_EXECUTION",
     "firstrade": "FIRSTRADE_CASH_ONLY_EXECUTION",
 }
+PLATFORM_FEATURE_SNAPSHOT_VARIABLES = {
+    "schwab": ("SCHWAB_FEATURE_SNAPSHOT_PATH", "SCHWAB_FEATURE_SNAPSHOT_MANIFEST_PATH"),
+    "longbridge": (
+        "LONGBRIDGE_FEATURE_SNAPSHOT_PATH",
+        "LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH",
+    ),
+    "ibkr": ("IBKR_FEATURE_SNAPSHOT_PATH", "IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH"),
+    "firstrade": (
+        "FIRSTRADE_FEATURE_SNAPSHOT_PATH",
+        "FIRSTRADE_FEATURE_SNAPSHOT_MANIFEST_PATH",
+    ),
+}
 INCOME_LAYER_VARIABLES = (
     "INCOME_LAYER_ENABLED",
     "INCOME_LAYER_START_USD",
@@ -747,6 +759,57 @@ def _market_plan_for_strategy(strategy_profile: str) -> dict[str, str]:
     return market
 
 
+def _feature_snapshot_extra_variables(
+    platform: str,
+    strategy_profile: str,
+    extra_variables: dict[str, Any],
+) -> dict[str, str]:
+    variable_names = PLATFORM_FEATURE_SNAPSHOT_VARIABLES.get(platform)
+    if not variable_names:
+        return {}
+    snapshot_variable, manifest_variable = variable_names
+
+    config = _load_platform_config()
+    strategies = config.get("strategies")
+    strategy = strategies.get(strategy_profile) if isinstance(strategies, dict) else None
+    if not isinstance(strategy, dict):
+        raise ValueError(f"strategy {strategy_profile!r} is missing from the runtime artifact catalog")
+    runtime_artifacts = strategy.get("runtime_artifacts") or {}
+    if not isinstance(runtime_artifacts, dict):
+        raise ValueError(f"strategy {strategy_profile!r} runtime_artifacts must be an object")
+    feature_snapshot = runtime_artifacts.get("feature_snapshot") or {}
+    if not isinstance(feature_snapshot, dict):
+        raise ValueError(
+            f"strategy {strategy_profile!r} runtime_artifacts.feature_snapshot must be an object"
+        )
+
+    explicit = snapshot_variable in extra_variables or manifest_variable in extra_variables
+    if explicit:
+        snapshot_path = extra_variables.get(snapshot_variable)
+        manifest_path = extra_variables.get(manifest_variable)
+    else:
+        snapshot_path = feature_snapshot.get("path")
+        manifest_path = feature_snapshot.get("manifest_path")
+    snapshot_path = snapshot_path.strip() if isinstance(snapshot_path, str) else ""
+    manifest_path = manifest_path.strip() if isinstance(manifest_path, str) else ""
+    if explicit and not feature_snapshot and (snapshot_path or manifest_path):
+        raise ValueError(
+            f"strategy {strategy_profile!r} does not accept feature snapshot artifacts"
+        )
+    if bool(snapshot_path) != bool(manifest_path):
+        raise ValueError(
+            f"strategy {strategy_profile!r} feature snapshot path and manifest path must be configured together"
+        )
+    if feature_snapshot.get("required") is True and not (snapshot_path and manifest_path):
+        raise ValueError(
+            f"strategy {strategy_profile!r} requires feature snapshot path and manifest path"
+        )
+    return {
+        snapshot_variable: snapshot_path,
+        manifest_variable: manifest_path,
+    }
+
+
 def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     platform = _normalize_platform(args.platform)
     target_name = _normalize_target_name(args.target_name)
@@ -903,6 +966,13 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     _reject_direct_dca_extra_variables(extra_variables)
     _reject_direct_ibit_zscore_exit_extra_variables(extra_variables)
     _reject_research_only_extra_variables(extra_variables)
+    extra_variables.update(
+        _feature_snapshot_extra_variables(
+            platform,
+            runtime_target["strategy_profile"],
+            extra_variables,
+        )
+    )
 
     if args.set_platform_dry_run_variable:
         extra_variables[PLATFORM_DRY_RUN_VARIABLES[platform]] = env_string(runtime_target["dry_run_only"])

@@ -405,6 +405,7 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
                 value = scheduler.get(field)
                 if not isinstance(value, str) or len(value.split()) not in {2, 5}:
                     errors.append(f"runtime_target.scheduler.{field} must have 2 time fields or 5 cron fields")
+            validate_live_ibkr_us_scheduler(runtime_target, scheduler, errors)
 
     configured_market_fields = []
     for field in MARKET_FIELDS:
@@ -424,6 +425,49 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
             ZoneInfo(market_timezone)
         except (ZoneInfoNotFoundError, ValueError):
             errors.append(f"runtime_target.market_timezone is invalid: {market_timezone!r}")
+
+
+def validate_live_ibkr_us_scheduler(
+    runtime_target: dict[str, Any],
+    scheduler: dict[str, Any],
+    errors: list[str],
+) -> None:
+    if (
+        runtime_target.get("platform_id") != "ibkr"
+        or runtime_target.get("execution_mode") != "live"
+        or runtime_target.get("dry_run_only") is not False
+    ):
+        return
+
+    market = str(runtime_target.get("market") or "").strip().upper()
+    if not market:
+        config = load_platform_config()
+        strategies = config.get("strategies", {})
+        domains = config.get("domains", {})
+        profile = str(runtime_target.get("strategy_profile") or "").strip()
+        strategy = strategies.get(profile) if isinstance(strategies, dict) else None
+        domain = (
+            domains.get(strategy.get("domain"))
+            if isinstance(strategy, dict) and isinstance(domains, dict)
+            else None
+        )
+        market = str(domain.get("market") or "").strip().upper() if isinstance(domain, dict) else ""
+    if market != "US":
+        return
+
+    for field in ("main_time", "probe_time", "precheck_time"):
+        value = scheduler.get(field)
+        if not isinstance(value, str):
+            continue
+        cron = value.split()
+        if len(cron) == 2:
+            continue
+        if len(cron) == 5 and cron[2] == "*" and cron[4] == "1-5":
+            continue
+        errors.append(
+            f"runtime_target.scheduler.{field} must be a two-field time or Mon-Fri cron "
+            "for live IBKR US targets"
+        )
 
 
 def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], errors: list[str]) -> None:

@@ -4,7 +4,9 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -139,6 +141,130 @@ class RuntimeSettingsTest(unittest.TestCase):
             ),
             workflow.index("Apply GitHub variable updates"),
         )
+
+    def test_manual_switch_preflights_ibkr_plan_before_variable_write(self):
+        workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
+
+        self.assertIn("Preflight IBKR deployment plan", workflow)
+        self.assertIn("python/scripts/preflight_ibkr_switch.py", workflow)
+        self.assertIn("uv sync --frozen --no-dev", workflow)
+        self.assertLess(
+            workflow.index("Preflight IBKR deployment plan"),
+            workflow.index("Apply GitHub variable updates"),
+        )
+
+    def test_preflight_ibkr_switch_uses_candidate_inventory_without_printing_plan(self):
+        with tempfile.TemporaryDirectory(dir=ROOT) as temp_dir:
+            temp = Path(temp_dir)
+            existing_path = temp / "existing.json"
+            existing_path.write_text(
+                runtime_settings.compact_json(
+                    {
+                        "targets": [
+                            {
+                                "service": "interactive-brokers-live-service",
+                                "ACCOUNT_GROUP": "live",
+                                "runtime_target": {
+                                    "platform_id": "ibkr",
+                                    "strategy_profile": "soxl_soxx_trend_income",
+                                    "dry_run_only": False,
+                                    "deployment_selector": "live",
+                                    "account_selector": ["LIVE"],
+                                    "account_scope": "live",
+                                    "service_name": "interactive-brokers-live-service",
+                                    "execution_mode": "live",
+                                },
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = build_runtime_switch.build_parser().parse_args(
+                [
+                    "--platform",
+                    "ibkr",
+                    "--target-name",
+                    "live",
+                    "--strategy-profile",
+                    "tqqq_growth_income",
+                    "--account-selector",
+                    "LIVE",
+                    "--service-name",
+                    "interactive-brokers-live-service",
+                    "--plugin-mode",
+                    "none",
+                    "--existing-service-targets-json-file",
+                    str(existing_path),
+                ]
+            )
+            target_path = temp / "target.json"
+            target_path.write_text(
+                runtime_settings.compact_json(build_runtime_switch.build_switch_target(args)),
+                encoding="utf-8",
+            )
+            variables_path = temp / "variables.json"
+            variables_path.write_text(
+                json.dumps(
+                    [
+                        {"name": "CLOUD_RUN_SERVICE_TARGETS_JSON", "value": '{"targets":[]}'},
+                        {"name": "UNCHANGED_SETTING", "value": "preserved"},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            platform_root = temp / "platform"
+            planner_path = platform_root / "scripts" / "build_cloud_run_env_sync_plan.py"
+            planner_path.parent.mkdir(parents=True)
+            capture_path = temp / "capture.json"
+            planner_path.write_text(
+                """
+import json
+import os
+from pathlib import Path
+
+inventory = json.loads(os.environ["CLOUD_RUN_SERVICE_TARGETS_JSON"])
+Path(os.environ["CAPTURE_PATH"]).write_text(
+    json.dumps(
+        {
+            "profile": inventory["targets"][0]["runtime_target"]["strategy_profile"],
+            "unchanged": os.environ.get("UNCHANGED_SETTING"),
+        }
+    ),
+    encoding="utf-8",
+)
+print('{"candidate_inventory":"must-not-be-forwarded"}')
+""".strip(),
+                encoding="utf-8",
+            )
+            python_path = platform_root / ".venv" / "bin" / "python"
+            python_path.parent.mkdir(parents=True)
+            python_path.symlink_to(sys.executable)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(ROOT / "python" / "scripts" / "preflight_ibkr_switch.py"),
+                    "--target-file",
+                    str(target_path),
+                    "--platform-root",
+                    str(platform_root),
+                    "--repository-variables-file",
+                    str(variables_path),
+                ],
+                capture_output=True,
+                text=True,
+                env={**os.environ, "CAPTURE_PATH": str(capture_path)},
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "IBKR deployment plan preflight passed.\n")
+            self.assertNotIn("candidate_inventory", result.stdout + result.stderr)
+            self.assertEqual(
+                json.loads(capture_path.read_text(encoding="utf-8")),
+                {"profile": "tqqq_growth_income", "unchanged": "preserved"},
+            )
 
     def test_settings_activation_comes_from_platform_config(self):
         self.assertEqual(
@@ -706,9 +832,9 @@ class RuntimeSettingsTest(unittest.TestCase):
             target["runtime_target"]["scheduler"],
             {
                 "timezone": "America/New_York",
-                "main_time": "45 15 * * *",
-                "probe_time": "35 9,15 * * *",
-                "precheck_time": "45 9 * * *",
+                "main_time": "45 15 * * 1-5",
+                "probe_time": "35 9,15 * * 1-5",
+                "precheck_time": "45 9 * * 1-5",
             },
         )
         self.assertEqual(assignments["STRATEGY_PROFILE"], "tqqq_growth_income")
@@ -736,6 +862,18 @@ class RuntimeSettingsTest(unittest.TestCase):
                     "market_timezone": domain["market_timezone"],
                 },
             )
+
+    def test_live_us_scheduler_profiles_are_weekday_only(self):
+        config = build_runtime_switch._load_platform_config()
+
+        for profile, scheduler in config["scheduling"]["profiles"].items():
+            if not profile.startswith("us_"):
+                continue
+            for field in ("main_time", "probe_time", "precheck_time"):
+                cron = scheduler[field].split()
+                self.assertEqual(len(cron), 5, (profile, field))
+                self.assertEqual(cron[2], "*", (profile, field))
+                self.assertEqual(cron[4], "1-5", (profile, field))
 
     def test_build_switch_target_uses_fork_repository_overrides(self):
         parser = build_runtime_switch.build_parser()
@@ -936,7 +1074,7 @@ class RuntimeSettingsTest(unittest.TestCase):
             },
         )
 
-    def test_build_switch_target_uses_dca_monthly_scheduler_window(self):
+    def test_build_switch_target_uses_weekday_trigger_for_monthly_dca(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -957,9 +1095,9 @@ class RuntimeSettingsTest(unittest.TestCase):
             target["runtime_target"]["scheduler"],
             {
                 "timezone": "America/New_York",
-                "main_time": "45 15 25-29 * *",
-                "probe_time": "35 9,15 25-29 * *",
-                "precheck_time": "45 9 25-29 * *",
+                "main_time": "45 15 * * 1-5",
+                "probe_time": "35 9,15 * * 1-5",
+                "precheck_time": "45 9 * * 1-5",
             },
         )
 
@@ -986,9 +1124,9 @@ class RuntimeSettingsTest(unittest.TestCase):
             target["runtime_target"]["scheduler"],
             {
                 "timezone": "America/New_York",
-                "main_time": "45 15 * * *",
-                "probe_time": "35 9,15 * * *",
-                "precheck_time": "45 9 * * *",
+                "main_time": "45 15 * * 1-5",
+                "probe_time": "35 9,15 * * 1-5",
+                "precheck_time": "45 9 * * 1-5",
             },
         )
         self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "ibit_zscore_exit")
@@ -1442,8 +1580,19 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "hk",
                 "--strategy-profile",
                 "hk_low_vol_dividend_quality_snapshot",
+                "--execution-mode",
+                "paper",
                 "--plugin-mode",
                 "none",
+                "--extra-variables-json",
+                json.dumps(
+                    {
+                        "LONGBRIDGE_FEATURE_SNAPSHOT_PATH": "gs://manual/snapshot.csv",
+                        "LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH": (
+                            "gs://manual/snapshot.csv.manifest.json"
+                        ),
+                    }
+                ),
             ]
         )
 
@@ -1458,6 +1607,169 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "precheck_time": "45 9 1-7 * *",
             },
         )
+
+    def test_build_switch_target_auto_configures_ibkr_snapshot_artifacts(self):
+        cases = {
+            "global_etf_rotation": (
+                "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/"
+                "global_etf_rotation_feature_snapshot_latest.csv"
+            ),
+            "russell_top50_leader_rotation": (
+                "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
+                "russell_top50_leader_rotation_staging/"
+                "russell_top50_leader_rotation_feature_snapshot_latest.csv"
+            ),
+        }
+        for profile, snapshot_path in cases.items():
+            with self.subTest(profile=profile):
+                args = build_runtime_switch.build_parser().parse_args(
+                    [
+                        "--platform",
+                        "ibkr",
+                        "--target-name",
+                        "live",
+                        "--strategy-profile",
+                        profile,
+                        "--plugin-mode",
+                        "none",
+                    ]
+                )
+
+                target = build_runtime_switch.build_switch_target(args)
+                assignments = {
+                    item.name: item.value for item in runtime_settings.build_assignments(target)
+                }
+
+                self.assertEqual(assignments["IBKR_FEATURE_SNAPSHOT_PATH"], snapshot_path)
+                self.assertEqual(
+                    assignments["IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH"],
+                    f"{snapshot_path}.manifest.json",
+                )
+
+    def test_build_switch_target_clears_stale_ibkr_snapshot_artifacts(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "interactive-brokers-live-service",
+                    "ACCOUNT_GROUP": "live",
+                    "IBKR_FEATURE_SNAPSHOT_PATH": "gs://stale/snapshot.csv",
+                    "IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH": "gs://stale/snapshot.csv.manifest.json",
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "global_etf_rotation",
+                        "dry_run_only": False,
+                        "deployment_selector": "live",
+                        "account_selector": ["LIVE"],
+                        "account_scope": "live",
+                        "service_name": "interactive-brokers-live-service",
+                        "execution_mode": "live",
+                    },
+                }
+            ]
+        }
+        path = ROOT / ".pytest_runtime_service_targets_snapshot.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--account-selector",
+                "LIVE",
+                "--service-name",
+                "interactive-brokers-live-service",
+                "--plugin-mode",
+                "none",
+                "--existing-service-targets-json-file",
+                str(path),
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        selected = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])["targets"][0]
+
+        self.assertEqual(selected["IBKR_FEATURE_SNAPSHOT_PATH"], "")
+        self.assertEqual(selected["IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH"], "")
+
+    def test_snapshot_strategy_without_catalog_artifacts_requires_explicit_pair(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "hk",
+                "--strategy-profile",
+                "hk_low_vol_dividend_quality_snapshot",
+                "--execution-mode",
+                "paper",
+                "--plugin-mode",
+                "none",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires feature snapshot path and manifest path"):
+            build_runtime_switch.build_switch_target(args)
+
+    def test_snapshot_strategy_accepts_explicit_platform_artifact_pair(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "hk",
+                "--strategy-profile",
+                "hk_low_vol_dividend_quality_snapshot",
+                "--execution-mode",
+                "paper",
+                "--plugin-mode",
+                "none",
+                "--extra-variables-json",
+                json.dumps(
+                    {
+                        "LONGBRIDGE_FEATURE_SNAPSHOT_PATH": "gs://manual/snapshot.csv",
+                        "LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH": (
+                            "gs://manual/snapshot.csv.manifest.json"
+                        ),
+                    }
+                ),
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+
+        self.assertEqual(
+            target["extra_variables"]["LONGBRIDGE_FEATURE_SNAPSHOT_PATH"],
+            "gs://manual/snapshot.csv",
+        )
+
+    def test_non_snapshot_strategy_rejects_snapshot_artifact_override(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--extra-variables-json",
+                json.dumps(
+                    {
+                        "IBKR_FEATURE_SNAPSHOT_PATH": "gs://unexpected/snapshot.csv",
+                        "IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH": (
+                            "gs://unexpected/snapshot.csv.manifest.json"
+                        ),
+                    }
+                ),
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "does not accept feature snapshot artifacts"):
+            build_runtime_switch.build_switch_target(args)
 
     def test_scheduler_plan_uses_catalog_strategy_override_without_code_mapping(self):
         scheduler = {
@@ -1506,6 +1818,28 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertIn(
             "strategy global_etf_rotation: unknown scheduler_profile 'missing_profile'",
+            build_config.validate(config),
+        )
+
+    def test_build_config_requires_live_snapshot_artifact_pair(self):
+        config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"]["runtime_artifacts"][
+            "feature_snapshot"
+        ].pop("manifest_path")
+
+        self.assertIn(
+            "strategy global_etf_rotation: live feature snapshot requires path and manifest_path",
+            build_config.validate(config),
+        )
+
+    def test_build_config_rejects_non_boolean_snapshot_requirement(self):
+        config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"]["runtime_artifacts"][
+            "feature_snapshot"
+        ]["required"] = "true"
+
+        self.assertIn(
+            "strategy global_etf_rotation: runtime_artifacts.feature_snapshot.required must be boolean",
             build_config.validate(config),
         )
 
@@ -1598,6 +1932,25 @@ class RuntimeSettingsTest(unittest.TestCase):
 
         self.assertIn(
             "runtime_target.scheduler.main_time must have 2 time fields or 5 cron fields",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_live_ibkr_us_scheduler_rejects_weekend_cron(self):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "live",
+                "--strategy-profile",
+                "tqqq_growth_income",
+            ]
+        )
+        target = build_runtime_switch.build_switch_target(args)
+        target["runtime_target"]["scheduler"]["main_time"] = "45 15 * * *"
+
+        self.assertIn(
+            "runtime_target.scheduler.main_time must be a two-field time or Mon-Fri cron for live IBKR US targets",
             runtime_settings.validate_target(target),
         )
 

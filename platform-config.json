@@ -62,27 +62,27 @@
     "profiles": {
       "us_daily": {
         "timezone": "America/New_York",
-        "main_time": "45 15 * * *",
-        "probe_time": "35 9,15 * * *",
-        "precheck_time": "45 9 * * *"
+        "main_time": "45 15 * * 1-5",
+        "probe_time": "35 9,15 * * 1-5",
+        "precheck_time": "45 9 * * 1-5"
       },
       "us_dca_month_end": {
         "timezone": "America/New_York",
-        "main_time": "45 15 25-29 * *",
-        "probe_time": "35 9,15 25-29 * *",
-        "precheck_time": "45 9 25-29 * *"
+        "main_time": "45 15 * * 1-5",
+        "probe_time": "35 9,15 * * 1-5",
+        "precheck_time": "45 9 * * 1-5"
       },
       "us_snapshot_month_start": {
         "timezone": "America/New_York",
-        "main_time": "45 15 1-7 * *",
-        "probe_time": "35 9,15 1-7 * *",
-        "precheck_time": "45 9 1-7 * *"
+        "main_time": "45 15 * * 1-5",
+        "probe_time": "35 9,15 * * 1-5",
+        "precheck_time": "45 9 * * 1-5"
       },
       "hk_daily": {
         "timezone": "Asia/Hong_Kong",
-        "main_time": "45 15 * * *",
-        "probe_time": "35 9,15 * * *",
-        "precheck_time": "45 9 * * *"
+        "main_time": "45 15 * * 1-5",
+        "probe_time": "35 9,15 * * 1-5",
+        "precheck_time": "45 9 * * 1-5"
       },
       "hk_snapshot_month_start": {
         "timezone": "Asia/Hong_Kong",
@@ -501,6 +501,13 @@
         "dry_run"
       ],
       "blocked_live_reason": "",
+      "runtime_artifacts": {
+        "feature_snapshot": {
+          "required": true,
+          "path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/global_etf_rotation_feature_snapshot_latest.csv",
+          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/global_etf_rotation_feature_snapshot_latest.csv.manifest.json"
+        }
+      },
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -541,6 +548,13 @@
         "dry_run"
       ],
       "blocked_live_reason": "",
+      "runtime_artifacts": {
+        "feature_snapshot": {
+          "required": true,
+          "path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/russell_top50_leader_rotation_staging/russell_top50_leader_rotation_feature_snapshot_latest.csv",
+          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/russell_top50_leader_rotation_staging/russell_top50_leader_rotation_feature_snapshot_latest.csv.manifest.json"
+        }
+      },
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -691,13 +705,17 @@
       "scheduler_profile": "hk_snapshot_month_start",
       "runtime_enabled": true,
       "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "production_snapshot_artifact_route_not_configured",
+      "runtime_artifacts": {
+        "feature_snapshot": {
+          "required": true
+        }
+      },
       "features": {
         "income_layer": false,
         "option_overlay": false,
