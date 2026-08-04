@@ -101,15 +101,15 @@ dependencies = [
 
     def test_qpk_migrated_consumers_use_current_baseline_pins(self):
         expected_pins_by_consumer = {
-            "BinancePlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "BinancePlatform": "61783fdaee869bfeedd4289ae4b7f27104513759",
             "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
             "CnEquityStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
-            "CryptoStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
+            "CryptoStrategies": "b371322b948e4298920a7d8613b155245dcd5f8d",
             "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
             "HkEquityStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
-            "InteractiveBrokersPlatform": "776fe71e57e2924fcd1c73126f41d244242240bb",
+            "InteractiveBrokersPlatform": "b371322b948e4298920a7d8613b155245dcd5f8d",
             "LongBridgePlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "UsEquityStrategies": "776fe71e57e2924fcd1c73126f41d244242240bb",
+            "UsEquityStrategies": "61783fdaee869bfeedd4289ae4b7f27104513759",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
