@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.deployment_bundle.v1",
+  "title": "QSL Deployment Bundle v1",
+  "description": "Immutable desired deployment identity. This contract does not authorize activation, apply, or runtime behavior.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "bundle_id",
+    "created_at",
+    "digest_algorithm",
+    "strategy",
+    "profile",
+    "config",
+    "evidence",
+    "target",
+    "dependencies",
+    "bundle_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "qsl.deployment_bundle.v1"},
+    "bundle_id": {"$ref": "#/$defs/identity"},
+    "created_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "digest_algorithm": {"enum": ["sha256"]},
+    "strategy": {"$ref": "#/$defs/strategyIdentity"},
+    "profile": {"$ref": "#/$defs/artifactIdentity"},
+    "config": {"$ref": "#/$defs/artifactIdentity"},
+    "evidence": {"$ref": "#/$defs/artifactIdentity"},
+    "target": {"$ref": "#/$defs/targetIdentity"},
+    "dependencies": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["qpk", "strategy", "pipeline", "platform"],
+      "properties": {
+        "qpk": {"$ref": "#/$defs/artifactIdentity"},
+        "strategy": {"$ref": "#/$defs/artifactIdentity"},
+        "pipeline": {"$ref": "#/$defs/artifactIdentity"},
+        "platform": {"$ref": "#/$defs/artifactIdentity"}
+      }
+    },
+    "bundle_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "artifactIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "revision", "artifact_sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identity"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "strategyIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source_id", "revision", "artifact_sha256"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identity"},
+        "source_id": {"$ref": "#/$defs/identity"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "artifact_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "targetIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "platform_id"],
+      "properties": {
+        "id": {"$ref": "#/$defs/identity"},
+        "platform_id": {"$ref": "#/$defs/identity"}
+      }
+    }
+  }
+}
