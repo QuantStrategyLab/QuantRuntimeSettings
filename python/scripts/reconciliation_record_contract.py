@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the contract-only QSL ReconciliationRecord v1 consumer contract."""
+"""Validate the MISSING-only QSL ReconciliationRecord v1 contract."""
 
 from __future__ import annotations
 
@@ -19,9 +19,8 @@ from deployment_bundle_contract import BundleValidationError, parse_bundle_json,
 SCHEMA_ID = "qsl.reconciliation_record.v1"
 BUNDLE_SCHEMA_ID = "qsl.deployment_bundle.v1"
 ACTIVATION_SCHEMA_ID = "qsl.activation.v1"
-OBSERVER_SCHEMA_ID = "qsl.reconciliation_observer_receipt.v1"
-RECONCILIATION_STATUSES = ("MISSING", "MATCHED", "MISMATCHED")
-COMPARISON_FIELDS = (
+RECONCILIATION_STATUS = "MISSING"
+IDENTITY_BINDING_FIELDS = (
     "deployment_bundle_sha256",
     "activation_id",
     "activation_sha256",
@@ -40,11 +39,17 @@ _TIMESTAMP_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _FORBIDDEN_KEY_PATTERN = re.compile(
     r"credential|secret|token|password|cookie|jwt|private(?:[_-]?key)?|api[_-]?key|access[_-]?key|"
-    r"provider[_-]?rows?|raw[_-]?provider|account[_-]?(?:number|id|balance)|balance|positions?|orders?|"
-    r"fills?|capital(?:[_-]?(?:amount|balance|value))?",
+    r"(?:^|[_-])raw(?:$|[_-])|provider[_-]?rows?|account|balance|positions?|orders?|"
+    r"fills?|capital(?:[_-]?(?:amount|balance|value))?|observer|observation|observed|comparisons?|"
+    r"mismatch(?:ed)?(?:[_-]?list)?|max[_-]?age",
     re.IGNORECASE,
 )
-_ALLOWED_ASSERTION_KEYS = {"fills_verified", "capital_use_verified"}
+_ALLOWED_SECURITY_KEYS = {
+    "account_alias",
+    "account_digest_sha256",
+    "fills_verified",
+    "capital_use_verified",
+}
 _URL_PATTERN = re.compile(r"[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 _JWT_PATTERN = re.compile(r"(?:^|\s)[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}(?:$|\s)")
 _BEARER_PATTERN = re.compile(r"(?:^|\s)bearer\s+\S+", re.IGNORECASE)
@@ -52,7 +57,7 @@ _BEARER_PATTERN = re.compile(r"(?:^|\s)bearer\s+\S+", re.IGNORECASE)
 _COMMON_FIELDS = {
     "schema",
     "reconciliation_id",
-    "created_at",
+    "produced_at",
     "expires_at",
     "digest_algorithm",
     "contract_only",
@@ -64,7 +69,6 @@ _COMMON_FIELDS = {
     "assertions",
     "reconciliation_sha256",
 }
-_OBSERVATION_FIELDS = {"observed_identity", "observer_receipt", "comparison"}
 _BUNDLE_REFERENCE_FIELDS = {"schema", "bundle_id", "bundle_sha256"}
 _ACTIVATION_REFERENCE_FIELDS = {"schema", "activation_id", "activation_sha256"}
 _TARGET_FIELDS = {
@@ -75,27 +79,12 @@ _TARGET_FIELDS = {
     "account_alias",
     "account_digest_sha256",
 }
-_EXPECTED_IDENTITY_FIELDS = set(COMPARISON_FIELDS) | {"expected_identity_sha256"}
-_OBSERVED_IDENTITY_FIELDS = set(COMPARISON_FIELDS) | {
-    "producer_id",
-    "producer_revision",
-    "artifact_sha256",
-    "observed_at",
-    "observed_identity_sha256",
-}
-_OBSERVER_RECEIPT_FIELDS = {
-    "schema",
-    "observer_id",
-    "observer_revision",
-    "created_at",
-    "observed_identity",
-    "observer_receipt_sha256",
-}
+_EXPECTED_IDENTITY_FIELDS = set(IDENTITY_BINDING_FIELDS) | {"expected_identity_sha256"}
 _ASSERTION_FIELDS = {
     "apply_performed",
     "config_sync_performed",
     "runtime_mutation_performed",
-    "runtime_active",
+    "runtime_active_verified",
     "fills_verified",
     "capital_use_verified",
 }
@@ -127,7 +116,7 @@ def _reject_non_finite_or_null(value: Any, path: str = "reconciliation") -> None
 def _reject_forbidden_material(value: Any, path: str = "reconciliation") -> None:
     if isinstance(value, Mapping):
         for key, child in value.items():
-            if key not in _ALLOWED_ASSERTION_KEYS and _FORBIDDEN_KEY_PATTERN.search(key):
+            if key not in _ALLOWED_SECURITY_KEYS and _FORBIDDEN_KEY_PATTERN.search(key):
                 _fail(f"{path}.{key} is forbidden in a reconciliation contract")
             _reject_forbidden_material(child, f"{path}.{key}")
     elif isinstance(value, list):
@@ -216,16 +205,6 @@ def calculate_expected_identity_sha256(identity: Mapping[str, Any]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def calculate_observed_identity_sha256(identity: Mapping[str, Any]) -> str:
-    canonical = _canonical_without(identity, "observed_identity_sha256", "observed_identity")
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
-def calculate_observer_receipt_sha256(receipt: Mapping[str, Any]) -> str:
-    canonical = _canonical_without(receipt, "observer_receipt_sha256", "observer_receipt")
-    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-
-
 def _validate_target(value: Any, path: str = "target") -> Mapping[str, Any]:
     target = _expect_object(value, path)
     _expect_exact_keys(target, _TARGET_FIELDS, path)
@@ -266,65 +245,6 @@ def _validate_expected_identity(value: Any) -> Mapping[str, Any]:
     if identity["expected_identity_sha256"] != calculate_expected_identity_sha256(identity):
         _fail("expected_identity_sha256 mismatch")
     return identity
-
-
-def _validate_observed_identity(value: Any) -> tuple[Mapping[str, Any], datetime]:
-    identity = _expect_object(value, "observed_identity")
-    _expect_exact_keys(identity, _OBSERVED_IDENTITY_FIELDS, "observed_identity")
-    _expect_sha256(identity["deployment_bundle_sha256"], "observed_identity.deployment_bundle_sha256")
-    _expect_identity(identity["activation_id"], "observed_identity.activation_id")
-    _expect_sha256(identity["activation_sha256"], "observed_identity.activation_sha256")
-    _validate_target({field: identity[field] for field in _TARGET_FIELDS}, "observed_identity")
-    _expect_identity(identity["producer_id"], "observed_identity.producer_id")
-    _expect_revision(identity["producer_revision"], "observed_identity.producer_revision")
-    _expect_sha256(identity["artifact_sha256"], "observed_identity.artifact_sha256")
-    observed_at = _parse_timestamp(identity["observed_at"], "observed_identity.observed_at")
-    _expect_sha256(identity["observed_identity_sha256"], "observed_identity.observed_identity_sha256")
-    if identity["observed_identity_sha256"] != calculate_observed_identity_sha256(identity):
-        _fail("observed_identity_sha256 mismatch")
-    return identity, observed_at
-
-
-def _validate_observer_receipt(value: Any) -> tuple[Mapping[str, Any], Mapping[str, Any], datetime]:
-    receipt = _expect_object(value, "observer_receipt")
-    _expect_exact_keys(receipt, _OBSERVER_RECEIPT_FIELDS, "observer_receipt")
-    if receipt["schema"] != OBSERVER_SCHEMA_ID:
-        _fail(f"observer_receipt.schema must be {OBSERVER_SCHEMA_ID}")
-    _expect_identity(receipt["observer_id"], "observer_receipt.observer_id")
-    _expect_revision(receipt["observer_revision"], "observer_receipt.observer_revision")
-    created_at = _parse_timestamp(receipt["created_at"], "observer_receipt.created_at")
-    observed, _ = _validate_observed_identity(receipt["observed_identity"])
-    if receipt["observer_id"] == observed["producer_id"]:
-        _fail("observer receipt must be produced by an identity separate from the platform producer")
-    _expect_sha256(receipt["observer_receipt_sha256"], "observer_receipt.observer_receipt_sha256")
-    if receipt["observer_receipt_sha256"] != calculate_observer_receipt_sha256(receipt):
-        _fail("observer_receipt_sha256 mismatch")
-    return receipt, observed, created_at
-
-
-def _validate_comparison(
-    value: Any,
-    expected: Mapping[str, Any],
-    observed: Mapping[str, Any],
-) -> list[str]:
-    comparison = _expect_object(value, "comparison")
-    _expect_exact_keys(comparison, {"complete", "fields"}, "comparison")
-    if comparison["complete"] is not True:
-        _fail("comparison.complete must be true for an observed reconciliation")
-    fields = _expect_object(comparison["fields"], "comparison.fields")
-    _expect_exact_keys(fields, set(COMPARISON_FIELDS), "comparison.fields")
-    differences = []
-    for field in COMPARISON_FIELDS:
-        entry = _expect_object(fields[field], f"comparison.fields.{field}")
-        _expect_exact_keys(entry, {"expected", "observed", "equal"}, f"comparison.fields.{field}")
-        if entry["expected"] != expected[field] or entry["observed"] != observed[field]:
-            _fail(f"comparison.fields.{field} does not bind the exact expected and observed values")
-        equality = expected[field] == observed[field]
-        if entry["equal"] is not equality:
-            _fail(f"comparison.fields.{field}.equal is inconsistent")
-        if not equality:
-            differences.append(field)
-    return differences
 
 
 def _validate_references(
@@ -376,22 +296,21 @@ def validate_reconciliation_record(
     expected_activation: Any,
     as_of: str | None = None,
 ) -> Mapping[str, Any]:
-    """Validate exact expected identity and optional independently observed truth, fail closed."""
+    """Validate exact expected identity without accepting observed runtime truth."""
     _reject_non_finite_or_null(record)
-    _reject_forbidden_material(record)
     root = _expect_object(record, "reconciliation")
     status = root.get("status")
-    if status not in RECONCILIATION_STATUSES:
-        _fail("status must be one of MISSING, MATCHED, MISMATCHED")
-    expected_fields = _COMMON_FIELDS if status == "MISSING" else _COMMON_FIELDS | _OBSERVATION_FIELDS
-    _expect_exact_keys(root, expected_fields, "reconciliation")
+    if status != RECONCILIATION_STATUS:
+        _fail("qsl.reconciliation_record.v1 is MISSING-only")
+    _reject_forbidden_material(record)
+    _expect_exact_keys(root, _COMMON_FIELDS, "reconciliation")
     if root["schema"] != SCHEMA_ID:
         _fail(f"schema must be {SCHEMA_ID}")
     _expect_identity(root["reconciliation_id"], "reconciliation_id")
-    created_at = _parse_timestamp(root["created_at"], "created_at")
+    produced_at = _parse_timestamp(root["produced_at"], "produced_at")
     expires_at = _parse_timestamp(root["expires_at"], "expires_at")
-    if expires_at <= created_at:
-        _fail("expires_at must be after created_at")
+    if expires_at <= produced_at:
+        _fail("expires_at must be after produced_at")
     if root["digest_algorithm"] != "sha256":
         _fail("digest_algorithm must be sha256")
     if root["contract_only"] is not True:
@@ -412,41 +331,24 @@ def validate_reconciliation_record(
         )
     except (BundleValidationError, ActivationValidationError) as exc:
         raise ReconciliationValidationError(f"expected bundle or activation is invalid: {exc}") from exc
-    expected = _validate_references(root, bundle, activation)
+    _validate_references(root, bundle, activation)
 
     validation_time = datetime.now(UTC).replace(microsecond=0) if as_of is None else _parse_timestamp(as_of, "as_of")
-    if created_at > validation_time:
+    if produced_at > validation_time:
         _fail("reconciliation record was created in the future")
     if validation_time >= expires_at:
         _fail("reconciliation record is stale or expired")
     activation_effective = _parse_timestamp(activation["effective_at"], "expected_activation.effective_at")
     activation_expires = _parse_timestamp(activation["expires_at"], "expected_activation.expires_at")
-    if created_at < activation_effective or expires_at > activation_expires:
+    if produced_at < activation_effective or expires_at > activation_expires:
         _fail("reconciliation validity window must remain within the activation window")
-
-    if status == "MISSING":
-        return root
-
-    observed, observed_at = _validate_observed_identity(root["observed_identity"])
-    _, receipt_observed, receipt_created_at = _validate_observer_receipt(root["observer_receipt"])
-    if receipt_observed != observed:
-        _fail("observer_receipt does not bind the exact platform-produced observed identity")
-    if observed_at < activation_effective or observed_at > created_at:
-        _fail("observed identity is stale or was produced after the reconciliation record")
-    if receipt_created_at < observed_at or receipt_created_at > created_at:
-        _fail("observer receipt time must be between observation and reconciliation creation")
-    differences = _validate_comparison(root["comparison"], expected, observed)
-    if status == "MATCHED" and differences:
-        _fail("MATCHED requires every expected and observed identity field to be exactly equal")
-    if status == "MISMATCHED" and not differences:
-        _fail("MISMATCHED requires at least one explicit required-field difference")
     return root
 
 
 def build_missing_record(
     *,
     record_id: str,
-    created_at: str,
+    produced_at: str,
     expires_at: str,
     expected_bundle: Any,
     expected_activation: Any,
@@ -461,7 +363,7 @@ def build_missing_record(
     record = {
         "schema": SCHEMA_ID,
         "reconciliation_id": record_id,
-        "created_at": created_at,
+        "produced_at": produced_at,
         "expires_at": expires_at,
         "digest_algorithm": "sha256",
         "contract_only": True,
@@ -477,7 +379,7 @@ def build_missing_record(
         },
         "target": dict(activation["target"]),
         "expected_identity": _expected_identity(bundle, activation),
-        "status": "MISSING",
+        "status": RECONCILIATION_STATUS,
         "assertions": {field: False for field in sorted(_ASSERTION_FIELDS)},
     }
     record["reconciliation_sha256"] = calculate_reconciliation_sha256(record)
