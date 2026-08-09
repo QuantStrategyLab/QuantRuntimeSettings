@@ -90,14 +90,14 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "CnEquityStrategies",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "CryptoLivePoolPipelines",
@@ -132,14 +132,14 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "CryptoStrategies",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "FirstradePlatform",
@@ -188,14 +188,14 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "HkEquityStrategies",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
@@ -251,7 +251,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "92458590a463e7219f0369a3505031ee74414135"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "LongBridgePlatform",
@@ -272,7 +272,7 @@
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "92458590a463e7219f0369a3505031ee74414135"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "LongBridgePlatform",
@@ -314,7 +314,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -328,14 +328,14 @@
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "94650c3441817667b5fc404e3b59efd03ff10b84"
+      "ref": "69716807fa61746f3b472aad3bf072d3960bfbd8"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -349,21 +349,21 @@
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "94650c3441817667b5fc404e3b59efd03ff10b84"
+      "ref": "69716807fa61746f3b472aad3bf072d3960bfbd8"
     },
     {
       "consumer_repo": "UsEquityStrategies",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     },
     {
       "consumer_repo": "UsEquityStrategies",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b"
+      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
     }
   ]
 }

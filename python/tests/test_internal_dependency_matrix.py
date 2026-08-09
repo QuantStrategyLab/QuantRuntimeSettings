@@ -103,13 +103,13 @@ dependencies = [
         expected_pins_by_consumer = {
             "BinancePlatform": "61783fdaee869bfeedd4289ae4b7f27104513759",
             "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "CnEquityStrategies": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b",
-            "CryptoStrategies": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b",
+            "CnEquityStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
+            "CryptoStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
             "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "HkEquityStrategies": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b",
+            "HkEquityStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
             "InteractiveBrokersPlatform": "b371322b948e4298920a7d8613b155245dcd5f8d",
-            "LongBridgePlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "UsEquityStrategies": "5d4bbd0e7ef9a1434010e8b6a69905d39ee55f1b",
+            "LongBridgePlatform": "9618b4bd8e179760ac174914713598762cab15d7",
+            "UsEquityStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
