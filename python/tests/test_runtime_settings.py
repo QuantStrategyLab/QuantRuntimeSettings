@@ -509,6 +509,48 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(profile["allowed_execution_modes"], ["paper", "dry_run"])
         self.assertEqual(profile["blocked_live_reason"], "manual-review")
 
+    def test_global_and_hk_global_etf_rotation_profiles_are_research_only(self):
+        expected = {
+            "lifecycle_stage": "research_backtest_only",
+            "runtime_enabled": False,
+            "can_switch_live": False,
+            "allowed_execution_modes": ["dry_run"],
+            "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+        }
+        config = build_config.load_config()
+        profiles = {
+            item["profile"]: item
+            for item in json.loads(
+                (ROOT / "web/strategy-switch-console/strategy-profiles.example.json").read_text(encoding="utf-8")
+            )
+        }
+
+        for profile in ("global_etf_rotation", "hk_global_etf_tactical_rotation"):
+            with self.subTest(profile=profile):
+                self.assertEqual(
+                    {field: config["strategies"][profile][field] for field in expected},
+                    expected,
+                )
+                self.assertEqual({field: profiles[profile][field] for field in expected}, expected)
+                for execution_mode in ("live", "paper"):
+                    args = build_runtime_switch.build_parser().parse_args(
+                        [
+                            "--platform",
+                            "ibkr",
+                            "--target-name",
+                            "live",
+                            "--strategy-profile",
+                            profile,
+                            "--execution-mode",
+                            execution_mode,
+                            "--plugin-mode",
+                            "none",
+                        ]
+                    )
+                    with self.subTest(execution_mode=execution_mode):
+                        with self.assertRaisesRegex(ValueError, f"does not allow {execution_mode} execution"):
+                            build_runtime_switch.build_switch_target(args)
+
     def test_build_platform_config_build_strategy_profile_entries_defaults_gate_fields(self):
         payload = build_platform_config.build_strategy_profile_entries({
             "strategies": {
@@ -1610,10 +1652,6 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
     def test_build_switch_target_auto_configures_ibkr_snapshot_artifacts(self):
         cases = {
-            "global_etf_rotation": (
-                "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/"
-                "global_etf_rotation_feature_snapshot_latest.csv"
-            ),
             "russell_top50_leader_rotation": (
                 "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
                 "russell_top50_leader_rotation_staging/"
@@ -1823,6 +1861,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
     def test_build_config_requires_live_snapshot_artifact_pair(self):
         config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"]["can_switch_live"] = True
         config["strategies"]["global_etf_rotation"]["runtime_artifacts"][
             "feature_snapshot"
         ].pop("manifest_path")
