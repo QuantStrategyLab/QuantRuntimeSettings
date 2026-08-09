@@ -492,15 +492,13 @@
       "label": "全球ETF轮动",
       "label_en": "Global ETF Rotation",
       "domain": "us_equity",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
-        "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package",
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true,
@@ -682,15 +680,13 @@
       "label": "港股ETF战术轮动",
       "label_en": "HK ETF Tactical Rotation",
       "domain": "hk_equity",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
-        "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package",
       "features": {
         "income_layer": false,
         "option_overlay": false,
