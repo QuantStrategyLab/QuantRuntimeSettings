@@ -103,13 +103,14 @@ dependencies = [
         expected_pins_by_consumer = {
             "BinancePlatform": "61783fdaee869bfeedd4289ae4b7f27104513759",
             "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "CnEquityStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
-            "CryptoStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
+            "CnEquityStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
+            "CryptoStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
-            "HkEquityStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
+            "HkEquityStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "InteractiveBrokersPlatform": "b371322b948e4298920a7d8613b155245dcd5f8d",
             "LongBridgePlatform": "9618b4bd8e179760ac174914713598762cab15d7",
-            "UsEquityStrategies": "9618b4bd8e179760ac174914713598762cab15d7",
+            "UsEquityStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
+            "UsEquitySnapshotPipelines": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
@@ -124,6 +125,20 @@ dependencies = [
         }
 
         self.assertEqual(refs, expected_refs)
+
+        uesp_strategy_refs = {
+            (pin.consumer_repo, pin.path): pin.ref
+            for pin in matrix_pins
+            if pin.consumer_repo == "UsEquitySnapshotPipelines"
+            and pin.source_repo == "UsEquityStrategies"
+        }
+        self.assertEqual(
+            uesp_strategy_refs,
+            {
+                ("UsEquitySnapshotPipelines", path): "15df2a42df5d230cfb03a7cb655fd4b226956681"
+                for path in ("pyproject.toml", "uv.lock")
+            },
+        )
 
     def test_require_consumer_files_treats_missing_paths_as_issues(self):
         projects_root = self._make_projects_root({})
