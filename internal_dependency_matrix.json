@@ -13,7 +13,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "61783fdaee869bfeedd4289ae4b7f27104513759"
+      "ref": "730ad9f3983bd90cd75adecb67fcf483ffb96736"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -27,7 +27,7 @@
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "61783fdaee869bfeedd4289ae4b7f27104513759"
+      "ref": "730ad9f3983bd90cd75adecb67fcf483ffb96736"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
@@ -328,7 +328,7 @@
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "15df2a42df5d230cfb03a7cb655fd4b226956681"
+      "ref": "8b6b418bac74318f8054c5951521c9b62391de3e"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -349,7 +349,7 @@
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "15df2a42df5d230cfb03a7cb655fd4b226956681"
+      "ref": "8b6b418bac74318f8054c5951521c9b62391de3e"
     },
     {
       "consumer_repo": "UsEquityStrategies",

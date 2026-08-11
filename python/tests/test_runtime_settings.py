@@ -43,6 +43,39 @@ BUILD_CONFIG_SPEC.loader.exec_module(build_config)
 
 
 class RuntimeSettingsTest(unittest.TestCase):
+    NOT_EVIDENCED_PROFILES = (
+        "tqqq_growth_income",
+        "soxl_soxx_trend_income",
+        "nasdaq_sp500_smart_dca",
+        "ibit_smart_dca",
+        "russell_top50_leader_rotation",
+        "hk_low_vol_dividend_quality_snapshot",
+        "cn_industry_etf_rotation",
+        "crypto_live_pool_rotation",
+    )
+
+    def setUp(self):
+        def synthetic_live_switch_config():
+            config = build_config.load_config()
+            for profile in self.NOT_EVIDENCED_PROFILES:
+                config["strategies"][profile].update(
+                    {
+                        "runtime_enabled": True,
+                        "can_switch_live": True,
+                        "lifecycle_stage": "runtime_enabled",
+                        "allowed_execution_modes": ["live", "paper", "dry_run"],
+                        "blocked_live_reason": "",
+                    }
+                )
+            return config
+
+        self.enterContext(
+            patch.object(build_runtime_switch, "_load_platform_config", side_effect=synthetic_live_switch_config)
+        )
+        self.enterContext(
+            patch.object(runtime_settings, "load_platform_config", side_effect=synthetic_live_switch_config)
+        )
+
     def test_manual_strategy_switch_workflow_stays_within_dispatch_input_limit(self):
         workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
         input_names: list[str] = []
@@ -167,12 +200,12 @@ class RuntimeSettingsTest(unittest.TestCase):
                                 "runtime_target": {
                                     "platform_id": "ibkr",
                                     "strategy_profile": "soxl_soxx_trend_income",
-                                    "dry_run_only": False,
+                                    "dry_run_only": True,
                                     "deployment_selector": "live",
                                     "account_selector": ["LIVE"],
                                     "account_scope": "live",
                                     "service_name": "interactive-brokers-live-service",
-                                    "execution_mode": "live",
+                                    "execution_mode": "dry_run",
                                 },
                             }
                         ]
@@ -188,6 +221,8 @@ class RuntimeSettingsTest(unittest.TestCase):
                     "live",
                     "--strategy-profile",
                     "tqqq_growth_income",
+                    "--execution-mode",
+                    "dry_run",
                     "--account-selector",
                     "LIVE",
                     "--service-name",
@@ -199,8 +234,10 @@ class RuntimeSettingsTest(unittest.TestCase):
                 ]
             )
             target_path = temp / "target.json"
+            target = build_runtime_switch.build_switch_target(args)
+            target["runtime_target"]["execution_mode"] = "dry_run"
             target_path.write_text(
-                runtime_settings.compact_json(build_runtime_switch.build_switch_target(args)),
+                runtime_settings.compact_json(target),
                 encoding="utf-8",
             )
             variables_path = temp / "variables.json"
@@ -394,7 +431,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertIn(report["status"], {"healthy", "attention_required"})
         self.assertEqual(report["schema_version"], "platform_health_report.v1")
-        self.assertGreaterEqual(report["summary"]["runtime_enabled_switchable_count"], 1)
+        self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 0)
         self.assertIn("codex_repair_context", report)
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
@@ -550,6 +587,57 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                     with self.subTest(execution_mode=execution_mode):
                         with self.assertRaisesRegex(ValueError, f"does not allow {execution_mode} execution"):
                             build_runtime_switch.build_switch_target(args)
+
+    def test_not_evidenced_profiles_are_catalog_demoted_fail_closed(self):
+        expected = {
+            "runtime_enabled": False,
+            "can_switch_live": False,
+            "lifecycle_stage": "research_backtest_only",
+            "allowed_execution_modes": ["dry_run"],
+            "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        }
+        config = build_config.load_config()["strategies"]
+        generated = {
+            item["profile"]: item
+            for item in json.loads(
+                (ROOT / "web" / "strategy-switch-console" / "strategy-profiles.example.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+        }
+        app_source = (ROOT / "web" / "strategy-switch-console" / "app.js").read_text(encoding="utf-8")
+        fallback_match = re.search(
+            r"const defaultStrategyProfiles = window\.__DEFAULT_STRATEGY_PROFILES__ \|\| (\[.*?\n    \]);",
+            app_source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(fallback_match)
+        fallback = {item["profile"]: item for item in json.loads(fallback_match.group(1))}
+
+        platform_by_domain = {
+            "us_equity": "ibkr",
+            "hk_equity": "ibkr",
+            "cn_equity": "qmt",
+            "crypto": "binance",
+        }
+        actual_config = build_config.load_config()
+        for profile in self.NOT_EVIDENCED_PROFILES:
+            with self.subTest(profile=profile):
+                for catalog in (config, generated, fallback):
+                    self.assertEqual({field: catalog[profile][field] for field in expected}, expected)
+                errors = []
+                with patch.object(runtime_settings, "load_platform_config", return_value=actual_config):
+                    runtime_settings.validate_runtime_target_strategy_policy(
+                        {
+                            "platform_id": platform_by_domain[config[profile]["domain"]],
+                            "strategy_profile": profile,
+                            "execution_mode": "live",
+                        },
+                        errors,
+                    )
+                self.assertIn(f"runtime_target.strategy_profile {profile} does not allow live execution", errors)
+                self.assertIn(f"runtime_target.strategy_profile {profile} is not runtime_enabled", errors)
+                self.assertIn(f"runtime_target.strategy_profile {profile} cannot switch live", errors)
 
     def test_build_platform_config_build_strategy_profile_entries_defaults_gate_fields(self):
         payload = build_platform_config.build_strategy_profile_entries({

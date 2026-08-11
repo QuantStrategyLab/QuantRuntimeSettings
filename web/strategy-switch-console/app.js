@@ -174,18 +174,16 @@
         "label_en": "NASDAQ Growth Income",
         "label_zh": "纳斯达克增长收益",
         "domain": "us_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "income_layer_start_usd": "250000",
         "income_layer_max_ratio": "0.55",
         "income_layer_allocations": {
@@ -208,18 +206,16 @@
         "label_en": "Semiconductor Trend Income",
         "label_zh": "半导体趋势收益",
         "domain": "us_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "income_layer_start_usd": "150000",
         "income_layer_max_ratio": "0.95",
         "income_layer_allocations": {
@@ -242,18 +238,16 @@
         "label_en": "NASDAQ/S&P 500 DCA",
         "label_zh": "纳指标普定投",
         "domain": "us_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -264,18 +258,16 @@
         "label_en": "IBIT Bitcoin DCA",
         "label_zh": "IBIT比特币定投",
         "domain": "us_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -319,18 +311,16 @@
         "label_en": "Russell Top50 Leaders",
         "label_zh": "罗素Top50领涨",
         "domain": "us_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "income_layer_start_usd": "300000",
         "income_layer_max_ratio": "0.25",
         "income_layer_allocations": {
@@ -459,18 +449,16 @@
         "label_en": "HK Dividend Quality",
         "label_zh": "港股红利质量",
         "domain": "hk_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": ""
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
       },
       {
         "profile": "hk_equity_combo",
@@ -496,18 +484,16 @@
         "label_en": "CN Industry ETF Rotation",
         "label_zh": "A股行业ETF轮动",
         "domain": "cn_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": ""
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
       },
       {
         "profile": "cn_industry_etf_rotation_aggressive",
@@ -653,18 +639,16 @@
         "label_en": "Crypto Live Pool Rotation",
         "label_zh": "加密实时池轮动",
         "domain": "crypto",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_backtest_only",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": ""
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
       },
       {
         "profile": "crypto_btc_dca",

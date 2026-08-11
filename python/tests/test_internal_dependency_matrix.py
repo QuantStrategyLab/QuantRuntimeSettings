@@ -101,7 +101,7 @@ dependencies = [
 
     def test_qpk_migrated_consumers_use_current_baseline_pins(self):
         expected_pins_by_consumer = {
-            "BinancePlatform": "61783fdaee869bfeedd4289ae4b7f27104513759",
+            "BinancePlatform": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
             "CnEquityStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "CryptoStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
@@ -135,7 +135,7 @@ dependencies = [
         self.assertEqual(
             uesp_strategy_refs,
             {
-                ("UsEquitySnapshotPipelines", path): "15df2a42df5d230cfb03a7cb655fd4b226956681"
+                ("UsEquitySnapshotPipelines", path): "8b6b418bac74318f8054c5951521c9b62391de3e"
                 for path in ("pyproject.toml", "uv.lock")
             },
         )
