@@ -131,20 +131,44 @@ jobs:
             exit 2
           fi
 
-          expected_count="$(python3 - <<'PY'
+          expected_profiles="$(mktemp)"
+          sync_body="$(mktemp)"
+          live_body="$(mktemp)"
+          cleanup() { rm -f "$expected_profiles" "$sync_body" "$live_body"; }
+          trap cleanup EXIT
+
+          expected_count="$(python3 - "$expected_profiles" <<'PY'
           import json
+          import sys
           from pathlib import Path
 
           profiles = json.loads(Path("web/strategy-switch-console/strategy-profiles.example.json").read_text())
           if not isinstance(profiles, list):
               raise SystemExit("strategy-profiles.example.json must contain a JSON list")
-          print(len(profiles))
+          catalog_fields = (
+              "profile",
+              "runtime_enabled",
+              "lifecycle_stage",
+              "can_switch_live",
+              "allowed_execution_modes",
+              "blocked_live_reason",
+          )
+
+          def project(item):
+              projected = {field: item.get(field) for field in catalog_fields}
+              projected["lifecycle_stage"] = projected["lifecycle_stage"] or ""
+              projected["allowed_execution_modes"] = projected["allowed_execution_modes"] or []
+              projected["blocked_live_reason"] = projected["blocked_live_reason"] or ""
+              return projected
+
+          expected_profiles = sorted((project(item) for item in profiles), key=lambda item: item["profile"])
+          Path(sys.argv[1]).write_text(
+              json.dumps(expected_profiles, ensure_ascii=False, separators=(",", ":")),
+              encoding="utf-8",
+          )
+          print(len(expected_profiles))
           PY
           )"
-          sync_body="$(mktemp)"
-          live_body="$(mktemp)"
-          cleanup() { rm -f "$sync_body" "$live_body"; }
-          trap cleanup EXIT
 
           for attempt in 1 2 3 4 5 6; do
             curl --fail --show-error --silent \
@@ -157,42 +181,62 @@ jobs:
               "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/internal/sync-strategy-profiles"
             python3 -m json.tool "$sync_body"
 
-            actual_count="$(python3 - "$sync_body" <<'PY'
+            curl --fail --show-error --silent \
+              --header "Cache-Control: no-cache" \
+              --header "Pragma: no-cache" \
+              --output "$live_body" \
+              "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/strategy-profiles?catalog_readback=${GITHUB_SHA}-${attempt}-$(date +%s%N)"
+            if live_digest="$(python3 - "$expected_profiles" "$live_body" <<'PY'
+          import hashlib
           import json
           import sys
 
-          payload = json.load(open(sys.argv[1], encoding="utf-8"))
-          print(payload.get("strategy_profiles_count", ""))
-          PY
-            )"
-            if [ "$actual_count" = "$expected_count" ]; then
-              break
-            fi
-            if [ "$attempt" = "6" ]; then
-              echo "Synced strategy profile count ${actual_count:-unknown}; expected $expected_count." >&2
-              exit 2
-            fi
-            echo "Synced strategy profile count ${actual_count:-unknown}; expected $expected_count. Waiting for deployed Worker propagation..." >&2
-            sleep 5
-          done
-
-          curl --fail --show-error --silent \
-            --header "Cache-Control: no-cache" \
-            --output "$live_body" \
-            "${STRATEGY_SWITCH_CONSOLE_URL%/}/api/strategy-profiles"
-          live_count="$(python3 - "$live_body" <<'PY'
-          import json
-          import sys
-
-          payload = json.load(open(sys.argv[1], encoding="utf-8"))
+          expected_profiles = json.load(open(sys.argv[1], encoding="utf-8"))
+          payload = json.load(open(sys.argv[2], encoding="utf-8"))
           profiles = payload.get("strategyProfiles")
           if not isinstance(profiles, list):
               raise SystemExit("/api/strategy-profiles did not return strategyProfiles list")
-          print(len(profiles))
+          catalog_fields = (
+              "profile",
+              "runtime_enabled",
+              "lifecycle_stage",
+              "can_switch_live",
+              "allowed_execution_modes",
+              "blocked_live_reason",
+          )
+
+          def project(item):
+              projected = {field: item.get(field) for field in catalog_fields}
+              projected["lifecycle_stage"] = projected["lifecycle_stage"] or ""
+              projected["allowed_execution_modes"] = projected["allowed_execution_modes"] or []
+              projected["blocked_live_reason"] = projected["blocked_live_reason"] or ""
+              return projected
+
+          actual_profiles = sorted((project(item) for item in profiles), key=lambda item: item["profile"])
+          if actual_profiles != expected_profiles:
+              expected_by_profile = {item["profile"]: item for item in expected_profiles}
+              actual_by_profile = {item["profile"]: item for item in actual_profiles}
+              changed_profiles = sorted(
+                  profile
+                  for profile in expected_by_profile.keys() | actual_by_profile.keys()
+                  if expected_by_profile.get(profile) != actual_by_profile.get(profile)
+              )
+              print(
+                  "Live strategy profile catalog mismatch for: " + ", ".join(changed_profiles or ["unknown"]),
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          canonical = json.dumps(actual_profiles, ensure_ascii=False, separators=(",", ":"))
+          print(hashlib.sha256(canonical.encode("utf-8")).hexdigest())
           PY
-          )"
-          if [ "$live_count" != "$expected_count" ]; then
-            echo "Live strategy profile count $live_count; expected $expected_count." >&2
-            exit 2
-          fi
-          echo "Strategy profile KV sync verified with $live_count profiles."
+            )"; then
+              echo "Strategy profile KV sync verified with $expected_count profiles (catalog sha256: $live_digest)."
+              break
+            fi
+            if [ "$attempt" = "6" ]; then
+              echo "Live strategy profile catalog did not match the expected $expected_count-profile payload." >&2
+              exit 2
+            fi
+            echo "Live strategy profile catalog is stale. Waiting for deployed Worker propagation..." >&2
+            sleep 5
+          done

@@ -359,15 +359,14 @@
       "label": "纳斯达克增长收益",
       "label_en": "NASDAQ Growth Income",
       "domain": "us_equity",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -399,15 +398,14 @@
       "label": "半导体趋势收益",
       "label_en": "Semiconductor Trend Income",
       "domain": "us_equity",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -440,15 +438,14 @@
       "label_en": "NASDAQ/S&P 500 DCA",
       "domain": "us_equity",
       "scheduler_profile": "us_dca_month_end",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -468,15 +465,14 @@
       "scheduler_profile_by_plugin": {
         "ibit_zscore_exit": "us_daily"
       },
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -537,15 +533,14 @@
       "label_en": "Russell Top50 Leaders",
       "domain": "us_equity",
       "scheduler_profile": "us_snapshot_month_start",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true,
@@ -699,14 +694,14 @@
       "label_en": "HK Dividend Quality",
       "domain": "hk_equity",
       "scheduler_profile": "hk_snapshot_month_start",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "production_snapshot_artifact_route_not_configured",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true
@@ -742,15 +737,14 @@
       "label": "A股行业ETF轮动",
       "label_en": "CN Industry ETF Rotation",
       "domain": "cn_equity",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -910,15 +904,14 @@
       "label": "加密实时池轮动",
       "label_en": "Crypto Live Pool Rotation",
       "domain": "crypto",
-      "runtime_enabled": true,
-      "lifecycle_stage": "runtime_enabled",
-      "can_switch_live": true,
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_backtest_only",
+      "can_switch_live": false,
       "allowed_execution_modes": [
-        "live",
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
       "features": {
         "income_layer": false,
         "option_overlay": false,

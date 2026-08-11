@@ -1,7 +1,7 @@
 {
   "$schema": "../../../schemas/runtime-target.schema.json",
   "target_id": "binance/crypto_combo",
-  "description": "Binance live target for the runtime-enabled crypto_live_pool_rotation profile.",
+  "description": "Binance dry-run target for the research-only crypto_live_pool_rotation profile.",
   "github": {
     "repository": "QuantStrategyLab/BinancePlatform",
     "variable_scope": "repository"
@@ -9,14 +9,14 @@
   "runtime_target": {
     "platform_id": "binance",
     "strategy_profile": "crypto_live_pool_rotation",
-    "dry_run_only": false,
+    "dry_run_only": true,
     "deployment_selector": "binance",
     "account_selector": [
       "binance"
     ],
     "account_scope": "GLOBAL",
     "service_name": "binance-quant-service",
-    "execution_mode": "live",
+    "execution_mode": "dry_run",
     "scheduler": {
       "timezone": "UTC",
       "main_time": "0,30 * * * *",
