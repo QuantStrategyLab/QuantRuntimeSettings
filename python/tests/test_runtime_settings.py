@@ -235,7 +235,6 @@ class RuntimeSettingsTest(unittest.TestCase):
             )
             target_path = temp / "target.json"
             target = build_runtime_switch.build_switch_target(args)
-            target["runtime_target"]["execution_mode"] = "dry_run"
             target_path.write_text(
                 runtime_settings.compact_json(target),
                 encoding="utf-8",
@@ -593,7 +592,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "runtime_enabled": False,
             "can_switch_live": False,
             "lifecycle_stage": "research_backtest_only",
-            "allowed_execution_modes": ["dry_run"],
+            "allowed_execution_modes": ["paper", "dry_run"],
             "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         }
         config = build_config.load_config()["strategies"]
@@ -638,6 +637,39 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 self.assertIn(f"runtime_target.strategy_profile {profile} does not allow live execution", errors)
                 self.assertIn(f"runtime_target.strategy_profile {profile} is not runtime_enabled", errors)
                 self.assertIn(f"runtime_target.strategy_profile {profile} cannot switch live", errors)
+
+                errors = []
+                with patch.object(runtime_settings, "load_platform_config", return_value=actual_config):
+                    runtime_settings.validate_runtime_target_strategy_policy(
+                        {
+                            "platform_id": platform_by_domain[config[profile]["domain"]],
+                            "strategy_profile": profile,
+                            "execution_mode": "paper",
+                            "dry_run_only": True,
+                        },
+                        errors,
+                    )
+                self.assertEqual(errors, [])
+
+    def test_strategy_switch_console_normalizes_dry_run_and_keeps_non_live_profiles_selectable(self):
+        source = (ROOT / "web" / "strategy-switch-console" / "app.js").read_text(encoding="utf-8")
+        normalize = re.search(
+            r"function normalizeExecutionMode\(.*?\n    }",
+            source,
+            re.DOTALL,
+        )
+        eligibility = re.search(
+            r"function strategyAllowedForAccount\(.*?\n    }",
+            source,
+            re.DOTALL,
+        )
+
+        self.assertIsNotNone(normalize)
+        self.assertIsNotNone(eligibility)
+        self.assertIn('mode === "dry_run"', normalize.group(0))
+        self.assertIn('return "paper"', normalize.group(0))
+        self.assertNotIn("catalogEntry.runtime_enabled !== true", eligibility.group(0))
+        self.assertIn('if (mode === "live") return strategyCanSwitchLive(catalogEntry);', eligibility.group(0))
 
     def test_build_platform_config_build_strategy_profile_entries_defaults_gate_fields(self):
         payload = build_platform_config.build_strategy_profile_entries({
@@ -842,6 +874,19 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertIn("CLOUDFLARE_WRANGLER_CONFIG_TOML", workflow)
         self.assertIn("STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID", workflow)
         self.assertIn("python/scripts/sync_strategy_switch_page_asset.py", workflow)
+        self.assertIn("expected_profiles", workflow)
+        self.assertIn("actual_profiles", workflow)
+        self.assertIn("actual_profiles != expected_profiles", workflow)
+        self.assertIn("catalog_readback=", workflow)
+        for field in (
+            "profile",
+            "runtime_enabled",
+            "lifecycle_stage",
+            "can_switch_live",
+            "allowed_execution_modes",
+            "blocked_live_reason",
+        ):
+            self.assertIn(field, workflow)
 
     def test_plugin_mount_schema_version_must_be_non_empty_string(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")

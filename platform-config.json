@@ -363,6 +363,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -401,6 +402,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -440,6 +442,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -466,6 +469,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -533,6 +537,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -693,6 +698,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -735,6 +741,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -901,6 +908,7 @@
       "lifecycle_stage": "research_backtest_only",
       "can_switch_live": false,
       "allowed_execution_modes": [
+        "paper",
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",

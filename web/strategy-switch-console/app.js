@@ -181,6 +181,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -213,6 +214,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -245,6 +247,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -265,6 +268,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -318,6 +322,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
@@ -456,6 +461,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
@@ -491,6 +497,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
@@ -646,6 +653,7 @@
         "lifecycle_stage": "research_backtest_only",
         "can_switch_live": false,
         "allowed_execution_modes": [
+          "paper",
           "dry_run"
         ],
         "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
@@ -1600,7 +1608,6 @@
       const cleanProfile = cleanStrategyProfile(profile);
       const catalogEntry = strategyCatalogEntry(cleanProfile);
       if (!catalogEntry.profile) return false;
-      if (catalogEntry.runtime_enabled !== true) return false;
       if (dcaConfigForStrategy(cleanProfile) && !platformSupportsDca(platform)) return false;
       if (!supportedDomainsForAccount(platform, account).includes(catalogEntry.domain)) return false;
       const mode = normalizeExecutionMode(executionMode, false);
@@ -2023,6 +2030,7 @@
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
       if (mode === "live" || mode === "paper") return mode;
+      if (mode === "dry_run" || mode === "dry-run") return "paper";
       if (dryRunOnly === true || dryRunOnly === "true" || dryRunOnly === "1" || dryRunOnly === 1) return "paper";
       if (dryRunOnly === false || dryRunOnly === "false" || dryRunOnly === "0" || dryRunOnly === 0) return "live";
       return "";
