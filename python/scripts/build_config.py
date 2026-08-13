@@ -359,7 +359,7 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
         evidence_required = ["backtest", "shadow_or_regression", "rollback_plan"]
     elif lifecycle_stage == "live_candidate":
         lane = "promotion_review"
-        triggers = ["evidence_package_ready", "shadow_outperformance"]
+        triggers = ["evidence_package_ready"]
         max_autonomy = "human_review_required"
         approval_required = True
         evidence_required = ["live_candidate_evidence", "operator_approval"]
