@@ -390,6 +390,14 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                         "can_switch_live": False,
                         "features": {},
                     },
+                    "shadow": {
+                        "label": "Shadow",
+                        "domain": "us_equity",
+                        "runtime_enabled": False,
+                        "lifecycle_stage": "shadow_candidate",
+                        "can_switch_live": False,
+                        "features": {},
+                    },
                     "research": {
                         "label": "Research",
                         "domain": "crypto",
@@ -402,12 +410,20 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             }
         )
 
-        lanes = {item["profile"]: item["automation_lane"] for item in registry["profiles"]}
+        profiles = {item["profile"]: item for item in registry["profiles"]}
+        lanes = {profile: item["automation_lane"] for profile, item in profiles.items()}
         self.assertEqual(registry["schema_version"], "strategy_automation_registry.v1")
         self.assertEqual(lanes["live"], "live_equivalent_optimization")
         self.assertEqual(lanes["candidate"], "promotion_review")
+        self.assertEqual(profiles["candidate"]["triggers"], ["evidence_package_ready"])
+        self.assertTrue(profiles["candidate"]["approval_required"])
+        self.assertFalse(profiles["candidate"]["can_switch_live"])
+        self.assertEqual(lanes["shadow"], "shadow_research")
+        self.assertEqual(profiles["shadow"]["evidence_required"], ["shadow_metrics", "risk_review"])
+        self.assertTrue(profiles["shadow"]["approval_required"])
+        self.assertFalse(profiles["shadow"]["can_switch_live"])
         self.assertEqual(lanes["research"], "research_backlog")
-        self.assertTrue(next(item for item in registry["profiles"] if item["profile"] == "live")["position_control_sensitive"])
+        self.assertTrue(profiles["live"]["position_control_sensitive"])
 
     def test_automation_registry_cli_outputs_json(self):
         with (
