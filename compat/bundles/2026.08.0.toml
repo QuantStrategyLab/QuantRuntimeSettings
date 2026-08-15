@@ -4,9 +4,9 @@ created_at = "2026-08-15"
 
 [repos]
 QuantPlatformKit = "3acab1923a97b805b077c85c6c19657be0143bac"
-UsEquityStrategies = "8b6b418bac74318f8054c5951521c9b62391de3e"
-HkEquityStrategies = "85b61f315b610e01052305920d0a01c243e800b4"
-CnEquityStrategies = "07b0bd18124d0013ece6040662b870e37715de07"
-CryptoStrategies = "be5fbe0e325dfac7aa6c809b08b424b6651c8a97"
+UsEquityStrategies = "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
+HkEquityStrategies = "72008f44050b0dc7415334535dbe784793180159"
+CnEquityStrategies = "167355385dde4e1a2b9dea4ede7077f9fbda13ce"
+CryptoStrategies = "d2b43112154c35c7b6c2651a240054926a779ae9"
 QuantStrategyPlugins = "c798397d9ca9230e404673d7774bac3d478217dc"
 MarketSignalSources = "956dd380f75aac4ecb6f8443d95619c8a7f1c52b"
