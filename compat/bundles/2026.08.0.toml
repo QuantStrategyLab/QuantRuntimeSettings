@@ -3,7 +3,7 @@ description = "QSL compatibility bundle after QPK 730ad pin and taxonomy converg
 created_at = "2026-08-15"
 
 [repos]
-QuantPlatformKit = "b6e7e842241a7274678f814419d5aeb81ebf9999"
+QuantPlatformKit = "3acab1923a97b805b077c85c6c19657be0143bac"
 UsEquityStrategies = "8b6b418bac74318f8054c5951521c9b62391de3e"
 HkEquityStrategies = "85b61f315b610e01052305920d0a01c243e800b4"
 CnEquityStrategies = "07b0bd18124d0013ece6040662b870e37715de07"
