@@ -105,7 +105,9 @@ jobs:
               )
               for message in repo["issues"] + repo["warnings"]:
                   lines.append(f"  - {message}")
-          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
+          summary = "\n".join(lines).strip() + "\n"
+          print(summary, end="")
+          Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary, encoding="utf-8")
 
           if report["strict_repositories"] or report["warning_repositories"]:
               raise SystemExit(1)

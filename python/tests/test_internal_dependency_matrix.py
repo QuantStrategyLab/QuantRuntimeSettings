@@ -102,7 +102,7 @@ dependencies = [
     def test_qpk_migrated_consumers_use_current_baseline_pins(self):
         expected_pins_by_consumer = {
             "BinancePlatform": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
-            "CharlesSchwabPlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "CharlesSchwabPlatform": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "CnEquityStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "CryptoStrategies": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
             "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
