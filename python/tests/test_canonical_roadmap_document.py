@@ -27,6 +27,7 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
             "自治运行策略是独立门槛",
             "PREAUTHORIZED_AUTONOMY",
             "直接提交订单",
+            "未安装可信根或 active policy",
             "AIAuditBridge",
             "CodexAuditBridge** 已退役",
             "matrix current",
