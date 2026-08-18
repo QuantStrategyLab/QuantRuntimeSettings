@@ -4,7 +4,7 @@
 >
 > 适用范围：QuantStrategyLab 的 P0–P6 主线协作；不替代任何策略、券商或部署仓的实时证据。
 >
-> 已知仓内证据截至：`2026-08-17`（TQQQ P1–P3 non-live workflow 合并日期）。该日期不是 paper、shadow、live、部署或验收状态的声明。
+> 已知仓内及只读运行元数据截至：`2026-08-19`。这不是 paper、shadow、live、部署或验收状态的声明。
 
 这是可随仓库携带的 P0–P6 状态与协作政策唯一入口。它取代旧路线图中指向个人机器的绝对路径；运行时、券商和策略事实仍须在操作前从相应事实源重新读取。
 
@@ -20,7 +20,7 @@
 | 阶段 | 当前可携带状态 | 边界 |
 | --- | --- | --- |
 | P0 | 已完成 21 个 retired review caller 的本地清理，待各仓独立提交、CI 与合并；旧 gate 的 required-check 收敛另行核定。 | 仅清理、复核和记录可验证的 review 后续项；不因此推导运行资格。 |
-| P1–P3 | TQQQ / Alpaca 主线为 **non-live**。 | 只能在不触发运行或 promotion 的边界内准备、核查或产生证据；不得把配置、代码或历史记录当作 Alpaca 已部署或已获准运行的证明。 |
+| P1–P3 | TQQQ / Alpaca 主线为 **non-live**；`2026-08-17` 的一次手动历史链路中，P1 输入获取与私有上传成功，P3 在验证下载后 `PARKED`。 | 这只说明一次历史研究链路的技术结果，不是策略通过、paper、shadow、live、部署或 promotion 授权。后续工作只能继续准备、核查或产生 non-live 证据。 |
 | P4–P6 | 待核定。 | 本文不臆造其具体范围、顺序、目标、验收条件或完成度；主控会话须先取得新的可复核任务定义。 |
 
 ## 人类授权是独立门槛
@@ -54,7 +54,8 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 
 - `2026-08-03`：旧历史指针曾引用一次 P0–P6 canonical 文档日期；其个人机器路径已废弃，不能据此证明当前运行或授权状态。
 - `2026-08-15`：`compat/bundles/2026.08.0.toml` 记录该 compatibility bundle 的创建日期。
-- `2026-08-17`：`UsEquitySnapshotPipelines` 合并 TQQQ P1–P3 non-live workflow；该记录不表示任何运行、验收或 promotion 已获批准。
+- `2026-08-17`：`UsEquitySnapshotPipelines` 合并 TQQQ P1–P3 non-live workflow；同日一次手动运行的 P1 历史输入获取、完整性验证和私有上传成功，P3 验证下载后 `PARKED`。该历史技术结果不表示策略验收或任何 promotion 已获批准。
+- `2026-08-19`：只读复核确认上述 P1 根的原始数据按既有短期保留规则自动到期；未复制、延长或删除该数据。P3 停车时的精确内部原因未被持久化，因此不得事后臆造为策略结论。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
 

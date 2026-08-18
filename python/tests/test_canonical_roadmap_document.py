@@ -32,6 +32,9 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
             "2026-08-03",
             "2026-08-15",
             "2026-08-17",
+            "2026-08-19",
+            "P1 输入获取与私有上传成功",
+            "P3 在验证下载后 `PARKED`",
         ):
             with self.subTest(required_text=required_text):
                 self.assertIn(required_text, text)
