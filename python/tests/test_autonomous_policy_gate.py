@@ -390,6 +390,102 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         with self.assertRaisesRegex(gcp_kms_policy_gate.GcpKmsPolicyValidationError, "signature verification"):
             self._validate_kms(bundle, activation, altered_policy, signature, root)
 
+    def test_gcp_kms_cli_and_reconcile_cli_emit_only_minimal_safe_results(self):
+        bundle = self._bundle()
+        risk_control = self._risk_control()
+        policy = self._policy(bundle, risk_policy_sha256=str(risk_control["risk_policy_sha256"]))
+        signature = self._sign_kms(policy)
+        activation = self._activation(bundle, signature)
+        root = self._kms_root()
+        admission = self._admission()
+        bundle_path = self.directory / "kms-bundle.json"
+        activation_path = self.directory / "kms-activation.json"
+        policy_path = self.directory / "kms-policy.json"
+        signature_path = self.directory / "kms-policy.der"
+        root_path = self.directory / "kms-trusted-root.json"
+        risk_path = self.directory / "kms-risk-control.json"
+        admission_path = self.directory / "kms-admission.json"
+        bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+        activation_path.write_text(json.dumps(activation), encoding="utf-8")
+        policy_path.write_text(json.dumps(policy), encoding="utf-8")
+        signature_path.write_bytes(signature)
+        root_path.write_text(json.dumps(root), encoding="utf-8")
+        risk_path.write_text(json.dumps(risk_control), encoding="utf-8")
+        admission_path.write_text(json.dumps(admission), encoding="utf-8")
+        environment = {**os.environ, "QSL_TRUSTED_POLICY_ROOT_SHA256": str(root["trusted_policy_root_sha256"])}
+
+        gate = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "gcp_kms_policy_gate.py"),
+                "--bundle",
+                str(bundle_path),
+                "--activation",
+                str(activation_path),
+                "--policy",
+                str(policy_path),
+                "--policy-signature",
+                str(signature_path),
+                "--trusted-policy-root",
+                str(root_path),
+                "--as-of",
+                AS_OF,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            env=environment,
+        )
+        self.assertEqual(gate.returncode, 0, gate.stderr)
+        gate_summary = json.loads(gate.stdout)
+        self.assertEqual(gate_summary["kms_key_version"], root["kms_key_version"])
+        self.assertEqual(gate_summary["policy_id"], policy["policy_id"])
+        self.assertNotIn("public_key_pem", gate_summary)
+        self.assertNotIn("risk_control", gate_summary)
+
+        reconcile = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "reconcile_only_admission_gate.py"),
+                "--bundle",
+                str(bundle_path),
+                "--activation",
+                str(activation_path),
+                "--policy",
+                str(policy_path),
+                "--policy-signature",
+                str(signature_path),
+                "--trusted-policy-root",
+                str(root_path),
+                "--risk-control",
+                str(risk_path),
+                "--admission",
+                str(admission_path),
+                "--root-scheme",
+                "gcp-kms-p256",
+                "--as-of",
+                AS_OF,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            env=environment,
+        )
+        self.assertEqual(reconcile.returncode, 0, reconcile.stderr)
+        self.assertEqual(
+            json.loads(reconcile.stdout),
+            {
+                "admission_id": admission["admission_id"],
+                "admission_sha256": admission["admission_sha256"],
+                "new_risk_allowed": False,
+                "policy_id": policy["policy_id"],
+                "status": "RECONCILE_ONLY",
+                "write_action_allowed": False,
+            },
+        )
+
     def test_cli_returns_only_safe_gate_summary(self):
         bundle = self._bundle()
         policy = self._policy(bundle)
