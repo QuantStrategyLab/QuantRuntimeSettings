@@ -31,6 +31,7 @@ def _load_module(name: str):
 deployment_bundle_contract = _load_module("deployment_bundle_contract")
 activation_contract = _load_module("activation_contract")
 autonomous_policy_gate = _load_module("autonomous_policy_gate")
+reconcile_only_admission_gate = _load_module("reconcile_only_admission_gate")
 
 
 @unittest.skipUnless(SSH_KEYGEN, "OpenSSH ssh-keygen is required to verify a policy signature")
@@ -122,7 +123,15 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         root["trusted_policy_root_sha256"] = autonomous_policy_gate.calculate_trusted_policy_root_sha256(root)
         return root
 
-    def _policy(self, bundle: dict[str, object], *, target: dict[str, str] | None = None) -> dict[str, object]:
+    def _policy(
+        self,
+        bundle: dict[str, object],
+        *,
+        target: dict[str, str] | None = None,
+        risk_policy_id: str = "ibkr-paper-risk-cap",
+        risk_policy_version: str = "v1",
+        risk_policy_sha256: str | None = None,
+    ) -> dict[str, object]:
         policy: dict[str, object] = {
             "schema": "qsl.autonomous_operating_policy.v1",
             "policy_id": "ibkr-paper-nonexecution-policy",
@@ -139,9 +148,9 @@ class AutonomousPolicyGateTest(unittest.TestCase):
             },
             "target": target or self._target(),
             "risk_control": {
-                "risk_policy_id": "ibkr-paper-risk-cap",
-                "risk_policy_version": "v1",
-                "risk_policy_sha256": self._sha("a"),
+                "risk_policy_id": risk_policy_id,
+                "risk_policy_version": risk_policy_version,
+                "risk_policy_sha256": risk_policy_sha256 or self._sha("a"),
             },
             "allowed_ai_actions": [
                 "evidence_validation",
@@ -159,6 +168,36 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         }
         policy["policy_sha256"] = autonomous_policy_gate.calculate_policy_sha256(policy)
         return policy
+
+    def _risk_control(self) -> dict[str, object]:
+        risk_control: dict[str, object] = {
+            "schema": "qsl.reconcile_only_risk_control.v1",
+            "risk_policy_id": "ibkr-paper-risk-cap",
+            "risk_policy_version": "v1",
+            "created_at": "2026-08-05T09:00:00Z",
+            "effective_at": "2026-08-05T09:00:00Z",
+            "expires_at": "2026-08-05T19:00:00Z",
+            "digest_algorithm": "sha256",
+            "admission_mode": "RECONCILE_ONLY",
+            "new_risk_ceiling": 0,
+            "write_action_ceiling": 0,
+        }
+        risk_control["risk_policy_sha256"] = reconcile_only_admission_gate.calculate_risk_policy_sha256(risk_control)
+        return risk_control
+
+    def _admission(self, *, target: dict[str, str] | None = None) -> dict[str, object]:
+        admission: dict[str, object] = {
+            "schema": "qsl.reconcile_only_admission.v1",
+            "admission_id": "admission.ibkr-paper.reconcile.20260805",
+            "created_at": "2026-08-05T10:00:00Z",
+            "effective_at": "2026-08-05T10:00:00Z",
+            "expires_at": "2026-08-05T18:00:00Z",
+            "digest_algorithm": "sha256",
+            "admission_mode": "RECONCILE_ONLY",
+            "target": target or self._target(),
+        }
+        admission["admission_sha256"] = reconcile_only_admission_gate.calculate_admission_sha256(admission)
+        return admission
 
     def _sign(self, policy: dict[str, object]) -> bytes:
         payload = self.directory / f"policy-{policy['policy_sha256']}.json"
@@ -340,6 +379,149 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         with self.assertRaisesRegex(autonomous_policy_gate.AutonomousPolicyValidationError, "not currently effective"):
             self._validate(bundle, expired_activation, expired_policy, expired_signature, root)
 
+        short_lived_root = copy.deepcopy(root)
+        short_lived_root["expires_at"] = "2026-08-05T20:00:00Z"
+        short_lived_root["trusted_policy_root_sha256"] = autonomous_policy_gate.calculate_trusted_policy_root_sha256(short_lived_root)
+        with self.assertRaisesRegex(autonomous_policy_gate.AutonomousPolicyValidationError, "policy validity window"):
+            self._validate(
+                bundle,
+                activation,
+                policy,
+                signature,
+                short_lived_root,
+                expected_root_sha256=short_lived_root["trusted_policy_root_sha256"],
+            )
+
+    def test_zero_risk_admission_can_only_allow_reconcile_only(self):
+        bundle = self._bundle()
+        risk_control = self._risk_control()
+        policy = self._policy(bundle, risk_policy_sha256=str(risk_control["risk_policy_sha256"]))
+        signature = self._sign(policy)
+        activation = self._activation(bundle, signature)
+        root = self._root()
+        admission = self._admission()
+
+        result = reconcile_only_admission_gate.admit_reconcile_only(
+            bundle=bundle,
+            activation=activation,
+            policy=policy,
+            signature=signature,
+            trusted_policy_root=root,
+            expected_root_sha256=root["trusted_policy_root_sha256"],
+            risk_control=risk_control,
+            admission=admission,
+            as_of=AS_OF,
+        )
+
+        self.assertEqual(result["status"], "RECONCILE_ONLY")
+        self.assertFalse(result["new_risk_allowed"])
+        self.assertFalse(result["write_action_allowed"])
+
+        nonzero_risk = copy.deepcopy(risk_control)
+        nonzero_risk["new_risk_ceiling"] = 1
+        nonzero_risk["risk_policy_sha256"] = reconcile_only_admission_gate.calculate_risk_policy_sha256(nonzero_risk)
+        with self.assertRaisesRegex(reconcile_only_admission_gate.ReconcileOnlyAdmissionError, "must be zero"):
+            reconcile_only_admission_gate.admit_reconcile_only(
+                bundle=bundle,
+                activation=activation,
+                policy=policy,
+                signature=signature,
+                trusted_policy_root=root,
+                expected_root_sha256=root["trusted_policy_root_sha256"],
+                risk_control=nonzero_risk,
+                admission=admission,
+                as_of=AS_OF,
+            )
+
+        non_reconcile_admission = copy.deepcopy(admission)
+        non_reconcile_admission["admission_mode"] = "PAPER_DRY_RUN"
+        non_reconcile_admission["admission_sha256"] = reconcile_only_admission_gate.calculate_admission_sha256(non_reconcile_admission)
+        with self.assertRaisesRegex(reconcile_only_admission_gate.ReconcileOnlyAdmissionError, "admission_mode"):
+            reconcile_only_admission_gate.admit_reconcile_only(
+                bundle=bundle,
+                activation=activation,
+                policy=policy,
+                signature=signature,
+                trusted_policy_root=root,
+                expected_root_sha256=root["trusted_policy_root_sha256"],
+                risk_control=risk_control,
+                admission=non_reconcile_admission,
+                as_of=AS_OF,
+            )
+
+        unsafe_admission = copy.deepcopy(admission)
+        unsafe_admission["orders"] = []
+        unsafe_admission["admission_sha256"] = reconcile_only_admission_gate.calculate_admission_sha256(unsafe_admission)
+        with self.assertRaisesRegex(reconcile_only_admission_gate.ReconcileOnlyAdmissionError, "forbidden"):
+            reconcile_only_admission_gate.admit_reconcile_only(
+                bundle=bundle,
+                activation=activation,
+                policy=policy,
+                signature=signature,
+                trusted_policy_root=root,
+                expected_root_sha256=root["trusted_policy_root_sha256"],
+                risk_control=risk_control,
+                admission=unsafe_admission,
+                as_of=AS_OF,
+            )
+
+        overlong_admission = copy.deepcopy(admission)
+        overlong_admission["expires_at"] = "2026-08-05T18:30:00Z"
+        overlong_admission["admission_sha256"] = reconcile_only_admission_gate.calculate_admission_sha256(overlong_admission)
+        with self.assertRaisesRegex(reconcile_only_admission_gate.ReconcileOnlyAdmissionError, "every policy and activation window"):
+            reconcile_only_admission_gate.admit_reconcile_only(
+                bundle=bundle,
+                activation=activation,
+                policy=policy,
+                signature=signature,
+                trusted_policy_root=root,
+                expected_root_sha256=root["trusted_policy_root_sha256"],
+                risk_control=risk_control,
+                admission=overlong_admission,
+                as_of=AS_OF,
+            )
+
+    def test_reconcile_only_cli_parks_without_an_independent_root_digest(self):
+        missing_root_environment = dict(os.environ)
+        missing_root_environment.pop("QSL_TRUSTED_POLICY_ROOT_SHA256", None)
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(SCRIPTS / "reconcile_only_admission_gate.py"),
+                "--bundle",
+                "missing-bundle.json",
+                "--activation",
+                "missing-activation.json",
+                "--policy",
+                "missing-policy.json",
+                "--policy-signature",
+                "missing-policy.sshsig",
+                "--trusted-policy-root",
+                "missing-root.json",
+                "--risk-control",
+                "missing-risk.json",
+                "--admission",
+                "missing-admission.json",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+            env=missing_root_environment,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(
+            json.loads(result.stdout),
+            {
+                "new_risk_allowed": False,
+                "reason_code": "ADMISSION_DENIED",
+                "status": "PARKED",
+                "write_action_allowed": False,
+            },
+        )
+        self.assertIn("must be injected by the independent execution control", result.stderr)
+
     def test_contract_schemas_are_closed_and_do_not_claim_runtime_authority(self):
         policy_schema = json.loads((ROOT.parent / "schemas" / "qsl-autonomous-operating-policy.v1.schema.json").read_text())
         root_schema = json.loads((ROOT.parent / "schemas" / "qsl-trusted-policy-root.v1.schema.json").read_text())
@@ -350,6 +532,12 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         self.assertEqual(root_schema["$id"], "qsl.trusted_policy_root.v1")
         self.assertFalse(root_schema["additionalProperties"])
         self.assertIn("no private key", root_schema["description"])
+        risk_schema = json.loads((ROOT.parent / "schemas" / "qsl-reconcile-only-risk-control.v1.schema.json").read_text())
+        admission_schema = json.loads((ROOT.parent / "schemas" / "qsl-reconcile-only-admission.v1.schema.json").read_text())
+        self.assertEqual(risk_schema["$id"], "qsl.reconcile_only_risk_control.v1")
+        self.assertEqual(risk_schema["properties"]["new_risk_ceiling"], {"const": 0})
+        self.assertEqual(admission_schema["$id"], "qsl.reconcile_only_admission.v1")
+        self.assertFalse(admission_schema["additionalProperties"])
 
 
 if __name__ == "__main__":

@@ -402,6 +402,12 @@ def validate_policy_gate(
     root = validate_trusted_policy_root(trusted_policy_root, expected_root_sha256=expected_root_sha256, as_of=as_of)
     validated_policy = validate_autonomous_operating_policy(policy, as_of=as_of)
     signature_sha256 = _verify_ssh_signature(validated_policy, root, signature)
+    root_effective = _parse_timestamp(root["effective_at"], "trusted_policy_root.effective_at")
+    root_expires = _parse_timestamp(root["expires_at"], "trusted_policy_root.expires_at")
+    policy_effective = _parse_timestamp(validated_policy["effective_at"], "policy.effective_at")
+    policy_expires = _parse_timestamp(validated_policy["expires_at"], "policy.expires_at")
+    if policy_effective < root_effective or policy_expires > root_expires:
+        _fail("policy validity window is not contained within the trusted policy root window")
     expected_bundle_reference = {
         "schema": validated_bundle["schema"],
         "bundle_id": validated_bundle["bundle_id"],
@@ -409,8 +415,6 @@ def validate_policy_gate(
     }
     if validated_policy["deployment_bundle"] != expected_bundle_reference:
         _fail("policy deployment bundle does not match the exact expected bundle")
-    policy_effective = _parse_timestamp(validated_policy["effective_at"], "policy.effective_at")
-    policy_expires = _parse_timestamp(validated_policy["expires_at"], "policy.expires_at")
     try:
         validated_activation = validate_activation(
             activation,

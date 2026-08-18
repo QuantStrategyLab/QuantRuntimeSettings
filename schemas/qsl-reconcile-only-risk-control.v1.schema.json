@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.reconcile_only_risk_control.v1",
+  "title": "QSL Reconcile-Only Risk Control v1",
+  "description": "A zero-new-risk control contract. It admits no broker write and contains no account, credential, or order payload.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "risk_policy_id", "risk_policy_version", "created_at", "effective_at", "expires_at", "digest_algorithm", "admission_mode", "new_risk_ceiling", "write_action_ceiling", "risk_policy_sha256"],
+  "properties": {
+    "schema": {"const": "qsl.reconcile_only_risk_control.v1"},
+    "risk_policy_id": {"$ref": "#/$defs/identity"},
+    "risk_policy_version": {"$ref": "#/$defs/identity"},
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "effective_at": {"$ref": "#/$defs/timestamp"},
+    "expires_at": {"$ref": "#/$defs/timestamp"},
+    "digest_algorithm": {"const": "sha256"},
+    "admission_mode": {"const": "RECONCILE_ONLY"},
+    "new_risk_ceiling": {"const": 0},
+    "write_action_ceiling": {"const": 0},
+    "risk_policy_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}
