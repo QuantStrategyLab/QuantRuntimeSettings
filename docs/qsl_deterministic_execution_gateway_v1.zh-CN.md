@@ -8,7 +8,7 @@
 
 预授权策略验签通过，只能说明“一个外部根签过的、短期的、精确 bundle 的许可链存在”。它不能自己限制仓位、损失、订单频率或券商的未知结果。
 
-P0 现已实现 [`reconcile_only_admission_gate.py`](../python/scripts/reconcile_only_admission_gate.py)：它在签名 policy、精确风险摘要、精确 target 和有效期全部匹配时，最多给出 `RECONCILE_ONLY`；否则给出结构化 `PARKED`。该程序不读取账户、不连接券商、不执行对账，也没有订单接口。
+P0 现已实现 [`reconcile_only_admission_gate.py`](../python/scripts/reconcile_only_admission_gate.py)：它支持 OpenSSH SSHSIG 与 Cloud KMS P-256 两种外部根；在签名 policy、精确风险摘要、精确 target 和有效期全部匹配时，最多给出 `RECONCILE_ONLY`；否则给出结构化 `PARKED`。该程序不读取账户、不连接券商、不执行对账，也没有订单接口。
 
 所以未来的自动系统必须分成三层：
 
@@ -66,7 +66,7 @@ AI / driver（研究、监测、证据）
 
 ## 接入顺序
 
-1. 在独立于 AI/CI 的控制位置准备 public trusted root，并把其 SHA-256 固定到未来网关的部署配置。
+1. 在独立于 AI/CI 的控制位置准备 public trusted root，并把其 SHA-256 固定到未来网关的部署配置。若选择 GCP KMS，root 必须钉住一个 `EC_SIGN_P256_SHA256` 的具体 key version 和它的 PEM 公钥，而不是让运行时自行选择 KMS key。
 2. 为一个**不产生订单**的目标签发短期 policy，验证 gate 能给出可审计结果。
 3. 接入只读对账，验证断网、时钟偏差、数据/策略不一致和重复幂等键都默认为 `PARKED`。
 4. 仅当上述证据完整时，再为纸面或影子执行提出新的、可复核的任务定义。

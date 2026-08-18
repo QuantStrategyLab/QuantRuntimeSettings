@@ -29,6 +29,7 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
             "直接提交订单",
             "未安装可信根或 active policy",
             "确定性执行网关 V1 设计",
+            "自治运行策略 V2",
             "AIAuditBridge",
             "CodexAuditBridge** 已退役",
             "matrix current",

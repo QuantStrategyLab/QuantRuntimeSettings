@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts"
 AS_OF = "2026-08-05T12:00:00Z"
 SSH_KEYGEN = shutil.which("ssh-keygen")
+OPENSSL = shutil.which("openssl")
 
 
 def _load_module(name: str):
@@ -31,10 +32,12 @@ def _load_module(name: str):
 deployment_bundle_contract = _load_module("deployment_bundle_contract")
 activation_contract = _load_module("activation_contract")
 autonomous_policy_gate = _load_module("autonomous_policy_gate")
+gcp_kms_policy_gate = _load_module("gcp_kms_policy_gate")
 reconcile_only_admission_gate = _load_module("reconcile_only_admission_gate")
 
 
 @unittest.skipUnless(SSH_KEYGEN, "OpenSSH ssh-keygen is required to verify a policy signature")
+@unittest.skipUnless(OPENSSL, "OpenSSL is required to verify a Cloud KMS P-256 policy signature")
 class AutonomousPolicyGateTest(unittest.TestCase):
     @staticmethod
     def _sha(character: str) -> str:
@@ -66,6 +69,31 @@ class AutonomousPolicyGateTest(unittest.TestCase):
             check=False,
         )
         self.assertEqual(result.returncode, 0)
+        self.kms_private_key = self.directory / "kms-policy-root.pem"
+        self.kms_public_key = self.directory / "kms-policy-root.pub.pem"
+        private_key_result = subprocess.run(
+            [
+                str(OPENSSL),
+                "genpkey",
+                "-algorithm",
+                "EC",
+                "-pkeyopt",
+                "ec_paramgen_curve:prime256v1",
+                "-out",
+                str(self.kms_private_key),
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        self.assertEqual(private_key_result.returncode, 0)
+        public_key_result = subprocess.run(
+            [str(OPENSSL), "pkey", "-in", str(self.kms_private_key), "-pubout", "-out", str(self.kms_public_key)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        self.assertEqual(public_key_result.returncode, 0)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -121,6 +149,24 @@ class AutonomousPolicyGateTest(unittest.TestCase):
             "public_key_sha256": hashlib.sha256(public_key.encode("utf-8")).hexdigest(),
         }
         root["trusted_policy_root_sha256"] = autonomous_policy_gate.calculate_trusted_policy_root_sha256(root)
+        return root
+
+    def _kms_root(self) -> dict[str, object]:
+        public_key_pem = self.kms_public_key.read_text(encoding="utf-8")
+        root: dict[str, object] = {
+            "schema": "qsl.gcp_kms_policy_root.v1",
+            "root_id": "qsl-kms-root-2026",
+            "created_at": "2026-08-01T00:00:00Z",
+            "effective_at": "2026-08-01T00:00:00Z",
+            "expires_at": "2027-08-01T00:00:00Z",
+            "digest_algorithm": "sha256",
+            "kms_key_version": "projects/quantstrategy-2026/locations/us-central1/keyRings/qsl-root/cryptoKeys/policy-root/cryptoKeyVersions/1",
+            "signature_algorithm": "EC_SIGN_P256_SHA256",
+            "public_key_pem": public_key_pem,
+            "public_key_sha256": hashlib.sha256(public_key_pem.encode("utf-8")).hexdigest(),
+        }
+        gcp_kms_policy_gate = sys.modules["gcp_kms_policy_gate"]
+        root["trusted_policy_root_sha256"] = gcp_kms_policy_gate.calculate_trusted_policy_root_sha256(root)
         return root
 
     def _policy(
@@ -220,6 +266,19 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         return Path(f"{payload}.sig").read_bytes()
 
+    def _sign_kms(self, policy: dict[str, object]) -> bytes:
+        payload = self.directory / f"kms-policy-{policy['policy_sha256']}.json"
+        signature = self.directory / f"kms-policy-{policy['policy_sha256']}.der"
+        payload.write_text(autonomous_policy_gate.canonical_policy_json(policy), encoding="utf-8")
+        result = subprocess.run(
+            [str(OPENSSL), "dgst", "-sha256", "-sign", str(self.kms_private_key), "-out", str(signature), str(payload)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0)
+        return signature.read_bytes()
+
     def _activation(self, bundle: dict[str, object], signature: bytes) -> dict[str, object]:
         activation: dict[str, object] = {
             "schema": "qsl.activation.v2",
@@ -272,6 +331,19 @@ class AutonomousPolicyGateTest(unittest.TestCase):
             **kwargs,
         )
 
+    def _validate_kms(self, bundle, activation, policy, signature, root, **kwargs):
+        gcp_kms_policy_gate = sys.modules["gcp_kms_policy_gate"]
+        return gcp_kms_policy_gate.validate_gcp_kms_policy_gate(
+            bundle=bundle,
+            activation=activation,
+            policy=policy,
+            signature=signature,
+            trusted_policy_root=root,
+            expected_root_sha256=kwargs.pop("expected_root_sha256", root["trusted_policy_root_sha256"]),
+            as_of=AS_OF,
+            **kwargs,
+        )
+
     def test_valid_signed_external_root_binds_policy_bundle_activation_and_risk_hash(self):
         bundle = self._bundle()
         policy = self._policy(bundle)
@@ -284,6 +356,39 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         self.assertEqual(result["policy"]["policy_sha256"], policy["policy_sha256"])
         self.assertEqual(result["signature_sha256"], hashlib.sha256(signature).hexdigest())
         self.assertEqual(result["activation"]["operating_authority"]["policy_id"], policy["policy_id"])
+
+    def test_gcp_kms_p256_root_verifies_der_signature_and_zero_risk_admission(self):
+        bundle = self._bundle()
+        risk_control = self._risk_control()
+        policy = self._policy(bundle, risk_policy_sha256=str(risk_control["risk_policy_sha256"]))
+        signature = self._sign_kms(policy)
+        activation = self._activation(bundle, signature)
+        root = self._kms_root()
+        gcp_kms_policy_gate = sys.modules["gcp_kms_policy_gate"]
+
+        verified = self._validate_kms(bundle, activation, policy, signature, root)
+        self.assertEqual(verified["trusted_policy_root"]["signature_algorithm"], "EC_SIGN_P256_SHA256")
+        self.assertEqual(verified["signature_sha256"], hashlib.sha256(signature).hexdigest())
+
+        admitted = reconcile_only_admission_gate.admit_reconcile_only_gcp_kms(
+            bundle=bundle,
+            activation=activation,
+            policy=policy,
+            signature=signature,
+            trusted_policy_root=root,
+            expected_root_sha256=root["trusted_policy_root_sha256"],
+            risk_control=risk_control,
+            admission=self._admission(),
+            as_of=AS_OF,
+        )
+        self.assertEqual(admitted["status"], "RECONCILE_ONLY")
+        self.assertFalse(admitted["new_risk_allowed"])
+
+        altered_policy = copy.deepcopy(policy)
+        altered_policy["policy_version"] = "v2"
+        altered_policy["policy_sha256"] = autonomous_policy_gate.calculate_policy_sha256(altered_policy)
+        with self.assertRaisesRegex(gcp_kms_policy_gate.GcpKmsPolicyValidationError, "signature verification"):
+            self._validate_kms(bundle, activation, altered_policy, signature, root)
 
     def test_cli_returns_only_safe_gate_summary(self):
         bundle = self._bundle()
@@ -534,10 +639,13 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         self.assertIn("no private key", root_schema["description"])
         risk_schema = json.loads((ROOT.parent / "schemas" / "qsl-reconcile-only-risk-control.v1.schema.json").read_text())
         admission_schema = json.loads((ROOT.parent / "schemas" / "qsl-reconcile-only-admission.v1.schema.json").read_text())
+        kms_schema = json.loads((ROOT.parent / "schemas" / "qsl-gcp-kms-policy-root.v1.schema.json").read_text())
         self.assertEqual(risk_schema["$id"], "qsl.reconcile_only_risk_control.v1")
         self.assertEqual(risk_schema["properties"]["new_risk_ceiling"], {"const": 0})
         self.assertEqual(admission_schema["$id"], "qsl.reconcile_only_admission.v1")
         self.assertFalse(admission_schema["additionalProperties"])
+        self.assertEqual(kms_schema["$id"], "qsl.gcp_kms_policy_root.v1")
+        self.assertEqual(kms_schema["properties"]["signature_algorithm"], {"const": "EC_SIGN_P256_SHA256"})
 
 
 if __name__ == "__main__":

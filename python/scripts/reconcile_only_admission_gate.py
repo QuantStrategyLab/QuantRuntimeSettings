@@ -25,6 +25,7 @@ from autonomous_policy_gate import (
     validate_policy_gate,
 )
 from deployment_bundle_contract import BundleValidationError, parse_bundle_json
+from gcp_kms_policy_gate import GcpKmsPolicyValidationError, validate_gcp_kms_policy_gate
 
 RISK_CONTROL_SCHEMA_ID = "qsl.reconcile_only_risk_control.v1"
 ADMISSION_SCHEMA_ID = "qsl.reconcile_only_admission.v1"
@@ -259,31 +260,14 @@ def validate_reconcile_only_admission(admission: Any, *, as_of: str | None = Non
     return value
 
 
-def admit_reconcile_only(
+def _admit_from_policy_gate(
+    policy_gate: Mapping[str, Any],
     *,
-    bundle: Any,
-    activation: Any,
-    policy: Any,
-    signature: bytes,
-    trusted_policy_root: Any,
-    expected_root_sha256: Any,
     risk_control: Any,
     admission: Any,
     as_of: str | None = None,
 ) -> Mapping[str, Any]:
-    """Return a no-write admission only after every immutable control agrees."""
-    try:
-        policy_gate = validate_policy_gate(
-            bundle=bundle,
-            activation=activation,
-            policy=policy,
-            signature=signature,
-            trusted_policy_root=trusted_policy_root,
-            expected_root_sha256=expected_root_sha256,
-            as_of=as_of,
-        )
-    except AutonomousPolicyValidationError as exc:
-        raise ReconcileOnlyAdmissionError(f"signed policy gate denied admission: {exc}") from exc
+    """Apply zero-risk and target-window constraints to an already verified policy gate."""
     validated_risk_control = validate_reconcile_only_risk_control(risk_control, as_of=as_of)
     expected_risk_reference = {
         "risk_policy_id": validated_risk_control["risk_policy_id"],
@@ -317,6 +301,62 @@ def admit_reconcile_only(
     }
 
 
+def admit_reconcile_only(
+    *,
+    bundle: Any,
+    activation: Any,
+    policy: Any,
+    signature: bytes,
+    trusted_policy_root: Any,
+    expected_root_sha256: Any,
+    risk_control: Any,
+    admission: Any,
+    as_of: str | None = None,
+) -> Mapping[str, Any]:
+    """Return a no-write admission after an OpenSSH rooted policy gate passes."""
+    try:
+        policy_gate = validate_policy_gate(
+            bundle=bundle,
+            activation=activation,
+            policy=policy,
+            signature=signature,
+            trusted_policy_root=trusted_policy_root,
+            expected_root_sha256=expected_root_sha256,
+            as_of=as_of,
+        )
+    except AutonomousPolicyValidationError as exc:
+        raise ReconcileOnlyAdmissionError(f"OpenSSH policy gate denied admission: {exc}") from exc
+    return _admit_from_policy_gate(policy_gate, risk_control=risk_control, admission=admission, as_of=as_of)
+
+
+def admit_reconcile_only_gcp_kms(
+    *,
+    bundle: Any,
+    activation: Any,
+    policy: Any,
+    signature: bytes,
+    trusted_policy_root: Any,
+    expected_root_sha256: Any,
+    risk_control: Any,
+    admission: Any,
+    as_of: str | None = None,
+) -> Mapping[str, Any]:
+    """Return a no-write admission after a Cloud KMS P-256 policy gate passes."""
+    try:
+        policy_gate = validate_gcp_kms_policy_gate(
+            bundle=bundle,
+            activation=activation,
+            policy=policy,
+            signature=signature,
+            trusted_policy_root=trusted_policy_root,
+            expected_root_sha256=expected_root_sha256,
+            as_of=as_of,
+        )
+    except GcpKmsPolicyValidationError as exc:
+        raise ReconcileOnlyAdmissionError(f"Cloud KMS policy gate denied admission: {exc}") from exc
+    return _admit_from_policy_gate(policy_gate, risk_control=risk_control, admission=admission, as_of=as_of)
+
+
 def _parked_summary() -> dict[str, object]:
     return {
         "new_risk_allowed": False,
@@ -335,24 +375,30 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--trusted-policy-root", type=Path, required=True, help="public trusted-policy-root JSON")
     parser.add_argument("--risk-control", type=Path, required=True, help="zero-new-risk control JSON")
     parser.add_argument("--admission", type=Path, required=True, help="reconcile-only admission JSON")
+    parser.add_argument("--root-scheme", choices=("openssh-sshsig-ed25519", "gcp-kms-p256"), default="openssh-sshsig-ed25519")
     parser.add_argument("--as-of", help="inject canonical UTC validation time; defaults to current UTC")
     args = parser.parse_args(argv)
     try:
         expected_root_sha256 = os.environ.get("QSL_TRUSTED_POLICY_ROOT_SHA256", "")
         if not expected_root_sha256:
             _fail("QSL_TRUSTED_POLICY_ROOT_SHA256 must be injected by the independent execution control")
-        result = admit_reconcile_only(
-            bundle=parse_bundle_json(args.bundle.read_text(encoding="utf-8")),
-            activation=parse_json(args.activation.read_text(encoding="utf-8"), label="activation"),
-            policy=parse_json(args.policy.read_text(encoding="utf-8"), label="policy"),
-            signature=args.policy_signature.read_bytes(),
-            trusted_policy_root=parse_json(args.trusted_policy_root.read_text(encoding="utf-8"), label="trusted policy root"),
-            expected_root_sha256=expected_root_sha256,
-            risk_control=parse_json(args.risk_control.read_text(encoding="utf-8"), label="risk control"),
-            admission=parse_json(args.admission.read_text(encoding="utf-8"), label="admission"),
-            as_of=args.as_of,
+        common_inputs = {
+            "bundle": parse_bundle_json(args.bundle.read_text(encoding="utf-8")),
+            "activation": parse_json(args.activation.read_text(encoding="utf-8"), label="activation"),
+            "policy": parse_json(args.policy.read_text(encoding="utf-8"), label="policy"),
+            "signature": args.policy_signature.read_bytes(),
+            "trusted_policy_root": parse_json(args.trusted_policy_root.read_text(encoding="utf-8"), label="trusted policy root"),
+            "expected_root_sha256": expected_root_sha256,
+            "risk_control": parse_json(args.risk_control.read_text(encoding="utf-8"), label="risk control"),
+            "admission": parse_json(args.admission.read_text(encoding="utf-8"), label="admission"),
+            "as_of": args.as_of,
+        }
+        result = (
+            admit_reconcile_only_gcp_kms(**common_inputs)
+            if args.root_scheme == "gcp-kms-p256"
+            else admit_reconcile_only(**common_inputs)
         )
-    except (OSError, AutonomousPolicyValidationError, BundleValidationError, ReconcileOnlyAdmissionError) as exc:
+    except (OSError, AutonomousPolicyValidationError, BundleValidationError, GcpKmsPolicyValidationError, ReconcileOnlyAdmissionError) as exc:
         print(json.dumps(_parked_summary(), sort_keys=True))
         print(f"reconcile-only admission parked: {exc}", file=sys.stderr)
         return 2

@@ -8,7 +8,7 @@
 
 系统以预授权的自治策略运行，而不是为每次工作流等待人工点击。策略所有者在部署前设置一份可过期的、特定阶段的策略版本；自动化只可在其范围内产生候选、验证证据和执行已验证的非执行性工作。
 
-`qsl.activation.v2` 只保存该策略的不可变引用和 SHA-256 回执。`autonomous_policy_gate.py` 现在可验证一个由 OpenSSH 公钥签名的策略，但签名私钥、可信根哈希及运行入口仍必须位于独立控制根中；合约校验本身不构成签发、签名或运行许可。
+`qsl.activation.v2` 只保存该策略的不可变引用和 SHA-256 回执。现在有两个离线验签器：`autonomous_policy_gate.py` 验证 OpenSSH SSHSIG，`gcp_kms_policy_gate.py` 验证 Cloud KMS `EC_SIGN_P256_SHA256` 的 PEM 公钥与 DER 签名。两者都不调用签名服务；签名私钥、可信根哈希及运行入口仍必须位于独立控制根中。合约校验本身不构成签发、签名或运行许可。
 
 ## 三个权限区
 
@@ -45,12 +45,14 @@ AI 与券商之间不得存在直接写入路径。任何未来订单都必须�
 
 新增的验签门由四个彼此分开的输入组成：
 
-1. `qsl.trusted_policy_root.v1`：只含签名公钥、签名者身份、有效期与根哈希；不含私钥。
+1. 可信根：`qsl.trusted_policy_root.v1`（OpenSSH）或 `qsl.gcp_kms_policy_root.v1`（Cloud KMS P-256）。两者只含公钥、有效期与根哈希；不含私钥或 KMS 凭证。
 2. `qsl.autonomous_operating_policy.v1`：绑定一个精确的 deployment bundle、target、stage、AI 权限集合和 `risk_control` 摘要。
-3. 独立的 OpenSSH detached signature：对规范化 policy JSON 验签；策略或签名任何一字节变化都会失败。
+3. 独立 detached signature：OpenSSH 根使用 SSHSIG；KMS 根使用 P-256 DER signature。对规范化 policy JSON 验签，策略或签名任何一字节变化都会失败。
 4. **仓外固定的 trusted-root SHA-256**：执行服务必须从自己的不可由 AI 改写的配置、部署 gate 或签名服务取得它，不能从 workflow input、PR 内容或本仓文件自行接受。
 
-验签使用 `ssh-keygen -Y verify` 的允许签名者、身份和 namespace 约束；该工具在签名消息、签名 namespace、签名者身份和允许公钥均相符时才返回成功。[OpenSSH 的 `ssh-keygen` 文档](https://man.openbsd.org/OpenBSD-7.3/ssh-keygen.1)也建议自定义 namespace 使用带域名的唯一名称。
+OpenSSH 根使用 `ssh-keygen -Y verify` 的允许签名者、身份和 namespace 约束；该工具在签名消息、签名 namespace、签名者身份和允许公钥均相符时才返回成功。[OpenSSH 的 `ssh-keygen` 文档](https://man.openbsd.org/OpenBSD-7.3/ssh-keygen.1)也建议自定义 namespace 使用带域名的唯一名称。
+
+Cloud KMS 根固定到一个具体 CryptoKeyVersion，并使用 `EC_SIGN_P256_SHA256`。Google 的官方文档将其列为推荐的椭圆曲线签名算法，并给出以 PEM 公钥、DER signature 和 `openssl dgst -sha256 -verify` 进行离线验证的方式。[KMS 算法说明](https://docs.cloud.google.com/kms/docs/algorithms)与[签名验证说明](https://docs.cloud.google.com/kms/docs/create-validate-signatures)是该适配器的格式依据。KMS 签名身份只需要 KMS 的签名权限；验证服务只需要公开 root 和外部钉住的根哈希。
 
 验签门只有在 policy、根、签名、bundle、Activation target、stage、回执哈希和有效期全部一致时才通过。它不会签发策略，也不会读取私钥。正确接入方式是让**执行风控服务自身**在接触券商前调用它；若仅由一个可改写的 CI workflow 调用，则 CI 可以绕过它，不能算独立控制。
 
