@@ -27,7 +27,7 @@ STRATEGY_PROFILES_PATH = ROOT / "web" / "strategy-switch-console" / "strategy-pr
 STRATEGY_PROFILES_ASSET = ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js"
 INDEX_HTML = ROOT / "web" / "strategy-switch-console" / "index.html"
 LIVE_CANDIDATE_QUEUE_STAGES = {"ai_monitored_candidate", "shadow_candidate", "live_candidate"}
-AUTOMATION_REGISTRY_SCHEMA_VERSION = "strategy_automation_registry.v1"
+AUTOMATION_REGISTRY_SCHEMA_VERSION = "strategy_automation_registry.v2"
 CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "profile",
     "domain",
@@ -307,7 +307,7 @@ def _strategy_catalog_by_profile(strategy_catalog: object | None) -> dict[str, d
 
 
 def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[dict[str, object]]:
-    """Build a control-plane queue of profiles that may need live-promotion review."""
+    """Build a control-plane queue of profiles that need policy-and-evidence verification."""
     catalog = _strategy_catalog_by_profile(strategy_catalog)
     queue: list[dict[str, object]] = []
     stage_rank = {
@@ -323,7 +323,7 @@ def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[d
         can_switch_live = strategy.get("can_switch_live") is True
         blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
         if lifecycle_stage == "live_candidate":
-            recommended_action = "review_evidence_package"
+            recommended_action = "verify_preauthorized_policy_and_evidence"
         elif lifecycle_stage == "shadow_candidate":
             recommended_action = "collect_shadow_evidence"
         else:
@@ -337,7 +337,8 @@ def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[d
                 "can_switch_live": can_switch_live,
                 "allowed_execution_modes": strategy.get("allowed_execution_modes") or [],
                 "blocked_live_reason": blocked_reason,
-                "approval_required": not can_switch_live,
+                "operating_policy_required": True,
+                "operating_policy_status": "UNVERIFIED",
                 "recommended_action": recommended_action,
             }
         )
@@ -355,25 +356,29 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
         lane = "live_equivalent_optimization"
         triggers = ["health_degradation", "parameter_drift", "scheduled_retest", "market_regime_shift"]
         max_autonomy = "auto_pr_or_trusted_live_equivalent"
-        approval_required = False
+        operating_policy_required = True
+        operating_policy_status = "UNVERIFIED"
         evidence_required = ["backtest", "shadow_or_regression", "rollback_plan"]
     elif lifecycle_stage == "live_candidate":
         lane = "promotion_review"
         triggers = ["evidence_package_ready"]
-        max_autonomy = "human_review_required"
-        approval_required = True
-        evidence_required = ["live_candidate_evidence", "operator_approval"]
+        max_autonomy = "preauthorized_policy_and_evidence_required"
+        operating_policy_required = True
+        operating_policy_status = "UNVERIFIED"
+        evidence_required = ["live_candidate_evidence", "preauthorized_operating_policy_receipt"]
     elif lifecycle_stage in {"shadow_candidate", "ai_monitored_candidate"}:
         lane = "shadow_research"
         triggers = ["shadow_disagreement", "web_research_signal", "scheduled_retest"]
         max_autonomy = "auto_pr_research_only"
-        approval_required = True
-        evidence_required = ["shadow_metrics", "risk_review"]
+        operating_policy_required = True
+        operating_policy_status = "UNVERIFIED"
+        evidence_required = ["shadow_metrics", "preauthorized_operating_policy_receipt"]
     else:
         lane = "research_backlog"
         triggers = ["web_research_signal", "manual_request", "scheduled_research"]
         max_autonomy = "auto_pr_research_only"
-        approval_required = True
+        operating_policy_required = False
+        operating_policy_status = "NOT_APPLICABLE_RESEARCH_ONLY"
         evidence_required = ["backtest", "design_review"]
     return {
         "profile": profile,
@@ -382,7 +387,8 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
         "lifecycle_stage": lifecycle_stage,
         "automation_lane": lane,
         "max_autonomy": max_autonomy,
-        "approval_required": approval_required,
+        "operating_policy_required": operating_policy_required,
+        "operating_policy_status": operating_policy_status,
         "can_switch_live": can_switch_live,
         "blocked_live_reason": blocked_reason,
         "triggers": triggers,
@@ -409,13 +415,13 @@ def build_strategy_automation_registry(config: dict | None = None) -> dict[str, 
             "strategy_profile_count": len(profiles),
             "lane_counts": lane_counts,
             "live_switchable_count": sum(1 for item in profiles if item["can_switch_live"]),
-            "approval_required_count": sum(1 for item in profiles if item["approval_required"]),
+            "operating_policy_required_count": sum(1 for item in profiles if item["operating_policy_required"]),
         },
         "profiles": profiles,
         "guardrails": [
             "Do not auto-promote new or reconstructed strategies to live.",
             "Live-equivalent optimization still requires trusted proof before auto-merge.",
-            "Position-control-sensitive changes require human review unless service proof explicitly narrows the change.",
+            "Position-control-sensitive changes require deterministic risk-policy proof; AI has no delegated discretion to widen them.",
         ],
     }
 
@@ -525,8 +531,8 @@ def build_platform_health_report(
             ],
             "instructions": [
                 "Keep fixes limited to platform-config, generated strategy profile assets, tests, or docs unless a failing check proves a wider change is required.",
-                "Do not enable live switching for research, shadow, or live_candidate profiles without an evidence package and explicit approval.",
-                "If the failure affects secrets, broker credentials, or live execution permissions, stop and request human review.",
+                "Do not enable paper, shadow, or live switching without fresh evidence and a verified preauthorized operating policy.",
+                "If the failure affects secrets, broker credentials, or live execution permissions, park execution and preserve the evidence boundary.",
             ],
         },
     }

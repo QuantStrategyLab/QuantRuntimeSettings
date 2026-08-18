@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the MISSING-only QSL ReconciliationRecord v1 contract."""
+"""Validate the MISSING-only QSL ReconciliationRecord v2 contract."""
 
 from __future__ import annotations
 
@@ -16,9 +16,9 @@ from typing import Any, Mapping
 from activation_contract import ActivationValidationError, parse_activation_json, validate_activation
 from deployment_bundle_contract import BundleValidationError, parse_bundle_json, validate_bundle
 
-SCHEMA_ID = "qsl.reconciliation_record.v1"
+SCHEMA_ID = "qsl.reconciliation_record.v2"
 BUNDLE_SCHEMA_ID = "qsl.deployment_bundle.v1"
-ACTIVATION_SCHEMA_ID = "qsl.activation.v1"
+ACTIVATION_SCHEMA_ID = "qsl.activation.v2"
 RECONCILIATION_STATUS = "MISSING"
 IDENTITY_BINDING_FIELDS = (
     "deployment_bundle_sha256",
@@ -301,7 +301,7 @@ def validate_reconciliation_record(
     root = _expect_object(record, "reconciliation")
     status = root.get("status")
     if status != RECONCILIATION_STATUS:
-        _fail("qsl.reconciliation_record.v1 is MISSING-only")
+        _fail("qsl.reconciliation_record.v2 is MISSING-only")
     _reject_forbidden_material(record)
     _expect_exact_keys(root, _COMMON_FIELDS, "reconciliation")
     if root["schema"] != SCHEMA_ID:

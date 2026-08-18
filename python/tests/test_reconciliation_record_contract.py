@@ -112,7 +112,7 @@ class ReconciliationRecordContractTest(unittest.TestCase):
     def _activation(self) -> dict[str, object]:
         bundle = self._bundle()
         activation: dict[str, object] = {
-            "schema": "qsl.activation.v1",
+            "schema": "qsl.activation.v2",
             "activation_id": "activation.soxl-signal.ibkr-us.paper.20260805",
             "created_at": "2026-08-05T09:00:00Z",
             "digest_algorithm": "sha256",
@@ -125,11 +125,14 @@ class ReconciliationRecordContractTest(unittest.TestCase):
             "stage": "PAPER_DRY_RUN",
             "effective_at": "2026-08-05T10:00:00Z",
             "expires_at": "2026-08-05T18:00:00Z",
-            "human_authority": {
+            "operating_authority": {
+                "mode": "PREAUTHORIZED_AUTONOMY",
                 "stage": "PAPER_DRY_RUN",
-                "authority_id": "human-authority.paper-dry-run.20260805",
-                "authority_version": "v1",
-                "authority_receipt_sha256": self._sha("c"),
+                "policy_id": "autonomous-policy.paper-dry-run.20260805",
+                "policy_version": "v2",
+                "policy_receipt_sha256": self._sha("c"),
+                "allowed_ai_actions": ["evidence_validation", "monitor_readonly", "release_evaluation", "research_candidate_generation"],
+                "forbidden_ai_actions": ["credential_access", "direct_order_submission", "kill_switch_reset", "policy_mutation", "risk_limit_mutation"],
             },
             "target": {
                 "platform": "interactive-brokers",
@@ -208,8 +211,8 @@ class ReconciliationRecordContractTest(unittest.TestCase):
         )
 
     def test_schema_is_closed_contract_only_and_uses_canonical_statuses(self):
-        schema = json.loads((ROOT.parent / "schemas" / "qsl-reconciliation-record.v1.schema.json").read_text())
-        self.assertEqual(schema["$id"], "qsl.reconciliation_record.v1")
+        schema = json.loads((ROOT.parent / "schemas" / "qsl-reconciliation-record.v2.schema.json").read_text())
+        self.assertEqual(schema["$id"], "qsl.reconciliation_record.v2")
         self.assertFalse(schema["additionalProperties"])
         self.assertEqual(schema["properties"]["contract_only"], {"const": True})
         self.assertEqual(schema["properties"]["status"], {"const": "MISSING"})
