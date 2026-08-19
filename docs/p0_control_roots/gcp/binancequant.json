@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-08-19T02:27:41Z",
+  "digest_algorithm": "sha256",
+  "effective_at": "2026-08-19T02:27:41Z",
+  "expires_at": "2027-08-19T02:27:41Z",
+  "kms_key_version": "projects/binancequant/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV/qF/PCqQCyUfgdrOhwGKsYk+iA3\nOUV94TgODta/GBBEYGVxdewJDNRf61pMYUoyOdOlM6pv1TpVp9Yrjrpk8w==\n-----END PUBLIC KEY-----\n",
+  "public_key_sha256": "ea67cc2c028ac549b43ae1d6e3ced949197b92045bfe56c208fd8501baefa379",
+  "root_id": "qsl-binancequant-p0-root-v1",
+  "schema": "qsl.gcp_kms_policy_root.v1",
+  "signature_algorithm": "EC_SIGN_P256_SHA256",
+  "trusted_policy_root_sha256": "13db3807b446e19a6d56f7c61ef7f48641929da0a3bde299a01fff2af99fad2c"
+}

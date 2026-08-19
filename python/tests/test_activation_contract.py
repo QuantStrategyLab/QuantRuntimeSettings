@@ -90,7 +90,7 @@ class ActivationContractTest(unittest.TestCase):
     def _activation(self, *, stage: str = "PAPER_DRY_RUN") -> dict[str, object]:
         bundle = self._bundle()
         activation: dict[str, object] = {
-            "schema": "qsl.activation.v1",
+            "schema": "qsl.activation.v2",
             "activation_id": "activation.soxl-signal.ibkr-us.paper.20260805",
             "created_at": "2026-08-05T09:00:00Z",
             "digest_algorithm": "sha256",
@@ -103,11 +103,25 @@ class ActivationContractTest(unittest.TestCase):
             "stage": stage,
             "effective_at": "2026-08-05T10:00:00Z",
             "expires_at": "2026-08-05T18:00:00Z",
-            "human_authority": {
+            "operating_authority": {
+                "mode": "PREAUTHORIZED_AUTONOMY",
                 "stage": stage,
-                "authority_id": f"human-authority.{stage.lower().replace('_', '-')}.20260805",
-                "authority_version": "v1",
-                "authority_receipt_sha256": self._sha("c"),
+                "policy_id": f"autonomous-policy.{stage.lower().replace('_', '-')}.20260805",
+                "policy_version": "v2",
+                "policy_receipt_sha256": self._sha("c"),
+                "allowed_ai_actions": [
+                    "evidence_validation",
+                    "monitor_readonly",
+                    "release_evaluation",
+                    "research_candidate_generation",
+                ],
+                "forbidden_ai_actions": [
+                    "credential_access",
+                    "direct_order_submission",
+                    "kill_switch_reset",
+                    "policy_mutation",
+                    "risk_limit_mutation",
+                ],
             },
             "target": {
                 "platform": "interactive-brokers",
@@ -130,17 +144,17 @@ class ActivationContractTest(unittest.TestCase):
         )
 
     def test_schema_is_closed_contract_only_and_uses_canonical_stages(self):
-        schema = json.loads((ROOT.parent / "schemas" / "qsl-activation.v1.schema.json").read_text())
-        self.assertEqual(schema["$id"], "qsl.activation.v1")
+        schema = json.loads((ROOT.parent / "schemas" / "qsl-activation.v2.schema.json").read_text())
+        self.assertEqual(schema["$id"], "qsl.activation.v2")
         self.assertFalse(schema["additionalProperties"])
         self.assertEqual(schema["properties"]["contract_only"], {"const": True})
         self.assertEqual(
-            schema["properties"]["stage"]["enum"],
+            schema["$defs"]["stage"]["enum"],
             ["DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE"],
         )
         self.assertIn("does not prove", schema["description"])
         for field in ("created_at", "effective_at", "expires_at"):
-            self.assertEqual(schema["properties"][field]["format"], "date-time")
+            self.assertEqual(schema["$defs"]["timestamp"]["format"], "date-time")
 
     def test_valid_activation_binds_bundle_authority_target_and_digest(self):
         activation = self._activation()
@@ -151,20 +165,21 @@ class ActivationContractTest(unittest.TestCase):
             activation_contract.canonical_json(dict(reversed(activation.items()))),
         )
 
-    def test_every_canonical_stage_requires_matching_human_authority(self):
+    def test_every_canonical_stage_requires_matching_preauthorized_operating_policy(self):
         for stage in ("DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE"):
             with self.subTest(stage=stage):
                 activation = self._activation(stage=stage)
                 self._validate(activation)
-                activation["human_authority"]["stage"] = "DISABLED" if stage != "DISABLED" else "SHADOW"
+                activation["operating_authority"]["stage"] = "DISABLED" if stage != "DISABLED" else "SHADOW"
                 activation["activation_sha256"] = activation_contract.calculate_activation_sha256(activation)
-                with self.assertRaisesRegex(activation_contract.ActivationValidationError, "authority stage"):
+                with self.assertRaisesRegex(activation_contract.ActivationValidationError, "operating authority stage"):
                     self._validate(activation)
 
     def test_missing_unknown_and_invalid_contract_only_fields_fail_closed(self):
         for mutate, message in (
             (lambda value: value.pop("target"), "missing required field"),
-            (lambda value: value.pop("human_authority"), "missing required field"),
+            (lambda value: value.pop("operating_authority"), "missing required field"),
+            (lambda value: value["operating_authority"]["allowed_ai_actions"].append("direct_order_submission"), "fixed non-execution"),
             (lambda value: value.update({"applied": True}), "forbidden"),
             (lambda value: value.update({"contract_only": False}), "contract_only"),
         ):
@@ -216,23 +231,23 @@ class ActivationContractTest(unittest.TestCase):
                 self._activation(), as_of="2026-08-05T18:00:00Z", expected_bundle=self._bundle()
             )
 
-    def test_authority_expectation_and_cross_stage_reuse_fail_closed(self):
+    def test_operating_policy_expectation_and_cross_stage_reuse_fail_closed(self):
         activation = self._activation()
-        expected = copy.deepcopy(activation["human_authority"])
-        expected["authority_receipt_sha256"] = self._sha("0")
-        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "authority reference"):
-            self._validate(activation, expected_authority=expected)
+        expected = copy.deepcopy(activation["operating_authority"])
+        expected["policy_receipt_sha256"] = self._sha("0")
+        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "operating authority reference"):
+            self._validate(activation, expected_operating_authority=expected)
 
         previous = self._activation(stage="PAPER_DRY_RUN")
         current = self._activation(stage="SHADOW")
-        current["human_authority"] = copy.deepcopy(previous["human_authority"])
-        current["human_authority"]["stage"] = "SHADOW"
+        current["operating_authority"] = copy.deepcopy(previous["operating_authority"])
+        current["operating_authority"]["stage"] = "SHADOW"
         current["activation_sha256"] = activation_contract.calculate_activation_sha256(current)
-        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "cross-stage authority reuse"):
+        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "cross-stage operating policy reuse"):
             self._validate(current, previous_activation=previous)
 
         fresh = self._activation(stage="SHADOW")
-        fresh["human_authority"]["authority_receipt_sha256"] = self._sha("e")
+        fresh["operating_authority"]["policy_receipt_sha256"] = self._sha("e")
         fresh["activation_sha256"] = activation_contract.calculate_activation_sha256(fresh)
         self._validate(fresh, previous_activation=previous)
 
