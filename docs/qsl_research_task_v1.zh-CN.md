@@ -27,4 +27,4 @@
 - 任务来源使用专用 `RESEARCH_TASK_SYNC_TOKEN` 和独立 KV 前缀；它不复用控制面、策略切换、OAuth、策略根或任何券商凭据。
 - 任务 ID 重复于多个来源时聚合器 fail-closed，不展示冲突任务；来源过期时只显示历史/过期状态，不把它当作当前指令。
 
-截至 `2026-08-20`，这一只读索引的 consumer 已实现，但 Watcher producer 尚未配置为发布它，因此空队列是预期且正确的状态。不能用 GitHub Issue、假数据或运行配置推断任务存在；该索引也不包含任务执行器、自动调参、代码修改、PR 合并、部署、paper、shadow 或 live 功能。
+控制台 consumer 与 Watcher producer 的代码均已接线；只有 Worker 的 `RESEARCH_TASK_SYNC_TOKEN`，以及 Watcher 的 `QSL_RESEARCH_TASK_SYNC_URL` 与同值专用 secret 都已配置、部署后，Watcher 才会发布来源快照。任一项未配置时它会以 `NOT_CONFIGURED` 安全退出，空队列仍是预期且正确的状态。不能用 GitHub Issue、假数据或运行配置推断任务存在；该索引也不包含任务执行器、自动调参、代码修改、PR 合并、部署、paper、shadow 或 live 功能。
