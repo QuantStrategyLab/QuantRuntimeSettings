@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-control-plane-dashboard.v1.schema.json",
+  "title": "QSL Control Plane Dashboard v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "computed_at", "data_status", "summary", "candidates", "policy", "errors"],
+  "properties": {
+    "schema_version": { "const": "qsl_control_plane_dashboard.v1" },
+    "generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_count", "deferred", "parked", "owner_decision_required"],
+      "properties": {
+        "candidate_count": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "deferred": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "parked": { "type": "integer", "minimum": 0, "maximum": 1000 },
+        "owner_decision_required": { "type": "integer", "minimum": 0, "maximum": 1000 }
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/candidate" }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p4_p5_automation", "p6_owner_decision_required", "notice"],
+      "properties": {
+        "p4_p5_automation": { "enum": ["not_configured", "configured", "active"] },
+        "p6_owner_decision_required": { "const": true },
+        "notice": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_id", "candidate_kind", "domain", "lifecycle", "evidence", "recommendation", "freshness"],
+      "properties": {
+        "candidate_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,120}$" },
+        "candidate_kind": { "enum": ["individual", "portfolio", "plugin"] },
+        "domain": { "enum": ["us_equity", "hk_equity", "cn_equity", "crypto"] },
+        "lifecycle": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["stage", "status"],
+          "properties": {
+            "stage": { "enum": ["P1", "P2", "P3", "P4", "P5", "P6"] },
+            "status": { "enum": ["research", "evidence_pending", "verified", "deferred", "parked", "paper", "shadow", "owner_decision_required"] }
+          }
+        },
+        "evidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["p1_input_digest", "p2_config_digest", "p3_evidence_id", "source_revision"],
+          "properties": {
+            "p1_input_digest": { "$ref": "#/$defs/identifierOrNull" },
+            "p2_config_digest": { "$ref": "#/$defs/identifierOrNull" },
+            "p3_evidence_id": { "$ref": "#/$defs/identifierOrNull" },
+            "source_revision": { "$ref": "#/$defs/identifierOrNull" }
+          }
+        },
+        "recommendation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "reason"],
+          "properties": {
+            "code": { "enum": ["none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision"] },
+            "reason": { "type": "string", "maxLength": 240 }
+          }
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "age_seconds"],
+          "properties": {
+            "status": { "enum": ["fresh", "stale", "unknown"] },
+            "age_seconds": { "type": ["integer", "null"], "minimum": 0, "maximum": 315360000 }
+          }
+        }
+      }
+    },
+    "identifierOrNull": {
+      "type": ["string", "null"],
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._=-]{1,128}$"
+    }
+  }
+}

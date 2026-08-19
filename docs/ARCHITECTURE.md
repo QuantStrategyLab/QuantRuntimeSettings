@@ -2,7 +2,7 @@
 
 ## Overview
 
-QuantRuntimeSettings is a **config-driven** runtime settings package that serves as the central control plane for QuantStrategyLab deployments. It defines versioned strategy-to-platform assignments and hosts a Cloudflare Workers-based strategy switch console.
+QuantRuntimeSettings is a **config-driven** runtime settings package that serves as the central control plane for QuantStrategyLab deployments. It defines versioned strategy-to-platform assignments and hosts a Cloudflare Workers-based console. The console is evolving into the personal deployment's single human-facing global decision surface; see [Unified Control Console V1](qsl_unified_control_console_architecture_v1.zh-CN.md). It remains separate from broker credentials and execution.
 
 The generated `RUNTIME_TARGET_JSON` payload is the canonical desired-state contract for one deployment target. `scheduler`, `market`, `market_calendar`, `market_timezone`, and plugin mount outputs are derived from `strategy_profile`, while `execution_mode` is validated against strategy-profile policy.
 
