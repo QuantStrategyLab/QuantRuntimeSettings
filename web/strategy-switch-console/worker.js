@@ -40,8 +40,14 @@ const STRATEGY_HEALTH_STATUSES = ["healthy", "watch", "review", "critical"];
 const STRATEGY_HEALTH_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
 const CONTROL_PLANE_SNAPSHOT_KEY = "control_plane_snapshot";
+const CONTROL_PLANE_SOURCE_PREFIX = "control_plane_source:";
+const CONTROL_PLANE_SOURCE_SCHEMA_VERSION = "qsl_control_plane_source_snapshot.v1";
+const CONTROL_PLANE_MAX_SOURCES = 100;
 const CONTROL_PLANE_MAX_BODY_BYTES = 256 * 1024;
-const CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
+// The current source is a once-per-trading-day P1/P3 lane, rather than a live
+// execution heartbeat. A 36-hour boundary tolerates weekends and a delayed
+// scheduled run without presenting a daily snapshot as permanently stale.
+const CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
 const CONTROL_PLANE_CANDIDATE_KINDS = ["individual", "portfolio", "plugin"];
 const CONTROL_PLANE_STAGES = ["P1", "P2", "P3", "P4", "P5", "P6"];
 const CONTROL_PLANE_LIFECYCLE_STATUSES = [
@@ -175,6 +181,9 @@ export default {
       }
       if (url.pathname === "/api/internal/sync-control-plane" && request.method === "POST") {
         return await syncControlPlaneResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-control-plane-source" && request.method === "POST") {
+        return await syncControlPlaneSourceResponse(request, env);
       }
       if (url.pathname === "/api/control-plane" && request.method === "GET") {
         return await controlPlaneResponse(request, env);
@@ -1223,10 +1232,56 @@ async function syncControlPlaneResponse(request, env) {
   });
 }
 
+async function syncControlPlaneSourceResponse(request, env) {
+  requireDedicatedControlPlaneSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "control plane KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, CONTROL_PLANE_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid control plane source payload" }, error.status || 400);
+  }
+
+  let source;
+  try {
+    source = normalizeControlPlaneSourceSnapshot(raw, "control plane source snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid control plane source payload" }, 400);
+  }
+
+  await writeConfigJson(env, controlPlaneSourceKey(source.source_id), source);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "control-plane-source-sync",
+      action: "sync_control_plane_source",
+      source_id: source.source_id,
+      schema_version: source.schema_version,
+      candidate_count: source.candidates.length,
+      data_status: source.data_status,
+    });
+  } catch {
+    // The source snapshot is accepted independently of an optional audit write.
+  }
+  return json({
+    ok: true,
+    source_id: source.source_id,
+    schema_version: source.schema_version,
+    candidate_count: source.candidates.length,
+    generated_at: source.generated_at,
+  });
+}
+
 async function controlPlaneResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!hasConfigStore(env)) return json(emptyControlPlanePayload("snapshot_unavailable"));
+
+  const sourceSnapshot = await aggregateControlPlaneSources(env);
+  if (sourceSnapshot) return json(sourceSnapshot);
 
   let snapshot;
   try {
@@ -1251,6 +1306,130 @@ async function controlPlaneResponse(request, env) {
       : Number.POSITIVE_INFINITY;
   if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) snapshot.data_status = "stale";
   return json(snapshot);
+}
+
+async function aggregateControlPlaneSources(env) {
+  const sources = await readControlPlaneSources(env);
+  if (!sources) return null;
+  if (!sources.length) return null;
+
+  const ttlSeconds = controlPlaneStaleTtlSeconds(env);
+  const now = Date.now();
+  const candidates = [];
+  const candidateIds = new Set();
+  const duplicateCandidateIds = new Set();
+  const errors = [];
+  const timestamps = [];
+  let hasReadySource = false;
+  let hasStaleSource = false;
+
+  for (const source of sources) {
+    const sourceFreshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+    if (source.generated_at) timestamps.push(source.generated_at);
+    if (source.computed_at) timestamps.push(source.computed_at);
+    if (sourceFreshness.data_status === "ready") hasReadySource = true;
+    if (sourceFreshness.data_status === "stale") {
+      hasStaleSource = true;
+      errors.push("control_plane_source_stale");
+    }
+    for (const candidate of source.candidates) {
+      if (candidateIds.has(candidate.candidate_id)) {
+        duplicateCandidateIds.add(candidate.candidate_id);
+        errors.push("control_plane_duplicate_candidate");
+        continue;
+      }
+      candidateIds.add(candidate.candidate_id);
+      candidates.push({
+        ...candidate,
+        freshness: mergeControlPlaneFreshness(candidate.freshness, sourceFreshness),
+      });
+    }
+    errors.push(...source.errors);
+  }
+
+  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
+  const uniqueCandidates = candidates.filter((candidate) => !duplicateCandidateIds.has(candidate.candidate_id));
+  return {
+    schema_version: "qsl_control_plane_dashboard.v1",
+    generated_at: earliestControlPlaneTimestamp(timestamps),
+    computed_at: earliestControlPlaneTimestamp(timestamps),
+    data_status: dataStatus,
+    summary: normalizeControlPlaneSummary(uniqueCandidates),
+    candidates: uniqueCandidates,
+    policy: normalizeControlPlanePolicy({
+      p4_p5_automation: "not_configured",
+      p6_owner_decision_required: true,
+      notice: "P1–P3 自动研究已接入；P4/P5 尚未配置，live 仍需所有者明确决定。",
+    }, "aggregated control plane policy"),
+    errors: uniqueStrings(errors),
+  };
+}
+
+async function readControlPlaneSources(env) {
+  const store = configStore(env);
+  if (!store || typeof store.list !== "function") return null;
+  let listing;
+  try {
+    listing = await store.list({ prefix: CONTROL_PLANE_SOURCE_PREFIX, limit: CONTROL_PLANE_MAX_SOURCES });
+  } catch {
+    return [emptyControlPlaneSourceSnapshot("control_plane_source_list_unavailable")];
+  }
+  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
+  const sources = [];
+  for (const entry of keys.slice(0, CONTROL_PLANE_MAX_SOURCES)) {
+    const key = typeof entry?.name === "string" ? entry.name : "";
+    if (!key.startsWith(CONTROL_PLANE_SOURCE_PREFIX)) continue;
+    try {
+      const stored = await readConfigJson(env, key);
+      if (!stored) continue;
+      sources.push(normalizeControlPlaneSourceSnapshot(stored, key));
+    } catch {
+      sources.push(emptyControlPlaneSourceSnapshot("control_plane_source_invalid"));
+    }
+  }
+  return sources;
+}
+
+function controlPlaneSourceKey(sourceId) {
+  return `${CONTROL_PLANE_SOURCE_PREFIX}${sourceId}`;
+}
+
+function controlPlaneSnapshotFreshness(snapshot, ttlSeconds, now) {
+  const timestamps = [snapshot.generated_at, snapshot.computed_at]
+    .filter(Boolean)
+    .map((value) => Date.parse(value));
+  const freshnessAt = timestamps.length ? Math.min(...timestamps) : Number.NaN;
+  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
+  const ageSeconds = futureBeyondClockSkew
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(freshnessAt)
+      ? Math.max(0, Math.round((now - freshnessAt) / 1000))
+      : Number.POSITIVE_INFINITY;
+  const dataStatus = snapshot.data_status === "ready" && ageSeconds > ttlSeconds
+    ? "stale"
+    : snapshot.data_status;
+  return { data_status: dataStatus, age_seconds: Number.isFinite(ageSeconds) ? ageSeconds : null };
+}
+
+function mergeControlPlaneFreshness(candidateFreshness, sourceFreshness) {
+  const sourceAgeSeconds = sourceFreshness.age_seconds;
+  const candidateAge = candidateFreshness.age_seconds;
+  const ageSeconds = sourceAgeSeconds === null
+    ? candidateAge
+    : (candidateAge === null ? sourceAgeSeconds : Math.max(candidateAge, sourceAgeSeconds));
+  const status = candidateFreshness.status === "stale" || sourceFreshness.data_status !== "ready"
+    ? "stale"
+    : candidateFreshness.status;
+  return { status, age_seconds: ageSeconds };
+}
+
+function earliestControlPlaneTimestamp(values) {
+  const timestamps = values
+    .filter(Boolean)
+    .map((value) => ({ value, timestamp: Date.parse(value) }))
+    .filter((item) => Number.isFinite(item.timestamp))
+    .sort((left, right) => left.timestamp - right.timestamp);
+  return timestamps[0]?.value || null;
 }
 
 async function readBoundedJson(request, maxBytes) {
@@ -1514,6 +1693,40 @@ function normalizeControlPlaneSnapshot(payload, fieldName = "control plane snaps
     candidates,
     policy: normalizeControlPlanePolicy(payload.policy, fieldName),
     errors: normalizeStrategyHealthErrors(payload.errors),
+  };
+}
+
+function normalizeControlPlaneSourceSnapshot(payload, fieldName = "control plane source snapshot") {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  if (payload.schema_version !== CONTROL_PLANE_SOURCE_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  for (const required of ["source_id", "generated_at", "computed_at", "data_status", "candidates", "errors"]) {
+    if (!(required in payload)) throw new Error(`${fieldName}.${required} is required`);
+  }
+  const dataStatus = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  return {
+    schema_version: CONTROL_PLANE_SOURCE_SCHEMA_VERSION,
+    source_id: normalizeControlPlaneIdentifier(payload.source_id, `${fieldName}.source_id`, false),
+    generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
+    computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
+    data_status: dataStatus,
+    candidates: dataStatus === "unavailable" ? [] : normalizeControlPlaneCandidates(payload.candidates, fieldName),
+    errors: normalizeStrategyHealthErrors(payload.errors),
+  };
+}
+
+function emptyControlPlaneSourceSnapshot(errorCode) {
+  return {
+    schema_version: CONTROL_PLANE_SOURCE_SCHEMA_VERSION,
+    source_id: "unavailable",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    candidates: [],
+    errors: [errorCode],
   };
 }
 
@@ -3306,6 +3519,7 @@ export const __test = {
   normalizeStrategyHealthSnapshot,
   emptyStrategyHealthPayload,
   normalizeControlPlaneSnapshot,
+  normalizeControlPlaneSourceSnapshot,
   emptyControlPlanePayload,
   makeSession,
   supportedDomainsForAccount,

@@ -22,6 +22,8 @@ workers_dev = true
 RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
 RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
 RUNTIME_SETTINGS_REF = "main"
+# The current source is a once-per-trading-day research lane.
+CONTROL_PLANE_STALE_TTL_SECONDS = "129600"
 
 # Forks can replace the platform repository mapping without editing source code.
 # STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON = '{"longbridge":"your-org/LongBridgePlatform","ibkr":"your-org/InteractiveBrokersPlatform","schwab":"your-org/CharlesSchwabPlatform","firstrade":"your-org/FirstradePlatform"}'
