@@ -54,9 +54,35 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
     </aside>
 
     <nav class="console-nav" aria-label="控制中心视图">
-      <button class="console-nav__button active" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
-      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">实盘切换</button>
+      <button class="console-nav__button active" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">全局概览</button>
+      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
+      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">部署配置</button>
     </nav>
+
+    <section class="health-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
+      <div class="health-head">
+        <div>
+          <span class="eyebrow" data-i18n="controlPlaneEyebrow">全局控制面 / 只读</span>
+          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">今天需要知道什么。</h2>
+          <p data-i18n="controlPlaneSubtitle">只显示经过验证的候选、日更证据和需要所有者决定的事项；没有快照时不推断状态。</p>
+        </div>
+        <div class="health-meta">
+          <span id="control-plane-status" class="pill">等待登录</span>
+          <span id="control-plane-computed-at">最近计算：—</span>
+        </div>
+      </div>
+      <div id="control-plane-notice" class="health-notice" role="status" aria-live="polite">登录后读取私有全局快照；没有快照时不会展示虚构信息。</div>
+      <div class="health-summary" aria-label="全局控制面摘要">
+        <article><span data-i18n="controlCandidateTotal">候选总数</span><strong id="control-count-candidates">0</strong></article>
+        <article><span data-i18n="controlDeferred">本次延期</span><strong id="control-count-deferred">0</strong></article>
+        <article><span data-i18n="controlParked">已停车</span><strong id="control-count-parked">0</strong></article>
+        <article><span data-i18n="controlOwnerDecision">等待我决定</span><strong id="control-count-owner-decision">0</strong></article>
+      </div>
+      <div class="health-board-head">
+        <h3 data-i18n="controlCandidateBoard">候选生命周期</h3>
+      </div>
+      <div class="health-list" id="control-plane-list"></div>
+    </section>
 
     <section class="health-view" id="health-view" aria-labelledby="health-view-title">
       <div class="health-head">

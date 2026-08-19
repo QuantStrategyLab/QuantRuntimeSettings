@@ -39,6 +39,18 @@ const STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
 const STRATEGY_HEALTH_STATUSES = ["healthy", "watch", "review", "critical"];
 const STRATEGY_HEALTH_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
+const CONTROL_PLANE_SNAPSHOT_KEY = "control_plane_snapshot";
+const CONTROL_PLANE_MAX_BODY_BYTES = 256 * 1024;
+const CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS = 2 * 60 * 60;
+const CONTROL_PLANE_CANDIDATE_KINDS = ["individual", "portfolio", "plugin"];
+const CONTROL_PLANE_STAGES = ["P1", "P2", "P3", "P4", "P5", "P6"];
+const CONTROL_PLANE_LIFECYCLE_STATUSES = [
+  "research", "evidence_pending", "verified", "deferred", "parked", "paper", "shadow", "owner_decision_required",
+];
+const CONTROL_PLANE_RECOMMENDATIONS = [
+  "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
+];
+const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
@@ -160,6 +172,12 @@ export default {
       }
       if (url.pathname === "/api/strategy-health" && request.method === "GET") {
         return await strategyHealthResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-control-plane" && request.method === "POST") {
+        return await syncControlPlaneResponse(request, env);
+      }
+      if (url.pathname === "/api/control-plane" && request.method === "GET") {
+        return await controlPlaneResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
@@ -1164,6 +1182,77 @@ async function strategyHealthResponse(request, env) {
   return json(snapshot);
 }
 
+async function syncControlPlaneResponse(request, env) {
+  requireDedicatedControlPlaneSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "control plane KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, CONTROL_PLANE_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid control plane payload" }, error.status || 400);
+  }
+
+  let snapshot;
+  try {
+    snapshot = normalizeControlPlaneSnapshot(raw, "control plane snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid control plane payload" }, 400);
+  }
+
+  await writeConfigJson(env, CONTROL_PLANE_SNAPSHOT_KEY, snapshot);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "control-plane-sync",
+      action: "sync_control_plane",
+      schema_version: snapshot.schema_version,
+      candidate_count: snapshot.summary.candidate_count,
+      data_status: snapshot.data_status,
+    });
+  } catch {
+    // A successful snapshot must not expose its payload through audit failures.
+  }
+  return json({
+    ok: true,
+    schema_version: snapshot.schema_version,
+    candidate_count: snapshot.summary.candidate_count,
+    generated_at: snapshot.generated_at,
+  });
+}
+
+async function controlPlaneResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyControlPlanePayload("snapshot_unavailable"));
+
+  let snapshot;
+  try {
+    const stored = await readConfigJson(env, CONTROL_PLANE_SNAPSHOT_KEY);
+    if (!stored) return json(emptyControlPlanePayload("snapshot_unavailable"));
+    snapshot = normalizeControlPlaneSnapshot(stored, CONTROL_PLANE_SNAPSHOT_KEY);
+  } catch {
+    return json(emptyControlPlanePayload("snapshot_invalid"));
+  }
+
+  const ttlSeconds = controlPlaneStaleTtlSeconds(env);
+  const freshnessTimestamps = [snapshot.generated_at, snapshot.computed_at]
+    .filter(Boolean)
+    .map((value) => Date.parse(value));
+  const freshnessAt = freshnessTimestamps.length ? Math.min(...freshnessTimestamps) : Number.NaN;
+  const now = Date.now();
+  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
+  const ageSeconds = futureBeyondClockSkew
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(freshnessAt)
+      ? Math.max(0, (now - freshnessAt) / 1000)
+      : Number.POSITIVE_INFINITY;
+  if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) snapshot.data_status = "stale";
+  return json(snapshot);
+}
+
 async function readBoundedJson(request, maxBytes) {
   const declaredLength = Number(request.headers.get("Content-Length") || 0);
   if (declaredLength > maxBytes) throw new HttpError("request body is too large", 413);
@@ -1182,6 +1271,14 @@ function requireDedicatedStrategyHealthSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("strategy health sync token is invalid", 401);
+}
+
+function requireDedicatedControlPlaneSyncToken(request, env) {
+  const expected = String(env.CONTROL_PLANE_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("control plane sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("control plane sync token is invalid", 401);
 }
 
 function normalizeStrategyHealthSnapshot(payload, fieldName = "strategy health snapshot") {
@@ -1389,6 +1486,145 @@ function strategyHealthStaleTtlSeconds(env) {
   const configured = Number(env.STRATEGY_HEALTH_STALE_TTL_SECONDS);
   if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
     return STRATEGY_HEALTH_DEFAULT_STALE_TTL_SECONDS;
+  }
+  return Math.floor(configured);
+}
+
+function normalizeControlPlaneSnapshot(payload, fieldName = "control plane snapshot") {
+  if (!payload || Array.isArray(payload) || typeof payload !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  if (payload.schema_version !== "qsl_control_plane_dashboard.v1") {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  for (const required of ["generated_at", "computed_at", "data_status", "summary", "candidates", "policy", "errors"]) {
+    if (!(required in payload)) throw new Error(`${fieldName}.${required} is required`);
+  }
+  if (!payload.summary || Array.isArray(payload.summary) || typeof payload.summary !== "object") {
+    throw new Error(`${fieldName}.summary must be an object`);
+  }
+  const dataStatus = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  const candidates = dataStatus === "unavailable" ? [] : normalizeControlPlaneCandidates(payload.candidates, fieldName);
+  return {
+    schema_version: "qsl_control_plane_dashboard.v1",
+    generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
+    computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
+    data_status: dataStatus,
+    summary: normalizeControlPlaneSummary(candidates),
+    candidates,
+    policy: normalizeControlPlanePolicy(payload.policy, fieldName),
+    errors: normalizeStrategyHealthErrors(payload.errors),
+  };
+}
+
+function normalizeControlPlaneCandidates(value, fieldName) {
+  if (!Array.isArray(value) || value.length > 1000) {
+    throw new Error(`${fieldName}.candidates must be an array with at most 1000 items`);
+  }
+  const seen = new Set();
+  return value.map((item, index) => {
+    const prefix = `${fieldName}.candidates[${index}]`;
+    if (!item || Array.isArray(item) || typeof item !== "object") throw new Error(`${prefix} must be an object`);
+    const candidateId = normalizeControlPlaneIdentifier(item.candidate_id, `${prefix}.candidate_id`, false);
+    if (seen.has(candidateId)) throw new Error(`${fieldName}.candidates contains duplicate candidate_id`);
+    seen.add(candidateId);
+    const lifecycle = normalizeControlPlaneLifecycle(item.lifecycle, prefix);
+    const recommendation = normalizeControlPlaneRecommendation(item.recommendation, prefix);
+    const isOwnerDecision = lifecycle.stage === "P6";
+    if (isOwnerDecision && (lifecycle.status !== "owner_decision_required" || recommendation.code !== "owner_live_decision")) {
+      throw new Error(`${prefix} P6 must be an owner_live_decision`);
+    }
+    if (!isOwnerDecision && (lifecycle.status === "owner_decision_required" || recommendation.code === "owner_live_decision")) {
+      throw new Error(`${prefix} only P6 can require an owner_live_decision`);
+    }
+    return {
+      candidate_id: candidateId,
+      candidate_kind: cleanChoice(item.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${prefix}.candidate_kind`),
+      domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${prefix}.domain`),
+      lifecycle,
+      evidence: normalizeControlPlaneEvidence(item.evidence, prefix),
+      recommendation,
+      freshness: normalizeStrategyHealthFreshness(item.freshness, `${prefix}.freshness`),
+    };
+  });
+}
+
+function normalizeControlPlaneIdentifier(value, fieldName, nullable = true) {
+  if ((value === null || value === undefined || value === "") && nullable) return null;
+  const text = String(value || "").trim();
+  if (!/^[A-Za-z0-9._=-]{1,128}$/.test(text)) throw new Error(`${fieldName} is invalid`);
+  if (/(token|secret|password|cookie|private|api[_-]?key)/i.test(text)) throw new Error(`${fieldName} is sensitive`);
+  return text;
+}
+
+function normalizeControlPlaneLifecycle(value, prefix) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    stage: cleanChoice(source.stage, CONTROL_PLANE_STAGES, `${prefix}.lifecycle.stage`),
+    status: cleanChoice(source.status, CONTROL_PLANE_LIFECYCLE_STATUSES, `${prefix}.lifecycle.status`),
+  };
+}
+
+function normalizeControlPlaneEvidence(value, prefix) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    p1_input_digest: normalizeControlPlaneIdentifier(source.p1_input_digest, `${prefix}.evidence.p1_input_digest`),
+    p2_config_digest: normalizeControlPlaneIdentifier(source.p2_config_digest, `${prefix}.evidence.p2_config_digest`),
+    p3_evidence_id: normalizeControlPlaneIdentifier(source.p3_evidence_id, `${prefix}.evidence.p3_evidence_id`),
+    source_revision: normalizeControlPlaneIdentifier(source.source_revision, `${prefix}.evidence.source_revision`),
+  };
+}
+
+function normalizeControlPlaneRecommendation(value, prefix) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    code: cleanChoice(source.code || "none", CONTROL_PLANE_RECOMMENDATIONS, `${prefix}.recommendation.code`),
+    reason: sanitizeStrategyHealthText(source.reason, `${prefix}.recommendation.reason`, 240, false, "没有可用的机器建议。"),
+  };
+}
+
+function normalizeControlPlaneSummary(candidates) {
+  return {
+    candidate_count: candidates.length,
+    deferred: candidates.filter((item) => item.lifecycle.status === "deferred").length,
+    parked: candidates.filter((item) => item.lifecycle.status === "parked").length,
+    owner_decision_required: candidates.filter((item) => item.lifecycle.status === "owner_decision_required").length,
+  };
+}
+
+function normalizeControlPlanePolicy(value, fieldName) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  if (source.p6_owner_decision_required !== true) {
+    throw new Error(`${fieldName}.policy.p6_owner_decision_required must be true`);
+  }
+  return {
+    p4_p5_automation: cleanChoice(
+      source.p4_p5_automation || "not_configured",
+      CONTROL_PLANE_AUTOMATION_STATES,
+      `${fieldName}.policy.p4_p5_automation`,
+    ),
+    p6_owner_decision_required: true,
+    notice: sanitizeStrategyHealthText(source.notice, `${fieldName}.policy.notice`, 240, false, "live 仍需所有者明确决定。"),
+  };
+}
+
+function emptyControlPlanePayload(errorCode) {
+  return {
+    schema_version: "qsl_control_plane_dashboard.v1",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
+    candidates: [],
+    policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true, notice: "live 仍需所有者明确决定。" },
+    errors: [errorCode],
+  };
+}
+
+function controlPlaneStaleTtlSeconds(env) {
+  const configured = Number(env.CONTROL_PLANE_STALE_TTL_SECONDS);
+  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
+    return CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS;
   }
   return Math.floor(configured);
 }
@@ -3069,6 +3305,8 @@ export const __test = {
   syncDefaultStrategyForAccount,
   normalizeStrategyHealthSnapshot,
   emptyStrategyHealthPayload,
+  normalizeControlPlaneSnapshot,
+  emptyControlPlanePayload,
   makeSession,
   supportedDomainsForAccount,
   updateAccountOptionsDefaultStrategy,

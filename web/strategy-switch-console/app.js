@@ -814,10 +814,31 @@
 
     const copy = {
       zh: {
-        appTitle: "策略切换",
-        appSubtitle: "选平台、目标账号和策略，一次执行完成切换。",
+        appTitle: "QSL 全局控制台",
+        appSubtitle: "在一个入口查看证据、候选和需要你决定的事项。",
+        controlPlaneView: "全局概览",
         healthView: "策略健康",
-        switchView: "实盘切换",
+        switchView: "部署配置",
+        controlPlaneEyebrow: "全局控制面 / 只读",
+        controlPlaneTitle: "今天需要知道什么。",
+        controlPlaneSubtitle: "只显示经过验证的候选、日更证据和需要所有者决定的事项；没有快照时不推断状态。",
+        controlCandidateTotal: "候选总数",
+        controlDeferred: "本次延期",
+        controlParked: "已停车",
+        controlOwnerDecision: "等待我决定",
+        controlCandidateBoard: "候选生命周期",
+        controlDataReady: "快照已加载",
+        controlDataStale: "快照已过期",
+        controlDataUnavailable: "等待可用快照",
+        controlComputedAt: "最近计算：{time}",
+        controlLoginNotice: "登录后读取私有全局快照；没有快照时不会展示虚构信息。",
+        controlStaleNotice: "全局快照已超过允许的新鲜度窗口；页面保留原始记录，但不把它作为当前结论。",
+        controlUnavailableNotice: "还没有可用的全局快照；当前页面保持 fail-closed 空状态。",
+        controlUpstreamNotice: "快照已加载，但有 {count} 个上游提示；缺失信息不会被补成推断结论。",
+        controlEmptyCandidates: "暂无可展示的候选快照。",
+        controlNoRecommendation: "没有可用的机器建议。",
+        controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
+        controlNext: "下一步",
         healthEyebrow: "策略健康 / 只读",
         healthTitle: "先看机器结论，再决定动作。",
         healthSubtitle: "健康不等于已获运行授权；实盘、资金和杠杆变更必须匹配当前、可验证的预授权策略。",
@@ -992,10 +1013,31 @@
         cashOnlyExecutionDefault: "仅用现金",
       },
       en: {
-        appTitle: "Strategy Switch",
-        appSubtitle: "Pick platform, target account, and strategy. One action switches everything.",
+        appTitle: "QSL Control Console",
+        appSubtitle: "One place for evidence, candidates, and decisions that need you.",
+        controlPlaneView: "Overview",
         healthView: "Strategy Health",
-        switchView: "Live Switch",
+        switchView: "Deployment Settings",
+        controlPlaneEyebrow: "Global control plane / read only",
+        controlPlaneTitle: "What you need to know today.",
+        controlPlaneSubtitle: "Only verified candidates, daily evidence, and owner decisions appear here. Missing snapshots never imply a status.",
+        controlCandidateTotal: "Candidates",
+        controlDeferred: "Deferred now",
+        controlParked: "Parked",
+        controlOwnerDecision: "Needs my decision",
+        controlCandidateBoard: "Candidate lifecycle",
+        controlDataReady: "Snapshot loaded",
+        controlDataStale: "Snapshot is stale",
+        controlDataUnavailable: "Waiting for a usable snapshot",
+        controlComputedAt: "Last computed: {time}",
+        controlLoginNotice: "Sign in to read the private global snapshot. Missing data is never invented.",
+        controlStaleNotice: "This snapshot is outside its freshness window. The record remains visible, but is not a current conclusion.",
+        controlUnavailableNotice: "No usable global snapshot is available yet. This page remains fail-closed and empty.",
+        controlUpstreamNotice: "The snapshot loaded with {count} upstream notice(s); missing information is never inferred.",
+        controlEmptyCandidates: "No candidate snapshot is available to display.",
+        controlNoRecommendation: "No machine recommendation is available.",
+        controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
+        controlNext: "NEXT",
         healthEyebrow: "Strategy health / read only",
         healthTitle: "Read the machine conclusion before choosing an action.",
         healthSubtitle: "Health does not grant runtime authority; live, funding, and leverage changes must match a current, verifiable preauthorized policy.",
@@ -1200,7 +1242,7 @@
     const state = {
       selected: "longbridge",
       lang: initialLang,
-      view: "health",
+      view: "control",
       appReady: false,
       bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
@@ -1214,6 +1256,16 @@
           strategies: [],
         },
         filter: "all",
+      },
+      controlPlane: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
+          candidates: [],
+          policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
+          errors: [],
+        },
       },
       configSource: "default",
       repositories: clone(defaultRepositories),
@@ -3258,6 +3310,94 @@
       el("boot-message").textContent = t(state.bootMessageKey);
     }
 
+    function normalizeControlPlanePayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid control plane payload");
+      const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        candidates: candidates.filter((item) => item && typeof item === "object" && item.lifecycle && typeof item.lifecycle === "object"),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function controlPlaneDataStatusText(status) {
+      return status === "ready"
+        ? t("controlDataReady")
+        : (status === "stale" ? t("controlDataStale") : t("controlDataUnavailable"));
+    }
+
+    function renderControlPlane() {
+      const payload = state.controlPlane.payload;
+      const summary = payload.summary || {};
+      el("control-plane-status").textContent = controlPlaneDataStatusText(payload.data_status);
+      el("control-plane-computed-at").textContent = payload.computed_at
+        ? t("controlComputedAt").replace("{time}", new Date(payload.computed_at).toLocaleString())
+        : t("controlComputedAt").replace("{time}", "—");
+      el("control-count-candidates").textContent = String(Number(summary.candidate_count) || 0);
+      el("control-count-deferred").textContent = String(Number(summary.deferred) || 0);
+      el("control-count-parked").textContent = String(Number(summary.parked) || 0);
+      el("control-count-owner-decision").textContent = String(Number(summary.owner_decision_required) || 0);
+
+      const notice = el("control-plane-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("controlLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("controlStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("controlUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
+      } else {
+        notice.textContent = payload.policy?.notice || "live 仍需所有者明确决定。";
+      }
+
+      const list = el("control-plane-list");
+      list.replaceChildren();
+      if (!payload.candidates.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("controlEmptyCandidates");
+        list.appendChild(empty);
+        return;
+      }
+      for (const item of payload.candidates) {
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = `${item.candidate_kind || "candidate"} · ${domainLabel(item.domain || "")}`;
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = String(item.candidate_id || "unknown");
+        const reason = document.createElement("p");
+        reason.className = "health-card__reason";
+        reason.textContent = item.recommendation?.reason || t("controlNoRecommendation");
+        const detail = document.createElement("div");
+        detail.className = "health-card__meta";
+        detail.textContent = t("controlStageMeta")
+          .replace("{stage}", item.lifecycle?.stage || "—")
+          .replace("{status}", item.lifecycle?.status || "unknown")
+          .replace("{freshness}", item.freshness?.status || "unknown");
+        main.append(meta, title, reason, detail);
+        const stateBlock = document.createElement("div");
+        stateBlock.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = t("controlNext");
+        const stage = document.createElement("strong");
+        stage.textContent = item.lifecycle?.stage || "—";
+        const recommendation = document.createElement("small");
+        recommendation.textContent = item.recommendation?.code || "none";
+        stateBlock.append(label, stage, recommendation);
+        card.append(main, stateBlock);
+        list.appendChild(card);
+      }
+    }
+
     function healthStatusLabel(status) {
       return { healthy: "健康", watch: "观察", review: "复核", critical: "严重" }[status] || "未知";
     }
@@ -3346,19 +3486,24 @@
     }
 
     function renderConsoleView() {
+      const controlButton = el("control-plane-view-button");
       const healthButton = el("health-view-button");
       const switchButton = el("switch-view-button");
+      const controlVisible = state.view === "control";
       const healthVisible = state.view === "health";
+      el("control-plane-view").hidden = !controlVisible;
       el("health-view").hidden = !healthVisible;
-      el("switch-view").hidden = healthVisible;
+      el("switch-view").hidden = controlVisible || healthVisible;
+      controlButton.classList.toggle("active", controlVisible);
       healthButton.classList.toggle("active", healthVisible);
-      switchButton.classList.toggle("active", !healthVisible);
+      switchButton.classList.toggle("active", !controlVisible && !healthVisible);
     }
 
     function render() {
       applyLanguage();
       renderRuntimeAuthorityStatus();
       renderConsoleView();
+      renderControlPlane();
       renderHealth();
       renderPlatforms();
       renderControls();
@@ -3382,6 +3527,7 @@
         state.auth = { available: false, allowed: false, admin: false, login: null };
       }
       if (state.auth.allowed) {
+        await refreshControlPlane();
         await refreshHealth();
         await refreshConfig();
       } else {
@@ -3408,6 +3554,26 @@
         };
       }
       renderHealth();
+    }
+
+    async function refreshControlPlane() {
+      if (!state.auth.allowed) {
+        renderControlPlane();
+        return;
+      }
+      try {
+        state.controlPlane.payload = normalizeControlPlanePayload(await requestJson("/api/control-plane"));
+      } catch {
+        state.controlPlane.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
+          candidates: [],
+          policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
+          errors: ["control_plane_request_failed"],
+        };
+      }
+      renderControlPlane();
     }
 
     async function refreshStrategyProfiles() {
@@ -3597,8 +3763,9 @@
     }
 
     document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
-      state.view = button.dataset.view === "switch" ? "switch" : "health";
+      state.view = ["control", "health", "switch"].includes(button.dataset.view) ? button.dataset.view : "control";
       renderConsoleView();
+      if (state.view === "control") refreshControlPlane();
       if (state.view === "health") refreshHealth();
     }));
 

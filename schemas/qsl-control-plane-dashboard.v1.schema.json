@@ -47,6 +47,49 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["candidate_id", "candidate_kind", "domain", "lifecycle", "evidence", "recommendation", "freshness"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "lifecycle": {
+                "properties": { "stage": { "const": "P6" } }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "lifecycle": {
+                "properties": { "status": { "const": "owner_decision_required" } }
+              },
+              "recommendation": {
+                "properties": { "code": { "const": "owner_live_decision" } }
+              }
+            }
+          },
+          "else": {
+            "allOf": [
+              {
+                "not": {
+                  "properties": {
+                    "lifecycle": {
+                      "properties": { "status": { "const": "owner_decision_required" } }
+                    }
+                  }
+                }
+              },
+              {
+                "not": {
+                  "properties": {
+                    "recommendation": {
+                      "properties": { "code": { "const": "owner_live_decision" } }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
       "properties": {
         "candidate_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,120}$" },
         "candidate_kind": { "enum": ["individual", "portfolio", "plugin"] },
