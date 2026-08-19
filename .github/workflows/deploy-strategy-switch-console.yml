@@ -37,6 +37,7 @@ jobs:
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -117,6 +118,13 @@ jobs:
       - name: Deploy Worker
         working-directory: web/strategy-switch-console
         run: npx wrangler@4.106.0 deploy --config wrangler.toml
+
+      - name: Sync optional control-plane ingress token
+        if: env.CONTROL_PLANE_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$CONTROL_PLANE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put CONTROL_PLANE_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync bundled strategy profiles to KV
         if: github.event_name != 'workflow_dispatch' || inputs.sync_strategy_profiles

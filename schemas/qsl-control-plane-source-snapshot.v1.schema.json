@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-control-plane-source-snapshot.v1.schema.json",
+  "title": "QSL Control Plane Source Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_id", "generated_at", "computed_at", "data_status", "candidates", "errors"],
+  "properties": {
+    "schema_version": { "const": "qsl_control_plane_source_snapshot.v1" },
+    "source_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,128}$" },
+    "generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "candidates": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "qsl-control-plane-dashboard.v1.schema.json#/$defs/candidate" }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  }
+}

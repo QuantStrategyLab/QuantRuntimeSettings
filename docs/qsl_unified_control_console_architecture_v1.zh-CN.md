@@ -11,7 +11,7 @@
 这不代表把所有系统塞进一个网页，也不代表网页成为券商。各仓库仍拥有自己的代码、数据、P1 输入、P2 配置和 P3 证据；控制台只是汇总经过验证的**最小状态快照**，并在未来记录人类的明确决策。
 
 ```text
-各仓 driver / 日更任务 ──最小、已验证的快照──► QuantRuntimeSettings Worker + KV
+各仓 driver / 日更任务 ──来源快照（按 source_id）──► QuantRuntimeSettings Worker + KV ──聚合──► 网页
                                                     │
                                                     ▼
                                       一个网页登录后的全局决策平台
@@ -31,9 +31,9 @@
 
 ### 1. 全局概览（先做，只读）
 
-新增 `qsl_control_plane_dashboard.v1` 快照契约。它汇总候选身份、当前阶段、数据新鲜度、P1/P2/P3 摘要、机器建议和 P6 是否等待所有者决定；不携带原始行情、账户、完整订单、文件路径或密钥。
+新增两层快照契约：各仓只发布自己的 `qsl_control_plane_source_snapshot.v1`；Worker 汇总为给网页读取的 `qsl_control_plane_dashboard.v1`。它汇总候选身份、当前阶段、数据新鲜度、P1/P2/P3 摘要、机器建议和 P6 是否等待所有者决定；不携带原始行情、账户、完整订单、文件路径或密钥。
 
-Worker 以**独立于 dispatch token 的同步身份**接收快照，并只向已登录 allowlist 用户读取。快照缺失、过期、未来时间戳或 schema 不符时，页面显示 `unavailable` / `stale`，不伪造全局健康结论。
+Worker 以**独立于 dispatch token 的同步身份**接收来源快照、按 `source_id` 分开保存在 KV，并只向已登录 allowlist 用户读取聚合结果。这样一个仓库不能覆盖另一个仓库的候选；同名候选会 fail-closed 并记录冲突。快照缺失、过期、未来时间戳或 schema 不符时，页面显示 `unavailable` / `stale`，不伪造全局健康结论。当前日更来源默认 36 小时后变为 stale，适配交易日节奏而不把周末误报为实时故障。
 
 ### 首页信息架构
 

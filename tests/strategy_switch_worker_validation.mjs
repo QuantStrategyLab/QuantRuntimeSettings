@@ -1831,6 +1831,14 @@ const controlStore = new Map();
 const controlKv = {
   async get(key) { return controlStore.get(key) || null; },
   async put(key, value) { controlStore.set(key, value); },
+  async list({ prefix = "", limit = 1000 } = {}) {
+    return {
+      keys: [...controlStore.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .slice(0, limit)
+        .map((name) => ({ name })),
+    };
+  },
 };
 const controlSyncValue = ["control", "sync", "value"].join("-");
 const controlEnv = {
@@ -1947,3 +1955,53 @@ const staleControlRead = await worker.fetch(
   controlEnv,
 );
 assert.equal((await staleControlRead.json()).data_status, "stale");
+
+const controlSourcePayload = {
+  schema_version: "qsl_control_plane_source_snapshot.v1",
+  source_id: "uesp.tqqq_daily_research",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  candidates: [{
+    ...controlPayload.candidates[0],
+    lifecycle: { stage: "P3", status: "verified" },
+    evidence: { ...controlPayload.candidates[0].evidence, p3_evidence_id: "d".repeat(64) },
+    recommendation: { code: "keep_research", reason: "P3 evidence completed; research only" },
+  }],
+  errors: [],
+};
+const sourceSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(controlSourcePayload),
+  }),
+  controlEnv,
+);
+assert.equal(sourceSync.status, 200);
+assert.equal((await sourceSync.json()).source_id, "uesp.tqqq_daily_research");
+const sourceControlRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane", { headers: controlCookieHeaders }),
+  controlEnv,
+);
+const sourceControlPayload = await sourceControlRead.json();
+assert.equal(sourceControlPayload.data_status, "ready");
+assert.deepEqual(sourceControlPayload.summary, { candidate_count: 1, deferred: 0, parked: 0, owner_decision_required: 0 });
+assert.equal(sourceControlPayload.candidates[0].candidate_id, "tqqq_core_only_p2_v5");
+
+const conflictingSourceSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...controlSourcePayload, source_id: "uesp.conflicting_candidate" }),
+  }),
+  controlEnv,
+);
+assert.equal(conflictingSourceSync.status, 200);
+const conflictingSourceRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane", { headers: controlCookieHeaders }),
+  controlEnv,
+);
+const conflictingSourcePayload = await conflictingSourceRead.json();
+assert.equal(conflictingSourcePayload.summary.candidate_count, 0);
+assert.ok(conflictingSourcePayload.errors.includes("control_plane_duplicate_candidate"));
