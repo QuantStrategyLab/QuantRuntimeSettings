@@ -137,6 +137,36 @@
       background: rgba(255, 255, 255, 0.7);
     }
 
+    .runtime-authority-notice {
+      display: grid;
+      grid-template-columns: minmax(210px, 0.42fr) minmax(0, 0.9fr) minmax(0, 1fr);
+      gap: 12px 18px;
+      align-items: center;
+      margin-bottom: 14px;
+      padding: 14px 16px;
+      border: 1px solid rgba(186, 146, 59, 0.34);
+      border-radius: var(--radius-md, 12px);
+      background: linear-gradient(90deg, rgba(255, 248, 223, 0.92), rgba(255, 255, 255, 0.9));
+      color: #5d4617;
+    }
+
+    .runtime-authority-notice > div {
+      display: grid;
+      gap: 4px;
+    }
+
+    .runtime-authority-notice strong {
+      color: #8a5a00;
+      font-size: 13px;
+      overflow-wrap: anywhere;
+    }
+
+    .runtime-authority-notice p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
     .console-nav__button {
       min-height: 38px;
       padding: 0 15px;
@@ -1447,7 +1477,8 @@
 
       .platform-strip,
       .quick-form,
-      .form-section {
+      .form-section,
+      .runtime-authority-notice {
         grid-template-columns: 1fr;
       }
 

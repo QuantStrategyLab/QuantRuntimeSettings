@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import json
 import os
 import re
@@ -146,6 +147,25 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(qmt["runtime_model"], "not_configured")
         self.assertEqual(qmt["settings_activation"], "not_wired")
         self.assertFalse(qmt["live_configured"])
+
+    def test_runtime_authority_status_does_not_grant_p0_p6_runtime_authority(self):
+        config = build_config.load_config()
+        authority = config["meta"]["runtime_authority"]
+
+        self.assertEqual(authority["schema_version"], "qsl.runtime_authority_status.v1")
+        self.assertEqual(authority["scope"], "p0_p6_control_plane")
+        self.assertEqual(authority["status"], "P0_CONTROL_PLANE_NOT_RUNTIME_WIRED")
+        self.assertFalse(authority["active_preauthorized_autonomy_policy"])
+        self.assertFalse(authority["execution_metadata_is_runtime_authority"])
+        self.assertEqual(authority["p1_p3_non_live_data_acquisition_authority"], "INDEPENDENT_CONTRACT_REQUIRED")
+        self.assertEqual(authority["p4_p6_definition"], "UNDEFINED")
+
+        invalid = copy.deepcopy(config)
+        invalid["meta"]["runtime_authority"]["execution_metadata_is_runtime_authority"] = True
+        self.assertIn(
+            "meta.runtime_authority.execution_metadata_is_runtime_authority must be False",
+            build_config.validate(invalid),
+        )
 
     def test_manual_switch_rejects_unsupported_sync_before_variable_write(self):
         workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
@@ -618,7 +638,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "can_switch_live": False,
             "lifecycle_stage": "research_backtest_only",
             "allowed_execution_modes": ["paper", "dry_run"],
-            "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+            "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         }
         config = build_config.load_config()["strategies"]
         generated = {

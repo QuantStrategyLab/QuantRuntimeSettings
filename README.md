@@ -26,6 +26,12 @@ It supports the system but does not decide which strategy should be live. Strate
 - Keep secrets and environment-specific settings outside the shared library code.
 - Document changes that affect multiple platforms or strategy packages.
 
+## P0–P6 runtime-authority status
+
+`platform-config.json.meta.runtime_authority` is the machine-readable status for the P0–P6 control plane. Its current `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED` status means that this repository has no active preauthorized autonomy policy and no runtime-wired P0 execution gateway.
+
+`default_execution_mode`, `live_configured`, strategy lifecycle labels, this repository's switch workflow, and a green CI result are configuration or historical metadata—not authorization for runtime, orders, funds, or a stage change. P1–P3 non-live data acquisition needs its own precise contract; P0 does not grant it by implication. P4–P6 remain undefined. See [the architecture boundary](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary).
+
 ## Repository layout
 
 - `python/`: Python tooling (scripts, tests, pyproject.toml) — validation, code generation, deployment scripts.
@@ -58,6 +64,8 @@ python3 -m unittest discover -s python/tests -v
 ## Manual Strategy Switch
 
 `.github/workflows/manual-strategy-switch.yml` provides a central manual switch entrypoint. It builds a transient runtime target from workflow inputs, validates it with `python/scripts/runtime_settings.py`, and writes GitHub variables into the target platform repository. It supports `longbridge`, `ibkr`, `schwab`, `firstrade`, `qmt`, and `binance`.
+
+This is a legacy settings-change path. It does not create or broaden P0–P6 runtime authority, and it must not be used to infer permission while the status above is not runtime-wired.
 
 Recommended flow:
 
