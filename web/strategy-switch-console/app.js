@@ -839,6 +839,16 @@
         controlNoRecommendation: "没有可用的机器建议。",
         controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
         controlNext: "下一步",
+        executionEvidenceBoard: "策略 × 平台执行证据 / 只读",
+        executionEvidenceLoginNotice: "登录后读取私有执行证据快照；缺失来源不会被推断成 paper 或 live 状态。",
+        executionEvidenceStaleNotice: "执行证据已超过允许的新鲜度窗口；它保留为历史记录，不能作为当前运行或 P6 结论。",
+        executionEvidenceUnavailableNotice: "还没有可用的执行证据来源；当前列表保持 fail-closed 空状态。",
+        executionEvidenceUpstreamNotice: "执行证据已加载，但有 {count} 个上游提示；页面不会补造平台能力或运行资格。",
+        executionEvidenceEmpty: "暂无可展示的策略 × 平台执行证据。",
+        executionEvidenceMeta: "{platform} · 当前通道：{environment} · 来源：{source}",
+        executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
+        executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
+        executionEvidenceNext: "下一步",
         researchTaskBoard: "研究任务队列 / 只读",
         researchTaskLoginNotice: "登录后读取私有研究任务索引；没有来源快照时不会展示虚构任务。",
         researchTaskStaleNotice: "研究任务来源已超过允许的新鲜度窗口；任务保留为历史记录，但不作为当前工作指令。",
@@ -1047,6 +1057,16 @@
         controlNoRecommendation: "No machine recommendation is available.",
         controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
         controlNext: "NEXT",
+        executionEvidenceBoard: "Strategy × platform execution evidence / read only",
+        executionEvidenceLoginNotice: "Sign in to read private execution-evidence snapshots. Missing sources never imply a paper or live state.",
+        executionEvidenceStaleNotice: "This execution evidence is beyond its freshness window. It remains historical context, not a current runtime or P6 conclusion.",
+        executionEvidenceUnavailableNotice: "No usable execution-evidence source is available yet. This list remains fail-closed and empty.",
+        executionEvidenceUpstreamNotice: "Execution evidence loaded with {count} upstream notice(s); no platform capability or runtime authority is inferred.",
+        executionEvidenceEmpty: "No strategy × platform execution evidence is available to display.",
+        executionEvidenceMeta: "{platform} · current lane: {environment} · source: {source}",
+        executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
+        executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
+        executionEvidenceNext: "NEXT",
         researchTaskBoard: "Research task queue / read only",
         researchTaskLoginNotice: "Sign in to read the private research task index. Missing source snapshots never imply a task.",
         researchTaskStaleNotice: "The research task source is beyond its freshness window. It remains historical context, not a current instruction.",
@@ -1282,6 +1302,16 @@
           summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
           candidates: [],
           policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
+          errors: [],
+        },
+      },
+      executionEvidence: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
+          deployments: [],
+          policy: { execution_evidence_read_only: true, p6_owner_decision_required: true, limited_live_canary_active: false },
           errors: [],
         },
       },
@@ -3426,6 +3456,88 @@
       }
     }
 
+    function normalizeExecutionEvidencePayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid execution evidence payload");
+      const deployments = Array.isArray(payload.deployments) ? payload.deployments : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        deployments: deployments.filter((item) => item && typeof item === "object" && item.deployment && typeof item.deployment === "object"),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function renderExecutionEvidence() {
+      const payload = state.executionEvidence.payload;
+      const notice = el("execution-evidence-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("executionEvidenceLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("executionEvidenceStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("executionEvidenceUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("executionEvidenceUpstreamNotice").replace("{count}", payload.errors.length);
+      } else {
+        notice.textContent = payload.policy?.notice || t("executionEvidenceNoOrder");
+      }
+
+      const list = el("execution-evidence-list");
+      list.replaceChildren();
+      if (!payload.deployments.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("executionEvidenceEmpty");
+        list.appendChild(empty);
+        return;
+      }
+      for (const entry of payload.deployments) {
+        const deployment = entry.deployment || {};
+        const strategy = deployment.strategy || {};
+        const target = deployment.target || {};
+        const capabilities = deployment.capabilities || {};
+        const evidence = deployment.evidence || {};
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("executionEvidenceMeta")
+          .replace("{platform}", target.platform || "unknown")
+          .replace("{environment}", target.environment || "unknown")
+          .replace("{source}", entry.source_id || "unknown");
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = String(strategy.candidate_id || deployment.deployment_id || "unknown");
+        const reason = document.createElement("p");
+        reason.className = "health-card__reason";
+        reason.textContent = deployment.recommendation?.reason_code || t("executionEvidenceNoOrder");
+        const detail = document.createElement("div");
+        detail.className = "health-card__meta";
+        detail.textContent = t("executionEvidenceDetail")
+          .replace("{strategy}", evidence.strategy || "unknown")
+          .replace("{data}", evidence.target_data || "unknown")
+          .replace("{execution}", evidence.target_execution || "unknown")
+          .replace("{shadow}", capabilities.shadow || "unknown")
+          .replace("{paper}", capabilities.paper || "unknown");
+        main.append(meta, title, reason, detail);
+        const stateBlock = document.createElement("div");
+        stateBlock.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = t("executionEvidenceNext");
+        const recommendation = document.createElement("strong");
+        recommendation.textContent = deployment.recommendation?.code || "parked";
+        const freshness = document.createElement("small");
+        freshness.textContent = entry.freshness?.data_status || "unknown";
+        stateBlock.append(label, recommendation, freshness);
+        card.append(main, stateBlock);
+        list.appendChild(card);
+      }
+    }
+
     function normalizeResearchTaskPayload(payload) {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid research task payload");
       const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
@@ -3615,6 +3727,7 @@
       renderRuntimeAuthorityStatus();
       renderConsoleView();
       renderControlPlane();
+      renderExecutionEvidence();
       renderResearchTasks();
       renderHealth();
       renderPlatforms();
@@ -3640,6 +3753,7 @@
       }
       if (state.auth.allowed) {
         await refreshControlPlane();
+        await refreshExecutionEvidence();
         await refreshResearchTasks();
         await refreshHealth();
         await refreshConfig();
@@ -3687,6 +3801,26 @@
         };
       }
       renderControlPlane();
+    }
+
+    async function refreshExecutionEvidence() {
+      if (!state.auth.allowed) {
+        renderExecutionEvidence();
+        return;
+      }
+      try {
+        state.executionEvidence.payload = normalizeExecutionEvidencePayload(await requestJson("/api/execution-evidence"));
+      } catch {
+        state.executionEvidence.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
+          deployments: [],
+          policy: { execution_evidence_read_only: true, p6_owner_decision_required: true, limited_live_canary_active: false },
+          errors: ["execution_evidence_request_failed"],
+        };
+      }
+      renderExecutionEvidence();
     }
 
     async function refreshResearchTasks() {

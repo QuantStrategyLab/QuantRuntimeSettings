@@ -26,10 +26,13 @@ assert.ok(indexHtml.includes('id="runtime-authority-status"'));
 assert.ok(indexHtml.includes('id="control-plane-view-button"'));
 assert.ok(indexHtml.includes('id="control-plane-view"'));
 assert.ok(indexHtml.includes('id="control-plane-list"'));
+assert.ok(indexHtml.includes('id="execution-evidence-list"'));
+assert.ok(indexHtml.includes('id="execution-evidence-notice"'));
 assert.ok(indexHtml.includes('P0_CONTROL_PLANE_NOT_RUNTIME_WIRED'));
 assert.ok(indexHtml.includes('window.__QSL_RUNTIME_AUTHORITY_STATUS__'));
 assert.ok(indexHtml.includes('execution_metadata_is_runtime_authority'));
 assert.ok(indexHtml.includes('P1–P3 non-live 数据获取仍需独立、精确的契约'));
+assert.ok(indexHtml.includes('requestJson("/api/execution-evidence")'));
 assert.equal(indexHtml.includes('missing_current_promotion_evidence_and_human_acceptance'), false);
 assert.ok(indexHtml.includes('missing_current_promotion_evidence_and_preauthorized_autonomy_policy'));
 assert.ok(indexHtml.includes(".switch-surface.summary-hidden"));
@@ -2005,6 +2008,100 @@ const conflictingSourceRead = await worker.fetch(
 const conflictingSourcePayload = await conflictingSourceRead.json();
 assert.equal(conflictingSourcePayload.summary.candidate_count, 0);
 assert.ok(conflictingSourcePayload.errors.includes("control_plane_duplicate_candidate"));
+
+const executionEvidenceSyncValue = ["execution", "evidence", "sync"].join("-");
+const executionEvidenceEnv = { ...controlEnv, EXECUTION_EVIDENCE_SYNC_TOKEN: executionEvidenceSyncValue };
+const executionEvidenceCookie = await __test.makeSession("health-user", [], executionEvidenceEnv);
+const executionEvidenceCookieHeaders = { Cookie: `qsl_switch_session=${executionEvidenceCookie}` };
+const executionEvidenceSourcePayload = {
+  schema_version: "qsl_execution_evidence_source_snapshot.v1",
+  source_id: "alpaca.tqqq_shadow_audit",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  deployments: [{
+    deployment_id: "tqqq_core_only_p2_v5.alpaca.shadow",
+    strategy: {
+      candidate_id: "tqqq_core_only_p2_v5",
+      candidate_kind: "individual",
+      domain: "us_equity",
+      strategy_revision: "a".repeat(40),
+    },
+    target: { platform: "alpaca", environment: "shadow" },
+    capabilities: { shadow: "available", paper: "unavailable" },
+    evidence: { strategy: "verified", target_data: "verified", target_execution: "verified" },
+    recommendation: { code: "owner_limited_live_canary_decision", reason_code: "paper_not_supported" },
+  }],
+  errors: [],
+};
+const unauthorizedExecutionEvidenceRead = await worker.fetch(
+  new Request("https://switch.example/api/execution-evidence"),
+  executionEvidenceEnv,
+);
+assert.equal(unauthorizedExecutionEvidenceRead.status, 401);
+const wrongExecutionEvidenceToken = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(executionEvidenceSourcePayload),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(wrongExecutionEvidenceToken.status, 401);
+const invalidCanaryEvidence = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...executionEvidenceSourcePayload,
+      deployments: [{
+        ...executionEvidenceSourcePayload.deployments[0],
+        evidence: { ...executionEvidenceSourcePayload.deployments[0].evidence, target_execution: "pending" },
+      }],
+    }),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(invalidCanaryEvidence.status, 400);
+const invalidPaperRecommendation = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...executionEvidenceSourcePayload,
+      deployments: [{
+        ...executionEvidenceSourcePayload.deployments[0],
+        recommendation: { code: "run_autonomous_paper", reason_code: "paper_execution_evidence_needed" },
+      }],
+    }),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(invalidPaperRecommendation.status, 400);
+const executionEvidenceSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(executionEvidenceSourcePayload),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(executionEvidenceSync.status, 200);
+assert.equal((await executionEvidenceSync.json()).deployment_count, 1);
+const executionEvidenceRead = await worker.fetch(
+  new Request("https://switch.example/api/execution-evidence", { headers: executionEvidenceCookieHeaders }),
+  executionEvidenceEnv,
+);
+assert.equal(executionEvidenceRead.status, 200);
+const executionEvidencePayload = await executionEvidenceRead.json();
+assert.equal(executionEvidencePayload.data_status, "ready");
+assert.deepEqual(executionEvidencePayload.summary, {
+  deployment_count: 1, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 1, parked: 0,
+});
+assert.equal(executionEvidencePayload.deployments[0].deployment.target.platform, "alpaca");
+assert.equal(executionEvidencePayload.policy.execution_evidence_read_only, true);
+assert.equal(executionEvidencePayload.policy.p6_owner_decision_required, true);
+assert.equal(executionEvidencePayload.policy.limited_live_canary_active, false);
 
 const researchTaskSyncValue = ["research", "task", "sync"].join("-");
 const researchTaskEnv = { ...controlEnv, RESEARCH_TASK_SYNC_TOKEN: researchTaskSyncValue };
