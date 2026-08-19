@@ -38,6 +38,7 @@ jobs:
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
+      RESEARCH_TASK_SYNC_TOKEN: ${{ secrets.RESEARCH_TASK_SYNC_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -125,6 +126,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put CONTROL_PLANE_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional research-task ingress token
+        if: env.RESEARCH_TASK_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$RESEARCH_TASK_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RESEARCH_TASK_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync bundled strategy profiles to KV
         if: github.event_name != 'workflow_dispatch' || inputs.sync_strategy_profiles
