@@ -352,9 +352,10 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         queue = build_config.build_live_candidate_queue(catalog)
 
         self.assertEqual([item["profile"] for item in queue], ["ready_next", "shadow_next"])
-        self.assertEqual(queue[0]["recommended_action"], "review_evidence_package")
+        self.assertEqual(queue[0]["recommended_action"], "verify_preauthorized_policy_and_evidence")
         self.assertEqual(queue[0]["label"], "候选")
-        self.assertTrue(queue[0]["approval_required"])
+        self.assertTrue(queue[0]["operating_policy_required"])
+        self.assertEqual(queue[0]["operating_policy_status"], "UNVERIFIED")
         self.assertEqual(queue[1]["recommended_action"], "collect_shadow_evidence")
 
     def test_live_candidate_queue_cli_outputs_json_only(self):
@@ -412,15 +413,23 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         profiles = {item["profile"]: item for item in registry["profiles"]}
         lanes = {profile: item["automation_lane"] for profile, item in profiles.items()}
-        self.assertEqual(registry["schema_version"], "strategy_automation_registry.v1")
+        self.assertEqual(registry["schema_version"], "strategy_automation_registry.v2")
         self.assertEqual(lanes["live"], "live_equivalent_optimization")
         self.assertEqual(lanes["candidate"], "promotion_review")
         self.assertEqual(profiles["candidate"]["triggers"], ["evidence_package_ready"])
-        self.assertTrue(profiles["candidate"]["approval_required"])
+        self.assertTrue(profiles["candidate"]["operating_policy_required"])
+        self.assertEqual(profiles["candidate"]["operating_policy_status"], "UNVERIFIED")
+        self.assertEqual(
+            profiles["candidate"]["evidence_required"],
+            ["live_candidate_evidence", "preauthorized_operating_policy_receipt"],
+        )
         self.assertFalse(profiles["candidate"]["can_switch_live"])
         self.assertEqual(lanes["shadow"], "shadow_research")
-        self.assertEqual(profiles["shadow"]["evidence_required"], ["shadow_metrics", "risk_review"])
-        self.assertTrue(profiles["shadow"]["approval_required"])
+        self.assertEqual(
+            profiles["shadow"]["evidence_required"],
+            ["shadow_metrics", "preauthorized_operating_policy_receipt"],
+        )
+        self.assertTrue(profiles["shadow"]["operating_policy_required"])
         self.assertFalse(profiles["shadow"]["can_switch_live"])
         self.assertEqual(lanes["research"], "research_backlog")
         self.assertTrue(profiles["live"]["position_control_sensitive"])
@@ -434,7 +443,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             self.assertEqual(build_config.main(), 0)
 
         printed.assert_called_once()
-        self.assertEqual(json.loads(printed.call_args.args[0])["schema_version"], "strategy_automation_registry.v1")
+        self.assertEqual(json.loads(printed.call_args.args[0])["schema_version"], "strategy_automation_registry.v2")
 
     def test_platform_health_report_summarizes_current_config(self):
         config = json.loads((ROOT / "platform-config.json").read_text(encoding="utf-8"))

@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-08-19T02:27:41Z",
+  "digest_algorithm": "sha256",
+  "effective_at": "2026-08-19T02:27:41Z",
+  "expires_at": "2027-08-19T02:27:41Z",
+  "kms_key_version": "projects/firstradequant/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEEqatOoEncoElOjxQ7ab1LfMwPTuH\nYqoCRAJKaZYb7ANkwTzWi0TbFWFRa4670G2bjItExlNQbMjOM24cDVg/kQ==\n-----END PUBLIC KEY-----\n",
+  "public_key_sha256": "fd035c05798788cd70df574b85bdaf5398132a6d208c08959060f78cf12faab2",
+  "root_id": "qsl-firstradequant-p0-root-v1",
+  "schema": "qsl.gcp_kms_policy_root.v1",
+  "signature_algorithm": "EC_SIGN_P256_SHA256",
+  "trusted_policy_root_sha256": "e804492d462193e3b4575c62e7b45e83608eedcb1d4dec010efa3d5b94038c2f"
+}

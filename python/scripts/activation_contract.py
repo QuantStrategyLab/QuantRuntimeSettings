@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the local-only QSL Activation v1 contract."""
+"""Validate the local-only QSL Activation v2 autonomous-policy contract."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any, Mapping
 
 from deployment_bundle_contract import BundleValidationError, parse_bundle_json, validate_bundle
 
-SCHEMA_ID = "qsl.activation.v1"
+SCHEMA_ID = "qsl.activation.v2"
 BUNDLE_SCHEMA_ID = "qsl.deployment_bundle.v1"
 STAGES = ("DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE")
 _DIGEST_ALGORITHM = "sha256"
@@ -40,12 +40,20 @@ _REQUIRED_FIELDS = {
     "stage",
     "effective_at",
     "expires_at",
-    "human_authority",
+    "operating_authority",
     "target",
     "activation_sha256",
 }
 _BUNDLE_REFERENCE_FIELDS = {"schema", "bundle_id", "bundle_sha256"}
-_AUTHORITY_FIELDS = {"stage", "authority_id", "authority_version", "authority_receipt_sha256"}
+_OPERATING_AUTHORITY_FIELDS = {
+    "mode",
+    "stage",
+    "policy_id",
+    "policy_version",
+    "policy_receipt_sha256",
+    "allowed_ai_actions",
+    "forbidden_ai_actions",
+}
 _TARGET_FIELDS = {
     "platform",
     "repository",
@@ -54,6 +62,20 @@ _TARGET_FIELDS = {
     "account_alias",
     "account_digest_sha256",
 }
+_AUTONOMY_MODE = "PREAUTHORIZED_AUTONOMY"
+_ALLOWED_AI_ACTIONS = (
+    "evidence_validation",
+    "monitor_readonly",
+    "release_evaluation",
+    "research_candidate_generation",
+)
+_FORBIDDEN_AI_ACTIONS = (
+    "credential_access",
+    "direct_order_submission",
+    "kill_switch_reset",
+    "policy_mutation",
+    "risk_limit_mutation",
+)
 
 
 class ActivationValidationError(ValueError):
@@ -147,15 +169,29 @@ def _validate_bundle_reference(value: Any) -> Mapping[str, Any]:
     return reference
 
 
-def _validate_authority(value: Any, path: str = "human_authority") -> Mapping[str, Any]:
+def _validate_operating_authority(value: Any, path: str = "operating_authority") -> Mapping[str, Any]:
     authority = _expect_object(value, path)
-    _expect_exact_keys(authority, _AUTHORITY_FIELDS, path)
+    _expect_exact_keys(authority, _OPERATING_AUTHORITY_FIELDS, path)
+    if authority["mode"] != _AUTONOMY_MODE:
+        _fail(f"{path}.mode must be {_AUTONOMY_MODE}")
     if authority["stage"] not in STAGES:
         _fail(f"{path}.stage must be a canonical activation stage")
-    _expect_identity(authority["authority_id"], f"{path}.authority_id")
-    _expect_identity(authority["authority_version"], f"{path}.authority_version")
-    _expect_sha256(authority["authority_receipt_sha256"], f"{path}.authority_receipt_sha256")
-    return authority
+    _expect_identity(authority["policy_id"], f"{path}.policy_id")
+    _expect_identity(authority["policy_version"], f"{path}.policy_version")
+    _expect_sha256(authority["policy_receipt_sha256"], f"{path}.policy_receipt_sha256")
+    if authority["allowed_ai_actions"] != list(_ALLOWED_AI_ACTIONS):
+        _fail(f"{path}.allowed_ai_actions must be the fixed non-execution action set")
+    if authority["forbidden_ai_actions"] != list(_FORBIDDEN_AI_ACTIONS):
+        _fail(f"{path}.forbidden_ai_actions must protect the control roots")
+    return {
+        "mode": _AUTONOMY_MODE,
+        "stage": authority["stage"],
+        "policy_id": authority["policy_id"],
+        "policy_version": authority["policy_version"],
+        "policy_receipt_sha256": authority["policy_receipt_sha256"],
+        "allowed_ai_actions": list(_ALLOWED_AI_ACTIONS),
+        "forbidden_ai_actions": list(_FORBIDDEN_AI_ACTIONS),
+    }
 
 
 def _validate_target(value: Any) -> Mapping[str, Any]:
@@ -193,9 +229,9 @@ def _validate_shape(activation: Any) -> tuple[Mapping[str, Any], datetime, datet
         _fail("created_at must not be after effective_at")
     if expires_at <= effective_at:
         _fail("expires_at must be after effective_at")
-    authority = _validate_authority(root["human_authority"])
+    authority = _validate_operating_authority(root["operating_authority"])
     if authority["stage"] != root["stage"]:
-        _fail("human authority stage must exactly match activation stage")
+        _fail("operating authority stage must exactly match activation stage")
     _validate_target(root["target"])
     _expect_sha256(root["activation_sha256"], "activation_sha256")
     return root, created_at, effective_at, expires_at
@@ -239,12 +275,12 @@ def _validate_expected_bundle(root: Mapping[str, Any], expected_bundle: Any) -> 
         _fail("activation platform revision does not match deployment bundle platform revision")
 
 
-def _validate_expected_authority(root: Mapping[str, Any], expected_authority: Any) -> None:
-    if expected_authority is None:
+def _validate_expected_operating_authority(root: Mapping[str, Any], expected_operating_authority: Any) -> None:
+    if expected_operating_authority is None:
         return
-    authority = _validate_authority(expected_authority, "expected_authority")
-    if root["human_authority"] != authority:
-        _fail("human authority reference does not match the exact expected authority")
+    authority = _validate_operating_authority(expected_operating_authority, "expected_operating_authority")
+    if root["operating_authority"] != authority:
+        _fail("operating authority reference does not match the exact expected policy")
 
 
 def _validate_previous_activation(root: Mapping[str, Any], previous_activation: Any) -> None:
@@ -255,14 +291,14 @@ def _validate_previous_activation(root: Mapping[str, Any], previous_activation: 
         _fail("previous activation_sha256 mismatch")
     if previous["stage"] == root["stage"]:
         return
-    previous_authority = previous["human_authority"]
-    current_authority = root["human_authority"]
+    previous_authority = previous["operating_authority"]
+    current_authority = root["operating_authority"]
     reused = any(
         previous_authority[field] == current_authority[field]
-        for field in ("authority_id", "authority_receipt_sha256")
+        for field in ("policy_id", "policy_receipt_sha256")
     )
     if reused:
-        _fail("cross-stage authority reuse or upgrade is forbidden")
+        _fail("cross-stage operating policy reuse or upgrade is forbidden")
 
 
 def validate_activation(
@@ -270,16 +306,16 @@ def validate_activation(
     *,
     as_of: str | None = None,
     expected_bundle: Any,
-    expected_authority: Any = None,
+    expected_operating_authority: Any = None,
     previous_activation: Any = None,
 ) -> Mapping[str, Any]:
-    """Fail closed unless identity, authority, target, time window, and digest all match."""
+    """Fail closed unless identity, autonomous policy, target, time window, and digest all match."""
     root, created_at, effective_at, expires_at = _validate_shape(activation)
     expected_hash = calculate_activation_sha256(root)
     if root["activation_sha256"] != expected_hash:
         _fail("activation_sha256 mismatch")
     _validate_expected_bundle(root, expected_bundle)
-    _validate_expected_authority(root, expected_authority)
+    _validate_expected_operating_authority(root, expected_operating_authority)
     _validate_previous_activation(root, previous_activation)
     observed_at = datetime.now(UTC).replace(microsecond=0) if as_of is None else _parse_timestamp(as_of, "as_of")
     if created_at > observed_at:
@@ -316,7 +352,7 @@ def parse_activation_json(
     *,
     as_of: str | None = None,
     expected_bundle: Any = None,
-    expected_authority: Any = None,
+    expected_operating_authority: Any = None,
     previous_activation: Any = None,
 ) -> Mapping[str, Any]:
     value = _load_json(text)
@@ -324,7 +360,7 @@ def parse_activation_json(
         value,
         as_of=as_of,
         expected_bundle=expected_bundle,
-        expected_authority=expected_authority,
+        expected_operating_authority=expected_operating_authority,
         previous_activation=previous_activation,
     )
 
@@ -334,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--input", type=Path, required=True, help="contract-only Activation JSON")
     parser.add_argument("--bundle", type=Path, required=True, help="exact DeploymentBundle JSON")
     parser.add_argument("--as-of", help="inject canonical UTC validation time; defaults to current UTC")
-    parser.add_argument("--previous", type=Path, help="optional previous Activation used only to reject cross-stage authority reuse")
+    parser.add_argument("--previous", type=Path, help="optional previous Activation used only to reject cross-stage policy reuse")
     args = parser.parse_args(argv)
     try:
         bundle = parse_bundle_json(args.bundle.read_text(encoding="utf-8"))

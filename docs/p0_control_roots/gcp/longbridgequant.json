@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-08-19T02:29:59Z",
+  "digest_algorithm": "sha256",
+  "effective_at": "2026-08-19T02:29:59Z",
+  "expires_at": "2027-08-19T02:29:59Z",
+  "kms_key_version": "projects/longbridgequant/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE1QkUi3XoTGWOS2isO+6g06By//QZ\nZntq6aAFVzp8tUMkzVHqCQKghVgSZJLyLPFCxZmHNKV89CjJMbkGBBqFPQ==\n-----END PUBLIC KEY-----\n",
+  "public_key_sha256": "2a41908a74b45114c2f0e0d5ad2ce7b851f939ea0a998d312dd764ace57c7c41",
+  "root_id": "qsl-longbridgequant-p0-root-v1",
+  "schema": "qsl.gcp_kms_policy_root.v1",
+  "signature_algorithm": "EC_SIGN_P256_SHA256",
+  "trusted_policy_root_sha256": "a8ea86116ab3286ae7d19970b7d3c5d60849bfcaf95976e86669a0e35bff6f91"
+}

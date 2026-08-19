@@ -75,7 +75,7 @@ class ControlContractCompositionTest(unittest.TestCase):
 
     def _activation(self, bundle: dict[str, object]) -> dict[str, object]:
         activation: dict[str, object] = {
-            "schema": "qsl.activation.v1",
+            "schema": "qsl.activation.v2",
             "activation_id": "activation.synthetic.disabled.20260805",
             "created_at": "2026-08-05T09:00:00Z",
             "digest_algorithm": "sha256",
@@ -88,11 +88,14 @@ class ControlContractCompositionTest(unittest.TestCase):
             "stage": "DISABLED",
             "effective_at": "2026-08-05T10:00:00Z",
             "expires_at": "2026-08-05T18:00:00Z",
-            "human_authority": {
+            "operating_authority": {
+                "mode": "PREAUTHORIZED_AUTONOMY",
                 "stage": "DISABLED",
-                "authority_id": "synthetic-human-authority.disabled.20260805",
-                "authority_version": "v1",
-                "authority_receipt_sha256": self._sha("c"),
+                "policy_id": "synthetic-autonomous-policy.disabled.20260805",
+                "policy_version": "v2",
+                "policy_receipt_sha256": self._sha("c"),
+                "allowed_ai_actions": ["evidence_validation", "monitor_readonly", "release_evaluation", "research_candidate_generation"],
+                "forbidden_ai_actions": ["credential_access", "direct_order_submission", "kill_switch_reset", "policy_mutation", "risk_limit_mutation"],
             },
             "target": {
                 "platform": bundle["target"]["platform_id"],
@@ -194,8 +197,8 @@ class ControlContractCompositionTest(unittest.TestCase):
             with self.subTest(mutate=mutate):
                 bundle, activation, record = self._composition()
                 mutate(activation)
-                if activation["stage"] != activation["human_authority"]["stage"]:
-                    activation["human_authority"]["stage"] = activation["stage"]
+                if activation["stage"] != activation["operating_authority"]["stage"]:
+                    activation["operating_authority"]["stage"] = activation["stage"]
                 if activation["activation_sha256"] != self._sha("0"):
                     activation["activation_sha256"] = activation_contract.calculate_activation_sha256(activation)
                 with self.assertRaises(reconciliation_record_contract.ReconciliationValidationError):
@@ -259,9 +262,9 @@ class ControlContractCompositionTest(unittest.TestCase):
                 record, expected_bundle=other_bundle, expected_activation=activation, as_of=AS_OF
             )
 
-    def test_serialized_synthetic_composition_has_no_credentials_or_business_payload(self):
+    def test_serialized_synthetic_composition_has_no_sensitive_values_or_business_payload(self):
         composition = json.dumps(self._composition(), sort_keys=True)
-        for forbidden in ("credential", "secret", "token", "password", "raw_payload", "orders", "capital_value"):
+        for forbidden in ("secret", "token", "password", "raw_payload", "orders", "capital_value"):
             self.assertNotIn(forbidden, composition.lower())
 
 

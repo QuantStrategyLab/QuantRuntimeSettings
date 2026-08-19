@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.activation.v2",
+  "title": "QSL Activation v2",
+  "description": "Contract-only binding of a preauthorized autonomous operating-policy lane and target to one exact qsl.deployment_bundle.v1 identity. It creates no authority, performs no apply, and does not prove configuration, runtime activity, observed disablement, reconciliation, orders, fills, or capital state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "activation_id",
+    "created_at",
+    "digest_algorithm",
+    "contract_only",
+    "deployment_bundle",
+    "stage",
+    "effective_at",
+    "expires_at",
+    "operating_authority",
+    "target",
+    "activation_sha256"
+  ],
+  "properties": {
+    "schema": {"const": "qsl.activation.v2"},
+    "activation_id": {"$ref": "#/$defs/identity"},
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "digest_algorithm": {"const": "sha256"},
+    "contract_only": {"const": true},
+    "deployment_bundle": {"$ref": "#/$defs/deploymentBundleReference"},
+    "stage": {"$ref": "#/$defs/stage"},
+    "effective_at": {"$ref": "#/$defs/timestamp"},
+    "expires_at": {"$ref": "#/$defs/timestamp"},
+    "operating_authority": {"$ref": "#/$defs/operatingAuthority"},
+    "target": {"$ref": "#/$defs/target"},
+    "activation_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "stage": {"enum": ["DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE"]},
+    "deploymentBundleReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "bundle_id", "bundle_sha256"],
+      "properties": {
+        "schema": {"const": "qsl.deployment_bundle.v1"},
+        "bundle_id": {"$ref": "#/$defs/identity"},
+        "bundle_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "operatingAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "stage", "policy_id", "policy_version", "policy_receipt_sha256", "allowed_ai_actions", "forbidden_ai_actions"],
+      "properties": {
+        "mode": {"const": "PREAUTHORIZED_AUTONOMY"},
+        "stage": {"$ref": "#/$defs/stage"},
+        "policy_id": {"$ref": "#/$defs/identity"},
+        "policy_version": {"$ref": "#/$defs/identity"},
+        "policy_receipt_sha256": {"$ref": "#/$defs/sha256"},
+        "allowed_ai_actions": {"type": "array", "items": {"enum": ["evidence_validation", "monitor_readonly", "release_evaluation", "research_candidate_generation"]}},
+        "forbidden_ai_actions": {"type": "array", "items": {"enum": ["credential_access", "direct_order_submission", "kill_switch_reset", "policy_mutation", "risk_limit_mutation"]}}
+      }
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["platform", "repository", "revision", "environment", "account_alias", "account_digest_sha256"],
+      "properties": {
+        "platform": {"$ref": "#/$defs/identity"},
+        "repository": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+        "revision": {"$ref": "#/$defs/revision"},
+        "environment": {"$ref": "#/$defs/identity"},
+        "account_alias": {"$ref": "#/$defs/identity"},
+        "account_digest_sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}
