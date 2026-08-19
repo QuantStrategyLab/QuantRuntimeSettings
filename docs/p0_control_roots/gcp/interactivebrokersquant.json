@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-08-19T02:27:41Z",
+  "digest_algorithm": "sha256",
+  "effective_at": "2026-08-19T02:27:41Z",
+  "expires_at": "2027-08-19T02:27:41Z",
+  "kms_key_version": "projects/interactivebrokersquant/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEBBp6Z3Zucfa1bNDkth4pIp65B+BZ\nU0F3fiKaF6rQNEM4cv+eQ1SX4SOo6ClCdjSpPPF2CNaCd6IMVXGmfk4JCg==\n-----END PUBLIC KEY-----\n",
+  "public_key_sha256": "f2dbbd21df355d2059fc023e37d63ce12130ed3bcc5b6ec645f7d5ef95e15038",
+  "root_id": "qsl-interactivebrokersquant-p0-root-v1",
+  "schema": "qsl.gcp_kms_policy_root.v1",
+  "signature_algorithm": "EC_SIGN_P256_SHA256",
+  "trusted_policy_root_sha256": "91a47169eb1aa8049aaa7c4be7a62faa3c83ebf19848c30816b3b8e6aa0a827b"
+}

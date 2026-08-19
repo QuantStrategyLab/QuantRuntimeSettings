@@ -19,7 +19,7 @@
 
 | 阶段 | 当前可携带状态 | 边界 |
 | --- | --- | --- |
-| P0 | 已完成 21 个 retired review caller 的本地清理，待各仓独立提交、CI 与合并；自治运行策略 V2 已有外部签名策略的验签门，但未安装可信根或 active policy。 | 仅清理、复核和记录可验证的控制面后续项；不因此推导运行资格。 |
+| P0 | 已完成 21 个 retired review caller 的本地清理，待各仓独立提交、CI 与合并；自治运行策略 V2 已有外部签名策略的验签门。`binancequant`、`charlesschwabquant`、`firstradequant`、`interactivebrokersquant`、`longbridgequant` 已各自安装并读取核验一把公开 Cloud KMS P-256 root；没有 signer IAM、已签 policy 或接入运行服务。 | 仅清理、复核和记录可验证的控制面后续项；不因此推导运行资格。 |
 | P1–P3 | TQQQ / Alpaca 主线为 **non-live**；`2026-08-17` 的一次手动历史链路中，P1 输入获取与私有上传成功，P3 在验证下载后 `PARKED`。 | 这只说明一次历史研究链路的技术结果，不是策略通过、paper、shadow、live、部署或 promotion 授权。后续工作只能继续准备、核查或产生 non-live 证据。 |
 | P4–P6 | 待核定。 | 本文不臆造其具体范围、顺序、目标、验收条件或完成度；主控会话须先取得新的可复核任务定义。 |
 
@@ -58,7 +58,8 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-15`：`compat/bundles/2026.08.0.toml` 记录该 compatibility bundle 的创建日期。
 - `2026-08-17`：`UsEquitySnapshotPipelines` 合并 TQQQ P1–P3 non-live workflow；同日一次手动运行的 P1 历史输入获取、完整性验证和私有上传成功，P3 验证下载后 `PARKED`。该历史技术结果不表示策略验收或任何 promotion 已获批准。
 - `2026-08-19`：只读复核确认上述 P1 根的原始数据按既有短期保留规则自动到期；未复制、延长或删除该数据。P3 停车时的精确内部原因未被持久化，因此不得事后臆造为策略结论。
+- `2026-08-19`：5 个已计费的券商运行 GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。`qslresearchquant` 未关联 billing account，保持未初始化。详见下方部署记录。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
 
-相关仓内资料：[自治运行策略 V2](qsl_autonomous_operating_policy_v2.zh-CN.md)、[确定性执行网关 V1 设计](qsl_deterministic_execution_gateway_v1.zh-CN.md)、[组织架构与检查口径](qsl_org_architecture.md)、[内部依赖 pin 政策](internal_dependency_pin_policy.zh-CN.md)、[2026.08.0 compatibility bundle](../compat/bundles/2026.08.0.toml)。
+相关仓内资料：[自治运行策略 V2](qsl_autonomous_operating_policy_v2.zh-CN.md)、[确定性执行网关 V1 设计](qsl_deterministic_execution_gateway_v1.zh-CN.md)、[GCP P0 控制根部署记录](qsl_gcp_p0_control_root_deployment_v1.zh-CN.md)、[组织架构与检查口径](qsl_org_architecture.md)、[内部依赖 pin 政策](internal_dependency_pin_policy.zh-CN.md)、[2026.08.0 compatibility bundle](../compat/bundles/2026.08.0.toml)。
