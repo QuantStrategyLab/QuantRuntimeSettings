@@ -2005,3 +2005,86 @@ const conflictingSourceRead = await worker.fetch(
 const conflictingSourcePayload = await conflictingSourceRead.json();
 assert.equal(conflictingSourcePayload.summary.candidate_count, 0);
 assert.ok(conflictingSourcePayload.errors.includes("control_plane_duplicate_candidate"));
+
+const researchTaskSyncValue = ["research", "task", "sync"].join("-");
+const researchTaskEnv = { ...controlEnv, RESEARCH_TASK_SYNC_TOKEN: researchTaskSyncValue };
+const researchTaskCookie = await __test.makeSession("health-user", [], researchTaskEnv);
+const researchTaskCookieHeaders = { Cookie: `qsl_switch_session=${researchTaskCookie}` };
+const researchTask = {
+  schema: "qsl.research_task.v1",
+  task_id: "watcher-tqqq-core-only-p2-v5",
+  created_at: "2026-08-20T00:00:00Z",
+  digest_algorithm: "sha256",
+  task_type: "strategy_diagnosis",
+  target: {
+    candidate_id: "tqqq_core_only_p2_v5",
+    candidate_kind: "individual",
+    domain: "us_equity",
+    repository: "QuantStrategyLab/UsEquityStrategies",
+    strategy_revision: "a".repeat(40),
+  },
+  evidence: {
+    p1_input_digest: "b".repeat(64),
+    p2_config_digest: "c".repeat(64),
+    p3_evidence_id: "d".repeat(64),
+    producer_revision: "e".repeat(40),
+  },
+  experiment: {
+    objective: "diagnose_degradation",
+    hypothesis: "Diagnose the verified degradation with one bounded offline comparison.",
+    parameter_bounds_sha256: null,
+    max_runs: 1,
+    max_wall_seconds: 3600,
+  },
+  authority: { research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false },
+  task_sha256: "",
+};
+researchTask.task_sha256 = await __test.calculateResearchTaskSha256(researchTask);
+const researchTaskSourcePayload = {
+  schema_version: "qsl_research_task_source_snapshot.v1",
+  source_id: "aiaudit.strategy_optimization_watcher",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  tasks: [researchTask],
+  errors: [],
+};
+const unauthorizedResearchTaskSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-task-source", {
+    method: "POST",
+    headers: { Authorization: "Bearer invalid", "Content-Type": "application/json" },
+    body: JSON.stringify(researchTaskSourcePayload),
+  }),
+  researchTaskEnv,
+);
+assert.equal(unauthorizedResearchTaskSync.status, 401);
+const invalidResearchTaskSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-task-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${researchTaskSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...researchTaskSourcePayload, tasks: [{ ...researchTask, authority: { ...researchTask.authority, no_order: false } }] }),
+  }),
+  researchTaskEnv,
+);
+assert.equal(invalidResearchTaskSync.status, 400);
+const researchTaskSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-task-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${researchTaskSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(researchTaskSourcePayload),
+  }),
+  researchTaskEnv,
+);
+assert.equal(researchTaskSync.status, 200);
+assert.equal((await researchTaskSync.json()).task_count, 1);
+const researchTaskRead = await worker.fetch(
+  new Request("https://switch.example/api/research-tasks", { headers: researchTaskCookieHeaders }),
+  researchTaskEnv,
+);
+assert.equal(researchTaskRead.status, 200);
+const researchTaskReadPayload = await researchTaskRead.json();
+assert.equal(researchTaskReadPayload.data_status, "ready");
+assert.equal(researchTaskReadPayload.summary.task_count, 1);
+assert.equal(researchTaskReadPayload.tasks[0].task.task_id, researchTask.task_id);
+assert.equal(researchTaskReadPayload.policy.no_order, true);
+assert.ok(indexHtml.includes('requestJson("/api/research-tasks")'));

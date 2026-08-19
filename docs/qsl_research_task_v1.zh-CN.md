@@ -21,4 +21,10 @@
 
 队列摘要只需要显示：`task_id`、任务类型、候选身份和 revision、创建时间、P1/P2/P3 digest 的短摘要、实验上限、固定 authority 与只读审计事件。详情页可比较两个已经验证的脱敏表现观察，但不得复制原始 bars、参数正文、GCS 路径、账户、订单、资金或凭据。
 
-当前 `qsl_control_plane_source_snapshot.v1` 只承载候选状态，尚未承载研究任务；在 Watcher 已实际发布并可验证 `qsl.research_task.v1` 前，控制台必须显示空队列，不能用 issue、假数据或运行配置推断任务存在。后续应使用单独的任务索引/来源快照，并保持其同步身份与 workflow dispatch、策略根和券商凭据隔离。
+`qsl_control_plane_source_snapshot.v1` 仍只承载候选状态，绝不混入研究任务。控制台改用独立的 `qsl_research_task_source_snapshot.v1` 写入来源快照，并聚合成只读的 `qsl_research_task_dashboard.v1`：
+
+- Worker 在写入前重新核验完整的 `qsl.research_task.v1`、canonical SHA-256、候选 revision、P1/P2/P3 摘要，以及固定的 `research_only/no_order/size_zero_required` authority。
+- 任务来源使用专用 `RESEARCH_TASK_SYNC_TOKEN` 和独立 KV 前缀；它不复用控制面、策略切换、OAuth、策略根或任何券商凭据。
+- 任务 ID 重复于多个来源时聚合器 fail-closed，不展示冲突任务；来源过期时只显示历史/过期状态，不把它当作当前指令。
+
+截至 `2026-08-20`，这一只读索引的 consumer 已实现，但 Watcher producer 尚未配置为发布它，因此空队列是预期且正确的状态。不能用 GitHub Issue、假数据或运行配置推断任务存在；该索引也不包含任务执行器、自动调参、代码修改、PR 合并、部署、paper、shadow 或 live 功能。

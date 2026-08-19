@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-research-task-source-snapshot.v1.schema.json",
+  "title": "QSL Research Task Source Snapshot v1",
+  "description": "A bounded source-owned index of immutable, offline-only qsl.research_task.v1 records.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_id", "generated_at", "computed_at", "data_status", "tasks", "errors"],
+  "properties": {
+    "schema_version": { "const": "qsl_research_task_source_snapshot.v1" },
+    "source_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,128}$" },
+    "generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "tasks": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "qsl-research-task.v1.schema.json" }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  }
+}

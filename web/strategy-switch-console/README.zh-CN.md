@@ -25,6 +25,7 @@ STRATEGY_SWITCH_ADMIN_LOGINS
 STRATEGY_SWITCH_ADMIN_ORGS
 STRATEGY_HEALTH_SYNC_TOKEN
 CONTROL_PLANE_SYNC_TOKEN
+RESEARCH_TASK_SYNC_TOKEN
 ```
 
 可选：
@@ -72,9 +73,16 @@ strategy_profiles
 audit_log
 strategy_health_snapshot
 control_plane_snapshot
+research_task_source:<source_id>
 ```
 
 没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
+
+## 只读研究任务索引
+
+`/api/internal/sync-research-task-source` 只接受 `qsl_research_task_source_snapshot.v1`，并要求独立的 `RESEARCH_TASK_SYNC_TOKEN`。每个任务均须是 SHA-256 自校验通过的 `qsl.research_task.v1`，固定为 `research_only=true`、`no_order=true`、`size_zero_required=true`、`p4_p5_p6_authorized=false`。已登录 allowlist 用户可从 `/api/research-tasks` 读取脱敏聚合结果。
+
+它与 `/api/internal/sync-control-plane-source` 的候选快照、策略切换 token、策略根和券商凭据完全分离。该索引只显示任务，不会运行任务、调优参数、改代码、创建/合并 PR、部署、进入 paper/shadow/live 或触碰账户与订单。
 
 ## 文件结构
 
