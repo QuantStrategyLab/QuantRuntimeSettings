@@ -105,15 +105,19 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
             "digest_algorithm": "sha256",
             "repository": "QuantStrategyLab/UsEquitySnapshotPipelines",
             "revision": self._revision("a"),
+            "runner_environment": "tqqq-p1-p3-nonlive",
             "candidate_config": {
                 "candidate_sha256": self._sha("b"),
                 "config_sha256": self._sha("c"),
             },
             "provider": {"provider_id": "alpaca-market-data"},
+            "retention_policy_sha256": self._sha("d"),
             "allowed_operations": [
                 "historical_market_data_read",
                 "offline_replay",
-                "private_evidence_write",
+                "p1_private_input_root_create_only_write",
+                "p3_private_evidence_metadata_create_only_write",
+                "p3_private_input_root_read",
             ],
             "forbidden_capabilities": [
                 "credential_access",
@@ -153,9 +157,14 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
             expected_root_sha256=kwargs.pop("expected_root_sha256", root["trusted_policy_root_sha256"]),
             expected_repository=kwargs.pop("expected_repository", authorization["repository"]),
             expected_revision=kwargs.pop("expected_revision", authorization["revision"]),
+            expected_runner_environment=kwargs.pop("expected_runner_environment", authorization["runner_environment"]),
             expected_candidate_sha256=kwargs.pop("expected_candidate_sha256", authorization["candidate_config"]["candidate_sha256"]),
             expected_config_sha256=kwargs.pop("expected_config_sha256", authorization["candidate_config"]["config_sha256"]),
             expected_provider_id=kwargs.pop("expected_provider_id", authorization["provider"]["provider_id"]),
+            expected_retention_policy_sha256=kwargs.pop(
+                "expected_retention_policy_sha256",
+                authorization["retention_policy_sha256"],
+            ),
             as_of=AS_OF,
             **kwargs,
         )
@@ -169,6 +178,18 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
 
         self.assertEqual(result["authorization"]["authorization_sha256"], authorization["authorization_sha256"])
         self.assertEqual(result["signature_sha256"], hashlib.sha256(signature).hexdigest())
+        self.assertEqual(result["authorization"]["runner_environment"], "tqqq-p1-p3-nonlive")
+        self.assertEqual(result["authorization"]["retention_policy_sha256"], self._sha("d"))
+        self.assertEqual(
+            result["authorization"]["allowed_operations"],
+            [
+                "historical_market_data_read",
+                "offline_replay",
+                "p1_private_input_root_create_only_write",
+                "p3_private_evidence_metadata_create_only_write",
+                "p3_private_input_root_read",
+            ],
+        )
         self.assertEqual(result["authorization"]["forbidden_capabilities"], [
             "credential_access",
             "paper_execution",
@@ -195,9 +216,11 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
         bindings = {
             "expected_repository": "QuantStrategyLab/OtherRepository",
             "expected_revision": self._revision("d"),
+            "expected_runner_environment": "other-nonlive",
             "expected_candidate_sha256": self._sha("e"),
             "expected_config_sha256": self._sha("f"),
             "expected_provider_id": "other-market-data",
+            "expected_retention_policy_sha256": self._sha("0"),
         }
         for name, value in bindings.items():
             with self.subTest(binding=name):
@@ -224,7 +247,19 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
         live_operation["authorization_sha256"] = research_data_authorization_gate.calculate_research_data_authorization_sha256(
             live_operation
         )
-        variants.append(("live_operation", live_operation, "outside the fixed allowlist"))
+        variants.append(("live_operation", live_operation, "complete P1/P3"))
+
+        missing_p3_read = copy.deepcopy(authorization)
+        missing_p3_read["allowed_operations"] = [
+            "historical_market_data_read",
+            "offline_replay",
+            "p1_private_input_root_create_only_write",
+            "p3_private_evidence_metadata_create_only_write",
+        ]
+        missing_p3_read["authorization_sha256"] = research_data_authorization_gate.calculate_research_data_authorization_sha256(
+            missing_p3_read
+        )
+        variants.append(("missing_p3_read", missing_p3_read, "complete P1/P3"))
 
         missing_execution_denial = copy.deepcopy(authorization)
         missing_execution_denial["forbidden_capabilities"] = ["credential_access"]
@@ -266,12 +301,16 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
             str(authorization["repository"]),
             "--expected-revision",
             str(authorization["revision"]),
+            "--expected-runner-environment",
+            str(authorization["runner_environment"]),
             "--expected-candidate-sha256",
             str(authorization["candidate_config"]["candidate_sha256"]),
             "--expected-config-sha256",
             str(authorization["candidate_config"]["config_sha256"]),
             "--expected-provider-id",
             str(authorization["provider"]["provider_id"]),
+            "--expected-retention-policy-sha256",
+            str(authorization["retention_policy_sha256"]),
             "--as-of",
             AS_OF,
         ]
@@ -288,6 +327,8 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
         summary = json.loads(result.stdout)
         self.assertEqual(summary["authorization_id"], authorization["authorization_id"])
         self.assertEqual(summary["provider_id"], authorization["provider"]["provider_id"])
+        self.assertEqual(summary["runner_environment"], authorization["runner_environment"])
+        self.assertEqual(summary["retention_policy_sha256"], authorization["retention_policy_sha256"])
         self.assertNotIn("public_key_pem", summary)
         self.assertNotIn("forbidden_capabilities", summary)
 
@@ -318,6 +359,8 @@ class ResearchDataAuthorizationGateTest(unittest.TestCase):
         self.assertEqual(schema["$id"], "qsl.research_data_authorization.v1")
         self.assertFalse(schema["additionalProperties"])
         self.assertIn("does not authorize paper", schema["description"])
+        self.assertIn("runner_environment", schema["required"])
+        self.assertIn("retention_policy_sha256", schema["required"])
 
 
 if __name__ == "__main__":

@@ -43,7 +43,9 @@ _FORBIDDEN_KEY_PATTERN = re.compile(
 _ALLOWED_OPERATIONS = (
     "historical_market_data_read",
     "offline_replay",
-    "private_evidence_write",
+    "p1_private_input_root_create_only_write",
+    "p3_private_evidence_metadata_create_only_write",
+    "p3_private_input_root_read",
 )
 _FORBIDDEN_CAPABILITIES = (
     "credential_access",
@@ -63,8 +65,10 @@ _AUTHORIZATION_FIELDS = {
     "digest_algorithm",
     "repository",
     "revision",
+    "runner_environment",
     "candidate_config",
     "provider",
+    "retention_policy_sha256",
     "allowed_operations",
     "forbidden_capabilities",
     "authorization_sha256",
@@ -199,9 +203,9 @@ def _validate_allowed_operations(value: Any) -> list[str]:
         _fail("authorization.allowed_operations must be a non-empty list")
     if value != sorted(value) or len(set(value)) != len(value):
         _fail("authorization.allowed_operations must be sorted and unique")
-    if any(not isinstance(operation, str) or operation not in _ALLOWED_OPERATIONS for operation in value):
-        _fail("authorization.allowed_operations contains a non-trading operation outside the fixed allowlist")
-    return list(value)
+    if value != list(_ALLOWED_OPERATIONS):
+        _fail("authorization.allowed_operations must exactly match the complete P1/P3 non-trading operation set")
+    return list(_ALLOWED_OPERATIONS)
 
 
 def _validate_forbidden_capabilities(value: Any) -> list[str]:
@@ -229,8 +233,10 @@ def validate_research_data_authorization(authorization: Any, *, as_of: str | Non
     if not isinstance(value["repository"], str) or not _REPOSITORY_PATTERN.fullmatch(value["repository"]):
         _fail("authorization.repository must be an owner/repository identity, not a URL")
     _expect_revision(value["revision"], "authorization.revision")
+    _expect_identity(value["runner_environment"], "authorization.runner_environment")
     _validate_candidate_config(value["candidate_config"])
     _validate_provider(value["provider"])
+    _expect_sha256(value["retention_policy_sha256"], "authorization.retention_policy_sha256")
     _validate_allowed_operations(value["allowed_operations"])
     _validate_forbidden_capabilities(value["forbidden_capabilities"])
     _expect_sha256(value["authorization_sha256"], "authorization.authorization_sha256")
@@ -286,34 +292,42 @@ def _validate_expected_scope(
     *,
     expected_repository: Any,
     expected_revision: Any,
+    expected_runner_environment: Any,
     expected_candidate_sha256: Any,
     expected_config_sha256: Any,
     expected_provider_id: Any,
+    expected_retention_policy_sha256: Any,
 ) -> None:
     if not isinstance(expected_repository, str) or not _REPOSITORY_PATTERN.fullmatch(expected_repository):
         _fail("expected_repository must be an owner/repository identity, not a URL")
     _expect_revision(expected_revision, "expected_revision")
+    _expect_identity(expected_runner_environment, "expected_runner_environment")
     _expect_sha256(expected_candidate_sha256, "expected_candidate_sha256")
     _expect_sha256(expected_config_sha256, "expected_config_sha256")
     _expect_identity(expected_provider_id, "expected_provider_id")
+    _expect_sha256(expected_retention_policy_sha256, "expected_retention_policy_sha256")
     expected = {
         "repository": expected_repository,
         "revision": expected_revision,
+        "runner_environment": expected_runner_environment,
         "candidate_sha256": expected_candidate_sha256,
         "config_sha256": expected_config_sha256,
         "provider_id": expected_provider_id,
+        "retention_policy_sha256": expected_retention_policy_sha256,
     }
     actual = {
         "repository": authorization["repository"],
         "revision": authorization["revision"],
+        "runner_environment": authorization["runner_environment"],
         "candidate_sha256": authorization["candidate_config"]["candidate_sha256"],
         "config_sha256": authorization["candidate_config"]["config_sha256"],
         "provider_id": authorization["provider"]["provider_id"],
+        "retention_policy_sha256": authorization["retention_policy_sha256"],
     }
     if actual != expected:
         _fail(
             "research-data authorization does not match the exact expected "
-            "repository, revision, candidate, config, and provider"
+            "repository, revision, runner environment, candidate, config, provider, and retention policy"
         )
 
 
@@ -325,16 +339,19 @@ def validate_research_data_authorization_gate(
     expected_root_sha256: Any,
     expected_repository: Any,
     expected_revision: Any,
+    expected_runner_environment: Any,
     expected_candidate_sha256: Any,
     expected_config_sha256: Any,
     expected_provider_id: Any,
+    expected_retention_policy_sha256: Any,
     as_of: str | None = None,
 ) -> Mapping[str, Any]:
     """Verify a P-256 signed authorization without invoking any execution gate.
 
     The expected scope is supplied independently by the caller.  A valid
     signature alone never lets an authorization move to another repository,
-    revision, candidate/config digest, or provider.
+    revision, runner environment, candidate/config digest, provider, or
+    retention-policy decision.
     """
     try:
         root = validate_gcp_kms_policy_root(
@@ -356,9 +373,11 @@ def validate_research_data_authorization_gate(
         validated,
         expected_repository=expected_repository,
         expected_revision=expected_revision,
+        expected_runner_environment=expected_runner_environment,
         expected_candidate_sha256=expected_candidate_sha256,
         expected_config_sha256=expected_config_sha256,
         expected_provider_id=expected_provider_id,
+        expected_retention_policy_sha256=expected_retention_policy_sha256,
     )
     return {
         "authorization": validated,
@@ -413,6 +432,11 @@ def main(argv: list[str] | None = None) -> int:
         help="exact immutable repository revision expected by this caller",
     )
     parser.add_argument(
+        "--expected-runner-environment",
+        required=True,
+        help="exact GitHub/runner environment identity expected by this caller",
+    )
+    parser.add_argument(
         "--expected-candidate-sha256",
         required=True,
         help="exact immutable candidate digest expected by this caller",
@@ -423,6 +447,11 @@ def main(argv: list[str] | None = None) -> int:
         help="exact immutable config digest expected by this caller",
     )
     parser.add_argument("--expected-provider-id", required=True, help="exact provider identity expected by this caller")
+    parser.add_argument(
+        "--expected-retention-policy-sha256",
+        required=True,
+        help="exact immutable license/retention-policy digest expected by this caller",
+    )
     parser.add_argument("--as-of", help="inject canonical UTC validation time; defaults to current UTC")
     args = parser.parse_args(argv)
     try:
@@ -438,9 +467,11 @@ def main(argv: list[str] | None = None) -> int:
             expected_root_sha256=expected_root_sha256,
             expected_repository=args.expected_repository,
             expected_revision=args.expected_revision,
+            expected_runner_environment=args.expected_runner_environment,
             expected_candidate_sha256=args.expected_candidate_sha256,
             expected_config_sha256=args.expected_config_sha256,
             expected_provider_id=args.expected_provider_id,
+            expected_retention_policy_sha256=args.expected_retention_policy_sha256,
             as_of=args.as_of,
         )
     except (OSError, GcpKmsPolicyValidationError, ResearchDataAuthorizationValidationError) as exc:
@@ -455,7 +486,9 @@ def main(argv: list[str] | None = None) -> int:
                 "config_sha256": authorization["candidate_config"]["config_sha256"],
                 "provider_id": authorization["provider"]["provider_id"],
                 "repository": authorization["repository"],
+                "retention_policy_sha256": authorization["retention_policy_sha256"],
                 "revision": authorization["revision"],
+                "runner_environment": authorization["runner_environment"],
                 "signature_sha256": result["signature_sha256"],
             },
             sort_keys=True,
