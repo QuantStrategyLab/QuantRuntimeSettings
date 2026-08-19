@@ -24,18 +24,28 @@ P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯�
 | 阶段 | 唯一 driver | 当前可携带状态与证据 | 允许的下一步 |
 | --- | --- | --- |
 | P0 | `QuantRuntimeSettings` | 自治运行策略 V2、离线验签门和仅 `RECONCILE_ONLY` 的准入代码已经存在。`binancequant`、`charlesschwabquant`、`firstradequant`、`interactivebrokersquant`、`longbridgequant`、`qslresearchquant` 已各自安装并读取核验一把公开 Cloud KMS P-256 root；没有 signer IAM、已签 policy 或接入运行服务。21 个 retired review caller 的本地清理属于独立 housekeeping，不构成 P0 完成或运行资格。 | 仅维护和复核控制面事实；不得从 P0 推导 P1 数据获取、P4–P6 或交易资格。 |
-| P1 | `UsEquitySnapshotPipelines` | TQQQ / Alpaca 主线为 **non-live**。`2026-08-17` 的一次手动历史链路中，P1 输入获取与私有上传成功；该短期输入已按既有生命周期到期。P2 v4 现有新的不可变输入绑定，但未获取新的观察市场数据。 | 仅生成或核查 P1 数据身份和完整性契约；任何观察市场数据获取都必须来自单独、当期的范围配置，本文不触发它。 |
-| P2 | `UsEquitySnapshotPipelines` | `tqqq_core_only_p2_v4` 是唯一可运行的研究候选：它固定 `UsEquityStrategies` 的公开 research adapter 与 revision，并从所有资产共同可用的日期开始。v3 仅保留为提交历史和 v4 配置中的替代依据，不能再绑定新输入或执行回放。 | 只允许冻结、复核或替换候选定义；不得把 synthetic CI 或历史规则直接解释为收益验证。 |
-| P3 | `UsEquitySnapshotPipelines` | v4 的纯 synthetic 端到端证据链已合入 `main` 并通过 CI：它验证 source/config/input 绑定、时间外窗口和证据包结构。它不包含真实行情，因而是链路验证，不是策略表现结论。历史 P3 在验证下载后 `PARKED`。 | 只允许在已有 P1 根上产生相同的 non-live 证据；不得变成 paper、shadow、live、部署或 promotion。 |
-| P4 | `NO_DRIVER_PARKED` | 待核定。没有 paper 或 forward-observation 任务定义。 | 仅在出现新的、可复核的任务定义后再指定 driver。 |
-| P5 | `NO_DRIVER_PARKED` | 待核定。没有 shadow 或执行服务任务定义。 | 不得由 P3、CI 或控制面配置自动推进。 |
-| P6 | `NO_DRIVER_PARKED` | 待核定。没有 live、账户、订单或资金任务定义。 | 不得由任何 driver、主控会话或 AI 自行创建。 |
+| P1 | `UsEquitySnapshotPipelines` | TQQQ / Alpaca 主线为 **non-live**。`tqqq_core_only_p2_v5` 的日更控制器已在 `main` 通过 CI：它在美股收盘后计划窗口推导最近完整 XNYS session、获取四只 ETF 的候选绑定输入并做完整性/健康检查。此刻尚未有 v5 的计划运行结果；`2026-08-17` 的旧 v1 手动历史根已按短期生命周期到期。 | 只允许按 v5 固定候选产生数据身份、健康记录和短期私有根；缺失/无效输入只能 `DEFERRED`/`QUARANTINED`，不得换源、补洞或改参。 |
+| P2 | `UsEquitySnapshotPipelines` | `tqqq_core_only_p2_v5` 是当前唯一可运行的日更研究候选：它固定 `UsEquityStrategies` 的公开 research adapter、revision、运行参数、共同可用资产和成本，并仅让已验证 P1 截止日滚动 252-session OOS 窗口。v4/v3 只保留为 synthetic/历史依据，不能绑定新的日更输入。 | 只允许冻结、复核或替换候选定义；不得把 CI、历史规则或日更结果直接解释为收益验证或调参许可。 |
+| P3 | `UsEquitySnapshotPipelines` | v5 的纯 synthetic 端到端证据链及其日更控制器都已通过 CI。计划任务只会对 `ACCEPTED` 的 v5 P1 根运行同一条 offline/no-order replay，并在同一短期前缀写健康与脱敏终态记录；当前尚无计划运行结果。 | 只允许产生同一 non-live 证据；不得变成 paper、shadow、live、部署、promotion 或策略参数变更。 |
+| P4 | `NO_DRIVER_PARKED` | 没有 paper 或 forward-observation 实现/策略。 | 需要独立、可复核的 P4 自动化策略与任务定义；不能复用 P1/P3 数据或研究 receipt。 |
+| P5 | `NO_DRIVER_PARKED` | 没有 shadow 或执行服务实现/策略。 | 需要独立、可复核的 P5 自动化策略与任务定义；不能由 P3、CI 或控制面配置自动推进。 |
+| P6 | `NO_DRIVER_PARKED` | 没有 live、账户、订单或资金任务定义。 | 任何 live 启用均需用户的明确决定；不得由 driver、主控会话或 AI 自行创建。 |
+
+## 策略、组合和插件：横向产品层
+
+P0–P6 是每个研究候选从控制、输入、策略、证据到执行的**生命周期**，不是“只允许单策略”的产品目录。单策略、组合策略和策略插件都属于 Quant 的主线，但每一个准备运行的候选都必须有自己的 P1 输入绑定、P2 冻结配置和 P3 证据，不能继承另一个候选已经得到的结论。
+
+- **单策略**：例如当前日更的 `tqqq_core_only_p2_v5`。它是此刻唯一接入日更 P1/P3 控制器的候选。
+- **组合策略**：各域已有独立的组合策略仓库和配置目录；运行配置也支持标记 `combo=true`、`combo_mode=dynamic`。但一个组合不是把若干单策略结果相加：它必须单独冻结成“组合候选”，明确成分策略版本、权重/再平衡规则、共同数据截止日、组合级风险和成本，然后从 P1/P2/P3 重新走证据链。
+- **策略插件**：运行配置已有版本化 plugin mount（例如市场状态信号）的接口。插件只是候选的受约束输入或保护组件；它必须写进该候选的配置/证据，不能在运行中悄悄改参数、替换策略或绕过 P3。当前 TQQQ 日更链不挂载任何插件，也不执行任何组合策略。
+
+因此，组合与插件在全局规划中是 P2 策略产品层的并行分支，而不是 P4/P5/P6 的捷径。下一条组合/插件研究线应先建立一个独立候选和 synthetic P1/P3 契约；在此之前，`NO_DRIVER_PARKED` 仍适用于它的 paper、shadow 和 live 阶段。
 
 ## 自治运行策略是独立门槛
 
-无人值守并不表示没有授权边界。每一个 **paper、shadow、live** 运行及每一次 stage 变更，都必须处于一份当前、可验证、与该阶段精确匹配的 `PREAUTHORIZED_AUTONOMY` 策略内，并基于当次的新鲜证据。该策略是部署前设置的运行边界，不要求逐次人工点击；但 driver、主控会话、自动化审计、兼容性检查、配置存在或本文本身均不能自行签发、扩大、续期或修改它。
+无人值守并不表示没有授权边界。当前 P1/P3 的个人日更研究边界已由 `tqqq_core_only_p2_v5` 的不可变候选配置和日更控制器实现，不要求逐次人工点击。未来 **paper、shadow** 可在各自当前、可验证、精确匹配的 `PREAUTHORIZED_AUTONOMY` 策略实现后无人值守运行；当前尚未实现。**live** 永远还需用户的明确启用决定。driver、主控会话、自动化审计、兼容性检查或本文本身均不能自行签发、扩大、续期或修改这些边界。
 
-自治策略只允许 AI 做只读监测、研究候选生成、证据验证和发布资格评估；它禁止 AI 读取凭证、直接提交订单、重置熔断、修改策略根或修改风险上限。执行服务必须在独立风控边界内运行；此政策合约本身不启用任何账户、订单、资金或 P4–P6。
+AI 只做监测、研究候选生成、证据验证和发布资格评估，不读取或传递凭证、直接提交订单、重置熔断、修改策略根或风险上限。P1 的 GitHub Actions 控制器在受限环境中使用其配置的密钥，但这不把密钥暴露给 AI，也不授予订单能力。任何未来执行服务必须在独立风控边界内运行；当前政策不启用 paper、shadow、账户、订单、资金或 P4–P6。
 
 ## 审计控制面
 
@@ -67,6 +77,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-17`：`UsEquitySnapshotPipelines` 合并 TQQQ P1–P3 non-live workflow；同日一次手动运行的 P1 历史输入获取、完整性验证和私有上传成功，P3 验证下载后 `PARKED`。该历史技术结果不表示策略验收或任何 promotion 已获批准。
 - `2026-08-19`：只读复核确认上述 P1 根的原始数据按既有短期保留规则自动到期；未复制、延长或删除该数据。P3 停车时的精确内部原因未被持久化，因此不得事后臆造为策略结论。
 - `2026-08-19`：`UsEquitySnapshotPipelines` 合入 P2 v4 / P3 pure-synthetic 证据链；其 PR 与 main CI 均通过。该结果只证明冻结候选的离线链路可重复验证，不是使用真实行情的 P3 成功，也不是策略表现、paper、shadow 或 live 资格。
+- `2026-08-19`：`UsEquitySnapshotPipelines` 合入 P2 v5 滚动输入/证据契约（PR #320）及收盘后日更 P1/P3 non-live 控制器（PR #321）；两者 PR 与 main CI 均通过。日更控制器已就绪但尚无计划运行结果，因此不据此声称已读到新的 Alpaca 数据、P3 表现结论、paper、shadow 或 live 资格。
 - `2026-08-19`：6 个 Quant GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。详见下方部署记录。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
