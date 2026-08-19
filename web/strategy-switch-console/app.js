@@ -839,6 +839,15 @@
         controlNoRecommendation: "没有可用的机器建议。",
         controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
         controlNext: "下一步",
+        researchTaskBoard: "研究任务队列 / 只读",
+        researchTaskLoginNotice: "登录后读取私有研究任务索引；没有来源快照时不会展示虚构任务。",
+        researchTaskStaleNotice: "研究任务来源已超过允许的新鲜度窗口；任务保留为历史记录，但不作为当前工作指令。",
+        researchTaskUnavailableNotice: "还没有可用的研究任务来源；当前队列保持 fail-closed 空状态。",
+        researchTaskUpstreamNotice: "研究任务索引已加载，但有 {count} 个上游提示；页面不会补造任务。",
+        researchTaskEmpty: "暂无可展示的已验证研究任务。",
+        researchTaskMeta: "{type} · {domain} · 创建于：{created}",
+        researchTaskLimits: "离线研究：最多 {runs} 次 / {seconds} 秒 · P1 {p1} · P2 {p2} · P3 {p3}",
+        researchTaskNoOrder: "固定边界：仅研究、零仓位、无订单；不进入 P4/P5/P6。",
         healthEyebrow: "策略健康 / 只读",
         healthTitle: "先看机器结论，再决定动作。",
         healthSubtitle: "健康不等于已获运行授权；实盘、资金和杠杆变更必须匹配当前、可验证的预授权策略。",
@@ -1038,6 +1047,15 @@
         controlNoRecommendation: "No machine recommendation is available.",
         controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
         controlNext: "NEXT",
+        researchTaskBoard: "Research task queue / read only",
+        researchTaskLoginNotice: "Sign in to read the private research task index. Missing source snapshots never imply a task.",
+        researchTaskStaleNotice: "The research task source is beyond its freshness window. It remains historical context, not a current instruction.",
+        researchTaskUnavailableNotice: "No research task source is available yet. The queue remains fail-closed and empty.",
+        researchTaskUpstreamNotice: "The research task index loaded with {count} upstream notices; no task is inferred from missing data.",
+        researchTaskEmpty: "No verified research task is available to display.",
+        researchTaskMeta: "{type} · {domain} · created {created}",
+        researchTaskLimits: "Offline research: up to {runs} run(s) / {seconds}s · P1 {p1} · P2 {p2} · P3 {p3}",
+        researchTaskNoOrder: "Fixed boundary: research only, zero size, no order; never P4/P5/P6.",
         healthEyebrow: "Strategy health / read only",
         healthTitle: "Read the machine conclusion before choosing an action.",
         healthSubtitle: "Health does not grant runtime authority; live, funding, and leverage changes must match a current, verifiable preauthorized policy.",
@@ -1264,6 +1282,16 @@
           summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
           candidates: [],
           policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
+          errors: [],
+        },
+      },
+      researchTasks: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { task_count: 0 },
+          tasks: [],
+          policy: { research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false },
           errors: [],
         },
       },
@@ -3398,6 +3426,89 @@
       }
     }
 
+    function normalizeResearchTaskPayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid research task payload");
+      const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        tasks: tasks.filter((item) => item && typeof item === "object" && item.task && typeof item.task === "object"),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function shortResearchDigest(value) {
+      const text = String(value || "");
+      return /^[0-9a-f]{64}$/.test(text) ? `${text.slice(0, 10)}…` : "—";
+    }
+
+    function renderResearchTasks() {
+      const payload = state.researchTasks.payload;
+      const notice = el("research-task-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("researchTaskLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("researchTaskStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("researchTaskUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("researchTaskUpstreamNotice").replace("{count}", payload.errors.length);
+      } else {
+        notice.textContent = payload.policy?.notice || t("researchTaskNoOrder");
+      }
+
+      const list = el("research-task-list");
+      list.replaceChildren();
+      if (!payload.tasks.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("researchTaskEmpty");
+        list.appendChild(empty);
+        return;
+      }
+      for (const entry of payload.tasks) {
+        const task = entry.task || {};
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("researchTaskMeta")
+          .replace("{type}", task.task_type || "research")
+          .replace("{domain}", domainLabel(task.target?.domain || ""))
+          .replace("{created}", task.created_at ? new Date(task.created_at).toLocaleString() : "—");
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = `${task.target?.candidate_id || "unknown"} · ${task.task_id || "unknown"}`;
+        const hypothesis = document.createElement("p");
+        hypothesis.className = "health-card__reason";
+        hypothesis.textContent = task.experiment?.hypothesis || t("researchTaskNoOrder");
+        const detail = document.createElement("div");
+        detail.className = "health-card__meta";
+        detail.textContent = t("researchTaskLimits")
+          .replace("{runs}", String(task.experiment?.max_runs || "—"))
+          .replace("{seconds}", String(task.experiment?.max_wall_seconds || "—"))
+          .replace("{p1}", shortResearchDigest(task.evidence?.p1_input_digest))
+          .replace("{p2}", shortResearchDigest(task.evidence?.p2_config_digest))
+          .replace("{p3}", shortResearchDigest(task.evidence?.p3_evidence_id));
+        main.append(meta, title, hypothesis, detail);
+        const status = document.createElement("div");
+        status.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = "NO ORDER";
+        const count = document.createElement("strong");
+        count.textContent = String(task.experiment?.max_runs || "—");
+        const source = document.createElement("small");
+        source.textContent = entry.freshness?.data_status || "unknown";
+        status.append(label, count, source);
+        card.append(main, status);
+        list.appendChild(card);
+      }
+    }
+
     function healthStatusLabel(status) {
       return { healthy: "健康", watch: "观察", review: "复核", critical: "严重" }[status] || "未知";
     }
@@ -3504,6 +3615,7 @@
       renderRuntimeAuthorityStatus();
       renderConsoleView();
       renderControlPlane();
+      renderResearchTasks();
       renderHealth();
       renderPlatforms();
       renderControls();
@@ -3528,6 +3640,7 @@
       }
       if (state.auth.allowed) {
         await refreshControlPlane();
+        await refreshResearchTasks();
         await refreshHealth();
         await refreshConfig();
       } else {
@@ -3574,6 +3687,26 @@
         };
       }
       renderControlPlane();
+    }
+
+    async function refreshResearchTasks() {
+      if (!state.auth.allowed) {
+        renderResearchTasks();
+        return;
+      }
+      try {
+        state.researchTasks.payload = normalizeResearchTaskPayload(await requestJson("/api/research-tasks"));
+      } catch {
+        state.researchTasks.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { task_count: 0 },
+          tasks: [],
+          policy: { research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false },
+          errors: ["research_task_request_failed"],
+        };
+      }
+      renderResearchTasks();
     }
 
     async function refreshStrategyProfiles() {
@@ -3765,7 +3898,10 @@
     document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
       state.view = ["control", "health", "switch"].includes(button.dataset.view) ? button.dataset.view : "control";
       renderConsoleView();
-      if (state.view === "control") refreshControlPlane();
+      if (state.view === "control") {
+        refreshControlPlane();
+        refreshResearchTasks();
+      }
       if (state.view === "health") refreshHealth();
     }));
 

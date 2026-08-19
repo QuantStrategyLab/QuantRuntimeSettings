@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-research-task-dashboard.v1.schema.json",
+  "title": "QSL Research Task Dashboard v1",
+  "description": "Read-only aggregation of immutable research tasks. It carries no execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "computed_at", "data_status", "summary", "tasks", "policy", "errors"],
+  "properties": {
+    "schema_version": { "const": "qsl_research_task_dashboard.v1" },
+    "generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["task_count"],
+      "properties": { "task_count": { "type": "integer", "minimum": 0, "maximum": 10000 } }
+    },
+    "tasks": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["source_id", "freshness", "task"],
+        "properties": {
+          "source_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,128}$" },
+          "freshness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["data_status", "age_seconds"],
+            "properties": {
+              "data_status": { "enum": ["ready", "unavailable", "stale"] },
+              "age_seconds": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          },
+          "task": { "$ref": "qsl-research-task.v1.schema.json" }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["research_only", "no_order", "size_zero_required", "p4_p5_p6_authorized", "notice"],
+      "properties": {
+        "research_only": { "const": true },
+        "no_order": { "const": true },
+        "size_zero_required": { "const": true },
+        "p4_p5_p6_authorized": { "const": false },
+        "notice": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  }
+}

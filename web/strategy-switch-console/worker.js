@@ -57,6 +57,19 @@ const CONTROL_PLANE_RECOMMENDATIONS = [
   "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
 ];
 const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
+// Research tasks are a separate, immutable and no-order index.  They do not
+// share storage or a sync credential with candidate lifecycle snapshots.
+const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
+const RESEARCH_TASK_SOURCE_SCHEMA_VERSION = "qsl_research_task_source_snapshot.v1";
+const RESEARCH_TASK_SCHEMA_VERSION = "qsl.research_task.v1";
+const RESEARCH_TASK_DASHBOARD_SCHEMA_VERSION = "qsl_research_task_dashboard.v1";
+const RESEARCH_TASK_MAX_SOURCES = 100;
+const RESEARCH_TASK_MAX_BODY_BYTES = 256 * 1024;
+const RESEARCH_TASK_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
+const RESEARCH_TASK_TYPES = [
+  "strategy_diagnosis", "hypothesis_evaluation", "parameter_challenge", "strategy_candidate", "portfolio_candidate", "plugin_candidate",
+];
+const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"];
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
@@ -187,6 +200,12 @@ export default {
       }
       if (url.pathname === "/api/control-plane" && request.method === "GET") {
         return await controlPlaneResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-research-task-source" && request.method === "POST") {
+        return await syncResearchTaskSourceResponse(request, env);
+      }
+      if (url.pathname === "/api/research-tasks" && request.method === "GET") {
+        return await researchTaskResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
@@ -1308,6 +1327,140 @@ async function controlPlaneResponse(request, env) {
   return json(snapshot);
 }
 
+async function syncResearchTaskSourceResponse(request, env) {
+  requireDedicatedResearchTaskSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "research task KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, RESEARCH_TASK_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research task source payload" }, error.status || 400);
+  }
+
+  let source;
+  try {
+    source = await normalizeResearchTaskSourceSnapshot(raw, "research task source snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research task source payload" }, 400);
+  }
+
+  await writeConfigJson(env, researchTaskSourceKey(source.source_id), source);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "research-task-source-sync",
+      action: "sync_research_task_source",
+      source_id: source.source_id,
+      schema_version: source.schema_version,
+      task_count: source.tasks.length,
+      data_status: source.data_status,
+    });
+  } catch {
+    // A valid no-order task index does not depend on optional audit retention.
+  }
+  return json({
+    ok: true,
+    source_id: source.source_id,
+    schema_version: source.schema_version,
+    task_count: source.tasks.length,
+    generated_at: source.generated_at,
+  });
+}
+
+async function researchTaskResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyResearchTaskPayload("snapshot_unavailable"));
+  return json(await aggregateResearchTaskSources(env));
+}
+
+async function aggregateResearchTaskSources(env) {
+  const sources = await readResearchTaskSources(env);
+  if (!sources.length) return emptyResearchTaskPayload("snapshot_unavailable");
+
+  const ttlSeconds = researchTaskStaleTtlSeconds(env);
+  const now = Date.now();
+  const taskIds = new Set();
+  const duplicateTaskIds = new Set();
+  const tasks = [];
+  const errors = [];
+  const timestamps = [];
+  let hasReadySource = false;
+  let hasStaleSource = false;
+
+  for (const source of sources) {
+    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+    if (source.generated_at) timestamps.push(source.generated_at);
+    if (source.computed_at) timestamps.push(source.computed_at);
+    if (freshness.data_status === "ready") hasReadySource = true;
+    if (freshness.data_status === "stale") {
+      hasStaleSource = true;
+      errors.push("research_task_source_stale");
+    }
+    for (const task of source.tasks) {
+      if (taskIds.has(task.task_id)) {
+        duplicateTaskIds.add(task.task_id);
+        errors.push("research_task_duplicate_task");
+        continue;
+      }
+      taskIds.add(task.task_id);
+      tasks.push({ source_id: source.source_id, freshness, task });
+    }
+    errors.push(...source.errors);
+  }
+
+  const uniqueTasks = tasks.filter((entry) => !duplicateTaskIds.has(entry.task.task_id));
+  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
+  return {
+    schema_version: RESEARCH_TASK_DASHBOARD_SCHEMA_VERSION,
+    generated_at: earliestControlPlaneTimestamp(timestamps),
+    computed_at: earliestControlPlaneTimestamp(timestamps),
+    data_status: dataStatus,
+    summary: { task_count: uniqueTasks.length },
+    tasks: uniqueTasks,
+    policy: {
+      research_only: true,
+      no_order: true,
+      size_zero_required: true,
+      p4_p5_p6_authorized: false,
+      notice: "研究任务只用于离线、零仓位实验；不会调参、改代码、部署或下单。",
+    },
+    errors: uniqueStrings(errors),
+  };
+}
+
+async function readResearchTaskSources(env) {
+  const store = configStore(env);
+  if (!store || typeof store.list !== "function") return [];
+  let listing;
+  try {
+    listing = await store.list({ prefix: RESEARCH_TASK_SOURCE_PREFIX, limit: RESEARCH_TASK_MAX_SOURCES });
+  } catch {
+    return [emptyResearchTaskSourceSnapshot("research_task_source_list_unavailable")];
+  }
+  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
+  const sources = [];
+  for (const entry of keys.slice(0, RESEARCH_TASK_MAX_SOURCES)) {
+    const key = typeof entry?.name === "string" ? entry.name : "";
+    if (!key.startsWith(RESEARCH_TASK_SOURCE_PREFIX)) continue;
+    try {
+      const stored = await readConfigJson(env, key);
+      if (!stored) continue;
+      sources.push(await normalizeResearchTaskSourceSnapshot(stored, key));
+    } catch {
+      sources.push(emptyResearchTaskSourceSnapshot("research_task_source_invalid"));
+    }
+  }
+  return sources;
+}
+
+function researchTaskSourceKey(sourceId) {
+  return `${RESEARCH_TASK_SOURCE_PREFIX}${sourceId}`;
+}
+
 async function aggregateControlPlaneSources(env) {
   const sources = await readControlPlaneSources(env);
   if (!sources) return null;
@@ -1458,6 +1611,233 @@ function requireDedicatedControlPlaneSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("control plane sync token is invalid", 401);
+}
+
+function requireDedicatedResearchTaskSyncToken(request, env) {
+  const expected = String(env.RESEARCH_TASK_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("research task sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("research task sync token is invalid", 401);
+}
+
+function assertExactFields(value, fields, fieldName) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  const actual = Object.keys(value).sort();
+  const expected = [...fields].sort();
+  if (actual.length !== expected.length || actual.some((item, index) => item !== expected[index])) {
+    throw new Error(`${fieldName} has invalid fields`);
+  }
+  return value;
+}
+
+function normalizeResearchTaskIdentity(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(text)) {
+    throw new Error(`${fieldName} must be a stable identity`);
+  }
+  return text;
+}
+
+function normalizeResearchTaskDigest(value, fieldName, nullable = false) {
+  if ((value === null || value === undefined || value === "") && nullable) return null;
+  const text = String(value || "").trim();
+  if (!/^[0-9a-f]{64}$/.test(text)) throw new Error(`${fieldName} must be a lowercase SHA-256`);
+  return text;
+}
+
+function normalizeResearchTaskRevision(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^[0-9a-f]{40}$/.test(text)) throw new Error(`${fieldName} must be a 40-character revision`);
+  return text;
+}
+
+function normalizeResearchTaskTimestamp(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(text) || Number.isNaN(Date.parse(text))) {
+    throw new Error(`${fieldName} must be a UTC timestamp`);
+  }
+  return text;
+}
+
+function normalizeResearchTaskText(value, fieldName, maxLength) {
+  const text = String(value || "").trim();
+  if (!text || text.length > maxLength || /[<>\\]/.test(text)) throw new Error(`${fieldName} is invalid`);
+  if (/\b(?:token|secret|password|credential|api[_ -]?key)\s*[:=]/i.test(text)) {
+    throw new Error(`${fieldName} contains sensitive material`);
+  }
+  return text;
+}
+
+function assertResearchTaskHasNoUnsafeMaterial(value, fieldName = "research task") {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertResearchTaskHasNoUnsafeMaterial(item, `${fieldName}[${index}]`));
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [key, nested] of Object.entries(value)) {
+    if (key !== "no_order" && /(?:secret|token|password|credential|api[_-]?key|order|fill|capital|account|broker)/i.test(key)) {
+      throw new Error(`${fieldName} contains forbidden execution or secret material`);
+    }
+    assertResearchTaskHasNoUnsafeMaterial(nested, `${fieldName}.${key}`);
+  }
+}
+
+function canonicalResearchTaskJson(value) {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("research task must use finite JSON values");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalResearchTaskJson).join(",")}]`;
+  if (!value || typeof value !== "object") throw new Error("research task must use JSON values");
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalResearchTaskJson(value[key])}`).join(",")}}`;
+}
+
+async function calculateResearchTaskSha256(payload) {
+  const material = { ...payload };
+  delete material.task_sha256;
+  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function normalizeResearchTask(payload, fieldName) {
+  const task = assertExactFields(payload, [
+    "schema", "task_id", "created_at", "digest_algorithm", "task_type", "target", "evidence", "experiment", "authority", "task_sha256",
+  ], fieldName);
+  assertResearchTaskHasNoUnsafeMaterial(task, fieldName);
+  if (task.schema !== RESEARCH_TASK_SCHEMA_VERSION) throw new Error(`${fieldName}.schema is unsupported`);
+  if (task.digest_algorithm !== "sha256") throw new Error(`${fieldName}.digest_algorithm must be sha256`);
+  const target = assertExactFields(task.target, ["candidate_id", "candidate_kind", "domain", "repository", "strategy_revision"], `${fieldName}.target`);
+  const evidence = assertExactFields(task.evidence, ["p1_input_digest", "p2_config_digest", "p3_evidence_id", "producer_revision"], `${fieldName}.evidence`);
+  const experiment = assertExactFields(task.experiment, ["objective", "hypothesis", "parameter_bounds_sha256", "max_runs", "max_wall_seconds"], `${fieldName}.experiment`);
+  const authority = assertExactFields(task.authority, ["research_only", "no_order", "size_zero_required", "p4_p5_p6_authorized"], `${fieldName}.authority`);
+  const normalized = {
+    schema: RESEARCH_TASK_SCHEMA_VERSION,
+    task_id: normalizeResearchTaskIdentity(task.task_id, `${fieldName}.task_id`),
+    created_at: normalizeResearchTaskTimestamp(task.created_at, `${fieldName}.created_at`),
+    digest_algorithm: "sha256",
+    task_type: cleanChoice(task.task_type, RESEARCH_TASK_TYPES, `${fieldName}.task_type`),
+    target: {
+      candidate_id: normalizeResearchTaskIdentity(target.candidate_id, `${fieldName}.target.candidate_id`),
+      candidate_kind: cleanChoice(target.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${fieldName}.target.candidate_kind`),
+      domain: cleanChoice(target.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.target.domain`),
+      repository: normalizeResearchTaskRepository(target.repository, `${fieldName}.target.repository`),
+      strategy_revision: normalizeResearchTaskRevision(target.strategy_revision, `${fieldName}.target.strategy_revision`),
+    },
+    evidence: {
+      p1_input_digest: normalizeResearchTaskDigest(evidence.p1_input_digest, `${fieldName}.evidence.p1_input_digest`, true),
+      p2_config_digest: normalizeResearchTaskDigest(evidence.p2_config_digest, `${fieldName}.evidence.p2_config_digest`, true),
+      p3_evidence_id: normalizeResearchTaskDigest(evidence.p3_evidence_id, `${fieldName}.evidence.p3_evidence_id`, true),
+      producer_revision: normalizeResearchTaskRevision(evidence.producer_revision, `${fieldName}.evidence.producer_revision`),
+    },
+    experiment: {
+      objective: cleanChoice(experiment.objective, RESEARCH_TASK_OBJECTIVES, `${fieldName}.experiment.objective`),
+      hypothesis: normalizeResearchTaskText(experiment.hypothesis, `${fieldName}.experiment.hypothesis`, 800),
+      parameter_bounds_sha256: normalizeResearchTaskDigest(experiment.parameter_bounds_sha256, `${fieldName}.experiment.parameter_bounds_sha256`, true),
+      max_runs: normalizeResearchTaskBound(experiment.max_runs, `${fieldName}.experiment.max_runs`, 100),
+      max_wall_seconds: normalizeResearchTaskBound(experiment.max_wall_seconds, `${fieldName}.experiment.max_wall_seconds`, 86400),
+    },
+    authority: {
+      research_only: authority.research_only,
+      no_order: authority.no_order,
+      size_zero_required: authority.size_zero_required,
+      p4_p5_p6_authorized: authority.p4_p5_p6_authorized,
+    },
+    task_sha256: normalizeResearchTaskDigest(task.task_sha256, `${fieldName}.task_sha256`),
+  };
+  if (JSON.stringify(normalized.authority) !== JSON.stringify({ research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false })) {
+    throw new Error(`${fieldName}.authority must be fixed to offline research only`);
+  }
+  if (normalized.task_sha256 !== await calculateResearchTaskSha256(normalized)) {
+    throw new Error(`${fieldName}.task_sha256 mismatch`);
+  }
+  return normalized;
+}
+
+function normalizeResearchTaskRepository(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(text)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return text;
+}
+
+function normalizeResearchTaskBound(value, fieldName, maximum) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > maximum) {
+    throw new Error(`${fieldName} is outside its safe bound`);
+  }
+  return value;
+}
+
+async function normalizeResearchTaskSourceSnapshot(payload, fieldName = "research task source snapshot") {
+  const source = assertExactFields(payload, ["schema_version", "source_id", "generated_at", "computed_at", "data_status", "tasks", "errors"], fieldName);
+  if (source.schema_version !== RESEARCH_TASK_SOURCE_SCHEMA_VERSION) throw new Error(`${fieldName}.schema_version is unsupported`);
+  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  if (!Array.isArray(source.tasks) || source.tasks.length > 100) {
+    throw new Error(`${fieldName}.tasks must be an array with at most 100 items`);
+  }
+  const tasks = [];
+  const seen = new Set();
+  for (const [index, item] of source.tasks.entries()) {
+    const task = await normalizeResearchTask(item, `${fieldName}.tasks[${index}]`);
+    if (seen.has(task.task_id)) throw new Error(`${fieldName}.tasks contains duplicate task_id`);
+    seen.add(task.task_id);
+    tasks.push(task);
+  }
+  if (dataStatus === "unavailable" && tasks.length) throw new Error(`${fieldName}.tasks must be empty when unavailable`);
+  return {
+    schema_version: RESEARCH_TASK_SOURCE_SCHEMA_VERSION,
+    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
+    generated_at: normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true),
+    computed_at: normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true),
+    data_status: dataStatus,
+    tasks,
+    errors: normalizeStrategyHealthErrors(source.errors),
+  };
+}
+
+function emptyResearchTaskSourceSnapshot(errorCode) {
+  return {
+    schema_version: RESEARCH_TASK_SOURCE_SCHEMA_VERSION,
+    source_id: "unavailable",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    tasks: [],
+    errors: [errorCode],
+  };
+}
+
+function emptyResearchTaskPayload(errorCode) {
+  return {
+    schema_version: RESEARCH_TASK_DASHBOARD_SCHEMA_VERSION,
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    summary: { task_count: 0 },
+    tasks: [],
+    policy: {
+      research_only: true,
+      no_order: true,
+      size_zero_required: true,
+      p4_p5_p6_authorized: false,
+      notice: "研究任务只用于离线、零仓位实验；不会调参、改代码、部署或下单。",
+    },
+    errors: [errorCode],
+  };
+}
+
+function researchTaskStaleTtlSeconds(env) {
+  const configured = Number(env.RESEARCH_TASK_STALE_TTL_SECONDS);
+  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
+    return RESEARCH_TASK_DEFAULT_STALE_TTL_SECONDS;
+  }
+  return Math.floor(configured);
 }
 
 function normalizeStrategyHealthSnapshot(payload, fieldName = "strategy health snapshot") {
@@ -3521,6 +3901,10 @@ export const __test = {
   normalizeControlPlaneSnapshot,
   normalizeControlPlaneSourceSnapshot,
   emptyControlPlanePayload,
+  calculateResearchTaskSha256,
+  normalizeResearchTask,
+  normalizeResearchTaskSourceSnapshot,
+  emptyResearchTaskPayload,
   makeSession,
   supportedDomainsForAccount,
   updateAccountOptionsDefaultStrategy,
