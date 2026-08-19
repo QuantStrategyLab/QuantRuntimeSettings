@@ -32,6 +32,8 @@ It supports the system but does not decide which strategy should be live. Strate
 
 `default_execution_mode`, `live_configured`, strategy lifecycle labels, this repository's switch workflow, and a green CI result are configuration or historical metadata—not authorization for runtime, orders, funds, or a stage change. P1–P3 non-live data acquisition needs its own precise contract; P0 does not grant it by implication. P4–P6 remain undefined. See [the architecture boundary](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary).
 
+AI and monitoring systems can create only an immutable, no-order `qsl.research_task.v1` request for offline research.  The request binds evidence digests and a bounded experiment, but it does not activate a candidate or grant P4–P6 authority.  See the [research task contract](docs/qsl_research_task_v1.zh-CN.md).
+
 ## Repository layout
 
 - `python/`: Python tooling (scripts, tests, pyproject.toml) — validation, code generation, deployment scripts.
