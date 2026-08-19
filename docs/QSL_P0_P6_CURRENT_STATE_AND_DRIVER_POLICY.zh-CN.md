@@ -27,8 +27,8 @@ P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯�
 | P1 | `UsEquitySnapshotPipelines` | TQQQ / Alpaca 主线为 **non-live**。`tqqq_core_only_p2_v5` 的日更控制器已在 `main` 通过 CI：它在美股收盘后计划窗口推导最近完整 XNYS session、获取四只 ETF 的候选绑定输入并做完整性/健康检查。此刻尚未有 v5 的计划运行结果；`2026-08-17` 的旧 v1 手动历史根已按短期生命周期到期。 | 只允许按 v5 固定候选产生数据身份、健康记录和短期私有根；缺失/无效输入只能 `DEFERRED`/`QUARANTINED`，不得换源、补洞或改参。 |
 | P2 | `UsEquitySnapshotPipelines` | `tqqq_core_only_p2_v5` 是当前唯一可运行的日更研究候选：它固定 `UsEquityStrategies` 的公开 research adapter、revision、运行参数、共同可用资产和成本，并仅让已验证 P1 截止日滚动 252-session OOS 窗口。v4/v3 只保留为 synthetic/历史依据，不能绑定新的日更输入。 | 只允许冻结、复核或替换候选定义；不得把 CI、历史规则或日更结果直接解释为收益验证或调参许可。 |
 | P3 | `UsEquitySnapshotPipelines` | v5 的纯 synthetic 端到端证据链及其日更控制器都已通过 CI。计划任务只会对 `ACCEPTED` 的 v5 P1 根运行同一条 offline/no-order replay，并在同一短期前缀写健康与脱敏终态记录；当前尚无计划运行结果。 | 只允许产生同一 non-live 证据；不得变成 paper、shadow、live、部署、promotion 或策略参数变更。 |
-| P4 | `NO_DRIVER_PARKED` | 没有 paper 或 forward-observation 实现/策略。 | 需要独立、可复核的 P4 自动化策略与任务定义；不能复用 P1/P3 数据或研究 receipt。 |
-| P5 | `NO_DRIVER_PARKED` | 没有 shadow 或执行服务实现/策略。 | 需要独立、可复核的 P5 自动化策略与任务定义；不能由 P3、CI 或控制面配置自动推进。 |
+| P4 | `QuantRuntimeSettings`（控制契约） | 自动 paper 的风险控制契约已实现；没有已签 policy、独立 paper 身份或 broker adapter。 | 接入独立 Alpaca paper gateway；每周期先验签、验证 P1/P2/P3 绑定与对账，异常自动停车。 |
+| P5 | `QuantRuntimeSettings`（控制契约） | 自动 shadow 的风险控制契约已实现；没有已签 policy 或 shadow ledger scheduler。 | 接入无 broker 写权限的 shadow ledger；每周期先验证 P3 绑定与对账，异常自动停车。 |
 | P6 | `NO_DRIVER_PARKED` | 没有 live、账户、订单或资金任务定义。 | 任何 live 启用均需用户的明确决定；不得由 driver、主控会话或 AI 自行创建。 |
 
 ## 策略、组合和插件：横向产品层
@@ -64,7 +64,9 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | AI 持续观察与诊断 | 已接线（受限、non-live） | AIAuditBridge 只在两次可比较、已绑定 P1/P2/P3 摘要的观察后创建/更新 Issue 与任务。对每个尚未诊断的 Issue，计划 watcher 每次最多调用一次只读 AI 文本诊断并回写同一 Issue；它不执行实验、不改系统。普通策略退化不通知人；数据/证据不可用、熔断或记录失败才经去重运维通道升级通知。 |
 | `qsl.research_task.v1` 与控制台队列 | 已接线（只读），待首份合格真实来源快照 | AIAudit Watcher 以专用 token 向控制台发布来源摘要；来源和控制台会各自复核 SHA、revision、摘要和 no-order authority。空队列不是故障，也不能由 Issue 推断任务。 |
 | P2 v2 / P3 v2 候选 | 草稿 | 未合并或未绑定日更 driver 前，当前 P3 仍使用冻结 v1 路径。 |
-| P4 / P5 / P6 | 未实现 | 无 paper、shadow、live、账户、订单或资金任务。 |
+| P4 / P5 风险控制契约 | 已实现，未接线 | 只校验受限自动运行边界；没有网络、账户、订单或资金能力。 |
+| P4 / P5 执行 | 未实现 | 无 paper adapter、shadow ledger、账户、订单或资金任务。 |
+| P6 | 未实现 | 无 live、账户、订单或资金任务。 |
 | `QuantStrategyLifecycle` 本机目录 | 退役/孤立 | 没有对应的 GitHub 主线仓；其中 autopilot/auto-approve 描述不得作为当前能力或设计依据。 |
 | `CodexAuditBridge` 本机目录 | 退役/孤立 | 当前有效审计仓是 `AIAuditBridge`；不得接入任何新工作流。 |
 
