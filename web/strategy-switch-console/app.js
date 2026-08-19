@@ -104,6 +104,7 @@
         default_execution_mode: "live"
       },
     };
+    const runtimeAuthorityStatus = window.__QSL_RUNTIME_AUTHORITY_STATUS__ || {};
 
 
 
@@ -184,7 +185,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "income_layer_start_usd": "250000",
         "income_layer_max_ratio": "0.55",
         "income_layer_allocations": {
@@ -217,7 +218,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "income_layer_start_usd": "150000",
         "income_layer_max_ratio": "0.95",
         "income_layer_allocations": {
@@ -250,7 +251,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -271,7 +272,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -325,7 +326,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "income_layer_start_usd": "300000",
         "income_layer_max_ratio": "0.25",
         "income_layer_allocations": {
@@ -464,7 +465,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
       },
       {
         "profile": "hk_equity_combo",
@@ -500,7 +501,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
       },
       {
         "profile": "cn_industry_etf_rotation_aggressive",
@@ -656,7 +657,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
       },
       {
         "profile": "crypto_btc_dca",
@@ -819,7 +820,10 @@
         switchView: "实盘切换",
         healthEyebrow: "策略健康 / 只读",
         healthTitle: "先看机器结论，再决定动作。",
-        healthSubtitle: "健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。",
+        healthSubtitle: "健康不等于已获运行授权；实盘、资金和杠杆变更必须匹配当前、可验证的预授权策略。",
+        runtimeAuthorityTitle: "P0–P6 控制面授权状态",
+        runtimeAuthorityNotice: "这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。",
+        runtimeAuthorityAsOf: "截至：{asOf} · P1–P3 non-live 数据获取仍需独立、精确的契约；P4–P6 尚未定义。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
@@ -994,7 +998,10 @@
         switchView: "Live Switch",
         healthEyebrow: "Strategy health / read only",
         healthTitle: "Read the machine conclusion before choosing an action.",
-        healthSubtitle: "Health does not approve live; normal live, funding, and leverage changes still need a human.",
+        healthSubtitle: "Health does not grant runtime authority; live, funding, and leverage changes must match a current, verifiable preauthorized policy.",
+        runtimeAuthorityTitle: "P0–P6 control-plane authority",
+        runtimeAuthorityNotice: "live/default_execution_mode/live_configured are legacy configuration metadata, not authorization for current runtime, orders, funds, or stage changes.",
+        runtimeAuthorityAsOf: "As of {asOf} · P1–P3 non-live data acquisition still needs its own precise contract; P4–P6 are undefined.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
         healthWatch: "Watch",
@@ -2846,6 +2853,13 @@
       el("lang-button").textContent = state.lang === "zh" ? "EN" : "中";
     }
 
+    function renderRuntimeAuthorityStatus() {
+      const status = String(runtimeAuthorityStatus.status || "UNKNOWN_RUNTIME_AUTHORITY_STATUS");
+      const asOf = String(runtimeAuthorityStatus.status_as_of || "—");
+      el("runtime-authority-status").textContent = status;
+      el("runtime-authority-as-of").textContent = t("runtimeAuthorityAsOf").replace("{asOf}", asOf);
+    }
+
     function renderPlatforms() {
       const strip = el("platform-strip");
       strip.replaceChildren();
@@ -3343,6 +3357,7 @@
 
     function render() {
       applyLanguage();
+      renderRuntimeAuthorityStatus();
       renderConsoleView();
       renderHealth();
       renderPlatforms();

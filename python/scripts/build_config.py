@@ -15,6 +15,7 @@ Adds/modifies:
 from __future__ import annotations
 
 import argparse
+import datetime as dt
 import json
 import subprocess
 import sys
@@ -46,6 +47,25 @@ SETTINGS_ACTIVATION_MODES = {
     "next_runtime_workflow_dispatch",
     "not_wired",
 }
+RUNTIME_AUTHORITY_STATUS_FIELDS = {
+    "schema_version",
+    "scope",
+    "status",
+    "status_as_of",
+    "active_preauthorized_autonomy_policy",
+    "execution_metadata_is_runtime_authority",
+    "p1_p3_non_live_data_acquisition_authority",
+    "p4_p6_definition",
+}
+CURRENT_RUNTIME_AUTHORITY_STATUS = {
+    "schema_version": "qsl.runtime_authority_status.v1",
+    "scope": "p0_p6_control_plane",
+    "status": "P0_CONTROL_PLANE_NOT_RUNTIME_WIRED",
+    "active_preauthorized_autonomy_policy": False,
+    "execution_metadata_is_runtime_authority": False,
+    "p1_p3_non_live_data_acquisition_authority": "INDEPENDENT_CONTRACT_REQUIRED",
+    "p4_p6_definition": "UNDEFINED",
+}
 
 
 def load_config() -> dict:
@@ -55,6 +75,7 @@ def load_config() -> dict:
 
 def validate(config: dict) -> list[str]:
     errors: list[str] = []
+    validate_runtime_authority_status(config, errors)
     scheduling = config.get("scheduling")
     scheduler_profiles = scheduling.get("profiles") if isinstance(scheduling, dict) else None
     if not isinstance(scheduler_profiles, dict) or not scheduler_profiles:
@@ -279,6 +300,32 @@ def validate(config: dict) -> list[str]:
                 f"strategy {sid}: live feature snapshot requires path and manifest_path"
             )
     return errors
+
+
+def validate_runtime_authority_status(config: dict, errors: list[str]) -> None:
+    """Keep legacy execution metadata distinct from P0--P6 runtime authority."""
+    meta = config.get("meta")
+    authority = meta.get("runtime_authority") if isinstance(meta, dict) else None
+    if not isinstance(authority, dict):
+        errors.append("meta.runtime_authority must be an object")
+        return
+    if set(authority) != RUNTIME_AUTHORITY_STATUS_FIELDS:
+        errors.append(
+            "meta.runtime_authority fields must be "
+            f"{sorted(RUNTIME_AUTHORITY_STATUS_FIELDS)}"
+        )
+        return
+    for field, expected in CURRENT_RUNTIME_AUTHORITY_STATUS.items():
+        if authority.get(field) != expected:
+            errors.append(f"meta.runtime_authority.{field} must be {expected!r}")
+    status_as_of = authority.get("status_as_of")
+    if not isinstance(status_as_of, str):
+        errors.append("meta.runtime_authority.status_as_of must be an ISO date")
+        return
+    try:
+        dt.date.fromisoformat(status_as_of)
+    except ValueError:
+        errors.append("meta.runtime_authority.status_as_of must be an ISO date")
 
 
 def _strategy_catalog_by_profile(strategy_catalog: object | None) -> dict[str, dict]:

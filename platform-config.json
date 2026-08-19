@@ -2,8 +2,18 @@
   "$schema": "https://quantstratalab.github.io/configs/platform-config.schema.json",
   "schema_version": 1,
   "meta": {
-    "last_updated": "2026-07-09",
-    "description": "Single source of truth for all platforms, domains, and strategies"
+    "last_updated": "2026-08-19",
+    "description": "Single source of truth for all platforms, domains, and strategies",
+    "runtime_authority": {
+      "schema_version": "qsl.runtime_authority_status.v1",
+      "scope": "p0_p6_control_plane",
+      "status": "P0_CONTROL_PLANE_NOT_RUNTIME_WIRED",
+      "status_as_of": "2026-08-19",
+      "active_preauthorized_autonomy_policy": false,
+      "execution_metadata_is_runtime_authority": false,
+      "p1_p3_non_live_data_acquisition_authority": "INDEPENDENT_CONTRACT_REQUIRED",
+      "p4_p6_definition": "UNDEFINED"
+    }
   },
   "notifications": {
     "quant_sentinel": {
@@ -366,7 +376,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -405,7 +415,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -445,7 +455,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -472,7 +482,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -540,7 +550,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true,
@@ -701,7 +711,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true
@@ -744,7 +754,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -911,7 +921,7 @@
         "paper",
         "dry_run"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "features": {
         "income_layer": false,
         "option_overlay": false,

@@ -25,6 +25,8 @@ def build_config_module(config: dict) -> str:
     platforms = config["platforms"]
     strategies = config["strategies"]
     domains = config.get("domains", {})
+    meta = config.get("meta", {})
+    runtime_authority = meta.get("runtime_authority", {}) if isinstance(meta, dict) else {}
 
     # ── platformConfig (replaces hardcoded in index.html) ──
     platform_config = {}
@@ -167,6 +169,8 @@ def build_config_module(config: dict) -> str:
         "// Source: platform-config.json",
         "",
         f"export const PLATFORM_CONFIG = {json.dumps(platform_config, indent=2, ensure_ascii=False)};",
+        "",
+        f"export const RUNTIME_AUTHORITY_STATUS = {json.dumps(runtime_authority, indent=2, ensure_ascii=False)};",
         "",
         f"export const DEFAULT_ACCOUNT_OPTIONS = {json.dumps(default_accounts, indent=2, ensure_ascii=False)};",
         "",

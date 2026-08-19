@@ -22,6 +22,17 @@ The generated `RUNTIME_TARGET_JSON` payload is the canonical desired-state contr
 - QMT has no live deployment configuration and remains dry-run only.
 - `platform-config.json` records `runtime_model`, `settings_activation`, and `live_configured` for every platform. Unsupported activation combinations fail validation.
 
+### P0–P6 runtime-authority boundary
+
+`platform-config.json.meta.runtime_authority` is a separately validated, machine-readable status record for the P0–P6 control plane. It intentionally sits above legacy per-platform deployment metadata:
+
+- The current status, `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED`, records that no active preauthorized autonomy policy or P0 execution gateway is wired into a runtime.
+- `default_execution_mode`, `live_configured`, strategy lifecycle labels, switch-console access, workflow dispatch, and CI results are not runtime, order, fund, or stage-change authorization.
+- P1–P3 non-live data acquisition requires an independent, exact contract; P0 does not authorize data acquisition by implication.
+- P4–P6 are explicitly undefined in this status record. This package must not assign their scope, ordering, acceptance criteria, or completion state.
+
+The record is informational and fail-closed for this repository's generated metadata. It does not alter existing execution defaults, deploy a gateway, access credentials, dispatch workflows, or submit orders.
+
 The repository has a **three-tier architecture** built around a single source of truth:
 
 ```

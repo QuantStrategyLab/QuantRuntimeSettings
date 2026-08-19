@@ -70,6 +70,17 @@ export const PLATFORM_CONFIG = {
   }
 };
 
+export const RUNTIME_AUTHORITY_STATUS = {
+  "schema_version": "qsl.runtime_authority_status.v1",
+  "scope": "p0_p6_control_plane",
+  "status": "P0_CONTROL_PLANE_NOT_RUNTIME_WIRED",
+  "status_as_of": "2026-08-19",
+  "active_preauthorized_autonomy_policy": false,
+  "execution_metadata_is_runtime_authority": false,
+  "p1_p3_non_live_data_acquisition_authority": "INDEPENDENT_CONTRACT_REQUIRED",
+  "p4_p6_definition": "UNDEFINED"
+};
+
 export const DEFAULT_ACCOUNT_OPTIONS = {
   "longbridge": [
     {

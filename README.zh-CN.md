@@ -26,6 +26,12 @@ QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategy
 - 密钥和环境专属配置不要写进共享库代码。
 - 会影响多个平台或策略包的改动，需要在文档中说明。
 
+## P0–P6 运行授权状态
+
+`platform-config.json.meta.runtime_authority` 是 P0–P6 控制面的机器可读状态。当前 `P0_CONTROL_PLANE_NOT_RUNTIME_WIRED` 表示本仓没有 active 的预授权自治策略，也没有已接入 runtime 的 P0 执行网关。
+
+`default_execution_mode`、`live_configured`、策略生命周期标签、本仓切换 workflow 与 CI 绿灯都只是配置或历史元数据，不是运行、订单、资金或阶段升级授权。P1–P3 的 non-live 数据获取必须有独立、精确的契约，不能从 P0 隐含推导；P4–P6 仍未定义。详见[架构边界](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary)。
+
 ## 仓库结构
 
 - `python/`：Python 工具链（脚本、测试、pyproject.toml）— 校验、代码生成、部署工具。
@@ -45,6 +51,8 @@ python3 -m unittest discover -s python/tests -v
 ## 一键切换策略
 
 `.github/workflows/manual-strategy-switch.yml` 提供手动触发的中控切换入口。它会根据表单参数生成运行目标，复用 `python/scripts/runtime_settings.py` 校验并写入目标平台仓库的 GitHub variables。当前支持 `longbridge`、`ibkr`、`schwab`、`firstrade`、`qmt`、`binance`。
+
+这是遗留设置变更路径，不会创建或扩大 P0–P6 运行授权；当上面的状态仍是未接入 runtime 时，不能把它当作任何运行许可。
 
 推荐流程：
 
