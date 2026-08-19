@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.research_data_authorization.v1",
+  "title": "QSL Non-Trading Research-Data Authorization v1",
+  "description": "A signed, bounded P1/P3 research-data authorization. It contains no credential, URL, or raw market data; it does not authorize paper, shadow, live, order, or capital activity.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "authorization_id", "authorization_version", "created_at", "effective_at", "expires_at", "digest_algorithm", "repository", "revision", "candidate_config", "provider", "allowed_operations", "forbidden_capabilities", "authorization_sha256"],
+  "properties": {
+    "schema": {"const": "qsl.research_data_authorization.v1"},
+    "authorization_id": {"$ref": "#/$defs/identity"},
+    "authorization_version": {"$ref": "#/$defs/identity"},
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "effective_at": {"$ref": "#/$defs/timestamp"},
+    "expires_at": {"$ref": "#/$defs/timestamp"},
+    "digest_algorithm": {"const": "sha256"},
+    "repository": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+    "revision": {"$ref": "#/$defs/revision"},
+    "candidate_config": {"$ref": "#/$defs/candidateConfig"},
+    "provider": {"$ref": "#/$defs/provider"},
+    "allowed_operations": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"enum": ["historical_market_data_read", "offline_replay", "private_evidence_write"]}},
+    "forbidden_capabilities": {"const": ["credential_access", "paper_execution", "shadow_execution", "live_execution", "order_submission", "capital_allocation"]},
+    "authorization_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "candidateConfig": {"type": "object", "additionalProperties": false, "required": ["candidate_sha256", "config_sha256"], "properties": {"candidate_sha256": {"$ref": "#/$defs/sha256"}, "config_sha256": {"$ref": "#/$defs/sha256"}}},
+    "provider": {"type": "object", "additionalProperties": false, "required": ["provider_id"], "properties": {"provider_id": {"$ref": "#/$defs/identity"}}}
+  }
+}
