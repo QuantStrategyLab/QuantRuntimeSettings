@@ -57,6 +57,28 @@ const CONTROL_PLANE_RECOMMENDATIONS = [
   "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
 ];
 const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
+// Execution evidence is deliberately a separate, read-only projection.  A
+// candidate's research lifecycle is portable; a broker/data/execution result
+// is only meaningful for the exact target platform and lane that produced it.
+// Keeping this contract separate prevents a P1/P3 source from accidentally
+// turning into an execution or P6 authority source.
+const EXECUTION_EVIDENCE_SOURCE_PREFIX = "execution_evidence_source:";
+const EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION = "qsl_execution_evidence_source_snapshot.v1";
+const EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION = "qsl_execution_evidence_dashboard.v1";
+const EXECUTION_EVIDENCE_MAX_SOURCES = 100;
+const EXECUTION_EVIDENCE_MAX_BODY_BYTES = 256 * 1024;
+const EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
+const EXECUTION_EVIDENCE_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const EXECUTION_EVIDENCE_ENVIRONMENTS = ["shadow", "paper", "live"];
+const EXECUTION_EVIDENCE_CAPABILITIES = ["available", "unavailable", "unknown"];
+const EXECUTION_EVIDENCE_STATUSES = ["verified", "pending", "unavailable", "not_applicable"];
+const EXECUTION_EVIDENCE_RECOMMENDATIONS = [
+  "continue_autonomous_shadow", "run_autonomous_paper", "owner_limited_live_canary_decision", "parked",
+];
+const EXECUTION_EVIDENCE_REASON_CODES = [
+  "none", "target_execution_evidence_missing", "paper_not_supported", "paper_execution_evidence_needed",
+  "policy_not_active", "source_stale", "manual_live_decision_required",
+];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -200,6 +222,12 @@ export default {
       }
       if (url.pathname === "/api/control-plane" && request.method === "GET") {
         return await controlPlaneResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-execution-evidence-source" && request.method === "POST") {
+        return await syncExecutionEvidenceSourceResponse(request, env);
+      }
+      if (url.pathname === "/api/execution-evidence" && request.method === "GET") {
+        return await executionEvidenceResponse(request, env);
       }
       if (url.pathname === "/api/internal/sync-research-task-source" && request.method === "POST") {
         return await syncResearchTaskSourceResponse(request, env);
@@ -1327,6 +1355,139 @@ async function controlPlaneResponse(request, env) {
   return json(snapshot);
 }
 
+async function syncExecutionEvidenceSourceResponse(request, env) {
+  requireDedicatedExecutionEvidenceSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "execution evidence KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, EXECUTION_EVIDENCE_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid execution evidence payload" }, error.status || 400);
+  }
+
+  let source;
+  try {
+    source = normalizeExecutionEvidenceSourceSnapshot(raw, "execution evidence source snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid execution evidence payload" }, 400);
+  }
+
+  await writeConfigJson(env, executionEvidenceSourceKey(source.source_id), source);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "execution-evidence-source-sync",
+      action: "sync_execution_evidence_source",
+      source_id: source.source_id,
+      schema_version: source.schema_version,
+      deployment_count: source.deployments.length,
+      data_status: source.data_status,
+    });
+  } catch {
+    // The source snapshot is accepted independently of optional audit retention.
+  }
+  return json({
+    ok: true,
+    source_id: source.source_id,
+    schema_version: source.schema_version,
+    deployment_count: source.deployments.length,
+    generated_at: source.generated_at,
+  });
+}
+
+async function executionEvidenceResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyExecutionEvidencePayload("snapshot_unavailable"));
+  return json(await aggregateExecutionEvidenceSources(env));
+}
+
+async function aggregateExecutionEvidenceSources(env) {
+  const sources = await readExecutionEvidenceSources(env);
+  if (!sources.length) return emptyExecutionEvidencePayload("snapshot_unavailable");
+
+  const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
+  const now = Date.now();
+  const deployments = [];
+  const deploymentIds = new Set();
+  const duplicateDeploymentIds = new Set();
+  const errors = [];
+  const timestamps = [];
+  let hasReadySource = false;
+  let hasStaleSource = false;
+
+  for (const source of sources) {
+    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+    if (source.generated_at) timestamps.push(source.generated_at);
+    if (source.computed_at) timestamps.push(source.computed_at);
+    if (freshness.data_status === "ready") hasReadySource = true;
+    if (freshness.data_status === "stale") {
+      hasStaleSource = true;
+      errors.push("execution_evidence_source_stale");
+    }
+    for (const deployment of source.deployments) {
+      if (deploymentIds.has(deployment.deployment_id)) {
+        duplicateDeploymentIds.add(deployment.deployment_id);
+        errors.push("execution_evidence_duplicate_deployment");
+        continue;
+      }
+      deploymentIds.add(deployment.deployment_id);
+      deployments.push({ source_id: source.source_id, freshness, deployment });
+    }
+    errors.push(...source.errors);
+  }
+
+  const uniqueDeployments = deployments.filter((entry) => !duplicateDeploymentIds.has(entry.deployment.deployment_id));
+  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
+  return {
+    schema_version: EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION,
+    generated_at: earliestControlPlaneTimestamp(timestamps),
+    computed_at: earliestControlPlaneTimestamp(timestamps),
+    data_status: dataStatus,
+    summary: normalizeExecutionEvidenceSummary(uniqueDeployments.map((entry) => entry.deployment)),
+    deployments: uniqueDeployments,
+    policy: {
+      execution_evidence_read_only: true,
+      p6_owner_decision_required: true,
+      limited_live_canary_active: false,
+      notice: "执行证据按策略、平台和执行通道分别记录；它不授权订单或实盘。",
+    },
+    errors: uniqueStrings(errors),
+  };
+}
+
+async function readExecutionEvidenceSources(env) {
+  const store = configStore(env);
+  if (!store || typeof store.list !== "function") return [];
+  let listing;
+  try {
+    listing = await store.list({ prefix: EXECUTION_EVIDENCE_SOURCE_PREFIX, limit: EXECUTION_EVIDENCE_MAX_SOURCES });
+  } catch {
+    return [emptyExecutionEvidenceSourceSnapshot("execution_evidence_source_list_unavailable")];
+  }
+  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
+  const sources = [];
+  for (const entry of keys.slice(0, EXECUTION_EVIDENCE_MAX_SOURCES)) {
+    const key = typeof entry?.name === "string" ? entry.name : "";
+    if (!key.startsWith(EXECUTION_EVIDENCE_SOURCE_PREFIX)) continue;
+    try {
+      const stored = await readConfigJson(env, key);
+      if (!stored) continue;
+      sources.push(normalizeExecutionEvidenceSourceSnapshot(stored, key));
+    } catch {
+      sources.push(emptyExecutionEvidenceSourceSnapshot("execution_evidence_source_invalid"));
+    }
+  }
+  return sources;
+}
+
+function executionEvidenceSourceKey(sourceId) {
+  return `${EXECUTION_EVIDENCE_SOURCE_PREFIX}${sourceId}`;
+}
+
 async function syncResearchTaskSourceResponse(request, env) {
   requireDedicatedResearchTaskSyncToken(request, env);
   if (!hasConfigStore(env)) {
@@ -1611,6 +1772,14 @@ function requireDedicatedControlPlaneSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("control plane sync token is invalid", 401);
+}
+
+function requireDedicatedExecutionEvidenceSyncToken(request, env) {
+  const expected = String(env.EXECUTION_EVIDENCE_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("execution evidence sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("execution evidence sync token is invalid", 401);
 }
 
 function requireDedicatedResearchTaskSyncToken(request, env) {
@@ -2199,6 +2368,143 @@ function normalizeControlPlanePolicy(value, fieldName) {
     p6_owner_decision_required: true,
     notice: sanitizeStrategyHealthText(source.notice, `${fieldName}.policy.notice`, 240, false, "live 仍需所有者明确决定。"),
   };
+}
+
+function normalizeExecutionEvidenceSourceSnapshot(payload, fieldName = "execution evidence source snapshot") {
+  const source = assertExactFields(payload, [
+    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "deployments", "errors",
+  ], fieldName);
+  if (source.schema_version !== EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  if (!Array.isArray(source.deployments) || source.deployments.length > 1000) {
+    throw new Error(`${fieldName}.deployments must be an array with at most 1000 items`);
+  }
+  const deployments = [];
+  const seen = new Set();
+  for (const [index, item] of source.deployments.entries()) {
+    const deployment = normalizeExecutionEvidenceDeployment(item, `${fieldName}.deployments[${index}]`);
+    if (seen.has(deployment.deployment_id)) {
+      throw new Error(`${fieldName}.deployments contains duplicate deployment_id`);
+    }
+    seen.add(deployment.deployment_id);
+    deployments.push(deployment);
+  }
+  if (dataStatus === "unavailable" && deployments.length) {
+    throw new Error(`${fieldName}.deployments must be empty when unavailable`);
+  }
+  return {
+    schema_version: EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
+    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
+    generated_at: normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true),
+    computed_at: normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true),
+    data_status: dataStatus,
+    deployments,
+    errors: normalizeStrategyHealthErrors(source.errors),
+  };
+}
+
+function normalizeExecutionEvidenceDeployment(value, fieldName) {
+  const item = assertExactFields(value, [
+    "deployment_id", "strategy", "target", "capabilities", "evidence", "recommendation",
+  ], fieldName);
+  const strategy = assertExactFields(item.strategy, [
+    "candidate_id", "candidate_kind", "domain", "strategy_revision",
+  ], `${fieldName}.strategy`);
+  const target = assertExactFields(item.target, ["platform", "environment"], `${fieldName}.target`);
+  const capabilities = assertExactFields(item.capabilities, ["shadow", "paper"], `${fieldName}.capabilities`);
+  const evidence = assertExactFields(item.evidence, [
+    "strategy", "target_data", "target_execution",
+  ], `${fieldName}.evidence`);
+  const recommendation = assertExactFields(item.recommendation, ["code", "reason_code"], `${fieldName}.recommendation`);
+  const normalized = {
+    deployment_id: normalizeControlPlaneIdentifier(item.deployment_id, `${fieldName}.deployment_id`, false),
+    strategy: {
+      candidate_id: normalizeControlPlaneIdentifier(strategy.candidate_id, `${fieldName}.strategy.candidate_id`, false),
+      candidate_kind: cleanChoice(strategy.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${fieldName}.strategy.candidate_kind`),
+      domain: cleanChoice(strategy.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.strategy.domain`),
+      strategy_revision: normalizeResearchTaskRevision(strategy.strategy_revision, `${fieldName}.strategy.strategy_revision`),
+    },
+    target: {
+      platform: cleanChoice(target.platform, EXECUTION_EVIDENCE_PLATFORMS, `${fieldName}.target.platform`),
+      environment: cleanChoice(target.environment, EXECUTION_EVIDENCE_ENVIRONMENTS, `${fieldName}.target.environment`),
+    },
+    capabilities: {
+      shadow: cleanChoice(capabilities.shadow, EXECUTION_EVIDENCE_CAPABILITIES, `${fieldName}.capabilities.shadow`),
+      paper: cleanChoice(capabilities.paper, EXECUTION_EVIDENCE_CAPABILITIES, `${fieldName}.capabilities.paper`),
+    },
+    evidence: {
+      strategy: cleanChoice(evidence.strategy, EXECUTION_EVIDENCE_STATUSES, `${fieldName}.evidence.strategy`),
+      target_data: cleanChoice(evidence.target_data, EXECUTION_EVIDENCE_STATUSES, `${fieldName}.evidence.target_data`),
+      target_execution: cleanChoice(evidence.target_execution, EXECUTION_EVIDENCE_STATUSES, `${fieldName}.evidence.target_execution`),
+    },
+    recommendation: {
+      code: cleanChoice(recommendation.code, EXECUTION_EVIDENCE_RECOMMENDATIONS, `${fieldName}.recommendation.code`),
+      reason_code: cleanChoice(recommendation.reason_code, EXECUTION_EVIDENCE_REASON_CODES, `${fieldName}.recommendation.reason_code`),
+    },
+  };
+  if (normalized.recommendation.code === "continue_autonomous_shadow" && normalized.capabilities.shadow !== "available") {
+    throw new Error(`${fieldName}.recommendation requires an available shadow capability`);
+  }
+  if (normalized.recommendation.code === "run_autonomous_paper" && normalized.capabilities.paper !== "available") {
+    throw new Error(`${fieldName}.recommendation requires an available paper capability`);
+  }
+  if (normalized.recommendation.code === "owner_limited_live_canary_decision") {
+    const statuses = Object.values(normalized.evidence);
+    if (!statuses.every((status) => status === "verified")) {
+      throw new Error(`${fieldName}.recommendation requires matching verified strategy, data, and execution evidence`);
+    }
+  }
+  return normalized;
+}
+
+function normalizeExecutionEvidenceSummary(deployments) {
+  return {
+    deployment_count: deployments.length,
+    autonomous_shadow: deployments.filter((item) => item.recommendation.code === "continue_autonomous_shadow").length,
+    autonomous_paper: deployments.filter((item) => item.recommendation.code === "run_autonomous_paper").length,
+    owner_canary_decision: deployments.filter((item) => item.recommendation.code === "owner_limited_live_canary_decision").length,
+    parked: deployments.filter((item) => item.recommendation.code === "parked").length,
+  };
+}
+
+function emptyExecutionEvidenceSourceSnapshot(errorCode) {
+  return {
+    schema_version: EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION,
+    source_id: "unavailable",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    deployments: [],
+    errors: [errorCode],
+  };
+}
+
+function emptyExecutionEvidencePayload(errorCode) {
+  return {
+    schema_version: EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION,
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
+    deployments: [],
+    policy: {
+      execution_evidence_read_only: true,
+      p6_owner_decision_required: true,
+      limited_live_canary_active: false,
+      notice: "执行证据尚不可用；控制台不会推断 paper 或 live 状态。",
+    },
+    errors: [errorCode],
+  };
+}
+
+function executionEvidenceStaleTtlSeconds(env) {
+  const configured = Number(env.EXECUTION_EVIDENCE_STALE_TTL_SECONDS);
+  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
+    return EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS;
+  }
+  return Math.floor(configured);
 }
 
 function emptyControlPlanePayload(errorCode) {
@@ -3901,6 +4207,8 @@ export const __test = {
   normalizeControlPlaneSnapshot,
   normalizeControlPlaneSourceSnapshot,
   emptyControlPlanePayload,
+  normalizeExecutionEvidenceSourceSnapshot,
+  emptyExecutionEvidencePayload,
   calculateResearchTaskSha256,
   normalizeResearchTask,
   normalizeResearchTaskSourceSnapshot,

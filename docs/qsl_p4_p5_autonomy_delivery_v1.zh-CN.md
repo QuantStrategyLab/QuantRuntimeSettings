@@ -15,6 +15,8 @@ P4 与 P5 的含义必须分开：
 | P4 `PAPER_DRY_RUN` | 向**独立的 paper 账户**提交受限纸面订单、记录回执并自动对账。 | 不使用 live endpoint 或 live 凭据；不把 paper 结果当作 live 资格。 |
 | P5 `SHADOW` | 生成并记录假设决策/虚拟账本，与真实市场和独立只读对账比较。 | 不提交任何券商订单，不读取或修改 live 资金。 |
 
+`PAPER_BROKER` 不是所有平台都必须经过的全球关卡，而是目标平台的可选自动能力：同一固定策略可在平台 A 已有 paper 或 live 证据、在平台 B 持续 shadow；A 的结果只作为可审计的参考，不能授予 B 的订单资格。若 B 有独立 paper endpoint 和适配器，系统在已预授权范围内自动运行 P4；若 B 没有 paper 能力，系统不把它报成错误，而是持续 P5 shadow。仅当策略、数据与目标执行证据精确匹配且新鲜时，控制台才可产生一个 `P6_LIMITED_LIVE_CANARY_DECISION_REQUIRED` 的**所有者决定项**。这不是 P6 启用、账户接入或真实订单功能。
+
 Alpaca 官方文档要求 paper 使用独立的 paper endpoint 和不同于 live 的凭据；因此市场数据配置不能被推断为 P4 交易授权或凭据。见 [Paper Trading](https://docs.alpaca.markets/us/v1.4.2/docs/paper-trading) 与 [Authentication](https://docs.alpaca.markets/us/docs/authentication)。
 
 ## 已实现的机器门
