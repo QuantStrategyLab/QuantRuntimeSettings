@@ -4,7 +4,7 @@
 >
 > 适用范围：QuantStrategyLab 的 P0–P6 主线协作；不替代任何策略、券商或部署仓的实时证据。
 >
-> 已知仓内及只读运行元数据截至：`2026-08-19`。这不是 paper、shadow、live、部署或验收状态的声明。
+> 已知仓内及只读运行元数据截至：`2026-08-20`。这不是 paper、shadow、live、部署或验收状态的声明。
 
 这是可随仓库携带的 P0–P6 状态与协作政策唯一入口。它取代旧路线图中指向个人机器的绝对路径；运行时、券商和策略事实仍须在操作前从相应事实源重新读取。
 
@@ -28,7 +28,7 @@ P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯�
 | P2 | `UsEquitySnapshotPipelines` | `tqqq_core_only_p2_v5` 是当前唯一可运行的日更研究候选：它固定 `UsEquityStrategies` 的公开 research adapter、revision、运行参数、共同可用资产和成本，并仅让已验证 P1 截止日滚动 252-session OOS 窗口。v4/v3 只保留为 synthetic/历史依据，不能绑定新的日更输入。 | 只允许冻结、复核或替换候选定义；不得把 CI、历史规则或日更结果直接解释为收益验证或调参许可。 |
 | P3 | `UsEquitySnapshotPipelines` | v5 的纯 synthetic 端到端证据链及其日更控制器都已通过 CI。计划任务只会对 `ACCEPTED` 的 v5 P1 根运行同一条 offline/no-order replay，并在同一短期前缀写健康与脱敏终态记录；当前尚无计划运行结果。 | 只允许产生同一 non-live 证据；不得变成 paper、shadow、live、部署、promotion 或策略参数变更。 |
 | P4 | `QuantRuntimeSettings`（控制契约） | 自动 paper 的风险控制契约已实现；没有已签 policy、独立 paper 身份或 broker adapter。 | 接入独立 Alpaca paper gateway；每周期先验签、验证 P1/P2/P3 绑定与对账，异常自动停车。 |
-| P5 | `QuantRuntimeSettings`（控制契约） | 自动 shadow 的风险控制契约已实现；没有已签 policy 或 shadow ledger scheduler。 | 接入无 broker 写权限的 shadow ledger；每周期先验证 P3 绑定与对账，异常自动停车。 |
+| P5 | `AlpacaPlatform`（无 broker gateway） | 自动 shadow 的风险控制契约已实现；`AlpacaPlatform` 已有纯 create-only shadow ledger，`UsEquitySnapshotPipelines` 已能从同根 P1/P3 状态生成绑定的 P2 v5 forward observation。没有已签 P5 policy、scheduler 或真实日更 shadow receipt。 | 由独立 policy gate 验签并生成最小授权输入后，接入无 broker 写权限的 shadow scheduler；每周期先验证 P1/P2/P3 绑定与前次账本对账，异常自动停车。 |
 | P6 | `NO_DRIVER_PARKED` | 没有 live、账户、订单或资金任务定义。 | 任何 live 启用均需用户的明确决定；不得由 driver、主控会话或 AI 自行创建。 |
 
 ## 策略、组合和插件：横向产品层
@@ -43,7 +43,7 @@ P0–P6 是每个研究候选从控制、输入、策略、证据到执行的**�
 
 ## 自治运行策略是独立门槛
 
-无人值守并不表示没有授权边界。当前 P1/P3 的个人日更研究边界已由 `tqqq_core_only_p2_v5` 的不可变候选配置和日更控制器实现，不要求逐次人工点击。未来 **paper、shadow** 可在各自当前、可验证、精确匹配的 `PREAUTHORIZED_AUTONOMY` 策略实现后无人值守运行；当前尚未实现。**live** 永远还需用户的明确启用决定。driver、主控会话、自动化审计、兼容性检查或本文本身均不能自行签发、扩大、续期或修改这些边界。
+无人值守并不表示没有授权边界。当前 P1/P3 的个人日更研究边界已由 `tqqq_core_only_p2_v5` 的不可变候选配置和日更控制器实现，不要求逐次人工点击。P5 已具备纯账本与前置 forward observation 组件；在其当前、可验证、精确匹配的 `PREAUTHORIZED_AUTONOMY` 策略和 scheduler 接线后可无人值守运行。P4 仍未接入；**live** 永远还需用户的明确启用决定。driver、主控会话、自动化审计、兼容性检查或本文本身均不能自行签发、扩大、续期或修改这些边界。
 
 AI 只做监测、研究候选生成、证据验证、受限的文本诊断和发布资格评估，不读取或传递凭证、直接提交订单、重置熔断、修改策略根或风险上限。P1 的 GitHub Actions 控制器在受限环境中使用其配置的密钥，但这不把密钥暴露给 AI，也不授予订单能力。任何未来执行服务必须在独立风控边界内运行；当前政策不启用 paper、shadow、账户、订单、资金或 P4–P6。
 
@@ -63,9 +63,9 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | 脱敏 P3 绩效观察 | 已接线 | 终态 P3 才发布有限期 artifact；不含 raw bars、账户、订单或凭据。 |
 | AI 持续观察与诊断 | 已接线（受限、non-live） | AIAuditBridge 只在两次可比较、已绑定 P1/P2/P3 摘要的观察后创建/更新 Issue 与任务。对每个尚未诊断的 Issue，计划 watcher 每次最多调用一次只读 AI 文本诊断并回写同一 Issue；它不执行实验、不改系统。普通策略退化不通知人；数据/证据不可用、熔断或记录失败才经去重运维通道升级通知。 |
 | `qsl.research_task.v1` 与控制台队列 | 已接线（只读），待首份合格真实来源快照 | AIAudit Watcher 以专用 token 向控制台发布来源摘要；来源和控制台会各自复核 SHA、revision、摘要和 no-order authority。空队列不是故障，也不能由 Issue 推断任务。 |
-| P2 v2 / P3 v2 候选 | 草稿 | 未合并或未绑定日更 driver 前，当前 P3 仍使用冻结 v1 路径。 |
-| P4 / P5 风险控制契约 | 已实现，未接线 | 只校验受限自动运行边界；没有网络、账户、订单或资金能力。 |
-| P4 / P5 执行 | 未实现 | 无 paper adapter、shadow ledger、账户、订单或资金任务。 |
+| P5 forward observation 与 shadow ledger | 已接线，未激活 | UESP 从验证过的同根 P1/P3 状态调用冻结 P2 v5 public adapter，输出只含摘要和虚拟权重的 forward observation；AlpacaPlatform 只会 create-only 地构造链式 shadow receipt。没有 broker、账户、订单、资金、云端写入或 scheduler。 |
+| P4 / P5 风险控制契约 | 已实现，未接线到运行 | 只校验受限自动运行边界；没有网络、账户、订单或资金能力。 |
+| P4 执行与 P5 自动调度 | 未实现 | 无 paper adapter；P5 还没有已签 policy、policy-gate receipt、scheduler 或真实日更 shadow receipt。 |
 | P6 | 未实现 | 无 live、账户、订单或资金任务。 |
 | `QuantStrategyLifecycle` 本机目录 | 退役/孤立 | 没有对应的 GitHub 主线仓；其中 autopilot/auto-approve 描述不得作为当前能力或设计依据。 |
 | `CodexAuditBridge` 本机目录 | 退役/孤立 | 当前有效审计仓是 `AIAuditBridge`；不得接入任何新工作流。 |
@@ -98,6 +98,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-19`：只读复核确认上述 P1 根的原始数据按既有短期保留规则自动到期；未复制、延长或删除该数据。P3 停车时的精确内部原因未被持久化，因此不得事后臆造为策略结论。
 - `2026-08-19`：`UsEquitySnapshotPipelines` 合入 P2 v4 / P3 pure-synthetic 证据链；其 PR 与 main CI 均通过。该结果只证明冻结候选的离线链路可重复验证，不是使用真实行情的 P3 成功，也不是策略表现、paper、shadow 或 live 资格。
 - `2026-08-19`：`UsEquitySnapshotPipelines` 合入 P2 v5 滚动输入/证据契约（PR #320）及收盘后日更 P1/P3 non-live 控制器（PR #321）；两者 PR 与 main CI 均通过。日更控制器已就绪但尚无计划运行结果，因此不据此声称已读到新的 Alpaca 数据、P3 表现结论、paper、shadow 或 live 资格。
+- `2026-08-20`：`AlpacaPlatform` 合入纯 P5 shadow ledger（PR #1）及其与冻结 P2 v5 候选名一致性修复（PR #2）；`UsEquitySnapshotPipelines` 合入 P1/P2/P3 到 P5 的纯 forward observation bridge（PR #326）。三者的 CI 均通过。它们只提供可复算、无 broker 的接线组件；没有 P5 policy、scheduler、日更运行、paper 或 live 资格。
 - `2026-08-19`：6 个 Quant GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。详见下方部署记录。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
