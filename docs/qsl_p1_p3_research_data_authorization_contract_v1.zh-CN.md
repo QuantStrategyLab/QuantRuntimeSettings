@@ -1,6 +1,6 @@
 # P1/P3 非交易数据预授权契约 v1
 
-`qsl.research_data_authorization.v1` 是 P1/P3 的离线验签契约，不是执行生命周期的一部分。它可以复用已公开的 Cloud KMS P-256 验证根，但不调用 `autonomous_policy_gate.py`、不需要 DeploymentBundle 或 Activation，也不改变 P0 执行 gate。
+`qsl.research_data_authorization.v1` 是 P1/P3 的离线验签契约，不是执行生命周期的一部分。它复用 Cloud KMS P-256 root schema 与离线验签机制，但实际部署必须使用与 P0 执行 root 不同的专用 KMS key version，并由独立的 root digest 固定；不得复用或信任 P0 执行 signer。它不调用 `autonomous_policy_gate.py`、不需要 DeploymentBundle 或 Activation，也不改变 P0 执行 gate。
 
 每份授权必须由外部数据控制面固定验证根摘要，并同时绑定：一个仓库与完整 revision、GitHub/runner environment identity（例如 `tqqq-p1-p3-nonlive`）、候选和配置的 SHA-256、一个 provider identity，以及许可/保留决策的 `retention_policy_sha256`。因此，不能把同一仓库和 revision 的签名授权重放到另一环境，也不能把它与另一份许可或保留决策脱钩。
 
