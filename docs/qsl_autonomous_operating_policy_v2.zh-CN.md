@@ -56,7 +56,7 @@ Cloud KMS 根固定到一个具体 CryptoKeyVersion，并使用 `EC_SIGN_P256_SH
 
 验签门只有在 policy、根、签名、bundle、Activation target、stage、回执哈希和有效期全部一致时才通过。它不会签发策略，也不会读取私钥。正确接入方式是让**执行风控服务自身**在接触券商前调用它；若仅由一个可改写的 CI workflow 调用，则 CI 可以绕过它，不能算独立控制。
 
-验签成功后可生成 `qsl.gcp_kms_policy_gate_receipt.v1`：它是给后续 P5 no-broker 调度器消费的最小、可自校验投影，绑定 bundle、policy、activation、target commitment、risk-control digest、root digest 与有效窗口；不携带账户别名、账户摘要、公钥、签名原文或任何凭据。收据只在其 `verified_at` 之后且所有原始控制窗口到期前有效，任何字段改动都会使收据摘要失配。它**不**替代 gate，不签发 policy，也不授权运行；未来 P5 必须同时独立复核该收据、当日 forward observation 和风险控制，三者缺一即 `PARKED`。
+验签成功后可生成 `qsl.gcp_kms_policy_gate_receipt.v1`：它是给 P5 no-broker 调度器消费的最小、可自校验投影，绑定 bundle、policy、activation、target commitment、risk-control digest、root digest 与有效窗口；不携带账户别名、账户摘要、公钥、签名原文或任何凭据。收据只在其 `verified_at` 之后且所有原始控制窗口到期前有效，任何字段改动都会使收据摘要失配。Alpaca P5 v2 input adapter 已复核该收据、当日 forward observation 和风险控制的精确绑定，三者缺一即 `PARKED`。它**不**替代 gate，不签发 policy，也不授权运行；仓内仍没有 active policy、scheduler 或真实 shadow receipt。
 
 `risk_control` 当前只把风险策略的不可变摘要绑定进许可链。P0 已实现零新增风险的 `RECONCILE_ONLY` 准入：`new_risk_ceiling=0` 且 `write_action_ceiling=0`，不匹配即 `PARKED`。它尚不执行仓位/敞口/损失上限，也不读取账户；实际执行网关仍必须单独实现这些确定性限制。这样不会把“已经签名”误说成“已经具备交易风控”。
 
