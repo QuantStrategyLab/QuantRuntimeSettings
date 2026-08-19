@@ -62,7 +62,7 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | P1–P3 TQQQ 日更研究 | 已接线，待计划运行证据 | 工作流只做数据身份、冻结研究和 offline/no-order P3；缺失输入只会延期/停车。 |
 | 脱敏 P3 绩效观察 | 已接线 | 终态 P3 才发布有限期 artifact；不含 raw bars、账户、订单或凭据。 |
 | AI 持续观察与诊断 | 已接线（受限、non-live） | AIAuditBridge 只在两次可比较、已绑定 P1/P2/P3 摘要的观察后创建/更新 Issue 与任务。对每个尚未诊断的 Issue，计划 watcher 每次最多调用一次只读 AI 文本诊断并回写同一 Issue；它不执行实验、不改系统。普通策略退化不通知人；数据/证据不可用、熔断或记录失败才经去重运维通道升级通知。 |
-| `qsl.research_task.v1` 与控制台队列 | producer/consumer 已实现；控制台同步配置未接线 | 来源和控制台会各自复核 SHA、revision、摘要和 no-order authority；当前未配置来源→控制台同步 URL/token 时，队列仅保留在 watcher 运行工件中。空队列不是故障，也不能由 Issue 推断任务。 |
+| `qsl.research_task.v1` 与控制台队列 | 已接线（只读），待首份合格真实来源快照 | AIAudit Watcher 以专用 token 向控制台发布来源摘要；来源和控制台会各自复核 SHA、revision、摘要和 no-order authority。空队列不是故障，也不能由 Issue 推断任务。 |
 | P2 v2 / P3 v2 候选 | 草稿 | 未合并或未绑定日更 driver 前，当前 P3 仍使用冻结 v1 路径。 |
 | P4 / P5 / P6 | 未实现 | 无 paper、shadow、live、账户、订单或资金任务。 |
 | `QuantStrategyLifecycle` 本机目录 | 退役/孤立 | 没有对应的 GitHub 主线仓；其中 autopilot/auto-approve 描述不得作为当前能力或设计依据。 |
