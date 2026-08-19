@@ -390,6 +390,43 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         with self.assertRaisesRegex(gcp_kms_policy_gate.GcpKmsPolicyValidationError, "signature verification"):
             self._validate_kms(bundle, activation, altered_policy, signature, root)
 
+    def test_gcp_kms_receipt_is_minimal_bound_and_valid_until_its_control_window_expires(self):
+        bundle = self._bundle()
+        policy = self._policy(bundle)
+        signature = self._sign_kms(policy)
+        activation = self._activation(bundle, signature)
+        root = self._kms_root()
+        gcp_kms_policy_gate = sys.modules["gcp_kms_policy_gate"]
+
+        verified = self._validate_kms(bundle, activation, policy, signature, root)
+        receipt = gcp_kms_policy_gate.build_gcp_kms_policy_gate_receipt(verified, verified_at=AS_OF)
+
+        self.assertEqual(receipt["schema"], "qsl.gcp_kms_policy_gate_receipt.v1")
+        self.assertEqual(receipt["policy"]["policy_sha256"], policy["policy_sha256"])
+        self.assertEqual(receipt["activation"]["activation_sha256"], activation["activation_sha256"])
+        self.assertEqual(receipt["target"]["revision"], self._target()["revision"])
+        serialized_receipt = json.dumps(receipt, sort_keys=True)
+        self.assertNotIn("account_alias", serialized_receipt)
+        self.assertNotIn("account_digest_sha256", serialized_receipt)
+        self.assertNotIn("public_key_pem", serialized_receipt)
+        self.assertEqual(
+            gcp_kms_policy_gate.validate_gcp_kms_policy_gate_receipt(
+                receipt,
+                as_of="2026-08-05T12:00:01Z",
+            ),
+            receipt,
+        )
+
+        tampered = copy.deepcopy(receipt)
+        tampered["risk_control"]["risk_policy_sha256"] = self._sha("0")
+        with self.assertRaisesRegex(gcp_kms_policy_gate.GcpKmsPolicyValidationError, "receipt_sha256 mismatch"):
+            gcp_kms_policy_gate.validate_gcp_kms_policy_gate_receipt(tampered, as_of=AS_OF)
+        with self.assertRaisesRegex(gcp_kms_policy_gate.GcpKmsPolicyValidationError, "not currently effective"):
+            gcp_kms_policy_gate.validate_gcp_kms_policy_gate_receipt(
+                receipt,
+                as_of="2026-08-05T18:00:00Z",
+            )
+
     def test_gcp_kms_cli_and_reconcile_cli_emit_only_minimal_safe_results(self):
         bundle = self._bundle()
         risk_control = self._risk_control()
@@ -403,6 +440,7 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         policy_path = self.directory / "kms-policy.json"
         signature_path = self.directory / "kms-policy.der"
         root_path = self.directory / "kms-trusted-root.json"
+        receipt_path = self.directory / "kms-policy-gate-receipt.json"
         risk_path = self.directory / "kms-risk-control.json"
         admission_path = self.directory / "kms-admission.json"
         bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
@@ -428,6 +466,8 @@ class AutonomousPolicyGateTest(unittest.TestCase):
                 str(signature_path),
                 "--trusted-policy-root",
                 str(root_path),
+                "--receipt-output",
+                str(receipt_path),
                 "--as-of",
                 AS_OF,
             ],
@@ -441,8 +481,15 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         gate_summary = json.loads(gate.stdout)
         self.assertEqual(gate_summary["kms_key_version"], root["kms_key_version"])
         self.assertEqual(gate_summary["policy_id"], policy["policy_id"])
+        self.assertIn("receipt_sha256", gate_summary)
         self.assertNotIn("public_key_pem", gate_summary)
         self.assertNotIn("risk_control", gate_summary)
+        receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        self.assertEqual(receipt["receipt_sha256"], gate_summary["receipt_sha256"])
+        self.assertEqual(
+            gcp_kms_policy_gate.validate_gcp_kms_policy_gate_receipt(receipt, as_of=AS_OF),
+            receipt,
+        )
 
         reconcile = subprocess.run(
             [
@@ -748,6 +795,12 @@ class AutonomousPolicyGateTest(unittest.TestCase):
         self.assertFalse(admission_schema["additionalProperties"])
         self.assertEqual(kms_schema["$id"], "qsl.gcp_kms_policy_root.v1")
         self.assertEqual(kms_schema["properties"]["signature_algorithm"], {"const": "EC_SIGN_P256_SHA256"})
+        receipt_schema = json.loads(
+            (ROOT.parent / "schemas" / "qsl-gcp-kms-policy-gate-receipt.v1.schema.json").read_text()
+        )
+        self.assertEqual(receipt_schema["$id"], "qsl.gcp_kms_policy_gate_receipt.v1")
+        self.assertFalse(receipt_schema["additionalProperties"])
+        self.assertIn("does not authorize", receipt_schema["description"])
 
 
 if __name__ == "__main__":

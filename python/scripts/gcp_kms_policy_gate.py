@@ -31,11 +31,13 @@ from autonomous_policy_gate import (
 from deployment_bundle_contract import BundleValidationError, parse_bundle_json, validate_bundle
 
 TRUSTED_ROOT_SCHEMA_ID = "qsl.gcp_kms_policy_root.v1"
+POLICY_GATE_RECEIPT_SCHEMA_ID = "qsl.gcp_kms_policy_gate_receipt.v1"
 _DIGEST_ALGORITHM = "sha256"
 _SIGNATURE_ALGORITHM = "EC_SIGN_P256_SHA256"
 _MAX_ROOT_VALIDITY = timedelta(days=366)
 _IDENTITY_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+_REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TIMESTAMP_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 _KMS_KEY_VERSION_PATTERN = re.compile(
     r"^projects/[a-z][a-z0-9-]{4,28}[a-z0-9]/locations/[a-z0-9-]+/"
@@ -60,6 +62,31 @@ _ROOT_FIELDS = {
     "public_key_sha256",
     "trusted_policy_root_sha256",
 }
+_RECEIPT_FIELDS = {
+    "schema",
+    "verified_at",
+    "deployment_bundle",
+    "policy",
+    "activation",
+    "target",
+    "risk_control",
+    "trusted_policy_root",
+    "signature_sha256",
+    "receipt_sha256",
+}
+_RECEIPT_BUNDLE_FIELDS = {"schema", "bundle_id", "bundle_sha256"}
+_RECEIPT_POLICY_FIELDS = {
+    "policy_id",
+    "policy_version",
+    "policy_sha256",
+    "stage",
+    "effective_at",
+    "expires_at",
+}
+_RECEIPT_ACTIVATION_FIELDS = {"activation_id", "activation_sha256", "effective_at", "expires_at"}
+_RECEIPT_TARGET_FIELDS = {"platform", "repository", "revision", "environment", "target_sha256"}
+_RECEIPT_RISK_CONTROL_FIELDS = {"risk_policy_id", "risk_policy_version", "risk_policy_sha256"}
+_RECEIPT_ROOT_FIELDS = {"root_id", "trusted_policy_root_sha256", "expires_at"}
 
 
 class GcpKmsPolicyValidationError(ValueError):
@@ -125,6 +152,12 @@ def _expect_sha256(value: Any, path: str) -> str:
     return value
 
 
+def _expect_revision(value: Any, path: str) -> str:
+    if not isinstance(value, str) or not _REVISION_PATTERN.fullmatch(value):
+        _fail(f"{path} must be a lowercase 40-character revision")
+    return value
+
+
 def _parse_timestamp(value: Any, path: str) -> datetime:
     if not isinstance(value, str) or not _TIMESTAMP_PATTERN.fullmatch(value):
         _fail(f"{path} must be an RFC3339 UTC timestamp with whole seconds")
@@ -142,6 +175,231 @@ def _validate_window(created_at: datetime, effective_at: datetime, expires_at: d
         _fail("trusted_policy_root.expires_at must be after effective_at")
     if expires_at - effective_at > _MAX_ROOT_VALIDITY:
         _fail("trusted policy root validity window exceeds its maximum")
+
+
+def _canonical_json(value: Mapping[str, Any], *, omitted_field: str | None, label: str) -> str:
+    if not isinstance(value, Mapping):
+        _fail(f"{label} must be an object")
+    content = dict(value)
+    if omitted_field is not None:
+        content.pop(omitted_field, None)
+    try:
+        return json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise GcpKmsPolicyValidationError(f"{label} cannot be represented as canonical JSON") from exc
+
+
+def _canonical_sha256(value: Mapping[str, Any], *, omitted_field: str | None, label: str) -> str:
+    return hashlib.sha256(_canonical_json(value, omitted_field=omitted_field, label=label).encode("utf-8")).hexdigest()
+
+
+def calculate_gcp_kms_policy_gate_receipt_sha256(receipt: Mapping[str, Any]) -> str:
+    """Return the canonical digest of one detached, non-secret gate receipt."""
+    return _canonical_sha256(
+        receipt,
+        omitted_field="receipt_sha256",
+        label="GCP KMS policy-gate receipt",
+    )
+
+
+def _target_sha256(target: Mapping[str, Any]) -> str:
+    return _canonical_sha256(target, omitted_field=None, label="policy target")
+
+
+def _receipt_mapping(value: Any, fields: set[str], label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != fields:
+        _fail(f"invalid {label}")
+    return value
+
+
+def _receipt_timestamp(value: Any, label: str) -> tuple[str, datetime]:
+    return str(value), _parse_timestamp(value, label)
+
+
+def _receipt_repository(value: Any, label: str) -> str:
+    if not isinstance(value, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", value):
+        _fail(f"invalid {label}")
+    return value
+
+
+def build_gcp_kms_policy_gate_receipt(
+    verified_gate: Mapping[str, Any],
+    *,
+    verified_at: str,
+) -> dict[str, Any]:
+    """Project one successful KMS policy verification into a minimal receipt.
+
+    This function never verifies, signs, fetches, or writes anything.  Its
+    caller must use the return value of ``validate_gcp_kms_policy_gate`` from
+    an independently protected control service.  The receipt intentionally
+    excludes signatures, public keys, account aliases, account digests, and
+    all credentials so it can be passed to a no-broker P5 gateway.
+    """
+    if not isinstance(verified_gate, Mapping) or set(verified_gate) != {
+        "activation",
+        "policy",
+        "signature_sha256",
+        "trusted_policy_root",
+    }:
+        _fail("invalid verified GCP KMS policy gate")
+    activation = _receipt_mapping(verified_gate["activation"], {
+        "schema", "activation_id", "created_at", "digest_algorithm", "contract_only", "deployment_bundle",
+        "stage", "effective_at", "expires_at", "operating_authority", "target", "activation_sha256",
+    }, "verified activation")
+    policy = _receipt_mapping(verified_gate["policy"], {
+        "schema", "policy_id", "policy_version", "created_at", "effective_at", "expires_at", "digest_algorithm",
+        "stage", "deployment_bundle", "target", "risk_control", "allowed_ai_actions", "forbidden_ai_actions",
+        "policy_sha256",
+    }, "verified policy")
+    root = _receipt_mapping(verified_gate["trusted_policy_root"], _ROOT_FIELDS, "verified trusted policy root")
+    if activation["stage"] != policy["stage"] or activation["target"] != policy["target"]:
+        _fail("verified policy and activation are not bound")
+    if activation["deployment_bundle"] != policy["deployment_bundle"]:
+        _fail("verified policy and activation bundle mismatch")
+    target = _receipt_mapping(policy["target"], {
+        "platform", "repository", "revision", "environment", "account_alias", "account_digest_sha256",
+    }, "verified policy target")
+    risk_control = _receipt_mapping(policy["risk_control"], {
+        "risk_policy_id", "risk_policy_version", "risk_policy_sha256",
+    }, "verified policy risk control")
+    bundle = _receipt_mapping(policy["deployment_bundle"], _RECEIPT_BUNDLE_FIELDS, "verified deployment bundle")
+    timestamp, _ = _receipt_timestamp(verified_at, "verified_at")
+    receipt: dict[str, Any] = {
+        "schema": POLICY_GATE_RECEIPT_SCHEMA_ID,
+        "verified_at": timestamp,
+        "deployment_bundle": {
+            "schema": bundle["schema"],
+            "bundle_id": bundle["bundle_id"],
+            "bundle_sha256": bundle["bundle_sha256"],
+        },
+        "policy": {
+            "policy_id": policy["policy_id"],
+            "policy_version": policy["policy_version"],
+            "policy_sha256": policy["policy_sha256"],
+            "stage": policy["stage"],
+            "effective_at": policy["effective_at"],
+            "expires_at": policy["expires_at"],
+        },
+        "activation": {
+            "activation_id": activation["activation_id"],
+            "activation_sha256": activation["activation_sha256"],
+            "effective_at": activation["effective_at"],
+            "expires_at": activation["expires_at"],
+        },
+        "target": {
+            "platform": target["platform"],
+            "repository": target["repository"],
+            "revision": target["revision"],
+            "environment": target["environment"],
+            "target_sha256": _target_sha256(target),
+        },
+        "risk_control": {
+            "risk_policy_id": risk_control["risk_policy_id"],
+            "risk_policy_version": risk_control["risk_policy_version"],
+            "risk_policy_sha256": risk_control["risk_policy_sha256"],
+        },
+        "trusted_policy_root": {
+            "root_id": root["root_id"],
+            "trusted_policy_root_sha256": root["trusted_policy_root_sha256"],
+            "expires_at": root["expires_at"],
+        },
+        "signature_sha256": verified_gate["signature_sha256"],
+        "receipt_sha256": "",
+    }
+    receipt["receipt_sha256"] = calculate_gcp_kms_policy_gate_receipt_sha256(receipt)
+    return validate_gcp_kms_policy_gate_receipt(receipt, as_of=verified_at)
+
+
+def validate_gcp_kms_policy_gate_receipt(
+    receipt: Any,
+    *,
+    as_of: str | None = None,
+) -> dict[str, Any]:
+    """Validate a minimal receipt created only after a KMS policy-gate pass."""
+    value = _receipt_mapping(receipt, _RECEIPT_FIELDS, "GCP KMS policy-gate receipt")
+    if value["schema"] != POLICY_GATE_RECEIPT_SCHEMA_ID:
+        _fail(f"receipt.schema must be {POLICY_GATE_RECEIPT_SCHEMA_ID}")
+    verified_at_text, verified_at = _receipt_timestamp(value["verified_at"], "receipt.verified_at")
+    bundle = _receipt_mapping(value["deployment_bundle"], _RECEIPT_BUNDLE_FIELDS, "receipt deployment bundle")
+    if bundle["schema"] != "qsl.deployment_bundle.v1":
+        _fail("invalid receipt deployment bundle")
+    bundle_id = _expect_identity(bundle["bundle_id"], "receipt deployment bundle id")
+    bundle_sha256 = _expect_sha256(bundle["bundle_sha256"], "receipt deployment bundle digest")
+    policy = _receipt_mapping(value["policy"], _RECEIPT_POLICY_FIELDS, "receipt policy")
+    policy_effective_text, policy_effective = _receipt_timestamp(policy["effective_at"], "receipt policy effective_at")
+    policy_expires_text, policy_expires = _receipt_timestamp(policy["expires_at"], "receipt policy expires_at")
+    policy_stage = policy["stage"]
+    if policy_stage not in {"DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE"}:
+        _fail("invalid receipt policy stage")
+    normalized_policy = {
+        "policy_id": _expect_identity(policy["policy_id"], "receipt policy id"),
+        "policy_version": _expect_identity(policy["policy_version"], "receipt policy version"),
+        "policy_sha256": _expect_sha256(policy["policy_sha256"], "receipt policy digest"),
+        "stage": policy_stage,
+        "effective_at": policy_effective_text,
+        "expires_at": policy_expires_text,
+    }
+    activation = _receipt_mapping(value["activation"], _RECEIPT_ACTIVATION_FIELDS, "receipt activation")
+    activation_effective_text, activation_effective = _receipt_timestamp(
+        activation["effective_at"], "receipt activation effective_at"
+    )
+    activation_expires_text, activation_expires = _receipt_timestamp(
+        activation["expires_at"], "receipt activation expires_at"
+    )
+    normalized_activation = {
+        "activation_id": _expect_identity(activation["activation_id"], "receipt activation id"),
+        "activation_sha256": _expect_sha256(activation["activation_sha256"], "receipt activation digest"),
+        "effective_at": activation_effective_text,
+        "expires_at": activation_expires_text,
+    }
+    target = _receipt_mapping(value["target"], _RECEIPT_TARGET_FIELDS, "receipt target")
+    normalized_target = {
+        "platform": _expect_identity(target["platform"], "receipt target platform"),
+        "repository": _receipt_repository(target["repository"], "receipt target repository"),
+        "revision": _expect_revision(target["revision"], "receipt target revision"),
+        "environment": _expect_identity(target["environment"], "receipt target environment"),
+        "target_sha256": _expect_sha256(target["target_sha256"], "receipt target digest"),
+    }
+    risk_control = _receipt_mapping(value["risk_control"], _RECEIPT_RISK_CONTROL_FIELDS, "receipt risk control")
+    normalized_risk_control = {
+        "risk_policy_id": _expect_identity(risk_control["risk_policy_id"], "receipt risk policy id"),
+        "risk_policy_version": _expect_identity(risk_control["risk_policy_version"], "receipt risk policy version"),
+        "risk_policy_sha256": _expect_sha256(risk_control["risk_policy_sha256"], "receipt risk policy digest"),
+    }
+    root = _receipt_mapping(value["trusted_policy_root"], _RECEIPT_ROOT_FIELDS, "receipt trusted policy root")
+    root_expires_text, root_expires = _receipt_timestamp(root["expires_at"], "receipt trusted policy root expires_at")
+    normalized_root = {
+        "root_id": _expect_identity(root["root_id"], "receipt trusted policy root id"),
+        "trusted_policy_root_sha256": _expect_sha256(root["trusted_policy_root_sha256"], "receipt trusted policy root digest"),
+        "expires_at": root_expires_text,
+    }
+    signature_sha256 = _expect_sha256(value["signature_sha256"], "receipt signature digest")
+    receipt_sha256 = _expect_sha256(value["receipt_sha256"], "receipt digest")
+    if activation_effective < policy_effective or activation_expires > policy_expires:
+        _fail("receipt activation window is not contained in policy window")
+    observed_at = datetime.now(UTC).replace(microsecond=0) if as_of is None else _parse_timestamp(as_of, "as_of")
+    if (
+        observed_at < verified_at
+        or observed_at < policy_effective
+        or observed_at < activation_effective
+        or observed_at >= min(policy_expires, activation_expires, root_expires)
+    ):
+        _fail("receipt is not currently effective")
+    normalized: dict[str, Any] = {
+        "schema": POLICY_GATE_RECEIPT_SCHEMA_ID,
+        "verified_at": verified_at_text,
+        "deployment_bundle": {"schema": "qsl.deployment_bundle.v1", "bundle_id": bundle_id, "bundle_sha256": bundle_sha256},
+        "policy": normalized_policy,
+        "activation": normalized_activation,
+        "target": normalized_target,
+        "risk_control": normalized_risk_control,
+        "trusted_policy_root": normalized_root,
+        "signature_sha256": signature_sha256,
+        "receipt_sha256": receipt_sha256,
+    }
+    if receipt_sha256 != calculate_gcp_kms_policy_gate_receipt_sha256(normalized):
+        _fail("receipt_sha256 mismatch")
+    return normalized
 
 
 def canonical_trusted_root_json(root: Mapping[str, Any]) -> str:
@@ -341,6 +599,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--policy", type=Path, required=True, help="KMS-signed autonomous policy JSON")
     parser.add_argument("--policy-signature", type=Path, required=True, help="detached DER policy signature")
     parser.add_argument("--trusted-policy-root", type=Path, required=True, help="public Cloud KMS policy-root JSON")
+    parser.add_argument(
+        "--receipt-output",
+        type=Path,
+        help="optional create-only path for the non-secret verified policy-gate receipt",
+    )
     parser.add_argument("--as-of", help="inject canonical UTC validation time; defaults to current UTC")
     args = parser.parse_args(argv)
     try:
@@ -356,21 +619,26 @@ def main(argv: list[str] | None = None) -> int:
             expected_root_sha256=expected_root_sha256,
             as_of=args.as_of,
         )
+        receipt = None
+        if args.receipt_output is not None:
+            verified_at = args.as_of or datetime.now(UTC).replace(microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+            receipt = build_gcp_kms_policy_gate_receipt(result, verified_at=verified_at)
+            with args.receipt_output.open("x", encoding="utf-8") as handle:
+                handle.write(json.dumps(receipt, sort_keys=True, separators=(",", ":"), ensure_ascii=True))
+                handle.write("\n")
     except (OSError, AutonomousPolicyValidationError, BundleValidationError, GcpKmsPolicyValidationError) as exc:
         print(f"GCP KMS policy gate failed: {exc}", file=sys.stderr)
         return 1
-    print(
-        json.dumps(
-            {
-                "activation_id": result["activation"]["activation_id"],
-                "kms_key_version": result["trusted_policy_root"]["kms_key_version"],
-                "policy_id": result["policy"]["policy_id"],
-                "signature_sha256": result["signature_sha256"],
-                "stage": result["policy"]["stage"],
-            },
-            sort_keys=True,
-        )
-    )
+    summary = {
+        "activation_id": result["activation"]["activation_id"],
+        "kms_key_version": result["trusted_policy_root"]["kms_key_version"],
+        "policy_id": result["policy"]["policy_id"],
+        "signature_sha256": result["signature_sha256"],
+        "stage": result["policy"]["stage"],
+    }
+    if receipt is not None:
+        summary["receipt_sha256"] = receipt["receipt_sha256"]
+    print(json.dumps(summary, sort_keys=True))
     return 0
 
 

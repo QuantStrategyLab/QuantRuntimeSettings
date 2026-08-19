@@ -64,8 +64,8 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | AI 持续观察与诊断 | 已接线（受限、non-live） | AIAuditBridge 只在两次可比较、已绑定 P1/P2/P3 摘要的观察后创建/更新 Issue 与任务。对每个尚未诊断的 Issue，计划 watcher 每次最多调用一次只读 AI 文本诊断并回写同一 Issue；它不执行实验、不改系统。普通策略退化不通知人；数据/证据不可用、熔断或记录失败才经去重运维通道升级通知。 |
 | `qsl.research_task.v1` 与控制台队列 | 已接线（只读），待首份合格真实来源快照 | AIAudit Watcher 以专用 token 向控制台发布来源摘要；来源和控制台会各自复核 SHA、revision、摘要和 no-order authority。空队列不是故障，也不能由 Issue 推断任务。 |
 | P5 forward observation 与 shadow ledger | 已接线，未激活 | UESP 从验证过的同根 P1/P3 状态调用冻结 P2 v5 public adapter，输出只含摘要和虚拟权重的 forward observation；AlpacaPlatform 只会 create-only 地构造链式 shadow receipt。没有 broker、账户、订单、资金、云端写入或 scheduler。 |
-| P4 / P5 风险控制契约 | 已实现，未接线到运行 | 只校验受限自动运行边界；没有网络、账户、订单或资金能力。 |
-| P4 执行与 P5 自动调度 | 未实现 | 无 paper adapter；P5 还没有已签 policy、policy-gate receipt、scheduler 或真实日更 shadow receipt。 |
+| P4 / P5 风险控制与 policy-gate receipt 契约 | 已实现，未接线到运行 | 可离线校验受限自动运行边界，并把一次成功的 KMS 验签投影为无敏感字段的短期 receipt；没有网络、账户、订单或资金能力。 |
+| P4 执行与 P5 自动调度 | 未实现 | 无 paper adapter、已签 active policy、已签发的运行 receipt、scheduler 或真实日更 shadow receipt。 |
 | P6 | 未实现 | 无 live、账户、订单或资金任务。 |
 | `QuantStrategyLifecycle` 本机目录 | 退役/孤立 | 没有对应的 GitHub 主线仓；其中 autopilot/auto-approve 描述不得作为当前能力或设计依据。 |
 | `CodexAuditBridge` 本机目录 | 退役/孤立 | 当前有效审计仓是 `AIAuditBridge`；不得接入任何新工作流。 |
