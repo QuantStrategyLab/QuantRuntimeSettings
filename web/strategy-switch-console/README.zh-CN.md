@@ -2,11 +2,13 @@
 
 [English](README.md)
 
-这是个人量化系统的登录版网页控制台示例。它用 Cloudflare Worker 提供一个很薄的后端：
+这是个人量化系统的登录版网页控制台示例，也是统一全局决策平台的演进起点。它用 Cloudflare Worker 提供一个很薄的后端：
 
 - 未登录或不在 allowlist：只能查看公开页面，不能触发切换。
 - 已登录且 GitHub 用户名在 allowlist：可以从账号下拉框选择目标，然后点击“一键切换”，由 Worker 服务端触发 GitHub Actions workflow。
 - GitHub token 只放在 Worker secret 中，不进入前端、不写入开源代码。
+
+控制台的目标架构见 [QSL 统一决策平台架构 V1](../../docs/qsl_unified_control_console_architecture_v1.zh-CN.md)：人将从这一处查看跨仓健康、候选和需要本人决定的 P6 项；网页不会持有券商凭证或直接下单。现有“策略切换”是历史部署配置工具，不能被视为 P0–P6 运行授权。
 
 ## 必要配置
 
