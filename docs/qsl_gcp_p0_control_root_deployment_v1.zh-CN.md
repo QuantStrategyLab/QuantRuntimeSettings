@@ -1,6 +1,6 @@
 # QSL GCP P0 控制根部署 V1
 
-> 状态：`P0_ROOT_BOOTSTRAP_IMPLEMENTED_NOT_RUNTIME_WIRED`
+> 状态：`P0_SIX_PUBLIC_ROOTS_DEPLOYED_NOT_RUNTIME_WIRED`
 >
 > 本文只定义 Cloud KMS 的公开验签根初始化；不创建订单接口、不授予任何工作负载签名权限、不读取券商或市场数据，也不改变现有 Cloud Run、GitHub Actions、账户或资金路径。
 
@@ -12,18 +12,18 @@ P0 按独立运行/GCP 项目隔离根：一个根只对应一个 project 的后
 
 | GCP 项目 | P0 根覆盖的主要仓库/运行域 | 资源状态（2026-08-19 盘点） |
 | --- | --- | --- |
-| `binancequant` | `BinancePlatform`、`CryptoStrategies`、`CryptoLivePoolPipelines` | 已计费，可初始化 |
-| `charlesschwabquant` | `CharlesSchwabPlatform`、`SchwabTokenAutoRefresher` | 已计费，可初始化 |
-| `firstradequant` | `FirstradePlatform` | 已计费，可初始化 |
-| `interactivebrokersquant` | `InteractiveBrokersPlatform`、`IBKRGatewayManager`、美股策略/快照链 | 已计费，可初始化 |
-| `longbridgequant` | `LongBridgePlatform`、港股策略/快照链 | 已计费，可初始化 |
-| `qslresearchquant` | 研究、信号与上下文仓 | 当前未关联 billing account；不得尝试初始化 |
+| `binancequant` | `BinancePlatform`、`CryptoStrategies`、`CryptoLivePoolPipelines` | 已初始化并读取核验 |
+| `charlesschwabquant` | `CharlesSchwabPlatform`、`SchwabTokenAutoRefresher` | 已初始化并读取核验 |
+| `firstradequant` | `FirstradePlatform` | 已初始化并读取核验 |
+| `interactivebrokersquant` | `InteractiveBrokersPlatform`、`IBKRGatewayManager`、美股策略/快照链 | 已初始化并读取核验 |
+| `longbridgequant` | `LongBridgePlatform`、港股策略/快照链 | 已初始化并读取核验 |
+| `qslresearchquant` | 研究、信号与上下文仓 | 已初始化并读取核验 |
 
 核心控制/资料仓（例如 `QuantRuntimeSettings`、`QuantPlatformKit`、`AIAuditBridge`）不直接拥有 Cloud KMS 根。它们只能验证公开 root record，不能签名。
 
 ## 最小资源与权限
 
-对每个已计费项目，初始化器只会创建：
+对每个项目，初始化器只会创建：
 
 1. 启用 `cloudkms.googleapis.com`；
 2. 不可删除的 key ring：`global/qsl-p0-policy-root`；
@@ -41,11 +41,11 @@ Cloud KMS 将 `EC_SIGN_P256_SHA256` 作为推荐椭圆曲线签名算法；公�
 ```bash
 python3 python/scripts/provision_gcp_kms_policy_roots.py \
   --project binancequant --project charlesschwabquant --project firstradequant \
-  --project interactivebrokersquant --project longbridgequant
+  --project interactivebrokersquant --project longbridgequant --project qslresearchquant
 ```
 
-得到授权后才附加 `--apply`。初始化器会在**所有项目 billing 预检通过后**才开始改动；重跑会验证既有 key 的 purpose 和算法，不会替换密钥。每个公开记录写入 `docs/p0_control_roots/gcp/<project>.json`；该文件不含私钥、KMS credential 或订单/账户资料。
+得到授权后才附加 `--apply`。初始化器会在**所有项目 billing 预检通过后**才开始改动；重跑会验证既有 key 的 purpose 和算法，不会替换密钥。2026-08-19 已对表中的六个项目执行初始化，并逐把重新读取 version、PEM 和 SHA-256 后通过交叉核验。每个公开记录写入 `docs/p0_control_roots/gcp/<project>.json`；该文件不含私钥、KMS credential 或订单/账户资料。
 
 根 record 的 SHA-256 还不能放进 workflow input 或仓库变量当作“外部 pin”。真正接入未来只读核对服务时，`QSL_TRUSTED_POLICY_ROOT_SHA256` 必须由该服务独立控制的部署配置注入；本 P0 bootstrap 不修改现有运行服务，因此也不假称已接入。
 
-`qslresearchquant` 在关联明确的 billing account 前保持 `PARKED`。不能为省事把研究 policy 改由某个券商项目的根签发，因为那会扩大跨域故障半径。
+六个项目现在各自拥有独立 root；不能为省事把研究 policy 改由某个券商项目的根签发，因为那会扩大跨域故障半径。

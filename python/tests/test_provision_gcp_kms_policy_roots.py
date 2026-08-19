@@ -92,7 +92,7 @@ class ProvisionGcpKmsPolicyRootsTest(unittest.TestCase):
         records = {path.stem: json.loads(path.read_text(encoding="utf-8")) for path in root_directory.glob("*.json")}
         self.assertEqual(
             set(records),
-            {"binancequant", "charlesschwabquant", "firstradequant", "interactivebrokersquant", "longbridgequant"},
+            {"binancequant", "charlesschwabquant", "firstradequant", "interactivebrokersquant", "longbridgequant", "qslresearchquant"},
         )
         for project, root in records.items():
             with self.subTest(project=project):
