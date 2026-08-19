@@ -13,7 +13,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "730ad9f3983bd90cd75adecb67fcf483ffb96736"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -27,7 +27,7 @@
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "730ad9f3983bd90cd75adecb67fcf483ffb96736"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
