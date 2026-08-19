@@ -23,6 +23,9 @@ assert.ok(indexHtml.includes('<body class="app-loading">'));
 assert.ok(indexHtml.includes('id="boot-screen"'));
 assert.ok(indexHtml.includes('id="app-shell"'));
 assert.ok(indexHtml.includes('id="runtime-authority-status"'));
+assert.ok(indexHtml.includes('id="control-plane-view-button"'));
+assert.ok(indexHtml.includes('id="control-plane-view"'));
+assert.ok(indexHtml.includes('id="control-plane-list"'));
 assert.ok(indexHtml.includes('P0_CONTROL_PLANE_NOT_RUNTIME_WIRED'));
 assert.ok(indexHtml.includes('window.__QSL_RUNTIME_AUTHORITY_STATUS__'));
 assert.ok(indexHtml.includes('execution_metadata_is_runtime_authority'));
@@ -1823,3 +1826,124 @@ assert.equal(noKvHealthRead.status, 200);
 const noKvPayload = await noKvHealthRead.json();
 assert.equal(noKvPayload.data_status, "unavailable");
 assert.equal(noKvPayload.summary.strategy_count, 0);
+
+const controlStore = new Map();
+const controlKv = {
+  async get(key) { return controlStore.get(key) || null; },
+  async put(key, value) { controlStore.set(key, value); },
+};
+const controlSyncValue = ["control", "sync", "value"].join("-");
+const controlEnv = {
+  CONTROL_PLANE_SYNC_TOKEN: controlSyncValue,
+  STRATEGY_SWITCH_CONFIG: controlKv,
+  SESSION_SECRET: sessionValue,
+  ALLOWED_GITHUB_LOGINS: "health-user",
+  CONTROL_PLANE_STALE_TTL_SECONDS: "300",
+};
+const controlCookie = await __test.makeSession("health-user", [], controlEnv);
+const controlCookieHeaders = { Cookie: `qsl_switch_session=${controlCookie}` };
+const controlNow = new Date().toISOString();
+const controlPayload = {
+  schema_version: "qsl_control_plane_dashboard.v1",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  summary: { candidate_count: 99, deferred: 99, parked: 99, owner_decision_required: 99 },
+  candidates: [{
+    candidate_id: "tqqq_core_only_p2_v5",
+    candidate_kind: "individual",
+    domain: "us_equity",
+    lifecycle: { stage: "P3", status: "deferred" },
+    evidence: { p1_input_digest: "a".repeat(64), p2_config_digest: "b".repeat(64), p3_evidence_id: null, source_revision: "c".repeat(40) },
+    recommendation: { code: "defer", reason: "token=should-not-appear" },
+    freshness: { status: "fresh", age_seconds: 60 },
+  }],
+  policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true, notice: "live remains owner-decided" },
+  errors: ["safe_notice"],
+};
+
+const unauthorizedControlRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane"),
+  controlEnv,
+);
+assert.equal(unauthorizedControlRead.status, 401);
+
+const wrongControlToken = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane", {
+    method: "POST",
+    headers: { Authorization: "Bearer other-value", "Content-Type": "application/json" },
+    body: JSON.stringify(controlPayload),
+  }),
+  controlEnv,
+);
+assert.equal(wrongControlToken.status, 401);
+
+const oversizedControlPayload = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ schema_version: "qsl_control_plane_dashboard.v1", padding: "x".repeat(256 * 1024) }),
+  }),
+  controlEnv,
+);
+assert.equal(oversizedControlPayload.status, 413);
+
+const invalidP6Policy = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...controlPayload, policy: { ...controlPayload.policy, p6_owner_decision_required: false } }),
+  }),
+  controlEnv,
+);
+assert.equal(invalidP6Policy.status, 400);
+
+assert.throws(
+  () => __test.normalizeControlPlaneSnapshot({
+    ...controlPayload,
+    candidates: [{
+      ...controlPayload.candidates[0],
+      lifecycle: { stage: "P6", status: "verified" },
+      recommendation: { code: "none", reason: "must remain owner-decided" },
+    }],
+  }),
+  /P6 must be an owner_live_decision/,
+);
+
+const controlSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(controlPayload),
+  }),
+  controlEnv,
+);
+assert.equal(controlSync.status, 200);
+assert.equal((await controlSync.json()).candidate_count, 1);
+
+const controlRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane", { headers: controlCookieHeaders }),
+  controlEnv,
+);
+assert.equal(controlRead.status, 200);
+const controlReadPayload = await controlRead.json();
+assert.equal(controlReadPayload.data_status, "ready");
+assert.deepEqual(controlReadPayload.summary, { candidate_count: 1, deferred: 1, parked: 0, owner_decision_required: 0 });
+assert.equal(controlReadPayload.candidates[0].recommendation.reason, "没有可用的机器建议。");
+assert.equal(controlReadPayload.policy.p6_owner_decision_required, true);
+assert.ok(indexHtml.includes('requestJson("/api/control-plane")'));
+
+controlPayload.computed_at = "2020-01-01T00:00:00.000Z";
+await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(controlPayload),
+  }),
+  controlEnv,
+);
+const staleControlRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane", { headers: controlCookieHeaders }),
+  controlEnv,
+);
+assert.equal((await staleControlRead.json()).data_status, "stale");

@@ -24,6 +24,7 @@ ALLOWED_GITHUB_ORGS
 STRATEGY_SWITCH_ADMIN_LOGINS
 STRATEGY_SWITCH_ADMIN_ORGS
 STRATEGY_HEALTH_SYNC_TOKEN
+CONTROL_PLANE_SYNC_TOKEN
 ```
 
 可选：
@@ -70,6 +71,7 @@ account_options
 strategy_profiles
 audit_log
 strategy_health_snapshot
+control_plane_snapshot
 ```
 
 没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
@@ -150,6 +152,19 @@ GET  /api/strategy-health
 写入接口只接受专用 token、限制请求体大小，并把规范化的
 `strategy_health_dashboard.v1` 快照写入 `strategy_health_snapshot`。读取接口要求已登录且在 allowlist；缺失、无效或超过默认 2 小时 TTL 的快照会返回 `unavailable` / `stale`，不会伪造健康指标。该 token 不复用 workflow dispatch token。
 
+## 全局控制面只读接口
+
+各仓 driver 在完成自己的验证后，可用**独立** `CONTROL_PLANE_SYNC_TOKEN` 调用：
+
+```text
+POST /api/internal/sync-control-plane
+GET  /api/control-plane
+```
+
+写入只接受 `qsl_control_plane_dashboard.v1`，并仅保存候选生命周期、脱敏证据标识、新鲜度和机器建议的规范化摘要。它会重新计算计数、丢弃未定义字段，并拒绝未明确声明“P6 仍需所有者决定”的快照。读取仍要求登录 allowlist；缺失、无效或超过默认 2 小时 TTL 的快照同样返回 `unavailable` / `stale`。
+
+这个接口不是订单、paper、shadow 或 live API。`CONTROL_PLANE_SYNC_TOKEN` 必须与 OAuth、workflow dispatch、策略 root 和任何券商凭证完全分离。
+
 ## 策略 Profile 对齐规范
 
 `strategy_profile` 是切换页、runtime settings 和各平台仓库之间的统一策略 ID。
@@ -196,6 +211,8 @@ wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # 可选；默认复用 RUNTIME_SETTINGS_DISPATCH_TOKEN
+wrangler secret put STRATEGY_HEALTH_SYNC_TOKEN
+wrangler secret put CONTROL_PLANE_SYNC_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
 wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
