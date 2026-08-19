@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.research_task.v1",
+  "title": "QSL Research Task v1",
+  "description": "An immutable, bounded offline research request. It does not authorize paper, shadow, live, credentials, orders, capital, or runtime mutation.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "task_id", "created_at", "digest_algorithm", "task_type", "target", "evidence", "experiment", "authority", "task_sha256"],
+  "properties": {
+    "schema": {"const": "qsl.research_task.v1"},
+    "task_id": {"$ref": "#/$defs/identity"},
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "digest_algorithm": {"const": "sha256"},
+    "task_type": {"enum": ["strategy_diagnosis", "hypothesis_evaluation", "parameter_challenge", "strategy_candidate", "portfolio_candidate", "plugin_candidate"]},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["candidate_id", "candidate_kind", "domain", "repository", "strategy_revision"],
+      "properties": {
+        "candidate_id": {"$ref": "#/$defs/identity"},
+        "candidate_kind": {"enum": ["individual", "portfolio", "plugin"]},
+        "domain": {"enum": ["us_equity", "hk_equity", "cn_equity", "crypto"]},
+        "repository": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"},
+        "strategy_revision": {"$ref": "#/$defs/revision"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["p1_input_digest", "p2_config_digest", "p3_evidence_id", "producer_revision"],
+      "properties": {
+        "p1_input_digest": {"$ref": "#/$defs/sha256OrNull"},
+        "p2_config_digest": {"$ref": "#/$defs/sha256OrNull"},
+        "p3_evidence_id": {"$ref": "#/$defs/sha256OrNull"},
+        "producer_revision": {"$ref": "#/$defs/revision"}
+      }
+    },
+    "experiment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["objective", "hypothesis", "parameter_bounds_sha256", "max_runs", "max_wall_seconds"],
+      "properties": {
+        "objective": {"enum": ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"]},
+        "hypothesis": {"type": "string", "minLength": 1, "maxLength": 800},
+        "parameter_bounds_sha256": {"$ref": "#/$defs/sha256OrNull"},
+        "max_runs": {"type": "integer", "minimum": 1, "maximum": 100},
+        "max_wall_seconds": {"type": "integer", "minimum": 1, "maximum": 86400}
+      }
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["research_only", "no_order", "size_zero_required", "p4_p5_p6_authorized"],
+      "properties": {
+        "research_only": {"const": true},
+        "no_order": {"const": true},
+        "size_zero_required": {"const": true},
+        "p4_p5_p6_authorized": {"const": false}
+      }
+    },
+    "task_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "sha256OrNull": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+    "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "timestamp": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"}
+  }
+}

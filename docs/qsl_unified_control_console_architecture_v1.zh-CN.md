@@ -45,6 +45,8 @@ Worker 以**独立于 dispatch token 的同步身份**接收来源快照、按 `
 4. **策略健康与审计**：保留为下钻页面。健康项默认安静，只将异常、过期或需要决定的条目用有意义的状态色突出。
 5. **历史部署配置**：现有切换页继续存在以保证兼容，但不放在默认入口，也不和 P0–P6 的真实状态混为一谈。
 
+研究任务属于候选列表的下钻队列，而不是新的交易面。每条任务只显示不可变任务 ID、候选/版本、两次已验证观察的脱敏比较、P1/P2/P3 摘要、实验上限、固定的 no-order authority 与审计时间线。任务生产者与候选生产者分开保存，避免 Watcher 的任务记录覆盖流水线的 P3 状态。现有 `qsl_control_plane_source_snapshot.v1` 还没有任务字段；在它有经过验证的独立索引前，页面只能显示空队列，不能把 Issue 或 GitHub 配置猜成研究任务。
+
 前端采用低干扰的运维工作台：浅色画布、单一强调色、紧凑列表和清晰留白；不使用“所有指标都是卡片”的马赛克，也不在日更数据只产生一个点时伪造收益曲线。刷新按快照更新频率进行，避免每几秒无意义轮询。
 
 这遵循“仪表盘应直接回答问题、减少认知负担、异常优先”的运维原则；参考 [Grafana dashboard best practices](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/) 与 [Google SRE monitoring guidance](https://sre.google/workbook/monitoring/)。
