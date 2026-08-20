@@ -53,7 +53,8 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
             "P1 历史输入获取、完整性验证和私有上传成功",
             "P3 验证下载后 `PARKED`",
             "收盘后日更 P1/P3 non-live 控制器",
-            "尚无计划运行结果",
+            "首次 v5 计划任务完成",
+            "日更即时结果以控制台来源快照为准",
             "任何 live 启用均需用户的明确决定",
         ):
             with self.subTest(required_text=required_text):
