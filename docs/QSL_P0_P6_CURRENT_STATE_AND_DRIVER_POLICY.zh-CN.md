@@ -25,8 +25,8 @@ P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯�
 | --- | --- | --- |
 | P0 | `QuantRuntimeSettings` | 自治运行策略 V2、离线验签门和仅 `RECONCILE_ONLY` 的准入代码已经存在。`binancequant`、`charlesschwabquant`、`firstradequant`、`interactivebrokersquant`、`longbridgequant`、`qslresearchquant` 已各自安装并读取核验一把公开 Cloud KMS P-256 root；没有 signer IAM、已签 policy 或接入运行服务。retired review caller 的本地清理及其受影响仓库的合并已完成；它只退役 GitHub Codex 自动 PR 审查门槛，普通 CI 仍保留，且不构成 P0 完成或运行资格。 | 仅维护和复核控制面事实；不得从 P0 推导 P1 数据获取、P4–P6 或交易资格。 |
 | P1 | `UsEquitySnapshotPipelines` | TQQQ / Alpaca 主线为 **non-live**。`tqqq_core_only_p2_v5` 的日更控制器已在 `main` 通过 CI：它在美股收盘后计划窗口推导最近完整 XNYS session、获取四只 ETF 的候选绑定输入并做完整性/健康检查。`2026-08-20` 首次计划任务产生 `DEFERRED`，未形成 v5 P1 root；同次脱敏来源快照已发布。日更即时结果以控制台来源快照为准，而不是本文；`2026-08-17` 的旧 v1 手动历史根已按短期生命周期到期。 | 只允许按 v5 固定候选产生数据身份、健康记录和短期私有根；缺失/无效输入只能 `DEFERRED`/`QUARANTINED`，不得换源、补洞或改参。 |
-| P2 | `UsEquitySnapshotPipelines` | `tqqq_core_only_p2_v5` 是当前唯一可运行的日更研究候选：它固定 `UsEquityStrategies` 的公开 research adapter、revision、运行参数、共同可用资产和成本，并仅让已验证 P1 截止日滚动 252-session OOS 窗口。v4/v3 只保留为 synthetic/历史依据，不能绑定新的日更输入。观察标识 `tqqq_core_only_p2_v6_plugin_observe` 已具备 QQQ close-only 信号生产器及观察契约：固定 v5 基线、P1 身份、QSP 代码/配置 hash 和 `signal.v2` 身份；没有注册日更候选、调用策略或改变目标。 | 只允许冻结、复核或替换候选定义；不得把 CI、历史规则或日更结果直接解释为收益验证或调参许可。 |
-| P3 | `UsEquitySnapshotPipelines` | v5 的纯 synthetic 端到端证据链及其日更控制器都已通过 CI。计划任务只会对 `ACCEPTED` 的 v5 P1 根运行同一条 offline/no-order replay，并在同一短期前缀写健康与脱敏终态记录；`2026-08-20` 的 P1 为 `DEFERRED`，因此 P3 正确跳过，尚无 v5 日更完整证据。同日 P3 recovery 控制器只完成一次 metadata-first 规划，因无合格的既有失败根而跳过恢复；它没有重新获取或复制数据。v6 的 strict seam 先验证本地 v5 P1 root，再从同根 QQQ bars 独立重算信号、配置和 QSP 模块 hash；任一不一致即 `PARKED`，并证明 observer targets 与 v5 targets 相同。它未被日更控制器调用、未写入任何观察记录。日更即时结果以控制台来源快照为准。 | 只允许产生同一 non-live 证据；不得变成 paper、shadow、live、部署、promotion 或策略参数变更。 |
+| P2 | `UsEquitySnapshotPipelines` | `tqqq_core_only_p2_v5` 是当前唯一可运行的日更研究候选：它固定 `UsEquityStrategies` 的公开 research adapter、revision、运行参数、共同可用资产和成本，并仅让已验证 P1 截止日滚动 252-session OOS 窗口。v4/v3 只保留为 synthetic/历史依据，不能绑定新的日更输入。观察标识 `tqqq_core_only_p2_v6_plugin_observe` 已具备 QQQ close-only 信号生产器及观察契约：固定 v5 基线、P1 身份、QSP 代码/配置 hash 和 `signal.v2` 身份；它不是新的策略候选，不能调用策略或改变目标。 | 只允许冻结、复核或替换候选定义；不得把 CI、历史规则或日更结果直接解释为收益验证或调参许可。 |
+| P3 | `UsEquitySnapshotPipelines` | v5 的纯 synthetic 端到端证据链及其日更控制器都已通过 CI。计划任务只会对 `ACCEPTED` 的 v5 P1 根运行同一条 offline/no-order replay，并在同一短期前缀写健康与脱敏终态记录；`2026-08-20` 的 P1 为 `DEFERRED`，因此 P3 正确跳过，尚无 v5 日更完整证据。同日 P3 recovery 控制器只完成一次 metadata-first 规划，因无合格的既有失败根而跳过恢复；它没有重新获取或复制数据。v6 的 strict seam 先验证本地 v5 P1 root，再从同根 QQQ bars 独立重算信号、配置和 QSP 模块 hash；任一不一致即 `PARKED`，并证明 observer targets 与 v5 targets 相同。日更控制器仅在 v5 P3 完成及绑定 forward observation 存在时调用它，成功后只上传 35 天的脱敏 Actions artifact；不写 GCS、不发布控制台。尚无 v6 的真实日更记录。日更即时结果以控制台来源快照为准。 | 只允许产生同一 non-live 证据；不得变成 paper、shadow、live、部署、promotion 或策略参数变更。 |
 | P4 | `QuantRuntimeSettings`（控制契约） | 自动 paper 的风险控制契约已实现；没有已签 policy、独立 paper 身份或 broker adapter。 | 接入独立 Alpaca paper gateway；每周期先验签、验证 P1/P2/P3 绑定与对账，异常自动停车。 |
 | P5 | `AlpacaPlatform`（无 broker gateway） | 自动 shadow 的风险控制契约已实现；`AlpacaPlatform` 已有纯 create-only shadow ledger、v2 输入适配器和无副作用的 shadow cycle controller，`UsEquitySnapshotPipelines` 已能从同根 P1/P3 状态生成绑定的 P2 v5 forward observation。controller 在缺少或无效前置条件时只产生结构化 `PARKED`，条件齐全时只在内存返回待持久化的虚拟回执。没有已签 P5 policy、工件读取/写入适配器、真实日更 scheduler 或真实 shadow receipt。 | 由独立 policy gate 验签并生成最小授权输入后，接入无 broker 写权限的受限 scheduler 与 create-only receipt writer；每周期先验证 P1/P2/P3 绑定与前次账本对账，异常自动停车。 |
 | P6 | `NO_DRIVER_PARKED` | 没有 live、账户、订单或资金任务定义。 | 任何 live 启用均需用户的明确决定；不得由 driver、主控会话或 AI 自行创建。 |
@@ -37,7 +37,7 @@ P0–P6 是每个研究候选从控制、输入、策略、证据到执行的**�
 
 - **单策略**：例如当前日更的 `tqqq_core_only_p2_v5`。它是此刻唯一接入日更 P1/P3 控制器的候选。
 - **组合策略**：各域已有独立的组合策略仓库和配置目录；运行配置也支持标记 `combo=true`、`combo_mode=dynamic`。但一个组合不是把若干单策略结果相加：它必须单独冻结成“组合候选”，明确成分策略版本、权重/再平衡规则、共同数据截止日、组合级风险和成本，然后从 P1/P2/P3 重新走证据链。`UsEquityStrategies` 的纯组合风险预算，以及 `MarketSignalSources` 的时点成分股和历史价格面板契约已经存在；组合 P1 的只读元数据绑定、P2 的冻结候选描述符和 P3 的脱敏证据索引契约也已经合入。它们仍只是防幸存者偏差、复权/成本假设和组合敞口的研究地基：尚没有已验证的组合 P1 原始输入、真实组合 P3 replay 或任何 P4–P6 资格。
-- **策略插件**：运行配置的旧 plugin mount 已退役；新插件只能是候选受约束、可复算信号。策略在冻结配置中决定如何消费，插件不能在运行中悄悄改参数、替换策略、改写仓位或绕过 P3。AI 黑盒结论仅可走人工通知/研究建议路径，不能作为插件或策略输入。`QuantStrategyPlugins` 已有 `qsl.strategy-plugin-signal.v2` envelope 和 QQQ close-only 观察生产器；UESP 的 TQQQ v6 会从同一已验证 P1 root 重算该信号，但仍没有日更候选注册、持久记录或策略调用。当前 TQQQ 日更链不挂载任何插件，也不执行任何组合策略。
+- **策略插件**：运行配置的旧 plugin mount 已退役；新插件只能是候选受约束、可复算信号。策略在冻结配置中决定如何消费，插件不能在运行中悄悄改参数、替换策略、改写仓位或绕过 P3。AI 黑盒结论仅可走人工通知/研究建议路径，不能作为插件或策略输入。`QuantStrategyPlugins` 已有 `qsl.strategy-plugin-signal.v2` envelope 和 QQQ close-only 观察生产器；UESP 的 TQQQ v6 会从同一已验证 P1 root 重算该信号，并在 v5 P3 完成时保留 35 天脱敏观察 artifact。它仍没有日更候选注册、策略调用或任何 P4–P6 资格。当前 TQQQ 日更链不挂载任何插件，也不执行任何组合策略；这里的 v6 仅是验证后记录，绝不构成策略消费。
 
 旧运行设置曾按策略名称自动挂载 `latest_signal.json`；该行为现已退役为安全的空操作，不能再把旧插件 artifact 推断为当前候选输入。[策略插件契约 V2](qsl_strategy_plugin_contract_v2.zh-CN.md) 只定义后续实施边界：它不是已接线的 plugin runtime，也不改变当前 TQQQ v5、P4、P5 或 P6 状态。
 
@@ -65,7 +65,7 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | --- | --- | --- |
 | P0 授权状态与统一控制台 | 已接线（只读） | Worker 可汇总来源候选快照；它不是执行网关，也不签发 P1–P6 权限。 |
 | P1–P3 TQQQ 日更研究 | 已接线，已有一次 `DEFERRED` 来源记录，待 `ACCEPTED`/P3 完整证据 | 工作流只做数据身份、冻结研究和 offline/no-order P3；缺失输入只会延期/停车；实时状态只从控制台来源快照读取。 |
-| TQQQ P2 v6 plugin observe 契约 | 已实现，未接入 | 对本地已验证 v5 P1 root 的 QQQ bars 重算 close-only signal、配置和 QSP 模块 hash，逐项绑定 v5、P1 与 `signal.v2`，并验证 observer targets 与 v5 targets 相同；没有日更注册、持久观察记录、策略调用或 P4–P6 资格。 |
+| TQQQ P2 v6 plugin observe 契约 | 已接线，待首个合格日更记录 | 只在已完成的 v5 P3 与其绑定 forward observation 后，对同一已验证 P1 root 的 QQQ bars 重算 close-only signal、配置和 QSP 模块 hash，并验证 observer targets 与 v5 targets 相同；成功时仅保留 35 天脱敏 Actions artifact。没有 GCS/control-plane 写入、策略调用或 P4–P6 资格。 |
 | 组合 P1 输入元数据契约 | 已实现，未运行 | 只绑定历史输入的摘要、截止日、PIT/成本声明与候选身份；不读取原始行情、不获取数据，也不构成组合 P1 root。 |
 | 组合 P2 冻结候选描述符 | 已实现，未运行 | 描述成分策略版本、权重/再平衡、组合风险和 P1 摘要绑定；不调参、不生成交易目标。 |
 | 组合 P3 脱敏证据索引 | 已实现，未运行 | 只允许写入与同一短期输入生命周期绑定的摘要索引；没有真实历史 replay、收益结论或 promotion。 |
@@ -114,6 +114,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-20`：组合研究基础合入纯组合风险预算（`UsEquityStrategies` PR #332）以及时点成分股、历史价格面板契约（`MarketSignalSources` PR #24/#25）。这些组件不获取市场数据、不运行回测，也不注册或晋级组合候选。
 - `2026-08-20`：组合研究的三个连续契约相继合入：`MarketSignalSources` PR #26 的 P1 历史输入元数据绑定、`UsEquityStrategies` PR #333 的 P2 冻结候选描述符、`UsEquitySnapshotPipelines` PR #330 的 P3 脱敏证据索引。它们只使未来合格、可许可的历史组合输入能够沿同一 P1→P3 链记录证据；没有获取或读取原始数据、运行真实回测，亦不产生 P4–P6 资格。
 - `2026-08-20`：`QuantStrategyPlugins` 合入 `qsl.strategy-plugin-signal.v2` 的纯本地 envelope/校验器（PR #52）及 QQQ close-only 观察生产器（PR #53）；`UsEquitySnapshotPipelines` 合入 TQQQ P2 v6 observe-only P2/P3 契约（PR #332）和 P1-root strict recomputation adapter（PR #333）。它们拒绝 `latest`、AI、仓位、订单和授权字段；v6 必须从同一已验证 P1 root 独立重算信号，不一致即 `PARKED`，并证明观察目标不偏离 v5。没有日更候选注册、持久观察记录、策略调用、scheduler 或 P4–P6。
+- `2026-08-20`：`UsEquitySnapshotPipelines` 合入 v6 日更观察接线（PR #334），其 CI 全绿。它复用既有日更 P1→v5 P3→forward observation 链，不创建第二个 scheduler；仅在全部前置证据完成时重算 v6 信号并证明目标不变，成功后上传 35 天脱敏 Actions artifact。它不读取/保存额外原始数据、不写 GCS、不发布控制台、不消费策略信号，也不启用 P4–P6。尚未产生真实日更 v6 记录。
 - `2026-08-19`：6 个 Quant GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。详见下方部署记录。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
