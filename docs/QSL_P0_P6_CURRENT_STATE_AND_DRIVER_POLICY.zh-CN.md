@@ -35,6 +35,8 @@ P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯�
 
 P0–P6 是每个研究候选从控制、输入、策略、证据到执行的**生命周期**，不是“只允许单策略”的产品目录。单策略、组合策略和策略插件都属于 Quant 的主线，但每一个准备运行的候选都必须有自己的 P1 输入绑定、P2 冻结配置和 P3 证据，不能继承另一个候选已经得到的结论。
 
+为避免把“可复用流程”误写成“共用策略”，`UsEquitySnapshotPipelines` 的多策略研究 Driver 目录只登记每条路线自己的 P1 输入契约、P2 配置摘要、P3 入口和迁移状态：TQQQ 是已接日更研究的样板，SOXL/SOXX 的旧研究明确为待迁移路线。这个目录不调用任何路线，也不让 SOXL 继承 TQQQ 的数据、参数、证据或权限。
+
 - **单策略**：例如当前日更的 `tqqq_core_only_p2_v5`。它是此刻唯一接入日更 P1/P3 控制器的候选。
 - **组合策略**：各域已有独立的组合策略仓库和配置目录；运行配置也支持标记 `combo=true`、`combo_mode=dynamic`。但一个组合不是把若干单策略结果相加：它必须单独冻结成“组合候选”，明确成分策略版本、权重/再平衡规则、共同数据截止日、组合级风险和成本，然后从 P1/P2/P3 重新走证据链。`UsEquityStrategies` 的纯组合风险预算，以及 `MarketSignalSources` 的时点成分股和历史价格面板契约已经存在；组合 P1 的只读元数据绑定、P2 的冻结候选描述符和 P3 的脱敏证据索引契约也已经合入。它们仍只是防幸存者偏差、复权/成本假设和组合敞口的研究地基：尚没有已验证的组合 P1 原始输入、真实组合 P3 replay 或任何 P4–P6 资格。
 - **策略插件**：运行配置的旧 plugin mount 已退役；新插件只能是候选受约束、可复算信号。策略在冻结配置中决定如何消费，插件不能在运行中悄悄改参数、替换策略、改写仓位或绕过 P3。AI 黑盒结论仅可走人工通知/研究建议路径，不能作为插件或策略输入。`QuantStrategyPlugins` 已有 `qsl.strategy-plugin-signal.v2` envelope 和 QQQ close-only 观察生产器；UESP 的 TQQQ v6 会从同一已验证 P1 root 重算该信号，并在 v5 P3 完成时保留 35 天脱敏观察 artifact。它仍没有日更候选注册、策略调用或任何 P4–P6 资格。当前 TQQQ 日更链不挂载任何插件，也不执行任何组合策略；这里的 v6 仅是验证后记录，绝不构成策略消费。
@@ -66,6 +68,7 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | P0 授权状态与统一控制台 | 已接线（只读） | Worker 可汇总来源候选快照；它不是执行网关，也不签发 P1–P6 权限。 |
 | P1–P3 TQQQ 日更研究 | 已接线，已有一次 `DEFERRED` 来源记录，待 `ACCEPTED`/P3 完整证据 | 工作流只做数据身份、冻结研究和 offline/no-order P3；缺失输入只会延期/停车；实时状态只从控制台来源快照读取。 |
 | TQQQ P2 v6 plugin observe 契约 | 已接线，待首个合格日更记录 | 只在已完成的 v5 P3 与其绑定 forward observation 后，对同一已验证 P1 root 的 QQQ bars 重算 close-only signal、配置和 QSP 模块 hash，并验证 observer targets 与 v5 targets 相同；成功时仅保留 35 天脱敏 Actions artifact。没有 GCS/control-plane 写入、策略调用或 P4–P6 资格。 |
+| 多策略 P1–P3 Driver 目录 | 已接线（描述层） | TQQQ 标为已接日更研究；SOXL/SOXX 旧研究标为 `MIGRATION_REQUIRED`，其固定历史截止日、旧 source binding 和非日更身份必须先替换为独立的新 P1/P2/P3 候选。目录不调度、不获取数据、不调用插件或策略，且不授予 P4–P6。 |
 | 组合 P1 输入元数据契约 | 已实现，未运行 | 只绑定历史输入的摘要、截止日、PIT/成本声明与候选身份；不读取原始行情、不获取数据，也不构成组合 P1 root。 |
 | 组合 P2 冻结候选描述符 | 已实现，未运行 | 描述成分策略版本、权重/再平衡、组合风险和 P1 摘要绑定；不调参、不生成交易目标。 |
 | 组合 P3 脱敏证据索引 | 已实现，未运行 | 只允许写入与同一短期输入生命周期绑定的摘要索引；没有真实历史 replay、收益结论或 promotion。 |
@@ -115,6 +118,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-20`：组合研究的三个连续契约相继合入：`MarketSignalSources` PR #26 的 P1 历史输入元数据绑定、`UsEquityStrategies` PR #333 的 P2 冻结候选描述符、`UsEquitySnapshotPipelines` PR #330 的 P3 脱敏证据索引。它们只使未来合格、可许可的历史组合输入能够沿同一 P1→P3 链记录证据；没有获取或读取原始数据、运行真实回测，亦不产生 P4–P6 资格。
 - `2026-08-20`：`QuantStrategyPlugins` 合入 `qsl.strategy-plugin-signal.v2` 的纯本地 envelope/校验器（PR #52）及 QQQ close-only 观察生产器（PR #53）；`UsEquitySnapshotPipelines` 合入 TQQQ P2 v6 observe-only P2/P3 契约（PR #332）和 P1-root strict recomputation adapter（PR #333）。它们拒绝 `latest`、AI、仓位、订单和授权字段；v6 必须从同一已验证 P1 root 独立重算信号，不一致即 `PARKED`，并证明观察目标不偏离 v5。没有日更候选注册、持久观察记录、策略调用、scheduler 或 P4–P6。
 - `2026-08-20`：`UsEquitySnapshotPipelines` 合入 v6 日更观察接线（PR #334），其 CI 全绿。它复用既有日更 P1→v5 P3→forward observation 链，不创建第二个 scheduler；仅在全部前置证据完成时重算 v6 信号并证明目标不变，成功后上传 35 天脱敏 Actions artifact。它不读取/保存额外原始数据、不写 GCS、不发布控制台、不消费策略信号，也不启用 P4–P6。尚未产生真实日更 v6 记录。
+- `2026-08-20`：`UsEquitySnapshotPipelines` 合入多策略 P1–P3 Driver 目录（PR #335），其 CI 全绿。它只把 TQQQ 的日更样板和 SOXL/SOXX 的待迁移旧研究放入同一只读目录，显式记录 SOXL 不能直接调度的原因；没有抽象或替换现有策略运行器，没有数据获取、插件消费、策略调用、P4–P6 或交易行为。
 - `2026-08-19`：6 个 Quant GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。详见下方部署记录。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
 - 上述仓内记录只支撑文档、兼容性和协作边界；不支撑账户、密钥、私有位置或任何未重新读取的部署状态。
