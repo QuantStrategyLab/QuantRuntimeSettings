@@ -667,6 +667,26 @@ const normalizedLegacyAutoPluginInputs = __test.normalizeSwitchInputs({
   plugin_mode: "auto",
 });
 assert.equal(normalizedLegacyAutoPluginInputs.plugin_mode, "none");
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    plugin_mode: "custom",
+  }),
+  /plugin_mode is invalid/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    custom_plugin_mounts_json: "[]",
+  }),
+  /legacy custom plugin mounts are retired/,
+);
 const normalizedDcaInputs = __test.normalizeSwitchInputs({
   platform: "firstrade",
   target_name: "default",

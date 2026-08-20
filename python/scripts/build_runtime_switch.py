@@ -611,21 +611,6 @@ def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str, dca_mod
     return []
 
 
-def _custom_plugin_mounts(raw_json: str) -> list[dict[str, Any]]:
-    text = str(raw_json or "").strip()
-    if not text:
-        return []
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError("custom_plugin_mounts_json must be valid JSON") from exc
-    if isinstance(payload, dict):
-        payload = payload.get("strategy_plugins", payload.get("plugins"))
-    if not isinstance(payload, list):
-        raise ValueError("custom_plugin_mounts_json must be a list or object with strategy_plugins")
-    return [dict(item) for item in payload]
-
-
 def _plugin_mounts(args: argparse.Namespace, strategy_profile: str, dca_mode: str = "") -> list[dict[str, Any]]:
     mode = str(args.plugin_mode or "none").strip().lower()
     if mode == "none":
@@ -633,7 +618,9 @@ def _plugin_mounts(args: argparse.Namespace, strategy_profile: str, dca_mode: st
     if mode == "auto":
         return _auto_plugin_mounts(strategy_profile, args.artifact_bucket_uri, dca_mode)
     if mode == "custom":
-        return _custom_plugin_mounts(args.custom_plugin_mounts_json)
+        raise ValueError(
+            "legacy custom plugin mounts are retired; a P1/P2/P3-bound strategy_plugin_signal.v2 adapter is required"
+        )
     raise ValueError(f"unsupported plugin_mode {args.plugin_mode!r}")
 
 

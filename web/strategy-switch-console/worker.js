@@ -2639,8 +2639,11 @@ function normalizeSwitchInputs(raw) {
   if (platform === "qmt" && executionMode === "live") {
     throw new Error("QMT platform does not support live execution yet; use paper/dry_run mode");
   }
-  const requestedPluginMode = cleanChoice(raw.plugin_mode || "none", ["auto", "none", "custom"], "plugin_mode");
+  const requestedPluginMode = cleanChoice(raw.plugin_mode || "none", ["auto", "none"], "plugin_mode");
   const pluginMode = requestedPluginMode === "auto" ? "none" : requestedPluginMode;
+  if (String(raw.custom_plugin_mounts_json || "").trim()) {
+    throw new Error("legacy custom plugin mounts are retired pending a P1/P2/P3-bound signal.v2 adapter");
+  }
   const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "enabled", OPTION_OVERLAY_MODES, "option_overlay_mode");
   const cashOnlyExecutionMode = cleanChoice(
     raw.cash_only_execution_mode || "enabled",
@@ -2706,7 +2709,6 @@ function normalizeSwitchInputs(raw) {
   addOptional(inputs, "account_selector", raw.account_selector, cleanCsv);
   addOptional(inputs, "account_scope", raw.account_scope, cleanSlug);
   addOptional(inputs, "service_name", raw.service_name, cleanSlug);
-  addOptional(inputs, "custom_plugin_mounts_json", raw.custom_plugin_mounts_json, cleanJson);
   addOptional(inputs, "reserved_cash_ratio", raw.reserved_cash_ratio, cleanRatio);
   addOptional(inputs, "min_reserved_cash_usd", raw.min_reserved_cash_usd, cleanNonNegativeNumber);
   addOptional(inputs, "income_layer_start_usd", raw.income_layer_start_usd, cleanNonNegativeNumber);

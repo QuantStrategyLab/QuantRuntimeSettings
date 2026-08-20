@@ -1096,6 +1096,26 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             {"strategy_plugins": []},
         )
 
+    def test_build_switch_target_rejects_legacy_custom_plugin_mounts(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--plugin-mode",
+                "custom",
+                "--custom-plugin-mounts-json",
+                '[{"plugin":"market_regime_control"}]',
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "legacy custom plugin mounts are retired"):
+            build_runtime_switch.build_switch_target(args)
+
     def test_market_plan_covers_every_catalog_strategy(self):
         config = build_runtime_switch._load_platform_config()
 

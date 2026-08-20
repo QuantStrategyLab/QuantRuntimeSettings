@@ -60,17 +60,12 @@ on:
         required: false
         type: string
       plugin_mode:
-        description: "none is the safe default. auto is a compatibility alias for none; custom is legacy-only until P1/P2-bound plugin artifacts exist."
+        description: "none is the safe default. auto is a compatibility alias for none; legacy custom mounts are disabled until P1/P2-bound plugin artifacts exist."
         required: true
         type: choice
         default: none
         options:
           - none
-          - custom
-      custom_plugin_mounts_json:
-        description: "JSON list or {strategy_plugins:[...]} when plugin_mode=custom."
-        required: false
-        type: string
       extra_variables_json:
         description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields. cash_only_execution_mode may be current, enabled, or disabled. Research-only option overlays are rejected."
         required: false
@@ -157,7 +152,6 @@ jobs:
       ACCOUNT_SCOPE: ${{ inputs.account_scope }}
       SERVICE_NAME: ${{ inputs.service_name }}
       PLUGIN_MODE: ${{ inputs.plugin_mode }}
-      CUSTOM_PLUGIN_MOUNTS_JSON: ${{ inputs.custom_plugin_mounts_json }}
       EXTRA_VARIABLES_JSON: ${{ inputs.extra_variables_json }}
       RESERVED_CASH_RATIO: ${{ inputs.reserved_cash_ratio }}
       MIN_RESERVED_CASH_USD: ${{ inputs.min_reserved_cash_usd }}
@@ -349,9 +343,6 @@ jobs:
           fi
           if [ -n "${SERVICE_NAME:-}" ]; then
             args+=(--service-name "${SERVICE_NAME}")
-          fi
-          if [ -n "${CUSTOM_PLUGIN_MOUNTS_JSON:-}" ]; then
-            args+=(--custom-plugin-mounts-json "${CUSTOM_PLUGIN_MOUNTS_JSON}")
           fi
           if [ -n "${EXTRA_VARIABLES_JSON:-}" ]; then
             args+=(--extra-variables-json "${EXTRA_VARIABLES_JSON}")
