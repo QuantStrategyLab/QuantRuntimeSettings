@@ -102,13 +102,13 @@ dependencies = [
     def test_qpk_migrated_consumers_use_current_baseline_pins(self):
         expected_pins_by_consumer = {
             "BinancePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CharlesSchwabPlatform": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
+            "CharlesSchwabPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
             "CnEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
             "CryptoStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "FirstradePlatform": "92458590a463e7219f0369a3505031ee74414135",
+            "FirstradePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
             "HkEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "InteractiveBrokersPlatform": "b371322b948e4298920a7d8613b155245dcd5f8d",
-            "LongBridgePlatform": "9618b4bd8e179760ac174914713598762cab15d7",
+            "InteractiveBrokersPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
+            "LongBridgePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
             "UsEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
             "UsEquitySnapshotPipelines": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
         }
