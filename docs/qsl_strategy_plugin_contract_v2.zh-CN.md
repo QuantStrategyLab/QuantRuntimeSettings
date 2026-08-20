@@ -1,6 +1,6 @@
 # 策略插件契约 V2（设计边界）
 
-> 状态：`DESIGN_ONLY_NOT_RUNTIME`  
+> 状态：`DESIGN_ONLY_NOT_RUNTIME`
 > 本文不创建 P4、P5、P6 权限，不改变任何策略参数、数据输入、券商设置或订单能力。
 
 ## 为什么需要这个契约
