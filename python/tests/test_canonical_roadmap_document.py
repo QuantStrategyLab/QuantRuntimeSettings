@@ -63,6 +63,8 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
             "收盘后日更 P1/P3 non-live 控制器",
             "首次 v5 计划任务完成",
             "SOXL P1 bars→context materializer（PR #342）",
+            "SOXL/SOXX core-only P1 publisher（PR #348）",
+            "完整 XNYS 覆盖的本地 P1 publisher",
             "日更即时结果以控制台来源快照为准",
             "任何 live 启用均需用户的明确决定",
         ):
