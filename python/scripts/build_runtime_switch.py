@@ -27,17 +27,7 @@ from runtime_settings import (  # noqa: E402
 
 DEFAULT_ARTIFACT_BUCKET_URI = "gs://qsl-runtime-logs-shared"
 PLATFORM_CONFIG_PATH = ROOT / "platform-config.json"
-# Keep this list limited to strategy-scope artifacts that the publisher
-# currently produces. QPK may parse broader explicit mounts for forward
-# compatibility, but auto mode must not generate missing latest_signal paths.
-MARKET_REGIME_CONTROL_PROFILES = frozenset(
-    {
-        "tqqq_growth_income",
-        "soxl_soxx_trend_income",
-    }
-)
 IBIT_ZSCORE_EXIT_STRATEGY_PROFILE = "ibit_smart_dca"
-IBIT_ZSCORE_EXIT_PLUGIN = "ibit_zscore_exit"
 PLATFORM_DRY_RUN_VARIABLES = {
     "schwab": "SCHWAB_DRY_RUN_ONLY",
     "longbridge": "LONGBRIDGE_DRY_RUN_ONLY",
@@ -616,62 +606,21 @@ def _ibit_zscore_exit_extra_variables(
 
 
 def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str, dca_mode: str = "") -> list[dict[str, Any]]:
-    prefix = artifact_bucket_uri.rstrip("/")
-    mounts: list[dict[str, Any]] = []
-    if strategy_profile in MARKET_REGIME_CONTROL_PROFILES:
-        mounts.append(
-            {
-                "strategy": strategy_profile,
-                "plugin": "market_regime_control",
-                "signal_path": (
-                    f"{prefix}/strategy-artifacts/us_equity/{strategy_profile}"
-                    "/plugins/market_regime_control/latest_signal.json"
-                ),
-                "enabled": True,
-                "expected_mode": "shadow",
-                "expected_schema_version": "market_regime_control.v1",
-            }
-        )
-    if strategy_profile == IBIT_ZSCORE_EXIT_STRATEGY_PROFILE and dca_mode == "smart":
-        mounts.append(
-            {
-                "strategy": strategy_profile,
-                "plugin": IBIT_ZSCORE_EXIT_PLUGIN,
-                "signal_path": (
-                    f"{prefix}/strategy-artifacts/us_equity/{strategy_profile}"
-                    f"/plugins/{IBIT_ZSCORE_EXIT_PLUGIN}/latest_signal.json"
-                ),
-                "enabled": True,
-                "expected_mode": "shadow",
-                "expected_schema_version": "ibit_zscore_exit.v1",
-            }
-        )
-    return mounts
-
-
-def _custom_plugin_mounts(raw_json: str) -> list[dict[str, Any]]:
-    text = str(raw_json or "").strip()
-    if not text:
-        return []
-    try:
-        payload = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise ValueError("custom_plugin_mounts_json must be valid JSON") from exc
-    if isinstance(payload, dict):
-        payload = payload.get("strategy_plugins", payload.get("plugins"))
-    if not isinstance(payload, list):
-        raise ValueError("custom_plugin_mounts_json must be a list or object with strategy_plugins")
-    return [dict(item) for item in payload]
+    """Retire name-based plugin selection without expanding runtime authority."""
+    del strategy_profile, artifact_bucket_uri, dca_mode
+    return []
 
 
 def _plugin_mounts(args: argparse.Namespace, strategy_profile: str, dca_mode: str = "") -> list[dict[str, Any]]:
-    mode = str(args.plugin_mode or "auto").strip().lower()
+    mode = str(args.plugin_mode or "none").strip().lower()
     if mode == "none":
         return []
     if mode == "auto":
         return _auto_plugin_mounts(strategy_profile, args.artifact_bucket_uri, dca_mode)
     if mode == "custom":
-        return _custom_plugin_mounts(args.custom_plugin_mounts_json)
+        raise ValueError(
+            "legacy custom plugin mounts are retired; a P1/P2/P3-bound strategy_plugin_signal.v2 adapter is required"
+        )
     raise ValueError(f"unsupported plugin_mode {args.plugin_mode!r}")
 
 
@@ -987,11 +936,14 @@ def build_switch_target(args: argparse.Namespace) -> dict[str, Any]:
     extra_variables.update(_cash_only_extra_variables(args, platform))
     extra_variables.update(_option_overlay_extra_variables(args, runtime_target["strategy_profile"]))
     extra_variables.update(_dca_extra_variables(args, runtime_target["strategy_profile"], dca_controls))
+    effective_plugin_mode = str(args.plugin_mode or "none").strip().lower()
+    if effective_plugin_mode == "auto":
+        effective_plugin_mode = "none"
     extra_variables.update(
         _ibit_zscore_exit_extra_variables(
             args,
             runtime_target["strategy_profile"],
-            str(args.plugin_mode or "auto").strip().lower(),
+            effective_plugin_mode,
             effective_dca_mode,
         )
     )
@@ -1059,7 +1011,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--account-scope", default="")
     parser.add_argument("--service-name", default="")
     parser.add_argument("--execution-windows-json", default="")
-    parser.add_argument("--plugin-mode", choices=("auto", "none", "custom"), default="auto")
+    parser.add_argument("--plugin-mode", choices=("auto", "none", "custom"), default="none")
     parser.add_argument("--custom-plugin-mounts-json", default="")
     parser.add_argument("--artifact-bucket-uri", default=DEFAULT_ARTIFACT_BUCKET_URI)
     parser.add_argument("--extra-variables-json", default="", help="JSON object of non-secret extra variables")

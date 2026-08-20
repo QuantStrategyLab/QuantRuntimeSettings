@@ -135,8 +135,8 @@ assert.ok(indexHtml.includes('reservePolicyNone'));
 assert.ok(indexHtml.includes('reservePolicyRatio'));
 assert.ok(indexHtml.includes('reservePolicyFloor'));
 assert.ok(indexHtml.includes('reservePolicyMax'));
-assert.ok(indexHtml.includes('pluginModeAuto'));
 assert.ok(indexHtml.includes('pluginModeNone'));
+assert.ok(indexHtml.includes('const pluginModes = ["none"]'));
 assert.ok(indexHtml.includes('runtimeTargetMode: "账号运行状态"'));
 assert.ok(indexHtml.includes('runtimeTargetEnabled: "启用"'));
 assert.ok(indexHtml.includes('runtimeTargetDisabled: "禁用"'));
@@ -145,11 +145,10 @@ assert.ok(indexHtml.includes('runtimeTargetEnabled: "Enabled"'));
 assert.ok(indexHtml.includes('runtimeTargetDisabled: "Disabled"'));
 assert.ok(indexHtml.includes("function runtimeTargetStateForAccount("));
 assert.ok(indexHtml.includes(".summary-status.disabled"));
-assert.ok(indexHtml.includes('pluginMode: "插件启用范围"'));
-assert.ok(indexHtml.includes('pluginModeAuto: "启用插件"'));
-assert.ok(indexHtml.includes('pluginModeNone: "禁用插件"'));
-assert.ok(indexHtml.includes('pluginModeAuto: "Enabled"'));
-assert.ok(indexHtml.includes('pluginMode: "Plugin scope"'));
+assert.ok(indexHtml.includes('pluginMode: "插件状态"'));
+assert.ok(indexHtml.includes('pluginModeNone: "不挂载旧插件"'));
+assert.ok(indexHtml.includes('pluginMode: "Plugin status"'));
+assert.equal(indexHtml.includes('pluginModeAuto'), false);
 assert.equal(indexHtml.includes('id="ibit-zscore-exit-mode-select"'), false);
 assert.equal(indexHtml.includes("ibitZscoreExit"), false);
 assert.equal(indexHtml.includes("ibit_zscore_exit_mode"), false);
@@ -446,6 +445,7 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
         label: "sg",
         target_name: "sg",
         account_selector: "SG",
+        plugin_mode: "auto",
       },
     ],
     ibkr: [
@@ -659,6 +659,34 @@ const normalizedPluginInputs = __test.normalizeSwitchInputs({
   plugin_mode: "none",
 });
 assert.equal(normalizedPluginInputs.plugin_mode, "none");
+const normalizedLegacyAutoPluginInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  plugin_mode: "auto",
+});
+assert.equal(normalizedLegacyAutoPluginInputs.plugin_mode, "none");
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    plugin_mode: "custom",
+  }),
+  /plugin_mode is invalid/,
+);
+assert.throws(
+  () => __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-primary",
+    strategy_profile: "tqqq_growth_income",
+    execution_mode: "live",
+    custom_plugin_mounts_json: "[]",
+  }),
+  /legacy custom plugin mounts are retired/,
+);
 const normalizedDcaInputs = __test.normalizeSwitchInputs({
   platform: "firstrade",
   target_name: "default",

@@ -553,7 +553,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"],
         )
 
-    def test_auto_market_regime_control_profiles_cover_published_strategy_artifacts(self):
+    def test_published_legacy_strategy_artifacts_are_not_auto_mounted(self):
         strategy_profiles = {
             item["profile"]
             for item in json.loads(
@@ -566,7 +566,15 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         }
 
         self.assertLessEqual(published_strategy_artifact_profiles, strategy_profiles)
-        self.assertEqual(published_strategy_artifact_profiles, build_runtime_switch.MARKET_REGIME_CONTROL_PROFILES)
+        for profile in published_strategy_artifact_profiles:
+            with self.subTest(profile=profile):
+                self.assertEqual(
+                    build_runtime_switch._auto_plugin_mounts(
+                        profile,
+                        "gs://qsl-runtime-logs-shared",
+                    ),
+                    [],
+                )
 
     def test_build_config_strategy_to_json_compat_includes_strategy_gate_fields(self):
         strategies = {
@@ -1062,14 +1070,51 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(assignments["STRATEGY_PROFILE"], "tqqq_growth_income")
         self.assertEqual(assignments["LONGBRIDGE_DRY_RUN_ONLY"], "false")
         plugin_payload = json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"])
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
-        self.assertEqual(
-            plugin_payload["strategy_plugins"][0]["signal_path"],
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
-            "tqqq_growth_income/plugins/market_regime_control/latest_signal.json",
-        )
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_schema_version"], "market_regime_control.v1")
+        self.assertEqual(plugin_payload["strategy_plugins"], [])
         self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_build_switch_target_treats_legacy_auto_plugin_mode_as_none(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--plugin-mode",
+                "auto",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        self.assertEqual(
+            json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"]),
+            {"strategy_plugins": []},
+        )
+
+    def test_build_switch_target_rejects_legacy_custom_plugin_mounts(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--plugin-mode",
+                "custom",
+                "--custom-plugin-mounts-json",
+                '[{"plugin":"market_regime_control"}]',
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "legacy custom plugin mounts are retired"):
+            build_runtime_switch.build_switch_target(args)
 
     def test_market_plan_covers_every_catalog_strategy(self):
         config = build_runtime_switch._load_platform_config()
@@ -1139,14 +1184,9 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(target["runtime_target"]["service_name"], "charles-schwab-quant-service")
         self.assertEqual(assignments["SCHWAB_DRY_RUN_ONLY"], "false")
         plugin_payload = json.loads(assignments["SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON"])
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
-        self.assertEqual(
-            plugin_payload["strategy_plugins"][0]["signal_path"],
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
-            "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
-        )
+        self.assertEqual(plugin_payload["strategy_plugins"], [])
 
-    def test_build_switch_target_auto_mounts_market_regime_control_for_soxl(self):
+    def test_build_switch_target_does_not_auto_mount_legacy_plugin_for_soxl(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -1164,12 +1204,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertEqual(assignments["STRATEGY_PROFILE"], "soxl_soxx_trend_income")
         plugin_payload = json.loads(assignments["LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON"])
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
-        self.assertEqual(
-            plugin_payload["strategy_plugins"][0]["signal_path"],
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
-            "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
-        )
+        self.assertEqual(plugin_payload["strategy_plugins"], [])
 
     def test_build_switch_target_defaults_firstrade_repository_scope(self):
         parser = build_runtime_switch.build_parser()
@@ -1197,7 +1232,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(assignments["FIRSTRADE_DRY_RUN_ONLY"], "false")
         self.assertEqual(assignments["STRATEGY_PROFILE"], "tqqq_growth_income")
         plugin_payload = json.loads(assignments["FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON"])
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "market_regime_control")
+        self.assertEqual(plugin_payload["strategy_plugins"], [])
 
     def test_build_switch_target_defaults_qmt_repository_scope(self):
         parser = build_runtime_switch.build_parser()
@@ -1323,7 +1358,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             },
         )
 
-    def test_build_switch_target_uses_daily_scheduler_when_ibit_smart_dca_is_smart(self):
+    def test_build_switch_target_keeps_daily_dca_scheduler_but_disables_legacy_ibit_plugin(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
             [
@@ -1351,11 +1386,9 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "precheck_time": "45 9 * * 1-5",
             },
         )
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["plugin"], "ibit_zscore_exit")
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_mode"], "shadow")
-        self.assertEqual(plugin_payload["strategy_plugins"][0]["expected_schema_version"], "ibit_zscore_exit.v1")
-        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "true")
-        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "live")
+        self.assertEqual(plugin_payload["strategy_plugins"], [])
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "false")
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "paper")
 
     def test_build_switch_target_ignores_legacy_ibit_zscore_controls(self):
         parser = build_runtime_switch.build_parser()
@@ -1377,8 +1410,8 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         target = build_runtime_switch.build_switch_target(args)
         assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
 
-        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "true")
-        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "live")
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_ENABLED"], "false")
+        self.assertEqual(assignments["IBIT_ZSCORE_EXIT_MODE"], "paper")
         self.assertEqual(assignments["IBIT_ZSCORE_EXIT_PARKING_SYMBOL"], "BOXX")
         self.assertNotIn("ibit_zscore_exit_mode", target["extra_variables"])
         self.assertNotIn("ibit_zscore_exit_parking_symbol", target["extra_variables"])
@@ -2359,15 +2392,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(selected["OPTION_GROWTH_OVERLAY_RECIPE"], "tqqq_leaps_growth_v1")
         self.assertEqual(selected["OPTION_INCOME_OVERLAY_ENABLED"], "false")
         self.assertEqual(selected["RUNTIME_TARGET_ENABLED"], "false")
-        self.assertEqual(
-            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],
-            "market_regime_control",
-        )
-        self.assertEqual(
-            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["signal_path"],
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
-            "tqqq_growth_income/plugins/market_regime_control/latest_signal.json",
-        )
+        self.assertEqual(selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"], [])
         self.assertEqual(untouched["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
 
     def test_build_switch_target_prefers_exact_service_when_account_scope_is_shared(self):
@@ -2732,15 +2757,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         selected = patched["targets"][0]
 
         self.assertEqual(selected["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
-        self.assertEqual(
-            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["plugin"],
-            "market_regime_control",
-        )
-        self.assertEqual(
-            selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"][0]["signal_path"],
-            "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/"
-            "soxl_soxx_trend_income/plugins/market_regime_control/latest_signal.json",
-        )
+        self.assertEqual(selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"], [])
 
     def test_build_switch_target_rejects_unknown_ibkr_service_target_by_default(self):
         path = ROOT / ".pytest_runtime_service_targets_unknown.json"
