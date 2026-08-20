@@ -110,7 +110,7 @@ dependencies = [
             "InteractiveBrokersPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
             "LongBridgePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
             "UsEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "UsEquitySnapshotPipelines": "730ad9f3983bd90cd75adecb67fcf483ffb96736",
+            "UsEquitySnapshotPipelines": "3acab1923a97b805b077c85c6c19657be0143bac",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
@@ -135,7 +135,7 @@ dependencies = [
         self.assertEqual(
             uesp_strategy_refs,
             {
-                ("UsEquitySnapshotPipelines", path): "5f0c30cdcaf3ee0f3f1c050acbe172580ea40c81"
+                ("UsEquitySnapshotPipelines", path): "7756fe32585e85cf1d09a163203a02e3eee39fe1"
                 for path in ("pyproject.toml", "uv.lock")
             },
         )
