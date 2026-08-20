@@ -60,12 +60,11 @@ on:
         required: false
         type: string
       plugin_mode:
-        description: "auto mounts known strategy plugin artifacts; custom uses custom_plugin_mounts_json."
+        description: "none is the safe default. auto is a compatibility alias for none; custom is legacy-only until P1/P2-bound plugin artifacts exist."
         required: true
         type: choice
-        default: auto
+        default: none
         options:
-          - auto
           - none
           - custom
       custom_plugin_mounts_json:

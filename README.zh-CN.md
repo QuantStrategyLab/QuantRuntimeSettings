@@ -70,7 +70,7 @@ platform=longbridge
 target_name=sg
 strategy_profile=tqqq_growth_income
 execution_mode=live
-plugin_mode=auto
+plugin_mode=none
 apply=true
 trigger_platform_sync=true
 confirm_apply=APPLY_AND_SYNC
@@ -88,6 +88,7 @@ confirm_apply=APPLY_AND_SYNC
 - LongBridge、IBKR、Schwab、Firstrade 的 `service_targets_mode=auto` 会检查目标仓库是否已有多服务清单，因此即使只做 preview 也需要 `RUNTIME_SETTINGS_GH_TOKEN`。
 - Binance 运行在 Oracle Cloud VPS 的 self-hosted runner。仓库变量会在外部调度器下一次触发 `main.yml` 时被读取；中控不会自动触发该运行 workflow，因为它可能直接执行实盘。切换到不同运行频率的策略时，还必须单独复核 VPS 外部调度器。
 - QMT 当前仅支持 dry-run，尚无实盘部署配置；可以生成目标并暂存仓库变量，但会拒绝 `trigger_platform_sync=true`。
+- 当前 `plugin_mode=none` 是安全默认值。`auto` 仅为兼容旧请求而保留，实际等同于 `none`；不得再按策略名称自动挂载 `latest_signal.json`。旧 `custom` 仅用于历史、受控迁移，不构成 P0–P6 授权。未来只有被冻结的 P2 候选明确引用、并可在 P3 复算的插件 artifact 才能接入运行时，详见[策略插件契约 V2](docs/qsl_strategy_plugin_contract_v2.zh-CN.md)。
 - workflow 绑定 GitHub Environment `runtime-strategy-switch`。个人系统默认不需要 required reviewers；建议把 `RUNTIME_SETTINGS_GH_TOKEN` 配成这个 Environment 的 secret，真实写入靠 preview、确认词和 token 最小权限控制。
 - 启用真实切换前请按 [手动策略切换权限控制方案](docs/manual_strategy_switch_permission_control.zh-CN.md) 完成最简 secret、token 权限和回滚准备。
 

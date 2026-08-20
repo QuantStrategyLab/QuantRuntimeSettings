@@ -2574,8 +2574,8 @@ function updateAccountOptionsDefaultStrategy(accountOptions, inputs) {
     const nextOption = { ...option };
     let optionChanged = false;
     if ("ibit_zscore_exit_mode" in rawOption) optionChanged = true;
-    if (inputs.plugin_mode === "auto" || inputs.plugin_mode === "none") {
-      const currentPluginMode = nextOption.plugin_mode || "auto";
+    if (inputs.plugin_mode === "none") {
+      const currentPluginMode = nextOption.plugin_mode || "none";
       if (currentPluginMode !== inputs.plugin_mode) {
         nextOption.plugin_mode = inputs.plugin_mode;
         optionChanged = true;
@@ -2639,7 +2639,8 @@ function normalizeSwitchInputs(raw) {
   if (platform === "qmt" && executionMode === "live") {
     throw new Error("QMT platform does not support live execution yet; use paper/dry_run mode");
   }
-  const pluginMode = cleanChoice(raw.plugin_mode || "auto", ["auto", "none", "custom"], "plugin_mode");
+  const requestedPluginMode = cleanChoice(raw.plugin_mode || "none", ["auto", "none", "custom"], "plugin_mode");
+  const pluginMode = requestedPluginMode === "auto" ? "none" : requestedPluginMode;
   const optionOverlayMode = cleanChoice(raw.option_overlay_mode || "enabled", OPTION_OVERLAY_MODES, "option_overlay_mode");
   const cashOnlyExecutionMode = cleanChoice(
     raw.cash_only_execution_mode || "enabled",
@@ -2828,7 +2829,7 @@ function defaultInputValue(field, inputs) {
   const platform = inputs.platform;
   const targetName = inputs.target_name;
   if (field === "variable_scope") return DEFAULT_VARIABLE_SCOPE[platform] || "repository";
-  if (field === "plugin_mode") return "auto";
+  if (field === "plugin_mode") return "none";
   if (field === "deployment_selector") {
     if (platform === "firstrade") return "firstrade";
     if (platform === "qmt") return "qmt";

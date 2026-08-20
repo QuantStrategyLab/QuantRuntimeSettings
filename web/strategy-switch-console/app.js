@@ -144,7 +144,7 @@
     const optionOverlayModes = ["enabled", "disabled"];
     const cashOnlyExecutionModes = ["enabled", "disabled"];
     const runtimeTargetModes = ["enabled", "disabled"];
-    const pluginModes = ["auto", "none"];
+    const pluginModes = ["none"];
     const dcaModes = ["fixed", "smart"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
@@ -893,10 +893,9 @@
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
         runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
-        pluginMode: "插件启用范围",
-        pluginModeAuto: "启用插件",
-        pluginModeNone: "禁用插件",
-        pluginModeMeta: "选择是否启用该策略的插件。",
+        pluginMode: "插件状态",
+        pluginModeNone: "不挂载旧插件",
+        pluginModeMeta: "当前候选未绑定插件；旧插件不会自动挂载。",
         incomeLayerMode: "收入层状态",
         incomeLayerSectionTitle: "收入层",
         incomeLayerCurrent: "沿用当前配置",
@@ -1111,10 +1110,9 @@
         runtimeTargetEnabled: "Enabled",
         runtimeTargetDisabled: "Disabled",
         runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work.",
-        pluginMode: "Plugin scope",
-        pluginModeAuto: "Enabled",
-        pluginModeNone: "Disabled",
-        pluginModeMeta: "Choose whether to enable this strategy's plugins.",
+        pluginMode: "Plugin status",
+        pluginModeNone: "Do not mount legacy plugins",
+        pluginModeMeta: "The current candidate has no bound plugin; legacy plugins are not auto-mounted.",
         incomeLayerMode: "Income layer",
         incomeLayerSectionTitle: "Income layer",
         incomeLayerCurrent: "Keep current config",
@@ -1328,12 +1326,12 @@
       configSource: "default",
       repositories: clone(defaultRepositories),
       forms: {
-        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
-        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
-        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
-        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
-        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "auto", ...defaultReserveForm() },
-        binance: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto" },
+        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
+        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
+        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
+        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
+        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "none", ...defaultReserveForm() },
+        binance: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none" },
       },
     };
 
@@ -1769,11 +1767,12 @@
     }
 
     function normalizePluginMode(value) {
-      return pluginModes.includes(value) ? value : "auto";
+      return pluginModes.includes(value) ? value : "none";
     }
 
     function pluginModeLabel(mode) {
-      return mode === "none" ? t("pluginModeNone") : t("pluginModeAuto");
+      void mode;
+      return t("pluginModeNone");
     }
 
     function dcaConfigForStrategy(profile) {

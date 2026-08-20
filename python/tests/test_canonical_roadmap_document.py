@@ -34,6 +34,7 @@ class CanonicalRoadmapDocumentTest(unittest.TestCase):
             "组合候选",
             "不能继承另一个候选已经得到的结论",
             "当前 TQQQ 日更链不挂载任何插件，也不执行任何组合策略",
+            "策略插件契约 V2",
             "自治运行策略是独立门槛",
             "PREAUTHORIZED_AUTONOMY",
             "直接提交订单",
