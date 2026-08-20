@@ -58,12 +58,12 @@ P3 必须复算插件输出、策略消费结果及其原因摘要，而不只�
 
 ## 进入主线的顺序
 
-1. **先完成公共骨架**：实现 `qsl.strategy-plugin-signal.v2` 的 schema、P1/P2 身份绑定、P3 verifier、golden vectors 和不可变 verified manifest；不接平台运行时。
-2. **第一条候选只观察**：新建独立的 TQQQ `P2 v6 plugin-observe` 候选。它的仓位目标必须与当前 core-only P2 v5 逐项一致，只把 `market_regime` 信号写入诊断、shadow 对照和 P3 证据。它不能读取 legacy resolver 或 `latest`。
+1. **公共骨架（已完成最小实现）**：`qsl.strategy-plugin-signal.v2` 的 schema/拒绝规则与 QQQ close-only producer 已合入；TQQQ v6 能从同一已验证 P1 root 对其重算、比对 P1/P2 身份与 target 等价性。不接平台运行时，也尚未创建持久 `verified manifest`。
+2. **第一条候选只观察（设计地基已完成）**：TQQQ `P2 v6 plugin-observe` 尚未注册为日更候选。后续接线时，它的仓位目标必须与当前 core-only P2 v5 逐项一致，只把 QQQ 观察信号写入受限诊断和 P3 证据；它不能读取 legacy resolver 或 `latest`。
 3. **前瞻观察后才允许消费**：积累足够的真实、前瞻观察并通过分桶历史验证后，另起新的 `P2 v7 market-regime-consume` 候选。消费规则属于策略版本，且只能按冻结规则减少风险或转入已定义的防御资产；不得增加杠杆、重入或下单。
 4. **多个插件可并行研究，不能并行叠加**：TQQQ 市场状态、SOXL/SOXX 波动/反弹、IBIT 估值周期可各自开发 signal producer 和独立 P1/P2/P3 研究证据。把多个信号共同消费、定义优先级或冲突处理时，必须新建一个组合候选并串行验证。
 
-目前只有第 0 步（退役旧自动挂载与写明契约）正在实施。现有 TQQQ P2 v5、任何旧 `latest_signal.json` 和草稿观察入口都不是第 1–3 步的已接线实现。
+目前第 0 步（退役旧自动挂载）、第 1 步的最小 producer/recomputation 地基已完成；第 2 步的日更候选注册、持久观察记录和策略调用仍未实施。现有 TQQQ P2 v5、任何旧 `latest_signal.json` 和 v6 观察代码都不是 P2 v7 消费实现。
 
 ## 接线前验收清单
 
