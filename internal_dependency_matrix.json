@@ -34,28 +34,28 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "730ad9f3983bd90cd75adecb67fcf483ffb96736"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "730ad9f3983bd90cd75adecb67fcf483ffb96736"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "CnEquitySnapshotPipelines",
@@ -146,28 +146,28 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "92458590a463e7219f0369a3505031ee74414135"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "FirstradePlatform",
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "FirstradePlatform",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "92458590a463e7219f0369a3505031ee74414135"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "FirstradePlatform",
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "HkEquitySnapshotPipelines",
@@ -202,84 +202,84 @@
       "path": "pyproject.toml",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd"
+      "ref": "72008f44050b0dc7415334535dbe784793180159"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "b371322b948e4298920a7d8613b155245dcd5f8d"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "uv.lock",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd"
+      "ref": "72008f44050b0dc7415334535dbe784793180159"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "b371322b948e4298920a7d8613b155245dcd5f8d"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "InteractiveBrokersPlatform",
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "pyproject.toml",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd"
+      "ref": "72008f44050b0dc7415334535dbe784793180159"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "uv.lock",
       "package": "hk-equity-strategies",
       "source_repo": "HkEquityStrategies",
-      "ref": "b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd"
+      "ref": "72008f44050b0dc7415334535dbe784793180159"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "9618b4bd8e179760ac174914713598762cab15d7"
+      "ref": "3acab1923a97b805b077c85c6c19657be0143bac"
     },
     {
       "consumer_repo": "LongBridgePlatform",
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "17ddb86c72d44b2c7b78ba7a10d8f71b21180166"
+      "ref": "be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4"
     },
     {
       "consumer_repo": "QmtPlatform",
