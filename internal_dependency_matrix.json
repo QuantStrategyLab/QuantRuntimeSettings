@@ -321,7 +321,7 @@
       "path": "pyproject.toml",
       "package": "quant-strategy-plugins",
       "source_repo": "QuantStrategyPlugins",
-      "ref": "1f3a27b8fd83d71b583f4f5160a748e95fbefaa1"
+      "ref": "74d8288e3f897bb72980e9097d4c280dddfbaa60"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -342,7 +342,7 @@
       "path": "uv.lock",
       "package": "quant-strategy-plugins",
       "source_repo": "QuantStrategyPlugins",
-      "ref": "1f3a27b8fd83d71b583f4f5160a748e95fbefaa1"
+      "ref": "74d8288e3f897bb72980e9097d4c280dddfbaa60"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
