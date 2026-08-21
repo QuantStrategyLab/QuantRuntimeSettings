@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-08-21T03:29:06Z",
+  "digest_algorithm": "sha256",
+  "effective_at": "2026-08-21T03:29:06Z",
+  "expires_at": "2027-08-21T03:29:06Z",
+  "kms_key_version": "projects/alpacaquant-p5/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEwmK1coUMyBuPkKwCgbV66xFeGaIs\nNyolc1fS9apIOb8GTiAkfkvDbMjqCJG3qkWdydDs+mFNxf1cq9QmwlBwrA==\n-----END PUBLIC KEY-----\n",
+  "public_key_sha256": "1a6bca91f3777d8badbf1b2678203808cf33a5ebebb1caa9be300ff0089bb96e",
+  "root_id": "qsl-alpacaquant-p5-p0-root-v1",
+  "schema": "qsl.gcp_kms_policy_root.v1",
+  "signature_algorithm": "EC_SIGN_P256_SHA256",
+  "trusted_policy_root_sha256": "0e17fe1923e65d4c07a924349afd39a0ceb89f089d4e5258d148676fe8eada39"
+}
