@@ -1,0 +1,13 @@
+{
+  "created_at": "2026-08-21T03:43:20Z",
+  "digest_algorithm": "sha256",
+  "effective_at": "2026-08-21T03:43:20Z",
+  "expires_at": "2027-08-21T03:43:20Z",
+  "kms_key_version": "projects/alpaca-shadow-control/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+  "public_key_pem": "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE0kdSqZ8LCmv3OlCb7EvHWxOsnGG4\nSqft1HzZzJBAeJKkoZ1X5t4JMEqzBrSkuxIA5oi4+SYzxVuPiGh1CCNOhQ==\n-----END PUBLIC KEY-----\n",
+  "public_key_sha256": "df330749d4304b3c1da09e564ccf3980263ea0d1dd751bcfd50eb7fefb7415ba",
+  "root_id": "qsl-alpaca-shadow-control-p0-root-v1",
+  "schema": "qsl.gcp_kms_policy_root.v1",
+  "signature_algorithm": "EC_SIGN_P256_SHA256",
+  "trusted_policy_root_sha256": "f82fe8fdf5f8a6047dd71ab2c2b6582404cb852e390ec59354f5d5cff06ae7b5"
+}
