@@ -147,6 +147,49 @@ class QslCtlTest(unittest.TestCase):
         self.assertEqual(payload["phases"][1]["warning_repositories"][0]["repo"], "WarningRepo")
         self.assertTrue(payload["phases"][0]["next_actions"][0].startswith("先清理 strict mismatch"))
 
+    def test_mainline_only_report_excludes_nondefault_local_checkouts(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_bundle(
+                compat_root,
+                "2026.07.2",
+                {"QuantPlatformKit": "37c81901160c5b31127a27dba1c63944933fb6bf"},
+            )
+            self._write_repo_tiers(compat_root)
+            self._write_repo(root / "MainRepo", "2026.07.2", "37c81901160c5b31127a27dba1c63944933fb6bf")
+            self._write_repo(root / "FeatureRepo", "2026.07.2", "b" * 40)
+
+            def checkout_context(repo_root: Path) -> tuple[str | None, str | None]:
+                return ("main", "main") if repo_root.name == "MainRepo" else ("agent/archived", "main")
+
+            buf = io.StringIO()
+            with (
+                patch.object(qslctl, "_is_quant_repo", return_value=True),
+                patch.object(qslctl, "_checkout_context", side_effect=checkout_context),
+                contextlib.redirect_stdout(buf),
+            ):
+                exit_code = qslctl.main(
+                    [
+                        "report",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--mainline-only",
+                        "--json",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["scope"], "local_default_branch_checkouts")
+        self.assertEqual(payload["total_repositories"], 1)
+        self.assertEqual(payload["strict_repositories"], 0)
+        self.assertEqual(payload["excluded_nondefault_checkouts"], [
+            {"repo": "FeatureRepo", "checkout_branch": "agent/archived", "default_branch": "main"}
+        ])
+
     def test_generate_matrix_check_reports_stale_matrix(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)

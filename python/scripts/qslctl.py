@@ -57,6 +57,35 @@ class RepoCheckResult:
     tier: str
     upgrade_ring: str
     enforce_bundle: bool
+    checkout_branch: str | None
+    default_branch: str | None
+
+
+def _git_output(repo_dir: Path, *args: str) -> str | None:
+    try:
+        value = subprocess.check_output(
+            ["git", "-C", str(repo_dir), *args],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    return value or None
+
+
+def _checkout_context(repo_dir: Path) -> tuple[str | None, str | None]:
+    """Return the local branch and configured origin default without fetching.
+
+    A workspace report is intentionally a local-checkout view.  The optional
+    mainline-only mode must therefore distinguish a feature/archive checkout
+    from a locally checked-out default branch, without claiming either is
+    current with remote GitHub state.
+    """
+
+    branch = _git_output(repo_dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+    origin_head = _git_output(repo_dir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+    default_branch = origin_head.removeprefix("origin/") if origin_head else "main"
+    return branch, default_branch
 
 
 def _is_quant_repo(repo_dir: Path) -> bool:
@@ -86,6 +115,7 @@ def iter_qsl_repos(projects_root: Path) -> list[Path]:
 
 
 def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
+    checkout_branch, default_branch = _checkout_context(repo_root)
     try:
         ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
         qsl_cfg = check_qsl_compat._load_qsl_config(repo_root)
@@ -106,6 +136,8 @@ def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
         tier=str(qsl_cfg["tier"]),
         upgrade_ring=str(qsl_cfg["upgrade_ring"]),
         enforce_bundle=bool(qsl_cfg["enforce_bundle"]),
+        checkout_branch=checkout_branch,
+        default_branch=default_branch,
     )
 
 
@@ -125,6 +157,9 @@ def _result_payload(result: RepoCheckResult) -> dict[str, Any]:
         "tier": result.tier,
         "upgrade_ring": result.upgrade_ring,
         "enforce_bundle": result.enforce_bundle,
+        "checkout_branch": result.checkout_branch,
+        "default_branch": result.default_branch,
+        "is_default_branch_checkout": result.checkout_branch == result.default_branch,
     }
 
 
@@ -240,6 +275,7 @@ def _workspace_report(results: list[RepoCheckResult], compat_root: Path) -> dict
         }
         for ring in ring_order
     }
+
     issue_counts: Counter[str] = Counter()
     package_hotspots: Counter[tuple[str, str]] = Counter()
 
@@ -297,6 +333,27 @@ def _workspace_report(results: list[RepoCheckResult], compat_root: Path) -> dict
     }
 
 
+def _default_branch_results(results: list[RepoCheckResult]) -> tuple[list[RepoCheckResult], list[RepoCheckResult]]:
+    included = [result for result in results if result.checkout_branch == result.default_branch]
+    excluded = [result for result in results if result not in included]
+    return included, excluded
+
+
+def _with_workspace_scope(
+    report: dict[str, Any], *, mainline_only: bool, excluded: list[RepoCheckResult]
+) -> dict[str, Any]:
+    report["scope"] = "local_default_branch_checkouts" if mainline_only else "all_local_checkouts"
+    report["excluded_nondefault_checkouts"] = [
+        {
+            "repo": result.repo,
+            "checkout_branch": result.checkout_branch,
+            "default_branch": result.default_branch,
+        }
+        for result in excluded
+    ]
+    return report
+
+
 def _workspace_plan(report: dict[str, Any]) -> dict[str, Any]:
     phases: list[dict[str, Any]] = []
     for ring in report["rings"]:
@@ -334,6 +391,7 @@ def _workspace_plan(report: dict[str, Any]) -> dict[str, Any]:
 
 
 def _print_report(report: dict[str, Any]) -> None:
+    print(f"Scope: {report.get('scope', 'all_local_checkouts')}")
     print(
         "QSL workspace report: "
         f"repos={report['total_repositories']} "
@@ -357,6 +415,11 @@ def _print_report(report: dict[str, Any]) -> None:
         print("Hotspots:")
         for hotspot in report["bundle_hotspots"]:
             print(f"  {hotspot['package']} @ {hotspot['source']}: {hotspot['count']}")
+    excluded = report.get("excluded_nondefault_checkouts", [])
+    if excluded:
+        print("Excluded non-default checkouts:")
+        for item in excluded:
+            print(f"  {item['repo']}: {item['checkout_branch'] or 'DETACHED'} (default {item['default_branch']})")
 
 
 def _print_plan(plan: dict[str, Any]) -> None:
@@ -416,8 +479,10 @@ def _cmd_check_all(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    all_results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    results, excluded = _default_branch_results(all_results) if args.mainline_only else (all_results, [])
     report = _workspace_report(results, compat_root=args.compat_root.resolve())
+    _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
@@ -426,9 +491,13 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    all_results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    results, excluded = _default_branch_results(all_results) if args.mainline_only else (all_results, [])
     report = _workspace_report(results, compat_root=args.compat_root.resolve())
+    _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded)
     plan = _workspace_plan(report)
+    plan["scope"] = report["scope"]
+    plan["excluded_nondefault_checkouts"] = report["excluded_nondefault_checkouts"]
     if args.json:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
     else:
@@ -500,12 +569,22 @@ def build_parser() -> argparse.ArgumentParser:
     report.add_argument("--projects-root", type=Path, default=DEFAULT_PROJECTS_ROOT)
     report.add_argument("--compat-root", type=Path, default=DEFAULT_COMPAT_ROOT)
     report.add_argument("--json", action="store_true")
+    report.add_argument(
+        "--mainline-only",
+        action="store_true",
+        help="Only include local checkouts on their configured origin default branch; never fetches or claims remote freshness.",
+    )
     report.set_defaults(func=_cmd_report)
 
     plan = subparsers.add_parser("plan", help="Render a ring-by-ring QSL convergence plan from current workspace state.")
     plan.add_argument("--projects-root", type=Path, default=DEFAULT_PROJECTS_ROOT)
     plan.add_argument("--compat-root", type=Path, default=DEFAULT_COMPAT_ROOT)
     plan.add_argument("--json", action="store_true")
+    plan.add_argument(
+        "--mainline-only",
+        action="store_true",
+        help="Only plan against local checkouts on their configured origin default branch; never fetches or claims remote freshness.",
+    )
     plan.set_defaults(func=_cmd_plan)
 
     matrix = subparsers.add_parser("generate-matrix", help="Generate or check the internal dependency matrix.")
