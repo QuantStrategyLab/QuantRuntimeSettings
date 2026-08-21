@@ -328,7 +328,7 @@
       "path": "pyproject.toml",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "7756fe32585e85cf1d09a163203a02e3eee39fe1"
+      "ref": "1ba251e2eab49692f9e08e5abd1e4531aeee1716"
     },
     {
       "consumer_repo": "UsEquitySnapshotPipelines",
@@ -349,7 +349,7 @@
       "path": "uv.lock",
       "package": "us-equity-strategies",
       "source_repo": "UsEquityStrategies",
-      "ref": "7756fe32585e85cf1d09a163203a02e3eee39fe1"
+      "ref": "1ba251e2eab49692f9e08e5abd1e4531aeee1716"
     },
     {
       "consumer_repo": "UsEquityStrategies",
