@@ -93,7 +93,7 @@ class ProvisionGcpKmsPolicyRootsTest(unittest.TestCase):
         self.assertEqual(
             set(records),
             {
-                "alpacaquant-p5",
+                "alpaca-shadow-control",
                 "binancequant",
                 "charlesschwabquant",
                 "firstradequant",

@@ -71,4 +71,4 @@ AI / driver（研究、监测、证据）
 3. 接入只读对账，验证断网、时钟偏差、数据/策略不一致和重复幂等键都默认为 `PARKED`。
 4. 仅当上述证据完整时，再为纸面或影子执行提出新的、可复核的任务定义。
 
-第 1 步的公开 Cloud KMS root 已在 6 个 Quant GCP 项目初始化，并逐把读取核验；另有独立 `alpacaquant-p5` P5 lane root，不能由研究或 IBKR root 替代，记录见 [GCP P0 控制根部署 V1](qsl_gcp_p0_control_root_deployment_v1.zh-CN.md)。但其 SHA-256 尚未注入任何网关部署配置，步骤 2–3 也未在任何真实服务安装。本设计和 P0 准入代码都不能被作为部署、交易或 promotion 许可。
+第 1 步的公开 Cloud KMS root 已在 6 个 Quant GCP 项目初始化，并逐把读取核验；另有独立 `alpaca-shadow-control`（展示名：`AlpacaShadowControl`）P5 shadow-control root，不能由研究或 IBKR root 替代，记录见 [GCP P0 控制根部署 V1](qsl_gcp_p0_control_root_deployment_v1.zh-CN.md)。但其 SHA-256 尚未注入任何网关部署配置，步骤 2–3 也未在任何真实服务安装。本设计和 P0 准入代码都不能被作为部署、交易或 promotion 许可。

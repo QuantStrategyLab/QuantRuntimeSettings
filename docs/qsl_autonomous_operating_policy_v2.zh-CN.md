@@ -71,4 +71,4 @@ Cloud KMS 根固定到一个具体 CryptoKeyVersion，并使用 `EC_SIGN_P256_SH
 
 本次控制面升级将 `qsl.activation.v1` / `human_authority` 和依赖它的 `qsl.reconciliation_record.v1` 一并替换为 V2。仓内未发现已签发的 activation 工件，因此不保留双协议运行路径。
 
-6 个 bootstrap Quant GCP 项目现已有公开 Cloud KMS root，且 key version 和 PEM 已逐把读取核验；它们没有 signer IAM。另有独立 `alpacaquant-p5` P5 lane root，其专用 policy issuer 仅对单把 key 有 signer IAM，尚无 WIF、active policy、运行服务或 signer 自动化。详见 [GCP P0 控制根部署 V1](qsl_gcp_p0_control_root_deployment_v1.zh-CN.md)。所有 root digest 都尚未注入任何运行服务；仓内仍没有签名 policy 或已接入该 gate 的执行服务；因此仍然**没有 active 自治策略**，也没有启用 P4–P6、账户、订单或资金动作。下一步只能在独立控制根准备就绪后，把 gate 接到 paper 的确定性执行风控服务；不能把本文件、测试签名或 CI 绿灯当成运行许可。
+6 个 bootstrap Quant GCP 项目现已有公开 Cloud KMS root，且 key version 和 PEM 已逐把读取核验；它们没有 signer IAM。另有独立 `alpaca-shadow-control`（展示名：`AlpacaShadowControl`）P5 shadow-control root，其专用 policy issuer 仅对单把 key 有 signer IAM，尚无 WIF、active policy、运行服务或 signer 自动化。详见 [GCP P0 控制根部署 V1](qsl_gcp_p0_control_root_deployment_v1.zh-CN.md)。所有 root digest 都尚未注入任何运行服务；仓内仍没有签名 policy 或已接入该 gate 的执行服务；因此仍然**没有 active 自治策略**，也没有启用 P4–P6、账户、订单或资金动作。下一步只能在独立控制根准备就绪后，把 gate 接到 paper 的确定性执行风控服务；不能把本文件、测试签名或 CI 绿灯当成运行许可。
