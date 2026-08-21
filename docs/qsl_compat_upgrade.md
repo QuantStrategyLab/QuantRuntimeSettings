@@ -5,7 +5,7 @@ This repository defines the QSL central compatibility manifest and its upgrade p
 ## 文件结构
 
 - `compat/bundles/*.toml`
-  - 每个 bundle 用 Calendar Version 命名（当前：`2026.07.3`）。
+  - 每个 bundle 用 Calendar Version 命名（当前：`2026.08.0`）。
   - 记录 QSL 管控的固定内部仓库提交。
 - `compat/repo-tiers.toml`
   - 记录仓库层级（`core/strategy-lib/pipeline/runtime/ops`）与升级 ring 规则。
@@ -26,8 +26,8 @@ This repository defines the QSL central compatibility manifest and its upgrade p
 
 ```toml
 [qsl]
-bundle = "2026.07.3"   # 选择要对齐的 central bundle
-compat = "2026.07.3"   # 兼容检查入口（与 bundle 相同）
+bundle = "2026.08.0"   # 选择要对齐的 central bundle
+compat = "2026.08.0"   # 兼容检查入口（与 bundle 相同）
 tier = "ops/tooling"
 upgrade_ring = "ring_e"
 allow_legacy = false     # 需要临时兼容时可先放开
@@ -53,14 +53,14 @@ python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 
 ## 当前中心兼容基线
 
-- Bundle: `2026.07.3`
-- QPK: `37c81901160c5b31127a27dba1c63944933fb6bf`
-- UsEquityStrategies: `17ddb86c72d44b2c7b78ba7a10d8f71b21180166`
-- HkEquityStrategies: `b6a8ac2ad3c8110b5ea74fb059c8206388d63bcd`
-- CnEquityStrategies: `8dfadcf8a4dc6cc516f27a4013248474603d8ce2`
-- CryptoStrategies: `39bf4733cef922bdeacfd0adef394e7819a04908`
-- QuantStrategyPlugins: `1f3a27b8fd83d71b583f4f5160a748e95fbefaa1`
-- MarketSignalSources: `bda8ab10b80a646e4b579ef4c0d5dfe90776e908`
+- Bundle: `2026.08.0`
+- QPK: `3acab1923a97b805b077c85c6c19657be0143bac`
+- UsEquityStrategies: `be1a2c9f7c388d4dd78bda6c2dd7ccad0d4b13b4`
+- HkEquityStrategies: `72008f44050b0dc7415334535dbe784793180159`
+- CnEquityStrategies: `167355385dde4e1a2b9dea4ede7077f9fbda13ce`
+- CryptoStrategies: `d2b43112154c35c7b6c2651a240054926a779ae9`
+- QuantStrategyPlugins: `c798397d9ca9230e404673d7774bac3d478217dc`
+- MarketSignalSources: `956dd380f75aac4ecb6f8443d95619c8a7f1c52b`
 
 ## Phase-2 Transition Warning 收敛路径
 
