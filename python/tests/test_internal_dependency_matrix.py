@@ -135,7 +135,7 @@ dependencies = [
         self.assertEqual(
             uesp_strategy_refs,
             {
-                ("UsEquitySnapshotPipelines", path): "7756fe32585e85cf1d09a163203a02e3eee39fe1"
+                ("UsEquitySnapshotPipelines", path): "1ba251e2eab49692f9e08e5abd1e4531aeee1716"
                 for path in ("pyproject.toml", "uv.lock")
             },
         )

@@ -159,6 +159,8 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-21`：`UsEquitySnapshotPipelines` 合入组合 synthetic P3 OOS replay 契约（PR #356）。它只使用注入 fixture、冻结成本情景与既有 P1/P2/P3 摘要；其结果明确标注为非真实证据，不能写入真实 evidence index 或进入 paper/shadow/live。
 - `2026-08-21`：`AlpacaPlatform` 合入 P5 默认 `PARKED` 单周期编排（PR #8）。它只提供受限 snapshot reader、内存 double、去重状态摘要和对既有 create-only store 的受控调用；没有 cron、云端存储、运行身份、broker、账户或凭证。
 - `2026-08-21`：`UsEquitySnapshotPipelines` 合入日更研究调度看门狗（PR #357）。它在两个研究工作流之后只读 Actions 元数据并报告缺失/未结束/失败的 scheduled run；没有手动触发、重试、Issue、AI、GCP、数据、券商或交易行为。
+- `2026-08-21`：TQQQ/SOXL 杠杆产品的长期代理回放改为 `SyntheticLongHistoryStress` 研究轨道（`UsEquitySnapshotPipelines` PR #370）。输出绑定输入哈希与每日 3 倍/费用假设，只可用于 P1 压力研究和 P2 比较；明确不能当作 observed P3 evidence，也不能授权 P4/P5/P6。
+- `2026-08-21`：`UsEquitySnapshotPipelines` 锁定 `UsEquityStrategies` 的虚拟组合 P2 构造器（PR #371），并同步策略插件依赖断言。它使已有的纯研究组合预算/目标构造可被研究管道引用；没有注册组合候选、共同真实 P1 输入、组合 P3 结论或任何执行权限。
 - `2026-08-19`：6 个 Quant GCP 项目各创建一把 `EC_SIGN_P256_SHA256` 的 software-protected 公共 P0 root，逐把重新读取 key version 与 PEM 后校验通过；没有授予 signer IAM、没有签发 active policy，也没有修改运行服务。详见下方部署记录。
 - `2026-08-21`：为避免借用研究或 IBKR root，创建独立 `alpaca-shadow-control`（展示名：`AlpacaShadowControl`）项目及同构 P-256 P0 root，公开 root record 已重新读取核验。仅 `alpaca-shadow-policy-issuer`（展示名：`AlpacaShadowPolicyIssuer`）对该 key 有 key-level `roles/cloudkms.signer`；risk-gate、ledger、scheduler 三个身份没有用户管理私钥、项目级角色、WIF 或运行绑定。迁移核验后，原为空的 `alpacaquant-p5` 项目已退役。没有 active policy、签名 receipt、工件存储、scheduler、broker、账户或交易能力。
 - `2026-08-12`：`docs/QUANT_ROADMAP.md` 被标记为历史指针，历史正文应从 Git history 读取。
