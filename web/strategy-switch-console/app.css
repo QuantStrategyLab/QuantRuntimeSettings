@@ -188,6 +188,42 @@
       gap: 18px;
     }
 
+    .lifecycle-view {
+      display: grid;
+      gap: 18px;
+    }
+
+    .lifecycle-table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: 0 10px 26px rgba(22, 25, 31, 0.05);
+    }
+
+    .lifecycle-table {
+      width: 100%;
+      min-width: 980px;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+
+    .lifecycle-table th,
+    .lifecycle-table td {
+      padding: 12px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      white-space: nowrap;
+    }
+
+    .lifecycle-table thead th { color: var(--muted); font-size: 11px; font-weight: 760; background: var(--soft); }
+    .lifecycle-table tbody th { max-width: 220px; white-space: normal; font-weight: 720; }
+    .lifecycle-table tbody tr:last-child th,
+    .lifecycle-table tbody tr:last-child td { border-bottom: 0; }
+    .lifecycle-parked, .lifecycle-deferred { color: var(--danger); }
+    .lifecycle-not_started { color: var(--muted); }
+
     .health-head,
     .health-board-head {
       display: flex;

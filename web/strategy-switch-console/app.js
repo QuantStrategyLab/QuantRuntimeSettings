@@ -104,7 +104,6 @@
         default_execution_mode: "live"
       },
     };
-    const runtimeAuthorityStatus = window.__QSL_RUNTIME_AUTHORITY_STATUS__ || {};
 
 
 
@@ -144,7 +143,7 @@
     const optionOverlayModes = ["enabled", "disabled"];
     const cashOnlyExecutionModes = ["enabled", "disabled"];
     const runtimeTargetModes = ["enabled", "disabled"];
-    const pluginModes = ["none"];
+    const pluginModes = ["auto", "none"];
     const dcaModes = ["fixed", "smart"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
@@ -185,7 +184,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "income_layer_start_usd": "250000",
         "income_layer_max_ratio": "0.55",
         "income_layer_allocations": {
@@ -218,7 +217,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "income_layer_start_usd": "150000",
         "income_layer_max_ratio": "0.95",
         "income_layer_allocations": {
@@ -251,7 +250,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -272,7 +271,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -326,7 +325,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
         "income_layer_start_usd": "300000",
         "income_layer_max_ratio": "0.25",
         "income_layer_allocations": {
@@ -465,7 +464,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
       },
       {
         "profile": "hk_equity_combo",
@@ -501,7 +500,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
       },
       {
         "profile": "cn_industry_etf_rotation_aggressive",
@@ -657,7 +656,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
       },
       {
         "profile": "crypto_btc_dca",
@@ -814,56 +813,17 @@
 
     const copy = {
       zh: {
-        appTitle: "QSL 全局控制台",
-        appSubtitle: "在一个入口查看证据、候选和需要你决定的事项。",
-        controlPlaneView: "全局概览",
+        appTitle: "策略切换",
+        appSubtitle: "选平台、目标账号和策略，一次执行完成切换。",
         healthView: "策略健康",
-        switchView: "部署配置",
-        controlPlaneEyebrow: "全局控制面 / 只读",
-        controlPlaneTitle: "今天需要知道什么。",
-        controlPlaneSubtitle: "只显示经过验证的候选、日更证据和需要所有者决定的事项；没有快照时不推断状态。",
-        controlCandidateTotal: "候选总数",
-        controlDeferred: "本次延期",
-        controlParked: "已停车",
-        controlOwnerDecision: "等待我决定",
-        controlCandidateBoard: "候选生命周期",
-        controlDataReady: "快照已加载",
-        controlDataStale: "快照已过期",
-        controlDataUnavailable: "等待可用快照",
-        controlComputedAt: "最近计算：{time}",
-        controlLoginNotice: "登录后读取私有全局快照；没有快照时不会展示虚构信息。",
-        controlStaleNotice: "全局快照已超过允许的新鲜度窗口；页面保留原始记录，但不把它作为当前结论。",
-        controlUnavailableNotice: "还没有可用的全局快照；当前页面保持 fail-closed 空状态。",
-        controlUpstreamNotice: "快照已加载，但有 {count} 个上游提示；缺失信息不会被补成推断结论。",
-        controlEmptyCandidates: "暂无可展示的候选快照。",
-        controlNoRecommendation: "没有可用的机器建议。",
-        controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
-        controlNext: "下一步",
-        executionEvidenceBoard: "策略 × 平台执行证据 / 只读",
-        executionEvidenceLoginNotice: "登录后读取私有执行证据快照；缺失来源不会被推断成 paper 或 live 状态。",
-        executionEvidenceStaleNotice: "执行证据已超过允许的新鲜度窗口；它保留为历史记录，不能作为当前运行或 P6 结论。",
-        executionEvidenceUnavailableNotice: "还没有可用的执行证据来源；当前列表保持 fail-closed 空状态。",
-        executionEvidenceUpstreamNotice: "执行证据已加载，但有 {count} 个上游提示；页面不会补造平台能力或运行资格。",
-        executionEvidenceEmpty: "暂无可展示的策略 × 平台执行证据。",
-        executionEvidenceMeta: "{platform} · 当前通道：{environment} · 来源：{source}",
-        executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
-        executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
-        executionEvidenceNext: "下一步",
-        researchTaskBoard: "研究任务队列 / 只读",
-        researchTaskLoginNotice: "登录后读取私有研究任务索引；没有来源快照时不会展示虚构任务。",
-        researchTaskStaleNotice: "研究任务来源已超过允许的新鲜度窗口；任务保留为历史记录，但不作为当前工作指令。",
-        researchTaskUnavailableNotice: "还没有可用的研究任务来源；当前队列保持 fail-closed 空状态。",
-        researchTaskUpstreamNotice: "研究任务索引已加载，但有 {count} 个上游提示；页面不会补造任务。",
-        researchTaskEmpty: "暂无可展示的已验证研究任务。",
-        researchTaskMeta: "{type} · {domain} · 创建于：{created}",
-        researchTaskLimits: "离线研究：最多 {runs} 次 / {seconds} 秒 · P1 {p1} · P2 {p2} · P3 {p3}",
-        researchTaskNoOrder: "固定边界：仅研究、零仓位、无订单；不进入 P4/P5/P6。",
+        lifecycleView: "生命周期",
+        switchView: "实盘切换",
+        lifecycleEyebrow: "生命周期矩阵 / 只读",
+        lifecycleTitle: "每个策略目前走到哪一步。",
+        lifecycleSubtitle: "这是脱敏研究状态摘要，不授予 promotion、live 或交易权限。",
         healthEyebrow: "策略健康 / 只读",
         healthTitle: "先看机器结论，再决定动作。",
-        healthSubtitle: "健康不等于已获运行授权；实盘、资金和杠杆变更必须匹配当前、可验证的预授权策略。",
-        runtimeAuthorityTitle: "P0–P6 控制面授权状态",
-        runtimeAuthorityNotice: "这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。",
-        runtimeAuthorityAsOf: "截至：{asOf} · P1–P3 non-live 数据获取仍需独立、精确的契约；P4–P6 尚未定义。",
+        healthSubtitle: "健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
@@ -893,9 +853,10 @@
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
         runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
-        pluginMode: "插件状态",
-        pluginModeNone: "不挂载旧插件",
-        pluginModeMeta: "当前候选未绑定插件；旧插件不会自动挂载。",
+        pluginMode: "插件启用范围",
+        pluginModeAuto: "启用插件",
+        pluginModeNone: "禁用插件",
+        pluginModeMeta: "选择是否启用该策略的插件。",
         incomeLayerMode: "收入层状态",
         incomeLayerSectionTitle: "收入层",
         incomeLayerCurrent: "沿用当前配置",
@@ -1031,56 +992,17 @@
         cashOnlyExecutionDefault: "仅用现金",
       },
       en: {
-        appTitle: "QSL Control Console",
-        appSubtitle: "One place for evidence, candidates, and decisions that need you.",
-        controlPlaneView: "Overview",
+        appTitle: "Strategy Switch",
+        appSubtitle: "Pick platform, target account, and strategy. One action switches everything.",
         healthView: "Strategy Health",
-        switchView: "Deployment Settings",
-        controlPlaneEyebrow: "Global control plane / read only",
-        controlPlaneTitle: "What you need to know today.",
-        controlPlaneSubtitle: "Only verified candidates, daily evidence, and owner decisions appear here. Missing snapshots never imply a status.",
-        controlCandidateTotal: "Candidates",
-        controlDeferred: "Deferred now",
-        controlParked: "Parked",
-        controlOwnerDecision: "Needs my decision",
-        controlCandidateBoard: "Candidate lifecycle",
-        controlDataReady: "Snapshot loaded",
-        controlDataStale: "Snapshot is stale",
-        controlDataUnavailable: "Waiting for a usable snapshot",
-        controlComputedAt: "Last computed: {time}",
-        controlLoginNotice: "Sign in to read the private global snapshot. Missing data is never invented.",
-        controlStaleNotice: "This snapshot is outside its freshness window. The record remains visible, but is not a current conclusion.",
-        controlUnavailableNotice: "No usable global snapshot is available yet. This page remains fail-closed and empty.",
-        controlUpstreamNotice: "The snapshot loaded with {count} upstream notice(s); missing information is never inferred.",
-        controlEmptyCandidates: "No candidate snapshot is available to display.",
-        controlNoRecommendation: "No machine recommendation is available.",
-        controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
-        controlNext: "NEXT",
-        executionEvidenceBoard: "Strategy × platform execution evidence / read only",
-        executionEvidenceLoginNotice: "Sign in to read private execution-evidence snapshots. Missing sources never imply a paper or live state.",
-        executionEvidenceStaleNotice: "This execution evidence is beyond its freshness window. It remains historical context, not a current runtime or P6 conclusion.",
-        executionEvidenceUnavailableNotice: "No usable execution-evidence source is available yet. This list remains fail-closed and empty.",
-        executionEvidenceUpstreamNotice: "Execution evidence loaded with {count} upstream notice(s); no platform capability or runtime authority is inferred.",
-        executionEvidenceEmpty: "No strategy × platform execution evidence is available to display.",
-        executionEvidenceMeta: "{platform} · current lane: {environment} · source: {source}",
-        executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
-        executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
-        executionEvidenceNext: "NEXT",
-        researchTaskBoard: "Research task queue / read only",
-        researchTaskLoginNotice: "Sign in to read the private research task index. Missing source snapshots never imply a task.",
-        researchTaskStaleNotice: "The research task source is beyond its freshness window. It remains historical context, not a current instruction.",
-        researchTaskUnavailableNotice: "No research task source is available yet. The queue remains fail-closed and empty.",
-        researchTaskUpstreamNotice: "The research task index loaded with {count} upstream notices; no task is inferred from missing data.",
-        researchTaskEmpty: "No verified research task is available to display.",
-        researchTaskMeta: "{type} · {domain} · created {created}",
-        researchTaskLimits: "Offline research: up to {runs} run(s) / {seconds}s · P1 {p1} · P2 {p2} · P3 {p3}",
-        researchTaskNoOrder: "Fixed boundary: research only, zero size, no order; never P4/P5/P6.",
+        lifecycleView: "Lifecycle",
+        switchView: "Live Switch",
+        lifecycleEyebrow: "Lifecycle matrix / read only",
+        lifecycleTitle: "See where each strategy currently stands.",
+        lifecycleSubtitle: "A redacted research summary; it grants no promotion, live, or trading permission.",
         healthEyebrow: "Strategy health / read only",
         healthTitle: "Read the machine conclusion before choosing an action.",
-        healthSubtitle: "Health does not grant runtime authority; live, funding, and leverage changes must match a current, verifiable preauthorized policy.",
-        runtimeAuthorityTitle: "P0–P6 control-plane authority",
-        runtimeAuthorityNotice: "live/default_execution_mode/live_configured are legacy configuration metadata, not authorization for current runtime, orders, funds, or stage changes.",
-        runtimeAuthorityAsOf: "As of {asOf} · P1–P3 non-live data acquisition still needs its own precise contract; P4–P6 are undefined.",
+        healthSubtitle: "Health does not approve live; normal live, funding, and leverage changes still need a human.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
         healthWatch: "Watch",
@@ -1110,9 +1032,10 @@
         runtimeTargetEnabled: "Enabled",
         runtimeTargetDisabled: "Disabled",
         runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work.",
-        pluginMode: "Plugin status",
-        pluginModeNone: "Do not mount legacy plugins",
-        pluginModeMeta: "The current candidate has no bound plugin; legacy plugins are not auto-mounted.",
+        pluginMode: "Plugin scope",
+        pluginModeAuto: "Enabled",
+        pluginModeNone: "Disabled",
+        pluginModeMeta: "Choose whether to enable this strategy's plugins.",
         incomeLayerMode: "Income layer",
         incomeLayerSectionTitle: "Income layer",
         incomeLayerCurrent: "Keep current config",
@@ -1278,7 +1201,8 @@
     const state = {
       selected: "longbridge",
       lang: initialLang,
-      view: "control",
+      view: "health",
+      lifecycle: { payload: null },
       appReady: false,
       bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
@@ -1293,45 +1217,15 @@
         },
         filter: "all",
       },
-      controlPlane: {
-        payload: {
-          data_status: "unavailable",
-          computed_at: null,
-          summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
-          candidates: [],
-          policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
-          errors: [],
-        },
-      },
-      executionEvidence: {
-        payload: {
-          data_status: "unavailable",
-          computed_at: null,
-          summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
-          deployments: [],
-          policy: { execution_evidence_read_only: true, p6_owner_decision_required: true, limited_live_canary_active: false },
-          errors: [],
-        },
-      },
-      researchTasks: {
-        payload: {
-          data_status: "unavailable",
-          computed_at: null,
-          summary: { task_count: 0 },
-          tasks: [],
-          policy: { research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false },
-          errors: [],
-        },
-      },
       configSource: "default",
       repositories: clone(defaultRepositories),
       forms: {
-        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "none", ...defaultReserveForm() },
-        binance: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none" },
+        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto", ...defaultReserveForm() },
+        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "auto", ...defaultReserveForm() },
+        binance: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "auto" },
       },
     };
 
@@ -1767,12 +1661,11 @@
     }
 
     function normalizePluginMode(value) {
-      return pluginModes.includes(value) ? value : "none";
+      return pluginModes.includes(value) ? value : "auto";
     }
 
     function pluginModeLabel(mode) {
-      void mode;
-      return t("pluginModeNone");
+      return mode === "none" ? t("pluginModeNone") : t("pluginModeAuto");
     }
 
     function dcaConfigForStrategy(profile) {
@@ -2962,13 +2855,6 @@
       el("lang-button").textContent = state.lang === "zh" ? "EN" : "中";
     }
 
-    function renderRuntimeAuthorityStatus() {
-      const status = String(runtimeAuthorityStatus.status || "UNKNOWN_RUNTIME_AUTHORITY_STATUS");
-      const asOf = String(runtimeAuthorityStatus.status_as_of || "—");
-      el("runtime-authority-status").textContent = status;
-      el("runtime-authority-as-of").textContent = t("runtimeAuthorityAsOf").replace("{asOf}", asOf);
-    }
-
     function renderPlatforms() {
       const strip = el("platform-strip");
       strip.replaceChildren();
@@ -3367,259 +3253,6 @@
       el("boot-message").textContent = t(state.bootMessageKey);
     }
 
-    function normalizeControlPlanePayload(payload) {
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid control plane payload");
-      const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
-      return {
-        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
-        computed_at: payload.computed_at || null,
-        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
-        candidates: candidates.filter((item) => item && typeof item === "object" && item.lifecycle && typeof item.lifecycle === "object"),
-        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
-        errors: Array.isArray(payload.errors) ? payload.errors : [],
-      };
-    }
-
-    function controlPlaneDataStatusText(status) {
-      return status === "ready"
-        ? t("controlDataReady")
-        : (status === "stale" ? t("controlDataStale") : t("controlDataUnavailable"));
-    }
-
-    function renderControlPlane() {
-      const payload = state.controlPlane.payload;
-      const summary = payload.summary || {};
-      el("control-plane-status").textContent = controlPlaneDataStatusText(payload.data_status);
-      el("control-plane-computed-at").textContent = payload.computed_at
-        ? t("controlComputedAt").replace("{time}", new Date(payload.computed_at).toLocaleString())
-        : t("controlComputedAt").replace("{time}", "—");
-      el("control-count-candidates").textContent = String(Number(summary.candidate_count) || 0);
-      el("control-count-deferred").textContent = String(Number(summary.deferred) || 0);
-      el("control-count-parked").textContent = String(Number(summary.parked) || 0);
-      el("control-count-owner-decision").textContent = String(Number(summary.owner_decision_required) || 0);
-
-      const notice = el("control-plane-notice");
-      if (!state.auth.allowed) {
-        notice.textContent = t("controlLoginNotice");
-      } else if (payload.data_status === "stale") {
-        notice.textContent = t("controlStaleNotice");
-      } else if (payload.data_status !== "ready") {
-        notice.textContent = t("controlUnavailableNotice");
-      } else if (payload.errors?.length) {
-        notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
-      } else {
-        notice.textContent = payload.policy?.notice || "live 仍需所有者明确决定。";
-      }
-
-      const list = el("control-plane-list");
-      list.replaceChildren();
-      if (!payload.candidates.length) {
-        const empty = document.createElement("div");
-        empty.className = "health-card__empty";
-        empty.textContent = t("controlEmptyCandidates");
-        list.appendChild(empty);
-        return;
-      }
-      for (const item of payload.candidates) {
-        const card = document.createElement("article");
-        card.className = "health-card";
-        const main = document.createElement("div");
-        main.className = "health-card__main";
-        const meta = document.createElement("div");
-        meta.className = "health-card__meta";
-        meta.textContent = `${item.candidate_kind || "candidate"} · ${domainLabel(item.domain || "")}`;
-        const title = document.createElement("h4");
-        title.className = "health-card__title";
-        title.textContent = String(item.candidate_id || "unknown");
-        const reason = document.createElement("p");
-        reason.className = "health-card__reason";
-        reason.textContent = item.recommendation?.reason || t("controlNoRecommendation");
-        const detail = document.createElement("div");
-        detail.className = "health-card__meta";
-        detail.textContent = t("controlStageMeta")
-          .replace("{stage}", item.lifecycle?.stage || "—")
-          .replace("{status}", item.lifecycle?.status || "unknown")
-          .replace("{freshness}", item.freshness?.status || "unknown");
-        main.append(meta, title, reason, detail);
-        const stateBlock = document.createElement("div");
-        stateBlock.className = "health-card__score";
-        const label = document.createElement("small");
-        label.textContent = t("controlNext");
-        const stage = document.createElement("strong");
-        stage.textContent = item.lifecycle?.stage || "—";
-        const recommendation = document.createElement("small");
-        recommendation.textContent = item.recommendation?.code || "none";
-        stateBlock.append(label, stage, recommendation);
-        card.append(main, stateBlock);
-        list.appendChild(card);
-      }
-    }
-
-    function normalizeExecutionEvidencePayload(payload) {
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid execution evidence payload");
-      const deployments = Array.isArray(payload.deployments) ? payload.deployments : [];
-      return {
-        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
-        computed_at: payload.computed_at || null,
-        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
-        deployments: deployments.filter((item) => item && typeof item === "object" && item.deployment && typeof item.deployment === "object"),
-        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
-        errors: Array.isArray(payload.errors) ? payload.errors : [],
-      };
-    }
-
-    function renderExecutionEvidence() {
-      const payload = state.executionEvidence.payload;
-      const notice = el("execution-evidence-notice");
-      if (!state.auth.allowed) {
-        notice.textContent = t("executionEvidenceLoginNotice");
-      } else if (payload.data_status === "stale") {
-        notice.textContent = t("executionEvidenceStaleNotice");
-      } else if (payload.data_status !== "ready") {
-        notice.textContent = t("executionEvidenceUnavailableNotice");
-      } else if (payload.errors?.length) {
-        notice.textContent = t("executionEvidenceUpstreamNotice").replace("{count}", payload.errors.length);
-      } else {
-        notice.textContent = payload.policy?.notice || t("executionEvidenceNoOrder");
-      }
-
-      const list = el("execution-evidence-list");
-      list.replaceChildren();
-      if (!payload.deployments.length) {
-        const empty = document.createElement("div");
-        empty.className = "health-card__empty";
-        empty.textContent = t("executionEvidenceEmpty");
-        list.appendChild(empty);
-        return;
-      }
-      for (const entry of payload.deployments) {
-        const deployment = entry.deployment || {};
-        const strategy = deployment.strategy || {};
-        const target = deployment.target || {};
-        const capabilities = deployment.capabilities || {};
-        const evidence = deployment.evidence || {};
-        const card = document.createElement("article");
-        card.className = "health-card";
-        const main = document.createElement("div");
-        main.className = "health-card__main";
-        const meta = document.createElement("div");
-        meta.className = "health-card__meta";
-        meta.textContent = t("executionEvidenceMeta")
-          .replace("{platform}", target.platform || "unknown")
-          .replace("{environment}", target.environment || "unknown")
-          .replace("{source}", entry.source_id || "unknown");
-        const title = document.createElement("h4");
-        title.className = "health-card__title";
-        title.textContent = String(strategy.candidate_id || deployment.deployment_id || "unknown");
-        const reason = document.createElement("p");
-        reason.className = "health-card__reason";
-        reason.textContent = deployment.recommendation?.reason_code || t("executionEvidenceNoOrder");
-        const detail = document.createElement("div");
-        detail.className = "health-card__meta";
-        detail.textContent = t("executionEvidenceDetail")
-          .replace("{strategy}", evidence.strategy || "unknown")
-          .replace("{data}", evidence.target_data || "unknown")
-          .replace("{execution}", evidence.target_execution || "unknown")
-          .replace("{shadow}", capabilities.shadow || "unknown")
-          .replace("{paper}", capabilities.paper || "unknown");
-        main.append(meta, title, reason, detail);
-        const stateBlock = document.createElement("div");
-        stateBlock.className = "health-card__score";
-        const label = document.createElement("small");
-        label.textContent = t("executionEvidenceNext");
-        const recommendation = document.createElement("strong");
-        recommendation.textContent = deployment.recommendation?.code || "parked";
-        const freshness = document.createElement("small");
-        freshness.textContent = entry.freshness?.data_status || "unknown";
-        stateBlock.append(label, recommendation, freshness);
-        card.append(main, stateBlock);
-        list.appendChild(card);
-      }
-    }
-
-    function normalizeResearchTaskPayload(payload) {
-      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid research task payload");
-      const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
-      return {
-        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
-        computed_at: payload.computed_at || null,
-        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
-        tasks: tasks.filter((item) => item && typeof item === "object" && item.task && typeof item.task === "object"),
-        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
-        errors: Array.isArray(payload.errors) ? payload.errors : [],
-      };
-    }
-
-    function shortResearchDigest(value) {
-      const text = String(value || "");
-      return /^[0-9a-f]{64}$/.test(text) ? `${text.slice(0, 10)}…` : "—";
-    }
-
-    function renderResearchTasks() {
-      const payload = state.researchTasks.payload;
-      const notice = el("research-task-notice");
-      if (!state.auth.allowed) {
-        notice.textContent = t("researchTaskLoginNotice");
-      } else if (payload.data_status === "stale") {
-        notice.textContent = t("researchTaskStaleNotice");
-      } else if (payload.data_status !== "ready") {
-        notice.textContent = t("researchTaskUnavailableNotice");
-      } else if (payload.errors?.length) {
-        notice.textContent = t("researchTaskUpstreamNotice").replace("{count}", payload.errors.length);
-      } else {
-        notice.textContent = payload.policy?.notice || t("researchTaskNoOrder");
-      }
-
-      const list = el("research-task-list");
-      list.replaceChildren();
-      if (!payload.tasks.length) {
-        const empty = document.createElement("div");
-        empty.className = "health-card__empty";
-        empty.textContent = t("researchTaskEmpty");
-        list.appendChild(empty);
-        return;
-      }
-      for (const entry of payload.tasks) {
-        const task = entry.task || {};
-        const card = document.createElement("article");
-        card.className = "health-card";
-        const main = document.createElement("div");
-        main.className = "health-card__main";
-        const meta = document.createElement("div");
-        meta.className = "health-card__meta";
-        meta.textContent = t("researchTaskMeta")
-          .replace("{type}", task.task_type || "research")
-          .replace("{domain}", domainLabel(task.target?.domain || ""))
-          .replace("{created}", task.created_at ? new Date(task.created_at).toLocaleString() : "—");
-        const title = document.createElement("h4");
-        title.className = "health-card__title";
-        title.textContent = `${task.target?.candidate_id || "unknown"} · ${task.task_id || "unknown"}`;
-        const hypothesis = document.createElement("p");
-        hypothesis.className = "health-card__reason";
-        hypothesis.textContent = task.experiment?.hypothesis || t("researchTaskNoOrder");
-        const detail = document.createElement("div");
-        detail.className = "health-card__meta";
-        detail.textContent = t("researchTaskLimits")
-          .replace("{runs}", String(task.experiment?.max_runs || "—"))
-          .replace("{seconds}", String(task.experiment?.max_wall_seconds || "—"))
-          .replace("{p1}", shortResearchDigest(task.evidence?.p1_input_digest))
-          .replace("{p2}", shortResearchDigest(task.evidence?.p2_config_digest))
-          .replace("{p3}", shortResearchDigest(task.evidence?.p3_evidence_id));
-        main.append(meta, title, hypothesis, detail);
-        const status = document.createElement("div");
-        status.className = "health-card__score";
-        const label = document.createElement("small");
-        label.textContent = "NO ORDER";
-        const count = document.createElement("strong");
-        count.textContent = String(task.experiment?.max_runs || "—");
-        const source = document.createElement("small");
-        source.textContent = entry.freshness?.data_status || "unknown";
-        status.append(label, count, source);
-        card.append(main, status);
-        list.appendChild(card);
-      }
-    }
-
     function healthStatusLabel(status) {
       return { healthy: "健康", watch: "观察", review: "复核", critical: "严重" }[status] || "未知";
     }
@@ -3708,27 +3341,49 @@
     }
 
     function renderConsoleView() {
-      const controlButton = el("control-plane-view-button");
       const healthButton = el("health-view-button");
+      const lifecycleButton = el("lifecycle-view-button");
       const switchButton = el("switch-view-button");
-      const controlVisible = state.view === "control";
       const healthVisible = state.view === "health";
-      el("control-plane-view").hidden = !controlVisible;
+      const lifecycleVisible = state.view === "lifecycle";
       el("health-view").hidden = !healthVisible;
-      el("switch-view").hidden = controlVisible || healthVisible;
-      controlButton.classList.toggle("active", controlVisible);
+      el("lifecycle-view").hidden = !lifecycleVisible;
+      el("switch-view").hidden = healthVisible;
       healthButton.classList.toggle("active", healthVisible);
-      switchButton.classList.toggle("active", !controlVisible && !healthVisible);
+      lifecycleButton.classList.toggle("active", lifecycleVisible);
+      switchButton.classList.toggle("active", !healthVisible);
+    }
+
+    function renderLifecycle() {
+      const payload = state.lifecycle.payload;
+      const status = el("lifecycle-status");
+      const list = el("lifecycle-list");
+      list.replaceChildren();
+      if (!payload || !Array.isArray(payload.entries)) {
+        status.textContent = "不可用";
+        el("lifecycle-notice").textContent = "没有可用矩阵快照；当前保持 fail-closed。";
+        return;
+      }
+      status.textContent = "快照已加载";
+      el("lifecycle-generated-at").textContent = `生成时间：${payload.generated_at || "—"}`;
+      el("lifecycle-notice").textContent = payload.source_policy || "只读研究状态；不授予 promotion、live 或交易权限。";
+      for (const entry of payload.entries) {
+        const row = document.createElement("tr");
+        const name = document.createElement("th"); name.scope = "row"; name.textContent = entry.display_name || entry.id || "unknown";
+        row.appendChild(name);
+        for (const value of [entry.lineage, entry.p0, entry.p1, entry.p2, entry.p3, entry.p4, entry.p5, entry.p6]) {
+          const cell = document.createElement("td"); cell.textContent = value || "—"; if (["parked", "deferred", "not_started"].includes(value)) cell.className = `lifecycle-${value}`; row.appendChild(cell);
+        }
+        const next = document.createElement("td"); next.textContent = entry.next_action || "—"; row.appendChild(next);
+        list.appendChild(row);
+      }
     }
 
     function render() {
       applyLanguage();
-      renderRuntimeAuthorityStatus();
       renderConsoleView();
-      renderControlPlane();
-      renderExecutionEvidence();
-      renderResearchTasks();
       renderHealth();
+      renderLifecycle();
       renderPlatforms();
       renderControls();
       renderSummary();
@@ -3751,9 +3406,6 @@
         state.auth = { available: false, allowed: false, admin: false, login: null };
       }
       if (state.auth.allowed) {
-        await refreshControlPlane();
-        await refreshExecutionEvidence();
-        await refreshResearchTasks();
         await refreshHealth();
         await refreshConfig();
       } else {
@@ -3782,64 +3434,17 @@
       renderHealth();
     }
 
-    async function refreshControlPlane() {
-      if (!state.auth.allowed) {
-        renderControlPlane();
-        return;
-      }
+    async function refreshLifecycle() {
       try {
-        state.controlPlane.payload = normalizeControlPlanePayload(await requestJson("/api/control-plane"));
+        const response = await fetch("/lifecycle-matrix.json", { cache: "no-store" });
+        if (!response.ok) throw new Error("lifecycle_matrix_unavailable");
+        const payload = await response.json();
+        if (payload?.schema_version !== "strategy_lifecycle_matrix.v1" || !Array.isArray(payload.entries)) throw new Error("invalid_lifecycle_matrix");
+        state.lifecycle.payload = payload;
       } catch {
-        state.controlPlane.payload = {
-          data_status: "unavailable",
-          computed_at: null,
-          summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
-          candidates: [],
-          policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
-          errors: ["control_plane_request_failed"],
-        };
+        state.lifecycle.payload = null;
       }
-      renderControlPlane();
-    }
-
-    async function refreshExecutionEvidence() {
-      if (!state.auth.allowed) {
-        renderExecutionEvidence();
-        return;
-      }
-      try {
-        state.executionEvidence.payload = normalizeExecutionEvidencePayload(await requestJson("/api/execution-evidence"));
-      } catch {
-        state.executionEvidence.payload = {
-          data_status: "unavailable",
-          computed_at: null,
-          summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
-          deployments: [],
-          policy: { execution_evidence_read_only: true, p6_owner_decision_required: true, limited_live_canary_active: false },
-          errors: ["execution_evidence_request_failed"],
-        };
-      }
-      renderExecutionEvidence();
-    }
-
-    async function refreshResearchTasks() {
-      if (!state.auth.allowed) {
-        renderResearchTasks();
-        return;
-      }
-      try {
-        state.researchTasks.payload = normalizeResearchTaskPayload(await requestJson("/api/research-tasks"));
-      } catch {
-        state.researchTasks.payload = {
-          data_status: "unavailable",
-          computed_at: null,
-          summary: { task_count: 0 },
-          tasks: [],
-          policy: { research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false },
-          errors: ["research_task_request_failed"],
-        };
-      }
-      renderResearchTasks();
+      renderLifecycle();
     }
 
     async function refreshStrategyProfiles() {
@@ -4029,13 +3634,10 @@
     }
 
     document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
-      state.view = ["control", "health", "switch"].includes(button.dataset.view) ? button.dataset.view : "control";
+      state.view = ["switch", "lifecycle"].includes(button.dataset.view) ? button.dataset.view : "health";
       renderConsoleView();
-      if (state.view === "control") {
-        refreshControlPlane();
-        refreshResearchTasks();
-      }
       if (state.view === "health") refreshHealth();
+      if (state.view === "lifecycle") refreshLifecycle();
     }));
 
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
@@ -4197,6 +3799,7 @@
     applyStrategyProfiles(defaultStrategyProfiles);
     for (const platform of Object.keys(platformMeta)) syncStrategyForAccount(platform);
     render();
+    refreshLifecycle();
     boot();
 
     async function boot() {
