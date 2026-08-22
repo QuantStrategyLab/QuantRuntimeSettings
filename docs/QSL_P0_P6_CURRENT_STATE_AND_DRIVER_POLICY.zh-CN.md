@@ -97,7 +97,7 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | --- | --- | --- |
 | P0 授权状态与统一控制台 | 已接线（只读） | Worker 可汇总来源候选快照；它不是执行网关，也不签发 P1–P6 权限。 |
 | P1–P3 TQQQ 日更研究 | 已接线，已有一次 `DEFERRED` 来源记录，待 `ACCEPTED`/P3 完整证据 | 工作流只做数据身份、冻结研究和 offline/no-order P3；缺失输入只会延期/停车；实时状态只从控制台来源快照读取。 |
-| 日更研究调度看门狗 | 已接线，待首次计划检查 | 在两个日更 P1–P3 工作流之后只读检查 GitHub Actions 元数据；只报告当天缺失、未结束或失败的 `schedule` run。它不触发/重试研究，不读取行情或凭证，不推断 P1/P3 成功，也不创建 Issue。 |
+| 日更研究调度看门狗 | 已接线；已修复一次过早检查的误报，待下个计划窗口验证 | 它在两个日更 P1–P3 工作流的有界完成窗口之后只读检查 GitHub Actions 元数据；只报告当天缺失、未结束或失败的 `schedule` run。它不触发/重试研究，不读取行情或凭证，不推断 P1/P3 成功，也不创建 Issue。 |
 | TQQQ P2 v6 plugin observe 契约 | 已接线，待首个合格日更记录 | 只在已完成的 v5 P3 与其绑定 forward observation 后，对同一已验证 P1 root 的 QQQ bars 重算 close-only signal、配置和 QSP 模块 hash，并验证 observer targets 与 v5 targets 相同；成功时仅保留 35 天脱敏 Actions artifact。没有 GCS/control-plane 写入、策略调用或 P4–P6 资格。 |
 | SOXL/SOXX P1–P3 日更研究 | 已接线，待首个合格真实 root | P2 v3、三资产 P1 publisher、P3 replay/evidence plan 与日更 non-live workflow 均已合并；不可用输入只会 `DEFERRED`/`PARKED`。没有真实 P1/P3 证据、paper、shadow 或 live。 |
 | 组合 P1 输入、不可变 root、P3 preflight 与 synthetic OOS replay | 已实现，未运行真实数据 | P1 绑定成分 revision、共同 cutoff、PIT/成本、风险 policy 与虚拟目标摘要；已取得的共同原始输入可被封存并离线复核为本地 create-only root；P3 预检和 synthetic replay 都只验证同一绑定并 fail-closed。synthetic 输出不能进入真实 evidence index、不能形成组合 P3 结论或 P4–P6 资格。 |
@@ -159,6 +159,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-21`：`UsEquitySnapshotPipelines` 合入组合 synthetic P3 OOS replay 契约（PR #356）。它只使用注入 fixture、冻结成本情景与既有 P1/P2/P3 摘要；其结果明确标注为非真实证据，不能写入真实 evidence index 或进入 paper/shadow/live。
 - `2026-08-21`：`AlpacaPlatform` 合入 P5 默认 `PARKED` 单周期编排（PR #8）。它只提供受限 snapshot reader、内存 double、去重状态摘要和对既有 create-only store 的受控调用；没有 cron、云端存储、运行身份、broker、账户或凭证。
 - `2026-08-21`：`UsEquitySnapshotPipelines` 合入日更研究调度看门狗（PR #357）。它在两个研究工作流之后只读 Actions 元数据并报告缺失/未结束/失败的 scheduled run；没有手动触发、重试、Issue、AI、GCP、数据、券商或交易行为。
+- `2026-08-22`：`UsEquitySnapshotPipelines` 修正日更调度看门狗的检查窗口（PR #372）。此前 TQQQ 可在 GitHub Actions 默认六小时 job 窗口内运行且定时任务可能排队，UTC `04:20` 的检查会把仍在运行的任务误报为异常；看门狗现于 UTC `11:20` 只读检查。它不改变研究任务、数据、凭证、重试或交易权限；待下一计划窗口验证。
 - `2026-08-21`：TQQQ/SOXL 杠杆产品的长期代理回放改为 `SyntheticLongHistoryStress` 研究轨道（`UsEquitySnapshotPipelines` PR #370）。输出绑定输入哈希与每日 3 倍/费用假设，只可用于 P1 压力研究和 P2 比较；明确不能当作 observed P3 evidence，也不能授权 P4/P5/P6。
 - `2026-08-21`：`UsEquitySnapshotPipelines` 锁定 `UsEquityStrategies` 的虚拟组合 P2 构造器（PR #371），并同步策略插件依赖断言。它使已有的纯研究组合预算/目标构造可被研究管道引用；没有注册组合候选、共同真实 P1 输入、组合 P3 结论或任何执行权限。
 - `2026-08-22`：`MarketSignalSources` 合入共同历史组合 P1 的本地 create-only root 封存器（PR #27）。它只把调用方显式提供、且与既有 P1 元数据摘要精确匹配的价格面板、质量报告和时点成分源写入新私有目录并离线复核；不获取、修补、解析或认证行情，也没有策略回放、云端发布、paper、shadow、live、券商或凭证能力。尚未封存实际合规 root，因而不构成组合 P3 证据或任何执行资格。
