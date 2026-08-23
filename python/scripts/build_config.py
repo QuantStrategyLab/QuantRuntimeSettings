@@ -595,7 +595,7 @@ def strategy_to_json_compat(strategies: dict) -> list[dict]:
             "label_en": s.get("label_en", s["label"]),
             "label_zh": s["label"],
             "domain": s["domain"],
-            "runtime_enabled": s.get("runtime_enabled", True),
+            "runtime_enabled": s.get("runtime_enabled", False),
         }
         entry.update(_strategy_profile_gate_fields(s))
         f = s.get("features", {})
@@ -641,7 +641,7 @@ def _sort_key(sdata: dict) -> tuple[int, str]:
 
 def _normalize_allowed_execution_modes(raw_modes: object) -> list[str]:
     if raw_modes is None:
-        return ["live", "paper", "dry_run"]
+        return ["paper", "dry_run"]
     if isinstance(raw_modes, str):
         modes = [raw_modes.strip()]
     elif isinstance(raw_modes, list):
@@ -651,18 +651,21 @@ def _normalize_allowed_execution_modes(raw_modes: object) -> list[str]:
     elif isinstance(raw_modes, set):
         modes = [str(mode).strip() for mode in sorted(raw_modes)]
     else:
-        modes = ["live", "paper", "dry_run"]
+        modes = ["paper", "dry_run"]
     modes = [mode for mode in modes if mode]
-    return modes if modes else ["live", "paper", "dry_run"]
+    return modes if modes else ["paper", "dry_run"]
 
 
 def _strategy_profile_gate_fields(sdata: dict) -> dict[str, object]:
-    runtime_enabled = sdata.get("runtime_enabled", True)
+    runtime_enabled = sdata.get("runtime_enabled", False)
     lifecycle_stage = str(
-        sdata.get("lifecycle_stage") or ("runtime_enabled" if runtime_enabled else "research_backtest_only")
+        sdata.get("lifecycle_stage") or ("runtime_enabled" if runtime_enabled else "research_active")
     ).strip()
     blocked_live_reason = sdata.get("blocked_live_reason")
-    can_switch_live = sdata.get("can_switch_live", runtime_enabled and lifecycle_stage == "runtime_enabled")
+    can_switch_live = sdata.get(
+        "can_switch_live",
+        runtime_enabled and lifecycle_stage in {"live_enabled", "runtime_enabled"},
+    )
     if blocked_live_reason is None and not can_switch_live:
         blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
     return {

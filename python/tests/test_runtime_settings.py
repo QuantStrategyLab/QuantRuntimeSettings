@@ -514,6 +514,40 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             errors,
         )
 
+    def test_runtime_target_never_infers_live_permission_from_catalog_status(self):
+        config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"] = {
+            **config["strategies"]["global_etf_rotation"],
+            "runtime_enabled": True,
+            "lifecycle_stage": "runtime_enabled",
+        }
+        config["strategies"]["global_etf_rotation"].pop("can_switch_live", None)
+        config["strategies"]["global_etf_rotation"].pop(
+            "allowed_execution_modes", None
+        )
+        errors = []
+
+        with patch.object(
+            runtime_settings, "load_platform_config", return_value=config
+        ):
+            runtime_settings.validate_runtime_target_strategy_policy(
+                {
+                    "platform_id": "ibkr",
+                    "strategy_profile": "global_etf_rotation",
+                    "execution_mode": "live",
+                },
+                errors,
+            )
+
+        self.assertIn(
+            "runtime_target.strategy_profile global_etf_rotation cannot switch live",
+            errors,
+        )
+        self.assertIn(
+            "runtime_target.strategy_profile global_etf_rotation must explicitly allow live execution",
+            errors,
+        )
+
     def load_target(self, relative_path: str):
         path = ROOT / relative_path
         return path, runtime_settings.load_target(path)
@@ -736,10 +770,10 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         })
         profile = payload[0]
 
-        self.assertEqual(profile["lifecycle_stage"], "runtime_enabled")
-        self.assertTrue(profile["can_switch_live"])
-        self.assertEqual(profile["allowed_execution_modes"], ["live", "paper", "dry_run"])
-        self.assertEqual(profile["blocked_live_reason"], "")
+        self.assertEqual(profile["lifecycle_stage"], "research_active")
+        self.assertFalse(profile["can_switch_live"])
+        self.assertEqual(profile["allowed_execution_modes"], ["paper", "dry_run"])
+        self.assertEqual(profile["blocked_live_reason"], "research_active")
 
     def test_assignment_payload_can_redact_values(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")

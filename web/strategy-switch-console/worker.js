@@ -2778,10 +2778,15 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
   const executionMode = cleanExecutionMode(inputs.execution_mode);
   const allowedModes = strategy.allowed_execution_modes || [];
   if (executionMode === "live") {
-    if (strategy.runtime_enabled !== true || strategy.can_switch_live === false) {
+    const lifecycleStage = cleanLifecycleStage(strategy.lifecycle_stage || "research_active");
+    if (
+      strategy.runtime_enabled !== true ||
+      strategy.can_switch_live !== true ||
+      !["live_enabled", "runtime_enabled"].includes(lifecycleStage)
+    ) {
       throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
     }
-    if (allowedModes.length && !allowedModes.includes(executionMode)) {
+    if (!allowedModes.includes(executionMode)) {
       throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
     }
     if (strategy.blocked_live_reason) {
@@ -2911,7 +2916,7 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
     const entry = {
       profile,
       label: cleanLabel(item.label || item.display_name || profile, `${fieldName}[${index}].label`),
-      runtime_enabled: cleanProfileBoolean(item.runtime_enabled ?? item.live_enabled ?? true),
+      runtime_enabled: cleanProfileBoolean(item.runtime_enabled ?? false),
     };
     addConfigOptional(
       entry,

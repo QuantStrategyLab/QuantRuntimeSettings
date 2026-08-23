@@ -1498,7 +1498,7 @@
           label_en: nextLabels[profile].en || "",
           label_zh: nextLabels[profile].zh || "",
           domain,
-          runtime_enabled: cleanOptionalBoolean(item?.runtime_enabled ?? item?.live_enabled ?? true) !== false,
+          runtime_enabled: cleanOptionalBoolean(item?.runtime_enabled ?? false) === true,
         };
         const lifecycleStage = normalizeLifecycleStage(item?.lifecycle_stage ?? item?.lifecycleStage);
         if (lifecycleStage) nextCatalog[profile].lifecycle_stage = lifecycleStage;
@@ -1679,12 +1679,12 @@
 
     function strategyCanSwitchLive(entry) {
       if (!entry || typeof entry !== "object") return false;
-      if (entry.runtime_enabled === false) return false;
+      if (entry.runtime_enabled !== true) return false;
       const allowedModes = normalizeAllowedExecutionModes(entry.allowed_execution_modes);
-      if (allowedModes.length && !allowedModes.includes("live")) return false;
-      if (cleanOptionalBoolean(entry.can_switch_live) === false) return false;
+      if (!allowedModes.includes("live")) return false;
+      if (cleanOptionalBoolean(entry.can_switch_live) !== true) return false;
       const lifecycleStage = normalizeLifecycleStage(entry.lifecycle_stage);
-      if (lifecycleStage && ["research", "draft", "blocked", "archived", "disabled"].includes(lifecycleStage)) return false;
+      if (!["live_enabled", "runtime_enabled"].includes(lifecycleStage)) return false;
       const blockedReason = cleanDisplayText(entry.blocked_live_reason);
       if (blockedReason) return false;
       const evidenceStatus = cleanDisplayText(entry.latest_evidence_status);

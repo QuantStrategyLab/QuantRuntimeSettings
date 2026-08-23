@@ -530,10 +530,17 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
     lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
     if strategy.get("runtime_enabled") is not True:
         errors.append(f"runtime_target.strategy_profile {profile} is not runtime_enabled")
-    if strategy.get("can_switch_live") is False:
+    if strategy.get("can_switch_live") is not True:
         errors.append(f"runtime_target.strategy_profile {profile} cannot switch live")
-    if lifecycle_stage and lifecycle_stage != "runtime_enabled":
-        errors.append(f"runtime_target.strategy_profile {profile} lifecycle_stage must be runtime_enabled for live")
+    if lifecycle_stage not in {"live_enabled", "runtime_enabled"}:
+        errors.append(
+            f"runtime_target.strategy_profile {profile} lifecycle_stage must be "
+            "live_enabled (or legacy runtime_enabled) for live"
+        )
+    if "live" not in allowed_modes:
+        errors.append(
+            f"runtime_target.strategy_profile {profile} must explicitly allow live execution"
+        )
     blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
     if blocked_reason:
         errors.append(f"runtime_target.strategy_profile {profile} is blocked for live: {blocked_reason}")
