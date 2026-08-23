@@ -634,7 +634,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
     def test_global_and_hk_global_etf_rotation_profiles_are_research_only(self):
         expected = {
-            "lifecycle_stage": "research_backtest_only",
+            "lifecycle_stage": "research_active",
             "runtime_enabled": False,
             "can_switch_live": False,
             "allowed_execution_modes": ["dry_run"],
@@ -678,7 +678,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         expected = {
             "runtime_enabled": False,
             "can_switch_live": False,
-            "lifecycle_stage": "research_backtest_only",
+            "lifecycle_stage": "research_active",
             "allowed_execution_modes": ["paper", "dry_run"],
             "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         }
@@ -774,6 +774,35 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertFalse(profile["can_switch_live"])
         self.assertEqual(profile["allowed_execution_modes"], ["paper", "dry_run"])
         self.assertEqual(profile["blocked_live_reason"], "research_active")
+
+    def test_published_strategy_lifecycle_fields_use_only_canonical_states(self):
+        canonical = {
+            "research_active",
+            "shadow_active",
+            "paper_active",
+            "live_candidate",
+            "live_enabled",
+        }
+        config_entries = build_config.load_config()["strategies"].values()
+        generated_entries = json.loads(
+            (
+                ROOT
+                / "web/strategy-switch-console/strategy-profiles.example.json"
+            ).read_text(encoding="utf-8")
+        )
+        app_source = (
+            ROOT / "web/strategy-switch-console/app.js"
+        ).read_text(encoding="utf-8")
+        fallback_match = re.search(
+            r"const defaultStrategyProfiles = window\.__DEFAULT_STRATEGY_PROFILES__ \|\| (\[.*?\n    \]);",
+            app_source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(fallback_match)
+        fallback_entries = json.loads(fallback_match.group(1))
+
+        for entry in [*config_entries, *generated_entries, *fallback_entries]:
+            self.assertIn(entry["lifecycle_stage"], canonical)
 
     def test_assignment_payload_can_redact_values(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")

@@ -179,7 +179,7 @@
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -212,7 +212,7 @@
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -245,7 +245,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -266,7 +266,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -283,18 +283,16 @@
         "label_en": "Global ETF Rotation",
         "label_zh": "全球ETF轮动",
         "domain": "us_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_active",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "",
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
         "income_layer_start_usd": "500000",
         "income_layer_max_ratio": "0.15",
         "income_layer_allocations": {
@@ -320,7 +318,7 @@
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -351,7 +349,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -368,7 +366,7 @@
         "income_layer_enabled": true,
         "option_overlay_enabled": true,
         "combo_enabled": true,
-        "lifecycle_stage": "shadow_candidate",
+        "lifecycle_stage": "shadow_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -402,7 +400,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": true,
-        "lifecycle_stage": "shadow_candidate",
+        "lifecycle_stage": "shadow_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -421,7 +419,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": true,
-        "lifecycle_stage": "shadow_candidate",
+        "lifecycle_stage": "shadow_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -436,18 +434,16 @@
         "label_en": "HK ETF Tactical Rotation",
         "label_zh": "港股ETF战术轮动",
         "domain": "hk_equity",
-        "runtime_enabled": true,
+        "runtime_enabled": false,
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "runtime_enabled",
-        "can_switch_live": true,
+        "lifecycle_stage": "research_active",
+        "can_switch_live": false,
         "allowed_execution_modes": [
-          "live",
-          "paper",
           "dry_run"
         ],
-        "blocked_live_reason": ""
+        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
       },
       {
         "profile": "hk_low_vol_dividend_quality_snapshot",
@@ -459,7 +455,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -477,7 +473,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": true,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -495,7 +491,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -531,7 +527,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -548,7 +544,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -565,7 +561,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -582,7 +578,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -599,7 +595,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -616,7 +612,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -633,7 +629,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": true,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -651,7 +647,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -669,7 +665,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "shadow_candidate",
+        "lifecycle_stage": "shadow_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "paper",
@@ -687,7 +683,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": false,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -704,7 +700,7 @@
         "income_layer_enabled": false,
         "option_overlay_enabled": false,
         "combo_enabled": true,
-        "lifecycle_stage": "research_backtest_only",
+        "lifecycle_stage": "research_active",
         "can_switch_live": false,
         "allowed_execution_modes": [
           "dry_run"
@@ -1655,6 +1651,9 @@
     function normalizeLifecycleStage(value) {
       const text = String(value || "").trim().toLowerCase();
       if (!text || text.length > 40 || !/^[a-z0-9._-]+$/.test(text)) return "";
+      if (["research_backtest_only", "ai_monitored_candidate"].includes(text)) return "research_active";
+      if (text === "shadow_candidate") return "shadow_active";
+      if (text === "runtime_enabled") return "live_candidate";
       return text;
     }
 
