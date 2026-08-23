@@ -21,7 +21,7 @@ CONFIG_PATH = ROOT / "platform-config.json"
 
 def _normalize_allowed_execution_modes(raw_modes: object) -> list[str]:
     if raw_modes is None:
-        return ["live", "paper", "dry_run"]
+        return ["paper", "dry_run"]
     if isinstance(raw_modes, str):
         modes = [raw_modes.strip()]
     elif isinstance(raw_modes, list):
@@ -31,9 +31,9 @@ def _normalize_allowed_execution_modes(raw_modes: object) -> list[str]:
     elif isinstance(raw_modes, set):
         modes = [str(mode).strip() for mode in sorted(raw_modes)]
     else:
-        modes = ["live", "paper", "dry_run"]
+        modes = ["paper", "dry_run"]
     modes = [mode for mode in modes if mode]
-    return modes if modes else ["live", "paper", "dry_run"]
+    return modes if modes else ["paper", "dry_run"]
 
 
 def _load_strategy_config_fields() -> dict[str, dict]:
@@ -54,15 +54,19 @@ def _enrich_profiles_from_config(profiles: list[dict]) -> list[dict]:
         item = dict(profile)
         sid = str(item.get("profile", "")).strip()
         config_fields = strategy_config.get(sid, {})
-        runtime_enabled = config_fields.get("runtime_enabled", item.get("runtime_enabled", True))
+        runtime_enabled = config_fields.get("runtime_enabled", item.get("runtime_enabled", False))
         lifecycle_stage = str(
             config_fields.get("lifecycle_stage")
             or item.get("lifecycle_stage")
-            or ("runtime_enabled" if runtime_enabled else "research_backtest_only")
+            or ("runtime_enabled" if runtime_enabled else "research_active")
         ).strip()
         can_switch_live = config_fields.get(
             "can_switch_live",
-            item.get("can_switch_live", runtime_enabled and lifecycle_stage == "runtime_enabled"),
+            item.get(
+                "can_switch_live",
+                runtime_enabled
+                and lifecycle_stage in {"live_enabled", "runtime_enabled"},
+            ),
         )
         blocked_live_reason = config_fields.get("blocked_live_reason", item.get("blocked_live_reason"))
         if blocked_live_reason is None and not can_switch_live:

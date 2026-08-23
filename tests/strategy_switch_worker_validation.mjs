@@ -325,7 +325,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       label_zh: "TQQQ 增长收益",
       domain: "us_equity",
       runtime_enabled: true,
-      lifecycle_stage: "live",
+      lifecycle_stage: "live_enabled",
       can_switch_live: true,
       allowed_execution_modes: ["live", "paper"],
       income_layer_enabled: true,
@@ -348,6 +348,9 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       label: "HK Low-Vol Dividend Quality Snapshot",
       domain: "hk_equity",
       runtime_enabled: true,
+      lifecycle_stage: "live_enabled",
+      can_switch_live: true,
+      allowed_execution_modes: ["live", "paper"],
     },
     {
       profile: "us_equity_combo_leveraged",
@@ -373,7 +376,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
 );
 assert.equal(strategyProfiles[0].label_en, "TQQQ Growth Income");
 assert.equal(strategyProfiles[0].label_zh, "TQQQ 增长收益");
-assert.equal(strategyProfiles[0].lifecycle_stage, "live");
+assert.equal(strategyProfiles[0].lifecycle_stage, "live_enabled");
 assert.equal(strategyProfiles[0].can_switch_live, true);
 assert.deepEqual(strategyProfiles[0].allowed_execution_modes, ["live", "paper"]);
 assert.equal(strategyProfiles[0].income_layer_enabled, true);
@@ -417,6 +420,15 @@ assert.throws(
   () =>
     __test.assertStrategyAllowedForAccount(
       { platform: "longbridge", strategy_profile: "us_equity_combo_leveraged", execution_mode: "live" },
+      DEFAULT_ACCOUNT_OPTIONS.longbridge[0],
+      strategyProfiles,
+    ),
+  /not live-enabled/,
+);
+assert.throws(
+  () =>
+    __test.assertStrategyAllowedForAccount(
+      { platform: "longbridge", strategy_profile: "nasdaq_sp500_smart_dca", execution_mode: "live" },
       DEFAULT_ACCOUNT_OPTIONS.longbridge[0],
       strategyProfiles,
     ),
