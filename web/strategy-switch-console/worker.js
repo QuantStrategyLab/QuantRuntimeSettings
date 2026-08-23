@@ -2931,11 +2931,18 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       cleanLabel,
     );
     entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
-    addConfigOptional(entry, "lifecycle_stage", item.lifecycle_stage || item.lifecycleStage, cleanLifecycleStage);
+    const sourceLifecycleStage = item.lifecycle_stage || item.lifecycleStage;
     const canSwitchLive = cleanOptionalBoolean(item.can_switch_live);
     if (canSwitchLive !== null) entry.can_switch_live = canSwitchLive;
     const allowedExecutionModes = cleanAllowedExecutionModes(item.allowed_execution_modes);
     if (allowedExecutionModes.length) entry.allowed_execution_modes = allowedExecutionModes;
+    if (sourceLifecycleStage) {
+      entry.lifecycle_stage = canonicalLifecycleStage(sourceLifecycleStage, {
+        runtimeEnabled: entry.runtime_enabled === true,
+        canSwitchLive: canSwitchLive === true,
+        allowedExecutionModes,
+      });
+    }
     addConfigOptional(entry, "blocked_live_reason", item.blocked_live_reason, cleanLabel);
     addConfigOptional(entry, "latest_evidence_status", item.latest_evidence_status, cleanLifecycleStage);
     addConfigOptional(entry, "plugin_gate_status", item.plugin_gate_status, cleanLifecycleStage);
@@ -3322,6 +3329,22 @@ function cleanLifecycleStage(value, field = "lifecycle_stage") {
     throw new Error(`${field} is invalid`);
   }
   return text;
+}
+
+function canonicalLifecycleStage(value, deployment = {}) {
+  const stage = cleanLifecycleStage(value);
+  if (["research_active", "shadow_active", "paper_active", "live_candidate", "live_enabled"].includes(stage)) {
+    return stage;
+  }
+  if (["research", "research_backtest_only", "ai_monitored_candidate"].includes(stage)) return "research_active";
+  if (stage === "shadow_candidate") return "shadow_active";
+  if (stage === "runtime_enabled") {
+    const explicitlyLive = deployment.runtimeEnabled === true
+      && deployment.canSwitchLive === true
+      && deployment.allowedExecutionModes?.includes("live");
+    return explicitlyLive ? "live_enabled" : "live_candidate";
+  }
+  throw new Error(`lifecycle_stage ${stage} is unsupported`);
 }
 
 function cleanAllowedExecutionModes(value) {

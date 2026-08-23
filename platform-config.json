@@ -370,7 +370,7 @@
       "label_en": "NASDAQ Growth Income",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -409,7 +409,7 @@
       "label_en": "Semiconductor Trend Income",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -449,7 +449,7 @@
       "domain": "us_equity",
       "scheduler_profile": "us_dca_month_end",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -476,7 +476,7 @@
         "ibit_zscore_exit": "us_daily"
       },
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -499,7 +499,7 @@
       "label_en": "Global ETF Rotation",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -544,7 +544,7 @@
       "domain": "us_equity",
       "scheduler_profile": "us_snapshot_month_start",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -588,7 +588,7 @@
       "label_en": "TECL/XLK Trend Income",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -606,7 +606,7 @@
       "label_en": "US Core Combo",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "shadow_candidate",
+      "lifecycle_stage": "shadow_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -646,7 +646,7 @@
       "label_en": "US Core Combo Shadow",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "shadow_candidate",
+      "lifecycle_stage": "shadow_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -666,7 +666,7 @@
       "label_en": "US Alpha Combo",
       "domain": "us_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "shadow_candidate",
+      "lifecycle_stage": "shadow_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -686,7 +686,7 @@
       "label_en": "HK ETF Tactical Rotation",
       "domain": "hk_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -705,7 +705,7 @@
       "domain": "hk_equity",
       "scheduler_profile": "hk_snapshot_month_start",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -729,7 +729,7 @@
       "label_en": "HK Core Combo",
       "domain": "hk_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -748,7 +748,7 @@
       "label_en": "CN Industry ETF Rotation",
       "domain": "cn_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -786,7 +786,7 @@
       "label_en": "CN Index ETF Tactical Rotation",
       "domain": "cn_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -804,7 +804,7 @@
       "label_en": "CN ChiNext Tactical Rotation",
       "domain": "cn_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -822,7 +822,7 @@
       "label_en": "CN ChiNext Growth Momentum Quality",
       "domain": "cn_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -841,7 +841,7 @@
       "domain": "cn_equity",
       "scheduler_profile": "cn_snapshot_month_start",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -860,7 +860,7 @@
       "domain": "cn_equity",
       "scheduler_profile": "cn_snapshot_month_start",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -878,7 +878,7 @@
       "label_en": "CN STAR Growth Momentum Quality",
       "domain": "cn_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -896,7 +896,7 @@
       "label_en": "CN Alpha Combo",
       "domain": "cn_equity",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -915,7 +915,7 @@
       "label_en": "Crypto Live Pool Rotation",
       "domain": "crypto",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -934,7 +934,7 @@
       "label_en": "BTC DCA",
       "domain": "crypto",
       "runtime_enabled": false,
-      "lifecycle_stage": "shadow_candidate",
+      "lifecycle_stage": "shadow_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "paper",
@@ -953,7 +953,7 @@
       "label_en": "Altcoin Trend",
       "domain": "crypto",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"
@@ -971,7 +971,7 @@
       "label_en": "Crypto Core Combo",
       "domain": "crypto",
       "runtime_enabled": false,
-      "lifecycle_stage": "research_backtest_only",
+      "lifecycle_stage": "research_active",
       "can_switch_live": false,
       "allowed_execution_modes": [
         "dry_run"

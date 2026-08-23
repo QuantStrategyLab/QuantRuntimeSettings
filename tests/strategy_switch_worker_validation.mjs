@@ -371,6 +371,24 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       domain: "us_equity",
       runtime_enabled: true,
     },
+    {
+      profile: "legacy_shadow_profile",
+      label: "Legacy Shadow",
+      domain: "us_equity",
+      runtime_enabled: false,
+      lifecycle_stage: "shadow_candidate",
+      can_switch_live: false,
+      allowed_execution_modes: ["paper"],
+    },
+    {
+      profile: "legacy_live_profile",
+      label: "Legacy Live",
+      domain: "us_equity",
+      runtime_enabled: true,
+      lifecycle_stage: "runtime_enabled",
+      can_switch_live: true,
+      allowed_execution_modes: ["live", "paper"],
+    },
   ],
   "test_strategy_profiles",
 );
@@ -399,7 +417,7 @@ assert.equal(strategyProfiles[0].option_growth_overlay_nav_budget_ratio, "0.03")
 assert.equal(strategyProfiles[0].option_income_overlay_enabled, false);
 assert.equal(strategyProfiles[0].latest_evidence_status, "live_allowed");
 assert.equal(strategyProfiles[0].plugin_gate_status, "live_allowed");
-assert.equal(strategyProfiles[2].lifecycle_stage, "research");
+assert.equal(strategyProfiles[2].lifecycle_stage, "research_active");
 assert.equal(strategyProfiles[2].can_switch_live, false);
 assert.deepEqual(strategyProfiles[2].allowed_execution_modes, ["paper"]);
 assert.equal(strategyProfiles[2].blocked_live_reason, "promotion_required");
@@ -408,6 +426,8 @@ assert.equal(strategyProfiles[2].plugin_gate_status, "blocked");
 assert.equal(strategyProfiles[3].dca_enabled, true);
 assert.equal(strategyProfiles[3].dca_default_mode, "fixed");
 assert.equal(strategyProfiles[3].dca_default_base_investment_usd, "1000");
+assert.equal(strategyProfiles[4].lifecycle_stage, "shadow_active");
+assert.equal(strategyProfiles[5].lifecycle_stage, "live_enabled");
 
 assert.doesNotThrow(() =>
   __test.assertStrategyAllowedForAccount(
