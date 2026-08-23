@@ -184,7 +184,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "income_layer_start_usd": "250000",
         "income_layer_max_ratio": "0.55",
         "income_layer_allocations": {
@@ -217,7 +217,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "income_layer_start_usd": "150000",
         "income_layer_max_ratio": "0.95",
         "income_layer_allocations": {
@@ -250,7 +250,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -271,7 +271,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "dca_enabled": true,
         "dca_default_mode": "fixed",
         "dca_default_base_investment_usd": "1000"
@@ -325,7 +325,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance",
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
         "income_layer_start_usd": "300000",
         "income_layer_max_ratio": "0.25",
         "income_layer_allocations": {
@@ -464,7 +464,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
       },
       {
         "profile": "hk_equity_combo",
@@ -500,7 +500,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
       },
       {
         "profile": "cn_industry_etf_rotation_aggressive",
@@ -656,7 +656,7 @@
           "paper",
           "dry_run"
         ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_human_acceptance"
+        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
       },
       {
         "profile": "crypto_btc_dca",
