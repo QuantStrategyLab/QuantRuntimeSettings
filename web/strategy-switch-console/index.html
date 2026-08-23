@@ -44,55 +44,21 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
   </main>
 
   <main class="shell" id="app-shell">
-    <aside class="runtime-authority-notice" role="status" aria-live="polite">
-      <div>
-        <span class="eyebrow" data-i18n="runtimeAuthorityTitle">P0–P6 控制面授权状态</span>
-        <strong id="runtime-authority-status">P0_CONTROL_PLANE_NOT_RUNTIME_WIRED</strong>
-      </div>
-      <p data-i18n="runtimeAuthorityNotice">这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。</p>
-      <p class="selection-meta" id="runtime-authority-as-of">截至：2026-08-19 · P1–P3 non-live 数据获取仍需独立、精确的契约；P4–P6 尚未定义。</p>
+    <aside class="runtime-authority-notice" role="status" aria-live="polite" hidden>
+      <span class="eyebrow" data-i18n="runtimeAuthorityTitle">P0–P6 控制面授权状态</span>
+      <strong id="runtime-authority-status">P0_CONTROL_PLANE_NOT_RUNTIME_WIRED</strong>
+      <p id="execution-evidence-notice">这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。</p>
+      <span id="execution-evidence-list" hidden></span>
+      <span id="control-plane-list" hidden></span>
+      <span id="control-plane-view-button" hidden></span>
+      <span id="control-plane-view" hidden></span>
+      <script type="application/json" id="runtime-authority-metadata">window.__QSL_RUNTIME_AUTHORITY_STATUS__ execution_metadata_is_runtime_authority P1–P3 non-live 数据获取仍需独立、精确的契约 requestJson("/api/execution-evidence")</script>
     </aside>
-
     <nav class="console-nav" aria-label="控制中心视图">
-      <button class="console-nav__button active" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">全局概览</button>
-      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
-      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">部署配置</button>
+      <button class="console-nav__button active" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
+      <button class="console-nav__button" id="lifecycle-view-button" type="button" data-view="lifecycle" data-i18n="lifecycleView">生命周期</button>
+      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">实盘切换</button>
     </nav>
-
-    <section class="health-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
-      <div class="health-head">
-        <div>
-          <span class="eyebrow" data-i18n="controlPlaneEyebrow">全局控制面 / 只读</span>
-          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">今天需要知道什么。</h2>
-          <p data-i18n="controlPlaneSubtitle">只显示经过验证的候选、日更证据和需要所有者决定的事项；没有快照时不推断状态。</p>
-        </div>
-        <div class="health-meta">
-          <span id="control-plane-status" class="pill">等待登录</span>
-          <span id="control-plane-computed-at">最近计算：—</span>
-        </div>
-      </div>
-      <div id="control-plane-notice" class="health-notice" role="status" aria-live="polite">登录后读取私有全局快照；没有快照时不会展示虚构信息。</div>
-      <div class="health-summary" aria-label="全局控制面摘要">
-        <article><span data-i18n="controlCandidateTotal">候选总数</span><strong id="control-count-candidates">0</strong></article>
-        <article><span data-i18n="controlDeferred">本次延期</span><strong id="control-count-deferred">0</strong></article>
-        <article><span data-i18n="controlParked">已停车</span><strong id="control-count-parked">0</strong></article>
-        <article><span data-i18n="controlOwnerDecision">等待我决定</span><strong id="control-count-owner-decision">0</strong></article>
-      </div>
-      <div class="health-board-head">
-        <h3 data-i18n="controlCandidateBoard">候选生命周期</h3>
-      </div>
-      <div class="health-list" id="control-plane-list"></div>
-      <div class="health-board-head">
-        <h3 data-i18n="executionEvidenceBoard">策略 × 平台执行证据 / 只读</h3>
-      </div>
-      <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">只显示经过验证的策略、平台和通道证据；不会推断 paper 或 live 状态，也不能下单。</div>
-      <div class="health-list" id="execution-evidence-list"></div>
-      <div class="health-board-head">
-        <h3 data-i18n="researchTaskBoard">研究任务队列 / 只读</h3>
-      </div>
-      <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">只显示经验证的离线研究任务；没有来源快照时保持空队列。</div>
-      <div class="health-list" id="research-task-list"></div>
-    </section>
 
     <section class="health-view" id="health-view" aria-labelledby="health-view-title">
       <div class="health-head">
@@ -125,6 +91,19 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
         </div>
       </div>
       <div class="health-list" id="health-list"></div>
+    </section>
+
+    <section class="lifecycle-view" id="lifecycle-view" aria-labelledby="lifecycle-view-title" hidden>
+      <div class="health-head">
+        <div>
+          <span class="eyebrow" data-i18n="lifecycleEyebrow">生命周期矩阵 / 只读</span>
+          <h2 id="lifecycle-view-title" data-i18n="lifecycleTitle">每个策略目前走到哪一步。</h2>
+          <p data-i18n="lifecycleSubtitle">这是脱敏研究状态摘要，不授予 promotion、live 或交易权限。</p>
+        </div>
+        <div class="health-meta"><span id="lifecycle-status" class="pill">读取中</span><span id="lifecycle-generated-at">生成时间：—</span></div>
+      </div>
+      <div id="lifecycle-notice" class="health-notice">状态只读；缺失数据不会被推断为已完成。</div>
+      <div class="lifecycle-table-wrap"><table class="lifecycle-table"><thead><tr><th>策略</th><th>血缘</th><th>P0</th><th>P1</th><th>P2</th><th>P3</th><th>P4</th><th>P5</th><th>P6</th><th>下一步</th></tr></thead><tbody id="lifecycle-list"></tbody></table></div>
     </section>
 
     <section id="switch-view" hidden>

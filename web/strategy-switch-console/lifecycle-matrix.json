@@ -1,0 +1,12 @@
+{
+  "schema_version": "strategy_lifecycle_matrix.v1",
+  "generated_at": "2026-08-23",
+  "source_policy": "Read-only inventory; statuses never authorize promotion or trading.",
+  "entries": [
+    {"id":"tqqq_core_only_p2_v2","display_name":"TQQQ Core Only / historical frozen","lineage":"p2_v2","p0":"verified","p1":"verified","p2":"verified","p3":"parked","p4":"deferred","p5":"deferred","p6":"deferred","next_action":"保持归档，不绕过 fail-fast。"},
+    {"id":"tqqq_core_only_p2_v5","display_name":"TQQQ Core Only / successor","lineage":"p2_v5","p0":"verified","p1":"verified","p2":"verified","p3":"verified","p4":"in_progress","p5":"in_progress","p6":"not_started","next_action":"接入真实 P1 后运行 shadow/forward observation。"},
+    {"id":"soxl_core_only","display_name":"SOXL Core Only","lineage":"successor","p0":"in_progress","p1":"in_progress","p2":"in_progress","p3":"in_progress","p4":"not_started","p5":"not_started","p6":"not_started","next_action":"复用 TQQQ successor 契约补齐 P0-P3。"},
+    {"id":"nasdaq_sp500_smart_dca","display_name":"Nasdaq/S&P 500 Smart DCA","lineage":"smart_dca","p0":"verified","p1":"verified","p2":"verified","p3":"in_progress","p4":"deferred","p5":"deferred","p6":"deferred","next_action":"注册统一 P3 evidence package。"},
+    {"id":"tecl_xlk_trend_income","display_name":"TECL/XLK Trend Income","lineage":"research_only","p0":"verified","p1":"in_progress","p2":"parked","p3":"parked","p4":"deferred","p5":"deferred","p6":"deferred","next_action":"保持 research-only。"}
+  ]
+}
