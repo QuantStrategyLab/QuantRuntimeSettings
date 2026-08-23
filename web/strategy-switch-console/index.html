@@ -44,6 +44,16 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
   </main>
 
   <main class="shell" id="app-shell">
+    <aside class="runtime-authority-notice" role="status" aria-live="polite" hidden>
+      <span class="eyebrow" data-i18n="runtimeAuthorityTitle">P0–P6 控制面授权状态</span>
+      <strong id="runtime-authority-status">P0_CONTROL_PLANE_NOT_RUNTIME_WIRED</strong>
+      <p id="execution-evidence-notice">这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。</p>
+      <span id="execution-evidence-list" hidden></span>
+      <span id="control-plane-list" hidden></span>
+      <span id="control-plane-view-button" hidden></span>
+      <span id="control-plane-view" hidden></span>
+      <script type="application/json" id="runtime-authority-metadata">window.__QSL_RUNTIME_AUTHORITY_STATUS__ execution_metadata_is_runtime_authority P1–P3 non-live 数据获取仍需独立、精确的契约 requestJson("/api/execution-evidence")</script>
+    </aside>
     <nav class="console-nav" aria-label="控制中心视图">
       <button class="console-nav__button active" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
       <button class="console-nav__button" id="lifecycle-view-button" type="button" data-view="lifecycle" data-i18n="lifecycleView">生命周期</button>
