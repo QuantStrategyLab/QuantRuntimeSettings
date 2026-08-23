@@ -6,7 +6,7 @@
       "path": "pyproject.toml",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "d2b43112154c35c7b6c2651a240054926a779ae9"
+      "ref": "ef78312d7653095f585c4f75d45bf765bedc2751"
     },
     {
       "consumer_repo": "BinancePlatform",
@@ -20,7 +20,7 @@
       "path": "uv.lock",
       "package": "crypto-strategies",
       "source_repo": "CryptoStrategies",
-      "ref": "d2b43112154c35c7b6c2651a240054926a779ae9"
+      "ref": "ef78312d7653095f585c4f75d45bf765bedc2751"
     },
     {
       "consumer_repo": "BinancePlatform",
