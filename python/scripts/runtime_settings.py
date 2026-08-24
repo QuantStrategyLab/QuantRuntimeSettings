@@ -11,6 +11,7 @@ import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -53,6 +54,27 @@ WINDOW_MODES = {
 }
 SCHEDULER_FIELDS = frozenset({"timezone", "main_time", "probe_time", "precheck_time"})
 MARKET_FIELDS = ("market", "market_calendar", "market_timezone")
+STRATEGY_RELEASE_REQUIRED_FIELDS = (
+    "release_id",
+    "manifest_sha256",
+    "strategy_revision",
+    "config_sha256",
+    "risk_policy_sha256",
+    "evidence_sha256",
+    "plugin_bundle_sha256",
+    "effective_session",
+)
+STRATEGY_RELEASE_DIGEST_FIELDS = frozenset(
+    {
+        "manifest_sha256",
+        "config_sha256",
+        "risk_policy_sha256",
+        "evidence_sha256",
+        "plugin_bundle_sha256",
+    }
+)
+STRATEGY_RELEASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
+SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
 SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
 LEGACY_INCOME_LAYER_VARIABLES = frozenset(
@@ -425,6 +447,45 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
             ZoneInfo(market_timezone)
         except (ZoneInfoNotFoundError, ValueError):
             errors.append(f"runtime_target.market_timezone is invalid: {market_timezone!r}")
+    validate_strategy_release(runtime_target, errors)
+
+
+def validate_strategy_release(runtime_target: dict[str, Any], errors: list[str]) -> None:
+    """Validate an optional immutable release identity without enabling it.
+
+    Existing targets intentionally remain valid without ``strategy_release``
+    during the read-only migration. Once present, however, a partial identity
+    is never accepted because it could be mistaken for a verified release.
+    """
+
+    release = runtime_target.get("strategy_release")
+    if release is None:
+        return
+    if not isinstance(release, dict):
+        errors.append("runtime_target.strategy_release must be an object when present")
+        return
+    unexpected = sorted(set(release) - set(STRATEGY_RELEASE_REQUIRED_FIELDS))
+    if unexpected:
+        errors.append(
+            "runtime_target.strategy_release contains unsupported fields: "
+            + ", ".join(unexpected)
+        )
+    for field in STRATEGY_RELEASE_REQUIRED_FIELDS:
+        value = release.get(field)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"runtime_target.strategy_release.{field} is required")
+            continue
+        if field == "release_id" and not STRATEGY_RELEASE_ID_PATTERN.fullmatch(value.strip()):
+            errors.append("runtime_target.strategy_release.release_id has invalid characters")
+        if field in STRATEGY_RELEASE_DIGEST_FIELDS and not SHA256_PATTERN.fullmatch(value.strip()):
+            errors.append(f"runtime_target.strategy_release.{field} must be a SHA-256 digest")
+        if field == "effective_session":
+            try:
+                date.fromisoformat(value.strip())
+            except ValueError:
+                errors.append(
+                    "runtime_target.strategy_release.effective_session must be an ISO-8601 date"
+                )
 
 
 def validate_live_ibkr_us_scheduler(

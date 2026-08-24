@@ -615,6 +615,38 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(assignments["STRATEGY_PROFILE"], target["runtime_target"]["strategy_profile"])
         self.assertNotIn("STRATEGY_PROFILE", target["extra_variables"])
 
+    def test_runtime_target_accepts_complete_optional_strategy_release_identity(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        digest = "a" * 64
+        target["runtime_target"]["strategy_release"] = {
+            "release_id": "soxl-p2-v3.20260824",
+            "manifest_sha256": digest,
+            "strategy_revision": "2e3bb51",
+            "config_sha256": digest,
+            "risk_policy_sha256": digest,
+            "evidence_sha256": digest,
+            "plugin_bundle_sha256": digest,
+            "effective_session": "2026-08-25",
+        }
+
+        self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_runtime_target_rejects_partial_or_invalid_strategy_release_identity(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["runtime_target"]["strategy_release"] = {
+            "release_id": "not valid",
+            "manifest_sha256": "not-a-digest",
+        }
+
+        errors = runtime_settings.validate_target(target)
+
+        self.assertIn("runtime_target.strategy_release.release_id has invalid characters", errors)
+        self.assertIn(
+            "runtime_target.strategy_release.manifest_sha256 must be a SHA-256 digest",
+            errors,
+        )
+        self.assertIn("runtime_target.strategy_release.strategy_revision is required", errors)
+
     def test_example_targets_have_matching_plugin_mount(self):
         for relative_path in (
             "examples/targets/schwab/live.example.json",
