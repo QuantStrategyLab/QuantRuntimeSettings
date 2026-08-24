@@ -151,6 +151,54 @@
               }
             }
           }
+        },
+        "strategy_release": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "release_id",
+            "manifest_sha256",
+            "strategy_revision",
+            "config_sha256",
+            "risk_policy_sha256",
+            "evidence_sha256",
+            "plugin_bundle_sha256",
+            "effective_session"
+          ],
+          "properties": {
+            "release_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+            },
+            "manifest_sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "strategy_revision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "config_sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "risk_policy_sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "evidence_sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "plugin_bundle_sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "effective_session": {
+              "type": "string",
+              "format": "date"
+            }
+          }
         }
       }
     },
