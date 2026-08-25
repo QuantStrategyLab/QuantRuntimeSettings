@@ -7,7 +7,10 @@ QuantStrategyLab shares Python packages across platforms, strategies, and pipeli
 ## Source of truth
 
 - **Tracked pins** live in [`internal_dependency_matrix.json`](../internal_dependency_matrix.json).
-- **Validation** runs in QuantRuntimeSettings CI via:
+- **Validation** runs in QuantRuntimeSettings CI: every PR publishes a drift report, while
+  strict enforcement blocks only changes to `internal_dependency_matrix.json`. This prevents
+  an unrelated console or documentation PR from failing non-hermetically merely because a
+  separately checked-out consumer advanced; a ledger change must still match every consumer.
 
 ```bash
 python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict

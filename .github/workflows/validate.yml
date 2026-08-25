@@ -55,7 +55,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: bash python/shell/checkout_internal_dependency_consumers.sh --output-root ..
       - name: Report internal dependency matrix
-        run: python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --json --strict --require-consumer-files
+        run: python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --json --require-consumer-files
+      - name: Enforce internal dependency matrix when its ledger changes
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            comparison_range="origin/${{ github.base_ref }}...HEAD"
+          elif git rev-parse --verify HEAD^ >/dev/null 2>&1; then
+            comparison_range="HEAD^...HEAD"
+          else
+            echo "No parent commit is available; reporting dependency drift without a strict ledger gate."
+            exit 0
+          fi
+          if git diff --quiet "$comparison_range" -- internal_dependency_matrix.json; then
+            echo "Internal dependency ledger did not change; retaining the report without making this unrelated PR non-hermetic."
+            exit 0
+          fi
+          python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --json --strict --require-consumer-files
 
   js:
     runs-on: ubuntu-latest

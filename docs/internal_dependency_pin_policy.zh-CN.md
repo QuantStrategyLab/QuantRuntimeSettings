@@ -7,7 +7,10 @@ QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 
 ## 权威来源
 
 - **已追踪的 pin** 记录在 [`internal_dependency_matrix.json`](../internal_dependency_matrix.json)。
-- **校验** 在 QuantRuntimeSettings CI 中执行：
+- **校验** 在 QuantRuntimeSettings CI 中执行：每个 PR 都生成漂移报告；只有修改
+  `internal_dependency_matrix.json` 的变更才会以严格模式阻塞合并。这样一个无关的
+  控制台或文档 PR 不会因为 checkout 时其他仓库恰好前进而变成不可复现的失败；台账
+  本身仍必须在提交时与所有 consumer 一致。
 
 ```bash
 python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
