@@ -21,6 +21,20 @@
         "owner_decision_required": { "type": "integer", "minimum": 0, "maximum": 1000 }
       }
     },
+    "attention": {
+      "type": "object",
+      "description": "Derived research-state attention. It never grants execution authority.",
+      "additionalProperties": false,
+      "required": ["status", "reason_codes"],
+      "properties": {
+        "status": { "enum": ["research_only", "attention_required", "unavailable"] },
+        "reason_codes": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+        }
+      }
+    },
     "candidates": {
       "type": "array",
       "maxItems": 1000,

@@ -2000,6 +2000,10 @@ assert.equal(controlRead.status, 200);
 const controlReadPayload = await controlRead.json();
 assert.equal(controlReadPayload.data_status, "ready");
 assert.deepEqual(controlReadPayload.summary, { candidate_count: 1, deferred: 1, parked: 0, owner_decision_required: 0 });
+assert.deepEqual(controlReadPayload.attention, {
+  status: "attention_required",
+  reason_codes: ["control_plane_candidate_deferred", "safe_notice"],
+});
 assert.equal(controlReadPayload.candidates[0].recommendation.reason, "没有可用的机器建议。");
 assert.equal(controlReadPayload.policy.p6_owner_decision_required, true);
 assert.ok(indexHtml.includes('requestJson("/api/control-plane")'));
@@ -2050,6 +2054,7 @@ const sourceControlRead = await worker.fetch(
 const sourceControlPayload = await sourceControlRead.json();
 assert.equal(sourceControlPayload.data_status, "ready");
 assert.deepEqual(sourceControlPayload.summary, { candidate_count: 1, deferred: 0, parked: 0, owner_decision_required: 0 });
+assert.deepEqual(sourceControlPayload.attention, { status: "research_only", reason_codes: [] });
 assert.equal(sourceControlPayload.candidates[0].candidate_id, "tqqq_core_only_p2_v5");
 
 const conflictingSourceSync = await worker.fetch(
@@ -2061,6 +2066,7 @@ const conflictingSourceSync = await worker.fetch(
   controlEnv,
 );
 assert.equal(conflictingSourceSync.status, 200);
+
 const conflictingSourceRead = await worker.fetch(
   new Request("https://switch.example/api/control-plane", { headers: controlCookieHeaders }),
   controlEnv,
@@ -2068,6 +2074,39 @@ const conflictingSourceRead = await worker.fetch(
 const conflictingSourcePayload = await conflictingSourceRead.json();
 assert.equal(conflictingSourcePayload.summary.candidate_count, 0);
 assert.ok(conflictingSourcePayload.errors.includes("control_plane_duplicate_candidate"));
+
+const parkedSourceSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...controlSourcePayload,
+      source_id: "uesp.soxl_daily_research",
+      candidates: [{
+        ...controlSourcePayload.candidates[0],
+        candidate_id: "soxl_soxx_trend_income",
+        lifecycle: { stage: "P3", status: "parked" },
+        evidence: { ...controlSourcePayload.candidates[0].evidence, p3_evidence_id: null },
+        recommendation: { code: "park", reason: "P3 parked: runtime_internal_failure." },
+      }],
+      errors: ["p3_parked"],
+    }),
+  }),
+  controlEnv,
+);
+assert.equal(parkedSourceSync.status, 200);
+const parkedControlRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane", { headers: controlCookieHeaders }),
+  controlEnv,
+);
+const parkedControlPayload = await parkedControlRead.json();
+assert.equal(parkedControlPayload.data_status, "ready");
+assert.equal(parkedControlPayload.attention.status, "attention_required");
+assert.deepEqual(parkedControlPayload.attention.reason_codes, [
+  "control_plane_candidate_parked",
+  "control_plane_duplicate_candidate",
+  "p3_parked",
+]);
 
 const executionEvidenceSyncValue = ["execution", "evidence", "sync"].join("-");
 const executionEvidenceEnv = { ...controlEnv, EXECUTION_EVIDENCE_SYNC_TOKEN: executionEvidenceSyncValue };

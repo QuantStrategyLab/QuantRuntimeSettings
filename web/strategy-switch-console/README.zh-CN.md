@@ -172,6 +172,8 @@ GET  /api/control-plane
 
 新接入应调用 source 路径并提交 `qsl_control_plane_source_snapshot.v1`：Worker 按 `source_id` 分开保存，再聚合为 `qsl_control_plane_dashboard.v1`，所以一个仓库不会覆盖另一个仓库的候选。旧的完整快照路径仅为兼容保留。来源写入仍只保存候选生命周期、脱敏证据标识、新鲜度和机器建议；它会重新计算计数、丢弃未定义字段，并拒绝不一致的 P6 状态。读取仍要求登录 allowlist；日更来源超过默认 36 小时 TTL 时返回 `stale`。
 
+聚合快照的 `data_status=ready` 仅代表快照送达。请同时读取只读 `attention`：任何 `DEFERRED` / `PARKED` 的策略、组合或插件候选、上游错误或空候选都会使其成为 `attention_required`；这用于告警与界面提示，绝不是自动调参、自动修复、paper/shadow/live 或下单授权。
+
 这个接口不是订单、paper、shadow 或 live API。`CONTROL_PLANE_SYNC_TOKEN` 必须与 OAuth、workflow dispatch、策略 root 和任何券商凭证完全分离。部署 workflow 会在 `runtime-strategy-switch` environment 提供该 secret 时，把它同步为 Worker secret；每个来源仓库需要保存同一值到其专用 GitHub Environment，URL 使用只读控制台的 `/api/internal/sync-control-plane-source`。
 
 ## 策略 Profile 对齐规范
