@@ -19,7 +19,7 @@
 | `QSL_GLOBAL_TELEGRAM_CHAT_ID` | 首选跨平台路由变量（运行环境注入） |
 | `GLOBAL_TELEGRAM_CHAT_ID` | 兼容回退变量（运行环境注入） |
 
-公开 `platform-config.json` 只记录 `notifications.quant_sentinel.telegram_chat_id_ref`，不保存实际通知目标；别名见 `env_aliases`。实际值只能从 GitHub/Cloud 受控运行环境注入。
+公开 `platform-config.json` 只记录 `notifications.quant_sentinel.telegram_chat_id_ref`，不保存实际通知目标；别名见 `env_aliases`。实际值只能从 GitHub/Cloud 受控运行环境注入。配置校验会对每个带 `telegram_chat_id_ref` 的通知器执行同一规则，新增策略或插件不能绕过该约束。
 
 ## VPS
 

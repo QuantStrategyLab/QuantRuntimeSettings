@@ -167,7 +167,7 @@ class RuntimeSettingsTest(unittest.TestCase):
             build_config.validate(invalid),
         )
 
-    def test_quant_sentinel_notification_route_is_runtime_reference_only(self):
+    def test_notification_route_is_runtime_reference_only(self):
         config = build_config.load_config()
         sentinel = config["notifications"]["quant_sentinel"]
 
@@ -193,12 +193,26 @@ class RuntimeSettingsTest(unittest.TestCase):
         )
         self.assertEqual(build_config.validate(config), [])
 
-    def test_quant_sentinel_notification_route_rejects_public_literal(self):
+    def test_notification_route_rejects_public_literal(self):
         config = build_config.load_config()
         config["notifications"]["quant_sentinel"]["telegram_chat_id"] = "test-chat-id"
 
         self.assertIn(
             "notifications.quant_sentinel must not contain telegram_chat_id; "
+            "use telegram_chat_id_ref",
+            build_config.validate(config),
+        )
+
+    def test_notification_route_guard_applies_to_future_plugin(self):
+        config = build_config.load_config()
+        plugin_alert = copy.deepcopy(config["notifications"]["quant_sentinel"])
+        config["notifications"]["future_strategy_plugin"] = plugin_alert
+
+        self.assertEqual(build_config.validate(config), [])
+
+        plugin_alert["telegram_chat_id"] = "test-chat-id"
+        self.assertIn(
+            "notifications.future_strategy_plugin must not contain telegram_chat_id; "
             "use telegram_chat_id_ref",
             build_config.validate(config),
         )
