@@ -20,7 +20,11 @@
       "label_zh": "量化哨兵",
       "label_en": "QuantSentinel",
       "telegram_bot_token_secret_name": "quant-sentinel-telegram-bot-token",
-      "telegram_chat_id": "5992562050",
+      "telegram_chat_id_ref": {
+        "source": "runtime_environment",
+        "preferred_env": "QSL_GLOBAL_TELEGRAM_CHAT_ID",
+        "fallback_envs": ["GLOBAL_TELEGRAM_CHAT_ID", "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"]
+      },
       "gcp_projects": [
         "firstradequant",
         "longbridgequant",
@@ -29,7 +33,7 @@
       ],
       "env_aliases": {
         "bot_token": ["TELEGRAM_TOKEN", "TG_TOKEN", "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"],
-        "chat_id": ["GLOBAL_TELEGRAM_CHAT_ID", "QSL_GLOBAL_TELEGRAM_CHAT_ID", "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"]
+        "chat_id": ["QSL_GLOBAL_TELEGRAM_CHAT_ID", "GLOBAL_TELEGRAM_CHAT_ID", "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"]
       },
       "deprecated_secret_names": ["crisis-alert-telegram-bot-token"]
     }
