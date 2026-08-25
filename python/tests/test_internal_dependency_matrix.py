@@ -99,18 +99,18 @@ dependencies = [
         self.assertEqual(report.missing_files, [])
         self.assertEqual(report.issues, [])
 
-    def test_qpk_migrated_consumers_use_current_baseline_pins(self):
+    def test_tracked_qpk_consumer_pins_match_latest_matrix_snapshot(self):
         expected_pins_by_consumer = {
             "BinancePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CharlesSchwabPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CnEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CryptoStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "FirstradePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "HkEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "InteractiveBrokersPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "LongBridgePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "UsEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "UsEquitySnapshotPipelines": "3acab1923a97b805b077c85c6c19657be0143bac",
+            "CharlesSchwabPlatform": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "CnEquityStrategies": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "CryptoStrategies": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "FirstradePlatform": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "HkEquityStrategies": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "InteractiveBrokersPlatform": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "LongBridgePlatform": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "UsEquityStrategies": "54d4ba901ae4e72e09c143c051747b900de55022",
+            "UsEquitySnapshotPipelines": "2341557b8ded834bd41ef5a92111361dbf8844d9",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
@@ -135,7 +135,7 @@ dependencies = [
         self.assertEqual(
             uesp_strategy_refs,
             {
-                ("UsEquitySnapshotPipelines", path): "1ba251e2eab49692f9e08e5abd1e4531aeee1716"
+                ("UsEquitySnapshotPipelines", path): "180701592efda47d8acd824dca98f3d74a5ee462"
                 for path in ("pyproject.toml", "uv.lock")
             },
         )
