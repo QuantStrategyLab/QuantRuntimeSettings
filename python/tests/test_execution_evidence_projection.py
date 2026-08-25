@@ -55,7 +55,8 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
         )
         self.assertEqual(snapshot["schema_version"], "qsl_execution_evidence_source_snapshot.v1")
         self.assertEqual(snapshot["data_status"], "ready")
-        self.assertEqual(snapshot["generated_at"], "2026-08-25T16:05:00Z")
+        self.assertEqual(snapshot["generated_at"], "2026-08-25T16:00:00Z")
+        self.assertEqual(snapshot["computed_at"], "2026-08-25T16:05:00Z")
         self.assertEqual(len(snapshot["deployments"]), 1)
         deployment = snapshot["deployments"][0]
         self.assertEqual(deployment["target"], {"platform": "longbridge", "environment": "paper"})
@@ -104,6 +105,21 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
         )
         self.assertEqual(len(snapshot["deployments"]), 1)
         self.assertEqual(snapshot["deployments"][0]["strategy"]["strategy_revision"], "b" * 40)
+
+    def test_rejects_stale_and_future_reports_instead_of_refreshing_them(self):
+        stale = self._report(finished_at="2026-08-23T16:00:00Z")
+        future = self._report(finished_at="2026-08-25T16:11:00Z")
+        snapshot = projection.build_execution_evidence_source_snapshot(
+            [stale, future],
+            source_id="runtime-reports",
+            now=datetime(2026, 8, 25, 16, 5, tzinfo=UTC),
+        )
+        self.assertEqual(snapshot["data_status"], "unavailable")
+        self.assertEqual(snapshot["errors"], [
+            "runtime_report_no_eligible_records",
+            "runtime_report_stale",
+            "runtime_report_timestamp_future",
+        ])
 
     def test_cli_rejects_duplicate_json_keys_and_writes_a_fail_closed_snapshot(self):
         with tempfile.TemporaryDirectory() as directory:

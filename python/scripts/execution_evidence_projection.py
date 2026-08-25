@@ -20,7 +20,7 @@ import hashlib
 import json
 import re
 from collections.abc import Iterable, Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +55,7 @@ def build_execution_evidence_source_snapshot(
     *,
     source_id: str,
     now: datetime | None = None,
+    max_report_age: timedelta = timedelta(hours=36),
 ) -> dict[str, Any]:
     """Project eligible runtime reports into the Worker source schema.
 
@@ -63,7 +64,9 @@ def build_execution_evidence_source_snapshot(
     is copied to the output.
     """
     normalized_source_id = _identity(source_id, "source_id")
-    computed_at = _timestamp(now or datetime.now(UTC))
+    computed_at_value = _normalize_now(now)
+    if max_report_age < timedelta(minutes=5) or max_report_age > timedelta(days=7):
+        raise ExecutionEvidenceProjectionError("max_report_age is outside safe bounds")
     latest_by_deployment: dict[str, tuple[datetime, dict[str, Any]]] = {}
     errors: set[str] = set()
 
@@ -73,18 +76,28 @@ def build_execution_evidence_source_snapshot(
         except ExecutionEvidenceProjectionError as exc:
             errors.add(str(exc))
             continue
+        if observed_at > computed_at_value + timedelta(minutes=5):
+            errors.add("runtime_report_timestamp_future")
+            continue
+        if observed_at < computed_at_value - max_report_age:
+            errors.add("runtime_report_stale")
+            continue
         previous = latest_by_deployment.get(deployment["deployment_id"])
         if previous is None or observed_at > previous[0]:
             latest_by_deployment[deployment["deployment_id"]] = (observed_at, deployment)
 
-    deployments = [entry[1] for _, entry in sorted(latest_by_deployment.items())]
+    selected = [entry for _, entry in sorted(latest_by_deployment.items())]
+    deployments = [entry[1] for entry in selected]
     if not deployments:
         errors.add("runtime_report_no_eligible_records")
     return {
         "schema_version": SOURCE_SCHEMA_VERSION,
         "source_id": normalized_source_id,
-        "generated_at": computed_at,
-        "computed_at": computed_at,
+        # The Worker uses the older of generated_at/computed_at for freshness.
+        # Preserve the oldest included observation so a fresh collection cannot
+        # make an old platform report appear current.
+        "generated_at": _timestamp(min(entry[0] for entry in selected)) if selected else None,
+        "computed_at": _timestamp(computed_at_value),
         "data_status": "ready" if deployments else "unavailable",
         "deployments": deployments,
         "errors": sorted(errors)[:20],
@@ -219,6 +232,13 @@ def _timestamp(value: datetime) -> str:
     return value.astimezone(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def _normalize_now(value: datetime | None) -> datetime:
+    resolved = value or datetime.now(UTC)
+    if resolved.tzinfo is None or resolved.utcoffset() is None:
+        raise ExecutionEvidenceProjectionError("now must be timezone-aware")
+    return resolved.astimezone(UTC)
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -232,6 +252,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-id", required=True, help="stable non-sensitive source identity")
     parser.add_argument("--runtime-report", action="append", default=[], help="path to one runtime_report.v1 JSON document")
+    parser.add_argument(
+        "--max-report-age-hours",
+        type=float,
+        default=36,
+        help="discard reports older than this bounded freshness window (default: 36)",
+    )
     parser.add_argument("--output", required=True, help="path for the generated source snapshot")
     return parser.parse_args(argv)
 
@@ -245,7 +271,11 @@ def main(argv: list[str] | None = None) -> int:
             reports.append(load_runtime_report(path))
         except ExecutionEvidenceProjectionError as exc:
             input_errors.append(str(exc))
-    snapshot = build_execution_evidence_source_snapshot(reports, source_id=args.source_id)
+    snapshot = build_execution_evidence_source_snapshot(
+        reports,
+        source_id=args.source_id,
+        max_report_age=timedelta(hours=args.max_report_age_hours),
+    )
     snapshot["errors"] = sorted(set([*snapshot["errors"], *input_errors]))[:20]
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
