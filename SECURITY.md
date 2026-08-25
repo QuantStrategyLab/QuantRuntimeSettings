@@ -33,7 +33,7 @@ If you suspect tokens, passwords, API keys, service-account keys, cookies, broke
 ## Public Configuration and Runtime Routing
 
 - Public configuration may describe a runtime variable or secret reference, but must not contain a production notification target, account identifier, token, or credential value.
-- `notifications.quant_sentinel.telegram_chat_id_ref` is the canonical cross-platform contract: runtime prefers `QSL_GLOBAL_TELEGRAM_CHAT_ID` and can fall back to the documented compatibility variables.
+- Every public `notifications.*.telegram_chat_id_ref` follows the canonical cross-platform contract: runtime prefers `QSL_GLOBAL_TELEGRAM_CHAT_ID` and can fall back to the documented compatibility variables. Config validation rejects a raw `telegram_chat_id` for every notification entry, including future strategy plugins.
 - Runtime resource names and workflow topology are not credentials. Keep them accurate for reproducible operations; migrate only values that are not required by public build or deployment contracts.
 
 ## Scope Notes
