@@ -67,6 +67,13 @@ CURRENT_RUNTIME_AUTHORITY_STATUS = {
     "p4_p6_definition": "UNDEFINED",
 }
 
+QUANT_SENTINEL_CHAT_ID_SOURCE = "runtime_environment"
+QUANT_SENTINEL_CHAT_ID_PREFERRED_ENV = "QSL_GLOBAL_TELEGRAM_CHAT_ID"
+QUANT_SENTINEL_CHAT_ID_FALLBACK_ENVS = (
+    "GLOBAL_TELEGRAM_CHAT_ID",
+    "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+)
+
 
 def load_config() -> dict:
     with open(CONFIG_PATH) as f:
@@ -76,6 +83,7 @@ def load_config() -> dict:
 def validate(config: dict) -> list[str]:
     errors: list[str] = []
     validate_runtime_authority_status(config, errors)
+    validate_quant_sentinel_notification_reference(config, errors)
     scheduling = config.get("scheduling")
     scheduler_profiles = scheduling.get("profiles") if isinstance(scheduling, dict) else None
     if not isinstance(scheduler_profiles, dict) or not scheduler_profiles:
@@ -300,6 +308,53 @@ def validate(config: dict) -> list[str]:
                 f"strategy {sid}: live feature snapshot requires path and manifest_path"
             )
     return errors
+
+
+def validate_quant_sentinel_notification_reference(config: dict, errors: list[str]) -> None:
+    """Keep notification routing in runtime configuration, never in public config."""
+    notifications = config.get("notifications")
+    if notifications is None:
+        return
+    if not isinstance(notifications, dict):
+        errors.append("notifications must be an object")
+        return
+    sentinel = notifications.get("quant_sentinel")
+    if not isinstance(sentinel, dict):
+        errors.append("notifications.quant_sentinel must be an object")
+        return
+    if "telegram_chat_id" in sentinel:
+        errors.append(
+            "notifications.quant_sentinel must not contain telegram_chat_id; "
+            "use telegram_chat_id_ref"
+        )
+    reference = sentinel.get("telegram_chat_id_ref")
+    if not isinstance(reference, dict):
+        errors.append("notifications.quant_sentinel.telegram_chat_id_ref must be an object")
+        return
+    if reference.get("source") != QUANT_SENTINEL_CHAT_ID_SOURCE:
+        errors.append(
+            "notifications.quant_sentinel.telegram_chat_id_ref.source must be "
+            f"{QUANT_SENTINEL_CHAT_ID_SOURCE!r}"
+        )
+    if reference.get("preferred_env") != QUANT_SENTINEL_CHAT_ID_PREFERRED_ENV:
+        errors.append(
+            "notifications.quant_sentinel.telegram_chat_id_ref.preferred_env must be "
+            f"{QUANT_SENTINEL_CHAT_ID_PREFERRED_ENV!r}"
+        )
+    if reference.get("fallback_envs") != list(QUANT_SENTINEL_CHAT_ID_FALLBACK_ENVS):
+        errors.append(
+            "notifications.quant_sentinel.telegram_chat_id_ref.fallback_envs must be "
+            f"{list(QUANT_SENTINEL_CHAT_ID_FALLBACK_ENVS)!r}"
+        )
+    aliases = sentinel.get("env_aliases")
+    if not isinstance(aliases, dict) or aliases.get("chat_id") != [
+        QUANT_SENTINEL_CHAT_ID_PREFERRED_ENV,
+        *QUANT_SENTINEL_CHAT_ID_FALLBACK_ENVS,
+    ]:
+        errors.append(
+            "notifications.quant_sentinel.env_aliases.chat_id must match "
+            "telegram_chat_id_ref"
+        )
 
 
 def validate_runtime_authority_status(config: dict, errors: list[str]) -> None:

@@ -16,9 +16,10 @@
 | 变量 | 说明 |
 |------|------|
 | `TELEGRAM_TOKEN` | bot token（Cloud Run 由 secret ref 注入；VPS 由 `load_telegram_env.sh`） |
-| `GLOBAL_TELEGRAM_CHAT_ID` | `<telegram-chat-id>` |
+| `QSL_GLOBAL_TELEGRAM_CHAT_ID` | 首选跨平台路由变量（运行环境注入） |
+| `GLOBAL_TELEGRAM_CHAT_ID` | 兼容回退变量（运行环境注入） |
 
-别名见 `platform-config.json` → `notifications.quant_sentinel.env_aliases`。
+公开 `platform-config.json` 只记录 `notifications.quant_sentinel.telegram_chat_id_ref`，不保存实际通知目标；别名见 `env_aliases`。实际值只能从 GitHub/Cloud 受控运行环境注入。
 
 ## VPS
 
