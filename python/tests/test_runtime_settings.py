@@ -167,6 +167,56 @@ class RuntimeSettingsTest(unittest.TestCase):
             build_config.validate(invalid),
         )
 
+    def test_notification_route_is_runtime_reference_only(self):
+        config = build_config.load_config()
+        sentinel = config["notifications"]["quant_sentinel"]
+
+        self.assertNotIn("telegram_chat_id", sentinel)
+        self.assertEqual(
+            sentinel["telegram_chat_id_ref"],
+            {
+                "source": "runtime_environment",
+                "preferred_env": "QSL_GLOBAL_TELEGRAM_CHAT_ID",
+                "fallback_envs": [
+                    "GLOBAL_TELEGRAM_CHAT_ID",
+                    "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+                ],
+            },
+        )
+        self.assertEqual(
+            sentinel["env_aliases"]["chat_id"],
+            [
+                "QSL_GLOBAL_TELEGRAM_CHAT_ID",
+                "GLOBAL_TELEGRAM_CHAT_ID",
+                "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+            ],
+        )
+        self.assertEqual(build_config.validate(config), [])
+
+    def test_notification_route_rejects_public_literal(self):
+        config = build_config.load_config()
+        config["notifications"]["quant_sentinel"]["telegram_chat_id"] = "test-chat-id"
+
+        self.assertIn(
+            "notifications.quant_sentinel must not contain telegram_chat_id; "
+            "use telegram_chat_id_ref",
+            build_config.validate(config),
+        )
+
+    def test_notification_route_guard_applies_to_future_plugin(self):
+        config = build_config.load_config()
+        plugin_alert = copy.deepcopy(config["notifications"]["quant_sentinel"])
+        config["notifications"]["future_strategy_plugin"] = plugin_alert
+
+        self.assertEqual(build_config.validate(config), [])
+
+        plugin_alert["telegram_chat_id"] = "test-chat-id"
+        self.assertIn(
+            "notifications.future_strategy_plugin must not contain telegram_chat_id; "
+            "use telegram_chat_id_ref",
+            build_config.validate(config),
+        )
+
     def test_manual_switch_rejects_unsupported_sync_before_variable_write(self):
         workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
 

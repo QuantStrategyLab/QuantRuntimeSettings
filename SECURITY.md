@@ -27,6 +27,14 @@ If you suspect tokens, passwords, API keys, service-account keys, cookies, broke
 2. Pause scheduled jobs, deployments, or external integrations if the exposure can affect automation, artifact publishing, notifications, or trading behavior.
 3. Remove the exposed material from open pull requests, issues, logs, and artifacts.
 4. Coordinate any required history rewrite or downstream credential update with the maintainer.
+5. Do not use an exposed value to test, identify, or revoke a credential. Rotate from the owning provider or control plane, then update the approved secret store and verify the runtime path.
+6. Close a secret-scanning alert as `revoked` only after rotation and runtime verification. A history rewrite is a follow-up control, never a substitute for rotation.
+
+## Public Configuration and Runtime Routing
+
+- Public configuration may describe a runtime variable or secret reference, but must not contain a production notification target, account identifier, token, or credential value.
+- Every public `notifications.*.telegram_chat_id_ref` follows the canonical cross-platform contract: runtime prefers `QSL_GLOBAL_TELEGRAM_CHAT_ID` and can fall back to the documented compatibility variables. Config validation rejects a raw `telegram_chat_id` for every notification entry, including future strategy plugins.
+- Runtime resource names and workflow topology are not credentials. Keep them accurate for reproducible operations; migrate only values that are not required by public build or deployment contracts.
 
 ## Scope Notes
 

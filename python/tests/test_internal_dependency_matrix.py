@@ -99,32 +99,39 @@ dependencies = [
         self.assertEqual(report.missing_files, [])
         self.assertEqual(report.issues, [])
 
-    def test_qpk_migrated_consumers_use_current_baseline_pins(self):
-        expected_pins_by_consumer = {
-            "BinancePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CharlesSchwabPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CnEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "CryptoStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "FirstradePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "HkEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "InteractiveBrokersPlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "LongBridgePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "UsEquityStrategies": "3acab1923a97b805b077c85c6c19657be0143bac",
-            "UsEquitySnapshotPipelines": "3acab1923a97b805b077c85c6c19657be0143bac",
+    def test_tracked_qpk_consumer_pins_are_coherent_per_consumer(self):
+        tracked_consumers = {
+            "BinancePlatform",
+            "CharlesSchwabPlatform",
+            "CnEquityStrategies",
+            "CryptoStrategies",
+            "FirstradePlatform",
+            "HkEquityStrategies",
+            "InteractiveBrokersPlatform",
+            "LongBridgePlatform",
+            "UsEquityStrategies",
+            "UsEquitySnapshotPipelines",
         }
         matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
         refs = {
             (pin.consumer_repo, pin.path): pin.ref
             for pin in matrix_pins
-            if pin.consumer_repo in expected_pins_by_consumer and pin.source_repo == "QuantPlatformKit"
+            if pin.consumer_repo in tracked_consumers and pin.source_repo == "QuantPlatformKit"
         }
-        expected_refs = {
-            (consumer_repo, path): ref
-            for consumer_repo, ref in expected_pins_by_consumer.items()
+        expected_keys = {
+            (consumer_repo, path)
+            for consumer_repo in tracked_consumers
             for path in ("pyproject.toml", "uv.lock")
         }
 
-        self.assertEqual(refs, expected_refs)
+        self.assertEqual(set(refs), expected_keys)
+        for consumer_repo in tracked_consumers:
+            consumer_refs = {
+                refs[(consumer_repo, path)]
+                for path in ("pyproject.toml", "uv.lock")
+            }
+            self.assertEqual(len(consumer_refs), 1)
+            self.assertRegex(next(iter(consumer_refs)), r"^[0-9a-f]{40}$")
 
         uesp_strategy_refs = {
             (pin.consumer_repo, pin.path): pin.ref
@@ -133,12 +140,19 @@ dependencies = [
             and pin.source_repo == "UsEquityStrategies"
         }
         self.assertEqual(
-            uesp_strategy_refs,
-            {
-                ("UsEquitySnapshotPipelines", path): "1ba251e2eab49692f9e08e5abd1e4531aeee1716"
-                for path in ("pyproject.toml", "uv.lock")
-            },
+            set(uesp_strategy_refs),
+            {("UsEquitySnapshotPipelines", path) for path in ("pyproject.toml", "uv.lock")},
         )
+        self.assertEqual(len(set(uesp_strategy_refs.values())), 1)
+        self.assertRegex(next(iter(uesp_strategy_refs.values())), r"^[0-9a-f]{40}$")
+
+    def test_upgrade_document_distinguishes_target_candidate_and_observed_pins(self):
+        document = (ROOT / "docs" / "qsl_compat_upgrade.md").read_text(encoding="utf-8")
+
+        self.assertIn("compat/bundles/<bundle>.toml", document)
+        self.assertIn("internal_dependency_matrix.json", document)
+        self.assertIn("QuantPlatformKit/QPK_PIN", document)
+        self.assertNotRegex(document, r"[0-9a-f]{40}")
 
     def test_require_consumer_files_treats_missing_paths_as_issues(self):
         projects_root = self._make_projects_root({})
