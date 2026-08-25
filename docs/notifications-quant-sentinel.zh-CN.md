@@ -16,7 +16,7 @@
 | 变量 | 说明 |
 |------|------|
 | `TELEGRAM_TOKEN` | bot token（Cloud Run 由 secret ref 注入；VPS 由 `load_telegram_env.sh`） |
-| `GLOBAL_TELEGRAM_CHAT_ID` | `5992562050` |
+| `GLOBAL_TELEGRAM_CHAT_ID` | `<telegram-chat-id>` |
 
 别名见 `platform-config.json` → `notifications.quant_sentinel.env_aliases`。
 
