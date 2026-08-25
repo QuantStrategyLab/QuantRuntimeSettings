@@ -101,7 +101,7 @@ dependencies = [
 
     def test_tracked_qpk_consumer_pins_match_latest_matrix_snapshot(self):
         expected_pins_by_consumer = {
-            "BinancePlatform": "3acab1923a97b805b077c85c6c19657be0143bac",
+            "BinancePlatform": "9f7e7f8335e97f83f66677ad5e73254a1a421759",
             "CharlesSchwabPlatform": "9f7e7f8335e97f83f66677ad5e73254a1a421759",
             "CnEquityStrategies": "54d4ba901ae4e72e09c143c051747b900de55022",
             "CryptoStrategies": "54d4ba901ae4e72e09c143c051747b900de55022",
