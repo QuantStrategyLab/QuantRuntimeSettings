@@ -26,8 +26,18 @@ that reason every projected record sets `target_data` and `target_execution` to
 `target_execution_evidence_missing`. The projection never emits an autonomous
 paper/shadow recommendation or a live approval.
 
-The script writes a local JSON file only. A future scheduled publisher must use
-a distinct `EXECUTION_EVIDENCE_SYNC_TOKEN` and a least-privilege read identity
-for the selected runtime-report prefix, then POST that file to
-`/api/internal/sync-execution-evidence-source`. Those credentials must remain
-in protected secret stores and must never be added to this repository.
+Reports older than its bounded freshness window (36 hours by default), or more
+than five minutes in the future, are discarded. The output's `generated_at`
+retains the oldest accepted report timestamp rather than the collector time, so
+collection cannot make old evidence appear current.
+
+The script writes a local JSON file only. The reusable composite Action at
+`actions/publish-runtime-execution-evidence` performs the optional publishing
+step. Its caller must first authenticate with its existing GitHub OIDC
+workload identity, and must provide a distinct
+`EXECUTION_EVIDENCE_SYNC_TOKEN` through the protected Actions secret store.
+The Action lists at most 100 recent report objects, reads no report outside the
+configured platform prefix, and POSTs only the generated snapshot to
+`/api/internal/sync-execution-evidence-source`. It does not need or create a
+long-lived GCP key. Credentials and runtime-report object URLs must never be
+added to this repository or emitted to logs.

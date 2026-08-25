@@ -1,0 +1,114 @@
+name: Publish runtime execution evidence
+description: Build and publish a bounded, read-only execution-evidence source snapshot from runtime reports.
+
+inputs:
+  source-id:
+    description: Stable, non-sensitive source identity.
+    required: true
+  report-platform:
+    description: Runtime-report platform prefix (for example ibkr, longbridge, or schwab).
+    required: true
+  report-prefix:
+    description: Read-only Cloud Storage prefix that contains runtime_report.v1 files.
+    required: true
+  sync-url:
+    description: HTTPS Strategy Switch Console base URL.
+    required: true
+  max-reports:
+    description: Maximum recent reports to read in one invocation (1-100).
+    required: false
+    default: "100"
+  max-report-age-hours:
+    description: Maximum report age accepted by the fail-closed projection (0.084-168).
+    required: false
+    default: "36"
+
+runs:
+  using: composite
+  steps:
+    - name: Build and sync bounded execution evidence
+      shell: bash
+      env:
+        INPUT_SOURCE_ID: ${{ inputs.source-id }}
+        INPUT_REPORT_PLATFORM: ${{ inputs.report-platform }}
+        INPUT_REPORT_PREFIX: ${{ inputs.report-prefix }}
+        INPUT_SYNC_URL: ${{ inputs.sync-url }}
+        INPUT_MAX_REPORTS: ${{ inputs.max-reports }}
+        INPUT_MAX_REPORT_AGE_HOURS: ${{ inputs.max-report-age-hours }}
+      run: |
+        set -euo pipefail
+
+        if [[ -z "${EXECUTION_EVIDENCE_SYNC_TOKEN:-}" ]]; then
+          echo "EXECUTION_EVIDENCE_SYNC_TOKEN is required." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_SOURCE_ID" =~ ^[A-Za-z0-9._=-]{1,128}$ ]]; then
+          echo "source-id must be a stable non-sensitive identity." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_REPORT_PLATFORM" =~ ^(alpaca|binance|firstrade|ibkr|longbridge|qmt|schwab)$ ]]; then
+          echo "report-platform is unsupported." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_REPORT_PREFIX" =~ ^gs://[A-Za-z0-9._-]+(/[A-Za-z0-9._=-]+)*$ ]]; then
+          echo "report-prefix must be a bounded Cloud Storage prefix." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_SYNC_URL" =~ ^https://[^/?#]+$ ]]; then
+          echo "sync-url must be an HTTPS base URL without a path or query." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_MAX_REPORTS" =~ ^[1-9][0-9]?$ ]] || (( INPUT_MAX_REPORTS > 100 )); then
+          echo "max-reports must be between 1 and 100." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_MAX_REPORT_AGE_HOURS" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+          echo "max-report-age-hours must be numeric." >&2
+          exit 2
+        fi
+
+        work_dir="$(mktemp -d)"
+        cleanup() { rm -rf "$work_dir"; }
+        trap cleanup EXIT
+        object_listing="$work_dir/objects.json"
+        report_prefix="${INPUT_REPORT_PREFIX%/}/${INPUT_REPORT_PLATFORM}/"
+
+        if ! gcloud storage objects list "${report_prefix}**" \
+          --sort-by='~update_time' \
+          --limit="$INPUT_MAX_REPORTS" \
+          --format='json(storage_url,update_time)' \
+          >"$object_listing" 2>/dev/null; then
+          echo "Unable to list runtime reports with the configured read-only identity." >&2
+          exit 1
+        fi
+
+        mapfile -t report_objects < <(jq -r '.[] | select((.storage_url // "") | endswith(".json")) | .storage_url' "$object_listing")
+
+        report_args=()
+        index=0
+        for object_name in "${report_objects[@]}"; do
+          report_path="$work_dir/report-$index.json"
+          if ! gcloud storage cp --quiet "$object_name" "$report_path" >/dev/null 2>&1; then
+            echo "Unable to read a listed runtime report; no partial snapshot was published." >&2
+            exit 1
+          fi
+          report_args+=(--runtime-report "$report_path")
+          index=$((index + 1))
+        done
+
+        snapshot_path="$work_dir/execution-evidence-source.json"
+        python3 "$GITHUB_ACTION_PATH/../../python/scripts/execution_evidence_projection.py" \
+          --source-id "$INPUT_SOURCE_ID" \
+          --max-report-age-hours "$INPUT_MAX_REPORT_AGE_HOURS" \
+          --output "$snapshot_path" \
+          "${report_args[@]}"
+
+        if ! curl --fail --silent --show-error \
+          --request POST "${INPUT_SYNC_URL}/api/internal/sync-execution-evidence-source" \
+          --header "Authorization: Bearer ${EXECUTION_EVIDENCE_SYNC_TOKEN}" \
+          --header "Content-Type: application/json" \
+          --data-binary "@$snapshot_path" \
+          >/dev/null 2>&1; then
+          echo "Unable to sync the read-only execution-evidence snapshot." >&2
+          exit 1
+        fi
