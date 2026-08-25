@@ -33,6 +33,8 @@
 
 新增两层快照契约：各仓只发布自己的 `qsl_control_plane_source_snapshot.v1`；Worker 汇总为给网页读取的 `qsl_control_plane_dashboard.v1`。它汇总候选身份、当前阶段、数据新鲜度、P1/P2/P3 摘要、机器建议和 P6 是否等待所有者决定；不携带原始行情、账户、完整订单、文件路径或密钥。
 
+`data_status=ready` 只说明来源快照已同步，**不**表示策略已验证、可执行或有订单授权。Worker 另行给出只读 `attention`：任一策略、组合或插件候选处于 `DEFERRED` / `PARKED`、来源产生脱敏错误，或没有候选时为 `attention_required`；缺快照为 `unavailable`；其余为 `research_only`。该字段只帮助监控和界面避免“工作流绿灯即策略绿灯”的误读，绝不提升 P4–P6 权限。
+
 Worker 以**独立于 dispatch token 的同步身份**接收来源快照、按 `source_id` 分开保存在 KV，并只向已登录 allowlist 用户读取聚合结果。这样一个仓库不能覆盖另一个仓库的候选；同名候选会 fail-closed 并记录冲突。快照缺失、过期、未来时间戳或 schema 不符时，页面显示 `unavailable` / `stale`，不伪造全局健康结论。当前日更来源默认 36 小时后变为 stale，适配交易日节奏而不把周末误报为实时故障。
 
 执行状态另用独立的 `qsl_execution_evidence_source_snapshot.v1` 与 `qsl_execution_evidence_dashboard.v1` 投影。每一条记录的身份是“固定策略 revision × 目标平台 × 当前执行通道”，显示策略、目标数据和目标执行证据，以及该平台的 shadow / paper 能力。它有独立 KV 前缀和同步 token，不能覆盖 P1–P3 候选快照，也不能创建订单、资金变更或 P6 授权。没有来源时页面保持空状态；在某个平台已有 live 或 paper 记录，也只是一项该目标的证据，不自动推广到别的平台。

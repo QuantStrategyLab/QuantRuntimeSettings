@@ -823,14 +823,18 @@
         controlParked: "已停车",
         controlOwnerDecision: "等待我决定",
         controlCandidateBoard: "候选生命周期",
-        controlDataReady: "快照已加载",
+        controlDataReady: "快照已同步（不代表策略可运行）",
         controlDataStale: "快照已过期",
         controlDataUnavailable: "等待可用快照",
+        controlAttentionResearchOnly: "仅研究，未授予执行权限",
+        controlAttentionRequired: "研究状态需要关注",
+        controlAttentionUnavailable: "尚无已验证研究状态",
         controlComputedAt: "最近计算：{time}",
         controlLoginNotice: "登录后读取私有全局快照；没有快照时不会展示虚构信息。",
         controlStaleNotice: "全局快照已超过允许的新鲜度窗口；页面保留原始记录，但不把它作为当前结论。",
         controlUnavailableNotice: "还没有可用的全局快照；当前页面保持 fail-closed 空状态。",
         controlUpstreamNotice: "快照已加载，但有 {count} 个上游提示；缺失信息不会被补成推断结论。",
+        controlAttentionNotice: "研究状态需要关注（延期 {deferred}、停车 {parked}、信号 {signals}）。快照送达不等于策略验证或执行授权；系统保持不交易。",
         controlEmptyCandidates: "暂无可展示的候选快照。",
         controlNoRecommendation: "没有可用的机器建议。",
         controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
@@ -1040,14 +1044,18 @@
         controlParked: "Parked",
         controlOwnerDecision: "Needs my decision",
         controlCandidateBoard: "Candidate lifecycle",
-        controlDataReady: "Snapshot loaded",
+        controlDataReady: "Snapshot synced (not strategy readiness)",
         controlDataStale: "Snapshot is stale",
         controlDataUnavailable: "Waiting for a usable snapshot",
+        controlAttentionResearchOnly: "Research only; no execution authority",
+        controlAttentionRequired: "Research state needs attention",
+        controlAttentionUnavailable: "No verified research state",
         controlComputedAt: "Last computed: {time}",
         controlLoginNotice: "Sign in to read the private global snapshot. Missing data is never invented.",
         controlStaleNotice: "This snapshot is outside its freshness window. The record remains visible, but is not a current conclusion.",
         controlUnavailableNotice: "No usable global snapshot is available yet. This page remains fail-closed and empty.",
         controlUpstreamNotice: "The snapshot loaded with {count} upstream notice(s); missing information is never inferred.",
+        controlAttentionNotice: "Research needs attention ({deferred} deferred, {parked} parked, {signals} signal(s)). Snapshot delivery is not strategy validation or execution authority; the system remains no-order.",
         controlEmptyCandidates: "No candidate snapshot is available to display.",
         controlNoRecommendation: "No machine recommendation is available.",
         controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
@@ -1294,6 +1302,7 @@
           data_status: "unavailable",
           computed_at: null,
           summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
+          attention: { status: "unavailable", reason_codes: ["control_plane_source_unavailable"] },
           candidates: [],
           policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
           errors: [],
@@ -3373,6 +3382,14 @@
         data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
         computed_at: payload.computed_at || null,
         summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        attention: payload.attention && typeof payload.attention === "object" && !Array.isArray(payload.attention)
+          ? {
+            status: ["research_only", "attention_required", "unavailable"].includes(payload.attention.status)
+              ? payload.attention.status
+              : "unavailable",
+            reason_codes: Array.isArray(payload.attention.reason_codes) ? payload.attention.reason_codes : [],
+          }
+          : { status: "unavailable", reason_codes: ["control_plane_attention_missing"] },
         candidates: candidates.filter((item) => item && typeof item === "object" && item.lifecycle && typeof item.lifecycle === "object"),
         policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
         errors: Array.isArray(payload.errors) ? payload.errors : [],
@@ -3385,10 +3402,17 @@
         : (status === "stale" ? t("controlDataStale") : t("controlDataUnavailable"));
     }
 
+    function controlPlaneAttentionText(attention) {
+      const status = attention?.status || "unavailable";
+      if (status === "research_only") return t("controlAttentionResearchOnly");
+      if (status === "attention_required") return t("controlAttentionRequired");
+      return t("controlAttentionUnavailable");
+    }
+
     function renderControlPlane() {
       const payload = state.controlPlane.payload;
       const summary = payload.summary || {};
-      el("control-plane-status").textContent = controlPlaneDataStatusText(payload.data_status);
+      el("control-plane-status").textContent = `${controlPlaneDataStatusText(payload.data_status)} · ${controlPlaneAttentionText(payload.attention)}`;
       el("control-plane-computed-at").textContent = payload.computed_at
         ? t("controlComputedAt").replace("{time}", new Date(payload.computed_at).toLocaleString())
         : t("controlComputedAt").replace("{time}", "—");
@@ -3404,6 +3428,11 @@
         notice.textContent = t("controlStaleNotice");
       } else if (payload.data_status !== "ready") {
         notice.textContent = t("controlUnavailableNotice");
+      } else if (payload.attention?.status === "attention_required") {
+        notice.textContent = t("controlAttentionNotice")
+          .replace("{deferred}", String(Number(summary.deferred) || 0))
+          .replace("{parked}", String(Number(summary.parked) || 0))
+          .replace("{signals}", String(payload.attention.reason_codes?.length || 0));
       } else if (payload.errors?.length) {
         notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
       } else {
@@ -3793,6 +3822,7 @@
           data_status: "unavailable",
           computed_at: null,
           summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
+          attention: { status: "unavailable", reason_codes: ["control_plane_request_failed"] },
           candidates: [],
           policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
           errors: ["control_plane_request_failed"],

@@ -42,6 +42,7 @@ const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
 const CONTROL_PLANE_SNAPSHOT_KEY = "control_plane_snapshot";
 const CONTROL_PLANE_SOURCE_PREFIX = "control_plane_source:";
 const CONTROL_PLANE_SOURCE_SCHEMA_VERSION = "qsl_control_plane_source_snapshot.v1";
+const CONTROL_PLANE_ATTENTION_STATUSES = ["research_only", "attention_required", "unavailable"];
 const CONTROL_PLANE_MAX_SOURCES = 100;
 const CONTROL_PLANE_MAX_BODY_BYTES = 256 * 1024;
 // The current source is a once-per-trading-day P1/P3 lane, rather than a live
@@ -1663,19 +1664,25 @@ async function aggregateControlPlaneSources(env) {
 
   const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
   const uniqueCandidates = candidates.filter((candidate) => !duplicateCandidateIds.has(candidate.candidate_id));
+  const uniqueErrors = uniqueStrings(errors);
   return {
     schema_version: "qsl_control_plane_dashboard.v1",
     generated_at: earliestControlPlaneTimestamp(timestamps),
     computed_at: earliestControlPlaneTimestamp(timestamps),
     data_status: dataStatus,
     summary: normalizeControlPlaneSummary(uniqueCandidates),
+    attention: normalizeControlPlaneAttention({
+      dataStatus,
+      candidates: uniqueCandidates,
+      errors: uniqueErrors,
+    }),
     candidates: uniqueCandidates,
     policy: normalizeControlPlanePolicy({
       p4_p5_automation: "not_configured",
       p6_owner_decision_required: true,
       notice: "P1–P3 自动研究已接入；P4/P5 尚未配置，live 仍需所有者明确决定。",
     }, "aggregated control plane policy"),
-    errors: uniqueStrings(errors),
+    errors: uniqueErrors,
   };
 }
 
@@ -2233,15 +2240,17 @@ function normalizeControlPlaneSnapshot(payload, fieldName = "control plane snaps
   }
   const dataStatus = cleanChoice(payload.data_status || "unavailable", STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
   const candidates = dataStatus === "unavailable" ? [] : normalizeControlPlaneCandidates(payload.candidates, fieldName);
+  const errors = normalizeStrategyHealthErrors(payload.errors);
   return {
     schema_version: "qsl_control_plane_dashboard.v1",
     generated_at: normalizeStrategyHealthTimestamp(payload.generated_at, `${fieldName}.generated_at`, true),
     computed_at: normalizeStrategyHealthTimestamp(payload.computed_at, `${fieldName}.computed_at`, true),
     data_status: dataStatus,
     summary: normalizeControlPlaneSummary(candidates),
+    attention: normalizeControlPlaneAttention({ dataStatus, candidates, errors }),
     candidates,
     policy: normalizeControlPlanePolicy(payload.policy, fieldName),
-    errors: normalizeStrategyHealthErrors(payload.errors),
+    errors,
   };
 }
 
@@ -2351,6 +2360,27 @@ function normalizeControlPlaneSummary(candidates) {
     deferred: candidates.filter((item) => item.lifecycle.status === "deferred").length,
     parked: candidates.filter((item) => item.lifecycle.status === "parked").length,
     owner_decision_required: candidates.filter((item) => item.lifecycle.status === "owner_decision_required").length,
+  };
+}
+
+function normalizeControlPlaneAttention({ dataStatus, candidates, errors }) {
+  const normalizedCandidates = Array.isArray(candidates) ? candidates : [];
+  const normalizedErrors = uniqueStrings(Array.isArray(errors) ? errors : []);
+  const reasonCodes = new Set(normalizedErrors);
+  if (dataStatus !== "ready") reasonCodes.add("control_plane_source_unavailable");
+  if (!normalizedCandidates.length && dataStatus === "ready") reasonCodes.add("control_plane_candidate_missing");
+  if (normalizedCandidates.some((item) => item.lifecycle?.status === "deferred")) {
+    reasonCodes.add("control_plane_candidate_deferred");
+  }
+  if (normalizedCandidates.some((item) => item.lifecycle?.status === "parked")) {
+    reasonCodes.add("control_plane_candidate_parked");
+  }
+  const status = dataStatus !== "ready"
+    ? "unavailable"
+    : (reasonCodes.size ? "attention_required" : "research_only");
+  return {
+    status: cleanChoice(status, CONTROL_PLANE_ATTENTION_STATUSES, "control plane attention status"),
+    reason_codes: [...reasonCodes].sort(),
   };
 }
 
@@ -2514,6 +2544,7 @@ function emptyControlPlanePayload(errorCode) {
     computed_at: null,
     data_status: "unavailable",
     summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 },
+    attention: { status: "unavailable", reason_codes: ["control_plane_source_unavailable", errorCode] },
     candidates: [],
     policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true, notice: "live 仍需所有者明确决定。" },
     errors: [errorCode],
