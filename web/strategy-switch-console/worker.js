@@ -58,6 +58,15 @@ const CONTROL_PLANE_RECOMMENDATIONS = [
   "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
 ];
 const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
+// A console decision is intentionally an auditable owner intent, not an
+// execution permit.  It remains separate from workflow dispatch credentials,
+// broker credentials, and any future deterministic execution gateway.
+const OWNER_DECISION_INTENT_PREFIX = "owner_decision_intent:";
+const OWNER_DECISION_CURRENT_PREFIX = "owner_decision_current:";
+const OWNER_DECISION_INTENT_SCHEMA_VERSION = "qsl_owner_decision_intent.v1";
+const OWNER_DECISION_QUEUE_SCHEMA_VERSION = "qsl_owner_decision_queue.v1";
+const OWNER_DECISION_CHOICES = ["approve_limited_live_canary", "keep_parked", "retire_candidate"];
+const OWNER_DECISION_MAX_CANDIDATES = 100;
 // Execution evidence is deliberately a separate, read-only projection.  A
 // candidate's research lifecycle is portable; a broker/data/execution result
 // is only meaningful for the exact target platform and lane that produced it.
@@ -223,6 +232,12 @@ export default {
       }
       if (url.pathname === "/api/control-plane" && request.method === "GET") {
         return await controlPlaneResponse(request, env);
+      }
+      if (url.pathname === "/api/owner-decisions" && request.method === "GET") {
+        return await ownerDecisionQueueResponse(request, env);
+      }
+      if (url.pathname === "/api/owner-decisions" && request.method === "POST") {
+        return await recordOwnerDecisionResponse(request, env);
       }
       if (url.pathname === "/api/internal/sync-execution-evidence-source" && request.method === "POST") {
         return await syncExecutionEvidenceSourceResponse(request, env);
@@ -1326,18 +1341,22 @@ async function syncControlPlaneSourceResponse(request, env) {
 async function controlPlaneResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!hasConfigStore(env)) return json(emptyControlPlanePayload("snapshot_unavailable"));
+  return json(await currentControlPlanePayload(env));
+}
+
+async function currentControlPlanePayload(env) {
+  if (!hasConfigStore(env)) return emptyControlPlanePayload("snapshot_unavailable");
 
   const sourceSnapshot = await aggregateControlPlaneSources(env);
-  if (sourceSnapshot) return json(sourceSnapshot);
+  if (sourceSnapshot) return sourceSnapshot;
 
   let snapshot;
   try {
     const stored = await readConfigJson(env, CONTROL_PLANE_SNAPSHOT_KEY);
-    if (!stored) return json(emptyControlPlanePayload("snapshot_unavailable"));
+    if (!stored) return emptyControlPlanePayload("snapshot_unavailable");
     snapshot = normalizeControlPlaneSnapshot(stored, CONTROL_PLANE_SNAPSHOT_KEY);
   } catch {
-    return json(emptyControlPlanePayload("snapshot_invalid"));
+    return emptyControlPlanePayload("snapshot_invalid");
   }
 
   const ttlSeconds = controlPlaneStaleTtlSeconds(env);
@@ -1353,7 +1372,262 @@ async function controlPlaneResponse(request, env) {
       ? Math.max(0, (now - freshnessAt) / 1000)
       : Number.POSITIVE_INFINITY;
   if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) snapshot.data_status = "stale";
-  return json(snapshot);
+  return snapshot;
+}
+
+function isOwnerDecisionCandidate(candidate) {
+  return candidate?.lifecycle?.stage === "P6"
+    && candidate.lifecycle.status === "owner_decision_required"
+    && candidate.recommendation?.code === "owner_live_decision";
+}
+
+function currentOwnerDecisionCandidate(controlPlane, candidateId) {
+  if (controlPlane?.data_status !== "ready") {
+    throw new HttpError("current control-plane evidence is not ready", 409);
+  }
+  const candidate = controlPlane.candidates.find((item) => item.candidate_id === candidateId);
+  if (!candidate || !isOwnerDecisionCandidate(candidate)) {
+    throw new HttpError("candidate is not awaiting an owner decision", 409);
+  }
+  if (candidate.freshness?.status !== "fresh") {
+    throw new HttpError("candidate evidence is not fresh", 409);
+  }
+  return candidate;
+}
+
+function normalizeOwnerDecisionRequest(payload) {
+  const value = assertExactFields(payload, [
+    "candidate_id", "decision", "candidate_evidence_sha256",
+  ], "owner decision request");
+  return {
+    candidate_id: normalizeControlPlaneIdentifier(value.candidate_id, "owner decision request.candidate_id", false),
+    decision: cleanChoice(value.decision, OWNER_DECISION_CHOICES, "owner decision request.decision"),
+    candidate_evidence_sha256: normalizeResearchTaskDigest(
+      value.candidate_evidence_sha256,
+      "owner decision request.candidate_evidence_sha256",
+    ),
+  };
+}
+
+async function ownerDecisionCandidateEvidenceSha256(candidate) {
+  return await calculateOwnerDecisionSha256({
+    candidate_id: candidate.candidate_id,
+    candidate_kind: candidate.candidate_kind,
+    domain: candidate.domain,
+    lifecycle: candidate.lifecycle,
+    evidence: candidate.evidence,
+    recommendation: { code: candidate.recommendation?.code || "none" },
+  });
+}
+
+async function buildOwnerDecisionIntent({ candidate, decision, decidedBy, candidateEvidenceSha256, decidedAt }) {
+  const intent = {
+    schema_version: OWNER_DECISION_INTENT_SCHEMA_VERSION,
+    candidate_id: candidate.candidate_id,
+    candidate_kind: candidate.candidate_kind,
+    domain: candidate.domain,
+    decision,
+    decided_at: decidedAt,
+    decided_by: decidedBy,
+    candidate_evidence_sha256: candidateEvidenceSha256,
+    no_order: true,
+    execution_authority_granted: false,
+    decision_sha256: "",
+  };
+  intent.decision_sha256 = await calculateOwnerDecisionSha256(intent);
+  return await normalizeOwnerDecisionIntent(intent, "owner decision intent");
+}
+
+async function normalizeOwnerDecisionIntent(payload, fieldName) {
+  const value = assertExactFields(payload, [
+    "schema_version", "candidate_id", "candidate_kind", "domain", "decision", "decided_at", "decided_by",
+    "candidate_evidence_sha256", "no_order", "execution_authority_granted", "decision_sha256",
+  ], fieldName);
+  if (value.schema_version !== OWNER_DECISION_INTENT_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const intent = {
+    schema_version: OWNER_DECISION_INTENT_SCHEMA_VERSION,
+    candidate_id: normalizeControlPlaneIdentifier(value.candidate_id, `${fieldName}.candidate_id`, false),
+    candidate_kind: cleanChoice(value.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${fieldName}.candidate_kind`),
+    domain: cleanChoice(value.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.domain`),
+    decision: cleanChoice(value.decision, OWNER_DECISION_CHOICES, `${fieldName}.decision`),
+    decided_at: normalizeResearchTaskTimestamp(value.decided_at, `${fieldName}.decided_at`),
+    decided_by: cleanGithubLogin(value.decided_by, `${fieldName}.decided_by`),
+    candidate_evidence_sha256: normalizeResearchTaskDigest(
+      value.candidate_evidence_sha256,
+      `${fieldName}.candidate_evidence_sha256`,
+    ),
+    no_order: value.no_order,
+    execution_authority_granted: value.execution_authority_granted,
+    decision_sha256: normalizeResearchTaskDigest(value.decision_sha256, `${fieldName}.decision_sha256`),
+  };
+  if (intent.no_order !== true || intent.execution_authority_granted !== false) {
+    throw new Error(`${fieldName} must remain no-order and non-executable`);
+  }
+  if (intent.decision_sha256 !== await calculateOwnerDecisionSha256(intent)) {
+    throw new Error(`${fieldName}.decision_sha256 mismatch`);
+  }
+  return intent;
+}
+
+async function calculateOwnerDecisionSha256(payload) {
+  const material = { ...payload };
+  delete material.decision_sha256;
+  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function readOwnerDecisionIntent(env, candidateId) {
+  try {
+    const stored = await readConfigJson(env, ownerDecisionCurrentKey(candidateId));
+    if (!stored) return { intent: null, error: null };
+    return { intent: await normalizeOwnerDecisionIntent(stored, ownerDecisionCurrentKey(candidateId)), error: null };
+  } catch {
+    return { intent: null, error: "owner_decision_intent_invalid" };
+  }
+}
+
+function ownerDecisionArchiveKey(candidateId, decisionSha256) {
+  return `${OWNER_DECISION_INTENT_PREFIX}${candidateId}:${decisionSha256}`;
+}
+
+function ownerDecisionCurrentKey(candidateId) {
+  return `${OWNER_DECISION_CURRENT_PREFIX}${candidateId}`;
+}
+
+function emptyOwnerDecisionQueue(errorCode, controlPlane = null) {
+  return {
+    schema_version: OWNER_DECISION_QUEUE_SCHEMA_VERSION,
+    data_status: controlPlane?.data_status === "stale" ? "stale" : "unavailable",
+    computed_at: controlPlane?.computed_at || null,
+    candidates: [],
+    policy: {
+      admin_required: true,
+      current_evidence_required: true,
+      execution_authority_granted: false,
+      no_order: true,
+      notice: "网页只记录所有者决定意图；不会下单、变更资金或启用实盘。",
+    },
+    errors: uniqueStrings([...(controlPlane?.errors || []), errorCode]),
+  };
+}
+
+async function ownerDecisionQueueResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyOwnerDecisionQueue("snapshot_unavailable"));
+
+  const controlPlane = await currentControlPlanePayload(env);
+  if (controlPlane.data_status !== "ready") {
+    return json(emptyOwnerDecisionQueue("control_plane_not_ready", controlPlane));
+  }
+
+  const pending = controlPlane.candidates
+    .filter(isOwnerDecisionCandidate)
+    .filter((candidate) => candidate.freshness?.status === "fresh")
+    .slice(0, OWNER_DECISION_MAX_CANDIDATES);
+  const errors = [...controlPlane.errors];
+  const candidates = [];
+  for (const candidate of pending) {
+    const candidateEvidenceSha256 = await ownerDecisionCandidateEvidenceSha256(candidate);
+    const stored = await readOwnerDecisionIntent(env, candidate.candidate_id);
+    if (stored.error) errors.push(stored.error);
+    const intent = stored.intent?.candidate_evidence_sha256 === candidateEvidenceSha256
+      ? stored.intent
+      : null;
+    candidates.push({
+      candidate,
+      candidate_evidence_sha256: candidateEvidenceSha256,
+      intent,
+    });
+  }
+  if (controlPlane.candidates.filter(isOwnerDecisionCandidate).length > OWNER_DECISION_MAX_CANDIDATES) {
+    errors.push("owner_decision_queue_truncated");
+  }
+  return json({
+    schema_version: OWNER_DECISION_QUEUE_SCHEMA_VERSION,
+    data_status: "ready",
+    computed_at: controlPlane.computed_at,
+    candidates,
+    policy: {
+      admin_required: true,
+      current_evidence_required: true,
+      execution_authority_granted: false,
+      no_order: true,
+      notice: "网页只记录所有者决定意图；不会下单、变更资金或启用实盘。",
+    },
+    errors: uniqueStrings(errors),
+  });
+}
+
+async function recordOwnerDecisionResponse(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, 4 * 1024);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid owner decision request" }, error.status || 400);
+  }
+
+  let requested;
+  try {
+    requested = normalizeOwnerDecisionRequest(raw);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid owner decision request" }, 400);
+  }
+
+  const controlPlane = await currentControlPlanePayload(env);
+  let candidate;
+  try {
+    candidate = currentOwnerDecisionCandidate(controlPlane, requested.candidate_id);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "owner decision is not currently available" }, error.status || 409);
+  }
+  const candidateEvidenceSha256 = await ownerDecisionCandidateEvidenceSha256(candidate);
+  if (requested.candidate_evidence_sha256 !== candidateEvidenceSha256) {
+    return json({ ok: false, error: "candidate evidence changed; reload the review before deciding" }, 409);
+  }
+
+  const intent = await buildOwnerDecisionIntent({
+    candidate,
+    decision: requested.decision,
+    decidedBy: session.login,
+    candidateEvidenceSha256,
+    decidedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+  });
+  // Keep every intent under its immutable digest key; the small current pointer
+  // only makes the active review fast to read. A changed decision never
+  // erases the prior auditable record.
+  await writeConfigJson(env, ownerDecisionArchiveKey(candidate.candidate_id, intent.decision_sha256), intent);
+  await writeConfigJson(env, ownerDecisionCurrentKey(candidate.candidate_id), intent);
+  let auditLogged = false;
+  try {
+    await appendAuditLog(env, {
+      ts: intent.decided_at,
+      login: session.login,
+      action: "record_owner_decision_intent",
+      candidate_id: intent.candidate_id,
+      decision: intent.decision,
+      candidate_evidence_sha256: intent.candidate_evidence_sha256,
+      decision_sha256: intent.decision_sha256,
+      no_order: true,
+      execution_authority_granted: false,
+    });
+    auditLogged = true;
+  } catch {
+    // The decision remains durable, auditable by its digest, and explicitly
+    // non-executable even if the rolling convenience log cannot be updated.
+  }
+  return json({ ok: true, intent, audit_logged: auditLogged });
 }
 
 async function syncExecutionEvidenceSourceResponse(request, env) {

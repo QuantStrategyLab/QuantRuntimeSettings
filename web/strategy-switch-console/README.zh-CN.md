@@ -176,6 +176,14 @@ GET  /api/control-plane
 
 这个接口不是订单、paper、shadow 或 live API。`CONTROL_PLANE_SYNC_TOKEN` 必须与 OAuth、workflow dispatch、策略 root 和任何券商凭证完全分离。部署 workflow 会在 `runtime-strategy-switch` environment 提供该 secret 时，把它同步为 Worker secret；每个来源仓库需要保存同一值到其专用 GitHub Environment，URL 使用只读控制台的 `/api/internal/sync-control-plane-source`。
 
+## 网页人工审批（P6 决策意图）
+
+当且仅当候选仍是**新鲜**的 P6 `owner_decision_required`、机器建议仍为 `owner_live_decision` 时，控制台会在“全局概览”显示人工决定区。只有管理员可以选择：批准受限试运行意图、保持暂停或退役候选。
+
+提交到 `POST /api/owner-decisions` 的是 `qsl_owner_decision_intent.v1`：它绑定当前候选的 P1/P2/P3/版本证据指纹，按 SHA-256 留存不可变 KV 记录，并维护当前记录索引和审计日志。证据、候选或阶段变化后，旧记录不会匹配新队列，必须重新决定。
+
+固定边界：该记录始终是 `no_order=true`、`execution_authority_granted=false`。它不会调用 workflow、平台 API、券商、资金或订单，也不会自动启用 Live。未来只有独立的确定性执行网关验证所有当前 P4/P5/P6 条件后，才可能消费这种意图；在那之前它只是网页人工审核记录。
+
 ## 策略 Profile 对齐规范
 
 `strategy_profile` 是切换页、runtime settings 和各平台仓库之间的统一策略 ID。

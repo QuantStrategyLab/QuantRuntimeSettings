@@ -839,6 +839,17 @@
         controlNoRecommendation: "没有可用的机器建议。",
         controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
         controlNext: "下一步",
+        ownerDecisionTitle: "所有者决定",
+        ownerDecisionAdminOnly: "只有控制台管理员可以记录决定。",
+        ownerDecisionReady: "当前证据已绑定；请人工选择后记录不可执行意图。",
+        ownerDecisionRecorded: "已记录：{decision}（仅意图，不会启用实盘）",
+        ownerDecisionApprove: "批准受限试运行意图",
+        ownerDecisionPark: "保持暂停",
+        ownerDecisionRetire: "退役候选",
+        ownerDecisionConfirm: "这只会记录不可执行的所有者决定意图，不会下单、改资金或启用实盘。继续吗？",
+        ownerDecisionSubmitting: "正在记录决定…",
+        ownerDecisionSuccess: "所有者决定已记录；它不会自动启用实盘。",
+        ownerDecisionFailed: "无法记录所有者决定",
         executionEvidenceBoard: "策略 × 平台执行证据 / 只读",
         executionEvidenceLoginNotice: "登录后读取私有执行证据快照；缺失来源不会被推断成 paper 或 live 状态。",
         executionEvidenceStaleNotice: "执行证据已超过允许的新鲜度窗口；它保留为历史记录，不能作为当前运行或 P6 结论。",
@@ -1060,6 +1071,17 @@
         controlNoRecommendation: "No machine recommendation is available.",
         controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
         controlNext: "NEXT",
+        ownerDecisionTitle: "Owner decision",
+        ownerDecisionAdminOnly: "Only console administrators can record a decision.",
+        ownerDecisionReady: "Current evidence is bound; choose an action to record a non-executable intent.",
+        ownerDecisionRecorded: "Recorded: {decision} (intent only; Live remains disabled)",
+        ownerDecisionApprove: "Approve limited-canary intent",
+        ownerDecisionPark: "Keep parked",
+        ownerDecisionRetire: "Retire candidate",
+        ownerDecisionConfirm: "This records a non-executable owner intent only. It will not place orders, change funds, or enable Live. Continue?",
+        ownerDecisionSubmitting: "Recording decision…",
+        ownerDecisionSuccess: "Owner decision recorded; it does not enable Live automatically.",
+        ownerDecisionFailed: "Could not record owner decision",
         executionEvidenceBoard: "Strategy × platform execution evidence / read only",
         executionEvidenceLoginNotice: "Sign in to read private execution-evidence snapshots. Missing sources never imply a paper or live state.",
         executionEvidenceStaleNotice: "This execution evidence is beyond its freshness window. It remains historical context, not a current runtime or P6 conclusion.",
@@ -1307,6 +1329,11 @@
           policy: { p4_p5_automation: "not_configured", p6_owner_decision_required: true },
           errors: [],
         },
+      },
+      ownerDecisions: {
+        data_status: "unavailable",
+        candidates: [],
+        errors: [],
       },
       executionEvidence: {
         payload: {
@@ -3396,6 +3423,30 @@
       };
     }
 
+    function normalizeOwnerDecisionQueue(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid owner decision queue");
+      const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        candidates: candidates.filter((entry) => entry && typeof entry === "object"
+          && entry.candidate && typeof entry.candidate === "object"
+          && typeof entry.candidate_evidence_sha256 === "string"),
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function ownerDecisionEntry(candidateId) {
+      return state.ownerDecisions.candidates.find((entry) => entry.candidate?.candidate_id === candidateId) || null;
+    }
+
+    function ownerDecisionLabel(decision) {
+      return {
+        approve_limited_live_canary: t("ownerDecisionApprove"),
+        keep_parked: t("ownerDecisionPark"),
+        retire_candidate: t("ownerDecisionRetire"),
+      }[decision] || String(decision || "—");
+    }
+
     function controlPlaneDataStatusText(status) {
       return status === "ready"
         ? t("controlDataReady")
@@ -3478,6 +3529,45 @@
         const recommendation = document.createElement("small");
         recommendation.textContent = item.recommendation?.code || "none";
         stateBlock.append(label, stage, recommendation);
+        const ownerEntry = ownerDecisionEntry(item.candidate_id);
+        if (ownerEntry) {
+          const ownerDecision = document.createElement("div");
+          ownerDecision.className = "owner-decision";
+          const ownerTitle = document.createElement("strong");
+          ownerTitle.textContent = t("ownerDecisionTitle");
+          const ownerDetail = document.createElement("small");
+          if (ownerEntry.intent) {
+            ownerDetail.textContent = t("ownerDecisionRecorded")
+              .replace("{decision}", ownerDecisionLabel(ownerEntry.intent.decision));
+          } else if (!state.auth.admin) {
+            ownerDetail.textContent = t("ownerDecisionAdminOnly");
+          } else {
+            ownerDetail.textContent = t("ownerDecisionReady");
+          }
+          ownerDecision.append(ownerTitle, ownerDetail);
+          if (!ownerEntry.intent && state.auth.admin) {
+            const actions = document.createElement("div");
+            actions.className = "owner-decision__actions";
+            const submitting = state.ownerDecisions.submittingCandidateId === item.candidate_id;
+            for (const [decision, labelKey] of [
+              ["approve_limited_live_canary", "ownerDecisionApprove"],
+              ["keep_parked", "ownerDecisionPark"],
+              ["retire_candidate", "ownerDecisionRetire"],
+            ]) {
+              const button = document.createElement("button");
+              button.type = "button";
+              button.className = "owner-decision__button";
+              button.dataset.ownerDecision = decision;
+              button.dataset.candidateId = item.candidate_id;
+              button.dataset.candidateEvidenceSha256 = ownerEntry.candidate_evidence_sha256;
+              button.disabled = submitting;
+              button.textContent = submitting ? t("ownerDecisionSubmitting") : t(labelKey);
+              actions.appendChild(button);
+            }
+            ownerDecision.appendChild(actions);
+          }
+          main.appendChild(ownerDecision);
+        }
         card.append(main, stateBlock);
         list.appendChild(card);
       }
@@ -3780,6 +3870,7 @@
       }
       if (state.auth.allowed) {
         await refreshControlPlane();
+        await refreshOwnerDecisions();
         await refreshExecutionEvidence();
         await refreshResearchTasks();
         await refreshHealth();
@@ -3829,6 +3920,56 @@
         };
       }
       renderControlPlane();
+    }
+
+    async function refreshOwnerDecisions() {
+      if (!state.auth.allowed) {
+        state.ownerDecisions = { data_status: "unavailable", candidates: [], errors: [] };
+        renderControlPlane();
+        return;
+      }
+      try {
+        state.ownerDecisions = normalizeOwnerDecisionQueue(await requestJson("/api/owner-decisions"));
+      } catch {
+        state.ownerDecisions = {
+          data_status: "unavailable",
+          candidates: [],
+          errors: ["owner_decision_queue_request_failed"],
+        };
+      }
+      renderControlPlane();
+    }
+
+    async function recordOwnerDecision(button) {
+      if (!state.auth.admin) return;
+      const candidateId = String(button.dataset.candidateId || "");
+      const candidateEvidenceSha256 = String(button.dataset.candidateEvidenceSha256 || "");
+      const decision = String(button.dataset.ownerDecision || "");
+      if (!candidateId || !candidateEvidenceSha256 || !decision) return;
+      if (!window.confirm(t("ownerDecisionConfirm"))) return;
+      state.ownerDecisions.submittingCandidateId = candidateId;
+      renderControlPlane();
+      try {
+        const response = await fetch("/api/owner-decisions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidate_id: candidateId,
+            decision,
+            candidate_evidence_sha256: candidateEvidenceSha256,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || t("ownerDecisionFailed"));
+        showToast(t("ownerDecisionSuccess"), { duration: 7000 });
+        await refreshControlPlane();
+        await refreshOwnerDecisions();
+      } catch (error) {
+        showToast(`${t("ownerDecisionFailed")}: ${error.message}`, { duration: 12000 });
+      } finally {
+        delete state.ownerDecisions.submittingCandidateId;
+        renderControlPlane();
+      }
     }
 
     async function refreshExecutionEvidence() {
@@ -4062,6 +4203,7 @@
       renderConsoleView();
       if (state.view === "control") {
         refreshControlPlane();
+        refreshOwnerDecisions();
         refreshResearchTasks();
       }
       if (state.view === "health") refreshHealth();
@@ -4073,6 +4215,12 @@
       state.health.filter = button.dataset.healthFilter;
       renderHealth();
     }));
+
+    el("control-plane-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-owner-decision]");
+      if (!button || button.disabled) return;
+      recordOwnerDecision(button);
+    });
 
     el("platform-strip").addEventListener("click", (event) => {
       const button = event.target.closest("[data-platform]");

@@ -68,6 +68,14 @@ audit_log
 
 Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
 
+## Web Owner Decisions (P6 intent)
+
+Only a fresh P6 candidate with `owner_decision_required` and an `owner_live_decision` recommendation appears in the owner-decision area. Console administrators can record one of three choices: approve a limited-canary intent, keep the candidate parked, or retire it.
+
+`POST /api/owner-decisions` stores a `qsl_owner_decision_intent.v1` bound to the current P1/P2/P3/revision evidence fingerprint. It retains an immutable, SHA-256-addressed KV record, a current-record index, and an audit entry. If the candidate, stage, or evidence changes, the old intent no longer matches the queue and the owner must decide again.
+
+This is not an execution API: every intent is fixed as `no_order=true` and `execution_authority_granted=false`. It does not dispatch a workflow, call a platform or broker, change funds, or enable Live. Only a future independent deterministic execution gateway may consume an intent after it verifies all current P4/P5/P6 conditions.
+
 ## Page Asset
 
 `worker.js` serves `web/strategy-switch-console/index.html` through `page_asset.js` and the fallback live-enabled strategy catalog through `strategy_profiles_asset.js`.
