@@ -2057,6 +2057,118 @@ assert.deepEqual(sourceControlPayload.summary, { candidate_count: 1, deferred: 0
 assert.deepEqual(sourceControlPayload.attention, { status: "research_only", reason_codes: [] });
 assert.equal(sourceControlPayload.candidates[0].candidate_id, "tqqq_core_only_p2_v5");
 
+const ownerDecisionStore = new Map();
+const ownerDecisionKv = {
+  async get(key) { return ownerDecisionStore.get(key) || null; },
+  async put(key, value) { ownerDecisionStore.set(key, value); },
+  async list({ prefix = "", limit = 1000 } = {}) {
+    return {
+      keys: [...ownerDecisionStore.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .slice(0, limit)
+        .map((name) => ({ name })),
+    };
+  },
+};
+const ownerDecisionEnv = {
+  ...controlEnv,
+  STRATEGY_SWITCH_CONFIG: ownerDecisionKv,
+  ALLOWED_GITHUB_LOGINS: "owner-admin,owner-reader",
+  STRATEGY_SWITCH_ADMIN_LOGINS: "owner-admin",
+};
+const ownerAdminCookie = await __test.makeSession("owner-admin", [], ownerDecisionEnv);
+const ownerReaderCookie = await __test.makeSession("owner-reader", [], ownerDecisionEnv);
+const ownerAdminHeaders = { Cookie: `qsl_switch_session=${ownerAdminCookie}` };
+const ownerReaderHeaders = { Cookie: `qsl_switch_session=${ownerReaderCookie}` };
+const ownerDecisionPayload = {
+  ...controlPayload,
+  generated_at: controlNow,
+  computed_at: controlNow,
+  candidates: [{
+    ...controlPayload.candidates[0],
+    candidate_id: "soxl_core_only_p2_v7",
+    lifecycle: { stage: "P6", status: "owner_decision_required" },
+    evidence: {
+      p1_input_digest: "1".repeat(64),
+      p2_config_digest: "2".repeat(64),
+      p3_evidence_id: "3".repeat(64),
+      source_revision: "4".repeat(40),
+    },
+    recommendation: { code: "owner_live_decision", reason: "P4/P5 evidence is current; owner decision required." },
+    freshness: { status: "fresh", age_seconds: 0 },
+  }],
+};
+const ownerDecisionSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(ownerDecisionPayload),
+  }),
+  ownerDecisionEnv,
+);
+assert.equal(ownerDecisionSync.status, 200);
+
+const ownerDecisionQueue = await worker.fetch(
+  new Request("https://switch.example/api/owner-decisions", { headers: ownerAdminHeaders }),
+  ownerDecisionEnv,
+);
+assert.equal(ownerDecisionQueue.status, 200);
+const ownerDecisionQueuePayload = await ownerDecisionQueue.json();
+assert.equal(ownerDecisionQueuePayload.data_status, "ready");
+assert.equal(ownerDecisionQueuePayload.candidates.length, 1);
+assert.equal(ownerDecisionQueuePayload.candidates[0].intent, null);
+assert.equal(ownerDecisionQueuePayload.policy.execution_authority_granted, false);
+const ownerDecisionRequest = {
+  candidate_id: "soxl_core_only_p2_v7",
+  decision: "keep_parked",
+  candidate_evidence_sha256: ownerDecisionQueuePayload.candidates[0].candidate_evidence_sha256,
+};
+
+const readerDecision = await worker.fetch(
+  new Request("https://switch.example/api/owner-decisions", {
+    method: "POST",
+    headers: { ...ownerReaderHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify(ownerDecisionRequest),
+  }),
+  ownerDecisionEnv,
+);
+assert.equal(readerDecision.status, 403);
+
+const ownerDecisionWrite = await worker.fetch(
+  new Request("https://switch.example/api/owner-decisions", {
+    method: "POST",
+    headers: { ...ownerAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify(ownerDecisionRequest),
+  }),
+  ownerDecisionEnv,
+);
+assert.equal(ownerDecisionWrite.status, 200);
+const ownerDecisionWritePayload = await ownerDecisionWrite.json();
+assert.equal(ownerDecisionWritePayload.intent.decision, "keep_parked");
+assert.equal(ownerDecisionWritePayload.intent.no_order, true);
+assert.equal(ownerDecisionWritePayload.intent.execution_authority_granted, false);
+assert.ok(ownerDecisionStore.has("owner_decision_current:soxl_core_only_p2_v7"));
+assert.ok(ownerDecisionStore.has(
+  `owner_decision_intent:soxl_core_only_p2_v7:${ownerDecisionWritePayload.intent.decision_sha256}`,
+));
+
+const recordedOwnerDecisionQueue = await worker.fetch(
+  new Request("https://switch.example/api/owner-decisions", { headers: ownerAdminHeaders }),
+  ownerDecisionEnv,
+);
+const recordedOwnerDecisionPayload = await recordedOwnerDecisionQueue.json();
+assert.equal(recordedOwnerDecisionPayload.candidates[0].intent.decision, "keep_parked");
+
+const staleDecision = await worker.fetch(
+  new Request("https://switch.example/api/owner-decisions", {
+    method: "POST",
+    headers: { ...ownerAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify({ ...ownerDecisionRequest, candidate_evidence_sha256: "0".repeat(64) }),
+  }),
+  ownerDecisionEnv,
+);
+assert.equal(staleDecision.status, 409);
+
 const conflictingSourceSync = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-control-plane-source", {
     method: "POST",

@@ -382,6 +382,51 @@
       font-size: 27px;
     }
 
+    .owner-decision {
+      display: grid;
+      gap: 7px;
+      margin-top: 14px;
+      padding-top: 13px;
+      border-top: 1px solid var(--line);
+    }
+
+    .owner-decision strong {
+      font-size: 12px;
+    }
+
+    .owner-decision small {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .owner-decision__actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 7px;
+    }
+
+    .owner-decision__button {
+      padding: 7px 9px;
+      border: 1px solid var(--line-strong);
+      border-radius: 7px;
+      background: var(--surface);
+      color: var(--ink);
+      font: inherit;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .owner-decision__button:hover:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    .owner-decision__button:disabled {
+      cursor: wait;
+      opacity: 0.62;
+    }
+
     .health-card__empty {
       grid-column: 1 / -1;
       padding: 30px 18px;

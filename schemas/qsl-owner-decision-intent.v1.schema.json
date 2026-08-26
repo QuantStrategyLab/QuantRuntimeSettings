@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-owner-decision-intent.v1.schema.json",
+  "title": "QSL Owner Decision Intent v1",
+  "description": "A signed-by-digest, no-order owner decision intent. It is not execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "candidate_id",
+    "candidate_kind",
+    "domain",
+    "decision",
+    "decided_at",
+    "decided_by",
+    "candidate_evidence_sha256",
+    "no_order",
+    "execution_authority_granted",
+    "decision_sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "qsl_owner_decision_intent.v1" },
+    "candidate_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,128}$" },
+    "candidate_kind": { "enum": ["individual", "portfolio", "plugin"] },
+    "domain": { "enum": ["us_equity", "hk_equity", "cn_equity", "crypto"] },
+    "decision": { "enum": ["approve_limited_live_canary", "keep_parked", "retire_candidate"] },
+    "decided_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "decided_by": { "type": "string", "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$" },
+    "candidate_evidence_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "no_order": { "const": true },
+    "execution_authority_granted": { "const": false },
+    "decision_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}
