@@ -35,7 +35,7 @@ P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯�
 
 P0–P6 是每个研究候选从控制、输入、策略、证据到执行的**生命周期**，不是“只允许单策略”的产品目录。单策略、组合策略和策略插件都属于 Quant 的主线，但每一个准备运行的候选都必须有自己的 P1 输入绑定、P2 冻结配置和 P3 证据，不能继承另一个候选已经得到的结论。
 
-为避免把“可复用流程”误写成“共用策略”，`UsEquitySnapshotPipelines` 的多策略研究 Driver 目录只登记每条路线自己的 P1 输入契约、P2 配置摘要、P3 入口和迁移状态：TQQQ 是已接日更研究的样板，SOXL/SOXX 的 P2 v3 与独立的日更 non-live P1→P3 workflow 已接线。该旧目录目前尚未登记 SOXL v7 或 TQQQ v9，因而不是它们状态的事实源；本表及各候选的已验证 terminal artifact 优先。后续只能以各自冻结 identity 补登记，不能让 v7/v9 继承 v3/v5 的数据、参数、证据或权限。这个目录不调用任何路线，也不让 SOXL 继承 TQQQ 的数据、参数、证据或权限。
+为避免把“可复用流程”误写成“共用策略”，`UsEquitySnapshotPipelines` 的多策略研究 Driver 目录只登记每条路线自己的 P1 输入契约、P2 配置摘要、P3 入口和调度状态：TQQQ v5 与 SOXL/SOXX v3 是已接日更研究的样板；TQQQ v9 与 SOXL v7 是已登记、仅手动分发的 research-only 路线。目录中的 `DAILY_RESEARCH_WIRED` 与 `MANUAL_RESEARCH_WIRED` 都不是 scheduler、P4/P5/P6 或执行许可；本表及各候选的已验证 terminal artifact 仍优先于登记状态。任何路线都只能引用自己的冻结 identity，不能让 v7/v9 继承 v3/v5 的数据、参数、证据或权限。这个目录不调用任何路线，也不让 SOXL 继承 TQQQ 的数据、参数、证据或权限。
 
 - **单策略**：当前日更 P1/P3 控制器已接 TQQQ v5；SOXL/SOXX v3 也已有独立 non-live 日更 research workflow，但两者都必须以当次合格 P1/P3 事实为准。SOXL v7 是另一条手动、research-only 历史 P3 与固定前瞻观察路线；TQQQ v9 是另一条因数据不可用而停车的 research-only 路线，二者都没有平台启用资格。
 - **组合策略**：组合不是把若干单策略结果相加。它必须单独冻结成“组合候选”，明确成分策略版本、权重/再平衡、共同截止日、组合级风险和成本，然后从 P1/P2/P3 重新走证据链。现有研究层已包括纯组合风险预算、虚拟组合目标构建（总仓位、策略/标的/相关组与换手预算）、P1 binding、P2 描述符、P3 preflight/index 契约和分段 synthetic OOS replay。`MarketSignalSources` 另有本地 create-only P1 root 封存器：只把已经取得的价格面板、质量报告和每个时点成分源按既有 P1 摘要封存并离线复核，不下载、修补或解释数据。synthetic 回放只接受注入 fixture、冻结成本情景和既有摘要，输出明确为非真实证据；这些组件都不读取行情、不产生组合绩效或订单。仍缺实际、许可合规的共同历史 P1 root、真实成本/OOS replay 和完整 P3 证据，因而没有 P4–P6 资格。
