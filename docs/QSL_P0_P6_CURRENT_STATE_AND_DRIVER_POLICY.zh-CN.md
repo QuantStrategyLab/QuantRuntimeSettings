@@ -111,6 +111,7 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | `qsl.research_task.v1` 与控制台队列 | 已接线（只读），待首份合格真实来源快照 | AIAudit Watcher 以专用 token 向控制台发布来源摘要；来源和控制台会各自复核 SHA、revision、摘要和 no-order authority。空队列不是故障，也不能由 Issue 推断任务。 |
 | P5 forward observation、risk-bound admission 与 shadow receipt | 已接线，未激活 | UESP 的 forward observation、AlpacaPlatform v2 input adapter、shadow ledger、pure controller、risk-bound receipt admission 和默认 `PARKED` 单周期编排都已存在。admission 仅接受闭合风险 decision envelope；禁止/缺失/不一致时不读写收据。已合入的 GCS adapter 只接受调用方注入的 bucket client：它按不可变 cycle 精确读取输入、用 generation-match create-only 写回执，绝不列举、覆盖、删除、读取凭据或接触 broker；存储异常闭合为 `PARKED`。没有真实 bucket、运行身份、已签 active policy、已部署 runner/scheduler、broker、账户、订单或资金。 |
 | P4 / P5 风险控制与 policy-gate receipt 契约 | 已实现，未接线到运行 | 可离线校验受限自动运行边界，并把一次成功的 KMS 验签投影为无敏感字段的短期 receipt；没有网络、账户、订单或资金能力。 |
+| 长期复利风险政策 Composer | 已实现（建议层），未接线 | 通用离线内核仅消费绑定 P1/P2/P3/plugin 摘要的净成本策略路径和同周期无杠杆基准路径。它要求 walk-forward、bootstrap、stress 各至少一个完整 252-session 情景，计算尺度—几何增长—回撤—水下期前沿；缺证据即 `PARKED`。人工只选保守/均衡/增长偏好；系统据此计算具体尺度与基准相对回撤候选。输出不含路径、账户或订单，不能改动已签政策、策略参数、P4/P5/P6 或 live。 |
 | P4 执行与 P5 实际调度/回执持久化 | 未实现 | 无 paper adapter、已签 active policy、已签发的运行 receipt、真实受限存储、运行身份、已部署 runner/scheduler 或真实日更 shadow receipt。P5 的代码级 GCS adapter 不创建 bucket、配置、调度或任何运行权限。 |
 | P6 | 未实现 | 无 live、账户、订单或资金任务。 |
 | `QuantStrategyLifecycle` 本机目录 | 退役/孤立 | 没有对应的 GitHub 主线仓；其中 autopilot/auto-approve 描述不得作为当前能力或设计依据。 |
