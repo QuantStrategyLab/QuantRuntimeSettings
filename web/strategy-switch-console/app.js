@@ -810,19 +810,19 @@
 
     const copy = {
       zh: {
-        appTitle: "QSL 全局控制台",
-        appSubtitle: "在一个入口查看证据、候选和需要你决定的事项。",
-        controlPlaneView: "全局概览",
-        healthView: "策略健康",
-        switchView: "部署配置",
-        controlPlaneEyebrow: "全局控制面 / 只读",
-        controlPlaneTitle: "今天需要知道什么。",
-        controlPlaneSubtitle: "只显示经过验证的候选、日更证据和需要所有者决定的事项；没有快照时不推断状态。",
+        appTitle: "QuantStrategyLab",
+        appSubtitle: "已验证证据、运行许可和所有者决策。",
+        controlPlaneView: "待处理",
+        healthView: "运行保障",
+        switchView: "运行计划",
+        controlPlaneEyebrow: "今日待处理 / 只读",
+        controlPlaneTitle: "只处理需要你决定的事。",
+        controlPlaneSubtitle: "这里不是交易大屏：只显示经验证的待办、证据是否足够，以及需要人工做出的边界决定。",
         controlCandidateTotal: "候选总数",
         controlDeferred: "本次延期",
         controlParked: "已停车",
         controlOwnerDecision: "等待我决定",
-        controlCandidateBoard: "候选生命周期",
+        controlCandidateBoard: "需要跟进",
         controlDataReady: "快照已同步（不代表策略可运行）",
         controlDataStale: "快照已过期",
         controlDataUnavailable: "等待可用快照",
@@ -850,7 +850,7 @@
         ownerDecisionSubmitting: "正在记录决定…",
         ownerDecisionSuccess: "所有者决定已记录；它不会自动启用实盘。",
         ownerDecisionFailed: "无法记录所有者决定",
-        executionEvidenceBoard: "策略 × 平台执行证据 / 只读",
+        executionEvidenceBoard: "按需查看策略 × 平台证据覆盖",
         executionEvidenceLoginNotice: "登录后读取私有执行证据快照；缺失来源不会被推断成 paper 或 live 状态。",
         executionEvidenceStaleNotice: "执行证据已超过允许的新鲜度窗口；它保留为历史记录，不能作为当前运行或 P6 结论。",
         executionEvidenceUnavailableNotice: "还没有可用的执行证据来源；当前列表保持 fail-closed 空状态。",
@@ -860,7 +860,7 @@
         executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
         executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
         executionEvidenceNext: "下一步",
-        researchTaskBoard: "研究任务队列 / 只读",
+        researchTaskBoard: "按需查看研究任务队列",
         researchTaskLoginNotice: "登录后读取私有研究任务索引；没有来源快照时不会展示虚构任务。",
         researchTaskStaleNotice: "研究任务来源已超过允许的新鲜度窗口；任务保留为历史记录，但不作为当前工作指令。",
         researchTaskUnavailableNotice: "还没有可用的研究任务来源；当前队列保持 fail-closed 空状态。",
@@ -869,9 +869,9 @@
         researchTaskMeta: "{type} · {domain} · 创建于：{created}",
         researchTaskLimits: "离线研究：最多 {runs} 次 / {seconds} 秒 · P1 {p1} · P2 {p2} · P3 {p3}",
         researchTaskNoOrder: "固定边界：仅研究、零仓位、无订单；不进入 P4/P5/P6。",
-        healthEyebrow: "策略健康 / 只读",
-        healthTitle: "先看机器结论，再决定动作。",
-        healthSubtitle: "健康不等于已获运行授权；实盘、资金和杠杆变更必须匹配当前、可验证的预授权策略。",
+        healthEyebrow: "运行保障 / 只读",
+        healthTitle: "先看机器结论，再决定是否介入。",
+        healthSubtitle: "健康不是实盘许可；它只告诉你是否要复核、降级或保持观察。",
         runtimeAuthorityTitle: "P0–P6 控制面授权状态",
         runtimeAuthorityNotice: "这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。",
         runtimeAuthorityAsOf: "截至：{asOf} · P1–P3 non-live 数据获取仍需独立、精确的契约；P4–P6 尚未定义。",
@@ -892,12 +892,23 @@
         login: "登录",
         logout: "退出",
         signedInAs: "已登录 {login}",
-        activePlatform: "当前平台",
+        planEyebrow: "运行计划 / 受限变更",
+        planTitle: "先定义边界，再提交配置。",
+        planSubtitle: "一次只为一个平台和账号准备一个可审计的运行计划。页面只提交配置意图；运行、订单和实盘授权由独立的证据与阶段门槛决定。",
+        planScopeTitle: "选择范围",
+        planScopeSubtitle: "平台、账号、策略与目标环境",
+        planRuntimeTitle: "运行保护",
+        planRuntimeSubtitle: "停用、插件和附加层都受同一计划约束",
+        planOverlayTitle: "策略附加层",
+        planOverlaySubtitle: "仅使用策略已定义的默认边界",
+        planCashSubtitle: "现金预留优先于融资；两者不能同时覆盖",
+        activePlatform: "目标平台",
         account: "目标账号",
         strategy: "策略",
-        mode: "模式",
-        live: "实盘",
-        paper: "模拟",
+        mode: "运行环境",
+        live: "实盘（需独立授权）",
+        paper: "非实盘",
+        liveModeUnavailable: "当前没有同时满足策略发布、运行许可与证据门槛的实盘候选；请保持非实盘。",
         runtimeTargetMode: "账号运行状态",
         runtimeSectionTitle: "运行与插件",
         runtimeTargetCurrent: "沿用当前状态",
@@ -941,7 +952,7 @@
         cashOnlyExecutionValueNo: "否",
         currentCashOnlyExecution: "当前允许融资",
         pendingCashOnlyExecution: "待提交允许融资",
-        executionCashPolicyTitle: "现金与融资",
+        executionCashPolicyTitle: "资本边界",
         executionCashPolicyNote: "允许融资与预留现金覆盖不能同时生效；选「是」会清空预留覆盖，设预留覆盖会强制「否」。",
         executionCashMarginBlocksReserve: "已选允许融资；提交时会清空预留现金覆盖。",
         executionCashReserveBlocksMargin: "已设预留现金覆盖；提交时会强制不允许融资。",
@@ -974,18 +985,32 @@
         reservedCashDefault: "未配置（平台默认：0 {currency} / 0%）",
         reservedCashMeta: "固定金额下限，可单独设置或与比例取较大值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
-        summary: "当前 / 待提交",
+        summary: "风险与变更摘要",
+        summaryCurrent: "当前边界",
+        summaryPending: "待提交变更",
+        planReadinessTitle: "提交前核对",
+        planCheckAccount: "账号与作用范围",
+        planCheckStrategy: "策略与目标环境",
+        planCheckRisk: "现金与风险边界",
+        planCheckAuthority: "实盘执行授权",
+        planCheckWaiting: "等待配置",
+        planCheckSelected: "已读取",
+        planCheckValid: "已校验",
+        planCheckFix: "需修正",
+        planCheckNonLive: "非实盘",
+        planCheckNoAuthority: "未授予",
+        planAuditNote: "提交记录会写入审计链；它不等同于订单、资金或实盘许可。",
         copySummary: "复制状态",
-        loginToRun: "登录后切换",
+        loginToRun: "登录后提交计划",
         loadingConfig: "读取配置中",
         configureAccounts: "配置账号后切换",
-        runSwitch: "一键切换",
+        runSwitch: "提交受限变更",
         noChanges: "无变更",
-        readonlyNote: "登录后才可执行切换。",
+        readonlyNote: "登录后才可提交受限配置。",
         publicReadonly: "登录后查看账号配置。",
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
-        readyNote: "点击后会触发工作流，并同步目标平台服务。",
+        readyNote: "提交的是受限配置变更；它不授予订单、资金或实盘权限。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
@@ -996,7 +1021,7 @@
         publicWorkerTitle: "Worker 端触发",
         publicWorkerText: "令牌保留在服务端，浏览器只提交切换意图。",
         publicAuditTitle: "变更可回溯",
-        publicAuditText: "切换由 GitHub Actions 执行，便于审计和回滚。",
+        publicAuditText: "受限配置变更由 GitHub Actions 执行，便于审计和回滚。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -1042,19 +1067,19 @@
         cashOnlyExecutionDefault: "仅用现金",
       },
       en: {
-        appTitle: "QSL Control Console",
-        appSubtitle: "One place for evidence, candidates, and decisions that need you.",
-        controlPlaneView: "Overview",
-        healthView: "Strategy Health",
-        switchView: "Deployment Settings",
-        controlPlaneEyebrow: "Global control plane / read only",
-        controlPlaneTitle: "What you need to know today.",
-        controlPlaneSubtitle: "Only verified candidates, daily evidence, and owner decisions appear here. Missing snapshots never imply a status.",
+        appTitle: "QuantStrategyLab",
+        appSubtitle: "Verified evidence, runtime eligibility, and owner decisions.",
+        controlPlaneView: "Attention",
+        healthView: "Runtime guard",
+        switchView: "Run plan",
+        controlPlaneEyebrow: "Today / read only",
+        controlPlaneTitle: "Only decide what needs you.",
+        controlPlaneSubtitle: "This is not a trading screen: it shows verified follow-ups, evidence coverage, and the boundaries that need an owner decision.",
         controlCandidateTotal: "Candidates",
         controlDeferred: "Deferred now",
         controlParked: "Parked",
         controlOwnerDecision: "Needs my decision",
-        controlCandidateBoard: "Candidate lifecycle",
+        controlCandidateBoard: "Follow-ups",
         controlDataReady: "Snapshot synced (not strategy readiness)",
         controlDataStale: "Snapshot is stale",
         controlDataUnavailable: "Waiting for a usable snapshot",
@@ -1082,7 +1107,7 @@
         ownerDecisionSubmitting: "Recording decision…",
         ownerDecisionSuccess: "Owner decision recorded; it does not enable Live automatically.",
         ownerDecisionFailed: "Could not record owner decision",
-        executionEvidenceBoard: "Strategy × platform execution evidence / read only",
+        executionEvidenceBoard: "View strategy × platform evidence on demand",
         executionEvidenceLoginNotice: "Sign in to read private execution-evidence snapshots. Missing sources never imply a paper or live state.",
         executionEvidenceStaleNotice: "This execution evidence is beyond its freshness window. It remains historical context, not a current runtime or P6 conclusion.",
         executionEvidenceUnavailableNotice: "No usable execution-evidence source is available yet. This list remains fail-closed and empty.",
@@ -1092,7 +1117,7 @@
         executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
         executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
         executionEvidenceNext: "NEXT",
-        researchTaskBoard: "Research task queue / read only",
+        researchTaskBoard: "View research queue on demand",
         researchTaskLoginNotice: "Sign in to read the private research task index. Missing source snapshots never imply a task.",
         researchTaskStaleNotice: "The research task source is beyond its freshness window. It remains historical context, not a current instruction.",
         researchTaskUnavailableNotice: "No research task source is available yet. The queue remains fail-closed and empty.",
@@ -1101,9 +1126,9 @@
         researchTaskMeta: "{type} · {domain} · created {created}",
         researchTaskLimits: "Offline research: up to {runs} run(s) / {seconds}s · P1 {p1} · P2 {p2} · P3 {p3}",
         researchTaskNoOrder: "Fixed boundary: research only, zero size, no order; never P4/P5/P6.",
-        healthEyebrow: "Strategy health / read only",
-        healthTitle: "Read the machine conclusion before choosing an action.",
-        healthSubtitle: "Health does not grant runtime authority; live, funding, and leverage changes must match a current, verifiable preauthorized policy.",
+        healthEyebrow: "Runtime guard / read only",
+        healthTitle: "Read the machine conclusion before deciding to intervene.",
+        healthSubtitle: "Health is not live approval. It only tells you whether to review, reduce, or keep watching.",
         runtimeAuthorityTitle: "P0–P6 control-plane authority",
         runtimeAuthorityNotice: "live/default_execution_mode/live_configured are legacy configuration metadata, not authorization for current runtime, orders, funds, or stage changes.",
         runtimeAuthorityAsOf: "As of {asOf} · P1–P3 non-live data acquisition still needs its own precise contract; P4–P6 are undefined.",
@@ -1124,12 +1149,23 @@
         login: "Sign in",
         logout: "Sign out",
         signedInAs: "Signed in as {login}",
-        activePlatform: "Active Platform",
+        planEyebrow: "Run plan / bounded change",
+        planTitle: "Set the boundary before submitting configuration.",
+        planSubtitle: "Prepare one auditable plan for one platform and account. This page submits configuration intent only; runtime, order, and live authority remain governed by independent evidence and lifecycle gates.",
+        planScopeTitle: "Choose scope",
+        planScopeSubtitle: "Platform, account, strategy, and target environment",
+        planRuntimeTitle: "Runtime protection",
+        planRuntimeSubtitle: "Disable state, plugins, and overlays share one plan boundary",
+        planOverlayTitle: "Strategy overlays",
+        planOverlaySubtitle: "Only strategy-defined default guardrails are available",
+        planCashSubtitle: "Cash reserve takes precedence over margin; they cannot override together",
+        activePlatform: "Target platform",
         account: "Target account",
         strategy: "Strategy",
-        mode: "Mode",
-        live: "Live",
-        paper: "Dry run",
+        mode: "Target environment",
+        live: "Live (independent approval required)",
+        paper: "Non-live",
+        liveModeUnavailable: "No candidate currently meets the strategy-release, runtime-eligibility, and evidence gates for Live. Keep this plan non-live.",
         runtimeTargetMode: "Account status",
         runtimeSectionTitle: "Runtime and plugins",
         runtimeTargetCurrent: "Keep current status",
@@ -1173,7 +1209,7 @@
         cashOnlyExecutionValueNo: "No",
         currentCashOnlyExecution: "Current allow margin",
         pendingCashOnlyExecution: "Pending allow margin",
-        executionCashPolicyTitle: "Cash and margin",
+        executionCashPolicyTitle: "Capital boundary",
         executionCashPolicyNote: "Allow margin and reserve-cash overrides cannot both apply. Yes clears reserve overrides; reserve overrides force No.",
         executionCashMarginBlocksReserve: "Allow margin is selected; submitting will clear reserve-cash overrides.",
         executionCashReserveBlocksMargin: "Reserve-cash override is active; submitting will force allow margin to No.",
@@ -1206,18 +1242,32 @@
         reservedCashDefault: "Not configured (platform default: 0 {currency} / 0%)",
         reservedCashMeta: "Fixed cash floor. Use alone or with a ratio.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
-        summary: "Current / Pending",
+        summary: "Risk and change summary",
+        summaryCurrent: "Current boundary",
+        summaryPending: "Pending change",
+        planReadinessTitle: "Before submission",
+        planCheckAccount: "Account and scope",
+        planCheckStrategy: "Strategy and environment",
+        planCheckRisk: "Cash and risk boundary",
+        planCheckAuthority: "Live execution authority",
+        planCheckWaiting: "Waiting",
+        planCheckSelected: "Read",
+        planCheckValid: "Checked",
+        planCheckFix: "Needs correction",
+        planCheckNonLive: "Non-live",
+        planCheckNoAuthority: "Not granted",
+        planAuditNote: "A submission creates an audit record; it is not an order, funding, or live permission.",
         copySummary: "Copy state",
-        loginToRun: "Sign in to switch",
+        loginToRun: "Sign in to submit a plan",
         loadingConfig: "Loading config",
         configureAccounts: "Configure accounts",
-        runSwitch: "Switch now",
+        runSwitch: "Submit bounded change",
         noChanges: "No changes",
-        readonlyNote: "Sign in to switch.",
+        readonlyNote: "Sign in to submit a bounded configuration.",
         publicReadonly: "Sign in to view account config.",
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
-        readyNote: "This dispatches the workflow and syncs the target platform service.",
+        readyNote: "This submits a bounded configuration change; it grants no order, funding, or live authority.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
@@ -1228,7 +1278,7 @@
         publicWorkerTitle: "Worker-side dispatch",
         publicWorkerText: "Tokens stay server-side; the browser submits intent only.",
         publicAuditTitle: "Traceable changes",
-        publicAuditText: "Switches run through GitHub Actions for audit and rollback.",
+        publicAuditText: "Bounded configuration changes run through GitHub Actions for audit and rollback.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -1776,6 +1826,10 @@
         }
       };
       return choices;
+    }
+
+    function hasLiveStrategyOption(platform = state.selected, account = selectedAccount(platform)) {
+      return strategyOptions.some((profile) => strategyAllowedForAccount(platform, account, profile, "live"));
     }
 
     function strategyLabel(profile) {
@@ -3288,15 +3342,15 @@
         el("dca-base-meta").textContent = t("dcaModeMeta");
       }
 
-      if (platformDryRunOnly(platform)) {
-        form.executionMode = "paper";
-      }
+      const liveModeAvailable = !platformDryRunOnly(platform) && hasLiveStrategyOption(platform, account);
+      if (platformDryRunOnly(platform)) form.executionMode = "paper";
       document.querySelectorAll("#mode-control [data-mode]").forEach((button) => {
-        const dryRunOnly = platformDryRunOnly(platform);
-        button.disabled = dryRunOnly && button.dataset.mode === "live";
+        button.disabled = button.dataset.mode === "live" && !liveModeAvailable;
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
       });
-      el("mode-meta").textContent = platformDryRunOnly(platform) ? t("qmtDryRunOnlyNote") : "";
+      el("mode-meta").textContent = platformDryRunOnly(platform)
+        ? t("qmtDryRunOnlyNote")
+        : (!liveModeAvailable ? t("liveModeUnavailable") : "");
     }
 
     function renderSummary() {
@@ -3311,7 +3365,19 @@
       const list = el("summary-list");
       list.replaceChildren();
       document.querySelector(".summary-head h2").textContent = t("summary");
+      const currentHeading = document.createElement("p");
+      currentHeading.className = "summary-section-title";
+      currentHeading.textContent = t("summaryCurrent");
+      list.appendChild(currentHeading);
+      let pendingSectionInserted = false;
       for (const [label, value, rowClass, valueTone] of summaryRows(inputs)) {
+        if (!pendingSectionInserted && rowClass === "pending") {
+          const pendingHeading = document.createElement("p");
+          pendingHeading.className = "summary-section-title";
+          pendingHeading.textContent = t("summaryPending");
+          list.appendChild(pendingHeading);
+          pendingSectionInserted = true;
+        }
         const row = document.createElement("div");
         row.className = "summary-row";
         row.setAttribute("role", "listitem");
@@ -3337,6 +3403,44 @@
       const currentEntry = currentEntryForAccount(state.selected, account);
       const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
       el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
+    }
+
+    function setPlanCheck(id, value, tone) {
+      const node = el(id);
+      if (!node) return;
+      node.textContent = value;
+      node.dataset.tone = tone || "neutral";
+    }
+
+    function renderPlanReadiness() {
+      const platform = state.selected;
+      const account = selectedAccount(platform);
+      const configured = hasPrivateConfig() && Boolean(account?.key);
+      const runnable = configured && hasRunnableStrategySelection(platform);
+      const riskValid = configured && hasValidExecutionCashPolicy(platform) &&
+        hasValidIncomeLayerPolicy(platform) && hasValidOptionOverlayPolicy(platform) && hasValidDcaPolicy(platform);
+      const form = state.forms[platform];
+      const isNonLive = normalizeExecutionMode(form?.executionMode, false) !== "live";
+      setPlanCheck(
+        "plan-check-account",
+        configured ? t("planCheckSelected") : t("planCheckWaiting"),
+        configured ? "ready" : "neutral",
+      );
+      setPlanCheck(
+        "plan-check-strategy",
+        runnable ? t("planCheckValid") : (configured ? t("planCheckFix") : t("planCheckWaiting")),
+        runnable ? "ready" : (configured ? "warning" : "neutral"),
+      );
+      setPlanCheck(
+        "plan-check-risk",
+        riskValid ? t("planCheckValid") : (configured ? t("planCheckFix") : t("planCheckWaiting")),
+        riskValid ? "ready" : (configured ? "warning" : "neutral"),
+      );
+      setPlanCheck(
+        "plan-check-authority",
+        isNonLive ? t("planCheckNonLive") : t("planCheckNoAuthority"),
+        isNonLive ? "ready" : "warning",
+      );
     }
 
     function renderAuth() {
@@ -3850,6 +3954,7 @@
       renderPlatforms();
       renderControls();
       renderSummary();
+      renderPlanReadiness();
       renderAuth();
       renderAppVisibility();
     }

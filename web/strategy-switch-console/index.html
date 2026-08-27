@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>QuantRuntimeSettings Strategy Switch</title>
+  <title>QuantStrategyLab 控制台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='10' y1='8' x2='38' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop stop-color='%230b8a80'/%3E%3Cstop offset='1' stop-color='%23075f62'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='24' cy='24' r='22' fill='url(%23g)'/%3E%3Cpath d='M17 31 31 17M22 16h10v10' fill='none' stroke='white' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/app.css">
 
@@ -23,8 +23,8 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
 <body class="app-loading">
   <header class="topbar">
     <div class="brand">
-      <h1 data-i18n="appTitle">策略切换</h1>
-      <p data-i18n="appSubtitle">选平台、目标账号和策略，一次执行完成切换。</p>
+      <h1 data-i18n="appTitle">QuantStrategyLab</h1>
+      <p data-i18n="appSubtitle">已验证证据、运行许可和所有者决策。</p>
     </div>
     <div class="top-actions">
       <span class="pill ready auth-status" id="auth-status" hidden></span>
@@ -52,17 +52,17 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
       <script type="application/json" id="runtime-authority-metadata">window.__QSL_RUNTIME_AUTHORITY_STATUS__ execution_metadata_is_runtime_authority P1–P3 non-live 数据获取仍需独立、精确的契约 requestJson("/api/execution-evidence")</script>
     </aside>
     <nav class="console-nav" aria-label="控制中心视图">
-      <button class="console-nav__button active" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">全局概览</button>
-      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">策略健康</button>
-      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">实盘切换</button>
+      <button class="console-nav__button active" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">待处理</button>
+      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">运行计划</button>
+      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">运行保障</button>
     </nav>
 
     <section class="health-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
       <div class="health-head">
         <div>
-          <span class="eyebrow" data-i18n="controlPlaneEyebrow">全局控制面</span>
-          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">今天需要知道什么。</h2>
-          <p data-i18n="controlPlaneSubtitle">只显示经过验证的候选、日更证据和需要所有者决定的事项；没有快照时不推断状态。</p>
+          <span class="eyebrow" data-i18n="controlPlaneEyebrow">今日待处理 / 只读</span>
+          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">只处理需要你决定的事。</h2>
+          <p data-i18n="controlPlaneSubtitle">这里不是交易大屏：只显示经验证的待办、证据是否足够，以及需要人工做出的边界决定。</p>
         </div>
         <div class="health-meta">
           <span id="control-plane-status" class="pill">等待登录</span>
@@ -76,22 +76,26 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
         <article><span data-i18n="controlParked">已停车</span><strong id="control-count-parked">0</strong></article>
         <article><span data-i18n="controlOwnerDecision">等待我决定</span><strong id="control-count-owner-decision">0</strong></article>
       </div>
-      <div class="health-board-head"><h3 data-i18n="controlCandidateBoard">候选生命周期</h3></div>
+      <div class="health-board-head"><h3 data-i18n="controlCandidateBoard">需要跟进</h3></div>
       <div class="health-list" id="control-plane-list"></div>
-      <div class="health-board-head"><h3 data-i18n="executionEvidenceBoard">策略 × 平台执行证据 / 只读</h3></div>
-      <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证执行证据；页面不会推断 paper 或 live 状态。</div>
-      <div class="health-list" id="execution-evidence-list"></div>
-      <div class="health-board-head"><h3 data-i18n="researchTaskBoard">研究任务队列 / 只读</h3></div>
-      <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证研究任务；不会运行或调参。</div>
-      <div class="health-list" id="research-task-list"></div>
+      <details class="control-disclosure">
+        <summary data-i18n="executionEvidenceBoard">按需查看策略 × 平台证据覆盖</summary>
+        <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证执行证据；页面不会推断 paper 或 live 状态。</div>
+        <div class="health-list" id="execution-evidence-list"></div>
+      </details>
+      <details class="control-disclosure">
+        <summary data-i18n="researchTaskBoard">按需查看研究任务队列</summary>
+        <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证研究任务；不会运行或调参。</div>
+        <div class="health-list" id="research-task-list"></div>
+      </details>
     </section>
 
     <section class="health-view" id="health-view" aria-labelledby="health-view-title" hidden>
       <div class="health-head">
         <div>
-          <span class="eyebrow" data-i18n="healthEyebrow">策略健康 / 只读</span>
-          <h2 id="health-view-title" data-i18n="healthTitle">先看机器结论，再决定动作。</h2>
-          <p data-i18n="healthSubtitle">健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。</p>
+          <span class="eyebrow" data-i18n="healthEyebrow">运行保障 / 只读</span>
+          <h2 id="health-view-title" data-i18n="healthTitle">先看机器结论，再决定是否介入。</h2>
+          <p data-i18n="healthSubtitle">健康不是实盘许可；它只告诉你是否要复核、降级或保持观察。</p>
         </div>
         <div class="health-meta">
           <span id="health-status" class="pill">等待登录</span>
@@ -120,12 +124,17 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
     </section>
 
     <section id="switch-view" hidden>
+    <header class="plan-intro">
+      <span class="eyebrow" data-i18n="planEyebrow">运行计划 / 受限变更</span>
+      <h2 data-i18n="planTitle">先定义边界，再提交配置。</h2>
+      <p data-i18n="planSubtitle">一次只为一个平台和账号准备一个可审计的运行计划。页面只提交配置意图；运行、订单和实盘授权由独立的证据与阶段门槛决定。</p>
+    </header>
     <nav class="platform-strip" id="platform-strip" aria-label="Platforms"></nav>
 
     <section class="switch-surface">
       <div class="switch-panel" id="switch-panel">
         <div class="panel-head">
-          <span class="eyebrow" data-i18n="activePlatform">当前平台</span>
+          <span class="eyebrow" data-i18n="activePlatform">目标平台</span>
           <h2 id="platform-title">LongBridge</h2>
         </div>
 
@@ -147,6 +156,10 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
         </div>
 
         <div class="quick-form" id="quick-form">
+          <div class="form-step" aria-hidden="true">
+            <span>01</span>
+            <div><strong data-i18n="planScopeTitle">选择范围</strong><small data-i18n="planScopeSubtitle">平台、账号、策略与目标环境</small></div>
+          </div>
           <label class="control-block account-block">
             <span data-i18n="account">目标账号</span>
             <select id="account-select"></select>
@@ -169,6 +182,10 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
           </div>
 
           <div class="form-section runtime-section">
+            <div class="form-section-heading">
+              <span>02</span>
+              <div><strong data-i18n="planRuntimeTitle">运行保护</strong><small data-i18n="planRuntimeSubtitle">停用、插件和附加层都受同一计划约束</small></div>
+            </div>
             <label class="control-block account-status-block">
               <span data-i18n="runtimeTargetMode">账号运行状态</span>
               <select id="runtime-target-enabled-select"></select>
@@ -184,6 +201,10 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
           </div>
 
           <div class="form-section income-layer-section" id="income-layer-section">
+            <div class="form-section-heading">
+              <span>03</span>
+              <div><strong data-i18n="planOverlayTitle">策略附加层</strong><small data-i18n="planOverlaySubtitle">仅使用策略已定义的默认边界</small></div>
+            </div>
             <label class="control-block income-layer-mode-block section-wide">
               <span data-i18n="incomeLayerMode">收入层状态</span>
               <select id="income-layer-mode-select"></select>
@@ -212,7 +233,10 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
           </div>
 
           <div class="form-section execution-cash-policy-section" id="execution-cash-policy-section">
-            <h3 class="execution-cash-policy-heading" data-i18n="executionCashPolicyTitle">现金与融资</h3>
+            <div class="form-section-heading">
+              <span>04</span>
+              <div><strong data-i18n="executionCashPolicyTitle">资本边界</strong><small data-i18n="planCashSubtitle">现金预留优先于融资；两者不能同时覆盖</small></div>
+            </div>
             <p class="execution-cash-policy-note" id="execution-cash-policy-note" data-i18n="executionCashPolicyNote">允许融资与预留现金覆盖不能同时生效。</p>
             <p class="execution-cash-policy-note qmt-platform-cash-note" id="qmt-platform-cash-note" hidden data-i18n="qmtPlatformCashNote">A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。</p>
             <div class="execution-cash-policy-grid" id="execution-cash-policy-grid">
@@ -258,20 +282,30 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
         </div>
 
         <div class="run-area" id="run-area">
-          <button class="run-button" id="dispatch-button" type="button" disabled data-i18n="loginToRun">登录后切换</button>
-          <p class="action-note" id="action-note">登录后才可执行切换。</p>
+          <button class="run-button" id="dispatch-button" type="button" disabled data-i18n="loginToRun">登录后提交计划</button>
+          <p class="action-note" id="action-note">登录后才可提交受限配置。</p>
           <p class="toast" id="toast" aria-live="polite"></p>
         </div>
       </div>
 
       <aside class="summary-panel">
         <div class="summary-head">
-          <h2 data-i18n="summary">切换摘要</h2>
+          <h2 data-i18n="summary">风险与变更摘要</h2>
           <span class="pill" id="mode-pill">live</span>
         </div>
         <div class="summary-list" id="summary-list" role="list"></div>
+        <section class="plan-readiness" aria-labelledby="plan-readiness-title">
+          <h3 id="plan-readiness-title" data-i18n="planReadinessTitle">提交前核对</h3>
+          <ul>
+            <li><span data-i18n="planCheckAccount">账号与作用范围</span><strong id="plan-check-account">等待配置</strong></li>
+            <li><span data-i18n="planCheckStrategy">策略与目标环境</span><strong id="plan-check-strategy">等待选择</strong></li>
+            <li><span data-i18n="planCheckRisk">现金与风险边界</span><strong id="plan-check-risk">等待核对</strong></li>
+            <li><span data-i18n="planCheckAuthority">实盘执行授权</span><strong id="plan-check-authority">未授予</strong></li>
+          </ul>
+        </section>
         <div class="summary-actions">
           <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制状态</button>
+          <p data-i18n="planAuditNote">提交记录会写入审计链；它不等同于订单、资金或实盘许可。</p>
         </div>
       </aside>
     </section>
