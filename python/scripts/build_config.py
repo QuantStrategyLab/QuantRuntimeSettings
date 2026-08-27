@@ -42,6 +42,10 @@ SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
 FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path"}
 RUNTIME_MODELS = {"cloud_run", "oracle_vps_self_hosted", "not_configured"}
+EXECUTION_MODES = {"live", "paper", "dry_run"}
+# ``paper`` remains a future P4 capability. The executable non-live path is
+# the no-order ``dry_run`` route declared by every registered platform.
+CONTROL_EXECUTION_MODES = {"live", "dry_run"}
 SETTINGS_ACTIVATION_MODES = {
     "cloud_run_sync_workflow",
     "next_runtime_workflow_dispatch",
@@ -137,6 +141,34 @@ def validate(config: dict) -> list[str]:
             )
         if not isinstance(deployment.get("live_configured"), bool):
             errors.append(f"platform {pid}: live_configured must be boolean")
+        supported_execution_modes = deployment.get("supported_execution_modes")
+        if not isinstance(supported_execution_modes, list) or not supported_execution_modes:
+            errors.append(f"platform {pid}: supported_execution_modes must be a non-empty list")
+            supported_execution_modes = []
+        elif any(
+            not isinstance(mode, str) or mode not in CONTROL_EXECUTION_MODES
+            for mode in supported_execution_modes
+        ):
+            errors.append(
+                f"platform {pid}: supported_execution_modes must only contain "
+                f"{sorted(CONTROL_EXECUTION_MODES)}"
+            )
+        elif len(set(supported_execution_modes)) != len(supported_execution_modes):
+            errors.append(f"platform {pid}: supported_execution_modes must not contain duplicates")
+        default_execution_mode = deployment.get("default_execution_mode")
+        if default_execution_mode not in EXECUTION_MODES:
+            errors.append(f"platform {pid}: unsupported default_execution_mode {default_execution_mode!r}")
+        elif default_execution_mode not in supported_execution_modes:
+            errors.append(
+                f"platform {pid}: default_execution_mode {default_execution_mode!r} "
+                "must be listed in supported_execution_modes"
+            )
+        if deployment.get("live_configured") is False and "live" in supported_execution_modes:
+            errors.append(f"platform {pid}: live_configured false cannot advertise live execution")
+        if deployment.get("dry_run_only") is True and supported_execution_modes != ["dry_run"]:
+            errors.append(
+                f"platform {pid}: dry_run_only true requires supported_execution_modes ['dry_run']"
+            )
         if settings_activation == "cloud_run_sync_workflow" and runtime_model != "cloud_run":
             errors.append(
                 f"platform {pid}: settings_activation {settings_activation!r} "
@@ -230,6 +262,17 @@ def validate(config: dict) -> list[str]:
                     f"strategy {sid}: scheduler timezone {scheduler_timezone!r} "
                     f"must match market_timezone {market_timezone!r}"
                 )
+        allowed_execution_modes = _normalize_allowed_execution_modes(sdata.get("allowed_execution_modes"))
+        if not allowed_execution_modes:
+            errors.append(f"strategy {sid}: allowed_execution_modes must be a non-empty list")
+        elif any(mode not in EXECUTION_MODES for mode in allowed_execution_modes):
+            errors.append(
+                f"strategy {sid}: allowed_execution_modes must only contain {sorted(EXECUTION_MODES)}"
+            )
+        elif "dry_run" not in allowed_execution_modes:
+            errors.append(
+                f"strategy {sid}: allowed_execution_modes must include dry_run for the universal no-order path"
+            )
         plugin_overrides = sdata.get("scheduler_profile_by_plugin", {})
         if not isinstance(plugin_overrides, dict):
             errors.append(f"strategy {sid}: scheduler_profile_by_plugin must be an object")
@@ -308,6 +351,63 @@ def validate(config: dict) -> list[str]:
                 f"strategy {sid}: live feature snapshot requires path and manifest_path"
             )
     return errors
+
+
+def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict[str, object]:
+    """Report whether every strategy has at least one no-order platform route.
+
+    This is a control-plane coverage proof, not a claim that P4 paper, P5
+    shadow, broker credentials, or a scheduler is active. A route exists only
+    when the strategy domain and both sides' ``dry_run`` declarations agree.
+    """
+    config = config if config is not None else load_config()
+    platforms = config.get("platforms", {})
+    strategies = config.get("strategies", {})
+    rows: list[dict[str, object]] = []
+    uncovered_profiles: list[str] = []
+    route_count = 0
+
+    for profile, strategy in sorted(strategies.items()):
+        if not isinstance(strategy, dict):
+            uncovered_profiles.append(str(profile))
+            continue
+        domain = str(strategy.get("domain") or "")
+        strategy_modes = _normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
+        safe_platforms: list[str] = []
+        for platform_id, platform in sorted(platforms.items()):
+            if not isinstance(platform, dict) or domain not in platform.get("supported_domains", []):
+                continue
+            deployment = platform.get("deployment")
+            platform_modes = (
+                deployment.get("supported_execution_modes", [])
+                if isinstance(deployment, dict)
+                else []
+            )
+            if "dry_run" in strategy_modes and "dry_run" in platform_modes:
+                safe_platforms.append(str(platform_id))
+        route_count += len(safe_platforms)
+        if not safe_platforms:
+            uncovered_profiles.append(str(profile))
+        rows.append(
+            {
+                "profile": str(profile),
+                "domain": domain,
+                "dry_run_platforms": safe_platforms,
+            }
+        )
+
+    return {
+        "schema_version": "strategy_platform_dry_run_coverage.v1",
+        "summary": {
+            "strategy_count": len(rows),
+            "covered_strategy_count": len(rows) - len(uncovered_profiles),
+            "uncovered_strategy_count": len(uncovered_profiles),
+            "dry_run_route_count": route_count,
+        },
+        "uncovered_profiles": uncovered_profiles,
+        "profiles": rows,
+        "boundary": "No-order dry_run coverage only; it does not assert P4/P5/P6 runtime authority.",
+    }
 
 
 def validate_notification_references(config: dict, errors: list[str]) -> None:
@@ -568,6 +668,7 @@ def build_platform_health_report(
     catalog = _strategy_catalog_by_profile(strategy_catalog)
     config_errors = validate(config)
     derivation_errors = report_strategy_profile_derivation_drift(config, catalog)
+    dry_run_coverage = build_strategy_platform_dry_run_coverage(config)
     live_candidate_queue = build_live_candidate_queue(catalog)
     automation_registry = build_strategy_automation_registry(config)
     runtime_enabled_profiles = [
@@ -587,6 +688,19 @@ def build_platform_health_report(
             "status": "fail" if derivation_errors else "pass",
             "severity": "critical",
             "messages": derivation_errors,
+        },
+        {
+            "name": "strategy_platform_dry_run_coverage",
+            "status": "fail" if dry_run_coverage["uncovered_profiles"] else "pass",
+            "severity": "critical",
+            "messages": (
+                [
+                    "no configured no-order platform route for: "
+                    + ", ".join(dry_run_coverage["uncovered_profiles"])
+                ]
+                if dry_run_coverage["uncovered_profiles"]
+                else []
+            ),
         },
         {
             "name": "live_candidate_queue",
@@ -619,9 +733,13 @@ def build_platform_health_report(
             "strategy_profile_count": len(catalog),
             "runtime_enabled_switchable_count": len(runtime_enabled_profiles),
             "live_candidate_queue_count": len(live_candidate_queue),
+            "dry_run_covered_strategy_count": dry_run_coverage["summary"]["covered_strategy_count"],
+            "dry_run_uncovered_strategy_count": dry_run_coverage["summary"]["uncovered_strategy_count"],
+            "dry_run_route_count": dry_run_coverage["summary"]["dry_run_route_count"],
             "automation_lane_counts": automation_registry["summary"]["lane_counts"],
         },
         "live_candidate_queue": live_candidate_queue,
+        "strategy_platform_dry_run_coverage": dry_run_coverage,
         "automation_registry": automation_registry,
         "codex_repair_context": {
             "safe_to_attempt": bool(failed_checks),

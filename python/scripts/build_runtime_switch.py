@@ -629,8 +629,11 @@ def _execution_mode_and_dry_run(raw_mode: str) -> tuple[str, bool]:
     if mode == "live":
         return "live", False
     if mode in {"paper", "dry_run", "dry-run"}:
+        # Platform sync adapters currently consume this legacy no-order
+        # envelope. Policy validation maps it back to the canonical dry_run
+        # control mode; do not alter deployed payload compatibility here.
         return "paper", True
-    raise ValueError("execution_mode must be live or paper")
+    raise ValueError("execution_mode must be live, paper, or dry_run")
 
 
 def _load_platform_config() -> dict[str, Any]:

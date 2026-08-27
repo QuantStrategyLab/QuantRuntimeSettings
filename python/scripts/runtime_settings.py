@@ -376,6 +376,11 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
     if execution_mode not in {"live", "paper", "dry_run"}:
         errors.append("runtime_target.execution_mode must be live, paper, or dry_run")
     else:
+        dry_run_only = runtime_target.get("dry_run_only")
+        if execution_mode == "live" and dry_run_only is not False:
+            errors.append("runtime_target.execution_mode live requires dry_run_only false")
+        if execution_mode == "dry_run" and dry_run_only is not True:
+            errors.append("runtime_target.execution_mode dry_run requires dry_run_only true")
         validate_runtime_target_strategy_policy(runtime_target, errors)
 
     execution_windows = runtime_target.get("execution_windows")
@@ -574,7 +579,7 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
                         f"{domain}: expected {expected_timezone!r}"
                     )
 
-    execution_mode = str(runtime_target.get("execution_mode") or "").strip().lower()
+    execution_mode = effective_execution_mode(runtime_target)
     deployment = platform.get("deployment", {}) if isinstance(platform, dict) else {}
     if (
         execution_mode == "live"
@@ -582,6 +587,15 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
         and deployment.get("live_configured") is False
     ):
         errors.append(f"platform {platform_id} has no live runtime configuration")
+    supported_execution_modes = (
+        normalize_allowed_execution_modes(deployment.get("supported_execution_modes"))
+        if isinstance(deployment, dict)
+        else []
+    )
+    if supported_execution_modes and execution_mode not in supported_execution_modes:
+        errors.append(
+            f"platform {platform_id} does not support {execution_mode} control execution"
+        )
     allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
     if allowed_modes and execution_mode not in allowed_modes:
         errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")
@@ -620,6 +634,20 @@ def normalize_allowed_execution_modes(value: Any) -> list[str]:
         if mode and mode not in modes:
             modes.append(mode)
     return modes
+
+
+def effective_execution_mode(runtime_target: dict[str, Any]) -> str:
+    """Return the policy mode without changing a legacy serialized target.
+
+    ``execution_mode=paper`` combined with ``dry_run_only=true`` is the
+    deployed no-order envelope, not a P4 paper-broker authorization. The
+    manual switch accepts canonical ``dry_run`` and serializes that envelope
+    until every platform parser has migrated.
+    """
+    mode = str(runtime_target.get("execution_mode") or "").strip().lower()
+    if runtime_target.get("dry_run_only") is True and mode in {"paper", "dry_run"}:
+        return "dry_run"
+    return mode
 
 
 def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
@@ -663,6 +691,12 @@ def validate_plugin_mounts(target: dict[str, Any], errors: list[str]) -> None:
             not isinstance(expected_schema_version, str) or not expected_schema_version.strip()
         ):
             errors.append(f"plugin_mounts[{index}].expected_schema_version must be a non-empty string")
+
+        expected_mode = mount.get("expected_mode")
+        if not isinstance(expected_mode, str) or expected_mode not in {"dry_run", "paper", "shadow"}:
+            errors.append(
+                f"plugin_mounts[{index}].expected_mode must be dry_run, paper, or shadow; plugins cannot request live execution"
+            )
 
         signal_path = mount.get("signal_path")
         if not isinstance(signal_path, str) or not signal_path.startswith("gs://"):

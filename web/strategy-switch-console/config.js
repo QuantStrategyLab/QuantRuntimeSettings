@@ -9,6 +9,10 @@ export const PLATFORM_CONFIG = {
     "income_layer": true,
     "option_overlay": true,
     "dca": true,
+    "supported_execution_modes": [
+      "live",
+      "dry_run"
+    ],
     "execution_mode": "live",
     "service_name": "",
     "default_execution_mode": "live"
@@ -20,6 +24,10 @@ export const PLATFORM_CONFIG = {
     "income_layer": true,
     "option_overlay": true,
     "dca": true,
+    "supported_execution_modes": [
+      "live",
+      "dry_run"
+    ],
     "execution_mode": "live",
     "service_name": "",
     "default_execution_mode": "live"
@@ -31,6 +39,10 @@ export const PLATFORM_CONFIG = {
     "income_layer": true,
     "option_overlay": true,
     "dca": true,
+    "supported_execution_modes": [
+      "live",
+      "dry_run"
+    ],
     "execution_mode": "live",
     "service_name": "charles-schwab-quant-service",
     "default_execution_mode": "live"
@@ -42,6 +54,10 @@ export const PLATFORM_CONFIG = {
     "income_layer": true,
     "option_overlay": true,
     "dca": true,
+    "supported_execution_modes": [
+      "live",
+      "dry_run"
+    ],
     "execution_mode": "live",
     "service_name": "firstrade-quant-service",
     "default_execution_mode": "live"
@@ -53,9 +69,12 @@ export const PLATFORM_CONFIG = {
     "income_layer": false,
     "option_overlay": false,
     "dca": false,
-    "execution_mode": "paper",
+    "supported_execution_modes": [
+      "dry_run"
+    ],
+    "execution_mode": "dry_run",
     "service_name": "qmt-quant-service",
-    "default_execution_mode": "paper"
+    "default_execution_mode": "dry_run"
   },
   "binance": {
     "dry_run_only": false,
@@ -64,6 +83,10 @@ export const PLATFORM_CONFIG = {
     "income_layer": false,
     "option_overlay": false,
     "dca": false,
+    "supported_execution_modes": [
+      "live",
+      "dry_run"
+    ],
     "execution_mode": "live",
     "service_name": "binance-platform",
     "default_execution_mode": "live"
@@ -86,7 +109,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:eed631b330b329cc9e515e5c2afe06c68cb637553b58f405d8f386fef6efd480",
+    "content_sha256": "sha256:9c54a03655d96b4378489ad676e2f51e78f764b223b19ed6a13c6f0ebbbad8bd",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -564,7 +587,7 @@ export const DEFAULT_ACCOUNT_OPTIONS = {
       ],
       "cash_currency": "CNY",
       "service_name": "qmt-quant-service",
-      "default_execution_mode": "paper"
+      "default_execution_mode": "dry_run"
     }
   ],
   "binance": [

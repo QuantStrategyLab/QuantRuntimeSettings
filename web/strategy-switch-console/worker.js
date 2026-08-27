@@ -3090,9 +3090,9 @@ function normalizeSwitchInputs(raw) {
   const targetName = cleanSlug(raw.target_name, "target_name");
   const strategyProfile = cleanSlug(raw.strategy_profile, "strategy_profile").toLowerCase();
   assertDcaPlatform(platform, strategyProfile);
-  const executionMode = cleanChoice(raw.execution_mode || "live", ["live", "paper"], "execution_mode");
-  if (platform === "qmt" && executionMode === "live") {
-    throw new Error("QMT platform does not support live execution yet; use paper/dry_run mode");
+  const executionMode = cleanExecutionMode(raw.execution_mode || "live");
+  if (!supportedExecutionModesForPlatform(platform).includes(executionMode)) {
+    throw new Error(`${platform} does not support ${executionMode} control execution`);
   }
   const requestedPluginMode = cleanChoice(raw.plugin_mode || "none", ["auto", "none"], "plugin_mode");
   const pluginMode = requestedPluginMode === "auto" ? "none" : requestedPluginMode;
@@ -3231,6 +3231,9 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
     );
   }
   const executionMode = cleanExecutionMode(inputs.execution_mode);
+  if (!supportedExecutionModesForPlatform(inputs.platform).includes(executionMode)) {
+    throw new Error(`${inputs.platform} does not support ${executionMode} control execution`);
+  }
   const allowedModes = strategy.allowed_execution_modes || [];
   if (executionMode === "live") {
     const lifecycleStage = cleanLifecycleStage(strategy.lifecycle_stage || "research_active");
@@ -3819,7 +3822,14 @@ function cleanAllowedExecutionModes(value) {
 }
 
 function cleanExecutionMode(value) {
-  return cleanChoice(value || "live", ["live", "paper"], "execution_mode");
+  const mode = cleanChoice(value || "live", ["live", "paper", "dry_run"], "execution_mode");
+  return mode === "paper" ? "dry_run" : mode;
+}
+
+function supportedExecutionModesForPlatform(platform) {
+  const modes = PLATFORM_CONFIG[platform]?.supported_execution_modes;
+  if (!Array.isArray(modes)) return [];
+  return modes.filter((mode) => mode === "live" || mode === "dry_run");
 }
 
 function requireSameOrigin(request, options = {}) {
@@ -4093,9 +4103,10 @@ function runtimeModePayload(runtimeTarget) {
 
 function normalizeRuntimeExecutionMode(value, dryRunOnly) {
   const mode = String(value || "").trim().toLowerCase();
-  if (mode === "live" || mode === "paper") return mode;
+  if (mode === "live" || mode === "dry_run") return mode;
+  if (mode === "paper" && cleanOptionalBoolean(dryRunOnly) !== true) return mode;
   const dryRun = cleanOptionalBoolean(dryRunOnly);
-  if (dryRun === true) return "paper";
+  if (dryRun === true) return "dry_run";
   if (dryRun === false) return "live";
   return "";
 }
