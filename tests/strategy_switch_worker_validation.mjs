@@ -2180,6 +2180,106 @@ const recordedOwnerDecisionQueue = await worker.fetch(
 const recordedOwnerDecisionPayload = await recordedOwnerDecisionQueue.json();
 assert.equal(recordedOwnerDecisionPayload.candidates[0].intent.decision, "keep_parked");
 
+const riskProfileStore = new Map();
+const riskProfileKv = {
+  async get(key) { return riskProfileStore.get(key) || null; },
+  async put(key, value) { riskProfileStore.set(key, value); },
+};
+const riskProfileEnv = {
+  SESSION_SECRET: "risk-profile-session-value",
+  ALLOWED_GITHUB_LOGINS: "risk-admin,risk-reader",
+  STRATEGY_SWITCH_ADMIN_LOGINS: "risk-admin",
+  STRATEGY_SWITCH_CONFIG: riskProfileKv,
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({
+    longbridge: [{ key: "sg", label: "Singapore", target_name: "sg" }],
+    schwab: [{ key: "default", label: "US", target_name: "default" }],
+  }),
+};
+const riskAdminCookie = await __test.makeSession("risk-admin", [], riskProfileEnv);
+const riskReaderCookie = await __test.makeSession("risk-reader", [], riskProfileEnv);
+const riskAdminHeaders = { Cookie: `qsl_switch_session=${riskAdminCookie}` };
+const riskReaderHeaders = { Cookie: `qsl_switch_session=${riskReaderCookie}` };
+
+const initialRiskProfiles = await worker.fetch(
+  new Request("https://switch.example/api/risk-profiles", { headers: riskAdminHeaders }),
+  riskProfileEnv,
+);
+assert.equal(initialRiskProfiles.status, 200);
+assert.deepEqual((await initialRiskProfiles.json()).bindings, []);
+
+const riskProfileWrite = await worker.fetch(
+  new Request("https://switch.example/api/risk-profiles", {
+    method: "POST",
+    headers: { ...riskAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bindings: [{ platform: "longbridge", target_name: "sg", risk_preference: "BALANCED_COMPOUNDING" }],
+    }),
+  }),
+  riskProfileEnv,
+);
+assert.equal(riskProfileWrite.status, 200);
+const riskProfileWritePayload = await riskProfileWrite.json();
+assert.equal(riskProfileWritePayload.no_order, true);
+assert.equal(riskProfileWritePayload.execution_authority_granted, false);
+assert.equal(riskProfileWritePayload.bindings[0].scope_id, "longbridge--sg");
+assert.equal(riskProfileWritePayload.bindings[0].profile_selection.schema, "qsl.risk_profile_selection.v1");
+assert.equal(riskProfileWritePayload.bindings[0].profile_selection.profile_id, "balanced_compounding_v1");
+assert.equal(riskProfileWritePayload.bindings[0].profile_selection.risk_preference, "BALANCED_COMPOUNDING");
+assert.match(riskProfileWritePayload.bindings[0].profile_selection.selection_sha256, /^[0-9a-f]{64}$/);
+assert.match(riskProfileWritePayload.bindings[0].binding_sha256, /^[0-9a-f]{64}$/);
+assert.equal(riskProfileStore.has("risk_profile_bindings"), true);
+assert.equal((await worker.fetch(
+  new Request("https://switch.example/api/risk-profiles", { headers: riskReaderHeaders }),
+  riskProfileEnv,
+)).status, 403);
+
+const invalidRiskProfileTarget = await worker.fetch(
+  new Request("https://switch.example/api/risk-profiles", {
+    method: "POST",
+    headers: { ...riskAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      bindings: [{ platform: "longbridge", target_name: "missing", risk_preference: "BALANCED_COMPOUNDING" }],
+    }),
+  }),
+  riskProfileEnv,
+);
+assert.equal(invalidRiskProfileTarget.status, 400);
+assert.match((await invalidRiskProfileTarget.json()).error, /not configured/);
+
+const crossOriginRiskProfileWrite = await worker.fetch(
+  new Request("https://switch.example/api/risk-profiles", {
+    method: "POST",
+    headers: { ...riskAdminHeaders, Origin: "https://evil.example", "Content-Type": "application/json" },
+    body: JSON.stringify({ bindings: [] }),
+  }),
+  riskProfileEnv,
+);
+assert.equal(crossOriginRiskProfileWrite.status, 403);
+
+const tamperedRiskRegistry = JSON.parse(riskProfileStore.get("risk_profile_bindings"));
+tamperedRiskRegistry.bindings[0].profile_selection.risk_preference = "GROWTH_COMPOUNDING";
+riskProfileStore.set("risk_profile_bindings", JSON.stringify(tamperedRiskRegistry));
+const tamperedRiskProfileRead = await worker.fetch(
+  new Request("https://switch.example/api/risk-profiles", { headers: riskAdminHeaders }),
+  riskProfileEnv,
+);
+assert.equal(tamperedRiskProfileRead.status, 409);
+assert.equal((await tamperedRiskProfileRead.json()).reason, "risk_profile_bindings_invalid");
+
+const directRiskProfileBindings = await __test.buildRiskProfileBindings(
+  { bindings: [{ platform: "schwab", target_name: "default", risk_preference: "CAPITAL_PRESERVATION" }] },
+  JSON.parse(riskProfileEnv.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON),
+  "risk-admin",
+);
+assert.equal(directRiskProfileBindings[0].profile_selection.profile_id, "capital_preservation_v1");
+assert.deepEqual(
+  await __test.normalizeRiskProfileBindingRegistry({
+    schema_version: "qsl.risk_profile_binding_registry.v1",
+    bindings: directRiskProfileBindings,
+  }),
+  directRiskProfileBindings,
+);
+
 const staleDecision = await worker.fetch(
   new Request("https://switch.example/api/owner-decisions", {
     method: "POST",
