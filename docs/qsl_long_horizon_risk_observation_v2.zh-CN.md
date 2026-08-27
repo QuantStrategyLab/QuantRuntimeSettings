@@ -72,7 +72,7 @@ v2 复用已验证的 v1 计算器，**仅**在以下范围输出 `ADVISORY_RECO
 | 多策略组合 | `PORTFOLIO_COMPOSER_REQUIRED` | 必须重算相关性、边际风险贡献和组合净收益 |
 | DCA 或外部现金流 | `CASHFLOW_COMPOSER_REQUIRED` | 必须使用现金流匹配、时间一致的路径 |
 | 混合、现金或绝对收益基准 | `BENCHMARK_POLICY_COMPOSER_REQUIRED` | 不能伪装为权益无杠杆基准 |
-| 非净成本总收益基准口径 | `BENCHMARK_RETURN_BASIS_COMPOSER_REQUIRED` | 当前回撤比较不具可比性 |
+| 非净成本总收益基准口径（包括 `SPLIT_ADJUSTED_PRICE_RETURN`） | `BENCHMARK_RETURN_BASIS_COMPOSER_REQUIRED` | 当前回撤比较不具可比性；拆分复权收盘价不得伪称总收益 |
 
 `PARKED` 没有尺度、最大回撤或前沿；它不是失败后的默认继续运行，更不能触发实盘动作。
 

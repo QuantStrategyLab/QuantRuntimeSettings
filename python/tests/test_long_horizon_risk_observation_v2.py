@@ -168,6 +168,17 @@ class LongHorizonRiskObservationV2Test(unittest.TestCase):
         with self.assertRaisesRegex(composer.LongHorizonRiskComposerError, "requires CASHFLOW_MATCHED_RETURN"):
             composer_v2.validate_long_horizon_risk_observation_v2(invalid)
 
+    def test_split_adjusted_price_benchmark_is_represented_but_not_mislabeled_as_total_return(self):
+        observation = self._observation()
+        observation["benchmark_policy"]["return_basis"] = "SPLIT_ADJUSTED_PRICE_RETURN"
+        observation["observation_sha256"] = composer_v2.calculate_risk_observation_v2_sha256(observation)
+
+        recommendation = composer_v2.compose_long_horizon_risk_recommendation_v2(observation, self._profile())
+
+        self.assertEqual(recommendation["status"], "PARKED")
+        self.assertEqual(recommendation["reason_codes"], ["BENCHMARK_RETURN_BASIS_COMPOSER_REQUIRED"])
+        self.assertIsNone(recommendation["recommended_scale_bps"])
+
 
 if __name__ == "__main__":
     unittest.main()

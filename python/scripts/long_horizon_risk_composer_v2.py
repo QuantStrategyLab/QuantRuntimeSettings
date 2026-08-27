@@ -105,6 +105,10 @@ _BENCHMARK_KINDS = {
 _RETURN_BASES = {
     "TOTAL_RETURN_NET_OF_COST",
     "TIME_WEIGHTED_TOTAL_RETURN",
+    # Some verified research lanes intentionally retain only split-adjusted
+    # closes.  They must be representable without being mislabeled as a total
+    # return series; the generic v1-compatible composer still parks them.
+    "SPLIT_ADJUSTED_PRICE_RETURN",
     "CASHFLOW_MATCHED_RETURN",
 }
 _RISK_FACTORS = {
