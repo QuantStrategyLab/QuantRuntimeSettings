@@ -56,4 +56,4 @@ P3 终态证据 + 已签 P4/P5 policy + 风险控制摘要
 3. 两者都在每个 cycle 前运行既有 policy gate、此风险控制校验和对账门；credential、订单 payload、账户 ID、完整仓位和原始行情不进入控制台或 AI。
 4. 把脱敏 P4/P5 receipt 作为统一控制台的来源快照，供 AI 监测和重要事件通知使用；它们仍不能自动把候选推进到 P6。
 
-当前仓内没有已签 P4/P5 policy、专用 paper 身份或已接线 executor；因此当前能力仍不包含 paper/shadow 实际运行。这个明确的 `PARKED` 状态是可恢复的准备缺口，不是把 P1–P3 一同阻塞的全局门槛。
+当前仓内没有已签 P4/P5 policy、专用 paper 身份或已接线 executor；因此当前能力仍不包含 paper/shadow 实际运行。P5 已有仅接受注入 bucket client 的 GCS 传输适配器：它按固定 cycle 读取输入、用 generation-match 仅首次写入回执，且存储异常闭合为 `PARKED`；它不列举、覆盖、删除、读取凭据、创建资源或安装 scheduler。尚无真实 bucket、workload identity、runner 或 scheduler，不能把该代码接口误读为 shadow 已运行。这个明确的 `PARKED` 状态是可恢复的准备缺口，不是把 P1–P3 一同阻塞的全局门槛。
