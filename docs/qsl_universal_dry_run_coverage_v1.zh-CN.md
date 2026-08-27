@@ -45,7 +45,7 @@
 
 ## 操作与验证
 
-控制台和 `Manual Strategy Switch` 都提供 `dry_run`。选择它会写入 `dry_run_only=true`；为兼容现有平台同步适配器，当前生成的运行目标仍使用 `execution_mode=paper` 加 `dry_run_only=true` 这个不下单载荷，控制面一律把它按 `dry_run` 校验。`paper` workflow 输入也只为旧调用兼容保留，不能当作 P4 paper 交易使用。
+控制台和 `Manual Strategy Switch` 都提供 `dry_run`。选择它会写入 `dry_run_only=true`；为兼容现有平台同步适配器，当前生成的运行目标仍使用 `execution_mode=paper` 加 `dry_run_only=true` 这个不下单载荷，控制面一律把它按 `dry_run` 校验。`paper` workflow 输入只为旧调用兼容保留，且仍受策略原有 `paper` 许可约束；它不能绕过策略许可，也不能当作 P4 paper 交易使用。
 
 提交任何策略、平台或插件配置变更前后运行：
 
