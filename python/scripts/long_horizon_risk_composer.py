@@ -29,6 +29,7 @@ from typing import Any
 
 RISK_COMPOSER_INPUT_SCHEMA_ID = "qsl.long_horizon_risk_composer_input.v1"
 RISK_COMPOSER_RECOMMENDATION_SCHEMA_ID = "qsl.long_horizon_risk_composer_recommendation.v1"
+RISK_OBSERVATION_SCHEMA_ID = "qsl.long_horizon_risk_observation.v1"
 _IDENTITY_PATTERN = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
@@ -41,10 +42,18 @@ _FORBIDDEN_KEY_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _INPUT_FIELDS = {"schema", "candidate", "source_evidence", "objective", "scenario_paths", "input_sha256"}
+_OBSERVATION_FIELDS = {"schema", "candidate", "source_evidence", "benchmark", "scenario_paths", "observation_sha256"}
 _CANDIDATE_FIELDS = {"candidate_id", "candidate_kind", "strategy_repository", "strategy_revision"}
 _SOURCE_EVIDENCE_FIELDS = {"p1_input_digest", "p2_config_digest", "p3_evidence_sha256", "plugin_bundle_sha256"}
 _OBJECTIVE_FIELDS = {"risk_preference", "benchmark_id", "benchmark_kind", "sessions_per_year"}
-_SCENARIO_FIELDS = {"scenario_id", "scenario_kind", "strategy_returns_bps", "benchmark_returns_bps"}
+_BENCHMARK_FIELDS = {"benchmark_id", "benchmark_kind", "sessions_per_year"}
+_SCENARIO_FIELDS = {
+    "scenario_id",
+    "scenario_kind",
+    "session_count",
+    "strategy_returns_bps",
+    "benchmark_returns_bps",
+}
 _RECOMMENDATION_FIELDS = {
     "schema",
     "candidate",
@@ -190,6 +199,13 @@ def calculate_risk_composer_recommendation_sha256(value: Mapping[str, Any]) -> s
     ).hexdigest()
 
 
+def calculate_risk_observation_sha256(value: Mapping[str, Any]) -> str:
+    """Return the stable identity of one private P3 return-path observation."""
+    return hashlib.sha256(
+        _canonical_json(value, "observation_sha256", "long-horizon risk observation").encode("utf-8")
+    ).hexdigest()
+
+
 def _validate_candidate(value: Any) -> dict[str, str]:
     candidate = _expect_object(value, "candidate")
     _expect_exact_keys(candidate, _CANDIDATE_FIELDS, "candidate")
@@ -234,6 +250,20 @@ def _validate_objective(value: Any) -> dict[str, Any]:
     }
 
 
+def _validate_benchmark(value: Any) -> dict[str, Any]:
+    benchmark = _expect_object(value, "benchmark")
+    _expect_exact_keys(benchmark, _BENCHMARK_FIELDS, "benchmark")
+    if benchmark["benchmark_kind"] != "unlevered_reference":
+        _fail("benchmark.benchmark_kind must be unlevered_reference")
+    return {
+        "benchmark_id": _expect_identity(benchmark["benchmark_id"], "benchmark.benchmark_id"),
+        "benchmark_kind": _expect_identity(benchmark["benchmark_kind"], "benchmark.benchmark_kind"),
+        "sessions_per_year": _expect_positive_integer(
+            benchmark["sessions_per_year"], "benchmark.sessions_per_year", maximum=366
+        ),
+    }
+
+
 def _validate_scenario(value: Any, index: int) -> dict[str, Any]:
     path = f"scenario_paths[{index}]"
     scenario = _expect_object(value, path)
@@ -245,11 +275,17 @@ def _validate_scenario(value: Any, index: int) -> dict[str, Any]:
     benchmark_returns = _expect_list(scenario["benchmark_returns_bps"], f"{path}.benchmark_returns_bps")
     if len(strategy_returns) != len(benchmark_returns):
         _fail(f"{path} strategy and benchmark returns must have the same length")
-    if len(strategy_returns) > _MAX_SESSIONS_PER_SCENARIO:
+    session_count = _expect_positive_integer(
+        scenario["session_count"], f"{path}.session_count", maximum=_MAX_SESSIONS_PER_SCENARIO
+    )
+    if len(strategy_returns) != session_count - 1:
+        _fail(f"{path} must contain exactly one fewer return than its observed sessions")
+    if len(strategy_returns) > _MAX_SESSIONS_PER_SCENARIO - 1:
         _fail(f"{path} exceeds the bounded session count")
     return {
         "scenario_id": _expect_identity(scenario["scenario_id"], f"{path}.scenario_id"),
         "scenario_kind": kind,
+        "session_count": session_count,
         "strategy_returns_bps": [
             _expect_return_bps(item, f"{path}.strategy_returns_bps[{return_index}]")
             for return_index, item in enumerate(strategy_returns)
@@ -285,6 +321,68 @@ def validate_risk_composer_input(value: Any) -> dict[str, Any]:
     if normalized["input_sha256"] != calculate_risk_composer_input_sha256(normalized):
         _fail("risk composer input.input_sha256 mismatch")
     return normalized
+
+
+def validate_long_horizon_risk_observation(value: Any) -> dict[str, Any]:
+    """Validate a private P3 observation before an owner preference is bound.
+
+    The observation contains only frozen candidate identity, evidence digests,
+    a same-window unlevered reference, and paired net-return paths.  It is an
+    internal ingress artifact: it is never suitable for a public console or
+    AI prompt.  Unlike a composer input it intentionally contains no risk
+    preference, because that is a control-plane/owner decision.
+    """
+    _reject_non_finite_or_null(value, "long-horizon risk observation")
+    _reject_forbidden_material(value, "long-horizon risk observation")
+    observation = _expect_object(value, "long-horizon risk observation")
+    _expect_exact_keys(observation, _OBSERVATION_FIELDS, "long-horizon risk observation")
+    if observation["schema"] != RISK_OBSERVATION_SCHEMA_ID:
+        _fail(f"long-horizon risk observation.schema must be {RISK_OBSERVATION_SCHEMA_ID}")
+    paths = _expect_list(observation["scenario_paths"], "observation.scenario_paths")
+    if not paths or len(paths) > _MAX_SCENARIOS:
+        _fail(f"observation.scenario_paths must contain between 1 and {_MAX_SCENARIOS} paths")
+    normalized = {
+        "schema": RISK_OBSERVATION_SCHEMA_ID,
+        "candidate": _validate_candidate(observation["candidate"]),
+        "source_evidence": _validate_source_evidence(observation["source_evidence"]),
+        "benchmark": _validate_benchmark(observation["benchmark"]),
+        "scenario_paths": [_validate_scenario(item, index) for index, item in enumerate(paths)],
+        "observation_sha256": _expect_sha256(
+            observation["observation_sha256"], "long-horizon risk observation.observation_sha256"
+        ),
+    }
+    if len({path["scenario_id"] for path in normalized["scenario_paths"]}) != len(normalized["scenario_paths"]):
+        _fail("observation.scenario_paths.scenario_id values must be unique")
+    if normalized["observation_sha256"] != calculate_risk_observation_sha256(normalized):
+        _fail("long-horizon risk observation.observation_sha256 mismatch")
+    return normalized
+
+
+def build_risk_composer_input_from_observation(
+    observation: Any, *, risk_preference: str
+) -> dict[str, Any]:
+    """Attach one explicit owner preference to a frozen private observation.
+
+    This is deliberately a pure conversion.  It does not refresh P3 data,
+    choose a preference, write a policy, or authorize any lifecycle phase.
+    """
+    normalized = validate_long_horizon_risk_observation(observation)
+    objective = _validate_objective(
+        {
+            "risk_preference": risk_preference,
+            **normalized["benchmark"],
+        }
+    )
+    result: dict[str, Any] = {
+        "schema": RISK_COMPOSER_INPUT_SCHEMA_ID,
+        "candidate": normalized["candidate"],
+        "source_evidence": normalized["source_evidence"],
+        "objective": objective,
+        "scenario_paths": normalized["scenario_paths"],
+        "input_sha256": "",
+    }
+    result["input_sha256"] = calculate_risk_composer_input_sha256(result)
+    return validate_risk_composer_input(result)
 
 
 def _scaled_return_bps(return_bps: int, scale_bps: int) -> int:
@@ -368,7 +466,7 @@ def compose_long_horizon_risk_recommendation(value: Any) -> dict[str, Any]:
     reasons: list[str] = []
     if kinds != _SCENARIO_KINDS:
         reasons.append("SCENARIO_KIND_COVERAGE_INCOMPLETE")
-    if any(len(path["strategy_returns_bps"]) < _MIN_SESSIONS_PER_SCENARIO for path in paths):
+    if any(path["session_count"] < _MIN_SESSIONS_PER_SCENARIO for path in paths):
         reasons.append("LONG_HORIZON_SESSION_COVERAGE_INCOMPLETE")
     if reasons:
         return _parked_recommendation(validated, reasons)
@@ -522,13 +620,33 @@ def parse_risk_composer_input_json(text: str) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Compose a non-executing long-horizon risk recommendation")
-    parser.add_argument("--input", type=Path, required=True, help="frozen P3 return-path evidence JSON")
+    input_source = parser.add_mutually_exclusive_group(required=True)
+    input_source.add_argument("--input", type=Path, help="private, owner-bound P3 return-path evidence JSON")
+    input_source.add_argument(
+        "--observation",
+        type=Path,
+        help="private P3 observation JSON; requires an explicit --risk-preference",
+    )
+    parser.add_argument(
+        "--risk-preference",
+        choices=tuple(sorted(_RISK_PREFERENCES)),
+        help="owner-selected preference when converting a private observation",
+    )
     parser.add_argument("--output", type=Path, required=True, help="advisory recommendation JSON")
     args = parser.parse_args(argv)
     try:
-        recommendation = compose_long_horizon_risk_recommendation(
-            parse_risk_composer_input_json(args.input.read_text(encoding="utf-8"))
-        )
+        if args.input is not None:
+            if args.risk_preference is not None:
+                _fail("--risk-preference is only valid with --observation")
+            composer_input = parse_risk_composer_input_json(args.input.read_text(encoding="utf-8"))
+        else:
+            if args.risk_preference is None:
+                _fail("--observation requires --risk-preference")
+            composer_input = build_risk_composer_input_from_observation(
+                parse_risk_composer_input_json(args.observation.read_text(encoding="utf-8")),
+                risk_preference=args.risk_preference,
+            )
+        recommendation = compose_long_horizon_risk_recommendation(composer_input)
         validated = validate_risk_composer_recommendation(recommendation)
         args.output.write_text(
             json.dumps(validated, sort_keys=True, separators=(",", ":"), ensure_ascii=True) + "\n",

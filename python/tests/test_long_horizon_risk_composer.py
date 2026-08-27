@@ -4,6 +4,7 @@ import copy
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -44,6 +45,7 @@ class LongHorizonRiskComposerTest(unittest.TestCase):
                 {
                     "scenario_id": f"soxl_soxx_longterm_{kind.lower()}_{index}",
                     "scenario_kind": kind,
+                    "session_count": 253,
                     "strategy_returns_bps": self._returns(16 - index, 124 + index),
                     "benchmark_returns_bps": self._returns(10 - index, 100 + index),
                 }
@@ -72,6 +74,23 @@ class LongHorizonRiskComposerTest(unittest.TestCase):
             "input_sha256": "",
         }
         value["input_sha256"] = composer.calculate_risk_composer_input_sha256(value)
+        return value
+
+    def _observation(self) -> dict[str, object]:
+        composer_input = self._input()
+        value: dict[str, object] = {
+            "schema": "qsl.long_horizon_risk_observation.v1",
+            "candidate": composer_input["candidate"],
+            "source_evidence": composer_input["source_evidence"],
+            "benchmark": {
+                "benchmark_id": "soxx",
+                "benchmark_kind": "unlevered_reference",
+                "sessions_per_year": 252,
+            },
+            "scenario_paths": composer_input["scenario_paths"],
+            "observation_sha256": "",
+        }
+        value["observation_sha256"] = composer.calculate_risk_observation_sha256(value)
         return value
 
     def test_balanced_composer_selects_the_highest_robust_growth_scale_within_benchmark_drawdown_envelope(self):
@@ -120,8 +139,17 @@ class LongHorizonRiskComposerTest(unittest.TestCase):
         short = self._input()
         short["scenario_paths"][0]["strategy_returns_bps"] = [10] * 251
         short["scenario_paths"][0]["benchmark_returns_bps"] = [8] * 251
+        short["scenario_paths"][0]["session_count"] = 252
         short["input_sha256"] = composer.calculate_risk_composer_input_sha256(short)
         recommendation = composer.compose_long_horizon_risk_recommendation(short)
+        self.assertEqual(recommendation["status"], "ADVISORY_RECOMMENDATION_READY")
+
+        insufficient_sessions = self._input()
+        insufficient_sessions["scenario_paths"][0]["strategy_returns_bps"] = [10] * 250
+        insufficient_sessions["scenario_paths"][0]["benchmark_returns_bps"] = [8] * 250
+        insufficient_sessions["scenario_paths"][0]["session_count"] = 251
+        insufficient_sessions["input_sha256"] = composer.calculate_risk_composer_input_sha256(insufficient_sessions)
+        recommendation = composer.compose_long_horizon_risk_recommendation(insufficient_sessions)
         self.assertEqual(recommendation["status"], "PARKED")
         self.assertIn("LONG_HORIZON_SESSION_COVERAGE_INCOMPLETE", recommendation["reason_codes"])
 
@@ -143,6 +171,59 @@ class LongHorizonRiskComposerTest(unittest.TestCase):
         unsafe["input_sha256"] = composer.calculate_risk_composer_input_sha256(unsafe)
         with self.assertRaisesRegex(composer.LongHorizonRiskComposerError, "capital_amount is forbidden"):
             composer.compose_long_horizon_risk_recommendation(unsafe)
+
+    def test_private_observation_needs_an_explicit_preference_before_composition(self):
+        observation = self._observation()
+        validated = composer.validate_long_horizon_risk_observation(observation)
+        composer_input = composer.build_risk_composer_input_from_observation(
+            validated,
+            risk_preference="CAPITAL_PRESERVATION",
+        )
+
+        self.assertEqual(composer_input["objective"]["risk_preference"], "CAPITAL_PRESERVATION")
+        self.assertEqual(composer_input["objective"]["benchmark_id"], "soxx")
+        self.assertEqual(composer_input, composer.validate_risk_composer_input(composer_input))
+        self.assertEqual(
+            composer.compose_long_horizon_risk_recommendation(composer_input)["status"],
+            "ADVISORY_RECOMMENDATION_READY",
+        )
+
+        tampered = copy.deepcopy(observation)
+        tampered["benchmark"]["benchmark_id"] = "qqq"
+        with self.assertRaisesRegex(composer.LongHorizonRiskComposerError, "observation_sha256 mismatch"):
+            composer.build_risk_composer_input_from_observation(
+                tampered,
+                risk_preference="BALANCED_COMPOUNDING",
+            )
+
+    def test_cli_accepts_private_observation_but_not_an_implicit_preference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            observation = root / "observation.json"
+            output = root / "recommendation.json"
+            observation.write_text(json.dumps(self._observation()), encoding="utf-8")
+
+            self.assertEqual(
+                composer.main(["--observation", str(observation), "--output", str(output)]),
+                1,
+            )
+            self.assertFalse(output.exists())
+            self.assertEqual(
+                composer.main(
+                    [
+                        "--observation",
+                        str(observation),
+                        "--risk-preference",
+                        "GROWTH_COMPOUNDING",
+                        "--output",
+                        str(output),
+                    ]
+                ),
+                0,
+            )
+            result = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(result["objective"]["risk_preference"], "GROWTH_COMPOUNDING")
+            self.assertNotIn("strategy_returns", json.dumps(result))
 
     def test_recommendation_digest_binds_the_frontier_and_prevents_policy_promotion_by_mutation(self):
         recommendation = composer.compose_long_horizon_risk_recommendation(self._input())
