@@ -714,6 +714,38 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(profile["allowed_execution_modes"], ["paper", "dry_run"])
         self.assertEqual(profile["blocked_live_reason"], "manual-review")
 
+    def test_runtime_catalog_projection_is_exact_and_never_claims_observed_runtime(self):
+        config = build_config.load_config()
+        projection_path = ROOT / "web" / "strategy-switch-console" / "runtime-catalog-projection.json"
+        projection = json.loads(projection_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(projection, build_platform_config.build_runtime_catalog_projection(config))
+        self.assertEqual(projection["schema_version"], "qsl.runtime_catalog_projection.v1")
+        self.assertEqual(projection["data_status"], "catalog_only")
+        self.assertFalse(projection["policy"]["catalog_is_runtime_observation"])
+        self.assertFalse(projection["policy"]["catalog_can_authorize_promotion_or_trading"])
+        self.assertFalse(projection["policy"]["historical_lifecycle_inventory_is_authoritative"])
+        self.assertEqual(
+            projection["summary"]["strategy_profile_count"],
+            len(config["strategies"]),
+        )
+        self.assertEqual(projection["summary"]["live_switchable_count"], 0)
+        self.assertEqual(
+            projection["source"]["content_sha256"],
+            build_platform_config._config_content_sha256(config),
+        )
+
+    def test_historical_lifecycle_inventory_is_explicitly_non_authoritative(self):
+        matrix = json.loads(
+            (ROOT / "web" / "strategy-switch-console" / "lifecycle-matrix.json").read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(matrix["schema_version"], "qsl.historical_lifecycle_inventory.v1")
+        self.assertEqual(matrix["record_status"], "historical_reference_only")
+        self.assertEqual(matrix["superseded_by"]["catalog_gates"], "runtime-catalog-projection.json")
+        self.assertEqual(matrix["superseded_by"]["candidate_lifecycle"], "GET /api/control-plane")
+        self.assertEqual(matrix["superseded_by"]["target_execution_evidence"], "GET /api/execution-evidence")
+
     def test_global_and_hk_global_etf_rotation_profiles_are_research_only(self):
         expected = {
             "lifecycle_stage": "research_active",

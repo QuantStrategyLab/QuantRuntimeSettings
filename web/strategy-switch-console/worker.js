@@ -13,6 +13,7 @@ import {
   FALLBACK_INCOME_LAYER_DEFAULTS,
   FALLBACK_OPTION_OVERLAY_DEFAULTS,
   DCA_PROFILE_DEFAULTS,
+  RUNTIME_CATALOG_PROJECTION,
   STRATEGY_FEATURES,
 } from "./config.js";
 import { APP_CSS } from "./app_css.js";
@@ -205,6 +206,7 @@ export default {
       if (url.pathname === "/admin") return await adminPage(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
+      if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
       if (url.pathname === "/api/config") return json(await configPayload(request, env, ctx));
       if (url.pathname === "/api/admin/config" && request.method === "GET") {
         return await adminConfigResponse(request, env);
@@ -789,6 +791,15 @@ async function strategyProfilesPayload(env) {
     strategyProfiles: await loadStrategyProfilesConfig(env),
     platformMeta: await loadPlatformMeta(),
   };
+}
+
+async function runtimeCatalogResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  // This is a generated gate catalog, not a deployment observation.  Keeping
+  // the distinction in the response makes it unsuitable as an accidental
+  // substitute for the independently refreshed control-plane/evidence views.
+  return json(RUNTIME_CATALOG_PROJECTION);
 }
 
 async function loadCurrentStrategies(accountOptions, env) {

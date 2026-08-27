@@ -101,6 +101,11 @@ python3 scripts/sync_strategy_switch_page_asset.py
 
 这会重新生成 `web/strategy-switch-console/page_asset.js` 和 `web/strategy-switch-console/strategy_profiles_asset.js`。部署 Worker 时需要同时带上 `worker.js`、`page_asset.js` 和 `strategy_profiles_asset.js`。
 
+`runtime-catalog-projection.json` 同样由 `platform-config.json` 生成，并用来源 SHA-256
+防止已提交的目录资产陈旧。登录后的 `GET /api/runtime-catalog` 只返回这个**配置门禁**
+投影；它不代表真实部署或交易状态。页面显示候选状态和目标执行状态时，必须分别使用
+`/api/control-plane` 与 `/api/execution-evidence`，不得回退到历史 `lifecycle-matrix.json`。
+
 ## 账号下拉配置
 
 Worker 页面内置示例 target 作为兜底。登录后如果没有加载账号配置，“一键切换”仍会保持禁用，Worker 后端也会拒绝 dispatch，避免账号不匹配。复制示例文件后填入你的真实 target/account route：

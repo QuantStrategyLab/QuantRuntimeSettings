@@ -7,6 +7,7 @@ on:
       - ".github/workflows/deploy-strategy-switch-console.yml"
       - "platform-config.json"
       - "python/scripts/build_config.py"
+      - "python/scripts/build_platform_config.py"
       - "python/scripts/sync_strategy_switch_page_asset.py"
       - "web/strategy-switch-console/**"
   workflow_dispatch:
@@ -58,6 +59,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 python/scripts/build_platform_config.py
+          python3 python/scripts/build_platform_config.py --check
           python3 python/scripts/inject_platform_config.py
           python3 python/scripts/sync_strategy_switch_page_asset.py
 
