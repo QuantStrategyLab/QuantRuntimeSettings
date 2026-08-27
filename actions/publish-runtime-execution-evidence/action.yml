@@ -6,7 +6,7 @@ inputs:
     description: Stable, non-sensitive source identity.
     required: true
   report-platform:
-    description: Runtime-report platform prefix (for example ibkr, longbridge, or schwab).
+    description: Exact runtime-report storage prefix (for example interactive_brokers, longbridge, or charles_schwab).
     required: true
   report-prefix:
     description: Read-only Cloud Storage prefix that contains runtime_report.v1 files.
@@ -46,7 +46,7 @@ runs:
           echo "source-id must be a stable non-sensitive identity." >&2
           exit 2
         fi
-        if [[ ! "$INPUT_REPORT_PLATFORM" =~ ^(alpaca|binance|firstrade|ibkr|longbridge|qmt|schwab)$ ]]; then
+        if [[ ! "$INPUT_REPORT_PLATFORM" =~ ^(alpaca|binance|charles_schwab|firstrade|ibkr|interactive_brokers|longbridge|qmt|schwab)$ ]]; then
           echo "report-platform is unsupported." >&2
           exit 2
         fi
