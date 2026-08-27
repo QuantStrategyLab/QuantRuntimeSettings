@@ -122,6 +122,63 @@ class LongHorizonRiskComposerTest(unittest.TestCase):
         self.assertLess(capital["recommended_scale_bps"], balanced["recommended_scale_bps"])
         self.assertLess(capital["recommended_max_drawdown_bps"], balanced["recommended_max_drawdown_bps"])
 
+    def test_a_severe_stress_benchmark_cannot_relax_a_paired_walk_forward_drawdown_limit(self):
+        risk_input = self._input(preference="CAPITAL_PRESERVATION")
+        for path in risk_input["scenario_paths"]:
+            path["strategy_returns_bps"] = self._returns(25, 300)
+            path["benchmark_returns_bps"] = self._returns(
+                25,
+                5_000 if path["scenario_kind"] == "STRESS" else 100,
+            )
+        risk_input["input_sha256"] = composer.calculate_risk_composer_input_sha256(risk_input)
+
+        recommendation = composer.compose_long_horizon_risk_recommendation(risk_input)
+
+        # The old global-worst-benchmark calculation would have accepted this
+        # row because STRESS has an almost total benchmark drawdown.  The
+        # walk-forward and bootstrap paths must each enforce their own paired
+        # unlevered benchmark envelope instead.
+        self.assertFalse(recommendation["frontier"][-1]["eligible"])
+        self.assertLess(recommendation["recommended_scale_bps"], 10_000)
+
+    def test_bootstrap_replica_count_cannot_outvote_two_negative_evidence_families(self):
+        risk_input = self._input()
+        paths: list[dict[str, object]] = []
+        for kind in ("WALK_FORWARD", "STRESS"):
+            returns = [0] * 240 + [-10] * 12
+            paths.append(
+                {
+                    "scenario_id": f"family_growth_{kind.lower()}",
+                    "scenario_kind": kind,
+                    "session_count": 253,
+                    "strategy_returns_bps": returns,
+                    "benchmark_returns_bps": list(returns),
+                }
+            )
+        for index in range(8):
+            returns = [20] * 240 + [-10] * 12
+            paths.append(
+                {
+                    "scenario_id": f"family_growth_bootstrap_{index + 1}",
+                    "scenario_kind": "BOOTSTRAP",
+                    "session_count": 253,
+                    "strategy_returns_bps": returns,
+                    "benchmark_returns_bps": list(returns),
+                }
+            )
+        risk_input["scenario_paths"] = paths
+        risk_input["input_sha256"] = composer.calculate_risk_composer_input_sha256(risk_input)
+
+        recommendation = composer.compose_long_horizon_risk_recommendation(risk_input)
+
+        # Eight positive bootstrap replicas are one evidence family, not eight
+        # votes that can hide negative walk-forward and stress results.
+        self.assertEqual(recommendation["status"], "PARKED")
+        self.assertEqual(
+            recommendation["reason_codes"],
+            ["NO_SCALE_MEETS_COMPOUNDING_AND_DRAWDOWN_CONSTRAINTS"],
+        )
+
     def test_missing_long_horizon_scenario_kind_parks_instead_of_extrapolating_a_limit(self):
         risk_input = self._input()
         risk_input["scenario_paths"] = risk_input["scenario_paths"][:2]

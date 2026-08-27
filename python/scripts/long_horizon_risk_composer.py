@@ -435,6 +435,49 @@ def _path_metrics(
     }
 
 
+def _profile_drawdown_cap_bps(*, benchmark_drawdown_bps: int, benchmark_multiple_bps: int) -> int:
+    """Return the profile envelope for one *paired* benchmark path.
+
+    A stress path must never relax the envelope applied to an unrelated
+    walk-forward or bootstrap path.  The calculation is therefore deliberately
+    per-scenario; callers must not aggregate benchmark drawdowns before they
+    call this helper.
+    """
+    return min(10_000, (benchmark_drawdown_bps * benchmark_multiple_bps + 9_999) // 10_000)
+
+
+def _family_growth_summary(
+    paths: Sequence[Mapping[str, Any]], metrics: Sequence[Mapping[str, int]]
+) -> tuple[int, bool]:
+    """Summarize growth with equal evidence-family influence.
+
+    A producer may emit more bootstrap paths than historical paths.  Counting
+    every path in one global pool would let that implementation detail outweigh
+    walk-forward or stress evidence.  We take the lower median inside each
+    required family, then the lower median of the three family summaries.
+
+    A family is growth-positive only when at least two thirds of *its* paths
+    are positive.  At least two of the three independent evidence families
+    must meet that test.  This retains the prior two-thirds policy while making
+    the policy invariant to how many valid bootstrap replicas were supplied.
+    """
+    family_log_growth: dict[str, list[int]] = {kind: [] for kind in _SCENARIO_KINDS}
+    for path, metric in zip(paths, metrics, strict=True):
+        family_log_growth[path["scenario_kind"]].append(metric["log_growth_ppm"])
+
+    # Coverage is checked before this helper is called, so every list is
+    # non-empty.  Keeping the guard makes the pure helper fail closed if reused.
+    if any(not values for values in family_log_growth.values()):
+        _fail("scenario evidence family coverage is incomplete")
+
+    family_medians = [median_low(values) for values in family_log_growth.values()]
+    positive_families = sum(
+        sum(value > 0 for value in values) * 3 >= len(values) * 2
+        for values in family_log_growth.values()
+    )
+    return median_low(family_medians), positive_families * 3 >= len(_SCENARIO_KINDS) * 2
+
+
 def _parked_recommendation(value: Mapping[str, Any], reasons: list[str]) -> dict[str, Any]:
     recommendation: dict[str, Any] = {
         "schema": RISK_COMPOSER_RECOMMENDATION_SCHEMA_ID,
@@ -482,19 +525,28 @@ def compose_long_horizon_risk_recommendation(value: Any) -> dict[str, Any]:
                 for path in paths
             ]
             worst_benchmark_drawdown = max(item["benchmark_drawdown_bps"] for item in metrics)
-            profile_drawdown_cap = (worst_benchmark_drawdown * benchmark_multiple_bps + 9_999) // 10_000
+            profile_drawdown_caps = [
+                _profile_drawdown_cap_bps(
+                    benchmark_drawdown_bps=item["benchmark_drawdown_bps"],
+                    benchmark_multiple_bps=benchmark_multiple_bps,
+                )
+                for item in metrics
+            ]
             positive_growth = sum(item["log_growth_ppm"] > 0 for item in metrics)
-            scenario_count = len(metrics)
+            family_median_log_growth, families_meet_growth_requirement = _family_growth_summary(paths, metrics)
             eligible = (
-                positive_growth * 3 >= scenario_count * 2
-                and max(item["max_drawdown_bps"] for item in metrics) <= profile_drawdown_cap
+                families_meet_growth_requirement
+                and all(
+                    item["max_drawdown_bps"] <= profile_drawdown_cap
+                    for item, profile_drawdown_cap in zip(metrics, profile_drawdown_caps, strict=True)
+                )
             )
             frontier.append(
                 {
                     "scale_bps": scale_bps,
-                    "median_log_growth_ppm": median_low(item["log_growth_ppm"] for item in metrics),
+                    "median_log_growth_ppm": family_median_log_growth,
                     "positive_growth_scenarios": positive_growth,
-                    "scenario_count": scenario_count,
+                    "scenario_count": len(metrics),
                     "worst_max_drawdown_bps": max(item["max_drawdown_bps"] for item in metrics),
                     "worst_relative_drawdown_bps": max(item["relative_drawdown_bps"] for item in metrics),
                     "worst_benchmark_drawdown_bps": worst_benchmark_drawdown,
@@ -507,9 +559,6 @@ def compose_long_horizon_risk_recommendation(value: Any) -> dict[str, Any]:
     if not eligible_frontier:
         return _parked_recommendation(validated, ["NO_SCALE_MEETS_COMPOUNDING_AND_DRAWDOWN_CONSTRAINTS"])
     chosen = max(eligible_frontier, key=lambda item: (item["median_log_growth_ppm"], -item["scale_bps"]))
-    maximum_drawdown = (
-        chosen["worst_benchmark_drawdown_bps"] * benchmark_multiple_bps + 9_999
-    ) // 10_000
     recommendation: dict[str, Any] = {
         "schema": RISK_COMPOSER_RECOMMENDATION_SCHEMA_ID,
         "candidate": dict(validated["candidate"]),
@@ -519,7 +568,10 @@ def compose_long_horizon_risk_recommendation(value: Any) -> dict[str, Any]:
         "status": "ADVISORY_RECOMMENDATION_READY",
         "reason_codes": [],
         "recommended_scale_bps": chosen["scale_bps"],
-        "recommended_max_drawdown_bps": maximum_drawdown,
+        # This is the maximum *observed* drawdown in the selected paired P3
+        # paths.  Eligibility has already enforced a separate profile envelope
+        # for every path; do not collapse those envelopes into one policy limit.
+        "recommended_max_drawdown_bps": chosen["worst_max_drawdown_bps"],
         "frontier": frontier,
         "recommendation_sha256": "",
     }
