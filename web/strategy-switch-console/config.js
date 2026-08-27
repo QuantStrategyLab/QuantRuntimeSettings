@@ -81,6 +81,424 @@ export const RUNTIME_AUTHORITY_STATUS = {
   "p4_p6_definition": "UNDEFINED"
 };
 
+export const RUNTIME_CATALOG_PROJECTION = {
+  "schema_version": "qsl.runtime_catalog_projection.v1",
+  "data_status": "catalog_only",
+  "source": {
+    "path": "platform-config.json",
+    "content_sha256": "sha256:eed631b330b329cc9e515e5c2afe06c68cb637553b58f405d8f386fef6efd480",
+    "catalog_as_of": "2026-08-19"
+  },
+  "policy": {
+    "catalog_is_runtime_observation": false,
+    "catalog_can_authorize_promotion_or_trading": false,
+    "historical_lifecycle_inventory_is_authoritative": false,
+    "observed_state_sources": [
+      "qsl_control_plane_dashboard.v1",
+      "qsl_execution_evidence_dashboard.v1"
+    ]
+  },
+  "runtime_authority": {
+    "schema_version": "qsl.runtime_authority_status.v1",
+    "scope": "p0_p6_control_plane",
+    "status": "P0_CONTROL_PLANE_NOT_RUNTIME_WIRED",
+    "status_as_of": "2026-08-19",
+    "active_preauthorized_autonomy_policy": false,
+    "execution_metadata_is_runtime_authority": false,
+    "p1_p3_non_live_data_acquisition_authority": "INDEPENDENT_CONTRACT_REQUIRED",
+    "p4_p6_definition": "UNDEFINED"
+  },
+  "summary": {
+    "strategy_profile_count": 26,
+    "runtime_enabled_count": 0,
+    "live_switchable_count": 0,
+    "lifecycle_stage_counts": {
+      "live_candidate": 1,
+      "research_active": 21,
+      "shadow_active": 4
+    }
+  },
+  "strategies": [
+    {
+      "profile": "tqqq_growth_income",
+      "label": "纳斯达克增长收益",
+      "label_en": "NASDAQ Growth Income",
+      "label_zh": "纳斯达克增长收益",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "soxl_soxx_trend_income",
+      "label": "半导体趋势收益",
+      "label_en": "Semiconductor Trend Income",
+      "label_zh": "半导体趋势收益",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "nasdaq_sp500_smart_dca",
+      "label": "纳指标普定投",
+      "label_en": "NASDAQ/S&P 500 DCA",
+      "label_zh": "纳指标普定投",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "ibit_smart_dca",
+      "label": "IBIT比特币定投",
+      "label_en": "IBIT Bitcoin DCA",
+      "label_zh": "IBIT比特币定投",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "global_etf_rotation",
+      "label": "全球ETF轮动",
+      "label_en": "Global ETF Rotation",
+      "label_zh": "全球ETF轮动",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "russell_top50_leader_rotation",
+      "label": "罗素Top50领涨",
+      "label_en": "Russell Top50 Leaders",
+      "label_zh": "罗素Top50领涨",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "tecl_xlk_trend_income",
+      "label": "TECL/XLK趋势收益",
+      "label_en": "TECL/XLK Trend Income",
+      "label_zh": "TECL/XLK趋势收益",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "failed_promotion_vs_live_profiles"
+    },
+    {
+      "profile": "us_equity_combo",
+      "label": "美股核心组合",
+      "label_en": "US Core Combo",
+      "label_zh": "美股核心组合",
+      "domain": "us_equity",
+      "lifecycle_stage": "shadow_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "shadow_candidate_requires_evidence_package"
+    },
+    {
+      "profile": "us_equity_combo_core",
+      "label": "美股核心组合影子",
+      "label_en": "US Core Combo Shadow",
+      "label_zh": "美股核心组合影子",
+      "domain": "us_equity",
+      "lifecycle_stage": "shadow_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "shadow_candidate_requires_evidence_package"
+    },
+    {
+      "profile": "us_equity_combo_leveraged",
+      "label": "美股加速组合",
+      "label_en": "US Alpha Combo",
+      "label_zh": "美股加速组合",
+      "domain": "us_equity",
+      "lifecycle_stage": "shadow_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "shadow_candidate_requires_evidence_package"
+    },
+    {
+      "profile": "hk_global_etf_tactical_rotation",
+      "label": "港股ETF战术轮动",
+      "label_en": "HK ETF Tactical Rotation",
+      "label_zh": "港股ETF战术轮动",
+      "domain": "hk_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "hk_low_vol_dividend_quality_snapshot",
+      "label": "港股红利质量",
+      "label_en": "HK Dividend Quality",
+      "label_zh": "港股红利质量",
+      "domain": "hk_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "hk_equity_combo",
+      "label": "港股恒生组合",
+      "label_en": "HK Core Combo",
+      "label_zh": "港股恒生组合",
+      "domain": "hk_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_industry_etf_rotation",
+      "label": "A股行业ETF轮动",
+      "label_en": "CN Industry ETF Rotation",
+      "label_zh": "A股行业ETF轮动",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "cn_industry_etf_rotation_aggressive",
+      "label": "A股ETF轮动",
+      "label_en": "CN ETF Rotation",
+      "label_zh": "A股ETF轮动",
+      "domain": "cn_equity",
+      "lifecycle_stage": "live_candidate",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "live_candidate_requires_evidence_package"
+    },
+    {
+      "profile": "cn_index_etf_tactical_rotation",
+      "label": "A股宽基ETF战术轮动",
+      "label_en": "CN Index ETF Tactical Rotation",
+      "label_zh": "A股宽基ETF战术轮动",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_chinext_tactical_rotation",
+      "label": "创业板战术轮动",
+      "label_en": "CN ChiNext Tactical Rotation",
+      "label_zh": "创业板战术轮动",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_chinext_growth_momentum_quality",
+      "label": "创业板成长动量质量",
+      "label_en": "CN ChiNext Growth Momentum Quality",
+      "label_zh": "创业板成长动量质量",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_dividend_quality_snapshot",
+      "label": "A股红利质量",
+      "label_en": "CN Dividend Quality",
+      "label_zh": "A股红利质量",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_chinext_growth_momentum_quality_snapshot",
+      "label": "创业板成长质量快照",
+      "label_en": "CN ChiNext Growth Quality Snapshot",
+      "label_zh": "创业板成长质量快照",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_star_growth_momentum_quality",
+      "label": "科创板成长动量质量",
+      "label_en": "CN STAR Growth Momentum Quality",
+      "label_zh": "科创板成长动量质量",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "cn_equity_combo",
+      "label": "A股进取组合",
+      "label_en": "CN Alpha Combo",
+      "label_zh": "A股进取组合",
+      "domain": "cn_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "crypto_live_pool_rotation",
+      "label": "加密实时池轮动",
+      "label_en": "Crypto Live Pool Rotation",
+      "label_zh": "加密实时池轮动",
+      "domain": "crypto",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+    },
+    {
+      "profile": "crypto_btc_dca",
+      "label": "BTC定投",
+      "label_en": "BTC DCA",
+      "label_zh": "BTC定投",
+      "domain": "crypto",
+      "lifecycle_stage": "shadow_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "shadow_candidate_requires_evidence_package"
+    },
+    {
+      "profile": "crypto_trend_rotation",
+      "label": "山寨趋势轮动",
+      "label_en": "Altcoin Trend",
+      "label_zh": "山寨趋势轮动",
+      "domain": "crypto",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    },
+    {
+      "profile": "crypto_equity_combo",
+      "label": "加密动量组合",
+      "label_en": "Crypto Core Combo",
+      "label_zh": "加密动量组合",
+      "domain": "crypto",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_backtest_only_requires_evidence_package"
+    }
+  ]
+};
+
 export const DEFAULT_ACCOUNT_OPTIONS = {
   "longbridge": [
     {

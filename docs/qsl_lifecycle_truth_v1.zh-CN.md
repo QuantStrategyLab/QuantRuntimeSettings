@@ -35,6 +35,24 @@ blocked_live_reason is empty
 缺少任意字段时都 fail closed。设置网站、Worker、配置生成器和后端验证不得从
 catalog 名称、默认值或 inventory 状态推导 live 权限。
 
+## 控制台读取优先级与陈旧资料保护
+
+`web/strategy-switch-console/runtime-catalog-projection.json` 由
+`platform-config.json` 生成，并带来源内容 SHA-256。它只显示目录门禁（例如策略是否
+可被切换流程考虑），`data_status=catalog_only`；它不观察 Cloud Run、Gateway、账户、
+订单、资金或 P4–P6 收据，因此不能用作“正在运行”或“已可升级”的事实。
+
+控制台必须按用途读取独立来源：
+
+1. 候选 P1–P3 生命周期与新鲜度：`GET /api/control-plane`；
+2. 精确策略 × 平台 × 通道的执行证据：`GET /api/execution-evidence`；
+3. 配置目录门禁：登录后的 `GET /api/runtime-catalog`。
+
+`web/strategy-switch-console/lifecycle-matrix.json` 只保留为 2026-08-23 的历史参考，
+已标记 `historical_reference_only`。任何界面、自动化或人工审阅都不得把它作为当前
+运行、升级或下单依据；缺少新鲜快照时应显示 `unavailable` / `stale`，不能回退到该
+历史矩阵填充“正常”状态。
+
 ## 一次性迁移规则
 
 - `platform-config.json`、设置网站 fallback 和生成的 profile asset 只写规范状态。

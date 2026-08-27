@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { DEFAULT_ACCOUNT_OPTIONS } from "../web/strategy-switch-console/config.js";
+import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION } from "../web/strategy-switch-console/config.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = [
@@ -1889,6 +1889,21 @@ assert.equal(noKvHealthRead.status, 200);
 const noKvPayload = await noKvHealthRead.json();
 assert.equal(noKvPayload.data_status, "unavailable");
 assert.equal(noKvPayload.summary.strategy_count, 0);
+
+const unauthorizedRuntimeCatalogRead = await worker.fetch(
+  new Request("https://switch.example/api/runtime-catalog"),
+  healthEnv,
+);
+assert.equal(unauthorizedRuntimeCatalogRead.status, 401);
+const runtimeCatalogRead = await worker.fetch(
+  new Request("https://switch.example/api/runtime-catalog", { headers: healthCookieHeaders }),
+  healthEnv,
+);
+assert.equal(runtimeCatalogRead.status, 200);
+assert.deepEqual(await runtimeCatalogRead.json(), RUNTIME_CATALOG_PROJECTION);
+assert.equal(RUNTIME_CATALOG_PROJECTION.data_status, "catalog_only");
+assert.equal(RUNTIME_CATALOG_PROJECTION.policy.catalog_is_runtime_observation, false);
+assert.equal(RUNTIME_CATALOG_PROJECTION.policy.catalog_can_authorize_promotion_or_trading, false);
 
 const controlStore = new Map();
 const controlKv = {
