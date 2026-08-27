@@ -8,6 +8,17 @@ This is the authenticated backend for the personal strategy switch console. It i
 - Allowlisted GitHub logins can select an account from the dropdown and click `Switch now`; the Worker triggers the GitHub Actions workflow server-side.
 - Tokens stay in Worker secrets and GitHub Actions environment secrets. They are not sent to the browser or committed to the repository.
 
+## Operator model
+
+The web surface is for low-frequency human intervention, not a trading or P&L dashboard:
+
+- **Attention** is the default view: only owner follow-ups appear first; strategy × platform evidence and research tasks are disclosed on demand.
+- **Run plan** groups the existing strategy, account state, plugin, income/option layer, cash reserve, and margin controls into one bounded configuration change. Scope is selected before capital guardrails are confirmed.
+- **Runtime guard** is read-only health context for deciding whether to review, reduce, or continue observing.
+- If no strategy meets all release, runtime-eligibility, and evidence gates, the page disables the Live choice. It never changes configuration automatically or treats health, candidates, or historical `live` metadata as order or runtime authority.
+
+Submitting a plan still uses the existing GitHub Actions configuration workflow and writes an audit record. P4/P5/P6 and all live authority remain subject to independent, verifiable lifecycle contracts.
+
 ## Required Secrets
 
 ```text
