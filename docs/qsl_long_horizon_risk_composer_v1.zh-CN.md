@@ -22,6 +22,12 @@
 
 命令行也遵守这条分工：已有 owner-bound 输入可用 `--input`；私有观察件必须同时给出 `--observation` 与 `--risk-preference`。缺少偏好即失败，不会静默选择“均衡”或任何默认档位。
 
+## 受限私有读取口
+
+`python/scripts/long_horizon_risk_observation_ingress.py` 定义了控制面唯一需要的读取能力：按 `long-horizon-risk-observations/v1/<candidate-id>/<p3-evidence-sha256>.json` 精确读取一个不超过 2 MiB 的观察件，核验对象内容的哈希、candidate 与 P3 摘要，再交给 Composer。它只接收调用方注入的 `read_exact` 函数；没有云 SDK、凭据、网络、bucket、列举、猜测最新、重试替代对象、写入、覆盖或删除能力。
+
+这意味着未来任一已授权的私有存储实现都只能获得该精确对象的读权限。存储未配置、读错、超限、JSON/哈希异常或身份不匹配都会闭合为不可用，不会降级到 Actions artifact、公开仓库、控制台或 AI 上下文。当前仍没有真实存储 adapter、运行身份、scheduler 或政策写入。
+
 ## 必要证据和计算方法
 
 输入必须精确绑定 candidate revision 与 P1/P2/P3/plugin 摘要，并至少包含每类一个完整的 252-session 以上路径：
