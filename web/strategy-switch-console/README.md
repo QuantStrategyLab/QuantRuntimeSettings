@@ -74,10 +74,17 @@ For editable admin settings, bind a Cloudflare KV namespace named `STRATEGY_SWIT
 auth_config
 account_options
 strategy_profiles
+risk_profile_bindings
 audit_log
 ```
 
 Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
+
+## Portfolio Risk Preference (non-executable intent)
+
+Administrators can select Capital Preservation, Balanced Compounding, or Growth Compounding for a configured platform target in `/admin`. Same-origin, admin-only `GET` / `POST /api/risk-profiles` stores a self-validating `qsl.risk_profile_binding.v1` record under `risk_profile_bindings`; its portable selection is exactly `qsl.risk_profile_selection.v1`, the contract used by the core risk composer.
+
+Every record is fixed to `no_order=true` and `execution_authority_granted=false`. It never enters `RUNTIME_TARGET_JSON`, changes strategy parameters or sizing, dispatches a workflow, accesses brokers or execution cloud resources, or enables paper, shadow, or live. A malformed KV record is unavailable rather than silently defaulted. A future independent, read-only control-plane adapter may consume only `profile_selection`, after separately validating observation evidence and all P4/P5/P6 gates.
 
 ## Web Owner Decisions (P6 intent)
 

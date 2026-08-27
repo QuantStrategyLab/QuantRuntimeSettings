@@ -81,6 +81,7 @@ STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 auth_config
 account_options
 strategy_profiles
+risk_profile_bindings
 audit_log
 strategy_health_snapshot
 control_plane_snapshot
@@ -88,6 +89,12 @@ research_task_source:<source_id>
 ```
 
 没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
+
+## 组合风险偏好（非执行意图）
+
+管理员可在 `/admin` 为已配置的平台目标选择“保本优先 / 平衡复利 / 增长复利”。页面调用受同源校验和管理员权限保护的 `GET` / `POST /api/risk-profiles`，并只向 `risk_profile_bindings` 保存自校验的 `qsl.risk_profile_binding.v1` 记录；其中可移植的选择部分与核心风险合成器的 `qsl.risk_profile_selection.v1` 完全一致。
+
+此记录固定为 `no_order=true` 和 `execution_authority_granted=false`：它不进入 `RUNTIME_TARGET_JSON`、不改策略参数或仓位、不调度 workflow、不读写券商或云执行资源，也不能启用 paper、shadow 或 live。KV 中记录损坏时接口会返回不可用，绝不会静默回退为默认风险偏好。未来独立的只读控制面适配器只能读取其中的 `profile_selection`，仍需另外验证观察证据和完整的 P4/P5/P6 门槛。
 
 ## 只读研究任务索引
 

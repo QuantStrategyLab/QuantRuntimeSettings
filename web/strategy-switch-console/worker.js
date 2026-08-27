@@ -27,6 +27,19 @@ const SESSION_TTL_SECONDS = 8 * 60 * 60;
 const AUTH_CONFIG_KEY = "auth_config";
 const ACCOUNT_OPTIONS_KEY = "account_options";
 const STRATEGY_PROFILES_KEY = "strategy_profiles";
+// Risk preferences are a separate, low-frequency owner-intent record.  They
+// must never be merged into a strategy switch input, runtime target, or any
+// execution credential/policy path.
+const RISK_PROFILE_BINDINGS_KEY = "risk_profile_bindings";
+const RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION = "qsl.risk_profile_binding_registry.v1";
+const RISK_PROFILE_BINDING_SCHEMA_VERSION = "qsl.risk_profile_binding.v1";
+const RISK_PROFILE_SELECTION_SCHEMA_VERSION = "qsl.risk_profile_selection.v1";
+const RISK_PROFILE_IDS = {
+  CAPITAL_PRESERVATION: "capital_preservation_v1",
+  BALANCED_COMPOUNDING: "balanced_compounding_v1",
+  GROWTH_COMPOUNDING: "growth_compounding_v1",
+};
+const RISK_PROFILE_PREFERENCES = Object.keys(RISK_PROFILE_IDS);
 const AUDIT_LOG_KEY = "audit_log";
 const AUDIT_LOG_LIMIT = 50;
 const CURRENT_STRATEGIES_TIMEOUT_MS = 25000;
@@ -213,6 +226,12 @@ export default {
       }
       if (url.pathname === "/api/admin/config" && request.method === "POST") {
         return await saveAdminConfig(request, env);
+      }
+      if (url.pathname === "/api/risk-profiles" && request.method === "GET") {
+        return await riskProfileBindingsResponse(request, env);
+      }
+      if (url.pathname === "/api/risk-profiles" && request.method === "POST") {
+        return await saveRiskProfileBindings(request, env);
       }
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
         return await syncAccountDefaultResponse(request, env);
@@ -431,6 +450,70 @@ async function saveAdminConfig(request, env) {
   return json(await buildAdminState(session, env));
 }
 
+async function riskProfileBindingsResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  const bindingState = await loadRiskProfileBindings(env);
+  if (bindingState.error) {
+    return json({
+      ok: false,
+      error: "risk profile bindings are unavailable",
+      reason: bindingState.error,
+      no_order: true,
+      execution_authority_granted: false,
+    }, 409);
+  }
+  return json({
+    ok: true,
+    bindings: bindingState.bindings,
+    configured_targets: riskProfileBindingTargets((await loadAccountOptionsConfig(env)).options),
+    no_order: true,
+    execution_authority_granted: false,
+  });
+}
+
+async function saveRiskProfileBindings(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required to save risk profiles" }, 400);
+  }
+
+  let raw;
+  try {
+    raw = await request.json();
+  } catch {
+    return json({ ok: false, error: "request body must be valid JSON" }, 400);
+  }
+  const accountConfig = await loadAccountOptionsConfig(env);
+  let bindings;
+  try {
+    bindings = await buildRiskProfileBindings(raw, accountConfig.options, session.login);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
+  }
+  await writeConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
+    schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+    bindings,
+  });
+  await appendAuditLog(env, {
+    ts: new Date().toISOString(),
+    login: session.login,
+    action: "save_risk_profile_bindings",
+    binding_count: bindings.length,
+  });
+  return json({
+    ok: true,
+    bindings,
+    configured_targets: riskProfileBindingTargets(accountConfig.options),
+    no_order: true,
+    execution_authority_granted: false,
+  });
+}
+
 async function requireAdminSession(request, env) {
   const session = await readSession(request, env);
   if (!session) return redirect("/login");
@@ -443,6 +526,7 @@ async function requireAdminSession(request, env) {
 async function buildAdminState(session, env) {
   const authConfig = await loadAuthConfig(env);
   const accountConfig = await loadAccountOptionsConfig(env);
+  const riskProfileBindingState = await loadRiskProfileBindings(env);
   return {
     ok: true,
     session: { login: session.login, admin: true },
@@ -450,6 +534,9 @@ async function buildAdminState(session, env) {
     authConfig,
     accountOptions: accountConfig.options || {},
     accountOptionSource: accountConfig.source,
+    riskProfileBindings: riskProfileBindingState.bindings,
+    riskProfileBindingsError: riskProfileBindingState.error,
+    riskProfileBindingTargets: riskProfileBindingTargets(accountConfig.options),
     auditLog: await loadAuditLog(env),
   };
 }
@@ -470,6 +557,17 @@ async function renderAdminPage(state) {
       `<tr><td>${escapeHtml(entry.ts || "")}</td><td>${escapeHtml(entry.login || "")}</td><td>${escapeHtml(entry.action || "")}</td></tr>`
     )).join("")
     : `<tr><td colspan="3">暂无记录 / No records</td></tr>`;
+  const profileByScope = new Map(state.riskProfileBindings.map((binding) => [binding.scope_id, binding]));
+  const riskProfileRows = state.riskProfileBindingTargets.length
+    ? state.riskProfileBindingTargets.map((target) => {
+      const selected = profileByScope.get(target.scope_id)?.profile_selection?.risk_preference || "";
+      const option = (value, label) => `<option value="${escapeHtml(value)}"${selected === value ? " selected" : ""}>${escapeHtml(label)}</option>`;
+      return `<tr><td>${escapeHtml(target.platform)}</td><td>${escapeHtml(target.target_name)}</td><td><select data-risk-profile-platform="${escapeHtml(target.platform)}" data-risk-profile-target="${escapeHtml(target.target_name)}"${disabled}>${option("", "未设置 / Not configured")}${option("CAPITAL_PRESERVATION", "保本优先 / Capital preservation")}${option("BALANCED_COMPOUNDING", "平衡复利 / Balanced compounding")}${option("GROWTH_COMPOUNDING", "增长复利 / Growth compounding")}</select></td></tr>`;
+    }).join("")
+    : `<tr><td colspan="3">暂无已配置目标 / No configured targets</td></tr>`;
+  const riskProfileNotice = state.riskProfileBindingsError
+    ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。请先修复 KV 中的记录。`
+    : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。";
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -490,7 +588,7 @@ async function renderAdminPage(state) {
     }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100svh; background: var(--bg); color: var(--ink); letter-spacing: 0; }
-    button, textarea { font: inherit; letter-spacing: 0; }
+    button, textarea, select { font: inherit; letter-spacing: 0; }
     .topbar {
       min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
       padding: 16px 28px; border-bottom: 1px solid var(--line); background: rgba(250, 251, 252, 0.94);
@@ -528,6 +626,7 @@ async function renderAdminPage(state) {
       width: 100%; min-height: 118px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
       background: var(--surface); color: var(--ink); padding: 11px 12px; line-height: 1.45; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
+    select { min-height: 36px; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 0 9px; }
     textarea.json { min-height: 320px; }
     .panel { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
@@ -602,6 +701,20 @@ async function renderAdminPage(state) {
         <span id="status">${state.kvAvailable ? "" : "当前未绑定 STRATEGY_SWITCH_CONFIG KV，只能查看。"} </span>
       </div>
     </form>
+    <form class="panel" id="risk-profile-form">
+      <section>
+        <h2>组合风险偏好 / Portfolio Risk Preference</h2>
+        <p class="muted">${riskProfileNotice}</p>
+        <table>
+          <thead><tr><th>Platform</th><th>Target</th><th>Risk preference</th></tr></thead>
+          <tbody>${riskProfileRows}</tbody>
+        </table>
+      </section>
+      <div class="form-actions">
+        <button class="btn primary" id="save-risk-profile-button" type="submit"${disabled}>保存风险偏好</button>
+        <span id="risk-profile-status"></span>
+      </div>
+    </form>
     <div class="panel">
       <h2>账号数量 / Account Counts</h2>
       <table>
@@ -620,6 +733,7 @@ async function renderAdminPage(state) {
   <script>
     const kvAvailable = ${JSON.stringify(state.kvAvailable)};
     const statusNode = document.getElementById("status");
+    const riskProfileStatusNode = document.getElementById("risk-profile-status");
     const setStatus = (message) => { statusNode.textContent = message; };
     const parseLogins = (value) => value.split(/[\\s,]+/).map((item) => item.trim()).filter(Boolean);
 
@@ -656,6 +770,31 @@ async function renderAdminPage(state) {
         setStatus("已保存 / Saved");
       } catch (error) {
         setStatus("保存失败 / Save failed: " + error.message);
+      }
+    });
+
+    document.getElementById("risk-profile-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!kvAvailable) return;
+      const bindings = [...document.querySelectorAll("[data-risk-profile-platform]")]
+        .map((node) => ({
+          platform: node.dataset.riskProfilePlatform,
+          target_name: node.dataset.riskProfileTarget,
+          risk_preference: node.value,
+        }))
+        .filter((item) => item.risk_preference);
+      riskProfileStatusNode.textContent = "正在保存 / Saving...";
+      try {
+        const response = await fetch("/api/risk-profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ bindings }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || "save failed");
+        riskProfileStatusNode.textContent = "已保存；仅为不可执行的风险偏好意图 / Saved as no-order preference";
+      } catch (error) {
+        riskProfileStatusNode.textContent = "保存失败 / Save failed: " + error.message;
       }
     });
   </script>
@@ -4321,6 +4460,183 @@ async function loadStrategyProfilesConfig(env) {
   return normalizeStrategyProfilesPayload(DEFAULT_STRATEGY_PROFILES, "DEFAULT_STRATEGY_PROFILES");
 }
 
+function riskProfileScopeId(platform, targetName) {
+  return `${platform}--${targetName}`;
+}
+
+function riskProfileBindingTargets(accountOptions) {
+  const targets = [];
+  for (const platform of SUPPORTED_PLATFORMS) {
+    const options = Array.isArray(accountOptions?.[platform]) ? accountOptions[platform] : [];
+    for (const option of options) {
+      targets.push({
+        scope_id: riskProfileScopeId(platform, option.target_name),
+        platform,
+        target_name: option.target_name,
+      });
+    }
+  }
+  return targets.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+}
+
+function utcTimestampSeconds(now = new Date()) {
+  return now.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+async function calculateRiskProfileSelectionSha256(payload) {
+  const material = { ...payload };
+  delete material.selection_sha256;
+  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function normalizeRiskProfileSelection(payload, fieldName) {
+  const value = assertExactFields(payload, ["schema", "profile_id", "risk_preference", "selection_sha256"], fieldName);
+  const riskPreference = cleanChoice(value.risk_preference, RISK_PROFILE_PREFERENCES, `${fieldName}.risk_preference`);
+  const normalized = {
+    schema: RISK_PROFILE_SELECTION_SCHEMA_VERSION,
+    profile_id: RISK_PROFILE_IDS[riskPreference],
+    risk_preference: riskPreference,
+    selection_sha256: normalizeResearchTaskDigest(value.selection_sha256, `${fieldName}.selection_sha256`),
+  };
+  if (value.schema !== RISK_PROFILE_SELECTION_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema is unsupported`);
+  }
+  if (value.profile_id !== normalized.profile_id) {
+    throw new Error(`${fieldName}.profile_id does not match risk_preference`);
+  }
+  if (normalized.selection_sha256 !== await calculateRiskProfileSelectionSha256(normalized)) {
+    throw new Error(`${fieldName}.selection_sha256 mismatch`);
+  }
+  return normalized;
+}
+
+async function calculateRiskProfileBindingSha256(payload) {
+  const material = { ...payload };
+  delete material.binding_sha256;
+  const raw = new TextEncoder().encode(canonicalResearchTaskJson(material));
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function normalizeRiskProfileBinding(payload, fieldName) {
+  const value = assertExactFields(payload, [
+    "schema_version", "scope_id", "platform", "target_name", "profile_selection", "updated_at", "updated_by",
+    "no_order", "execution_authority_granted", "binding_sha256",
+  ], fieldName);
+  const platform = cleanChoice(value.platform, SUPPORTED_PLATFORMS, `${fieldName}.platform`);
+  const targetName = cleanSlug(value.target_name, `${fieldName}.target_name`);
+  const normalized = {
+    schema_version: RISK_PROFILE_BINDING_SCHEMA_VERSION,
+    scope_id: riskProfileScopeId(platform, targetName),
+    platform,
+    target_name: targetName,
+    profile_selection: await normalizeRiskProfileSelection(value.profile_selection, `${fieldName}.profile_selection`),
+    updated_at: normalizeResearchTaskTimestamp(value.updated_at, `${fieldName}.updated_at`),
+    updated_by: cleanGithubLogin(value.updated_by, `${fieldName}.updated_by`),
+    no_order: value.no_order,
+    execution_authority_granted: value.execution_authority_granted,
+    binding_sha256: normalizeResearchTaskDigest(value.binding_sha256, `${fieldName}.binding_sha256`),
+  };
+  if (value.schema_version !== RISK_PROFILE_BINDING_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  if (value.scope_id !== normalized.scope_id) {
+    throw new Error(`${fieldName}.scope_id does not match platform and target_name`);
+  }
+  if (normalized.no_order !== true || normalized.execution_authority_granted !== false) {
+    throw new Error(`${fieldName} must remain no-order and non-executable`);
+  }
+  if (normalized.binding_sha256 !== await calculateRiskProfileBindingSha256(normalized)) {
+    throw new Error(`${fieldName}.binding_sha256 mismatch`);
+  }
+  return normalized;
+}
+
+async function normalizeRiskProfileBindingRegistry(payload, fieldName = RISK_PROFILE_BINDINGS_KEY) {
+  const value = assertExactFields(payload, ["schema_version", "bindings"], fieldName);
+  if (value.schema_version !== RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  if (!Array.isArray(value.bindings) || value.bindings.length > SUPPORTED_PLATFORMS.length * 20) {
+    throw new Error(`${fieldName}.bindings must be a bounded array`);
+  }
+  const bindings = [];
+  const scopes = new Set();
+  for (const [index, item] of value.bindings.entries()) {
+    const binding = await normalizeRiskProfileBinding(item, `${fieldName}.bindings[${index}]`);
+    if (scopes.has(binding.scope_id)) throw new Error(`${fieldName}.bindings contains duplicate scope_id`);
+    scopes.add(binding.scope_id);
+    bindings.push(binding);
+  }
+  return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+}
+
+async function buildRiskProfileBindings(payload, accountOptions, updatedBy) {
+  const value = assertExactFields(payload, ["bindings"], "risk profile bindings request");
+  if (!Array.isArray(value.bindings) || value.bindings.length > SUPPORTED_PLATFORMS.length * 20) {
+    throw new Error("risk profile bindings request.bindings must be a bounded array");
+  }
+  const bindings = [];
+  const scopes = new Set();
+  const updatedAt = utcTimestampSeconds();
+  for (const [index, item] of value.bindings.entries()) {
+    const itemValue = assertExactFields(item, ["platform", "target_name", "risk_preference"], `risk profile bindings request.bindings[${index}]`);
+    const platform = cleanChoice(itemValue.platform, SUPPORTED_PLATFORMS, `risk profile bindings request.bindings[${index}].platform`);
+    const targetName = cleanSlug(itemValue.target_name, `risk profile bindings request.bindings[${index}].target_name`);
+    if (!riskProfileBindingTargets(accountOptions).some((target) => target.platform === platform && target.target_name === targetName)) {
+      throw new Error(`risk profile binding target is not configured: ${platform}/${targetName}`);
+    }
+    const scopeId = riskProfileScopeId(platform, targetName);
+    if (scopes.has(scopeId)) throw new Error("risk profile bindings request contains duplicate target");
+    scopes.add(scopeId);
+    const riskPreference = cleanChoice(
+      itemValue.risk_preference,
+      RISK_PROFILE_PREFERENCES,
+      `risk profile bindings request.bindings[${index}].risk_preference`,
+    );
+    const profileSelection = {
+      schema: RISK_PROFILE_SELECTION_SCHEMA_VERSION,
+      profile_id: RISK_PROFILE_IDS[riskPreference],
+      risk_preference: riskPreference,
+      selection_sha256: "",
+    };
+    profileSelection.selection_sha256 = await calculateRiskProfileSelectionSha256(profileSelection);
+    const binding = {
+      schema_version: RISK_PROFILE_BINDING_SCHEMA_VERSION,
+      scope_id: scopeId,
+      platform,
+      target_name: targetName,
+      profile_selection: profileSelection,
+      updated_at: updatedAt,
+      updated_by: cleanGithubLogin(updatedBy, "risk profile binding.updated_by"),
+      no_order: true,
+      execution_authority_granted: false,
+      binding_sha256: "",
+    };
+    binding.binding_sha256 = await calculateRiskProfileBindingSha256(binding);
+    bindings.push(await normalizeRiskProfileBinding(binding, `risk profile bindings request.bindings[${index}]`));
+  }
+  return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+}
+
+async function loadRiskProfileBindings(env) {
+  if (!hasConfigStore(env)) return { bindings: [], error: null };
+  try {
+    const stored = await readConfigJson(env, RISK_PROFILE_BINDINGS_KEY);
+    if (!stored) return { bindings: [], error: null };
+    return {
+      bindings: await normalizeRiskProfileBindingRegistry(stored),
+      error: null,
+    };
+  } catch {
+    // Do not silently default malformed owner intent.  It has no runtime
+    // authority, but the next control-plane adapter must see the failure.
+    return { bindings: [], error: "risk_profile_bindings_invalid" };
+  }
+}
+
 function hasConfigStore(env) {
   return Boolean(configStore(env));
 }
@@ -4543,6 +4859,11 @@ export const __test = {
   normalizeSwitchInputs,
   normalizeAccountOptionsPayload,
   normalizeStrategyProfilesPayload,
+  calculateRiskProfileSelectionSha256,
+  calculateRiskProfileBindingSha256,
+  normalizeRiskProfileBindingRegistry,
+  buildRiskProfileBindings,
+  riskProfileBindingTargets,
   platformRepositories,
   requireSameOrigin,
   responseHeaders,
