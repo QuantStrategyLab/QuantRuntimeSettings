@@ -41,6 +41,12 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
 SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
 FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path"}
+# These platforms have a runtime variable pair through which an immutable
+# feature snapshot and its manifest can be supplied to a generated target.
+# Keep this small, explicit set next to the config validation so coverage does
+# not claim that a strategy needing data artifacts is runnable on an unwired
+# platform.
+FEATURE_SNAPSHOT_RUNTIME_PLATFORMS = {"schwab", "longbridge", "ibkr", "firstrade"}
 RUNTIME_MODELS = {"cloud_run", "oracle_vps_self_hosted", "not_configured"}
 EXECUTION_MODES = {"live", "paper", "dry_run"}
 # ``paper`` remains a future P4 capability. The executable non-live path is
@@ -354,26 +360,34 @@ def validate(config: dict) -> list[str]:
 
 
 def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict[str, object]:
-    """Report whether every strategy has at least one no-order platform route.
+    """Report declared and default-buildable no-order platform routes.
 
     This is a control-plane coverage proof, not a claim that P4 paper, P5
     shadow, broker credentials, or a scheduler is active. A route exists only
     when the strategy domain and both sides' ``dry_run`` declarations agree.
+    A route is *buildable* only when every required runtime artifact has a
+    safe configured default.  A manually supplied artifact can make a parked
+    route buildable for that invocation, but is intentionally not treated as
+    an always-ready automation route here.
     """
     config = config if config is not None else load_config()
     platforms = config.get("platforms", {})
     strategies = config.get("strategies", {})
     rows: list[dict[str, object]] = []
+    declared_uncovered_profiles: list[str] = []
     uncovered_profiles: list[str] = []
-    route_count = 0
+    artifact_blocked_profiles: list[str] = []
+    declared_route_count = 0
+    buildable_route_count = 0
 
     for profile, strategy in sorted(strategies.items()):
         if not isinstance(strategy, dict):
+            declared_uncovered_profiles.append(str(profile))
             uncovered_profiles.append(str(profile))
             continue
         domain = str(strategy.get("domain") or "")
         strategy_modes = _normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
-        safe_platforms: list[str] = []
+        declared_platforms: list[str] = []
         for platform_id, platform in sorted(platforms.items()):
             if not isinstance(platform, dict) or domain not in platform.get("supported_domains", []):
                 continue
@@ -384,15 +398,61 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
                 else []
             )
             if "dry_run" in strategy_modes and "dry_run" in platform_modes:
-                safe_platforms.append(str(platform_id))
-        route_count += len(safe_platforms)
-        if not safe_platforms:
+                declared_platforms.append(str(platform_id))
+
+        required_artifact_reason = ""
+        runtime_artifacts = strategy.get("runtime_artifacts")
+        feature_snapshot = (
+            runtime_artifacts.get("feature_snapshot")
+            if isinstance(runtime_artifacts, dict)
+            else None
+        )
+        if isinstance(feature_snapshot, dict) and feature_snapshot.get("required") is True:
+            snapshot_path = feature_snapshot.get("path")
+            manifest_path = feature_snapshot.get("manifest_path")
+            has_snapshot_path = isinstance(snapshot_path, str) and snapshot_path.startswith("gs://")
+            has_manifest_path = isinstance(manifest_path, str) and manifest_path.startswith("gs://")
+            if not (has_snapshot_path and has_manifest_path):
+                required_artifact_reason = "required_feature_snapshot_artifact_unconfigured"
+
+        buildable_platforms = declared_platforms.copy()
+        if required_artifact_reason:
+            buildable_platforms = []
+            if declared_platforms:
+                artifact_blocked_profiles.append(str(profile))
+        elif isinstance(feature_snapshot, dict) and feature_snapshot.get("required") is True:
+            unwired_platforms = sorted(
+                platform_id
+                for platform_id in declared_platforms
+                if platform_id not in FEATURE_SNAPSHOT_RUNTIME_PLATFORMS
+            )
+            if unwired_platforms:
+                required_artifact_reason = (
+                    "required_feature_snapshot_platform_unwired: "
+                    + ", ".join(unwired_platforms)
+                )
+                buildable_platforms = [
+                    platform_id
+                    for platform_id in declared_platforms
+                    if platform_id in FEATURE_SNAPSHOT_RUNTIME_PLATFORMS
+                ]
+                artifact_blocked_profiles.append(str(profile))
+
+        declared_route_count += len(declared_platforms)
+        buildable_route_count += len(buildable_platforms)
+        if not declared_platforms:
+            declared_uncovered_profiles.append(str(profile))
+        if not buildable_platforms:
             uncovered_profiles.append(str(profile))
         rows.append(
             {
                 "profile": str(profile),
                 "domain": domain,
-                "dry_run_platforms": safe_platforms,
+                # Retained as the safe default for existing report consumers.
+                "dry_run_platforms": buildable_platforms,
+                "declared_dry_run_platforms": declared_platforms,
+                "buildable_dry_run_platforms": buildable_platforms,
+                "blocked_reason": required_artifact_reason,
             }
         )
 
@@ -402,11 +462,20 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
             "strategy_count": len(rows),
             "covered_strategy_count": len(rows) - len(uncovered_profiles),
             "uncovered_strategy_count": len(uncovered_profiles),
-            "dry_run_route_count": route_count,
+            "declared_covered_strategy_count": len(rows) - len(declared_uncovered_profiles),
+            "declared_uncovered_strategy_count": len(declared_uncovered_profiles),
+            "dry_run_route_count": buildable_route_count,
+            "declared_dry_run_route_count": declared_route_count,
+            "buildable_dry_run_route_count": buildable_route_count,
         },
+        "declared_uncovered_profiles": declared_uncovered_profiles,
         "uncovered_profiles": uncovered_profiles,
+        "artifact_blocked_profiles": artifact_blocked_profiles,
         "profiles": rows,
-        "boundary": "No-order dry_run coverage only; it does not assert P4/P5/P6 runtime authority.",
+        "boundary": (
+            "Buildable no-order dry_run coverage only; it does not assert P4/P5/P6 "
+            "runtime authority, broker connectivity, or artifact content quality."
+        ),
     }
 
 
@@ -695,10 +764,18 @@ def build_platform_health_report(
             "severity": "critical",
             "messages": (
                 [
-                    "no configured no-order platform route for: "
+                    "no default-buildable no-order platform route for: "
                     + ", ".join(dry_run_coverage["uncovered_profiles"])
                 ]
                 if dry_run_coverage["uncovered_profiles"]
+                else []
+            )
+            + (
+                [
+                    "required external runtime artifact is not configured for: "
+                    + ", ".join(dry_run_coverage["artifact_blocked_profiles"])
+                ]
+                if dry_run_coverage["artifact_blocked_profiles"]
                 else []
             ),
         },
@@ -716,8 +793,16 @@ def build_platform_health_report(
     failed_checks = [check for check in checks if check["status"] == "fail"]
     warning_checks = [check for check in checks if check["status"] == "warn"]
     status = "unhealthy" if failed_checks else "attention_required" if warning_checks else "healthy"
+    external_artifact_blocked = bool(dry_run_coverage["artifact_blocked_profiles"])
+    repairable_config_failure = bool(
+        config_errors
+        or derivation_errors
+        or dry_run_coverage["declared_uncovered_profiles"]
+    )
     recommended_action = (
-        "attempt_codex_fix"
+        "supply_verified_runtime_artifact"
+        if external_artifact_blocked and not repairable_config_failure
+        else "attempt_codex_fix"
         if failed_checks
         else "review_candidates"
         if warning_checks
@@ -736,13 +821,16 @@ def build_platform_health_report(
             "dry_run_covered_strategy_count": dry_run_coverage["summary"]["covered_strategy_count"],
             "dry_run_uncovered_strategy_count": dry_run_coverage["summary"]["uncovered_strategy_count"],
             "dry_run_route_count": dry_run_coverage["summary"]["dry_run_route_count"],
+            "declared_dry_run_route_count": dry_run_coverage["summary"]["declared_dry_run_route_count"],
+            "buildable_dry_run_route_count": dry_run_coverage["summary"]["buildable_dry_run_route_count"],
+            "artifact_blocked_strategy_count": len(dry_run_coverage["artifact_blocked_profiles"]),
             "automation_lane_counts": automation_registry["summary"]["lane_counts"],
         },
         "live_candidate_queue": live_candidate_queue,
         "strategy_platform_dry_run_coverage": dry_run_coverage,
         "automation_registry": automation_registry,
         "codex_repair_context": {
-            "safe_to_attempt": bool(failed_checks),
+            "safe_to_attempt": bool(failed_checks) and not external_artifact_blocked,
             "scope": "QuantRuntimeSettings platform-config and generated strategy switch assets",
             "suggested_commands": [
                 "python3 python/scripts/build_config.py --check",
@@ -754,6 +842,7 @@ def build_platform_health_report(
                 "Keep fixes limited to platform-config, generated strategy profile assets, tests, or docs unless a failing check proves a wider change is required.",
                 "Do not enable paper, shadow, or live switching without fresh evidence and a verified preauthorized operating policy.",
                 "If the failure affects secrets, broker credentials, or live execution permissions, park execution and preserve the evidence boundary.",
+                "Never invent a missing required artifact URI. Publish and validate the artifact and its manifest through its owning pipeline before configuring a default route.",
             ],
         },
     }

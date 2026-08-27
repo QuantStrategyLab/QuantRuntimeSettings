@@ -37,7 +37,16 @@
 }
 ```
 
-每个策略的 `allowed_execution_modes` 必须包含 `dry_run`。健康报告同时检查策略域与平台支持域的交集：任何策略没有至少一条 `dry_run` 路径时，`strategy_platform_dry_run_coverage` 会以 critical failure 失败，自动修复流程只能修复配置/生成物，不能启用订单或提高生命周期。
+每个策略的 `allowed_execution_modes` 必须包含 `dry_run`。健康报告同时检查策略域与平台支持域的交集，但把覆盖分为两个层次：
+
+| 层次 | 含义 | 当前结果 |
+| --- | --- | --- |
+| 已声明路径 | 策略域、策略许可和平台 `dry_run` 许可匹配 | 59 条 |
+| 默认可构建路径 | 不需要临时人工补充制品，即可生成通过 runtime policy 校验的不下单目标 | 57 条 |
+
+如果策略依赖 `runtime_artifacts.feature_snapshot.required=true`，默认可构建路径还必须配置成对的、`gs://` 开头的快照和 manifest URI。缺失时策略会被标成 **PARKED**，健康检查 `strategy_platform_dry_run_coverage` 以 critical failure 失败，执行保持关闭；这不是允许自动补一个猜测的 URI。
+
+当前受此规则约束的是 `hk_low_vol_dividend_quality_snapshot` 的 IBKR 与 LongBridge 两条已声明路径。它们需要由 [HkEquitySnapshotPipelines](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines) 发布并验证的 `feature_snapshot` 与 manifest 后才能成为默认可构建路线。该流水线的制品、来源、回测和人工审阅是独立证据边界；完成后可通过配置默认 URI，或在一次已审阅的不下单运行中成对传入两个 URI。自动修复只能发现、暂停、提示和复验，绝不伪造数据制品或提高生命周期。
 
 ## 插件边界
 
@@ -57,3 +66,7 @@ node tests/strategy_switch_worker_validation.mjs
 ```
 
 完整 Python、生成物一致性、Worker 与安全检查由 GitHub-hosted CI 执行。通过这些检查只说明配置和不下单控制链完整；真实平台连通、数据质量、P4/P5 receipt 与 P6 实盘资格仍由各自独立的运行证据和策略门槛决定。
+
+健康报告的 `declared_dry_run_route_count`、`buildable_dry_run_route_count`、`artifact_blocked_strategy_count` 会持续暴露这类差异。`recommended_action=supply_verified_runtime_artifact` 表示需要由制品拥有流水线提供可验证输入，而非由中控、插件或 AI 直接绕过门槛。
+
+`Platform Health Monitor` 会读取 `codex_repair_context.safe_to_attempt`：可由配置/代码修复的问题才标记 `codex-repair-ready`；缺外部证据的问题改标 `external-evidence-required`，保留失败告警和 PARKED 状态。这样自动监测不会把“发现问题”误当成“有权创造数据、凭据或实盘资格”。
