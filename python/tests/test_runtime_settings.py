@@ -529,7 +529,27 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertIn("codex_repair_context", report)
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
+        self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 0)
+        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 26)
+        self.assertGreater(report["summary"]["dry_run_route_count"], 0)
+        coverage_check = next(
+            item for item in report["checks"] if item["name"] == "strategy_platform_dry_run_coverage"
+        )
+        self.assertEqual(coverage_check["status"], "pass")
         self.assertIn("python3 python/scripts/build_config.py --check", report["codex_repair_context"]["suggested_commands"])
+
+    def test_strategy_platform_dry_run_coverage_fails_closed_when_domain_route_is_removed(self):
+        config = build_config.load_config()
+        config["platforms"]["qmt"]["supported_domains"] = []
+
+        coverage = build_config.build_strategy_platform_dry_run_coverage(config)
+        report = build_config.build_platform_health_report(config, [])
+
+        self.assertIn("cn_industry_etf_rotation", coverage["uncovered_profiles"])
+        coverage_check = next(
+            item for item in report["checks"] if item["name"] == "strategy_platform_dry_run_coverage"
+        )
+        self.assertEqual(coverage_check["status"], "fail")
 
     def test_platform_health_report_cli_outputs_json(self):
         report = {
@@ -868,7 +888,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertIsNotNone(normalize)
         self.assertIsNotNone(eligibility)
         self.assertIn('mode === "dry_run"', normalize.group(0))
-        self.assertIn('return "paper"', normalize.group(0))
+        self.assertIn('return "dry_run"', normalize.group(0))
         self.assertNotIn("catalogEntry.runtime_enabled !== true", eligibility.group(0))
         self.assertIn('if (mode === "live") return strategyCanSwitchLive(catalogEntry);', eligibility.group(0))
 
@@ -1126,6 +1146,15 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertIn(
             "plugin_mounts[0].expected_schema_version must be a non-empty string",
+            runtime_settings.validate_target(target),
+        )
+
+    def test_plugin_mount_cannot_request_live_execution(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["plugin_mounts"][0]["expected_mode"] = "live"
+
+        self.assertIn(
+            "plugin_mounts[0].expected_mode must be dry_run, paper, or shadow; plugins cannot request live execution",
             runtime_settings.validate_target(target),
         )
 
@@ -1437,6 +1466,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(target["runtime_target"]["account_scope"], "CN")
         self.assertEqual(target["runtime_target"]["service_name"], "qmt-quant-service")
         self.assertEqual(target["runtime_target"]["dry_run_only"], True)
+        self.assertEqual(target["runtime_target"]["execution_mode"], "paper")
         self.assertEqual(target["runtime_target"]["market"], "CN")
         self.assertEqual(target["runtime_target"]["market_calendar"], "SSE")
         self.assertEqual(target["runtime_target"]["market_timezone"], "Asia/Shanghai")
@@ -1450,6 +1480,42 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 "probe_time": "35 9,15 * * *",
                 "precheck_time": "45 9 * * *",
             },
+        )
+
+    def test_build_switch_target_preserves_dry_run_semantics_for_all_profile_domains(self):
+        cases = (
+            ("ibkr", "coverage-us", "global_etf_rotation"),
+            ("longbridge", "coverage-hk", "hk_global_etf_tactical_rotation"),
+            ("qmt", "coverage-cn", "cn_industry_etf_rotation"),
+            ("binance", "coverage-crypto", "crypto_live_pool_rotation"),
+        )
+        parser = build_runtime_switch.build_parser()
+        for platform, target_name, profile in cases:
+            with self.subTest(platform=platform, profile=profile):
+                target = build_runtime_switch.build_switch_target(
+                    parser.parse_args(
+                        [
+                            "--platform", platform,
+                            "--target-name", target_name,
+                            "--strategy-profile", profile,
+                            "--execution-mode", "dry_run",
+                        ]
+                    )
+                )
+                self.assertEqual(target["runtime_target"]["execution_mode"], "paper")
+                self.assertTrue(target["runtime_target"]["dry_run_only"])
+                self.assertEqual(runtime_settings.effective_execution_mode(target["runtime_target"]), "dry_run")
+                self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_runtime_target_rejects_unwired_paper_control_mode(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        target["runtime_target"]["strategy_profile"] = "soxl_soxx_trend_income"
+        target["runtime_target"]["execution_mode"] = "paper"
+        target["runtime_target"]["dry_run_only"] = False
+
+        self.assertIn(
+            "platform schwab does not support paper control execution",
+            runtime_settings.validate_target(target),
         )
 
     def test_build_switch_target_rejects_live_qmt_without_live_runtime_configuration(self):

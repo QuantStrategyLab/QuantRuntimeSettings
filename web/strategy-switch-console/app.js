@@ -907,7 +907,8 @@
         strategy: "策略",
         mode: "运行环境",
         live: "实盘（需独立授权）",
-        paper: "非实盘",
+        paper: "旧版非实盘",
+        dryRun: "演练（不下单）",
         liveModeUnavailable: "当前没有同时满足策略发布、运行许可与证据门槛的实盘候选；请保持非实盘。",
         runtimeTargetMode: "账号运行状态",
         runtimeSectionTitle: "运行与插件",
@@ -957,7 +958,7 @@
         executionCashMarginBlocksReserve: "已选允许融资；提交时会清空预留现金覆盖。",
         executionCashReserveBlocksMargin: "已设预留现金覆盖；提交时会强制不允许融资。",
         qmtPlatformCashNote: "A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。",
-        qmtDryRunOnlyNote: "QMT 当前仅支持 dry-run（模拟），尚无 live 券商账号。",
+        qmtDryRunOnlyNote: "当前平台仅支持不下单演练，尚无可用的实盘执行通道。",
         binancePlatformNote: "Binance 平台不使用券商级收入层与期权层；相关功能由策略内部实现。",
         invalidExecutionCashPolicyNote: "允许融资与预留现金覆盖冲突，请只保留一种约束。",
         dcaMode: "定投模式",
@@ -1164,7 +1165,8 @@
         strategy: "Strategy",
         mode: "Target environment",
         live: "Live (independent approval required)",
-        paper: "Non-live",
+        paper: "Legacy non-live",
+        dryRun: "Dry run (no orders)",
         liveModeUnavailable: "No candidate currently meets the strategy-release, runtime-eligibility, and evidence gates for Live. Keep this plan non-live.",
         runtimeTargetMode: "Account status",
         runtimeSectionTitle: "Runtime and plugins",
@@ -1214,7 +1216,7 @@
         executionCashMarginBlocksReserve: "Allow margin is selected; submitting will clear reserve-cash overrides.",
         executionCashReserveBlocksMargin: "Reserve-cash override is active; submitting will force allow margin to No.",
         qmtPlatformCashNote: "QMT A-share does not use margin or platform reserve cash; cash constraints live in strategy execution_cash_reserve_ratio.",
-        qmtDryRunOnlyNote: "QMT is dry-run only for now; no live broker accounts are configured.",
+        qmtDryRunOnlyNote: "This platform supports no-order dry runs only; no live execution route is configured.",
         binancePlatformNote: "Binance does not use broker-level income/option layers; features are implemented inside strategies.",
         invalidExecutionCashPolicyNote: "Allow margin and reserve-cash overrides conflict. Keep only one constraint.",
         dcaMode: "DCA mode",
@@ -1503,6 +1505,11 @@
 
     function platformDryRunOnly(platform = state.selected) {
       return platformConfig[platform]?.dry_run_only ?? false;
+    }
+
+    function supportedExecutionModesForPlatform(platform = state.selected) {
+      const modes = platformConfig[platform]?.supported_execution_modes;
+      return Array.isArray(modes) ? modes.filter((mode) => mode === "live" || mode === "dry_run") : [];
     }
 
     function allowMarginExplicitlySelected(form) {
@@ -1811,6 +1818,7 @@
       if (dcaConfigForStrategy(cleanProfile) && !platformSupportsDca(platform)) return false;
       if (!supportedDomainsForAccount(platform, account).includes(catalogEntry.domain)) return false;
       const mode = normalizeExecutionMode(executionMode, false);
+      if (!supportedExecutionModesForPlatform(platform).includes(mode)) return false;
       if (mode === "live") return strategyCanSwitchLive(catalogEntry);
       const allowedModes = normalizeAllowedExecutionModes(catalogEntry.allowed_execution_modes);
       if (allowedModes.length && !allowedModes.includes(mode)) return false;
@@ -1852,7 +1860,7 @@
     }
 
     function modeLabel(mode) {
-      return mode === "paper" ? t("paper") : t("live");
+      return mode === "dry_run" ? t("dryRun") : mode === "paper" ? t("paper") : t("live");
     }
 
     function normalizePluginMode(value) {
@@ -2234,9 +2242,9 @@
 
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
-      if (mode === "live" || mode === "paper") return mode;
-      if (mode === "dry_run" || mode === "dry-run") return "paper";
-      if (dryRunOnly === true || dryRunOnly === "true" || dryRunOnly === "1" || dryRunOnly === 1) return "paper";
+      if (mode === "live") return "live";
+      if (mode === "paper" || mode === "dry_run" || mode === "dry-run") return "dry_run";
+      if (dryRunOnly === true || dryRunOnly === "true" || dryRunOnly === "1" || dryRunOnly === 1) return "dry_run";
       if (dryRunOnly === false || dryRunOnly === "false" || dryRunOnly === "0" || dryRunOnly === 0) return "live";
       return "";
     }
@@ -2253,7 +2261,7 @@
     }
 
     function defaultExecutionModeForAccount(platform, account, fallback = "live") {
-      if (platformDryRunOnly(platform)) return "paper";
+      if (platformDryRunOnly(platform)) return "dry_run";
       const currentMode = normalizeExecutionMode(
         currentEntryForAccount(platform, account)?.execution_mode,
         currentEntryForAccount(platform, account)?.dry_run_only,
@@ -2268,7 +2276,7 @@
         account?.service_name,
       ].join(" ").toLowerCase();
       if (hint.split(/\s+/).includes("paper") || hint.includes("-paper") || hint.includes("_paper") || hint.includes("dry_run") || hint.includes("dry-run")) {
-        return "paper";
+        return "dry_run";
       }
       return fallback;
     }
@@ -3342,13 +3350,16 @@
         el("dca-base-meta").textContent = t("dcaModeMeta");
       }
 
-      const liveModeAvailable = !platformDryRunOnly(platform) && hasLiveStrategyOption(platform, account);
-      if (platformDryRunOnly(platform)) form.executionMode = "paper";
+      const supportedModes = supportedExecutionModesForPlatform(platform);
+      const liveModeAvailable = supportedModes.includes("live") && hasLiveStrategyOption(platform, account);
+      if (!supportedModes.includes(form.executionMode)) form.executionMode = "dry_run";
       document.querySelectorAll("#mode-control [data-mode]").forEach((button) => {
-        button.disabled = button.dataset.mode === "live" && !liveModeAvailable;
+        button.disabled = !supportedModes.includes(button.dataset.mode) || (
+          button.dataset.mode === "live" && !liveModeAvailable
+        );
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
       });
-      el("mode-meta").textContent = platformDryRunOnly(platform)
+      el("mode-meta").textContent = !supportedModes.includes("live")
         ? t("qmtDryRunOnlyNote")
         : (!liveModeAvailable ? t("liveModeUnavailable") : "");
     }
@@ -4363,7 +4374,7 @@
     el("mode-control").addEventListener("click", (event) => {
       const button = event.target.closest("[data-mode]");
       if (!button || button.disabled) return;
-      if (platformDryRunOnly(state.selected) && button.dataset.mode === "live") return;
+      if (!supportedExecutionModesForPlatform(state.selected).includes(button.dataset.mode)) return;
       state.forms[state.selected].executionMode = button.dataset.mode;
       render();
     });

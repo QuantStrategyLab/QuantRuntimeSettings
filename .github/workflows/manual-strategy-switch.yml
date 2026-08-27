@@ -23,12 +23,13 @@ on:
         required: true
         type: string
       execution_mode:
-        description: "live writes live mode; paper sets dry_run_only=true and execution_mode=paper."
+        description: "live is gated; dry_run is the universal no-order path. paper is retained only as a legacy alias for dry_run, not P4 paper trading."
         required: true
         type: choice
         default: live
         options:
           - live
+          - dry_run
           - paper
       variable_scope:
         description: "Where GitHub variables are written. blank = platform default."

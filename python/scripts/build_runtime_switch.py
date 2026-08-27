@@ -629,8 +629,37 @@ def _execution_mode_and_dry_run(raw_mode: str) -> tuple[str, bool]:
     if mode == "live":
         return "live", False
     if mode in {"paper", "dry_run", "dry-run"}:
+        # Platform sync adapters currently consume this legacy no-order
+        # envelope. Policy validation maps it back to the canonical dry_run
+        # control mode; do not alter deployed payload compatibility here.
         return "paper", True
-    raise ValueError("execution_mode must be live or paper")
+    raise ValueError("execution_mode must be live, paper, or dry_run")
+
+
+def _validate_requested_execution_mode(strategy_profile: str, raw_mode: str) -> None:
+    """Keep legacy ``paper`` requests within their original strategy scope.
+
+    The emitted no-order envelope is intentionally compatible with deployed
+    platform parsers. A new ``dry_run`` request may use it for any strategy;
+    an explicit old ``paper`` request must still be listed in the strategy
+    profile so it cannot broaden a historical mode allowance.
+    """
+    if str(raw_mode or "").strip().lower() != "paper":
+        return
+    config = _load_platform_config()
+    strategies = config.get("strategies")
+    strategy = strategies.get(strategy_profile) if isinstance(strategies, dict) else None
+    if not isinstance(strategy, dict):
+        return
+    allowed_modes = strategy.get("allowed_execution_modes")
+    if isinstance(allowed_modes, str):
+        allowed = {part.strip().lower() for part in re.split(r"[,\s/|]+", allowed_modes) if part.strip()}
+    elif isinstance(allowed_modes, (list, tuple, set)):
+        allowed = {str(part or "").strip().lower() for part in allowed_modes if str(part or "").strip()}
+    else:
+        allowed = set()
+    if allowed and "paper" not in allowed:
+        raise ValueError(f"strategy {strategy_profile!r} does not allow paper execution; use dry_run")
 
 
 def _load_platform_config() -> dict[str, Any]:
@@ -774,6 +803,7 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     account_selector = _split_csv(args.account_selector) or _account_selector_default(platform, account_scope)
     service_name = args.service_name.strip() if args.service_name else _default_service_name(platform, target_name)
     strategy_profile = args.strategy_profile.strip().lower()
+    _validate_requested_execution_mode(strategy_profile, args.execution_mode)
     _validate_dca_platform(platform, strategy_profile)
     runtime_target: dict[str, Any] = {
         "platform_id": platform,

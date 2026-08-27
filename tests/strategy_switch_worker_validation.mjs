@@ -30,7 +30,8 @@ assert.ok(indexHtml.includes('data-i18n="planEyebrow"'));
 assert.ok(indexHtml.includes('id="plan-check-authority"'));
 assert.ok(indexHtml.includes('class="control-disclosure"'));
 assert.ok(indexHtml.includes('function hasLiveStrategyOption('));
-assert.ok(indexHtml.includes('button.disabled = button.dataset.mode === "live" && !liveModeAvailable'));
+assert.ok(indexHtml.includes('function supportedExecutionModesForPlatform('));
+assert.ok(indexHtml.includes('button.disabled = !supportedModes.includes(button.dataset.mode)'));
 assert.ok(indexHtml.includes('function renderPlanReadiness()'));
 assert.ok(indexHtml.includes('id="execution-evidence-list"'));
 assert.ok(indexHtml.includes('id="execution-evidence-notice"'));
@@ -159,8 +160,8 @@ assert.equal(indexHtml.includes('id="ibit-zscore-exit-mode-select"'), false);
 assert.equal(indexHtml.includes("ibitZscoreExit"), false);
 assert.equal(indexHtml.includes("ibit_zscore_exit_mode"), false);
 assert.ok(indexHtml.includes('reservedCashDefault'));
-assert.ok(indexHtml.includes('paper: "非实盘"'));
-assert.ok(indexHtml.includes('paper: "Non-live"'));
+assert.ok(indexHtml.includes('dryRun: "演练（不下单）"'));
+assert.ok(indexHtml.includes('dryRun: "Dry run (no orders)"'));
 assert.ok(indexHtml.includes('平台默认：0 {currency} / 0%'));
 assert.equal(indexHtml.includes('比例沿用策略默认，通常 3%'), false);
 assert.equal(indexHtml.includes('平台默认：max(0 {currency}, 3%)'), false);
@@ -333,7 +334,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       runtime_enabled: true,
       lifecycle_stage: "live_enabled",
       can_switch_live: true,
-      allowed_execution_modes: ["live", "paper"],
+      allowed_execution_modes: ["live", "dry_run"],
       income_layer_enabled: true,
       income_layer_start_usd: "250000",
       income_layer_max_ratio: "0.55",
@@ -356,7 +357,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       runtime_enabled: true,
       lifecycle_stage: "live_enabled",
       can_switch_live: true,
-      allowed_execution_modes: ["live", "paper"],
+      allowed_execution_modes: ["live", "dry_run"],
     },
     {
       profile: "us_equity_combo_leveraged",
@@ -365,7 +366,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       runtime_enabled: true,
       lifecycle_stage: "research",
       can_switch_live: false,
-      allowed_execution_modes: ["paper"],
+      allowed_execution_modes: ["dry_run"],
       blocked_live_reason: "promotion_required",
       latest_evidence_status: "research_only",
       plugin_gate_status: "blocked",
@@ -384,7 +385,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       runtime_enabled: false,
       lifecycle_stage: "shadow_candidate",
       can_switch_live: false,
-      allowed_execution_modes: ["paper"],
+      allowed_execution_modes: ["dry_run"],
     },
     {
       profile: "legacy_live_profile",
@@ -393,7 +394,7 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       runtime_enabled: true,
       lifecycle_stage: "runtime_enabled",
       can_switch_live: true,
-      allowed_execution_modes: ["live", "paper"],
+      allowed_execution_modes: ["live", "dry_run"],
     },
   ],
   "test_strategy_profiles",
@@ -402,7 +403,7 @@ assert.equal(strategyProfiles[0].label_en, "TQQQ Growth Income");
 assert.equal(strategyProfiles[0].label_zh, "TQQQ 增长收益");
 assert.equal(strategyProfiles[0].lifecycle_stage, "live_enabled");
 assert.equal(strategyProfiles[0].can_switch_live, true);
-assert.deepEqual(strategyProfiles[0].allowed_execution_modes, ["live", "paper"]);
+assert.deepEqual(strategyProfiles[0].allowed_execution_modes, ["live", "dry_run"]);
 assert.equal(strategyProfiles[0].income_layer_enabled, true);
 assert.equal(strategyProfiles[0].income_layer_start_usd, "250000");
 assert.equal(strategyProfiles[0].income_layer_max_ratio, "0.55");
@@ -425,7 +426,7 @@ assert.equal(strategyProfiles[0].latest_evidence_status, "live_allowed");
 assert.equal(strategyProfiles[0].plugin_gate_status, "live_allowed");
 assert.equal(strategyProfiles[2].lifecycle_stage, "research_active");
 assert.equal(strategyProfiles[2].can_switch_live, false);
-assert.deepEqual(strategyProfiles[2].allowed_execution_modes, ["paper"]);
+assert.deepEqual(strategyProfiles[2].allowed_execution_modes, ["dry_run"]);
 assert.equal(strategyProfiles[2].blocked_live_reason, "promotion_required");
 assert.equal(strategyProfiles[2].latest_evidence_status, "research_only");
 assert.equal(strategyProfiles[2].plugin_gate_status, "blocked");
@@ -462,7 +463,7 @@ assert.throws(
 );
 assert.doesNotThrow(() =>
   __test.assertStrategyAllowedForAccount(
-    { platform: "longbridge", strategy_profile: "us_equity_combo_leveraged", execution_mode: "paper" },
+    { platform: "longbridge", strategy_profile: "us_equity_combo_leveraged", execution_mode: "dry_run" },
     DEFAULT_ACCOUNT_OPTIONS.longbridge[0],
     strategyProfiles,
   ),
@@ -820,7 +821,7 @@ assert.throws(
     strategy_profile: "cn_industry_etf_rotation",
     execution_mode: "live",
   }),
-  /does not support live execution yet/,
+  /qmt does not support live control execution/,
 );
 const normalizedQmtDryRunInputs = __test.normalizeSwitchInputs({
   platform: "qmt",
@@ -828,7 +829,16 @@ const normalizedQmtDryRunInputs = __test.normalizeSwitchInputs({
   strategy_profile: "cn_industry_etf_rotation",
   execution_mode: "paper",
 });
-assert.equal(normalizedQmtDryRunInputs.execution_mode, "paper");
+assert.equal(normalizedQmtDryRunInputs.execution_mode, "dry_run");
+assert.equal(
+  __test.normalizeSwitchInputs({
+    platform: "ibkr",
+    target_name: "ibkr-dry-run",
+    strategy_profile: "global_etf_rotation",
+    execution_mode: "dry_run",
+  }).execution_mode,
+  "dry_run",
+);
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",

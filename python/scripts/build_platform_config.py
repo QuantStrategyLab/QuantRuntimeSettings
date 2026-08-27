@@ -50,6 +50,7 @@ def build_config_module(config: dict) -> str:
             "income_layer": caps.get("income_layer", False),
             "option_overlay": caps.get("option_overlay", False),
             "dca": caps.get("dca", False),
+            "supported_execution_modes": depl.get("supported_execution_modes", []),
             "execution_mode": depl.get("default_execution_mode", "live"),
             "service_name": depl.get("service_name", ""),
             "default_execution_mode": depl.get("default_execution_mode", "live"),
