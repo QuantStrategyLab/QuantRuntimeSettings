@@ -136,6 +136,26 @@ jobs:
             --description "Issue contains enough context for Codex-assisted repair" \
             --color 0e8a16 \
             --force >/dev/null
+          gh label create external-evidence-required \
+            --description "Health failure is safely parked pending verified external evidence" \
+            --color d93f0b \
+            --force >/dev/null
+
+          safe_to_attempt="false"
+          recommended_action="manual_triage"
+          if [ -s data/output/platform-health/report.json ]; then
+            read -r safe_to_attempt recommended_action < <(
+              python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          report = json.loads(Path("data/output/platform-health/report.json").read_text(encoding="utf-8"))
+          safe = report.get("codex_repair_context", {}).get("safe_to_attempt") is True
+          action = str(report.get("recommended_action") or "manual_triage")
+          print(str(safe).lower(), action)
+          PY
+            )
+          fi
 
           body="$(mktemp)"
           {
@@ -146,7 +166,7 @@ jobs:
             echo "- runtime_validation: ${{ steps.runtime_validation.outcome }}"
             echo "- web_validation: ${{ steps.web_validation.outcome }}"
             echo
-            echo "### Codex repair context"
+            echo "### Health repair context"
             echo
             echo '```json'
             if [ -s data/output/platform-health/report.json ]; then
@@ -161,6 +181,7 @@ jobs:
             echo "- Do not enable live switching for research/shadow/live_candidate profiles without an evidence package."
             echo "- Do not change secrets, broker credentials, or live execution permissions automatically."
             echo "- Prefer a minimal config/test/generated-asset fix; escalate complex cases for human review."
+            echo "- Never invent missing runtime-artifact URIs or their manifests; retain a PARKED execution state until the owning pipeline publishes verified evidence."
           } > "$body"
 
           existing="$(
@@ -172,12 +193,25 @@ jobs:
           )"
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body-file "$body"
+            if [ "$safe_to_attempt" = "true" ]; then
+              gh issue edit "$existing" --add-label codex-repair-ready --remove-label external-evidence-required
+            else
+              gh issue edit "$existing" --add-label external-evidence-required --remove-label codex-repair-ready
+            fi
           else
-            gh issue create \
-              --title "Platform health monitor requires repair" \
-              --label platform-health \
-              --label codex-repair-ready \
-              --body-file "$body"
+            if [ "$safe_to_attempt" = "true" ]; then
+              gh issue create \
+                --title "Platform health monitor requires repair" \
+                --label platform-health \
+                --label codex-repair-ready \
+                --body-file "$body"
+            else
+              gh issue create \
+                --title "Platform health monitor awaits verified external evidence: $recommended_action" \
+                --label platform-health \
+                --label external-evidence-required \
+                --body-file "$body"
+            fi
           fi
 
       - name: Fail if platform health failed

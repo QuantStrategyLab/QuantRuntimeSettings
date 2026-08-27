@@ -523,19 +523,26 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         report = build_config.build_platform_health_report(config, catalog)
 
-        self.assertIn(report["status"], {"healthy", "attention_required"})
+        self.assertEqual(report["status"], "unhealthy")
         self.assertEqual(report["schema_version"], "platform_health_report.v1")
         self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 0)
         self.assertIn("codex_repair_context", report)
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
-        self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 0)
-        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 26)
+        self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 1)
+        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 25)
         self.assertGreater(report["summary"]["dry_run_route_count"], 0)
+        self.assertGreater(
+            report["summary"]["declared_dry_run_route_count"],
+            report["summary"]["buildable_dry_run_route_count"],
+        )
+        self.assertEqual(report["summary"]["artifact_blocked_strategy_count"], 1)
         coverage_check = next(
             item for item in report["checks"] if item["name"] == "strategy_platform_dry_run_coverage"
         )
-        self.assertEqual(coverage_check["status"], "pass")
+        self.assertEqual(coverage_check["status"], "fail")
+        self.assertEqual(report["recommended_action"], "supply_verified_runtime_artifact")
+        self.assertFalse(report["codex_repair_context"]["safe_to_attempt"])
         self.assertIn("python3 python/scripts/build_config.py --check", report["codex_repair_context"]["suggested_commands"])
 
     def test_strategy_platform_dry_run_coverage_fails_closed_when_domain_route_is_removed(self):
@@ -550,6 +557,30 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             item for item in report["checks"] if item["name"] == "strategy_platform_dry_run_coverage"
         )
         self.assertEqual(coverage_check["status"], "fail")
+
+    def test_strategy_platform_dry_run_coverage_parks_missing_required_snapshot_artifact(self):
+        coverage = build_config.build_strategy_platform_dry_run_coverage(build_config.load_config())
+        route = next(
+            item
+            for item in coverage["profiles"]
+            if item["profile"] == "hk_low_vol_dividend_quality_snapshot"
+        )
+
+        self.assertEqual(route["declared_dry_run_platforms"], ["ibkr", "longbridge"])
+        self.assertEqual(route["buildable_dry_run_platforms"], [])
+        self.assertEqual(
+            route["blocked_reason"],
+            "required_feature_snapshot_artifact_unconfigured",
+        )
+        self.assertIn("hk_low_vol_dividend_quality_snapshot", coverage["artifact_blocked_profiles"])
+        self.assertEqual(coverage["summary"]["declared_dry_run_route_count"], 59)
+        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 57)
+
+    def test_feature_snapshot_platform_coverage_matches_runtime_injection(self):
+        self.assertEqual(
+            build_config.FEATURE_SNAPSHOT_RUNTIME_PLATFORMS,
+            set(build_runtime_switch.PLATFORM_FEATURE_SNAPSHOT_VARIABLES),
+        )
 
     def test_platform_health_report_cli_outputs_json(self):
         report = {
@@ -1505,6 +1536,68 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 self.assertEqual(target["runtime_target"]["execution_mode"], "paper")
                 self.assertTrue(target["runtime_target"]["dry_run_only"])
                 self.assertEqual(runtime_settings.effective_execution_mode(target["runtime_target"]), "dry_run")
+                self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_every_default_buildable_dry_run_route_builds_a_valid_no_order_target(self):
+        config = build_config.load_config()
+        coverage = build_config.build_strategy_platform_dry_run_coverage(config)
+        parser = build_runtime_switch.build_parser()
+        route_count = 0
+
+        for route in coverage["profiles"]:
+            profile = route["profile"]
+            for platform in route["buildable_dry_run_platforms"]:
+                with self.subTest(profile=profile, platform=platform):
+                    target = build_runtime_switch.build_switch_target(
+                        parser.parse_args(
+                            [
+                                "--platform", platform,
+                                "--target-name", f"coverage-{platform}",
+                                "--strategy-profile", profile,
+                                "--execution-mode", "dry_run",
+                            ]
+                        )
+                    )
+                    self.assertEqual(runtime_settings.effective_execution_mode(target["runtime_target"]), "dry_run")
+                    self.assertTrue(target["runtime_target"]["dry_run_only"])
+                    self.assertEqual(runtime_settings.validate_target(target), [])
+                    route_count += 1
+
+        self.assertEqual(route_count, coverage["summary"]["buildable_dry_run_route_count"])
+
+    def test_parked_snapshot_strategy_builds_only_with_a_verified_artifact_pair(self):
+        parser = build_runtime_switch.build_parser()
+        variable_pairs = {
+            "ibkr": ("IBKR_FEATURE_SNAPSHOT_PATH", "IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH"),
+            "longbridge": (
+                "LONGBRIDGE_FEATURE_SNAPSHOT_PATH",
+                "LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH",
+            ),
+        }
+        for platform, (snapshot_variable, manifest_variable) in variable_pairs.items():
+            with self.subTest(platform=platform):
+                target = build_runtime_switch.build_switch_target(
+                    parser.parse_args(
+                        [
+                            "--platform", platform,
+                            "--target-name", f"snapshot-{platform}",
+                            "--strategy-profile", "hk_low_vol_dividend_quality_snapshot",
+                            "--execution-mode", "dry_run",
+                            "--extra-variable", f"{snapshot_variable}=gs://verified-artifacts/factor.csv",
+                            "--extra-variable", f"{manifest_variable}=gs://verified-artifacts/factor.csv.manifest.json",
+                        ]
+                    )
+                )
+                self.assertEqual(runtime_settings.effective_execution_mode(target["runtime_target"]), "dry_run")
+                self.assertTrue(target["runtime_target"]["dry_run_only"])
+                self.assertEqual(
+                    target["extra_variables"][snapshot_variable],
+                    "gs://verified-artifacts/factor.csv",
+                )
+                self.assertEqual(
+                    target["extra_variables"][manifest_variable],
+                    "gs://verified-artifacts/factor.csv.manifest.json",
+                )
                 self.assertEqual(runtime_settings.validate_target(target), [])
 
     def test_runtime_target_rejects_unwired_paper_control_mode(self):
