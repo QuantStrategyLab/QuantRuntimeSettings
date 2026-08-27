@@ -4,7 +4,7 @@
 >
 > 适用范围：QuantStrategyLab 的 P0–P6 主线协作；不替代任何策略、券商或部署仓的实时证据。
 >
-> 已知仓内及只读运行元数据截至：`2026-08-26`。这不是 paper、shadow、live、部署或验收状态的声明。
+> 已知仓内及只读运行元数据截至：`2026-08-27`。这不是 paper、shadow、live、部署或验收状态的声明。
 
 这是可随仓库携带的 P0–P6 状态与协作政策唯一入口。它取代旧路线图中指向个人机器的绝对路径；运行时、券商和策略事实仍须在操作前从相应事实源重新读取。
 
@@ -92,7 +92,7 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 
 ## 当前实现登记（防止把设计、草稿和运行混为一谈）
 
-下表是本文件截至 `2026-08-26` 的实现口径。`已接线` 仅表示代码/工作流已合并并具备明确接口，不替代当天运行结果；`草稿` 不得被控制台或其他文档说成已上线。
+下表是本文件截至 `2026-08-27` 的实现口径。`已接线` 仅表示代码/工作流已合并并具备明确接口，不替代当天运行结果；`草稿` 不得被控制台或其他文档说成已上线。
 
 | 切片 | 状态 | 事实边界 |
 | --- | --- | --- |
@@ -109,9 +109,9 @@ AI 只做监测、研究候选生成、证据验证、受限的文本诊断和�
 | 脱敏 P3 终态/绩效观察 | 已接线 | 每个已执行 TQQQ P3 在 create-only 状态写入后会保留短期脱敏终态 artifact；只有完整 P3 evidence 才会额外发布绩效观察 artifact。两者都不含 raw bars、账户、订单或凭据。 |
 | AI 持续观察与诊断 | 已接线（受限、non-live） | AIAuditBridge 只在两次可比较、已绑定 P1/P2/P3 摘要的观察后创建/更新 Issue 与任务。对每个尚未诊断的 Issue，计划 watcher 每次最多调用一次只读 AI 文本诊断并回写同一 Issue；它不执行实验、不改系统。普通策略退化不通知人；数据/证据不可用、熔断或记录失败才经去重运维通道升级通知。 |
 | `qsl.research_task.v1` 与控制台队列 | 已接线（只读），待首份合格真实来源快照 | AIAudit Watcher 以专用 token 向控制台发布来源摘要；来源和控制台会各自复核 SHA、revision、摘要和 no-order authority。空队列不是故障，也不能由 Issue 推断任务。 |
-| P5 forward observation、risk-bound admission 与 shadow receipt | 已接线，未激活 | UESP 的 forward observation、AlpacaPlatform v2 input adapter、shadow ledger、pure controller、create-only receipt store port、risk-bound receipt admission 和默认 `PARKED` 单周期编排都已存在。admission 仅接受闭合风险 decision envelope；禁止/缺失/不一致时不读写收据。当前只有受限 reader/store port 与内存 test double；没有 broker、账户、订单、资金、真实受限存储或已部署 scheduler。 |
+| P5 forward observation、risk-bound admission 与 shadow receipt | 已接线，未激活 | UESP 的 forward observation、AlpacaPlatform v2 input adapter、shadow ledger、pure controller、risk-bound receipt admission 和默认 `PARKED` 单周期编排都已存在。admission 仅接受闭合风险 decision envelope；禁止/缺失/不一致时不读写收据。已合入的 GCS adapter 只接受调用方注入的 bucket client：它按不可变 cycle 精确读取输入、用 generation-match create-only 写回执，绝不列举、覆盖、删除、读取凭据或接触 broker；存储异常闭合为 `PARKED`。没有真实 bucket、运行身份、已签 active policy、已部署 runner/scheduler、broker、账户、订单或资金。 |
 | P4 / P5 风险控制与 policy-gate receipt 契约 | 已实现，未接线到运行 | 可离线校验受限自动运行边界，并把一次成功的 KMS 验签投影为无敏感字段的短期 receipt；没有网络、账户、订单或资金能力。 |
-| P4 执行与 P5 实际调度/回执持久化 | 未实现 | 无 paper adapter、已签 active policy、已签发的运行 receipt、受限工件读取/写入 adapter、已部署 scheduler 或真实日更 shadow receipt。 |
+| P4 执行与 P5 实际调度/回执持久化 | 未实现 | 无 paper adapter、已签 active policy、已签发的运行 receipt、真实受限存储、运行身份、已部署 runner/scheduler 或真实日更 shadow receipt。P5 的代码级 GCS adapter 不创建 bucket、配置、调度或任何运行权限。 |
 | P6 | 未实现 | 无 live、账户、订单或资金任务。 |
 | `QuantStrategyLifecycle` 本机目录 | 退役/孤立 | 没有对应的 GitHub 主线仓；其中 autopilot/auto-approve 描述不得作为当前能力或设计依据。 |
 | `CodexAuditBridge` 本机目录 | 退役/孤立 | 当前有效审计仓是 `AIAuditBridge`；不得接入任何新工作流。 |
@@ -162,6 +162,7 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/consumer-repo
 - `2026-08-20`：`AlpacaPlatform` 合入 P5 create-only receipt admission（PR #6）及其闭合风险 decision envelope 绑定（PR #7）。两者只有内存测试适配；没有真实网关、存储、调度、broker 或资金能力。
 - `2026-08-21`：`UsEquitySnapshotPipelines` 合入组合 synthetic P3 OOS replay 契约（PR #356）。它只使用注入 fixture、冻结成本情景与既有 P1/P2/P3 摘要；其结果明确标注为非真实证据，不能写入真实 evidence index 或进入 paper/shadow/live。
 - `2026-08-21`：`AlpacaPlatform` 合入 P5 默认 `PARKED` 单周期编排（PR #8）。它只提供受限 snapshot reader、内存 double、去重状态摘要和对既有 create-only store 的受控调用；没有 cron、云端存储、运行身份、broker、账户或凭证。
+- `2026-08-27`：`AlpacaPlatform` 合入 P5 GCS 精确工件适配器（PR #9），其 CI 全绿。它只能由调用方注入已绑定 workload identity 的 bucket client；输入固定为一个 `p5-inputs/<cycle-id>.json`，回执固定为一个带 generation-match precondition 的 `p5-receipts/<cycle-id>.json`。它不会列举、猜测最新、覆盖、删除、读取凭据、创建云资源、排程或接触券商；存储异常只会使 P5 `PARKED`。没有任何 GCS bucket、运行身份、active policy、runner/scheduler 或 shadow 实际运行被创建。
 - `2026-08-21`：`UsEquitySnapshotPipelines` 合入日更研究调度看门狗（PR #357）。它在两个研究工作流之后只读 Actions 元数据并报告缺失/未结束/失败的 scheduled run；没有手动触发、重试、Issue、AI、GCP、数据、券商或交易行为。
 - `2026-08-22`：`UsEquitySnapshotPipelines` 修正日更调度看门狗的检查窗口（PR #372）。此前 TQQQ 可在 GitHub Actions 默认六小时 job 窗口内运行且定时任务可能排队，UTC `04:20` 的检查会把仍在运行的任务误报为异常；看门狗现于 UTC `11:20` 只读检查。它不改变研究任务、数据、凭证、重试或交易权限；待下一计划窗口验证。
 - `2026-08-21`：TQQQ/SOXL 杠杆产品的长期代理回放改为 `SyntheticLongHistoryStress` 研究轨道（`UsEquitySnapshotPipelines` PR #370）。输出绑定输入哈希与每日 3 倍/费用假设，只可用于 P1 压力研究和 P2 比较；明确不能当作 observed P3 evidence，也不能授权 P4/P5/P6。
