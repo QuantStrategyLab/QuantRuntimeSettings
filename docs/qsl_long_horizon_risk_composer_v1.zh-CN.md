@@ -87,3 +87,5 @@ Composer 只产生建议，不能直接调用 `deterministic_risk_gate` 或覆�
 2. 任何扩大风险尺度、放宽回撤倍数、变更基准或进入 P4/P5/P6，都必须产生新的 P1/P2/P3 绑定与独立 policy-gate receipt；
 3. P6 live 始终保留所有者明确决定，即使建议结果通过；
 4. 输出不进入 AI 或控制台的原始数据上下文，只可发布脱敏摘要和 digest。
+
+更丰富的候选类型使用并行的 [通用长期风险观察件 V2](qsl_long_horizon_risk_observation_v2.zh-CN.md)。v2 将可移植风险偏好、风险能力和基准政策分开绑定；在专用数学实现前，组合、现金流和非线性候选会闭合为 `PARKED`，不会被伪装为 v1 的线性收益路径。
