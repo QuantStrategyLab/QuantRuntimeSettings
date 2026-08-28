@@ -523,25 +523,25 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         report = build_config.build_platform_health_report(config, catalog)
 
-        self.assertEqual(report["status"], "unhealthy")
+        self.assertEqual(report["status"], "attention_required")
         self.assertEqual(report["schema_version"], "platform_health_report.v1")
         self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 0)
         self.assertIn("codex_repair_context", report)
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
-        self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 1)
-        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 25)
+        self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 0)
+        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 26)
         self.assertGreater(report["summary"]["dry_run_route_count"], 0)
-        self.assertGreater(
+        self.assertEqual(
             report["summary"]["declared_dry_run_route_count"],
             report["summary"]["buildable_dry_run_route_count"],
         )
-        self.assertEqual(report["summary"]["artifact_blocked_strategy_count"], 1)
+        self.assertEqual(report["summary"]["artifact_blocked_strategy_count"], 0)
         coverage_check = next(
             item for item in report["checks"] if item["name"] == "strategy_platform_dry_run_coverage"
         )
-        self.assertEqual(coverage_check["status"], "fail")
-        self.assertEqual(report["recommended_action"], "supply_verified_runtime_artifact")
+        self.assertEqual(coverage_check["status"], "pass")
+        self.assertEqual(report["recommended_action"], "review_candidates")
         self.assertFalse(report["codex_repair_context"]["safe_to_attempt"])
         self.assertIn("python3 python/scripts/build_config.py --check", report["codex_repair_context"]["suggested_commands"])
 
@@ -558,7 +558,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
         self.assertEqual(coverage_check["status"], "fail")
 
-    def test_strategy_platform_dry_run_coverage_parks_missing_required_snapshot_artifact(self):
+    def test_strategy_platform_dry_run_coverage_uses_verified_snapshot_artifact(self):
         coverage = build_config.build_strategy_platform_dry_run_coverage(build_config.load_config())
         route = next(
             item
@@ -567,14 +567,11 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
 
         self.assertEqual(route["declared_dry_run_platforms"], ["ibkr", "longbridge"])
-        self.assertEqual(route["buildable_dry_run_platforms"], [])
-        self.assertEqual(
-            route["blocked_reason"],
-            "required_feature_snapshot_artifact_unconfigured",
-        )
-        self.assertIn("hk_low_vol_dividend_quality_snapshot", coverage["artifact_blocked_profiles"])
+        self.assertEqual(route["buildable_dry_run_platforms"], ["ibkr", "longbridge"])
+        self.assertEqual(route["blocked_reason"], "")
+        self.assertNotIn("hk_low_vol_dividend_quality_snapshot", coverage["artifact_blocked_profiles"])
         self.assertEqual(coverage["summary"]["declared_dry_run_route_count"], 59)
-        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 57)
+        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 59)
 
     def test_feature_snapshot_platform_coverage_matches_runtime_injection(self):
         self.assertEqual(
@@ -2283,7 +2280,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(selected["IBKR_FEATURE_SNAPSHOT_PATH"], "")
         self.assertEqual(selected["IBKR_FEATURE_SNAPSHOT_MANIFEST_PATH"], "")
 
-    def test_snapshot_strategy_without_catalog_artifacts_requires_explicit_pair(self):
+    def test_snapshot_strategy_uses_verified_catalog_artifact_pair(self):
         args = build_runtime_switch.build_parser().parse_args(
             [
                 "--platform",
@@ -2299,8 +2296,19 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             ]
         )
 
-        with self.assertRaisesRegex(ValueError, "requires feature snapshot path and manifest path"):
-            build_runtime_switch.build_switch_target(args)
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+
+        snapshot_path = (
+            "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/"
+            "hk_low_vol_dividend_quality_snapshot_staging/"
+            "hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv"
+        )
+        self.assertEqual(assignments["LONGBRIDGE_FEATURE_SNAPSHOT_PATH"], snapshot_path)
+        self.assertEqual(
+            assignments["LONGBRIDGE_FEATURE_SNAPSHOT_MANIFEST_PATH"],
+            f"{snapshot_path}.manifest.json",
+        )
 
     def test_snapshot_strategy_accepts_explicit_platform_artifact_pair(self):
         args = build_runtime_switch.build_parser().parse_args(
