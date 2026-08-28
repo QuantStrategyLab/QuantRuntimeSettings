@@ -724,7 +724,9 @@
       "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
       "runtime_artifacts": {
         "feature_snapshot": {
-          "required": true
+          "required": true,
+          "path": "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/hk_low_vol_dividend_quality_snapshot_staging/hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv",
+          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/hk_low_vol_dividend_quality_snapshot_staging/hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv.manifest.json"
         }
       },
       "features": {

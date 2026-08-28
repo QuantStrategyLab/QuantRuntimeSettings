@@ -109,7 +109,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:9c54a03655d96b4378489ad676e2f51e78f764b223b19ed6a13c6f0ebbbad8bd",
+    "content_sha256": "sha256:61ca2ad4dc29d22fca901d3a598d83ae5c2916493333b24a1f8ac5dd9ebfe4fe",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
