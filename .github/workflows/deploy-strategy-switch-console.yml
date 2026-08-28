@@ -38,6 +38,7 @@ jobs:
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
       RESEARCH_TASK_SYNC_TOKEN: ${{ secrets.RESEARCH_TASK_SYNC_TOKEN }}
       EXECUTION_EVIDENCE_SYNC_TOKEN: ${{ secrets.EXECUTION_EVIDENCE_SYNC_TOKEN }}
@@ -129,6 +130,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put CONTROL_PLANE_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional strategy-health ingress token
+        if: env.STRATEGY_HEALTH_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$STRATEGY_HEALTH_SYNC_TOKEN" | npx wrangler@4.106.0 secret put STRATEGY_HEALTH_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional research-task ingress token
         if: env.RESEARCH_TASK_SYNC_TOKEN != ''
