@@ -42,11 +42,17 @@
 | 层次 | 含义 | 当前结果 |
 | --- | --- | --- |
 | 已声明路径 | 策略域、策略许可和平台 `dry_run` 许可匹配 | 59 条 |
-| 默认可构建路径 | 不需要临时人工补充制品，即可生成通过 runtime policy 校验的不下单目标 | 57 条 |
+| 默认可构建路径 | 不需要临时人工补充制品，即可生成通过 runtime policy 校验的不下单目标 | 59 条 |
 
 如果策略依赖 `runtime_artifacts.feature_snapshot.required=true`，默认可构建路径还必须配置成对的、`gs://` 开头的快照和 manifest URI。缺失时策略会被标成 **PARKED**，健康检查 `strategy_platform_dry_run_coverage` 以 critical failure 失败，执行保持关闭；这不是允许自动补一个猜测的 URI。
 
-当前受此规则约束的是 `hk_low_vol_dividend_quality_snapshot` 的 IBKR 与 LongBridge 两条已声明路径。它们需要由 [HkEquitySnapshotPipelines](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines) 发布并验证的 `feature_snapshot` 与 manifest 后才能成为默认可构建路线。该流水线的制品、来源、回测和人工审阅是独立证据边界；完成后可通过配置默认 URI，或在一次已审阅的不下单运行中成对传入两个 URI。自动修复只能发现、暂停、提示和复验，绝不伪造数据制品或提高生命周期。
+当前受此规则约束的是 `global_etf_rotation`、`russell_top50_leader_rotation` 与 `hk_low_vol_dividend_quality_snapshot`。前两者由 [UsEquitySnapshotPipelines](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines) 发布，港股由 [HkEquitySnapshotPipelines](https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines) 发布；三者都必须先通过各自来源、回测和人工审阅边界，才可成为默认可构建路线。自动修复只能发现、暂停、提示和复验，绝不伪造数据制品或提高生命周期。
+
+### 只读制品证据门
+
+`Runtime Artifact Evidence Gate` 从同一份 `platform-config.json` 生成全部必需制品清单，并以专用只读身份逐项验证：对象可读、manifest 的策略身份、SHA-256 与快照文件一致、以及 `snapshot_as_of` 没有超过策略声明的时效预算。当前预算由发布节奏决定：日更全球 ETF 保留 5 个自然日以覆盖周末与一个市场假日；月更 Russell 与港股保留 40 个自然日。
+
+该门只会生成回执和待处理事项。它不会发布数据、修改 URI、改变运行目标、提升生命周期或提交订单；异常路线必须继续保持 **PARKED**，直到制品所属流水线重新发布并通过验证。
 
 ## 插件边界
 
@@ -62,6 +68,8 @@
 python3 python/scripts/build_config.py --check
 python3 python/scripts/runtime_settings.py validate
 python3 python/scripts/build_config.py --platform-health-report
+python3 python/scripts/build_config.py --runtime-artifact-evidence-registry > /tmp/runtime-artifact-registry.json
+python3 python/scripts/verify_runtime_artifact_evidence.py --registry /tmp/runtime-artifact-registry.json
 node tests/strategy_switch_worker_validation.mjs
 ```
 

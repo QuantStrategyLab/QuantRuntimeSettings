@@ -107,6 +107,20 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertIn("codex-repair-ready", workflow)
         self.assertIn("Do not enable live switching", workflow)
 
+    def test_runtime_artifact_evidence_gate_is_read_only_and_uses_registry(self):
+        workflow = (ROOT / ".github/workflows/runtime-artifact-evidence-gate.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn("id-token: write", workflow)
+        self.assertIn("--runtime-artifact-evidence-registry", workflow)
+        self.assertIn("verify_runtime_artifact_evidence.py", workflow)
+        self.assertIn("qsl-artifact-evidence@", workflow)
+        self.assertIn("no publishing, runtime change, or order submission", workflow)
+        self.assertIn("Keep affected routes parked", workflow)
+        self.assertNotIn("gcloud storage cp", workflow)
+        self.assertNotIn("Manual Strategy Switch", workflow)
+
     def test_manual_switch_platform_choices_cover_supported_platforms(self):
         workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
         platform_choices: list[str] = []
@@ -2436,6 +2450,34 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertIn(
             "strategy global_etf_rotation: runtime_artifacts.feature_snapshot.required must be boolean",
+            build_config.validate(config),
+        )
+
+    def test_runtime_artifact_evidence_registry_covers_every_required_snapshot(self):
+        config = build_config.load_config()
+
+        registry = build_config.build_runtime_artifact_evidence_registry(config)
+
+        self.assertEqual(registry["schema_version"], "runtime_artifact_evidence_registry.v1")
+        self.assertEqual(registry["summary"]["required_artifact_count"], 3)
+        self.assertEqual(
+            {entry["profile"] for entry in registry["entries"]},
+            {
+                "global_etf_rotation",
+                "russell_top50_leader_rotation",
+                "hk_low_vol_dividend_quality_snapshot",
+            },
+        )
+        self.assertTrue(all(entry["max_age_days"] >= 1 for entry in registry["entries"]))
+
+    def test_build_config_requires_required_snapshot_freshness_budget(self):
+        config = build_config.load_config()
+        config["strategies"]["global_etf_rotation"]["runtime_artifacts"][
+            "feature_snapshot"
+        ].pop("max_age_days")
+
+        self.assertIn(
+            "strategy global_etf_rotation: required feature snapshot max_age_days must be an integer",
             build_config.validate(config),
         )
 

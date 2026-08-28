@@ -1,0 +1,134 @@
+name: Runtime Artifact Evidence Gate
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Verify immutable inputs before the main daily operating window. The
+    # individual publisher workflows retain responsibility for generating them.
+    - cron: "10 12 * * 1-5"
+
+permissions:
+  contents: read
+  id-token: write
+  issues: write
+
+concurrency:
+  group: runtime-artifact-evidence-gate
+  cancel-in-progress: false
+
+jobs:
+  verify-required-runtime-artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GCP_PROJECT_ID: longbridgequant
+      GCP_WORKLOAD_IDENTITY_PROVIDER: projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Authenticate read-only evidence identity
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up Google Cloud CLI
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          version: ">= 416.0.0"
+
+      - name: Validate control-plane registry
+        run: |
+          set -euo pipefail
+          mkdir -p data/output/runtime-artifact-evidence
+          python3 python/scripts/build_config.py --check
+          python3 python/scripts/build_config.py --runtime-artifact-evidence-registry \
+            > data/output/runtime-artifact-evidence/registry.json
+
+      - name: Verify remote objects, manifests, digests, and freshness
+        id: verify
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 python/scripts/verify_runtime_artifact_evidence.py \
+            --registry data/output/runtime-artifact-evidence/registry.json \
+            --output data/output/runtime-artifact-evidence/receipt.json
+
+      - name: Summarize evidence receipt
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          receipt_path = Path("data/output/runtime-artifact-evidence/receipt.json")
+          print("## Runtime Artifact Evidence Gate")
+          print()
+          if not receipt_path.exists():
+              print("- receipt: `missing`")
+              raise SystemExit(0)
+          receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          summary = receipt.get("summary", {})
+          print(f"- status: `{receipt.get('status')}`")
+          print(f"- required artifacts: `{summary.get('required_artifact_count')}`")
+          print(f"- verified artifacts: `{summary.get('verified_artifact_count')}`")
+          print(f"- failed artifacts: `{summary.get('failed_artifact_count')}`")
+          print("- boundary: read-only; no publishing, runtime change, or order submission")
+          PY
+
+      - name: Upload evidence receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: runtime-artifact-evidence-receipt
+          path: data/output/runtime-artifact-evidence/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Create or update parked-evidence issue
+        if: always() && steps.verify.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          gh label create runtime-artifact-evidence \
+            --description "Read-only required runtime artifact verification findings" \
+            --color d93f0b \
+            --force >/dev/null
+          body="$(mktemp)"
+          {
+            echo "## Runtime artifact evidence requires attention"
+            echo
+            echo "- Run: ${RUN_URL}"
+            echo "- This gate is read-only. It did not publish data, alter a runtime target, or submit an order."
+            echo "- Keep affected routes parked until the owning publisher emits a verified artifact and manifest."
+            echo
+            echo '```json'
+            if [ -s data/output/runtime-artifact-evidence/receipt.json ]; then
+              python3 -m json.tool data/output/runtime-artifact-evidence/receipt.json
+            else
+              echo '{"status":"receipt_missing"}'
+            fi
+            echo '```'
+          } > "$body"
+          existing="$(gh issue list --state open --label runtime-artifact-evidence --json number --jq '.[0].number // ""')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file "$body"
+          else
+            gh issue create \
+              --title "Runtime artifact evidence requires attention" \
+              --label runtime-artifact-evidence \
+              --body-file "$body"
+          fi
+
+      - name: Fail when external evidence is invalid
+        if: steps.verify.outcome == 'failure'
+        run: exit 1
