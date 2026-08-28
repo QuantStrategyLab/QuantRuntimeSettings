@@ -40,7 +40,7 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
 }
 SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
-FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path"}
+FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path", "max_age_days"}
 # These platforms have a runtime variable pair through which an immutable
 # feature snapshot and its manifest can be supplied to a generated target.
 # Keep this small, explicit set next to the config validation so coverage does
@@ -356,6 +356,17 @@ def validate(config: dict) -> list[str]:
             errors.append(
                 f"strategy {sid}: live feature snapshot requires path and manifest_path"
             )
+        max_age_days = feature_snapshot.get("max_age_days")
+        if required is True and not isinstance(max_age_days, int):
+            errors.append(
+                f"strategy {sid}: required feature snapshot max_age_days must be an integer"
+            )
+        elif isinstance(max_age_days, bool) or (
+            isinstance(max_age_days, int) and max_age_days < 1
+        ):
+            errors.append(
+                f"strategy {sid}: feature snapshot max_age_days must be at least 1"
+            )
     return errors
 
 
@@ -475,6 +486,69 @@ def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict
         "boundary": (
             "Buildable no-order dry_run coverage only; it does not assert P4/P5/P6 "
             "runtime authority, broker connectivity, or artifact content quality."
+        ),
+    }
+
+
+def build_runtime_artifact_evidence_registry(config: dict | None = None) -> dict[str, object]:
+    """Build the immutable, no-order verification plan for required snapshots.
+
+    This registry deliberately describes only controller-declared artifacts.  It
+    never publishes data, rewrites a URI, or grants a strategy a higher
+    lifecycle stage.  The verifier consumes it using a read-only cloud
+    identity and reports failures back to the operator.
+    """
+    config = config if config is not None else load_config()
+    coverage_by_profile = {
+        str(row["profile"]): row
+        for row in build_strategy_platform_dry_run_coverage(config)["profiles"]
+        if isinstance(row, dict) and isinstance(row.get("profile"), str)
+    }
+    entries: list[dict[str, object]] = []
+    for profile, strategy in sorted(config.get("strategies", {}).items()):
+        if not isinstance(strategy, dict):
+            continue
+        runtime_artifacts = strategy.get("runtime_artifacts")
+        feature_snapshot = (
+            runtime_artifacts.get("feature_snapshot")
+            if isinstance(runtime_artifacts, dict)
+            else None
+        )
+        if not isinstance(feature_snapshot, dict) or feature_snapshot.get("required") is not True:
+            continue
+        snapshot_path = feature_snapshot.get("path")
+        manifest_path = feature_snapshot.get("manifest_path")
+        max_age_days = feature_snapshot.get("max_age_days")
+        if not (
+            isinstance(snapshot_path, str)
+            and snapshot_path.startswith("gs://")
+            and isinstance(manifest_path, str)
+            and manifest_path.startswith("gs://")
+            and isinstance(max_age_days, int)
+            and not isinstance(max_age_days, bool)
+            and max_age_days >= 1
+        ):
+            continue
+        coverage = coverage_by_profile.get(str(profile), {})
+        entries.append(
+            {
+                "profile": str(profile),
+                "domain": str(strategy.get("domain") or ""),
+                "snapshot_path": snapshot_path,
+                "manifest_path": manifest_path,
+                "max_age_days": max_age_days,
+                "dry_run_platforms": list(coverage.get("buildable_dry_run_platforms", [])),
+                "boundary": "read_only_evidence_check_no_publish_no_execution",
+            }
+        )
+    return {
+        "schema_version": "runtime_artifact_evidence_registry.v1",
+        "entries": entries,
+        "summary": {"required_artifact_count": len(entries)},
+        "boundary": (
+            "Read-only validation plan. A passing entry proves the declared object, "
+            "manifest digest, and freshness contract; it does not authorize paper, "
+            "shadow, or live execution."
         ),
     }
 
@@ -1071,6 +1145,11 @@ def main() -> int:
     parser.add_argument("--live-candidate-queue", action="store_true", help="Print live-candidate queue JSON and exit")
     parser.add_argument("--platform-health-report", action="store_true", help="Print platform health report JSON and exit")
     parser.add_argument("--automation-registry", action="store_true", help="Print strategy automation registry JSON and exit")
+    parser.add_argument(
+        "--runtime-artifact-evidence-registry",
+        action="store_true",
+        help="Print the read-only verification registry for required runtime artifacts and exit",
+    )
     args = parser.parse_args()
 
     config = load_config()
@@ -1080,6 +1159,16 @@ def main() -> int:
         return 0 if report["status"] != "unhealthy" else 1
     if args.automation_registry:
         print(json.dumps(build_strategy_automation_registry(config), ensure_ascii=False, indent=2, sort_keys=True))
+        return 0
+    if args.runtime_artifact_evidence_registry:
+        print(
+            json.dumps(
+                build_runtime_artifact_evidence_registry(config),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+        )
         return 0
 
     errors = validate(config)

@@ -519,7 +519,8 @@
         "feature_snapshot": {
           "required": true,
           "path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/global_etf_rotation_feature_snapshot_latest.csv",
-          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/global_etf_rotation_feature_snapshot_latest.csv.manifest.json"
+          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/global_etf_rotation/global_etf_rotation_feature_snapshot_latest.csv.manifest.json",
+          "max_age_days": 5
         }
       },
       "features": {
@@ -565,7 +566,8 @@
         "feature_snapshot": {
           "required": true,
           "path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/russell_top50_leader_rotation_staging/russell_top50_leader_rotation_feature_snapshot_latest.csv",
-          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/russell_top50_leader_rotation_staging/russell_top50_leader_rotation_feature_snapshot_latest.csv.manifest.json"
+          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/us_equity/russell_top50_leader_rotation_staging/russell_top50_leader_rotation_feature_snapshot_latest.csv.manifest.json",
+          "max_age_days": 40
         }
       },
       "features": {
@@ -726,7 +728,8 @@
         "feature_snapshot": {
           "required": true,
           "path": "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/hk_low_vol_dividend_quality_snapshot_staging/hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv",
-          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/hk_low_vol_dividend_quality_snapshot_staging/hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv.manifest.json"
+          "manifest_path": "gs://qsl-runtime-logs-shared/strategy-artifacts/hk_equity/hk_low_vol_dividend_quality_snapshot_staging/hk_low_vol_dividend_quality_snapshot_factor_snapshot_latest.csv.manifest.json",
+          "max_age_days": 40
         }
       },
       "features": {
