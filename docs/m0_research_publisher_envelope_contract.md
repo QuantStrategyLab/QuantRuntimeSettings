@@ -159,3 +159,8 @@ Environment 保护的 fallback。控制台部署会在部署前验证该 secret�
 URL、发布 token 和 QAR 读取 token 不会写进封套、`GITHUB_STEP_SUMMARY` 或 workflow 输出。该
 workflow 不读取运行时、平台、selector、策略或券商配置；其唯一网络写入是构建器在
 `--publish` 明确指定时，对上述研究接收地址发送经过校验的 no-order 封套。
+
+若已存 current 与来件的 `source_artifact.sha256` 完全相同，接收端返回 `200` 和
+`replayed: true`，且不再写 KV。这只确认同一不可变来源已经收到，供网络重试或重复人工触发
+恢复；不同 source artifact 的重复 source run、不同来源的重复 ledger 或 ledger 时间回退仍返回
+`409`。

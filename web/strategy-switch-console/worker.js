@@ -2259,6 +2259,23 @@ async function syncM0ResearchLedgerResponse(request, env) {
 
   const current = await readCurrentM0ResearchLedgerRecord(env);
   if (current) {
+    // A retry for the exact immutable source is not a new decision or a
+    // second write. Acknowledge it so a lost response cannot make a valid
+    // no-order publication look failed, while retaining the guards below.
+    if (envelope.source_artifact.sha256 === current.envelope.source_artifact.sha256) {
+      return json({
+        ok: true,
+        schema_version: current.envelope.schema_version,
+        source_repository: current.envelope.source_artifact.repository,
+        source_revision: current.envelope.source_artifact.revision,
+        source_run_id: current.envelope.source_artifact.run_id,
+        artifact_id: current.envelope.source_artifact.artifact_id,
+        ledger_sha256: current.envelope.ledger_sha256,
+        replayed: true,
+        no_order: true,
+        expires_at: current.expires_at,
+      });
+    }
     const replayError = m0ResearchLedgerReplayError(current.envelope, envelope);
     if (replayError) return json({ ok: false, error: replayError }, 409);
   }
@@ -2308,6 +2325,7 @@ async function syncM0ResearchLedgerResponse(request, env) {
     source_run_id: envelope.source_artifact.run_id,
     artifact_id: envelope.source_artifact.artifact_id,
     ledger_sha256: envelope.ledger_sha256,
+    replayed: false,
     no_order: true,
     expires_at: expiresAt,
   });
