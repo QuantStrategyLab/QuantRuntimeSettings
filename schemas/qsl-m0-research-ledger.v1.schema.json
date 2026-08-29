@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-m0-research-ledger.v1.schema.json",
+  "title": "QSL M0 Research Ledger v1",
+  "description": "Read-only aggregation of closed M0 research hypotheses. It is not a strategy selector, allocation, runtime, platform, or execution contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "generated_at", "computed_at", "data_status", "summary", "subjects", "policy", "errors"],
+  "properties": {
+    "schema_version": { "const": "qsl_m0_research_ledger.v1" },
+    "generated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "computed_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["subject_count", "observation_count", "fresh_observation_count", "stale_observation_count", "unknown_observation_count", "horizon_conflict_count"],
+      "properties": {
+        "subject_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "fresh_observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "stale_observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "unknown_observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "horizon_conflict_count": { "type": "integer", "minimum": 0, "maximum": 50000 }
+      }
+    },
+    "subjects": {
+      "type": "array",
+      "maxItems": 50000,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["subject", "observations", "horizon_conflict"],
+        "properties": {
+          "subject": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "identifier"],
+            "properties": {
+              "kind": { "enum": ["asset_idea", "theme_context", "strategy_hypothesis", "risk_context"] },
+              "identifier": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+            }
+          },
+          "observations": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": { "$ref": "#/$defs/observation" }
+          },
+          "horizon_conflict": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "primary_horizons"],
+            "properties": {
+              "status": { "enum": ["none", "conflict"] },
+              "primary_horizons": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "uniqueItems": true,
+                "items": { "enum": ["short", "medium", "long", "not_applicable"] }
+              }
+            }
+          }
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["authority", "no_order", "permitted_next_step", "notice"],
+      "properties": {
+        "authority": { "const": "research_only" },
+        "no_order": { "const": true },
+        "permitted_next_step": { "const": "research_validation_only" },
+        "notice": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
+    }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_ids", "source_report_digest", "source_entry_digest", "hypothesis_id", "as_of", "generated_at", "expires_at", "research_context", "freshness"],
+      "properties": {
+        "source_ids": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+        },
+        "source_report_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "source_entry_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "hypothesis_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" },
+        "as_of": { "type": "string", "format": "date" },
+        "generated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "expires_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "research_context": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["state", "primary_horizon", "suitable_horizons", "source_confidence", "source_style", "theme_ids"],
+          "properties": {
+            "state": { "enum": ["candidate", "source_verification_required", "deferred", "context_only"] },
+            "primary_horizon": { "enum": ["short", "medium", "long", "not_applicable"] },
+            "suitable_horizons": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 4,
+              "uniqueItems": true,
+              "items": { "enum": ["short", "medium", "long", "not_applicable"] }
+            },
+            "source_confidence": { "enum": ["high", "medium", "low", "mixed", "no_event", "unknown"] },
+            "source_style": { "enum": ["event_driven", "long_horizon_growth", "value_quality", "macro_context", "mixed_research"] },
+            "theme_ids": {
+              "type": "array",
+              "maxItems": 24,
+              "uniqueItems": true,
+              "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+            }
+          }
+        },
+        "freshness": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["status", "age_seconds"],
+          "properties": {
+            "status": { "enum": ["fresh", "stale", "unknown"] },
+            "age_seconds": { "type": ["integer", "null"], "minimum": 0 }
+          }
+        }
+      }
+    }
+  }
+}
