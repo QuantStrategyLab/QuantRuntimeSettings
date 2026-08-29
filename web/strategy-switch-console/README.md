@@ -195,6 +195,7 @@ wrangler secret put GITHUB_CLIENT_SECRET
 wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
+wrangler secret put M0_RESEARCH_SYNC_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
 wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS
@@ -210,7 +211,7 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 
 Add the returned namespace id to `wrangler.toml`.
 
-For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
+For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, `M0_RESEARCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. `M0_RESEARCH_SYNC_TOKEN` must match the separately protected `m0-research-publisher` environment secret; it is only copied to the Worker binding. A missing M0 token fails the deployment before it can retain a stale Worker secret. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
 
 Deploy:
 
