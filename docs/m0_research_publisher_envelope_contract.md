@@ -85,3 +85,35 @@ header；它从不写进封套、标准输出、错误信息或日志。该工�
 发布 endpoint 只是研究资料接收端：接收者仍必须重验 schema、artifact metadata、
 `ledger_sha256` 和 `ledger.policy` 的 `research_only/no_order` 固定值。接收、展示或
 排队研究任务都不能构成 P4/P5/P6、Shadow、Paper 或 live 授权。
+
+## 手动发布已验证的 QAR 周报
+
+`.github/workflows/publish-m0-research-ledger.yml` 是唯一的跨仓 M0 发布入口。
+它只有 `workflow_dispatch`，不按 push、定时任务或其他 workflow 事件自动运行。操作员
+必须输入一个**已经成功完成**的 `QuantStrategyLab/QuantAdvisorResearch`「Weekly
+Intelligent Advisory Review」run ID；它不会检索、猜测或自动采用最新 run。
+
+该入口固定只读以下来源：
+
+- repository：`QuantStrategyLab/QuantAdvisorResearch`；
+- workflow：`Weekly Intelligent Advisory Review`（GitHub workflow ID `285971223`）；
+- artifact：`weekly-model-recommendations`；
+- artifact 内唯一命名为 `m0_research_source_snapshot_YYYY-MM-DD.json` 的文件。
+
+在下载前，workflow 用专用的 `QAR_ARTIFACT_READ_TOKEN` 验证 run ID、成功状态、
+workflow 身份、来源仓库、immutable `head_sha`，以及 artifact 与该 run 的绑定。下载后，
+它拒绝不安全 ZIP 路径、多个或缺失 snapshot、超过 2 MiB 的 snapshot、错误 schema/source
+ID 或无效 report digest，并计算**原始 snapshot 字节**的 SHA-256。该 SHA、QAR revision、
+run ID 和 artifact ID 都作为 `source_artifact` metadata 显式传给构建器，构建器会再次验证
+字节 SHA 后才生成封套。
+
+工作流只使用两个专用发布值，并映射到构建器固定读取的环境变量：
+
+| GitHub 配置 | 构建器环境变量 | 用途 |
+| --- | --- | --- |
+| variable `M0_RESEARCH_SYNC_URL` | `QSL_M0_RESEARCH_LEDGER_PUBLISH_URL` | HTTPS 研究台账接收地址 |
+| secret `M0_RESEARCH_SYNC_TOKEN` | `QSL_M0_RESEARCH_LEDGER_PUBLISH_TOKEN` | 接收端专用 Bearer token |
+
+URL、发布 token 和 QAR 读取 token 不会写进封套、`GITHUB_STEP_SUMMARY` 或 workflow 输出。该
+workflow 不读取运行时、平台、selector、策略或券商配置；其唯一网络写入是构建器在
+`--publish` 明确指定时，对上述研究接收地址发送经过校验的 no-order 封套。
