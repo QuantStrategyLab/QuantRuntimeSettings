@@ -2253,8 +2253,11 @@ async function syncM0ResearchLedgerResponse(request, env) {
     if (replayError) return json({ ok: false, error: replayError }, 409);
   }
 
-  const storedAt = utcTimestampSeconds();
-  const expiresAt = utcTimestampSeconds(new Date(Date.now() + M0_RESEARCH_RETENTION_SECONDS * 1000));
+  // Capture once so the persisted interval is exactly the requested physical
+  // retention even when the request crosses a wall-clock second boundary.
+  const storedNow = new Date();
+  const storedAt = utcTimestampSeconds(storedNow);
+  const expiresAt = utcTimestampSeconds(new Date(storedNow.getTime() + M0_RESEARCH_RETENTION_SECONDS * 1000));
   const record = {
     schema_version: M0_RESEARCH_STORAGE_SCHEMA_VERSION,
     stored_at: storedAt,
@@ -2305,7 +2308,9 @@ async function m0ResearchLedgerResponse(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!hasConfigStore(env)) return json(emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable"));
   const record = await readCurrentM0ResearchLedgerRecord(env);
-  return json(record ? record.envelope.ledger : emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable"));
+  return json(record
+    ? projectM0ResearchLedgerForRead(record.envelope.ledger)
+    : emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable"));
 }
 
 function m0ResearchLedgerReplayError(current, incoming) {
@@ -3266,6 +3271,55 @@ function calculateM0ResearchHorizonViews(observations) {
   };
 }
 
+function projectM0ResearchLedgerForRead(ledger, now = new Date()) {
+  // The stored envelope remains the immutable, digest-bound publication
+  // record.  Freshness is intentionally a read-time projection because a
+  // seven-day M0 hypothesis can expire long before the 14-day KV record does.
+  // Do not write this projection back: doing so would invalidate ledger_sha256.
+  const nowMillis = now instanceof Date ? now.getTime() : Date.parse(now);
+  if (!Number.isFinite(nowMillis)) return emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable");
+  const subjects = ledger.subjects.map((entry) => {
+    const observations = entry.observations.map((observation) => ({
+      ...observation,
+      freshness: projectM0ResearchObservationFreshness(observation, nowMillis),
+    }));
+    const horizonViews = calculateM0ResearchHorizonViews(observations);
+    return {
+      subject: { ...entry.subject },
+      observations,
+      horizon_conflict: horizonViews.horizon_conflict,
+      historical_stale_horizon_drift: horizonViews.historical_stale_horizon_drift,
+    };
+  });
+  const summary = summarizeM0ResearchSubjects(subjects);
+  const dataStatus = summary.fresh_observation_count > 0
+    ? "ready"
+    : (summary.observation_count > 0 ? "stale" : "unavailable");
+  return {
+    ...ledger,
+    summary,
+    subjects,
+    data_status: dataStatus,
+    policy: { ...ledger.policy },
+    errors: [...ledger.errors],
+  };
+}
+
+function projectM0ResearchObservationFreshness(observation, nowMillis) {
+  const generatedMillis = Date.parse(observation.generated_at);
+  const expiresMillis = Date.parse(observation.expires_at);
+  if (!Number.isFinite(generatedMillis) || !Number.isFinite(expiresMillis) || nowMillis < generatedMillis) {
+    return { status: "unknown", age_seconds: null };
+  }
+  const ageSeconds = Math.max(0, Math.floor((nowMillis - generatedMillis) / 1000));
+  // A stale source is never promoted by this projection.  A former fresh
+  // observation is demoted as soon as its own expiry is reached.
+  const status = observation.freshness.status === "fresh" && nowMillis < expiresMillis
+    ? "fresh"
+    : "stale";
+  return { status, age_seconds: ageSeconds };
+}
+
 function normalizeM0ResearchHorizonView(value, fieldName, allowedStatuses, expected) {
   const view = assertExactFields(value, ["status", "primary_horizons"], fieldName);
   const status = cleanChoice(view.status, allowedStatuses, `${fieldName}.status`);
@@ -3341,10 +3395,10 @@ function normalizeM0ResearchSourceArtifact(value, fieldName) {
 }
 
 function normalizeM0ResearchArtifactId(value, fieldName) {
-  if (typeof value !== "string" || !/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(value) || value.length > 128) {
-    throw new Error(`${fieldName} is invalid`);
-  }
-  return value;
+  // Keep this exactly aligned with #309's generic identifier schema.  Artifact
+  // IDs are provenance labels, not strategy slugs, so uppercase and `:/` are
+  // valid when they satisfy the closed source-artifact contract.
+  return normalizeM0ResearchIdentifier(value, fieldName);
 }
 
 function normalizeM0ResearchIdentifier(value, fieldName) {
@@ -5896,6 +5950,7 @@ export const __test = {
   emptyAdaptiveSelectionPayload,
   normalizeM0ResearchLedgerTransport,
   calculateM0ResearchLedgerSha256,
+  projectM0ResearchLedgerForRead,
   emptyM0ResearchLedgerPayload,
   normalizeExecutionEvidenceSourceSnapshot,
   emptyExecutionEvidencePayload,

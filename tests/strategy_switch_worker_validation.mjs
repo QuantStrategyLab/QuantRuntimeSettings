@@ -2734,7 +2734,7 @@ const m0ResearchEnvelope = {
     repository: "QuantStrategyLab/QuantAdvisorResearch",
     revision: "c".repeat(40),
     run_id: "123456789",
-    artifact_id: "m0-research-ledger",
+    artifact_id: "M0:Research/Ledger-v1",
     sha256: "f".repeat(64),
   },
   ledger_sha256: m0ResearchLedgerSha,
@@ -2774,6 +2774,11 @@ assert.equal(m0ResearchSync.status, 200);
 assert.equal((await m0ResearchSync.json()).no_order, true);
 assert.ok(m0LedgerStore.has("m0_research_ledger_current"));
 assert.ok(m0LedgerStore.has(`m0_research_ledger_archive:${m0ResearchLedgerSha}`));
+const storedM0ResearchCurrent = JSON.parse(m0LedgerStore.get("m0_research_ledger_current"));
+assert.equal(
+  Date.parse(storedM0ResearchCurrent.expires_at) - Date.parse(storedM0ResearchCurrent.stored_at),
+  14 * 24 * 60 * 60 * 1000,
+);
 const m0ResearchLedgerWrites = m0LedgerPutOptions.filter((entry) => (
   entry.key === "m0_research_ledger_current" || entry.key.startsWith("m0_research_ledger_archive:")
 ));
@@ -2789,6 +2794,23 @@ assert.equal(m0ResearchPayload.schema_version, "qsl_m0_research_ledger.v1");
 assert.equal(m0ResearchPayload.data_status, "ready");
 assert.equal(m0ResearchPayload.policy.no_order, true);
 assert.equal(m0ResearchPayload.subjects[0].subject.identifier, "semiconductors");
+const m0ExpiredReadProjection = __test.projectM0ResearchLedgerForRead(
+  m0ResearchLedger,
+  new Date("2026-09-06T00:00:00Z"),
+);
+assert.equal(m0ExpiredReadProjection.data_status, "stale");
+assert.deepEqual(m0ExpiredReadProjection.summary, {
+  subject_count: 1,
+  observation_count: 1,
+  fresh_observation_count: 0,
+  stale_observation_count: 1,
+  unknown_observation_count: 0,
+  horizon_conflict_count: 0,
+  historical_stale_horizon_drift_count: 0,
+});
+assert.equal(m0ExpiredReadProjection.subjects[0].observations[0].freshness.status, "stale");
+assert.equal(m0ResearchLedger.data_status, "ready");
+assert.equal(m0ResearchLedger.subjects[0].observations[0].freshness.status, "fresh");
 const m0ResearchReplay = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
     method: "POST",
