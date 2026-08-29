@@ -159,6 +159,8 @@ Environment 保护的 fallback。控制台部署会在部署前验证该 secret�
 URL、发布 token 和 QAR 读取 token 不会写进封套、`GITHUB_STEP_SUMMARY` 或 workflow 输出。该
 workflow 不读取运行时、平台、selector、策略或券商配置；其唯一网络写入是构建器在
 `--publish` 明确指定时，对上述研究接收地址发送经过校验的 no-order 封套。
+请求还带固定的非敏感 `User-Agent: QSL-M0-Research-Publisher/1.0`，避免边缘防护把 Python
+默认标识误判为自动化攻击；它不包含 token、策略、账户或载荷内容。
 
 若已存 current 与来件的 `source_artifact.sha256` 完全相同，接收端返回 `200` 和
 `replayed: true`，且不再写 KV。这只确认同一不可变来源已经收到，供网络重试或重复人工触发

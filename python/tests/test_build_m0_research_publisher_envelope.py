@@ -272,6 +272,7 @@ class M0ResearchPublisherEnvelopeTest(unittest.TestCase):
             )
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][1], 15)
+        self.assertEqual(captured[0][0].get_header("User-agent"), "QSL-M0-Research-Publisher/1.0")
         self.assertNotIn(secret, publisher.canonical_json(envelope))
         self.assertNotIn("BROKER_API_TOKEN", publisher.canonical_json(envelope))
 
