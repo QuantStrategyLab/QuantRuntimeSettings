@@ -41,17 +41,26 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The App must be installed only on QuantAdvisorResearch with Actions:read.
+      # The action limits its short-lived token to that one repository and revokes
+      # it after this job.  It is never available to the publishing step below.
+      - name: Create scoped QAR artifact-reader token
+        id: qar-artifact-reader
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ vars.QAR_ARTIFACT_READER_APP_ID }}
+          private-key: ${{ secrets.QAR_ARTIFACT_READER_APP_PRIVATE_KEY }}
+          owner: QuantStrategyLab
+          repositories: QuantAdvisorResearch
+          permission-actions: read
+
       - name: Verify immutable successful QAR weekly run
         env:
-          QAR_ARTIFACT_READ_TOKEN: ${{ secrets.QAR_ARTIFACT_READ_TOKEN }}
+          GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}
         run: |
           set -euo pipefail
-          if [ -z "${QAR_ARTIFACT_READ_TOKEN:-}" ]; then
-            echo "QAR_ARTIFACT_READ_TOKEN is required to read the fixed QAR artifact." >&2
-            exit 2
-          fi
           run_metadata="${RUNNER_TEMP}/qar-weekly-run.json"
-          GH_TOKEN="${QAR_ARTIFACT_READ_TOKEN}" gh api \
+          gh api \
             "repos/${QAR_REPOSITORY}/actions/runs/${QAR_RUN_ID}" > "${run_metadata}"
 
           python3 - "${run_metadata}" <<'PY'
@@ -92,11 +101,11 @@ jobs:
 
       - name: Resolve exactly one fixed QAR artifact
         env:
-          QAR_ARTIFACT_READ_TOKEN: ${{ secrets.QAR_ARTIFACT_READ_TOKEN }}
+          GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}
         run: |
           set -euo pipefail
           artifacts_metadata="${RUNNER_TEMP}/qar-weekly-artifacts.json"
-          GH_TOKEN="${QAR_ARTIFACT_READ_TOKEN}" gh api \
+          gh api \
             "repos/${QAR_REPOSITORY}/actions/runs/${QAR_RUN_ID}/artifacts?per_page=100" > "${artifacts_metadata}"
 
           python3 - "${artifacts_metadata}" <<'PY'
@@ -130,12 +139,12 @@ jobs:
 
       - name: Download and verify one M0 source snapshot
         env:
-          QAR_ARTIFACT_READ_TOKEN: ${{ secrets.QAR_ARTIFACT_READ_TOKEN }}
+          GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}
         run: |
           set -euo pipefail
           artifact_zip="${RUNNER_TEMP}/qar-weekly-artifact.zip"
           source_snapshot="${RUNNER_TEMP}/m0-research-source-snapshot.json"
-          GH_TOKEN="${QAR_ARTIFACT_READ_TOKEN}" gh api --method GET \
+          gh api --method GET \
             "repos/${QAR_REPOSITORY}/actions/artifacts/${QAR_ARTIFACT_ID}/zip" \
             > "${artifact_zip}"
 
