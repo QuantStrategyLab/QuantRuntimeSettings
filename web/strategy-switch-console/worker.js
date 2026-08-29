@@ -72,6 +72,16 @@ const CONTROL_PLANE_RECOMMENDATIONS = [
   "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
 ];
 const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
+// M1 adaptive selections are a separate read-only projection. They are not
+// lifecycle evidence, an account instruction, or an execution permission.
+const ADAPTIVE_SELECTION_SOURCE_PREFIX = "adaptive_selection_source:";
+const ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION = "qsl.adaptive_selection_source_snapshot.v1";
+const ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION = "qsl.adaptive_selection_dashboard.v1";
+const ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION = "qsl.selection_decision.v1";
+const ADAPTIVE_SELECTION_MAX_SOURCES = 100;
+const ADAPTIVE_SELECTION_MAX_BODY_BYTES = 256 * 1024;
+const ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
+const ADAPTIVE_SELECTION_AUTHORITY = "shadow_only";
 // A console decision is intentionally an auditable owner intent, not an
 // execution permit.  It remains separate from workflow dispatch credentials,
 // broker credentials, and any future deterministic execution gateway.
@@ -253,6 +263,12 @@ export default {
       }
       if (url.pathname === "/api/control-plane" && request.method === "GET") {
         return await controlPlaneResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-adaptive-selection-source" && request.method === "POST") {
+        return await syncAdaptiveSelectionSourceResponse(request, env);
+      }
+      if (url.pathname === "/api/adaptive-selection" && request.method === "GET") {
+        return await adaptiveSelectionResponse(request, env);
       }
       if (url.pathname === "/api/owner-decisions" && request.method === "GET") {
         return await ownerDecisionQueueResponse(request, env);
@@ -2139,6 +2155,129 @@ function controlPlaneSourceKey(sourceId) {
   return `${CONTROL_PLANE_SOURCE_PREFIX}${sourceId}`;
 }
 
+async function syncAdaptiveSelectionSourceResponse(request, env) {
+  requireDedicatedAdaptiveSelectionSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "adaptive selection KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, ADAPTIVE_SELECTION_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid adaptive selection payload" }, error.status || 400);
+  }
+
+  let source;
+  try {
+    source = normalizeAdaptiveSelectionSourceSnapshot(raw, "adaptive selection source snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid adaptive selection payload" }, 400);
+  }
+
+  await writeConfigJson(env, adaptiveSelectionSourceKey(source.source_id), source);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "adaptive-selection-source-sync",
+      action: "sync_adaptive_selection_source",
+      source_id: source.source_id,
+      schema_version: source.schema_version,
+      candidate_count: source.decision?.candidates.length || 0,
+      data_status: source.data_status,
+      no_order: true,
+    });
+  } catch {
+    // This source remains safe and usable if the rolling convenience log fails.
+  }
+  return json({
+    ok: true,
+    source_id: source.source_id,
+    schema_version: source.schema_version,
+    candidate_count: source.decision?.candidates.length || 0,
+    generated_at: source.generated_at,
+    no_order: true,
+  });
+}
+
+async function adaptiveSelectionResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyAdaptiveSelectionPayload("adaptive_selection_source_unavailable"));
+  return json(await aggregateAdaptiveSelectionSources(env));
+}
+
+async function aggregateAdaptiveSelectionSources(env) {
+  const sources = await readAdaptiveSelectionSources(env);
+  if (!sources.length) return emptyAdaptiveSelectionPayload("adaptive_selection_source_unavailable");
+
+  const ttlSeconds = adaptiveSelectionStaleTtlSeconds(env);
+  const now = Date.now();
+  const selections = [];
+  const errors = [];
+  const timestamps = [];
+  let hasReadySource = false;
+  let hasStaleSource = false;
+
+  for (const source of sources) {
+    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+    if (source.generated_at) timestamps.push(source.generated_at);
+    if (source.computed_at) timestamps.push(source.computed_at);
+    if (freshness.data_status === "ready") hasReadySource = true;
+    if (freshness.data_status === "stale") {
+      hasStaleSource = true;
+      errors.push("adaptive_selection_source_stale");
+    }
+    if (source.decision) selections.push({ source_id: source.source_id, freshness, decision: source.decision });
+    errors.push(...source.errors);
+  }
+
+  return {
+    schema_version: ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION,
+    generated_at: earliestControlPlaneTimestamp(timestamps),
+    computed_at: earliestControlPlaneTimestamp(timestamps),
+    data_status: hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable"),
+    summary: normalizeAdaptiveSelectionSummary(selections),
+    selections: selections.sort((left, right) => left.source_id.localeCompare(right.source_id)),
+    policy: {
+      authority: ADAPTIVE_SELECTION_AUTHORITY,
+      no_order: true,
+      execution_authority_granted: false,
+      notice: "M1 仅展示 Shadow 建议和拒绝原因；不会修改策略、平台、资金、运行状态或订单。",
+    },
+    errors: uniqueStrings(errors),
+  };
+}
+
+async function readAdaptiveSelectionSources(env) {
+  const store = configStore(env);
+  if (!store || typeof store.list !== "function") return [];
+  let listing;
+  try {
+    listing = await store.list({ prefix: ADAPTIVE_SELECTION_SOURCE_PREFIX, limit: ADAPTIVE_SELECTION_MAX_SOURCES });
+  } catch {
+    return [emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_list_unavailable")];
+  }
+  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
+  const sources = [];
+  for (const entry of keys.slice(0, ADAPTIVE_SELECTION_MAX_SOURCES)) {
+    const key = typeof entry?.name === "string" ? entry.name : "";
+    if (!key.startsWith(ADAPTIVE_SELECTION_SOURCE_PREFIX)) continue;
+    try {
+      const stored = await readConfigJson(env, key);
+      if (!stored) continue;
+      sources.push(normalizeAdaptiveSelectionSourceSnapshot(stored, key));
+    } catch {
+      sources.push(emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_invalid"));
+    }
+  }
+  return sources;
+}
+
+function adaptiveSelectionSourceKey(sourceId) {
+  return `${ADAPTIVE_SELECTION_SOURCE_PREFIX}${sourceId}`;
+}
+
 function controlPlaneSnapshotFreshness(snapshot, ttlSeconds, now) {
   const timestamps = [snapshot.generated_at, snapshot.computed_at]
     .filter(Boolean)
@@ -2203,6 +2342,14 @@ function requireDedicatedControlPlaneSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("control plane sync token is invalid", 401);
+}
+
+function requireDedicatedAdaptiveSelectionSyncToken(request, env) {
+  const expected = String(env.ADAPTIVE_SELECTION_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("adaptive selection sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("adaptive selection sync token is invalid", 401);
 }
 
 function requireDedicatedExecutionEvidenceSyncToken(request, env) {
@@ -2710,6 +2857,225 @@ function emptyControlPlaneSourceSnapshot(errorCode) {
     candidates: [],
     errors: [errorCode],
   };
+}
+
+function normalizeAdaptiveSelectionSourceSnapshot(payload, fieldName = "adaptive selection source snapshot") {
+  const source = assertExactFields(payload, [
+    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "decision", "errors",
+  ], fieldName);
+  if (source.schema_version !== ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  const generatedAt = normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true);
+  const computedAt = normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true);
+  const decision = source.decision === null
+    ? null
+    : normalizeAdaptiveSelectionDecision(source.decision, `${fieldName}.decision`);
+  if (dataStatus === "unavailable" && decision !== null) {
+    throw new Error(`${fieldName}.decision must be null when unavailable`);
+  }
+  if (dataStatus !== "unavailable" && (!decision || !generatedAt || !computedAt)) {
+    throw new Error(`${fieldName} requires decision and timestamps when available`);
+  }
+  return {
+    schema_version: ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
+    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
+    generated_at: generatedAt,
+    computed_at: computedAt,
+    data_status: dataStatus,
+    decision,
+    errors: normalizeStrategyHealthErrors(source.errors),
+  };
+}
+
+function normalizeAdaptiveSelectionDecision(payload, fieldName) {
+  const value = assertExactFields(payload, [
+    "schema", "decision_id", "created_at", "authority", "no_order", "market_context", "policy_id",
+    "recommended_strategy_profile", "recommended_platform_id", "candidates", "input_digest",
+  ], fieldName);
+  if (value.schema !== ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema is unsupported`);
+  }
+  if (value.authority !== ADAPTIVE_SELECTION_AUTHORITY || value.no_order !== true) {
+    throw new Error(`${fieldName} must remain shadow-only and no-order`);
+  }
+  if (!Array.isArray(value.candidates) || value.candidates.length > 1000) {
+    throw new Error(`${fieldName}.candidates must be a bounded array`);
+  }
+  const candidates = value.candidates.map((item, index) =>
+    normalizeAdaptiveSelectionCandidate(item, `${fieldName}.candidates[${index}]`),
+  );
+  const candidateIds = new Set();
+  for (const candidate of candidates) {
+    if (candidateIds.has(candidate.strategy_profile)) {
+      throw new Error(`${fieldName}.candidates contains duplicate strategy_profile`);
+    }
+    candidateIds.add(candidate.strategy_profile);
+  }
+  const recommendedStrategy = normalizeControlPlaneIdentifier(
+    value.recommended_strategy_profile, `${fieldName}.recommended_strategy_profile`, true,
+  );
+  const recommendedPlatform = normalizeControlPlaneIdentifier(
+    value.recommended_platform_id, `${fieldName}.recommended_platform_id`, true,
+  );
+  const recommendedCandidate = candidates.find((item) => item.strategy_profile === recommendedStrategy && item.accepted);
+  if ((recommendedStrategy === null) !== (recommendedPlatform === null)) {
+    throw new Error(`${fieldName}.recommended strategy and platform must be provided together`);
+  }
+  if (recommendedStrategy && (!recommendedCandidate || recommendedCandidate.selected_platform_id !== recommendedPlatform)) {
+    throw new Error(`${fieldName}.recommended candidate is not accepted`);
+  }
+  return {
+    schema: ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION,
+    decision_id: normalizeControlPlaneIdentifier(value.decision_id, `${fieldName}.decision_id`, false),
+    created_at: normalizeStrategyHealthTimestamp(value.created_at, `${fieldName}.created_at`),
+    authority: ADAPTIVE_SELECTION_AUTHORITY,
+    no_order: true,
+    market_context: normalizeAdaptiveSelectionMarketContext(value.market_context, `${fieldName}.market_context`),
+    policy_id: normalizeControlPlaneIdentifier(value.policy_id, `${fieldName}.policy_id`, false),
+    recommended_strategy_profile: recommendedStrategy,
+    recommended_platform_id: recommendedPlatform,
+    candidates,
+    input_digest: normalizeAdaptiveSelectionDigest(value.input_digest, `${fieldName}.input_digest`),
+  };
+}
+
+function normalizeAdaptiveSelectionMarketContext(value, fieldName) {
+  const item = assertExactFields(value, [
+    "schema", "as_of", "domain", "data_version", "data_freshness_days", "regime", "regime_confidence", "factors",
+  ], fieldName);
+  if (item.schema !== "qsl.market_context_snapshot.v1") {
+    throw new Error(`${fieldName}.schema is unsupported`);
+  }
+  const asOf = String(item.as_of || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf) || Number.isNaN(Date.parse(`${asOf}T00:00:00Z`))) {
+    throw new Error(`${fieldName}.as_of must be an ISO date`);
+  }
+  if (!Number.isInteger(item.data_freshness_days) || item.data_freshness_days < 0 || item.data_freshness_days > 366) {
+    throw new Error(`${fieldName}.data_freshness_days is invalid`);
+  }
+  const confidence = Number(item.regime_confidence);
+  if (!Number.isFinite(confidence) || confidence < 0 || confidence > 1) {
+    throw new Error(`${fieldName}.regime_confidence is invalid`);
+  }
+  if (!item.factors || Array.isArray(item.factors) || typeof item.factors !== "object" || Object.keys(item.factors).length > 100) {
+    throw new Error(`${fieldName}.factors is invalid`);
+  }
+  const factors = {};
+  for (const [key, raw] of Object.entries(item.factors)) {
+    if (!/^[a-z][a-z0-9_.-]{0,63}$/.test(key)) throw new Error(`${fieldName}.factors key is invalid`);
+    const numeric = Number(raw);
+    if (!Number.isFinite(numeric) || Math.abs(numeric) > 1_000_000) {
+      throw new Error(`${fieldName}.factors.${key} is invalid`);
+    }
+    factors[key] = numeric;
+  }
+  return {
+    schema: "qsl.market_context_snapshot.v1",
+    as_of: asOf,
+    domain: cleanChoice(item.domain, STRATEGY_HEALTH_DOMAINS, `${fieldName}.domain`),
+    data_version: normalizeControlPlaneIdentifier(item.data_version, `${fieldName}.data_version`, false),
+    data_freshness_days: item.data_freshness_days,
+    regime: normalizeControlPlaneIdentifier(item.regime, `${fieldName}.regime`, false),
+    regime_confidence: confidence,
+    factors,
+  };
+}
+
+function normalizeAdaptiveSelectionCandidate(value, fieldName) {
+  const item = assertExactFields(value, [
+    "strategy_profile", "release_digest", "selected_platform_id", "score", "risk_multiplier", "accepted", "reasons", "proposed_weight",
+  ], fieldName);
+  const score = Number(item.score);
+  const riskMultiplier = Number(item.risk_multiplier);
+  if (!Number.isFinite(score) || Math.abs(score) > 1_000_000) throw new Error(`${fieldName}.score is invalid`);
+  if (!Number.isFinite(riskMultiplier) || riskMultiplier < 0 || riskMultiplier > 1) {
+    throw new Error(`${fieldName}.risk_multiplier is invalid`);
+  }
+  if (typeof item.accepted !== "boolean") throw new Error(`${fieldName}.accepted must be boolean`);
+  if (item.proposed_weight !== 0) throw new Error(`${fieldName}.proposed_weight must remain zero`);
+  if (!Array.isArray(item.reasons) || item.reasons.length > 32) throw new Error(`${fieldName}.reasons is invalid`);
+  const reasons = item.reasons.map((reason) => {
+    const code = String(reason || "");
+    if (!/^[a-z][a-z0-9_.:-]{0,127}$/.test(code)) throw new Error(`${fieldName}.reason is invalid`);
+    return code;
+  });
+  return {
+    strategy_profile: normalizeControlPlaneIdentifier(item.strategy_profile, `${fieldName}.strategy_profile`, false),
+    release_digest: normalizeAdaptiveSelectionReleaseDigest(item.release_digest, `${fieldName}.release_digest`),
+    selected_platform_id: normalizeControlPlaneIdentifier(item.selected_platform_id, `${fieldName}.selected_platform_id`, true),
+    score,
+    risk_multiplier: riskMultiplier,
+    accepted: item.accepted,
+    reasons,
+    proposed_weight: 0,
+  };
+}
+
+function normalizeAdaptiveSelectionReleaseDigest(value, fieldName) {
+  const text = String(value || "").trim();
+  if (!/^[A-Za-z0-9._:=+-]{1,160}$/.test(text) || /(token|secret|password|cookie|private|api[_-]?key)/i.test(text)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return text;
+}
+
+function normalizeAdaptiveSelectionDigest(value, fieldName) {
+  const text = String(value || "");
+  if (!/^[a-f0-9]{64}$/.test(text)) throw new Error(`${fieldName} is invalid`);
+  return text;
+}
+
+function normalizeAdaptiveSelectionSummary(selections) {
+  const entries = Array.isArray(selections) ? selections : [];
+  const decisions = entries.map((item) => item.decision).filter(Boolean);
+  const candidates = decisions.flatMap((item) => item.candidates);
+  return {
+    source_count: entries.length,
+    decision_count: decisions.length,
+    candidate_count: candidates.length,
+    recommended_count: decisions.filter((item) => item.recommended_strategy_profile).length,
+    rejected_candidate_count: candidates.filter((item) => !item.accepted).length,
+  };
+}
+
+function emptyAdaptiveSelectionSourceSnapshot(errorCode) {
+  return {
+    schema_version: ADAPTIVE_SELECTION_SOURCE_SCHEMA_VERSION,
+    source_id: "unavailable",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    decision: null,
+    errors: [errorCode],
+  };
+}
+
+function emptyAdaptiveSelectionPayload(errorCode) {
+  return {
+    schema_version: ADAPTIVE_SELECTION_DASHBOARD_SCHEMA_VERSION,
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    summary: { source_count: 0, decision_count: 0, candidate_count: 0, recommended_count: 0, rejected_candidate_count: 0 },
+    selections: [],
+    policy: {
+      authority: ADAPTIVE_SELECTION_AUTHORITY,
+      no_order: true,
+      execution_authority_granted: false,
+      notice: "M1 Shadow 建议尚不可用；控制台不会推断策略、平台或订单。",
+    },
+    errors: [errorCode],
+  };
+}
+
+function adaptiveSelectionStaleTtlSeconds(env) {
+  const configured = Number(env.ADAPTIVE_SELECTION_STALE_TTL_SECONDS);
+  if (!Number.isFinite(configured) || configured < 300 || configured > 604800) {
+    return ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS;
+  }
+  return Math.floor(configured);
 }
 
 function normalizeControlPlaneCandidates(value, fieldName) {
@@ -4886,6 +5252,8 @@ export const __test = {
   normalizeControlPlaneSnapshot,
   normalizeControlPlaneSourceSnapshot,
   emptyControlPlanePayload,
+  normalizeAdaptiveSelectionSourceSnapshot,
+  emptyAdaptiveSelectionPayload,
   normalizeExecutionEvidenceSourceSnapshot,
   emptyExecutionEvidencePayload,
   calculateResearchTaskSha256,

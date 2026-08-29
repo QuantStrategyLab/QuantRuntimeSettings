@@ -860,6 +860,17 @@
         executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
         executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
         executionEvidenceNext: "下一步",
+        adaptiveSelectionBoard: "按需查看 M1 Shadow 建议",
+        adaptiveSelectionLoginNotice: "登录后读取私有 Shadow 建议；缺失来源不会被补成策略或订单。",
+        adaptiveSelectionStaleNotice: "此 Shadow 建议已超出新鲜度窗口，仅保留为历史上下文。",
+        adaptiveSelectionUnavailableNotice: "还没有可用的 M1 Shadow 建议；页面保持 fail-closed 空状态。",
+        adaptiveSelectionUpstreamNotice: "Shadow 建议带有 {count} 个上游提示；页面不会推断策略、平台或订单。",
+        adaptiveSelectionEmpty: "暂无可展示的 Shadow 建议。",
+        adaptiveSelectionMeta: "{source} · {domain} · 市场截至 {asOf}",
+        adaptiveSelectionRecommended: "建议观察",
+        adaptiveSelectionNoCandidate: "无合格 Shadow 候选",
+        adaptiveSelectionReason: "原因：{reasons}",
+        adaptiveSelectionNoOrder: "固定边界：仅供人工查看，零建议权重，不改策略、平台、资金、运行状态或订单。",
         researchTaskBoard: "按需查看研究任务队列",
         researchTaskLoginNotice: "登录后读取私有研究任务索引；没有来源快照时不会展示虚构任务。",
         researchTaskStaleNotice: "研究任务来源已超过允许的新鲜度窗口；任务保留为历史记录，但不作为当前工作指令。",
@@ -1118,6 +1129,17 @@
         executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
         executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
         executionEvidenceNext: "NEXT",
+        adaptiveSelectionBoard: "View M1 Shadow suggestions on demand",
+        adaptiveSelectionLoginNotice: "Sign in to read private Shadow suggestions. Missing sources never imply a strategy or order.",
+        adaptiveSelectionStaleNotice: "This Shadow suggestion is beyond its freshness window and remains historical context only.",
+        adaptiveSelectionUnavailableNotice: "No usable M1 Shadow suggestion is available yet. This view remains fail-closed and empty.",
+        adaptiveSelectionUpstreamNotice: "Shadow suggestions include {count} upstream notice(s); no strategy, platform, or order is inferred.",
+        adaptiveSelectionEmpty: "No Shadow suggestion is available to display.",
+        adaptiveSelectionMeta: "{source} · {domain} · market as of {asOf}",
+        adaptiveSelectionRecommended: "Observe suggestion",
+        adaptiveSelectionNoCandidate: "No eligible Shadow candidate",
+        adaptiveSelectionReason: "Reasons: {reasons}",
+        adaptiveSelectionNoOrder: "Fixed boundary: human-readable only, zero proposed weight, no strategy, platform, funds, runtime, or order change.",
         researchTaskBoard: "View research queue on demand",
         researchTaskLoginNotice: "Sign in to read the private research task index. Missing source snapshots never imply a task.",
         researchTaskStaleNotice: "The research task source is beyond its freshness window. It remains historical context, not a current instruction.",
@@ -1386,6 +1408,16 @@
         data_status: "unavailable",
         candidates: [],
         errors: [],
+      },
+      adaptiveSelection: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { source_count: 0, decision_count: 0, candidate_count: 0, recommended_count: 0, rejected_candidate_count: 0 },
+          selections: [],
+          policy: { authority: "shadow_only", no_order: true, execution_authority_granted: false },
+          errors: [],
+        },
       },
       executionEvidence: {
         payload: {
@@ -3688,6 +3720,89 @@
       }
     }
 
+    function normalizeAdaptiveSelectionPayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid adaptive selection payload");
+      const selections = Array.isArray(payload.selections) ? payload.selections : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        selections: selections.filter((item) => item && typeof item === "object"
+          && typeof item.source_id === "string" && item.decision && typeof item.decision === "object"),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function renderAdaptiveSelection() {
+      const payload = state.adaptiveSelection.payload;
+      const notice = el("adaptive-selection-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("adaptiveSelectionLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("adaptiveSelectionStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("adaptiveSelectionUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("adaptiveSelectionUpstreamNotice").replace("{count}", String(payload.errors.length));
+      } else {
+        notice.textContent = payload.policy?.notice || t("adaptiveSelectionNoOrder");
+      }
+
+      const list = el("adaptive-selection-list");
+      list.replaceChildren();
+      if (!payload.selections.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("adaptiveSelectionEmpty");
+        list.appendChild(empty);
+        return;
+      }
+      for (const entry of payload.selections) {
+        const decision = entry.decision || {};
+        const context = decision.market_context || {};
+        const recommended = decision.candidates?.find((item) => item.accepted
+          && item.strategy_profile === decision.recommended_strategy_profile) || null;
+        const rejected = (decision.candidates || []).filter((item) => !item.accepted);
+        const reasons = (recommended?.reasons?.length ? recommended.reasons : rejected.flatMap((item) => item.reasons || []))
+          .slice(0, 3)
+          .join(", ");
+
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("adaptiveSelectionMeta")
+          .replace("{source}", entry.source_id || "unknown")
+          .replace("{domain}", domainLabel(context.domain || ""))
+          .replace("{asOf}", context.as_of || "—");
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = recommended
+          ? `${t("adaptiveSelectionRecommended")} · ${recommended.strategy_profile}`
+          : t("adaptiveSelectionNoCandidate");
+        const reason = document.createElement("p");
+        reason.className = "health-card__reason";
+        reason.textContent = reasons
+          ? t("adaptiveSelectionReason").replace("{reasons}", reasons)
+          : t("adaptiveSelectionNoOrder");
+        main.append(meta, title, reason);
+        const status = document.createElement("div");
+        status.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = "NO ORDER";
+        const score = document.createElement("strong");
+        score.textContent = typeof recommended?.score === "number" ? recommended.score.toFixed(3) : "—";
+        const freshness = document.createElement("small");
+        freshness.textContent = entry.freshness?.data_status || "unknown";
+        status.append(label, score, freshness);
+        card.append(main, status);
+        list.appendChild(card);
+      }
+    }
+
     function normalizeExecutionEvidencePayload(payload) {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid execution evidence payload");
       const deployments = Array.isArray(payload.deployments) ? payload.deployments : [];
@@ -3959,6 +4074,7 @@
       renderRuntimeAuthorityStatus();
       renderConsoleView();
       renderControlPlane();
+      renderAdaptiveSelection();
       renderExecutionEvidence();
       renderResearchTasks();
       renderHealth();
@@ -3987,6 +4103,7 @@
       if (state.auth.allowed) {
         await refreshControlPlane();
         await refreshOwnerDecisions();
+        await refreshAdaptiveSelection();
         await refreshExecutionEvidence();
         await refreshResearchTasks();
         await refreshHealth();
@@ -4054,6 +4171,26 @@
         };
       }
       renderControlPlane();
+    }
+
+    async function refreshAdaptiveSelection() {
+      if (!state.auth.allowed) {
+        renderAdaptiveSelection();
+        return;
+      }
+      try {
+        state.adaptiveSelection.payload = normalizeAdaptiveSelectionPayload(await requestJson("/api/adaptive-selection"));
+      } catch {
+        state.adaptiveSelection.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { source_count: 0, decision_count: 0, candidate_count: 0, recommended_count: 0, rejected_candidate_count: 0 },
+          selections: [],
+          policy: { authority: "shadow_only", no_order: true, execution_authority_granted: false },
+          errors: ["adaptive_selection_request_failed"],
+        };
+      }
+      renderAdaptiveSelection();
     }
 
     async function recordOwnerDecision(button) {

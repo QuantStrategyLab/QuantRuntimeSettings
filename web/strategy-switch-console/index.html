@@ -79,6 +79,11 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
       <div class="health-board-head"><h3 data-i18n="controlCandidateBoard">需要跟进</h3></div>
       <div class="health-list" id="control-plane-list"></div>
       <details class="control-disclosure">
+        <summary data-i18n="adaptiveSelectionBoard">按需查看 M1 Shadow 建议</summary>
+        <div id="adaptive-selection-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证的 Shadow 建议；它始终不下单。</div>
+        <div class="health-list" id="adaptive-selection-list"></div>
+      </details>
+      <details class="control-disclosure">
         <summary data-i18n="executionEvidenceBoard">按需查看策略 × 平台证据覆盖</summary>
         <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证执行证据；页面不会推断 paper 或 live 状态。</div>
         <div class="health-list" id="execution-evidence-list"></div>

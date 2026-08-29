@@ -199,6 +199,25 @@ GET  /api/control-plane
 
 这个接口不是订单、paper、shadow 或 live API。`CONTROL_PLANE_SYNC_TOKEN` 必须与 OAuth、workflow dispatch、策略 root 和任何券商凭证完全分离。部署 workflow 会在 `runtime-strategy-switch` environment 提供该 secret 时，把它同步为 Worker secret；每个来源仓库需要保存同一值到其专用 GitHub Environment，URL 使用只读控制台的 `/api/internal/sync-control-plane-source`。
 
+## M1 Shadow 建议只读接口
+
+M1 把 P0 已生成的 `qsl.selection_decision.v1` 呈现给人工；它不创建策略、不会开始
+Shadow runtime，也不会修改仓位。每个来源使用单独凭据提交：
+
+```text
+POST /api/internal/sync-adaptive-selection-source
+GET  /api/adaptive-selection
+```
+
+写入的外层契约是 `qsl.adaptive_selection_source_snapshot.v1`，其中的 decision 必须仍是
+`authority=shadow_only`、`no_order=true`，且每个 `proposed_weight=0`。Worker 会拒绝非零
+权重、非 Shadow authority、缺少完整输入摘要或格式不安全的字段。读取接口要求已登录
+allowlist；默认 36 小时后快照标为 `stale`，不会被当作当前结论。
+
+`ADAPTIVE_SELECTION_SYNC_TOKEN` 必须专用，不能复用 OAuth、策略切换、控制面、执行证据、
+顾投、券商或账户凭据。顾投研究与 M1 的卡片也必须保持分开：顾投只能提出研究假设，不能
+直接成为市场因子、策略基础分、插件风险缩放、平台健康、目标权重或订单输入。
+
 ## 网页人工审批（P6 决策意图）
 
 当且仅当候选仍是**新鲜**的 P6 `owner_decision_required`、机器建议仍为 `owner_live_decision` 时，控制台会在“全局概览”显示人工决定区。只有管理员可以选择：批准受限试运行意图、保持暂停或退役候选。
