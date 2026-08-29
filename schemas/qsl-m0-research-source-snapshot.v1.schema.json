@@ -8,7 +8,7 @@
   "required": ["schema_version", "source_id", "source_report_digest", "generated_at", "computed_at", "data_status", "hypotheses", "errors"],
   "properties": {
     "schema_version": { "const": "qsl_m0_research_source_snapshot.v1" },
-    "source_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" },
+    "source_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
     "source_report_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
     "generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
     "computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
@@ -24,6 +24,23 @@
       "items": { "type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$" }
     }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "data_status": { "const": "ready" } } },
+      "then": {
+        "properties": {
+          "source_report_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "generated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+          "computed_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+          "errors": { "maxItems": 0 }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "data_status": { "const": "unavailable" } } },
+      "then": { "properties": { "hypotheses": { "maxItems": 0 } } }
+    }
+  ],
   "$defs": {
     "m0Hypothesis": {
       "type": "object",
@@ -34,7 +51,7 @@
         "artifact_type": { "const": "research_hypothesis" },
         "authority": { "const": "research_only" },
         "no_order": { "const": true },
-        "hypothesis_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" },
+        "hypothesis_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
         "as_of": { "type": "string", "format": "date" },
         "generated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
         "expires_at": { "type": "string", "format": "date-time", "maxLength": 64 },
@@ -44,7 +61,7 @@
           "required": ["kind", "identifier"],
           "properties": {
             "kind": { "enum": ["asset_idea", "theme_context", "strategy_hypothesis", "risk_context"] },
-            "identifier": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+            "identifier": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" }
           }
         },
         "research_context": {
@@ -67,7 +84,7 @@
               "type": "array",
               "maxItems": 24,
               "uniqueItems": true,
-              "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+              "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" }
             }
           }
         },
@@ -87,11 +104,27 @@
           "required": ["source_project", "source_schema_version", "source_contract_version", "source_report_digest", "source_input_digest"],
           "properties": {
             "source_project": { "const": "QuantAdvisorResearch" },
-            "source_schema_version": { "enum": ["5", "6"] },
-            "source_contract_version": { "enum": ["model_recommendations.v5", "model_recommendations.v6"] },
+            "source_schema_version": { "type": "string" },
+            "source_contract_version": { "type": "string" },
             "source_report_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-            "source_input_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
-          }
+            "source_input_digest": {}
+          },
+          "oneOf": [
+            {
+              "properties": {
+                "source_schema_version": { "const": "5" },
+                "source_contract_version": { "const": "model_recommendations.v5" },
+                "source_input_digest": { "type": "null" }
+              }
+            },
+            {
+              "properties": {
+                "source_schema_version": { "const": "6" },
+                "source_contract_version": { "const": "model_recommendations.v6" },
+                "source_input_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+              }
+            }
+          ]
         },
         "permitted_next_step": { "const": "research_validation_only" }
       }

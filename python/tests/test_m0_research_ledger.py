@@ -92,6 +92,17 @@ class M0ResearchLedgerTest(unittest.TestCase):
         self.assertFalse(source_schema["additionalProperties"])
         self.assertFalse(ledger_schema["additionalProperties"])
         self.assertEqual(source_schema["properties"]["schema_version"]["const"], "qsl_m0_research_source_snapshot.v1")
+        self.assertEqual(source_schema["properties"]["source_id"]["pattern"], "^[A-Za-z0-9._:/-]{1,128}$")
+        self.assertEqual(source_schema["allOf"][0]["then"]["properties"]["errors"], {"maxItems": 0})
+        provenance_variants = source_schema["$defs"]["m0Hypothesis"]["properties"]["provenance"]["oneOf"]
+        self.assertEqual(len(provenance_variants), 2)
+        self.assertEqual(provenance_variants[0]["properties"]["source_schema_version"], {"const": "5"})
+        self.assertEqual(provenance_variants[0]["properties"]["source_input_digest"], {"type": "null"})
+        self.assertEqual(provenance_variants[1]["properties"]["source_schema_version"], {"const": "6"})
+        self.assertEqual(
+            provenance_variants[1]["properties"]["source_input_digest"],
+            {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        )
         self.assertEqual(ledger_schema["properties"]["policy"]["properties"]["no_order"], {"const": True})
         self.assertEqual(
             ledger_schema["properties"]["policy"]["properties"]["permitted_next_step"],
@@ -126,9 +137,11 @@ class M0ResearchLedgerTest(unittest.TestCase):
             "stale_observation_count": 0,
             "unknown_observation_count": 0,
             "horizon_conflict_count": 1,
+            "historical_stale_horizon_drift_count": 0,
         })
         subject = ledger["subjects"][0]
         self.assertEqual(subject["horizon_conflict"], {"status": "conflict", "primary_horizons": ["long", "medium"]})
+        self.assertEqual(subject["historical_stale_horizon_drift"], {"status": "none", "primary_horizons": []})
         self.assertEqual(subject["observations"][0]["source_ids"], ["quant-advisor-research", "research-mirror"])
 
     def test_expired_or_stale_source_is_visible_but_cannot_become_fresh(self):
@@ -143,10 +156,35 @@ class M0ResearchLedgerTest(unittest.TestCase):
         self.assertEqual(ledger["data_status"], "stale")
         self.assertEqual(ledger["summary"]["fresh_observation_count"], 0)
         self.assertEqual(ledger["summary"]["stale_observation_count"], 2)
+        self.assertEqual(ledger["summary"]["horizon_conflict_count"], 0)
+        self.assertEqual(ledger["summary"]["historical_stale_horizon_drift_count"], 0)
         self.assertEqual(
             {entry["freshness"]["status"] for item in ledger["subjects"] for entry in item["observations"]},
             {"stale"},
         )
+
+    def test_historical_stale_horizon_drift_does_not_create_a_current_conflict(self):
+        fresh = self._snapshot(self._hypothesis(primary_horizon="medium"), data_status="ready")
+        historical = self._snapshot(
+            self._hypothesis(
+                report_digest="d" * 64,
+                entry_digest="e" * 64,
+                hypothesis_id="m0r-long-history",
+                primary_horizon="long",
+            ),
+            data_status="stale",
+        )
+        ledger = m0_research_ledger.aggregate_m0_research_sources(
+            [fresh, historical], now="2026-08-21T12:00:00Z"
+        )
+        subject = ledger["subjects"][0]
+        self.assertEqual(subject["horizon_conflict"], {"status": "none", "primary_horizons": ["medium"]})
+        self.assertEqual(
+            subject["historical_stale_horizon_drift"],
+            {"status": "drift", "primary_horizons": ["long"]},
+        )
+        self.assertEqual(ledger["summary"]["horizon_conflict_count"], 0)
+        self.assertEqual(ledger["summary"]["historical_stale_horizon_drift_count"], 1)
 
     def test_m0_authority_execution_escape_and_source_digest_mismatch_fail_closed(self):
         for mutate, message in (
@@ -164,6 +202,53 @@ class M0ResearchLedgerTest(unittest.TestCase):
         snapshot["source_report_digest"] = "f" * 64
         with self.assertRaisesRegex(m0_research_ledger.M0ResearchLedgerValidationError, "source_report_digest_mismatch"):
             m0_research_ledger.validate_m0_research_source_snapshot(snapshot)
+
+    def test_ready_source_errors_and_non_qar_identifier_fail_closed(self):
+        snapshot = self._snapshot(self._hypothesis())
+        snapshot["errors"] = ["upstream_timeout"]
+        with self.assertRaisesRegex(m0_research_ledger.M0ResearchLedgerValidationError, "ready_source_errors_invalid"):
+            m0_research_ledger.validate_m0_research_source_snapshot(snapshot)
+
+        hypothesis = self._hypothesis()
+        hypothesis["subject"]["identifier"] = "SOXX=leveraged"
+        with self.assertRaisesRegex(m0_research_ledger.M0ResearchLedgerValidationError, "subject_identifier_invalid"):
+            m0_research_ledger.validate_m0_research_hypothesis(hypothesis)
+
+    def test_v5_v6_provenance_pairing_matches_the_closed_schema(self):
+        v5 = self._hypothesis()
+        v5["provenance"].update(
+            source_schema_version="5",
+            source_contract_version="model_recommendations.v5",
+            source_input_digest=None,
+        )
+        m0_research_ledger.validate_m0_research_hypothesis(v5)
+
+        invalid_v6 = self._hypothesis()
+        invalid_v6["provenance"]["source_input_digest"] = None
+        with self.assertRaisesRegex(m0_research_ledger.M0ResearchLedgerValidationError, "source_input_digest_invalid"):
+            m0_research_ledger.validate_m0_research_hypothesis(invalid_v6)
+
+        invalid_v5 = copy.deepcopy(v5)
+        invalid_v5["provenance"]["source_contract_version"] = "model_recommendations.v6"
+        with self.assertRaisesRegex(m0_research_ledger.M0ResearchLedgerValidationError, "source_contract_version_invalid"):
+            m0_research_ledger.validate_m0_research_hypothesis(invalid_v5)
+
+    def test_future_source_metadata_is_omitted_fail_closed(self):
+        for field, value in (
+            ("generated_at", "2026-08-22T12:00:00Z"),
+            ("computed_at", "2026-08-22T12:00:00Z"),
+        ):
+            with self.subTest(field=field):
+                snapshot = self._snapshot(self._hypothesis())
+                snapshot[field] = value
+                if field == "generated_at":
+                    snapshot["computed_at"] = "2026-08-22T12:01:00Z"
+                ledger = m0_research_ledger.aggregate_m0_research_sources(
+                    [snapshot], now="2026-08-21T12:00:00Z"
+                )
+                self.assertEqual(ledger["data_status"], "unavailable")
+                self.assertEqual(ledger["summary"]["observation_count"], 0)
+                self.assertEqual(ledger["errors"], ["m0_source_future_timestamp"])
 
     def test_same_subject_and_source_with_different_payloads_is_omitted_fail_closed(self):
         first = self._hypothesis()

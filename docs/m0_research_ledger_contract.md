@@ -31,7 +31,12 @@ errors: [安全错误码, ...]
 - 不含账户、仓位、权重、订单、路由、平台、运行时、密钥或执行语义。
 
 快照不得把失效研究线索重新标为新信号。`ready` 来源必须提供时间与来源
-digest；`unavailable` 来源不得携带 hypothesis。
+digest，且 `errors` 必须为空；`unavailable` 来源不得携带 hypothesis。来源、
+subject、theme 与 hypothesis 标识采用与 `QuantAdvisorResearch` 完全相同的
+字符集，不接受 `=`。M0 v5/v6 的 provenance 也是闭合配对：
+
+- v5 必须为 `model_recommendations.v5` 且 `source_input_digest=null`；
+- v6 必须为 `model_recommendations.v6` 且 `source_input_digest` 为 SHA-256。
 
 ## 聚合行为
 
@@ -43,10 +48,16 @@ digest；`unavailable` 来源不得携带 hypothesis。
 3. 同一 subject + source digest 出现不同内容时，作为
    `m0_source_subject_collision` 故障闭合剔除。
 4. 同一 subject 的不同报告保留为独立观测；若 `primary_horizon` 不同，
-   标记 `horizon_conflict.status=conflict`。这是研究队列的人工/后续验证信号，
-   不是交易信号。
+   仅当**当前 fresh**观测不同才标记 `horizon_conflict.status=conflict`。
+   已失效观测被独立投影为 `historical_stale_horizon_drift`：只有存在当前
+   fresh 基准且历史 horizon 不同时才标记 `drift`；完全 stale 的 subject
+   只标记 `unavailable`，不会伪造当前冲突。这两者都是研究队列的人工/后续
+   验证信息，不是交易信号。
 5. 依据 `now` 与 `expires_at` 产生 `fresh`、`stale` 或 `unknown`；来源自身
    为 `stale` 时不会被提升为 fresh。
+6. source 的 `generated_at` 或 `computed_at` 晚于聚合传入的 `now` 时，整个
+   source 以 `m0_source_future_timestamp` 故障闭合剔除；不会以 `unknown`
+   继续展示或参与去重。
 
 输出台账始终固定：
 
