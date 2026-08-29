@@ -101,6 +101,15 @@ const M0_RESEARCH_HORIZONS = ["short", "medium", "long", "not_applicable"];
 const M0_RESEARCH_STATES = ["candidate", "source_verification_required", "deferred", "context_only"];
 const M0_RESEARCH_CONFIDENCE = ["high", "medium", "low", "mixed", "no_event", "unknown"];
 const M0_RESEARCH_STYLES = ["event_driven", "long_horizon_growth", "value_quality", "macro_context", "mixed_research"];
+const M0_RESEARCH_SUMMARY_FIELDS = [
+  "subject_count",
+  "observation_count",
+  "fresh_observation_count",
+  "stale_observation_count",
+  "unknown_observation_count",
+  "horizon_conflict_count",
+  "historical_stale_horizon_drift_count",
+];
 // A console decision is intentionally an auditable owner intent, not an
 // execution permit.  It remains separate from workflow dispatch credentials,
 // broker credentials, and any future deterministic execution gateway.
@@ -3101,7 +3110,7 @@ function normalizeM0ResearchLedger(payload, fieldName) {
   assertM0ResearchSortedUnique(subjects, (subject) => `${subject.subject.kind}\u0000${subject.subject.identifier}`, `${fieldName}.subjects`);
   const summary = normalizeM0ResearchLedgerSummary(ledger.summary, `${fieldName}.summary`);
   const calculatedSummary = summarizeM0ResearchSubjects(subjects);
-  if (JSON.stringify(summary) !== JSON.stringify(calculatedSummary)) {
+  if (!m0ResearchSummariesEqual(summary, calculatedSummary)) {
     throw new Error(`${fieldName}.summary does not match subjects`);
   }
   const expectedStatus = summary.fresh_observation_count > 0
@@ -3122,13 +3131,16 @@ function normalizeM0ResearchLedger(payload, fieldName) {
 }
 
 function normalizeM0ResearchLedgerSummary(value, fieldName) {
-  const summary = assertExactFields(value, [
-    "subject_count", "observation_count", "fresh_observation_count", "stale_observation_count", "unknown_observation_count",
-    "horizon_conflict_count", "historical_stale_horizon_drift_count",
-  ], fieldName);
+  const summary = assertExactFields(value, M0_RESEARCH_SUMMARY_FIELDS, fieldName);
   const result = {};
-  for (const key of Object.keys(summary)) result[key] = normalizeM0ResearchCount(summary[key], `${fieldName}.${key}`);
+  for (const key of M0_RESEARCH_SUMMARY_FIELDS) {
+    result[key] = normalizeM0ResearchCount(summary[key], `${fieldName}.${key}`);
+  }
   return result;
+}
+
+function m0ResearchSummariesEqual(left, right) {
+  return M0_RESEARCH_SUMMARY_FIELDS.every((field) => left[field] === right[field]);
 }
 
 function normalizeM0ResearchLedgerPolicy(value, fieldName) {

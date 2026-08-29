@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION } from "../web/strategy-switch-console/config.js";
@@ -28,6 +29,28 @@ assert.deepEqual(
   ["schema_version", "source_ledger_sha256", "source_generated_at", "source_computed_at", "viewed_at", "data_status", "summary", "subjects", "policy", "errors"],
 );
 assert.equal(m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"], 256 * 1024);
+
+function buildQrsCanonicalM0PublisherBody(sourceSnapshotPath) {
+  // The fixture is a minimized, unchanged QAR #66 emitted source snapshot.
+  // Execute QRS #309/#310's real offline builder and return its exact sorted-
+  // key canonical UTF-8 request body, rather than duplicating it in JS.
+  const publisherCode = [
+    "import hashlib,json,sys",
+    "sys.path.insert(0, sys.argv[2])",
+    "from build_m0_research_publisher_envelope import build_m0_research_publisher_envelope, canonical_envelope_body",
+    "raw=open(sys.argv[1], 'rb').read()",
+    "source=json.loads(raw)",
+    "envelope=build_m0_research_publisher_envelope(source_snapshot=source, source_artifact={'repository':'QuantStrategyLab/QuantAdvisorResearch','revision':'9e06f248fb60d1c995426e66468cb18454612e9b','run_id':'qar66-fixture-run','artifact_id':'QAR66:source/snapshot','sha256':hashlib.sha256(raw).hexdigest()}, producer_repository='QuantStrategyLab/QuantRuntimeSettings', producer_revision='451b11d0bf6ba2632ca2227c850e7236a40d12e5', now=source['generated_at'])",
+    "sys.stdout.buffer.write(canonical_envelope_body(envelope))",
+  ].join("; ");
+  const result = spawnSync(
+    "python3",
+    ["-c", publisherCode, sourceSnapshotPath, resolve(root, "python/scripts")],
+    { cwd: root, encoding: "buffer" },
+  );
+  assert.equal(result.status, 0, Buffer.from(result.stderr || "").toString("utf8"));
+  return Buffer.from(result.stdout);
+}
 assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
@@ -2815,6 +2838,25 @@ assert.match(m0ResearchPayload.viewed_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z
 assert.equal(m0ResearchPayload.data_status, "ready");
 assert.equal(m0ResearchPayload.policy.no_order, true);
 assert.equal(m0ResearchPayload.subjects[0].subject.identifier, "semiconductors");
+const qar66SourceSnapshotPath = resolve(root, "tests/fixtures/qar66-m0-research-source-snapshot.json");
+const qrsCanonicalM0PublisherBody = buildQrsCanonicalM0PublisherBody(qar66SourceSnapshotPath);
+assert.ok(qrsCanonicalM0PublisherBody.byteLength <= m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"]);
+const qrsCanonicalM0Envelope = JSON.parse(qrsCanonicalM0PublisherBody.toString("utf8"));
+assert.deepEqual(
+  Object.keys(qrsCanonicalM0Envelope.ledger.summary),
+  [...Object.keys(qrsCanonicalM0Envelope.ledger.summary)].sort(),
+);
+await __test.normalizeM0ResearchLedgerTransport(qrsCanonicalM0Envelope);
+const qrsCanonicalM0Post = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: qrsCanonicalM0PublisherBody,
+  }),
+  m0ResearchEnv,
+);
+assert.equal(qrsCanonicalM0Post.status, 200);
+assert.equal((await qrsCanonicalM0Post.json()).no_order, true);
 const m0ExpiredReadProjection = __test.projectM0ResearchDashboardForRead(
   m0ResearchLedger,
   m0ResearchLedgerSha,
