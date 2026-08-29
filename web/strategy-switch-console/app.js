@@ -860,6 +860,19 @@
         executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
         executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
         executionEvidenceNext: "下一步",
+        m0ResearchBoard: "按需查看 M0 研究观察",
+        m0ResearchLoginNotice: "登录后读取私有 M0 研究台账；缺失台账不会被补成研究结论。",
+        m0ResearchStaleNotice: "M0 研究观察已超过有效期，仅保留为历史上下文。",
+        m0ResearchUnavailableNotice: "还没有可用的 M0 研究台账；页面保持 fail-closed 空状态。",
+        m0ResearchUpstreamNotice: "M0 研究台账已加载，但有 {count} 个上游提示；页面不会补造研究结论。",
+        m0ResearchEmpty: "暂无可展示的已验证 M0 研究观察。",
+        m0ResearchMore: "仅显示前 {count} 条研究观察；其余仍保留在只读台账中。",
+        m0ResearchMeta: "{kind} · 查看于：{viewed}",
+        m0ResearchStateFreshness: "状态：{state} · 新鲜度：{freshness}",
+        m0ResearchHorizons: "主要观察期：{primary} · 适用观察期：{suitable}",
+        m0ResearchEvidence: "置信：{confidence} · 风格：{style} · 资料摘要：{digest}",
+        m0ResearchConsistency: "当前周期分歧：{conflict} · 历史失效漂移：{drift}",
+        m0ResearchNoOrder: "固定边界：仅研究、无订单；不产生任何运行动作。",
         adaptiveSelectionBoard: "按需查看 M1 Shadow 建议",
         adaptiveSelectionLoginNotice: "登录后读取私有 Shadow 建议；缺失来源不会被补成策略或订单。",
         adaptiveSelectionStaleNotice: "此 Shadow 建议已超出新鲜度窗口，仅保留为历史上下文。",
@@ -1129,6 +1142,19 @@
         executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
         executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
         executionEvidenceNext: "NEXT",
+        m0ResearchBoard: "View M0 research observations on demand",
+        m0ResearchLoginNotice: "Sign in to read the private M0 research ledger. A missing ledger never implies a research conclusion.",
+        m0ResearchStaleNotice: "These M0 research observations are beyond their validity window and remain historical context only.",
+        m0ResearchUnavailableNotice: "No usable M0 research ledger is available yet. This view remains fail-closed and empty.",
+        m0ResearchUpstreamNotice: "The M0 research ledger loaded with {count} upstream notice(s); no research conclusion is invented.",
+        m0ResearchEmpty: "No verified M0 research observation is available to display.",
+        m0ResearchMore: "Showing the first {count} research observations; the remainder stays in the read-only ledger.",
+        m0ResearchMeta: "{kind} · viewed {viewed}",
+        m0ResearchStateFreshness: "State: {state} · freshness: {freshness}",
+        m0ResearchHorizons: "Primary horizon: {primary} · suitable horizons: {suitable}",
+        m0ResearchEvidence: "Confidence: {confidence} · style: {style} · source digest: {digest}",
+        m0ResearchConsistency: "Current horizon conflict: {conflict} · historical stale drift: {drift}",
+        m0ResearchNoOrder: "Fixed boundary: research only, no order, and no runtime action.",
         adaptiveSelectionBoard: "View M1 Shadow suggestions on demand",
         adaptiveSelectionLoginNotice: "Sign in to read private Shadow suggestions. Missing sources never imply a strategy or order.",
         adaptiveSelectionStaleNotice: "This Shadow suggestion is beyond its freshness window and remains historical context only.",
@@ -1408,6 +1434,24 @@
         data_status: "unavailable",
         candidates: [],
         errors: [],
+      },
+      m0Research: {
+        payload: {
+          data_status: "unavailable",
+          viewed_at: null,
+          summary: {
+            subject_count: 0,
+            observation_count: 0,
+            fresh_observation_count: 0,
+            stale_observation_count: 0,
+            unknown_observation_count: 0,
+            horizon_conflict_count: 0,
+            historical_stale_horizon_drift_count: 0,
+          },
+          subjects: [],
+          policy: { authority: "research_only", no_order: true, permitted_next_step: "research_validation_only" },
+          errors: [],
+        },
       },
       adaptiveSelection: {
         payload: {
@@ -3720,6 +3764,190 @@
       }
     }
 
+    const M0_RESEARCH_DISPLAY_LIMIT = 100;
+
+    const m0ResearchLabels = {
+      subject: {
+        asset_idea: { zh: "资产观察", en: "Asset idea" },
+        theme_context: { zh: "主题背景", en: "Theme context" },
+        strategy_hypothesis: { zh: "研究假设", en: "Research hypothesis" },
+        risk_context: { zh: "风险背景", en: "Risk context" },
+      },
+      state: {
+        candidate: { zh: "待验证", en: "Candidate" },
+        source_verification_required: { zh: "等待来源核验", en: "Source verification required" },
+        deferred: { zh: "暂缓", en: "Deferred" },
+        context_only: { zh: "仅作背景", en: "Context only" },
+      },
+      freshness: {
+        fresh: { zh: "有效", en: "Fresh" },
+        stale: { zh: "已过期", en: "Stale" },
+        unknown: { zh: "未知", en: "Unknown" },
+      },
+      horizon: {
+        short: { zh: "短期", en: "Short" },
+        medium: { zh: "中期", en: "Medium" },
+        long: { zh: "长期", en: "Long" },
+        not_applicable: { zh: "不适用", en: "Not applicable" },
+      },
+      confidence: {
+        high: { zh: "高", en: "High" },
+        medium: { zh: "中", en: "Medium" },
+        low: { zh: "低", en: "Low" },
+        mixed: { zh: "混合", en: "Mixed" },
+        no_event: { zh: "无事件", en: "No event" },
+        unknown: { zh: "未知", en: "Unknown" },
+      },
+      style: {
+        event_driven: { zh: "事件驱动", en: "Event driven" },
+        long_horizon_growth: { zh: "长期成长", en: "Long-horizon growth" },
+        value_quality: { zh: "价值质量", en: "Value quality" },
+        macro_context: { zh: "宏观背景", en: "Macro context" },
+        mixed_research: { zh: "综合研究", en: "Mixed research" },
+      },
+      conflict: {
+        none: { zh: "无", en: "None" },
+        conflict: { zh: "存在", en: "Present" },
+        unavailable: { zh: "不可用", en: "Unavailable" },
+      },
+      drift: {
+        none: { zh: "无", en: "None" },
+        drift: { zh: "存在", en: "Present" },
+        unavailable: { zh: "不可用", en: "Unavailable" },
+      },
+    };
+
+    function m0ResearchLabel(group, value) {
+      const entry = m0ResearchLabels[group]?.[value];
+      return entry ? (state.lang === "zh" ? entry.zh : entry.en) : "—";
+    }
+
+    function m0ResearchTimestamp(value) {
+      if (typeof value !== "string" || !value) return "—";
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+    }
+
+    function m0ResearchHorizons(values) {
+      if (!Array.isArray(values) || !values.length) return "—";
+      const labels = values.map((value) => m0ResearchLabel("horizon", value)).filter((value) => value !== "—");
+      return labels.length ? labels.join(" / ") : "—";
+    }
+
+    function m0ResearchEntries(subjects) {
+      if (!Array.isArray(subjects)) return [];
+      const entries = [];
+      for (const item of subjects) {
+        if (!item || typeof item !== "object" || !item.subject || typeof item.subject !== "object") continue;
+        if (!Array.isArray(item.observations)) continue;
+        for (const observation of item.observations) {
+          if (!observation || typeof observation !== "object" || !observation.research_context) continue;
+          entries.push({
+            subject: item.subject,
+            observation,
+            horizonConflict: item.horizon_conflict,
+            historicalStaleHorizonDrift: item.historical_stale_horizon_drift,
+          });
+        }
+      }
+      return entries;
+    }
+
+    function normalizeM0ResearchPayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid M0 research payload");
+      const subjects = Array.isArray(payload.subjects) ? payload.subjects : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        viewed_at: typeof payload.viewed_at === "string" ? payload.viewed_at : null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        subjects: subjects.filter((item) => item && typeof item === "object"
+          && item.subject && typeof item.subject === "object" && Array.isArray(item.observations)),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function renderM0Research() {
+      const payload = state.m0Research.payload;
+      const entries = m0ResearchEntries(payload.subjects);
+      const shownEntries = entries.slice(0, M0_RESEARCH_DISPLAY_LIMIT);
+      const notice = el("m0-research-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("m0ResearchLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("m0ResearchStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("m0ResearchUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("m0ResearchUpstreamNotice").replace("{count}", String(payload.errors.length));
+      } else {
+        const more = entries.length > M0_RESEARCH_DISPLAY_LIMIT
+          ? ` ${t("m0ResearchMore").replace("{count}", String(M0_RESEARCH_DISPLAY_LIMIT))}`
+          : "";
+        notice.textContent = `${t("m0ResearchNoOrder")}${more}`;
+      }
+
+      const list = el("m0-research-list");
+      list.replaceChildren();
+      if (!shownEntries.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("m0ResearchEmpty");
+        list.appendChild(empty);
+        return;
+      }
+      for (const entry of shownEntries) {
+        const subject = entry.subject || {};
+        const observation = entry.observation || {};
+        const context = observation.research_context || {};
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("m0ResearchMeta")
+          .replace("{kind}", m0ResearchLabel("subject", subject.kind))
+          .replace("{viewed}", m0ResearchTimestamp(payload.viewed_at));
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = typeof subject.identifier === "string" ? subject.identifier : "—";
+        const stateFreshness = document.createElement("p");
+        stateFreshness.className = "health-card__reason";
+        stateFreshness.textContent = t("m0ResearchStateFreshness")
+          .replace("{state}", m0ResearchLabel("state", context.state))
+          .replace("{freshness}", m0ResearchLabel("freshness", observation.freshness?.status));
+        const horizons = document.createElement("div");
+        horizons.className = "health-card__meta";
+        horizons.textContent = t("m0ResearchHorizons")
+          .replace("{primary}", m0ResearchLabel("horizon", context.primary_horizon))
+          .replace("{suitable}", m0ResearchHorizons(context.suitable_horizons));
+        const evidence = document.createElement("div");
+        evidence.className = "health-card__meta";
+        evidence.textContent = t("m0ResearchEvidence")
+          .replace("{confidence}", m0ResearchLabel("confidence", context.source_confidence))
+          .replace("{style}", m0ResearchLabel("style", context.source_style))
+          .replace("{digest}", `${shortResearchDigest(observation.source_report_digest)} / ${shortResearchDigest(observation.source_entry_digest)}`);
+        const consistency = document.createElement("div");
+        consistency.className = "health-card__meta";
+        consistency.textContent = t("m0ResearchConsistency")
+          .replace("{conflict}", m0ResearchLabel("conflict", entry.horizonConflict?.status))
+          .replace("{drift}", m0ResearchLabel("drift", entry.historicalStaleHorizonDrift?.status));
+        main.append(meta, title, stateFreshness, horizons, evidence, consistency);
+        const status = document.createElement("div");
+        status.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = "M0";
+        const freshness = document.createElement("strong");
+        freshness.textContent = m0ResearchLabel("freshness", observation.freshness?.status);
+        const stateLabel = document.createElement("small");
+        stateLabel.textContent = m0ResearchLabel("state", context.state);
+        status.append(label, freshness, stateLabel);
+        card.append(main, status);
+        list.appendChild(card);
+      }
+    }
+
     function normalizeAdaptiveSelectionPayload(payload) {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid adaptive selection payload");
       const selections = Array.isArray(payload.selections) ? payload.selections : [];
@@ -4074,6 +4302,7 @@
       renderRuntimeAuthorityStatus();
       renderConsoleView();
       renderControlPlane();
+      renderM0Research();
       renderAdaptiveSelection();
       renderExecutionEvidence();
       renderResearchTasks();
@@ -4103,6 +4332,7 @@
       if (state.auth.allowed) {
         await refreshControlPlane();
         await refreshOwnerDecisions();
+        await refreshM0Research();
         await refreshAdaptiveSelection();
         await refreshExecutionEvidence();
         await refreshResearchTasks();
@@ -4171,6 +4401,34 @@
         };
       }
       renderControlPlane();
+    }
+
+    async function refreshM0Research() {
+      if (!state.auth.allowed) {
+        renderM0Research();
+        return;
+      }
+      try {
+        state.m0Research.payload = normalizeM0ResearchPayload(await requestJson("/api/m0-research"));
+      } catch {
+        state.m0Research.payload = {
+          data_status: "unavailable",
+          viewed_at: null,
+          summary: {
+            subject_count: 0,
+            observation_count: 0,
+            fresh_observation_count: 0,
+            stale_observation_count: 0,
+            unknown_observation_count: 0,
+            horizon_conflict_count: 0,
+            historical_stale_horizon_drift_count: 0,
+          },
+          subjects: [],
+          policy: { authority: "research_only", no_order: true, permitted_next_step: "research_validation_only" },
+          errors: ["m0_research_request_failed"],
+        };
+      }
+      renderM0Research();
     }
 
     async function refreshAdaptiveSelection() {
@@ -4457,6 +4715,7 @@
       if (state.view === "control") {
         refreshControlPlane();
         refreshOwnerDecisions();
+        refreshM0Research();
         refreshResearchTasks();
       }
       if (state.view === "health") refreshHealth();
