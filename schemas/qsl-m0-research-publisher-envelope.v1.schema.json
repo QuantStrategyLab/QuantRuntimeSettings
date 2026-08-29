@@ -3,6 +3,8 @@
   "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-m0-research-publisher-envelope.v1.schema.json",
   "title": "QSL M0 Research Publisher Envelope v1",
   "description": "Hash-bound transport for a locally aggregated M0 research ledger. It cannot express allocation, runtime, platform, broker, or execution authority.",
+  "$comment": "The complete canonical UTF-8 JSON request body must be no larger than 262144 bytes. JSON Schema cannot measure a whole serialized document's UTF-8 byte length; publisher and ingress implementations must enforce this bound before write or POST.",
+  "x-qsl-canonical-utf8-max-bytes": 262144,
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "producer", "source_artifact", "ledger_sha256", "ledger"],

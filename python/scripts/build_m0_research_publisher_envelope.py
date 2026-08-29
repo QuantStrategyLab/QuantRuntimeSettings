@@ -40,6 +40,10 @@ PUBLISHER_ENVELOPE_SCHEMA = "qsl_m0_research_publisher_envelope.v1"
 PUBLISH_URL_ENV = "QSL_M0_RESEARCH_LEDGER_PUBLISH_URL"
 PUBLISH_TOKEN_ENV = "QSL_M0_RESEARCH_LEDGER_PUBLISH_TOKEN"
 MAX_SOURCE_SNAPSHOT_BYTES = 2 * 1024 * 1024
+# The receiving Worker ingress accepts at most 256 KiB.  This is enforced on
+# the actual compact UTF-8 JSON body, not on a Python object estimate, source
+# artifact size, or character count.
+MAX_PUBLISHER_ENVELOPE_BYTES = 256 * 1024
 
 _REPOSITORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
@@ -67,6 +71,21 @@ def calculate_ledger_sha256(ledger: Mapping[str, Any]) -> str:
     if not isinstance(ledger, Mapping):
         raise M0ResearchPublisherEnvelopeError("ledger_invalid")
     return hashlib.sha256(canonical_json(dict(ledger)).encode("utf-8")).hexdigest()
+
+
+def canonical_envelope_body(envelope: Mapping[str, Any]) -> bytes:
+    """Serialize the exact compact UTF-8 body used for local output and POST."""
+
+    if not isinstance(envelope, Mapping):
+        raise M0ResearchPublisherEnvelopeError("publisher_envelope_invalid")
+    return canonical_json(dict(envelope)).encode("utf-8")
+
+
+def _enforce_publisher_envelope_size(envelope: Mapping[str, Any]) -> None:
+    """Fail closed before a too-large envelope can be written or published."""
+
+    if len(canonical_envelope_body(envelope)) > MAX_PUBLISHER_ENVELOPE_BYTES:
+        raise M0ResearchPublisherEnvelopeError("publisher_envelope_size_exceeded")
 
 
 def _exact_mapping(value: object, fields: frozenset[str], label: str) -> dict[str, Any]:
@@ -270,13 +289,15 @@ def validate_m0_research_publisher_envelope(payload: object) -> dict[str, Any]:
     expected_digest = calculate_ledger_sha256(normalized_ledger)
     if _require_sha256(envelope["ledger_sha256"], "ledger_sha256") != expected_digest:
         raise M0ResearchPublisherEnvelopeError("ledger_sha256_mismatch")
-    return {
+    normalized = {
         "schema_version": PUBLISHER_ENVELOPE_SCHEMA,
         "producer": normalized_producer,
         "source_artifact": normalized_artifact,
         "ledger_sha256": expected_digest,
         "ledger": normalized_ledger,
     }
+    _enforce_publisher_envelope_size(normalized)
+    return normalized
 
 
 def _publish_url_from_environment(environ: Mapping[str, str]) -> tuple[str, str]:
@@ -308,7 +329,7 @@ def publish_m0_research_publisher_envelope(
     url, token = _publish_url_from_environment(os.environ if environ is None else environ)
     request = urllib.request.Request(
         url,
-        data=canonical_json(validated).encode("utf-8"),
+        data=canonical_envelope_body(validated),
         method="POST",
         headers={
             "Authorization": f"Bearer {token}",
@@ -376,7 +397,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # leave a local file that an operator mistakes for an attempted POST.
         _publish_url_from_environment(os.environ)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(canonical_json(envelope) + "\n", encoding="utf-8")
+    args.output.write_bytes(canonical_envelope_body(envelope) + b"\n")
     if args.publish:
         publish_m0_research_publisher_envelope(envelope)
     print(
@@ -402,6 +423,7 @@ if __name__ == "__main__":
 
 __all__ = [
     "MAX_SOURCE_SNAPSHOT_BYTES",
+    "MAX_PUBLISHER_ENVELOPE_BYTES",
     "M0ResearchPublisherEnvelopeError",
     "PUBLISHER_ENVELOPE_SCHEMA",
     "PUBLISH_TOKEN_ENV",
@@ -409,6 +431,7 @@ __all__ = [
     "build_m0_research_publisher_envelope",
     "build_source_artifact_metadata",
     "calculate_ledger_sha256",
+    "canonical_envelope_body",
     "canonical_json",
     "canonical_timestamp",
     "load_source_snapshot",
