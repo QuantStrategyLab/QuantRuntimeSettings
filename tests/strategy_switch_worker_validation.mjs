@@ -2818,7 +2818,9 @@ const m0ResearchSync = await worker.fetch(
   m0ResearchEnv,
 );
 assert.equal(m0ResearchSync.status, 200);
-assert.equal((await m0ResearchSync.json()).no_order, true);
+const m0ResearchSyncPayload = await m0ResearchSync.json();
+assert.equal(m0ResearchSyncPayload.replayed, false);
+assert.equal(m0ResearchSyncPayload.no_order, true);
 assert.ok(m0LedgerStore.has("m0_research_ledger_current"));
 assert.ok(m0LedgerStore.has(`m0_research_ledger_archive:${m0ResearchLedgerSha}`));
 const storedM0ResearchCurrent = JSON.parse(m0LedgerStore.get("m0_research_ledger_current"));
@@ -2831,6 +2833,21 @@ const m0ResearchLedgerWrites = m0LedgerPutOptions.filter((entry) => (
 ));
 assert.equal(m0ResearchLedgerWrites.length, 2);
 assert.ok(m0ResearchLedgerWrites.every((entry) => entry.options?.expirationTtl === 14 * 24 * 60 * 60));
+const m0ExactSourceReplay = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(m0ResearchEnvelope),
+  }),
+  m0ResearchEnv,
+);
+assert.equal(m0ExactSourceReplay.status, 200);
+const m0ExactSourceReplayPayload = await m0ExactSourceReplay.json();
+assert.equal(m0ExactSourceReplayPayload.replayed, true);
+assert.equal(m0ExactSourceReplayPayload.no_order, true);
+assert.equal(m0LedgerPutOptions.filter((entry) => (
+  entry.key === "m0_research_ledger_current" || entry.key.startsWith("m0_research_ledger_archive:")
+)).length, 2);
 const m0ResearchRead = await worker.fetch(
   new Request("https://switch.example/api/m0-research", { headers: m0ResearchCookieHeaders }),
   m0ResearchEnv,

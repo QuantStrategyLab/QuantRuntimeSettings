@@ -213,6 +213,8 @@ Add the returned namespace id to `wrangler.toml`.
 
 For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, `M0_RESEARCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. `M0_RESEARCH_SYNC_TOKEN` must match the separately protected `m0-research-publisher` environment secret; it is only copied to the Worker binding. A missing M0 token fails the deployment before it can retain a stale Worker secret. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
 
+An authenticated retry carrying the exact same immutable M0 source-artifact SHA is acknowledged with `200` and `replayed: true`, without another KV write. A different source/run replay or a ledger-time rollback remains rejected with `409`.
+
 Deploy:
 
 ```bash

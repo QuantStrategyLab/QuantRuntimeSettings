@@ -124,8 +124,10 @@ JSON 计算并验证 `ledger_sha256`；`source_artifact.sha256` 是已认证的�
 不超过 262,144 bytes；Worker 保留同一请求体上限作为接收端边界，不另行转换或放宽该契约。
 
 Worker 固定使用 `m0_research_ledger_current` 和由已校验 digest 派生的
-`m0_research_ledger_archive:<ledger_sha256>`；调用方不能传入 KV key。current 记录检测到
-重复 artifact/ledger、相同 source run ID 或 ledger 时间回退会返回 `409`。这是基于 KV
+`m0_research_ledger_archive:<ledger_sha256>`；调用方不能传入 KV key。若来件的
+`source_artifact.sha256` 与当前记录完全相同，Worker 返回 `200` 与 `replayed: true`，且不写入
+KV，用于网络重试或重复人工触发。不同 source artifact 的相同 source run ID、不同来源的重复
+ledger 或时间回退仍会返回 `409`。这是基于 KV
 当前记录的 **best-effort** 重放/回退保护：Cloudflare KV 不是线性一致的比较并交换存储，
 并发写入仍不能被表述为强原子顺序保证。本接口不为此新增 Durable Object 或其他绑定；它的
 职责仍限于 no-order 研究资料接收。current 与 archive 均使用 Cloudflare KV 的 14 天物理
