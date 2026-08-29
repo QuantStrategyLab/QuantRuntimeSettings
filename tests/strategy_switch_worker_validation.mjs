@@ -26,6 +26,8 @@ assert.ok(indexHtml.includes('id="runtime-authority-status"'));
 assert.ok(indexHtml.includes('id="control-plane-view-button"'));
 assert.ok(indexHtml.includes('id="control-plane-view"'));
 assert.ok(indexHtml.includes('id="control-plane-list"'));
+assert.ok(indexHtml.includes('id="adaptive-selection-list"'));
+assert.ok(indexHtml.includes('id="adaptive-selection-notice"'));
 assert.ok(indexHtml.includes('data-i18n="planEyebrow"'));
 assert.ok(indexHtml.includes('id="plan-check-authority"'));
 assert.ok(indexHtml.includes('class="control-disclosure"'));
@@ -40,6 +42,7 @@ assert.ok(indexHtml.includes('window.__QSL_RUNTIME_AUTHORITY_STATUS__'));
 assert.ok(indexHtml.includes('execution_metadata_is_runtime_authority'));
 assert.ok(indexHtml.includes('P1–P3 non-live 数据获取仍需独立、精确的契约'));
 assert.ok(indexHtml.includes('requestJson("/api/execution-evidence")'));
+assert.ok(indexHtml.includes('requestJson("/api/adaptive-selection")'));
 assert.equal(indexHtml.includes('missing_current_promotion_evidence_and_human_acceptance'), false);
 assert.ok(indexHtml.includes('missing_current_promotion_evidence_and_preauthorized_autonomy_policy'));
 assert.ok(indexHtml.includes(".switch-surface.summary-hidden"));
@@ -2087,6 +2090,97 @@ assert.equal(sourceControlPayload.data_status, "ready");
 assert.deepEqual(sourceControlPayload.summary, { candidate_count: 1, deferred: 0, parked: 0, owner_decision_required: 0 });
 assert.deepEqual(sourceControlPayload.attention, { status: "research_only", reason_codes: [] });
 assert.equal(sourceControlPayload.candidates[0].candidate_id, "tqqq_core_only_p2_v5");
+
+const adaptiveSelectionSyncValue = ["adaptive", "selection", "sync"].join("-");
+const adaptiveSelectionEnv = { ...controlEnv, ADAPTIVE_SELECTION_SYNC_TOKEN: adaptiveSelectionSyncValue };
+const adaptiveSelectionCookie = await __test.makeSession("health-user", [], adaptiveSelectionEnv);
+const adaptiveSelectionCookieHeaders = { Cookie: `qsl_switch_session=${adaptiveSelectionCookie}` };
+const adaptiveSelectionSourcePayload = {
+  schema_version: "qsl.adaptive_selection_source_snapshot.v1",
+  source_id: "uesp.us_equity_combo_shadow",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  decision: {
+    schema: "qsl.selection_decision.v1",
+    decision_id: "shadow-us-equity-combo-001",
+    created_at: controlNow,
+    authority: "shadow_only",
+    no_order: true,
+    market_context: {
+      schema: "qsl.market_context_snapshot.v1",
+      as_of: "2026-08-28",
+      domain: "us_equity",
+      data_version: "trusted-prices-v1",
+      data_freshness_days: 0,
+      regime: "normal",
+      regime_confidence: 0.9,
+      factors: { momentum: 0.12 },
+    },
+    policy_id: "shadow-policy-v1",
+    recommended_strategy_profile: "us_equity_combo",
+    recommended_platform_id: "longbridge-paper",
+    candidates: [{
+      strategy_profile: "us_equity_combo",
+      release_digest: `sha256:${"a".repeat(64)}`,
+      selected_platform_id: "longbridge-paper",
+      score: 0.42,
+      risk_multiplier: 1,
+      accepted: true,
+      reasons: ["shadow_candidate_ranked"],
+      proposed_weight: 0,
+    }],
+    input_digest: "b".repeat(64),
+  },
+  errors: [],
+};
+
+const unauthorizedAdaptiveSelectionRead = await worker.fetch(
+  new Request("https://switch.example/api/adaptive-selection"),
+  adaptiveSelectionEnv,
+);
+assert.equal(unauthorizedAdaptiveSelectionRead.status, 401);
+const wrongAdaptiveSelectionToken = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-adaptive-selection-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(adaptiveSelectionSourcePayload),
+  }),
+  adaptiveSelectionEnv,
+);
+assert.equal(wrongAdaptiveSelectionToken.status, 401);
+assert.throws(
+  () => __test.normalizeAdaptiveSelectionSourceSnapshot({
+    ...adaptiveSelectionSourcePayload,
+    decision: {
+      ...adaptiveSelectionSourcePayload.decision,
+      candidates: [{ ...adaptiveSelectionSourcePayload.decision.candidates[0], proposed_weight: 0.01 }],
+    },
+  }),
+  /proposed_weight must remain zero/,
+);
+const adaptiveSelectionSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-adaptive-selection-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${adaptiveSelectionSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(adaptiveSelectionSourcePayload),
+  }),
+  adaptiveSelectionEnv,
+);
+assert.equal(adaptiveSelectionSync.status, 200);
+assert.equal((await adaptiveSelectionSync.json()).no_order, true);
+const adaptiveSelectionRead = await worker.fetch(
+  new Request("https://switch.example/api/adaptive-selection", { headers: adaptiveSelectionCookieHeaders }),
+  adaptiveSelectionEnv,
+);
+assert.equal(adaptiveSelectionRead.status, 200);
+const adaptiveSelectionPayload = await adaptiveSelectionRead.json();
+assert.equal(adaptiveSelectionPayload.data_status, "ready");
+assert.deepEqual(adaptiveSelectionPayload.summary, {
+  source_count: 1, decision_count: 1, candidate_count: 1, recommended_count: 1, rejected_candidate_count: 0,
+});
+assert.equal(adaptiveSelectionPayload.policy.no_order, true);
+assert.equal(adaptiveSelectionPayload.selections[0].decision.recommended_strategy_profile, "us_equity_combo");
 
 const ownerDecisionStore = new Map();
 const ownerDecisionKv = {
