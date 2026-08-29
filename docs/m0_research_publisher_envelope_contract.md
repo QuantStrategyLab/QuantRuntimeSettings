@@ -34,6 +34,14 @@ canonical JSON（键排序、紧凑分隔符、禁止 NaN）计算。台账的
 `generated_at` 和 `computed_at` 必须相同，均为精确到秒的 UTC `Z` 时间戳。
 因此同一 source artifact、metadata 和 `--now` 总会生成字节相同的封套。
 
+尽管 source snapshot 离线输入上限为 2 MiB，生成完成的 canonical envelope
+本身必须不超过 **262,144 bytes（256 KiB）**。这个限制按将要写入和 POST 的
+紧凑 UTF-8 JSON body 的实际字节数计算，而不是字符数、文件系统占用或 source
+snapshot 大小；本地输出文件末尾的换行符不属于 JSON body。超过该上限会以
+`publisher_envelope_size_exceeded` fail closed，既不写本地文件，也不发起网络
+请求。这个上限与 M0 接收端 Worker ingress 一致，避免“本地可生成但接收端无法
+接收”的跨模块失败。
+
 ## 默认离线构建
 
 ```bash

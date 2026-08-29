@@ -44,6 +44,15 @@ class _Response:
 
 
 class M0ResearchPublisherEnvelopeTest(unittest.TestCase):
+    def test_schema_declares_the_cross_module_canonical_utf8_body_limit(self):
+        schema = json.loads(
+            (ROOT.parent / "schemas" / "qsl-m0-research-publisher-envelope.v1.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertEqual(schema["x-qsl-canonical-utf8-max-bytes"], 256 * 1024)
+        self.assertIn("canonical UTF-8 JSON request body", schema["$comment"])
+
     def _snapshot(self) -> dict[str, object]:
         return {
             "schema_version": "qsl_m0_research_source_snapshot.v1",
@@ -147,6 +156,28 @@ class M0ResearchPublisherEnvelopeTest(unittest.TestCase):
         self.assertTrue(first["ledger"]["policy"]["no_order"])
         self.assertEqual(first["ledger_sha256"], publisher.calculate_ledger_sha256(first["ledger"]))
         self.assertEqual(publisher.validate_m0_research_publisher_envelope(first), first)
+        self.assertLessEqual(
+            len(publisher.canonical_envelope_body(first)),
+            publisher.MAX_PUBLISHER_ENVELOPE_BYTES,
+        )
+
+    def test_builder_fails_closed_when_actual_utf8_envelope_body_exceeds_worker_ingress_limit(self):
+        oversized = self._snapshot()
+        hypotheses = []
+        for index in range(500):
+            hypothesis = json.loads(json.dumps(oversized["hypotheses"][0]))
+            hypothesis["hypothesis_id"] = f"m0r-large-{index:03d}"
+            hypothesis["subject"]["identifier"] = f"SOXX-{index:03d}"
+            hypotheses.append(hypothesis)
+        oversized["hypotheses"] = hypotheses
+        with self.assertRaisesRegex(publisher.M0ResearchPublisherEnvelopeError, "publisher_envelope_size_exceeded"):
+            publisher.build_m0_research_publisher_envelope(
+                source_snapshot=oversized,
+                source_artifact=self._artifact("f" * 64),
+                producer_repository="QuantStrategyLab/QuantRuntimeSettings",
+                producer_revision="e" * 40,
+                now="2026-08-21T12:00:00Z",
+            )
 
     def test_envelope_validation_rejects_digest_or_execution_policy_tampering(self):
         envelope = publisher.build_m0_research_publisher_envelope(
@@ -180,11 +211,36 @@ class M0ResearchPublisherEnvelopeTest(unittest.TestCase):
             envelope = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(envelope["source_artifact"]["sha256"], sha256)
             self.assertEqual(envelope["ledger_sha256"], publisher.calculate_ledger_sha256(envelope["ledger"]))
+            self.assertEqual(output.read_bytes(), publisher.canonical_envelope_body(envelope) + b"\n")
 
             missing_output = root / "missing.json"
             with self.assertRaisesRegex(publisher.M0ResearchPublisherEnvelopeError, "source_artifact_sha256_mismatch"):
                 publisher.main(self._arguments(source, missing_output, "0" * 64))
             self.assertFalse(missing_output.exists())
+
+    def test_cli_oversize_fails_before_any_write_or_opt_in_publish(self):
+        oversized = self._snapshot()
+        hypotheses = []
+        for index in range(500):
+            hypothesis = json.loads(json.dumps(oversized["hypotheses"][0]))
+            hypothesis["hypothesis_id"] = f"m0r-large-{index:03d}"
+            hypothesis["subject"]["identifier"] = f"SOXX-{index:03d}"
+            hypotheses.append(hypothesis)
+        oversized["hypotheses"] = hypotheses
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            source = root / "oversized-source.json"
+            output = root / "must-not-exist.json"
+            raw = json.dumps(oversized, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            source.write_bytes(raw)
+            arguments = self._arguments(source, output, hashlib.sha256(raw).hexdigest()) + ["--publish"]
+            with patch.object(publisher.urllib.request, "urlopen", side_effect=AssertionError("network called")):
+                with self.assertRaisesRegex(
+                    publisher.M0ResearchPublisherEnvelopeError,
+                    "publisher_envelope_size_exceeded",
+                ):
+                    publisher.main(arguments)
+            self.assertFalse(output.exists())
 
     def test_publish_requires_dedicated_environment_and_never_serializes_token(self):
         envelope = publisher.build_m0_research_publisher_envelope(
