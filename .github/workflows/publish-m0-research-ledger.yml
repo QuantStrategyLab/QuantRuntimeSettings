@@ -111,6 +111,7 @@ jobs:
           python3 - "${artifacts_metadata}" <<'PY'
           import json
           import os
+          import sys
           from pathlib import Path
 
           payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))

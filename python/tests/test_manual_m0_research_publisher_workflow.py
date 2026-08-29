@@ -38,6 +38,7 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
         self.assertIn('metadata.get("head_branch") != "main"', workflow)
         self.assertIn('metadata.get("event") not in {"schedule", "workflow_dispatch"}', workflow)
         self.assertIn("QAR artifact workflow-run binding mismatch", workflow)
+        self.assertIn('import sys\n          from pathlib import Path', workflow)
         self.assertIn("QAR artifact must contain exactly one dated M0 source snapshot", workflow)
         self.assertIn("m0_research_source_snapshot_[0-9]{4}-[0-9]{2}-[0-9]{2}", workflow)
         self.assertIn("M0_SOURCE_SNAPSHOT_SHA256", workflow)
