@@ -125,6 +125,15 @@ run ID 和 artifact ID 都作为 `source_artifact` metadata 显式传给构建�
 必须是不同的值和不同的最小权限用途：前者只能读取固定 QAR repository 的 Actions run/artifact，
 后者只能向 M0 接收端发布封套；不得复用、互相授予或写入运行时/平台配置。
 
+同一个 `M0_RESEARCH_SYNC_TOKEN` 还必须以**同名、同值的独立 secret**配置到已有的
+`runtime-strategy-switch` Environment。它只会在控制台 Worker 的部署 workflow 中被写入
+Cloudflare 的 `M0_RESEARCH_SYNC_TOKEN` secret binding；该部署 workflow 不读取 QAR artifact token，
+而 M0 发布 workflow 也不读取 Cloudflare 凭据。不要在 repository-level 放置这个名字，避免未受
+Environment 保护的 fallback。控制台部署会在部署前验证该 secret；缺失时直接失败，不能静默
+保留 Cloudflare Worker 中的旧值。轮换时，先只更新 `runtime-strategy-switch` 中的副本，从 `main`
+部署并确认 Worker secret 写入成功；再把同一个新值写入 `m0-research-publisher`，最后手动发布
+一份已验证的 M0 ledger。
+
 URL、发布 token 和 QAR 读取 token 不会写进封套、`GITHUB_STEP_SUMMARY` 或 workflow 输出。该
 workflow 不读取运行时、平台、selector、策略或券商配置；其唯一网络写入是构建器在
 `--publish` 明确指定时，对上述研究接收地址发送经过校验的 no-order 封套。
