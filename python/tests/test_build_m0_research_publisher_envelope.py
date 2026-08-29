@@ -7,6 +7,7 @@ import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from contextlib import redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
@@ -282,6 +283,32 @@ class M0ResearchPublisherEnvelopeTest(unittest.TestCase):
                     publisher.PUBLISH_TOKEN_ENV: secret,
                 },
             )
+
+    def test_publish_reports_only_http_status_for_a_rejected_request(self):
+        envelope = publisher.build_m0_research_publisher_envelope(
+            source_snapshot=self._snapshot(),
+            source_artifact=self._artifact("f" * 64),
+            producer_repository="QuantStrategyLab/QuantRuntimeSettings",
+            producer_revision="e" * 40,
+            now="2026-08-21T12:00:00Z",
+        )
+        rejected = urllib.error.HTTPError(
+            "https://research-console.example/api/internal/sync-m0-research-ledger",
+            409,
+            "Conflict",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error":"must-not-be-exposed"}'),
+        )
+        with patch.object(publisher.urllib.request, "urlopen", side_effect=rejected):
+            with self.assertRaisesRegex(publisher.M0ResearchPublisherEnvelopeError, "m0_publish_http_409") as caught:
+                publisher.publish_m0_research_publisher_envelope(
+                    envelope,
+                    environ={
+                        publisher.PUBLISH_URL_ENV: "https://research-console.example/api/internal/sync-m0-research-ledger",
+                        publisher.PUBLISH_TOKEN_ENV: "dedicated-publisher-token",
+                    },
+                )
+        self.assertNotIn("must-not-be-exposed", str(caught.exception))
 
 
 if __name__ == "__main__":

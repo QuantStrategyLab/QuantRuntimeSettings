@@ -340,7 +340,11 @@ def publish_m0_research_publisher_envelope(
     try:
         with urllib.request.urlopen(request, timeout=15) as response:  # nosec B310 - URL is HTTPS validated above.
             status = response.getcode()
-    except (urllib.error.HTTPError, urllib.error.URLError, OSError) as exc:
+    except urllib.error.HTTPError as exc:
+        # The status code is sufficient for operational diagnosis and cannot
+        # disclose a token, request body, or arbitrary response content.
+        raise M0ResearchPublisherEnvelopeError(f"m0_publish_http_{exc.code}") from exc
+    except (urllib.error.URLError, OSError) as exc:
         raise M0ResearchPublisherEnvelopeError("m0_publish_failed") from exc
     if not isinstance(status, int) or status < 200 or status >= 300:
         raise M0ResearchPublisherEnvelopeError("m0_publish_failed")
