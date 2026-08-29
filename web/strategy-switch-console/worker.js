@@ -2170,7 +2170,7 @@ async function syncAdaptiveSelectionSourceResponse(request, env) {
 
   let source;
   try {
-    source = normalizeAdaptiveSelectionSourceSnapshot(raw, "adaptive selection source snapshot");
+    source = await normalizeAdaptiveSelectionSourceSnapshot(raw, "adaptive selection source snapshot");
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid adaptive selection payload" }, 400);
   }
@@ -2266,7 +2266,7 @@ async function readAdaptiveSelectionSources(env) {
     try {
       const stored = await readConfigJson(env, key);
       if (!stored) continue;
-      sources.push(normalizeAdaptiveSelectionSourceSnapshot(stored, key));
+      sources.push(await normalizeAdaptiveSelectionSourceSnapshot(stored, key));
     } catch {
       sources.push(emptyAdaptiveSelectionSourceSnapshot("adaptive_selection_source_invalid"));
     }
@@ -2859,7 +2859,7 @@ function emptyControlPlaneSourceSnapshot(errorCode) {
   };
 }
 
-function normalizeAdaptiveSelectionSourceSnapshot(payload, fieldName = "adaptive selection source snapshot") {
+async function normalizeAdaptiveSelectionSourceSnapshot(payload, fieldName = "adaptive selection source snapshot") {
   const source = assertExactFields(payload, [
     "schema_version", "source_id", "generated_at", "computed_at", "data_status", "decision", "errors",
   ], fieldName);
@@ -2871,7 +2871,7 @@ function normalizeAdaptiveSelectionSourceSnapshot(payload, fieldName = "adaptive
   const computedAt = normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true);
   const decision = source.decision === null
     ? null
-    : normalizeAdaptiveSelectionDecision(source.decision, `${fieldName}.decision`);
+    : await normalizeAdaptiveSelectionDecision(source.decision, `${fieldName}.decision`);
   if (dataStatus === "unavailable" && decision !== null) {
     throw new Error(`${fieldName}.decision must be null when unavailable`);
   }
@@ -2889,10 +2889,10 @@ function normalizeAdaptiveSelectionSourceSnapshot(payload, fieldName = "adaptive
   };
 }
 
-function normalizeAdaptiveSelectionDecision(payload, fieldName) {
+async function normalizeAdaptiveSelectionDecision(payload, fieldName) {
   const value = assertExactFields(payload, [
     "schema", "decision_id", "created_at", "authority", "no_order", "market_context", "policy_id",
-    "recommended_strategy_profile", "recommended_platform_id", "candidates", "input_digest",
+    "recommended_strategy_profile", "recommended_platform_id", "candidates", "input_digest", "decision_digest",
   ], fieldName);
   if (value.schema !== ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION) {
     throw new Error(`${fieldName}.schema is unsupported`);
@@ -2926,7 +2926,7 @@ function normalizeAdaptiveSelectionDecision(payload, fieldName) {
   if (recommendedStrategy && (!recommendedCandidate || recommendedCandidate.selected_platform_id !== recommendedPlatform)) {
     throw new Error(`${fieldName}.recommended candidate is not accepted`);
   }
-  return {
+  const normalized = {
     schema: ADAPTIVE_SELECTION_DECISION_SCHEMA_VERSION,
     decision_id: normalizeControlPlaneIdentifier(value.decision_id, `${fieldName}.decision_id`, false),
     created_at: normalizeStrategyHealthTimestamp(value.created_at, `${fieldName}.created_at`),
@@ -2938,7 +2938,16 @@ function normalizeAdaptiveSelectionDecision(payload, fieldName) {
     recommended_platform_id: recommendedPlatform,
     candidates,
     input_digest: normalizeAdaptiveSelectionDigest(value.input_digest, `${fieldName}.input_digest`),
+    decision_digest: normalizeAdaptiveSelectionDigest(value.decision_digest, `${fieldName}.decision_digest`),
   };
+  // `input_digest` cannot be reconstructed from the display projection alone:
+  // QPK calculates it from the private, immutable selection input.  The QPK
+  // decision digest binds that exact input digest to every decision field that
+  // is displayed here, so a changed input digest cannot be silently accepted.
+  if (normalized.decision_digest !== await calculateAdaptiveSelectionDecisionDigest(normalized)) {
+    throw new Error(`${fieldName}.decision_digest mismatch`);
+  }
+  return normalized;
 }
 
 function normalizeAdaptiveSelectionMarketContext(value, fieldName) {
@@ -2987,9 +2996,11 @@ function normalizeAdaptiveSelectionCandidate(value, fieldName) {
   const item = assertExactFields(value, [
     "strategy_profile", "release_digest", "selected_platform_id", "score", "risk_multiplier", "accepted", "reasons", "proposed_weight",
   ], fieldName);
-  const score = Number(item.score);
+  const score = item.score === null ? null : Number(item.score);
   const riskMultiplier = Number(item.risk_multiplier);
-  if (!Number.isFinite(score) || Math.abs(score) > 1_000_000) throw new Error(`${fieldName}.score is invalid`);
+  if (score !== null && (!Number.isFinite(score) || Math.abs(score) > 1_000_000)) {
+    throw new Error(`${fieldName}.score is invalid`);
+  }
   if (!Number.isFinite(riskMultiplier) || riskMultiplier < 0 || riskMultiplier > 1) {
     throw new Error(`${fieldName}.risk_multiplier is invalid`);
   }
@@ -3025,6 +3036,50 @@ function normalizeAdaptiveSelectionDigest(value, fieldName) {
   const text = String(value || "");
   if (!/^[a-f0-9]{64}$/.test(text)) throw new Error(`${fieldName} is invalid`);
   return text;
+}
+
+function isAdaptiveSelectionFloatPath(path) {
+  if (path[0] === "market_context") {
+    return path[1] === "regime_confidence" || path[1] === "factors";
+  }
+  return path[0] === "candidates"
+    && ["score", "risk_multiplier", "proposed_weight"].includes(path[2]);
+}
+
+function canonicalAdaptiveSelectionNumber(value, forceFloat) {
+  if (!Number.isFinite(value)) throw new Error("adaptive selection decision must use finite JSON values");
+  if (Object.is(value, -0)) return forceFloat ? "-0.0" : "0";
+  let text = String(value);
+  const exponent = text.match(/^(.*)e([+-]?)(\d+)$/i);
+  if (exponent) {
+    const [, mantissa, sign, rawExponent] = exponent;
+    // Python's json.dumps (used by QPK canonical_sha256) pads one-digit
+    // negative exponents, while V8's Number#toString does not.
+    text = `${mantissa}e${sign || "+"}${sign === "-" ? rawExponent.padStart(2, "0") : rawExponent}`;
+  }
+  if (forceFloat && !/[.eE]/.test(text)) return `${text}.0`;
+  return text;
+}
+
+function canonicalAdaptiveSelectionDecisionJson(value, path = []) {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+  if (typeof value === "number") return canonicalAdaptiveSelectionNumber(value, isAdaptiveSelectionFloatPath(path));
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalAdaptiveSelectionDecisionJson(item, [...path, "*"])).join(",")}]`;
+  }
+  if (!value || typeof value !== "object") throw new Error("adaptive selection decision must use JSON values");
+  return `{${Object.keys(value).sort().map((key) => (
+    `${JSON.stringify(key)}:${canonicalAdaptiveSelectionDecisionJson(value[key], [...path, key])}`
+  )).join(",")}}`;
+}
+
+async function calculateAdaptiveSelectionDecisionDigest(payload) {
+  const material = { ...payload };
+  delete material.decision_digest;
+  const raw = new TextEncoder().encode(canonicalAdaptiveSelectionDecisionJson(material));
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function normalizeAdaptiveSelectionSummary(selections) {
@@ -5253,6 +5308,7 @@ export const __test = {
   normalizeControlPlaneSourceSnapshot,
   emptyControlPlanePayload,
   normalizeAdaptiveSelectionSourceSnapshot,
+  calculateAdaptiveSelectionDecisionDigest,
   emptyAdaptiveSelectionPayload,
   normalizeExecutionEvidenceSourceSnapshot,
   emptyExecutionEvidencePayload,
