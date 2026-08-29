@@ -15,6 +15,8 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
 
         self.assertIn("workflow_dispatch:", workflow)
         self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request|schedule|repository_dispatch):")
+        self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
+        self.assertIn("environment: m0-research-publisher", workflow)
         self.assertRegex(
             workflow,
             r"(?s)qar_run_id:\n.*?required: true\n.*?type: string",
@@ -28,6 +30,13 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
         self.assertIn('"repos/${QAR_REPOSITORY}/actions/runs/${QAR_RUN_ID}"', workflow)
         self.assertIn("QAR run must already be completed successfully", workflow)
         self.assertIn("QAR run is not the fixed Weekly Intelligent Advisory Review workflow", workflow)
+        self.assertIn("QAR run head repository mismatch", workflow)
+        self.assertIn("QAR run must originate from the main branch", workflow)
+        self.assertIn("QAR run event is not trusted for M0 publication", workflow)
+        self.assertIn('head_repository = metadata.get("head_repository")', workflow)
+        self.assertIn('head_repository.get("full_name") != expected_repository', workflow)
+        self.assertIn('metadata.get("head_branch") != "main"', workflow)
+        self.assertIn('metadata.get("event") not in {"schedule", "workflow_dispatch"}', workflow)
         self.assertIn("QAR artifact workflow-run binding mismatch", workflow)
         self.assertIn("QAR artifact must contain exactly one dated M0 source snapshot", workflow)
         self.assertIn("m0_research_source_snapshot_[0-9]{4}-[0-9]{2}-[0-9]{2}", workflow)

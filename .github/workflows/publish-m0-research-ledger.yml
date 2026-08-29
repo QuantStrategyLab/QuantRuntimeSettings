@@ -21,7 +21,11 @@ concurrency:
 
 jobs:
   publish-verified-research-ledger:
+    # Environment secrets and the publisher endpoint are deployable only from
+    # the protected main branch.  A manual dispatch on another ref is skipped.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: m0-research-publisher
     timeout-minutes: 10
     env:
       QAR_REPOSITORY: QuantStrategyLab/QuantAdvisorResearch
@@ -72,6 +76,13 @@ jobs:
           repository = metadata.get("repository")
           if not isinstance(repository, dict) or repository.get("full_name") != expected_repository:
               raise SystemExit("QAR run repository mismatch")
+          head_repository = metadata.get("head_repository")
+          if not isinstance(head_repository, dict) or head_repository.get("full_name") != expected_repository:
+              raise SystemExit("QAR run head repository mismatch")
+          if metadata.get("head_branch") != "main":
+              raise SystemExit("QAR run must originate from the main branch")
+          if metadata.get("event") not in {"schedule", "workflow_dispatch"}:
+              raise SystemExit("QAR run event is not trusted for M0 publication")
           revision = metadata.get("head_sha")
           if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
               raise SystemExit("QAR run head revision is invalid")
