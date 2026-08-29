@@ -14,14 +14,15 @@
     "summary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["subject_count", "observation_count", "fresh_observation_count", "stale_observation_count", "unknown_observation_count", "horizon_conflict_count"],
+      "required": ["subject_count", "observation_count", "fresh_observation_count", "stale_observation_count", "unknown_observation_count", "horizon_conflict_count", "historical_stale_horizon_drift_count"],
       "properties": {
         "subject_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
         "observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
         "fresh_observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
         "stale_observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
         "unknown_observation_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
-        "horizon_conflict_count": { "type": "integer", "minimum": 0, "maximum": 50000 }
+        "horizon_conflict_count": { "type": "integer", "minimum": 0, "maximum": 50000 },
+        "historical_stale_horizon_drift_count": { "type": "integer", "minimum": 0, "maximum": 50000 }
       }
     },
     "subjects": {
@@ -30,7 +31,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["subject", "observations", "horizon_conflict"],
+        "required": ["subject", "observations", "horizon_conflict", "historical_stale_horizon_drift"],
         "properties": {
           "subject": {
             "type": "object",
@@ -38,7 +39,7 @@
             "required": ["kind", "identifier"],
             "properties": {
               "kind": { "enum": ["asset_idea", "theme_context", "strategy_hypothesis", "risk_context"] },
-              "identifier": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+              "identifier": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" }
             }
           },
           "observations": {
@@ -55,7 +56,22 @@
               "status": { "enum": ["none", "conflict"] },
               "primary_horizons": {
                 "type": "array",
-                "minItems": 1,
+                "minItems": 0,
+                "maxItems": 4,
+                "uniqueItems": true,
+                "items": { "enum": ["short", "medium", "long", "not_applicable"] }
+              }
+            }
+          },
+          "historical_stale_horizon_drift": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "primary_horizons"],
+            "properties": {
+              "status": { "enum": ["none", "drift", "unavailable"] },
+              "primary_horizons": {
+                "type": "array",
+                "minItems": 0,
                 "maxItems": 4,
                 "uniqueItems": true,
                 "items": { "enum": ["short", "medium", "long", "not_applicable"] }
@@ -93,11 +109,11 @@
           "minItems": 1,
           "maxItems": 100,
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+          "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" }
         },
         "source_report_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "source_entry_digest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
-        "hypothesis_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" },
+        "hypothesis_id": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
         "as_of": { "type": "string", "format": "date" },
         "generated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
         "expires_at": { "type": "string", "format": "date-time", "maxLength": 64 },
@@ -121,7 +137,7 @@
               "type": "array",
               "maxItems": 24,
               "uniqueItems": true,
-              "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/=-]{1,128}$" }
+              "items": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" }
             }
           }
         },

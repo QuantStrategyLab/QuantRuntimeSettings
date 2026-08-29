@@ -75,7 +75,10 @@ _ALLOWED_SOURCE_STYLES = frozenset(
     {"event_driven", "long_horizon_growth", "value_quality", "macro_context", "mixed_research"}
 )
 _SOURCE_STATUSES = frozenset({"ready", "unavailable", "stale"})
-_IDENTIFIER = re.compile(r"^[A-Za-z0-9._:/=-]{1,128}$")
+# Keep this byte-for-byte compatible with QuantAdvisorResearch's M0 contract.
+# In particular, ``=`` is not a valid subject, theme, source, or hypothesis
+# identifier there and must not be accepted by this downstream mirror.
+_IDENTIFIER = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 _ERROR_CODE = re.compile(r"^[a-z][a-z0-9_.-]{0,63}$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _UTC_TIMESTAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$")
@@ -285,6 +288,8 @@ def validate_m0_research_source_snapshot(payload: object) -> dict[str, Any]:
         source_report_digest is None or generated_at is None or computed_at is None
     ):
         raise M0ResearchLedgerValidationError("ready_source_metadata_invalid")
+    if snapshot["data_status"] == "ready" and errors:
+        raise M0ResearchLedgerValidationError("ready_source_errors_invalid")
     if snapshot["data_status"] == "unavailable" and hypotheses:
         raise M0ResearchLedgerValidationError("unavailable_source_hypotheses_invalid")
     if hypotheses and source_report_digest is None:
@@ -322,6 +327,52 @@ def _source_error(error_set: set[str], code: str) -> None:
         error_set.add(code)
 
 
+def _snapshot_time_is_future(snapshot: Mapping[str, Any], now: dt.datetime) -> bool:
+    """Return whether source metadata could have been produced after this ledger.
+
+    A future source clock is not merely displayed as an ``unknown`` freshness
+    state.  The entire source is omitted so a clock-skewed or replayed source
+    cannot become a current research input by accident.
+    """
+
+    for field, label in (("generated_at", "source_generated_at"), ("computed_at", "source_computed_at")):
+        value = _parse_timestamp(snapshot[field], label, nullable=True)
+        if value is not None and value > now:
+            return True
+    return False
+
+
+def _horizon_views(observations: Sequence[Mapping[str, Any]]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate present disagreement from non-actionable historical drift."""
+
+    fresh_horizons = sorted(
+        {
+            observation["research_context"]["primary_horizon"]
+            for observation in observations
+            if observation["freshness"]["status"] == "fresh"
+        }
+    )
+    stale_horizons = sorted(
+        {
+            observation["research_context"]["primary_horizon"]
+            for observation in observations
+            if observation["freshness"]["status"] == "stale"
+        }
+    )
+    current = {
+        "status": "conflict" if len(fresh_horizons) > 1 else "none",
+        "primary_horizons": fresh_horizons,
+    }
+    if fresh_horizons:
+        stale_status = "drift" if stale_horizons and stale_horizons != fresh_horizons else "none"
+    else:
+        # A stale-only subject has no current primary horizon against which to
+        # call a drift.  It remains visible for audit, but is not an alert.
+        stale_status = "unavailable" if stale_horizons else "none"
+    historical_stale = {"status": stale_status, "primary_horizons": stale_horizons}
+    return current, historical_stale
+
+
 def aggregate_m0_research_sources(
     snapshots: Sequence[object], *, now: str | dt.datetime
 ) -> dict[str, Any]:
@@ -351,6 +402,9 @@ def aggregate_m0_research_sources(
             snapshot = validate_m0_research_source_snapshot(raw_snapshot)
         except M0ResearchLedgerValidationError:
             _source_error(error_set, "m0_source_invalid")
+            continue
+        if _snapshot_time_is_future(snapshot, now_at):
+            _source_error(error_set, "m0_source_future_timestamp")
             continue
         if snapshot["data_status"] == "unavailable":
             _source_error(error_set, "m0_source_unavailable")
@@ -388,13 +442,15 @@ def aggregate_m0_research_sources(
     fresh_count = 0
     stale_count = 0
     unknown_count = 0
-    conflict_count = 0
+    current_conflict_count = 0
+    historical_stale_drift_count = 0
     for (kind, identifier), observations in sorted(subject_entries.items()):
         observations.sort(key=lambda entry: (entry["source_report_digest"], entry["source_entry_digest"]))
-        horizons = sorted({entry["research_context"]["primary_horizon"] for entry in observations})
-        conflict = len(horizons) > 1
-        if conflict:
-            conflict_count += 1
+        horizon_conflict, historical_stale_horizon_drift = _horizon_views(observations)
+        if horizon_conflict["status"] == "conflict":
+            current_conflict_count += 1
+        if historical_stale_horizon_drift["status"] == "drift":
+            historical_stale_drift_count += 1
         for observation in observations:
             status = observation["freshness"]["status"]
             if status == "fresh":
@@ -407,10 +463,8 @@ def aggregate_m0_research_sources(
             {
                 "subject": {"kind": kind, "identifier": identifier},
                 "observations": observations,
-                "horizon_conflict": {
-                    "status": "conflict" if conflict else "none",
-                    "primary_horizons": horizons,
-                },
+                "horizon_conflict": horizon_conflict,
+                "historical_stale_horizon_drift": historical_stale_horizon_drift,
             }
         )
 
@@ -427,7 +481,8 @@ def aggregate_m0_research_sources(
             "fresh_observation_count": fresh_count,
             "stale_observation_count": stale_count,
             "unknown_observation_count": unknown_count,
-            "horizon_conflict_count": conflict_count,
+            "horizon_conflict_count": current_conflict_count,
+            "historical_stale_horizon_drift_count": historical_stale_drift_count,
         },
         "subjects": subjects,
         "policy": {
