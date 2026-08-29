@@ -210,9 +210,16 @@ GET  /api/adaptive-selection
 ```
 
 写入的外层契约是 `qsl.adaptive_selection_source_snapshot.v1`，其中的 decision 必须仍是
-`authority=shadow_only`、`no_order=true`，且每个 `proposed_weight=0`。Worker 会拒绝非零
-权重、非 Shadow authority、缺少完整输入摘要或格式不安全的字段。读取接口要求已登录
-allowlist；默认 36 小时后快照标为 `stale`，不会被当作当前结论。
+`authority=shadow_only`、`no_order=true`，且每个 `proposed_weight=0`。`qsl.selection_decision.v1`
+还必须携带 QPK `canonical_sha256` 计算的 `decision_digest`：Worker 会重新计算它，并因此将
+`input_digest` 与全部展示字段一并绑定。Worker 会拒绝摘要不匹配、非零权重、非 Shadow
+authority、非 no-order、缺少完整摘要或格式不安全的字段。读取接口要求已登录 allowlist；默认
+36 小时后快照标为 `stale`，不会被当作当前结论。
+
+兼容策略是**显式拒绝旧的无 `decision_digest` 投影**：这类 pre-digest 记录不能证明它们的
+`input_digest` 与显示内容仍然一致，因此不会被当作 `v1` 的安全等价物，也不会被自动补摘要或
+迁移。来源必须使用带摘要的 QPK `qsl.selection_decision.v1` 重新导出；重导出不会创建
+Shadow、修改 runtime 或产生订单。
 
 `ADAPTIVE_SELECTION_SYNC_TOKEN` 必须专用，不能复用 OAuth、策略切换、控制面、执行证据、
 顾投、券商或账户凭据。顾投研究与 M1 的卡片也必须保持分开：顾投只能提出研究假设，不能

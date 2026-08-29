@@ -2104,7 +2104,7 @@ const adaptiveSelectionSourcePayload = {
   decision: {
     schema: "qsl.selection_decision.v1",
     decision_id: "shadow-us-equity-combo-001",
-    created_at: controlNow,
+    created_at: "2026-08-29T00:00:00+00:00",
     authority: "shadow_only",
     no_order: true,
     market_context: {
@@ -2134,6 +2134,13 @@ const adaptiveSelectionSourcePayload = {
   },
   errors: [],
 };
+adaptiveSelectionSourcePayload.decision.decision_digest = await __test.calculateAdaptiveSelectionDecisionDigest(
+  adaptiveSelectionSourcePayload.decision,
+);
+assert.equal(
+  adaptiveSelectionSourcePayload.decision.decision_digest,
+  "b5253cf3c2591b4ba0e7408fbdd3bb648b3813474ee6359d98dbdbb2556b8fe5",
+);
 
 const unauthorizedAdaptiveSelectionRead = await worker.fetch(
   new Request("https://switch.example/api/adaptive-selection"),
@@ -2149,7 +2156,7 @@ const wrongAdaptiveSelectionToken = await worker.fetch(
   adaptiveSelectionEnv,
 );
 assert.equal(wrongAdaptiveSelectionToken.status, 401);
-assert.throws(
+await assert.rejects(
   () => __test.normalizeAdaptiveSelectionSourceSnapshot({
     ...adaptiveSelectionSourcePayload,
     decision: {
@@ -2158,6 +2165,35 @@ assert.throws(
     },
   }),
   /proposed_weight must remain zero/,
+);
+const legacyUndigestedDecision = { ...adaptiveSelectionSourcePayload.decision };
+delete legacyUndigestedDecision.decision_digest;
+await assert.rejects(
+  () => __test.normalizeAdaptiveSelectionSourceSnapshot({
+    ...adaptiveSelectionSourcePayload,
+    decision: legacyUndigestedDecision,
+  }),
+  /has invalid fields/,
+);
+await assert.rejects(
+  () => __test.normalizeAdaptiveSelectionSourceSnapshot({
+    ...adaptiveSelectionSourcePayload,
+    decision: {
+      ...adaptiveSelectionSourcePayload.decision,
+      input_digest: "c".repeat(64),
+    },
+  }),
+  /decision_digest mismatch/,
+);
+await assert.rejects(
+  () => __test.normalizeAdaptiveSelectionSourceSnapshot({
+    ...adaptiveSelectionSourcePayload,
+    decision: {
+      ...adaptiveSelectionSourcePayload.decision,
+      decision_digest: "d".repeat(64),
+    },
+  }),
+  /decision_digest mismatch/,
 );
 const adaptiveSelectionSync = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-adaptive-selection-source", {
