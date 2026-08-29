@@ -335,6 +335,9 @@ def publish_m0_research_publisher_envelope(
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            # Avoid generic Python-client bot filtering at the dedicated
+            # ingress boundary; this value carries no credential or payload.
+            "User-Agent": "QSL-M0-Research-Publisher/1.0",
         },
     )
     try:
