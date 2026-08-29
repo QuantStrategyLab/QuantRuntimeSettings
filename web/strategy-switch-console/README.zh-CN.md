@@ -120,7 +120,8 @@ JSON 计算并验证 `ledger_sha256`；`source_artifact.sha256` 是已认证的�
 声明，故意不与派生 ledger 的 SHA-256 混为同一个值。来源仓库目前固定为
 `QuantStrategyLab/QuantAdvisorResearch`，生产者仓库固定为
 `QuantStrategyLab/QuantRuntimeSettings`。任何额外字段、错误摘要、未来时间、损坏台账或
-越界语义都会在写入前被拒绝。
+越界语义都会在写入前被拒绝。发布构建器自 #310 起已经在生成端约束紧凑 UTF-8 envelope
+不超过 262,144 bytes；Worker 保留同一请求体上限作为接收端边界，不另行转换或放宽该契约。
 
 Worker 固定使用 `m0_research_ledger_current` 和由已校验 digest 派生的
 `m0_research_ledger_archive:<ledger_sha256>`；调用方不能传入 KV key。current 记录检测到
@@ -131,10 +132,15 @@ Worker 固定使用 `m0_research_ledger_current` 和由已校验 digest 派生�
 TTL；KV 缺失、过期、损坏或校验失败时，读取接口只返回空的 `unavailable` no-order 结构，
 绝不猜测旧研究结论。
 
-`GET /api/m0-research` 不会直接复用已存储的 `freshness`。它会在每次读取时按照每条
-observation 的 `expires_at` 派生新的 `fresh/stale` 状态，并重新计算 subject 冲突、summary
-和 `data_status`；这份只读投影不会写回 KV，也不会修改 hash-bound 原始 ledger。来源已标为
-stale 的观测不会因读取而被提升为 fresh。
+`GET /api/m0-research` 返回字段闭合的 **`qsl_m0_research_dashboard.v1`**，而不是
+`qsl_m0_research_ledger.v1`。dashboard 固定携带原始 `source_ledger_sha256`、source 的
+`generated_at` / `computed_at` 和 `viewed_at`，再给出派生的 `data_status`、summary、subjects、
+policy 与 errors。无可用记录时也返回同一 dashboard schema 的 `unavailable` 空结构。
+
+dashboard 不会直接复用已存储的 `freshness`：它会在每次读取时按照每条 observation 的
+`expires_at` 派生新的 `fresh/stale` 状态，并重新计算 subject 冲突、summary 和 `data_status`。
+这份只读投影不会写回 KV，也不会修改 hash-bound 原始 ledger；也**不声称**仍可通过原 ledger
+validator。来源已标为 stale 的观测不会因读取而被提升为 fresh。
 
 该入口**不**调用 selector、策略目录、平台配置、dispatch、runtime、插件或券商，也不创建
 研究任务。输出永远固定为 `authority=research_only`、`no_order=true` 和

@@ -15,6 +15,19 @@ const indexHtml = [
 const bundledStrategyProfiles = JSON.parse(
   readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"),
 );
+const m0ResearchDashboardSchema = JSON.parse(
+  readFileSync(resolve(root, "schemas/qsl-m0-research-dashboard.v1.schema.json"), "utf8"),
+);
+const m0ResearchPublisherEnvelopeSchema = JSON.parse(
+  readFileSync(resolve(root, "schemas/qsl-m0-research-publisher-envelope.v1.schema.json"), "utf8"),
+);
+assert.equal(m0ResearchDashboardSchema.properties.schema_version.const, "qsl_m0_research_dashboard.v1");
+assert.equal(m0ResearchDashboardSchema.additionalProperties, false);
+assert.deepEqual(
+  m0ResearchDashboardSchema.required,
+  ["schema_version", "source_ledger_sha256", "source_generated_at", "source_computed_at", "viewed_at", "data_status", "summary", "subjects", "policy", "errors"],
+);
+assert.equal(m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"], 256 * 1024);
 assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
@@ -2740,6 +2753,10 @@ const m0ResearchEnvelope = {
   ledger_sha256: m0ResearchLedgerSha,
   ledger: m0ResearchLedger,
 };
+assert.ok(
+  new TextEncoder().encode(JSON.stringify(m0ResearchEnvelope)).byteLength
+    <= m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"],
+);
 const unauthorizedM0ResearchRead = await worker.fetch(
   new Request("https://switch.example/api/m0-research"),
   m0ResearchEnv,
@@ -2790,14 +2807,24 @@ const m0ResearchRead = await worker.fetch(
 );
 assert.equal(m0ResearchRead.status, 200);
 const m0ResearchPayload = await m0ResearchRead.json();
-assert.equal(m0ResearchPayload.schema_version, "qsl_m0_research_ledger.v1");
+assert.equal(m0ResearchPayload.schema_version, "qsl_m0_research_dashboard.v1");
+assert.equal(m0ResearchPayload.source_ledger_sha256, m0ResearchLedgerSha);
+assert.equal(m0ResearchPayload.source_generated_at, m0ResearchLedger.generated_at);
+assert.equal(m0ResearchPayload.source_computed_at, m0ResearchLedger.computed_at);
+assert.match(m0ResearchPayload.viewed_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
 assert.equal(m0ResearchPayload.data_status, "ready");
 assert.equal(m0ResearchPayload.policy.no_order, true);
 assert.equal(m0ResearchPayload.subjects[0].subject.identifier, "semiconductors");
-const m0ExpiredReadProjection = __test.projectM0ResearchLedgerForRead(
+const m0ExpiredReadProjection = __test.projectM0ResearchDashboardForRead(
   m0ResearchLedger,
+  m0ResearchLedgerSha,
   new Date("2026-09-06T00:00:00Z"),
 );
+assert.equal(m0ExpiredReadProjection.schema_version, "qsl_m0_research_dashboard.v1");
+assert.equal(m0ExpiredReadProjection.source_ledger_sha256, m0ResearchLedgerSha);
+assert.equal(m0ExpiredReadProjection.source_generated_at, m0ResearchLedger.generated_at);
+assert.equal(m0ExpiredReadProjection.source_computed_at, m0ResearchLedger.computed_at);
+assert.equal(m0ExpiredReadProjection.viewed_at, "2026-09-06T00:00:00Z");
 assert.equal(m0ExpiredReadProjection.data_status, "stale");
 assert.deepEqual(m0ExpiredReadProjection.summary, {
   subject_count: 1,
@@ -2865,5 +2892,9 @@ const m0DamagedCurrentRead = await worker.fetch(
   m0ResearchEnv,
 );
 const m0DamagedCurrentPayload = await m0DamagedCurrentRead.json();
+assert.equal(m0DamagedCurrentPayload.schema_version, "qsl_m0_research_dashboard.v1");
+assert.equal(m0DamagedCurrentPayload.source_ledger_sha256, null);
+assert.equal(m0DamagedCurrentPayload.source_generated_at, null);
+assert.equal(m0DamagedCurrentPayload.source_computed_at, null);
 assert.equal(m0DamagedCurrentPayload.data_status, "unavailable");
 assert.deepEqual(m0DamagedCurrentPayload.subjects, []);

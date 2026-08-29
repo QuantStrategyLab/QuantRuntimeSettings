@@ -88,6 +88,7 @@ const ADAPTIVE_SELECTION_AUTHORITY = "shadow_only";
 // readers.  No strategy/platform/runtime/broker helper may consume it here.
 const M0_RESEARCH_TRANSPORT_SCHEMA_VERSION = "qsl_m0_research_publisher_envelope.v1";
 const M0_RESEARCH_LEDGER_SCHEMA_VERSION = "qsl_m0_research_ledger.v1";
+const M0_RESEARCH_DASHBOARD_SCHEMA_VERSION = "qsl_m0_research_dashboard.v1";
 const M0_RESEARCH_STORAGE_SCHEMA_VERSION = "qsl_m0_research_ledger_storage.v1";
 const M0_RESEARCH_CURRENT_KEY = "m0_research_ledger_current";
 const M0_RESEARCH_ARCHIVE_PREFIX = "m0_research_ledger_archive:";
@@ -2306,11 +2307,11 @@ async function syncM0ResearchLedgerResponse(request, env) {
 async function m0ResearchLedgerResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  if (!hasConfigStore(env)) return json(emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable"));
+  if (!hasConfigStore(env)) return json(emptyM0ResearchDashboardPayload("m0_research_ledger_unavailable"));
   const record = await readCurrentM0ResearchLedgerRecord(env);
   return json(record
-    ? projectM0ResearchLedgerForRead(record.envelope.ledger)
-    : emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable"));
+    ? projectM0ResearchDashboardForRead(record.envelope.ledger, record.envelope.ledger_sha256)
+    : emptyM0ResearchDashboardPayload("m0_research_ledger_unavailable"));
 }
 
 function m0ResearchLedgerReplayError(current, incoming) {
@@ -3271,13 +3272,12 @@ function calculateM0ResearchHorizonViews(observations) {
   };
 }
 
-function projectM0ResearchLedgerForRead(ledger, now = new Date()) {
+function projectM0ResearchDashboardForRead(ledger, sourceLedgerSha256, now = new Date()) {
   // The stored envelope remains the immutable, digest-bound publication
-  // record.  Freshness is intentionally a read-time projection because a
-  // seven-day M0 hypothesis can expire long before the 14-day KV record does.
-  // Do not write this projection back: doing so would invalidate ledger_sha256.
+  // record. This is deliberately a different dashboard schema: changing
+  // freshness at read time must never pretend to be a re-validatable ledger.
   const nowMillis = now instanceof Date ? now.getTime() : Date.parse(now);
-  if (!Number.isFinite(nowMillis)) return emptyM0ResearchLedgerPayload("m0_research_ledger_unavailable");
+  if (!Number.isFinite(nowMillis)) return emptyM0ResearchDashboardPayload("m0_research_ledger_unavailable");
   const subjects = ledger.subjects.map((entry) => {
     const observations = entry.observations.map((observation) => ({
       ...observation,
@@ -3296,10 +3296,14 @@ function projectM0ResearchLedgerForRead(ledger, now = new Date()) {
     ? "ready"
     : (summary.observation_count > 0 ? "stale" : "unavailable");
   return {
-    ...ledger,
+    schema_version: M0_RESEARCH_DASHBOARD_SCHEMA_VERSION,
+    source_ledger_sha256: sourceLedgerSha256,
+    source_generated_at: ledger.generated_at,
+    source_computed_at: ledger.computed_at,
+    viewed_at: utcTimestampSeconds(new Date(nowMillis)),
+    data_status: dataStatus,
     summary,
     subjects,
-    data_status: dataStatus,
     policy: { ...ledger.policy },
     errors: [...ledger.errors],
   };
@@ -3471,11 +3475,13 @@ async function calculateM0ResearchLedgerSha256(ledger) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function emptyM0ResearchLedgerPayload(errorCode) {
+function emptyM0ResearchDashboardPayload(errorCode, now = new Date()) {
   return {
-    schema_version: M0_RESEARCH_LEDGER_SCHEMA_VERSION,
-    generated_at: null,
-    computed_at: null,
+    schema_version: M0_RESEARCH_DASHBOARD_SCHEMA_VERSION,
+    source_ledger_sha256: null,
+    source_generated_at: null,
+    source_computed_at: null,
+    viewed_at: utcTimestampSeconds(now),
     data_status: "unavailable",
     summary: {
       subject_count: 0,
@@ -5950,8 +5956,8 @@ export const __test = {
   emptyAdaptiveSelectionPayload,
   normalizeM0ResearchLedgerTransport,
   calculateM0ResearchLedgerSha256,
-  projectM0ResearchLedgerForRead,
-  emptyM0ResearchLedgerPayload,
+  projectM0ResearchDashboardForRead,
+  emptyM0ResearchDashboardPayload,
   normalizeExecutionEvidenceSourceSnapshot,
   emptyExecutionEvidencePayload,
   calculateResearchTaskSha256,
