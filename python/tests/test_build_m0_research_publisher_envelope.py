@@ -264,7 +264,7 @@ class M0ResearchPublisherEnvelopeTest(unittest.TestCase):
             publisher.publish_m0_research_publisher_envelope(
                 envelope,
                 environ={
-                    publisher.PUBLISH_URL_ENV: "https://research-console.example/api/internal/m0",
+                    publisher.PUBLISH_URL_ENV: "https://research-console.example/api/internal/sync-m0-research-ledger",
                     publisher.PUBLISH_TOKEN_ENV: secret,
                     "BROKER_API_TOKEN": "must-not-be-read",
                 },

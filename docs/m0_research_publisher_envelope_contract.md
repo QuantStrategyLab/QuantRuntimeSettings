@@ -70,7 +70,7 @@ metadata 的便利方式，构建器不会执行 shell 或命令替换。
 构建器才会在成功写入本地封套后对 HTTPS endpoint 进行一次 POST：
 
 ```bash
-export QSL_M0_RESEARCH_LEDGER_PUBLISH_URL='https://research-console.example/api/internal/m0'
+export QSL_M0_RESEARCH_LEDGER_PUBLISH_URL='https://research-console.example/api/internal/sync-m0-research-ledger'
 export QSL_M0_RESEARCH_LEDGER_PUBLISH_TOKEN='dedicated-publisher-token'
 
 python3 python/scripts/build_m0_research_publisher_envelope.py ... --publish
