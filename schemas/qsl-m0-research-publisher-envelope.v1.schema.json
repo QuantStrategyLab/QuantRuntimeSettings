@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-m0-research-publisher-envelope.v1.schema.json",
+  "title": "QSL M0 Research Publisher Envelope v1",
+  "description": "Hash-bound transport for a locally aggregated M0 research ledger. It cannot express allocation, runtime, platform, broker, or execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "producer", "source_artifact", "ledger_sha256", "ledger"],
+  "properties": {
+    "schema_version": { "const": "qsl_m0_research_publisher_envelope.v1" },
+    "producer": { "$ref": "#/$defs/producer" },
+    "source_artifact": { "$ref": "#/$defs/sourceArtifact" },
+    "ledger_sha256": { "$ref": "#/$defs/sha256" },
+    "ledger": { "$ref": "qsl-m0-research-ledger.v1.schema.json" }
+  },
+  "$defs": {
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$"
+    },
+    "revision": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "identifier": { "type": "string", "pattern": "^[A-Za-z0-9._:/-]{1,128}$" },
+    "producer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/repository" },
+        "revision": { "$ref": "#/$defs/revision" }
+      }
+    },
+    "sourceArtifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "run_id", "artifact_id", "sha256"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/repository" },
+        "revision": { "$ref": "#/$defs/revision" },
+        "run_id": { "$ref": "#/$defs/identifier" },
+        "artifact_id": { "$ref": "#/$defs/identifier" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    }
+  }
+}
