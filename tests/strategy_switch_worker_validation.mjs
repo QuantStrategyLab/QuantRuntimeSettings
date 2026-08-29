@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION } from "../web/strategy-switch-console/config.js";
@@ -15,6 +16,41 @@ const indexHtml = [
 const bundledStrategyProfiles = JSON.parse(
   readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"),
 );
+const m0ResearchDashboardSchema = JSON.parse(
+  readFileSync(resolve(root, "schemas/qsl-m0-research-dashboard.v1.schema.json"), "utf8"),
+);
+const m0ResearchPublisherEnvelopeSchema = JSON.parse(
+  readFileSync(resolve(root, "schemas/qsl-m0-research-publisher-envelope.v1.schema.json"), "utf8"),
+);
+assert.equal(m0ResearchDashboardSchema.properties.schema_version.const, "qsl_m0_research_dashboard.v1");
+assert.equal(m0ResearchDashboardSchema.additionalProperties, false);
+assert.deepEqual(
+  m0ResearchDashboardSchema.required,
+  ["schema_version", "source_ledger_sha256", "source_generated_at", "source_computed_at", "viewed_at", "data_status", "summary", "subjects", "policy", "errors"],
+);
+assert.equal(m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"], 256 * 1024);
+
+function buildQrsCanonicalM0PublisherBody(sourceSnapshotPath) {
+  // The fixture is a minimized, unchanged QAR #66 emitted source snapshot.
+  // Execute QRS #309/#310's real offline builder and return its exact sorted-
+  // key canonical UTF-8 request body, rather than duplicating it in JS.
+  const publisherCode = [
+    "import hashlib,json,sys",
+    "sys.path.insert(0, sys.argv[2])",
+    "from build_m0_research_publisher_envelope import build_m0_research_publisher_envelope, canonical_envelope_body",
+    "raw=open(sys.argv[1], 'rb').read()",
+    "source=json.loads(raw)",
+    "envelope=build_m0_research_publisher_envelope(source_snapshot=source, source_artifact={'repository':'QuantStrategyLab/QuantAdvisorResearch','revision':'9e06f248fb60d1c995426e66468cb18454612e9b','run_id':'qar66-fixture-run','artifact_id':'QAR66:source/snapshot','sha256':hashlib.sha256(raw).hexdigest()}, producer_repository='QuantStrategyLab/QuantRuntimeSettings', producer_revision='451b11d0bf6ba2632ca2227c850e7236a40d12e5', now=source['generated_at'])",
+    "sys.stdout.buffer.write(canonical_envelope_body(envelope))",
+  ].join("; ");
+  const result = spawnSync(
+    "python3",
+    ["-c", publisherCode, sourceSnapshotPath, resolve(root, "python/scripts")],
+    { cwd: root, encoding: "buffer" },
+  );
+  assert.equal(result.status, 0, Buffer.from(result.stderr || "").toString("utf8"));
+  return Buffer.from(result.stdout);
+}
 assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
@@ -2657,3 +2693,250 @@ assert.equal(researchTaskReadPayload.summary.task_count, 1);
 assert.equal(researchTaskReadPayload.tasks[0].task.task_id, researchTask.task_id);
 assert.equal(researchTaskReadPayload.policy.no_order, true);
 assert.ok(indexHtml.includes('requestJson("/api/research-tasks")'));
+
+// M0 is a closed, read-only research ingress.  These assertions intentionally
+// exercise only its transport/KV boundary: they must never imply a selector,
+// strategy, platform, dispatch, runtime, or broker action.
+const m0LedgerStore = new Map();
+const m0LedgerPutOptions = [];
+const m0LedgerKv = {
+  async get(key) { return m0LedgerStore.get(key) || null; },
+  async put(key, value, options) {
+    m0LedgerStore.set(key, value);
+    m0LedgerPutOptions.push({ key, options });
+  },
+};
+const m0ResearchSyncValue = ["m0", "research", "sync"].join("-");
+const m0ResearchEnv = {
+  ...controlEnv,
+  M0_RESEARCH_SYNC_TOKEN: m0ResearchSyncValue,
+  STRATEGY_SWITCH_CONFIG: m0LedgerKv,
+};
+const m0ResearchCookie = await __test.makeSession("health-user", [], m0ResearchEnv);
+const m0ResearchCookieHeaders = { Cookie: `qsl_switch_session=${m0ResearchCookie}` };
+const m0ResearchLedger = {
+  schema_version: "qsl_m0_research_ledger.v1",
+  generated_at: "2026-08-29T00:00:00Z",
+  computed_at: "2026-08-29T00:00:00Z",
+  data_status: "ready",
+  summary: {
+    subject_count: 1,
+    observation_count: 1,
+    fresh_observation_count: 1,
+    stale_observation_count: 0,
+    unknown_observation_count: 0,
+    horizon_conflict_count: 0,
+    historical_stale_horizon_drift_count: 0,
+  },
+  subjects: [{
+    subject: { kind: "theme_context", identifier: "semiconductors" },
+    observations: [{
+      source_ids: ["quant-advisor-research"],
+      source_report_digest: "a".repeat(64),
+      source_entry_digest: "b".repeat(64),
+      hypothesis_id: "m0-semiconductors-001",
+      as_of: "2026-08-29",
+      generated_at: "2026-08-29T00:00:00Z",
+      expires_at: "2026-09-05T00:00:00Z",
+      research_context: {
+        state: "candidate",
+        primary_horizon: "medium",
+        suitable_horizons: ["medium", "long"],
+        source_confidence: "medium",
+        source_style: "mixed_research",
+        theme_ids: ["semiconductors"],
+      },
+      freshness: { status: "fresh", age_seconds: 0 },
+    }],
+    horizon_conflict: { status: "none", primary_horizons: ["medium"] },
+    historical_stale_horizon_drift: { status: "none", primary_horizons: [] },
+  }],
+  policy: {
+    authority: "research_only",
+    no_order: true,
+    permitted_next_step: "research_validation_only",
+    notice: "Read-only M0 research ledger; it cannot select, route, or execute a strategy.",
+  },
+  errors: [],
+};
+const m0ResearchLedgerSha = await __test.calculateM0ResearchLedgerSha256(m0ResearchLedger);
+const m0ResearchEnvelope = {
+  schema_version: "qsl_m0_research_publisher_envelope.v1",
+  producer: {
+    repository: "QuantStrategyLab/QuantRuntimeSettings",
+    revision: "c".repeat(40),
+  },
+  source_artifact: {
+    repository: "QuantStrategyLab/QuantAdvisorResearch",
+    revision: "c".repeat(40),
+    run_id: "123456789",
+    artifact_id: "M0:Research/Ledger-v1",
+    sha256: "f".repeat(64),
+  },
+  ledger_sha256: m0ResearchLedgerSha,
+  ledger: m0ResearchLedger,
+};
+assert.ok(
+  new TextEncoder().encode(JSON.stringify(m0ResearchEnvelope)).byteLength
+    <= m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"],
+);
+const unauthorizedM0ResearchRead = await worker.fetch(
+  new Request("https://switch.example/api/m0-research"),
+  m0ResearchEnv,
+);
+assert.equal(unauthorizedM0ResearchRead.status, 401);
+const wrongM0ResearchToken = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: "Bearer wrong", "Content-Type": "application/json" },
+    body: JSON.stringify(m0ResearchEnvelope),
+  }),
+  m0ResearchEnv,
+);
+assert.equal(wrongM0ResearchToken.status, 401);
+await assert.rejects(
+  () => __test.normalizeM0ResearchLedgerTransport({ ...m0ResearchEnvelope, unexpected: true }),
+  /has invalid fields/,
+);
+await assert.rejects(
+  () => __test.normalizeM0ResearchLedgerTransport({ ...m0ResearchEnvelope, ledger_sha256: "d".repeat(64) }),
+  /ledger_sha256 mismatch/,
+);
+const m0ResearchSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(m0ResearchEnvelope),
+  }),
+  m0ResearchEnv,
+);
+assert.equal(m0ResearchSync.status, 200);
+assert.equal((await m0ResearchSync.json()).no_order, true);
+assert.ok(m0LedgerStore.has("m0_research_ledger_current"));
+assert.ok(m0LedgerStore.has(`m0_research_ledger_archive:${m0ResearchLedgerSha}`));
+const storedM0ResearchCurrent = JSON.parse(m0LedgerStore.get("m0_research_ledger_current"));
+assert.equal(
+  Date.parse(storedM0ResearchCurrent.expires_at) - Date.parse(storedM0ResearchCurrent.stored_at),
+  14 * 24 * 60 * 60 * 1000,
+);
+const m0ResearchLedgerWrites = m0LedgerPutOptions.filter((entry) => (
+  entry.key === "m0_research_ledger_current" || entry.key.startsWith("m0_research_ledger_archive:")
+));
+assert.equal(m0ResearchLedgerWrites.length, 2);
+assert.ok(m0ResearchLedgerWrites.every((entry) => entry.options?.expirationTtl === 14 * 24 * 60 * 60));
+const m0ResearchRead = await worker.fetch(
+  new Request("https://switch.example/api/m0-research", { headers: m0ResearchCookieHeaders }),
+  m0ResearchEnv,
+);
+assert.equal(m0ResearchRead.status, 200);
+const m0ResearchPayload = await m0ResearchRead.json();
+assert.equal(m0ResearchPayload.schema_version, "qsl_m0_research_dashboard.v1");
+assert.equal(m0ResearchPayload.source_ledger_sha256, m0ResearchLedgerSha);
+assert.equal(m0ResearchPayload.source_generated_at, m0ResearchLedger.generated_at);
+assert.equal(m0ResearchPayload.source_computed_at, m0ResearchLedger.computed_at);
+assert.match(m0ResearchPayload.viewed_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+assert.equal(m0ResearchPayload.data_status, "ready");
+assert.equal(m0ResearchPayload.policy.no_order, true);
+assert.equal(m0ResearchPayload.subjects[0].subject.identifier, "semiconductors");
+const qar66SourceSnapshotPath = resolve(root, "tests/fixtures/qar66-m0-research-source-snapshot.json");
+const qrsCanonicalM0PublisherBody = buildQrsCanonicalM0PublisherBody(qar66SourceSnapshotPath);
+assert.ok(qrsCanonicalM0PublisherBody.byteLength <= m0ResearchPublisherEnvelopeSchema["x-qsl-canonical-utf8-max-bytes"]);
+const qrsCanonicalM0Envelope = JSON.parse(qrsCanonicalM0PublisherBody.toString("utf8"));
+assert.deepEqual(
+  Object.keys(qrsCanonicalM0Envelope.ledger.summary),
+  [...Object.keys(qrsCanonicalM0Envelope.ledger.summary)].sort(),
+);
+await __test.normalizeM0ResearchLedgerTransport(qrsCanonicalM0Envelope);
+const qrsCanonicalM0Post = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: qrsCanonicalM0PublisherBody,
+  }),
+  m0ResearchEnv,
+);
+assert.equal(qrsCanonicalM0Post.status, 200);
+assert.equal((await qrsCanonicalM0Post.json()).no_order, true);
+const m0ExpiredReadProjection = __test.projectM0ResearchDashboardForRead(
+  m0ResearchLedger,
+  m0ResearchLedgerSha,
+  new Date("2026-09-06T00:00:00Z"),
+);
+assert.equal(m0ExpiredReadProjection.schema_version, "qsl_m0_research_dashboard.v1");
+assert.equal(m0ExpiredReadProjection.source_ledger_sha256, m0ResearchLedgerSha);
+assert.equal(m0ExpiredReadProjection.source_generated_at, m0ResearchLedger.generated_at);
+assert.equal(m0ExpiredReadProjection.source_computed_at, m0ResearchLedger.computed_at);
+assert.equal(m0ExpiredReadProjection.viewed_at, "2026-09-06T00:00:00Z");
+assert.equal(m0ExpiredReadProjection.data_status, "stale");
+assert.deepEqual(m0ExpiredReadProjection.summary, {
+  subject_count: 1,
+  observation_count: 1,
+  fresh_observation_count: 0,
+  stale_observation_count: 1,
+  unknown_observation_count: 0,
+  horizon_conflict_count: 0,
+  historical_stale_horizon_drift_count: 0,
+});
+assert.equal(m0ExpiredReadProjection.subjects[0].observations[0].freshness.status, "stale");
+assert.equal(m0ResearchLedger.data_status, "ready");
+assert.equal(m0ResearchLedger.subjects[0].observations[0].freshness.status, "fresh");
+const m0ResearchReplay = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(m0ResearchEnvelope),
+  }),
+  m0ResearchEnv,
+);
+assert.equal(m0ResearchReplay.status, 409);
+const m0RollbackLedger = structuredClone(m0ResearchLedger);
+m0RollbackLedger.generated_at = "2026-08-28T00:00:00Z";
+m0RollbackLedger.computed_at = "2026-08-28T00:00:00Z";
+m0RollbackLedger.subjects[0].observations[0].as_of = "2026-08-28";
+m0RollbackLedger.subjects[0].observations[0].generated_at = "2026-08-28T00:00:00Z";
+m0RollbackLedger.subjects[0].observations[0].expires_at = "2026-09-04T00:00:00Z";
+const m0RollbackSha = await __test.calculateM0ResearchLedgerSha256(m0RollbackLedger);
+const m0ResearchRollback = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...m0ResearchEnvelope,
+      ledger_sha256: m0RollbackSha,
+      ledger: m0RollbackLedger,
+      source_artifact: {
+        ...m0ResearchEnvelope.source_artifact,
+        run_id: "123456790",
+        sha256: "e".repeat(64),
+      },
+    }),
+  }),
+  m0ResearchEnv,
+);
+assert.equal(m0ResearchRollback.status, 409);
+const m0InvalidNewPayload = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${m0ResearchSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ ...m0ResearchEnvelope, ledger_sha256: "e".repeat(64) }),
+  }),
+  m0ResearchEnv,
+);
+assert.equal(m0InvalidNewPayload.status, 400);
+const m0CurrentAfterInvalid = await worker.fetch(
+  new Request("https://switch.example/api/m0-research", { headers: m0ResearchCookieHeaders }),
+  m0ResearchEnv,
+);
+assert.equal((await m0CurrentAfterInvalid.json()).data_status, "ready");
+m0LedgerStore.set("m0_research_ledger_current", "{not-json");
+const m0DamagedCurrentRead = await worker.fetch(
+  new Request("https://switch.example/api/m0-research", { headers: m0ResearchCookieHeaders }),
+  m0ResearchEnv,
+);
+const m0DamagedCurrentPayload = await m0DamagedCurrentRead.json();
+assert.equal(m0DamagedCurrentPayload.schema_version, "qsl_m0_research_dashboard.v1");
+assert.equal(m0DamagedCurrentPayload.source_ledger_sha256, null);
+assert.equal(m0DamagedCurrentPayload.source_generated_at, null);
+assert.equal(m0DamagedCurrentPayload.source_computed_at, null);
+assert.equal(m0DamagedCurrentPayload.data_status, "unavailable");
+assert.deepEqual(m0DamagedCurrentPayload.subjects, []);

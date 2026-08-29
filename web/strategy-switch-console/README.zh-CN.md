@@ -37,6 +37,7 @@ STRATEGY_SWITCH_ADMIN_ORGS
 STRATEGY_HEALTH_SYNC_TOKEN
 CONTROL_PLANE_SYNC_TOKEN
 RESEARCH_TASK_SYNC_TOKEN
+M0_RESEARCH_SYNC_TOKEN
 ```
 
 可选：
@@ -86,6 +87,8 @@ audit_log
 strategy_health_snapshot
 control_plane_snapshot
 research_task_source:<source_id>
+m0_research_ledger_current
+m0_research_ledger_archive:<ledger_sha256>
 ```
 
 没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
@@ -101,6 +104,48 @@ research_task_source:<source_id>
 `/api/internal/sync-research-task-source` 只接受 `qsl_research_task_source_snapshot.v1`，并要求独立的 `RESEARCH_TASK_SYNC_TOKEN`。每个任务均须是 SHA-256 自校验通过的 `qsl.research_task.v1`，固定为 `research_only=true`、`no_order=true`、`size_zero_required=true`、`p4_p5_p6_authorized=false`。已登录 allowlist 用户可从 `/api/research-tasks` 读取脱敏聚合结果。
 
 它与 `/api/internal/sync-control-plane-source` 的候选快照、策略切换 token、策略根和券商凭据完全分离。该索引只显示任务，不会运行任务、调优参数、改代码、创建/合并 PR、部署、进入 paper/shadow/live 或触碰账户与订单。
+
+## M0 顾投研究台账入口
+
+`POST /api/internal/sync-m0-research-ledger` 与 `GET /api/m0-research` 是顾投研究台账的
+只读边界；读取端仍要求已登录的 allowlist 用户。写入端只接受专用
+`M0_RESEARCH_SYNC_TOKEN`，不能复用 OAuth、策略切换、控制面、M1 Shadow、研究任务、
+平台或任何券商凭据。
+
+请求体必须是字段闭合的 `qsl_m0_research_publisher_envelope.v1`：root 固定为
+`schema_version`、`producer`、`source_artifact`、`ledger_sha256` 和嵌入的
+`qsl_m0_research_ledger.v1`。`producer` 固定为仓库/revision；`source_artifact` 固定为
+仓库、40 位 revision、run ID、artifact ID 与 artifact SHA-256。Worker 重新以 canonical
+JSON 计算并验证 `ledger_sha256`；`source_artifact.sha256` 是已认证的原始顾投 artifact
+声明，故意不与派生 ledger 的 SHA-256 混为同一个值。来源仓库目前固定为
+`QuantStrategyLab/QuantAdvisorResearch`，生产者仓库固定为
+`QuantStrategyLab/QuantRuntimeSettings`。任何额外字段、错误摘要、未来时间、损坏台账或
+越界语义都会在写入前被拒绝。发布构建器自 #310 起已经在生成端约束紧凑 UTF-8 envelope
+不超过 262,144 bytes；Worker 保留同一请求体上限作为接收端边界，不另行转换或放宽该契约。
+
+Worker 固定使用 `m0_research_ledger_current` 和由已校验 digest 派生的
+`m0_research_ledger_archive:<ledger_sha256>`；调用方不能传入 KV key。current 记录检测到
+重复 artifact/ledger、相同 source run ID 或 ledger 时间回退会返回 `409`。这是基于 KV
+当前记录的 **best-effort** 重放/回退保护：Cloudflare KV 不是线性一致的比较并交换存储，
+并发写入仍不能被表述为强原子顺序保证。本接口不为此新增 Durable Object 或其他绑定；它的
+职责仍限于 no-order 研究资料接收。current 与 archive 均使用 Cloudflare KV 的 14 天物理
+TTL；KV 缺失、过期、损坏或校验失败时，读取接口只返回空的 `unavailable` no-order 结构，
+绝不猜测旧研究结论。
+
+`GET /api/m0-research` 返回字段闭合的 **`qsl_m0_research_dashboard.v1`**，而不是
+`qsl_m0_research_ledger.v1`。dashboard 固定携带原始 `source_ledger_sha256`、source 的
+`generated_at` / `computed_at` 和 `viewed_at`，再给出派生的 `data_status`、summary、subjects、
+policy 与 errors。无可用记录时也返回同一 dashboard schema 的 `unavailable` 空结构。
+
+dashboard 不会直接复用已存储的 `freshness`：它会在每次读取时按照每条 observation 的
+`expires_at` 派生新的 `fresh/stale` 状态，并重新计算 subject 冲突、summary 和 `data_status`。
+这份只读投影不会写回 KV，也不会修改 hash-bound 原始 ledger；也**不声称**仍可通过原 ledger
+validator。来源已标为 stale 的观测不会因读取而被提升为 fresh。
+
+该入口**不**调用 selector、策略目录、平台配置、dispatch、runtime、插件或券商，也不创建
+研究任务。输出永远固定为 `authority=research_only`、`no_order=true` 和
+`permitted_next_step=research_validation_only`；将 M0 线索转为 P1--P3 研究任务仍需独立的
+证据绑定与准入流程。
 
 ## 文件结构
 

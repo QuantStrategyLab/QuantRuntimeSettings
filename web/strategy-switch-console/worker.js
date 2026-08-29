@@ -82,6 +82,34 @@ const ADAPTIVE_SELECTION_MAX_SOURCES = 100;
 const ADAPTIVE_SELECTION_MAX_BODY_BYTES = 256 * 1024;
 const ADAPTIVE_SELECTION_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
 const ADAPTIVE_SELECTION_AUTHORITY = "shadow_only";
+// M0 research arrives through a separate, signed-at-transport-boundary
+// snapshot.  It is deliberately neither an M1 selection input nor a research
+// task: this Worker only retains a closed, no-order ledger for authenticated
+// readers.  No strategy/platform/runtime/broker helper may consume it here.
+const M0_RESEARCH_TRANSPORT_SCHEMA_VERSION = "qsl_m0_research_publisher_envelope.v1";
+const M0_RESEARCH_LEDGER_SCHEMA_VERSION = "qsl_m0_research_ledger.v1";
+const M0_RESEARCH_DASHBOARD_SCHEMA_VERSION = "qsl_m0_research_dashboard.v1";
+const M0_RESEARCH_STORAGE_SCHEMA_VERSION = "qsl_m0_research_ledger_storage.v1";
+const M0_RESEARCH_CURRENT_KEY = "m0_research_ledger_current";
+const M0_RESEARCH_ARCHIVE_PREFIX = "m0_research_ledger_archive:";
+const M0_RESEARCH_MAX_BODY_BYTES = 256 * 1024;
+const M0_RESEARCH_RETENTION_SECONDS = 14 * 24 * 60 * 60;
+const M0_RESEARCH_ALLOWED_SOURCE_REPOSITORY = "QuantStrategyLab/QuantAdvisorResearch";
+const M0_RESEARCH_ALLOWED_PRODUCER_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
+const M0_RESEARCH_SUBJECT_KINDS = ["asset_idea", "theme_context", "strategy_hypothesis", "risk_context"];
+const M0_RESEARCH_HORIZONS = ["short", "medium", "long", "not_applicable"];
+const M0_RESEARCH_STATES = ["candidate", "source_verification_required", "deferred", "context_only"];
+const M0_RESEARCH_CONFIDENCE = ["high", "medium", "low", "mixed", "no_event", "unknown"];
+const M0_RESEARCH_STYLES = ["event_driven", "long_horizon_growth", "value_quality", "macro_context", "mixed_research"];
+const M0_RESEARCH_SUMMARY_FIELDS = [
+  "subject_count",
+  "observation_count",
+  "fresh_observation_count",
+  "stale_observation_count",
+  "unknown_observation_count",
+  "horizon_conflict_count",
+  "historical_stale_horizon_drift_count",
+];
 // A console decision is intentionally an auditable owner intent, not an
 // execution permit.  It remains separate from workflow dispatch credentials,
 // broker credentials, and any future deterministic execution gateway.
@@ -269,6 +297,12 @@ export default {
       }
       if (url.pathname === "/api/adaptive-selection" && request.method === "GET") {
         return await adaptiveSelectionResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-m0-research-ledger" && request.method === "POST") {
+        return await syncM0ResearchLedgerResponse(request, env);
+      }
+      if (url.pathname === "/api/m0-research" && request.method === "GET") {
+        return await m0ResearchLedgerResponse(request, env);
       }
       if (url.pathname === "/api/owner-decisions" && request.method === "GET") {
         return await ownerDecisionQueueResponse(request, env);
@@ -2200,6 +2234,142 @@ async function syncAdaptiveSelectionSourceResponse(request, env) {
   });
 }
 
+async function syncM0ResearchLedgerResponse(request, env) {
+  requireDedicatedM0ResearchSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "M0 research ledger KV is not configured" }, 503);
+  }
+
+  let raw;
+  try {
+    raw = await readBoundedJson(request, M0_RESEARCH_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid M0 research ledger payload" }, error.status || 400);
+  }
+
+  let envelope;
+  try {
+    envelope = await normalizeM0ResearchLedgerTransport(raw, "M0 research ledger transport");
+  } catch (error) {
+    // Validation deliberately completes before any KV write.  A malformed,
+    // over-scoped, or digest-mismatched payload can therefore never replace
+    // the last known-good current ledger.
+    return json({ ok: false, error: error.message || "invalid M0 research ledger payload" }, 400);
+  }
+
+  const current = await readCurrentM0ResearchLedgerRecord(env);
+  if (current) {
+    const replayError = m0ResearchLedgerReplayError(current.envelope, envelope);
+    if (replayError) return json({ ok: false, error: replayError }, 409);
+  }
+
+  // Capture once so the persisted interval is exactly the requested physical
+  // retention even when the request crosses a wall-clock second boundary.
+  const storedNow = new Date();
+  const storedAt = utcTimestampSeconds(storedNow);
+  const expiresAt = utcTimestampSeconds(new Date(storedNow.getTime() + M0_RESEARCH_RETENTION_SECONDS * 1000));
+  const record = {
+    schema_version: M0_RESEARCH_STORAGE_SCHEMA_VERSION,
+    stored_at: storedAt,
+    expires_at: expiresAt,
+    envelope,
+  };
+  try {
+    // Archive first: an archive failure must not advance the current pointer.
+    // The archive identity is derived exclusively from the verified digest;
+    // callers never choose a KV key.
+    await writeM0ResearchLedgerRecord(env, m0ResearchLedgerArchiveKey(envelope.ledger_sha256), record);
+    await writeM0ResearchLedgerRecord(env, M0_RESEARCH_CURRENT_KEY, record);
+  } catch {
+    return json({ ok: false, error: "M0 research ledger persistence failed" }, 503);
+  }
+
+  try {
+    await appendAuditLog(env, {
+      ts: storedAt,
+      login: "m0-research-ledger-sync",
+      action: "sync_m0_research_ledger",
+      source_repository: envelope.source_artifact.repository,
+      source_revision: envelope.source_artifact.revision,
+      source_run_id: envelope.source_artifact.run_id,
+      artifact_id: envelope.source_artifact.artifact_id,
+      ledger_sha256: envelope.ledger_sha256,
+      no_order: true,
+    });
+  } catch {
+    // Retention of an optional convenience log must not change a valid,
+    // already persisted no-order research ledger.
+  }
+  return json({
+    ok: true,
+    schema_version: envelope.schema_version,
+    source_repository: envelope.source_artifact.repository,
+    source_revision: envelope.source_artifact.revision,
+    source_run_id: envelope.source_artifact.run_id,
+    artifact_id: envelope.source_artifact.artifact_id,
+    ledger_sha256: envelope.ledger_sha256,
+    no_order: true,
+    expires_at: expiresAt,
+  });
+}
+
+async function m0ResearchLedgerResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyM0ResearchDashboardPayload("m0_research_ledger_unavailable"));
+  const record = await readCurrentM0ResearchLedgerRecord(env);
+  return json(record
+    ? projectM0ResearchDashboardForRead(record.envelope.ledger, record.envelope.ledger_sha256)
+    : emptyM0ResearchDashboardPayload("m0_research_ledger_unavailable"));
+}
+
+function m0ResearchLedgerReplayError(current, incoming) {
+  if (!current || !incoming) return null;
+  if (incoming.ledger_sha256 === current.ledger_sha256
+    || incoming.source_artifact.sha256 === current.source_artifact.sha256) {
+    return "M0 research ledger current replay rejected";
+  }
+  // Run IDs are closed identifiers rather than an assumed numeric sequence.
+  // An equal source/run identity is a replay; ledger time is the portable
+  // ordering guard for a different run identifier.
+  if (incoming.source_artifact.repository === current.source_artifact.repository
+    && incoming.source_artifact.run_id === current.source_artifact.run_id) {
+    return "M0 research ledger current replay rejected";
+  }
+  const incomingTime = Date.parse(incoming.ledger.computed_at);
+  const currentTime = Date.parse(current.ledger.computed_at);
+  if (Number.isFinite(incomingTime) && Number.isFinite(currentTime) && incomingTime <= currentTime) {
+    return "M0 research ledger time rollback rejected";
+  }
+  return null;
+}
+
+function m0ResearchLedgerArchiveKey(ledgerSha256) {
+  return `${M0_RESEARCH_ARCHIVE_PREFIX}${ledgerSha256}`;
+}
+
+async function writeM0ResearchLedgerRecord(env, key, record) {
+  const store = configStore(env);
+  if (!store) throw new Error("M0 research ledger KV is not configured");
+  await store.put(key, JSON.stringify(record), { expirationTtl: M0_RESEARCH_RETENTION_SECONDS });
+}
+
+async function readCurrentM0ResearchLedgerRecord(env) {
+  if (!hasConfigStore(env)) return null;
+  let stored;
+  try {
+    stored = await readConfigJson(env, M0_RESEARCH_CURRENT_KEY);
+  } catch {
+    return null;
+  }
+  if (!stored) return null;
+  try {
+    return await normalizeM0ResearchLedgerStorageRecord(stored, "M0 research ledger current record");
+  } catch {
+    return null;
+  }
+}
+
 async function adaptiveSelectionResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
@@ -2855,6 +3025,492 @@ function emptyControlPlaneSourceSnapshot(errorCode) {
     computed_at: null,
     data_status: "unavailable",
     candidates: [],
+    errors: [errorCode],
+  };
+}
+
+function requireDedicatedM0ResearchSyncToken(request, env) {
+  const expected = String(env.M0_RESEARCH_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("M0 research sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("M0 research sync token is invalid", 401);
+}
+
+async function normalizeM0ResearchLedgerTransport(payload, fieldName = "M0 research ledger transport") {
+  const source = assertExactFields(payload, [
+    "schema_version", "producer", "source_artifact", "ledger_sha256", "ledger",
+  ], fieldName);
+  if (source.schema_version !== M0_RESEARCH_TRANSPORT_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const normalized = {
+    schema_version: M0_RESEARCH_TRANSPORT_SCHEMA_VERSION,
+    producer: normalizeM0ResearchProducer(source.producer, `${fieldName}.producer`),
+    source_artifact: normalizeM0ResearchSourceArtifact(source.source_artifact, `${fieldName}.source_artifact`),
+    ledger_sha256: normalizeResearchTaskDigest(source.ledger_sha256, `${fieldName}.ledger_sha256`),
+    ledger: normalizeM0ResearchLedger(source.ledger, `${fieldName}.ledger`),
+  };
+  // The ledger digest binds the closed embedded ledger.  source_artifact.sha256
+  // intentionally remains a distinct immutable declaration about the QAR
+  // source artifact; it is not a hash of this derived ledger.
+  const recomputed = await calculateM0ResearchLedgerSha256(normalized.ledger);
+  if (normalized.ledger_sha256 !== recomputed) {
+    throw new Error(`${fieldName}.ledger_sha256 mismatch`);
+  }
+  const computedAt = Date.parse(normalized.ledger.computed_at);
+  if (!Number.isFinite(computedAt) || computedAt > Date.now() + 5 * 60 * 1000) {
+    throw new Error(`${fieldName}.ledger.computed_at is in the future`);
+  }
+  if (computedAt < Date.now() - M0_RESEARCH_RETENTION_SECONDS * 1000) {
+    throw new Error(`${fieldName}.ledger is expired`);
+  }
+  return normalized;
+}
+
+async function normalizeM0ResearchLedgerStorageRecord(payload, fieldName) {
+  const record = assertExactFields(payload, ["schema_version", "stored_at", "expires_at", "envelope"], fieldName);
+  if (record.schema_version !== M0_RESEARCH_STORAGE_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const storedAt = normalizeM0ResearchTimestamp(record.stored_at, `${fieldName}.stored_at`);
+  const expiresAt = normalizeM0ResearchTimestamp(record.expires_at, `${fieldName}.expires_at`);
+  const storedMillis = Date.parse(storedAt);
+  const expiresMillis = Date.parse(expiresAt);
+  if (expiresMillis - storedMillis !== M0_RESEARCH_RETENTION_SECONDS * 1000 || expiresMillis <= Date.now()) {
+    throw new Error(`${fieldName} is expired`);
+  }
+  return {
+    schema_version: M0_RESEARCH_STORAGE_SCHEMA_VERSION,
+    stored_at: storedAt,
+    expires_at: expiresAt,
+    envelope: await normalizeM0ResearchLedgerTransport(record.envelope, `${fieldName}.envelope`),
+  };
+}
+
+function normalizeM0ResearchLedger(payload, fieldName) {
+  const ledger = assertExactFields(payload, [
+    "schema_version", "generated_at", "computed_at", "data_status", "summary", "subjects", "policy", "errors",
+  ], fieldName);
+  if (ledger.schema_version !== M0_RESEARCH_LEDGER_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const generatedAt = normalizeM0ResearchTimestamp(ledger.generated_at, `${fieldName}.generated_at`);
+  const computedAt = normalizeM0ResearchTimestamp(ledger.computed_at, `${fieldName}.computed_at`);
+  if (generatedAt !== computedAt || /\./.test(generatedAt)) {
+    throw new Error(`${fieldName} timestamps must be the same canonical second`);
+  }
+  const dataStatus = cleanChoice(ledger.data_status, ["ready", "unavailable", "stale"], `${fieldName}.data_status`);
+  if (!Array.isArray(ledger.subjects) || ledger.subjects.length > 50000) {
+    throw new Error(`${fieldName}.subjects must be a bounded array`);
+  }
+  const subjects = ledger.subjects.map((subject, index) => normalizeM0ResearchSubject(
+    subject, `${fieldName}.subjects[${index}]`, computedAt,
+  ));
+  assertM0ResearchSortedUnique(subjects, (subject) => `${subject.subject.kind}\u0000${subject.subject.identifier}`, `${fieldName}.subjects`);
+  const summary = normalizeM0ResearchLedgerSummary(ledger.summary, `${fieldName}.summary`);
+  const calculatedSummary = summarizeM0ResearchSubjects(subjects);
+  if (!m0ResearchSummariesEqual(summary, calculatedSummary)) {
+    throw new Error(`${fieldName}.summary does not match subjects`);
+  }
+  const expectedStatus = summary.fresh_observation_count > 0
+    ? "ready"
+    : (summary.observation_count > 0 ? "stale" : "unavailable");
+  if (dataStatus !== expectedStatus) throw new Error(`${fieldName}.data_status does not match subjects`);
+  if (dataStatus === "unavailable" && subjects.length) throw new Error(`${fieldName}.subjects must be empty when unavailable`);
+  return {
+    schema_version: M0_RESEARCH_LEDGER_SCHEMA_VERSION,
+    generated_at: generatedAt,
+    computed_at: computedAt,
+    data_status: dataStatus,
+    summary,
+    subjects,
+    policy: normalizeM0ResearchLedgerPolicy(ledger.policy, `${fieldName}.policy`),
+    errors: normalizeM0ResearchErrorCodes(ledger.errors, `${fieldName}.errors`),
+  };
+}
+
+function normalizeM0ResearchLedgerSummary(value, fieldName) {
+  const summary = assertExactFields(value, M0_RESEARCH_SUMMARY_FIELDS, fieldName);
+  const result = {};
+  for (const key of M0_RESEARCH_SUMMARY_FIELDS) {
+    result[key] = normalizeM0ResearchCount(summary[key], `${fieldName}.${key}`);
+  }
+  return result;
+}
+
+function m0ResearchSummariesEqual(left, right) {
+  return M0_RESEARCH_SUMMARY_FIELDS.every((field) => left[field] === right[field]);
+}
+
+function normalizeM0ResearchLedgerPolicy(value, fieldName) {
+  const policy = assertExactFields(value, ["authority", "no_order", "permitted_next_step", "notice"], fieldName);
+  if (policy.authority !== "research_only" || policy.no_order !== true || policy.permitted_next_step !== "research_validation_only") {
+    throw new Error(`${fieldName} must remain research-only and no-order`);
+  }
+  return {
+    authority: "research_only",
+    no_order: true,
+    permitted_next_step: "research_validation_only",
+    notice: normalizeM0ResearchText(policy.notice, `${fieldName}.notice`, 240),
+  };
+}
+
+function normalizeM0ResearchSubject(value, fieldName, ledgerComputedAt) {
+  const item = assertExactFields(value, ["subject", "observations", "horizon_conflict", "historical_stale_horizon_drift"], fieldName);
+  const subject = assertExactFields(item.subject, ["kind", "identifier"], `${fieldName}.subject`);
+  const normalizedSubject = {
+    kind: cleanChoice(subject.kind, M0_RESEARCH_SUBJECT_KINDS, `${fieldName}.subject.kind`),
+    identifier: normalizeM0ResearchIdentifier(subject.identifier, `${fieldName}.subject.identifier`),
+  };
+  if (!Array.isArray(item.observations) || !item.observations.length || item.observations.length > 100) {
+    throw new Error(`${fieldName}.observations must be a non-empty bounded array`);
+  }
+  const observations = item.observations.map((observation, index) => normalizeM0ResearchObservation(
+    observation, `${fieldName}.observations[${index}]`, ledgerComputedAt,
+  ));
+  assertM0ResearchSortedUnique(observations, (observation) => (
+    `${observation.source_report_digest}\u0000${observation.source_entry_digest}`
+  ), `${fieldName}.observations`);
+  const expectedHorizonView = calculateM0ResearchHorizonViews(observations);
+  const horizonConflict = normalizeM0ResearchHorizonView(
+    item.horizon_conflict, `${fieldName}.horizon_conflict`, ["none", "conflict"], expectedHorizonView.horizon_conflict,
+  );
+  const historicalStaleHorizonDrift = normalizeM0ResearchHorizonView(
+    item.historical_stale_horizon_drift, `${fieldName}.historical_stale_horizon_drift`,
+    ["none", "drift", "unavailable"], expectedHorizonView.historical_stale_horizon_drift,
+  );
+  return {
+    subject: normalizedSubject,
+    observations,
+    horizon_conflict: horizonConflict,
+    historical_stale_horizon_drift: historicalStaleHorizonDrift,
+  };
+}
+
+function normalizeM0ResearchObservation(value, fieldName, ledgerComputedAt) {
+  const item = assertExactFields(value, [
+    "source_ids", "source_report_digest", "source_entry_digest", "hypothesis_id", "as_of", "generated_at", "expires_at",
+    "research_context", "freshness",
+  ], fieldName);
+  if (!Array.isArray(item.source_ids) || !item.source_ids.length || item.source_ids.length > 100) {
+    throw new Error(`${fieldName}.source_ids must be a non-empty bounded array`);
+  }
+  const sourceIds = item.source_ids.map((sourceId, index) => normalizeM0ResearchIdentifier(sourceId, `${fieldName}.source_ids[${index}]`));
+  assertM0ResearchSortedUnique(sourceIds, (sourceId) => sourceId, `${fieldName}.source_ids`);
+  const generatedAt = normalizeM0ResearchTimestamp(item.generated_at, `${fieldName}.generated_at`);
+  const expiresAt = normalizeM0ResearchTimestamp(item.expires_at, `${fieldName}.expires_at`);
+  const generatedMillis = Date.parse(generatedAt);
+  const expiresMillis = Date.parse(expiresAt);
+  if (expiresMillis - generatedMillis !== 7 * 24 * 60 * 60 * 1000) {
+    throw new Error(`${fieldName} must have the fixed seven-day M0 expiry`);
+  }
+  const asOf = normalizeM0ResearchDate(item.as_of, `${fieldName}.as_of`);
+  if (asOf > generatedAt.slice(0, 10)) throw new Error(`${fieldName}.as_of cannot be after generated_at`);
+  const context = normalizeM0ResearchContext(item.research_context, `${fieldName}.research_context`);
+  const freshness = normalizeM0ResearchFreshness(
+    item.freshness, `${fieldName}.freshness`, generatedMillis, expiresMillis, Date.parse(ledgerComputedAt),
+  );
+  return {
+    source_ids: sourceIds,
+    source_report_digest: normalizeResearchTaskDigest(item.source_report_digest, `${fieldName}.source_report_digest`),
+    source_entry_digest: normalizeResearchTaskDigest(item.source_entry_digest, `${fieldName}.source_entry_digest`),
+    hypothesis_id: normalizeM0ResearchIdentifier(item.hypothesis_id, `${fieldName}.hypothesis_id`),
+    as_of: asOf,
+    generated_at: generatedAt,
+    expires_at: expiresAt,
+    research_context: context,
+    freshness,
+  };
+}
+
+function normalizeM0ResearchContext(value, fieldName) {
+  const context = assertExactFields(value, [
+    "state", "primary_horizon", "suitable_horizons", "source_confidence", "source_style", "theme_ids",
+  ], fieldName);
+  const primaryHorizon = cleanChoice(context.primary_horizon, M0_RESEARCH_HORIZONS, `${fieldName}.primary_horizon`);
+  if (!Array.isArray(context.suitable_horizons) || !context.suitable_horizons.length || context.suitable_horizons.length > 4) {
+    throw new Error(`${fieldName}.suitable_horizons is invalid`);
+  }
+  const suitableHorizons = context.suitable_horizons.map((horizon, index) => cleanChoice(
+    horizon, M0_RESEARCH_HORIZONS, `${fieldName}.suitable_horizons[${index}]`,
+  ));
+  if (!suitableHorizons.includes(primaryHorizon)) throw new Error(`${fieldName}.primary_horizon must be suitable`);
+  assertM0ResearchUnique(suitableHorizons, `${fieldName}.suitable_horizons`);
+  if (!Array.isArray(context.theme_ids) || context.theme_ids.length > 24) throw new Error(`${fieldName}.theme_ids is invalid`);
+  const themeIds = context.theme_ids.map((themeId, index) => normalizeM0ResearchIdentifier(themeId, `${fieldName}.theme_ids[${index}]`));
+  assertM0ResearchUnique(themeIds, `${fieldName}.theme_ids`);
+  return {
+    state: cleanChoice(context.state, M0_RESEARCH_STATES, `${fieldName}.state`),
+    primary_horizon: primaryHorizon,
+    suitable_horizons: suitableHorizons,
+    source_confidence: cleanChoice(context.source_confidence, M0_RESEARCH_CONFIDENCE, `${fieldName}.source_confidence`),
+    source_style: cleanChoice(context.source_style, M0_RESEARCH_STYLES, `${fieldName}.source_style`),
+    theme_ids: themeIds,
+  };
+}
+
+function normalizeM0ResearchFreshness(value, fieldName, generatedMillis, expiresMillis, ledgerComputedMillis) {
+  const freshness = assertExactFields(value, ["status", "age_seconds"], fieldName);
+  const status = cleanChoice(freshness.status, ["fresh", "stale", "unknown"], `${fieldName}.status`);
+  const expectedAge = generatedMillis > ledgerComputedMillis
+    ? null
+    : Math.max(0, Math.floor((ledgerComputedMillis - generatedMillis) / 1000));
+  const age = freshness.age_seconds === null ? null : normalizeM0ResearchCount(freshness.age_seconds, `${fieldName}.age_seconds`, 315360000);
+  if (status === "unknown") {
+    if (age !== null || generatedMillis <= ledgerComputedMillis) throw new Error(`${fieldName} unknown state is invalid`);
+    return { status, age_seconds: null };
+  }
+  if (age !== expectedAge || generatedMillis > ledgerComputedMillis) throw new Error(`${fieldName}.age_seconds is invalid`);
+  if (status === "fresh" && ledgerComputedMillis >= expiresMillis) throw new Error(`${fieldName} cannot be fresh after expiry`);
+  return { status, age_seconds: age };
+}
+
+function calculateM0ResearchHorizonViews(observations) {
+  const freshHorizons = [...new Set(observations
+    .filter((observation) => observation.freshness.status === "fresh")
+    .map((observation) => observation.research_context.primary_horizon))].sort();
+  const staleHorizons = [...new Set(observations
+    .filter((observation) => observation.freshness.status === "stale")
+    .map((observation) => observation.research_context.primary_horizon))].sort();
+  return {
+    horizon_conflict: { status: freshHorizons.length > 1 ? "conflict" : "none", primary_horizons: freshHorizons },
+    historical_stale_horizon_drift: {
+      status: freshHorizons.length
+        ? (staleHorizons.length && JSON.stringify(staleHorizons) !== JSON.stringify(freshHorizons) ? "drift" : "none")
+        : (staleHorizons.length ? "unavailable" : "none"),
+      primary_horizons: staleHorizons,
+    },
+  };
+}
+
+function projectM0ResearchDashboardForRead(ledger, sourceLedgerSha256, now = new Date()) {
+  // The stored envelope remains the immutable, digest-bound publication
+  // record. This is deliberately a different dashboard schema: changing
+  // freshness at read time must never pretend to be a re-validatable ledger.
+  const nowMillis = now instanceof Date ? now.getTime() : Date.parse(now);
+  if (!Number.isFinite(nowMillis)) return emptyM0ResearchDashboardPayload("m0_research_ledger_unavailable");
+  const subjects = ledger.subjects.map((entry) => {
+    const observations = entry.observations.map((observation) => ({
+      ...observation,
+      freshness: projectM0ResearchObservationFreshness(observation, nowMillis),
+    }));
+    const horizonViews = calculateM0ResearchHorizonViews(observations);
+    return {
+      subject: { ...entry.subject },
+      observations,
+      horizon_conflict: horizonViews.horizon_conflict,
+      historical_stale_horizon_drift: horizonViews.historical_stale_horizon_drift,
+    };
+  });
+  const summary = summarizeM0ResearchSubjects(subjects);
+  const dataStatus = summary.fresh_observation_count > 0
+    ? "ready"
+    : (summary.observation_count > 0 ? "stale" : "unavailable");
+  return {
+    schema_version: M0_RESEARCH_DASHBOARD_SCHEMA_VERSION,
+    source_ledger_sha256: sourceLedgerSha256,
+    source_generated_at: ledger.generated_at,
+    source_computed_at: ledger.computed_at,
+    viewed_at: utcTimestampSeconds(new Date(nowMillis)),
+    data_status: dataStatus,
+    summary,
+    subjects,
+    policy: { ...ledger.policy },
+    errors: [...ledger.errors],
+  };
+}
+
+function projectM0ResearchObservationFreshness(observation, nowMillis) {
+  const generatedMillis = Date.parse(observation.generated_at);
+  const expiresMillis = Date.parse(observation.expires_at);
+  if (!Number.isFinite(generatedMillis) || !Number.isFinite(expiresMillis) || nowMillis < generatedMillis) {
+    return { status: "unknown", age_seconds: null };
+  }
+  const ageSeconds = Math.max(0, Math.floor((nowMillis - generatedMillis) / 1000));
+  // A stale source is never promoted by this projection.  A former fresh
+  // observation is demoted as soon as its own expiry is reached.
+  const status = observation.freshness.status === "fresh" && nowMillis < expiresMillis
+    ? "fresh"
+    : "stale";
+  return { status, age_seconds: ageSeconds };
+}
+
+function normalizeM0ResearchHorizonView(value, fieldName, allowedStatuses, expected) {
+  const view = assertExactFields(value, ["status", "primary_horizons"], fieldName);
+  const status = cleanChoice(view.status, allowedStatuses, `${fieldName}.status`);
+  if (!Array.isArray(view.primary_horizons) || view.primary_horizons.length > 4) {
+    throw new Error(`${fieldName}.primary_horizons is invalid`);
+  }
+  const horizons = view.primary_horizons.map((horizon, index) => cleanChoice(
+    horizon, M0_RESEARCH_HORIZONS, `${fieldName}.primary_horizons[${index}]`,
+  ));
+  assertM0ResearchSortedUnique(horizons, (horizon) => horizon, `${fieldName}.primary_horizons`);
+  if (status !== expected.status || JSON.stringify(horizons) !== JSON.stringify(expected.primary_horizons)) {
+    throw new Error(`${fieldName} does not match observations`);
+  }
+  return { status, primary_horizons: horizons };
+}
+
+function summarizeM0ResearchSubjects(subjects) {
+  const observations = subjects.flatMap((subject) => subject.observations);
+  return {
+    subject_count: subjects.length,
+    observation_count: observations.length,
+    fresh_observation_count: observations.filter((observation) => observation.freshness.status === "fresh").length,
+    stale_observation_count: observations.filter((observation) => observation.freshness.status === "stale").length,
+    unknown_observation_count: observations.filter((observation) => observation.freshness.status === "unknown").length,
+    horizon_conflict_count: subjects.filter((subject) => subject.horizon_conflict.status === "conflict").length,
+    historical_stale_horizon_drift_count: subjects.filter((subject) => subject.historical_stale_horizon_drift.status === "drift").length,
+  };
+}
+
+function normalizeM0ResearchErrorCodes(value, fieldName) {
+  if (!Array.isArray(value) || value.length > 20) throw new Error(`${fieldName} is invalid`);
+  const errors = value.map((error, index) => {
+    if (typeof error !== "string" || !/^[a-z][a-z0-9_.-]{0,63}$/.test(error)) {
+      throw new Error(`${fieldName}[${index}] is invalid`);
+    }
+    return error;
+  });
+  assertM0ResearchSortedUnique(errors, (error) => error, fieldName);
+  return errors;
+}
+
+function normalizeM0ResearchRepository(value, fieldName, allowedRepository) {
+  const repository = normalizeResearchTaskRepository(value, fieldName);
+  if (repository !== allowedRepository) throw new Error(`${fieldName} is not an approved M0 repository`);
+  return repository;
+}
+
+function normalizeM0ResearchRevision(value, fieldName) {
+  return normalizeResearchTaskRevision(value, fieldName);
+}
+
+function normalizeM0ResearchProducer(value, fieldName) {
+  const producer = assertExactFields(value, ["repository", "revision"], fieldName);
+  return {
+    repository: normalizeM0ResearchRepository(
+      producer.repository, `${fieldName}.repository`, M0_RESEARCH_ALLOWED_PRODUCER_REPOSITORY,
+    ),
+    revision: normalizeM0ResearchRevision(producer.revision, `${fieldName}.revision`),
+  };
+}
+
+function normalizeM0ResearchSourceArtifact(value, fieldName) {
+  const artifact = assertExactFields(value, ["repository", "revision", "run_id", "artifact_id", "sha256"], fieldName);
+  return {
+    repository: normalizeM0ResearchRepository(
+      artifact.repository, `${fieldName}.repository`, M0_RESEARCH_ALLOWED_SOURCE_REPOSITORY,
+    ),
+    revision: normalizeM0ResearchRevision(artifact.revision, `${fieldName}.revision`),
+    run_id: normalizeM0ResearchIdentifier(artifact.run_id, `${fieldName}.run_id`),
+    artifact_id: normalizeM0ResearchArtifactId(artifact.artifact_id, `${fieldName}.artifact_id`),
+    sha256: normalizeResearchTaskDigest(artifact.sha256, `${fieldName}.sha256`),
+  };
+}
+
+function normalizeM0ResearchArtifactId(value, fieldName) {
+  // Keep this exactly aligned with #309's generic identifier schema.  Artifact
+  // IDs are provenance labels, not strategy slugs, so uppercase and `:/` are
+  // valid when they satisfy the closed source-artifact contract.
+  return normalizeM0ResearchIdentifier(value, fieldName);
+}
+
+function normalizeM0ResearchIdentifier(value, fieldName) {
+  if (typeof value !== "string" || !/^[A-Za-z0-9._:/-]{1,128}$/.test(value)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return value;
+}
+
+function normalizeM0ResearchTimestamp(value, fieldName) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new Error(`${fieldName} must be a UTC timestamp`);
+  }
+  if (new Date(value).toISOString().slice(0, 10) !== value.slice(0, 10)) {
+    throw new Error(`${fieldName} must be a real UTC timestamp`);
+  }
+  return value;
+}
+
+function normalizeM0ResearchDate(value, fieldName) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
+    throw new Error(`${fieldName} must be an ISO date`);
+  }
+  if (new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
+    throw new Error(`${fieldName} must be a real ISO date`);
+  }
+  return value;
+}
+
+function normalizeM0ResearchCount(value, fieldName, maximum = 50000) {
+  if (!Number.isInteger(value) || value < 0 || value > maximum) throw new Error(`${fieldName} is invalid`);
+  return value;
+}
+
+function normalizeM0ResearchText(value, fieldName, maximum) {
+  if (typeof value !== "string" || !value || value.length > maximum || /[<>\\\u0000-\u001f]/.test(value)) {
+    throw new Error(`${fieldName} is invalid`);
+  }
+  return value;
+}
+
+function assertM0ResearchUnique(values, fieldName) {
+  if (new Set(values).size !== values.length) throw new Error(`${fieldName} contains duplicates`);
+}
+
+function assertM0ResearchSortedUnique(values, key, fieldName) {
+  let previous = null;
+  for (const value of values) {
+    const current = key(value);
+    if (previous !== null && current <= previous) throw new Error(`${fieldName} must be sorted and unique`);
+    previous = current;
+  }
+}
+
+function canonicalM0ResearchLedgerJson(value) {
+  if (value === null) return "null";
+  if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) throw new Error("M0 research ledger must use finite JSON values");
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalM0ResearchLedgerJson).join(",")}]`;
+  if (!value || typeof value !== "object") throw new Error("M0 research ledger must use JSON values");
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalM0ResearchLedgerJson(value[key])}`).join(",")}}`;
+}
+
+async function calculateM0ResearchLedgerSha256(ledger) {
+  const raw = new TextEncoder().encode(canonicalM0ResearchLedgerJson(ledger));
+  const digest = await crypto.subtle.digest("SHA-256", raw);
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function emptyM0ResearchDashboardPayload(errorCode, now = new Date()) {
+  return {
+    schema_version: M0_RESEARCH_DASHBOARD_SCHEMA_VERSION,
+    source_ledger_sha256: null,
+    source_generated_at: null,
+    source_computed_at: null,
+    viewed_at: utcTimestampSeconds(now),
+    data_status: "unavailable",
+    summary: {
+      subject_count: 0,
+      observation_count: 0,
+      fresh_observation_count: 0,
+      stale_observation_count: 0,
+      unknown_observation_count: 0,
+      horizon_conflict_count: 0,
+      historical_stale_horizon_drift_count: 0,
+    },
+    subjects: [],
+    policy: {
+      authority: "research_only",
+      no_order: true,
+      permitted_next_step: "research_validation_only",
+      notice: "M0 研究台账不可用；不会推断策略、平台、运行状态或订单。",
+    },
     errors: [errorCode],
   };
 }
@@ -5310,6 +5966,10 @@ export const __test = {
   normalizeAdaptiveSelectionSourceSnapshot,
   calculateAdaptiveSelectionDecisionDigest,
   emptyAdaptiveSelectionPayload,
+  normalizeM0ResearchLedgerTransport,
+  calculateM0ResearchLedgerSha256,
+  projectM0ResearchDashboardForRead,
+  emptyM0ResearchDashboardPayload,
   normalizeExecutionEvidenceSourceSnapshot,
   emptyExecutionEvidencePayload,
   calculateResearchTaskSha256,

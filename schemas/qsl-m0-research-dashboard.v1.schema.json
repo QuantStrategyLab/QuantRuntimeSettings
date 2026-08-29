@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-m0-research-dashboard.v1.schema.json",
+  "title": "QSL M0 Research Dashboard v1",
+  "description": "Read-time dashboard projection of an immutable M0 research ledger. It is not the source ledger and cannot express strategy, allocation, runtime, platform, broker, or execution authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "source_ledger_sha256", "source_generated_at", "source_computed_at", "viewed_at", "data_status", "summary", "subjects", "policy", "errors"],
+  "properties": {
+    "schema_version": { "const": "qsl_m0_research_dashboard.v1" },
+    "source_ledger_sha256": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" },
+    "source_generated_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "source_computed_at": { "type": ["string", "null"], "format": "date-time", "maxLength": 64 },
+    "viewed_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+    "data_status": { "enum": ["ready", "unavailable", "stale"] },
+    "summary": { "$ref": "qsl-m0-research-ledger.v1.schema.json#/properties/summary" },
+    "subjects": { "$ref": "qsl-m0-research-ledger.v1.schema.json#/properties/subjects" },
+    "policy": { "$ref": "qsl-m0-research-ledger.v1.schema.json#/properties/policy" },
+    "errors": { "$ref": "qsl-m0-research-ledger.v1.schema.json#/properties/errors" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "data_status": { "const": "unavailable" } } },
+      "then": {
+        "properties": {
+          "source_ledger_sha256": { "type": "null" },
+          "source_generated_at": { "type": "null" },
+          "source_computed_at": { "type": "null" },
+          "subjects": { "maxItems": 0 },
+          "summary": {
+            "properties": {
+              "subject_count": { "const": 0 },
+              "observation_count": { "const": 0 },
+              "fresh_observation_count": { "const": 0 },
+              "stale_observation_count": { "const": 0 },
+              "unknown_observation_count": { "const": 0 },
+              "horizon_conflict_count": { "const": 0 },
+              "historical_stale_horizon_drift_count": { "const": 0 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "data_status": { "enum": ["ready", "stale"] } } },
+      "then": {
+        "properties": {
+          "source_ledger_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "source_generated_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+          "source_computed_at": { "type": "string", "format": "date-time", "maxLength": 64 }
+        }
+      }
+    }
+  ]
+}
