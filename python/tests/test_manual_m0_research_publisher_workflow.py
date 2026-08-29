@@ -48,11 +48,21 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
         self.assertIn("--source-artifact-id \"${QAR_ARTIFACT_ID}\"", workflow)
         self.assertIn("--source-artifact-sha256 \"${M0_SOURCE_SNAPSHOT_SHA256}\"", workflow)
 
-    def test_workflow_uses_only_dedicated_read_and_publish_credentials(self):
+    def test_workflow_uses_only_scoped_app_reader_and_publish_credentials(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
-        self.assertIn("QAR_ARTIFACT_READ_TOKEN: ${{ secrets.QAR_ARTIFACT_READ_TOKEN }}", workflow)
-        self.assertIn("GH_TOKEN=\"${QAR_ARTIFACT_READ_TOKEN}\" gh api", workflow)
+        self.assertIn("uses: actions/create-github-app-token@v3", workflow)
+        self.assertIn("id: qar-artifact-reader", workflow)
+        self.assertIn("app-id: ${{ vars.QAR_ARTIFACT_READER_APP_ID }}", workflow)
+        self.assertIn("private-key: ${{ secrets.QAR_ARTIFACT_READER_APP_PRIVATE_KEY }}", workflow)
+        self.assertIn("owner: QuantStrategyLab", workflow)
+        self.assertIn("repositories: QuantAdvisorResearch", workflow)
+        self.assertIn("permission-actions: read", workflow)
+        self.assertNotIn("QAR_ARTIFACT_READ_TOKEN", workflow)
+        self.assertEqual(
+            workflow.count("GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}"),
+            3,
+        )
         self.assertIn(
             "QSL_M0_RESEARCH_LEDGER_PUBLISH_URL: ${{ vars.M0_RESEARCH_SYNC_URL }}",
             workflow,
@@ -72,12 +82,11 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
         self.assertNotIn("${QSL_M0_RESEARCH_LEDGER_PUBLISH_URL}", workflow)
         self.assertNotIn("${QSL_M0_RESEARCH_LEDGER_PUBLISH_TOKEN}", workflow)
 
-        read_token_steps = workflow.count("QAR_ARTIFACT_READ_TOKEN: ${{ secrets.QAR_ARTIFACT_READ_TOKEN }}")
-        self.assertEqual(read_token_steps, 3)
         self.assertEqual(workflow.count("QSL_M0_RESEARCH_LEDGER_PUBLISH_URL: ${{ vars.M0_RESEARCH_SYNC_URL }}"), 1)
         self.assertEqual(workflow.count("QSL_M0_RESEARCH_LEDGER_PUBLISH_TOKEN: ${{ secrets.M0_RESEARCH_SYNC_TOKEN }}"), 1)
         build_step = workflow.split("- name: Build and publish verified no-order M0 ledger", maxsplit=1)[1]
-        self.assertNotIn("QAR_ARTIFACT_READ_TOKEN", build_step)
+        self.assertNotIn("qar-artifact-reader.outputs.token", build_step)
+        self.assertNotIn("QAR_ARTIFACT_READER_APP_PRIVATE_KEY", build_step)
 
     def test_sensitive_values_are_not_emitted_by_workflow_commands(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -85,7 +94,7 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
         for line in workflow.splitlines():
             self.assertFalse(
                 re.search(
-                    r"\b(?:echo|printf)\b.*\$\{?(?:QAR_ARTIFACT_READ_TOKEN|QSL_M0_RESEARCH_LEDGER_PUBLISH_(?:URL|TOKEN))",
+                    r"\b(?:echo|printf)\b.*\$\{?(?:QAR_ARTIFACT_READER_APP_PRIVATE_KEY|QSL_M0_RESEARCH_LEDGER_PUBLISH_(?:URL|TOKEN))",
                     line,
                 ),
                 line,

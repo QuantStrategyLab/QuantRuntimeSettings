@@ -105,8 +105,8 @@ deployment branch 也必须只允许 `main`；从其他 ref 手动 dispatch 时 
 - artifact：`weekly-model-recommendations`；
 - artifact 内唯一命名为 `m0_research_source_snapshot_YYYY-MM-DD.json` 的文件。
 
-在下载前，workflow 用专用的 `QAR_ARTIFACT_READ_TOKEN` 验证 run ID、成功状态、
-workflow 身份、来源仓库和 `head_repository`、`head_branch=main`、可信 event（仅
+在下载前，workflow 用 GitHub App 临时安装令牌验证 run ID、成功状态、workflow 身份、
+来源仓库和 `head_repository`、`head_branch=main`、可信 event（仅
 `schedule` 或 `workflow_dispatch`）、immutable `head_sha`，以及 artifact 与该 run 的绑定。下载后，
 它拒绝不安全 ZIP 路径、多个或缺失 snapshot、超过 2 MiB 的 snapshot、错误 schema/source
 ID 或无效 report digest，并计算**原始 snapshot 字节**的 SHA-256。该 SHA、QAR revision、
@@ -120,10 +120,32 @@ run ID 和 artifact ID 都作为 `source_artifact` metadata 显式传给构建�
 | variable `M0_RESEARCH_SYNC_URL` | `QSL_M0_RESEARCH_LEDGER_PUBLISH_URL` | HTTPS 研究台账接收地址 |
 | secret `M0_RESEARCH_SYNC_TOKEN` | `QSL_M0_RESEARCH_LEDGER_PUBLISH_TOKEN` | 接收端专用 Bearer token |
 
-`QAR_ARTIFACT_READ_TOKEN`、`M0_RESEARCH_SYNC_TOKEN` 和 `M0_RESEARCH_SYNC_URL` 都必须配置
-在 `m0-research-publisher` Environment 中，而不是 repository-level 默认作用域。两个 token
-必须是不同的值和不同的最小权限用途：前者只能读取固定 QAR repository 的 Actions run/artifact，
-后者只能向 M0 接收端发布封套；不得复用、互相授予或写入运行时/平台配置。
+`m0-research-publisher` Environment 还必须保存 GitHub App 配置，而不是任何长期 QAR PAT：
+
+| GitHub 配置 | 用途 |
+| --- | --- |
+| variable `QAR_ARTIFACT_READER_APP_ID` | 只安装于 QAR 的 GitHub App ID；不是 secret |
+| secret `QAR_ARTIFACT_READER_APP_PRIVATE_KEY` | 该 App 的 PEM private key |
+
+App 只能安装到 `QuantStrategyLab/QuantAdvisorResearch`，repository permission 只能是
+`Actions: Read-only`。工作流明确把生成的安装令牌进一步缩小到该 owner/repository 和
+`actions:read`，并只注入三个 QAR API 读取步骤；`actions/create-github-app-token` 会在 job
+结束时撤销令牌。它从不进入构建/发布步骤、封套、输出或日志。
+
+`M0_RESEARCH_SYNC_TOKEN`、`M0_RESEARCH_SYNC_URL`、上述 App ID 和 private key 都必须配置
+在 `m0-research-publisher` Environment 中，而不是 repository-level 默认作用域。App 的读取权限
+与 M0 发布 token 完全分离；后者只能向 M0 接收端发布封套，二者不得复用、互相授予或写入运行时、
+平台配置。
+
+### 一次性创建 GitHub App
+
+组织管理员可在 [QuantStrategyLab GitHub Apps](https://github.com/organizations/QuantStrategyLab/settings/apps/new)
+创建私有 App：名称可用 `QSL M0 Research Artifact Reader`，Homepage URL 用
+`https://github.com/QuantStrategyLab/QuantRuntimeSettings`，关闭 webhook，唯一 repository permission
+选择 `Actions: Read-only`。创建后生成一把 private key，并把**完整 PEM 文件内容**保存为
+`QAR_ARTIFACT_READER_APP_PRIVATE_KEY`，把 App 的 App ID 保存为
+`QAR_ARTIFACT_READER_APP_ID`。最后通过 App 的 Install 页面选择组织 `QuantStrategyLab`，并且
+只选择 `QuantAdvisorResearch`。不要把 PEM 或任何 access token 粘贴到 issue、PR、日志或聊天中。
 
 同一个 `M0_RESEARCH_SYNC_TOKEN` 还必须以**同名、同值的独立 secret**配置到已有的
 `runtime-strategy-switch` Environment。它只会在控制台 Worker 的部署 workflow 中被写入
