@@ -31,6 +31,15 @@ def _snapshot(**overrides: object) -> dict[str, object]:
 
 
 class RuntimeTargetLifecycleTest(unittest.TestCase):
+    def test_console_runtime_status_board_uses_only_the_read_only_central_api(self) -> None:
+        console = (ROOT / "web" / "strategy-switch-console" / "app.js").read_text(encoding="utf-8")
+        page = (ROOT / "web" / "strategy-switch-console" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="runtime-target-lifecycle-list"', page)
+        self.assertIn('requestJson("/api/runtime-target-lifecycle")', console)
+        self.assertIn("function renderRuntimeTargetLifecycle()", console)
+        self.assertIn('runtimeTargetLifecycleNoOrder', console)
+
     def test_disabled_target_remains_in_no_order_validation_lane(self) -> None:
         snapshot = _snapshot()
 

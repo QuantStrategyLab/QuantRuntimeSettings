@@ -175,7 +175,9 @@ python3 scripts/sync_strategy_switch_page_asset.py
 `runtime-catalog-projection.json` 同样由 `platform-config.json` 生成，并用来源 SHA-256
 防止已提交的目录资产陈旧。登录后的 `GET /api/runtime-catalog` 只返回这个**配置门禁**
 投影；它不代表真实部署或交易状态。页面显示候选状态和目标执行状态时，必须分别使用
-`/api/control-plane` 与 `/api/execution-evidence`，不得回退到历史 `lifecycle-matrix.json`。
+`/api/control-plane`、`/api/execution-evidence` 与 `/api/runtime-target-lifecycle`，不得回退到历史
+`lifecycle-matrix.json`。其中平台运行状态仅显示已接入来源；没有实际运行入口或未发布快照的平台必须
+保持“待接入”，不能被界面推断为正常或已停用。
 
 ## 账号下拉配置
 
@@ -251,6 +253,20 @@ GET  /api/control-plane
 聚合快照的 `data_status=ready` 仅代表快照送达。请同时读取只读 `attention`：任何 `DEFERRED` / `PARKED` 的策略、组合或插件候选、上游错误或空候选都会使其成为 `attention_required`；这用于告警与界面提示，绝不是自动调参、自动修复、paper/shadow/live 或下单授权。
 
 这个接口不是订单、paper、shadow 或 live API。`CONTROL_PLANE_SYNC_TOKEN` 必须与 OAuth、workflow dispatch、策略 root 和任何券商凭证完全分离。部署 workflow 会在 `runtime-strategy-switch` environment 提供该 secret 时，把它同步为 Worker secret；每个来源仓库需要保存同一值到其专用 GitHub Environment，URL 使用只读控制台的 `/api/internal/sync-control-plane-source`。
+
+## 平台运行状态只读接口
+
+已接入的券商/平台仓在自身运行监测完成后，使用与执行证据同样受限的专用同步凭据提交**脱敏状态**：
+
+```text
+POST /api/internal/sync-runtime-target-lifecycle-source
+GET  /api/runtime-target-lifecycle
+```
+
+来源契约为 `qsl_runtime_target_lifecycle_source_snapshot.v1`；每个目标固定为 `no_order=true`，只包含平台、
+启用/停用状态、通道、运行监测、执行心跳及停车结论。Worker 按 `source_id` 保存并聚合，重复目标会被
+拒绝而不是覆盖。读取接口要求登录 allowlist，来源超过默认新鲜度窗口即标为 `stale`。管理台把该信息放在
+“待处理”页默认折叠的“平台运行状态”中，且只读：它不能启用目标、变更策略、访问账户或提交订单。
 
 ## M1 Shadow 建议只读接口
 

@@ -860,6 +860,31 @@
         executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
         executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
         executionEvidenceNext: "下一步",
+        runtimeTargetLifecycleBoard: "按需查看平台运行状态",
+        runtimeTargetLifecycleLoginNotice: "登录后读取私有平台运行状态；页面不会改变启用/停用或提交订单。",
+        runtimeTargetLifecycleStaleNotice: "平台运行状态已超过允许的新鲜度窗口；请先检查监测链路。",
+        runtimeTargetLifecycleUnavailableNotice: "还没有可用的平台运行状态；缺失数据不会被推断成已停用或正常。",
+        runtimeTargetLifecycleUpstreamNotice: "平台运行状态已加载，但有 {count} 个上游提示；请先核对。",
+        runtimeTargetLifecycleEmpty: "暂无可展示的平台运行状态。",
+        runtimeTargetLifecycleMeta: "{platform} · {state} · 通道：{mode}",
+        runtimeTargetLifecycleDetail: "运行监测：{guard} · 执行心跳：{heartbeat}",
+        runtimeTargetLifecycleNoOrder: "固定边界：只读状态；不会启用目标、变更策略或提交订单。",
+        runtimeTargetLifecycleNext: "当前处理",
+        runtimeTargetLifecycleStateEnabled: "已启用",
+        runtimeTargetLifecycleStateDisabled: "已停用",
+        runtimeTargetLifecycleCheckPass: "通过",
+        runtimeTargetLifecycleCheckAttention: "需处理",
+        runtimeTargetLifecycleCheckNotDue: "未到检查时间",
+        runtimeTargetLifecycleCheckNotApplicable: "不适用",
+        runtimeTargetLifecycleCheckUnavailable: "不可用",
+        runtimeTargetLifecycleDispositionEnabled: "持续监控",
+        runtimeTargetLifecycleDispositionDisabled: "无执行验证",
+        runtimeTargetLifecycleDispositionParked: "已暂停",
+        runtimeTargetLifecycleReasonNone: "监测正常",
+        runtimeTargetLifecycleReasonDisabled: "按配置停用，仍持续验证",
+        runtimeTargetLifecycleReasonRuntimeGuard: "运行监测需要复核",
+        runtimeTargetLifecycleReasonHeartbeat: "执行心跳需要复核",
+        runtimeTargetLifecycleReasonUnavailable: "监测数据不可用",
         m0ResearchBoard: "按需查看 M0 研究观察",
         m0ResearchLoginNotice: "登录后读取私有 M0 研究台账；缺失台账不会被补成研究结论。",
         m0ResearchStaleNotice: "M0 研究观察已超过有效期，仅保留为历史上下文。",
@@ -1142,6 +1167,31 @@
         executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
         executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
         executionEvidenceNext: "NEXT",
+        runtimeTargetLifecycleBoard: "View platform runtime status on demand",
+        runtimeTargetLifecycleLoginNotice: "Sign in to read private platform runtime status. This page cannot change target state or place orders.",
+        runtimeTargetLifecycleStaleNotice: "Platform runtime status is outside its freshness window. Check the monitoring path first.",
+        runtimeTargetLifecycleUnavailableNotice: "No usable platform runtime status is available. Missing data never implies a disabled or healthy target.",
+        runtimeTargetLifecycleUpstreamNotice: "Platform runtime status loaded with {count} upstream notice(s); review them first.",
+        runtimeTargetLifecycleEmpty: "No platform runtime status is available to display.",
+        runtimeTargetLifecycleMeta: "{platform} · {state} · lane: {mode}",
+        runtimeTargetLifecycleDetail: "runtime guard: {guard} · execution heartbeat: {heartbeat}",
+        runtimeTargetLifecycleNoOrder: "Fixed boundary: read-only status; it cannot enable a target, change a strategy, or place an order.",
+        runtimeTargetLifecycleNext: "CURRENT DISPOSITION",
+        runtimeTargetLifecycleStateEnabled: "enabled",
+        runtimeTargetLifecycleStateDisabled: "disabled",
+        runtimeTargetLifecycleCheckPass: "pass",
+        runtimeTargetLifecycleCheckAttention: "attention",
+        runtimeTargetLifecycleCheckNotDue: "not due",
+        runtimeTargetLifecycleCheckNotApplicable: "not applicable",
+        runtimeTargetLifecycleCheckUnavailable: "unavailable",
+        runtimeTargetLifecycleDispositionEnabled: "continue monitoring",
+        runtimeTargetLifecycleDispositionDisabled: "disabled validation",
+        runtimeTargetLifecycleDispositionParked: "parked",
+        runtimeTargetLifecycleReasonNone: "monitoring normal",
+        runtimeTargetLifecycleReasonDisabled: "intentionally disabled; validation continues",
+        runtimeTargetLifecycleReasonRuntimeGuard: "runtime guard needs review",
+        runtimeTargetLifecycleReasonHeartbeat: "execution heartbeat needs review",
+        runtimeTargetLifecycleReasonUnavailable: "monitoring data unavailable",
         m0ResearchBoard: "View M0 research observations on demand",
         m0ResearchLoginNotice: "Sign in to read the private M0 research ledger. A missing ledger never implies a research conclusion.",
         m0ResearchStaleNotice: "These M0 research observations are beyond their validity window and remain historical context only.",
@@ -1470,6 +1520,16 @@
           summary: { deployment_count: 0, autonomous_shadow: 0, autonomous_paper: 0, owner_canary_decision: 0, parked: 0 },
           deployments: [],
           policy: { execution_evidence_read_only: true, p6_owner_decision_required: true, limited_live_canary_active: false },
+          errors: [],
+        },
+      },
+      runtimeTargetLifecycle: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { target_count: 0, enabled: 0, disabled: 0, attention: 0 },
+          targets: [],
+          policy: { lifecycle_status_read_only: true, no_order: true },
           errors: [],
         },
       },
@@ -4113,6 +4173,132 @@
       }
     }
 
+    function normalizeRuntimeTargetLifecyclePayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error("invalid runtime target lifecycle payload");
+      }
+      const targets = Array.isArray(payload.targets) ? payload.targets : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        targets: targets.filter((entry) => entry && typeof entry === "object"
+          && entry.target && typeof entry.target === "object"
+          && entry.target.target && typeof entry.target.target === "object"
+          && entry.target.monitoring && typeof entry.target.monitoring === "object"
+          && entry.target.disposition && typeof entry.target.disposition === "object"),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function runtimeTargetLifecycleCheckLabel(value) {
+      return {
+        pass: t("runtimeTargetLifecycleCheckPass"),
+        attention: t("runtimeTargetLifecycleCheckAttention"),
+        not_due: t("runtimeTargetLifecycleCheckNotDue"),
+        not_applicable: t("runtimeTargetLifecycleCheckNotApplicable"),
+        unavailable: t("runtimeTargetLifecycleCheckUnavailable"),
+      }[value] || t("runtimeTargetLifecycleCheckUnavailable");
+    }
+
+    function runtimeTargetLifecycleStateLabel(value) {
+      return value === "enabled"
+        ? t("runtimeTargetLifecycleStateEnabled")
+        : t("runtimeTargetLifecycleStateDisabled");
+    }
+
+    function runtimeTargetLifecycleDispositionLabel(value) {
+      return {
+        continue_enabled_monitoring: t("runtimeTargetLifecycleDispositionEnabled"),
+        continue_disabled_validation: t("runtimeTargetLifecycleDispositionDisabled"),
+        parked: t("runtimeTargetLifecycleDispositionParked"),
+      }[value] || t("runtimeTargetLifecycleDispositionParked");
+    }
+
+    function runtimeTargetLifecycleReasonLabel(value) {
+      return {
+        none: t("runtimeTargetLifecycleReasonNone"),
+        target_intentionally_disabled: t("runtimeTargetLifecycleReasonDisabled"),
+        runtime_guard_attention: t("runtimeTargetLifecycleReasonRuntimeGuard"),
+        execution_heartbeat_attention: t("runtimeTargetLifecycleReasonHeartbeat"),
+        monitoring_unavailable: t("runtimeTargetLifecycleReasonUnavailable"),
+      }[value] || t("runtimeTargetLifecycleReasonUnavailable");
+    }
+
+    function renderRuntimeTargetLifecycle() {
+      const payload = state.runtimeTargetLifecycle.payload;
+      const notice = el("runtime-target-lifecycle-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("runtimeTargetLifecycleLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("runtimeTargetLifecycleStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("runtimeTargetLifecycleUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("runtimeTargetLifecycleUpstreamNotice").replace("{count}", String(payload.errors.length));
+      } else {
+        notice.textContent = payload.policy?.notice || t("runtimeTargetLifecycleNoOrder");
+      }
+
+      const list = el("runtime-target-lifecycle-list");
+      list.replaceChildren();
+      if (!payload.targets.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("runtimeTargetLifecycleEmpty");
+        list.appendChild(empty);
+        return;
+      }
+
+      const targets = [...payload.targets].sort((left, right) => {
+        const leftParked = left.target?.disposition?.code === "parked" ? 0 : 1;
+        const rightParked = right.target?.disposition?.code === "parked" ? 0 : 1;
+        if (leftParked !== rightParked) return leftParked - rightParked;
+        return String(left.target?.target_id || "").localeCompare(String(right.target?.target_id || ""));
+      });
+      for (const entry of targets) {
+        const target = entry.target || {};
+        const configuration = target.target || {};
+        const monitoring = target.monitoring || {};
+        const disposition = target.disposition || {};
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("runtimeTargetLifecycleMeta")
+          .replace("{platform}", configuration.platform || "unknown")
+          .replace("{state}", runtimeTargetLifecycleStateLabel(configuration.configured_state))
+          .replace("{mode}", configuration.execution_mode || "unknown");
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = String(target.target_id || "unknown");
+        const reason = document.createElement("p");
+        reason.className = "health-card__reason";
+        reason.textContent = runtimeTargetLifecycleReasonLabel(disposition.reason_code);
+        const detail = document.createElement("div");
+        detail.className = "health-card__meta";
+        detail.textContent = t("runtimeTargetLifecycleDetail")
+          .replace("{guard}", runtimeTargetLifecycleCheckLabel(monitoring.runtime_guard))
+          .replace("{heartbeat}", runtimeTargetLifecycleCheckLabel(monitoring.execution_heartbeat));
+        main.append(meta, title, reason, detail);
+
+        const stateBlock = document.createElement("div");
+        stateBlock.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = t("runtimeTargetLifecycleNext");
+        const current = document.createElement("strong");
+        current.textContent = runtimeTargetLifecycleDispositionLabel(disposition.code);
+        const freshness = document.createElement("small");
+        freshness.textContent = entry.freshness?.data_status || "unknown";
+        stateBlock.append(label, current, freshness);
+        card.append(main, stateBlock);
+        list.appendChild(card);
+      }
+    }
+
     function normalizeResearchTaskPayload(payload) {
       if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("invalid research task payload");
       const tasks = Array.isArray(payload.tasks) ? payload.tasks : [];
@@ -4305,6 +4491,7 @@
       renderM0Research();
       renderAdaptiveSelection();
       renderExecutionEvidence();
+      renderRuntimeTargetLifecycle();
       renderResearchTasks();
       renderHealth();
       renderPlatforms();
@@ -4335,6 +4522,7 @@
         await refreshM0Research();
         await refreshAdaptiveSelection();
         await refreshExecutionEvidence();
+        await refreshRuntimeTargetLifecycle();
         await refreshResearchTasks();
         await refreshHealth();
         await refreshConfig();
@@ -4501,6 +4689,28 @@
         };
       }
       renderExecutionEvidence();
+    }
+
+    async function refreshRuntimeTargetLifecycle() {
+      if (!state.auth.allowed) {
+        renderRuntimeTargetLifecycle();
+        return;
+      }
+      try {
+        state.runtimeTargetLifecycle.payload = normalizeRuntimeTargetLifecyclePayload(
+          await requestJson("/api/runtime-target-lifecycle"),
+        );
+      } catch {
+        state.runtimeTargetLifecycle.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { target_count: 0, enabled: 0, disabled: 0, attention: 0 },
+          targets: [],
+          policy: { lifecycle_status_read_only: true, no_order: true },
+          errors: ["runtime_target_lifecycle_request_failed"],
+        };
+      }
+      renderRuntimeTargetLifecycle();
     }
 
     async function refreshResearchTasks() {
@@ -4716,6 +4926,9 @@
         refreshControlPlane();
         refreshOwnerDecisions();
         refreshM0Research();
+        refreshAdaptiveSelection();
+        refreshExecutionEvidence();
+        refreshRuntimeTargetLifecycle();
         refreshResearchTasks();
       }
       if (state.view === "health") refreshHealth();
