@@ -293,11 +293,16 @@ def _strategy_profile_gate_fields(sdata: dict) -> dict[str, object]:
     )
     if blocked_live_reason is None and not can_switch_live:
         blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
+    continuity = sdata.get("live_continuity") if isinstance(sdata.get("live_continuity"), dict) else {}
     return {
         "lifecycle_stage": lifecycle_stage,
         "can_switch_live": can_switch_live,
         "allowed_execution_modes": _normalize_allowed_execution_modes(sdata.get("allowed_execution_modes")),
         "blocked_live_reason": "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
+        "live_continuity": {
+            "eligible": continuity.get("eligible") is True,
+            "allowed_platforms": list(continuity.get("allowed_platforms") or []),
+        },
     }
 
 

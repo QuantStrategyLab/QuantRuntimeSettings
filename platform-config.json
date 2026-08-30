@@ -426,6 +426,14 @@
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "live_continuity": {
+        "eligible": true,
+        "allowed_platforms": [
+          "longbridge",
+          "ibkr",
+          "schwab"
+        ]
+      },
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -493,6 +501,12 @@
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "live_continuity": {
+        "eligible": true,
+        "allowed_platforms": [
+          "firstrade"
+        ]
+      },
       "features": {
         "income_layer": false,
         "option_overlay": false,
@@ -937,6 +951,12 @@
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "live_continuity": {
+        "eligible": true,
+        "allowed_platforms": [
+          "binance"
+        ]
+      },
       "features": {
         "income_layer": false,
         "option_overlay": false,

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -75,6 +76,27 @@ STRATEGY_RELEASE_DIGEST_FIELDS = frozenset(
 )
 STRATEGY_RELEASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
+LIVE_CONTINUITY_STATES = frozenset(
+    {
+        "ACTIVE_LKG",
+        "ACTIVE_REDUCED",
+        "RECONCILE_ONLY",
+        "RISK_REDUCTION_ONLY",
+        "PAUSED",
+        "ROLLBACK_LKG",
+    }
+)
+LIVE_CONTINUITY_BASELINE_KINDS = frozenset({"legacy_authorized", "release_attested"})
+LIVE_CONTINUITY_FIELDS = frozenset(
+    {
+        "state",
+        "baseline_kind",
+        "baseline_id",
+        "baseline_target_sha256",
+        "captured_at",
+    }
+)
+LIVE_CONTINUITY_BASELINE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 GENERATED_VARIABLES = {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}
 SECRET_MARKERS = ("PASSWORD", "PRIVATE_KEY", "TOKEN", "API_KEY", "ACCESS_KEY", "CLIENT_SECRET", "SECRET")
 LEGACY_INCOME_LAYER_VARIABLES = frozenset(
@@ -185,6 +207,15 @@ def assignment_payload(assignment: Assignment, *, redact_values: bool = False) -
 
 def compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+
+
+def runtime_target_fingerprint(runtime_target: dict[str, Any]) -> str:
+    """Fingerprint a frozen target excluding only its current continuity state."""
+
+    payload = dict(runtime_target)
+    payload.pop("live_continuity", None)
+    encoded = json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def env_string(value: Any) -> str:
@@ -453,6 +484,7 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
         except (ZoneInfoNotFoundError, ValueError):
             errors.append(f"runtime_target.market_timezone is invalid: {market_timezone!r}")
     validate_strategy_release(runtime_target, errors)
+    validate_live_continuity(runtime_target, errors)
 
 
 def validate_strategy_release(runtime_target: dict[str, Any], errors: list[str]) -> None:
@@ -491,6 +523,62 @@ def validate_strategy_release(runtime_target: dict[str, Any], errors: list[str])
                 errors.append(
                     "runtime_target.strategy_release.effective_session must be an ISO-8601 date"
                 )
+
+
+def validate_live_continuity(runtime_target: dict[str, Any], errors: list[str]) -> None:
+    """Validate a frozen incumbent baseline independently of candidate policy."""
+
+    continuity = runtime_target.get("live_continuity")
+    if continuity is None:
+        return
+    if not isinstance(continuity, dict):
+        errors.append("runtime_target.live_continuity must be an object when present")
+        return
+    unsupported = sorted(set(continuity) - LIVE_CONTINUITY_FIELDS)
+    if unsupported:
+        errors.append(
+            "runtime_target.live_continuity contains unsupported fields: " + ", ".join(unsupported)
+        )
+    for field in sorted(LIVE_CONTINUITY_FIELDS):
+        value = continuity.get(field)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"runtime_target.live_continuity.{field} is required")
+
+    state = str(continuity.get("state") or "").strip().upper()
+    if state not in LIVE_CONTINUITY_STATES:
+        errors.append(
+            "runtime_target.live_continuity.state must be one of "
+            + ", ".join(sorted(LIVE_CONTINUITY_STATES))
+        )
+    baseline_kind = str(continuity.get("baseline_kind") or "").strip()
+    if baseline_kind not in LIVE_CONTINUITY_BASELINE_KINDS:
+        errors.append(
+            "runtime_target.live_continuity.baseline_kind must be one of "
+            + ", ".join(sorted(LIVE_CONTINUITY_BASELINE_KINDS))
+        )
+    baseline_id = str(continuity.get("baseline_id") or "").strip()
+    if baseline_id and not LIVE_CONTINUITY_BASELINE_ID_PATTERN.fullmatch(baseline_id):
+        errors.append("runtime_target.live_continuity.baseline_id has invalid characters")
+    digest = str(continuity.get("baseline_target_sha256") or "").strip().lower()
+    digest = digest.removeprefix("sha256:")
+    if not SHA256_PATTERN.fullmatch(digest):
+        errors.append("runtime_target.live_continuity.baseline_target_sha256 must be a SHA-256 digest")
+    elif digest != runtime_target_fingerprint(runtime_target):
+        errors.append(
+            "runtime_target.live_continuity.baseline_target_sha256 does not match the runtime target"
+        )
+    captured_at = str(continuity.get("captured_at") or "").strip()
+    if captured_at:
+        try:
+            date.fromisoformat(captured_at)
+        except ValueError:
+            errors.append("runtime_target.live_continuity.captured_at must be an ISO-8601 date")
+    if baseline_kind == "release_attested" and not isinstance(runtime_target.get("strategy_release"), dict):
+        errors.append("release_attested live_continuity requires runtime_target.strategy_release")
+
+
+def is_live_continuity_target(runtime_target: dict[str, Any]) -> bool:
+    return isinstance(runtime_target.get("live_continuity"), dict)
 
 
 def validate_live_ibkr_us_scheduler(
@@ -596,11 +684,25 @@ def validate_runtime_target_strategy_policy(runtime_target: dict[str, Any], erro
         errors.append(
             f"platform {platform_id} does not support {execution_mode} control execution"
         )
+    continuity_target = is_live_continuity_target(runtime_target)
     allowed_modes = normalize_allowed_execution_modes(strategy.get("allowed_execution_modes"))
-    if allowed_modes and execution_mode not in allowed_modes:
+    if allowed_modes and execution_mode not in allowed_modes and not continuity_target:
         errors.append(f"runtime_target.strategy_profile {profile} does not allow {execution_mode} execution")
 
     if execution_mode != "live":
+        return
+    if continuity_target:
+        continuity_policy = strategy.get("live_continuity")
+        if not isinstance(continuity_policy, dict) or continuity_policy.get("eligible") is not True:
+            errors.append(
+                f"runtime_target.strategy_profile {profile} is not eligible for live continuity"
+            )
+            return
+        allowed_platforms = continuity_policy.get("allowed_platforms")
+        if not isinstance(allowed_platforms, list) or platform_id not in allowed_platforms:
+            errors.append(
+                f"runtime_target.strategy_profile {profile} live continuity is not allowed on {platform_id}"
+            )
         return
     lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
     if strategy.get("runtime_enabled") is not True:

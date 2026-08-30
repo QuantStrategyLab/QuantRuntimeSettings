@@ -709,6 +709,51 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
         self.assertIn("runtime_target.strategy_release.strategy_revision is required", errors)
 
+    def test_live_continuity_keeps_an_existing_baseline_separate_from_candidate_gate(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        runtime_target = target["runtime_target"]
+        runtime_target.update(
+            {
+                "strategy_profile": "soxl_soxx_trend_income",
+                "deployment_selector": "default",
+                "account_selector": ["default"],
+                "account_scope": "default",
+                "service_name": "charles-schwab-quant-service",
+            }
+        )
+        runtime_target["live_continuity"] = {
+            "state": "ACTIVE_LKG",
+            "baseline_kind": "legacy_authorized",
+            "baseline_id": "soxl-schwab-lkg-20260830",
+            "baseline_target_sha256": runtime_settings.runtime_target_fingerprint(runtime_target),
+            "captured_at": "2026-08-30",
+        }
+
+        self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_live_continuity_rejects_baseline_drift(self):
+        _, target = self.load_target("examples/targets/schwab/live.example.json")
+        runtime_target = target["runtime_target"]
+        runtime_target.update(
+            {
+                "strategy_profile": "soxl_soxx_trend_income",
+                "live_continuity": {
+                    "state": "ACTIVE_LKG",
+                    "baseline_kind": "legacy_authorized",
+                    "baseline_id": "soxl-schwab-lkg-20260830",
+                    "baseline_target_sha256": "a" * 64,
+                    "captured_at": "2026-08-30",
+                },
+            }
+        )
+
+        errors = runtime_settings.validate_target(target)
+
+        self.assertIn(
+            "runtime_target.live_continuity.baseline_target_sha256 does not match the runtime target",
+            errors,
+        )
+
     def test_example_targets_have_matching_plugin_mount(self):
         for relative_path in (
             "examples/targets/schwab/live.example.json",

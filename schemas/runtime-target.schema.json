@@ -199,6 +199,46 @@
               "format": "date"
             }
           }
+        },
+        "live_continuity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "baseline_kind",
+            "baseline_id",
+            "baseline_target_sha256",
+            "captured_at"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "ACTIVE_LKG",
+                "ACTIVE_REDUCED",
+                "RECONCILE_ONLY",
+                "RISK_REDUCTION_ONLY",
+                "PAUSED",
+                "ROLLBACK_LKG"
+              ]
+            },
+            "baseline_kind": {
+              "type": "string",
+              "enum": ["legacy_authorized", "release_attested"]
+            },
+            "baseline_id": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$"
+            },
+            "baseline_target_sha256": {
+              "type": "string",
+              "pattern": "^(sha256:)?[0-9a-fA-F]{64}$"
+            },
+            "captured_at": {
+              "type": "string",
+              "format": "date"
+            }
+          }
         }
       }
     },
