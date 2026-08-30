@@ -4447,7 +4447,10 @@ function normalizeSwitchInputs(raw) {
   if (!supportedExecutionModesForPlatform(platform).includes(executionMode)) {
     throw new Error(`${platform} does not support ${executionMode} control execution`);
   }
-  const requestedPluginMode = cleanChoice(raw.plugin_mode || "none", ["auto", "none"], "plugin_mode");
+  // "current" is used only by internal deployment reconciliation to retain
+  // a service's existing plugin mount.  It is deliberately not exposed as a
+  // console editing mode, where operators can still select only "none".
+  const requestedPluginMode = cleanChoice(raw.plugin_mode || "none", ["auto", "none", "current"], "plugin_mode");
   const pluginMode = requestedPluginMode === "auto" ? "none" : requestedPluginMode;
   if (String(raw.custom_plugin_mounts_json || "").trim()) {
     throw new Error("legacy custom plugin mounts are retired pending a P1/P2/P3-bound signal.v2 adapter");
