@@ -23,3 +23,30 @@ Platform workflows call the reusable
 `actions/publish-runtime-target-lifecycle` action after their existing checks.
 The action only constructs and posts a sanitized status object; it has no
 broker SDK, account material, or command to enable a runtime target.
+
+## Live champion continuity
+
+The P0–P6 lifecycle governs a **new candidate**.  It is not a daily survival
+gate for an already authorised live baseline (the *champion*).  A platform
+target may therefore carry a separately validated `live_continuity` object:
+
+| State | Standard execution | Required behaviour |
+| --- | --- | --- |
+| `ACTIVE_LKG` | permitted | Run the frozen last-known-good baseline. |
+| `ROLLBACK_LKG` | permitted | Run the previously verified compatible baseline after a rollback. |
+| `ACTIVE_REDUCED` | not generically permitted | A platform-specific, pre-validated reduced-risk executor is required. |
+| `RECONCILE_ONLY` | not permitted | Read positions and orders, reconcile unknown results, and submit no new standard order. |
+| `RISK_REDUCTION_ONLY` | not generically permitted | Only a platform-specific, pre-validated risk-reduction executor may act. |
+| `PAUSED` | not permitted | Keep health, reports, read-only monitoring and reconciliation visible; do not submit standard orders. |
+
+`baseline_target_sha256` freezes the exact target identity, while
+`baseline_kind` records whether the baseline is a previously authorised
+legacy target or a release-attested target.  A changed target must receive a
+new, explicitly validated baseline; it cannot silently inherit the former
+champion's authority.
+
+The external `RUNTIME_TARGET_ENABLED` control remains a second hard gate.  A
+continuity state never turns an explicitly disabled target on.  Conversely,
+candidate P0–P6 status does not by itself turn an `ACTIVE_LKG` target off.
+This contract does not create broker permission, increase capital or
+leverage, reset a hard breaker, or approve a new live target.
