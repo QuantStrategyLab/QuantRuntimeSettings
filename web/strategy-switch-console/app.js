@@ -850,6 +850,24 @@
         ownerDecisionSubmitting: "正在记录决定…",
         ownerDecisionSuccess: "所有者决定已记录；它不会自动启用实盘。",
         ownerDecisionFailed: "无法记录所有者决定",
+        reconciliationRecoveryBoard: "恢复核验（仅已存在实盘）",
+        reconciliationRecoveryLoginNotice: "登录后读取私有恢复核验；缺失快照不会被推断为可以恢复。",
+        reconciliationRecoveryStaleNotice: "恢复核验已过期；请等待平台重新采样和双审，不能确认。",
+        reconciliationRecoveryUnavailableNotice: "暂无可用恢复核验；页面保持 fail-closed 空状态。",
+        reconciliationRecoveryUpstreamNotice: "恢复核验已加载，但有 {count} 个上游提示；请先处理阻断项。",
+        reconciliationRecoveryEmpty: "没有待恢复的既有实盘目标。",
+        reconciliationRecoveryMeta: "{platform} · {strategy} · 仅恢复现有执行",
+        reconciliationRecoveryDetail: "状态：{state} · 只读样本：{samples} · 双审：{review} · 窗口截止：{lastObserved}",
+        reconciliationRecoveryBlocked: "仍被阻断：{blockers}",
+        reconciliationRecoveryReady: "两次对账一致且双审绑定当前摘要；需要管理员确认。",
+        reconciliationRecoveryAdminOnly: "只有控制台管理员可以确认恢复意图。",
+        reconciliationRecoveryConfirmed: "已记录恢复确认（仍未恢复运行）。",
+        reconciliationRecoveryConfirm: "确认恢复既有执行意图",
+        reconciliationRecoveryConfirmPrompt: "这只会记录与当前对账/双审摘要绑定的恢复意图；不会下单、修改资金或直接启用运行。继续吗？",
+        reconciliationRecoverySubmitting: "正在记录确认…",
+        reconciliationRecoverySuccess: "恢复确认已记录；私有控制器仍须重新核验后才可恢复既有执行。",
+        reconciliationRecoveryFailed: "无法记录恢复确认",
+        reconciliationRecoveryNoOrder: "固定边界：控制台不持有券商凭证，也不直接恢复、下单或启用实盘。",
         executionEvidenceBoard: "按需查看策略 × 平台证据覆盖",
         executionEvidenceLoginNotice: "登录后读取私有执行证据快照；缺失来源不会被推断成 paper 或 live 状态。",
         executionEvidenceStaleNotice: "执行证据已超过允许的新鲜度窗口；它保留为历史记录，不能作为当前运行或 P6 结论。",
@@ -1157,6 +1175,24 @@
         ownerDecisionSubmitting: "Recording decision…",
         ownerDecisionSuccess: "Owner decision recorded; it does not enable Live automatically.",
         ownerDecisionFailed: "Could not record owner decision",
+        reconciliationRecoveryBoard: "Recovery verification (existing live only)",
+        reconciliationRecoveryLoginNotice: "Sign in to read private recovery verification. Missing snapshots never imply that recovery is allowed.",
+        reconciliationRecoveryStaleNotice: "Recovery verification is stale. Wait for fresh platform sampling and dual review before confirming.",
+        reconciliationRecoveryUnavailableNotice: "No usable recovery verification is available. This view remains fail-closed and empty.",
+        reconciliationRecoveryUpstreamNotice: "Recovery verification loaded with {count} upstream notice(s). Resolve blockers first.",
+        reconciliationRecoveryEmpty: "No existing live target is awaiting recovery.",
+        reconciliationRecoveryMeta: "{platform} · {strategy} · existing-execution recovery only",
+        reconciliationRecoveryDetail: "state: {state} · read-only samples: {samples} · dual review: {review} · window ends: {lastObserved}",
+        reconciliationRecoveryBlocked: "Still blocked: {blockers}",
+        reconciliationRecoveryReady: "Two reconciliations match and dual review is bound to the current digest; an admin confirmation is required.",
+        reconciliationRecoveryAdminOnly: "Only console administrators can record a recovery confirmation.",
+        reconciliationRecoveryConfirmed: "Recovery confirmation recorded (runtime is still not restored).",
+        reconciliationRecoveryConfirm: "Record existing-execution recovery intent",
+        reconciliationRecoveryConfirmPrompt: "This only records a recovery intent bound to the current reconciliation and dual-review digest. It will not place orders, change funds, or directly enable runtime. Continue?",
+        reconciliationRecoverySubmitting: "Recording confirmation…",
+        reconciliationRecoverySuccess: "Recovery confirmation recorded. A private controller must re-verify before it can restore existing execution.",
+        reconciliationRecoveryFailed: "Could not record recovery confirmation",
+        reconciliationRecoveryNoOrder: "Fixed boundary: the console holds no broker credentials and cannot directly recover, trade, or enable Live.",
         executionEvidenceBoard: "View strategy × platform evidence on demand",
         executionEvidenceLoginNotice: "Sign in to read private execution-evidence snapshots. Missing sources never imply a paper or live state.",
         executionEvidenceStaleNotice: "This execution evidence is beyond its freshness window. It remains historical context, not a current runtime or P6 conclusion.",
@@ -1484,6 +1520,17 @@
         data_status: "unavailable",
         candidates: [],
         errors: [],
+      },
+      reconciliationRecovery: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { recovery_count: 0, awaiting_human_confirmation: 0, blocked: 0, confirmed: 0 },
+          recoveries: [],
+          policy: { human_confirmation_required: true, current_evidence_required: true, no_order: true, execution_authority_granted: false },
+          errors: [],
+        },
+        submittingRecoveryId: null,
       },
       m0Research: {
         payload: {
@@ -3824,6 +3871,116 @@
       }
     }
 
+    function normalizeReconciliationRecoveryPayload(payload) {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        throw new Error("invalid reconciliation recovery payload");
+      }
+      const recoveries = Array.isArray(payload.recoveries) ? payload.recoveries : [];
+      return {
+        data_status: ["ready", "stale", "unavailable"].includes(payload.data_status) ? payload.data_status : "unavailable",
+        computed_at: payload.computed_at || null,
+        summary: payload.summary && typeof payload.summary === "object" ? payload.summary : {},
+        recoveries: recoveries.filter((entry) => entry && typeof entry === "object"
+          && entry.recovery && typeof entry.recovery === "object"
+          && entry.recovery.dual_review && typeof entry.recovery.dual_review === "object"),
+        policy: payload.policy && typeof payload.policy === "object" ? payload.policy : {},
+        errors: Array.isArray(payload.errors) ? payload.errors : [],
+      };
+    }
+
+    function renderReconciliationRecovery() {
+      const payload = state.reconciliationRecovery.payload;
+      const notice = el("reconciliation-recovery-notice");
+      if (!state.auth.allowed) {
+        notice.textContent = t("reconciliationRecoveryLoginNotice");
+      } else if (payload.data_status === "stale") {
+        notice.textContent = t("reconciliationRecoveryStaleNotice");
+      } else if (payload.data_status !== "ready") {
+        notice.textContent = t("reconciliationRecoveryUnavailableNotice");
+      } else if (payload.errors?.length) {
+        notice.textContent = t("reconciliationRecoveryUpstreamNotice").replace("{count}", payload.errors.length);
+      } else {
+        notice.textContent = payload.policy?.notice || t("reconciliationRecoveryNoOrder");
+      }
+      const list = el("reconciliation-recovery-list");
+      list.replaceChildren();
+      if (!payload.recoveries.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("reconciliationRecoveryEmpty");
+        list.appendChild(empty);
+        return;
+      }
+      for (const entry of payload.recoveries) {
+        const recovery = entry.recovery || {};
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("reconciliationRecoveryMeta")
+          .replace("{platform}", recovery.platform || "unknown")
+          .replace("{strategy}", recovery.strategy_profile || "unknown");
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = String(recovery.recovery_id || "unknown");
+        const detail = document.createElement("p");
+        detail.className = "health-card__reason";
+        detail.textContent = t("reconciliationRecoveryDetail")
+          .replace("{state}", recovery.reconciliation_state || "unknown")
+          .replace("{samples}", String(recovery.evidence_sample_count || 0))
+          .replace("{review}", recovery.dual_review?.outcome || "unknown")
+          .replace("{lastObserved}", recovery.last_observed_at || "—");
+        const status = document.createElement("div");
+        status.className = "health-card__meta";
+        const ready = payload.data_status === "ready"
+          && entry.freshness?.data_status === "ready"
+          && recovery.readiness === "awaiting_human_confirmation"
+          && recovery.blocker_codes?.length === 0
+          && recovery.dual_review?.outcome === "approved"
+          && recovery.dual_review?.evidence_binding_sha256 === recovery.candidate_sha256;
+        if (entry.confirmation) {
+          status.textContent = t("reconciliationRecoveryConfirmed");
+        } else if (!ready) {
+          status.textContent = t("reconciliationRecoveryBlocked")
+            .replace("{blockers}", (recovery.blocker_codes || []).join(", ") || recovery.readiness || "unknown");
+        } else if (!state.auth.admin) {
+          status.textContent = t("reconciliationRecoveryAdminOnly");
+        } else {
+          status.textContent = t("reconciliationRecoveryReady");
+        }
+        main.append(meta, title, detail, status);
+        if (ready && !entry.confirmation && state.auth.admin) {
+          const actions = document.createElement("div");
+          actions.className = "owner-decision__actions";
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "owner-decision__button";
+          button.dataset.reconciliationRecoveryConfirm = "true";
+          button.dataset.recoveryId = recovery.recovery_id || "";
+          button.dataset.candidateSha256 = recovery.candidate_sha256 || "";
+          button.dataset.dualReviewBindingSha256 = recovery.dual_review?.evidence_binding_sha256 || "";
+          const submitting = state.reconciliationRecovery.submittingRecoveryId === recovery.recovery_id;
+          button.disabled = submitting;
+          button.textContent = submitting ? t("reconciliationRecoverySubmitting") : t("reconciliationRecoveryConfirm");
+          actions.appendChild(button);
+          main.appendChild(actions);
+        }
+        const stateBlock = document.createElement("div");
+        stateBlock.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = t("controlNext");
+        const stateText = document.createElement("strong");
+        stateText.textContent = entry.confirmation ? "confirmed" : (ready ? "confirm" : "blocked");
+        const freshness = document.createElement("small");
+        freshness.textContent = entry.freshness?.data_status || "unknown";
+        stateBlock.append(label, stateText, freshness);
+        card.append(main, stateBlock);
+        list.appendChild(card);
+      }
+    }
+
     const M0_RESEARCH_DISPLAY_LIMIT = 100;
 
     const m0ResearchLabels = {
@@ -4519,6 +4676,7 @@
       if (state.auth.allowed) {
         await refreshControlPlane();
         await refreshOwnerDecisions();
+        await refreshReconciliationRecovery();
         await refreshM0Research();
         await refreshAdaptiveSelection();
         await refreshExecutionEvidence();
@@ -4589,6 +4747,28 @@
         };
       }
       renderControlPlane();
+    }
+
+    async function refreshReconciliationRecovery() {
+      if (!state.auth.allowed) {
+        renderReconciliationRecovery();
+        return;
+      }
+      try {
+        state.reconciliationRecovery.payload = normalizeReconciliationRecoveryPayload(
+          await requestJson("/api/reconciliation-recovery"),
+        );
+      } catch {
+        state.reconciliationRecovery.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          summary: { recovery_count: 0, awaiting_human_confirmation: 0, blocked: 0, confirmed: 0 },
+          recoveries: [],
+          policy: { human_confirmation_required: true, current_evidence_required: true, no_order: true, execution_authority_granted: false },
+          errors: ["reconciliation_recovery_request_failed"],
+        };
+      }
+      renderReconciliationRecovery();
     }
 
     async function refreshM0Research() {
@@ -4668,6 +4848,37 @@
       } finally {
         delete state.ownerDecisions.submittingCandidateId;
         renderControlPlane();
+      }
+    }
+
+    async function recordReconciliationRecoveryConfirmation(button) {
+      if (!state.auth.admin) return;
+      const recoveryId = String(button.dataset.recoveryId || "");
+      const candidateSha256 = String(button.dataset.candidateSha256 || "");
+      const dualReviewBindingSha256 = String(button.dataset.dualReviewBindingSha256 || "");
+      if (!recoveryId || !candidateSha256 || !dualReviewBindingSha256) return;
+      if (!window.confirm(t("reconciliationRecoveryConfirmPrompt"))) return;
+      state.reconciliationRecovery.submittingRecoveryId = recoveryId;
+      renderReconciliationRecovery();
+      try {
+        const response = await fetch("/api/reconciliation-recovery-confirmations", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            recovery_id: recoveryId,
+            candidate_sha256: candidateSha256,
+            dual_review_binding_sha256: dualReviewBindingSha256,
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || t("reconciliationRecoveryFailed"));
+        showToast(t("reconciliationRecoverySuccess"), { duration: 9000 });
+        await refreshReconciliationRecovery();
+      } catch (error) {
+        showToast(`${t("reconciliationRecoveryFailed")}: ${error.message}`, { duration: 12000 });
+      } finally {
+        state.reconciliationRecovery.submittingRecoveryId = null;
+        renderReconciliationRecovery();
       }
     }
 
@@ -4925,6 +5136,7 @@
       if (state.view === "control") {
         refreshControlPlane();
         refreshOwnerDecisions();
+        refreshReconciliationRecovery();
         refreshM0Research();
         refreshAdaptiveSelection();
         refreshExecutionEvidence();
@@ -4945,6 +5157,12 @@
       const button = event.target.closest("[data-owner-decision]");
       if (!button || button.disabled) return;
       recordOwnerDecision(button);
+    });
+
+    el("reconciliation-recovery-list").addEventListener("click", (event) => {
+      const button = event.target.closest("[data-reconciliation-recovery-confirm]");
+      if (!button || button.disabled) return;
+      recordReconciliationRecoveryConfirmation(button);
     });
 
     el("platform-strip").addEventListener("click", (event) => {

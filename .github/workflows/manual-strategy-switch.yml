@@ -211,6 +211,11 @@ jobs:
             exit 2
           fi
 
+          if [ "${LIVE_CONTINUITY_STATE}" != "NONE" ]; then
+            echo "Legacy continuity recovery is intentionally unavailable from this workflow. Use the private reconciliation recovery controller after fresh read-only evidence, bound dual review, and an owner confirmation." >&2
+            exit 2
+          fi
+
           settings_activation="$(
             python3 python/scripts/runtime_settings.py settings-activation "${PLATFORM}"
           )"

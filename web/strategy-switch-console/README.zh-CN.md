@@ -38,6 +38,7 @@ STRATEGY_HEALTH_SYNC_TOKEN
 CONTROL_PLANE_SYNC_TOKEN
 RESEARCH_TASK_SYNC_TOKEN
 M0_RESEARCH_SYNC_TOKEN
+RECONCILIATION_RECOVERY_SYNC_TOKEN
 ```
 
 可选：
@@ -254,6 +255,20 @@ GET  /api/control-plane
 
 这个接口不是订单、paper、shadow 或 live API。`CONTROL_PLANE_SYNC_TOKEN` 必须与 OAuth、workflow dispatch、策略 root 和任何券商凭证完全分离。部署 workflow 会在 `runtime-strategy-switch` environment 提供该 secret 时，把它同步为 Worker secret；每个来源仓库需要保存同一值到其专用 GitHub Environment，URL 使用只读控制台的 `/api/internal/sync-control-plane-source`。
 
+## 旧实盘恢复核验（仅意图）
+
+已经获授权、但因异常进入 `RECONCILE_ONLY` 的**既有**实盘目标，不走 P6 新策略上线队列。平台私有运行时用独立的 `RECONCILIATION_RECOVERY_SYNC_TOKEN` 发布最小快照：
+
+```text
+POST /api/internal/sync-reconciliation-recovery-source
+GET  /api/reconciliation-recovery
+POST /api/reconciliation-recovery-confirmations
+```
+
+来源契约是 `qsl_reconciliation_recovery_source_snapshot.v1`。每项只允许携带不含账户或 broker 状态的：不透明恢复 ID、平台/策略、`RECONCILE_ONLY`、QPK 候选 SHA-256、两次以上只读样本的时间窗与数量、双 AI 审计结果/绑定 SHA-256，以及稳定阻断码。`awaiting_human_confirmation` 只有在“两次样本、至少相隔 1 分钟且不超过 15 分钟、至少两位审计者、双审绑定同一候选、无阻断项”同时满足时才会被接受；来源和最后一次候选观测均默认 30 分钟后过期。任何已过期来源或候选都会使确认入口保持关闭。
+
+控制台管理员确认后，Worker 只保存 `qsl_reconciliation_recovery_confirmation.v1` 的不可执行意图，固定 `no_order=true`、`execution_authority_granted=false`。它不会调用 workflow、读取券商凭证、改账户、下单或启用目标。未来的私有恢复控制器仍必须在同一目标上重新验证来源收据与双审绑定，原子写入五项预期状态摘要并切换到 `ACTIVE_LKG`；任一条件不成立就保持 `RECONCILE_ONLY`。旧 `manual-strategy-switch.yml` 明确拒绝任何 `live_continuity_state != NONE`，避免绕开这条链路。
+
 ## 平台运行状态只读接口
 
 已接入的券商/平台仓在自身运行监测完成后，使用与执行证据同样受限的专用同步凭据提交**脱敏状态**：
@@ -351,6 +366,7 @@ wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # 可选；默认复用 RUNTIME_S
 wrangler secret put STRATEGY_HEALTH_SYNC_TOKEN
 wrangler secret put CONTROL_PLANE_SYNC_TOKEN
 wrangler secret put M0_RESEARCH_SYNC_TOKEN
+wrangler secret put RECONCILIATION_RECOVERY_SYNC_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
 wrangler secret put ALLOWED_GITHUB_ORGS
 wrangler secret put STRATEGY_SWITCH_ADMIN_LOGINS

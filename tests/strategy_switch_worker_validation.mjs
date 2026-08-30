@@ -80,6 +80,10 @@ assert.ok(indexHtml.includes('button.disabled = !supportedModes.includes(button.
 assert.ok(indexHtml.includes('function renderPlanReadiness()'));
 assert.ok(indexHtml.includes('id="execution-evidence-list"'));
 assert.ok(indexHtml.includes('id="execution-evidence-notice"'));
+assert.ok(indexHtml.includes('id="reconciliation-recovery-list"'));
+assert.ok(indexHtml.includes('id="reconciliation-recovery-notice"'));
+assert.ok(indexHtml.includes('requestJson("/api/reconciliation-recovery")'));
+assert.ok(indexHtml.includes('data-reconciliation-recovery-confirm'));
 assert.ok(indexHtml.includes('P0_CONTROL_PLANE_NOT_RUNTIME_WIRED'));
 assert.ok(indexHtml.includes('window.__QSL_RUNTIME_AUTHORITY_STATUS__'));
 assert.ok(indexHtml.includes('execution_metadata_is_runtime_authority'));
@@ -827,6 +831,7 @@ const workflowYaml = readFileSync(resolve(root, ".github/workflows/manual-strate
 assert.ok(workflowYaml.includes('"live_continuity_state": continuity.get("state", "NONE")'));
 assert.ok(workflowYaml.includes('payload["live_continuity_baseline_id"]'));
 assert.ok(workflowYaml.includes('"cash_only_execution_mode": "current"'));
+assert.ok(workflowYaml.includes('Legacy continuity recovery is intentionally unavailable from this workflow.'));
 const workflowInputs = [...workflowYaml.matchAll(/^      ([A-Za-z0-9_]+):\n        description:/gm)].map((match) => match[1]);
 const dispatchInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
@@ -841,6 +846,40 @@ const dispatchInputs = __test.normalizeSwitchInputs({
 for (const key of Object.keys(dispatchInputs)) {
   assert.ok(workflowInputs.includes(key), `workflow input missing for dispatch field: ${key}`);
 }
+const directLegacyRecoveryEnv = {
+  SESSION_SECRET: "direct-legacy-recovery-session",
+  ALLOWED_GITHUB_LOGINS: "recovery-admin",
+  RUNTIME_SETTINGS_DISPATCH_TOKEN: "dispatch-token",
+};
+const directLegacyRecoveryCookie = await __test.makeSession("recovery-admin", [], directLegacyRecoveryEnv);
+const directLegacyRecoveryAttempt = await worker.fetch(
+  new Request("https://switch.example/api/switch", {
+    method: "POST",
+    headers: {
+      Cookie: `qsl_switch_session=${directLegacyRecoveryCookie}`,
+      Origin: "https://switch.example",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      platform: "ibkr",
+      target_name: "legacy_ibkr_route",
+      strategy_profile: "soxl_soxx_trend_income",
+      execution_mode: "live",
+      live_continuity_state: "RECONCILE_ONLY",
+      live_continuity_baseline_id: "legacy-ibkr-lkg-20260830",
+      live_continuity_captured_at: "2026-08-30",
+      variable_scope: "default",
+      plugin_mode: "current",
+      option_overlay_mode: "current",
+      cash_only_execution_mode: "current",
+      apply: true,
+      trigger_platform_sync: true,
+      confirm_apply: "APPLY_AND_SYNC",
+    }),
+  }),
+  directLegacyRecoveryEnv,
+);
+assert.equal(directLegacyRecoveryAttempt.status, 409);
 const normalizedPluginInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
   target_name: "ibkr-primary",
@@ -2475,6 +2514,198 @@ const recordedOwnerDecisionQueue = await worker.fetch(
 );
 const recordedOwnerDecisionPayload = await recordedOwnerDecisionQueue.json();
 assert.equal(recordedOwnerDecisionPayload.candidates[0].intent.decision, "keep_parked");
+
+const recoveryStore = new Map();
+const recoveryKv = {
+  async get(key) { return recoveryStore.get(key) || null; },
+  async put(key, value) { recoveryStore.set(key, value); },
+  async list({ prefix = "", limit = 1000 } = {}) {
+    return {
+      keys: [...recoveryStore.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .slice(0, limit)
+        .map((name) => ({ name })),
+    };
+  },
+};
+const recoverySyncValue = ["reconciliation", "recovery", "sync"].join("-");
+const recoveryEnv = {
+  SESSION_SECRET: "recovery-session-value",
+  ALLOWED_GITHUB_LOGINS: "recovery-admin,recovery-reader",
+  STRATEGY_SWITCH_ADMIN_LOGINS: "recovery-admin",
+  RECONCILIATION_RECOVERY_SYNC_TOKEN: recoverySyncValue,
+  STRATEGY_SWITCH_CONFIG: recoveryKv,
+};
+const recoveryAdminCookie = await __test.makeSession("recovery-admin", [], recoveryEnv);
+const recoveryReaderCookie = await __test.makeSession("recovery-reader", [], recoveryEnv);
+const recoveryAdminHeaders = { Cookie: `qsl_switch_session=${recoveryAdminCookie}` };
+const recoveryReaderHeaders = { Cookie: `qsl_switch_session=${recoveryReaderCookie}` };
+const recoveryNow = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
+const recoveryFirstObservation = new Date(Date.parse(recoveryNow) - 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const recoveryCandidateSha256 = "a".repeat(64);
+const recoverySourcePayload = {
+  schema_version: "qsl_reconciliation_recovery_source_snapshot.v1",
+  source_id: "ibkr.legacy_recovery",
+  generated_at: recoveryNow,
+  computed_at: recoveryNow,
+  data_status: "ready",
+  recoveries: [{
+    recovery_id: "ibkr_legacy_soxl_live",
+    platform: "ibkr",
+    strategy_profile: "soxl_soxx_trend_income",
+    environment: "live",
+    reconciliation_state: "RECONCILE_ONLY",
+    readiness: "awaiting_human_confirmation",
+    candidate_sha256: recoveryCandidateSha256,
+    evidence_sample_count: 2,
+    first_observed_at: recoveryFirstObservation,
+    last_observed_at: recoveryNow,
+    dual_review: {
+      outcome: "approved",
+      reviewer_count: 2,
+      evidence_binding_sha256: recoveryCandidateSha256,
+    },
+    blocker_codes: [],
+  }],
+  errors: [],
+};
+assert.throws(
+  () => __test.normalizeReconciliationRecoverySourceSnapshot({
+    ...recoverySourcePayload,
+    recoveries: [{ ...recoverySourcePayload.recoveries[0], first_observed_at: recoveryNow }],
+  }),
+  /1-15 minute two-sample window/,
+);
+const unauthorizedRecoveryRead = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery"),
+  recoveryEnv,
+);
+assert.equal(unauthorizedRecoveryRead.status, 401);
+const wrongRecoverySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-reconciliation-recovery-source", {
+    method: "POST",
+    headers: { Authorization: "Bearer wrong-token", "Content-Type": "application/json" },
+    body: JSON.stringify(recoverySourcePayload),
+  }),
+  recoveryEnv,
+);
+assert.equal(wrongRecoverySync.status, 401);
+const invalidRecoverySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-reconciliation-recovery-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${recoverySyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...recoverySourcePayload,
+      recoveries: [{
+        ...recoverySourcePayload.recoveries[0],
+        dual_review: { ...recoverySourcePayload.recoveries[0].dual_review, evidence_binding_sha256: "b".repeat(64) },
+      }],
+    }),
+  }),
+  recoveryEnv,
+);
+assert.equal(invalidRecoverySync.status, 400);
+const recoverySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-reconciliation-recovery-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${recoverySyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(recoverySourcePayload),
+  }),
+  recoveryEnv,
+);
+assert.equal(recoverySync.status, 200);
+const recoveryRead = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery", { headers: recoveryAdminHeaders }),
+  recoveryEnv,
+);
+assert.equal(recoveryRead.status, 200);
+const recoveryDashboard = await recoveryRead.json();
+assert.equal(recoveryDashboard.data_status, "ready");
+assert.deepEqual(recoveryDashboard.summary, {
+  recovery_count: 1, awaiting_human_confirmation: 1, blocked: 0, confirmed: 0,
+});
+assert.equal(recoveryDashboard.policy.no_order, true);
+assert.equal(recoveryDashboard.policy.execution_authority_granted, false);
+const recoveryConfirmationRequest = {
+  recovery_id: "ibkr_legacy_soxl_live",
+  candidate_sha256: recoveryCandidateSha256,
+  dual_review_binding_sha256: recoveryCandidateSha256,
+};
+const staleRecoveryCandidateSha256 = "c".repeat(64);
+const staleRecoverySourcePayload = {
+  ...recoverySourcePayload,
+  source_id: "ibkr.stale_recovery",
+  recoveries: [{
+    ...recoverySourcePayload.recoveries[0],
+    recovery_id: "ibkr_legacy_stale",
+    candidate_sha256: staleRecoveryCandidateSha256,
+    first_observed_at: new Date(Date.parse(recoveryNow) - 41 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    last_observed_at: new Date(Date.parse(recoveryNow) - 40 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    dual_review: {
+      outcome: "approved",
+      reviewer_count: 2,
+      evidence_binding_sha256: staleRecoveryCandidateSha256,
+    },
+  }],
+};
+const staleRecoverySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-reconciliation-recovery-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${recoverySyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(staleRecoverySourcePayload),
+  }),
+  recoveryEnv,
+);
+assert.equal(staleRecoverySync.status, 200);
+const staleRecoveryRead = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery", { headers: recoveryAdminHeaders }),
+  recoveryEnv,
+);
+const staleRecoveryDashboard = await staleRecoveryRead.json();
+assert.equal(staleRecoveryDashboard.data_status, "stale");
+const staleDashboardConfirmation = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery-confirmations", {
+    method: "POST",
+    headers: { ...recoveryAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify(recoveryConfirmationRequest),
+  }),
+  recoveryEnv,
+);
+assert.equal(staleDashboardConfirmation.status, 409);
+recoveryStore.delete("reconciliation_recovery_source:ibkr.stale_recovery");
+const readerRecoveryConfirmation = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery-confirmations", {
+    method: "POST",
+    headers: { ...recoveryReaderHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify(recoveryConfirmationRequest),
+  }),
+  recoveryEnv,
+);
+assert.equal(readerRecoveryConfirmation.status, 403);
+const recoveryConfirmation = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery-confirmations", {
+    method: "POST",
+    headers: { ...recoveryAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify(recoveryConfirmationRequest),
+  }),
+  recoveryEnv,
+);
+assert.equal(recoveryConfirmation.status, 200);
+const recoveryConfirmationPayload = await recoveryConfirmation.json();
+assert.equal(recoveryConfirmationPayload.confirmation.no_order, true);
+assert.equal(recoveryConfirmationPayload.confirmation.execution_authority_granted, false);
+assert.ok(recoveryStore.has("reconciliation_recovery_current:ibkr_legacy_soxl_live"));
+assert.ok(recoveryStore.has(
+  `reconciliation_recovery_confirmation:ibkr_legacy_soxl_live:${recoveryConfirmationPayload.confirmation.confirmation_sha256}`,
+));
+const recordedRecoveryRead = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery", { headers: recoveryAdminHeaders }),
+  recoveryEnv,
+);
+const recordedRecoveryPayload = await recordedRecoveryRead.json();
+assert.equal(recordedRecoveryPayload.summary.confirmed, 1);
+assert.equal(recordedRecoveryPayload.summary.awaiting_human_confirmation, 0);
+assert.equal(recordedRecoveryPayload.recoveries[0].confirmation.confirmed_by, "recovery-admin");
 
 const riskProfileStore = new Map();
 const riskProfileKv = {
