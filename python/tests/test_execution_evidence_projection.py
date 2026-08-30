@@ -47,6 +47,33 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
             "artifacts": {"runtime_report_cloud_uri": "gs://must-not-be-projected"},
         }
 
+    def _execution_receipt(self, *, outcome: str = "filled") -> dict[str, str]:
+        confirmation = {
+            "filled": "filled",
+            "failed": "not_observed",
+            "reconciliation_required": "reconciliation_required",
+        }[outcome]
+        observed_at = "2026-08-25T16:00:00Z"
+        return {
+            "schema_version": "qsl_execution_receipt.v1",
+            "receipt_id": projection._execution_receipt_id(
+                platform="longbridge",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_revision="a" * 40,
+                execution_mode="paper",
+                outcome=outcome,
+                broker_confirmation=confirmation,
+                observed_at=observed_at,
+            ),
+            "platform": "longbridge",
+            "strategy_profile": "soxl_soxx_trend_income",
+            "strategy_revision": "a" * 40,
+            "execution_mode": "paper",
+            "outcome": outcome,
+            "broker_confirmation": confirmation,
+            "observed_at": observed_at,
+        }
+
     def test_projects_only_attested_identity_and_keeps_execution_pending(self):
         snapshot = projection.build_execution_evidence_source_snapshot(
             [self._report()],
@@ -90,6 +117,46 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
             "runtime_report_no_eligible_records",
             "runtime_report_release_unattested",
         ])
+
+    def test_projects_a_matching_minimal_execution_receipt_without_order_details(self):
+        report = self._report()
+        report["execution_receipt"] = self._execution_receipt()
+
+        snapshot = projection.build_execution_evidence_source_snapshot(
+            [report],
+            source_id="runtime-reports",
+            now=datetime(2026, 8, 25, 16, 5, tzinfo=UTC),
+        )
+
+        deployment = snapshot["deployments"][0]
+        self.assertEqual(deployment["evidence"]["target_execution"], "verified")
+        self.assertEqual(deployment["recommendation"], {
+            "code": "parked",
+            "reason_code": "target_execution_receipt_observed",
+        })
+        self.assertEqual(deployment["execution_receipt"], {
+            "outcome": "filled",
+            "broker_confirmation": "filled",
+            "observed_at": "2026-08-25T16:00:00Z",
+        })
+        serialized = json.dumps(snapshot, sort_keys=True)
+        for forbidden in ("receipt_id", "must-not-be-projected", "account_ids", "api_token", "gs://"):
+            self.assertNotIn(forbidden, serialized)
+
+    def test_rejects_a_tampered_execution_receipt_without_claiming_execution(self):
+        report = self._report()
+        receipt = self._execution_receipt()
+        receipt["outcome"] = "submitted"
+        report["execution_receipt"] = receipt
+
+        snapshot = projection.build_execution_evidence_source_snapshot(
+            [report],
+            source_id="runtime-reports",
+            now=datetime(2026, 8, 25, 16, 5, tzinfo=UTC),
+        )
+
+        self.assertEqual(snapshot["data_status"], "unavailable")
+        self.assertIn("runtime_report_execution_receipt_invalid", snapshot["errors"])
 
     def test_keeps_only_the_latest_report_per_deployment(self):
         older = self._report(finished_at="2026-08-25T15:00:00Z")

@@ -26,6 +26,19 @@ that reason every projected record sets `target_data` and `target_execution` to
 `target_execution_evidence_missing`. The projection never emits an autonomous
 paper/shadow recommendation or a live approval.
 
+## 可选执行回执
+
+新 runtime 可以在原始 `runtime_report.v1` 中附带
+`qsl_execution_receipt.v1`。它只允许九个固定结果：未到期、无订单、风控拦截、
+已提交、券商确认、部分成交、成交、需对账或失败；同时只保留最小的券商确认状态和
+时间。它没有账户、订单号、标的、价格、数量、持仓、资金、错误原文或凭证。
+
+投影器只接受与 runtime report 的平台、策略、40 位 revision、执行通道完全一致，且
+内容摘要和时间窗口都有效的回执。缺失、旧格式、篡改或不一致的回执不会被推断为成功：
+缺失时仍为 `pending`；失败/需对账时为 `unavailable`；其余有效回执只把“该次结果
+已被记录”标为 `verified`。无论哪种情况，推荐仍是 `parked`，不会产生 paper、canary
+或实盘授权。
+
 Reports older than its bounded freshness window (36 hours by default), or more
 than five minutes in the future, are discarded. The output's `generated_at`
 retains the oldest accepted report timestamp rather than the collector time, so

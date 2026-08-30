@@ -2998,6 +2998,74 @@ assert.equal(executionEvidencePayload.policy.execution_evidence_read_only, true)
 assert.equal(executionEvidencePayload.policy.p6_owner_decision_required, true);
 assert.equal(executionEvidencePayload.policy.limited_live_canary_active, false);
 
+const executionReceiptObservedAt = controlNow.replace(/\.\d{3}Z$/, "Z");
+const executionReceiptEvidenceSourcePayload = {
+  schema_version: "qsl_execution_evidence_source_snapshot.v1",
+  source_id: "longbridge.execution_receipt",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  deployments: [{
+    deployment_id: "soxl_soxx_trend_income.longbridge.paper",
+    strategy: {
+      candidate_id: "soxl_soxx_trend_income",
+      candidate_kind: "individual",
+      domain: "us_equity",
+      strategy_revision: "b".repeat(40),
+    },
+    target: { platform: "longbridge", environment: "paper" },
+    capabilities: { shadow: "unknown", paper: "unknown" },
+    evidence: { strategy: "verified", target_data: "pending", target_execution: "verified" },
+    recommendation: { code: "parked", reason_code: "target_execution_receipt_observed" },
+    execution_receipt: {
+      outcome: "filled",
+      broker_confirmation: "filled",
+      observed_at: executionReceiptObservedAt,
+    },
+  }],
+  errors: [],
+};
+const invalidExecutionReceiptEvidence = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...executionReceiptEvidenceSourcePayload,
+      deployments: [{
+        ...executionReceiptEvidenceSourcePayload.deployments[0],
+        execution_receipt: {
+          ...executionReceiptEvidenceSourcePayload.deployments[0].execution_receipt,
+          broker_confirmation: "not_observed",
+        },
+      }],
+    }),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(invalidExecutionReceiptEvidence.status, 400);
+const executionReceiptEvidenceSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(executionReceiptEvidenceSourcePayload),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(executionReceiptEvidenceSync.status, 200);
+const executionReceiptEvidenceRead = await worker.fetch(
+  new Request("https://switch.example/api/execution-evidence", { headers: executionEvidenceCookieHeaders }),
+  executionEvidenceEnv,
+);
+const executionReceiptEvidencePayload = await executionReceiptEvidenceRead.json();
+const receiptDeployment = executionReceiptEvidencePayload.deployments.find(
+  (entry) => entry.deployment.deployment_id === "soxl_soxx_trend_income.longbridge.paper",
+);
+assert.deepEqual(receiptDeployment.deployment.execution_receipt, {
+  outcome: "filled",
+  broker_confirmation: "filled",
+  observed_at: executionReceiptObservedAt,
+});
+
 const runtimeTargetLifecycleSourcePayload = {
   schema_version: "qsl_runtime_target_lifecycle_source_snapshot.v1",
   source_id: "longbridge.sg",

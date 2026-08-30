@@ -27,6 +27,7 @@ from typing import Any
 
 SOURCE_SCHEMA_VERSION = "qsl_execution_evidence_source_snapshot.v1"
 RUNTIME_REPORT_SCHEMA_VERSION = "runtime_report.v1"
+EXECUTION_RECEIPT_SCHEMA_VERSION = "qsl_execution_receipt.v1"
 _PLATFORM_ALIASES = {
     "alpaca": "alpaca",
     "binance": "binance",
@@ -44,6 +45,41 @@ _DOMAINS = frozenset({"us_equity", "hk_equity", "cn_equity", "crypto"})
 _REVISION = re.compile(r"^[0-9a-f]{40}$")
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9._=-]{1,128}$")
 _FORBIDDEN_TEXT = re.compile(r"(?:secret|token|password|credential|api[_-]?key|account|order|fill|position|capital)", re.IGNORECASE)
+_EXECUTION_RECEIPT_ID = re.compile(r"^execution-receipt\.[0-9a-f]{32}$")
+_EXECUTION_RECEIPT_OUTCOMES = frozenset(
+    {
+        "not_due",
+        "no_action",
+        "risk_blocked",
+        "submitted",
+        "broker_acknowledged",
+        "partially_filled",
+        "filled",
+        "reconciliation_required",
+        "failed",
+    }
+)
+_EXECUTION_RECEIPT_CONFIRMATIONS = frozenset(
+    {
+        "not_applicable",
+        "not_observed",
+        "acknowledged",
+        "partially_filled",
+        "filled",
+        "reconciliation_required",
+    }
+)
+_EXECUTION_RECEIPT_OUTCOME_CONFIRMATIONS = {
+    "not_due": frozenset({"not_applicable"}),
+    "no_action": frozenset({"not_applicable"}),
+    "risk_blocked": frozenset({"not_applicable"}),
+    "submitted": frozenset({"not_observed"}),
+    "broker_acknowledged": frozenset({"acknowledged"}),
+    "partially_filled": frozenset({"partially_filled"}),
+    "filled": frozenset({"filled"}),
+    "reconciliation_required": frozenset({"reconciliation_required"}),
+    "failed": frozenset({"not_applicable", "not_observed", "reconciliation_required"}),
+}
 
 
 class ExecutionEvidenceProjectionError(ValueError):
@@ -143,6 +179,14 @@ def _project_runtime_report(report: Mapping[str, Any]) -> tuple[dict[str, Any], 
         raise ExecutionEvidenceProjectionError("runtime_report_release_unattested")
 
     observed_at = _report_timestamp(report)
+    execution_receipt = _project_execution_receipt(
+        report.get("execution_receipt"),
+        platform=platform,
+        strategy_profile=profile,
+        strategy_revision=revision,
+        execution_mode=execution_mode,
+        report_observed_at=observed_at,
+    )
     deployment_id = _deployment_id(
         platform=platform,
         deploy_target=report.get("deploy_target"),
@@ -150,7 +194,8 @@ def _project_runtime_report(report: Mapping[str, Any]) -> tuple[dict[str, Any], 
         strategy_profile=profile,
         environment=execution_mode,
     )
-    return {
+    target_execution, reason_code = _execution_evidence_from_receipt(execution_receipt)
+    deployment = {
         "deployment_id": deployment_id,
         "strategy": {
             "candidate_id": profile,
@@ -163,13 +208,101 @@ def _project_runtime_report(report: Mapping[str, Any]) -> tuple[dict[str, Any], 
         "evidence": {
             "strategy": "verified",
             "target_data": "pending",
-            "target_execution": "pending",
+            "target_execution": target_execution,
         },
         "recommendation": {
             "code": "parked",
-            "reason_code": "target_execution_evidence_missing",
+            "reason_code": reason_code,
         },
-    }, observed_at
+    }
+    if execution_receipt is not None:
+        deployment["execution_receipt"] = execution_receipt
+    return deployment, observed_at
+
+
+def _project_execution_receipt(
+    value: object,
+    *,
+    platform: str,
+    strategy_profile: str,
+    strategy_revision: str,
+    execution_mode: str,
+    report_observed_at: datetime,
+) -> dict[str, str] | None:
+    """Project one exact, privacy-safe outcome receipt from a runtime report.
+
+    The report itself remains the source of identity.  Any receipt that does
+    not match its platform, strategy revision and lane is discarded instead of
+    being used to make execution look verified.
+    """
+
+    if value is None:
+        return None
+    receipt = _mapping(value, "runtime_report_execution_receipt_invalid")
+    expected_fields = {
+        "schema_version",
+        "receipt_id",
+        "platform",
+        "strategy_profile",
+        "strategy_revision",
+        "execution_mode",
+        "outcome",
+        "broker_confirmation",
+        "observed_at",
+    }
+    if set(receipt) != expected_fields or receipt.get("schema_version") != EXECUTION_RECEIPT_SCHEMA_VERSION:
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_invalid")
+    receipt_platform = _PLATFORM_ALIASES.get(str(receipt.get("platform") or "").strip().lower())
+    receipt_profile = _identity(receipt.get("strategy_profile"), "runtime_report_execution_receipt_invalid")
+    receipt_revision = str(receipt.get("strategy_revision") or "").strip()
+    receipt_mode = str(receipt.get("execution_mode") or "").strip()
+    outcome = str(receipt.get("outcome") or "").strip()
+    confirmation = str(receipt.get("broker_confirmation") or "").strip()
+    receipt_id = str(receipt.get("receipt_id") or "").strip()
+    receipt_at = _receipt_timestamp(receipt.get("observed_at"))
+    if (
+        receipt_platform != platform
+        or receipt_profile != strategy_profile
+        or receipt_revision != strategy_revision
+        or receipt_mode != execution_mode
+        or not _REVISION.fullmatch(receipt_revision)
+        or outcome not in _EXECUTION_RECEIPT_OUTCOMES
+        or confirmation not in _EXECUTION_RECEIPT_CONFIRMATIONS
+        or confirmation not in _EXECUTION_RECEIPT_OUTCOME_CONFIRMATIONS[outcome]
+        or not _EXECUTION_RECEIPT_ID.fullmatch(receipt_id)
+    ):
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_invalid")
+    expected_id = _execution_receipt_id(
+        platform=receipt_platform,
+        strategy_profile=receipt_profile,
+        strategy_revision=receipt_revision,
+        execution_mode=receipt_mode,
+        outcome=outcome,
+        broker_confirmation=confirmation,
+        observed_at=_timestamp(receipt_at),
+    )
+    if receipt_id != expected_id:
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_invalid")
+    if receipt_at > report_observed_at + timedelta(minutes=5) or receipt_at < report_observed_at - timedelta(hours=24):
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_timestamp_mismatch")
+    return {
+        "outcome": outcome,
+        "broker_confirmation": confirmation,
+        "observed_at": _timestamp(receipt_at),
+    }
+
+
+def _execution_evidence_from_receipt(
+    receipt: Mapping[str, str] | None,
+) -> tuple[str, str]:
+    if receipt is None:
+        return "pending", "target_execution_evidence_missing"
+    outcome = receipt["outcome"]
+    if outcome == "reconciliation_required":
+        return "unavailable", "target_execution_reconciliation_required"
+    if outcome == "failed":
+        return "unavailable", "target_execution_receipt_failed"
+    return "verified", "target_execution_receipt_observed"
 
 
 def _mapping(value: object, error_code: str) -> Mapping[str, Any]:
@@ -197,6 +330,44 @@ def _report_timestamp(report: Mapping[str, Any]) -> datetime:
         if parsed.tzinfo is not None and parsed.utcoffset() is not None:
             return parsed.astimezone(UTC)
     raise ExecutionEvidenceProjectionError("runtime_report_timestamp_invalid")
+
+
+def _receipt_timestamp(value: object) -> datetime:
+    if not isinstance(value, str) or not value.strip():
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_invalid")
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_invalid") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ExecutionEvidenceProjectionError("runtime_report_execution_receipt_invalid")
+    return parsed.astimezone(UTC).replace(microsecond=0)
+
+
+def _execution_receipt_id(
+    *,
+    platform: str,
+    strategy_profile: str,
+    strategy_revision: str,
+    execution_mode: str,
+    outcome: str,
+    broker_confirmation: str,
+    observed_at: str,
+) -> str:
+    payload = {
+        "schema_version": EXECUTION_RECEIPT_SCHEMA_VERSION,
+        "platform": platform,
+        "strategy_profile": strategy_profile,
+        "strategy_revision": strategy_revision,
+        "execution_mode": execution_mode,
+        "outcome": outcome,
+        "broker_confirmation": broker_confirmation,
+        "observed_at": observed_at,
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    ).hexdigest()
+    return f"execution-receipt.{digest[:32]}"
 
 
 def _deployment_id(
