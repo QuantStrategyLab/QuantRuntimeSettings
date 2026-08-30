@@ -962,6 +962,25 @@ def _patch_service_targets(
             current_entry=current_entry,
             replacement=replacement,
         )
+        current_env = current_entry.get("env")
+        if isinstance(current_env, dict):
+            # Preserve the source shape of migrated inventories.  A top-level
+            # override would take precedence over env.* at deploy time while
+            # leaving a stale nested value for consoles and future edits.
+            nested_env = dict(current_env)
+            structural_fields = {
+                "service",
+                "service_name",
+                "cloud_run_service",
+                "runtime_target",
+                "ACCOUNT_GROUP",
+            }
+            for name, value in tuple(replacement.items()):
+                if name in structural_fields:
+                    continue
+                nested_env[name] = value
+                replacement.pop(name)
+            current_entry = {**current_entry, "env": nested_env}
         entries[matched_index] = {**current_entry, **replacement}
     elif not allow_create:
         platform_label = "IBKR " if platform == "ibkr" else ""

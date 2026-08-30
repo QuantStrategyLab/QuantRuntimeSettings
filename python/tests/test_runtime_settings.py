@@ -3363,6 +3363,61 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(selected["runtime_target"]["strategy_profile"], "soxl_soxx_trend_income")
         self.assertEqual(selected["IBKR_STRATEGY_PLUGIN_MOUNTS_JSON"]["strategy_plugins"], [])
 
+    def test_build_switch_target_updates_nested_service_controls_without_stale_overrides(self):
+        existing = {
+            "targets": [
+                {
+                    "service": "interactive-brokers-demo-ibkr-soxl-service",
+                    "ACCOUNT_GROUP": "demo-ibkr-soxl",
+                    "env": {
+                        "RUNTIME_TARGET_ENABLED": "false",
+                        "IBKR_DRY_RUN_ONLY": "false",
+                    },
+                    "runtime_target": {
+                        "platform_id": "ibkr",
+                        "strategy_profile": "soxl_soxx_trend_income",
+                        "dry_run_only": False,
+                        "deployment_selector": "demo-ibkr-soxl",
+                        "account_selector": ["DEMO_IBKR_SOXL"],
+                        "account_scope": "demo-ibkr-soxl",
+                        "service_name": "interactive-brokers-demo-ibkr-soxl-service",
+                        "execution_mode": "live",
+                    },
+                },
+            ],
+        }
+        path = ROOT / ".pytest_runtime_service_targets_nested_controls.json"
+        path.write_text(runtime_settings.compact_json(existing), encoding="utf-8")
+        self.addCleanup(lambda: path.unlink(missing_ok=True))
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "ibkr",
+                "--target-name",
+                "demo-ibkr-soxl",
+                "--strategy-profile",
+                "soxl_soxx_trend_income",
+                "--account-selector",
+                "DEMO_IBKR_SOXL",
+                "--service-name",
+                "interactive-brokers-demo-ibkr-soxl-service",
+                "--existing-service-targets-json-file",
+                str(path),
+                "--extra-variables-json",
+                '{"RUNTIME_TARGET_ENABLED":"true"}',
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        assignments = {item.name: item.value for item in runtime_settings.build_assignments(target)}
+        selected = json.loads(assignments["CLOUD_RUN_SERVICE_TARGETS_JSON"])["targets"][0]
+
+        self.assertEqual(selected["env"]["RUNTIME_TARGET_ENABLED"], "true")
+        self.assertEqual(selected["env"]["IBKR_DRY_RUN_ONLY"], "false")
+        self.assertNotIn("RUNTIME_TARGET_ENABLED", selected)
+        self.assertNotIn("IBKR_DRY_RUN_ONLY", selected)
+
     def test_build_switch_target_rejects_unknown_ibkr_service_target_by_default(self):
         path = ROOT / ".pytest_runtime_service_targets_unknown.json"
         path.write_text('{"targets":[]}', encoding="utf-8")
