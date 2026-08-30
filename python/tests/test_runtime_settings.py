@@ -1452,6 +1452,91 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             {"strategy_plugins": []},
         )
 
+    def test_build_switch_target_preserves_current_mounts_for_same_strategy(self):
+        parser = build_runtime_switch.build_parser()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mounts_path = Path(temp_dir) / "current-plugin-mounts.json"
+            mounts_path.write_text(
+                json.dumps(
+                    {
+                        "strategy_plugins": [
+                            {
+                                "strategy": "soxl_soxx_trend_income",
+                                "plugin": "market_regime_control",
+                                "enabled": True,
+                                "expected_mode": "shadow",
+                                "signal_path": "gs://example/plugin.json",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = parser.parse_args(
+                [
+                    "--platform",
+                    "longbridge",
+                    "--target-name",
+                    "sg",
+                    "--strategy-profile",
+                    "soxl_soxx_trend_income",
+                    "--plugin-mode",
+                    "current",
+                    "--current-plugin-mounts-json-file",
+                    str(mounts_path),
+                ]
+            )
+
+            target = build_runtime_switch.build_switch_target(args)
+
+        self.assertEqual(
+            target["plugin_mounts"],
+            [
+                {
+                    "strategy": "soxl_soxx_trend_income",
+                    "plugin": "market_regime_control",
+                    "enabled": True,
+                    "expected_mode": "shadow",
+                    "signal_path": "gs://example/plugin.json",
+                }
+            ],
+        )
+
+    def test_build_switch_target_rejects_current_mounts_for_other_strategy(self):
+        parser = build_runtime_switch.build_parser()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            mounts_path = Path(temp_dir) / "current-plugin-mounts.json"
+            mounts_path.write_text(
+                json.dumps(
+                    {
+                        "strategy_plugins": [
+                            {
+                                "strategy": "tqqq_growth_income",
+                                "plugin": "market_regime_control",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            args = parser.parse_args(
+                [
+                    "--platform",
+                    "longbridge",
+                    "--target-name",
+                    "sg",
+                    "--strategy-profile",
+                    "soxl_soxx_trend_income",
+                    "--plugin-mode",
+                    "current",
+                    "--current-plugin-mounts-json-file",
+                    str(mounts_path),
+                ]
+            )
+
+            with self.assertRaisesRegex(ValueError, "only preserves mounts for the selected strategy"):
+                build_runtime_switch.build_switch_target(args)
+
     def test_build_switch_target_rejects_legacy_custom_plugin_mounts(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(

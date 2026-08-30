@@ -613,12 +613,37 @@ def _auto_plugin_mounts(strategy_profile: str, artifact_bucket_uri: str, dca_mod
     return []
 
 
+def _current_plugin_mounts(args: argparse.Namespace, strategy_profile: str) -> list[dict[str, Any]]:
+    path = str(getattr(args, "current_plugin_mounts_json_file", "") or "").strip()
+    if not path:
+        raise ValueError("plugin_mode=current requires current_plugin_mounts_json_file")
+    payload = _load_json_from_file(path, field_name="current_plugin_mounts_json_file")
+    if not isinstance(payload, dict):
+        raise ValueError("current_plugin_mounts_json_file must contain an object")
+    mounts = payload.get("strategy_plugins")
+    if not isinstance(mounts, list) or any(not isinstance(item, dict) for item in mounts):
+        raise ValueError("current_plugin_mounts_json_file.strategy_plugins must be an array of objects")
+    unexpected = {
+        str(item.get("strategy") or "").strip()
+        for item in mounts
+        if str(item.get("strategy") or "").strip() != strategy_profile
+    }
+    if unexpected:
+        raise ValueError(
+            "plugin_mode=current only preserves mounts for the selected strategy; "
+            f"found: {', '.join(sorted(unexpected))}"
+        )
+    return [dict(item) for item in mounts]
+
+
 def _plugin_mounts(args: argparse.Namespace, strategy_profile: str, dca_mode: str = "") -> list[dict[str, Any]]:
     mode = str(args.plugin_mode or "none").strip().lower()
     if mode == "none":
         return []
     if mode == "auto":
         return _auto_plugin_mounts(strategy_profile, args.artifact_bucket_uri, dca_mode)
+    if mode == "current":
+        return _current_plugin_mounts(args, strategy_profile)
     if mode == "custom":
         raise ValueError(
             "legacy custom plugin mounts are retired; a P1/P2/P3-bound strategy_plugin_signal.v2 adapter is required"
@@ -1077,7 +1102,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--live-continuity-baseline-id", default="")
     parser.add_argument("--live-continuity-captured-at", default="")
-    parser.add_argument("--plugin-mode", choices=("auto", "none", "custom"), default="none")
+    parser.add_argument("--plugin-mode", choices=("auto", "current", "none", "custom"), default="none")
+    parser.add_argument("--current-plugin-mounts-json-file", default="")
     parser.add_argument("--custom-plugin-mounts-json", default="")
     parser.add_argument("--artifact-bucket-uri", default=DEFAULT_ARTIFACT_BUCKET_URI)
     parser.add_argument("--extra-variables-json", default="", help="JSON object of non-secret extra variables")

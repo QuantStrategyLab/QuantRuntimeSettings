@@ -65,7 +65,7 @@ python3 -m unittest discover -s python/tests -v
 3. 再运行 `apply=true`，并填写 `confirm_apply=APPLY`，写入目标仓库变量。
 4. 对 Cloud Run 平台，如需同步运行环境，额外设置 `trigger_platform_sync=true`，并填写 `confirm_apply=APPLY_AND_SYNC`。
 
-若是在**恢复已明确授权的旧实盘基线**，可额外填写 `live_continuity_state`、`live_continuity_baseline_id` 和 `live_continuity_captured_at`。工具会用完整 target 自动计算冻结 hash；它只接受 `legacy_authorized` 基线，不能借此创建新的实盘权限、扩大资金/杠杆或把研究候选直接提升为实盘。
+若是在**恢复已明确授权的旧实盘基线**，可额外填写 `live_continuity_state`、`live_continuity_baseline_id` 和 `live_continuity_captured_at`。工具会用完整 target 自动计算冻结 hash；它只接受 `legacy_authorized` 基线，不能借此创建新的实盘权限、扩大资金/杠杆或把研究候选直接提升为实盘。此类恢复若需要保持既有、同一策略的 shadow/观察插件，选择 `plugin_mode=current`：工作流只读取并原样保留当前挂载；读不到、格式无效或挂载属于其他策略时会失败，不会用空配置覆盖。
 
 常用例子：
 
