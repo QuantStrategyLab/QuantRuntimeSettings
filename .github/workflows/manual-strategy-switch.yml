@@ -82,12 +82,13 @@ on:
         required: false
         type: string
       plugin_mode:
-        description: "none is the safe default. auto is a compatibility alias for none; legacy custom mounts are disabled until P1/P2-bound plugin artifacts exist."
+        description: "none disables mounts. current preserves the selected strategy's existing mounts exactly; it cannot add or change a plugin."
         required: true
         type: choice
         default: none
         options:
           - none
+          - current
       extra_variables_json:
         description: "Optional JSON object of non-secret extra variables. DCA profiles may include dca_mode and dca_base_investment_usd control fields. cash_only_execution_mode may be current, enabled, or disabled. Research-only option overlays are rejected."
         required: false
@@ -336,7 +337,53 @@ jobs:
           if [ -f "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
             echo "existing CLOUD_RUN_SERVICE_TARGETS_JSON requires service_targets_mode=patch or allow_create" >&2
             exit 2
+              fi
+
+      - name: Fetch current plugin mounts for continuity
+        if: env.PLUGIN_MODE == 'current'
+        env:
+          TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
+        run: |
+          set -euo pipefail
+          case "${PLATFORM}" in
+            longbridge) mounts_variable="LONGBRIDGE_STRATEGY_PLUGIN_MOUNTS_JSON" ;;
+            ibkr) mounts_variable="IBKR_STRATEGY_PLUGIN_MOUNTS_JSON" ;;
+            schwab) mounts_variable="SCHWAB_STRATEGY_PLUGIN_MOUNTS_JSON" ;;
+            firstrade) mounts_variable="FIRSTRADE_STRATEGY_PLUGIN_MOUNTS_JSON" ;;
+            qmt) mounts_variable="QMT_STRATEGY_PLUGIN_MOUNTS_JSON" ;;
+            binance) mounts_variable="BINANCE_STRATEGY_PLUGIN_MOUNTS_JSON" ;;
+            *) echo "Unsupported platform: ${PLATFORM}" >&2; exit 2 ;;
+          esac
+          target_environment=""
+          if [ "${VARIABLE_SCOPE}" = "environment" ]; then
+            target_environment="${GITHUB_ENVIRONMENT_NAME:-${TARGET_NAME}}"
+          elif [ "${VARIABLE_SCOPE}" = "default" ] && [ "${PLATFORM}" = "longbridge" ]; then
+            target_environment="longbridge-${TARGET_NAME}"
           fi
+          output_file="${RUNNER_TEMP}/current-plugin-mounts.json"
+          python - <<'PY' "${TARGET_REPOSITORY}" "${mounts_variable}" "${target_environment}" "${output_file}"
+          import json
+          import subprocess
+          import sys
+
+          repo, variable, environment, output_path = sys.argv[1:5]
+          command = ["gh", "variable", "list", "--repo", repo, "--json", "name,value"]
+          if environment:
+              command.extend(["--env", environment])
+          values = json.loads(subprocess.check_output(command, text=True))
+          raw = next((item.get("value") for item in values if item.get("name") == variable), None)
+          if not isinstance(raw, str) or not raw.strip():
+              raise SystemExit(f"{variable} is required when plugin_mode=current")
+          try:
+              payload = json.loads(raw)
+          except json.JSONDecodeError as exc:
+              raise SystemExit(f"{variable} must contain valid JSON") from exc
+          if not isinstance(payload, dict) or not isinstance(payload.get("strategy_plugins"), list):
+              raise SystemExit(f"{variable} must contain a strategy_plugins array")
+          with open(output_path, "w", encoding="utf-8") as handle:
+              json.dump(payload, handle, ensure_ascii=False, separators=(",", ":"))
+          PY
+          echo "CURRENT_PLUGIN_MOUNTS_JSON_FILE=${output_file}" >> "$GITHUB_ENV"
 
       - name: Build switch target
         run: |
@@ -368,6 +415,9 @@ jobs:
           fi
           if [ -n "${SERVICE_NAME:-}" ]; then
             args+=(--service-name "${SERVICE_NAME}")
+          fi
+          if [ "${PLUGIN_MODE}" = "current" ]; then
+            args+=(--current-plugin-mounts-json-file "${CURRENT_PLUGIN_MOUNTS_JSON_FILE}")
           fi
           if [ "${LIVE_CONTINUITY_STATE}" != "NONE" ]; then
             args+=(--live-continuity-state "${LIVE_CONTINUITY_STATE}")
