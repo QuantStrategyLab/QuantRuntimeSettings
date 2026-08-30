@@ -361,6 +361,25 @@ jobs:
             target_environment="longbridge-${TARGET_NAME}"
           fi
           output_file="${RUNNER_TEMP}/current-plugin-mounts.json"
+          if [ -f "${EXISTING_SERVICE_TARGETS_JSON_FILE:-}" ]; then
+            set +e
+            python3 python/scripts/extract_service_plugin_mounts.py \
+              --service-targets-file "${EXISTING_SERVICE_TARGETS_JSON_FILE}" \
+              --mounts-variable "${mounts_variable}" \
+              --service-name "${SERVICE_NAME:-}" \
+              --target-name "${TARGET_NAME}" \
+              --output "${output_file}"
+            extraction_status=$?
+            set -e
+            if [ "${extraction_status}" -eq 0 ]; then
+              echo "CURRENT_PLUGIN_MOUNTS_JSON_FILE=${output_file}" >> "$GITHUB_ENV"
+              exit 0
+            fi
+            if [ "${extraction_status}" -ne 3 ]; then
+              echo "Unable to safely preserve service-specific ${mounts_variable}." >&2
+              exit "${extraction_status}"
+            fi
+          fi
           python - <<'PY' "${TARGET_REPOSITORY}" "${mounts_variable}" "${target_environment}" "${output_file}"
           import json
           import subprocess
