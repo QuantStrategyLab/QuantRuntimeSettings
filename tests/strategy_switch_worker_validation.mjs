@@ -406,6 +406,20 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       allowed_execution_modes: ["live", "dry_run"],
     },
     {
+      profile: "legacy_continuity_profile",
+      label: "Legacy continuity profile",
+      domain: "us_equity",
+      runtime_enabled: false,
+      lifecycle_stage: "research_active",
+      can_switch_live: false,
+      allowed_execution_modes: ["dry_run"],
+      blocked_live_reason: "candidate_gate_remains_closed",
+      live_continuity: {
+        eligible: true,
+        allowed_platforms: ["ibkr"],
+      },
+    },
+    {
       profile: "us_equity_combo_leveraged",
       label: "US Alpha Combo",
       domain: "us_equity",
@@ -470,17 +484,19 @@ assert.equal(strategyProfiles[0].option_growth_overlay_nav_budget_ratio, "0.03")
 assert.equal(strategyProfiles[0].option_income_overlay_enabled, false);
 assert.equal(strategyProfiles[0].latest_evidence_status, "live_allowed");
 assert.equal(strategyProfiles[0].plugin_gate_status, "live_allowed");
-assert.equal(strategyProfiles[2].lifecycle_stage, "research_active");
-assert.equal(strategyProfiles[2].can_switch_live, false);
-assert.deepEqual(strategyProfiles[2].allowed_execution_modes, ["dry_run"]);
-assert.equal(strategyProfiles[2].blocked_live_reason, "promotion_required");
-assert.equal(strategyProfiles[2].latest_evidence_status, "research_only");
-assert.equal(strategyProfiles[2].plugin_gate_status, "blocked");
-assert.equal(strategyProfiles[3].dca_enabled, true);
-assert.equal(strategyProfiles[3].dca_default_mode, "fixed");
-assert.equal(strategyProfiles[3].dca_default_base_investment_usd, "1000");
-assert.equal(strategyProfiles[4].lifecycle_stage, "shadow_active");
-assert.equal(strategyProfiles[5].lifecycle_stage, "live_enabled");
+const legacyContinuityProfile = strategyProfiles.find((item) => item.profile === "legacy_continuity_profile");
+assert.deepEqual(legacyContinuityProfile.live_continuity, { eligible: true, allowed_platforms: ["ibkr"] });
+assert.equal(strategyProfiles[3].lifecycle_stage, "research_active");
+assert.equal(strategyProfiles[3].can_switch_live, false);
+assert.deepEqual(strategyProfiles[3].allowed_execution_modes, ["dry_run"]);
+assert.equal(strategyProfiles[3].blocked_live_reason, "promotion_required");
+assert.equal(strategyProfiles[3].latest_evidence_status, "research_only");
+assert.equal(strategyProfiles[3].plugin_gate_status, "blocked");
+assert.equal(strategyProfiles[4].dca_enabled, true);
+assert.equal(strategyProfiles[4].dca_default_mode, "fixed");
+assert.equal(strategyProfiles[4].dca_default_base_investment_usd, "1000");
+assert.equal(strategyProfiles[5].lifecycle_stage, "shadow_active");
+assert.equal(strategyProfiles[6].lifecycle_stage, "live_enabled");
 
 assert.doesNotThrow(() =>
   __test.assertStrategyAllowedForAccount(
@@ -644,6 +660,92 @@ assert.deepEqual(kvUnboundSyncBody.account_options_sync, {
   skipped: true,
 });
 
+const legacyContinuityKv = new Map([
+  ["account_options", JSON.stringify(accountOptions)],
+  ["strategy_profiles", JSON.stringify(strategyProfiles)],
+]);
+const legacyContinuityEnv = {
+  STRATEGY_SWITCH_SYNC_TOKEN: "test-sync-token",
+  STRATEGY_SWITCH_CONFIG: {
+    get: async (key) => legacyContinuityKv.get(key) || null,
+    put: async (key, value) => legacyContinuityKv.set(key, value),
+  },
+};
+const legacyContinuityPayload = {
+  platform: "ibkr",
+  target_name: "legacy-ibkr-route",
+  account_selector: "LEGACY_IBKR",
+  deployment_selector: "legacy-ibkr-route",
+  account_scope: "legacy-ibkr-route",
+  service_name: "interactive-brokers-legacy-ibkr-route-service",
+  strategy_profile: "legacy_continuity_profile",
+  execution_mode: "live",
+  live_continuity_state: "RECONCILE_ONLY",
+  live_continuity_baseline_id: "legacy-ibkr-lkg-20260830",
+  live_continuity_captured_at: "2026-08-30",
+  variable_scope: "default",
+  plugin_mode: "current",
+  option_overlay_mode: "current",
+  cash_only_execution_mode: "current",
+};
+const legacyContinuitySyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-account-default", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-sync-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(legacyContinuityPayload),
+  }),
+  legacyContinuityEnv,
+);
+assert.equal(legacyContinuitySyncResponse.status, 200);
+const legacyContinuitySyncBody = await legacyContinuitySyncResponse.json();
+assert.equal(legacyContinuitySyncBody.ok, true);
+assert.equal(legacyContinuitySyncBody.legacy_continuity_account_registered, true);
+const registeredLegacyAccount = JSON.parse(legacyContinuityKv.get("account_options")).ibkr.find(
+  (option) => option.target_name === "legacy-ibkr-route",
+);
+assert.equal(registeredLegacyAccount.service_name, "interactive-brokers-legacy-ibkr-route-service");
+assert.deepEqual(registeredLegacyAccount.supported_domains, ["us_equity"]);
+assert.equal("plugin_mode" in registeredLegacyAccount, false);
+const repeatedLegacyContinuitySyncResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-account-default", {
+    method: "POST",
+    headers: {
+      Authorization: "Bearer test-sync-token",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(legacyContinuityPayload),
+  }),
+  legacyContinuityEnv,
+);
+assert.equal(repeatedLegacyContinuitySyncResponse.status, 200);
+assert.equal((await repeatedLegacyContinuitySyncResponse.json()).legacy_continuity_account_registered, false);
+assert.equal(
+  JSON.parse(legacyContinuityKv.get("account_options")).ibkr.filter(
+    (option) => option.target_name === "legacy-ibkr-route",
+  ).length,
+  1,
+);
+const normalizedLegacyContinuityInputs = __test.normalizeSwitchInputs(legacyContinuityPayload);
+assert.doesNotThrow(() =>
+  __test.assertStrategyAllowedForAccount(
+    normalizedLegacyContinuityInputs,
+    registeredLegacyAccount,
+    strategyProfiles,
+  ),
+);
+assert.throws(
+  () =>
+    __test.assertStrategyAllowedForAccount(
+      { ...normalizedLegacyContinuityInputs, live_continuity_state: "NONE" },
+      registeredLegacyAccount,
+      strategyProfiles,
+    ),
+  /not live-enabled/,
+);
+
 const kvUnboundProfileSyncResponse = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-strategy-profiles", {
     method: "POST",
@@ -722,6 +824,9 @@ assert.deepEqual(JSON.parse(normalizedCashOnlyInputs.extra_variables_json), {
 assert.equal("cash_only_execution_mode" in normalizedCashOnlyInputs, false);
 
 const workflowYaml = readFileSync(resolve(root, ".github/workflows/manual-strategy-switch.yml"), "utf8");
+assert.ok(workflowYaml.includes('"live_continuity_state": continuity.get("state", "NONE")'));
+assert.ok(workflowYaml.includes('payload["live_continuity_baseline_id"]'));
+assert.ok(workflowYaml.includes('"cash_only_execution_mode": "current"'));
 const workflowInputs = [...workflowYaml.matchAll(/^      ([A-Za-z0-9_]+):\n        description:/gm)].map((match) => match[1]);
 const dispatchInputs = __test.normalizeSwitchInputs({
   platform: "ibkr",
