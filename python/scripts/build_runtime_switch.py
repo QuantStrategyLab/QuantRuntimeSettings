@@ -16,10 +16,12 @@ if str(SCRIPT_DIR) not in sys.path:
 ROOT = SCRIPT_DIR.parents[1]
 
 from runtime_settings import (  # noqa: E402
+    LIVE_CONTINUITY_STATES,
     SUPPORTED_PLATFORMS,
     compact_json,
     env_string,
     platform_repository,
+    runtime_target_fingerprint,
     select_service_target_entry_index,
     validate_target,
 )
@@ -820,7 +822,33 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     execution_windows = _load_json_object(args.execution_windows_json, field_name="execution_windows_json")
     if execution_windows:
         runtime_target["execution_windows"] = execution_windows
+    _apply_live_continuity(runtime_target, args)
     return runtime_target
+
+
+def _apply_live_continuity(runtime_target: dict[str, Any], args: argparse.Namespace) -> None:
+    """Attach a frozen legacy baseline without granting new live authority."""
+
+    state = str(getattr(args, "live_continuity_state", "") or "").strip().upper()
+    if not state or state == "NONE":
+        return
+    if state not in LIVE_CONTINUITY_STATES:
+        raise ValueError(f"live_continuity_state must be one of NONE, {', '.join(sorted(LIVE_CONTINUITY_STATES))}")
+    if runtime_target.get("execution_mode") != "live" or runtime_target.get("dry_run_only") is not False:
+        raise ValueError("live_continuity is only valid for an execution_mode=live, non-dry-run target")
+    baseline_id = str(getattr(args, "live_continuity_baseline_id", "") or "").strip()
+    captured_at = str(getattr(args, "live_continuity_captured_at", "") or "").strip()
+    if not baseline_id or not captured_at:
+        raise ValueError(
+            "live_continuity_baseline_id and live_continuity_captured_at are required when live_continuity_state is set"
+        )
+    runtime_target["live_continuity"] = {
+        "state": state,
+        "baseline_kind": "legacy_authorized",
+        "baseline_id": baseline_id,
+        "baseline_target_sha256": runtime_target_fingerprint(runtime_target),
+        "captured_at": captured_at,
+    }
 
 
 def _build_target_entry(
@@ -1041,6 +1069,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--account-scope", default="")
     parser.add_argument("--service-name", default="")
     parser.add_argument("--execution-windows-json", default="")
+    parser.add_argument(
+        "--live-continuity-state",
+        choices=("NONE", *sorted(LIVE_CONTINUITY_STATES)),
+        default="NONE",
+        help="Freeze an already authorised legacy baseline; does not create new live authority.",
+    )
+    parser.add_argument("--live-continuity-baseline-id", default="")
+    parser.add_argument("--live-continuity-captured-at", default="")
     parser.add_argument("--plugin-mode", choices=("auto", "none", "custom"), default="none")
     parser.add_argument("--custom-plugin-mounts-json", default="")
     parser.add_argument("--artifact-bucket-uri", default=DEFAULT_ARTIFACT_BUCKET_URI)
