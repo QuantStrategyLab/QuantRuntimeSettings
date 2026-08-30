@@ -53,6 +53,19 @@ catalog 名称、默认值或 inventory 状态推导 live 权限。
 运行、升级或下单依据；缺少新鲜快照时应显示 `unavailable` / `stale`，不能回退到该
 历史矩阵填充“正常”状态。
 
+## 运行监测与成交证据的边界
+
+`/api/runtime-target-lifecycle` 的来源记录固定为 `no_order=true`。它回答的是“目标
+是否按配置启用，以及运行守卫和执行心跳是否可用”，不读取账户、订单、成交、持仓或
+资金。控制台因此把每条记录明确标为以下之一：`not_due`、`monitoring_only`、
+`not_applicable`、`attention` 或 `unavailable`，并固定显示
+`order_or_fill_evidence=not_collected`。
+
+其中 `monitoring_only` 只表示守卫和心跳通过，**不能**解释为订单已提交、券商已接受
+或已经成交；`not_due` 只表示当前没有到策略的应交易窗口。未来如需在控制台展示
+成交事实，必须由独立的、最小化且可核验的 execution-receipt 来源提供，不能把本
+生命周期快照或 GitHub workflow 成功状态升级为成交证据。
+
 ## 一次性迁移规则
 
 - `platform-config.json`、设置网站 fallback 和生成的 profile asset 只写规范状态。

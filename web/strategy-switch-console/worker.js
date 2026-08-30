@@ -175,6 +175,7 @@ const RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES = ["enabled", "disabled"];
 const RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES = ["dry_run", "paper", "live"];
 const RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES = ["pass", "attention", "not_due", "not_applicable", "unavailable"];
 const RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS = ["continue_enabled_monitoring", "continue_disabled_validation", "parked"];
+const RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS = ["not_due", "monitoring_only", "not_applicable", "attention", "unavailable"];
 const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
   "none", "target_intentionally_disabled", "runtime_guard_attention", "execution_heartbeat_attention", "monitoring_unavailable",
 ];
@@ -2541,7 +2542,15 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         continue;
       }
       targetIds.add(target.target_id);
-      targets.push({ source_id: source.source_id, freshness, target });
+      targets.push({
+        source_id: source.source_id,
+        freshness,
+        target,
+        // A lifecycle source is deliberately no-order.  Keep this derived
+        // observation separate from the monitoring checks so a green check
+        // cannot be mistaken for a broker submission or fill receipt.
+        execution_observation: runtimeTargetLifecycleExecutionObservation(target),
+      });
     }
     errors.push(...source.errors);
   }
@@ -2561,10 +2570,35 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
     targets: uniqueTargets,
     policy: {
       lifecycle_status_read_only: true,
+      execution_observation_read_only: true,
       no_order: true,
-      notice: "已启用目标持续监控；已停用目标持续进行无执行验证。该状态不会启用目标或提交订单。",
+      order_or_fill_evidence: "not_collected",
+      notice: "已启用目标持续监控；已停用目标持续进行无执行验证。运行或心跳通过只说明监测正常，不代表已提交订单或已成交。",
     },
     errors: uniqueStrings(errors),
+  };
+}
+
+function runtimeTargetLifecycleExecutionObservation(target) {
+  const monitoring = target?.monitoring || {};
+  const configuredState = target?.target?.configured_state;
+  let code = "unavailable";
+  if (monitoring.runtime_guard === "attention" || monitoring.execution_heartbeat === "attention") {
+    code = "attention";
+  } else if (monitoring.runtime_guard === "unavailable" || monitoring.execution_heartbeat === "unavailable") {
+    code = "unavailable";
+  } else if (configuredState === "disabled") {
+    code = "not_applicable";
+  } else if (monitoring.execution_heartbeat === "not_due") {
+    code = "not_due";
+  } else if (monitoring.execution_heartbeat === "pass") {
+    code = "monitoring_only";
+  }
+  return {
+    code: cleanChoice(code, RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS, "runtime target lifecycle execution observation"),
+    // The source contract always declares no_order=true.  Only the separate
+    // execution-receipt chain may later provide an order/fill attestation.
+    order_or_fill_evidence: "not_collected",
   };
 }
 
@@ -4909,8 +4943,10 @@ function emptyRuntimeTargetLifecyclePayload(errorCode) {
     targets: [],
     policy: {
       lifecycle_status_read_only: true,
+      execution_observation_read_only: true,
       no_order: true,
-      notice: "运行目标生命周期快照尚不可用；页面不会推断目标已启用。",
+      order_or_fill_evidence: "not_collected",
+      notice: "运行目标生命周期快照尚不可用；页面不会推断目标已启用或存在订单/成交。",
     },
     errors: [errorCode],
   };

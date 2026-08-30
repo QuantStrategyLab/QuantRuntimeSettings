@@ -886,6 +886,7 @@
         runtimeTargetLifecycleEmpty: "暂无可展示的平台运行状态。",
         runtimeTargetLifecycleMeta: "{platform} · {state} · 通道：{mode}",
         runtimeTargetLifecycleDetail: "运行监测：{guard} · 执行心跳：{heartbeat}",
+        runtimeTargetLifecycleObservation: "本次执行：{observation} · 成交证据：{evidence}",
         runtimeTargetLifecycleNoOrder: "固定边界：只读状态；不会启用目标、变更策略或提交订单。",
         runtimeTargetLifecycleNext: "当前处理",
         runtimeTargetLifecycleStateEnabled: "已启用",
@@ -895,6 +896,12 @@
         runtimeTargetLifecycleCheckNotDue: "未到检查时间",
         runtimeTargetLifecycleCheckNotApplicable: "不适用",
         runtimeTargetLifecycleCheckUnavailable: "不可用",
+        runtimeTargetLifecycleObservationNotDue: "未到应交易窗口",
+        runtimeTargetLifecycleObservationMonitoringOnly: "仅监测通过",
+        runtimeTargetLifecycleObservationNotApplicable: "目标停用，不适用",
+        runtimeTargetLifecycleObservationAttention: "需要复核",
+        runtimeTargetLifecycleObservationUnavailable: "不可用",
+        runtimeTargetLifecycleOrderEvidenceNotCollected: "未采集订单/成交回执",
         runtimeTargetLifecycleDispositionEnabled: "持续监控",
         runtimeTargetLifecycleDispositionDisabled: "无执行验证",
         runtimeTargetLifecycleDispositionParked: "已暂停",
@@ -1211,6 +1218,7 @@
         runtimeTargetLifecycleEmpty: "No platform runtime status is available to display.",
         runtimeTargetLifecycleMeta: "{platform} · {state} · lane: {mode}",
         runtimeTargetLifecycleDetail: "runtime guard: {guard} · execution heartbeat: {heartbeat}",
+        runtimeTargetLifecycleObservation: "execution: {observation} · order/fill evidence: {evidence}",
         runtimeTargetLifecycleNoOrder: "Fixed boundary: read-only status; it cannot enable a target, change a strategy, or place an order.",
         runtimeTargetLifecycleNext: "CURRENT DISPOSITION",
         runtimeTargetLifecycleStateEnabled: "enabled",
@@ -1220,6 +1228,12 @@
         runtimeTargetLifecycleCheckNotDue: "not due",
         runtimeTargetLifecycleCheckNotApplicable: "not applicable",
         runtimeTargetLifecycleCheckUnavailable: "unavailable",
+        runtimeTargetLifecycleObservationNotDue: "not in a due window",
+        runtimeTargetLifecycleObservationMonitoringOnly: "monitoring only",
+        runtimeTargetLifecycleObservationNotApplicable: "target disabled; not applicable",
+        runtimeTargetLifecycleObservationAttention: "needs review",
+        runtimeTargetLifecycleObservationUnavailable: "unavailable",
+        runtimeTargetLifecycleOrderEvidenceNotCollected: "not collected",
         runtimeTargetLifecycleDispositionEnabled: "continue monitoring",
         runtimeTargetLifecycleDispositionDisabled: "disabled validation",
         runtimeTargetLifecycleDispositionParked: "parked",
@@ -4365,6 +4379,22 @@
         : t("runtimeTargetLifecycleStateDisabled");
     }
 
+    function runtimeTargetLifecycleObservationLabel(value) {
+      return {
+        not_due: t("runtimeTargetLifecycleObservationNotDue"),
+        monitoring_only: t("runtimeTargetLifecycleObservationMonitoringOnly"),
+        not_applicable: t("runtimeTargetLifecycleObservationNotApplicable"),
+        attention: t("runtimeTargetLifecycleObservationAttention"),
+        unavailable: t("runtimeTargetLifecycleObservationUnavailable"),
+      }[value] || t("runtimeTargetLifecycleObservationUnavailable");
+    }
+
+    function runtimeTargetLifecycleOrderEvidenceLabel(value) {
+      return {
+        not_collected: t("runtimeTargetLifecycleOrderEvidenceNotCollected"),
+      }[value] || t("runtimeTargetLifecycleOrderEvidenceNotCollected");
+    }
+
     function runtimeTargetLifecycleDispositionLabel(value) {
       return {
         continue_enabled_monitoring: t("runtimeTargetLifecycleDispositionEnabled"),
@@ -4419,6 +4449,7 @@
         const configuration = target.target || {};
         const monitoring = target.monitoring || {};
         const disposition = target.disposition || {};
+        const executionObservation = entry.execution_observation || {};
         const card = document.createElement("article");
         card.className = "health-card";
         const main = document.createElement("div");
@@ -4440,7 +4471,12 @@
         detail.textContent = t("runtimeTargetLifecycleDetail")
           .replace("{guard}", runtimeTargetLifecycleCheckLabel(monitoring.runtime_guard))
           .replace("{heartbeat}", runtimeTargetLifecycleCheckLabel(monitoring.execution_heartbeat));
-        main.append(meta, title, reason, detail);
+        const observation = document.createElement("div");
+        observation.className = "health-card__meta";
+        observation.textContent = t("runtimeTargetLifecycleObservation")
+          .replace("{observation}", runtimeTargetLifecycleObservationLabel(executionObservation.code))
+          .replace("{evidence}", runtimeTargetLifecycleOrderEvidenceLabel(executionObservation.order_or_fill_evidence));
+        main.append(meta, title, reason, detail, observation);
 
         const stateBlock = document.createElement("div");
         stateBlock.className = "health-card__score";
