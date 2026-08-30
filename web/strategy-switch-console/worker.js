@@ -172,6 +172,15 @@ const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "ch
 
 const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
+const LIVE_CONTINUITY_STATES = [
+  "NONE",
+  "ACTIVE_LKG",
+  "ACTIVE_REDUCED",
+  "RECONCILE_ONLY",
+  "RISK_REDUCTION_ONLY",
+  "PAUSED",
+  "ROLLBACK_LKG",
+];
 const DEFAULT_PLATFORM_REPOSITORIES = {
   longbridge: "QuantStrategyLab/LongBridgePlatform",
   ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
@@ -1366,15 +1375,49 @@ async function syncAccountDefaultResponse(request, env) {
   }
   const inputs = normalizeSwitchInputs(rawInput);
   const accountConfig = await loadAccountOptionsConfig(env);
-  const accountOption = assertConfiguredAccount(inputs, accountConfig.options);
-  assertStrategyAllowedForAccount(inputs, accountOption, await loadStrategyProfilesConfig(env));
-  const result = await syncDefaultStrategyForAccount(env, accountConfig.options, inputs, {
+  const strategyProfiles = await loadStrategyProfilesConfig(env);
+  const strategy = strategyProfiles.find((item) => item.profile === inputs.strategy_profile);
+  if (!strategy) throw new Error(`strategy ${inputs.strategy_profile} is not configured`);
+
+  let accountOptions = accountConfig.options;
+  let accountOption = configuredAccountForInputs(inputs, accountOptions);
+  let registeredLegacyContinuityAccount = false;
+  if (!accountOption) {
+    const registration = registerLegacyContinuityAccount(env, accountOptions, inputs, strategy);
+    accountOptions = registration.options;
+    accountOption = registration.account;
+    registeredLegacyContinuityAccount = registration.registered;
+    if (registeredLegacyContinuityAccount) {
+      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, accountOptions);
+      try {
+        await appendAuditLog(env, {
+          ts: new Date().toISOString(),
+          login: "github-actions",
+          action: "register_legacy_continuity_account",
+          platform: inputs.platform,
+          target_name: inputs.target_name,
+          strategy_profile: inputs.strategy_profile,
+          live_continuity_state: inputs.live_continuity_state,
+        });
+      } catch {
+        // The routing registration is still valid if its non-critical audit
+        // append fails; callers receive the registration result below.
+      }
+    }
+  }
+  if (!accountOption) throw new Error("switch inputs do not match configured account options");
+  assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles);
+  const result = await syncDefaultStrategyForAccount(env, accountOptions, inputs, {
     login: "github-actions",
   });
   const kvSyncSkipped = result.reason === "kv_not_bound";
   const accountOptionsSync = kvSyncSkipped ? { ...result, skipped: true } : result;
   return json(
-    { ok: result.synced || kvSyncSkipped, account_options_sync: accountOptionsSync },
+    {
+      ok: result.synced || kvSyncSkipped,
+      account_options_sync: accountOptionsSync,
+      legacy_continuity_account_registered: registeredLegacyContinuityAccount,
+    },
     result.synced || kvSyncSkipped ? 200 : 500,
   );
 }
@@ -4447,6 +4490,7 @@ function normalizeSwitchInputs(raw) {
   if (!supportedExecutionModesForPlatform(platform).includes(executionMode)) {
     throw new Error(`${platform} does not support ${executionMode} control execution`);
   }
+  const liveContinuity = normalizeLiveContinuityInputs(raw, executionMode);
   // "current" is used only by internal deployment reconciliation to retain
   // a service's existing plugin mount.  It is deliberately not exposed as a
   // console editing mode, where operators can still select only "none".
@@ -4505,6 +4549,7 @@ function normalizeSwitchInputs(raw) {
     target_name: targetName,
     strategy_profile: strategyProfile,
     execution_mode: executionMode,
+    live_continuity_state: liveContinuity.state,
     variable_scope: variableScope,
     plugin_mode: pluginMode,
     option_overlay_mode: optionOverlayMode,
@@ -4514,6 +4559,11 @@ function normalizeSwitchInputs(raw) {
     confirm_apply: apply ? (triggerPlatformSync ? "APPLY_AND_SYNC" : "APPLY") : "",
     platform_sync_workflow: "sync-cloud-run-env.yml",
   };
+
+  if (liveContinuity.state !== "NONE") {
+    inputs.live_continuity_baseline_id = liveContinuity.baseline_id;
+    inputs.live_continuity_captured_at = liveContinuity.captured_at;
+  }
 
   addOptional(inputs, "github_environment", raw.github_environment, cleanSlug);
   addOptional(inputs, "deployment_selector", raw.deployment_selector, cleanSlug);
@@ -4556,6 +4606,29 @@ function normalizeSwitchInputs(raw) {
   return inputs;
 }
 
+function normalizeLiveContinuityInputs(raw, executionMode) {
+  const state = String(raw.live_continuity_state || "NONE").trim().toUpperCase();
+  if (!LIVE_CONTINUITY_STATES.includes(state)) {
+    throw new Error(`live_continuity_state must be one of ${LIVE_CONTINUITY_STATES.join(", ")}`);
+  }
+  const rawBaselineId = String(raw.live_continuity_baseline_id || "").trim();
+  const rawCapturedAt = String(raw.live_continuity_captured_at || "").trim();
+  if (state === "NONE") {
+    if (rawBaselineId || rawCapturedAt) {
+      throw new Error("live continuity baseline fields require a non-NONE live_continuity_state");
+    }
+    return { state };
+  }
+  if (executionMode !== "live") {
+    throw new Error("live continuity is only valid for live execution_mode");
+  }
+  return {
+    state,
+    baseline_id: cleanSlug(rawBaselineId, "live_continuity_baseline_id"),
+    captured_at: normalizeM0ResearchDate(rawCapturedAt, "live_continuity_captured_at"),
+  };
+}
+
 function assertSwitchIntent(inputs) {
   if (
     inputs.apply !== "true" ||
@@ -4568,11 +4641,53 @@ function assertSwitchIntent(inputs) {
 
 function assertConfiguredAccount(inputs, accountOptions) {
   if (!accountOptions) throw new Error("account options are not configured");
-  const options = accountOptions[inputs.platform] || [];
-  if (!options.length) throw new Error(`no account options configured for ${inputs.platform}`);
-  const matched = options.find((option) => accountOptionMatchesInputs(option, inputs));
+  const matched = configuredAccountForInputs(inputs, accountOptions);
   if (!matched) throw new Error("switch inputs do not match configured account options");
   return matched;
+}
+
+function configuredAccountForInputs(inputs, accountOptions) {
+  if (!accountOptions) return null;
+  const options = accountOptions[inputs.platform] || [];
+  return options.find((option) => accountOptionMatchesInputs(option, inputs)) || null;
+}
+
+function registerLegacyContinuityAccount(env, accountOptions, inputs, strategy) {
+  if (!hasConfigStore(env)) {
+    throw new Error("switch inputs do not match configured account options");
+  }
+  if (!isEligibleLegacyContinuityInput(inputs, strategy)) {
+    throw new Error("switch inputs do not match configured account options");
+  }
+  const platformOptions = accountOptions[inputs.platform] || [];
+  if (platformOptions.some((option) => option.target_name === inputs.target_name)) {
+    throw new Error("legacy continuity account target conflicts with configured account options");
+  }
+  if (platformOptions.length >= 20) {
+    throw new Error(`account options for ${inputs.platform} have reached the maximum`);
+  }
+
+  const account = cleanAccountOption(
+    {
+      key: inputs.target_name,
+      label: `Legacy continuity ${inputs.target_name}`,
+      target_name: inputs.target_name,
+      account_selector: inputs.account_selector,
+      deployment_selector: inputs.deployment_selector,
+      account_scope: inputs.account_scope,
+      service_name: inputs.service_name,
+      github_environment: inputs.github_environment,
+      variable_scope: resolvedVariableScope(inputs.variable_scope, inputs),
+      supported_domains: [strategy.domain],
+    },
+    inputs.platform,
+    platformOptions.length,
+  );
+  const options = normalizeAccountOptionsPayload(
+    { ...accountOptions, [inputs.platform]: [...platformOptions, account] },
+    ACCOUNT_OPTIONS_KEY,
+  );
+  return { options, account: options[inputs.platform].at(-1), registered: true };
 }
 
 function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles) {
@@ -4592,6 +4707,10 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
   }
   const allowedModes = strategy.allowed_execution_modes || [];
   if (executionMode === "live") {
+    if (isEligibleLegacyContinuityInput(inputs, strategy)) {
+      assertDcaPlatform(inputs.platform, inputs.strategy_profile);
+      return;
+    }
     const lifecycleStage = cleanLifecycleStage(strategy.lifecycle_stage || "research_active");
     if (
       strategy.runtime_enabled !== true ||
@@ -4613,6 +4732,37 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
     throw new Error(`strategy ${inputs.strategy_profile} does not define an option overlay`);
   }
   assertDcaPlatform(inputs.platform, inputs.strategy_profile);
+}
+
+function isEligibleLegacyContinuityInput(inputs, strategy) {
+  if (
+    inputs.execution_mode !== "live" ||
+    !inputs.live_continuity_state ||
+    inputs.live_continuity_state === "NONE" ||
+    !inputs.live_continuity_baseline_id ||
+    !inputs.live_continuity_captured_at ||
+    inputs.plugin_mode !== "current" ||
+    inputs.option_overlay_mode !== "current" ||
+    inputs.reserved_cash_ratio ||
+    inputs.min_reserved_cash_usd ||
+    inputs.income_layer_start_usd ||
+    inputs.income_layer_max_ratio
+  ) {
+    return false;
+  }
+  const extraVariables = inputs.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+  const extraVariableNames = Object.keys(extraVariables);
+  if (
+    extraVariableNames.length > 1 ||
+    (extraVariableNames.length === 1 && (
+      extraVariableNames[0] !== "RUNTIME_TARGET_ENABLED" ||
+      extraVariables.RUNTIME_TARGET_ENABLED !== "true"
+    ))
+  ) {
+    return false;
+  }
+  const policy = strategy?.live_continuity;
+  return policy?.eligible === true && Array.isArray(policy.allowed_platforms) && policy.allowed_platforms.includes(inputs.platform);
 }
 
 function resolvedVariableScope(value, inputs) {
@@ -4758,6 +4908,12 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       });
     }
     addConfigOptional(entry, "blocked_live_reason", item.blocked_live_reason, cleanLabel);
+    if (item.live_continuity !== undefined && item.live_continuity !== null) {
+      entry.live_continuity = normalizeLiveContinuityPolicy(
+        item.live_continuity,
+        `${fieldName}[${index}].live_continuity`,
+      );
+    }
     addConfigOptional(entry, "latest_evidence_status", item.latest_evidence_status, cleanLifecycleStage);
     addConfigOptional(entry, "plugin_gate_status", item.plugin_gate_status, cleanLifecycleStage);
     // DCA detection: accept from item payload OR hardcoded DCA_PROFILE_CONFIG
@@ -4786,6 +4942,32 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
     result.push(entry);
   }
   return result;
+}
+
+function normalizeLiveContinuityPolicy(value, fieldName) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  const unsupported = Object.keys(value).filter((key) => !["eligible", "allowed_platforms"].includes(key));
+  if (unsupported.length) {
+    throw new Error(`${fieldName} contains unsupported fields: ${unsupported.sort().join(", ")}`);
+  }
+  if (typeof value.eligible !== "boolean") {
+    throw new Error(`${fieldName}.eligible must be boolean`);
+  }
+  if (!Array.isArray(value.allowed_platforms)) {
+    throw new Error(`${fieldName}.allowed_platforms must be an array`);
+  }
+  const allowedPlatforms = value.allowed_platforms.map((platform) =>
+    cleanChoice(platform, SUPPORTED_PLATFORMS, `${fieldName}.allowed_platforms`),
+  );
+  if (new Set(allowedPlatforms).size !== allowedPlatforms.length) {
+    throw new Error(`${fieldName}.allowed_platforms must not contain duplicates`);
+  }
+  if (value.eligible && !allowedPlatforms.length) {
+    throw new Error(`${fieldName}.eligible requires allowed_platforms`);
+  }
+  return { eligible: value.eligible, allowed_platforms: allowedPlatforms };
 }
 
 function rejectResearchOnlyExtraVariables(extraVariables) {

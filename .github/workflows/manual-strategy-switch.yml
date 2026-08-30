@@ -574,19 +574,27 @@ jobs:
               target = json.load(handle)
           runtime_target = target["runtime_target"]
           github = target["github"]
+          continuity = runtime_target.get("live_continuity")
+          if not isinstance(continuity, dict):
+              continuity = {}
           payload = {
               "platform": runtime_target["platform_id"],
               "target_name": target["target_id"].split("/", 1)[1],
               "strategy_profile": runtime_target["strategy_profile"],
               "execution_mode": runtime_target["execution_mode"],
+              "live_continuity_state": continuity.get("state", "NONE"),
               "variable_scope": "default",
               "plugin_mode": os.environ["PLUGIN_MODE"],
               "option_overlay_mode": os.environ.get("OPTION_OVERLAY_MODE", "current"),
+              "cash_only_execution_mode": "current",
               "deployment_selector": runtime_target["deployment_selector"],
               "account_selector": ",".join(runtime_target["account_selector"]),
               "account_scope": runtime_target["account_scope"],
               "service_name": runtime_target["service_name"],
           }
+          if continuity.get("state") and continuity.get("state") != "NONE":
+              payload["live_continuity_baseline_id"] = continuity.get("baseline_id", "")
+              payload["live_continuity_captured_at"] = continuity.get("captured_at", "")
           extra_variables_json = os.environ.get("EXTRA_VARIABLES_JSON", "").strip()
           if extra_variables_json:
               try:
