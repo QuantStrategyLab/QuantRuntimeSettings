@@ -892,6 +892,32 @@ def validate_option_overlay_variables(extra_variables: dict[str, Any], errors: l
         errors.append("extra_variables.OPTION_OVERLAY_ENABLED is false but an option overlay family is enabled")
 
 
+def validate_nonsecret_service_target_inventory(value: Any, *, path: str, errors: list[str]) -> None:
+    """Reject secret-shaped keys nested in a variable-backed service inventory."""
+    payload = value
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except json.JSONDecodeError:
+            return
+
+    def visit(node: Any, current_path: str) -> None:
+        if isinstance(node, dict):
+            for key, nested in node.items():
+                key_text = str(key)
+                nested_path = f"{current_path}.{key_text}"
+                if is_secret_variable_name(key_text):
+                    errors.append(f"{nested_path} looks like a secret and must not be stored here")
+                    continue
+                visit(nested, nested_path)
+        elif isinstance(node, list):
+            for index, nested in enumerate(node):
+                visit(nested, f"{current_path}[{index}]")
+
+    if isinstance(payload, (dict, list)):
+        visit(payload, path)
+
+
 def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
     extra_variables = target.get("extra_variables", {})
     if not isinstance(extra_variables, dict):
@@ -912,6 +938,10 @@ def validate_extra_variables(target: dict[str, Any], errors: list[str]) -> None:
             errors.append(f"extra_variables.{name} looks like a secret and must not be stored here")
         if isinstance(value, str) and "\n" in value:
             errors.append(f"extra_variables.{name} must be a single-line value")
+        if name == "CLOUD_RUN_SERVICE_TARGETS_JSON":
+            validate_nonsecret_service_target_inventory(
+                value, path=f"extra_variables.{name}", errors=errors
+            )
 
     validate_option_overlay_variables(extra_variables, errors)
 
@@ -945,6 +975,10 @@ def validate_repository_variables(target: dict[str, Any], errors: list[str]) -> 
             errors.append(f"repository_variables.{name} looks like a secret and must not be stored here")
         if isinstance(value, str) and "\n" in value:
             errors.append(f"repository_variables.{name} must be a single-line value")
+        if name == "CLOUD_RUN_SERVICE_TARGETS_JSON":
+            validate_nonsecret_service_target_inventory(
+                value, path=f"repository_variables.{name}", errors=errors
+            )
 
 
 def validate_target(target: dict[str, Any], path: Path | None = None) -> list[str]:
