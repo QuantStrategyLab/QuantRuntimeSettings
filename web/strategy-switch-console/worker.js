@@ -129,6 +129,7 @@ const RECONCILIATION_RECOVERY_CURRENT_PREFIX = "reconciliation_recovery_current:
 const RECONCILIATION_RECOVERY_SOURCE_SCHEMA_VERSION = "qsl_reconciliation_recovery_source_snapshot.v1";
 const RECONCILIATION_RECOVERY_DASHBOARD_SCHEMA_VERSION = "qsl_reconciliation_recovery_dashboard.v1";
 const RECONCILIATION_RECOVERY_CONFIRMATION_SCHEMA_VERSION = "qsl_reconciliation_recovery_confirmation.v1";
+const RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION = "qsl_reconciliation_recovery_controller_read.v1";
 const RECONCILIATION_RECOVERY_MAX_SOURCES = 100;
 const RECONCILIATION_RECOVERY_MAX_BODY_BYTES = 128 * 1024;
 const RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS = 30 * 60;
@@ -357,6 +358,9 @@ export default {
       }
       if (url.pathname === "/api/internal/sync-reconciliation-recovery-source" && request.method === "POST") {
         return await syncReconciliationRecoverySourceResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/reconciliation-recovery-confirmation" && request.method === "GET") {
+        return await reconciliationRecoveryControllerReadResponse(request, env, url);
       }
       if (url.pathname === "/api/reconciliation-recovery" && request.method === "GET") {
         return await reconciliationRecoveryResponse(request, env);
@@ -1983,6 +1987,59 @@ async function reconciliationRecoveryResponse(request, env) {
   return json(await aggregateReconciliationRecoverySources(env));
 }
 
+// This is a least-privilege service-to-service read for a platform-owned
+// controller.  It deliberately returns only the current, redacted digest
+// binding and immutable human receipt; broker state remains in the platform.
+async function reconciliationRecoveryControllerReadResponse(request, env, url) {
+  requireDedicatedReconciliationRecoveryControllerToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "reconciliation recovery KV is not configured" }, 503);
+  }
+  let recoveryId;
+  try {
+    recoveryId = normalizeControlPlaneIdentifier(
+      url.searchParams.get("recovery_id") || "",
+      "reconciliation recovery controller recovery_id",
+      false,
+    );
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid recovery_id" }, 400);
+  }
+  const dashboard = await aggregateReconciliationRecoverySources(env);
+  let recovery;
+  try {
+    recovery = currentReconciliationRecoveryRequest(dashboard, recoveryId);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "reconciliation recovery is unavailable" }, error.status || 409);
+  }
+  const entry = dashboard.recoveries.find((item) => item.recovery?.recovery_id === recoveryId);
+  if (!entry?.confirmation) {
+    return json({ ok: false, error: "reconciliation recovery has no current confirmation" }, 404);
+  }
+  return json({
+    ok: true,
+    schema_version: RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION,
+    recovery: {
+      recovery_id: recovery.recovery_id,
+      platform: recovery.platform,
+      strategy_profile: recovery.strategy_profile,
+      environment: recovery.environment,
+      reconciliation_state: recovery.reconciliation_state,
+      candidate_sha256: recovery.candidate_sha256,
+      dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
+      evidence_sample_count: recovery.evidence_sample_count,
+      first_observed_at: recovery.first_observed_at,
+      last_observed_at: recovery.last_observed_at,
+    },
+    confirmation: entry.confirmation,
+    policy: {
+      no_order: true,
+      execution_authority_granted: false,
+      controller_must_reverify: true,
+    },
+  });
+}
+
 function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
   if (dashboard?.data_status !== "ready") {
     throw new HttpError("current reconciliation recovery evidence is not ready", 409);
@@ -3151,6 +3208,17 @@ function requireDedicatedReconciliationRecoverySyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("reconciliation recovery sync token is invalid", 401);
+}
+
+function requireDedicatedReconciliationRecoveryControllerToken(request, env) {
+  const expected = String(env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN || "");
+  if (!expected) throw new HttpError("reconciliation recovery controller token is not configured", 500);
+  if (expected === String(env.RECONCILIATION_RECOVERY_SYNC_TOKEN || "")) {
+    throw new HttpError("reconciliation recovery controller token must differ from the source sync token", 500);
+  }
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("reconciliation recovery controller token is invalid", 401);
 }
 
 function requireDedicatedResearchTaskSyncToken(request, env) {

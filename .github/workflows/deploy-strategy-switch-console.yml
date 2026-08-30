@@ -43,6 +43,7 @@ jobs:
       RESEARCH_TASK_SYNC_TOKEN: ${{ secrets.RESEARCH_TASK_SYNC_TOKEN }}
       EXECUTION_EVIDENCE_SYNC_TOKEN: ${{ secrets.EXECUTION_EVIDENCE_SYNC_TOKEN }}
       RECONCILIATION_RECOVERY_SYNC_TOKEN: ${{ secrets.RECONCILIATION_RECOVERY_SYNC_TOKEN }}
+      RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: ${{ secrets.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -172,6 +173,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$RECONCILIATION_RECOVERY_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RECONCILIATION_RECOVERY_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional reconciliation-recovery controller token
+        if: env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$RECONCILIATION_RECOVERY_CONTROLLER_TOKEN" | npx wrangler@4.106.0 secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN --config wrangler.toml
 
       - name: Sync M0 research-ledger ingress token
         env:
