@@ -731,6 +731,42 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertEqual(runtime_settings.validate_target(target), [])
 
+    def test_confirmed_legacy_ibkr_profiles_are_continuity_eligible(self):
+        """Candidate policy must not strand an explicitly frozen IBKR incumbent."""
+
+        parser = build_runtime_switch.build_parser()
+        for profile in (
+            "tqqq_growth_income",
+            "global_etf_rotation",
+            "russell_top50_leader_rotation",
+        ):
+            with self.subTest(profile=profile):
+                target = build_runtime_switch.build_switch_target(
+                    parser.parse_args(
+                        [
+                            "--platform",
+                            "ibkr",
+                            "--target-name",
+                            f"legacy-{profile}",
+                            "--strategy-profile",
+                            profile,
+                            "--execution-mode",
+                            "live",
+                            "--live-continuity-state",
+                            "RECONCILE_ONLY",
+                            "--live-continuity-baseline-id",
+                            f"ibkr-{profile}-legacy-20260830",
+                            "--live-continuity-captured-at",
+                            "2026-08-30",
+                        ]
+                    )
+                )
+
+                strategy = build_config.load_config()["strategies"][profile]
+                self.assertFalse(strategy["runtime_enabled"])
+                self.assertFalse(strategy["can_switch_live"])
+                self.assertEqual(runtime_settings.validate_target(target), [])
+
     def test_live_continuity_rejects_baseline_drift(self):
         _, target = self.load_target("examples/targets/schwab/live.example.json")
         runtime_target = target["runtime_target"]

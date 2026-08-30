@@ -387,6 +387,12 @@
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "live_continuity": {
+        "eligible": true,
+        "allowed_platforms": [
+          "ibkr"
+        ]
+      },
       "features": {
         "income_layer": true,
         "option_overlay": true,
@@ -529,6 +535,12 @@
         "dry_run"
       ],
       "blocked_live_reason": "research_backtest_only_requires_evidence_package",
+      "live_continuity": {
+        "eligible": true,
+        "allowed_platforms": [
+          "ibkr"
+        ]
+      },
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true,
@@ -576,6 +588,12 @@
         "dry_run"
       ],
       "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "live_continuity": {
+        "eligible": true,
+        "allowed_platforms": [
+          "ibkr"
+        ]
+      },
       "runtime_artifacts": {
         "feature_snapshot": {
           "required": true,
