@@ -37,7 +37,9 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "can_switch_live",
     "allowed_execution_modes",
     "blocked_live_reason",
+    "live_continuity",
 }
+LIVE_CONTINUITY_POLICY_FIELDS = {"eligible", "allowed_platforms"}
 SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
 FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path", "max_age_days"}
@@ -94,6 +96,10 @@ def validate(config: dict) -> list[str]:
     errors: list[str] = []
     validate_runtime_authority_status(config, errors)
     validate_notification_references(config, errors)
+    platforms = config.get("platforms", {})
+    if not isinstance(platforms, dict):
+        errors.append("platforms must be an object")
+        platforms = {}
     scheduling = config.get("scheduling")
     scheduler_profiles = scheduling.get("profiles") if isinstance(scheduling, dict) else None
     if not isinstance(scheduler_profiles, dict) or not scheduler_profiles:
@@ -126,7 +132,7 @@ def validate(config: dict) -> list[str]:
                     errors.append(
                         f"scheduler profile {profile}: {field} must be Mon-Fri cron with day-of-month '*'"
                     )
-    for pid, pdata in config.get("platforms", {}).items():
+    for pid, pdata in platforms.items():
         if "capabilities" not in pdata:
             errors.append(f"platform {pid}: missing capabilities")
         if "default_account" not in pdata:
@@ -225,6 +231,7 @@ def validate(config: dict) -> list[str]:
                     f"must match market_timezone {market_timezone!r}"
                 )
     for sid, sdata in config.get("strategies", {}).items():
+        validate_live_continuity_policy(sid, sdata, platforms, errors)
         if "domain" not in sdata:
             errors.append(f"strategy {sid}: missing domain")
             continue
@@ -368,6 +375,41 @@ def validate(config: dict) -> list[str]:
                 f"strategy {sid}: feature snapshot max_age_days must be at least 1"
             )
     return errors
+
+
+def validate_live_continuity_policy(
+    strategy_id: str,
+    strategy: object,
+    platforms: dict,
+    errors: list[str],
+) -> None:
+    """Validate optional incumbent-continuity metadata independently of P0--P6."""
+
+    if not isinstance(strategy, dict):
+        return
+    continuity = strategy.get("live_continuity")
+    if continuity is None:
+        return
+    if not isinstance(continuity, dict):
+        errors.append(f"strategy {strategy_id}: live_continuity must be an object")
+        return
+    unsupported = sorted(set(continuity) - LIVE_CONTINUITY_POLICY_FIELDS)
+    if unsupported:
+        errors.append(f"strategy {strategy_id}: unsupported live_continuity fields {unsupported}")
+    eligible = continuity.get("eligible")
+    if not isinstance(eligible, bool):
+        errors.append(f"strategy {strategy_id}: live_continuity.eligible must be boolean")
+    allowed_platforms = continuity.get("allowed_platforms")
+    if not isinstance(allowed_platforms, list) or not all(
+        isinstance(platform, str) and platform in platforms for platform in allowed_platforms
+    ):
+        errors.append(
+            f"strategy {strategy_id}: live_continuity.allowed_platforms must contain configured platforms"
+        )
+    elif len(set(allowed_platforms)) != len(allowed_platforms):
+        errors.append(f"strategy {strategy_id}: live_continuity.allowed_platforms must not contain duplicates")
+    elif eligible is True and not allowed_platforms:
+        errors.append(f"strategy {strategy_id}: live_continuity.eligible requires allowed_platforms")
 
 
 def build_strategy_platform_dry_run_coverage(config: dict | None = None) -> dict[str, object]:
@@ -698,6 +740,7 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
     runtime_enabled = strategy.get("runtime_enabled") is True
     blocked_reason = str(strategy.get("blocked_live_reason") or "").strip()
     features = strategy.get("features") if isinstance(strategy.get("features"), dict) else {}
+    continuity = strategy.get("live_continuity") if isinstance(strategy.get("live_continuity"), dict) else {}
     if runtime_enabled and can_switch_live and lifecycle_stage == "runtime_enabled":
         lane = "live_equivalent_optimization"
         triggers = ["health_degradation", "parameter_drift", "scheduled_retest", "market_regime_shift"]
@@ -737,6 +780,10 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
         "operating_policy_status": operating_policy_status,
         "can_switch_live": can_switch_live,
         "blocked_live_reason": blocked_reason,
+        "live_continuity": {
+            "eligible": continuity.get("eligible") is True,
+            "allowed_platforms": list(continuity.get("allowed_platforms") or []),
+        },
         "triggers": triggers,
         "evidence_required": evidence_required,
         "position_control_sensitive": bool(features.get("combo") or features.get("option_overlay")),
@@ -1005,11 +1052,16 @@ def _strategy_profile_gate_fields(sdata: dict) -> dict[str, object]:
     )
     if blocked_live_reason is None and not can_switch_live:
         blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
+    continuity = sdata.get("live_continuity") if isinstance(sdata.get("live_continuity"), dict) else {}
     return {
         "lifecycle_stage": lifecycle_stage,
         "can_switch_live": can_switch_live,
         "allowed_execution_modes": _normalize_allowed_execution_modes(sdata.get("allowed_execution_modes")),
         "blocked_live_reason": "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
+        "live_continuity": {
+            "eligible": continuity.get("eligible") is True,
+            "allowed_platforms": list(continuity.get("allowed_platforms") or []),
+        },
     }
 
 

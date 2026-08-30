@@ -158,6 +158,7 @@ def _strategy_profile_entry(sid: str, sdata: dict) -> dict:
     blocked_live_reason = sdata.get("blocked_live_reason")
     if blocked_live_reason is None and not can_switch_live:
         blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
+    continuity = sdata.get("live_continuity") if isinstance(sdata.get("live_continuity"), dict) else {}
     entry = {
         "profile": sid,
         "label": sdata.get("label", sid),
@@ -169,6 +170,10 @@ def _strategy_profile_entry(sid: str, sdata: dict) -> dict:
         "can_switch_live": can_switch_live,
         "allowed_execution_modes": _normalize_allowed_execution_modes(sdata.get("allowed_execution_modes")),
         "blocked_live_reason": "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
+        "live_continuity": {
+            "eligible": continuity.get("eligible") is True,
+            "allowed_platforms": list(continuity.get("allowed_platforms") or []),
+        },
         "income_layer_enabled": feat.get("income_layer", False),
         "option_overlay_enabled": feat.get("option_overlay", False),
         "combo_enabled": feat.get("combo", False),

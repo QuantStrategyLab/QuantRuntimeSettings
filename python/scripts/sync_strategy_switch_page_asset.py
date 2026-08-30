@@ -81,6 +81,15 @@ def _enrich_profiles_from_config(profiles: list[dict]) -> list[dict]:
             "blocked_live_reason",
             "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
         )
+        continuity = config_fields.get("live_continuity")
+        if isinstance(continuity, dict):
+            item.setdefault(
+                "live_continuity",
+                {
+                    "eligible": continuity.get("eligible") is True,
+                    "allowed_platforms": list(continuity.get("allowed_platforms") or []),
+                },
+            )
         item.setdefault("runtime_enabled", runtime_enabled)
         enriched.append(item)
     return enriched
