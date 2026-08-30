@@ -42,6 +42,16 @@ assert BUILD_CONFIG_SPEC.loader is not None
 sys.modules[BUILD_CONFIG_SPEC.name] = build_config
 BUILD_CONFIG_SPEC.loader.exec_module(build_config)
 
+SERVICE_PLUGIN_MOUNTS_MODULE_PATH = ROOT / "python" / "scripts" / "extract_service_plugin_mounts.py"
+SERVICE_PLUGIN_MOUNTS_SPEC = importlib.util.spec_from_file_location(
+    "extract_service_plugin_mounts",
+    SERVICE_PLUGIN_MOUNTS_MODULE_PATH,
+)
+service_plugin_mounts = importlib.util.module_from_spec(SERVICE_PLUGIN_MOUNTS_SPEC)
+assert SERVICE_PLUGIN_MOUNTS_SPEC.loader is not None
+sys.modules[SERVICE_PLUGIN_MOUNTS_SPEC.name] = service_plugin_mounts
+SERVICE_PLUGIN_MOUNTS_SPEC.loader.exec_module(service_plugin_mounts)
+
 
 class RuntimeSettingsTest(unittest.TestCase):
     NOT_EVIDENCED_PROFILES = (
@@ -96,6 +106,88 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertNotIn("dca_base_investment_usd", input_names)
         self.assertNotIn("income_threshold_usd", input_names)
         self.assertNotIn("qqqi_income_ratio", input_names)
+
+    def test_service_plugin_mounts_preserve_selected_nested_configuration(self):
+        payload = {
+            "targets": [
+                {
+                    "runtime_target": {
+                        "deployment_selector": "legacy-tqqq",
+                        "service_name": "ibkr-tqqq-service",
+                    },
+                    "env": {
+                        "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {
+                            "strategy_plugins": [
+                                {
+                                    "strategy": "tqqq_growth_income",
+                                    "plugin": "market_regime_control",
+                                    "enabled": True,
+                                }
+                            ]
+                        }
+                    },
+                },
+                {
+                    "runtime_target": {
+                        "deployment_selector": "legacy-other",
+                        "service_name": "ibkr-other-service",
+                    },
+                    "env": {"IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {"strategy_plugins": []}},
+                },
+            ]
+        }
+
+        mounts = service_plugin_mounts.extract_service_plugin_mounts(
+            payload,
+            mounts_variable="IBKR_STRATEGY_PLUGIN_MOUNTS_JSON",
+            service_name="ibkr-tqqq-service",
+            target_name="legacy-tqqq",
+        )
+
+        self.assertEqual(mounts["strategy_plugins"][0]["plugin"], "market_regime_control")
+        self.assertTrue(mounts["strategy_plugins"][0]["enabled"])
+
+    def test_service_plugin_mounts_fail_closed_on_ambiguous_or_conflicting_source(self):
+        ambiguous = {
+            "targets": [
+                {"service": "ibkr-duplicate", "env": {"IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {"strategy_plugins": []}}},
+                {"service": "ibkr-duplicate", "env": {"IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {"strategy_plugins": []}}},
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "ambiguous"):
+            service_plugin_mounts.extract_service_plugin_mounts(
+                ambiguous,
+                mounts_variable="IBKR_STRATEGY_PLUGIN_MOUNTS_JSON",
+                service_name="ibkr-duplicate",
+            )
+
+        conflicting = {
+            "targets": [
+                {
+                    "service": "ibkr-conflicting",
+                    "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {"strategy_plugins": []},
+                    "env": {
+                        "IBKR_STRATEGY_PLUGIN_MOUNTS_JSON": {
+                            "strategy_plugins": [{"strategy": "tqqq_growth_income"}]
+                        }
+                    },
+                }
+            ]
+        }
+        with self.assertRaisesRegex(ValueError, "conflicting"):
+            service_plugin_mounts.extract_service_plugin_mounts(
+                conflicting,
+                mounts_variable="IBKR_STRATEGY_PLUGIN_MOUNTS_JSON",
+                service_name="ibkr-conflicting",
+            )
+
+    def test_manual_switch_preserves_service_specific_plugins_before_repo_fallback(self):
+        workflow = (ROOT / ".github/workflows/manual-strategy-switch.yml").read_text(encoding="utf-8")
+
+        self.assertIn("extract_service_plugin_mounts.py", workflow)
+        self.assertIn("--service-targets-file \"${EXISTING_SERVICE_TARGETS_JSON_FILE}\"", workflow)
+        self.assertIn("Unable to safely preserve service-specific", workflow)
+        self.assertIn("CURRENT_PLUGIN_MOUNTS_JSON_FILE=${output_file}", workflow)
 
     def test_platform_health_monitor_workflow_creates_codex_ready_issue(self):
         workflow = (ROOT / ".github/workflows/platform-health-monitor.yml").read_text(encoding="utf-8")
