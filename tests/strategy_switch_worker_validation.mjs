@@ -3010,6 +3010,18 @@ const runtimeTargetLifecycleSourcePayload = {
     monitoring: { runtime_guard: "pass", execution_heartbeat: "not_applicable" },
     disposition: { code: "continue_disabled_validation", reason_code: "target_intentionally_disabled" },
     no_order: true,
+  }, {
+    target_id: "schwab.primary",
+    target: { platform: "schwab", configured_state: "enabled", execution_mode: "live" },
+    monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" },
+    disposition: { code: "continue_enabled_monitoring", reason_code: "none" },
+    no_order: true,
+  }, {
+    target_id: "firstrade.primary",
+    target: { platform: "firstrade", configured_state: "enabled", execution_mode: "live" },
+    monitoring: { runtime_guard: "pass", execution_heartbeat: "not_due" },
+    disposition: { code: "continue_enabled_monitoring", reason_code: "none" },
+    no_order: true,
   }],
   errors: [],
 };
@@ -3037,7 +3049,7 @@ const runtimeTargetLifecycleSync = await worker.fetch(
   executionEvidenceEnv,
 );
 assert.equal(runtimeTargetLifecycleSync.status, 200);
-assert.equal((await runtimeTargetLifecycleSync.json()).target_count, 1);
+assert.equal((await runtimeTargetLifecycleSync.json()).target_count, 3);
 const runtimeTargetLifecycleRead = await worker.fetch(
   new Request("https://switch.example/api/runtime-target-lifecycle", { headers: executionEvidenceCookieHeaders }),
   executionEvidenceEnv,
@@ -3045,9 +3057,26 @@ const runtimeTargetLifecycleRead = await worker.fetch(
 assert.equal(runtimeTargetLifecycleRead.status, 200);
 const runtimeTargetLifecyclePayload = await runtimeTargetLifecycleRead.json();
 assert.equal(runtimeTargetLifecyclePayload.data_status, "ready");
-assert.deepEqual(runtimeTargetLifecyclePayload.summary, { target_count: 1, enabled: 0, disabled: 1, attention: 0 });
-assert.equal(runtimeTargetLifecyclePayload.targets[0].target.disposition.code, "continue_disabled_validation");
+assert.deepEqual(runtimeTargetLifecyclePayload.summary, { target_count: 3, enabled: 2, disabled: 1, attention: 0 });
+const disabledLifecycleTarget = runtimeTargetLifecyclePayload.targets.find((entry) => entry.target.target_id === "longbridge.sg");
+assert.equal(disabledLifecycleTarget.target.disposition.code, "continue_disabled_validation");
+assert.deepEqual(disabledLifecycleTarget.execution_observation, {
+  code: "not_applicable",
+  order_or_fill_evidence: "not_collected",
+});
+const monitoredLifecycleTarget = runtimeTargetLifecyclePayload.targets.find((entry) => entry.target.target_id === "schwab.primary");
+assert.deepEqual(monitoredLifecycleTarget.execution_observation, {
+  code: "monitoring_only",
+  order_or_fill_evidence: "not_collected",
+});
+const notDueLifecycleTarget = runtimeTargetLifecyclePayload.targets.find((entry) => entry.target.target_id === "firstrade.primary");
+assert.deepEqual(notDueLifecycleTarget.execution_observation, {
+  code: "not_due",
+  order_or_fill_evidence: "not_collected",
+});
 assert.equal(runtimeTargetLifecyclePayload.policy.no_order, true);
+assert.equal(runtimeTargetLifecyclePayload.policy.execution_observation_read_only, true);
+assert.equal(runtimeTargetLifecyclePayload.policy.order_or_fill_evidence, "not_collected");
 
 const researchTaskSyncValue = ["research", "task", "sync"].join("-");
 const researchTaskEnv = { ...controlEnv, RESEARCH_TASK_SYNC_TOKEN: researchTaskSyncValue };
