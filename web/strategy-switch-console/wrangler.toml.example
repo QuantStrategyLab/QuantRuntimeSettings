@@ -13,6 +13,7 @@ workers_dev = true
 # - CONTROL_PLANE_SYNC_TOKEN    # dedicated global dashboard snapshot token; never reuse dispatch token
 # - RESEARCH_TASK_SYNC_TOKEN    # dedicated immutable research-task source token; never reuse another token
 # - M0_RESEARCH_SYNC_TOKEN      # dedicated read-only M0 research-ledger ingress token; never reuse another token
+# - RECONCILIATION_RECOVERY_SYNC_TOKEN # dedicated legacy recovery evidence ingress token; never reuse another token
 # - ALLOWED_GITHUB_LOGINS
 # - ALLOWED_GITHUB_ORGS
 # - STRATEGY_SWITCH_ADMIN_LOGINS
