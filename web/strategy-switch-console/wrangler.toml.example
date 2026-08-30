@@ -14,6 +14,7 @@ workers_dev = true
 # - RESEARCH_TASK_SYNC_TOKEN    # dedicated immutable research-task source token; never reuse another token
 # - M0_RESEARCH_SYNC_TOKEN      # dedicated read-only M0 research-ledger ingress token; never reuse another token
 # - RECONCILIATION_RECOVERY_SYNC_TOKEN # dedicated legacy recovery evidence ingress token; never reuse another token
+# - RECONCILIATION_RECOVERY_CONTROLLER_TOKEN # dedicated private recovery-controller read token; never reuse another token
 # - ALLOWED_GITHUB_LOGINS
 # - ALLOWED_GITHUB_ORGS
 # - STRATEGY_SWITCH_ADMIN_LOGINS

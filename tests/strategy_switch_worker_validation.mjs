@@ -2529,11 +2529,13 @@ const recoveryKv = {
   },
 };
 const recoverySyncValue = ["reconciliation", "recovery", "sync"].join("-");
+const recoveryControllerValue = ["reconciliation", "recovery", "controller"].join("-");
 const recoveryEnv = {
   SESSION_SECRET: "recovery-session-value",
   ALLOWED_GITHUB_LOGINS: "recovery-admin,recovery-reader",
   STRATEGY_SWITCH_ADMIN_LOGINS: "recovery-admin",
   RECONCILIATION_RECOVERY_SYNC_TOKEN: recoverySyncValue,
+  RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: recoveryControllerValue,
   STRATEGY_SWITCH_CONFIG: recoveryKv,
 };
 const recoveryAdminCookie = await __test.makeSession("recovery-admin", [], recoveryEnv);
@@ -2631,6 +2633,27 @@ const recoveryConfirmationRequest = {
   candidate_sha256: recoveryCandidateSha256,
   dual_review_binding_sha256: recoveryCandidateSha256,
 };
+const wrongRecoveryControllerRead = await worker.fetch(
+  new Request("https://switch.example/api/internal/reconciliation-recovery-confirmation?recovery_id=ibkr_legacy_soxl_live", {
+    headers: { Authorization: "Bearer wrong-token" },
+  }),
+  recoveryEnv,
+);
+assert.equal(wrongRecoveryControllerRead.status, 401);
+const unconfirmedRecoveryControllerRead = await worker.fetch(
+  new Request("https://switch.example/api/internal/reconciliation-recovery-confirmation?recovery_id=ibkr_legacy_soxl_live", {
+    headers: { Authorization: `Bearer ${recoveryControllerValue}` },
+  }),
+  recoveryEnv,
+);
+assert.equal(unconfirmedRecoveryControllerRead.status, 404);
+const reusedRecoveryControllerToken = await worker.fetch(
+  new Request("https://switch.example/api/internal/reconciliation-recovery-confirmation?recovery_id=ibkr_legacy_soxl_live", {
+    headers: { Authorization: `Bearer ${recoverySyncValue}` },
+  }),
+  { ...recoveryEnv, RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: recoverySyncValue },
+);
+assert.equal(reusedRecoveryControllerToken.status, 500);
 const staleRecoveryCandidateSha256 = "c".repeat(64);
 const staleRecoverySourcePayload = {
   ...recoverySourcePayload,
@@ -2698,6 +2721,19 @@ assert.ok(recoveryStore.has("reconciliation_recovery_current:ibkr_legacy_soxl_li
 assert.ok(recoveryStore.has(
   `reconciliation_recovery_confirmation:ibkr_legacy_soxl_live:${recoveryConfirmationPayload.confirmation.confirmation_sha256}`,
 ));
+const confirmedRecoveryControllerRead = await worker.fetch(
+  new Request("https://switch.example/api/internal/reconciliation-recovery-confirmation?recovery_id=ibkr_legacy_soxl_live", {
+    headers: { Authorization: `Bearer ${recoveryControllerValue}` },
+  }),
+  recoveryEnv,
+);
+assert.equal(confirmedRecoveryControllerRead.status, 200);
+const confirmedRecoveryControllerPayload = await confirmedRecoveryControllerRead.json();
+assert.equal(confirmedRecoveryControllerPayload.schema_version, "qsl_reconciliation_recovery_controller_read.v1");
+assert.equal(confirmedRecoveryControllerPayload.recovery.candidate_sha256, recoveryCandidateSha256);
+assert.equal(confirmedRecoveryControllerPayload.confirmation.confirmation_sha256, recoveryConfirmationPayload.confirmation.confirmation_sha256);
+assert.equal(confirmedRecoveryControllerPayload.policy.no_order, true);
+assert.equal(confirmedRecoveryControllerPayload.policy.execution_authority_granted, false);
 const recordedRecoveryRead = await worker.fetch(
   new Request("https://switch.example/api/reconciliation-recovery", { headers: recoveryAdminHeaders }),
   recoveryEnv,
