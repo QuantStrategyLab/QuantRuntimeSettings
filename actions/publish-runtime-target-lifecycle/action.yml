@@ -1,0 +1,72 @@
+name: Publish runtime target lifecycle
+description: Build and sync one bounded, no-order runtime-target lifecycle snapshot.
+
+inputs:
+  source-id:
+    description: Stable, non-sensitive source identity for this exact target.
+    required: true
+  target-id:
+    description: Stable, non-sensitive target identity.
+    required: true
+  platform:
+    description: Exact platform identifier.
+    required: true
+  configured-state:
+    description: enabled or disabled; this action never changes it.
+    required: true
+  execution-mode:
+    description: Intended dry_run, paper, or live lane.
+    required: true
+  runtime-guard:
+    description: Sanitized runtime-guard result.
+    required: true
+  execution-heartbeat:
+    description: Sanitized execution-heartbeat result.
+    required: true
+  sync-url:
+    description: HTTPS Strategy Switch Console base URL.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Build and sync bounded target lifecycle
+      shell: bash
+      env:
+        INPUT_SOURCE_ID: ${{ inputs.source-id }}
+        INPUT_TARGET_ID: ${{ inputs.target-id }}
+        INPUT_PLATFORM: ${{ inputs.platform }}
+        INPUT_CONFIGURED_STATE: ${{ inputs.configured-state }}
+        INPUT_EXECUTION_MODE: ${{ inputs.execution-mode }}
+        INPUT_RUNTIME_GUARD: ${{ inputs.runtime-guard }}
+        INPUT_EXECUTION_HEARTBEAT: ${{ inputs.execution-heartbeat }}
+        INPUT_SYNC_URL: ${{ inputs.sync-url }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${EXECUTION_EVIDENCE_SYNC_TOKEN:-}" ]]; then
+          echo "EXECUTION_EVIDENCE_SYNC_TOKEN is required." >&2
+          exit 2
+        fi
+        if [[ ! "$INPUT_SYNC_URL" =~ ^https://[^/?#]+$ ]]; then
+          echo "sync-url must be an HTTPS base URL without a path or query." >&2
+          exit 2
+        fi
+        work_dir="$(mktemp -d)"
+        cleanup() { rm -rf "$work_dir"; }
+        trap cleanup EXIT
+        snapshot_path="$work_dir/runtime-target-lifecycle.json"
+        python3 "$GITHUB_ACTION_PATH/../../python/scripts/runtime_target_lifecycle.py" \
+          --source-id "$INPUT_SOURCE_ID" \
+          --target-id "$INPUT_TARGET_ID" \
+          --platform "$INPUT_PLATFORM" \
+          --configured-state "$INPUT_CONFIGURED_STATE" \
+          --execution-mode "$INPUT_EXECUTION_MODE" \
+          --runtime-guard "$INPUT_RUNTIME_GUARD" \
+          --execution-heartbeat "$INPUT_EXECUTION_HEARTBEAT" \
+          --output "$snapshot_path"
+        curl --fail --silent --show-error \
+          --request POST "${INPUT_SYNC_URL}/api/internal/sync-runtime-target-lifecycle-source" \
+          --header "Authorization: Bearer ${EXECUTION_EVIDENCE_SYNC_TOKEN}" \
+          --header "Content-Type: application/json" \
+          --data-binary "@$snapshot_path" \
+          >/dev/null

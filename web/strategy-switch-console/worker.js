@@ -141,6 +141,21 @@ const EXECUTION_EVIDENCE_REASON_CODES = [
   "none", "target_execution_evidence_missing", "paper_not_supported", "paper_execution_evidence_needed",
   "policy_not_active", "source_stale", "manual_live_decision_required",
 ];
+// Runtime target lifecycle is intentionally separate from execution evidence:
+// it records whether a target is enabled and whether its no-order monitors are
+// healthy. A disabled target is not a missing broker or a paper/live result.
+const RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX = "runtime_target_lifecycle_source:";
+const RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION = "qsl_runtime_target_lifecycle_source_snapshot.v1";
+const RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION = "qsl_runtime_target_lifecycle_dashboard.v1";
+const RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES = 100;
+const RUNTIME_TARGET_LIFECYCLE_MAX_BODY_BYTES = 256 * 1024;
+const RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES = ["enabled", "disabled"];
+const RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES = ["dry_run", "paper", "live"];
+const RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES = ["pass", "attention", "not_due", "not_applicable", "unavailable"];
+const RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS = ["continue_enabled_monitoring", "continue_disabled_validation", "parked"];
+const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
+  "none", "target_intentionally_disabled", "runtime_guard_attention", "execution_heartbeat_attention", "monitoring_unavailable",
+];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -315,6 +330,12 @@ export default {
       }
       if (url.pathname === "/api/execution-evidence" && request.method === "GET") {
         return await executionEvidenceResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/sync-runtime-target-lifecycle-source" && request.method === "POST") {
+        return await syncRuntimeTargetLifecycleSourceResponse(request, env);
+      }
+      if (url.pathname === "/api/runtime-target-lifecycle" && request.method === "GET") {
+        return await runtimeTargetLifecycleResponse(request, env);
       }
       if (url.pathname === "/api/internal/sync-research-task-source" && request.method === "POST") {
         return await syncResearchTaskSourceResponse(request, env);
@@ -1961,6 +1982,139 @@ async function readExecutionEvidenceSources(env) {
 
 function executionEvidenceSourceKey(sourceId) {
   return `${EXECUTION_EVIDENCE_SOURCE_PREFIX}${sourceId}`;
+}
+
+async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
+  // This publisher has the same narrow scope as execution evidence: sanitized
+  // platform status only, never credentials, accounts, orders, or commands.
+  requireDedicatedExecutionEvidenceSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "runtime target lifecycle KV is not configured" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, RUNTIME_TARGET_LIFECYCLE_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid runtime target lifecycle payload" }, error.status || 400);
+  }
+  let source;
+  try {
+    source = normalizeRuntimeTargetLifecycleSourceSnapshot(raw, "runtime target lifecycle source snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid runtime target lifecycle payload" }, 400);
+  }
+  await writeConfigJson(env, runtimeTargetLifecycleSourceKey(source.source_id), source);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "runtime-target-lifecycle-source-sync",
+      action: "sync_runtime_target_lifecycle_source",
+      source_id: source.source_id,
+      schema_version: source.schema_version,
+      target_count: source.targets.length,
+      data_status: source.data_status,
+    });
+  } catch {
+    // A valid no-order snapshot remains useful when convenience audit retention fails.
+  }
+  return json({
+    ok: true,
+    source_id: source.source_id,
+    schema_version: source.schema_version,
+    target_count: source.targets.length,
+    generated_at: source.generated_at,
+  });
+}
+
+async function runtimeTargetLifecycleResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json(emptyRuntimeTargetLifecyclePayload("snapshot_unavailable"));
+  return json(await aggregateRuntimeTargetLifecycleSources(env));
+}
+
+async function aggregateRuntimeTargetLifecycleSources(env) {
+  const sources = await readRuntimeTargetLifecycleSources(env);
+  if (!sources.length) return emptyRuntimeTargetLifecyclePayload("snapshot_unavailable");
+  const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
+  const now = Date.now();
+  const targets = [];
+  const targetIds = new Set();
+  const duplicateTargetIds = new Set();
+  const errors = [];
+  const timestamps = [];
+  let hasReadySource = false;
+  let hasStaleSource = false;
+  for (const source of sources) {
+    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+    if (source.generated_at) timestamps.push(source.generated_at);
+    if (source.computed_at) timestamps.push(source.computed_at);
+    if (freshness.data_status === "ready") hasReadySource = true;
+    if (freshness.data_status === "stale") {
+      hasStaleSource = true;
+      errors.push("runtime_target_lifecycle_source_stale");
+    }
+    for (const target of source.targets) {
+      if (targetIds.has(target.target_id)) {
+        duplicateTargetIds.add(target.target_id);
+        errors.push("runtime_target_lifecycle_duplicate_target");
+        continue;
+      }
+      targetIds.add(target.target_id);
+      targets.push({ source_id: source.source_id, freshness, target });
+    }
+    errors.push(...source.errors);
+  }
+  const uniqueTargets = targets.filter((entry) => !duplicateTargetIds.has(entry.target.target_id));
+  const dataStatus = hasStaleSource ? "stale" : (hasReadySource ? "ready" : "unavailable");
+  return {
+    schema_version: RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION,
+    generated_at: earliestControlPlaneTimestamp(timestamps),
+    computed_at: earliestControlPlaneTimestamp(timestamps),
+    data_status: dataStatus,
+    summary: {
+      target_count: uniqueTargets.length,
+      enabled: uniqueTargets.filter((entry) => entry.target.target.configured_state === "enabled").length,
+      disabled: uniqueTargets.filter((entry) => entry.target.target.configured_state === "disabled").length,
+      attention: uniqueTargets.filter((entry) => entry.target.disposition.code === "parked").length,
+    },
+    targets: uniqueTargets,
+    policy: {
+      lifecycle_status_read_only: true,
+      no_order: true,
+      notice: "已启用目标持续监控；已停用目标持续进行无执行验证。该状态不会启用目标或提交订单。",
+    },
+    errors: uniqueStrings(errors),
+  };
+}
+
+async function readRuntimeTargetLifecycleSources(env) {
+  const store = configStore(env);
+  if (!store || typeof store.list !== "function") return [];
+  let listing;
+  try {
+    listing = await store.list({ prefix: RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX, limit: RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES });
+  } catch {
+    return [emptyRuntimeTargetLifecycleSourceSnapshot("runtime_target_lifecycle_source_list_unavailable")];
+  }
+  const keys = Array.isArray(listing?.keys) ? listing.keys : [];
+  const sources = [];
+  for (const entry of keys.slice(0, RUNTIME_TARGET_LIFECYCLE_MAX_SOURCES)) {
+    const key = typeof entry?.name === "string" ? entry.name : "";
+    if (!key.startsWith(RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX)) continue;
+    try {
+      const stored = await readConfigJson(env, key);
+      if (!stored) continue;
+      sources.push(normalizeRuntimeTargetLifecycleSourceSnapshot(stored, key));
+    } catch {
+      sources.push(emptyRuntimeTargetLifecycleSourceSnapshot("runtime_target_lifecycle_source_invalid"));
+    }
+  }
+  return sources;
+}
+
+function runtimeTargetLifecycleSourceKey(sourceId) {
+  return `${RUNTIME_TARGET_LIFECYCLE_SOURCE_PREFIX}${sourceId}`;
 }
 
 async function syncResearchTaskSourceResponse(request, env) {
@@ -4008,6 +4162,81 @@ function normalizeExecutionEvidenceDeployment(value, fieldName) {
   return normalized;
 }
 
+function normalizeRuntimeTargetLifecycleSourceSnapshot(payload, fieldName = "runtime target lifecycle source snapshot") {
+  const source = assertExactFields(payload, [
+    "schema_version", "source_id", "generated_at", "computed_at", "data_status", "targets", "errors",
+  ], fieldName);
+  if (source.schema_version !== RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION) {
+    throw new Error(`${fieldName}.schema_version is unsupported`);
+  }
+  const dataStatus = cleanChoice(source.data_status, STRATEGY_HEALTH_DATA_STATUSES, `${fieldName}.data_status`);
+  if (!Array.isArray(source.targets) || source.targets.length > 1000) {
+    throw new Error(`${fieldName}.targets must be an array with at most 1000 items`);
+  }
+  const targets = [];
+  const seen = new Set();
+  for (const [index, item] of source.targets.entries()) {
+    const target = normalizeRuntimeTargetLifecycleTarget(item, `${fieldName}.targets[${index}]`);
+    if (seen.has(target.target_id)) throw new Error(`${fieldName}.targets contains duplicate target_id`);
+    seen.add(target.target_id);
+    targets.push(target);
+  }
+  if (dataStatus === "unavailable" && targets.length) {
+    throw new Error(`${fieldName}.targets must be empty when unavailable`);
+  }
+  return {
+    schema_version: RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
+    source_id: normalizeControlPlaneIdentifier(source.source_id, `${fieldName}.source_id`, false),
+    generated_at: normalizeStrategyHealthTimestamp(source.generated_at, `${fieldName}.generated_at`, true),
+    computed_at: normalizeStrategyHealthTimestamp(source.computed_at, `${fieldName}.computed_at`, true),
+    data_status: dataStatus,
+    targets,
+    errors: normalizeStrategyHealthErrors(source.errors),
+  };
+}
+
+function normalizeRuntimeTargetLifecycleTarget(value, fieldName) {
+  const item = assertExactFields(value, ["target_id", "target", "monitoring", "disposition", "no_order"], fieldName);
+  const target = assertExactFields(item.target, ["platform", "configured_state", "execution_mode"], `${fieldName}.target`);
+  const monitoring = assertExactFields(item.monitoring, ["runtime_guard", "execution_heartbeat"], `${fieldName}.monitoring`);
+  const disposition = assertExactFields(item.disposition, ["code", "reason_code"], `${fieldName}.disposition`);
+  if (item.no_order !== true) throw new Error(`${fieldName}.no_order must be true`);
+  const normalized = {
+    target_id: normalizeControlPlaneIdentifier(item.target_id, `${fieldName}.target_id`, false),
+    target: {
+      platform: cleanChoice(target.platform, EXECUTION_EVIDENCE_PLATFORMS, `${fieldName}.target.platform`),
+      configured_state: cleanChoice(target.configured_state, RUNTIME_TARGET_LIFECYCLE_CONFIGURED_STATES, `${fieldName}.target.configured_state`),
+      execution_mode: cleanChoice(target.execution_mode, RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES, `${fieldName}.target.execution_mode`),
+    },
+    monitoring: {
+      runtime_guard: cleanChoice(monitoring.runtime_guard, RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES, `${fieldName}.monitoring.runtime_guard`),
+      execution_heartbeat: cleanChoice(monitoring.execution_heartbeat, RUNTIME_TARGET_LIFECYCLE_CHECK_STATUSES, `${fieldName}.monitoring.execution_heartbeat`),
+    },
+    disposition: {
+      code: cleanChoice(disposition.code, RUNTIME_TARGET_LIFECYCLE_DISPOSITIONS, `${fieldName}.disposition.code`),
+      reason_code: cleanChoice(disposition.reason_code, RUNTIME_TARGET_LIFECYCLE_REASON_CODES, `${fieldName}.disposition.reason_code`),
+    },
+    no_order: true,
+  };
+  const guardUnavailable = normalized.monitoring.runtime_guard === "unavailable";
+  const heartbeatUnavailable = normalized.monitoring.execution_heartbeat === "unavailable";
+  const hasAttention = normalized.monitoring.runtime_guard === "attention" || normalized.monitoring.execution_heartbeat === "attention";
+  if (normalized.target.configured_state === "disabled") {
+    if (normalized.monitoring.execution_heartbeat !== "not_applicable") {
+      throw new Error(`${fieldName}.disabled target must not claim an execution heartbeat`);
+    }
+    if (!hasAttention && !guardUnavailable && normalized.disposition.code !== "continue_disabled_validation") {
+      throw new Error(`${fieldName}.disabled target requires continue_disabled_validation`);
+    }
+  } else if (!hasAttention && !guardUnavailable && !heartbeatUnavailable && normalized.disposition.code !== "continue_enabled_monitoring") {
+    throw new Error(`${fieldName}.enabled healthy target requires continue_enabled_monitoring`);
+  }
+  if (hasAttention || guardUnavailable || heartbeatUnavailable) {
+    if (normalized.disposition.code !== "parked") throw new Error(`${fieldName}.unhealthy monitoring requires parked`);
+  }
+  return normalized;
+}
+
 function normalizeExecutionEvidenceSummary(deployments) {
   return {
     deployment_count: deployments.length,
@@ -4026,6 +4255,35 @@ function emptyExecutionEvidenceSourceSnapshot(errorCode) {
     computed_at: null,
     data_status: "unavailable",
     deployments: [],
+    errors: [errorCode],
+  };
+}
+
+function emptyRuntimeTargetLifecycleSourceSnapshot(errorCode) {
+  return {
+    schema_version: RUNTIME_TARGET_LIFECYCLE_SOURCE_SCHEMA_VERSION,
+    source_id: "unavailable",
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    targets: [],
+    errors: [errorCode],
+  };
+}
+
+function emptyRuntimeTargetLifecyclePayload(errorCode) {
+  return {
+    schema_version: RUNTIME_TARGET_LIFECYCLE_DASHBOARD_SCHEMA_VERSION,
+    generated_at: null,
+    computed_at: null,
+    data_status: "unavailable",
+    summary: { target_count: 0, enabled: 0, disabled: 0, attention: 0 },
+    targets: [],
+    policy: {
+      lifecycle_status_read_only: true,
+      no_order: true,
+      notice: "运行目标生命周期快照尚不可用；页面不会推断目标已启用。",
+    },
     errors: [errorCode],
   };
 }
