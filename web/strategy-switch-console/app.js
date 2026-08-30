@@ -876,6 +876,23 @@
         executionEvidenceEmpty: "暂无可展示的策略 × 平台执行证据。",
         executionEvidenceMeta: "{platform} · 当前通道：{environment} · 来源：{source}",
         executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
+        executionEvidenceReceipt: "执行回执：{outcome} · 券商确认：{confirmation}",
+        executionEvidenceReceiptMissing: "执行回执：未采集",
+        executionEvidenceReceiptNotDue: "未到应交易窗口",
+        executionEvidenceReceiptNoAction: "策略未产生订单",
+        executionEvidenceReceiptRiskBlocked: "已被风控拦截",
+        executionEvidenceReceiptSubmitted: "已提交，尚未确认",
+        executionEvidenceReceiptAcknowledged: "券商已确认",
+        executionEvidenceReceiptPartiallyFilled: "部分成交",
+        executionEvidenceReceiptFilled: "已成交",
+        executionEvidenceReceiptReconciliation: "需要对账",
+        executionEvidenceReceiptFailed: "执行失败，需复核",
+        executionEvidenceConfirmationNotApplicable: "不适用",
+        executionEvidenceConfirmationNotObserved: "未观察到确认",
+        executionEvidenceConfirmationAcknowledged: "已确认",
+        executionEvidenceConfirmationPartiallyFilled: "部分成交",
+        executionEvidenceConfirmationFilled: "已成交",
+        executionEvidenceConfirmationReconciliation: "需对账",
         executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
         executionEvidenceNext: "下一步",
         runtimeTargetLifecycleBoard: "按需查看平台运行状态",
@@ -1208,6 +1225,23 @@
         executionEvidenceEmpty: "No strategy × platform execution evidence is available to display.",
         executionEvidenceMeta: "{platform} · current lane: {environment} · source: {source}",
         executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
+        executionEvidenceReceipt: "execution receipt: {outcome} · broker confirmation: {confirmation}",
+        executionEvidenceReceiptMissing: "execution receipt: not collected",
+        executionEvidenceReceiptNotDue: "not in a due window",
+        executionEvidenceReceiptNoAction: "strategy produced no order",
+        executionEvidenceReceiptRiskBlocked: "blocked by risk controls",
+        executionEvidenceReceiptSubmitted: "submitted; not yet confirmed",
+        executionEvidenceReceiptAcknowledged: "broker acknowledged",
+        executionEvidenceReceiptPartiallyFilled: "partially filled",
+        executionEvidenceReceiptFilled: "filled",
+        executionEvidenceReceiptReconciliation: "reconciliation required",
+        executionEvidenceReceiptFailed: "execution failed; review required",
+        executionEvidenceConfirmationNotApplicable: "not applicable",
+        executionEvidenceConfirmationNotObserved: "not observed",
+        executionEvidenceConfirmationAcknowledged: "acknowledged",
+        executionEvidenceConfirmationPartiallyFilled: "partially filled",
+        executionEvidenceConfirmationFilled: "filled",
+        executionEvidenceConfirmationReconciliation: "reconciliation required",
         executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
         executionEvidenceNext: "NEXT",
         runtimeTargetLifecycleBoard: "View platform runtime status on demand",
@@ -4275,6 +4309,31 @@
       };
     }
 
+    function executionEvidenceReceiptOutcomeLabel(value) {
+      return {
+        not_due: t("executionEvidenceReceiptNotDue"),
+        no_action: t("executionEvidenceReceiptNoAction"),
+        risk_blocked: t("executionEvidenceReceiptRiskBlocked"),
+        submitted: t("executionEvidenceReceiptSubmitted"),
+        broker_acknowledged: t("executionEvidenceReceiptAcknowledged"),
+        partially_filled: t("executionEvidenceReceiptPartiallyFilled"),
+        filled: t("executionEvidenceReceiptFilled"),
+        reconciliation_required: t("executionEvidenceReceiptReconciliation"),
+        failed: t("executionEvidenceReceiptFailed"),
+      }[value] || t("executionEvidenceReceiptMissing");
+    }
+
+    function executionEvidenceReceiptConfirmationLabel(value) {
+      return {
+        not_applicable: t("executionEvidenceConfirmationNotApplicable"),
+        not_observed: t("executionEvidenceConfirmationNotObserved"),
+        acknowledged: t("executionEvidenceConfirmationAcknowledged"),
+        partially_filled: t("executionEvidenceConfirmationPartiallyFilled"),
+        filled: t("executionEvidenceConfirmationFilled"),
+        reconciliation_required: t("executionEvidenceConfirmationReconciliation"),
+      }[value] || t("executionEvidenceConfirmationNotObserved");
+    }
+
     function renderExecutionEvidence() {
       const payload = state.executionEvidence.payload;
       const notice = el("execution-evidence-notice");
@@ -4305,6 +4364,7 @@
         const target = deployment.target || {};
         const capabilities = deployment.capabilities || {};
         const evidence = deployment.evidence || {};
+        const executionReceipt = deployment.execution_receipt || null;
         const card = document.createElement("article");
         card.className = "health-card";
         const main = document.createElement("div");
@@ -4329,7 +4389,14 @@
           .replace("{execution}", evidence.target_execution || "unknown")
           .replace("{shadow}", capabilities.shadow || "unknown")
           .replace("{paper}", capabilities.paper || "unknown");
-        main.append(meta, title, reason, detail);
+        const receiptDetail = document.createElement("div");
+        receiptDetail.className = "health-card__meta";
+        receiptDetail.textContent = executionReceipt
+          ? t("executionEvidenceReceipt")
+            .replace("{outcome}", executionEvidenceReceiptOutcomeLabel(executionReceipt.outcome))
+            .replace("{confirmation}", executionEvidenceReceiptConfirmationLabel(executionReceipt.broker_confirmation))
+          : t("executionEvidenceReceiptMissing");
+        main.append(meta, title, reason, detail, receiptDetail);
         const stateBlock = document.createElement("div");
         stateBlock.className = "health-card__score";
         const label = document.createElement("small");

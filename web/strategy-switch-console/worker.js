@@ -156,12 +156,19 @@ const EXECUTION_EVIDENCE_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", 
 const EXECUTION_EVIDENCE_ENVIRONMENTS = ["shadow", "paper", "live"];
 const EXECUTION_EVIDENCE_CAPABILITIES = ["available", "unavailable", "unknown"];
 const EXECUTION_EVIDENCE_STATUSES = ["verified", "pending", "unavailable", "not_applicable"];
+const EXECUTION_RECEIPT_OUTCOMES = [
+  "not_due", "no_action", "risk_blocked", "submitted", "broker_acknowledged", "partially_filled", "filled", "reconciliation_required", "failed",
+];
+const EXECUTION_RECEIPT_CONFIRMATIONS = [
+  "not_applicable", "not_observed", "acknowledged", "partially_filled", "filled", "reconciliation_required",
+];
 const EXECUTION_EVIDENCE_RECOMMENDATIONS = [
   "continue_autonomous_shadow", "run_autonomous_paper", "owner_limited_live_canary_decision", "parked",
 ];
 const EXECUTION_EVIDENCE_REASON_CODES = [
   "none", "target_execution_evidence_missing", "paper_not_supported", "paper_execution_evidence_needed",
-  "policy_not_active", "source_stale", "manual_live_decision_required",
+  "policy_not_active", "source_stale", "manual_live_decision_required", "target_execution_receipt_observed",
+  "target_execution_reconciliation_required", "target_execution_receipt_failed",
 ];
 // Runtime target lifecycle is intentionally separate from execution evidence:
 // it records whether a target is enabled and whether its no-order monitors are
@@ -3275,6 +3282,21 @@ function assertExactFields(value, fields, fieldName) {
   return value;
 }
 
+function assertRequiredAndOptionalFields(value, requiredFields, optionalFields, fieldName) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  const allowed = new Set([...requiredFields, ...optionalFields]);
+  const actual = Object.keys(value);
+  if (
+    requiredFields.some((field) => !Object.prototype.hasOwnProperty.call(value, field))
+    || actual.some((field) => !allowed.has(field))
+  ) {
+    throw new Error(`${fieldName} has invalid fields`);
+  }
+  return value;
+}
+
 function normalizeResearchTaskIdentity(value, fieldName) {
   const text = String(value || "").trim();
   if (!/^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/.test(text)) {
@@ -4771,9 +4793,9 @@ function normalizeExecutionEvidenceSourceSnapshot(payload, fieldName = "executio
 }
 
 function normalizeExecutionEvidenceDeployment(value, fieldName) {
-  const item = assertExactFields(value, [
+  const item = assertRequiredAndOptionalFields(value, [
     "deployment_id", "strategy", "target", "capabilities", "evidence", "recommendation",
-  ], fieldName);
+  ], ["execution_receipt"], fieldName);
   const strategy = assertExactFields(item.strategy, [
     "candidate_id", "candidate_kind", "domain", "strategy_revision",
   ], `${fieldName}.strategy`);
@@ -4783,6 +4805,9 @@ function normalizeExecutionEvidenceDeployment(value, fieldName) {
     "strategy", "target_data", "target_execution",
   ], `${fieldName}.evidence`);
   const recommendation = assertExactFields(item.recommendation, ["code", "reason_code"], `${fieldName}.recommendation`);
+  const executionReceipt = item.execution_receipt === undefined
+    ? null
+    : normalizeExecutionEvidenceReceipt(item.execution_receipt, `${fieldName}.execution_receipt`);
   const normalized = {
     deployment_id: normalizeControlPlaneIdentifier(item.deployment_id, `${fieldName}.deployment_id`, false),
     strategy: {
@@ -4821,7 +4846,45 @@ function normalizeExecutionEvidenceDeployment(value, fieldName) {
       throw new Error(`${fieldName}.recommendation requires matching verified strategy, data, and execution evidence`);
     }
   }
+  if (executionReceipt !== null) {
+    const expectedExecutionStatus = ["failed", "reconciliation_required"].includes(executionReceipt.outcome)
+      ? "unavailable"
+      : "verified";
+    if (normalized.evidence.target_execution !== expectedExecutionStatus) {
+      throw new Error(`${fieldName}.execution_receipt does not match target_execution evidence`);
+    }
+    normalized.execution_receipt = executionReceipt;
+  }
   return normalized;
+}
+
+function normalizeExecutionEvidenceReceipt(value, fieldName) {
+  const receipt = assertExactFields(value, ["outcome", "broker_confirmation", "observed_at"], fieldName);
+  const outcome = cleanChoice(receipt.outcome, EXECUTION_RECEIPT_OUTCOMES, `${fieldName}.outcome`);
+  const confirmation = cleanChoice(
+    receipt.broker_confirmation,
+    EXECUTION_RECEIPT_CONFIRMATIONS,
+    `${fieldName}.broker_confirmation`,
+  );
+  const allowedConfirmations = {
+    not_due: ["not_applicable"],
+    no_action: ["not_applicable"],
+    risk_blocked: ["not_applicable"],
+    submitted: ["not_observed"],
+    broker_acknowledged: ["acknowledged"],
+    partially_filled: ["partially_filled"],
+    filled: ["filled"],
+    reconciliation_required: ["reconciliation_required"],
+    failed: ["not_applicable", "not_observed", "reconciliation_required"],
+  };
+  if (!allowedConfirmations[outcome].includes(confirmation)) {
+    throw new Error(`${fieldName}.broker_confirmation does not match outcome`);
+  }
+  return {
+    outcome,
+    broker_confirmation: confirmation,
+    observed_at: normalizeResearchTaskTimestamp(receipt.observed_at, `${fieldName}.observed_at`),
+  };
 }
 
 function normalizeRuntimeTargetLifecycleSourceSnapshot(payload, fieldName = "runtime target lifecycle source snapshot") {
