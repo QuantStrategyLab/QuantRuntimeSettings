@@ -2618,6 +2618,57 @@ assert.equal(executionEvidencePayload.policy.execution_evidence_read_only, true)
 assert.equal(executionEvidencePayload.policy.p6_owner_decision_required, true);
 assert.equal(executionEvidencePayload.policy.limited_live_canary_active, false);
 
+const runtimeTargetLifecycleSourcePayload = {
+  schema_version: "qsl_runtime_target_lifecycle_source_snapshot.v1",
+  source_id: "longbridge.sg",
+  generated_at: controlNow,
+  computed_at: controlNow,
+  data_status: "ready",
+  targets: [{
+    target_id: "longbridge.sg",
+    target: { platform: "longbridge", configured_state: "disabled", execution_mode: "dry_run" },
+    monitoring: { runtime_guard: "pass", execution_heartbeat: "not_applicable" },
+    disposition: { code: "continue_disabled_validation", reason_code: "target_intentionally_disabled" },
+    no_order: true,
+  }],
+  errors: [],
+};
+const invalidDisabledTargetLifecycle = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...runtimeTargetLifecycleSourcePayload,
+      targets: [{
+        ...runtimeTargetLifecycleSourcePayload.targets[0],
+        monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" },
+      }],
+    }),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(invalidDisabledTargetLifecycle.status, 400);
+const runtimeTargetLifecycleSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(runtimeTargetLifecycleSourcePayload),
+  }),
+  executionEvidenceEnv,
+);
+assert.equal(runtimeTargetLifecycleSync.status, 200);
+assert.equal((await runtimeTargetLifecycleSync.json()).target_count, 1);
+const runtimeTargetLifecycleRead = await worker.fetch(
+  new Request("https://switch.example/api/runtime-target-lifecycle", { headers: executionEvidenceCookieHeaders }),
+  executionEvidenceEnv,
+);
+assert.equal(runtimeTargetLifecycleRead.status, 200);
+const runtimeTargetLifecyclePayload = await runtimeTargetLifecycleRead.json();
+assert.equal(runtimeTargetLifecyclePayload.data_status, "ready");
+assert.deepEqual(runtimeTargetLifecyclePayload.summary, { target_count: 1, enabled: 0, disabled: 1, attention: 0 });
+assert.equal(runtimeTargetLifecyclePayload.targets[0].target.disposition.code, "continue_disabled_validation");
+assert.equal(runtimeTargetLifecyclePayload.policy.no_order, true);
+
 const researchTaskSyncValue = ["research", "task", "sync"].join("-");
 const researchTaskEnv = { ...controlEnv, RESEARCH_TASK_SYNC_TOKEN: researchTaskSyncValue };
 const researchTaskCookie = await __test.makeSession("health-user", [], researchTaskEnv);
