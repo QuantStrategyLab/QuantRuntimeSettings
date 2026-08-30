@@ -752,6 +752,14 @@ const normalizedLegacyAutoPluginInputs = __test.normalizeSwitchInputs({
   plugin_mode: "auto",
 });
 assert.equal(normalizedLegacyAutoPluginInputs.plugin_mode, "none");
+const normalizedCurrentPluginInputs = __test.normalizeSwitchInputs({
+  platform: "ibkr",
+  target_name: "ibkr-primary",
+  strategy_profile: "tqqq_growth_income",
+  execution_mode: "live",
+  plugin_mode: "current",
+});
+assert.equal(normalizedCurrentPluginInputs.plugin_mode, "current");
 assert.throws(
   () => __test.normalizeSwitchInputs({
     platform: "ibkr",
