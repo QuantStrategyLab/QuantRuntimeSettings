@@ -32,6 +32,8 @@ QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategy
 
 `default_execution_mode`、`live_configured`、策略生命周期标签、本仓切换 workflow 与 CI 绿灯都只是配置或历史元数据，不是运行、订单、资金或阶段升级授权。P1–P3 的 non-live 数据获取必须有独立、精确的契约，不能从 P0 隐含推导；P4–P6 仍未定义。详见[架构边界](docs/ARCHITECTURE.md#p0p6-runtime-authority-boundary)。
 
+已明确授权、已在运行的旧实盘基线不应因为新的候选正在 P1–P6 验证而被一并停掉。它使用独立、hash 冻结的 `live_continuity` 状态：只有 `ACTIVE_LKG` / `ROLLBACK_LKG` 可进行普通执行；暂停、对账和减风险状态默认拒绝普通下单，但继续保留监控和对账。该状态不会自行启用实盘、扩大风险或绕过 `RUNTIME_TARGET_ENABLED` 硬门。详见 [runtime target 生命周期](docs/runtime_target_lifecycle.md#live-champion-continuity)。
+
 AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` 离线研究请求。该请求绑定证据摘要和受限实验，但不会激活候选，也不会授予 P4–P6 权限。详见[研究任务契约](docs/qsl_research_task_v1.zh-CN.md)。
 
 ## 仓库结构

@@ -21,6 +21,23 @@
 
 P1–P3 是一条连续的 **non-live** 研究链，但它们仍分别拥有唯一 driver 和可验证产物。下表只记录当前可携带事实，不把代码、CI 或合并误写为策略收益、运行或交易资格。
 
+### 既有实盘基线与候选研究必须双轨运行
+
+P0–P6 只描述**新候选**的研究、验证和晋级链，不是已明确授权的既有实盘版本每天都要重新闯关的开关。为避免候选停车误伤原有运行，runtime target 可携带独立的 `live_continuity` 轴：
+
+```text
+已授权 champion（冻结的最后已知良好版本）→ 正常运行、健康监控、对账
+                                                │
+新 challenger → P1 → P2 → P3 → paper/shadow → canary → 才能替换 champion
+```
+
+- `ACTIVE_LKG` / `ROLLBACK_LKG` 才允许普通执行，且仅限 target hash 冻结的旧基线和既有资本/风险边界。
+- `PAUSED`、`RECONCILE_ONLY`、`ACTIVE_REDUCED`、`RISK_REDUCTION_ONLY` 默认拒绝普通下单；仍要保留健康、报告、只读监控和对账。后两类若要执行减仓，必须由平台专用、预先验证的执行器完成，通用开关不能把它误当成普通交易许可。
+- `RUNTIME_TARGET_ENABLED=false` 永远是额外硬门；连续性状态不能绕过它，也不能自行提高资金、杠杆、标的范围或重置硬熔断。
+- 候选 P0–P6 达标也不会自动覆盖 champion。替换、首次/重新启用实盘、提高资本或杠杆、未知订单无法对账、硬熔断恢复与凭证/合规变更仍需既定的人工或独立风控授权。
+
+这只是通用控制契约和平台接线边界，不是任何具体账户、策略、订单或当日运行状态的声明。实际恢复前仍须按目标平台读取持仓、未完成订单、最后回执和部署配置，再只恢复完全匹配的原授权基线。
+
 | 阶段 | 唯一 driver | 当前可携带状态与证据 | 允许的下一步 |
 | --- | --- | --- |
 | P0 | `QuantRuntimeSettings` | 自治运行策略 V2、离线验签门和仅 `RECONCILE_ONLY` 的准入代码已经存在。`binancequant`、`charlesschwabquant`、`firstradequant`、`interactivebrokersquant`、`longbridgequant`、`qslresearchquant` 已各自安装并读取核验一把公开 Cloud KMS P-256 root；这六个 bootstrap root 没有 signer IAM、已签 policy 或接入运行服务。独立 `alpaca-shadow-control`（展示名：`AlpacaShadowControl`）项目另有一把 P5 shadow-control root：仅其专用 policy issuer 对该 key 有最小 signer 角色，risk-gate/ledger/scheduler 三个身份没有项目级角色、用户管理私钥、WIF 或运行绑定；没有 active policy、签名 receipt 或运行服务。retired review caller 的本地清理及其受影响仓库的合并已完成；它只退役 GitHub Codex 自动 PR 审查门槛，普通 CI 仍保留，且不构成 P0 完成或运行资格。 | 仅维护和复核控制面事实；不得从 P0 推导 P1 数据获取、P4–P6 或交易资格。 |
