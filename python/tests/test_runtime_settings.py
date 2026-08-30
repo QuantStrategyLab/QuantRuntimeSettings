@@ -1373,6 +1373,62 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(plugin_payload["strategy_plugins"], [])
         self.assertEqual(runtime_settings.validate_target(target), [])
 
+    def test_build_switch_target_freezes_eligible_legacy_live_baseline(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "soxl_soxx_trend_income",
+                "--execution-mode",
+                "live",
+                "--live-continuity-state",
+                "ACTIVE_LKG",
+                "--live-continuity-baseline-id",
+                "soxl-longbridge-lkg-20260830",
+                "--live-continuity-captured-at",
+                "2026-08-30",
+            ]
+        )
+
+        target = build_runtime_switch.build_switch_target(args)
+        continuity = target["runtime_target"]["live_continuity"]
+
+        self.assertEqual(continuity["state"], "ACTIVE_LKG")
+        self.assertEqual(continuity["baseline_kind"], "legacy_authorized")
+        self.assertEqual(
+            continuity["baseline_target_sha256"],
+            runtime_settings.runtime_target_fingerprint(target["runtime_target"]),
+        )
+        self.assertEqual(runtime_settings.validate_target(target), [])
+
+    def test_build_switch_target_rejects_continuity_for_dry_run(self):
+        parser = build_runtime_switch.build_parser()
+        args = parser.parse_args(
+            [
+                "--platform",
+                "longbridge",
+                "--target-name",
+                "sg",
+                "--strategy-profile",
+                "tqqq_growth_income",
+                "--execution-mode",
+                "dry_run",
+                "--live-continuity-state",
+                "ACTIVE_LKG",
+                "--live-continuity-baseline-id",
+                "tqqq-longbridge-lkg-20260830",
+                "--live-continuity-captured-at",
+                "2026-08-30",
+            ]
+        )
+
+        with self.assertRaisesRegex(ValueError, "only valid for an execution_mode=live"):
+            build_runtime_switch.build_switch_target(args)
+
     def test_build_switch_target_treats_legacy_auto_plugin_mode_as_none(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(

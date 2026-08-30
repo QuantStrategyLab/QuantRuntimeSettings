@@ -31,6 +31,27 @@ on:
           - live
           - dry_run
           - paper
+      live_continuity_state:
+        description: "Optional frozen legacy live baseline state. This cannot create a new live permission or increase risk."
+        required: true
+        type: choice
+        default: NONE
+        options:
+          - NONE
+          - ACTIVE_LKG
+          - ACTIVE_REDUCED
+          - RECONCILE_ONLY
+          - RISK_REDUCTION_ONLY
+          - PAUSED
+          - ROLLBACK_LKG
+      live_continuity_baseline_id:
+        description: "Required only with a continuity state: audited identifier of the existing authorised baseline."
+        required: false
+        type: string
+      live_continuity_captured_at:
+        description: "Required only with a continuity state: ISO date when the exact legacy target was captured."
+        required: false
+        type: string
       variable_scope:
         description: "Where GitHub variables are written. blank = platform default."
         required: false
@@ -146,6 +167,9 @@ jobs:
       TARGET_NAME: ${{ inputs.target_name }}
       STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
       EXECUTION_MODE: ${{ inputs.execution_mode }}
+      LIVE_CONTINUITY_STATE: ${{ inputs.live_continuity_state }}
+      LIVE_CONTINUITY_BASELINE_ID: ${{ inputs.live_continuity_baseline_id }}
+      LIVE_CONTINUITY_CAPTURED_AT: ${{ inputs.live_continuity_captured_at }}
       VARIABLE_SCOPE: ${{ inputs.variable_scope }}
       GITHUB_ENVIRONMENT_NAME: ${{ inputs.github_environment }}
       DEPLOYMENT_SELECTOR: ${{ inputs.deployment_selector }}
@@ -345,6 +369,11 @@ jobs:
           if [ -n "${SERVICE_NAME:-}" ]; then
             args+=(--service-name "${SERVICE_NAME}")
           fi
+          if [ "${LIVE_CONTINUITY_STATE}" != "NONE" ]; then
+            args+=(--live-continuity-state "${LIVE_CONTINUITY_STATE}")
+            args+=(--live-continuity-baseline-id "${LIVE_CONTINUITY_BASELINE_ID}")
+            args+=(--live-continuity-captured-at "${LIVE_CONTINUITY_CAPTURED_AT}")
+          fi
           if [ -n "${EXTRA_VARIABLES_JSON:-}" ]; then
             args+=(--extra-variables-json "${EXTRA_VARIABLES_JSON}")
           fi
@@ -391,6 +420,10 @@ jobs:
           print("- strategy_profile: `<redacted>`")
           print("- service_name: `<redacted>`")
           print(f"- execution_mode: `{target['runtime_target']['execution_mode']}`")
+          continuity = target["runtime_target"].get("live_continuity")
+          if isinstance(continuity, dict):
+              print(f"- live_continuity_state: `{continuity['state']}`")
+              print(f"- live_continuity_baseline_kind: `{continuity['baseline_kind']}`")
           print("- values: `<redacted>`")
           print()
           print("### Variables")
