@@ -89,6 +89,7 @@ confirm_apply=APPLY_AND_SYNC
 - 多服务目标以 `service_name` 为唯一主标识；同一 `account_scope` 可以有多个策略服务，切换只更新精确服务，不会覆盖兄弟目标。
 - `CLOUD_RUN_SERVICE_TARGETS_JSON` 同时支持数组和 `{targets:[...]}`；新增服务必须显式选择 `service_targets_mode=allow_create`。
 - 跨仓写 variables 和触发 workflow 必须在本仓配置 `RUNTIME_SETTINGS_GH_TOKEN` secret，token 至少需要目标仓库的 variables/workflow 写权限；不会回退到默认 `github.token` 写远端变量。
+- `RUNTIME_TARGET_JSON` 是经过 schema 校验的非敏感部署意图，控制台会写入 GitHub Variable；下游平台应优先读取该 Variable，旧同名 Secret 仅可作为迁移回退。它不得包含券商凭据、账户密码或 API key。
 - LongBridge、IBKR、Schwab、Firstrade 的 `service_targets_mode=auto` 会检查目标仓库是否已有多服务清单，因此即使只做 preview 也需要 `RUNTIME_SETTINGS_GH_TOKEN`。
 - Binance 运行在 Oracle Cloud VPS 的 self-hosted runner。仓库变量会在外部调度器下一次触发 `main.yml` 时被读取；中控不会自动触发该运行 workflow，因为它可能直接执行实盘。切换到不同运行频率的策略时，还必须单独复核 VPS 外部调度器。
 - QMT 当前仅支持 dry-run，尚无实盘部署配置；可以生成目标并暂存仓库变量，但会拒绝 `trigger_platform_sync=true`。
