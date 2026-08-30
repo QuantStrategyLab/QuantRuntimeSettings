@@ -1316,6 +1316,31 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             errors,
         )
 
+    def test_service_target_inventory_rejects_nested_secret_values(self):
+        _, target = self.load_target("examples/targets/longbridge/sg.example.json")
+        target["repository_variables"] = {
+            "CLOUD_RUN_SERVICE_TARGETS_JSON": {
+                "targets": [
+                    {
+                        "service": "longbridge-quant-sg-service",
+                        "BROKER_PASSWORD": "not-allowed",
+                        "LONGPORT_SECRET_NAME": "allowed-secret-manager-name",
+                    }
+                ]
+            }
+        }
+
+        errors = runtime_settings.validate_target(target)
+
+        self.assertIn(
+            "repository_variables.CLOUD_RUN_SERVICE_TARGETS_JSON.targets[0].BROKER_PASSWORD looks like a secret and must not be stored here",
+            errors,
+        )
+        self.assertNotIn(
+            "repository_variables.CLOUD_RUN_SERVICE_TARGETS_JSON.targets[0].LONGPORT_SECRET_NAME looks like a secret and must not be stored here",
+            errors,
+        )
+
     def test_longbridge_dry_run_flag_must_match_runtime_target(self):
         _, target = self.load_target("examples/targets/longbridge/sg.example.json")
         target["extra_variables"]["LONGBRIDGE_DRY_RUN_ONLY"] = "true"
