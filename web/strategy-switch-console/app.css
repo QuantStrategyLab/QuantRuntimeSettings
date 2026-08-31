@@ -3082,14 +3082,20 @@
       }
 
       .console-nav {
-        gap: 16px;
-        overflow-x: auto;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 0;
+        overflow: visible;
       }
 
       .console-nav__button {
-        flex: 0 0 auto;
-        padding: 0 1px;
+        min-width: 0;
+        padding: 0 2px;
         border-radius: 0;
+        font-size: 12px;
+        line-height: 1.2;
+        text-align: center;
+        white-space: normal;
       }
 
       .console-nav__button.active {
