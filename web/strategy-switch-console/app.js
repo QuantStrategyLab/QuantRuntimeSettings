@@ -3954,14 +3954,16 @@
     function renderControlPlane() {
       const payload = state.controlPlane.payload;
       const summary = payload.summary || {};
+      const summaryAvailable = state.auth.allowed && payload.data_status !== "unavailable";
+      const summaryCount = (value) => (summaryAvailable ? String(Number(value) || 0) : "—");
       el("control-plane-status").textContent = `${controlPlaneDataStatusText(payload.data_status)} · ${controlPlaneAttentionText(payload.attention)}`;
       el("control-plane-computed-at").textContent = payload.computed_at
         ? t("controlComputedAt").replace("{time}", formatDateTime(payload.computed_at))
         : t("controlComputedAt").replace("{time}", "—");
-      el("control-count-candidates").textContent = String(Number(summary.candidate_count) || 0);
-      el("control-count-deferred").textContent = String(Number(summary.deferred) || 0);
-      el("control-count-parked").textContent = String(Number(summary.parked) || 0);
-      el("control-count-owner-decision").textContent = String(Number(summary.owner_decision_required) || 0);
+      el("control-count-candidates").textContent = summaryCount(summary.candidate_count);
+      el("control-count-deferred").textContent = summaryCount(summary.deferred);
+      el("control-count-parked").textContent = summaryCount(summary.parked);
+      el("control-count-owner-decision").textContent = summaryCount(summary.owner_decision_required);
 
       const notice = el("control-plane-notice");
       const statePanel = notice.closest(".decision-state");
@@ -3970,6 +3972,11 @@
       queue.hidden = !actionableCandidates.length;
       statePanel.classList.toggle("is-attention", actionableCandidates.length > 0 || payload.attention?.status === "attention_required");
       statePanel.classList.toggle("is-stale", payload.data_status === "stale");
+      statePanel.classList.toggle("is-unavailable", !state.auth.allowed || payload.data_status === "unavailable");
+      const stateMark = statePanel.querySelector(".decision-state__mark");
+      stateMark.textContent = !state.auth.allowed || payload.data_status === "unavailable"
+        ? "i"
+        : ((actionableCandidates.length > 0 || payload.attention?.status === "attention_required" || payload.data_status === "stale") ? "!" : "✓");
       if (!state.auth.allowed) {
         notice.textContent = t("controlLoginNotice");
         el("control-plane-summary").textContent = t("controlLoginSummary");
@@ -4825,6 +4832,8 @@
     function renderHealth() {
       const payload = state.health.payload;
       const summary = payload.summary || {};
+      const summaryAvailable = state.auth.allowed && payload.data_status !== "unavailable";
+      const summaryCount = (value) => (summaryAvailable ? String(Number(value) || 0) : "—");
       const statusText = payload.data_status === "ready"
         ? t("healthDataReady")
         : (payload.data_status === "stale" ? t("healthDataStale") : t("healthDataUnavailable"));
@@ -4832,11 +4841,11 @@
       el("health-computed-at").textContent = payload.computed_at
         ? t("healthComputedAt").replace("{time}", formatDateTime(payload.computed_at))
         : t("healthComputedAt").replace("{time}", "—");
-      el("health-count-total").textContent = String(Number(summary.strategy_count) || 0);
-      el("health-count-healthy").textContent = String(Number(summary.healthy) || 0);
-      el("health-count-watch").textContent = String(Number(summary.watch) || 0);
-      el("health-count-review").textContent = String(Number(summary.review) || 0);
-      el("health-count-critical").textContent = String(Number(summary.critical) || 0);
+      el("health-count-total").textContent = summaryCount(summary.strategy_count);
+      el("health-count-healthy").textContent = summaryCount(summary.healthy);
+      el("health-count-watch").textContent = summaryCount(summary.watch);
+      el("health-count-review").textContent = summaryCount(summary.review);
+      el("health-count-critical").textContent = summaryCount(summary.critical);
 
       const notice = el("health-notice");
       if (!state.auth.allowed) {
