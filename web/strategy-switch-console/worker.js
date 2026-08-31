@@ -60,9 +60,13 @@ const CONTROL_PLANE_ATTENTION_STATUSES = ["research_only", "attention_required",
 const CONTROL_PLANE_MAX_SOURCES = 100;
 const CONTROL_PLANE_MAX_BODY_BYTES = 256 * 1024;
 // The current source is a once-per-trading-day P1/P3 lane, rather than a live
-// execution heartbeat. A 36-hour boundary tolerates weekends and a delayed
-// scheduled run without presenting a daily snapshot as permanently stale.
+// execution heartbeat. Freshness therefore preserves the normal TTL, but also
+// waits for the next scheduled research window across the weekend before it
+// calls an otherwise usable Friday/Saturday snapshot stale.
 const CONTROL_PLANE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
+const CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_DAYS = new Set([2, 3, 4, 5, 6]);
+const CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_HOUR = 3;
+const CONTROL_PLANE_RESEARCH_DELIVERY_GRACE_MS = 4 * 60 * 60 * 1000;
 const CONTROL_PLANE_CANDIDATE_KINDS = ["individual", "portfolio", "plugin"];
 const CONTROL_PLANE_STAGES = ["P1", "P2", "P3", "P4", "P5", "P6"];
 const CONTROL_PLANE_LIFECYCLE_STATUSES = [
@@ -1722,19 +1726,12 @@ async function currentControlPlanePayload(env) {
     return emptyControlPlanePayload("snapshot_invalid");
   }
 
-  const ttlSeconds = controlPlaneStaleTtlSeconds(env);
-  const freshnessTimestamps = [snapshot.generated_at, snapshot.computed_at]
-    .filter(Boolean)
-    .map((value) => Date.parse(value));
-  const freshnessAt = freshnessTimestamps.length ? Math.min(...freshnessTimestamps) : Number.NaN;
-  const now = Date.now();
-  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
-  const ageSeconds = futureBeyondClockSkew
-    ? Number.POSITIVE_INFINITY
-    : Number.isFinite(freshnessAt)
-      ? Math.max(0, (now - freshnessAt) / 1000)
-      : Number.POSITIVE_INFINITY;
-  if (snapshot.data_status === "ready" && ageSeconds > ttlSeconds) snapshot.data_status = "stale";
+  const freshness = controlPlaneResearchSnapshotFreshness(
+    snapshot,
+    controlPlaneStaleTtlSeconds(env),
+    Date.now(),
+  );
+  snapshot.data_status = freshness.data_status;
   return snapshot;
 }
 
@@ -2839,7 +2836,7 @@ async function aggregateControlPlaneSources(env) {
   let hasStaleSource = false;
 
   for (const source of sources) {
-    const sourceFreshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+    const sourceFreshness = controlPlaneResearchSnapshotFreshness(source, ttlSeconds, now);
     if (source.generated_at) timestamps.push(source.generated_at);
     if (source.computed_at) timestamps.push(source.computed_at);
     if (sourceFreshness.data_status === "ready") hasReadySource = true;
@@ -3207,6 +3204,45 @@ function controlPlaneSnapshotFreshness(snapshot, ttlSeconds, now) {
     ? "stale"
     : snapshot.data_status;
   return { data_status: dataStatus, age_seconds: Number.isFinite(ageSeconds) ? ageSeconds : null };
+}
+
+function controlPlaneResearchSnapshotFreshness(snapshot, ttlSeconds, now) {
+  if (snapshot.data_status !== "ready") {
+    return controlPlaneSnapshotFreshness(snapshot, ttlSeconds, now);
+  }
+  const timestamps = [snapshot.generated_at, snapshot.computed_at]
+    .filter(Boolean)
+    .map((value) => Date.parse(value));
+  const freshnessAt = timestamps.length ? Math.min(...timestamps) : Number.NaN;
+  const futureBeyondClockSkew = Number.isFinite(freshnessAt) && freshnessAt > now + 5 * 60 * 1000;
+  const ageSeconds = futureBeyondClockSkew
+    ? Number.POSITIVE_INFINITY
+    : Number.isFinite(freshnessAt)
+      ? Math.max(0, Math.round((now - freshnessAt) / 1000))
+      : Number.POSITIVE_INFINITY;
+  if (!Number.isFinite(freshnessAt) || futureBeyondClockSkew) {
+    return { data_status: "stale", age_seconds: null };
+  }
+
+  const ttlDeadline = freshnessAt + ttlSeconds * 1000;
+  const nextScheduledRefresh = nextControlPlaneResearchScheduleAfter(freshnessAt);
+  const scheduledDeadline = nextScheduledRefresh + CONTROL_PLANE_RESEARCH_DELIVERY_GRACE_MS;
+  const staleDeadline = Math.max(ttlDeadline, scheduledDeadline);
+  return {
+    data_status: now > staleDeadline ? "stale" : "ready",
+    age_seconds: ageSeconds,
+  };
+}
+
+function nextControlPlaneResearchScheduleAfter(freshnessAt) {
+  const scheduled = new Date(freshnessAt);
+  scheduled.setUTCMinutes(0, 0, 0);
+  scheduled.setUTCHours(CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_HOUR);
+  if (scheduled.getTime() <= freshnessAt) scheduled.setUTCDate(scheduled.getUTCDate() + 1);
+  while (!CONTROL_PLANE_RESEARCH_SCHEDULE_UTC_DAYS.has(scheduled.getUTCDay())) {
+    scheduled.setUTCDate(scheduled.getUTCDate() + 1);
+  }
+  return scheduled.getTime();
 }
 
 // A recently published source must not be able to re-advertise an old
@@ -7197,6 +7233,7 @@ export const __test = {
   emptyStrategyHealthPayload,
   normalizeControlPlaneSnapshot,
   normalizeControlPlaneSourceSnapshot,
+  controlPlaneResearchSnapshotFreshness,
   emptyControlPlanePayload,
   normalizeAdaptiveSelectionSourceSnapshot,
   calculateAdaptiveSelectionDecisionDigest,
