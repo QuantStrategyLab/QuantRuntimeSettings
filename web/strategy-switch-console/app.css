@@ -2946,10 +2946,22 @@
       background: var(--warning-soft);
     }
 
+    .decision-state.is-unavailable {
+      border-color: var(--line);
+      background: var(--soft);
+    }
+
     .decision-state.is-attention .decision-state__mark,
     .decision-state.is-stale .decision-state__mark {
       border-color: #9a6b16;
       color: #9a6b16;
+    }
+
+    .decision-state.is-unavailable .decision-state__mark {
+      border-color: var(--muted);
+      color: var(--muted);
+      font-family: Georgia, serif;
+      font-weight: 700;
     }
 
     .decision-summary,
