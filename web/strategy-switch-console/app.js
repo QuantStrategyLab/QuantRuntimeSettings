@@ -940,19 +940,19 @@
         runtimeTargetLifecycleReasonRuntimeGuard: "运行监测需要复核",
         runtimeTargetLifecycleReasonHeartbeat: "执行心跳需要复核",
         runtimeTargetLifecycleReasonUnavailable: "监测数据不可用",
-        m0ResearchBoard: "市场研究",
-        m0ResearchLoginNotice: "登录后查看市场研究和观察记录。",
-        m0ResearchStaleNotice: "研究内容更新延迟，仅供历史参考。",
-        m0ResearchUnavailableNotice: "暂时没有可用的市场研究。",
-        m0ResearchUpstreamNotice: "部分研究内容暂不可用，请稍后重试。",
-        m0ResearchEmpty: "当前没有可展示的市场研究。",
+        m0ResearchBoard: "外部研究记录",
+        m0ResearchLoginNotice: "登录后查看外部研究记录。",
+        m0ResearchStaleNotice: "外部研究更新延迟，仅供历史参考。",
+        m0ResearchUnavailableNotice: "暂时没有可用的外部研究记录。",
+        m0ResearchUpstreamNotice: "部分外部研究暂不可用，请稍后重试。",
+        m0ResearchEmpty: "当前没有可展示的外部研究记录。",
         m0ResearchMore: "显示前 {count} 条研究观察。",
         m0ResearchMeta: "{kind} · 查看于：{viewed}",
         m0ResearchStateFreshness: "状态：{state} · 新鲜度：{freshness}",
         m0ResearchHorizons: "主要观察期：{primary} · 适用观察期：{suitable}",
         m0ResearchEvidence: "置信：{confidence} · 风格：{style} · 资料摘要：{digest}",
         m0ResearchConsistency: "当前周期分歧：{conflict} · 历史失效漂移：{drift}",
-        m0ResearchNoOrder: "查看当前研究摘要。",
+        m0ResearchNoOrder: "外部研究不影响当前策略运行。",
         adaptiveSelectionBoard: "系统建议",
         adaptiveSelectionLoginNotice: "登录后查看系统建议。",
         adaptiveSelectionStaleNotice: "建议更新延迟，仅供历史参考。",
@@ -994,6 +994,7 @@
         healthUnavailableNotice: "暂时无法读取策略状态，请稍后刷新。",
         healthUpstreamNotice: "部分策略状态暂不可用，请稍后重试。",
         healthNormalNotice: "当前没有需要关注的运行问题。",
+        healthAttentionNotice: "有 {critical} 项严重、{review} 项需要复核、{watch} 项观察；系统正在持续监测。",
         healthEmpty: "当前分类下没有策略。",
         healthStatusHealthy: "健康",
         healthStatusWatch: "观察",
@@ -1007,7 +1008,7 @@
         healthRecommendationWatch: "系统正在继续观察。",
         healthRecommendationReview: "请查看诊断详情，等待系统复核完成。",
         healthRecommendationCritical: "请查看诊断详情，并暂缓相关变更。",
-        healthDetail: "最近检查：{date}",
+        healthDetail: "数据截至：{date}",
         healthScoreLabel: "健康度",
         diagnosticDetails: "查看诊断详情",
         diagnosticDetailsHint: "仅在排查问题或查看研究记录时使用。",
@@ -1331,19 +1332,19 @@
         runtimeTargetLifecycleReasonRuntimeGuard: "runtime guard needs review",
         runtimeTargetLifecycleReasonHeartbeat: "execution heartbeat needs review",
         runtimeTargetLifecycleReasonUnavailable: "monitoring data unavailable",
-        m0ResearchBoard: "Market research",
-        m0ResearchLoginNotice: "Sign in to see market research and observations.",
-        m0ResearchStaleNotice: "Research is delayed and is provided for historical context only.",
-        m0ResearchUnavailableNotice: "Market research is temporarily unavailable.",
-        m0ResearchUpstreamNotice: "Some research content is unavailable. Please retry later.",
-        m0ResearchEmpty: "There is no market research to display.",
+        m0ResearchBoard: "External research records",
+        m0ResearchLoginNotice: "Sign in to see external research records.",
+        m0ResearchStaleNotice: "External research is delayed and is provided for historical context only.",
+        m0ResearchUnavailableNotice: "External research records are temporarily unavailable.",
+        m0ResearchUpstreamNotice: "Some external research records are unavailable. Please retry later.",
+        m0ResearchEmpty: "There are no external research records to display.",
         m0ResearchMore: "Showing the first {count} research observations.",
         m0ResearchMeta: "{kind} · viewed {viewed}",
         m0ResearchStateFreshness: "State: {state} · freshness: {freshness}",
         m0ResearchHorizons: "Primary horizon: {primary} · suitable horizons: {suitable}",
         m0ResearchEvidence: "Confidence: {confidence} · style: {style} · source digest: {digest}",
         m0ResearchConsistency: "Current horizon conflict: {conflict} · historical stale drift: {drift}",
-        m0ResearchNoOrder: "View the current research summary.",
+        m0ResearchNoOrder: "External research does not affect current strategy operation.",
         adaptiveSelectionBoard: "System suggestions",
         adaptiveSelectionLoginNotice: "Sign in to see system suggestions.",
         adaptiveSelectionStaleNotice: "Suggestions are delayed and are provided for historical context only.",
@@ -1385,6 +1386,7 @@
         healthUnavailableNotice: "Strategy status is temporarily unavailable. Refresh later.",
         healthUpstreamNotice: "Some strategy status is unavailable. Retry later.",
         healthNormalNotice: "There are no runtime issues that need attention.",
+        healthAttentionNotice: "{critical} critical, {review} to review, and {watch} under observation. Monitoring continues.",
         healthEmpty: "There are no strategies in this category.",
         healthStatusHealthy: "Healthy",
         healthStatusWatch: "Watch",
@@ -1398,7 +1400,7 @@
         healthRecommendationWatch: "The system is continuing to monitor.",
         healthRecommendationReview: "View diagnostic details while the system completes its review.",
         healthRecommendationCritical: "View diagnostic details and hold related changes for now.",
-        healthDetail: "Last checked: {date}",
+        healthDetail: "Data as of: {date}",
         healthScoreLabel: "Health",
         diagnosticDetails: "View diagnostic details",
         diagnosticDetailsHint: "Use this only to investigate an issue or review research records.",
@@ -1745,6 +1747,17 @@
         dateStyle: "medium",
         timeStyle: "short",
       }).format(parsed);
+    }
+
+    function formatAsOfDate(value) {
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        const parsed = new Date(`${value}T00:00:00.000Z`);
+        return new Intl.DateTimeFormat(locale(), {
+          dateStyle: "medium",
+          timeZone: "UTC",
+        }).format(parsed);
+      }
+      return formatDateTime(value);
     }
 
     function localizedExternalText(value, fallback) {
@@ -4832,6 +4845,14 @@
     function renderHealth() {
       const payload = state.health.payload;
       const summary = payload.summary || {};
+      const healthCount = (status) => Math.max(
+        Number(summary[status]) || 0,
+        payload.strategies.filter((item) => item.status === status).length,
+      );
+      const criticalCount = healthCount("critical");
+      const reviewCount = healthCount("review");
+      const watchCount = healthCount("watch");
+      const hasAttention = criticalCount + reviewCount + watchCount > 0;
       const summaryAvailable = state.auth.allowed && payload.data_status !== "unavailable";
       const summaryCount = (value) => (summaryAvailable ? String(Number(value) || 0) : "—");
       const statusText = payload.data_status === "ready"
@@ -4854,6 +4875,11 @@
         notice.textContent = t("healthStaleNotice");
       } else if (payload.data_status !== "ready") {
         notice.textContent = t("healthUnavailableNotice");
+      } else if (hasAttention) {
+        notice.textContent = t("healthAttentionNotice")
+          .replace("{critical}", String(criticalCount))
+          .replace("{review}", String(reviewCount))
+          .replace("{watch}", String(watchCount));
       } else if (payload.errors?.length) {
         notice.textContent = t("healthUpstreamNotice");
       } else {
@@ -4889,7 +4915,7 @@
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
         detail.textContent = t("healthDetail")
-          .replace("{date}", formatDateTime(item.as_of));
+          .replace("{date}", formatAsOfDate(item.as_of));
         main.append(meta, title, reason, detail);
         const scoreBlock = document.createElement("div");
         scoreBlock.className = "health-card__score";

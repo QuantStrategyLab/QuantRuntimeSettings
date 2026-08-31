@@ -2082,6 +2082,9 @@ assert.match(healthReadPayload.strategies[0].source_revision, /^https:\/\//);
 assert.deepEqual(healthReadPayload.errors, ["safe_notice"]);
 assert.ok(indexHtml.includes('id="health-count-critical"'));
 assert.ok(indexHtml.includes('data-i18n="healthCritical"'));
+assert.ok(indexHtml.includes('healthAttentionNotice'));
+assert.ok(indexHtml.includes('formatAsOfDate('));
+assert.ok(indexHtml.includes('m0ResearchBoard: "外部研究记录"'));
 
 healthPayload.generated_at = new Date().toISOString();
 healthPayload.computed_at = "2020-01-01T00:00:00.000Z";
@@ -2290,6 +2293,32 @@ const staleControlRead = await worker.fetch(
   controlEnv,
 );
 assert.equal((await staleControlRead.json()).data_status, "stale");
+
+const weekendResearchSnapshot = {
+  schema_version: "qsl_control_plane_source_snapshot.v1",
+  source_id: "uesp.weekend_research",
+  generated_at: "2026-08-29T09:21:00.000Z",
+  computed_at: "2026-08-29T09:21:00.000Z",
+  data_status: "ready",
+  candidates: [],
+  errors: [],
+};
+assert.equal(
+  __test.controlPlaneResearchSnapshotFreshness(
+    weekendResearchSnapshot,
+    300,
+    Date.parse("2026-08-31T16:40:00.000Z"),
+  ).data_status,
+  "ready",
+);
+assert.equal(
+  __test.controlPlaneResearchSnapshotFreshness(
+    weekendResearchSnapshot,
+    300,
+    Date.parse("2026-09-01T08:00:00.000Z"),
+  ).data_status,
+  "stale",
+);
 
 const controlSourcePayload = {
   schema_version: "qsl_control_plane_source_snapshot.v1",
