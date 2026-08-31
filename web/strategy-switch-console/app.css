@@ -2830,3 +2830,275 @@
         grid-column: auto;
       }
     }
+
+    /* Operator console v2: keep the information, but organize it by the
+       operator's job instead of presenting every internal feed at once. */
+    .shell {
+      width: min(1120px, calc(100vw - 44px));
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      gap: 24px;
+    }
+
+    @media (min-width: 900px) {
+      .console-nav {
+        position: static;
+        display: flex;
+        width: auto;
+        gap: 20px;
+        padding: 0;
+        border: 0;
+        border-bottom: 1px solid var(--line);
+        border-radius: 0;
+        background: transparent;
+      }
+
+      .console-nav__button {
+        min-height: 42px;
+        padding: 0 2px;
+        border-radius: 0;
+        text-align: left;
+      }
+
+      .console-nav__button.active {
+        color: var(--accent);
+        background: transparent;
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+
+      .decision-view,
+      #switch-view,
+      .health-view {
+        grid-column: auto;
+      }
+    }
+
+    .decision-view,
+    .health-view {
+      gap: 24px;
+    }
+
+    .decision-head,
+    .health-head {
+      align-items: flex-end;
+      padding: 2px 0 0;
+    }
+
+    .decision-head h2,
+    .health-head h2 {
+      margin: 0;
+      font-size: clamp(30px, 4vw, 42px);
+      letter-spacing: -0.045em;
+    }
+
+    .decision-head p,
+    .health-head p {
+      max-width: 560px;
+      margin-top: 8px;
+      font-size: 14px;
+      line-height: 1.55;
+    }
+
+    .decision-state {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-height: 116px;
+      padding: 24px 26px;
+      border: 1px solid #cae3de;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      color: var(--ink);
+    }
+
+    .decision-state__mark {
+      display: grid;
+      flex: 0 0 auto;
+      place-items: center;
+      width: 34px;
+      height: 34px;
+      border: 2px solid var(--accent);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 20px;
+      font-weight: 800;
+    }
+
+    .decision-state strong,
+    .decision-state span:not(.decision-state__mark) {
+      display: block;
+    }
+
+    .decision-state strong {
+      font-size: 16px;
+      letter-spacing: -0.015em;
+    }
+
+    .decision-state span:not(.decision-state__mark) {
+      margin-top: 5px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .decision-state.is-attention {
+      border-color: var(--warning-line);
+      background: var(--warning-soft);
+    }
+
+    .decision-state.is-attention .decision-state__mark,
+    .decision-state.is-stale .decision-state__mark {
+      border-color: #9a6b16;
+      color: #9a6b16;
+    }
+
+    .decision-summary,
+    .health-summary {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .decision-summary span,
+    .health-summary span {
+      display: inline-flex;
+      align-items: baseline;
+      gap: 7px;
+      padding: 12px 16px 12px 0;
+      margin-right: 16px;
+      color: var(--muted);
+    }
+
+    .decision-summary strong,
+    .health-summary strong {
+      color: var(--ink);
+      font-size: 15px;
+    }
+
+    .decision-summary small,
+    .health-summary small {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .decision-queue {
+      margin-top: 4px;
+    }
+
+    .decision-board-head,
+    .health-board-head {
+      margin: 0 0 10px;
+    }
+
+    .decision-board-head h3,
+    .health-board-head h3 {
+      margin: 0;
+      font-size: 17px;
+    }
+
+    .health-state {
+      display: block;
+      min-height: 0;
+      padding: 15px 0;
+      border-width: 0 0 1px;
+      border-radius: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .health-filters {
+      gap: 4px;
+    }
+
+    .health-filter {
+      padding: 6px 9px;
+      border-radius: 6px;
+    }
+
+    .health-list {
+      gap: 8px;
+    }
+
+    .health-card {
+      padding: 15px 16px;
+      border-radius: 8px;
+      box-shadow: none;
+    }
+
+    .diagnostic-details {
+      margin-top: 8px;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .diagnostic-details > summary {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 720;
+      cursor: pointer;
+    }
+
+    .diagnostic-details > p {
+      max-width: 560px;
+      margin: 0 0 18px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .diagnostic-section {
+      display: grid;
+      gap: 10px;
+      padding: 18px 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .diagnostic-section h3 {
+      font-size: 15px;
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 28px, 1120px);
+      }
+
+      .console-nav {
+        gap: 16px;
+        overflow-x: auto;
+      }
+
+      .console-nav__button {
+        flex: 0 0 auto;
+        padding: 0 1px;
+        border-radius: 0;
+      }
+
+      .console-nav__button.active {
+        color: var(--accent);
+        background: transparent;
+        box-shadow: inset 0 -2px 0 var(--accent);
+      }
+
+      .decision-head,
+      .health-head {
+        align-items: flex-start;
+      }
+
+      .decision-state {
+        min-height: 104px;
+        padding: 20px;
+      }
+
+      .decision-summary span,
+      .health-summary span {
+        width: calc(50% - 8px);
+        margin-right: 8px;
+      }
+    }
