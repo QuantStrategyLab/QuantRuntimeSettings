@@ -13,6 +13,7 @@ import {
   FALLBACK_INCOME_LAYER_DEFAULTS,
   FALLBACK_OPTION_OVERLAY_DEFAULTS,
   DCA_PROFILE_DEFAULTS,
+  RUNTIME_AUTHORITY_STATUS,
   RUNTIME_CATALOG_PROJECTION,
   STRATEGY_FEATURES,
 } from "./config.js";
@@ -302,6 +303,22 @@ const SECURITY_HEADERS = {
   "X-Frame-Options": "DENY",
 };
 
+// This is deliberately a same-origin, public configuration bootstrap. It
+// contains only the config projections already shown by the public console;
+// private account routing still arrives after an authenticated /api/config
+// request. Keeping it external preserves the strict CSP without unsafe-inline.
+const BOOTSTRAP_CONFIG_JS = [
+  "// Generated from non-secret console configuration. Do not edit by hand.",
+  `window.__PLATFORM_CONFIG__ = ${JSON.stringify(PLATFORM_CONFIG)};`,
+  `window.__QSL_RUNTIME_AUTHORITY_STATUS__ = ${JSON.stringify(RUNTIME_AUTHORITY_STATUS)};`,
+  `window.__DEFAULT_ACCOUNT_OPTIONS__ = ${JSON.stringify(DEFAULT_ACCOUNT_OPTIONS)};`,
+  `window.__DOMAIN_LABELS__ = ${JSON.stringify(DOMAIN_LABELS)};`,
+  `window.__DEFAULT_STRATEGY_PROFILES__ = ${JSON.stringify(DEFAULT_STRATEGY_PROFILES)};`,
+  `window.__DCA_PROFILE_DEFAULTS__ = ${JSON.stringify(DCA_PROFILE_DEFAULTS)};`,
+  `window.__INCOME_LAYER_DEFAULTS__ = ${JSON.stringify(FALLBACK_INCOME_LAYER_DEFAULTS)};`,
+  `window.__OPTION_OVERLAY_DEFAULTS__ = ${JSON.stringify(FALLBACK_OPTION_OVERLAY_DEFAULTS)};`,
+].join("\n");
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -396,6 +413,16 @@ export default {
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
+      if (url.pathname === "/bootstrap-config.js") {
+        return new Response(BOOTSTRAP_CONFIG_JS, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/javascript; charset=utf-8",
+            "Cache-Control": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
       if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
       if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
       return html(PAGE_HTML);
