@@ -810,13 +810,19 @@
     const copy = {
       zh: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "策略与平台的日常管理",
-        controlPlaneView: "决策",
+        appSubtitle: "自动化策略的日常管理",
+        languageToggle: "切换语言",
+        consoleNavigation: "管理台导航",
+        dataFreshness: "数据更新时间",
+        decisionSummary: "待办摘要",
+        healthSummary: "策略健康摘要",
+        healthFilters: "筛选策略健康状态",
+        controlPlaneView: "待你处理",
         healthView: "系统状态",
         switchView: "策略设置",
         controlPlaneEyebrow: "待处理事项",
-        controlPlaneTitle: "今天需要你处理什么？",
-        controlPlaneSubtitle: "系统正常时这里保持为空；出现风险、异常或恢复事项时，按优先级显示。",
+        controlPlaneTitle: "待你处理",
+        controlPlaneSubtitle: "这里只显示需要你亲自确认的事项。",
         controlCandidateTotal: "监控对象",
         controlDeferred: "待复核",
         controlParked: "暂停中",
@@ -836,7 +842,11 @@
         controlUnavailableNotice: "暂时无法读取最新状态，请稍后刷新。",
         controlUpstreamNotice: "部分数据暂不可用，请稍后重试。",
         controlAttentionNotice: "有 {deferred} 项待复核，{parked} 项已暂停。",
-        controlNormalNotice: "当前没有需要你处理的事项。",
+        controlNormalNotice: "目前没有需要你决定的事项。",
+        controlNormalSummary: "系统会继续监测、优化和记录。",
+        controlStaleSummary: "系统会继续监测；更新后再显示新的事项。",
+        controlLoginSummary: "登录后查看你的待办和系统概览。",
+        controlAttentionSummary: "请查看下方事项并选择下一步。",
         controlEmptyCandidates: "当前没有待处理事项。",
         controlNoRecommendation: "暂未给出处理建议。",
         controlItemMeta: "{kind} · {domain} · 最近更新：{freshness}",
@@ -954,6 +964,7 @@
         adaptiveSelectionNoCandidate: "暂无合适建议",
         adaptiveSelectionReason: "原因：{reasons}",
         adaptiveSelectionNoOrder: "查看系统的当前建议。",
+        adaptiveSelectionScoreLabel: "研究次数",
         researchTaskBoard: "自动化任务",
         researchTaskLoginNotice: "登录后查看自动化任务。",
         researchTaskStaleNotice: "任务信息更新延迟，仅供历史参考。",
@@ -964,14 +975,48 @@
         researchTaskLimits: "研究预算：最多 {runs} 次 / {seconds} 秒",
         researchTaskNoOrder: "查看当前自动化任务。",
         healthEyebrow: "系统状态",
-        healthTitle: "运行情况",
-        healthSubtitle: "只突出需要关注的风险、延迟和恢复状态。",
+        healthTitle: "系统状态",
+        healthSubtitle: "按类别查看健康度和运行情况。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
         healthReview: "需要复核",
         healthCritical: "严重",
-        healthBoard: "策略状态",
+        healthBoard: "策略健康",
+        healthFilterAttention: "需要关注",
+        healthFilterAll: "全部策略",
+        healthDataReady: "已更新",
+        healthDataStale: "更新延迟",
+        healthDataUnavailable: "暂时无法读取",
+        healthComputedAt: "更新于：{time}",
+        healthLoginNotice: "登录后查看策略健康度和运行情况。",
+        healthStaleNotice: "状态更新延迟；系统会继续检查。",
+        healthUnavailableNotice: "暂时无法读取策略状态，请稍后刷新。",
+        healthUpstreamNotice: "部分策略状态暂不可用，请稍后重试。",
+        healthNormalNotice: "当前没有需要关注的运行问题。",
+        healthEmpty: "当前分类下没有策略。",
+        healthStatusHealthy: "健康",
+        healthStatusWatch: "观察",
+        healthStatusReview: "需要复核",
+        healthStatusCritical: "严重",
+        healthStatusUnknown: "未知",
+        healthCardMeta: "{status} · {domain}",
+        healthDecisionFallbackLabel: "系统正在继续观察。",
+        healthDecisionFallbackReason: "没有需要你处理的异常。",
+        healthRecommendationHealthy: "系统正在正常运行。",
+        healthRecommendationWatch: "系统正在继续观察。",
+        healthRecommendationReview: "请查看诊断详情，等待系统复核完成。",
+        healthRecommendationCritical: "请查看诊断详情，并暂缓相关变更。",
+        healthDetail: "最近检查：{date}",
+        healthScoreLabel: "健康度",
+        diagnosticDetails: "查看诊断详情",
+        diagnosticDetailsHint: "仅在排查问题或查看研究记录时使用。",
+        researchTaskNoOrderBadge: "未产生订单",
+        recoveryConfirmedStatus: "已确认",
+        recoveryReadyStatus: "可确认",
+        recoveryBlockedStatus: "仍受阻",
+        commonUnknown: "未知",
+        commonNotMarked: "未标记",
         bootKicker: "初始化控制台",
         bootTitle: "读取策略配置",
         bootMessage: "正在读取登录状态、账号配置和当前状态。",
@@ -1156,13 +1201,19 @@
       },
       en: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "Daily management for strategies and platforms",
-        controlPlaneView: "Decisions",
+        appSubtitle: "Daily management for automated strategies",
+        languageToggle: "Change language",
+        consoleNavigation: "Console navigation",
+        dataFreshness: "Data freshness",
+        decisionSummary: "Decision summary",
+        healthSummary: "Strategy health summary",
+        healthFilters: "Filter strategy health",
+        controlPlaneView: "Your attention",
         healthView: "System status",
         switchView: "Strategy settings",
         controlPlaneEyebrow: "To do",
-        controlPlaneTitle: "What needs your attention today?",
-        controlPlaneSubtitle: "This stays empty when everything is normal. Risks, exceptions, and recovery items appear in priority order.",
+        controlPlaneTitle: "Your attention",
+        controlPlaneSubtitle: "Only items that need your confirmation appear here.",
         controlCandidateTotal: "Monitored items",
         controlDeferred: "To review",
         controlParked: "Paused",
@@ -1182,7 +1233,11 @@
         controlUnavailableNotice: "The latest status is temporarily unavailable. Please refresh later.",
         controlUpstreamNotice: "Some data is temporarily unavailable. Please retry later.",
         controlAttentionNotice: "{deferred} item(s) need review and {parked} are paused.",
-        controlNormalNotice: "There is nothing you need to handle right now.",
+        controlNormalNotice: "There is nothing you need to decide right now.",
+        controlNormalSummary: "The system will keep monitoring, improving, and recording.",
+        controlStaleSummary: "Monitoring continues; new items will appear after the next update.",
+        controlLoginSummary: "Sign in to see your tasks and system overview.",
+        controlAttentionSummary: "Review the items below and choose the next step.",
         controlEmptyCandidates: "There is nothing to handle right now.",
         controlNoRecommendation: "No action is recommended yet.",
         controlItemMeta: "{kind} · {domain} · updated {freshness}",
@@ -1300,6 +1355,7 @@
         adaptiveSelectionNoCandidate: "No suitable suggestion yet",
         adaptiveSelectionReason: "Reasons: {reasons}",
         adaptiveSelectionNoOrder: "View the system's current suggestions.",
+        adaptiveSelectionScoreLabel: "Research runs",
         researchTaskBoard: "Automation tasks",
         researchTaskLoginNotice: "Sign in to see automation tasks.",
         researchTaskStaleNotice: "Task information is delayed and is provided for historical context only.",
@@ -1310,14 +1366,48 @@
         researchTaskLimits: "Research budget: up to {runs} run(s) / {seconds}s",
         researchTaskNoOrder: "View the current automation tasks.",
         healthEyebrow: "System status",
-        healthTitle: "Runtime status",
-        healthSubtitle: "Highlights only the risks, delays, and recovery states that need attention.",
+        healthTitle: "System status",
+        healthSubtitle: "Browse health and runtime status by category.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
         healthWatch: "Watch",
         healthReview: "Review",
         healthCritical: "Critical",
-        healthBoard: "Strategy status",
+        healthBoard: "Strategy health",
+        healthFilterAttention: "Needs attention",
+        healthFilterAll: "All strategies",
+        healthDataReady: "Up to date",
+        healthDataStale: "Update delayed",
+        healthDataUnavailable: "Unavailable",
+        healthComputedAt: "Updated: {time}",
+        healthLoginNotice: "Sign in to see strategy health and runtime status.",
+        healthStaleNotice: "Status is delayed; monitoring continues.",
+        healthUnavailableNotice: "Strategy status is temporarily unavailable. Refresh later.",
+        healthUpstreamNotice: "Some strategy status is unavailable. Retry later.",
+        healthNormalNotice: "There are no runtime issues that need attention.",
+        healthEmpty: "There are no strategies in this category.",
+        healthStatusHealthy: "Healthy",
+        healthStatusWatch: "Watch",
+        healthStatusReview: "Review",
+        healthStatusCritical: "Critical",
+        healthStatusUnknown: "Unknown",
+        healthCardMeta: "{status} · {domain}",
+        healthDecisionFallbackLabel: "The system is continuing to monitor.",
+        healthDecisionFallbackReason: "There is no exception for you to handle.",
+        healthRecommendationHealthy: "The system is running normally.",
+        healthRecommendationWatch: "The system is continuing to monitor.",
+        healthRecommendationReview: "View diagnostic details while the system completes its review.",
+        healthRecommendationCritical: "View diagnostic details and hold related changes for now.",
+        healthDetail: "Last checked: {date}",
+        healthScoreLabel: "Health",
+        diagnosticDetails: "View diagnostic details",
+        diagnosticDetailsHint: "Use this only to investigate an issue or review research records.",
+        researchTaskNoOrderBadge: "NO ORDER",
+        recoveryConfirmedStatus: "Confirmed",
+        recoveryReadyStatus: "Ready to confirm",
+        recoveryBlockedStatus: "Blocked",
+        commonUnknown: "Unknown",
+        commonNotMarked: "Not marked",
         bootKicker: "Starting console",
         bootTitle: "Loading strategy config",
         bootMessage: "Reading session, account config, and current state.",
@@ -1544,7 +1634,7 @@
           summary: { strategy_count: 0, healthy: 0, watch: 0, review: 0, critical: 0 },
           strategies: [],
         },
-        filter: "all",
+        filter: "attention",
       },
       controlPlane: {
         payload: {
@@ -1645,6 +1735,28 @@
 
     const el = (id) => document.getElementById(id);
     const t = (key) => copy[state.lang][key] || copy.en[key] || key;
+    const locale = () => (state.lang === "zh" ? "zh-CN" : "en-US");
+
+    function formatDateTime(value) {
+      if (!value) return "—";
+      const parsed = value instanceof Date ? value : new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "—";
+      return new Intl.DateTimeFormat(locale(), {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }).format(parsed);
+    }
+
+    function localizedExternalText(value, fallback) {
+      const text = typeof value === "string" ? value.trim() : "";
+      if (!text) return fallback;
+      const hasChinese = /[\u3400-\u9fff]/.test(text);
+      const hasLatinWords = /[A-Za-z]{3,}/.test(text);
+      if ((state.lang === "en" && hasChinese) || (state.lang === "zh" && hasLatinWords && !hasChinese)) {
+        return fallback;
+      }
+      return text;
+    }
     let toastTimer = null;
 
     function showToast(message, { duration = 4000 } = {}) {
@@ -3280,6 +3392,9 @@
       document.querySelectorAll("[data-i18n]").forEach((node) => {
         node.textContent = t(node.dataset.i18n);
       });
+      document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
+        node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
+      });
       el("lang-button").textContent = state.lang === "zh" ? "EN" : "中";
     }
 
@@ -3829,12 +3944,19 @@
       return t("controlAttentionUnavailable");
     }
 
+    function candidateNeedsOperatorAction(item) {
+      const recommendation = item?.recommendation?.code || "none";
+      return Boolean(ownerDecisionEntry(item?.candidate_id))
+        || item?.lifecycle?.status === "owner_decision_required"
+        || recommendation === "owner_live_decision";
+    }
+
     function renderControlPlane() {
       const payload = state.controlPlane.payload;
       const summary = payload.summary || {};
       el("control-plane-status").textContent = `${controlPlaneDataStatusText(payload.data_status)} · ${controlPlaneAttentionText(payload.attention)}`;
       el("control-plane-computed-at").textContent = payload.computed_at
-        ? t("controlComputedAt").replace("{time}", new Date(payload.computed_at).toLocaleString())
+        ? t("controlComputedAt").replace("{time}", formatDateTime(payload.computed_at))
         : t("controlComputedAt").replace("{time}", "—");
       el("control-count-candidates").textContent = String(Number(summary.candidate_count) || 0);
       el("control-count-deferred").textContent = String(Number(summary.deferred) || 0);
@@ -3842,33 +3964,38 @@
       el("control-count-owner-decision").textContent = String(Number(summary.owner_decision_required) || 0);
 
       const notice = el("control-plane-notice");
+      const statePanel = notice.closest(".decision-state");
+      const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
+      const queue = el("control-plane-queue");
+      queue.hidden = !actionableCandidates.length;
+      statePanel.classList.toggle("is-attention", actionableCandidates.length > 0 || payload.attention?.status === "attention_required");
+      statePanel.classList.toggle("is-stale", payload.data_status === "stale");
       if (!state.auth.allowed) {
         notice.textContent = t("controlLoginNotice");
+        el("control-plane-summary").textContent = t("controlLoginSummary");
       } else if (payload.data_status === "stale") {
         notice.textContent = t("controlStaleNotice");
+        el("control-plane-summary").textContent = t("controlStaleSummary");
       } else if (payload.data_status !== "ready") {
         notice.textContent = t("controlUnavailableNotice");
+        el("control-plane-summary").textContent = t("controlStaleSummary");
       } else if (payload.attention?.status === "attention_required") {
         notice.textContent = t("controlAttentionNotice")
           .replace("{deferred}", String(Number(summary.deferred) || 0))
           .replace("{parked}", String(Number(summary.parked) || 0))
           .replace("{signals}", String(payload.attention.reason_codes?.length || 0));
+        el("control-plane-summary").textContent = t("controlAttentionSummary");
       } else if (payload.errors?.length) {
         notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
+        el("control-plane-summary").textContent = t("controlStaleSummary");
       } else {
         notice.textContent = t("controlNormalNotice");
+        el("control-plane-summary").textContent = t("controlNormalSummary");
       }
 
       const list = el("control-plane-list");
       list.replaceChildren();
-      if (!payload.candidates.length) {
-        const empty = document.createElement("div");
-        empty.className = "health-card__empty";
-        empty.textContent = t("controlEmptyCandidates");
-        list.appendChild(empty);
-        return;
-      }
-      for (const item of payload.candidates) {
+      for (const item of actionableCandidates) {
         const card = document.createElement("article");
         card.className = "health-card";
         const main = document.createElement("div");
@@ -3881,7 +4008,7 @@
         title.textContent = String(item.candidate_id || "unknown");
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
-        reason.textContent = item.recommendation?.reason || t("controlNoRecommendation");
+        reason.textContent = t("controlAttentionSummary");
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
         detail.textContent = t("controlItemMeta")
@@ -3971,7 +4098,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("reconciliationRecoveryUpstreamNotice").replace("{count}", payload.errors.length);
       } else {
-        notice.textContent = payload.policy?.notice || t("reconciliationRecoveryNoOrder");
+        notice.textContent = localizedExternalText(payload.policy?.notice, t("reconciliationRecoveryNoOrder"));
       }
       const list = el("reconciliation-recovery-list");
       list.replaceChildren();
@@ -4043,7 +4170,9 @@
         const label = document.createElement("small");
         label.textContent = t("controlNext");
         const stateText = document.createElement("strong");
-        stateText.textContent = entry.confirmation ? "confirmed" : (ready ? "confirm" : "blocked");
+        stateText.textContent = entry.confirmation
+          ? t("recoveryConfirmedStatus")
+          : (ready ? t("recoveryReadyStatus") : t("recoveryBlockedStatus"));
         const freshness = document.createElement("small");
         freshness.textContent = entry.freshness?.data_status || "unknown";
         stateBlock.append(label, stateText, freshness);
@@ -4111,9 +4240,7 @@
     }
 
     function m0ResearchTimestamp(value) {
-      if (typeof value !== "string" || !value) return "—";
-      const parsed = new Date(value);
-      return Number.isNaN(parsed.getTime()) ? "—" : parsed.toLocaleString();
+      return formatDateTime(value);
     }
 
     function m0ResearchHorizons(values) {
@@ -4262,7 +4389,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("adaptiveSelectionUpstreamNotice").replace("{count}", String(payload.errors.length));
       } else {
-        notice.textContent = payload.policy?.notice || t("adaptiveSelectionNoOrder");
+        notice.textContent = localizedExternalText(payload.policy?.notice, t("adaptiveSelectionNoOrder"));
       }
 
       const list = el("adaptive-selection-list");
@@ -4302,17 +4429,17 @@
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
         reason.textContent = reasons
-          ? t("adaptiveSelectionReason").replace("{reasons}", reasons)
+          ? t("adaptiveSelectionReason").replace("{reasons}", localizedExternalText(reasons, t("adaptiveSelectionNoOrder")))
           : t("adaptiveSelectionNoOrder");
         main.append(meta, title, reason);
         const status = document.createElement("div");
         status.className = "health-card__score";
         const label = document.createElement("small");
-        label.textContent = state.lang === "zh" ? "研究次数" : "Research runs";
+        label.textContent = t("adaptiveSelectionScoreLabel");
         const score = document.createElement("strong");
         score.textContent = typeof recommended?.score === "number" ? recommended.score.toFixed(3) : "—";
         const freshness = document.createElement("small");
-        freshness.textContent = entry.freshness?.data_status || "unknown";
+        freshness.textContent = controlPlaneDataStatusText(entry.freshness?.data_status);
         status.append(label, score, freshness);
         card.append(main, status);
         list.appendChild(card);
@@ -4369,7 +4496,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("executionEvidenceUpstreamNotice").replace("{count}", payload.errors.length);
       } else {
-        notice.textContent = payload.policy?.notice || t("executionEvidenceNoOrder");
+        notice.textContent = localizedExternalText(payload.policy?.notice, t("executionEvidenceNoOrder"));
       }
 
       const list = el("execution-evidence-list");
@@ -4403,7 +4530,7 @@
         title.textContent = String(strategy.candidate_id || deployment.deployment_id || "unknown");
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
-        reason.textContent = deployment.recommendation?.reason_code || t("executionEvidenceNoOrder");
+        reason.textContent = localizedExternalText(deployment.recommendation?.reason_code, t("executionEvidenceNoOrder"));
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
         detail.textContent = t("executionEvidenceDetail")
@@ -4425,9 +4552,9 @@
         const label = document.createElement("small");
         label.textContent = t("executionEvidenceNext");
         const recommendation = document.createElement("strong");
-        recommendation.textContent = deployment.recommendation?.code || "parked";
+        recommendation.textContent = operatorLabel("action", deployment.recommendation?.code || "park");
         const freshness = document.createElement("small");
-        freshness.textContent = entry.freshness?.data_status || "unknown";
+        freshness.textContent = controlPlaneDataStatusText(entry.freshness?.data_status);
         stateBlock.append(label, recommendation, freshness);
         card.append(main, stateBlock);
         list.appendChild(card);
@@ -4515,7 +4642,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("runtimeTargetLifecycleUpstreamNotice").replace("{count}", String(payload.errors.length));
       } else {
-        notice.textContent = payload.policy?.notice || t("runtimeTargetLifecycleNoOrder");
+        notice.textContent = localizedExternalText(payload.policy?.notice, t("runtimeTargetLifecycleNoOrder"));
       }
 
       const list = el("runtime-target-lifecycle-list");
@@ -4612,7 +4739,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("researchTaskUpstreamNotice").replace("{count}", payload.errors.length);
       } else {
-        notice.textContent = payload.policy?.notice || t("researchTaskNoOrder");
+        notice.textContent = localizedExternalText(payload.policy?.notice, t("researchTaskNoOrder"));
       }
 
       const list = el("research-task-list");
@@ -4635,13 +4762,13 @@
         meta.textContent = t("researchTaskMeta")
           .replace("{type}", task.task_type || "research")
           .replace("{domain}", domainLabel(task.target?.domain || ""))
-          .replace("{created}", task.created_at ? new Date(task.created_at).toLocaleString() : "—");
+          .replace("{created}", formatDateTime(task.created_at));
         const title = document.createElement("h4");
         title.className = "health-card__title";
         title.textContent = `${task.target?.candidate_id || "unknown"} · ${task.task_id || "unknown"}`;
         const hypothesis = document.createElement("p");
         hypothesis.className = "health-card__reason";
-        hypothesis.textContent = task.experiment?.hypothesis || t("researchTaskNoOrder");
+        hypothesis.textContent = localizedExternalText(task.experiment?.hypothesis, t("researchTaskNoOrder"));
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
         detail.textContent = t("researchTaskLimits")
@@ -4654,11 +4781,11 @@
         const status = document.createElement("div");
         status.className = "health-card__score";
         const label = document.createElement("small");
-        label.textContent = "NO ORDER";
+        label.textContent = t("researchTaskNoOrderBadge");
         const count = document.createElement("strong");
         count.textContent = String(task.experiment?.max_runs || "—");
         const source = document.createElement("small");
-        source.textContent = entry.freshness?.data_status || "unknown";
+        source.textContent = controlPlaneDataStatusText(entry.freshness?.data_status);
         status.append(label, count, source);
         card.append(main, status);
         list.appendChild(card);
@@ -4666,7 +4793,21 @@
     }
 
     function healthStatusLabel(status) {
-      return { healthy: "健康", watch: "观察", review: "复核", critical: "严重" }[status] || "未知";
+      return {
+        healthy: t("healthStatusHealthy"),
+        watch: t("healthStatusWatch"),
+        review: t("healthStatusReview"),
+        critical: t("healthStatusCritical"),
+      }[status] || t("healthStatusUnknown");
+    }
+
+    function healthRecommendationText(status) {
+      return {
+        healthy: t("healthRecommendationHealthy"),
+        watch: t("healthRecommendationWatch"),
+        review: t("healthRecommendationReview"),
+        critical: t("healthRecommendationCritical"),
+      }[status] || t("healthDecisionFallbackReason");
     }
 
     function normalizeHealthPayload(payload) {
@@ -4685,12 +4826,12 @@
       const payload = state.health.payload;
       const summary = payload.summary || {};
       const statusText = payload.data_status === "ready"
-        ? "已更新"
-        : (payload.data_status === "stale" ? "更新延迟" : "暂时无法读取");
+        ? t("healthDataReady")
+        : (payload.data_status === "stale" ? t("healthDataStale") : t("healthDataUnavailable"));
       el("health-status").textContent = statusText;
       el("health-computed-at").textContent = payload.computed_at
-        ? `更新于：${new Date(payload.computed_at).toLocaleString()}`
-        : "更新于：—";
+        ? t("healthComputedAt").replace("{time}", formatDateTime(payload.computed_at))
+        : t("healthComputedAt").replace("{time}", "—");
       el("health-count-total").textContent = String(Number(summary.strategy_count) || 0);
       el("health-count-healthy").textContent = String(Number(summary.healthy) || 0);
       el("health-count-watch").textContent = String(Number(summary.watch) || 0);
@@ -4699,24 +4840,24 @@
 
       const notice = el("health-notice");
       if (!state.auth.allowed) {
-        notice.textContent = "登录后查看策略状态。";
+        notice.textContent = t("healthLoginNotice");
       } else if (payload.data_status === "stale") {
-        notice.textContent = "状态更新延迟，请稍后刷新。";
+        notice.textContent = t("healthStaleNotice");
       } else if (payload.data_status !== "ready") {
-        notice.textContent = "暂时无法读取策略状态，请稍后刷新。";
+        notice.textContent = t("healthUnavailableNotice");
       } else if (payload.errors?.length) {
-        notice.textContent = "部分策略状态暂不可用，请稍后重试。";
+        notice.textContent = t("healthUpstreamNotice");
       } else {
-        notice.textContent = "当前策略状态已更新。";
+        notice.textContent = t("healthNormalNotice");
       }
 
       const list = el("health-list");
       list.replaceChildren();
-      const strategies = payload.strategies.filter((item) => state.health.filter === "all" || item.status === state.health.filter);
+      const strategies = payload.strategies.filter((item) => state.health.filter === "all" || item.status !== "healthy");
       if (!strategies.length) {
         const empty = document.createElement("div");
         empty.className = "health-card__empty";
-        empty.textContent = "当前没有可展示的策略状态。";
+        empty.textContent = t("healthEmpty");
         list.appendChild(empty);
         return;
       }
@@ -4727,25 +4868,28 @@
         main.className = "health-card__main";
         const meta = document.createElement("div");
         meta.className = "health-card__meta";
-        meta.textContent = `${healthStatusLabel(item.status)} · ${item.domain || "unknown"}`;
+        meta.textContent = t("healthCardMeta")
+          .replace("{status}", healthStatusLabel(item.status))
+          .replace("{domain}", domainLabel(item.domain || ""));
         const title = document.createElement("h4");
         title.className = "health-card__title";
-        title.textContent = String(item.profile || "unknown");
+        title.textContent = strategyLabel(item.profile) || t("commonUnknown");
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
-        reason.textContent = `${item.decision?.label || "证据不足，保持研究态"}。${item.decision?.reason || "没有可用的机器检查结果。"}`;
+        reason.textContent = healthRecommendationText(item.status);
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
-        detail.textContent = `阶段：${item.review?.requested_stage || "未标记"} · 截至：${item.as_of || "—"}`;
+        detail.textContent = t("healthDetail")
+          .replace("{date}", formatDateTime(item.as_of));
         main.append(meta, title, reason, detail);
         const scoreBlock = document.createElement("div");
         scoreBlock.className = "health-card__score";
         const scoreLabel = document.createElement("small");
-        scoreLabel.textContent = "HEALTH";
+        scoreLabel.textContent = t("healthScoreLabel");
         const score = document.createElement("strong");
         score.textContent = typeof item.score === "number" ? item.score.toFixed(1) : "—";
         const decision = document.createElement("small");
-        decision.textContent = item.decision?.code || "evidence_missing";
+        decision.textContent = healthStatusLabel(item.status);
         scoreBlock.append(scoreLabel, score, decision);
         card.append(main, scoreBlock);
         list.appendChild(card);
@@ -4801,13 +4945,6 @@
       if (state.auth.allowed) {
         await refreshControlPlane();
         await refreshOwnerDecisions();
-        await refreshReconciliationRecovery();
-        await refreshM0Research();
-        await refreshAdaptiveSelection();
-        await refreshExecutionEvidence();
-        await refreshRuntimeTargetLifecycle();
-        await refreshResearchTasks();
-        await refreshHealth();
         await refreshConfig();
       } else {
         state.bootMessageKey = "bootPublic";
@@ -5261,6 +5398,9 @@
       if (state.view === "control") {
         refreshControlPlane();
         refreshOwnerDecisions();
+      }
+      if (state.view === "health") {
+        refreshHealth();
         refreshReconciliationRecovery();
         refreshM0Research();
         refreshAdaptiveSelection();
@@ -5268,7 +5408,6 @@
         refreshRuntimeTargetLifecycle();
         refreshResearchTasks();
       }
-      if (state.view === "health") refreshHealth();
     }));
 
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
