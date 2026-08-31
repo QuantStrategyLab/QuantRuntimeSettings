@@ -64,7 +64,7 @@ assert.ok(indexHtml.includes('id="control-plane-view"'));
 assert.ok(indexHtml.includes('id="control-plane-list"'));
 assert.ok(indexHtml.includes('id="m0-research-notice"'));
 assert.ok(indexHtml.includes('id="m0-research-list"'));
-assert.ok(indexHtml.includes('<details class="control-disclosure">\n        <summary data-i18n="m0ResearchBoard">'));
+assert.match(indexHtml, /<details class="control-disclosure">\s*<summary data-i18n="m0ResearchBoard">/);
 assert.ok(indexHtml.includes('function renderM0Research()'));
 assert.ok(indexHtml.includes('requestJson("/api/m0-research")'));
 assert.ok(indexHtml.includes('const M0_RESEARCH_DISPLAY_LIMIT = 100;'));

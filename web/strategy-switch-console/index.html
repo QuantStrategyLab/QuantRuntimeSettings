@@ -52,62 +52,84 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
       <script type="application/json" id="runtime-authority-metadata">window.__QSL_RUNTIME_AUTHORITY_STATUS__ execution_metadata_is_runtime_authority P1–P3 non-live 数据获取仍需独立、精确的契约 requestJson("/api/execution-evidence")</script>
     </aside>
     <nav class="console-nav" aria-label="控制中心视图">
-      <button class="console-nav__button active" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">待处理</button>
-      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">运行计划</button>
-      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">运行保障</button>
+      <button class="console-nav__button active" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">决策</button>
+      <button class="console-nav__button" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">策略设置</button>
+      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">系统状态</button>
     </nav>
 
-    <section class="health-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
-      <div class="health-head">
+    <section class="decision-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
+      <header class="decision-head">
         <div>
-          <span class="eyebrow" data-i18n="controlPlaneEyebrow">今日待处理 / 只读</span>
-          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">只处理需要你决定的事。</h2>
-          <p data-i18n="controlPlaneSubtitle">这里不是交易大屏：只显示经验证的待办、证据是否足够，以及需要人工做出的边界决定。</p>
+          <span class="eyebrow" data-i18n="controlPlaneEyebrow">人工决策台 / 只读</span>
+          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">只看需要你判断的事。</h2>
+          <p data-i18n="controlPlaneSubtitle">系统会持续监测与筛选；这里仅保留需要你确认的风险边界和恢复决定。</p>
         </div>
-        <div class="health-meta">
+        <div class="decision-freshness" aria-label="控制面快照状态">
           <span id="control-plane-status" class="pill">等待登录</span>
           <span id="control-plane-computed-at">最近计算：—</span>
         </div>
-      </div>
-      <div id="control-plane-notice" class="health-notice" role="status" aria-live="polite">登录后读取私有全局快照；页面不会授予实盘权限。</div>
-      <div class="health-summary" aria-label="全局控制面摘要">
-        <article><span data-i18n="controlCandidateTotal">候选总数</span><strong id="control-count-candidates">0</strong></article>
-        <article><span data-i18n="controlDeferred">本次延期</span><strong id="control-count-deferred">0</strong></article>
-        <article><span data-i18n="controlParked">已停车</span><strong id="control-count-parked">0</strong></article>
+      </header>
+      <div id="control-plane-notice" class="decision-notice" role="status" aria-live="polite">登录后读取私有全局快照；页面不会授予实盘权限。</div>
+      <div class="decision-stats" aria-label="全局控制面摘要">
         <article><span data-i18n="controlOwnerDecision">等待我决定</span><strong id="control-count-owner-decision">0</strong></article>
+        <article><span data-i18n="controlParked">已停车</span><strong id="control-count-parked">0</strong></article>
+        <article><span data-i18n="controlDeferred">本次延期</span><strong id="control-count-deferred">0</strong></article>
+        <article><span data-i18n="controlCandidateTotal">候选总数</span><strong id="control-count-candidates">0</strong></article>
       </div>
-      <div class="health-board-head"><h3 data-i18n="controlCandidateBoard">需要跟进</h3></div>
-      <div class="health-list" id="control-plane-list"></div>
-      <details class="control-disclosure">
-        <summary data-i18n="m0ResearchBoard">按需查看 M0 研究观察</summary>
-        <div id="m0-research-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证 M0 研究台账；仅研究、无订单。</div>
-        <div class="health-list" id="m0-research-list"></div>
-      </details>
-      <details class="control-disclosure">
-        <summary data-i18n="adaptiveSelectionBoard">按需查看 M1 Shadow 建议</summary>
-        <div id="adaptive-selection-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证的 Shadow 建议；它始终不下单。</div>
-        <div class="health-list" id="adaptive-selection-list"></div>
-      </details>
-      <details class="control-disclosure" id="reconciliation-recovery-board">
-        <summary data-i18n="reconciliationRecoveryBoard">恢复核验（仅已存在实盘）</summary>
-        <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后读取私有恢复核验；页面不会直接恢复运行或下单。</div>
-        <div class="health-list" id="reconciliation-recovery-list"></div>
-      </details>
-      <details class="control-disclosure">
-        <summary data-i18n="executionEvidenceBoard">按需查看策略 × 平台证据覆盖</summary>
-        <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证执行证据；页面不会推断 paper 或 live 状态。</div>
-        <div class="health-list" id="execution-evidence-list"></div>
-      </details>
-      <details class="control-disclosure">
-        <summary data-i18n="runtimeTargetLifecycleBoard">按需查看平台运行状态</summary>
-        <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证的平台运行状态；页面不会启用目标或提交订单。</div>
-        <div class="health-list" id="runtime-target-lifecycle-list"></div>
-      </details>
-      <details class="control-disclosure">
-        <summary data-i18n="researchTaskBoard">按需查看研究任务队列</summary>
-        <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证研究任务；不会运行或调参。</div>
-        <div class="health-list" id="research-task-list"></div>
-      </details>
+      <div class="decision-board">
+        <section class="decision-queue" aria-labelledby="control-queue-title">
+          <div class="decision-board-head">
+            <div>
+              <span class="eyebrow" data-i18n="controlQueueEyebrow">优先队列</span>
+              <h3 id="control-queue-title" data-i18n="controlCandidateBoard">需要你确认</h3>
+            </div>
+            <span data-i18n="controlQueueHint">只显示可操作事项</span>
+          </div>
+          <div class="health-list" id="control-plane-list"></div>
+        </section>
+        <aside class="decision-guide" aria-labelledby="decision-guide-title">
+          <span class="eyebrow" data-i18n="decisionGuideEyebrow">怎么判断</span>
+          <h3 id="decision-guide-title" data-i18n="decisionGuideTitle">先确认事实，再记录意图。</h3>
+          <ol>
+            <li data-i18n="decisionGuideStepOne">确认券商账户、目标策略和当前状态是否正确。</li>
+            <li data-i18n="decisionGuideStepTwo">看证据是否新鲜，是否仍有阻断项。</li>
+            <li data-i18n="decisionGuideStepThree">只在你认可时记录“继续 / 保持暂停 / 退役”。</li>
+          </ol>
+          <p data-i18n="decisionGuideBoundary">网页记录的是可审计意图，不会下单、改资金或自动开启实盘。</p>
+        </aside>
+      </div>
+      <div class="decision-details" aria-label="按需查看的系统资料">
+        <details class="control-disclosure">
+          <summary data-i18n="m0ResearchBoard">研究观察</summary>
+          <div id="m0-research-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证 M0 研究台账；仅研究、无订单。</div>
+          <div class="health-list" id="m0-research-list"></div>
+        </details>
+        <details class="control-disclosure">
+          <summary data-i18n="adaptiveSelectionBoard">Shadow 建议</summary>
+          <div id="adaptive-selection-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证的 Shadow 建议；它始终不下单。</div>
+          <div class="health-list" id="adaptive-selection-list"></div>
+        </details>
+        <details class="control-disclosure" id="reconciliation-recovery-board">
+          <summary data-i18n="reconciliationRecoveryBoard">恢复核验</summary>
+          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后读取私有恢复核验；页面不会直接恢复运行或下单。</div>
+          <div class="health-list" id="reconciliation-recovery-list"></div>
+        </details>
+        <details class="control-disclosure">
+          <summary data-i18n="executionEvidenceBoard">执行证据</summary>
+          <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证执行证据；页面不会推断 paper 或 live 状态。</div>
+          <div class="health-list" id="execution-evidence-list"></div>
+        </details>
+        <details class="control-disclosure">
+          <summary data-i18n="runtimeTargetLifecycleBoard">平台运行状态</summary>
+          <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证的平台运行状态；页面不会启用目标或提交订单。</div>
+          <div class="health-list" id="runtime-target-lifecycle-list"></div>
+        </details>
+        <details class="control-disclosure">
+          <summary data-i18n="researchTaskBoard">研究任务</summary>
+          <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后读取已验证研究任务；不会运行或调参。</div>
+          <div class="health-list" id="research-task-list"></div>
+        </details>
+      </div>
     </section>
 
     <section class="health-view" id="health-view" aria-labelledby="health-view-title" hidden>
@@ -201,6 +223,9 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
             <span class="selection-meta" id="mode-meta"></span>
           </div>
 
+          <details class="plan-advanced">
+            <summary data-i18n="planAdvancedSummary">更多风险边界（按需设置）</summary>
+            <p data-i18n="planAdvancedHint">运行状态、插件、现金、收入层和定投通常沿用当前已验证配置；只在需要变更时展开。</p>
           <div class="form-section runtime-section">
             <div class="form-section-heading">
               <span>02</span>
@@ -299,6 +324,7 @@ window.__OPTION_OVERLAY_DEFAULTS__ = {"tqqq_growth_income": {"liveGate": "promot
               <span class="selection-meta" id="dca-base-meta"></span>
             </label>
           </div>
+          </details>
         </div>
 
         <div class="run-area" id="run-area">

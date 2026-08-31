@@ -2485,3 +2485,408 @@
         margin-inline: 14px;
       }
     }
+
+    /* Decision-first console: surface only the low-frequency choices an owner makes. */
+    :root {
+      --bg: #ffffff;
+      --surface: #ffffff;
+      --soft: #f7f8f8;
+      --ink: #182326;
+      --muted: #647174;
+      --line: #dbe2e2;
+      --line-strong: #b8c6c5;
+      --accent: #0f766e;
+      --accent-soft: #edf8f6;
+      --warning-soft: #fff9ed;
+      --warning-line: #ead6a6;
+    }
+
+    body {
+      background: var(--bg);
+    }
+
+    .topbar {
+      min-height: 64px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.96);
+    }
+
+    .shell {
+      width: min(1240px, calc(100vw - 44px));
+      gap: 28px;
+      padding-top: 28px;
+    }
+
+    .console-nav {
+      border-radius: 10px;
+      background: #ffffff;
+    }
+
+    .console-nav__button {
+      min-height: 40px;
+      border-radius: 7px;
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    .console-nav__button.active {
+      background: var(--accent);
+    }
+
+    .decision-view {
+      display: grid;
+      gap: 18px;
+    }
+
+    .decision-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 28px;
+      padding: 4px 0 2px;
+    }
+
+    .decision-head h2 {
+      max-width: 700px;
+      margin-top: 7px;
+      font-size: clamp(30px, 4vw, 46px);
+      line-height: 1.08;
+      letter-spacing: -0.052em;
+    }
+
+    .decision-head p {
+      max-width: 680px;
+      margin-top: 12px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.65;
+    }
+
+    .decision-freshness {
+      display: grid;
+      justify-items: end;
+      gap: 8px;
+      min-width: 250px;
+      padding-top: 5px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .decision-freshness .pill {
+      max-width: 300px;
+      border-color: var(--line);
+      background: var(--soft);
+      color: var(--muted);
+      font-weight: 650;
+      white-space: normal;
+      text-align: right;
+    }
+
+    .decision-notice {
+      padding: 12px 14px;
+      border: 1px solid var(--warning-line);
+      border-radius: 9px;
+      background: var(--warning-soft);
+      color: #765b25;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .decision-stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #ffffff;
+    }
+
+    .decision-stats article {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 60px;
+      padding: 16px;
+      border-right: 1px solid var(--line);
+    }
+
+    .decision-stats article:last-child {
+      border-right: 0;
+    }
+
+    .decision-stats span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .decision-stats strong {
+      color: var(--accent);
+      font-size: 24px;
+      letter-spacing: -0.04em;
+    }
+
+    .decision-board {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(240px, 0.34fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .decision-queue {
+      min-width: 0;
+    }
+
+    .decision-board-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 10px;
+    }
+
+    .decision-board-head h3,
+    .decision-guide h3 {
+      margin-top: 5px;
+      font-size: 17px;
+      letter-spacing: -0.02em;
+    }
+
+    .decision-board-head > span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .decision-queue .health-list {
+      gap: 8px;
+    }
+
+    .decision-queue .health-card {
+      min-height: 0;
+      padding: 15px 16px;
+      border-radius: 9px;
+      box-shadow: none;
+    }
+
+    .decision-queue .health-card__title {
+      margin: 6px 0;
+      font-size: 15px;
+    }
+
+    .decision-queue .health-card__reason {
+      font-size: 13px;
+      line-height: 1.52;
+    }
+
+    .decision-queue .health-card__score {
+      align-self: stretch;
+      min-width: 92px;
+      padding-left: 15px;
+    }
+
+    .decision-guide {
+      display: grid;
+      gap: 12px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--soft);
+    }
+
+    .decision-guide ol {
+      display: grid;
+      gap: 10px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      counter-reset: guide;
+    }
+
+    .decision-guide li {
+      display: grid;
+      grid-template-columns: 20px minmax(0, 1fr);
+      gap: 8px;
+      color: var(--ink);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .decision-guide li::before {
+      counter-increment: guide;
+      content: counter(guide);
+      display: grid;
+      place-items: center;
+      width: 20px;
+      height: 20px;
+      border-radius: 999px;
+      background: #d9ece8;
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .decision-guide p {
+      padding-top: 11px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.55;
+    }
+
+    .decision-details {
+      display: grid;
+      gap: 0;
+      border-top: 1px solid var(--line);
+    }
+
+    .decision-details .control-disclosure {
+      margin: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      background: transparent;
+    }
+
+    .decision-details .control-disclosure summary {
+      min-height: 50px;
+      padding: 0 2px;
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 720;
+    }
+
+    .decision-details .control-disclosure[open] {
+      padding-bottom: 15px;
+      background: #ffffff;
+    }
+
+    .decision-details .health-notice {
+      margin: 0 0 10px;
+    }
+
+    .plan-advanced {
+      display: grid;
+      gap: 16px;
+      margin-top: 8px;
+      padding-top: 16px;
+      border-top: 1px solid var(--line);
+    }
+
+    .plan-advanced summary {
+      color: var(--ink);
+      font-size: 13px;
+      font-weight: 760;
+    }
+
+    .plan-advanced > p {
+      max-width: 640px;
+      margin: -6px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .plan-advanced:not([open]) > :not(summary) {
+      display: none;
+    }
+
+    .plan-intro h2 {
+      font-size: clamp(28px, 3.4vw, 40px);
+    }
+
+    .switch-panel,
+    .summary-panel {
+      border-radius: 10px;
+      box-shadow: none;
+    }
+
+    .summary-panel {
+      top: 92px;
+    }
+
+    .runtime-authority-notice {
+      padding: 11px 13px;
+      border-radius: 9px;
+      font-size: 12px;
+    }
+
+    @media (min-width: 900px) {
+      .decision-view,
+      #switch-view,
+      .health-view {
+        grid-column: 2;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .decision-board {
+        grid-template-columns: 1fr;
+      }
+
+      .decision-guide {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+        column-gap: 22px;
+      }
+
+      .decision-guide > :first-child,
+      .decision-guide h3 {
+        grid-column: 1 / -1;
+      }
+
+      .decision-guide p {
+        align-self: end;
+      }
+    }
+
+    @media (max-width: 640px) {
+      .shell {
+        width: min(100% - 28px, 1240px);
+        gap: 18px;
+        padding-top: 18px;
+      }
+
+      .decision-head {
+        display: grid;
+        gap: 14px;
+      }
+
+      .decision-freshness {
+        justify-items: start;
+        min-width: 0;
+        text-align: left;
+      }
+
+      .decision-stats {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .decision-stats article:nth-child(2) {
+        border-right: 0;
+      }
+
+      .decision-stats article:nth-child(n + 3) {
+        border-top: 1px solid var(--line);
+      }
+
+      .decision-queue .health-card {
+        display: grid;
+        grid-template-columns: 1fr;
+      }
+
+      .decision-queue .health-card__score {
+        display: flex;
+        min-width: 0;
+        padding: 10px 0 0;
+        border-top: 1px solid var(--line);
+        border-left: 0;
+      }
+
+      .decision-guide {
+        grid-template-columns: 1fr;
+      }
+
+      .decision-guide > :first-child,
+      .decision-guide h3 {
+        grid-column: auto;
+      }
+    }
