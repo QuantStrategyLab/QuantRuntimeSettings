@@ -23,9 +23,9 @@
 
 ## 当前基础与主要缺口
 
-现有 `web/strategy-switch-console` 已具备 GitHub OAuth、allowlist、管理员配置、KV 审计，以及受专用 token 保护的 `strategy_health_dashboard.v1` 只读健康快照。这是合适的起点。
+现有 `web/strategy-switch-console` 已具备 GitHub OAuth、allowlist、管理员配置、KV 审计，以及受专用 token 保护的 `strategy_health_dashboard.v1` 只读健康快照。首页现在采用“人工决策台”：默认展示待处理决策，研究、证据和运行资料作为按需展开的下钻内容；历史策略切换则收敛到“策略设置”。
 
-但它今天仍以“策略切换”作为主要界面，并混合了历史的 `live` 配置元数据与手工 workflow dispatch。它尚未有跨仓候选目录、P0–P6 生命周期快照、统一决策队列或 P6 决策收据。因此不能把现有按钮当作新的全局执行授权。
+它仍不能被误解为券商终端：跨仓目录、完整 P0–P6 生命周期、P6 决策收据和确定性执行网关仍须以独立快照/适配器逐步接线。因此，现有设置页的按钮不是新的全局执行授权。
 
 ## 推荐的低风险演进
 
@@ -55,6 +55,19 @@ Worker 以**独立于 dispatch token 的同步身份**接收来源快照、按 `
 前端采用低干扰的运维工作台：浅色画布、单一强调色、紧凑列表和清晰留白；不使用“所有指标都是卡片”的马赛克，也不在日更数据只产生一个点时伪造收益曲线。刷新按快照更新频率进行，避免每几秒无意义轮询。
 
 这遵循“仪表盘应直接回答问题、减少认知负担、异常优先”的运维原则；参考 [Grafana dashboard best practices](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/) 与 [Google SRE monitoring guidance](https://sre.google/workbook/monitoring/)。
+
+### 成熟控制台对照后的产品准则
+
+成熟的量化和运维控制台并不是把所有数据都放在首页，而是让每个异常都能被负责的人快速、可审计地处理。基于 QuantConnect、Grafana、Datadog、PagerDuty 与 Backstage 的公开设计，本站遵循以下约束：
+
+1. **首页只放可行动事项。** 每项应逐步具备“策略 × 平台/账户目标、严重度、影响、证据新鲜度、当前安全状态、建议动作、责任人/运行手册”的最小字段。缺字段时显示“证据不足”，不能用绿灯代替。
+2. **告警按影响合并和分流。** 同一根因的运行告警应归为一个事项；高风险即时通知，需复核的事项批量通知，纯信息留在系统状态页。告警必须说明触发原因、如何判断与下一步，而不是只复制日志。[Grafana 告警实践](https://grafana.com/docs/grafana/latest/alerting/guides/best-practices/) 与其 [通知策略](https://grafana.com/docs/grafana/latest/alerting/configure-notifications/create-notification-policy/) 都强调可行动性、分组与路由。
+3. **变更先证明，再执行。** 策略设置页只显示当前值、拟议差异、适用范围和就绪检查；执行证据、持仓、现金与运行状态保持只读。QuantConnect 的实盘模型同样将算法状态、持仓、现金、订单事件与停止/清仓操作分离，避免把“看见状态”误解为“可直接改券商”。[QuantConnect 实盘入门](https://www.quantconnect.com/docs/v2/local-platform/live-trading/getting-started)
+4. **事故有时间线，日常没有噪音。** 系统状态页仅突出 critical/review、最后可信样本与关联证据；后续补充的审计视图应记录状态、影响、负责人、检测与根因时间线，符合 [Datadog 事故管理](https://docs.datadoghq.com/incident_response/incident_management/) 的可追溯原则。
+5. **策略、插件与平台是同一套目录对象。** 它们应从代码/快照衍生身份、版本、责任、生命周期、运行手册和部署目标，而不是由网页手填。这个“目录先于大屏”的思路与 [Backstage Software Catalog](https://backstage.io/docs/features/software-catalog/) 一致。
+6. **不在控制台新增直连券商的紧急按钮。** 需要停止或降风险时，只创建绑定证据的受限意图，并由独立、幂等且可对账的执行网关消费；浏览器、AI、网页配置和 GitHub workflow 都不能绕开该边界。
+
+当前三项主导航正好对应这套低频人工流程：**决策**（今天要判断什么）、**策略设置**（准备提交什么差异）、**系统状态**（为什么需要判断）。目录、通知策略与审计会在各自已有真实快照/权限接口后作为下钻加入，不能先用静态假数据占据首页。
 
 ### 2. 决策队列（仍不直接执行）
 
