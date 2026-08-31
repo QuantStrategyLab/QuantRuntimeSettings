@@ -104,7 +104,6 @@
         default_execution_mode: "live"
       },
     };
-    const runtimeAuthorityStatus = window.__QSL_RUNTIME_AUTHORITY_STATUS__ || {};
 
 
 
@@ -811,79 +810,75 @@
     const copy = {
       zh: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "已验证证据、运行许可和所有者决策。",
+        appSubtitle: "策略与平台的日常管理",
         controlPlaneView: "决策",
         healthView: "系统状态",
         switchView: "策略设置",
-        controlPlaneEyebrow: "人工决策台 / 只读",
-        controlPlaneTitle: "只看需要你判断的事。",
-        controlPlaneSubtitle: "系统会持续监测与筛选；这里仅保留需要你确认的风险边界和恢复决定。",
-        controlCandidateTotal: "候选总数",
-        controlDeferred: "本次延期",
-        controlParked: "已停车",
-        controlOwnerDecision: "等待我决定",
-        controlQueueEyebrow: "优先队列",
-        controlQueueHint: "只显示可操作事项",
-        controlCandidateBoard: "需要你确认",
-        decisionGuideEyebrow: "怎么判断",
-        decisionGuideTitle: "先确认事实，再记录意图。",
-        decisionGuideStepOne: "确认券商账户、目标策略和当前状态是否正确。",
-        decisionGuideStepTwo: "看证据是否新鲜，是否仍有阻断项。",
-        decisionGuideStepThree: "只在你认可时记录“继续 / 保持暂停 / 退役”。",
-        decisionGuideBoundary: "网页记录的是可审计意图，不会下单、改资金或自动开启实盘。",
-        controlDataReady: "快照已同步（不代表策略可运行）",
-        controlDataStale: "快照已过期",
-        controlDataUnavailable: "等待可用快照",
-        controlAttentionResearchOnly: "仅研究，未授予执行权限",
-        controlAttentionRequired: "研究状态需要关注",
-        controlAttentionUnavailable: "尚无已验证研究状态",
-        controlComputedAt: "最近计算：{time}",
-        controlLoginNotice: "登录后读取私有全局快照；没有快照时不会展示虚构信息。",
-        controlStaleNotice: "全局快照已超过允许的新鲜度窗口；页面保留原始记录，但不把它作为当前结论。",
-        controlUnavailableNotice: "还没有可用的全局快照；当前页面保持 fail-closed 空状态。",
-        controlUpstreamNotice: "快照已加载，但有 {count} 个上游提示；缺失信息不会被补成推断结论。",
-        controlAttentionNotice: "研究状态需要关注（延期 {deferred}、停车 {parked}、信号 {signals}）。快照送达不等于策略验证或执行授权；系统保持不交易。",
-        controlEmptyCandidates: "暂无可展示的候选快照。",
-        controlNoRecommendation: "没有可用的机器建议。",
-        controlStageMeta: "阶段：{stage} · 状态：{status} · 证据：{freshness}",
-        controlNext: "下一步",
-        ownerDecisionTitle: "所有者决定",
-        ownerDecisionAdminOnly: "只有控制台管理员可以记录决定。",
-        ownerDecisionReady: "当前证据已绑定；请人工选择后记录不可执行意图。",
-        ownerDecisionRecorded: "已记录：{decision}（仅意图，不会启用实盘）",
-        ownerDecisionApprove: "批准受限试运行意图",
+        controlPlaneEyebrow: "待处理事项",
+        controlPlaneTitle: "今天需要你处理什么？",
+        controlPlaneSubtitle: "系统正常时这里保持为空；出现风险、异常或恢复事项时，按优先级显示。",
+        controlCandidateTotal: "监控对象",
+        controlDeferred: "待复核",
+        controlParked: "暂停中",
+        controlOwnerDecision: "待处理",
+        controlQueueEyebrow: "优先处理",
+        controlQueueHint: "有风险或需要确认时才出现",
+        controlCandidateBoard: "需要你处理",
+        controlDataReady: "已更新",
+        controlDataStale: "更新延迟",
+        controlDataUnavailable: "暂时无法读取",
+        controlAttentionResearchOnly: "暂无待处理事项",
+        controlAttentionRequired: "需要关注",
+        controlAttentionUnavailable: "等待数据",
+        controlComputedAt: "更新于：{time}",
+        controlLoginNotice: "登录后查看待处理事项和运行状态。",
+        controlStaleNotice: "数据更新延迟，暂不建议据此做新决定。",
+        controlUnavailableNotice: "暂时无法读取最新状态，请稍后刷新。",
+        controlUpstreamNotice: "部分数据暂不可用，请稍后重试。",
+        controlAttentionNotice: "有 {deferred} 项待复核，{parked} 项已暂停。",
+        controlNormalNotice: "当前没有需要你处理的事项。",
+        controlEmptyCandidates: "当前没有待处理事项。",
+        controlNoRecommendation: "暂未给出处理建议。",
+        controlItemMeta: "{kind} · {domain} · 最近更新：{freshness}",
+        controlNext: "处理建议",
+        controlStatus: "当前状态",
+        ownerDecisionTitle: "请选择下一步",
+        ownerDecisionAdminOnly: "请由管理员确认。",
+        ownerDecisionReady: "相关信息已就绪，请选择下一步。",
+        ownerDecisionRecorded: "已保存：{decision}",
+        ownerDecisionApprove: "确认试运行",
         ownerDecisionPark: "保持暂停",
-        ownerDecisionRetire: "退役候选",
-        ownerDecisionConfirm: "这只会记录不可执行的所有者决定意图，不会下单、改资金或启用实盘。继续吗？",
-        ownerDecisionSubmitting: "正在记录决定…",
-        ownerDecisionSuccess: "所有者决定已记录；它不会自动启用实盘。",
-        ownerDecisionFailed: "无法记录所有者决定",
-        reconciliationRecoveryBoard: "恢复核验（仅已存在实盘）",
-        reconciliationRecoveryLoginNotice: "登录后读取私有恢复核验；缺失快照不会被推断为可以恢复。",
-        reconciliationRecoveryStaleNotice: "恢复核验已过期；请等待平台重新采样和双审，不能确认。",
-        reconciliationRecoveryUnavailableNotice: "暂无可用恢复核验；页面保持 fail-closed 空状态。",
-        reconciliationRecoveryUpstreamNotice: "恢复核验已加载，但有 {count} 个上游提示；请先处理阻断项。",
-        reconciliationRecoveryEmpty: "没有待恢复的既有实盘目标。",
-        reconciliationRecoveryMeta: "{platform} · {strategy} · 仅恢复现有执行",
-        reconciliationRecoveryDetail: "状态：{state} · 只读样本：{samples} · 双审：{review} · 窗口截止：{lastObserved}",
-        reconciliationRecoveryBlocked: "仍被阻断：{blockers}",
-        reconciliationRecoveryReady: "两次对账一致且双审绑定当前摘要；需要管理员确认。",
-        reconciliationRecoveryAdminOnly: "只有控制台管理员可以确认恢复意图。",
-        reconciliationRecoveryConfirmed: "已记录恢复确认（仍未恢复运行）。",
-        reconciliationRecoveryConfirm: "确认恢复既有执行意图",
-        reconciliationRecoveryConfirmPrompt: "这只会记录与当前对账/双审摘要绑定的恢复意图；不会下单、修改资金或直接启用运行。继续吗？",
-        reconciliationRecoverySubmitting: "正在记录确认…",
-        reconciliationRecoverySuccess: "恢复确认已记录；私有控制器仍须重新核验后才可恢复既有执行。",
-        reconciliationRecoveryFailed: "无法记录恢复确认",
-        reconciliationRecoveryNoOrder: "固定边界：控制台不持有券商凭证，也不直接恢复、下单或启用实盘。",
-        executionEvidenceBoard: "按需查看策略 × 平台证据覆盖",
-        executionEvidenceLoginNotice: "登录后读取私有执行证据快照；缺失来源不会被推断成 paper 或 live 状态。",
-        executionEvidenceStaleNotice: "执行证据已超过允许的新鲜度窗口；它保留为历史记录，不能作为当前运行或 P6 结论。",
-        executionEvidenceUnavailableNotice: "还没有可用的执行证据来源；当前列表保持 fail-closed 空状态。",
-        executionEvidenceUpstreamNotice: "执行证据已加载，但有 {count} 个上游提示；页面不会补造平台能力或运行资格。",
-        executionEvidenceEmpty: "暂无可展示的策略 × 平台执行证据。",
+        ownerDecisionRetire: "停止跟踪",
+        ownerDecisionConfirm: "确认保存此项决定？",
+        ownerDecisionSubmitting: "正在保存…",
+        ownerDecisionSuccess: "决定已保存。",
+        ownerDecisionFailed: "无法保存决定",
+        reconciliationRecoveryBoard: "恢复事项",
+        reconciliationRecoveryLoginNotice: "登录后查看需要恢复或复核的事项。",
+        reconciliationRecoveryStaleNotice: "恢复信息更新延迟，请等待下一次检查。",
+        reconciliationRecoveryUnavailableNotice: "暂时没有可用的恢复信息。",
+        reconciliationRecoveryUpstreamNotice: "部分恢复信息暂不可用，请先查看阻断原因。",
+        reconciliationRecoveryEmpty: "当前没有需要恢复的事项。",
+        reconciliationRecoveryMeta: "{platform} · {strategy}",
+        reconciliationRecoveryDetail: "状态：{state} · 样本：{samples} · 复核：{review} · 最近更新：{lastObserved}",
+        reconciliationRecoveryBlocked: "仍需处理：{blockers}",
+        reconciliationRecoveryReady: "相关核对已完成，等待确认。",
+        reconciliationRecoveryAdminOnly: "请由管理员确认。",
+        reconciliationRecoveryConfirmed: "恢复确认已保存。",
+        reconciliationRecoveryConfirm: "确认恢复",
+        reconciliationRecoveryConfirmPrompt: "确认保存恢复决定？",
+        reconciliationRecoverySubmitting: "正在保存…",
+        reconciliationRecoverySuccess: "恢复决定已保存。",
+        reconciliationRecoveryFailed: "无法保存恢复决定",
+        reconciliationRecoveryNoOrder: "查看当前恢复状态。",
+        executionEvidenceBoard: "执行与成交记录",
+        executionEvidenceLoginNotice: "登录后查看执行和成交记录。",
+        executionEvidenceStaleNotice: "执行记录更新延迟，请结合最新平台状态判断。",
+        executionEvidenceUnavailableNotice: "暂时没有可用的执行记录。",
+        executionEvidenceUpstreamNotice: "部分执行记录暂不可用，请稍后重试。",
+        executionEvidenceEmpty: "当前没有可展示的执行记录。",
         executionEvidenceMeta: "{platform} · 当前通道：{environment} · 来源：{source}",
-        executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · Shadow：{shadow} · Paper：{paper}",
+        executionEvidenceDetail: "策略：{strategy} · 数据：{data} · 执行：{execution} · 观察：{shadow} · 模拟：{paper}",
         executionEvidenceReceipt: "执行回执：{outcome} · 券商确认：{confirmation}",
         executionEvidenceReceiptMissing: "执行回执：未采集",
         executionEvidenceReceiptNotDue: "未到应交易窗口",
@@ -901,19 +896,19 @@
         executionEvidenceConfirmationPartiallyFilled: "部分成交",
         executionEvidenceConfirmationFilled: "已成交",
         executionEvidenceConfirmationReconciliation: "需对账",
-        executionEvidenceNoOrder: "固定边界：只读证据；不包含账户、订单、资金或 P6 实盘授权。",
-        executionEvidenceNext: "下一步",
-        runtimeTargetLifecycleBoard: "按需查看平台运行状态",
-        runtimeTargetLifecycleLoginNotice: "登录后读取私有平台运行状态；页面不会改变启用/停用或提交订单。",
-        runtimeTargetLifecycleStaleNotice: "平台运行状态已超过允许的新鲜度窗口；请先检查监测链路。",
-        runtimeTargetLifecycleUnavailableNotice: "还没有可用的平台运行状态；缺失数据不会被推断成已停用或正常。",
-        runtimeTargetLifecycleUpstreamNotice: "平台运行状态已加载，但有 {count} 个上游提示；请先核对。",
-        runtimeTargetLifecycleEmpty: "暂无可展示的平台运行状态。",
+        executionEvidenceNoOrder: "查看当前执行和成交结果。",
+        executionEvidenceNext: "处理建议",
+        runtimeTargetLifecycleBoard: "平台运行状态",
+        runtimeTargetLifecycleLoginNotice: "登录后查看平台运行状态。",
+        runtimeTargetLifecycleStaleNotice: "平台状态更新延迟，请先检查运行情况。",
+        runtimeTargetLifecycleUnavailableNotice: "暂时没有可用的平台状态。",
+        runtimeTargetLifecycleUpstreamNotice: "部分平台状态暂不可用，请先核对。",
+        runtimeTargetLifecycleEmpty: "当前没有可展示的平台状态。",
         runtimeTargetLifecycleMeta: "{platform} · {state} · 通道：{mode}",
         runtimeTargetLifecycleDetail: "运行监测：{guard} · 执行心跳：{heartbeat}",
         runtimeTargetLifecycleObservation: "本次执行：{observation} · 成交证据：{evidence}",
-        runtimeTargetLifecycleNoOrder: "固定边界：只读状态；不会启用目标、变更策略或提交订单。",
-        runtimeTargetLifecycleNext: "当前处理",
+        runtimeTargetLifecycleNoOrder: "查看当前平台运行情况。",
+        runtimeTargetLifecycleNext: "当前建议",
         runtimeTargetLifecycleStateEnabled: "已启用",
         runtimeTargetLifecycleStateDisabled: "已停用",
         runtimeTargetLifecycleCheckPass: "通过",
@@ -935,45 +930,42 @@
         runtimeTargetLifecycleReasonRuntimeGuard: "运行监测需要复核",
         runtimeTargetLifecycleReasonHeartbeat: "执行心跳需要复核",
         runtimeTargetLifecycleReasonUnavailable: "监测数据不可用",
-        m0ResearchBoard: "按需查看 M0 研究观察",
-        m0ResearchLoginNotice: "登录后读取私有 M0 研究台账；缺失台账不会被补成研究结论。",
-        m0ResearchStaleNotice: "M0 研究观察已超过有效期，仅保留为历史上下文。",
-        m0ResearchUnavailableNotice: "还没有可用的 M0 研究台账；页面保持 fail-closed 空状态。",
-        m0ResearchUpstreamNotice: "M0 研究台账已加载，但有 {count} 个上游提示；页面不会补造研究结论。",
-        m0ResearchEmpty: "暂无可展示的已验证 M0 研究观察。",
-        m0ResearchMore: "仅显示前 {count} 条研究观察；其余仍保留在只读台账中。",
+        m0ResearchBoard: "市场研究",
+        m0ResearchLoginNotice: "登录后查看市场研究和观察记录。",
+        m0ResearchStaleNotice: "研究内容更新延迟，仅供历史参考。",
+        m0ResearchUnavailableNotice: "暂时没有可用的市场研究。",
+        m0ResearchUpstreamNotice: "部分研究内容暂不可用，请稍后重试。",
+        m0ResearchEmpty: "当前没有可展示的市场研究。",
+        m0ResearchMore: "显示前 {count} 条研究观察。",
         m0ResearchMeta: "{kind} · 查看于：{viewed}",
         m0ResearchStateFreshness: "状态：{state} · 新鲜度：{freshness}",
         m0ResearchHorizons: "主要观察期：{primary} · 适用观察期：{suitable}",
         m0ResearchEvidence: "置信：{confidence} · 风格：{style} · 资料摘要：{digest}",
         m0ResearchConsistency: "当前周期分歧：{conflict} · 历史失效漂移：{drift}",
-        m0ResearchNoOrder: "固定边界：仅研究、无订单；不产生任何运行动作。",
-        adaptiveSelectionBoard: "按需查看 M1 Shadow 建议",
-        adaptiveSelectionLoginNotice: "登录后读取私有 Shadow 建议；缺失来源不会被补成策略或订单。",
-        adaptiveSelectionStaleNotice: "此 Shadow 建议已超出新鲜度窗口，仅保留为历史上下文。",
-        adaptiveSelectionUnavailableNotice: "还没有可用的 M1 Shadow 建议；页面保持 fail-closed 空状态。",
-        adaptiveSelectionUpstreamNotice: "Shadow 建议带有 {count} 个上游提示；页面不会推断策略、平台或订单。",
-        adaptiveSelectionEmpty: "暂无可展示的 Shadow 建议。",
+        m0ResearchNoOrder: "查看当前研究摘要。",
+        adaptiveSelectionBoard: "系统建议",
+        adaptiveSelectionLoginNotice: "登录后查看系统建议。",
+        adaptiveSelectionStaleNotice: "建议更新延迟，仅供历史参考。",
+        adaptiveSelectionUnavailableNotice: "暂时没有可用的系统建议。",
+        adaptiveSelectionUpstreamNotice: "部分建议暂不可用，请稍后重试。",
+        adaptiveSelectionEmpty: "当前没有可展示的系统建议。",
         adaptiveSelectionMeta: "{source} · {domain} · 市场截至 {asOf}",
         adaptiveSelectionRecommended: "建议观察",
-        adaptiveSelectionNoCandidate: "无合格 Shadow 候选",
+        adaptiveSelectionNoCandidate: "暂无合适建议",
         adaptiveSelectionReason: "原因：{reasons}",
-        adaptiveSelectionNoOrder: "固定边界：仅供人工查看，零建议权重，不改策略、平台、资金、运行状态或订单。",
-        researchTaskBoard: "按需查看研究任务队列",
-        researchTaskLoginNotice: "登录后读取私有研究任务索引；没有来源快照时不会展示虚构任务。",
-        researchTaskStaleNotice: "研究任务来源已超过允许的新鲜度窗口；任务保留为历史记录，但不作为当前工作指令。",
-        researchTaskUnavailableNotice: "还没有可用的研究任务来源；当前队列保持 fail-closed 空状态。",
-        researchTaskUpstreamNotice: "研究任务索引已加载，但有 {count} 个上游提示；页面不会补造任务。",
-        researchTaskEmpty: "暂无可展示的已验证研究任务。",
+        adaptiveSelectionNoOrder: "查看系统的当前建议。",
+        researchTaskBoard: "自动化任务",
+        researchTaskLoginNotice: "登录后查看自动化任务。",
+        researchTaskStaleNotice: "任务信息更新延迟，仅供历史参考。",
+        researchTaskUnavailableNotice: "暂时没有可用的自动化任务。",
+        researchTaskUpstreamNotice: "部分任务信息暂不可用，请稍后重试。",
+        researchTaskEmpty: "当前没有可展示的自动化任务。",
         researchTaskMeta: "{type} · {domain} · 创建于：{created}",
-        researchTaskLimits: "离线研究：最多 {runs} 次 / {seconds} 秒 · P1 {p1} · P2 {p2} · P3 {p3}",
-        researchTaskNoOrder: "固定边界：仅研究、零仓位、无订单；不进入 P4/P5/P6。",
-        healthEyebrow: "运行保障 / 只读",
-        healthTitle: "先看机器结论，再决定是否介入。",
-        healthSubtitle: "健康不是实盘许可；它只告诉你是否要复核、降级或保持观察。",
-        runtimeAuthorityTitle: "P0–P6 控制面授权状态",
-        runtimeAuthorityNotice: "这里的 live/default_execution_mode/live_configured 是历史配置元数据，不是当前运行、订单、资金或阶段升级授权。",
-        runtimeAuthorityAsOf: "截至：{asOf} · P1–P3 non-live 数据获取仍需独立、精确的契约；P4–P6 尚未定义。",
+        researchTaskLimits: "研究预算：最多 {runs} 次 / {seconds} 秒",
+        researchTaskNoOrder: "查看当前自动化任务。",
+        healthEyebrow: "系统状态",
+        healthTitle: "运行情况",
+        healthSubtitle: "只突出需要关注的风险、延迟和恢复状态。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
@@ -991,11 +983,11 @@
         login: "登录",
         logout: "退出",
         signedInAs: "已登录 {login}",
-        planEyebrow: "运行计划 / 受限变更",
-        planTitle: "先定义边界，再提交配置。",
-        planSubtitle: "一次只为一个平台和账号准备一个可审计的运行计划。页面只提交配置意图；运行、订单和实盘授权由独立的证据与阶段门槛决定。",
-        planAdvancedSummary: "更多风险边界（按需设置）",
-        planAdvancedHint: "运行状态、插件、现金、收入层和定投通常沿用当前已验证配置；只在需要变更时展开。",
+        planEyebrow: "策略设置",
+        planTitle: "修改策略设置",
+        planSubtitle: "选择平台、账户、策略和运行环境；保存前核对本次改动。",
+        planAdvancedSummary: "高级设置",
+        planAdvancedHint: "运行状态、插件、现金、收入层和定投通常沿用当前配置；需要改动时再展开。",
         planScopeTitle: "选择范围",
         planScopeSubtitle: "平台、账号、策略与目标环境",
         planRuntimeTitle: "运行保护",
@@ -1007,10 +999,10 @@
         account: "目标账号",
         strategy: "策略",
         mode: "运行环境",
-        live: "实盘（需独立授权）",
+        live: "实盘",
         paper: "旧版非实盘",
-        dryRun: "演练（不下单）",
-        liveModeUnavailable: "当前没有同时满足策略发布、运行许可与证据门槛的实盘候选；请保持非实盘。",
+        dryRun: "模拟运行",
+        liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
         runtimeTargetMode: "账号运行状态",
         runtimeSectionTitle: "运行与插件",
         runtimeTargetCurrent: "沿用当前状态",
@@ -1059,7 +1051,7 @@
         executionCashMarginBlocksReserve: "已选允许融资；提交时会清空预留现金覆盖。",
         executionCashReserveBlocksMargin: "已设预留现金覆盖；提交时会强制不允许融资。",
         qmtPlatformCashNote: "A 股 QMT 不使用 margin / 平台预留现金；现金约束在策略参数 execution_cash_reserve_ratio 内配置。",
-        qmtDryRunOnlyNote: "当前平台仅支持不下单演练，尚无可用的实盘执行通道。",
+        qmtDryRunOnlyNote: "当前平台仅支持模拟运行。",
         binancePlatformNote: "Binance 平台不使用券商级收入层与期权层；相关功能由策略内部实现。",
         invalidExecutionCashPolicyNote: "允许融资与预留现金覆盖冲突，请只保留一种约束。",
         dcaMode: "定投模式",
@@ -1093,37 +1085,31 @@
         planReadinessTitle: "提交前核对",
         planCheckAccount: "账号与作用范围",
         planCheckStrategy: "策略与目标环境",
-        planCheckRisk: "现金与风险边界",
-        planCheckAuthority: "实盘执行授权",
+        planCheckRisk: "现金与风险设置",
+        planCheckAuthority: "实盘状态",
         planCheckWaiting: "等待配置",
         planCheckSelected: "已读取",
         planCheckValid: "已校验",
         planCheckFix: "需修正",
         planCheckNonLive: "非实盘",
-        planCheckNoAuthority: "未授予",
-        planAuditNote: "提交记录会写入审计链；它不等同于订单、资金或实盘许可。",
+        planCheckNoAuthority: "未就绪",
+        planAuditNote: "本次修改会保存到变更记录。",
         copySummary: "复制状态",
         loginToRun: "登录后提交计划",
         loadingConfig: "读取配置中",
         configureAccounts: "配置账号后切换",
-        runSwitch: "提交受限变更",
+        runSwitch: "保存设置",
         noChanges: "无变更",
-        readonlyNote: "登录后才可提交受限配置。",
+        readonlyNote: "登录后可保存设置。",
         publicReadonly: "登录后查看账号配置。",
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
-        readyNote: "提交的是受限配置变更；它不授予订单、资金或实盘权限。",
+        readyNote: "请核对上方改动后保存。",
         invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         invalidOptionOverlayNote: "当前策略未定义可启用的期权层。",
         invalidDcaNote: "请填写有效的定投模式和基准金额。",
-        publicOauthTitle: "GitHub OAuth 保护",
-        publicOauthText: "只允许白名单账号进入私有配置。",
-        publicWorkerTitle: "Worker 端触发",
-        publicWorkerText: "令牌保留在服务端，浏览器只提交切换意图。",
-        publicAuditTitle: "变更可回溯",
-        publicAuditText: "受限配置变更由 GitHub Actions 执行，便于审计和回滚。",
         noAccount: "没有账号选项",
         noStrategy: "没有支持的策略",
         repository: "平台仓库",
@@ -1170,79 +1156,75 @@
       },
       en: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "Verified evidence, runtime eligibility, and owner decisions.",
+        appSubtitle: "Daily management for strategies and platforms",
         controlPlaneView: "Decisions",
         healthView: "System status",
         switchView: "Strategy settings",
-        controlPlaneEyebrow: "Owner decision desk / read only",
-        controlPlaneTitle: "See only what needs your judgment.",
-        controlPlaneSubtitle: "The system keeps monitoring and screening. This desk keeps only risk boundaries and recovery decisions for you to confirm.",
-        controlCandidateTotal: "Candidates",
-        controlDeferred: "Deferred now",
-        controlParked: "Parked",
-        controlOwnerDecision: "Needs my decision",
-        controlQueueEyebrow: "Priority queue",
-        controlQueueHint: "Actionable items only",
-        controlCandidateBoard: "Needs your confirmation",
-        decisionGuideEyebrow: "How to decide",
-        decisionGuideTitle: "Confirm facts, then record intent.",
-        decisionGuideStepOne: "Check that the broker account, target strategy, and current state are correct.",
-        decisionGuideStepTwo: "Check whether evidence is fresh and whether blockers remain.",
-        decisionGuideStepThree: "Record continue, stay parked, or retire only when you agree.",
-        decisionGuideBoundary: "This page records auditable intent. It cannot place orders, change funds, or enable Live automatically.",
-        controlDataReady: "Snapshot synced (not strategy readiness)",
-        controlDataStale: "Snapshot is stale",
-        controlDataUnavailable: "Waiting for a usable snapshot",
-        controlAttentionResearchOnly: "Research only; no execution authority",
-        controlAttentionRequired: "Research state needs attention",
-        controlAttentionUnavailable: "No verified research state",
-        controlComputedAt: "Last computed: {time}",
-        controlLoginNotice: "Sign in to read the private global snapshot. Missing data is never invented.",
-        controlStaleNotice: "This snapshot is outside its freshness window. The record remains visible, but is not a current conclusion.",
-        controlUnavailableNotice: "No usable global snapshot is available yet. This page remains fail-closed and empty.",
-        controlUpstreamNotice: "The snapshot loaded with {count} upstream notice(s); missing information is never inferred.",
-        controlAttentionNotice: "Research needs attention ({deferred} deferred, {parked} parked, {signals} signal(s)). Snapshot delivery is not strategy validation or execution authority; the system remains no-order.",
-        controlEmptyCandidates: "No candidate snapshot is available to display.",
-        controlNoRecommendation: "No machine recommendation is available.",
-        controlStageMeta: "Stage: {stage} · status: {status} · evidence: {freshness}",
-        controlNext: "NEXT",
-        ownerDecisionTitle: "Owner decision",
-        ownerDecisionAdminOnly: "Only console administrators can record a decision.",
-        ownerDecisionReady: "Current evidence is bound; choose an action to record a non-executable intent.",
-        ownerDecisionRecorded: "Recorded: {decision} (intent only; Live remains disabled)",
-        ownerDecisionApprove: "Approve limited-canary intent",
+        controlPlaneEyebrow: "To do",
+        controlPlaneTitle: "What needs your attention today?",
+        controlPlaneSubtitle: "This stays empty when everything is normal. Risks, exceptions, and recovery items appear in priority order.",
+        controlCandidateTotal: "Monitored items",
+        controlDeferred: "To review",
+        controlParked: "Paused",
+        controlOwnerDecision: "To do",
+        controlQueueEyebrow: "Priority",
+        controlQueueHint: "Only appears when action is needed",
+        controlCandidateBoard: "Needs your attention",
+        controlDataReady: "Up to date",
+        controlDataStale: "Update delayed",
+        controlDataUnavailable: "Unavailable",
+        controlAttentionResearchOnly: "Nothing to do",
+        controlAttentionRequired: "Needs attention",
+        controlAttentionUnavailable: "Waiting for data",
+        controlComputedAt: "Updated: {time}",
+        controlLoginNotice: "Sign in to see your to-do items and runtime status.",
+        controlStaleNotice: "Data is delayed. Avoid making a new decision from it for now.",
+        controlUnavailableNotice: "The latest status is temporarily unavailable. Please refresh later.",
+        controlUpstreamNotice: "Some data is temporarily unavailable. Please retry later.",
+        controlAttentionNotice: "{deferred} item(s) need review and {parked} are paused.",
+        controlNormalNotice: "There is nothing you need to handle right now.",
+        controlEmptyCandidates: "There is nothing to handle right now.",
+        controlNoRecommendation: "No action is recommended yet.",
+        controlItemMeta: "{kind} · {domain} · updated {freshness}",
+        controlNext: "Recommended action",
+        controlStatus: "Current status",
+        ownerDecisionTitle: "Choose the next step",
+        ownerDecisionAdminOnly: "An administrator needs to confirm this.",
+        ownerDecisionReady: "The relevant information is ready. Choose the next step.",
+        ownerDecisionRecorded: "Saved: {decision}",
+        ownerDecisionApprove: "Confirm trial run",
         ownerDecisionPark: "Keep parked",
-        ownerDecisionRetire: "Retire candidate",
-        ownerDecisionConfirm: "This records a non-executable owner intent only. It will not place orders, change funds, or enable Live. Continue?",
-        ownerDecisionSubmitting: "Recording decision…",
-        ownerDecisionSuccess: "Owner decision recorded; it does not enable Live automatically.",
-        ownerDecisionFailed: "Could not record owner decision",
-        reconciliationRecoveryBoard: "Recovery verification (existing live only)",
-        reconciliationRecoveryLoginNotice: "Sign in to read private recovery verification. Missing snapshots never imply that recovery is allowed.",
-        reconciliationRecoveryStaleNotice: "Recovery verification is stale. Wait for fresh platform sampling and dual review before confirming.",
-        reconciliationRecoveryUnavailableNotice: "No usable recovery verification is available. This view remains fail-closed and empty.",
-        reconciliationRecoveryUpstreamNotice: "Recovery verification loaded with {count} upstream notice(s). Resolve blockers first.",
-        reconciliationRecoveryEmpty: "No existing live target is awaiting recovery.",
-        reconciliationRecoveryMeta: "{platform} · {strategy} · existing-execution recovery only",
-        reconciliationRecoveryDetail: "state: {state} · read-only samples: {samples} · dual review: {review} · window ends: {lastObserved}",
-        reconciliationRecoveryBlocked: "Still blocked: {blockers}",
-        reconciliationRecoveryReady: "Two reconciliations match and dual review is bound to the current digest; an admin confirmation is required.",
-        reconciliationRecoveryAdminOnly: "Only console administrators can record a recovery confirmation.",
-        reconciliationRecoveryConfirmed: "Recovery confirmation recorded (runtime is still not restored).",
-        reconciliationRecoveryConfirm: "Record existing-execution recovery intent",
-        reconciliationRecoveryConfirmPrompt: "This only records a recovery intent bound to the current reconciliation and dual-review digest. It will not place orders, change funds, or directly enable runtime. Continue?",
-        reconciliationRecoverySubmitting: "Recording confirmation…",
-        reconciliationRecoverySuccess: "Recovery confirmation recorded. A private controller must re-verify before it can restore existing execution.",
-        reconciliationRecoveryFailed: "Could not record recovery confirmation",
-        reconciliationRecoveryNoOrder: "Fixed boundary: the console holds no broker credentials and cannot directly recover, trade, or enable Live.",
-        executionEvidenceBoard: "View strategy × platform evidence on demand",
-        executionEvidenceLoginNotice: "Sign in to read private execution-evidence snapshots. Missing sources never imply a paper or live state.",
-        executionEvidenceStaleNotice: "This execution evidence is beyond its freshness window. It remains historical context, not a current runtime or P6 conclusion.",
-        executionEvidenceUnavailableNotice: "No usable execution-evidence source is available yet. This list remains fail-closed and empty.",
-        executionEvidenceUpstreamNotice: "Execution evidence loaded with {count} upstream notice(s); no platform capability or runtime authority is inferred.",
-        executionEvidenceEmpty: "No strategy × platform execution evidence is available to display.",
+        ownerDecisionRetire: "Stop tracking",
+        ownerDecisionConfirm: "Save this decision?",
+        ownerDecisionSubmitting: "Saving…",
+        ownerDecisionSuccess: "Decision saved.",
+        ownerDecisionFailed: "Could not save the decision",
+        reconciliationRecoveryBoard: "Recovery items",
+        reconciliationRecoveryLoginNotice: "Sign in to see recovery and review items.",
+        reconciliationRecoveryStaleNotice: "Recovery information is delayed. Wait for the next check.",
+        reconciliationRecoveryUnavailableNotice: "Recovery information is temporarily unavailable.",
+        reconciliationRecoveryUpstreamNotice: "Some recovery information is unavailable. Review the blockers first.",
+        reconciliationRecoveryEmpty: "There are no recovery items right now.",
+        reconciliationRecoveryMeta: "{platform} · {strategy}",
+        reconciliationRecoveryDetail: "status: {state} · samples: {samples} · review: {review} · updated: {lastObserved}",
+        reconciliationRecoveryBlocked: "Still needed: {blockers}",
+        reconciliationRecoveryReady: "The relevant checks are complete and await confirmation.",
+        reconciliationRecoveryAdminOnly: "An administrator needs to confirm this.",
+        reconciliationRecoveryConfirmed: "Recovery confirmation saved.",
+        reconciliationRecoveryConfirm: "Confirm recovery",
+        reconciliationRecoveryConfirmPrompt: "Save this recovery decision?",
+        reconciliationRecoverySubmitting: "Saving…",
+        reconciliationRecoverySuccess: "Recovery decision saved.",
+        reconciliationRecoveryFailed: "Could not save the recovery decision",
+        reconciliationRecoveryNoOrder: "View the current recovery status.",
+        executionEvidenceBoard: "Execution and fills",
+        executionEvidenceLoginNotice: "Sign in to see execution and fill records.",
+        executionEvidenceStaleNotice: "Execution records are delayed. Check the latest platform status as well.",
+        executionEvidenceUnavailableNotice: "Execution records are temporarily unavailable.",
+        executionEvidenceUpstreamNotice: "Some execution records are unavailable. Please retry later.",
+        executionEvidenceEmpty: "There are no execution records to display.",
         executionEvidenceMeta: "{platform} · current lane: {environment} · source: {source}",
-        executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · shadow: {shadow} · paper: {paper}",
+        executionEvidenceDetail: "strategy: {strategy} · data: {data} · execution: {execution} · observe: {shadow} · simulated: {paper}",
         executionEvidenceReceipt: "execution receipt: {outcome} · broker confirmation: {confirmation}",
         executionEvidenceReceiptMissing: "execution receipt: not collected",
         executionEvidenceReceiptNotDue: "not in a due window",
@@ -1260,19 +1242,19 @@
         executionEvidenceConfirmationPartiallyFilled: "partially filled",
         executionEvidenceConfirmationFilled: "filled",
         executionEvidenceConfirmationReconciliation: "reconciliation required",
-        executionEvidenceNoOrder: "Fixed boundary: read-only evidence; no account, order, funds, or P6 live authority.",
-        executionEvidenceNext: "NEXT",
-        runtimeTargetLifecycleBoard: "View platform runtime status on demand",
-        runtimeTargetLifecycleLoginNotice: "Sign in to read private platform runtime status. This page cannot change target state or place orders.",
-        runtimeTargetLifecycleStaleNotice: "Platform runtime status is outside its freshness window. Check the monitoring path first.",
-        runtimeTargetLifecycleUnavailableNotice: "No usable platform runtime status is available. Missing data never implies a disabled or healthy target.",
-        runtimeTargetLifecycleUpstreamNotice: "Platform runtime status loaded with {count} upstream notice(s); review them first.",
-        runtimeTargetLifecycleEmpty: "No platform runtime status is available to display.",
+        executionEvidenceNoOrder: "View the current execution and fill results.",
+        executionEvidenceNext: "Recommended action",
+        runtimeTargetLifecycleBoard: "Platform status",
+        runtimeTargetLifecycleLoginNotice: "Sign in to see platform status.",
+        runtimeTargetLifecycleStaleNotice: "Platform status is delayed. Check runtime first.",
+        runtimeTargetLifecycleUnavailableNotice: "Platform status is temporarily unavailable.",
+        runtimeTargetLifecycleUpstreamNotice: "Some platform status is unavailable. Please review it first.",
+        runtimeTargetLifecycleEmpty: "There is no platform status to display.",
         runtimeTargetLifecycleMeta: "{platform} · {state} · lane: {mode}",
         runtimeTargetLifecycleDetail: "runtime guard: {guard} · execution heartbeat: {heartbeat}",
         runtimeTargetLifecycleObservation: "execution: {observation} · order/fill evidence: {evidence}",
-        runtimeTargetLifecycleNoOrder: "Fixed boundary: read-only status; it cannot enable a target, change a strategy, or place an order.",
-        runtimeTargetLifecycleNext: "CURRENT DISPOSITION",
+        runtimeTargetLifecycleNoOrder: "View the current platform runtime status.",
+        runtimeTargetLifecycleNext: "Current recommendation",
         runtimeTargetLifecycleStateEnabled: "enabled",
         runtimeTargetLifecycleStateDisabled: "disabled",
         runtimeTargetLifecycleCheckPass: "pass",
@@ -1294,45 +1276,42 @@
         runtimeTargetLifecycleReasonRuntimeGuard: "runtime guard needs review",
         runtimeTargetLifecycleReasonHeartbeat: "execution heartbeat needs review",
         runtimeTargetLifecycleReasonUnavailable: "monitoring data unavailable",
-        m0ResearchBoard: "View M0 research observations on demand",
-        m0ResearchLoginNotice: "Sign in to read the private M0 research ledger. A missing ledger never implies a research conclusion.",
-        m0ResearchStaleNotice: "These M0 research observations are beyond their validity window and remain historical context only.",
-        m0ResearchUnavailableNotice: "No usable M0 research ledger is available yet. This view remains fail-closed and empty.",
-        m0ResearchUpstreamNotice: "The M0 research ledger loaded with {count} upstream notice(s); no research conclusion is invented.",
-        m0ResearchEmpty: "No verified M0 research observation is available to display.",
-        m0ResearchMore: "Showing the first {count} research observations; the remainder stays in the read-only ledger.",
+        m0ResearchBoard: "Market research",
+        m0ResearchLoginNotice: "Sign in to see market research and observations.",
+        m0ResearchStaleNotice: "Research is delayed and is provided for historical context only.",
+        m0ResearchUnavailableNotice: "Market research is temporarily unavailable.",
+        m0ResearchUpstreamNotice: "Some research content is unavailable. Please retry later.",
+        m0ResearchEmpty: "There is no market research to display.",
+        m0ResearchMore: "Showing the first {count} research observations.",
         m0ResearchMeta: "{kind} · viewed {viewed}",
         m0ResearchStateFreshness: "State: {state} · freshness: {freshness}",
         m0ResearchHorizons: "Primary horizon: {primary} · suitable horizons: {suitable}",
         m0ResearchEvidence: "Confidence: {confidence} · style: {style} · source digest: {digest}",
         m0ResearchConsistency: "Current horizon conflict: {conflict} · historical stale drift: {drift}",
-        m0ResearchNoOrder: "Fixed boundary: research only, no order, and no runtime action.",
-        adaptiveSelectionBoard: "View M1 Shadow suggestions on demand",
-        adaptiveSelectionLoginNotice: "Sign in to read private Shadow suggestions. Missing sources never imply a strategy or order.",
-        adaptiveSelectionStaleNotice: "This Shadow suggestion is beyond its freshness window and remains historical context only.",
-        adaptiveSelectionUnavailableNotice: "No usable M1 Shadow suggestion is available yet. This view remains fail-closed and empty.",
-        adaptiveSelectionUpstreamNotice: "Shadow suggestions include {count} upstream notice(s); no strategy, platform, or order is inferred.",
-        adaptiveSelectionEmpty: "No Shadow suggestion is available to display.",
+        m0ResearchNoOrder: "View the current research summary.",
+        adaptiveSelectionBoard: "System suggestions",
+        adaptiveSelectionLoginNotice: "Sign in to see system suggestions.",
+        adaptiveSelectionStaleNotice: "Suggestions are delayed and are provided for historical context only.",
+        adaptiveSelectionUnavailableNotice: "System suggestions are temporarily unavailable.",
+        adaptiveSelectionUpstreamNotice: "Some suggestions are unavailable. Please retry later.",
+        adaptiveSelectionEmpty: "There are no system suggestions to display.",
         adaptiveSelectionMeta: "{source} · {domain} · market as of {asOf}",
         adaptiveSelectionRecommended: "Observe suggestion",
-        adaptiveSelectionNoCandidate: "No eligible Shadow candidate",
+        adaptiveSelectionNoCandidate: "No suitable suggestion yet",
         adaptiveSelectionReason: "Reasons: {reasons}",
-        adaptiveSelectionNoOrder: "Fixed boundary: human-readable only, zero proposed weight, no strategy, platform, funds, runtime, or order change.",
-        researchTaskBoard: "View research queue on demand",
-        researchTaskLoginNotice: "Sign in to read the private research task index. Missing source snapshots never imply a task.",
-        researchTaskStaleNotice: "The research task source is beyond its freshness window. It remains historical context, not a current instruction.",
-        researchTaskUnavailableNotice: "No research task source is available yet. The queue remains fail-closed and empty.",
-        researchTaskUpstreamNotice: "The research task index loaded with {count} upstream notices; no task is inferred from missing data.",
-        researchTaskEmpty: "No verified research task is available to display.",
+        adaptiveSelectionNoOrder: "View the system's current suggestions.",
+        researchTaskBoard: "Automation tasks",
+        researchTaskLoginNotice: "Sign in to see automation tasks.",
+        researchTaskStaleNotice: "Task information is delayed and is provided for historical context only.",
+        researchTaskUnavailableNotice: "Automation tasks are temporarily unavailable.",
+        researchTaskUpstreamNotice: "Some task information is unavailable. Please retry later.",
+        researchTaskEmpty: "There are no automation tasks to display.",
         researchTaskMeta: "{type} · {domain} · created {created}",
-        researchTaskLimits: "Offline research: up to {runs} run(s) / {seconds}s · P1 {p1} · P2 {p2} · P3 {p3}",
-        researchTaskNoOrder: "Fixed boundary: research only, zero size, no order; never P4/P5/P6.",
-        healthEyebrow: "Runtime guard / read only",
-        healthTitle: "Read the machine conclusion before deciding to intervene.",
-        healthSubtitle: "Health is not live approval. It only tells you whether to review, reduce, or keep watching.",
-        runtimeAuthorityTitle: "P0–P6 control-plane authority",
-        runtimeAuthorityNotice: "live/default_execution_mode/live_configured are legacy configuration metadata, not authorization for current runtime, orders, funds, or stage changes.",
-        runtimeAuthorityAsOf: "As of {asOf} · P1–P3 non-live data acquisition still needs its own precise contract; P4–P6 are undefined.",
+        researchTaskLimits: "Research budget: up to {runs} run(s) / {seconds}s",
+        researchTaskNoOrder: "View the current automation tasks.",
+        healthEyebrow: "System status",
+        healthTitle: "Runtime status",
+        healthSubtitle: "Highlights only the risks, delays, and recovery states that need attention.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
         healthWatch: "Watch",
@@ -1350,11 +1329,11 @@
         login: "Sign in",
         logout: "Sign out",
         signedInAs: "Signed in as {login}",
-        planEyebrow: "Run plan / bounded change",
-        planTitle: "Set the boundary before submitting configuration.",
-        planSubtitle: "Prepare one auditable plan for one platform and account. This page submits configuration intent only; runtime, order, and live authority remain governed by independent evidence and lifecycle gates.",
-        planAdvancedSummary: "More risk boundaries (only when needed)",
-        planAdvancedHint: "Runtime, plugins, cash, overlays, and DCA normally retain the current verified setup. Expand only when changing one.",
+        planEyebrow: "Strategy settings",
+        planTitle: "Change strategy settings",
+        planSubtitle: "Choose a platform, account, strategy, and environment; review this change before saving.",
+        planAdvancedSummary: "Advanced settings",
+        planAdvancedHint: "Runtime, plugins, cash, overlays, and DCA normally retain their current setup. Expand only when changing one.",
         planScopeTitle: "Choose scope",
         planScopeSubtitle: "Platform, account, strategy, and target environment",
         planRuntimeTitle: "Runtime protection",
@@ -1366,10 +1345,10 @@
         account: "Target account",
         strategy: "Strategy",
         mode: "Target environment",
-        live: "Live (independent approval required)",
+        live: "Live",
         paper: "Legacy non-live",
-        dryRun: "Dry run (no orders)",
-        liveModeUnavailable: "No candidate currently meets the strategy-release, runtime-eligibility, and evidence gates for Live. Keep this plan non-live.",
+        dryRun: "Simulated run",
+        liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
         runtimeTargetMode: "Account status",
         runtimeSectionTitle: "Runtime and plugins",
         runtimeTargetCurrent: "Keep current status",
@@ -1452,37 +1431,31 @@
         planReadinessTitle: "Before submission",
         planCheckAccount: "Account and scope",
         planCheckStrategy: "Strategy and environment",
-        planCheckRisk: "Cash and risk boundary",
-        planCheckAuthority: "Live execution authority",
+        planCheckRisk: "Cash and risk settings",
+        planCheckAuthority: "Live status",
         planCheckWaiting: "Waiting",
         planCheckSelected: "Read",
         planCheckValid: "Checked",
         planCheckFix: "Needs correction",
         planCheckNonLive: "Non-live",
-        planCheckNoAuthority: "Not granted",
-        planAuditNote: "A submission creates an audit record; it is not an order, funding, or live permission.",
+        planCheckNoAuthority: "Not ready",
+        planAuditNote: "This change is saved in the change history.",
         copySummary: "Copy state",
         loginToRun: "Sign in to submit a plan",
         loadingConfig: "Loading config",
         configureAccounts: "Configure accounts",
-        runSwitch: "Submit bounded change",
+        runSwitch: "Save settings",
         noChanges: "No changes",
-        readonlyNote: "Sign in to submit a bounded configuration.",
+        readonlyNote: "Sign in to save settings.",
         publicReadonly: "Sign in to view account config.",
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
-        readyNote: "This submits a bounded configuration change; it grants no order, funding, or live authority.",
+        readyNote: "Review the changes above, then save.",
         invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         invalidOptionOverlayNote: "This strategy does not define an option layer to enable.",
         invalidDcaNote: "Enter a valid DCA mode and base amount.",
-        publicOauthTitle: "Protected by GitHub OAuth",
-        publicOauthText: "Only allowlisted accounts can open private config.",
-        publicWorkerTitle: "Worker-side dispatch",
-        publicWorkerText: "Tokens stay server-side; the browser submits intent only.",
-        publicAuditTitle: "Traceable changes",
-        publicAuditText: "Bounded configuration changes run through GitHub Actions for audit and rollback.",
         noAccount: "No accounts",
         noStrategy: "No supported strategies",
         repository: "Repository",
@@ -3310,13 +3283,6 @@
       el("lang-button").textContent = state.lang === "zh" ? "EN" : "中";
     }
 
-    function renderRuntimeAuthorityStatus() {
-      const status = String(runtimeAuthorityStatus.status || "UNKNOWN_RUNTIME_AUTHORITY_STATUS");
-      const asOf = String(runtimeAuthorityStatus.status_as_of || "—");
-      el("runtime-authority-status").textContent = status;
-      el("runtime-authority-as-of").textContent = t("runtimeAuthorityAsOf").replace("{asOf}", asOf);
-    }
-
     function renderPlatforms() {
       const strip = el("platform-strip");
       strip.replaceChildren();
@@ -3384,7 +3350,6 @@
       el("quick-form").hidden = !showPrivateControls;
       el("run-area").hidden = !showPrivateControls;
       el("public-note").hidden = showPrivateControls;
-      el("public-preview").hidden = showPrivateControls;
       el("public-note").textContent = state.auth.allowed ? t("missingConfigNote") : t("publicReadonly");
 
       if (!showPrivateControls) {
@@ -3813,6 +3778,44 @@
       }[decision] || String(decision || "—");
     }
 
+    const operatorLabels = {
+      kind: {
+        individual: { zh: "策略", en: "Strategy" },
+        portfolio: { zh: "组合", en: "Portfolio" },
+        plugin: { zh: "插件", en: "Plugin" },
+      },
+      status: {
+        research: { zh: "观察中", en: "Monitoring" },
+        evidence_pending: { zh: "待复核", en: "To review" },
+        verified: { zh: "正常", en: "Normal" },
+        deferred: { zh: "待复核", en: "To review" },
+        parked: { zh: "已暂停", en: "Paused" },
+        paper: { zh: "测试中", en: "Testing" },
+        shadow: { zh: "观察中", en: "Monitoring" },
+        owner_decision_required: { zh: "等待处理", en: "Needs attention" },
+      },
+      action: {
+        keep_research: { zh: "继续观察", en: "Keep monitoring" },
+        defer: { zh: "稍后复核", en: "Review later" },
+        park: { zh: "保持暂停", en: "Keep paused" },
+        auto_paper_evaluation: { zh: "继续测试", en: "Continue testing" },
+        auto_shadow_evaluation: { zh: "继续观察", en: "Keep monitoring" },
+        owner_live_decision: { zh: "需要确认", en: "Confirmation needed" },
+        none: { zh: "暂无操作", en: "No action" },
+      },
+      freshness: {
+        fresh: { zh: "最新", en: "Current" },
+        stale: { zh: "更新延迟", en: "Delayed" },
+        unavailable: { zh: "暂不可用", en: "Unavailable" },
+        unknown: { zh: "暂不可用", en: "Unavailable" },
+      },
+    };
+
+    function operatorLabel(group, value) {
+      const label = operatorLabels[group]?.[value];
+      return label ? (state.lang === "zh" ? label.zh : label.en) : "—";
+    }
+
     function controlPlaneDataStatusText(status) {
       return status === "ready"
         ? t("controlDataReady")
@@ -3853,7 +3856,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
       } else {
-        notice.textContent = payload.policy?.notice || "live 仍需所有者明确决定。";
+        notice.textContent = t("controlNormalNotice");
       }
 
       const list = el("control-plane-list");
@@ -3872,7 +3875,7 @@
         main.className = "health-card__main";
         const meta = document.createElement("div");
         meta.className = "health-card__meta";
-        meta.textContent = `${item.candidate_kind || "candidate"} · ${domainLabel(item.domain || "")}`;
+        meta.textContent = `${operatorLabel("kind", item.candidate_kind)} · ${domainLabel(item.domain || "")}`;
         const title = document.createElement("h4");
         title.className = "health-card__title";
         title.textContent = String(item.candidate_id || "unknown");
@@ -3881,19 +3884,19 @@
         reason.textContent = item.recommendation?.reason || t("controlNoRecommendation");
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
-        detail.textContent = t("controlStageMeta")
-          .replace("{stage}", item.lifecycle?.stage || "—")
-          .replace("{status}", item.lifecycle?.status || "unknown")
-          .replace("{freshness}", item.freshness?.status || "unknown");
+        detail.textContent = t("controlItemMeta")
+          .replace("{kind}", operatorLabel("status", item.lifecycle?.status))
+          .replace("{domain}", domainLabel(item.domain || ""))
+          .replace("{freshness}", operatorLabel("freshness", item.freshness?.status || "unknown"));
         main.append(meta, title, reason, detail);
         const stateBlock = document.createElement("div");
         stateBlock.className = "health-card__score";
         const label = document.createElement("small");
         label.textContent = t("controlNext");
         const stage = document.createElement("strong");
-        stage.textContent = item.lifecycle?.stage || "—";
+        stage.textContent = operatorLabel("action", item.recommendation?.code || "none");
         const recommendation = document.createElement("small");
-        recommendation.textContent = item.recommendation?.code || "none";
+        recommendation.textContent = `${t("controlStatus")}：${operatorLabel("status", item.lifecycle?.status)}`;
         stateBlock.append(label, stage, recommendation);
         const ownerEntry = ownerDecisionEntry(item.candidate_id);
         if (ownerEntry) {
@@ -4222,7 +4225,7 @@
         const status = document.createElement("div");
         status.className = "health-card__score";
         const label = document.createElement("small");
-        label.textContent = "M0";
+        label.textContent = state.lang === "zh" ? "研究" : "Research";
         const freshness = document.createElement("strong");
         freshness.textContent = m0ResearchLabel("freshness", observation.freshness?.status);
         const stateLabel = document.createElement("small");
@@ -4305,7 +4308,7 @@
         const status = document.createElement("div");
         status.className = "health-card__score";
         const label = document.createElement("small");
-        label.textContent = "NO ORDER";
+        label.textContent = state.lang === "zh" ? "研究次数" : "Research runs";
         const score = document.createElement("strong");
         score.textContent = typeof recommended?.score === "number" ? recommended.score.toFixed(3) : "—";
         const freshness = document.createElement("small");
@@ -4682,12 +4685,12 @@
       const payload = state.health.payload;
       const summary = payload.summary || {};
       const statusText = payload.data_status === "ready"
-        ? "快照已加载"
-        : (payload.data_status === "stale" ? "快照已过期" : "等待可用快照");
+        ? "已更新"
+        : (payload.data_status === "stale" ? "更新延迟" : "暂时无法读取");
       el("health-status").textContent = statusText;
       el("health-computed-at").textContent = payload.computed_at
-        ? `最近计算：${new Date(payload.computed_at).toLocaleString()}`
-        : "最近计算：—";
+        ? `更新于：${new Date(payload.computed_at).toLocaleString()}`
+        : "更新于：—";
       el("health-count-total").textContent = String(Number(summary.strategy_count) || 0);
       el("health-count-healthy").textContent = String(Number(summary.healthy) || 0);
       el("health-count-watch").textContent = String(Number(summary.watch) || 0);
@@ -4696,15 +4699,15 @@
 
       const notice = el("health-notice");
       if (!state.auth.allowed) {
-        notice.textContent = "登录后读取私有策略健康快照；没有快照时不会展示虚构指标。";
+        notice.textContent = "登录后查看策略状态。";
       } else if (payload.data_status === "stale") {
-        notice.textContent = "健康快照已超过允许的新鲜度窗口；页面保留原始状态，但不会把它当作当前健康结论。";
+        notice.textContent = "状态更新延迟，请稍后刷新。";
       } else if (payload.data_status !== "ready") {
-        notice.textContent = "还没有可用的策略健康快照；当前页面保持 fail-closed 空状态。";
+        notice.textContent = "暂时无法读取策略状态，请稍后刷新。";
       } else if (payload.errors?.length) {
-        notice.textContent = `快照已加载，但有 ${payload.errors.length} 个上游提示；缺失数据不会被替换成虚构指标。`;
+        notice.textContent = "部分策略状态暂不可用，请稍后重试。";
       } else {
-        notice.textContent = "健康不等于已批准 live；正常实盘、资金和杠杆变更仍需人工确认。";
+        notice.textContent = "当前策略状态已更新。";
       }
 
       const list = el("health-list");
@@ -4713,7 +4716,7 @@
       if (!strategies.length) {
         const empty = document.createElement("div");
         empty.className = "health-card__empty";
-        empty.textContent = "暂无可展示的策略健康快照。";
+        empty.textContent = "当前没有可展示的策略状态。";
         list.appendChild(empty);
         return;
       }
@@ -4765,7 +4768,6 @@
 
     function render() {
       applyLanguage();
-      renderRuntimeAuthorityStatus();
       renderConsoleView();
       renderControlPlane();
       renderM0Research();

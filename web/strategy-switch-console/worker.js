@@ -13,7 +13,6 @@ import {
   FALLBACK_INCOME_LAYER_DEFAULTS,
   FALLBACK_OPTION_OVERLAY_DEFAULTS,
   DCA_PROFILE_DEFAULTS,
-  RUNTIME_AUTHORITY_STATUS,
   RUNTIME_CATALOG_PROJECTION,
   STRATEGY_FEATURES,
 } from "./config.js";
@@ -310,7 +309,6 @@ const SECURITY_HEADERS = {
 const BOOTSTRAP_CONFIG_JS = [
   "// Generated from non-secret console configuration. Do not edit by hand.",
   `window.__PLATFORM_CONFIG__ = ${JSON.stringify(PLATFORM_CONFIG)};`,
-  `window.__QSL_RUNTIME_AUTHORITY_STATUS__ = ${JSON.stringify(RUNTIME_AUTHORITY_STATUS)};`,
   `window.__DEFAULT_ACCOUNT_OPTIONS__ = ${JSON.stringify(DEFAULT_ACCOUNT_OPTIONS)};`,
   `window.__DOMAIN_LABELS__ = ${JSON.stringify(DOMAIN_LABELS)};`,
   `window.__DEFAULT_STRATEGY_PROFILES__ = ${JSON.stringify(DEFAULT_STRATEGY_PROFILES)};`,
