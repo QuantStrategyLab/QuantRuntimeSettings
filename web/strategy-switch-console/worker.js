@@ -317,6 +317,22 @@ const BOOTSTRAP_CONFIG_JS = [
   `window.__OPTION_OVERLAY_DEFAULTS__ = ${JSON.stringify(FALLBACK_OPTION_OVERLAY_DEFAULTS)};`,
 ].join("\n");
 
+// A secondary external script keeps a failed or stale main bundle from
+// trapping a visitor behind the loading screen forever. It does not fetch,
+// mutate configuration, or grant access: it only reveals the static login
+// surface after the main boot flow has had time to finish its own timeout.
+const BOOT_RECOVERY_JS = [
+  "(() => {",
+  "  const delayMs = 20_000;",
+  "  window.setTimeout(() => {",
+  "    if (!document.body?.classList.contains('app-loading')) return;",
+  "    document.body.classList.remove('app-loading');",
+  "    const login = document.getElementById('login-link');",
+  "    if (login) login.hidden = false;",
+  "  }, delayMs);",
+  "})();",
+].join("\n");
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -421,8 +437,18 @@ export default {
           },
         });
       }
-      if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
-      if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600" } });
+      if (url.pathname === "/boot-recovery.js") {
+        return new Response(BOOT_RECOVERY_JS, {
+          status: 200,
+          headers: {
+            "Content-Type": "application/javascript; charset=utf-8",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+          },
+        });
+      }
+      if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store" } });
+      if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" } });
       return html(PAGE_HTML);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
