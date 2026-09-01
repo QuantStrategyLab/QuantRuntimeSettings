@@ -9,6 +9,7 @@ internal dependency matrix generator instead of replacing them in one step.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import subprocess
@@ -59,6 +60,9 @@ class RepoCheckResult:
     enforce_bundle: bool
     checkout_branch: str | None
     default_branch: str | None
+    inventory_status: str
+    owner: str
+    next_action: str
 
 
 def _git_output(repo_dir: Path, *args: str) -> str | None:
@@ -99,7 +103,16 @@ def _is_quant_repo(repo_dir: Path) -> bool:
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
         return False
-    return "github.com/QuantStrategyLab/" in remote
+    prefixes = (
+        "https://github.com/QuantStrategyLab/",
+        "git@github.com:QuantStrategyLab/",
+        "ssh://git@github.com/QuantStrategyLab/",
+    )
+    for prefix in prefixes:
+        if remote.startswith(prefix):
+            repo_name = remote[len(prefix) :].removesuffix("/")
+            return bool(repo_name) and "/" not in repo_name
+    return False
 
 
 def iter_qsl_repos(projects_root: Path) -> list[Path]:
@@ -107,7 +120,7 @@ def iter_qsl_repos(projects_root: Path) -> list[Path]:
     for repo_dir in sorted(projects_root.iterdir()):
         if not repo_dir.is_dir() or repo_dir.name.startswith("."):
             continue
-        if not (repo_dir / "qsl.toml").exists():
+        if not (repo_dir / ".git").exists():
             continue
         if _is_quant_repo(repo_dir):
             repos.append(repo_dir)
@@ -116,8 +129,26 @@ def iter_qsl_repos(projects_root: Path) -> list[Path]:
 
 def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
     checkout_branch, default_branch = _checkout_context(repo_root)
+    if not (repo_root / "qsl.toml").exists():
+        return RepoCheckResult(
+            repo=repo_root.name,
+            ok=False,
+            issues=["missing qsl.toml for active local QuantStrategyLab repository"],
+            warnings=[],
+            notes=[],
+            repo_root=str(repo_root),
+            bundle="",
+            tier="",
+            upgrade_ring="",
+            enforce_bundle=False,
+            checkout_branch=checkout_branch,
+            default_branch=default_branch,
+            inventory_status="missing_qsl",
+            owner="repository_maintainers",
+            next_action="add qsl.toml or remove the non-active checkout from this workspace scope",
+        )
+    inventory_status = "configured"
     try:
-        ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
         qsl_cfg = check_qsl_compat._load_qsl_config(repo_root)
     except (FileNotFoundError, ValueError, TypeError) as exc:
         ok = False
@@ -125,6 +156,15 @@ def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
         warnings = []
         notes = []
         qsl_cfg = {"bundle": "", "tier": "", "upgrade_ring": "", "enforce_bundle": False}
+        inventory_status = "invalid_qsl"
+    else:
+        try:
+            ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
+        except (FileNotFoundError, ValueError, TypeError) as exc:
+            ok = False
+            issues = [str(exc)]
+            warnings = []
+            notes = []
     return RepoCheckResult(
         repo=repo_root.name,
         ok=bool(ok),
@@ -138,6 +178,15 @@ def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
         enforce_bundle=bool(qsl_cfg["enforce_bundle"]),
         checkout_branch=checkout_branch,
         default_branch=default_branch,
+        inventory_status=inventory_status,
+        owner="repository_maintainers",
+        next_action=(
+            "repair invalid qsl.toml before compatibility planning"
+            if inventory_status == "invalid_qsl"
+            else "resolve reported compatibility issues"
+            if issues or warnings
+            else "none"
+        ),
     )
 
 
@@ -160,6 +209,9 @@ def _result_payload(result: RepoCheckResult) -> dict[str, Any]:
         "checkout_branch": result.checkout_branch,
         "default_branch": result.default_branch,
         "is_default_branch_checkout": result.checkout_branch == result.default_branch,
+        "inventory_status": result.inventory_status,
+        "owner": result.owner,
+        "next_action": result.next_action,
     }
 
 
@@ -222,6 +274,8 @@ def _status_bucket(result: RepoCheckResult) -> str:
 
 
 def _issue_kind(message: str) -> str:
+    if message.startswith("missing qsl.toml for active local QuantStrategyLab repository"):
+        return "missing qsl.toml"
     if message.startswith("invalid qsl.tier "):
         return "invalid qsl.tier"
     if message.startswith("invalid qsl.upgrade_ring "):
@@ -354,7 +408,98 @@ def _with_workspace_scope(
     return report
 
 
-def _workspace_plan(report: dict[str, Any]) -> dict[str, Any]:
+def _dependency_convergence(
+    repositories: list[dict[str, Any]], projects_root: Path, compat_root: Path
+) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
+    included_repositories = {item["repo"] for item in repositories}
+    pins = [
+        pin
+        for pin in check_internal_dependency_matrix.collect_dependency_pins_from_projects(projects_root)
+        if pin.consumer_repo in included_repositories
+    ]
+    matrix = check_internal_dependency_matrix.matrix_payload(pins)
+    rendered_matrix = json.dumps(matrix, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    candidates: dict[str, dict[str, dict[str, set[str]]]] = {}
+    for pin in pins:
+        candidate = candidates.setdefault(pin.source_repo, {}).setdefault(
+            pin.ref, {"origins": set(), "consumers": set(), "locations": set()}
+        )
+        candidate["origins"].add("workspace")
+        candidate["consumers"].add(pin.consumer_repo)
+        candidate["locations"].add(f"{pin.consumer_repo}/{pin.path}")
+
+    authority_errors: list[str] = []
+    bundle_names = sorted({item["bundle"] for item in repositories if item["bundle"]})
+    for bundle_name in bundle_names:
+        try:
+            bundle = check_qsl_compat._load_bundle(compat_root, bundle_name)
+        except (FileNotFoundError, ValueError, TypeError) as exc:
+            authority_errors.append(str(exc))
+            continue
+        for source_repo, ref in sorted(bundle.items()):
+            candidate = candidates.setdefault(source_repo, {}).setdefault(
+                ref, {"origins": set(), "consumers": set(), "locations": set()}
+            )
+            candidate["origins"].add(f"published_bundle:{bundle_name}")
+
+    decisions: list[dict[str, Any]] = []
+    requirements = [
+        "source repository gates",
+        "each consumer dependency and integration gate",
+        "strict QSL compatibility and dependency-matrix checks",
+    ]
+    for source_repo, refs in sorted(candidates.items()):
+        published_refs = sorted(
+            ref
+            for ref, metadata in refs.items()
+            if any(origin.startswith("published_bundle:") for origin in metadata["origins"])
+        )
+        observed_refs = sorted(
+            ref for ref, metadata in refs.items() if "workspace" in metadata["origins"]
+        )
+        is_consistent = len(published_refs) == 1 and (not observed_refs or observed_refs == published_refs)
+        decisions.append(
+            {
+                "source_repo": source_repo,
+                "status": "CONSISTENT" if is_consistent else "HUMAN_REQUIRED",
+                "published_bundle_refs": published_refs,
+                "candidate_refs": [
+                    {
+                        "ref": ref,
+                        "origins": sorted(metadata["origins"]),
+                        "consumer_repositories": sorted(metadata["consumers"]),
+                        "dependency_locations": sorted(metadata["locations"]),
+                    }
+                    for ref, metadata in sorted(refs.items())
+                ],
+                "consumer_repositories": sorted(
+                    {consumer for metadata in refs.values() for consumer in metadata["consumers"]}
+                ),
+                "compatibility_test_requirements": requirements,
+                "required_human_decision": (
+                    None
+                    if is_consistent
+                    else "choose whether consumers return to a published bundle ref or authorize a new bundle cohort"
+                ),
+            }
+        )
+
+    matrix_summary = {
+        "schema_version": matrix["schema_version"],
+        "dependency_count": len(matrix["dependencies"]),
+        "sha256": hashlib.sha256(rendered_matrix.encode("utf-8")).hexdigest(),
+    }
+    return decisions, sorted(authority_errors), matrix_summary
+
+
+def _workspace_plan(
+    report: dict[str, Any],
+    *,
+    projects_root: Path,
+    compat_root: Path,
+    inventory_repositories: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     phases: list[dict[str, Any]] = []
     for ring in report["rings"]:
         strict_repos = [repo for repo in ring["repositories"] if repo["status"] == "strict"]
@@ -382,8 +527,61 @@ def _workspace_plan(report: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    decisions, authority_errors, matrix_summary = _dependency_convergence(
+        report["repositories"],
+        projects_root=projects_root,
+        compat_root=compat_root,
+    )
+    inventory = report["repositories"] if inventory_repositories is None else inventory_repositories
+    missing_qsl = [
+        {
+            "repo": item["repo"],
+            "owner": item["owner"],
+            "next_action": item["next_action"],
+        }
+        for item in inventory
+        if item["inventory_status"] == "missing_qsl"
+    ]
+    invalid_qsl = [
+        {
+            "repo": item["repo"],
+            "owner": item["owner"],
+            "next_action": item["next_action"],
+        }
+        for item in inventory
+        if item["inventory_status"] == "invalid_qsl"
+    ]
+    strict_repositories = [
+        {
+            "repo": item["repo"],
+            "issue_count": len(item["issues"]),
+            "owner": item["owner"],
+            "next_action": item["next_action"],
+        }
+        for item in inventory
+        if item["issues"]
+    ]
+    requires_human = bool(
+        strict_repositories
+        or authority_errors
+        or any(decision["status"] == "HUMAN_REQUIRED" for decision in decisions)
+    )
     return {
         "schema_version": 1,
+        "convergence_schema_version": 1,
+        "decision_status": "HUMAN_REQUIRED" if requires_human else "CONSISTENT",
+        "workspace_inventory": {
+            "policy": "all local QuantStrategyLab origin checkouts are active in this workspace scope",
+            "configured_repositories": sorted(
+                item["repo"] for item in inventory if item["inventory_status"] == "configured"
+            ),
+            "missing_qsl": missing_qsl,
+            "invalid_qsl": invalid_qsl,
+            "strict_repositories": strict_repositories,
+        },
+        "authority_errors": authority_errors,
+        "actual_dependency_matrix": matrix_summary,
+        "dependency_decisions": decisions,
         "phases": phases,
         "bundle_hotspots": report["bundle_hotspots"],
         "issue_counts": report["issue_counts"],
@@ -423,6 +621,15 @@ def _print_report(report: dict[str, Any]) -> None:
 
 
 def _print_plan(plan: dict[str, Any]) -> None:
+    print(f"Decision status: {plan['decision_status']}")
+    if plan["workspace_inventory"]["missing_qsl"]:
+        print("Inventory gaps:")
+        for item in plan["workspace_inventory"]["missing_qsl"]:
+            print(f"  - {item['repo']}: {item['next_action']} (owner: {item['owner']})")
+    if plan["workspace_inventory"]["invalid_qsl"]:
+        print("Invalid QSL metadata:")
+        for item in plan["workspace_inventory"]["invalid_qsl"]:
+            print(f"  - {item['repo']}: {item['next_action']} (owner: {item['owner']})")
     print("QSL ring-by-ring convergence plan:")
     for idx, phase in enumerate(plan["phases"], start=1):
         print(f"{idx}. {phase['ring']} / {phase['tier']}")
@@ -495,14 +702,19 @@ def _cmd_plan(args: argparse.Namespace) -> int:
     results, excluded = _default_branch_results(all_results) if args.mainline_only else (all_results, [])
     report = _workspace_report(results, compat_root=args.compat_root.resolve())
     _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded)
-    plan = _workspace_plan(report)
+    plan = _workspace_plan(
+        report,
+        projects_root=args.projects_root.resolve(),
+        compat_root=args.compat_root.resolve(),
+        inventory_repositories=[_result_payload(result) for result in all_results],
+    )
     plan["scope"] = report["scope"]
     plan["excluded_nondefault_checkouts"] = report["excluded_nondefault_checkouts"]
     if args.json:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
     else:
         _print_plan(plan)
-    return 0
+    return 1 if args.strict and plan["decision_status"] == "HUMAN_REQUIRED" else 0
 
 
 def _matrix_payload(projects_root: Path) -> dict[str, Any]:
@@ -580,6 +792,11 @@ def build_parser() -> argparse.ArgumentParser:
     plan.add_argument("--projects-root", type=Path, default=DEFAULT_PROJECTS_ROOT)
     plan.add_argument("--compat-root", type=Path, default=DEFAULT_COMPAT_ROOT)
     plan.add_argument("--json", action="store_true")
+    plan.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero when inventory or dependency authority needs a human decision.",
+    )
     plan.add_argument(
         "--mainline-only",
         action="store_true",

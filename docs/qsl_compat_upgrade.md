@@ -71,11 +71,17 @@ python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 ```bash
 python3 python/scripts/qslctl.py generate-matrix --projects-root .. --check --strict
 python3 python/scripts/qslctl.py generate-matrix --projects-root .. --sync
+python3 python/scripts/qslctl.py plan --projects-root .. --json --strict
 python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files
 ```
 
 第一条命令用于 CI/监测，第二条只在经过下游 CI 的变更需要提交台账时使用。这样 bundle、
 候选和实际运行依赖不会再因重复手工维护而相互矛盾。
+
+`plan --strict` 把本地 workspace 中所有 QuantStrategyLab origin checkout 视为 active inventory；
+缺少 `qsl.toml` 的仓库会进入 `workspace_inventory.missing_qsl` 并返回非零。若实际依赖 ref 与
+已发布 bundle 不唯一一致，命令输出稳定排序的 `HUMAN_REQUIRED` 决策表（候选 ref、consumer、
+所需兼容测试），但不会选择或改写 canonical bundle。
 
 ## Phase-2 Transition Warning 收敛路径
 
