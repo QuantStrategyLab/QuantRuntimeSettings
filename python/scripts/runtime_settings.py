@@ -76,6 +76,16 @@ STRATEGY_RELEASE_DIGEST_FIELDS = frozenset(
 )
 STRATEGY_RELEASE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$")
 SHA256_PATTERN = re.compile(r"^(?:sha256:)?[0-9a-fA-F]{64}$")
+DECISION_DATA_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{1,127}$")
+DECISION_DATA_MODES = frozenset(
+    {"legacy_runtime_fetch", "artifact_optional", "artifact_required"}
+)
+DECISION_DATA_ASSURANCE_STATUSES = frozenset({"LEGACY", "VERIFIED", "DEGRADED", "PARKED"})
+DECISION_DATA_REQUIRED_FIELDS = frozenset(
+    {"binding_id", "binding_sha256", "strategy_scope", "mode", "source_ids", "assurance_status"}
+)
+DECISION_DATA_ARTIFACT_FIELDS = frozenset({"as_of", "adjustment_basis", "artifact_sha256"})
+DECISION_DATA_FIELDS = DECISION_DATA_REQUIRED_FIELDS | DECISION_DATA_ARTIFACT_FIELDS
 LIVE_CONTINUITY_STATES = frozenset(
     {
         "ACTIVE_LKG",
@@ -484,6 +494,7 @@ def validate_runtime_target(target: dict[str, Any], errors: list[str]) -> None:
         except (ZoneInfoNotFoundError, ValueError):
             errors.append(f"runtime_target.market_timezone is invalid: {market_timezone!r}")
     validate_strategy_release(runtime_target, errors)
+    validate_decision_data(runtime_target, errors)
     validate_live_continuity(runtime_target, errors)
 
 
@@ -523,6 +534,94 @@ def validate_strategy_release(runtime_target: dict[str, Any], errors: list[str])
                 errors.append(
                     "runtime_target.strategy_release.effective_session must be an ISO-8601 date"
                 )
+
+
+def validate_decision_data(runtime_target: dict[str, Any], errors: list[str]) -> None:
+    """Validate an optional public-safe decision-data binding summary.
+
+    The field is intentionally optional during the migration: adding the
+    schema must not change any incumbent target's execution behavior. Once a
+    target declares it, partial bindings, private paths, and silent fallback
+    shapes are rejected before settings can be published.
+    """
+
+    decision_data = runtime_target.get("decision_data")
+    if decision_data is None:
+        return
+    if not isinstance(decision_data, dict):
+        errors.append("runtime_target.decision_data must be an object when present")
+        return
+
+    unsupported = sorted(set(decision_data) - DECISION_DATA_FIELDS)
+    if unsupported:
+        errors.append(
+            "runtime_target.decision_data contains unsupported fields: " + ", ".join(unsupported)
+        )
+    for field in sorted(DECISION_DATA_REQUIRED_FIELDS):
+        if field not in decision_data:
+            errors.append(f"runtime_target.decision_data.{field} is required")
+
+    for field in ("binding_id", "strategy_scope"):
+        value = decision_data.get(field)
+        if not isinstance(value, str) or not DECISION_DATA_IDENTIFIER_PATTERN.fullmatch(value.strip()):
+            errors.append(f"runtime_target.decision_data.{field} must be a stable identifier")
+
+    binding_sha256 = decision_data.get("binding_sha256")
+    if not isinstance(binding_sha256, str) or not SHA256_PATTERN.fullmatch(binding_sha256.strip()):
+        errors.append("runtime_target.decision_data.binding_sha256 must be a SHA-256 digest")
+
+    mode = decision_data.get("mode")
+    if mode not in DECISION_DATA_MODES:
+        errors.append(
+            "runtime_target.decision_data.mode must be one of " + ", ".join(sorted(DECISION_DATA_MODES))
+        )
+
+    source_ids = decision_data.get("source_ids")
+    if not isinstance(source_ids, list) or not source_ids:
+        errors.append("runtime_target.decision_data.source_ids must be a non-empty list")
+    elif (
+        not all(isinstance(value, str) and DECISION_DATA_IDENTIFIER_PATTERN.fullmatch(value.strip()) for value in source_ids)
+        or len(set(source_ids)) != len(source_ids)
+    ):
+        errors.append("runtime_target.decision_data.source_ids must contain unique stable identifiers")
+
+    assurance_status = decision_data.get("assurance_status")
+    if assurance_status not in DECISION_DATA_ASSURANCE_STATUSES:
+        errors.append(
+            "runtime_target.decision_data.assurance_status must be one of "
+            + ", ".join(sorted(DECISION_DATA_ASSURANCE_STATUSES))
+        )
+
+    if mode == "legacy_runtime_fetch":
+        unexpected = sorted(field for field in DECISION_DATA_ARTIFACT_FIELDS if field in decision_data)
+        if unexpected:
+            errors.append(
+                "runtime_target.decision_data.legacy_runtime_fetch must not contain " + ", ".join(unexpected)
+            )
+        if assurance_status != "LEGACY":
+            errors.append("runtime_target.decision_data.legacy_runtime_fetch requires assurance_status LEGACY")
+        return
+
+    for field in sorted(DECISION_DATA_ARTIFACT_FIELDS):
+        value = decision_data.get(field)
+        if not isinstance(value, str) or not value.strip():
+            errors.append(f"runtime_target.decision_data.{field} is required for artifact modes")
+    artifact_sha256 = decision_data.get("artifact_sha256")
+    if isinstance(artifact_sha256, str) and artifact_sha256.strip() and not SHA256_PATTERN.fullmatch(artifact_sha256.strip()):
+        errors.append("runtime_target.decision_data.artifact_sha256 must be a SHA-256 digest")
+    adjustment_basis = decision_data.get("adjustment_basis")
+    if isinstance(adjustment_basis, str) and adjustment_basis.strip() and not DECISION_DATA_IDENTIFIER_PATTERN.fullmatch(adjustment_basis.strip()):
+        errors.append("runtime_target.decision_data.adjustment_basis must be a stable identifier")
+    as_of = decision_data.get("as_of")
+    if isinstance(as_of, str) and as_of.strip():
+        try:
+            date.fromisoformat(as_of.strip())
+        except ValueError:
+            errors.append("runtime_target.decision_data.as_of must be an ISO-8601 date")
+    if assurance_status == "LEGACY":
+        errors.append("runtime_target.decision_data artifact modes must not use LEGACY assurance_status")
+    if mode == "artifact_required" and assurance_status != "VERIFIED":
+        errors.append("runtime_target.decision_data artifact_required requires assurance_status VERIFIED")
 
 
 def validate_live_continuity(runtime_target: dict[str, Any], errors: list[str]) -> None:
