@@ -2953,7 +2953,7 @@ const parkedSourceSync = await worker.fetch(
         evidence: { ...controlSourcePayload.candidates[0].evidence, p3_evidence_id: null },
         recommendation: { code: "park", reason: "P3 parked: runtime_internal_failure." },
       }],
-      errors: ["p3_parked"],
+      errors: ["p3_parked", "decision_data_projection_parked"],
     }),
   }),
   controlEnv,
@@ -2969,6 +2969,7 @@ assert.equal(parkedControlPayload.attention.status, "attention_required");
 assert.deepEqual(parkedControlPayload.attention.reason_codes, [
   "control_plane_candidate_parked",
   "control_plane_duplicate_candidate",
+  "decision_data_projection_parked",
   "p3_parked",
 ]);
 
