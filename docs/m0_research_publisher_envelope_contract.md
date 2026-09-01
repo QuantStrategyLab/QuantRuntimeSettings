@@ -86,12 +86,16 @@ header；它从不写进封套、标准输出、错误信息或日志。该工�
 `ledger_sha256` 和 `ledger.policy` 的 `research_only/no_order` 固定值。接收、展示或
 排队研究任务都不能构成 P4/P5/P6、Shadow、Paper 或 live 授权。
 
-## 手动发布已验证的 QAR 周报
+## 自动发布已验证的 QAR 周报
 
-`.github/workflows/publish-m0-research-ledger.yml` 是唯一的跨仓 M0 发布入口。
-它只有 `workflow_dispatch`，不按 push、定时任务或其他 workflow 事件自动运行。操作员
-必须输入一个**已经成功完成**的 `QuantStrategyLab/QuantAdvisorResearch`「Weekly
-Intelligent Advisory Review」run ID；它不会检索、猜测或自动采用最新 run。
+`.github/workflows/publish-m0-research-ledger.yml` 是唯一的跨仓 M0 发布入口。它会在每周六
+17:20 UTC 自动运行；QAR 的周报在每周六 12:30 UTC 开始，因此正常情况下留有四小时以上的
+完成时间。自动路径只会选择一个在过去 12 小时内成功完成、来自 `main` 的**定时** QAR
+周报；若没有这样的新产物，工作流会失败关闭，不会重发旧研究。
+
+`workflow_dispatch` 仍保留为恢复和重放入口。人工触发时必须输入一个**已经成功完成**的
+`QuantStrategyLab/QuantAdvisorResearch`「Weekly Intelligent Advisory Review」run ID；手动路径
+不会检索或猜测最新 run。
 
 该 job 必须在 `QuantRuntimeSettings` 的 `main` 分支运行（`github.ref` 必须为
 `refs/heads/main`），并绑定专用 GitHub Environment `m0-research-publisher`。环境的
@@ -105,7 +109,7 @@ deployment branch 也必须只允许 `main`；从其他 ref 手动 dispatch 时 
 - artifact：`weekly-model-recommendations`；
 - artifact 内唯一命名为 `m0_research_source_snapshot_YYYY-MM-DD.json` 的文件。
 
-在下载前，workflow 用 GitHub App 临时安装令牌验证 run ID、成功状态、workflow 身份、
+无论是自动还是手动路径，在下载前 workflow 都会用 GitHub App 临时安装令牌验证 run ID、成功状态、workflow 身份、
 来源仓库和 `head_repository`、`head_branch=main`、可信 event（仅
 `schedule` 或 `workflow_dispatch`）、immutable `head_sha`，以及 artifact 与该 run 的绑定。下载后，
 它拒绝不安全 ZIP 路径、多个或缺失 snapshot、超过 2 MiB 的 snapshot、错误 schema/source

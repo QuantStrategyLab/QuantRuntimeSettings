@@ -1,22 +1,27 @@
 name: Publish verified M0 research ledger
 
-# This deliberately has no push, schedule, or repository-dispatch trigger.
-# An operator must select one already-successful QAR weekly run by its immutable
-# run ID.  This workflow only transfers a research-only ledger to the console;
-# it has no strategy, platform, runtime, or order access.
+# This workflow only transfers a research-only ledger to the console; it has no
+# strategy, platform, runtime, or order access.  The scheduled path selects one
+# fresh, successful QAR *scheduled* run and revalidates its immutable metadata
+# and artifact before publication.  A manual run remains available for replay
+# and repair, but must name one immutable QAR run ID explicitly.
 on:
   workflow_dispatch:
     inputs:
       qar_run_id:
-        description: "Required successful QAR Weekly Intelligent Advisory Review run ID; this workflow never selects the latest run."
+        description: "Required successful QAR Weekly Intelligent Advisory Review run ID for a manual replay or repair."
         required: true
         type: string
+  schedule:
+    # QAR starts its Saturday weekly report at 12:30 UTC.  This leaves more
+    # than four hours for a normal 45-minute QAR run to complete.
+    - cron: "20 17 * * 6"
 
 permissions:
   contents: read
 
 concurrency:
-  group: publish-m0-research-ledger-${{ inputs.qar_run_id }}
+  group: publish-m0-research-ledger-${{ github.event_name }}-${{ inputs.qar_run_id || github.run_id }}
   cancel-in-progress: false
 
 jobs:
@@ -31,7 +36,7 @@ jobs:
       QAR_REPOSITORY: QuantStrategyLab/QuantAdvisorResearch
       QAR_WEEKLY_WORKFLOW_ID: "285971223"
       QAR_WEEKLY_ARTIFACT_NAME: weekly-model-recommendations
-      QAR_RUN_ID: ${{ inputs.qar_run_id }}
+      QAR_RUN_ID: ${{ inputs.qar_run_id || '' }}
     steps:
       - name: Checkout publisher revision
         uses: actions/checkout@v6
@@ -53,6 +58,81 @@ jobs:
           owner: QuantStrategyLab
           repositories: QuantAdvisorResearch
           permission-actions: read
+
+      - name: Resolve fresh scheduled QAR run
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}
+        run: |
+          set -euo pipefail
+          scheduled_runs="${RUNNER_TEMP}/fresh-qar-scheduled-runs.json"
+          gh api \
+            "repos/${QAR_REPOSITORY}/actions/workflows/${QAR_WEEKLY_WORKFLOW_ID}/runs?status=success&branch=main&event=schedule&per_page=20" \
+            > "${scheduled_runs}"
+
+          python3 - "${scheduled_runs}" <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from datetime import datetime, timedelta, timezone
+          from pathlib import Path
+
+          payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+          runs = payload.get("workflow_runs")
+          if not isinstance(runs, list):
+              raise SystemExit("QAR scheduled-run listing is invalid")
+
+          expected_repository = os.environ["QAR_REPOSITORY"]
+          expected_workflow_id = int(os.environ["QAR_WEEKLY_WORKFLOW_ID"])
+          now = datetime.now(timezone.utc)
+          max_age = timedelta(hours=12)
+
+          def parse_utc(value: object) -> datetime | None:
+              if not isinstance(value, str):
+                  return None
+              try:
+                  parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+              except ValueError:
+                  return None
+              return parsed if parsed.tzinfo else None
+
+          selected_run_id = None
+          for candidate in runs:
+              if not isinstance(candidate, dict):
+                  continue
+              repository = candidate.get("repository")
+              head_repository = candidate.get("head_repository")
+              completed_at = parse_utc(candidate.get("updated_at"))
+              age = now - completed_at if completed_at else None
+              if (
+                  candidate.get("workflow_id") != expected_workflow_id
+                  or candidate.get("status") != "completed"
+                  or candidate.get("conclusion") != "success"
+                  or candidate.get("event") != "schedule"
+                  or candidate.get("head_branch") != "main"
+                  or not isinstance(repository, dict)
+                  or repository.get("full_name") != expected_repository
+                  or not isinstance(head_repository, dict)
+                  or head_repository.get("full_name") != expected_repository
+                  or not isinstance(candidate.get("id"), int)
+                  or candidate["id"] <= 0
+                  or age is None
+                  or age < timedelta(0)
+                  or age > max_age
+              ):
+                  continue
+              selected_run_id = str(candidate["id"])
+              break
+
+          if selected_run_id is None:
+              raise SystemExit(
+                  "No fresh successful scheduled QAR weekly run is available; "
+                  "M0 publication is skipped rather than replaying stale research."
+              )
+          with Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8") as env_file:
+              env_file.write(f"QAR_RUN_ID={selected_run_id}\n")
+          PY
 
       - name: Verify immutable successful QAR weekly run
         env:
