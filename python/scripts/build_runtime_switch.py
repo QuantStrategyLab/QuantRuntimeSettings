@@ -847,6 +847,15 @@ def _build_runtime_target(args: argparse.Namespace) -> dict[str, Any]:
     execution_windows = _load_json_object(args.execution_windows_json, field_name="execution_windows_json")
     if execution_windows:
         runtime_target["execution_windows"] = execution_windows
+    raw_decision_data = str(args.decision_data_json or "").strip()
+    if raw_decision_data:
+        # This is a public-safe identity summary, never an artifact location
+        # or a credential. validate_target() applies the exact contract before
+        # the switch can be emitted.
+        runtime_target["decision_data"] = _load_json_object(
+            raw_decision_data,
+            field_name="decision_data_json",
+        )
     _apply_live_continuity(runtime_target, args)
     return runtime_target
 
@@ -1113,6 +1122,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--account-scope", default="")
     parser.add_argument("--service-name", default="")
     parser.add_argument("--execution-windows-json", default="")
+    parser.add_argument(
+        "--decision-data-json",
+        default="",
+        help=(
+            "Public-safe frozen decision-data binding summary; excludes URLs, "
+            "credentials, accounts, raw bars, and artifact locations."
+        ),
+    )
     parser.add_argument(
         "--live-continuity-state",
         choices=("NONE", *sorted(LIVE_CONTINUITY_STATES)),

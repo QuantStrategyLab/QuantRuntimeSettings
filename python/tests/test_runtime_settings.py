@@ -1558,6 +1558,40 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         )
         self.assertEqual(runtime_settings.validate_target(target), [])
 
+    def test_build_switch_target_carries_only_validated_public_decision_data_binding(self):
+        parser = build_runtime_switch.build_parser()
+        binding = {
+            "binding_id": "soxl-soxx-p1-20260901",
+            "binding_sha256": "a" * 64,
+            "strategy_scope": "soxl_soxx_trend_income",
+            "mode": "artifact_optional",
+            "source_ids": ["uesp_p1"],
+            "as_of": "2026-09-01",
+            "adjustment_basis": "split_adjusted",
+            "artifact_sha256": "b" * 64,
+            "assurance_status": "VERIFIED",
+        }
+
+        target = build_runtime_switch.build_switch_target(
+            parser.parse_args(
+                [
+                    "--platform",
+                    "longbridge",
+                    "--target-name",
+                    "sg",
+                    "--strategy-profile",
+                    "soxl_soxx_trend_income",
+                    "--execution-mode",
+                    "live",
+                    "--decision-data-json",
+                    json.dumps(binding),
+                ]
+            )
+        )
+
+        self.assertEqual(target["runtime_target"]["decision_data"], binding)
+        self.assertEqual(runtime_settings.validate_target(target), [])
+
     def test_build_switch_target_rejects_continuity_for_dry_run(self):
         parser = build_runtime_switch.build_parser()
         args = parser.parse_args(
