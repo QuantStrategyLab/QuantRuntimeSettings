@@ -9,21 +9,28 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github" / "workflows" / "publish-m0-research-ledger.yml"
 
 
-class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
-    def test_workflow_is_manual_and_binds_one_explicit_successful_qar_artifact(self):
+class M0ResearchPublisherWorkflowTest(unittest.TestCase):
+    def test_workflow_binds_one_verified_qar_artifact_for_manual_and_scheduled_runs(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request|schedule|repository_dispatch):")
+        self.assertIn('cron: "20 17 * * 6"', workflow)
+        self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request|repository_dispatch):")
         self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
         self.assertIn("environment: m0-research-publisher", workflow)
         self.assertRegex(
             workflow,
             r"(?s)qar_run_id:\n.*?required: true\n.*?type: string",
         )
-        self.assertIn("never selects the latest run", workflow)
-        self.assertNotIn("gh run list", workflow)
-        self.assertNotIn("actions/runs?", workflow)
+        self.assertIn("Resolve fresh scheduled QAR run", workflow)
+        self.assertIn("if: github.event_name == 'schedule'", workflow)
+        self.assertIn(
+            "actions/workflows/${QAR_WEEKLY_WORKFLOW_ID}/runs?status=success&branch=main&event=schedule&per_page=20",
+            workflow,
+        )
+        self.assertIn("No fresh successful scheduled QAR weekly run is available", workflow)
+        self.assertIn("M0 publication is skipped rather than replaying stale research", workflow)
+        self.assertIn('env_file.write(f"QAR_RUN_ID={selected_run_id}\\n")', workflow)
         self.assertIn("QAR_REPOSITORY: QuantStrategyLab/QuantAdvisorResearch", workflow)
         self.assertIn('QAR_WEEKLY_WORKFLOW_ID: "285971223"', workflow)
         self.assertIn("QAR_WEEKLY_ARTIFACT_NAME: weekly-model-recommendations", workflow)
@@ -60,10 +67,7 @@ class ManualM0ResearchPublisherWorkflowTest(unittest.TestCase):
         self.assertIn("repositories: QuantAdvisorResearch", workflow)
         self.assertIn("permission-actions: read", workflow)
         self.assertNotIn("QAR_ARTIFACT_READ_TOKEN", workflow)
-        self.assertEqual(
-            workflow.count("GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}"),
-            3,
-        )
+        self.assertEqual(workflow.count("GH_TOKEN: ${{ steps.qar-artifact-reader.outputs.token }}"), 4)
         self.assertIn(
             "QSL_M0_RESEARCH_LEDGER_PUBLISH_URL: ${{ vars.M0_RESEARCH_SYNC_URL }}",
             workflow,
