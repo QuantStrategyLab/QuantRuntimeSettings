@@ -20,6 +20,29 @@ MODULE_SPEC.loader.exec_module(qslctl)
 
 
 class QslCtlTest(unittest.TestCase):
+    def test_is_quant_repo_accepts_exact_org_https_and_ssh_origins(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            repo_root = Path(workspace) / "Repo"
+            (repo_root / ".git").mkdir(parents=True)
+
+            accepted = [
+                "https://github.com/QuantStrategyLab/Repo.git",
+                "git@github.com:QuantStrategyLab/Repo.git",
+                "ssh://git@github.com/QuantStrategyLab/Repo.git",
+            ]
+            for remote in accepted:
+                with self.subTest(remote=remote), patch.object(
+                    qslctl.subprocess, "check_output", return_value=remote
+                ):
+                    self.assertTrue(qslctl._is_quant_repo(repo_root))
+
+            with patch.object(
+                qslctl.subprocess,
+                "check_output",
+                return_value="git@github.com:OtherOwner/QuantStrategyLab-Repo.git",
+            ):
+                self.assertFalse(qslctl._is_quant_repo(repo_root))
+
     def test_check_all_reports_repo_issues(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:
             root = Path(workspace)
@@ -72,6 +95,25 @@ class QslCtlTest(unittest.TestCase):
         by_repo = {result.repo: result for result in results}
         self.assertFalse(by_repo["QuantPlatformKit"].ok)
         self.assertTrue(any("forbidden dependency direction" in item for item in by_repo["QuantPlatformKit"].issues))
+
+    def test_check_all_reports_quant_repo_missing_qsl_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            missing = root / "MissingRepo"
+            (missing / ".git").mkdir(parents=True)
+
+            with patch.object(qslctl, "_is_quant_repo", return_value=True):
+                results = qslctl.check_all(projects_root=root, compat_root=compat_root)
+
+        result = next(item for item in results if item.repo == "MissingRepo")
+        payload = qslctl._result_payload(result)
+        self.assertFalse(result.ok)
+        self.assertEqual(payload["inventory_status"], "missing_qsl")
+        self.assertEqual(payload["owner"], "repository_maintainers")
+        self.assertEqual(payload["next_action"], "add qsl.toml or remove the non-active checkout from this workspace scope")
+        self.assertIn("missing qsl.toml for active local QuantStrategyLab repository", result.issues)
 
     def test_report_groups_repositories_by_ring(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:
@@ -205,6 +247,251 @@ class QslCtlTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
 
+    def test_plan_emits_byte_stable_human_required_dependency_decision(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_repo(root / "ConsumerB", "2026.07.2", "b" * 40)
+            self._write_repo(root / "ConsumerA", "2026.07.2", "a" * 40)
+
+            outputs = []
+            for _ in range(2):
+                buf = io.StringIO()
+                with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                    exit_code = qslctl.main(
+                        [
+                            "plan",
+                            "--projects-root",
+                            str(root),
+                            "--compat-root",
+                            str(compat_root),
+                            "--json",
+                            "--strict",
+                        ]
+                    )
+                outputs.append(buf.getvalue())
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(outputs[0], outputs[1])
+        payload = json.loads(outputs[0])
+        self.assertEqual(payload["decision_status"], "HUMAN_REQUIRED")
+        decision = next(item for item in payload["dependency_decisions"] if item["source_repo"] == "QuantPlatformKit")
+        self.assertEqual(decision["status"], "HUMAN_REQUIRED")
+        self.assertEqual([item["ref"] for item in decision["candidate_refs"]], ["a" * 40, "b" * 40])
+        self.assertEqual(decision["consumer_repositories"], ["ConsumerA", "ConsumerB"])
+        self.assertEqual(
+            decision["compatibility_test_requirements"],
+            [
+                "source repository gates",
+                "each consumer dependency and integration gate",
+                "strict QSL compatibility and dependency-matrix checks",
+            ],
+        )
+
+    def test_plan_strict_accepts_one_published_observed_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_repo(root / "Consumer", "2026.07.2", "a" * 40)
+
+            buf = io.StringIO()
+            with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                exit_code = qslctl.main(
+                    [
+                        "plan",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--json",
+                        "--strict",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["decision_status"], "CONSISTENT")
+        self.assertEqual(payload["dependency_decisions"][0]["status"], "CONSISTENT")
+
+    def test_plan_strict_fails_closed_when_configured_bundle_manifest_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_repo(root / "Consumer", "missing-bundle", "a" * 40, include_dependency=False)
+
+            result = qslctl.check_repo(root / "Consumer", compat_root)
+            buf = io.StringIO()
+            with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                exit_code = qslctl.main(
+                    [
+                        "plan",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--json",
+                        "--strict",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(result.bundle, "missing-bundle")
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["decision_status"], "HUMAN_REQUIRED")
+        self.assertTrue(payload["authority_errors"])
+
+    def test_plan_strict_accepts_bundle_only_single_published_ref(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_repo(root / "Consumer", "2026.07.2", "a" * 40, include_dependency=False)
+
+            buf = io.StringIO()
+            with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                exit_code = qslctl.main(
+                    [
+                        "plan",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--json",
+                        "--strict",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["decision_status"], "CONSISTENT")
+        self.assertEqual(payload["dependency_decisions"][0]["status"], "CONSISTENT")
+
+    def test_plan_strict_reports_invalid_qsl_inventory_and_fails_closed(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            invalid = root / "InvalidRepo"
+            (invalid / ".git").mkdir(parents=True)
+            (invalid / "qsl.toml").write_text(
+                'tier = "strategy-lib"\nupgrade_ring = "ring_b"\n',
+                encoding="utf-8",
+            )
+
+            result = qslctl.check_repo(invalid, compat_root)
+            buf = io.StringIO()
+            with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                exit_code = qslctl.main(
+                    [
+                        "plan",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--json",
+                        "--strict",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(result.inventory_status, "invalid_qsl")
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["decision_status"], "HUMAN_REQUIRED")
+        self.assertEqual(
+            payload["workspace_inventory"]["invalid_qsl"],
+            [
+                {
+                    "repo": "InvalidRepo",
+                    "owner": "repository_maintainers",
+                    "next_action": "repair invalid qsl.toml before compatibility planning",
+                }
+            ],
+        )
+
+    def test_plan_strict_fails_closed_for_any_strict_repository_issue(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_repo(
+                root / "StrictRepo",
+                "2026.07.2",
+                "a" * 40,
+                tier="invalid-tier",
+                include_dependency=False,
+            )
+
+            buf = io.StringIO()
+            with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                exit_code = qslctl.main(
+                    [
+                        "plan",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--json",
+                        "--strict",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["decision_status"], "HUMAN_REQUIRED")
+        self.assertEqual(payload["dependency_decisions"][0]["status"], "CONSISTENT")
+        self.assertEqual(payload["workspace_inventory"]["strict_repositories"][0]["repo"], "StrictRepo")
+
+    def test_plan_mainline_only_keeps_all_checkout_inventory_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_repo(root / "MainRepo", "2026.07.2", "a" * 40, include_dependency=False)
+            feature = root / "FeatureRepo"
+            (feature / ".git").mkdir(parents=True)
+
+            def checkout_context(repo_root: Path) -> tuple[str | None, str | None]:
+                return ("main", "main") if repo_root.name == "MainRepo" else ("agent/review", "main")
+
+            buf = io.StringIO()
+            with (
+                patch.object(qslctl, "_is_quant_repo", return_value=True),
+                patch.object(qslctl, "_checkout_context", side_effect=checkout_context),
+                contextlib.redirect_stdout(buf),
+            ):
+                exit_code = qslctl.main(
+                    [
+                        "plan",
+                        "--projects-root",
+                        str(root),
+                        "--compat-root",
+                        str(compat_root),
+                        "--mainline-only",
+                        "--json",
+                        "--strict",
+                    ]
+                )
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(payload["decision_status"], "HUMAN_REQUIRED")
+        self.assertEqual(payload["scope"], "local_default_branch_checkouts")
+        self.assertEqual(payload["workspace_inventory"]["missing_qsl"][0]["repo"], "FeatureRepo")
+        self.assertEqual(
+            payload["excluded_nondefault_checkouts"],
+            [{"repo": "FeatureRepo", "checkout_branch": "agent/review", "default_branch": "main"}],
+        )
+        self.assertEqual([phase["ring"] for phase in payload["phases"]], ["ring_b"])
+        self.assertEqual(payload["dependency_decisions"][0]["status"], "CONSISTENT")
+
     def _write_bundle(self, compat_root: Path, bundle_name: str, repos: dict[str, str]) -> None:
         path = compat_root / "compat" / "bundles" / f"{bundle_name}.toml"
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -243,17 +530,20 @@ class QslCtlTest(unittest.TestCase):
         tier: str = "strategy-lib",
         ring: str = "ring_b",
         enforce_bundle: bool = True,
+        include_dependency: bool = True,
     ) -> None:
         repo_root.mkdir(parents=True, exist_ok=True)
+        (repo_root / ".git").mkdir(exist_ok=True)
         (repo_root / "qsl.toml").write_text(
             f'tier = "{tier}"\nupgrade_ring = "{ring}"\n[compat]\nbundle = "{bundle}"\n'
             f'enforce_bundle = {"true" if enforce_bundle else "false"}\n',
             encoding="utf-8",
         )
-        (repo_root / "pyproject.toml").write_text(
-            f'dependencies = ["{package} @ git+https://github.com/QuantStrategyLab/{source_repo}.git@{ref}"]\n',
-            encoding="utf-8",
-        )
+        if include_dependency:
+            (repo_root / "pyproject.toml").write_text(
+                f'dependencies = ["{package} @ git+https://github.com/QuantStrategyLab/{source_repo}.git@{ref}"]\n',
+                encoding="utf-8",
+            )
 
 
 if __name__ == "__main__":
