@@ -16,6 +16,7 @@ EXPECTED_RECEIPT_SHA256 = {
     "ai-provenance-and-evaluation-v3.json": "5a403948e027db50f0cbf2baa9a9e75abc51198d1475aad38a1c622972b406b1",
     "qsl-dependency-cohort-2026.09.0-canonical-promotion.json": "a71c78aa2a6b7477cd3065f7eabc2a2696fd45ae8e3fc0232b1d1d9a51affe44",
     "qsl-dependency-cohort-2026.09.0.json": "ec0e49c503e5ad309e11714f2d994cfecbaf95bd968c1afb80fa27426a1a4a81",
+    "qsl-dependency-cohort-2026.09.1-canonical-promotion.json": "20f992101389291af9492d3411701914f43046e25584c01767b0f2bc720c8288",
     "qsl-dependency-cohort-2026.09.1.json": "b979ba62e4b44af2c0f90b151c38b114f7bf7e45f7fb2045db550674457b156d",
     "tqqq-conservative-research-v1.json": "c0c5020fbe64057b735f987b3bcc490dfe708304b58f01d57cd581344afb44c8",
 }
@@ -259,7 +260,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
             hashlib.sha256(risk_receipt_path.read_bytes()).hexdigest(),
             receipt["risk_authority_receipt_sha256"],
         )
-        self.assertFalse(canonical_path.exists())
+        self.assertEqual(canonical_path.read_bytes(), candidate_path.read_bytes())
 
     def test_dependency_canonical_promotion_receipt_freezes_gate_evidence(self) -> None:
         receipt = _load_receipt("qsl-dependency-cohort-2026.09.0-canonical-promotion.json")
@@ -269,7 +270,8 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         evidence_sha256 = hashlib.sha256(evidence_raw).hexdigest()
         candidate_path = ROOT / "authority" / "candidates" / "2026.09.0.toml"
         canonical_path = ROOT / "compat" / "bundles" / "2026.09.0.toml"
-        matrix_path = ROOT / "internal_dependency_matrix.json"
+        historical_matrix_sha256 = "fa976ba2cfe6aca9576a6c5c5ef61f80eaccfa37c893428145d6252c97638a45"
+        historical_qsl_sha256 = "31f011cb80b6e43d9da0f60d6e077199e00577b4e566f6de2ed4142900cb9ad7"
         strict_path = ROOT / evidence["prepared_workspace"]["artifact_path"]
         matrix_evidence_path = ROOT / evidence["dependency_matrix"]["artifact_path"]
         strict_raw = strict_path.read_bytes()
@@ -367,11 +369,11 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         )
         self.assertEqual(
             strict_evidence["promotion_inputs"]["dependency_matrix_sha256"],
-            hashlib.sha256(matrix_path.read_bytes()).hexdigest(),
+            historical_matrix_sha256,
         )
         self.assertEqual(
             strict_evidence["promotion_inputs"]["quant_runtime_settings_qsl_sha256"],
-            hashlib.sha256((ROOT / "qsl.toml").read_bytes()).hexdigest(),
+            historical_qsl_sha256,
         )
         qrs_evidence = next(
             repo for repo in strict_evidence["repositories"]
@@ -380,7 +382,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertEqual(qrs_evidence["source_control_state"], "promotion_worktree_base")
         self.assertEqual(
             qrs_evidence["qsl_metadata_sha256"],
-            hashlib.sha256((ROOT / "qsl.toml").read_bytes()).hexdigest(),
+            historical_qsl_sha256,
         )
         self.assertTrue(
             all(
@@ -397,7 +399,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         )
         self.assertEqual(
             evidence["dependency_matrix"]["matrix_sha256"],
-            hashlib.sha256(matrix_path.read_bytes()).hexdigest(),
+            historical_matrix_sha256,
         )
         self.assertEqual(matrix_evidence["schema_version"], "qsl.dependency-matrix-strict-evidence.v1")
         self.assertTrue(matrix_evidence["qsl_generate_matrix_check"]["command_contract"]["strict"])
@@ -411,7 +413,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertTrue(matrix_evidence["dependency_ledger_check"]["ok"])
         self.assertEqual(matrix_evidence["dependency_ledger_check"]["issue_count"], 0)
         self.assertEqual(matrix_evidence["dependency_ledger_check"]["missing_file_count"], 0)
-        self.assertEqual(matrix_evidence["matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertEqual(matrix_evidence["matrix_sha256"], historical_matrix_sha256)
         self.assertEqual(
             matrix_evidence["repository_revisions"],
             {repo["repository"]: repo["revision"] for repo in strict_evidence["repositories"]},
@@ -453,6 +455,189 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
                 for check in pull_request["post_merge_checks"]
             )
         )
+        self.assertFalse(receipt["runtime_activation_authorized"])
+        self.assertFalse(receipt["provider_or_replay_authorized"])
+        self.assertFalse(receipt["deployment_authorized"])
+        self.assertFalse(receipt["paper_or_live_authorized"])
+        self.assertTrue(receipt["no_live_execution"])
+        self.assertIsNone(receipt["signature"])
+
+    def test_2026_09_1_canonical_promotion_freezes_prepared_main_and_pr_evidence(self) -> None:
+        receipt = _load_receipt("qsl-dependency-cohort-2026.09.1-canonical-promotion.json")
+        candidate_receipt = _load_receipt("qsl-dependency-cohort-2026.09.1.json")
+        candidate_path = ROOT / "authority" / "candidates" / "2026.09.1.toml"
+        canonical_path = ROOT / "compat" / "bundles" / "2026.09.1.toml"
+        evidence_path = EVIDENCE_ROOT / "qsl-dependency-cohort-2026.09.1-prepared-convergence.json"
+        evidence_raw = evidence_path.read_bytes()
+        evidence = json.loads(evidence_raw)
+        strict_path = ROOT / evidence["prepared_workspace"]["artifact_path"]
+        matrix_evidence_path = ROOT / evidence["dependency_matrix"]["artifact_path"]
+        matrix_path = ROOT / "internal_dependency_matrix.json"
+        strict_raw = strict_path.read_bytes()
+        matrix_evidence_raw = matrix_evidence_path.read_bytes()
+        strict_evidence = json.loads(strict_raw)
+        matrix_evidence = json.loads(matrix_evidence_raw)
+        expected_pull_requests = {
+            "BinancePlatform": 191,
+            "CharlesSchwabPlatform": 351,
+            "CnEquitySnapshotPipelines": 34,
+            "CnEquityStrategies": 228,
+            "CryptoLivePoolPipelines": 166,
+            "CryptoStrategies": 210,
+            "FirstradePlatform": 296,
+            "HkEquitySnapshotPipelines": 69,
+            "HkEquityStrategies": 214,
+            "InteractiveBrokersPlatform": 451,
+            "LongBridgePlatform": 419,
+            "QmtPlatform": 45,
+            "UsEquitySnapshotPipelines": 463,
+            "UsEquityStrategies": 445,
+        }
+        expected_pre_checks = {
+            (repository, number): {("CI", "test")}
+            for repository, number in expected_pull_requests.items()
+        }
+        expected_pre_checks[("CnEquityStrategies", 228)] = {("CI", "actionlint"), ("CI", "test")}
+        expected_pre_checks[("CryptoStrategies", 210)] = {("CI", "actionlint"), ("CI", "test")}
+        expected_pre_checks[("QuantRuntimeSettings", 355)] = {
+            ("Validate", "actionlint"),
+            ("Validate", "js"),
+            ("Validate", "python"),
+        }
+        expected_pre_checks[("QuantPlatformKit", 525)] = {("CI", "test")}
+        expected_pre_checks[("QuantPlatformKit", 527)] = {("CI", "test")}
+        expected_post_checks = {
+            key: {("CI", "CI")}
+            for key in expected_pre_checks
+        }
+        expected_post_checks[("QuantRuntimeSettings", 355)] = {("Validate", "Validate")}
+        expected_post_checks[("QuantPlatformKit", 525)] = {
+            ("CI", "CI"),
+            ("Update QPK Pin", "Update QPK Pin"),
+        }
+
+        self.assertEqual(receipt["schema_version"], "qsl.human-authority-receipt.v1")
+        self.assertEqual(receipt["authority_role"], "dependency-authority")
+        self.assertEqual(receipt["decision"], "CANONICAL_APPROVED")
+        self.assertEqual(receipt["bundle"], "2026.09.1")
+        self.assertTrue(receipt["canonical_promotion_authorized"])
+        self.assertTrue(receipt["consumer_main_converged"])
+        self.assertEqual(receipt["candidate_receipt_sha256"], EXPECTED_RECEIPT_SHA256["qsl-dependency-cohort-2026.09.1.json"])
+        self.assertEqual(canonical_path.read_bytes(), candidate_path.read_bytes())
+        self.assertEqual(receipt["candidate_manifest_sha256"], hashlib.sha256(candidate_path.read_bytes()).hexdigest())
+        self.assertEqual(receipt["canonical_bundle_sha256"], receipt["candidate_manifest_sha256"])
+        self.assertEqual(receipt["consumer_gate_evidence_path"], str(evidence_path.relative_to(ROOT)))
+        self.assertEqual(receipt["consumer_gate_evidence_sha256"], hashlib.sha256(evidence_raw).hexdigest())
+        for artifact_path, artifact_raw, artifact in (
+            (evidence_path, evidence_raw, evidence),
+            (strict_path, strict_raw, strict_evidence),
+            (matrix_evidence_path, matrix_evidence_raw, matrix_evidence),
+        ):
+            artifact_sha256 = hashlib.sha256(artifact_raw).hexdigest()
+            self.assertEqual(artifact_raw, (json.dumps(artifact, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode())
+            self.assertNotIn("/Users/", artifact_raw.decode())
+            self.assertEqual(
+                artifact_path.with_suffix(artifact_path.suffix + ".sha256").read_text(),
+                f"{artifact_sha256}  {artifact_path.name}\n",
+            )
+
+        self.assertEqual(evidence["prepared_workspace"]["total_repositories"], 25)
+        self.assertEqual(evidence["prepared_workspace"]["failed_repositories"], 0)
+        self.assertEqual(evidence["prepared_workspace"]["issue_count"], 0)
+        self.assertEqual(evidence["prepared_workspace"]["warning_count"], 0)
+        self.assertEqual(evidence["prepared_workspace"]["artifact_sha256"], hashlib.sha256(strict_raw).hexdigest())
+        self.assertEqual(evidence["dependency_matrix"]["artifact_sha256"], hashlib.sha256(matrix_evidence_raw).hexdigest())
+        self.assertEqual(evidence["dependency_matrix"]["matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertTrue(all(value is False for value in evidence["safety_boundary"].values()))
+        self.assertEqual(evidence["schema_version"], "qsl.consumer-convergence-evidence.v1")
+        self.assertEqual(strict_evidence["schema_version"], "qsl.check-all-strict-evidence.v1")
+        self.assertEqual(strict_evidence["command_contract"]["action"], "check-all")
+        self.assertTrue(strict_evidence["command_contract"]["strict"])
+        self.assertEqual(strict_evidence["exit_code"], 0)
+        self.assertEqual(strict_evidence["summary"], {
+            key: evidence["prepared_workspace"][key]
+            for key in (
+                "failed_repositories",
+                "issue_count",
+                "total_repositories",
+                "warning_count",
+                "warning_repositories",
+            )
+        })
+        self.assertEqual(len(strict_evidence["repositories"]), 25)
+        self.assertTrue(all(FULL_SHA.fullmatch(repo["revision"]) for repo in strict_evidence["repositories"]))
+        self.assertTrue(all(repo["ok"] and not repo["issues"] and not repo["warnings"] for repo in strict_evidence["repositories"]))
+        self.assertEqual(strict_evidence["promotion_inputs"]["candidate_manifest_sha256"], hashlib.sha256(candidate_path.read_bytes()).hexdigest())
+        self.assertEqual(strict_evidence["promotion_inputs"]["canonical_bundle_sha256"], hashlib.sha256(canonical_path.read_bytes()).hexdigest())
+        self.assertEqual(strict_evidence["promotion_inputs"]["dependency_matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertEqual(strict_evidence["promotion_inputs"]["quant_runtime_settings_qsl_sha256"], hashlib.sha256((ROOT / "qsl.toml").read_bytes()).hexdigest())
+        self.assertEqual(matrix_evidence["schema_version"], "qsl.dependency-matrix-strict-evidence.v1")
+        self.assertTrue(matrix_evidence["qsl_generate_matrix_check"]["command_contract"]["check"])
+        self.assertTrue(matrix_evidence["qsl_generate_matrix_check"]["command_contract"]["strict"])
+        self.assertEqual(matrix_evidence["qsl_generate_matrix_check"]["generated_dependency_count"], 52)
+        self.assertTrue(matrix_evidence["qsl_generate_matrix_check"]["ok"])
+        self.assertTrue(matrix_evidence["dependency_ledger_check"]["command_contract"]["strict"])
+        self.assertTrue(matrix_evidence["dependency_ledger_check"]["command_contract"]["require_consumer_files"])
+        self.assertTrue(matrix_evidence["dependency_ledger_check"]["ok"])
+        self.assertEqual(matrix_evidence["dependency_ledger_check"]["issue_count"], 0)
+        self.assertEqual(matrix_evidence["dependency_ledger_check"]["missing_file_count"], 0)
+
+        strict_revisions = {repo["repository"]: repo["revision"] for repo in strict_evidence["repositories"]}
+        self.assertEqual(matrix_evidence["matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertEqual(matrix_evidence["repository_revisions"], strict_revisions)
+        qrs_evidence = next(repo for repo in strict_evidence["repositories"] if repo["repository"] == "QuantRuntimeSettings")
+        self.assertEqual(qrs_evidence["source_control_state"], "promotion_worktree_base")
+        self.assertEqual(qrs_evidence["qsl_metadata_sha256"], hashlib.sha256((ROOT / "qsl.toml").read_bytes()).hexdigest())
+        self.assertTrue(all(
+            repo["source_control_state"] == "origin_main"
+            for repo in strict_evidence["repositories"]
+            if repo["repository"] != "QuantRuntimeSettings"
+        ))
+        consumer_pull_requests = evidence["consumer_pull_requests"]
+        self.assertEqual(len(consumer_pull_requests), 14)
+        self.assertEqual(
+            [(pull_request["repository"], pull_request["number"]) for pull_request in consumer_pull_requests],
+            list(expected_pull_requests.items()),
+        )
+
+        def assert_pull_request_gate(pull_request: dict[str, object]) -> None:
+            key = (pull_request["repository"], pull_request["number"])
+            self.assertEqual(pull_request["state"], "MERGED")
+            self.assertEqual(pull_request["unresolved_review_threads"], 0)
+            self.assertTrue(FULL_SHA.fullmatch(pull_request["base_commit"]))
+            self.assertTrue(FULL_SHA.fullmatch(pull_request["head_commit"]))
+            self.assertTrue(FULL_SHA.fullmatch(pull_request["merge_commit"]))
+            self.assertTrue(pull_request["checks"])
+            self.assertTrue(pull_request["post_merge_checks"])
+            self.assertEqual(pull_request["url"], f"https://github.com/QuantStrategyLab/{pull_request['repository']}/pull/{pull_request['number']}")
+            self.assertEqual(
+                {(check["workflow_name"], check["name"]) for check in pull_request["checks"]},
+                expected_pre_checks[key],
+            )
+            self.assertEqual(
+                {(check["workflow_name"], check["name"]) for check in pull_request["post_merge_checks"]},
+                expected_post_checks[key],
+            )
+            self.assertEqual(len({check["details_url"] for check in pull_request["checks"]}), len(pull_request["checks"]))
+            self.assertEqual(len({check["details_url"] for check in pull_request["post_merge_checks"]}), len(pull_request["post_merge_checks"]))
+            self.assertTrue(all(check["revision"] == pull_request["head_commit"] for check in pull_request["checks"]))
+            self.assertTrue(all(check["revision"] == pull_request["merge_commit"] for check in pull_request["post_merge_checks"]))
+            self.assertTrue(all(check["event"] == "push" for check in pull_request["post_merge_checks"]))
+            self.assertTrue(all(check["status"] == "COMPLETED" and check["conclusion"] == "SUCCESS" for check in pull_request["checks"]))
+            self.assertTrue(all(check["status"] == "COMPLETED" and check["conclusion"] == "SUCCESS" for check in pull_request["post_merge_checks"]))
+
+        for pull_request in consumer_pull_requests:
+            assert_pull_request_gate(pull_request)
+            self.assertEqual(strict_revisions[pull_request["repository"]], pull_request["merge_commit"])
+        for key in ("candidate_source_pull_request", "dependency_contract_pull_request", "aggregate_pin_pull_request"):
+            assert_pull_request_gate(evidence[key])
+        self.assertEqual(evidence["candidate_source_pull_request"]["number"], 355)
+        self.assertEqual(evidence["candidate_source_pull_request"]["merge_commit"], receipt["source_revision"])
+        self.assertEqual(strict_revisions["QuantRuntimeSettings"], receipt["source_revision"])
+        self.assertEqual(evidence["dependency_contract_pull_request"]["number"], 525)
+        self.assertEqual(evidence["dependency_contract_pull_request"]["merge_commit"], candidate_receipt["selected_refs"]["QuantPlatformKit"])
+        self.assertEqual(evidence["aggregate_pin_pull_request"]["number"], 527)
+        self.assertEqual(evidence["aggregate_pin_pull_request"]["merge_commit"], strict_revisions["QuantPlatformKit"])
         self.assertFalse(receipt["runtime_activation_authorized"])
         self.assertFalse(receipt["provider_or_replay_authorized"])
         self.assertFalse(receipt["deployment_authorized"])
