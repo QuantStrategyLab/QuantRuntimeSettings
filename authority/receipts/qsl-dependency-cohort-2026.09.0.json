@@ -1,0 +1,50 @@
+{
+  "alpaca_registration": {
+    "allow_legacy": false,
+    "enforce_bundle": true,
+    "internal_dependencies": [],
+    "owner": "runtime-platform",
+    "tier": "runtime",
+    "upgrade_ring": "ring_d"
+  },
+  "authority_role": "dependency-authority",
+  "bundle": "2026.09.0",
+  "canonical_promotion_authorized": false,
+  "consumer_convergence": {
+    "UsEquitySnapshotPipelines.QuantStrategyPlugins": "a261447bad9bb13525692d41348c98df4f67766c"
+  },
+  "decided_at": "2026-09-02T05:23:04Z",
+  "decided_by": "QuantStrategyLab human authority",
+  "decision": "CANDIDATE_APPROVED",
+  "decision_id": "QSL-DEP-20260902-001",
+  "decision_source": "explicit_user_authorization_in_codex_thread",
+  "integrity": "sha256_sidecar_and_immutable_repository_revision",
+  "no_live_execution": true,
+  "prohibited": [
+    "main_or_latest_dependency_refs",
+    "open_pr_heads_as_authority",
+    "lowering_enforce_bundle",
+    "provider_or_replay",
+    "deployment",
+    "paper_or_live_activation"
+  ],
+  "promotion_requires": [
+    "all_consumer_pins_converged",
+    "all_required_checks_success",
+    "qsl_check_all_strict_success",
+    "qsl_generate_matrix_check_strict_success",
+    "consumer_gate_artifact_digests_recorded",
+    "separate_canonical_promotion_receipt"
+  ],
+  "schema_version": "qsl.human-authority-receipt.v1",
+  "selected_refs": {
+    "CnEquityStrategies": "aa2af9c56cc6600159a2bf83f2181ef721e14511",
+    "CryptoStrategies": "0301b7852f013fb1090497b60dfad6e86801403d",
+    "HkEquityStrategies": "6284d95fbf40895cc1b415444d686774f1cfdfb1",
+    "MarketSignalSources": "9b3a0d13d29b807ac3fe5de962c37c5e798e322b",
+    "QuantPlatformKit": "08eed913248953986224e09ea3a8dd9f5ebedc4e",
+    "QuantStrategyPlugins": "a261447bad9bb13525692d41348c98df4f67766c",
+    "UsEquityStrategies": "d72fdc9feaa6a9bfe3d91cad240b54c19556d5f1"
+  },
+  "signature": null
+}
