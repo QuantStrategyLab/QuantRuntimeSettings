@@ -1,0 +1,60 @@
+{
+  "bundle": "2026.09.0",
+  "dependency_ledger_check": {
+    "checked_file_count": 30,
+    "command_contract": {
+      "json": true,
+      "projects_root": "<prepared-main-workspace>",
+      "require_consumer_files": true,
+      "strict": true,
+      "tool": "python/scripts/check_internal_dependency_matrix.py"
+    },
+    "exit_code": 0,
+    "issue_count": 0,
+    "missing_file_count": 0,
+    "ok": true
+  },
+  "generated_at": "2026-09-02T06:42:43Z",
+  "matrix_sha256": "fa976ba2cfe6aca9576a6c5c5ef61f80eaccfa37c893428145d6252c97638a45",
+  "qsl_generate_matrix_check": {
+    "command_contract": {
+      "action": "generate-matrix",
+      "check": true,
+      "json": true,
+      "projects_root": "<prepared-main-workspace>",
+      "strict": true,
+      "tool": "python/scripts/qslctl.py"
+    },
+    "exit_code": 0,
+    "generated_dependency_count": 52,
+    "ok": true
+  },
+  "repository_revisions": {
+    "AIAuditBridge": "f7b3201cab74c730adecd4dcec42693a3399d29f",
+    "AlpacaPlatform": "959a5ff07e6d8f537459a0267243e9270baf969e",
+    "BinancePlatform": "be9dd515b0e33fb8536fe0e36ec32abaf85f1d35",
+    "CharlesSchwabPlatform": "aca0cd069d1e2e2deaba3547ee070006f5e3147a",
+    "CnEquitySnapshotPipelines": "947a92ff14faf854d6d8d52aa8897c0ec5f7a0a2",
+    "CnEquityStrategies": "71bca12989d737076ab368038c65aca7a5c30938",
+    "CryptoLivePoolPipelines": "c61de4d355406bf1e92c4b51aa5d9e72392962c4",
+    "CryptoStrategies": "dff553bd2d427dd22e040053450d20081cd888cd",
+    "FirstradePlatform": "7e637855faa86e57e8477f97d11accc4e23d34ce",
+    "HkEquitySnapshotPipelines": "18ff1abf91b71fe3a57d9108812cb2b8f3b94624",
+    "HkEquityStrategies": "6b6beeb15215cef26d6f4fd71e841600b3e46471",
+    "IBKRGatewayManager": "59c87c14d92cd29579ff94054953929e78f35afe",
+    "InteractiveBrokersPlatform": "c3e05ca378aefb15f7befdfdea81c63c12738622",
+    "LongBridgePlatform": "0ebc5882665af49d6b228044a5fae7d215378148",
+    "MarketSignalSources": "9b3a0d13d29b807ac3fe5de962c37c5e798e322b",
+    "PoliticalEventTrackingResearch": "3ae23e1bf972f98a8c525ecd1d358d4e1e6050fa",
+    "QmtPlatform": "a5854a2b9ff5bb67a0867c0c723dcbc6803b5d6e",
+    "QuantAdvisorResearch": "108cc8fb4cfb8de249dad97ef3e4a249a5f91d2c",
+    "QuantPlatformKit": "c6bc93188cd43d69ba15138ac424f829364d8b49",
+    "QuantRuntimeSettings": "8ceb4bf32462e1a5086e7fe67c110de971b42ec1",
+    "QuantStrategyPlugins": "a261447bad9bb13525692d41348c98df4f67766c",
+    "ResearchSignalContextPipelines": "9fa3ebc680379b5b1397e71731a9dbb0d3623ddd",
+    "SchwabTokenAutoRefresher": "396b9524eedc183cf5b09f00d10010c3895d901f",
+    "UsEquitySnapshotPipelines": "11f007e8787988c0f57bf816a549802f50e4cf89",
+    "UsEquityStrategies": "c83b6a7d4b52973a6b1b4a71c67b8e396fc8b75e"
+  },
+  "schema_version": "qsl.dependency-matrix-strict-evidence.v1"
+}
