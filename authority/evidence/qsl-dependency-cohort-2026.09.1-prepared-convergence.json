@@ -1,0 +1,722 @@
+{
+  "aggregate_pin_pull_request": {
+    "base_commit": "3ff38c428eb824d2cfea85aa37fffdefdfbfdc70",
+    "checks": [
+      {
+        "completed_at": "2026-09-02T09:24:06Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantPlatformKit/actions/runs/33613810510/job/100194916678",
+        "name": "test",
+        "revision": "9459f7faa769046038a5c41243dddcf2579dcf9b",
+        "started_at": "2026-09-02T09:23:11Z",
+        "status": "COMPLETED",
+        "workflow_name": "CI"
+      }
+    ],
+    "head_commit": "9459f7faa769046038a5c41243dddcf2579dcf9b",
+    "merge_commit": "ffbb58fa7f719d8f4df27f3a45f2061bd867f710",
+    "merged_at": "2026-09-02T09:24:42Z",
+    "number": 527,
+    "post_merge_checks": [
+      {
+        "completed_at": "2026-09-02T09:25:39Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantPlatformKit/actions/runs/33613961452",
+        "event": "push",
+        "name": "CI",
+        "revision": "ffbb58fa7f719d8f4df27f3a45f2061bd867f710",
+        "started_at": "2026-09-02T09:24:44Z",
+        "status": "COMPLETED",
+        "workflow_name": "CI"
+      }
+    ],
+    "repository": "QuantPlatformKit",
+    "state": "MERGED",
+    "unresolved_review_threads": 0,
+    "url": "https://github.com/QuantStrategyLab/QuantPlatformKit/pull/527"
+  },
+  "bundle": "2026.09.1",
+  "candidate_source_pull_request": {
+    "base_commit": "1eb72e4be2c20f991be5e10153ae046ba0fde496",
+    "checks": [
+      {
+        "completed_at": "2026-09-02T08:53:47Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611144150/job/100186319288",
+        "name": "actionlint",
+        "revision": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+        "started_at": "2026-09-02T08:53:37Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      },
+      {
+        "completed_at": "2026-09-02T08:53:41Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611136819/job/100186295099",
+        "name": "actionlint",
+        "revision": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+        "started_at": "2026-09-02T08:53:33Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      },
+      {
+        "completed_at": "2026-09-02T08:54:15Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611144150/job/100186319454",
+        "name": "python",
+        "revision": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+        "started_at": "2026-09-02T08:53:37Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      },
+      {
+        "completed_at": "2026-09-02T08:54:05Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611136819/job/100186295144",
+        "name": "python",
+        "revision": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+        "started_at": "2026-09-02T08:53:32Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      },
+      {
+        "completed_at": "2026-09-02T08:53:54Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611144150/job/100186319546",
+        "name": "js",
+        "revision": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+        "started_at": "2026-09-02T08:53:38Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      },
+      {
+        "completed_at": "2026-09-02T08:53:50Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611136819/job/100186294764",
+        "name": "js",
+        "revision": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+        "started_at": "2026-09-02T08:53:32Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      }
+    ],
+    "head_commit": "9720a4999cdecf9b6e6df38786e29fdeee9ecc6e",
+    "merge_commit": "71dc45cd1818406b32548a1a17067b379d584bb8",
+    "merged_at": "2026-09-02T08:54:53Z",
+    "number": 355,
+    "post_merge_checks": [
+      {
+        "completed_at": "2026-09-02T08:55:34Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/33611264355",
+        "event": "push",
+        "name": "Validate",
+        "revision": "71dc45cd1818406b32548a1a17067b379d584bb8",
+        "started_at": "2026-09-02T08:54:56Z",
+        "status": "COMPLETED",
+        "workflow_name": "Validate"
+      }
+    ],
+    "repository": "QuantRuntimeSettings",
+    "state": "MERGED",
+    "unresolved_review_threads": 0,
+    "url": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/355"
+  },
+  "consumer_pull_requests": [
+    {
+      "base_commit": "be9dd515b0e33fb8536fe0e36ec32abaf85f1d35",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:07:23Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/BinancePlatform/actions/runs/33612329656/job/100190138139",
+          "name": "test",
+          "revision": "eea259a3bd77523a46c137974decee6af26b402a",
+          "started_at": "2026-09-02T09:06:52Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "eea259a3bd77523a46c137974decee6af26b402a",
+      "merge_commit": "ceb90c30462be48ad38590aa6520cc85ade77acd",
+      "merged_at": "2026-09-02T09:10:07Z",
+      "number": 191,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:10:44Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/BinancePlatform/actions/runs/33612633356",
+          "event": "push",
+          "name": "CI",
+          "revision": "ceb90c30462be48ad38590aa6520cc85ade77acd",
+          "started_at": "2026-09-02T09:10:10Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "BinancePlatform",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/BinancePlatform/pull/191"
+    },
+    {
+      "base_commit": "aca0cd069d1e2e2deaba3547ee070006f5e3147a",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:07:10Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/33612315309/job/100190095030",
+          "name": "test",
+          "revision": "e10dc2ae6108589ca6156060ebd11232ede79632",
+          "started_at": "2026-09-02T09:06:42Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "e10dc2ae6108589ca6156060ebd11232ede79632",
+      "merge_commit": "8ff79071e22a75d6f034336311154131630b7127",
+      "merged_at": "2026-09-02T09:09:53Z",
+      "number": 351,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:10:23Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/33612612117",
+          "event": "push",
+          "name": "CI",
+          "revision": "8ff79071e22a75d6f034336311154131630b7127",
+          "started_at": "2026-09-02T09:09:56Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "CharlesSchwabPlatform",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/351"
+    },
+    {
+      "base_commit": "947a92ff14faf854d6d8d52aa8897c0ec5f7a0a2",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:12:43Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CnEquitySnapshotPipelines/actions/runs/33612815565/job/100191720867",
+          "name": "test",
+          "revision": "c0dfc2f0308ffcf9a566fc19f186f7291d4e3454",
+          "started_at": "2026-09-02T09:12:17Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "c0dfc2f0308ffcf9a566fc19f186f7291d4e3454",
+      "merge_commit": "059cb39533444f63715ac4dfa08eb62e1598ccd0",
+      "merged_at": "2026-09-02T09:16:28Z",
+      "number": 34,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:17:06Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CnEquitySnapshotPipelines/actions/runs/33613210266",
+          "event": "push",
+          "name": "CI",
+          "revision": "059cb39533444f63715ac4dfa08eb62e1598ccd0",
+          "started_at": "2026-09-02T09:16:32Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "CnEquitySnapshotPipelines",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/CnEquitySnapshotPipelines/pull/34"
+    },
+    {
+      "base_commit": "9cb62eb34e16bb6dde300595b74f38a3b6a2d4c1",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:01:32Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CnEquityStrategies/actions/runs/33611839588/job/100188568993",
+          "name": "actionlint",
+          "revision": "4e4416ee93f5562a34740202f1b6c6235ebe025d",
+          "started_at": "2026-09-02T09:01:27Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        },
+        {
+          "completed_at": "2026-09-02T09:02:44Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CnEquityStrategies/actions/runs/33611839588/job/100188569130",
+          "name": "test",
+          "revision": "4e4416ee93f5562a34740202f1b6c6235ebe025d",
+          "started_at": "2026-09-02T09:01:27Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "4e4416ee93f5562a34740202f1b6c6235ebe025d",
+      "merge_commit": "1eff321946fea967ebeff71b0b028ca7a8924252",
+      "merged_at": "2026-09-02T09:03:52Z",
+      "number": 228,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:05:27Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CnEquityStrategies/actions/runs/33612076536",
+          "event": "push",
+          "name": "CI",
+          "revision": "1eff321946fea967ebeff71b0b028ca7a8924252",
+          "started_at": "2026-09-02T09:04:00Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "CnEquityStrategies",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/CnEquityStrategies/pull/228"
+    },
+    {
+      "base_commit": "c61de4d355406bf1e92c4b51aa5d9e72392962c4",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:13:40Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CryptoLivePoolPipelines/actions/runs/33612871933/job/100191901330",
+          "name": "test",
+          "revision": "6cc2b85b818951abadad35787d2762567ba22324",
+          "started_at": "2026-09-02T09:12:55Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "6cc2b85b818951abadad35787d2762567ba22324",
+      "merge_commit": "c2d5cdca2a39a77dc6b1c5ced2447c66f0df4e9a",
+      "merged_at": "2026-09-02T09:16:43Z",
+      "number": 166,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:17:39Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CryptoLivePoolPipelines/actions/runs/33613230778",
+          "event": "push",
+          "name": "CI",
+          "revision": "c2d5cdca2a39a77dc6b1c5ced2447c66f0df4e9a",
+          "started_at": "2026-09-02T09:16:46Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "CryptoLivePoolPipelines",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/CryptoLivePoolPipelines/pull/166"
+    },
+    {
+      "base_commit": "dd88b39991122338f00e649e4d7c32533d1cbcb3",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:02:00Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CryptoStrategies/actions/runs/33611878248/job/100188695305",
+          "name": "actionlint",
+          "revision": "21107b7e8776e4d094e5032d0a8b619bbf65ce3f",
+          "started_at": "2026-09-02T09:01:52Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        },
+        {
+          "completed_at": "2026-09-02T09:02:26Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CryptoStrategies/actions/runs/33611878248/job/100188694917",
+          "name": "test",
+          "revision": "21107b7e8776e4d094e5032d0a8b619bbf65ce3f",
+          "started_at": "2026-09-02T09:01:52Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "21107b7e8776e4d094e5032d0a8b619bbf65ce3f",
+      "merge_commit": "9186bbab26e48e3b8b9cd658f55f8fc60c70361f",
+      "merged_at": "2026-09-02T09:04:07Z",
+      "number": 210,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:04:51Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/CryptoStrategies/actions/runs/33612091849",
+          "event": "push",
+          "name": "CI",
+          "revision": "9186bbab26e48e3b8b9cd658f55f8fc60c70361f",
+          "started_at": "2026-09-02T09:04:11Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "CryptoStrategies",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/CryptoStrategies/pull/210"
+    },
+    {
+      "base_commit": "94c4e81bee310a3afb70dab4c0536c3900fb64ad",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:07:22Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/FirstradePlatform/actions/runs/33612323161/job/100190120363",
+          "name": "test",
+          "revision": "5a687e46841938ba503fa94943dfc7e9a2a36235",
+          "started_at": "2026-09-02T09:06:47Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "5a687e46841938ba503fa94943dfc7e9a2a36235",
+      "merge_commit": "d42a93cd45d27a8f915675a9074b164efeb85eca",
+      "merged_at": "2026-09-02T09:09:59Z",
+      "number": 296,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:10:43Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/FirstradePlatform/actions/runs/33612621937",
+          "event": "push",
+          "name": "CI",
+          "revision": "d42a93cd45d27a8f915675a9074b164efeb85eca",
+          "started_at": "2026-09-02T09:10:03Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "FirstradePlatform",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/FirstradePlatform/pull/296"
+    },
+    {
+      "base_commit": "18ff1abf91b71fe3a57d9108812cb2b8f3b94624",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:13:07Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/actions/runs/33612833852/job/100191778817",
+          "name": "test",
+          "revision": "c6cd38b8cad9e0920b6dbfb5fca46edf213c3af7",
+          "started_at": "2026-09-02T09:12:29Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "c6cd38b8cad9e0920b6dbfb5fca46edf213c3af7",
+      "merge_commit": "ee3d41250c2f7bbddbd5d7a25e3cd33f78a1c62f",
+      "merged_at": "2026-09-02T09:16:36Z",
+      "number": 69,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:17:28Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/actions/runs/33613219953",
+          "event": "push",
+          "name": "CI",
+          "revision": "ee3d41250c2f7bbddbd5d7a25e3cd33f78a1c62f",
+          "started_at": "2026-09-02T09:16:39Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "HkEquitySnapshotPipelines",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/HkEquitySnapshotPipelines/pull/69"
+    },
+    {
+      "base_commit": "35bc21e1f237c4a23ad2f02f8ced7c7845d77331",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:02:25Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/HkEquityStrategies/actions/runs/33611852356/job/100188610758",
+          "name": "test",
+          "revision": "ae54474b9dfc71435cc06904d01046b570f74a16",
+          "started_at": "2026-09-02T09:01:35Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "ae54474b9dfc71435cc06904d01046b570f74a16",
+      "merge_commit": "51c6b648501e316594f854290f0a33a524d2ce0f",
+      "merged_at": "2026-09-02T09:04:00Z",
+      "number": 214,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:04:58Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/HkEquityStrategies/actions/runs/33612080791",
+          "event": "push",
+          "name": "CI",
+          "revision": "51c6b648501e316594f854290f0a33a524d2ce0f",
+          "started_at": "2026-09-02T09:04:03Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "HkEquityStrategies",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/HkEquityStrategies/pull/214"
+    },
+    {
+      "base_commit": "c3e05ca378aefb15f7befdfdea81c63c12738622",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:13:27Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/33612888041/job/100191951085",
+          "name": "test",
+          "revision": "929f7d2b607ed92ccd5011069d96ee09d0c8f49f",
+          "started_at": "2026-09-02T09:13:05Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "929f7d2b607ed92ccd5011069d96ee09d0c8f49f",
+      "merge_commit": "606b11e8ad0c05844f9dbfd8f6b8867a8132c375",
+      "merged_at": "2026-09-02T09:16:52Z",
+      "number": 451,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:17:19Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/33613244404",
+          "event": "push",
+          "name": "CI",
+          "revision": "606b11e8ad0c05844f9dbfd8f6b8867a8132c375",
+          "started_at": "2026-09-02T09:16:56Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "InteractiveBrokersPlatform",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/451"
+    },
+    {
+      "base_commit": "0ebc5882665af49d6b228044a5fae7d215378148",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:07:13Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/LongBridgePlatform/actions/runs/33612307502/job/100190069879",
+          "name": "test",
+          "revision": "def5e5f3827b29426ec8349583645f7fb09f162b",
+          "started_at": "2026-09-02T09:06:37Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "def5e5f3827b29426ec8349583645f7fb09f162b",
+      "merge_commit": "b4f76417b373541b04e482e092297ae1bd08d8e1",
+      "merged_at": "2026-09-02T09:09:46Z",
+      "number": 419,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:10:29Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/LongBridgePlatform/actions/runs/33612602322",
+          "event": "push",
+          "name": "CI",
+          "revision": "b4f76417b373541b04e482e092297ae1bd08d8e1",
+          "started_at": "2026-09-02T09:09:49Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "LongBridgePlatform",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/LongBridgePlatform/pull/419"
+    },
+    {
+      "base_commit": "a5854a2b9ff5bb67a0867c0c723dcbc6803b5d6e",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:07:31Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/QmtPlatform/actions/runs/33612335464/job/100190157373",
+          "name": "test",
+          "revision": "f27448a016583da2822bbbb361c34004c07938c1",
+          "started_at": "2026-09-02T09:06:55Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "f27448a016583da2822bbbb361c34004c07938c1",
+      "merge_commit": "67a98f6cea66b95e2b862ff138c71526c65cb7f8",
+      "merged_at": "2026-09-02T09:10:13Z",
+      "number": 45,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:10:56Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/QmtPlatform/actions/runs/33612644514",
+          "event": "push",
+          "name": "CI",
+          "revision": "67a98f6cea66b95e2b862ff138c71526c65cb7f8",
+          "started_at": "2026-09-02T09:10:17Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "QmtPlatform",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/QmtPlatform/pull/45"
+    },
+    {
+      "base_commit": "11f007e8787988c0f57bf816a549802f50e4cf89",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:17:39Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/actions/runs/33612853845/job/100191841742",
+          "name": "test",
+          "revision": "9cbcc16b0f25728b3601cb99a0c00b4d24ba64c0",
+          "started_at": "2026-09-02T09:12:42Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "9cbcc16b0f25728b3601cb99a0c00b4d24ba64c0",
+      "merge_commit": "e445cc04fe8480806bbc9f7f9786da04a333d048",
+      "merged_at": "2026-09-02T09:18:09Z",
+      "number": 463,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:23:20Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/actions/runs/33613361052",
+          "event": "push",
+          "name": "CI",
+          "revision": "e445cc04fe8480806bbc9f7f9786da04a333d048",
+          "started_at": "2026-09-02T09:18:12Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "UsEquitySnapshotPipelines",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/pull/463"
+    },
+    {
+      "base_commit": "18dc01711f0776a07903a7a6524bab5455c09fb1",
+      "checks": [
+        {
+          "completed_at": "2026-09-02T09:07:24Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/UsEquityStrategies/actions/runs/33611864758/job/100188651128",
+          "name": "test",
+          "revision": "4b29430f95aa4973cf4f7f2746b44f2eb81ae3c1",
+          "started_at": "2026-09-02T09:01:43Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "head_commit": "4b29430f95aa4973cf4f7f2746b44f2eb81ae3c1",
+      "merge_commit": "7c2f036ed4cfba0ff1784a8b16a966aed6d45b3c",
+      "merged_at": "2026-09-02T09:09:38Z",
+      "number": 445,
+      "post_merge_checks": [
+        {
+          "completed_at": "2026-09-02T09:13:19Z",
+          "conclusion": "SUCCESS",
+          "details_url": "https://github.com/QuantStrategyLab/UsEquityStrategies/actions/runs/33612591368",
+          "event": "push",
+          "name": "CI",
+          "revision": "7c2f036ed4cfba0ff1784a8b16a966aed6d45b3c",
+          "started_at": "2026-09-02T09:09:42Z",
+          "status": "COMPLETED",
+          "workflow_name": "CI"
+        }
+      ],
+      "repository": "UsEquityStrategies",
+      "state": "MERGED",
+      "unresolved_review_threads": 0,
+      "url": "https://github.com/QuantStrategyLab/UsEquityStrategies/pull/445"
+    }
+  ],
+  "dependency_contract_pull_request": {
+    "base_commit": "c6bc93188cd43d69ba15138ac424f829364d8b49",
+    "checks": [
+      {
+        "completed_at": "2026-09-02T08:32:11Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantPlatformKit/actions/runs/33609153300/job/100179972676",
+        "name": "test",
+        "revision": "9d36d17d3ac16c0f9cc58cf0891fe5a533bab9d8",
+        "started_at": "2026-09-02T08:31:23Z",
+        "status": "COMPLETED",
+        "workflow_name": "CI"
+      }
+    ],
+    "head_commit": "9d36d17d3ac16c0f9cc58cf0891fe5a533bab9d8",
+    "merge_commit": "b13e28759a880dcb446dbfbc580dc032333b065e",
+    "merged_at": "2026-09-02T08:33:14Z",
+    "number": 525,
+    "post_merge_checks": [
+      {
+        "completed_at": "2026-09-02T08:33:42Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantPlatformKit/actions/runs/33609326607",
+        "event": "push",
+        "name": "Update QPK Pin",
+        "revision": "b13e28759a880dcb446dbfbc580dc032333b065e",
+        "started_at": "2026-09-02T08:33:18Z",
+        "status": "COMPLETED",
+        "workflow_name": "Update QPK Pin"
+      },
+      {
+        "completed_at": "2026-09-02T08:34:17Z",
+        "conclusion": "SUCCESS",
+        "details_url": "https://github.com/QuantStrategyLab/QuantPlatformKit/actions/runs/33609326150",
+        "event": "push",
+        "name": "CI",
+        "revision": "b13e28759a880dcb446dbfbc580dc032333b065e",
+        "started_at": "2026-09-02T08:33:18Z",
+        "status": "COMPLETED",
+        "workflow_name": "CI"
+      }
+    ],
+    "repository": "QuantPlatformKit",
+    "state": "MERGED",
+    "unresolved_review_threads": 0,
+    "url": "https://github.com/QuantStrategyLab/QuantPlatformKit/pull/525"
+  },
+  "dependency_matrix": {
+    "artifact_path": "authority/evidence/qsl-dependency-cohort-2026.09.1-matrix-strict.json",
+    "artifact_sha256": "f619097d29c73cf405374c0b4a04bff2a48c7093dc6e95ebd9f56ce4a9e7cf8c",
+    "generated_dependency_count": 52,
+    "matrix_sha256": "fea191e5375232e3741474ae7920627b71df4909ffa21f794b71e15bc03909a2",
+    "ok": true
+  },
+  "generated_at": "2026-09-02T10:02:52Z",
+  "prepared_workspace": {
+    "artifact_path": "authority/evidence/qsl-dependency-cohort-2026.09.1-check-all-strict.json",
+    "artifact_sha256": "c2784e6c6c9d36efb03c145ba4ef75e3e6e239b13e8cd3a99d281f5899cf6a9c",
+    "failed_repositories": 0,
+    "issue_count": 0,
+    "total_repositories": 25,
+    "warning_count": 0,
+    "warning_repositories": 0
+  },
+  "safety_boundary": {
+    "deployment": false,
+    "paper_or_live_activation": false,
+    "provider_or_replay": false,
+    "real_orders": false
+  },
+  "schema_version": "qsl.consumer-convergence-evidence.v1"
+}
