@@ -16,6 +16,7 @@ EXPECTED_RECEIPT_SHA256 = {
     "ai-provenance-and-evaluation-v3.json": "5a403948e027db50f0cbf2baa9a9e75abc51198d1475aad38a1c622972b406b1",
     "qsl-dependency-cohort-2026.09.0-canonical-promotion.json": "a71c78aa2a6b7477cd3065f7eabc2a2696fd45ae8e3fc0232b1d1d9a51affe44",
     "qsl-dependency-cohort-2026.09.0.json": "ec0e49c503e5ad309e11714f2d994cfecbaf95bd968c1afb80fa27426a1a4a81",
+    "qsl-dependency-cohort-2026.09.1.json": "b979ba62e4b44af2c0f90b151c38b114f7bf7e45f7fb2045db550674457b156d",
     "tqqq-conservative-research-v1.json": "c0c5020fbe64057b735f987b3bcc490dfe708304b58f01d57cd581344afb44c8",
 }
 
@@ -199,6 +200,66 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertEqual(bundle["name"], "2026.09.0")
         self.assertEqual(bundle["repos"], receipt["selected_refs"])
         self.assertEqual(canonical_path.read_bytes(), candidate_path.read_bytes())
+
+    def test_2026_09_1_candidate_pins_staged_strategy_merges_and_risk_authority(self) -> None:
+        receipt = _load_receipt("qsl-dependency-cohort-2026.09.1.json")
+        previous_candidate_path = ROOT / "authority" / "candidates" / "2026.09.0.toml"
+        candidate_path = ROOT / "authority" / "candidates" / "2026.09.1.toml"
+        canonical_path = ROOT / "compat" / "bundles" / "2026.09.1.toml"
+        risk_receipt_path = ROOT / receipt["risk_authority_receipt_path"]
+        candidate_raw = candidate_path.read_bytes()
+        candidate_sha256 = hashlib.sha256(candidate_raw).hexdigest()
+        with previous_candidate_path.open("rb") as handle:
+            previous_bundle = tomllib.load(handle)
+        with candidate_path.open("rb") as handle:
+            bundle = tomllib.load(handle)
+
+        self.assertEqual(bundle["name"], "2026.09.1")
+        self.assertEqual(receipt["bundle"], bundle["name"])
+        self.assertEqual(receipt["supersedes_bundle"], previous_bundle["name"])
+        self.assertEqual(bundle["repos"], receipt["selected_refs"])
+        self.assertEqual(
+            bundle["repos"],
+            {
+                "CnEquityStrategies": "9cb62eb34e16bb6dde300595b74f38a3b6a2d4c1",
+                "CryptoStrategies": "dd88b39991122338f00e649e4d7c32533d1cbcb3",
+                "HkEquityStrategies": "35bc21e1f237c4a23ad2f02f8ced7c7845d77331",
+                "MarketSignalSources": "9b3a0d13d29b807ac3fe5de962c37c5e798e322b",
+                "QuantPlatformKit": "b13e28759a880dcb446dbfbc580dc032333b065e",
+                "QuantStrategyPlugins": "a261447bad9bb13525692d41348c98df4f67766c",
+                "UsEquityStrategies": "18dc01711f0776a07903a7a6524bab5455c09fb1",
+            },
+        )
+        self.assertEqual(
+            {
+                repo
+                for repo, revision in bundle["repos"].items()
+                if previous_bundle["repos"].get(repo) != revision
+            },
+            {
+                "CnEquityStrategies",
+                "CryptoStrategies",
+                "HkEquityStrategies",
+                "QuantPlatformKit",
+                "UsEquityStrategies",
+            },
+        )
+        self.assertEqual(receipt["candidate_manifest_sha256"], candidate_sha256)
+        self.assertEqual(
+            candidate_path.with_suffix(candidate_path.suffix + ".sha256").read_text(),
+            f"{candidate_sha256}  {candidate_path.name}\n",
+        )
+        self.assertFalse(receipt["canonical_promotion_authorized"])
+        self.assertTrue(receipt["no_live_execution"])
+        self.assertEqual(
+            receipt["risk_authority_receipt_sha256"],
+            EXPECTED_RECEIPT_SHA256["tqqq-conservative-research-v1.json"],
+        )
+        self.assertEqual(
+            hashlib.sha256(risk_receipt_path.read_bytes()).hexdigest(),
+            receipt["risk_authority_receipt_sha256"],
+        )
+        self.assertFalse(canonical_path.exists())
 
     def test_dependency_canonical_promotion_receipt_freezes_gate_evidence(self) -> None:
         receipt = _load_receipt("qsl-dependency-cohort-2026.09.0-canonical-promotion.json")
