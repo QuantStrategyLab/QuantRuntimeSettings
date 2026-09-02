@@ -1,0 +1,54 @@
+{
+  "alpaca_registration": {
+    "allow_legacy": false,
+    "enforce_bundle": true,
+    "internal_dependencies": [],
+    "owner": "runtime-platform",
+    "tier": "runtime",
+    "upgrade_ring": "ring_d"
+  },
+  "authority_role": "dependency-authority",
+  "bundle": "2026.09.1",
+  "candidate_manifest_sha256": "1f380b6bc14d1ef4c742e42061a1944caf1d4d9aa3e5c2b0140928f39e760fe9",
+  "canonical_promotion_authorized": false,
+  "consumer_convergence": {
+    "UsEquitySnapshotPipelines.QuantStrategyPlugins": "a261447bad9bb13525692d41348c98df4f67766c"
+  },
+  "decided_at": "2026-09-02T08:42:48Z",
+  "decided_by": "QuantStrategyLab human authority",
+  "decision": "CANDIDATE_APPROVED",
+  "decision_id": "QSL-DEP-20260902-002",
+  "decision_source": "explicit_user_authorization_in_codex_thread",
+  "integrity": "sha256_sidecar_and_immutable_repository_revision",
+  "no_live_execution": true,
+  "prohibited": [
+    "main_or_latest_dependency_refs",
+    "open_pr_heads_as_authority",
+    "lowering_enforce_bundle",
+    "provider_or_replay",
+    "deployment",
+    "paper_or_live_activation"
+  ],
+  "promotion_requires": [
+    "all_consumer_pins_converged",
+    "all_required_checks_success",
+    "qsl_check_all_strict_success",
+    "qsl_generate_matrix_check_strict_success",
+    "consumer_gate_artifact_digests_recorded",
+    "separate_canonical_promotion_receipt"
+  ],
+  "risk_authority_receipt_path": "authority/receipts/tqqq-conservative-research-v1.json",
+  "risk_authority_receipt_sha256": "c0c5020fbe64057b735f987b3bcc490dfe708304b58f01d57cd581344afb44c8",
+  "schema_version": "qsl.human-authority-receipt.v1",
+  "selected_refs": {
+    "CnEquityStrategies": "9cb62eb34e16bb6dde300595b74f38a3b6a2d4c1",
+    "CryptoStrategies": "dd88b39991122338f00e649e4d7c32533d1cbcb3",
+    "HkEquityStrategies": "35bc21e1f237c4a23ad2f02f8ced7c7845d77331",
+    "MarketSignalSources": "9b3a0d13d29b807ac3fe5de962c37c5e798e322b",
+    "QuantPlatformKit": "b13e28759a880dcb446dbfbc580dc032333b065e",
+    "QuantStrategyPlugins": "a261447bad9bb13525692d41348c98df4f67766c",
+    "UsEquityStrategies": "18dc01711f0776a07903a7a6524bab5455c09fb1"
+  },
+  "signature": null,
+  "supersedes_bundle": "2026.09.0"
+}
