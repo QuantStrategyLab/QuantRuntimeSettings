@@ -1,0 +1,60 @@
+{
+  "allowed_authority": [
+    "advisory",
+    "review_evidence",
+    "shadow"
+  ],
+  "authority_role": "model-risk-authority",
+  "calibration_minimum_bin_count": 20,
+  "calibration_minimum_sample_count": 200,
+  "canonical_contract_owner": "QuantPlatformKit",
+  "decided_at": "2026-09-02T05:23:04Z",
+  "decided_by": "QuantStrategyLab human authority",
+  "decision": "APPROVE",
+  "decision_id": "QSL-MODEL-RISK-20260902-001",
+  "decision_source": "explicit_user_authorization_in_codex_thread",
+  "drift_alert_policy": "two_closed_periods_over_baseline_plus_3sigma_or_10pp",
+  "fixture_owner": "QuantPlatformKit evaluation owner",
+  "gateway_metadata_owner": "AIAuditBridge",
+  "immutable_ref_policy": "full_40_char_commit_sha_or_sha256_content_addressed_object_only",
+  "independent_reviewer": "QuantRuntimeSettings model-risk reviewer",
+  "integrity": "sha256_sidecar_and_immutable_repository_revision",
+  "legacy_policy": "historical_replay_or_display_only_active_consumer_no_op",
+  "missing_closed_label_behavior": "not_evaluable",
+  "model_risk_owner": "QuantRuntimeSettings model-risk authority",
+  "mutable_refs_forbidden": [
+    "HEAD",
+    "floating_tag",
+    "latest",
+    "main",
+    "short_sha"
+  ],
+  "paper_or_live_authority": false,
+  "prohibited": [
+    "provider_direct_fallback",
+    "raw_provider_output_or_exception_in_logs",
+    "ai_generated_order_allocation_or_execution_authority",
+    "unsigned_producer_authenticity_claim",
+    "paper_or_live_activation"
+  ],
+  "promotion_authority": false,
+  "provenance_schema": "qsl.ai-artifact-provenance.v3",
+  "provider_network_allowed_in_ci": false,
+  "reason_code_vocabulary": [
+    "ai_provenance_authority_forbidden",
+    "ai_provenance_digest_mismatch",
+    "ai_provenance_lineage_incomplete",
+    "ai_provenance_model_unbound",
+    "ai_provenance_run_not_succeeded",
+    "ai_provenance_schema_invalid",
+    "ai_provenance_signature_invalid",
+    "ai_provenance_source_untrusted",
+    "ai_provenance_time_invalid"
+  ],
+  "review_evidence_is_non_authoritative": true,
+  "schema_version": "qsl.human-authority-receipt.v1",
+  "secret_input_allowed_in_ci": false,
+  "signature": null,
+  "signature_policy": "unsigned_integrity_only",
+  "signature_verification_enabled": false
+}

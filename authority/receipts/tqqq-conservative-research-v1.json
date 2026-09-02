@@ -1,0 +1,89 @@
+{
+  "allowed_tradable_assets": [
+    "BOXX",
+    "QQQM",
+    "TQQQ"
+  ],
+  "authority_role": "risk-authority",
+  "authority_scope": "RESEARCH_ONLY",
+  "authority_store": "QuantStrategyLab/QuantRuntimeSettings",
+  "benchmark_only_assets": [
+    "QQQ"
+  ],
+  "capital_scope": "allocated_sleeve",
+  "currency": "USD",
+  "decided_at": "2026-09-02T05:23:04Z",
+  "decided_by": "QuantStrategyLab human authority",
+  "decision": "APPROVE",
+  "decision_id": "QSL-RISK-20260902-001",
+  "decision_source": "explicit_user_authorization_in_codex_thread",
+  "drawdown_scalars": [
+    {
+      "lower_exclusive": null,
+      "scalar": "1.0",
+      "upper_inclusive": "0.05"
+    },
+    {
+      "lower_exclusive": "0.05",
+      "scalar": "0.5",
+      "upper_inclusive": "0.10"
+    },
+    {
+      "lower_exclusive": "0.10",
+      "outcome": "PARK",
+      "scalar": "0.0",
+      "upper_inclusive": null
+    }
+  ],
+  "effective_product_caps": {
+    "BOXX": "0.50",
+    "QQQM": "0.50",
+    "TQQQ": "0.45"
+  },
+  "execution_constraints": {
+    "no_live": true,
+    "no_order": true,
+    "no_paper": true,
+    "no_promotion_authority": true,
+    "no_shadow": true
+  },
+  "fx_conversion_allowed": false,
+  "integrity": "sha256_sidecar_and_immutable_repository_revision",
+  "leverage_factors": {
+    "BOXX": "1",
+    "QQQM": "1",
+    "TQQQ": "3"
+  },
+  "loss_budget_equity_reference": "completed_session_equity",
+  "loss_budget_fraction": "0.01",
+  "mandate_validity_seconds": 300,
+  "max_nonzero_assets": 3,
+  "modeled_stress_is_not_stop_order": true,
+  "modeled_stress_loss_distance": {
+    "BOXX": "0.05",
+    "QQQM": "0.05",
+    "TQQQ": "0.05"
+  },
+  "nominal_product_caps": {
+    "BOXX": "0.50",
+    "QQQM": "0.50",
+    "TQQQ": "0.15"
+  },
+  "policy_bundle": "CONSERVATIVE_RESEARCH_V1",
+  "prohibited": [
+    "runner_or_workflow_self_signature",
+    "legacy_p1_p3_mandate_reuse",
+    "provider_or_replay_reacquisition",
+    "cloud_write",
+    "paper_or_live_execution"
+  ],
+  "purpose": "TQQQ_CANDIDATE_RESEARCH_EVIDENCE_ONLY",
+  "runner_is_authority": false,
+  "schema_version": "qsl.human-authority-receipt.v1",
+  "signature": null,
+  "single_consumption": true,
+  "snapshot_max_age_seconds": 300,
+  "source_revision_binding": "immutable_merge_commit_external_to_receipt",
+  "total_effective_exposure_cap": "0.50",
+  "valuation_basis": "allocated_sleeve_ledger"
+}
