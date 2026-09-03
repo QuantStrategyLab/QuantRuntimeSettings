@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the local-only QSL Activation v2 autonomous-policy contract."""
+"""Validate local-only QSL Activation v2 contracts and promotion manifests."""
 
 from __future__ import annotations
 
@@ -62,6 +62,28 @@ _TARGET_FIELDS = {
     "account_alias",
     "account_digest_sha256",
 }
+_PROMOTION_REQUIRED_FIELDS = {
+    "schema",
+    "manifest_kind",
+    "single_use_id",
+    "issued_at",
+    "expires_at",
+    "digest_algorithm",
+    "contract_only",
+    "candidate",
+    "target",
+    "promotion_sha256",
+}
+_PROMOTION_CANDIDATE_FIELDS = {
+    "strategy_profile",
+    "source_revision",
+    "artifact_sha256",
+    "config_sha256",
+    "risk_sha256",
+}
+_PROMOTION_TARGET_FIELDS = {"platform", "target_name", "execution_mode"}
+_PROMOTION_KIND = "promotion"
+_PROMOTION_EXECUTION_MODES = ("paper", "live")
 _AUTONOMY_MODE = "PREAUTHORIZED_AUTONOMY"
 _ALLOWED_AI_ACTIONS = (
     "evidence_validation",
@@ -205,6 +227,112 @@ def _validate_target(value: Any) -> Mapping[str, Any]:
     _expect_identity(target["account_alias"], "target.account_alias", allow_numeric_only=False)
     _expect_sha256(target["account_digest_sha256"], "target.account_digest_sha256")
     return target
+
+
+def _validate_promotion_candidate(value: Any, path: str = "candidate") -> Mapping[str, Any]:
+    candidate = _expect_object(value, path)
+    _expect_exact_keys(candidate, _PROMOTION_CANDIDATE_FIELDS, path)
+    _expect_identity(candidate["strategy_profile"], f"{path}.strategy_profile")
+    _expect_revision(candidate["source_revision"], f"{path}.source_revision")
+    for field in ("artifact_sha256", "config_sha256", "risk_sha256"):
+        _expect_sha256(candidate[field], f"{path}.{field}")
+    return candidate
+
+
+def _validate_promotion_target(value: Any, path: str = "target") -> Mapping[str, Any]:
+    target = _expect_object(value, path)
+    _expect_exact_keys(target, _PROMOTION_TARGET_FIELDS, path)
+    _expect_identity(target["platform"], f"{path}.platform")
+    _expect_identity(target["target_name"], f"{path}.target_name")
+    if target["execution_mode"] not in _PROMOTION_EXECUTION_MODES:
+        _fail(f"{path}.execution_mode must be paper or live")
+    return target
+
+
+def _validate_promotion_shape(manifest: Any) -> tuple[Mapping[str, Any], datetime, datetime]:
+    _reject_non_finite_or_null(manifest, "promotion_manifest")
+    _reject_forbidden_material(manifest, "promotion_manifest")
+    root = _expect_object(manifest, "promotion_manifest")
+    _expect_exact_keys(root, _PROMOTION_REQUIRED_FIELDS, "promotion_manifest")
+    if root["schema"] != SCHEMA_ID:
+        _fail(f"schema must be {SCHEMA_ID}")
+    if root["manifest_kind"] != _PROMOTION_KIND:
+        _fail(f"manifest_kind must be {_PROMOTION_KIND}")
+    _expect_identity(root["single_use_id"], "single_use_id")
+    issued_at = _parse_timestamp(root["issued_at"], "issued_at")
+    expires_at = _parse_timestamp(root["expires_at"], "expires_at")
+    if expires_at <= issued_at:
+        _fail("expires_at must be after issued_at")
+    if root["digest_algorithm"] != _DIGEST_ALGORITHM:
+        _fail("digest_algorithm must be sha256")
+    if root["contract_only"] is not True:
+        _fail("contract_only must be true")
+    _validate_promotion_candidate(root["candidate"])
+    _validate_promotion_target(root["target"])
+    _expect_sha256(root["promotion_sha256"], "promotion_sha256")
+    return root, issued_at, expires_at
+
+
+def canonical_promotion_json(manifest: Mapping[str, Any]) -> str:
+    """Return deterministic JSON with only the promotion self hash omitted."""
+    if not isinstance(manifest, Mapping):
+        _fail("promotion_manifest must be an object")
+    content = dict(manifest)
+    content.pop("promotion_sha256", None)
+    try:
+        return json.dumps(content, sort_keys=True, separators=(",", ":"), ensure_ascii=True, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise ActivationValidationError("promotion_manifest cannot be represented as canonical JSON") from exc
+
+
+def calculate_promotion_sha256(manifest: Mapping[str, Any]) -> str:
+    return hashlib.sha256(canonical_promotion_json(manifest).encode("utf-8")).hexdigest()
+
+
+def validate_promotion_manifest(
+    manifest: Any,
+    *,
+    expected_single_use_id: Any,
+    expected_candidate: Any,
+    expected_target: Any,
+    as_of: str | None = None,
+) -> Mapping[str, Any]:
+    """Verify exact immutable inputs; durable single-use consumption remains a caller responsibility."""
+    root, issued_at, expires_at = _validate_promotion_shape(manifest)
+    if root["promotion_sha256"] != calculate_promotion_sha256(root):
+        _fail("promotion_sha256 mismatch")
+    _expect_identity(expected_single_use_id, "expected_single_use_id")
+    candidate = _validate_promotion_candidate(expected_candidate, "expected_candidate")
+    target = _validate_promotion_target(expected_target, "expected_target")
+    if root["single_use_id"] != expected_single_use_id:
+        _fail("single_use_id does not match the exact expected single-use identity")
+    if root["candidate"] != candidate:
+        _fail("candidate does not match the exact expected candidate")
+    if root["target"] != target:
+        _fail("target does not match the exact expected target")
+    observed_at = datetime.now(UTC).replace(microsecond=0) if as_of is None else _parse_timestamp(as_of, "as_of")
+    if observed_at < issued_at:
+        _fail("promotion manifest is not yet valid")
+    if observed_at >= expires_at:
+        _fail("promotion manifest is expired")
+    return root
+
+
+def parse_promotion_manifest_json(
+    text: str,
+    *,
+    expected_single_use_id: Any,
+    expected_candidate: Any,
+    expected_target: Any,
+    as_of: str | None = None,
+) -> Mapping[str, Any]:
+    return validate_promotion_manifest(
+        _load_json(text),
+        expected_single_use_id=expected_single_use_id,
+        expected_candidate=expected_candidate,
+        expected_target=expected_target,
+        as_of=as_of,
+    )
 
 
 def _validate_shape(activation: Any) -> tuple[Mapping[str, Any], datetime, datetime, datetime]:
@@ -368,32 +496,62 @@ def parse_activation_json(
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True, help="contract-only Activation JSON")
-    parser.add_argument("--bundle", type=Path, required=True, help="exact DeploymentBundle JSON")
+    parser.add_argument("--bundle", type=Path, help="exact DeploymentBundle JSON")
     parser.add_argument("--as-of", help="inject canonical UTC validation time; defaults to current UTC")
     parser.add_argument("--previous", type=Path, help="optional previous Activation used only to reject cross-stage policy reuse")
+    parser.add_argument("--promotion-manifest", action="store_true", help="verify the input as a Promotion Manifest")
+    parser.add_argument("--expected-single-use-id")
+    parser.add_argument("--expected-strategy-profile")
+    parser.add_argument("--expected-source-revision")
+    parser.add_argument("--expected-artifact-sha256")
+    parser.add_argument("--expected-config-sha256")
+    parser.add_argument("--expected-risk-sha256")
+    parser.add_argument("--expected-platform")
+    parser.add_argument("--expected-target-name")
+    parser.add_argument("--expected-execution-mode")
     args = parser.parse_args(argv)
     try:
-        bundle = parse_bundle_json(args.bundle.read_text(encoding="utf-8"))
-        previous = _load_json(args.previous.read_text(encoding="utf-8")) if args.previous else None
-        activation = parse_activation_json(
-            args.input.read_text(encoding="utf-8"),
-            as_of=args.as_of,
-            expected_bundle=bundle,
-            previous_activation=previous,
-        )
+        if args.promotion_manifest:
+            activation = parse_promotion_manifest_json(
+                args.input.read_text(encoding="utf-8"),
+                as_of=args.as_of,
+                expected_single_use_id=args.expected_single_use_id,
+                expected_candidate={
+                    "strategy_profile": args.expected_strategy_profile,
+                    "source_revision": args.expected_source_revision,
+                    "artifact_sha256": args.expected_artifact_sha256,
+                    "config_sha256": args.expected_config_sha256,
+                    "risk_sha256": args.expected_risk_sha256,
+                },
+                expected_target={
+                    "platform": args.expected_platform,
+                    "target_name": args.expected_target_name,
+                    "execution_mode": args.expected_execution_mode,
+                },
+            )
+        else:
+            if args.bundle is None:
+                _fail("exact DeploymentBundle JSON is required")
+            bundle = parse_bundle_json(args.bundle.read_text(encoding="utf-8"))
+            previous = _load_json(args.previous.read_text(encoding="utf-8")) if args.previous else None
+            activation = parse_activation_json(
+                args.input.read_text(encoding="utf-8"),
+                as_of=args.as_of,
+                expected_bundle=bundle,
+                previous_activation=previous,
+            )
     except (OSError, ActivationValidationError, BundleValidationError) as exc:
         print(f"activation validation failed: {exc}", file=sys.stderr)
         return 1
-    print(
-        json.dumps(
-            {
-                "activation_sha256": activation["activation_sha256"],
-                "contract_only": True,
-                "schema": activation["schema"],
-            },
-            sort_keys=True,
-        )
-    )
+    if args.promotion_manifest:
+        summary = {"contract_only": True, "schema": activation["schema"], "verified": "promotion_manifest"}
+    else:
+        summary = {
+            "activation_sha256": activation["activation_sha256"],
+            "contract_only": True,
+            "schema": activation["schema"],
+        }
+    print(json.dumps(summary, sort_keys=True))
     return 0
 
 
