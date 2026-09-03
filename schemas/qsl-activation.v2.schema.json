@@ -11,6 +11,9 @@
     "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
     "revision": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "boundRevision": {"allOf": [{"$ref": "#/$defs/revision"}, {"not": {"const": "0000000000000000000000000000000000000000"}}]},
+    "boundSha256": {"allOf": [{"$ref": "#/$defs/sha256"}, {"not": {"const": "0000000000000000000000000000000000000000000000000000000000000000"}}]},
+    "promotionTargetName": {"allOf": [{"$ref": "#/$defs/identity"}, {"not": {"enum": ["current", "default", "head", "latest", "main"]}}]},
     "timestamp": {"type": "string", "format": "date-time", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
     "stage": {"enum": ["DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE"]},
     "legacyActivation": {
@@ -55,10 +58,10 @@
       "required": ["strategy_profile", "source_revision", "artifact_sha256", "config_sha256", "risk_sha256"],
       "properties": {
         "strategy_profile": {"$ref": "#/$defs/identity"},
-        "source_revision": {"$ref": "#/$defs/revision"},
-        "artifact_sha256": {"$ref": "#/$defs/sha256"},
-        "config_sha256": {"$ref": "#/$defs/sha256"},
-        "risk_sha256": {"$ref": "#/$defs/sha256"}
+        "source_revision": {"$ref": "#/$defs/boundRevision"},
+        "artifact_sha256": {"$ref": "#/$defs/boundSha256"},
+        "config_sha256": {"$ref": "#/$defs/boundSha256"},
+        "risk_sha256": {"$ref": "#/$defs/boundSha256"}
       }
     },
     "promotionTarget": {
@@ -67,7 +70,7 @@
       "required": ["platform", "target_name", "execution_mode"],
       "properties": {
         "platform": {"$ref": "#/$defs/identity"},
-        "target_name": {"$ref": "#/$defs/identity"},
+        "target_name": {"$ref": "#/$defs/promotionTargetName"},
         "execution_mode": {"enum": ["paper", "live"]}
       }
     },

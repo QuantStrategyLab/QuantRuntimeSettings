@@ -24,6 +24,7 @@ _REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _TIMESTAMP_PATTERN = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
 _REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*$")
+_MOVING_OR_DEFAULT_ALIASES = {"current", "default", "head", "latest", "main"}
 _FORBIDDEN_KEY_PATTERN = re.compile(
     r"credential|secret|token|password|cookie|jwt|private(?:[_-]?key)?|access[_-]?key|"
     r"broker|order|capital|fill|matched|runtime[_-]?active|config[_-]?applied|applied",
@@ -171,6 +172,20 @@ def _expect_sha256(value: Any, path: str) -> str:
     return value
 
 
+def _expect_bound_revision(value: Any, path: str) -> str:
+    revision = _expect_revision(value, path)
+    if revision == "0" * 40:
+        _fail(f"{path} must not use an unknown revision sentinel")
+    return revision
+
+
+def _expect_bound_sha256(value: Any, path: str) -> str:
+    digest = _expect_sha256(value, path)
+    if digest == "0" * 64:
+        _fail(f"{path} must not use an unknown digest sentinel")
+    return digest
+
+
 def _parse_timestamp(value: Any, path: str) -> datetime:
     if not isinstance(value, str) or not _TIMESTAMP_PATTERN.fullmatch(value):
         _fail(f"{path} must be an RFC3339 UTC timestamp with whole seconds")
@@ -233,9 +248,9 @@ def _validate_promotion_candidate(value: Any, path: str = "candidate") -> Mappin
     candidate = _expect_object(value, path)
     _expect_exact_keys(candidate, _PROMOTION_CANDIDATE_FIELDS, path)
     _expect_identity(candidate["strategy_profile"], f"{path}.strategy_profile")
-    _expect_revision(candidate["source_revision"], f"{path}.source_revision")
+    _expect_bound_revision(candidate["source_revision"], f"{path}.source_revision")
     for field in ("artifact_sha256", "config_sha256", "risk_sha256"):
-        _expect_sha256(candidate[field], f"{path}.{field}")
+        _expect_bound_sha256(candidate[field], f"{path}.{field}")
     return candidate
 
 
@@ -243,7 +258,9 @@ def _validate_promotion_target(value: Any, path: str = "target") -> Mapping[str,
     target = _expect_object(value, path)
     _expect_exact_keys(target, _PROMOTION_TARGET_FIELDS, path)
     _expect_identity(target["platform"], f"{path}.platform")
-    _expect_identity(target["target_name"], f"{path}.target_name")
+    target_name = _expect_identity(target["target_name"], f"{path}.target_name")
+    if target_name in _MOVING_OR_DEFAULT_ALIASES:
+        _fail(f"{path}.target_name must not use a moving or default alias")
     if target["execution_mode"] not in _PROMOTION_EXECUTION_MODES:
         _fail(f"{path}.execution_mode must be paper or live")
     return target

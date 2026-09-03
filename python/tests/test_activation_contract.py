@@ -270,6 +270,18 @@ class ActivationContractTest(unittest.TestCase):
         with self.assertRaisesRegex(activation_contract.ActivationValidationError, "paper or live"):
             self._validate_promotion(alias)
 
+        for mutate, message in (
+            (lambda value: value["candidate"].update({"source_revision": self._revision("0")}), "unknown revision"),
+            (lambda value: value["candidate"].update({"artifact_sha256": self._sha("0")}), "unknown digest"),
+            (lambda value: value["target"].update({"target_name": "default"}), "moving or default alias"),
+        ):
+            with self.subTest(message=message):
+                manifest = self._promotion_manifest()
+                mutate(manifest)
+                manifest["promotion_sha256"] = activation_contract.calculate_promotion_sha256(manifest)
+                with self.assertRaisesRegex(activation_contract.ActivationValidationError, message):
+                    self._validate_promotion(manifest)
+
     def test_promotion_manifest_time_window_is_current_and_injectable(self):
         manifest = self._promotion_manifest()
         with self.assertRaisesRegex(activation_contract.ActivationValidationError, "not yet valid"):
@@ -288,6 +300,34 @@ class ActivationContractTest(unittest.TestCase):
                 expected_candidate=manifest["candidate"],
                 expected_target=manifest["target"],
             )
+
+    def test_manual_switch_preflights_manifest_before_rejecting_unwired_apply_and_sync(self):
+        workflow = (ROOT.parent / ".github" / "workflows" / "manual-strategy-switch.yml").read_text()
+
+        self.assertIn("promotion_manifest_json:", workflow)
+        self.assertIn("promotion_single_use_id:", workflow)
+        self.assertIn("default: dry_run", workflow)
+        self.assertIn("Verify immutable Promotion Manifest", workflow)
+        for argument in (
+            "--promotion-manifest",
+            "--expected-single-use-id",
+            "--expected-strategy-profile",
+            "--expected-source-revision",
+            "--expected-artifact-sha256",
+            "--expected-config-sha256",
+            "--expected-risk-sha256",
+            "--expected-platform",
+            "--expected-target-name",
+            "--expected-execution-mode",
+        ):
+            self.assertIn(argument, workflow)
+        verify_index = workflow.index("Verify immutable Promotion Manifest")
+        reject_index = workflow.index("Reject unconnected activation apply and sync")
+        apply_index = workflow.index("Apply GitHub variable updates")
+        self.assertLess(verify_index, reject_index)
+        self.assertLess(reject_index, apply_index)
+        self.assertNotIn("gh workflow run", workflow)
+        self.assertNotIn("--ref main", workflow)
 
     def test_valid_activation_binds_bundle_authority_target_and_digest(self):
         activation = self._activation()
