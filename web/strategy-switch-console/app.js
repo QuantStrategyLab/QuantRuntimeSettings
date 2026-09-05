@@ -1,12 +1,12 @@
 
 
     let platformMeta = {
-      binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
-      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
       longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
+      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
       schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
+      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
+      binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
+      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
     };
 
     const platformRepositories = {
@@ -142,7 +142,7 @@
     const incomeLayerModes = ["enabled", "disabled"];
     const optionOverlayModes = ["enabled", "disabled"];
     const cashOnlyExecutionModes = ["enabled", "disabled"];
-    const runtimeTargetModes = ["enabled", "disabled"];
+    const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["none"];
     const dcaModes = ["fixed", "smart"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
@@ -810,7 +810,11 @@
     const copy = {
       zh: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "自动化策略的日常管理",
+        appSubtitle: "平台配置",
+        loginTitle: "管理你的量化平台",
+        loginDescription: "配置策略，关注运行，处理重要决策。",
+        loginUnavailable: "暂时无法确认登录状态，请重新登录。",
+        loginDenied: "当前账号没有访问权限，请切换账号。",
         languageToggle: "切换语言",
         consoleNavigation: "管理台导航",
         dataFreshness: "数据更新时间",
@@ -819,7 +823,19 @@
         healthFilters: "筛选策略健康状态",
         controlPlaneView: "待你处理",
         healthView: "系统状态",
-        switchView: "策略设置",
+        switchView: "平台设置",
+        refreshStatus: "刷新已有记录",
+        refreshingStatus: "读取中…",
+        configTruthNote: "配置值不代表云端实际状态。",
+        configuredSwitch: "配置开关",
+        observedRuntime: "实际运行",
+        runtimeUnverified: "未核验",
+        instanceList: "账户实例",
+        configDetails: "配置详情",
+        runtimeObservationHint: "配置不代表实际运行。",
+        openSystemStatus: "查看系统状态",
+        noConfiguredAccounts: "登录并读取配置后显示账户实例。",
+
         controlPlaneEyebrow: "待处理事项",
         controlPlaneTitle: "待你处理",
         controlPlaneSubtitle: "这里只显示需要你亲自确认的事项。",
@@ -1030,8 +1046,8 @@
         logout: "退出",
         signedInAs: "已登录 {login}",
         planEyebrow: "策略设置",
-        planTitle: "修改策略设置",
-        planSubtitle: "选择平台、账户、策略和运行环境；保存前核对本次改动。",
+        planTitle: "平台设置",
+        planSubtitle: "按账户实例管理，互不影响。",
         planAdvancedSummary: "高级设置",
         planAdvancedHint: "运行状态、插件、现金、收入层和定投通常沿用当前配置；需要改动时再展开。",
         planScopeTitle: "选择范围",
@@ -1049,7 +1065,7 @@
         paper: "旧版非实盘",
         dryRun: "模拟运行",
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
-        runtimeTargetMode: "账号运行状态",
+        runtimeTargetMode: "平台开关",
         runtimeSectionTitle: "运行与插件",
         runtimeTargetCurrent: "沿用当前状态",
         runtimeTargetEnabled: "启用",
@@ -1125,8 +1141,8 @@
         reservedCashDefault: "未配置（平台默认：0 {currency} / 0%）",
         reservedCashMeta: "固定金额下限，可单独设置或与比例取较大值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
-        summary: "风险与变更摘要",
-        summaryCurrent: "当前边界",
+        summary: "当前配置",
+        summaryCurrent: "已保存的配置",
         summaryPending: "待提交变更",
         planReadinessTitle: "提交前核对",
         planCheckAccount: "账号与作用范围",
@@ -1139,7 +1155,7 @@
         planCheckFix: "需修正",
         planCheckNonLive: "非实盘",
         planCheckNoAuthority: "未就绪",
-        planAuditNote: "本次修改会保存到变更记录。",
+        planAuditNote: "提交配置不等于运行生效。",
         copySummary: "复制状态",
         loginToRun: "登录后提交计划",
         loadingConfig: "读取配置中",
@@ -1161,7 +1177,7 @@
         repository: "平台仓库",
         selectedAccount: "账号",
         selectedMarket: "市场",
-        currentRuntimeTarget: "当前账号状态",
+        currentRuntimeTarget: "配置开关",
         pendingRuntimeTarget: "待提交账号状态",
         reservedCashPolicy: "当前预留现金",
         currentIncomeLayer: "当前收入层",
@@ -1188,7 +1204,7 @@
         cryptoEquity: "加密",
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
-        notRead: "读取失败",
+        notRead: "未确认",
         runtimeTargetOn: "启用",
         runtimeTargetOff: "禁用",
         incomeLayerDefault: "开启，{start}起 {ratio}",
@@ -1202,7 +1218,11 @@
       },
       en: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "Daily management for automated strategies",
+        appSubtitle: "Platform settings",
+        loginTitle: "Your trading workspace",
+        loginDescription: "Configure strategies. Monitor operations. Make key decisions.",
+        loginUnavailable: "Unable to verify your session. Please sign in again.",
+        loginDenied: "This account does not have access. Please switch accounts.",
         languageToggle: "Change language",
         consoleNavigation: "Console navigation",
         dataFreshness: "Data freshness",
@@ -1211,7 +1231,19 @@
         healthFilters: "Filter strategy health",
         controlPlaneView: "Your attention",
         healthView: "System status",
-        switchView: "Strategy settings",
+        switchView: "Platforms",
+        refreshStatus: "Refresh records",
+        refreshingStatus: "Reading…",
+        configTruthNote: "Saved configuration is not observed runtime state.",
+        configuredSwitch: "Configured switch",
+        observedRuntime: "Actual runtime",
+        runtimeUnverified: "Unverified",
+        instanceList: "Account instances",
+        configDetails: "Configuration details",
+        runtimeObservationHint: "Configuration is not runtime verification.",
+        openSystemStatus: "View system status",
+        noConfiguredAccounts: "Sign in and load configuration to view account instances.",
+
         controlPlaneEyebrow: "To do",
         controlPlaneTitle: "Your attention",
         controlPlaneSubtitle: "Only items that need your confirmation appear here.",
@@ -1422,7 +1454,7 @@
         logout: "Sign out",
         signedInAs: "Signed in as {login}",
         planEyebrow: "Strategy settings",
-        planTitle: "Change strategy settings",
+        planTitle: "Platform settings",
         planSubtitle: "Choose a platform, account, strategy, and environment; review this change before saving.",
         planAdvancedSummary: "Advanced settings",
         planAdvancedHint: "Runtime, plugins, cash, overlays, and DCA normally retain their current setup. Expand only when changing one.",
@@ -1517,8 +1549,8 @@
         reservedCashDefault: "Not configured (platform default: 0 {currency} / 0%)",
         reservedCashMeta: "Fixed cash floor. Use alone or with a ratio.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
-        summary: "Risk and change summary",
-        summaryCurrent: "Current boundary",
+        summary: "Current configuration",
+        summaryCurrent: "Saved configuration",
         summaryPending: "Pending change",
         planReadinessTitle: "Before submission",
         planCheckAccount: "Account and scope",
@@ -1580,7 +1612,7 @@
         cryptoEquity: "Crypto",
         currentStrategy: "Current strategy",
         nextStrategy: "Switch strategy",
-        notRead: "Not read",
+        notRead: "Unconfirmed",
         runtimeTargetOn: "Enabled",
         runtimeTargetOff: "Disabled",
         incomeLayerDefault: "Enabled, {start} start, {ratio} max",
@@ -1623,7 +1655,7 @@
     const state = {
       selected: "longbridge",
       lang: initialLang,
-      view: "control",
+      view: "switch",
       appReady: false,
       bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
@@ -2266,7 +2298,7 @@
       const entry = currentEntryForAccount(platform, account);
       if (!entry) return { known: false, enabled: null };
       const configured = cleanOptionalBoolean(entry.runtime_target_enabled);
-      return { known: true, enabled: configured ?? true };
+      return { known: configured !== null, enabled: configured };
     }
 
     function runtimeTargetText(enabled) {
@@ -2522,7 +2554,8 @@
       else if (platformSupportsMarginPolicy(platform)) synth.cash_only_execution = true;
       if (merged.min_reserved_cash_usd) synth.min_reserved_cash_usd = merged.min_reserved_cash_usd;
       if (merged.reserved_cash_ratio) synth.reserved_cash_ratio = merged.reserved_cash_ratio;
-      synth.runtime_target_enabled = merged.runtime_target_enabled !== false;
+      // Routing defaults are not a readback of the runtime configuration.
+      synth.runtime_target_enabled = null;
       const execMode = merged.default_execution_mode || platformConfig[platform]?.default_execution_mode || "live";
       synth.execution_mode = execMode;
       synth.dry_run_only = execMode === "paper";
@@ -2657,8 +2690,7 @@
     function syncRuntimeTargetForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.runtimeTargetTouched) return;
-      const current = runtimeTargetEnabledForAccount(platform, selectedAccount(platform));
-      form.runtimeTargetMode = current === false ? "disabled" : "enabled";
+      form.runtimeTargetMode = "current";
     }
 
     function syncReservePolicyForAccount(platform) {
@@ -3118,15 +3150,15 @@
       if (mode === "current") {
         return {
           changed: false,
-          inputs: { runtime_target_enabled: runtimeTargetEnabledForAccount(platform, account) ?? true },
+          inputs: { runtime_target_enabled: runtimeTargetEnabledForAccount(platform, account) },
         };
       }
       const current = runtimeTargetEnabledForAccount(platform, account);
-      const currentEnabled = current ?? true;
+      const currentEnabled = current;
       const nextEnabled = mode === "enabled";
       const entry = currentEntryForAccount(platform, account);
       return {
-        changed: Boolean(entry && current !== null && currentEnabled !== nextEnabled),
+        changed: Boolean(entry && currentEnabled !== nextEnabled),
         inputs: { runtime_target_enabled: nextEnabled },
       };
     }
@@ -3445,6 +3477,38 @@
       }
     }
 
+    function renderAccountOverview() {
+      const body = el("account-overview-body");
+      body.replaceChildren();
+      el("account-overview").hidden = !hasPrivateConfig();
+      if (!hasPrivateConfig()) return;
+      const platform = state.selected;
+      for (const account of optionsFor(platform)) {
+        const row = document.createElement("tr");
+        row.classList.toggle("selected", account.key === selectedAccount(platform)?.key);
+        const first = document.createElement("td");
+        const select = document.createElement("button");
+        select.type = "button";
+        select.textContent = account.label;
+        select.setAttribute("aria-pressed", String(account.key === selectedAccount(platform)?.key));
+        select.addEventListener("click", () => {
+          el("account-select").value = account.key;
+          el("account-select").dispatchEvent(new Event("change"));
+        });
+        first.append(select);
+        row.append(first);
+        for (const value of [
+          currentStrategyForAccount(platform, account) ? strategyLabel(currentStrategyForAccount(platform, account)) : t("notRead"),
+          currentRuntimeTargetText(platform, account), t("runtimeUnverified"),
+        ]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        }
+        body.append(row);
+      }
+    }
+
     function renderControls() {
       const platform = state.selected;
       const meta = platformMeta[platform];
@@ -3724,6 +3788,12 @@
       currentHeading.className = "summary-section-title";
       currentHeading.textContent = t("summaryCurrent");
       list.appendChild(currentHeading);
+      const detail = document.createElement("details");
+      detail.className = "summary-details";
+      const detailLabel = document.createElement("summary");
+      detailLabel.textContent = t("configDetails");
+      detail.append(detailLabel);
+      const primaryLabels = new Set([t("selectedAccount"), t("currentStrategy"), t("currentRuntimeTarget")]);
       let pendingSectionInserted = false;
       for (const [label, value, rowClass, valueTone] of summaryRows(inputs)) {
         if (!pendingSectionInserted && rowClass === "pending") {
@@ -3751,12 +3821,14 @@
           valueNode.textContent = value;
         }
         row.append(labelNode, valueNode);
-        list.appendChild(row);
+        if (rowClass === "pending" || primaryLabels.has(label)) list.appendChild(row);
+        else detail.appendChild(row);
       }
+      list.appendChild(detail);
 
       const account = selectedAccount();
       const currentEntry = currentEntryForAccount(state.selected, account);
-      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const currentMode = currentEntry?.source === "account_defaults" ? "" : normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
       el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
     }
 
@@ -3859,6 +3931,11 @@
     function renderAppVisibility() {
       document.body.classList.toggle("app-loading", !state.appReady);
       el("boot-message").textContent = t(state.bootMessageKey);
+      el("app-shell").hidden = !state.appReady || !state.auth.allowed;
+      el("login-screen").hidden = !state.appReady || state.auth.allowed;
+      el("login-message").textContent = t(!state.auth.available
+        ? "loginUnavailable" : state.auth.login ? "loginDenied" : "loginDescription");
+      el("login-link").hidden = true;
     }
 
     function normalizeControlPlanePayload(payload) {
@@ -4956,6 +5033,7 @@
       renderHealth();
       renderPlatforms();
       renderControls();
+      renderAccountOverview();
       renderSummary();
       renderPlanReadiness();
       renderAuth();
@@ -5470,6 +5548,21 @@
       state.forms[state.selected].strategyTouched = false;
       render();
     });
+
+    el("refresh-status-button").addEventListener("click", async () => {
+      if (!state.auth.allowed) return;
+      const button = el("refresh-status-button");
+      button.disabled = true;
+      button.textContent = t("refreshingStatus");
+      try {
+        await Promise.all([refreshConfig(), refreshHealth(), refreshRuntimeTargetLifecycle(), refreshExecutionEvidence()]);
+      } finally {
+        button.disabled = false;
+        button.textContent = t("refreshStatus");
+      }
+    });
+
+    el("open-system-status").addEventListener("click", () => { state.view = "health"; render(); refreshHealth(); });
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
