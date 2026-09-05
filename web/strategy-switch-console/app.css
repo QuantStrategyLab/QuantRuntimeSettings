@@ -3227,3 +3227,23 @@
 .operator-console .login-panel h2 { margin: 28px 0 12px; font-size: 26px; letter-spacing: -.5px; }
 .operator-console .login-panel p { color: var(--muted); font-size: 14px; line-height: 1.8; margin-bottom: 28px; }
 .operator-console .login-primary { display: inline-flex; justify-content: center; min-width: 150px; background: var(--accent); color: white; border: 0; border-radius: 5px; }
+
+.operator-console .monitoring-overview { overflow-x: auto; margin: 20px 0 28px; border: 1px solid var(--line); border-radius: 12px; }
+.operator-console .monitoring-overview table { width: 100%; border-collapse: collapse; min-width: 680px; font-size: 13px; }
+.operator-console .monitoring-overview th { background: #f7f9fa; color: var(--muted); text-align: left; font-weight: 500; }
+.operator-console .monitoring-overview th, .operator-console .monitoring-overview td { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+.operator-console .monitoring-overview tbody tr:last-child td { border-bottom: 0; }
+.operator-console .monitoring-overview .btn { min-height: 30px; padding: 4px 10px; white-space: nowrap; font-size: 12px; }
+
+.operator-console .management-heading { justify-content: space-between; align-items: center; gap: 12px; }
+.operator-console .management-heading h2 { font-size: 17px; margin: 0; font-weight: 600; }
+.operator-console .management-heading > div { display: flex; align-items: center; gap: 16px; }
+.operator-console #monitoring-computed-at { font-size: 11px; color: var(--muted); }
+.operator-console .advanced-workspace { border-top: 1px solid var(--line); }
+.operator-console .advanced-workspace > summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.operator-console .advanced-workspace > .health-head { margin-top: 24px; }
+@media (max-width: 700px) {
+  .operator-console .management-heading { padding: 14px 20px; }
+  .operator-console .management-heading > div { gap: 8px; }
+  .operator-console #monitoring-computed-at { display: none; }
+}

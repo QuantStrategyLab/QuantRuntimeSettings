@@ -806,23 +806,29 @@
         decisionSummary: "待办摘要",
         healthSummary: "策略健康摘要",
         healthFilters: "筛选策略健康状态",
-        controlPlaneView: "待你处理",
-        healthView: "系统状态",
+        controlPlaneView: "待办确认",
+        healthView: "运行概览",
         switchView: "平台设置",
         refreshStatus: "刷新已有记录",
         refreshingStatus: "读取中…",
         configTruthNote: "配置值不代表云端实际状态。",
         configuredSwitch: "配置开关",
-        observedRuntime: "实际运行",
-        runtimeUnverified: "未核验",
+        observedRuntime: "监测记录",
+        runtimeUnverified: "暂无记录",
+        monitoringUnlinked: "待关联",
+        monitoringTime: "记录时间",
+        monitoringDetails: "监测详情",
+        platformManagement: "平台管理",
+        advancedDetails: "高级详情",
+        monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
         instanceList: "账户实例",
         configDetails: "配置详情",
-        runtimeObservationHint: "配置不代表实际运行。",
-        openSystemStatus: "查看系统状态",
+        runtimeObservationHint: "监测记录不代表已下单或成交。",
+        openSystemStatus: "查看高级详情",
         noConfiguredAccounts: "登录并读取配置后显示账户实例。",
 
         controlPlaneEyebrow: "待处理事项",
-        controlPlaneTitle: "待你处理",
+        controlPlaneTitle: "需要你确认",
         controlPlaneSubtitle: "这里只显示需要你亲自确认的事项。",
         controlCandidateTotal: "监控对象",
         controlDeferred: "待复核",
@@ -929,7 +935,7 @@
         runtimeTargetLifecycleCheckUnavailable: "不可用",
         runtimeTargetLifecycleObservationNotDue: "未到应交易窗口",
         runtimeTargetLifecycleObservationMonitoringOnly: "仅监测通过",
-        runtimeTargetLifecycleObservationNotApplicable: "目标停用，不适用",
+        runtimeTargetLifecycleObservationNotApplicable: "停用记录",
         runtimeTargetLifecycleObservationAttention: "需要复核",
         runtimeTargetLifecycleObservationUnavailable: "不可用",
         runtimeTargetLifecycleOrderEvidenceNotCollected: "未采集订单/成交回执",
@@ -976,8 +982,8 @@
         researchTaskLimits: "研究预算：最多 {runs} 次 / {seconds} 秒",
         researchTaskNoOrder: "查看当前自动化任务。",
         healthEyebrow: "系统状态",
-        healthTitle: "系统状态",
-        healthSubtitle: "先查看平台运行记录；策略与研究详情按需展开。",
+        healthTitle: "监测与诊断",
+        healthSubtitle: "账户、配置与监测记录，一处查看。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
@@ -1214,23 +1220,29 @@
         decisionSummary: "Decision summary",
         healthSummary: "Strategy health summary",
         healthFilters: "Filter strategy health",
-        controlPlaneView: "Your attention",
-        healthView: "System status",
+        controlPlaneView: "Decisions",
+        healthView: "Runtime overview",
         switchView: "Platforms",
         refreshStatus: "Refresh records",
         refreshingStatus: "Reading…",
         configTruthNote: "Saved configuration is not observed runtime state.",
         configuredSwitch: "Configured switch",
-        observedRuntime: "Actual runtime",
-        runtimeUnverified: "Unverified",
+        observedRuntime: "Monitoring record",
+        runtimeUnverified: "No record",
+        monitoringUnlinked: "Not linked",
+        monitoringTime: "Recorded at",
+        monitoringDetails: "Monitoring details",
+        platformManagement: "Platform management",
+        advancedDetails: "Advanced details",
+        monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
         instanceList: "Account instances",
         configDetails: "Configuration details",
-        runtimeObservationHint: "Configuration is not runtime verification.",
-        openSystemStatus: "View system status",
+        runtimeObservationHint: "Monitoring records do not prove an order or fill.",
+        openSystemStatus: "View advanced details",
         noConfiguredAccounts: "Sign in and load configuration to view account instances.",
 
         controlPlaneEyebrow: "To do",
-        controlPlaneTitle: "Your attention",
+        controlPlaneTitle: "Your decision needed",
         controlPlaneSubtitle: "Only items that need your confirmation appear here.",
         controlCandidateTotal: "Monitored items",
         controlDeferred: "To review",
@@ -1337,7 +1349,7 @@
         runtimeTargetLifecycleCheckUnavailable: "unavailable",
         runtimeTargetLifecycleObservationNotDue: "not in a due window",
         runtimeTargetLifecycleObservationMonitoringOnly: "monitoring only",
-        runtimeTargetLifecycleObservationNotApplicable: "target disabled; not applicable",
+        runtimeTargetLifecycleObservationNotApplicable: "Disabled record",
         runtimeTargetLifecycleObservationAttention: "needs review",
         runtimeTargetLifecycleObservationUnavailable: "unavailable",
         runtimeTargetLifecycleOrderEvidenceNotCollected: "not collected",
@@ -1384,7 +1396,7 @@
         researchTaskLimits: "Research budget: up to {runs} run(s) / {seconds}s",
         researchTaskNoOrder: "View the current automation tasks.",
         healthEyebrow: "System status",
-        healthTitle: "System status",
+        healthTitle: "Runtime overview",
         healthSubtitle: "Platform runtime records first; expand strategy and research details as needed.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
@@ -1640,7 +1652,6 @@
     const state = {
       selected: Object.keys(platformMeta)[0] || "",
       lang: initialLang,
-      view: "switch",
       appReady: false,
       bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
@@ -3464,12 +3475,70 @@
       }
     }
 
+    function accountMonitoringRecord(platform, account) {
+      if (!state.auth.allowed || !account?.runtime_status_target_id) return null;
+      const id = account.runtime_status_target_id;
+      if (optionsFor(platform).filter(item => item.runtime_status_target_id === id).length !== 1) return null;
+      const matches = state.runtimeTargetLifecycle.payload.targets.filter(entry =>
+        entry.target?.target?.platform === platform && entry.target?.target_id === id);
+      return matches.length === 1 ? matches[0] : null;
+    }
+
+    function accountMonitoringText(platform, account) {
+      const record = accountMonitoringRecord(platform, account);
+      if (!record) return t(account?.runtime_status_target_id ? "runtimeUnverified" : "monitoringUnlinked");
+      if (record.freshness?.data_status !== "ready") return t("controlDataStale");
+      return runtimeTargetLifecycleObservationLabel(record.execution_observation?.code);
+    }
+
+    function accountMonitoringAge(record) {
+      const age = record?.freshness?.age_seconds;
+      if (typeof age !== "number" || !Number.isFinite(age) || age < 0) return "—";
+      const unit = age >= 86400 ? "day" : age >= 3600 ? "hour" : "minute";
+      const seconds = unit === "day" ? 86400 : unit === "hour" ? 3600 : 60;
+      return new Intl.RelativeTimeFormat(state.lang, { numeric: "auto" }).format(-Math.floor(age / seconds), unit);
+    }
+
+    function renderMonitoringOverview() {
+      const body = el("monitoring-overview-body");
+      body.replaceChildren();
+      if (!hasPrivateConfig()) return;
+      for (const platform of Object.keys(platformMeta).filter(p => platformMeta[p].console_visible !== false)) {
+        for (const account of optionsFor(platform)) {
+          const record = accountMonitoringRecord(platform, account);
+          const row = document.createElement("tr");
+          for (const value of [platformMeta[platform].label, account.label,
+            currentRuntimeTargetText(platform, account), accountMonitoringText(platform, account),
+            accountMonitoringAge(record)]) {
+            const cell = document.createElement("td");
+            cell.textContent = value;
+            row.append(cell);
+          }
+          const action = document.createElement("td");
+          const button = document.createElement("button");
+          button.className = "btn";
+          button.type = "button";
+          button.textContent = t("switchView");
+          button.addEventListener("click", () => {
+            state.selected = platform;
+            render();
+            el("account-select").value = account.key;
+            el("account-select").dispatchEvent(new Event("change"));
+          });
+          action.append(button);
+          row.append(action);
+          body.append(row);
+        }
+      }
+    }
+
     function renderAccountOverview() {
       const body = el("account-overview-body");
       body.replaceChildren();
       el("account-overview").hidden = !hasPrivateConfig();
       if (!hasPrivateConfig()) return;
       const platform = state.selected;
+      el("selected-monitoring-status").textContent = accountMonitoringText(platform, selectedAccount(platform));
       for (const account of optionsFor(platform)) {
         const row = document.createElement("tr");
         row.classList.toggle("selected", account.key === selectedAccount(platform)?.key);
@@ -3486,7 +3555,8 @@
         row.append(first);
         for (const value of [
           currentStrategyForAccount(platform, account) ? strategyLabel(currentStrategyForAccount(platform, account)) : t("notRead"),
-          currentRuntimeTargetText(platform, account), t("runtimeUnverified"),
+          currentRuntimeTargetText(platform, account), accountMonitoringText(platform, account),
+          accountMonitoringAge(accountMonitoringRecord(platform, account)),
         ]) {
           const cell = document.createElement("td");
           cell.textContent = value;
@@ -4035,7 +4105,7 @@
       const summary = payload.summary || {};
       const summaryAvailable = state.auth.allowed && payload.data_status !== "unavailable";
       const summaryCount = (value) => (summaryAvailable ? String(Number(value) || 0) : "—");
-      el("control-plane-status").textContent = `${controlPlaneDataStatusText(payload.data_status)} · ${controlPlaneAttentionText(payload.attention)}`;
+      el("control-plane-status").textContent = controlPlaneDataStatusText(payload.data_status);
       el("control-plane-computed-at").textContent = payload.computed_at
         ? t("controlComputedAt").replace("{time}", formatDateTime(payload.computed_at))
         : t("controlComputedAt").replace("{time}", "—");
@@ -4047,6 +4117,7 @@
       const notice = el("control-plane-notice");
       const statePanel = notice.closest(".decision-state");
       const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
+      el("control-plane-view").hidden = !state.auth.allowed || !actionableCandidates.length;
       const queue = el("control-plane-queue");
       queue.hidden = !actionableCandidates.length;
       statePanel.classList.toggle("is-attention", actionableCandidates.length > 0);
@@ -4715,8 +4786,12 @@
 
     function renderRuntimeTargetLifecycle() {
       const payload = state.runtimeTargetLifecycle.payload;
+      renderMonitoringOverview();
+      el("monitoring-computed-at").textContent = t("controlComputedAt").replace("{time}", payload.computed_at ? formatDateTime(payload.computed_at) : "—");
       const notice = el("runtime-target-lifecycle-notice");
-      if (!state.auth.allowed) {
+      if (state.runtimeTargetLifecycle.loading) {
+        notice.textContent = t("refreshingStatus");
+      } else if (!state.auth.allowed) {
         notice.textContent = t("runtimeTargetLifecycleLoginNotice");
       } else if (payload.data_status === "stale") {
         notice.textContent = t("runtimeTargetLifecycleStaleNotice");
@@ -4725,7 +4800,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("runtimeTargetLifecycleUpstreamNotice").replace("{count}", String(payload.errors.length));
       } else {
-        notice.textContent = localizedExternalText(payload.policy?.notice, t("runtimeTargetLifecycleNoOrder"));
+        notice.textContent = t("monitoringSummaryHint");
       }
 
       const list = el("runtime-target-lifecycle-list");
@@ -4738,7 +4813,11 @@
         return;
       }
 
-      const targets = [...payload.targets].sort((left, right) => {
+      const targets = payload.targets.filter(entry => {
+        const platform = entry.target?.target?.platform;
+        return platformMeta[platform]?.console_visible !== false && platformMeta[platform]
+          && optionsFor(platform).some(account => account.runtime_status_target_id === entry.target.target_id);
+      }).sort((left, right) => {
         const leftParked = left.target?.disposition?.code === "parked" ? 0 : 1;
         const rightParked = right.target?.disposition?.code === "parked" ? 0 : 1;
         if (leftParked !== rightParked) return leftParked - rightParked;
@@ -4762,7 +4841,7 @@
           .replace("{mode}", configuration.execution_mode || "unknown");
         const title = document.createElement("h4");
         title.className = "health-card__title";
-        title.textContent = String(target.target_id || "unknown");
+        title.textContent = optionsFor(configuration.platform).find(account => account.runtime_status_target_id === target.target_id)?.label || t("runtimeUnverified");
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
         reason.textContent = runtimeTargetLifecycleReasonLabel(disposition.reason_code);
@@ -4995,17 +5074,10 @@
     }
 
     function renderConsoleView() {
-      const controlButton = el("control-plane-view-button");
-      const healthButton = el("health-view-button");
-      const switchButton = el("switch-view-button");
-      const controlVisible = state.view === "control";
-      const healthVisible = state.view === "health";
-      el("control-plane-view").hidden = !controlVisible;
-      el("health-view").hidden = !healthVisible;
-      el("switch-view").hidden = controlVisible || healthVisible;
-      controlButton.classList.toggle("active", controlVisible);
-      healthButton.classList.toggle("active", healthVisible);
-      switchButton.classList.toggle("active", !controlVisible && !healthVisible);
+      el("switch-view").hidden = false;
+      el("health-view").hidden = false;
+      el("control-plane-view").hidden = !state.auth.allowed
+        || !state.controlPlane.payload.candidates.some(candidateNeedsOperatorAction);
     }
 
     function render() {
@@ -5045,6 +5117,7 @@
         await refreshControlPlane();
         await refreshOwnerDecisions();
         await refreshConfig();
+        refreshRuntimeTargetLifecycle();
       } else {
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
@@ -5268,6 +5341,8 @@
         renderRuntimeTargetLifecycle();
         return;
       }
+      state.runtimeTargetLifecycle.loading = true;
+      renderRuntimeTargetLifecycle();
       try {
         state.runtimeTargetLifecycle.payload = normalizeRuntimeTargetLifecyclePayload(
           await requestJson("/api/runtime-target-lifecycle"),
@@ -5282,7 +5357,9 @@
           errors: ["runtime_target_lifecycle_request_failed"],
         };
       }
+      state.runtimeTargetLifecycle.loading = false;
       renderRuntimeTargetLifecycle();
+      renderAccountOverview();
     }
 
     async function refreshResearchTasks() {
@@ -5368,6 +5445,7 @@
           deployment_selector: item.deployment_selector ? String(item.deployment_selector) : "",
           account_scope: item.account_scope ? String(item.account_scope) : "",
           service_name: item.service_name ? String(item.service_name) : "",
+          runtime_status_target_id: String(item.runtime_status_target_id || ""),
           cash_currency: item.cash_currency || item.market_currency || item.trading_currency
             ? String(item.cash_currency || item.market_currency || item.trading_currency).trim().toUpperCase()
             : "",
@@ -5491,23 +5569,16 @@
 ");
     }
 
-    document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
-      state.view = ["control", "health", "switch"].includes(button.dataset.view) ? button.dataset.view : "control";
-      renderConsoleView();
-      if (state.view === "control") {
-        refreshControlPlane();
-        refreshOwnerDecisions();
-      }
-      if (state.view === "health") {
-        refreshHealth();
-        refreshReconciliationRecovery();
-        refreshM0Research();
-        refreshAdaptiveSelection();
-        refreshExecutionEvidence();
-        refreshRuntimeTargetLifecycle();
-        refreshResearchTasks();
-      }
-    }));
+    el("health-view").addEventListener("toggle", () => {
+      if (!el("health-view").open) return;
+      refreshHealth();
+      refreshReconciliationRecovery();
+      refreshM0Research();
+      refreshAdaptiveSelection();
+      refreshExecutionEvidence();
+      refreshRuntimeTargetLifecycle();
+      refreshResearchTasks();
+    });
 
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
       document.querySelectorAll("[data-health-filter]").forEach((node) => node.classList.remove("active"));
@@ -5549,7 +5620,10 @@
       }
     });
 
-    el("open-system-status").addEventListener("click", () => { state.view = "health"; render(); refreshHealth(); refreshRuntimeTargetLifecycle(); });
+    el("open-system-status").addEventListener("click", () => {
+      el("health-view").open = true;
+      el("health-view").scrollIntoView({ behavior: "smooth", block: "start" });
+    });
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
