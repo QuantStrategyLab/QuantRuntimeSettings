@@ -1,79 +1,91 @@
 {
   "longbridge": [
     {
-      "key": "hk",
-      "label": "hk",
-      "target_name": "hk",
-      "account_selector": "HK",
-      "cash_currency": "HKD",
-      "supported_domains": ["us_equity", "hk_equity"]
+      "key": "paper",
+      "label": "paper",
+      "target_name": "paper",
+      "account_selector": "PAPER",
+      "supported_domains": [
+        "us_equity",
+        "hk_equity"
+      ]
     },
     {
       "key": "sg",
       "label": "sg",
       "target_name": "sg",
       "account_selector": "SG",
-      "supported_domains": ["us_equity", "hk_equity"]
+      "supported_domains": [
+        "us_equity",
+        "hk_equity"
+      ]
     },
     {
-      "key": "paper",
-      "label": "paper",
-      "target_name": "paper",
-      "account_selector": "PAPER",
-      "supported_domains": ["us_equity", "hk_equity"]
+      "key": "hk",
+      "label": "hk",
+      "target_name": "hk",
+      "account_selector": "HK",
+      "cash_currency": "HKD",
+      "supported_domains": [
+        "us_equity",
+        "hk_equity"
+      ]
     }
   ],
   "ibkr": [
     {
-      "key": "ibkr-primary",
-      "label": "ibkr-primary",
-      "target_name": "ibkr-primary",
-      "account_selector": "DEMO_IBKR_PRIMARY",
-      "deployment_selector": "demo-ibkr-tqqq",
-      "account_scope": "demo-ibkr-tqqq",
-      "service_name": "interactive-brokers-demo-ibkr-tqqq-service",
+      "key": "soxl",
+      "label": "soxl",
+      "target_name": "soxl",
+      "account_selector": "EXAMPLE_IBKR_SOXL",
+      "deployment_selector": "live-u15998061",
+      "account_scope": "live-u15998061",
+      "service_name": "interactive-brokers-quant-live-u15998061-service",
       "cash_currency": "USD",
-      "supported_domains": ["us_equity", "hk_equity"]
+      "supported_domains": [
+        "us_equity",
+        "hk_equity"
+      ]
     },
     {
-      "key": "ibkr-soxl",
-      "label": "ibkr-soxl",
-      "target_name": "ibkr-soxl",
-      "account_selector": "DEMO_IBKR_SOXL",
-      "deployment_selector": "demo-ibkr-soxl",
-      "account_scope": "demo-ibkr-soxl",
-      "service_name": "interactive-brokers-demo-ibkr-soxl-service",
+      "key": "tqqq",
+      "label": "tqqq",
+      "target_name": "tqqq",
+      "account_selector": "EXAMPLE_IBKR_TQQQ",
+      "deployment_selector": "live-u16608560",
+      "account_scope": "live-u16608560",
+      "service_name": "interactive-brokers-quant-live-u16608560-service",
       "cash_currency": "USD",
-      "supported_domains": ["us_equity", "hk_equity"]
-    },
-    {
-      "key": "ibkr-dca",
-      "label": "ibkr-dca",
-      "target_name": "ibkr-dca",
-      "account_selector": "DEMO_IBKR_DCA",
-      "deployment_selector": "demo-ibkr-dca",
-      "account_scope": "demo-ibkr-dca",
-      "service_name": "interactive-brokers-demo-ibkr-dca-service",
-      "cash_currency": "USD",
-      "supported_domains": ["us_equity", "hk_equity"]
+      "supported_domains": [
+        "us_equity",
+        "hk_equity"
+      ]
     }
   ],
   "schwab": [
     {
-      "key": "default",
-      "label": "default",
-      "target_name": "default",
+      "key": "live",
+      "label": "live",
+      "target_name": "live",
+      "account_selector": "live",
+      "service_name": "charles-schwab-quant-service",
       "cash_currency": "USD",
-      "supported_domains": ["us_equity"]
+      "supported_domains": [
+        "us_equity"
+      ]
     }
   ],
   "firstrade": [
     {
-      "key": "default",
-      "label": "default",
-      "target_name": "default",
+      "key": "live",
+      "label": "live",
+      "target_name": "live",
+      "account_selector": "firstrade",
+      "service_name": "firstrade-quant-service",
       "cash_currency": "USD",
-      "supported_domains": ["us_equity"]
+      "supported_domains": [
+        "us_equity"
+      ]
     }
   ],
   "qmt": [
@@ -87,31 +99,9 @@
       "account_scope": "CN",
       "service_name": "qmt-quant-service",
       "cash_currency": "CNY",
-      "supported_domains": ["cn_equity"]
-    },
-    {
-      "key": "industry_etf_aggressive_dry_run",
-      "label": "industry_etf_aggressive_dry_run",
-      "target_name": "industry_etf_aggressive_dry_run",
-      "variable_scope": "repository",
-      "deployment_selector": "qmt",
-      "account_selector": "qmt",
-      "account_scope": "CN",
-      "service_name": "qmt-quant-service",
-      "cash_currency": "CNY",
-      "supported_domains": ["cn_equity"]
-    },
-    {
-      "key": "dividend_quality_dry_run",
-      "label": "dividend_quality_dry_run",
-      "target_name": "dividend_quality_dry_run",
-      "variable_scope": "repository",
-      "deployment_selector": "qmt",
-      "account_selector": "qmt",
-      "account_scope": "CN",
-      "service_name": "qmt-quant-service",
-      "cash_currency": "CNY",
-      "supported_domains": ["cn_equity"]
+      "supported_domains": [
+        "cn_equity"
+      ]
     }
   ]
 }
