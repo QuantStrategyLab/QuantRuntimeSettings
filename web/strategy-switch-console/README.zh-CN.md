@@ -10,6 +10,13 @@
 
 控制台的目标架构见 [QSL 统一决策平台架构 V1](../../docs/qsl_unified_control_console_architecture_v1.zh-CN.md)：人将从这一处查看跨仓健康、候选和需要本人决定的 P6 项；网页不会持有券商凭证或直接下单。现有“策略切换”是历史部署配置工具，不能被视为 P0–P6 运行授权。
 
+## 平台目录配置
+
+- `platform-config.json` 的 `platforms` 是网站平台目录的来源：名称、标识、颜色、仓库、默认账户与能力在此配置；菜单顺序沿用配置中的平台顺序。
+- 只需隐藏已接入平台时，在部署配置中修改 `STRATEGY_SWITCH_HIDDEN_PLATFORMS`（逗号分隔）；例如 `qmt` 隐藏 QMT，空字符串显示全部。隐藏不是停用交易，不删除账户或适配器。
+- 修改目录后运行 `python3 python/scripts/build_platform_config.py` 和 `python3 python/scripts/sync_strategy_switch_page_asset.py`，通过测试后部署网站。不要手改生成的 `config.js`。
+- 前后端使用同一发布版本的目录；不再从远端 main 临时拼入平台。全新券商仍须先接入适配器及对应能力，不能只增加菜单就视为可交易。
+
 ## 操作台模型
 
 这个页面面向低频人工介入，而不是展示交易、收益或全量运行明细：

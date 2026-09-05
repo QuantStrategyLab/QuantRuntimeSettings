@@ -1107,6 +1107,18 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertNotIn("catalogEntry.runtime_enabled !== true", eligibility.group(0))
         self.assertIn('if (mode === "live") return strategyCanSwitchLive(catalogEntry);', eligibility.group(0))
 
+    def test_console_platform_directory_is_generated_from_configuration(self):
+        config = json.loads((ROOT / "platform-config.json").read_text())
+        sample = json.loads(json.dumps(config["platforms"]["ibkr"]))
+        sample.update(label="Example Broker", code="EX", accent_color="#123456")
+        config["platforms"] = {"example_broker": sample}
+        module = build_platform_config.build_config_module(config)
+        match = re.search(r"export const PLATFORM_META = (.*?);", module, re.DOTALL)
+        self.assertIsNotNone(match)
+        self.assertEqual(json.loads(match.group(1)), {
+            "example_broker": {"label": "Example Broker", "code": "EX", "accent": "#123456"},
+        })
+
     def test_build_platform_config_build_strategy_profile_entries_defaults_gate_fields(self):
         payload = build_platform_config.build_strategy_profile_entries({
             "strategies": {
