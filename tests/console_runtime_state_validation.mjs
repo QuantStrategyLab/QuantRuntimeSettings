@@ -1,3 +1,4 @@
+import { githubVariableListMock } from './helpers/github_variable_list_mock.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -44,7 +45,7 @@ for (const sample of [
 ]) {
   test(sample.name, async () => {
     const original = globalThis.fetch;
-    globalThis.fetch = async (url) => {
+    globalThis.fetch = githubVariableListMock(async (url) => {
       const path = String(url);
       let value;
       if (path.endsWith('/CLOUD_RUN_SERVICE_TARGETS_JSON')) value = JSON.stringify({ targets: [{
@@ -65,7 +66,7 @@ for (const sample of [
       }
       return value === undefined ? new Response('', { status: 404 })
         : Response.json({ value });
-    };
+    });
     try {
       const result = await __test.loadCurrentStrategies({ ibkr: [{
         key: 'example', target_name: 'example', service_name: 'example-service', account_scope: 'example',
@@ -158,3 +159,71 @@ for (const intent of [null, { decision: 'approved' }]) {
     assert.equal(fn({ lifecycle: { status: 'owner_decision_required' } }), !intent);
   });
 }
+
+test('all platforms remain readable within the Worker external request budget', async () => {
+  const original = globalThis.fetch;
+  let requests = 0;
+  const options = {
+    longbridge: ['hk', 'sg', 'paper'].map(key => ({ key, target_name: key })),
+    ibkr: [0, 1, 2, 3].map(i => ({ key: `example-${i}`, target_name: `example-${i}` })),
+    schwab: [{ key: 'default', target_name: 'default' }],
+    firstrade: [{ key: 'default', target_name: 'default' }],
+    binance: [{ key: 'default', target_name: 'default' }],
+  };
+  globalThis.fetch = async url => {
+    if (++requests > 50) throw new Error('Too many subrequests');
+    const path = new URL(url).pathname;
+    if (path.endsWith('/variables')) return Response.json({ total_count: 1,
+      variables: [{ name: 'RUNTIME_TARGET_ENABLED', value: 'false' }] });
+    return path.endsWith('/RUNTIME_TARGET_ENABLED') ? Response.json({ value: 'false' })
+      : new Response('', { status: 404 });
+  };
+  try {
+    const result = await __test.loadCurrentStrategies(options, { RUNTIME_SETTINGS_DISPATCH_TOKEN: 'synthetic-only' });
+    for (const [platform, accounts] of Object.entries(options)) {
+      for (const account of accounts) assert.equal(result[platform]?.[account.key]?.runtime_target_enabled, false, platform);
+    }
+    assert.ok(requests <= 10, `expected scoped bulk reads, got ${requests}`);
+  } finally { globalThis.fetch = original; }
+});
+
+for (const secondPageStatus of [200, 403, 404, 429, 500]) {
+  test(`paginated variable reads are complete or unknown: ${secondPageStatus}`, async () => {
+    const original = globalThis.fetch;
+    const requested = [];
+    globalThis.fetch = async url => {
+      const request = new URL(url);
+      requested.push(request);
+      assert.equal(request.origin, 'https://api.github.com');
+      assert.equal(request.pathname, '/repos/QuantStrategyLab/FirstradePlatform/actions/variables');
+      if (request.searchParams.get('page') === '1') return Response.json({ total_count: 31,
+        variables: Array.from({ length: 30 }, (_, i) => ({ name: `EXAMPLE_${i}`, value: 'unused' })),
+      }, { headers: { Link: '<https://untrusted.example/next>; rel="next"' } });
+      return secondPageStatus === 200 ? Response.json({ total_count: 31,
+        variables: [{ name: 'RUNTIME_TARGET_ENABLED', value: 'false' }],
+      }) : new Response('', { status: secondPageStatus });
+    };
+    try {
+      const result = await __test.loadCurrentStrategies({ firstrade: [{ key: 'default', target_name: 'default' }] },
+        { RUNTIME_SETTINGS_DISPATCH_TOKEN: 'synthetic-only' });
+      assert.equal(result.firstrade?.default?.runtime_target_enabled, secondPageStatus === 200 ? false : undefined);
+      assert.equal(requested.length, 2, 'failed pages must not trigger retries or per-variable fallback');
+    } finally { globalThis.fetch = original; }
+  });
+}
+
+test('failed variable-list page never publishes a partial configuration', async () => {
+  const original = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    if (++requests > 1) throw new Error('synthetic timeout');
+    return Response.json({ total_count: 2, variables: [{ name: 'RUNTIME_TARGET_ENABLED', value: 'true' }] },
+      { headers: { Link: '<https://api.github.com/example?page=2>; rel="next"' } });
+  };
+  try {
+    const result = await __test.loadCurrentStrategies({ binance: [{ key: 'default', target_name: 'default' }] },
+      { RUNTIME_SETTINGS_DISPATCH_TOKEN: 'synthetic-only' });
+    assert.equal(result.binance, undefined);
+    assert.equal(requests, 2);
+  } finally { globalThis.fetch = original; }
+});

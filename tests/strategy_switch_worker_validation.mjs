@@ -1,3 +1,4 @@
+import { githubVariableListMock } from './helpers/github_variable_list_mock.mjs';
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -1300,7 +1301,7 @@ assert.equal(syncResult.synced, true);
 // default_strategy_profile is no longer persisted to KV after switch
 
 const originalFetch = globalThis.fetch;
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response("", { status: 404 });
@@ -1366,7 +1367,7 @@ globalThis.fetch = async (url) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     { schwab: accountOptions.schwab },
@@ -1387,7 +1388,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response("", { status: 404 });
@@ -1441,7 +1442,7 @@ globalThis.fetch = async (url) => {
     });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     { schwab: accountOptions.schwab },
@@ -1452,7 +1453,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response(JSON.stringify({
@@ -1486,7 +1487,7 @@ globalThis.fetch = async (url) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     { ibkr: accountOptions.ibkr },
@@ -1508,7 +1509,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.includes("/CharlesSchwabPlatform/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response(JSON.stringify({
@@ -1565,7 +1566,7 @@ globalThis.fetch = async (url) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     {
@@ -1610,7 +1611,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response(JSON.stringify({
@@ -1639,7 +1640,7 @@ globalThis.fetch = async (url) => {
     }), { status: 200, headers: { "Content-Type": "application/json" } });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     { ibkr: accountOptions.ibkr },
@@ -1650,7 +1651,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response("", { status: 404 });
@@ -1668,7 +1669,7 @@ globalThis.fetch = async (url) => {
     });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     { longbridge: [accountOptions.longbridge[0]] },
@@ -1682,7 +1683,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response("", { status: 404 });
@@ -1694,7 +1695,7 @@ globalThis.fetch = async (url) => {
     });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     { ibkr: accountOptions.ibkr },
@@ -1706,7 +1707,7 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-globalThis.fetch = async (url) => {
+globalThis.fetch = githubVariableListMock(async (url) => {
   const requestUrl = String(url);
   if (requestUrl.includes("/LongBridgePlatform/actions/variables/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
     return new Response(JSON.stringify({
@@ -1840,7 +1841,7 @@ globalThis.fetch = async (url) => {
     });
   }
   return new Response("", { status: 404 });
-};
+});
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
     {
@@ -1872,45 +1873,19 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-let releaseReservedVariables;
-let reservedVariableRequests = 0;
-let reservedVariablesFinished = false;
-let runtimeTargetStartedBeforeReservedVariablesFinished = false;
-const reservedVariablesGate = new Promise((resolve) => {
-  releaseReservedVariables = () => {
-    reservedVariablesFinished = true;
-    resolve();
-  };
-});
-const reservedVariableFallback = setTimeout(releaseReservedVariables, 100);
+let scopedVariableRequests = 0;
 globalThis.fetch = async (url) => {
-  const requestUrl = String(url);
-  if (requestUrl.endsWith("/CLOUD_RUN_SERVICE_TARGETS_JSON")) {
-    return new Response("", { status: 404 });
-  }
-  if (requestUrl.endsWith("/SCHWAB_MIN_RESERVED_CASH_USD") || requestUrl.endsWith("/SCHWAB_RESERVED_CASH_RATIO")) {
-    reservedVariableRequests += 1;
-    await reservedVariablesGate;
-    return new Response(JSON.stringify({ value: requestUrl.endsWith("/SCHWAB_RESERVED_CASH_RATIO") ? "0.03" : "150" }), {
-      status: 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
-  if (requestUrl.endsWith("/RUNTIME_TARGET_JSON")) {
-    runtimeTargetStartedBeforeReservedVariablesFinished = reservedVariableRequests === 2 && !reservedVariablesFinished;
-    releaseReservedVariables();
-    return new Response(JSON.stringify({
-      value: JSON.stringify({
-        platform_id: "schwab",
-        strategy_profile: "soxl_soxx_trend_income",
-        dry_run_only: false,
-        account_scope: "schwab",
-        service_name: "charles-schwab-quant-service",
-        execution_mode: "live",
-      }),
-    }), { status: 200, headers: { "Content-Type": "application/json" } });
-  }
-  return new Response("", { status: 404 });
+  scopedVariableRequests += 1;
+  assert.ok(new URL(url).pathname.endsWith("/actions/variables"));
+  return Response.json({ total_count: 3, variables: [
+    { name: "SCHWAB_MIN_RESERVED_CASH_USD", value: "150" },
+    { name: "SCHWAB_RESERVED_CASH_RATIO", value: "0.03" },
+    { name: "RUNTIME_TARGET_JSON", value: JSON.stringify({
+      platform_id: "schwab", strategy_profile: "soxl_soxx_trend_income",
+      dry_run_only: false, account_scope: "schwab",
+      service_name: "charles-schwab-quant-service", execution_mode: "live",
+    }) },
+  ] });
 };
 try {
   const currentStrategies = await __test.loadCurrentStrategies(
@@ -1920,8 +1895,8 @@ try {
   assert.equal(currentStrategies.schwab.default.min_reserved_cash_usd, "150");
   assert.equal(currentStrategies.schwab.default.reserved_cash_ratio, "0.03");
   assert.equal(currentStrategies.schwab.default.strategy_profile, "soxl_soxx_trend_income");
+  assert.equal(scopedVariableRequests, 1);
 } finally {
-  clearTimeout(reservedVariableFallback);
   globalThis.fetch = originalFetch;
 }
 
