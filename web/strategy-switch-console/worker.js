@@ -991,7 +991,7 @@ async function loadSharedConfig() {
   return _cachedSharedConfig;
 }
 
-async function loadPlatformMeta() {
+async function loadPlatformMeta(env = {}) {
   const merged = {
     longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
     ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
@@ -1013,6 +1013,11 @@ async function loadPlatformMeta() {
       }
     }
   } catch { /* keep defaults */ }
+  const hidden = new Set(String(env.STRATEGY_SWITCH_HIDDEN_PLATFORMS || "")
+    .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
+  for (const [platform, meta] of Object.entries(merged)) {
+    meta.console_visible = !hidden.has(platform);
+  }
   return merged;
 }
 
@@ -1023,7 +1028,7 @@ let _memRefreshing = false;  // prevent concurrent background refreshes
 
 async function configPayload(request, env, ctx) {
   const session = await readSession(request, env);
-  const meta = await loadPlatformMeta();
+  const meta = await loadPlatformMeta(env);
   if (!session?.allowed) return { accountOptions: null, platformMeta: meta };
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
@@ -1104,7 +1109,7 @@ async function configPayload(request, env, ctx) {
 async function strategyProfilesPayload(env) {
   return {
     strategyProfiles: await loadStrategyProfilesConfig(env),
-    platformMeta: await loadPlatformMeta(),
+    platformMeta: await loadPlatformMeta(env),
   };
 }
 
@@ -6247,15 +6252,20 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ? entry.runtime_target
       : {};
     if (!runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry)) continue;
+    // Match deployment identity before reading overrides. The deploy planner
+    // supports nested env values and gives explicit top-level values precedence.
+    const nestedEnv = entry.env && typeof entry.env === "object" && !Array.isArray(entry.env)
+      ? entry.env : {};
+    const settings = { ...nestedEnv, ...entry };
     matches.push({
       ...runtimeTarget,
       strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
-      ...reservedCashPayloadFromObject(platform, entry),
-      ...incomeLayerPayloadFromObject(entry),
-      ...optionOverlayPayloadFromObject(entry),
-      ...runtimeTargetEnabledPayloadFromObject(entry),
-      ...dcaPayloadFromObject(entry),
-      ...cashOnlyPayloadFromObject(platform, entry),
+      ...reservedCashPayloadFromObject(platform, settings),
+      ...incomeLayerPayloadFromObject(settings),
+      ...optionOverlayPayloadFromObject(settings),
+      ...runtimeTargetEnabledPayloadFromObject(settings),
+      ...dcaPayloadFromObject(settings),
+      ...cashOnlyPayloadFromObject(platform, settings),
     });
   }
   return matches.length === 1 ? matches[0] : null;
@@ -7209,6 +7219,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  loadPlatformMeta,
   assertConfiguredAccount,
   accountOptionMatchesInputs,
   resolvedVariableScope,

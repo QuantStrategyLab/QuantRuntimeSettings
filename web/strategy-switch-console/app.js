@@ -3447,7 +3447,10 @@
       const strip = el("platform-strip");
       strip.replaceChildren();
       const showPrivateConfig = hasPrivateConfig();
-      for (const platform of Object.keys(platformMeta)) {
+      const visiblePlatforms = Object.keys(platformMeta).filter((platform) => platformMeta[platform].console_visible !== false);
+      if (!visiblePlatforms.includes(state.selected) && visiblePlatforms.length) state.selected = visiblePlatforms[0];
+      el("switch-view").querySelector(".switch-surface").hidden = !visiblePlatforms.length;
+      for (const platform of visiblePlatforms) {
         ensureAccountSelection(platform);
         const meta = platformMeta[platform];
         const form = state.forms[platform];
