@@ -1108,13 +1108,12 @@ async function loadCurrentStrategies(accountOptions, env) {
   const repositories = platformRepositories(env);
 
   const variableCache = new Map();
-  const readVariable = (repository, scope, githubEnvironment, name, { skipCache = false } = {}) => {
-    const cacheKey = [repository, scope, githubEnvironment || "", name].join("|");
-    if (skipCache) variableCache.delete(cacheKey);
+  const readVariable = async (repository, scope, githubEnvironment, name) => {
+    const cacheKey = [repository, scope, githubEnvironment || ""].join("|");
     if (!variableCache.has(cacheKey)) {
-      variableCache.set(cacheKey, fetchGithubVariable(token, repository, scope, githubEnvironment, name));
+      variableCache.set(cacheKey, fetchGithubVariables(token, repository, scope, githubEnvironment));
     }
-    return variableCache.get(cacheKey);
+    return (await variableCache.get(cacheKey)).get(name) || "";
   };
 
   const currentStrategies = {};
@@ -1277,14 +1276,8 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
-  // Await in parallel: each reads a different variable so
-  // there is no risk of hammering the same GitHub API endpoint.
-  // Read RUNTIME_TARGET_JSON first with retry — parallel reads inside
-  // Promise.all can hit GitHub secondary rate limits and return empty.
-  let runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
-  if (!runtimeTargetValue) {
-    runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON", { skipCache: true });
-  }
+  // All fields share one scoped variable-list read; missing fields are not retried.
+  const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
   const [
     reservedCashPayload,
     incomeLayerPayload,
@@ -6180,33 +6173,39 @@ function requireSameOrigin(request, options = {}) {
   if (origin !== new URL(request.url).origin) throw new HttpError("cross-origin request rejected", 403);
 }
 
-async function fetchGithubVariable(token, repository, scope, githubEnvironment, name) {
-  const apiUrl = githubVariableUrl(repository, scope, githubEnvironment, name);
-  if (!apiUrl) return "";
+async function fetchGithubVariables(token, repository, scope, githubEnvironment) {
+  const apiUrl = githubVariablesUrl(repository, scope, githubEnvironment);
+  const values = new Map();
+  if (!apiUrl) return values;
   try {
-    const response = await fetchWithTimeout(apiUrl, {
-      headers: githubHeaders(token),
-    });
-    if (response.status === 404 || response.status === 403) return "";
-    if (!response.ok) return "";
-    const payload = await response.json();
-    return String(payload?.value || "");
+    // Follow the variable-list pages, never arbitrary URLs returned by an upstream.
+    for (let page = 1; ; page += 1) {
+      const response = await fetchWithTimeout(`${apiUrl}?per_page=100&page=${page}`, {
+        headers: githubHeaders(token),
+      });
+      if (!response.ok) return new Map();
+      const payload = await response.json();
+      if (!Array.isArray(payload?.variables)) return new Map();
+      for (const item of payload.variables) {
+        if (typeof item.name === "string" && typeof item.value === "string") values.set(item.name, item.value);
+      }
+      if (!response.headers.get("Link")?.includes('rel="next"')) return values;
+    }
   } catch {
-    return "";
+    return new Map();
   }
 }
 
 
-function githubVariableUrl(repository, scope, githubEnvironment, name) {
+function githubVariablesUrl(repository, scope, githubEnvironment) {
   const [owner, repo] = String(repository || "").split("/");
   if (!owner || !repo) return "";
   const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const variableName = encodeURIComponent(name);
   if (scope === "environment") {
     if (!githubEnvironment) return "";
-    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables/${variableName}`;
+    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables`;
   }
-  return `${base}/actions/variables/${variableName}`;
+  return `${base}/actions/variables`;
 }
 
 function resolveVariableScope(platform, option) {
