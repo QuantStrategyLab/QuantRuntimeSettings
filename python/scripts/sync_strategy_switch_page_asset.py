@@ -69,28 +69,27 @@ def _enrich_profiles_from_config(profiles: list[dict]) -> list[dict]:
             ),
         )
         blocked_live_reason = config_fields.get("blocked_live_reason", item.get("blocked_live_reason"))
-        if blocked_live_reason is None and not can_switch_live:
+        if can_switch_live:
+            blocked_live_reason = ""
+        elif blocked_live_reason is None:
             blocked_live_reason = lifecycle_stage or "not_runtime_enabled"
-        item.setdefault("lifecycle_stage", lifecycle_stage)
-        item.setdefault("can_switch_live", can_switch_live)
-        item.setdefault(
-            "allowed_execution_modes",
-            _normalize_allowed_execution_modes(config_fields.get("allowed_execution_modes")),
+        # platform-config.json is the authority for enablement / live-switch gates.
+        # Do not let stale example catalog booleans mask an explicit config change.
+        item["lifecycle_stage"] = lifecycle_stage
+        item["can_switch_live"] = can_switch_live is True
+        item["allowed_execution_modes"] = _normalize_allowed_execution_modes(
+            config_fields.get("allowed_execution_modes", item.get("allowed_execution_modes"))
         )
-        item.setdefault(
-            "blocked_live_reason",
-            "" if blocked_live_reason is None else str(blocked_live_reason).strip(),
+        item["blocked_live_reason"] = (
+            "" if blocked_live_reason is None else str(blocked_live_reason).strip()
         )
         continuity = config_fields.get("live_continuity")
         if isinstance(continuity, dict):
-            item.setdefault(
-                "live_continuity",
-                {
-                    "eligible": continuity.get("eligible") is True,
-                    "allowed_platforms": list(continuity.get("allowed_platforms") or []),
-                },
-            )
-        item.setdefault("runtime_enabled", runtime_enabled)
+            item["live_continuity"] = {
+                "eligible": continuity.get("eligible") is True,
+                "allowed_platforms": list(continuity.get("allowed_platforms") or []),
+            }
+        item["runtime_enabled"] = runtime_enabled is True
         enriched.append(item)
     return enriched
 
