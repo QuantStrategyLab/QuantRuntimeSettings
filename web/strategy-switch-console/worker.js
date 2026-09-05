@@ -570,7 +570,13 @@ async function sessionPayload(request, env) {
 async function adminPage(request, env) {
   const session = await requireAdminSession(request, env);
   if (session instanceof Response) return session;
-  return html(await renderAdminPage(await buildAdminState(session, env)));
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const policy = SECURITY_HEADERS["Content-Security-Policy"]
+    .replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}'`)
+    .replace("style-src 'self'", `style-src 'self' 'nonce-${nonce}'`);
+  return html(await renderAdminPage(await buildAdminState(session, env), nonce), 200, {
+    "Content-Security-Policy": policy,
+  });
 }
 
 async function adminConfigResponse(request, env) {
@@ -720,7 +726,7 @@ async function buildAdminState(session, env) {
   };
 }
 
-async function renderAdminPage(state) {
+async function renderAdminPage(state, nonce) {
   const disabled = state.kvAvailable ? "" : " disabled";
   const statusClass = state.kvAvailable ? "ready" : "warn";
   const statusText = state.kvAvailable ? "KV 已连接 / KV connected" : "KV 未绑定，只读 / Read-only";
@@ -754,7 +760,7 @@ async function renderAdminPage(state) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Strategy Switch Login Management</title>
-  <style>
+  <style nonce="${nonce}">
     :root {
       --bg: #f5f6f8;
       --surface: #ffffff;
@@ -909,7 +915,7 @@ async function renderAdminPage(state) {
       </table>
     </div>
   </main>
-  <script>
+  <script nonce="${nonce}">
     const kvAvailable = ${JSON.stringify(state.kvAvailable)};
     const statusNode = document.getElementById("status");
     const riskProfileStatusNode = document.getElementById("risk-profile-status");
@@ -5452,6 +5458,11 @@ function registerLegacyContinuityAccount(env, accountOptions, inputs, strategy) 
   const platformOptions = accountOptions[inputs.platform] || [];
   if (platformOptions.some((option) => option.target_name === inputs.target_name)) {
     throw new Error("legacy continuity account target conflicts with configured account options");
+  }
+  if (platformOptions.some((option) => option.service_name
+    && option.service_name === inputs.service_name
+    && accountOptionMatchesInputs(option, { ...inputs, target_name: option.target_name }))) {
+    throw new HttpError("deployment already has a configured account; use its existing target", 400);
   }
   if (platformOptions.length >= 20) {
     throw new Error(`account options for ${inputs.platform} have reached the maximum`);

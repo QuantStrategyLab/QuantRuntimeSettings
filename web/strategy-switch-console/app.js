@@ -842,10 +842,10 @@
         controlStaleNotice: "数据更新延迟，暂不建议据此做新决定。",
         controlUnavailableNotice: "暂时无法读取最新状态，请稍后刷新。",
         controlUpstreamNotice: "部分数据暂不可用，请稍后重试。",
-        controlAttentionNotice: "有 {deferred} 项待复核，{parked} 项已暂停。",
+        controlAttentionNotice: "有 {count} 项需要你确认。",
         controlNormalNotice: "目前没有需要你决定的事项。",
-        controlNormalSummary: "系统会继续监测、优化和记录。",
-        controlStaleSummary: "系统会继续监测；更新后再显示新的事项。",
+        controlNormalSummary: "需要你确认的事项会在这里列出。",
+        controlStaleSummary: "当前记录尚未更新，请勿据此作出新的决定。",
         controlLoginSummary: "登录后查看你的待办和系统概览。",
         controlAttentionSummary: "请查看下方事项并选择下一步。",
         controlEmptyCandidates: "当前没有待处理事项。",
@@ -977,7 +977,7 @@
         researchTaskNoOrder: "查看当前自动化任务。",
         healthEyebrow: "系统状态",
         healthTitle: "系统状态",
-        healthSubtitle: "按类别查看健康度和运行情况。",
+        healthSubtitle: "先查看平台运行记录；策略与研究详情按需展开。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
@@ -1043,7 +1043,7 @@
         planOverlaySubtitle: "仅使用策略已定义的默认边界",
         planCashSubtitle: "现金预留优先于融资；两者不能同时覆盖",
         activePlatform: "目标平台",
-        account: "目标账号",
+        account: "账户",
         strategy: "策略",
         mode: "运行环境",
         live: "实盘",
@@ -1052,7 +1052,7 @@
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
         runtimeTargetMode: "平台开关",
         runtimeSectionTitle: "运行与插件",
-        runtimeTargetCurrent: "沿用当前状态",
+        runtimeTargetCurrent: "不修改",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
         runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
@@ -1250,10 +1250,10 @@
         controlStaleNotice: "Data is delayed. Avoid making a new decision from it for now.",
         controlUnavailableNotice: "The latest status is temporarily unavailable. Please refresh later.",
         controlUpstreamNotice: "Some data is temporarily unavailable. Please retry later.",
-        controlAttentionNotice: "{deferred} item(s) need review and {parked} are paused.",
+        controlAttentionNotice: "{count} item(s) need your decision.",
         controlNormalNotice: "There is nothing you need to decide right now.",
-        controlNormalSummary: "The system will keep monitoring, improving, and recording.",
-        controlStaleSummary: "Monitoring continues; new items will appear after the next update.",
+        controlNormalSummary: "Items requiring your decision appear here.",
+        controlStaleSummary: "These records are not current; avoid making new decisions from them.",
         controlLoginSummary: "Sign in to see your tasks and system overview.",
         controlAttentionSummary: "Review the items below and choose the next step.",
         controlEmptyCandidates: "There is nothing to handle right now.",
@@ -1385,7 +1385,7 @@
         researchTaskNoOrder: "View the current automation tasks.",
         healthEyebrow: "System status",
         healthTitle: "System status",
-        healthSubtitle: "Browse health and runtime status by category.",
+        healthSubtitle: "Platform runtime records first; expand strategy and research details as needed.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
         healthWatch: "Watch",
@@ -4022,8 +4022,10 @@
     }
 
     function candidateNeedsOperatorAction(item) {
+      const decision = ownerDecisionEntry(item?.candidate_id);
+      if (decision?.intent) return false;
       const recommendation = item?.recommendation?.code || "none";
-      return Boolean(ownerDecisionEntry(item?.candidate_id))
+      return Boolean(decision)
         || item?.lifecycle?.status === "owner_decision_required"
         || recommendation === "owner_live_decision";
     }
@@ -4047,13 +4049,13 @@
       const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
       const queue = el("control-plane-queue");
       queue.hidden = !actionableCandidates.length;
-      statePanel.classList.toggle("is-attention", actionableCandidates.length > 0 || payload.attention?.status === "attention_required");
+      statePanel.classList.toggle("is-attention", actionableCandidates.length > 0);
       statePanel.classList.toggle("is-stale", payload.data_status === "stale");
       statePanel.classList.toggle("is-unavailable", !state.auth.allowed || payload.data_status === "unavailable");
       const stateMark = statePanel.querySelector(".decision-state__mark");
       stateMark.textContent = !state.auth.allowed || payload.data_status === "unavailable"
         ? "i"
-        : ((actionableCandidates.length > 0 || payload.attention?.status === "attention_required" || payload.data_status === "stale") ? "!" : "✓");
+        : ((actionableCandidates.length > 0 || payload.data_status === "stale") ? "!" : "✓");
       if (!state.auth.allowed) {
         notice.textContent = t("controlLoginNotice");
         el("control-plane-summary").textContent = t("controlLoginSummary");
@@ -4063,11 +4065,9 @@
       } else if (payload.data_status !== "ready") {
         notice.textContent = t("controlUnavailableNotice");
         el("control-plane-summary").textContent = t("controlStaleSummary");
-      } else if (payload.attention?.status === "attention_required") {
+      } else if (actionableCandidates.length > 0) {
         notice.textContent = t("controlAttentionNotice")
-          .replace("{deferred}", String(Number(summary.deferred) || 0))
-          .replace("{parked}", String(Number(summary.parked) || 0))
-          .replace("{signals}", String(payload.attention.reason_codes?.length || 0));
+          .replace("{count}", String(actionableCandidates.length));
         el("control-plane-summary").textContent = t("controlAttentionSummary");
       } else if (payload.errors?.length) {
         notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
@@ -5549,7 +5549,7 @@
       }
     });
 
-    el("open-system-status").addEventListener("click", () => { state.view = "health"; render(); refreshHealth(); });
+    el("open-system-status").addEventListener("click", () => { state.view = "health"; render(); refreshHealth(); refreshRuntimeTargetLifecycle(); });
 
     el("account-select").addEventListener("change", () => {
       state.forms[state.selected].accountKey = el("account-select").value;
