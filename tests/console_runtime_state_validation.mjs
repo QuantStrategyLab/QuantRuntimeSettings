@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { test } from 'node:test';
-import { __test } from '../web/strategy-switch-console/worker.js';
+import worker, { __test } from '../web/strategy-switch-console/worker.js';
 
 const source = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
 function frontendFunction(name, context) {
@@ -126,5 +126,35 @@ for (const hidden of ['', 'qmt', 'qmt,binance']) {
       assert.equal(meta.ibkr.console_visible, true);
       assert.equal(Object.keys(meta).length, 6);
     } finally { globalThis.fetch = original; }
+  });
+}
+
+
+test('admin page CSP permits only its own inline script and style', async () => {
+  const env = {
+    SESSION_SECRET: 'synthetic-admin-session', STRATEGY_SWITCH_ADMIN_LOGINS: 'operator',
+    STRATEGY_SWITCH_CONFIG: { get: async () => null, put: async () => {} },
+  };
+  const cookie = await __test.makeSession('operator', [], env);
+  const response = await worker.fetch(new Request('https://switch.example/admin', {
+    headers: { Cookie: `qsl_switch_session=${cookie}` },
+  }), env);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  const csp = response.headers.get('Content-Security-Policy');
+  const nonce = html.match(/<script nonce="([a-zA-Z0-9]+)">/)?.[1];
+  assert.ok(nonce);
+  assert.ok(html.includes(`<style nonce="${nonce}">`));
+  assert.ok(csp.includes(`script-src 'self' 'nonce-${nonce}'`));
+  assert.ok(csp.includes(`style-src 'self' 'nonce-${nonce}'`));
+  assert.ok(!csp.includes('unsafe-inline'));
+});
+
+for (const intent of [null, { decision: 'approved' }]) {
+  test(`completed owner decision is not an outstanding action: ${Boolean(intent)}`, () => {
+    const fn = frontendFunction('candidateNeedsOperatorAction', {
+      ownerDecisionEntry: () => ({ intent }),
+    });
+    assert.equal(fn({ lifecycle: { status: 'owner_decision_required' } }), !intent);
   });
 }

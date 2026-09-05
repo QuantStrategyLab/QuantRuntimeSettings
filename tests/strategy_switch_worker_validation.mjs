@@ -774,6 +774,17 @@ assert.equal(
   ).length,
   1,
 );
+const duplicateAliasResponse = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-account-default", {
+    method: "POST",
+    headers: { Authorization: "Bearer test-sync-token", "Content-Type": "application/json" },
+    body: JSON.stringify({ ...legacyContinuityPayload, target_name: "another-legacy-alias" }),
+  }), legacyContinuityEnv,
+);
+assert.equal(duplicateAliasResponse.status, 400);
+assert.equal(JSON.parse(legacyContinuityKv.get("account_options")).ibkr.some(
+  (option) => option.target_name === "another-legacy-alias",
+), false);
 const normalizedLegacyContinuityInputs = __test.normalizeSwitchInputs(legacyContinuityPayload);
 assert.doesNotThrow(() =>
   __test.assertStrategyAllowedForAccount(

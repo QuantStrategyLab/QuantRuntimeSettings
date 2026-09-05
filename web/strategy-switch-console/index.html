@@ -69,7 +69,7 @@
           <span id="control-plane-summary">—</span>
         </div>
       </div>
-      <div class="decision-summary" aria-label="待办摘要" data-i18n-aria-label="decisionSummary">
+      <div hidden class="decision-summary" aria-label="待办摘要" data-i18n-aria-label="decisionSummary">
         <span><strong id="control-count-owner-decision">0</strong><small data-i18n="controlOwnerDecision">待处理</small></span>
         <span><strong id="control-count-deferred">0</strong><small data-i18n="controlDeferred">待复核</small></span>
         <span><strong id="control-count-parked">0</strong><small data-i18n="controlParked">暂停中</small></span>
@@ -95,6 +95,13 @@
           <span id="health-computed-at">最近计算：—</span>
         </div>
       </div>
+        <div class="diagnostic-section">
+          <h3 data-i18n="runtimeTargetLifecycleBoard">平台运行状态</h3>
+          <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">登录后查看平台运行状态。</div>
+          <div class="health-list" id="runtime-target-lifecycle-list"></div>
+        </div>
+      <details class="diagnostic-details">
+        <summary data-i18n="healthSummary">策略健康摘要</summary>
       <div id="health-notice" class="decision-state health-state" role="status" aria-live="polite">登录后读取私有策略健康快照。</div>
       <div class="health-summary" aria-label="策略健康摘要" data-i18n-aria-label="healthSummary">
         <span><strong id="health-count-total">0</strong><small data-i18n="healthTotal">策略总数</small></span>
@@ -111,6 +118,7 @@
         </div>
       </div>
       <div class="health-list" id="health-list"></div>
+      </details>
       <details class="diagnostic-details">
         <summary data-i18n="diagnosticDetails">查看诊断详情</summary>
         <p data-i18n="diagnosticDetailsHint">仅在排查问题或查看研究记录时使用。</p>
@@ -133,11 +141,6 @@
           <h3 data-i18n="executionEvidenceBoard">执行与成交记录</h3>
           <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后查看执行和成交记录。</div>
           <div class="health-list" id="execution-evidence-list"></div>
-        </div>
-        <div class="diagnostic-section">
-          <h3 data-i18n="runtimeTargetLifecycleBoard">平台运行状态</h3>
-          <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">登录后查看平台运行状态。</div>
-          <div class="health-list" id="runtime-target-lifecycle-list"></div>
         </div>
         <div class="diagnostic-section">
           <h3 data-i18n="researchTaskBoard">自动化任务</h3>
