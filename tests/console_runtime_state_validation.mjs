@@ -305,3 +305,50 @@ test('only pending human reconciliation confirmations appear outside diagnostics
   const html=readFileSync(new URL('../web/strategy-switch-console/index.html',import.meta.url),'utf8');
   assert.ok(html.indexOf('id="reconciliation-recovery-board"')<html.indexOf('id="health-view"'));
 });
+
+for (const observation of [
+  {runtime_enabled:false,scheduler_state:'paused',strategy_profile:'example',execution_mode:'live'},
+  {runtime_enabled:null,scheduler_state:'unknown',strategy_profile:null,execution_mode:null},
+]) test('deployment observation survives Worker normalization without inferred values '+JSON.stringify(observation),()=>{
+  const target={target_id:'example',target:{platform:'ibkr',configured_state:'disabled',execution_mode:'live'},
+    monitoring:{runtime_guard:'pass',execution_heartbeat:'not_applicable'},
+    disposition:{code:'continue_disabled_validation',reason_code:'target_intentionally_disabled'},no_order:true};
+  assert.deepEqual(__test.normalizeRuntimeTargetLifecycleTarget({...target,deployment:observation},'test').deployment,observation);
+  assert.equal(__test.normalizeRuntimeTargetLifecycleTarget(target,'test').deployment,undefined);
+  assert.throws(()=>__test.normalizeRuntimeTargetLifecycleTarget({...target,deployment:{...observation,runtime_enabled:'false'}},'test'));
+  assert.throws(()=>__test.normalizeRuntimeTargetLifecycleTarget({...target,deployment:{...observation,raw_cloud_id:'private'}},'test'));
+});
+
+for (const scenario of ['missing','stale','true','false']) test(`actual deployment never falls back to saved settings: ${scenario}`,()=>{
+  const record=scenario==='missing'?null:{freshness:{data_status:scenario==='stale'?'stale':'ready'},target:{deployment:{runtime_enabled:scenario==='true',scheduler_state:'paused'}}};
+  const fn=frontendFunction('accountDeploymentObservation',{accountMonitoringRecord:()=>record});
+  assert.equal(fn('ibkr',{})?.runtime_enabled ?? null,scenario==='missing'||scenario==='stale'?null:scenario==='true');
+});
+
+for (const sample of [
+ {enabled:true,schedule:'paused',desired:true,profile:'example',expected:'scheduleNotApplied'},
+ {enabled:false,schedule:'paused',desired:true,profile:'example',expected:'settingsNotApplied'},
+ {enabled:true,schedule:'enabled',desired:true,profile:'other',expected:'strategyNotApplied'},
+ {enabled:true,schedule:'enabled',desired:true,profile:'example',expected:'switchesApplied'},
+ {enabled:false,schedule:'paused',desired:false,profile:'example',expected:'switchesApplied'},
+]) test('application status requires deployment and scheduler agreement '+JSON.stringify(sample),()=>{
+ const fn=frontendFunction('accountApplicationText',{accountDeploymentObservation:()=>({runtime_enabled:sample.enabled,scheduler_state:sample.schedule,strategy_profile:sample.profile}),
+ runtimeTargetStateForAccount:()=>({known:true,enabled:sample.desired}),currentStrategyForAccount:()=> 'example',t:x=>x});
+ assert.equal(fn('ibkr',{}),sample.expected);
+});
+
+test('legacy lifecycle alias with explicit live flags is not downgraded by the browser',()=>{
+ const normalize=frontendFunction('normalizeLifecycleStage',{});
+ const fn=frontendFunction('strategyCanSwitchLive',{normalizeAllowedExecutionModes:x=>x,cleanOptionalBoolean:x=>x,normalizeLifecycleStage:normalize,cleanDisplayText:x=>x||''});
+ const entry={runtime_enabled:true,can_switch_live:true,allowed_execution_modes:['live'],lifecycle_stage:'runtime_enabled'};
+ assert.equal(fn(entry),true);
+ assert.equal(fn({...entry,can_switch_live:false}),false);
+});
+
+test('fresh publication cannot refresh an old runtime report',()=>{
+ const record={freshness:{data_status:'ready',age_seconds:1},deployment_freshness:{data_status:'stale',age_seconds:172800},target:{deployment:{runtime_enabled:true}}};
+ const fn=frontendFunction('accountDeploymentObservation',{accountMonitoringRecord:()=>record});
+ assert.equal(fn('binance',{}),null);
+ const age=frontendFunction('accountMonitoringAge',{Intl,state:{lang:'en'}});
+ assert.equal(age(record),'2 days ago');
+});

@@ -2587,6 +2587,9 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         // observation separate from the monitoring checks so a green check
         // cannot be mistaken for a broker submission or fill receipt.
         execution_observation: runtimeTargetLifecycleExecutionObservation(target),
+        ...(target.deployment ? {deployment_freshness: target.deployment.observed_at
+          ? controlPlaneSnapshotFreshness({data_status:"ready", computed_at:target.deployment.observed_at}, ttlSeconds, now)
+          : freshness} : {}),
       });
     }
     errors.push(...source.errors);
@@ -4987,7 +4990,7 @@ function normalizeRuntimeTargetLifecycleSourceSnapshot(payload, fieldName = "run
 }
 
 function normalizeRuntimeTargetLifecycleTarget(value, fieldName) {
-  const item = assertExactFields(value, ["target_id", "target", "monitoring", "disposition", "no_order"], fieldName);
+  const item = assertRequiredAndOptionalFields(value, ["target_id", "target", "monitoring", "disposition", "no_order"], ["deployment"], fieldName);
   const target = assertExactFields(item.target, ["platform", "configured_state", "execution_mode"], `${fieldName}.target`);
   const monitoring = assertExactFields(item.monitoring, ["runtime_guard", "execution_heartbeat"], `${fieldName}.monitoring`);
   const disposition = assertExactFields(item.disposition, ["code", "reason_code"], `${fieldName}.disposition`);
@@ -5009,6 +5012,17 @@ function normalizeRuntimeTargetLifecycleTarget(value, fieldName) {
     },
     no_order: true,
   };
+  if (item.deployment !== undefined) {
+    const observed = assertRequiredAndOptionalFields(item.deployment, ["runtime_enabled", "scheduler_state", "strategy_profile", "execution_mode"], ["observed_at"], `${fieldName}.deployment`);
+    if (observed.runtime_enabled !== null && typeof observed.runtime_enabled !== "boolean") throw new Error("deployment switch must be boolean or null");
+    normalized.deployment = {
+      ...(observed.observed_at === undefined ? {} : {observed_at: normalizeM0ResearchTimestamp(observed.observed_at, "deployment.observed_at")}),
+      runtime_enabled: observed.runtime_enabled,
+      scheduler_state: cleanChoice(observed.scheduler_state, ["enabled", "paused", "mixed", "missing", "unknown", "not_applicable"], "deployment.scheduler_state"),
+      strategy_profile: observed.strategy_profile === null ? null : cleanSlug(observed.strategy_profile, "deployment.strategy_profile"),
+      execution_mode: observed.execution_mode === null ? null : cleanChoice(observed.execution_mode, RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES, "deployment.execution_mode"),
+    };
+  }
   const guardUnavailable = normalized.monitoring.runtime_guard === "unavailable";
   const heartbeatUnavailable = normalized.monitoring.execution_heartbeat === "unavailable";
   const hasAttention = normalized.monitoring.runtime_guard === "attention" || normalized.monitoring.execution_heartbeat === "attention";
@@ -7204,6 +7218,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  normalizeRuntimeTargetLifecycleTarget,
   loadPlatformMeta,
   assertConfiguredAccount,
   accountOptionMatchesInputs,

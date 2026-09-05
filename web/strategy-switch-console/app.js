@@ -814,6 +814,20 @@
         configTruthNote: "配置值不代表云端实际状态。",
         configuredSwitch: "配置开关",
         observedRuntime: "最近检查",
+        deployedSwitch: "实际开关",
+        schedulerState: "自动调度",
+        applicationStatus: "应用状态",
+        configuredStrategy: "配置策略",
+        scheduleEnabled: "已启用",
+        schedulePaused: "已暂停",
+        scheduleMixed: "部分暂停",
+        scheduleMissing: "未找到任务",
+        scheduleNotApplicable: "不适用",
+        deploymentUnverified: "实际状态待更新",
+        strategyNotApplied: "策略尚未应用",
+        settingsNotApplied: "开关尚未应用",
+        switchesApplied: "开关已同步",
+        scheduleNotApplied: "调度尚未同步",
         monitoringConfigMismatch: "配置与检查不一致",
         runtimeUnverified: "暂无记录",
         monitoringUnlinked: "待关联",
@@ -824,7 +838,7 @@
         monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
         instanceList: "账户实例",
         configDetails: "配置详情",
-        runtimeObservationHint: "配置开关不等于云端已运行；下列信息是历史检查，不是实时运行或成交状态。",
+        runtimeObservationHint: "实际开关和调度来自部署读回；以记录时间为准，不代表已经成交。",
         openSystemStatus: "查看高级详情",
         noConfiguredAccounts: "登录并读取配置后显示账户实例。",
 
@@ -1053,9 +1067,9 @@
         account: "账户",
         strategy: "策略",
         mode: "运行环境",
-        live: "实盘",
+        live: "券商执行",
         paper: "旧版非实盘",
-        dryRun: "模拟运行",
+        dryRun: "不下单演练",
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
         runtimeTargetMode: "平台开关",
         runtimeSectionTitle: "运行与插件",
@@ -1229,6 +1243,20 @@
         configTruthNote: "Saved configuration is not observed runtime state.",
         configuredSwitch: "Configured switch",
         observedRuntime: "Last check",
+        deployedSwitch: "Deployed switch",
+        schedulerState: "Scheduling",
+        applicationStatus: "Applied status",
+        configuredStrategy: "Configured strategy",
+        scheduleEnabled: "Enabled",
+        schedulePaused: "Paused",
+        scheduleMixed: "Partially paused",
+        scheduleMissing: "No bound jobs",
+        scheduleNotApplicable: "Not applicable",
+        deploymentUnverified: "Deployment not verified",
+        strategyNotApplied: "Strategy not applied",
+        settingsNotApplied: "Switch not applied",
+        switchesApplied: "Switches synchronized",
+        scheduleNotApplied: "Scheduling not synchronized",
         monitoringConfigMismatch: "Configuration differs from last check",
         runtimeUnverified: "No record",
         monitoringUnlinked: "Not linked",
@@ -1239,7 +1267,7 @@
         monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
         instanceList: "Account instances",
         configDetails: "Configuration details",
-        runtimeObservationHint: "Configuration is not deployed state. These are historical checks, not real-time execution or fills.",
+        runtimeObservationHint: "Deployment and scheduling come from resource readback at the shown time, not proof of fills.",
         openSystemStatus: "View advanced details",
         noConfiguredAccounts: "Sign in and load configuration to view account instances.",
 
@@ -1468,9 +1496,9 @@
         account: "Target account",
         strategy: "Strategy",
         mode: "Target environment",
-        live: "Live",
+        live: "Broker execution",
         paper: "Legacy non-live",
-        dryRun: "Simulated run",
+        dryRun: "No-order simulation",
         liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
         runtimeTargetMode: "Account status",
         runtimeSectionTitle: "Runtime and plugins",
@@ -2125,7 +2153,6 @@
       if (!text || text.length > 40 || !/^[a-z0-9._-]+$/.test(text)) return "";
       if (["research_backtest_only", "ai_monitored_candidate"].includes(text)) return "research_active";
       if (text === "shadow_candidate") return "shadow_active";
-      if (text === "runtime_enabled") return "live_candidate";
       return text;
     }
 
@@ -3499,8 +3526,37 @@
       return runtimeTargetLifecycleObservationLabel(record.execution_observation?.code);
     }
 
+    function accountDeploymentObservation(platform, account) {
+      const record = accountMonitoringRecord(platform, account);
+      return (record?.deployment_freshness || record?.freshness)?.data_status === "ready" ? record.target?.deployment || null : null;
+    }
+
+    function accountDeploymentText(platform, account) {
+      const observed = accountDeploymentObservation(platform, account);
+      if (typeof observed?.runtime_enabled !== "boolean") return t("notRead");
+      return t(observed.runtime_enabled ? "runtimeTargetLifecycleStateEnabled" : "runtimeTargetLifecycleStateDisabled");
+    }
+
+    function accountSchedulerText(platform, account) {
+      const observed = accountDeploymentObservation(platform, account);
+      return t({enabled:"scheduleEnabled", paused:"schedulePaused", mixed:"scheduleMixed",
+        missing:"scheduleMissing", not_applicable:"scheduleNotApplicable"}[observed?.scheduler_state] || "notRead");
+    }
+
+    function accountApplicationText(platform, account) {
+      const observed = accountDeploymentObservation(platform, account);
+      const configured = runtimeTargetStateForAccount(platform, account);
+      if (!configured.known || typeof observed?.runtime_enabled !== "boolean") return t("deploymentUnverified");
+      const profile = currentStrategyForAccount(platform, account);
+      if (observed.strategy_profile && profile && observed.strategy_profile !== profile) return t("strategyNotApplied");
+      if (observed.runtime_enabled !== configured.enabled) return t("settingsNotApplied");
+      if (!configured.enabled && observed.scheduler_state === "paused") return t("switchesApplied");
+      if (configured.enabled && observed.scheduler_state === "enabled") return t("switchesApplied");
+      return t("scheduleNotApplied");
+    }
+
     function accountMonitoringAge(record) {
-      const age = record?.freshness?.age_seconds;
+      const age = (record?.deployment_freshness || record?.freshness)?.age_seconds;
       if (typeof age !== "number" || !Number.isFinite(age) || age < 0) return "—";
       const unit = age >= 86400 ? "day" : age >= 3600 ? "hour" : "minute";
       const seconds = unit === "day" ? 86400 : unit === "hour" ? 3600 : 60;
@@ -3546,7 +3602,7 @@
       el("account-overview").hidden = !hasPrivateConfig();
       if (!hasPrivateConfig()) return;
       const platform = state.selected;
-      el("selected-monitoring-status").textContent = accountMonitoringText(platform, selectedAccount(platform));
+      el("selected-monitoring-status").textContent = accountApplicationText(platform, selectedAccount(platform));
       for (const account of optionsFor(platform)) {
         const row = document.createElement("tr");
         row.classList.toggle("selected", account.key === selectedAccount(platform)?.key);
@@ -3563,7 +3619,7 @@
         row.append(first);
         for (const value of [
           currentStrategyForAccount(platform, account) ? strategyLabel(currentStrategyForAccount(platform, account)) : t("notRead"),
-          currentRuntimeTargetText(platform, account), accountMonitoringText(platform, account),
+          currentRuntimeTargetText(platform, account), accountDeploymentText(platform, account), accountSchedulerText(platform, account),
           accountMonitoringAge(accountMonitoringRecord(platform, account)),
         ]) {
           const cell = document.createElement("td");

@@ -89,6 +89,22 @@ def _target_disposition(
     return "continue_enabled_monitoring", "none"
 
 
+def normalize_deployment(value: object) -> dict[str, Any]:
+    fields = {"runtime_enabled", "scheduler_state", "strategy_profile", "execution_mode"}
+    if not isinstance(value, dict) or not fields.issubset(value) or set(value) - fields - {"observed_at"}:
+        raise RuntimeTargetLifecycleError("deployment has invalid fields")
+    enabled = value["runtime_enabled"]
+    if enabled is not None and not isinstance(enabled, bool):
+        raise RuntimeTargetLifecycleError("deployment runtime_enabled must be boolean or null")
+    return {
+        **({"observed_at": _timestamp(value["observed_at"])} if "observed_at" in value else {}),
+        "runtime_enabled": enabled,
+        "scheduler_state": _choice(value["scheduler_state"], frozenset({"enabled", "paused", "mixed", "missing", "unknown", "not_applicable"}), "scheduler_state"),
+        "strategy_profile": None if value["strategy_profile"] is None else _identifier(value["strategy_profile"], "strategy_profile"),
+        "execution_mode": None if value["execution_mode"] is None else _choice(value["execution_mode"], EXECUTION_MODES, "execution_mode"),
+    }
+
+
 def build_runtime_target_lifecycle_source_snapshot(
     *,
     source_id: object,
@@ -99,6 +115,7 @@ def build_runtime_target_lifecycle_source_snapshot(
     runtime_guard: object,
     execution_heartbeat: object,
     observed_at: object | None = None,
+    deployment: object | None = None,
 ) -> dict[str, Any]:
     """Create one sanitized target state record without execution authority."""
     normalized_source_id = _identifier(source_id, "source_id")
@@ -134,6 +151,7 @@ def build_runtime_target_lifecycle_source_snapshot(
                 },
                 "disposition": {"code": disposition, "reason_code": reason_code},
                 "no_order": True,
+                **({"deployment": normalize_deployment(deployment)} if deployment is not None else {}),
             }
         ],
         "errors": [],
@@ -150,6 +168,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--runtime-guard", required=True, choices=sorted(CHECK_STATUSES))
     parser.add_argument("--execution-heartbeat", required=True, choices=sorted(CHECK_STATUSES))
     parser.add_argument("--observed-at")
+    parser.add_argument("--deployment-json")
     parser.add_argument("--output", required=True)
     return parser.parse_args(argv)
 
@@ -165,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_guard=args.runtime_guard,
         execution_heartbeat=args.execution_heartbeat,
         observed_at=args.observed_at,
+        deployment=json.loads(args.deployment_json) if args.deployment_json else None,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)
