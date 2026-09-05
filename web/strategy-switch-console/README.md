@@ -19,9 +19,10 @@ This is the authenticated backend for the personal strategy switch console. It i
 
 The web surface is for low-frequency human intervention, not a trading or P&L dashboard:
 
-- **Attention** is the default view: only owner follow-ups appear first; strategy × platform evidence and research tasks are disclosed on demand.
-- **Run plan** groups the existing strategy, account state, plugin, income/option layer, cash reserve, and margin controls into one bounded configuration change. Scope is selected before capital guardrails are confirmed.
-- **Runtime guard** is read-only health context for deciding whether to review, reduce, or continue observing.
+- **Platform management** is the single daily surface: account, strategy, configured switch, monitoring record and freshness appear together, without permanent Attention/System Status tabs.
+- **Your decision needed** appears only for outstanding human decisions; completed items and research counts stay out of the home surface.
+- **Advanced details** is collapsed by default and retains monitoring, research, execution evidence and recovery checks. There is no pretend AI-repair button.
+- An account may configure optional `runtime_status_target_id` to reference an existing lifecycle `target_id`. Matching requires the same platform and a one-to-one link; missing, duplicate or stale records cannot look healthy. This display-only field is not sent to trading workflows. Monitoring success does not prove an order or fill.
 - If no strategy meets all release, runtime-eligibility, and evidence gates, the page disables the Live choice. It never changes configuration automatically or treats health, candidates, or historical `live` metadata as order or runtime authority.
 
 Submitting a plan still uses the existing GitHub Actions configuration workflow and writes an audit record. P4/P5/P6 and all live authority remain subject to independent, verifiable lifecycle contracts.

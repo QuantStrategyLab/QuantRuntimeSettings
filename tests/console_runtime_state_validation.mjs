@@ -227,3 +227,31 @@ test('failed variable-list page never publishes a partial configuration', async 
     assert.equal(requests, 2);
   } finally { globalThis.fetch = original; }
 });
+
+test('console account metadata preserves an explicit monitoring reference', () => {
+  const options = __test.normalizeAccountOptionsPayload({ ibkr: [{key:'example',target_name:'example',runtime_status_target_id:'ibkr.monitor-a'}] },'fixture');
+  assert.equal(options.ibkr[0].runtime_status_target_id,'ibkr.monitor-a');
+});
+
+for (const scenario of ['ready','stale','missing','wrong-platform','duplicate-source','duplicate-account','unlinked']) {
+  test(`account monitoring match is exact and read-only: ${scenario}`, () => {
+    const account={key:'a', runtime_status_target_id:scenario==='unlinked'?'':'ibkr.monitor-a'};
+    const entry={freshness:{data_status:scenario==='stale'?'stale':'ready'},target:{target_id:'ibkr.monitor-a',target:{platform:scenario==='wrong-platform'?'binance':'ibkr'},monitoring:{},disposition:{}},execution_observation:{code:'monitoring_only'}};
+    const targets=scenario==='missing'?[]:scenario==='duplicate-source'?[entry,entry]:[entry];
+    const fn=frontendFunction('accountMonitoringRecord',{state:{auth:{allowed:true},runtimeTargetLifecycle:{payload:{targets}}},optionsFor:()=>scenario==='duplicate-account'?[account,{...account,key:'b'}]:[account]});
+    const result=fn('ibkr',account);
+    assert.equal(Boolean(result),scenario==='ready'||scenario==='stale');
+    if(result) assert.equal(result.execution_observation.code,'monitoring_only');
+  });
+}
+
+for (const pending of [false,true]) {
+  test(`human decision panel appears only when needed: ${pending}`, () => {
+    const nodes=Object.fromEntries(['switch-view','health-view','control-plane-view'].map(id=>[id,{hidden:false}]));
+    const fn=frontendFunction('renderConsoleView',{el:id=>nodes[id],state:{auth:{allowed:true},controlPlane:{payload:{candidates:pending?[{}]:[]}}},candidateNeedsOperatorAction:()=>pending});
+    fn();
+    assert.equal(nodes['switch-view'].hidden,false);
+    assert.equal(nodes['health-view'].hidden,false);
+    assert.equal(nodes['control-plane-view'].hidden,!pending);
+  });
+}

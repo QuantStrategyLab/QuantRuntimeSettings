@@ -45,16 +45,15 @@
 
   <main class="shell" id="app-shell">
     <nav class="platform-strip" id="platform-strip" aria-label="Platforms"></nav>
-    <nav class="console-nav" aria-label="控制中心视图" data-i18n-aria-label="consoleNavigation">
-      <button class="console-nav__button active" id="switch-view-button" type="button" data-view="switch" data-i18n="switchView">平台设置</button>
-      <button class="console-nav__button" id="control-plane-view-button" type="button" data-view="control" data-i18n="controlPlaneView">待你处理</button>
-      <button class="console-nav__button" id="health-view-button" type="button" data-view="health" data-i18n="healthView">系统状态</button>
-    </nav>
+    <header class="console-nav management-heading">
+      <h2 data-i18n="platformManagement">平台管理</h2>
+      <div><span id="monitoring-computed-at">—</span><button class="btn" type="button" id="refresh-status-button" data-i18n="refreshStatus">刷新记录</button></div>
+    </header>
 
     <section hidden class="decision-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
       <header class="decision-head">
         <div>
-          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">待你处理</h2>
+          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">待办确认</h2>
           <p data-i18n="controlPlaneSubtitle">这里只显示需要你亲自确认的事项。</p>
         </div>
         <div class="decision-freshness" aria-label="数据更新时间" data-i18n-aria-label="dataFreshness">
@@ -83,72 +82,6 @@
       </section>
     </section>
 
-    <section class="health-view" id="health-view" aria-labelledby="health-view-title" hidden>
-      <div class="health-head">
-        <div>
-          <h2 id="health-view-title" data-i18n="healthTitle">系统状态</h2>
-          <p data-i18n="healthSubtitle">默认只显示需要关注的问题。</p>
-        </div>
-        <div class="health-meta">
-          <button class="btn" type="button" id="refresh-status-button" data-i18n="refreshStatus">刷新已有记录</button>
-          <span id="health-status" class="pill">等待登录</span>
-          <span id="health-computed-at">最近计算：—</span>
-        </div>
-      </div>
-        <div class="diagnostic-section">
-          <h3 data-i18n="runtimeTargetLifecycleBoard">平台运行状态</h3>
-          <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">登录后查看平台运行状态。</div>
-          <div class="health-list" id="runtime-target-lifecycle-list"></div>
-        </div>
-      <details class="diagnostic-details">
-        <summary data-i18n="healthSummary">策略健康摘要</summary>
-      <div id="health-notice" class="decision-state health-state" role="status" aria-live="polite">登录后读取私有策略健康快照。</div>
-      <div class="health-summary" aria-label="策略健康摘要" data-i18n-aria-label="healthSummary">
-        <span><strong id="health-count-total">0</strong><small data-i18n="healthTotal">策略总数</small></span>
-        <span><strong id="health-count-healthy">0</strong><small data-i18n="healthHealthy">健康</small></span>
-        <span><strong id="health-count-watch">0</strong><small data-i18n="healthWatch">观察</small></span>
-        <span><strong id="health-count-review">0</strong><small data-i18n="healthReview">需要复核</small></span>
-        <span><strong id="health-count-critical">0</strong><small data-i18n="healthCritical">严重</small></span>
-      </div>
-      <div class="health-board-head">
-        <h3 data-i18n="healthBoard">需要关注</h3>
-        <div class="health-filters" role="group" aria-label="筛选策略健康状态" data-i18n-aria-label="healthFilters">
-          <button class="health-filter active" type="button" data-health-filter="attention" data-i18n="healthFilterAttention">需要关注</button>
-          <button class="health-filter" type="button" data-health-filter="all" data-i18n="healthFilterAll">全部策略</button>
-        </div>
-      </div>
-      <div class="health-list" id="health-list"></div>
-      </details>
-      <details class="diagnostic-details">
-        <summary data-i18n="diagnosticDetails">查看诊断详情</summary>
-        <p data-i18n="diagnosticDetailsHint">仅在排查问题或查看研究记录时使用。</p>
-        <div class="diagnostic-section">
-          <h3 data-i18n="m0ResearchBoard">市场研究</h3>
-          <div id="m0-research-notice" class="health-notice" role="status" aria-live="polite">登录后查看市场研究和观察记录。</div>
-          <div class="health-list" id="m0-research-list"></div>
-        </div>
-        <div class="diagnostic-section">
-          <h3 data-i18n="adaptiveSelectionBoard">系统建议</h3>
-          <div id="adaptive-selection-notice" class="health-notice" role="status" aria-live="polite">登录后查看系统建议。</div>
-          <div class="health-list" id="adaptive-selection-list"></div>
-        </div>
-        <div class="diagnostic-section" id="reconciliation-recovery-board">
-          <h3 data-i18n="reconciliationRecoveryBoard">恢复事项</h3>
-          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后查看需要恢复或复核的事项。</div>
-          <div class="health-list" id="reconciliation-recovery-list"></div>
-        </div>
-        <div class="diagnostic-section">
-          <h3 data-i18n="executionEvidenceBoard">执行与成交记录</h3>
-          <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后查看执行和成交记录。</div>
-          <div class="health-list" id="execution-evidence-list"></div>
-        </div>
-        <div class="diagnostic-section">
-          <h3 data-i18n="researchTaskBoard">自动化任务</h3>
-          <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后查看自动化任务。</div>
-          <div class="health-list" id="research-task-list"></div>
-        </div>
-      </details>
-    </section>
 
     <section id="switch-view">
     <section class="switch-surface">
@@ -161,7 +94,7 @@
         <p class="public-note" id="public-note" hidden data-i18n="publicReadonly">登录后查看账号配置。</p>
 
         <div class="account-overview" id="account-overview" hidden>
-          <table><thead><tr><th data-i18n="instanceList">账户实例</th><th data-i18n="currentStrategy">当前策略</th><th data-i18n="configuredSwitch">配置开关</th><th data-i18n="observedRuntime">实际运行</th></tr></thead><tbody id="account-overview-body"></tbody></table>
+          <table><thead><tr><th data-i18n="instanceList">账户实例</th><th data-i18n="currentStrategy">当前策略</th><th data-i18n="configuredSwitch">配置开关</th><th data-i18n="observedRuntime">监测记录</th><th data-i18n="monitoringTime">记录时间</th></tr></thead><tbody id="account-overview-body"></tbody></table>
         </div>
         <div class="quick-form" id="quick-form">
           <div class="form-step" aria-hidden="true">
@@ -319,8 +252,8 @@
         </section>
         </details>
         <div class="runtime-observation">
-          <div><span data-i18n="observedRuntime">实际运行</span><strong data-i18n="runtimeUnverified">未核验</strong></div>
-          <p data-i18n="runtimeObservationHint">当前页面读取的是已保存配置，尚未核验云端运行状态。</p>
+          <div><span data-i18n="observedRuntime">监测记录</span><strong id="selected-monitoring-status">—</strong></div>
+          <p data-i18n="runtimeObservationHint">监测记录不代表已下单或成交。</p>
           <button class="btn" type="button" id="open-system-status" data-i18n="openSystemStatus">查看系统状态</button>
         </div>
         <div class="summary-actions">
@@ -329,6 +262,75 @@
       </aside>
     </section>
     </section>
+    <details class="health-view advanced-workspace" id="health-view">
+      <summary data-i18n="advancedDetails">高级详情</summary>
+      <div class="health-head">
+        <div>
+          <h2 id="health-view-title" data-i18n="healthTitle">运行概览</h2>
+          <p data-i18n="healthSubtitle">默认只显示需要关注的问题。</p>
+        </div>
+        <div class="health-meta">
+        </div>
+      </div>
+      <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">正在读取监测记录…</div>
+      <div class="monitoring-overview">
+        <table><thead><tr><th data-i18n="activePlatform">平台</th><th data-i18n="account">账户</th><th data-i18n="configuredSwitch">配置开关</th><th data-i18n="observedRuntime">监测记录</th><th data-i18n="monitoringTime">记录时间</th><th></th></tr></thead><tbody id="monitoring-overview-body"></tbody></table>
+      </div>
+      <details class="diagnostic-details">
+        <summary data-i18n="monitoringDetails">监测详情</summary>
+        <div class="health-list" id="runtime-target-lifecycle-list"></div>
+      </details>
+      <details class="diagnostic-details">
+        <summary data-i18n="healthSummary">策略健康摘要</summary>
+        <span id="health-status" class="pill">—</span>
+        <span id="health-computed-at">—</span>
+      <div id="health-notice" class="decision-state health-state" role="status" aria-live="polite">登录后读取私有策略健康快照。</div>
+      <div class="health-summary" aria-label="策略健康摘要" data-i18n-aria-label="healthSummary">
+        <span><strong id="health-count-total">0</strong><small data-i18n="healthTotal">策略总数</small></span>
+        <span><strong id="health-count-healthy">0</strong><small data-i18n="healthHealthy">健康</small></span>
+        <span><strong id="health-count-watch">0</strong><small data-i18n="healthWatch">观察</small></span>
+        <span><strong id="health-count-review">0</strong><small data-i18n="healthReview">需要复核</small></span>
+        <span><strong id="health-count-critical">0</strong><small data-i18n="healthCritical">严重</small></span>
+      </div>
+      <div class="health-board-head">
+        <h3 data-i18n="healthBoard">需要关注</h3>
+        <div class="health-filters" role="group" aria-label="筛选策略健康状态" data-i18n-aria-label="healthFilters">
+          <button class="health-filter active" type="button" data-health-filter="attention" data-i18n="healthFilterAttention">需要关注</button>
+          <button class="health-filter" type="button" data-health-filter="all" data-i18n="healthFilterAll">全部策略</button>
+        </div>
+      </div>
+      <div class="health-list" id="health-list"></div>
+      </details>
+      <details class="diagnostic-details">
+        <summary data-i18n="diagnosticDetails">查看诊断详情</summary>
+        <p data-i18n="diagnosticDetailsHint">仅在排查问题或查看研究记录时使用。</p>
+        <div class="diagnostic-section">
+          <h3 data-i18n="m0ResearchBoard">市场研究</h3>
+          <div id="m0-research-notice" class="health-notice" role="status" aria-live="polite">登录后查看市场研究和观察记录。</div>
+          <div class="health-list" id="m0-research-list"></div>
+        </div>
+        <div class="diagnostic-section">
+          <h3 data-i18n="adaptiveSelectionBoard">系统建议</h3>
+          <div id="adaptive-selection-notice" class="health-notice" role="status" aria-live="polite">登录后查看系统建议。</div>
+          <div class="health-list" id="adaptive-selection-list"></div>
+        </div>
+        <div class="diagnostic-section" id="reconciliation-recovery-board">
+          <h3 data-i18n="reconciliationRecoveryBoard">恢复事项</h3>
+          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后查看需要恢复或复核的事项。</div>
+          <div class="health-list" id="reconciliation-recovery-list"></div>
+        </div>
+        <div class="diagnostic-section">
+          <h3 data-i18n="executionEvidenceBoard">执行与成交记录</h3>
+          <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后查看执行和成交记录。</div>
+          <div class="health-list" id="execution-evidence-list"></div>
+        </div>
+        <div class="diagnostic-section">
+          <h3 data-i18n="researchTaskBoard">自动化任务</h3>
+          <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后查看自动化任务。</div>
+          <div class="health-list" id="research-task-list"></div>
+        </div>
+      </details>
+    </details>
   </main>
 
   <script src="/boot-recovery.js"></script>
