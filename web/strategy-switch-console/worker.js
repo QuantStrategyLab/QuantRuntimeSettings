@@ -1209,7 +1209,14 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
   const serviceTargetIncomeLayerPayload = incomeLayerPayloadFromObject(serviceTarget);
   const serviceTargetOptionOverlayPayload = optionOverlayPayloadFromObject(serviceTarget);
-  const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
+  let serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
+  if (serviceTarget && !Object.keys(serviceTargetRuntimeTargetEnabledPayload).length) {
+    const variableScope = resolveVariableScope(platform, option);
+    serviceTargetRuntimeTargetEnabledPayload = await readRuntimeTargetEnabledVariable({
+      repository, variableScope,
+      githubEnvironment: resolveGithubEnvironment(platform, option, variableScope), readVariable,
+    });
+  }
   const serviceTargetDcaPayload = dcaPayloadFromObject(serviceTarget);
   const serviceTargetCashOnlyPayload = cashOnlyPayloadFromObject(platform, serviceTarget);
   if (serviceTargetProfile) {
