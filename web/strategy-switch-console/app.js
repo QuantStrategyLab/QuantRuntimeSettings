@@ -813,7 +813,8 @@
         refreshingStatus: "读取中…",
         configTruthNote: "配置值不代表云端实际状态。",
         configuredSwitch: "配置开关",
-        observedRuntime: "监测记录",
+        observedRuntime: "最近检查",
+        monitoringConfigMismatch: "配置与检查不一致",
         runtimeUnverified: "暂无记录",
         monitoringUnlinked: "待关联",
         monitoringTime: "记录时间",
@@ -823,7 +824,7 @@
         monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
         instanceList: "账户实例",
         configDetails: "配置详情",
-        runtimeObservationHint: "监测记录不代表已下单或成交。",
+        runtimeObservationHint: "配置开关不等于云端已运行；下列信息是历史检查，不是实时运行或成交状态。",
         openSystemStatus: "查看高级详情",
         noConfiguredAccounts: "登录并读取配置后显示账户实例。",
 
@@ -935,8 +936,8 @@
         runtimeTargetLifecycleCheckUnavailable: "不可用",
         runtimeTargetLifecycleObservationNotDue: "未到应交易窗口",
         runtimeTargetLifecycleObservationMonitoringOnly: "仅监测通过",
-        runtimeTargetLifecycleObservationNotApplicable: "停用记录",
-        runtimeTargetLifecycleObservationAttention: "需要复核",
+        runtimeTargetLifecycleObservationNotApplicable: "检查时已停用",
+        runtimeTargetLifecycleObservationAttention: "运行检查异常",
         runtimeTargetLifecycleObservationUnavailable: "不可用",
         runtimeTargetLifecycleOrderEvidenceNotCollected: "未采集订单/成交回执",
         runtimeTargetLifecycleDispositionEnabled: "持续监控",
@@ -1150,7 +1151,7 @@
         copySummary: "复制状态",
         loginToRun: "登录后提交计划",
         loadingConfig: "读取配置中",
-        configureAccounts: "配置账号后切换",
+        configureAccounts: "暂不能提交",
         runSwitch: "保存设置",
         noChanges: "无变更",
         readonlyNote: "登录后可保存设置。",
@@ -1158,7 +1159,7 @@
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "请核对上方改动后保存。",
-        invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
+        invalidStrategyNote: "所选策略尚未获准用于当前运行方式，不能提交。可先查看其他策略；模拟运行不会恢复实盘。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         invalidOptionOverlayNote: "当前策略未定义可启用的期权层。",
@@ -1227,7 +1228,8 @@
         refreshingStatus: "Reading…",
         configTruthNote: "Saved configuration is not observed runtime state.",
         configuredSwitch: "Configured switch",
-        observedRuntime: "Monitoring record",
+        observedRuntime: "Last check",
+        monitoringConfigMismatch: "Configuration differs from last check",
         runtimeUnverified: "No record",
         monitoringUnlinked: "Not linked",
         monitoringTime: "Recorded at",
@@ -1237,7 +1239,7 @@
         monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
         instanceList: "Account instances",
         configDetails: "Configuration details",
-        runtimeObservationHint: "Monitoring records do not prove an order or fill.",
+        runtimeObservationHint: "Configuration is not deployed state. These are historical checks, not real-time execution or fills.",
         openSystemStatus: "View advanced details",
         noConfiguredAccounts: "Sign in and load configuration to view account instances.",
 
@@ -1572,7 +1574,7 @@
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "Review the changes above, then save.",
-        invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
+        invalidStrategyNote: "The selected strategy is not approved for this execution mode. You can browse other strategies; simulation does not restore live trading.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         invalidOptionOverlayNote: "This strategy does not define an option layer to enable.",
@@ -2101,6 +2103,7 @@
     function inferSupportedDomains(platform, account) {
       void account;
       if (platform === "qmt") return ["cn_equity"];
+      if (platform === "binance") return ["crypto"];
       if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
       return ["us_equity"];
     }
@@ -2201,15 +2204,16 @@
       return true;
     }
 
-    function strategyChoicesForAccount(platform = state.selected, account = selectedAccount(platform), executionMode = state.forms[platform]?.executionMode) {
-      const choices = strategyOptions.filter((profile) => strategyAllowedForAccount(platform, account, profile, executionMode));
-      const addChoice = (value) => {
-        const profile = cleanStrategyProfile(value);
-        if (profile && !choices.includes(profile) && strategyAllowedForAccount(platform, account, profile, executionMode)) {
-          choices.push(profile);
-        }
-      };
-      return choices;
+    function strategyCompatibleWithAccount(platform, account, profile) {
+      const entry = strategyCatalogEntry(profile);
+      return Boolean(entry.profile)
+        && (!dcaConfigForStrategy(profile) || platformSupportsDca(platform))
+        && supportedDomainsForAccount(platform, account).includes(entry.domain);
+    }
+
+    function strategyChoicesForAccount(platform = state.selected, account = selectedAccount(platform)) {
+      // Browsing is not execution approval; submission retains its existing checks.
+      return strategyOptions.filter(profile => strategyCompatibleWithAccount(platform, account, profile));
     }
 
     function hasLiveStrategyOption(platform = state.selected, account = selectedAccount(platform)) {
@@ -3488,6 +3492,10 @@
       const record = accountMonitoringRecord(platform, account);
       if (!record) return t(account?.runtime_status_target_id ? "runtimeUnverified" : "monitoringUnlinked");
       if (record.freshness?.data_status !== "ready") return t("controlDataStale");
+      const configured = runtimeTargetStateForAccount(platform, account);
+      const recorded = record.target?.target?.configured_state;
+      if (configured.known && ["enabled", "disabled"].includes(recorded)
+          && configured.enabled !== (recorded === "enabled")) return t("monitoringConfigMismatch");
       return runtimeTargetLifecycleObservationLabel(record.execution_observation?.code);
     }
 
@@ -3643,7 +3651,7 @@
       }
       strategySelect.disabled = !choices.length;
       strategySelect.replaceChildren();
-      if (currentStrategyBlocked) {
+      if (currentStrategyBlocked && !choices.includes(currentStrategy)) {
         const blockedOption = new Option(
           strategyChoiceLabel(currentStrategy, platform, account, form.executionMode),
           currentStrategy,
@@ -4241,8 +4249,14 @@
       };
     }
 
+    function recoveryNeedsOperatorAction(entry) {
+      return !entry.confirmation && entry.recovery?.readiness === "awaiting_human_confirmation";
+    }
+
     function renderReconciliationRecovery() {
       const payload = state.reconciliationRecovery.payload;
+      const pending = payload.recoveries.filter(recoveryNeedsOperatorAction);
+      el("reconciliation-recovery-board").hidden = !state.auth.allowed || !pending.length;
       const notice = el("reconciliation-recovery-notice");
       if (!state.auth.allowed) {
         notice.textContent = t("reconciliationRecoveryLoginNotice");
@@ -4264,7 +4278,7 @@
         list.appendChild(empty);
         return;
       }
-      for (const entry of payload.recoveries) {
+      for (const entry of pending) {
         const recovery = entry.recovery || {};
         const card = document.createElement("article");
         card.className = "health-card";
@@ -5075,7 +5089,7 @@
 
     function renderConsoleView() {
       el("switch-view").hidden = false;
-      el("health-view").hidden = false;
+      el("health-view").hidden = true;
       el("control-plane-view").hidden = !state.auth.allowed
         || !state.controlPlane.payload.candidates.some(candidateNeedsOperatorAction);
     }
@@ -5118,6 +5132,7 @@
         await refreshOwnerDecisions();
         await refreshConfig();
         refreshRuntimeTargetLifecycle();
+        refreshReconciliationRecovery();
       } else {
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
@@ -5613,16 +5628,11 @@
       button.disabled = true;
       button.textContent = t("refreshingStatus");
       try {
-        await Promise.all([refreshConfig(), refreshHealth(), refreshRuntimeTargetLifecycle(), refreshExecutionEvidence()]);
+        await Promise.all([refreshConfig(), refreshRuntimeTargetLifecycle(), refreshReconciliationRecovery()]);
       } finally {
         button.disabled = false;
         button.textContent = t("refreshStatus");
       }
-    });
-
-    el("open-system-status").addEventListener("click", () => {
-      el("health-view").open = true;
-      el("health-view").scrollIntoView({ behavior: "smooth", block: "start" });
     });
 
     el("account-select").addEventListener("change", () => {

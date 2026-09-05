@@ -251,7 +251,57 @@ for (const pending of [false,true]) {
     const fn=frontendFunction('renderConsoleView',{el:id=>nodes[id],state:{auth:{allowed:true},controlPlane:{payload:{candidates:pending?[{}]:[]}}},candidateNeedsOperatorAction:()=>pending});
     fn();
     assert.equal(nodes['switch-view'].hidden,false);
-    assert.equal(nodes['health-view'].hidden,false);
+    assert.equal(nodes['health-view'].hidden,true);
     assert.equal(nodes['control-plane-view'].hidden,!pending);
   });
 }
+
+test('browsing compatible strategies does not require live authorization', () => {
+  const catalog = {candidate:{profile:'candidate',domain:'us_equity'},foreign:{profile:'foreign',domain:'crypto'}};
+  const context = {strategyOptions:Object.keys(catalog),cleanStrategyProfile:x=>x,strategyCatalogEntry:x=>catalog[x]||{},
+    dcaConfigForStrategy:()=>null,platformSupportsDca:()=>false,supportedDomainsForAccount:()=>['us_equity'],
+    strategyAllowedForAccount:()=>false};
+  context.strategyCompatibleWithAccount = frontendFunction('strategyCompatibleWithAccount',context);
+  const choices = frontendFunction('strategyChoicesForAccount',context);
+  assert.deepEqual(Array.from(choices('schwab',{},'live')),['candidate']);
+});
+
+test('browsing a candidate does not make it runnable', () => {
+  const context={cleanStrategyProfile:x=>x,strategyCatalogEntry:()=>({profile:'candidate',domain:'us_equity',runtime_enabled:false}),
+    strategyCompatibleWithAccount:()=>true,dcaConfigForStrategy:()=>null,platformSupportsDca:()=>false,
+    supportedDomainsForAccount:()=>['us_equity'],normalizeExecutionMode:x=>x,supportedExecutionModesForPlatform:()=>['live','dry_run'],
+    strategyCanSwitchLive:()=>false};
+  assert.equal(frontendFunction('strategyAllowedForAccount',context)('schwab',{},'candidate','live'),false);
+});
+
+test('operator page has no engineering diagnostics entry point', () => {
+  const html=readFileSync(new URL('../web/strategy-switch-console/index.html',import.meta.url),'utf8');
+  assert.doesNotMatch(html,/id="open-system-status"/);
+  assert.match(html,/<details[^>]+id="health-view"[^>]+hidden/);
+});
+
+for (const sample of [
+  {configured:true,record:'disabled',fresh:'ready',expected:'monitoringConfigMismatch'},
+  {configured:false,record:'enabled',fresh:'ready',expected:'monitoringConfigMismatch'},
+  {configured:true,record:'disabled',fresh:'stale',expected:'controlDataStale'},
+  {configured:false,record:'disabled',fresh:'ready',expected:'not_applicable'},
+]) test(`monitoring compares saved configuration without inventing runtime: ${JSON.stringify(sample)}`,()=>{
+  const fn=frontendFunction('accountMonitoringText',{
+    accountMonitoringRecord:()=>({freshness:{data_status:sample.fresh},target:{target:{configured_state:sample.record}},execution_observation:{code:'not_applicable'}}),
+    runtimeTargetStateForAccount:()=>({known:true,enabled:sample.configured}),t:x=>x,runtimeTargetLifecycleObservationLabel:x=>x,
+  });
+  assert.equal(fn('ibkr',{}),sample.expected);
+});
+
+test('Binance without an explicit market uses crypto, not US equities',()=>{
+  assert.deepEqual(Array.from(frontendFunction('inferSupportedDomains',{})('binance',{})),['crypto']);
+});
+
+test('only pending human reconciliation confirmations appear outside diagnostics',()=>{
+  const needs=frontendFunction('recoveryNeedsOperatorAction',{});
+  assert.equal(needs({recovery:{readiness:'awaiting_human_confirmation'}}),true);
+  assert.equal(needs({recovery:{readiness:'awaiting_human_confirmation'},confirmation:{}}),false);
+  assert.equal(needs({recovery:{readiness:'blocked'}}),false);
+  const html=readFileSync(new URL('../web/strategy-switch-console/index.html',import.meta.url),'utf8');
+  assert.ok(html.indexOf('id="reconciliation-recovery-board"')<html.indexOf('id="health-view"'));
+});

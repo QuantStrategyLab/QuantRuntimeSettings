@@ -67,7 +67,7 @@ assert.equal(indexHtml.includes('Worker 端触发'), false);
 assert.equal(indexHtml.includes('令牌保留在服务端'), false);
 assert.equal(indexHtml.includes('id="control-plane-view-button"'), false);
 assert.equal(indexHtml.includes('id="health-view-button"'), false);
-assert.match(indexHtml, /<details class="health-view advanced-workspace" id="health-view">/);
+assert.match(indexHtml, /<details class="health-view advanced-workspace" id="health-view" hidden>/);
 assert.ok(indexHtml.includes('id="control-plane-view"'));
 assert.ok(indexHtml.includes('id="control-plane-list"'));
 assert.ok(indexHtml.includes('id="m0-research-notice"'));

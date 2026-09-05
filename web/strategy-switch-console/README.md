@@ -244,3 +244,5 @@ For a full fork checklist, see [docs/strategy_switch_fork_guide.md](../../docs/s
 `RUNTIME_SETTINGS_DISPATCH_TOKEN` only needs permission to dispatch workflows in the `QuantRuntimeSettings` repository. Cross-platform variable writes still happen inside `Manual Strategy Switch` with the GitHub Actions environment secret `RUNTIME_SETTINGS_GH_TOKEN`.
 
 Configure `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` as a secret if it contains real account routes. It is returned only after an allowlisted login. Keep broker, email, cloud, API key, and token values out of this config.
+
+Operator simplification: compatible strategies remain browsable even when live submission is blocked. Existing execution authorization checks are unchanged. Engineering health/research diagnostics have no operator-page entry point; APIs remain available. A configuration/last-check mismatch is not proof of current deployed state.

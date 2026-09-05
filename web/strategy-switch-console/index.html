@@ -254,7 +254,6 @@
         <div class="runtime-observation">
           <div><span data-i18n="observedRuntime">监测记录</span><strong id="selected-monitoring-status">—</strong></div>
           <p data-i18n="runtimeObservationHint">监测记录不代表已下单或成交。</p>
-          <button class="btn" type="button" id="open-system-status" data-i18n="openSystemStatus">查看系统状态</button>
         </div>
         <div class="summary-actions">
           <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制状态</button>
@@ -262,7 +261,12 @@
       </aside>
     </section>
     </section>
-    <details class="health-view advanced-workspace" id="health-view">
+        <div class="diagnostic-section" id="reconciliation-recovery-board" hidden>
+          <h3 data-i18n="reconciliationRecoveryBoard">恢复事项</h3>
+          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后查看需要恢复或复核的事项。</div>
+          <div class="health-list" id="reconciliation-recovery-list"></div>
+        </div>
+    <details class="health-view advanced-workspace" id="health-view" hidden>
       <summary data-i18n="advancedDetails">高级详情</summary>
       <div class="health-head">
         <div>
@@ -314,11 +318,7 @@
           <div id="adaptive-selection-notice" class="health-notice" role="status" aria-live="polite">登录后查看系统建议。</div>
           <div class="health-list" id="adaptive-selection-list"></div>
         </div>
-        <div class="diagnostic-section" id="reconciliation-recovery-board">
-          <h3 data-i18n="reconciliationRecoveryBoard">恢复事项</h3>
-          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后查看需要恢复或复核的事项。</div>
-          <div class="health-list" id="reconciliation-recovery-list"></div>
-        </div>
+
         <div class="diagnostic-section">
           <h3 data-i18n="executionEvidenceBoard">执行与成交记录</h3>
           <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后查看执行和成交记录。</div>
