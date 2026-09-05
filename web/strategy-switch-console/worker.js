@@ -9,6 +9,7 @@ import {
   PLATFORM_MIN_RESERVED_CASH_VARIABLES,
   PLATFORM_RESERVED_CASH_RATIO_VARIABLES,
   PLATFORM_CONFIG,
+  PLATFORM_META,
   DEFAULT_ACCOUNT_OPTIONS,
   FALLBACK_INCOME_LAYER_DEFAULTS,
   FALLBACK_OPTION_OVERLAY_DEFAULTS,
@@ -203,7 +204,7 @@ const RESEARCH_TASK_TYPES = [
 ];
 const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"];
 
-const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_CONFIG);
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const LIVE_CONTINUITY_STATES = [
   "NONE",
@@ -311,6 +312,8 @@ const SECURITY_HEADERS = {
 // request. Keeping it external preserves the strict CSP without unsafe-inline.
 const BOOTSTRAP_CONFIG_JS = [
   "// Generated from non-secret console configuration. Do not edit by hand.",
+  `window.__PLATFORM_META__ = ${JSON.stringify(PLATFORM_META)};`,
+  `window.__PLATFORM_REPOSITORIES__ = ${JSON.stringify(PLATFORM_REPOSITORIES)};`,
   `window.__PLATFORM_CONFIG__ = ${JSON.stringify(PLATFORM_CONFIG)};`,
   `window.__DEFAULT_ACCOUNT_OPTIONS__ = ${JSON.stringify(DEFAULT_ACCOUNT_OPTIONS)};`,
   `window.__DOMAIN_LABELS__ = ${JSON.stringify(DOMAIN_LABELS)};`,
@@ -978,41 +981,12 @@ async function renderAdminPage(state) {
 </html>`;
 }
 
-let _cachedSharedConfig = null;
-let _cachedPlatformMeta = null;
-
-async function loadSharedConfig() {
-  if (_cachedSharedConfig) return _cachedSharedConfig;
-  try {
-    const url = "https://raw.githubusercontent.com/QuantStrategyLab/QuantRuntimeSettings/main/platform-config.json";
-    const resp = await fetchWithTimeout(url, {}, 5000);
-    if (resp.ok) _cachedSharedConfig = await resp.json();
-  } catch { /* fallback to hardcoded */ }
-  return _cachedSharedConfig;
-}
 
 async function loadPlatformMeta(env = {}) {
-  const merged = {
-    longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-    ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
-    schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
-    firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-    qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
-    binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
-  };
-  try {
-    const config = await loadSharedConfig();
-    if (config && config.platforms) {
-      const raw = config.platforms;
-      for (const pid of Object.keys(raw)) {
-        merged[pid] = {
-          label: raw[pid].label,
-          code: raw[pid].code,
-          accent: raw[pid].accent_color,
-        };
-      }
-    }
-  } catch { /* keep defaults */ }
+  // Use the same bundled configuration as routing and capability validation.
+  // Fetching GitHub main here could mix a newer catalog with an older Worker.
+  const merged = Object.fromEntries(Object.entries(PLATFORM_META)
+    .map(([platform, meta]) => [platform, { ...meta }]));
   const hidden = new Set(String(env.STRATEGY_SWITCH_HIDDEN_PLATFORMS || "")
     .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
   for (const [platform, meta] of Object.entries(merged)) {

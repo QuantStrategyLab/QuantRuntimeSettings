@@ -1,22 +1,7 @@
 
 
-    let platformMeta = {
-      longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
-      schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
-      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-      binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
-      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
-    };
-
-    const platformRepositories = {
-      binance: "QuantStrategyLab/BinancePlatform",
-      firstrade: "QuantStrategyLab/FirstradePlatform",
-      ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
-      longbridge: "QuantStrategyLab/LongBridgePlatform",
-      qmt: "QuantStrategyLab/QmtPlatform",
-      schwab: "QuantStrategyLab/CharlesSchwabPlatform",
-    };
+    let platformMeta = window.__PLATFORM_META__ || {};
+    const platformRepositories = window.__PLATFORM_REPOSITORIES__ || {};
     // Alias for backward compatibility
     const defaultRepositories = platformRepositories;
 
@@ -1653,7 +1638,7 @@
     });
 
     const state = {
-      selected: "longbridge",
+      selected: Object.keys(platformMeta)[0] || "",
       lang: initialLang,
       view: "switch",
       appReady: false,
@@ -1757,14 +1742,13 @@
       },
       configSource: "default",
       repositories: clone(defaultRepositories),
-      forms: {
-        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "none", ...defaultReserveForm() },
-        binance: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none" },
-      },
+      forms: Object.fromEntries(Object.keys(platformMeta).map((platform) => [platform, {
+        accountKey: defaultAccountOptions[platform]?.[0]?.key || "preview",
+        strategy: "",
+        executionMode: platformConfig[platform]?.default_execution_mode || "live",
+        pluginMode: "none",
+        ...defaultReserveForm(),
+      }])),
     };
 
     const el = (id) => document.getElementById(id);

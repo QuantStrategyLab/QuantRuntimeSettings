@@ -8,6 +8,13 @@ This is the authenticated backend for the personal strategy switch console. It i
 - Allowlisted GitHub logins can select an account from the dropdown and click `Switch now`; the Worker triggers the GitHub Actions workflow server-side.
 - Tokens stay in Worker secrets and GitHub Actions environment secrets. They are not sent to the browser or committed to the repository.
 
+## Platform directory configuration
+
+- `platform-config.json` → `platforms` supplies labels, codes, colors, repositories, default accounts and capabilities. Menu order follows the platform order in that file.
+- Set deployment variable `STRATEGY_SWITCH_HIDDEN_PLATFORMS` to comma-separated IDs to hide supported platforms (`qmt` hides QMT; an empty string shows all). Visibility does not disable trading or delete accounts/adapters.
+- After catalog edits, run `python3 python/scripts/build_platform_config.py` and `python3 python/scripts/sync_strategy_switch_page_asset.py`, then test and deploy. Do not edit generated `config.js` manually.
+- Frontend and backend use the same bundled catalog, not an independently fetched GitHub main. A new broker still needs an adapter and capability support before it can trade.
+
 ## Operator model
 
 The web surface is for low-frequency human intervention, not a trading or P&L dashboard:

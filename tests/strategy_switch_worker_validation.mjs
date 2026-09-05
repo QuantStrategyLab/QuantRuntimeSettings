@@ -5,7 +5,7 @@ import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION } from "../web/strategy-switch-console/config.js";
+import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION, PLATFORM_META } from "../web/strategy-switch-console/config.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = [
@@ -133,7 +133,8 @@ assert.ok(indexHtml.includes("optionOverlayDefaultsFromProfileItem"));
 assert.ok(indexHtml.includes('id="cash-only-execution-mode-select"'));
 assert.ok(indexHtml.includes('class="form-section execution-cash-policy-section"'));
 assert.ok(indexHtml.includes('function reconcileExecutionCashPolicy('));
-assert.ok(indexHtml.includes('qmt: { label: "QMT"'));
+assert.ok(indexHtml.includes("window.__PLATFORM_META__"));
+assert.equal(PLATFORM_META.qmt.label, "QMT");
 assert.ok(indexHtml.includes('cn_industry_etf_rotation'));
 assert.ok(indexHtml.includes('id="income-layer-section"'));
 assert.ok(indexHtml.includes('id="option-overlay-section"'));
@@ -272,6 +273,8 @@ assert.equal(bootstrapConfigResponse.status, 200);
 assert.equal(bootstrapConfigResponse.headers.get("Content-Type"), "application/javascript; charset=utf-8");
 assert.equal(bootstrapConfigResponse.headers.get("X-Content-Type-Options"), "nosniff");
 assert.ok(bootstrapConfigJs.includes("window.__PLATFORM_CONFIG__"));
+assert.ok(bootstrapConfigJs.includes("window.__PLATFORM_META__"));
+assert.ok(bootstrapConfigJs.includes("window.__PLATFORM_REPOSITORIES__"));
 assert.ok(bootstrapConfigJs.includes("window.__DEFAULT_STRATEGY_PROFILES__"));
 assert.equal(bootstrapConfigJs.includes("window.__QSL_RUNTIME_AUTHORITY_STATUS__"), false);
 assert.equal(bootstrapConfigJs.includes("ibkr-primary"), false);
