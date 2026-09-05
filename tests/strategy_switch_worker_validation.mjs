@@ -2611,7 +2611,6 @@ const recoveryReaderCookie = await __test.makeSession("recovery-reader", [], rec
 const recoveryAdminHeaders = { Cookie: `qsl_switch_session=${recoveryAdminCookie}` };
 const recoveryReaderHeaders = { Cookie: `qsl_switch_session=${recoveryReaderCookie}` };
 const recoveryNow = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-const recoveryFirstObservation = new Date(Date.parse(recoveryNow) - 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 const recoveryCandidateSha256 = "a".repeat(64);
 const recoverySourcePayload = {
   schema_version: "qsl_reconciliation_recovery_source_snapshot.v1",
@@ -2627,24 +2626,46 @@ const recoverySourcePayload = {
     reconciliation_state: "RECONCILE_ONLY",
     readiness: "awaiting_human_confirmation",
     candidate_sha256: recoveryCandidateSha256,
-    evidence_sample_count: 2,
-    first_observed_at: recoveryFirstObservation,
+    evidence_sample_count: 1,
+    first_observed_at: recoveryNow,
     last_observed_at: recoveryNow,
     dual_review: {
-      outcome: "approved",
-      reviewer_count: 2,
+      outcome: "unavailable",
+      reviewer_count: 0,
       evidence_binding_sha256: recoveryCandidateSha256,
     },
     blocker_codes: [],
   }],
   errors: [],
 };
+assert.equal(
+  __test.normalizeReconciliationRecoverySourceSnapshot(recoverySourcePayload)
+    .recoveries[0].evidence_sample_count,
+  1,
+);
 assert.throws(
   () => __test.normalizeReconciliationRecoverySourceSnapshot({
     ...recoverySourcePayload,
-    recoveries: [{ ...recoverySourcePayload.recoveries[0], first_observed_at: recoveryNow }],
+    recoveries: [{ ...recoverySourcePayload.recoveries[0], evidence_sample_count: 0 }],
   }),
-  /1-15 minute two-sample window/,
+  /requires at least one observation within a 15-minute window/,
+);
+assert.throws(
+  () => __test.normalizeReconciliationRecoverySourceSnapshot({
+    ...recoverySourcePayload,
+    recoveries: [{
+      ...recoverySourcePayload.recoveries[0],
+      first_observed_at: new Date(Date.parse(recoveryNow) - 16 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z"),
+    }],
+  }),
+  /requires at least one observation within a 15-minute window/,
+);
+assert.throws(
+  () => __test.normalizeReconciliationRecoverySourceSnapshot({
+    ...recoverySourcePayload,
+    recoveries: [{ ...recoverySourcePayload.recoveries[0], blocker_codes: ["unresolved_reconciliation"] }],
+  }),
+  /requires at least one observation within a 15-minute window/,
 );
 const unauthorizedRecoveryRead = await worker.fetch(
   new Request("https://switch.example/api/reconciliation-recovery"),
@@ -2696,6 +2717,40 @@ assert.deepEqual(recoveryDashboard.summary, {
 });
 assert.equal(recoveryDashboard.policy.no_order, true);
 assert.equal(recoveryDashboard.policy.execution_authority_granted, false);
+assert.equal(recoveryDashboard.recoveries[0].recovery.dual_review.outcome, "unavailable");
+const rejectedRecoveryCandidateSha256 = "d".repeat(64);
+const rejectedRecoverySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-reconciliation-recovery-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${recoverySyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...recoverySourcePayload,
+      source_id: "ibkr.rejected_recovery",
+      recoveries: [{
+        ...recoverySourcePayload.recoveries[0],
+        recovery_id: "ibkr_legacy_rejected",
+        candidate_sha256: rejectedRecoveryCandidateSha256,
+        dual_review: {
+          outcome: "rejected",
+          reviewer_count: 1,
+          evidence_binding_sha256: rejectedRecoveryCandidateSha256,
+        },
+      }],
+    }),
+  }),
+  recoveryEnv,
+);
+assert.equal(rejectedRecoverySync.status, 200);
+const rejectedRecoveryRead = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery", { headers: recoveryAdminHeaders }),
+  recoveryEnv,
+);
+const rejectedRecoveryDashboard = await rejectedRecoveryRead.json();
+assert.equal(
+  rejectedRecoveryDashboard.recoveries.find((entry) => entry.recovery.recovery_id === "ibkr_legacy_rejected")
+    .recovery.dual_review.outcome,
+  "rejected",
+);
 const recoveryConfirmationRequest = {
   recovery_id: "ibkr_legacy_soxl_live",
   candidate_sha256: recoveryCandidateSha256,
@@ -2785,6 +2840,22 @@ assert.equal(recoveryConfirmation.status, 200);
 const recoveryConfirmationPayload = await recoveryConfirmation.json();
 assert.equal(recoveryConfirmationPayload.confirmation.no_order, true);
 assert.equal(recoveryConfirmationPayload.confirmation.execution_authority_granted, false);
+const rejectedRecoveryConfirmation = await worker.fetch(
+  new Request("https://switch.example/api/reconciliation-recovery-confirmations", {
+    method: "POST",
+    headers: { ...recoveryAdminHeaders, Origin: "https://switch.example", "Content-Type": "application/json" },
+    body: JSON.stringify({
+      recovery_id: "ibkr_legacy_rejected",
+      candidate_sha256: rejectedRecoveryCandidateSha256,
+      dual_review_binding_sha256: rejectedRecoveryCandidateSha256,
+    }),
+  }),
+  recoveryEnv,
+);
+assert.equal(rejectedRecoveryConfirmation.status, 200);
+const rejectedRecoveryConfirmationPayload = await rejectedRecoveryConfirmation.json();
+assert.equal(rejectedRecoveryConfirmationPayload.confirmation.no_order, true);
+assert.equal(rejectedRecoveryConfirmationPayload.confirmation.execution_authority_granted, false);
 assert.ok(recoveryStore.has("reconciliation_recovery_current:ibkr_legacy_soxl_live"));
 assert.ok(recoveryStore.has(
   `reconciliation_recovery_confirmation:ibkr_legacy_soxl_live:${recoveryConfirmationPayload.confirmation.confirmation_sha256}`,
@@ -2807,7 +2878,7 @@ const recordedRecoveryRead = await worker.fetch(
   recoveryEnv,
 );
 const recordedRecoveryPayload = await recordedRecoveryRead.json();
-assert.equal(recordedRecoveryPayload.summary.confirmed, 1);
+assert.equal(recordedRecoveryPayload.summary.confirmed, 2);
 assert.equal(recordedRecoveryPayload.summary.awaiting_human_confirmation, 0);
 assert.equal(recordedRecoveryPayload.recoveries[0].confirmation.confirmed_by, "recovery-admin");
 
@@ -3318,10 +3389,23 @@ const m0ResearchEnv = {
 };
 const m0ResearchCookie = await __test.makeSession("health-user", [], m0ResearchEnv);
 const m0ResearchCookieHeaders = { Cookie: `qsl_switch_session=${m0ResearchCookie}` };
+const m0RealDate = globalThis.Date;
+const m0TestNow = m0RealDate.parse("2026-08-30T12:00:00Z");
+globalThis.Date = class extends m0RealDate {
+  constructor(...args) { super(...(args.length ? args : [m0TestNow])); }
+  static now() { return m0TestNow; }
+};
+const m0Timestamp = (offsetMs) => new m0RealDate(m0TestNow + offsetMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+const m0GeneratedAt = m0Timestamp(-36 * 60 * 60 * 1000);
+const m0ExpiryMs = 7 * 24 * 60 * 60 * 1000;
+const m0ExpiresAt = new m0RealDate(m0RealDate.parse(m0GeneratedAt) + m0ExpiryMs).toISOString().replace(/\.\d{3}Z$/, "Z");
+const m0ExpiredProjectionAt = new m0RealDate(m0RealDate.parse(m0ExpiresAt) + 24 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const m0RollbackGeneratedAt = m0Timestamp(-37 * 60 * 60 * 1000);
+const m0RollbackExpiresAt = new m0RealDate(m0RealDate.parse(m0RollbackGeneratedAt) + m0ExpiryMs).toISOString().replace(/\.\d{3}Z$/, "Z");
 const m0ResearchLedger = {
   schema_version: "qsl_m0_research_ledger.v1",
-  generated_at: "2026-08-29T00:00:00Z",
-  computed_at: "2026-08-29T00:00:00Z",
+  generated_at: m0GeneratedAt,
+  computed_at: m0GeneratedAt,
   data_status: "ready",
   summary: {
     subject_count: 1,
@@ -3339,9 +3423,9 @@ const m0ResearchLedger = {
       source_report_digest: "a".repeat(64),
       source_entry_digest: "b".repeat(64),
       hypothesis_id: "m0-semiconductors-001",
-      as_of: "2026-08-29",
-      generated_at: "2026-08-29T00:00:00Z",
-      expires_at: "2026-09-05T00:00:00Z",
+      as_of: m0GeneratedAt.slice(0, 10),
+      generated_at: m0GeneratedAt,
+      expires_at: m0ExpiresAt,
       research_context: {
         state: "candidate",
         primary_horizon: "medium",
@@ -3481,13 +3565,13 @@ assert.equal((await qrsCanonicalM0Post.json()).no_order, true);
 const m0ExpiredReadProjection = __test.projectM0ResearchDashboardForRead(
   m0ResearchLedger,
   m0ResearchLedgerSha,
-  new Date("2026-09-06T00:00:00Z"),
+  new Date(m0ExpiredProjectionAt),
 );
 assert.equal(m0ExpiredReadProjection.schema_version, "qsl_m0_research_dashboard.v1");
 assert.equal(m0ExpiredReadProjection.source_ledger_sha256, m0ResearchLedgerSha);
 assert.equal(m0ExpiredReadProjection.source_generated_at, m0ResearchLedger.generated_at);
 assert.equal(m0ExpiredReadProjection.source_computed_at, m0ResearchLedger.computed_at);
-assert.equal(m0ExpiredReadProjection.viewed_at, "2026-09-06T00:00:00Z");
+assert.equal(m0ExpiredReadProjection.viewed_at, m0ExpiredProjectionAt);
 assert.equal(m0ExpiredReadProjection.data_status, "stale");
 assert.deepEqual(m0ExpiredReadProjection.summary, {
   subject_count: 1,
@@ -3511,11 +3595,11 @@ const m0ResearchReplay = await worker.fetch(
 );
 assert.equal(m0ResearchReplay.status, 409);
 const m0RollbackLedger = structuredClone(m0ResearchLedger);
-m0RollbackLedger.generated_at = "2026-08-28T00:00:00Z";
-m0RollbackLedger.computed_at = "2026-08-28T00:00:00Z";
-m0RollbackLedger.subjects[0].observations[0].as_of = "2026-08-28";
-m0RollbackLedger.subjects[0].observations[0].generated_at = "2026-08-28T00:00:00Z";
-m0RollbackLedger.subjects[0].observations[0].expires_at = "2026-09-04T00:00:00Z";
+m0RollbackLedger.generated_at = m0RollbackGeneratedAt;
+m0RollbackLedger.computed_at = m0RollbackGeneratedAt;
+m0RollbackLedger.subjects[0].observations[0].as_of = m0RollbackGeneratedAt.slice(0, 10);
+m0RollbackLedger.subjects[0].observations[0].generated_at = m0RollbackGeneratedAt;
+m0RollbackLedger.subjects[0].observations[0].expires_at = m0RollbackExpiresAt;
 const m0RollbackSha = await __test.calculateM0ResearchLedgerSha256(m0RollbackLedger);
 const m0ResearchRollback = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-m0-research-ledger", {
@@ -3561,3 +3645,4 @@ assert.equal(m0DamagedCurrentPayload.source_generated_at, null);
 assert.equal(m0DamagedCurrentPayload.source_computed_at, null);
 assert.equal(m0DamagedCurrentPayload.data_status, "unavailable");
 assert.deepEqual(m0DamagedCurrentPayload.subjects, []);
+globalThis.Date = m0RealDate;

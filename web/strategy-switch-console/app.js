@@ -4156,7 +4156,6 @@
           && entry.freshness?.data_status === "ready"
           && recovery.readiness === "awaiting_human_confirmation"
           && recovery.blocker_codes?.length === 0
-          && recovery.dual_review?.outcome === "approved"
           && recovery.dual_review?.evidence_binding_sha256 === recovery.candidate_sha256;
         if (entry.confirmation) {
           status.textContent = t("reconciliationRecoveryConfirmed");
