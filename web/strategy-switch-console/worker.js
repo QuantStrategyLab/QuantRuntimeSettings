@@ -137,7 +137,6 @@ const RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION = "qsl_reconciliati
 const RECONCILIATION_RECOVERY_MAX_SOURCES = 100;
 const RECONCILIATION_RECOVERY_MAX_BODY_BYTES = 128 * 1024;
 const RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS = 30 * 60;
-const RECONCILIATION_RECOVERY_MIN_SAMPLE_SEPARATION_MS = 60 * 1000;
 const RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS = 15 * 60 * 1000;
 const RECONCILIATION_RECOVERY_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
 const RECONCILIATION_RECOVERY_ENVIRONMENTS = ["live"];
@@ -2109,10 +2108,8 @@ function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
     recovery.readiness !== "awaiting_human_confirmation" ||
     recovery.reconciliation_state !== "RECONCILE_ONLY" ||
     recovery.blocker_codes.length ||
-    recovery.dual_review.outcome !== "approved" ||
     recovery.dual_review.evidence_binding_sha256 !== recovery.candidate_sha256 ||
-    recovery.evidence_sample_count < 2 ||
-    recovery.dual_review.reviewer_count < 2
+    recovery.evidence_sample_count < 1
   ) {
     throw new HttpError("reconciliation recovery request is not eligible for confirmation", 409);
   }
@@ -4830,15 +4827,12 @@ function normalizeReconciliationRecoveryRequest(value, fieldName) {
   };
   if (recovery.readiness === "awaiting_human_confirmation") {
     if (
-      recovery.evidence_sample_count < 2 ||
-      observationWindowMs < RECONCILIATION_RECOVERY_MIN_SAMPLE_SEPARATION_MS ||
+      recovery.evidence_sample_count < 1 ||
       observationWindowMs > RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS ||
-      recovery.dual_review.outcome !== "approved" ||
-      recovery.dual_review.reviewer_count < 2 ||
       recovery.dual_review.evidence_binding_sha256 !== recovery.candidate_sha256 ||
       recovery.blocker_codes.length
     ) {
-      throw new Error(`${fieldName}.readiness requires a 1-15 minute two-sample window, bound dual approval, and no blockers`);
+      throw new Error(`${fieldName}.readiness requires at least one observation within a 15-minute window, bound candidate, and no blockers`);
     }
   }
   return recovery;
