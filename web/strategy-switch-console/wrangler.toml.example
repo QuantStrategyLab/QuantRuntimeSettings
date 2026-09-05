@@ -23,6 +23,9 @@ workers_dev = true
 #
 # Optional non-secret variables can be placed here or in the Cloudflare dashboard:
 [vars]
+# Website visibility only; does not disable trading or remove platform support.
+# Comma-separated platform IDs. Set to an empty string to show all platforms.
+STRATEGY_SWITCH_HIDDEN_PLATFORMS = "qmt"
 RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
 RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
 RUNTIME_SETTINGS_REF = "main"

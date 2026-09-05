@@ -38,6 +38,9 @@ for (const sample of [
   { name: 'explicit target disabled', target: false, scoped: true, expected: false },
   { name: 'environment enabled', environment: true, scoped: true, expected: true },
   { name: 'missing remains unknown', expected: undefined },
+  { name: 'nested service env enabled beats repo disabled', nested: true, scoped: false, expected: true },
+  { name: 'nested service env disabled beats repo enabled', nested: false, scoped: true, expected: false },
+  { name: 'top-level service override beats nested env', target: false, nested: true, scoped: true, expected: false },
 ]) {
   test(sample.name, async () => {
     const original = globalThis.fetch;
@@ -46,6 +49,11 @@ for (const sample of [
       let value;
       if (path.endsWith('/CLOUD_RUN_SERVICE_TARGETS_JSON')) value = JSON.stringify({ targets: [{
         service: 'example-service',
+        ...(sample.nested === undefined ? {} : { env: {
+          RUNTIME_TARGET_ENABLED: String(sample.nested),
+          IBKR_CASH_ONLY_EXECUTION: 'false', IBKR_RESERVED_CASH_RATIO: '0.07',
+          INCOME_LAYER_ENABLED: 'true', OPTION_OVERLAY_ENABLED: 'false',
+        } }),
         ...(sample.target === undefined ? {} : { RUNTIME_TARGET_ENABLED: String(sample.target) }),
         runtime_target: { platform_id: 'ibkr', strategy_profile: 'tqqq_growth_income',
           service_name: 'example-service', account_scope: 'example' },
@@ -64,6 +72,12 @@ for (const sample of [
         ...(sample.environment ? { variable_scope: 'environment', github_environment: 'example' } : {}),
       }] }, { RUNTIME_SETTINGS_DISPATCH_TOKEN: 'synthetic-only' });
       assert.equal(result.ibkr.example.runtime_target_enabled, sample.expected);
+      if (sample.nested !== undefined) {
+        assert.equal(result.ibkr.example.cash_only_execution, false);
+        assert.equal(result.ibkr.example.reserved_cash_ratio, '0.07');
+        assert.equal(result.ibkr.example.income_layer_enabled, true);
+        assert.equal(result.ibkr.example.option_overlay_enabled, false);
+      }
     } finally { globalThis.fetch = original; }
   });
 }
@@ -98,5 +112,19 @@ for (const sample of [
     assert.equal(el('app-shell').hidden, !sample.ready || !sample.allowed);
     assert.equal(el('login-screen').hidden, !sample.ready || sample.allowed);
     assert.equal(el('login-message').textContent, sample.message);
+  });
+}
+
+for (const hidden of ['', 'qmt', 'qmt,binance']) {
+  test(`console visibility is deployment configuration only: ${hidden || 'all visible'}`, async () => {
+    const original = globalThis.fetch;
+    globalThis.fetch = async () => new Response('', { status: 503 });
+    try {
+      const meta = await __test.loadPlatformMeta({ STRATEGY_SWITCH_HIDDEN_PLATFORMS: hidden });
+      assert.equal(meta.qmt.console_visible, !hidden.includes('qmt'));
+      assert.equal(meta.binance.console_visible, !hidden.includes('binance'));
+      assert.equal(meta.ibkr.console_visible, true);
+      assert.equal(Object.keys(meta).length, 6);
+    } finally { globalThis.fetch = original; }
   });
 }
