@@ -3247,3 +3247,53 @@
   .operator-console .management-heading > div { gap: 8px; }
   .operator-console #monitoring-computed-at { display: none; }
 }
+
+.risk-envelope-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+}
+.risk-envelope-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+.risk-envelope-trio > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.risk-envelope-trio dt {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.risk-envelope-trio dd {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+#risk-envelope-status[data-status="normal"] { color: #0b7a4b; }
+#risk-envelope-status[data-status="stepped_down"] { color: #9a6700; }
+#risk-envelope-status[data-status="new_risk_blocked"] { color: #b42318; }
+#risk-envelope-status[data-status="unknown"] { color: #73808c; }
+.risk-envelope-details > summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+.risk-envelope-details[open] > summary { margin-bottom: 6px; }
+@media (max-width: 700px) {
+  .risk-envelope-trio { grid-template-columns: 1fr; }
+}
+.operator-console .risk-envelope-panel { font-weight: 400; }
+.operator-console .risk-envelope-trio dd { font-weight: 600; }
