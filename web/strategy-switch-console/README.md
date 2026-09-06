@@ -92,6 +92,8 @@ Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLO
 
 Administrators can select Capital Preservation, Balanced Compounding, or Growth Compounding for a configured platform target in `/admin`. Same-origin, admin-only `GET` / `POST /api/risk-profiles` stores a self-validating `qsl.risk_profile_binding.v1` record under `risk_profile_bindings`; its portable selection is exactly `qsl.risk_profile_selection.v1`, the contract used by the core risk composer.
 
+**Dual-scale clarification**: the same preference name carries two non-interchangeable numbers — Composer unlevered-benchmark MDD ceilings are `CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50; promotion `promotion_sizing` position scales are 0.50 / 0.75 / 1.00 and apply only to new promotions or material changes, never to recompute an existing live book, and never mean “position × 1.5”. This page stores preference intent only; it does not write production policy or weaken RiskEngine.
+
 Every record is fixed to `no_order=true` and `execution_authority_granted=false`. It never enters `RUNTIME_TARGET_JSON`, changes strategy parameters or sizing, dispatches a workflow, accesses brokers or execution cloud resources, or enables paper, shadow, or live. A malformed KV record is unavailable rather than silently defaulted. A future independent, read-only control-plane adapter may consume only `profile_selection`, after separately validating observation evidence and all P4/P5/P6 gates.
 
 ## Web Owner Decisions (P6 intent)
