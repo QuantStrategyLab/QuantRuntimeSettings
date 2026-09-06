@@ -384,6 +384,16 @@
         live: "券商执行",
         paper: "旧版非实盘",
         dryRun: "不下单演练",
+        promotionConfirmTitle: "晋级确认（Shadow 后）",
+        promotionExecutionMode: "目标执行模式",
+        promotionRiskProfile: "风险档",
+        promotionConfirmMeta: "仅记录人工意图：真实 paper（若有）或 live，以及风险档。无券商 paper 不可选 paper；确认不授予实盘权限。",
+        promotionPaperUnavailable: "该平台无券商 paper/sim，已禁用 paper",
+        riskCapitalPreservation: "保本优先",
+        riskBalancedCompounding: "平衡复利",
+        riskGrowthCompounding: "增长复利",
+        promotionModeLive: "实盘（仍须另授权启用）",
+        promotionModePaper: "券商 paper/sim",
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
         runtimeTargetMode: "平台开关",
         runtimeSectionTitle: "运行与插件",
@@ -813,6 +823,16 @@
         live: "Broker execution",
         paper: "Legacy non-live",
         dryRun: "No-order simulation",
+        promotionConfirmTitle: "Promotion confirm (after shadow)",
+        promotionExecutionMode: "Target execution mode",
+        promotionRiskProfile: "Risk profile",
+        promotionConfirmMeta: "Records human intent only: real broker paper (if any) or live, plus risk profile. No synthetic paper; confirm does not grant live authority.",
+        promotionPaperUnavailable: "Broker paper/sim unavailable on this platform; paper disabled",
+        riskCapitalPreservation: "Capital preservation",
+        riskBalancedCompounding: "Balanced compounding",
+        riskGrowthCompounding: "Growth compounding",
+        promotionModeLive: "Live (separate enablement still required)",
+        promotionModePaper: "Broker paper/sim",
         liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
         runtimeTargetMode: "Account status",
         runtimeSectionTitle: "Runtime and plugins",
@@ -1962,6 +1982,77 @@
       return text && Number(text) > 0 ? text : "";
     }
 
+
+    const PROMOTION_RISK_PROFILES = [
+      "CAPITAL_PRESERVATION",
+      "BALANCED_COMPOUNDING",
+      "GROWTH_COMPOUNDING",
+    ];
+    const DEFAULT_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
+
+    function platformSupportsBrokerPaper(platform) {
+      const modes = platformConfig[platform]?.supported_execution_modes;
+      const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
+      return list.includes("paper") || list.includes("dry_run") || list.includes("dry-run");
+    }
+
+    function promotionRiskProfileLabel(profile) {
+      if (profile === "CAPITAL_PRESERVATION") return t("riskCapitalPreservation");
+      if (profile === "BALANCED_COMPOUNDING") return t("riskBalancedCompounding");
+      if (profile === "GROWTH_COMPOUNDING") return t("riskGrowthCompounding");
+      return profile;
+    }
+
+    function buildPromotionConfirmation({
+      targetPlatform,
+      executionMode,
+      riskProfile,
+      paperSupported,
+    }) {
+      const platform = String(targetPlatform || "").trim();
+      const mode = String(executionMode || "").trim().toLowerCase();
+      const profile = String(riskProfile || DEFAULT_PROMOTION_RISK_PROFILE).trim().toUpperCase();
+      if (!platform) throw new Error("target_platform required");
+      if (mode !== "live" && mode !== "paper") throw new Error("execution_mode must be live or paper");
+      if (!PROMOTION_RISK_PROFILES.includes(profile)) throw new Error("invalid risk_profile");
+      if (mode === "paper" && !paperSupported) {
+        throw new Error("paper unavailable; synthetic matching is not supported");
+      }
+      return {
+        target_platform: platform,
+        execution_mode: mode,
+        risk_profile: profile,
+        live_authority_granted: false,
+        suggested_risk_profile: DEFAULT_PROMOTION_RISK_PROFILE,
+      };
+    }
+
+    function renderPromotionConfirmControls() {
+      const platform = state.selected;
+      const modeSelect = el("promotion-execution-mode-select");
+      const riskSelect = el("promotion-risk-profile-select");
+      const meta = el("promotion-confirm-meta");
+      if (!modeSelect || !riskSelect) return;
+      const paperSupported = platformSupportsBrokerPaper(platform);
+      const previousMode = modeSelect.value || "live";
+      const previousRisk = riskSelect.value || DEFAULT_PROMOTION_RISK_PROFILE;
+      modeSelect.replaceChildren();
+      const liveSelected = previousMode === "live" || (!paperSupported && previousMode === "paper");
+      modeSelect.append(new Option(t("promotionModeLive"), "live", false, liveSelected));
+      const paperOption = new Option(t("promotionModePaper"), "paper", false, paperSupported && previousMode === "paper");
+      paperOption.disabled = !paperSupported;
+      modeSelect.append(paperOption);
+      if (!paperSupported) modeSelect.value = "live";
+      riskSelect.replaceChildren();
+      const selectedRisk = PROMOTION_RISK_PROFILES.includes(previousRisk) ? previousRisk : DEFAULT_PROMOTION_RISK_PROFILE;
+      for (const profile of PROMOTION_RISK_PROFILES) {
+        riskSelect.append(new Option(promotionRiskProfileLabel(profile), profile, false, profile === selectedRisk));
+      }
+      if (meta) {
+        meta.textContent = paperSupported ? t("promotionConfirmMeta") : `${t("promotionConfirmMeta")} ${t("promotionPaperUnavailable")}`;
+      }
+    }
+
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
       if (mode === "live") return "live";
@@ -2949,6 +3040,8 @@
     }
 
     function renderControls() {
+      renderPromotionConfirmControls();
+
       const platform = state.selected;
       const meta = platformMeta[platform];
       const form = state.forms[platform];

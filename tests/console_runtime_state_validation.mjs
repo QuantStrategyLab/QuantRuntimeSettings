@@ -364,3 +364,42 @@ test('fresh publication cannot refresh an old runtime report',()=>{
  const age=frontendFunction('accountMonitoringAge',{Intl,state:{lang:'en'}});
  assert.equal(age(record),'2 days ago');
 });
+
+
+
+test('promotion confirmation disables paper without broker paper support', () => {
+  const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('id="promotion-confirm-block"'));
+  assert.ok(html.includes('id="promotion-risk-profile-select"'));
+  assert.ok(source.includes('function platformSupportsBrokerPaper('));
+  assert.ok(source.includes('function buildPromotionConfirmation('));
+  assert.ok(source.includes('synthetic matching is not supported'));
+  const supports = frontendFunction('platformSupportsBrokerPaper', {
+    platformConfig: {
+      ibkr: { supported_execution_modes: ['live', 'paper'] },
+      firstrade: { supported_execution_modes: ['live'] },
+    },
+  });
+  assert.equal(supports('ibkr'), true);
+  assert.equal(supports('firstrade'), false);
+  const build = frontendFunction('buildPromotionConfirmation', {
+    PROMOTION_RISK_PROFILES: ['CAPITAL_PRESERVATION', 'BALANCED_COMPOUNDING', 'GROWTH_COMPOUNDING'],
+    DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
+  });
+  const ok = build({
+    targetPlatform: 'ibkr',
+    executionMode: 'live',
+    riskProfile: 'CAPITAL_PRESERVATION',
+    paperSupported: false,
+  });
+  assert.equal(ok.live_authority_granted, false);
+  assert.throws(
+    () => build({
+      targetPlatform: 'firstrade',
+      executionMode: 'paper',
+      riskProfile: 'CAPITAL_PRESERVATION',
+      paperSupported: false,
+    }),
+    /synthetic matching/,
+  );
+});
