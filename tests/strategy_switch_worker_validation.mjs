@@ -3562,6 +3562,33 @@ const overwriteTerminal = await worker.fetch(
 );
 assert.equal(overwriteTerminal.status, 409);
 
+const promotionFetchUnauthorized = await worker.fetch(
+  new Request("https://switch.example/api/internal/research-promotion-ticket?ticket_id=promo-ticket-1", {
+    headers: { Authorization: "Bearer invalid" },
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionFetchUnauthorized.status, 401);
+const promotionFetch = await worker.fetch(
+  new Request("https://switch.example/api/internal/research-promotion-ticket?ticket_id=promo-ticket-1", {
+    headers: { Authorization: `Bearer ${researchPromotionSyncToken}` },
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionFetch.status, 200);
+const promotionFetchPayload = await promotionFetch.json();
+assert.equal(promotionFetchPayload.ok, true);
+assert.equal(promotionFetchPayload.live_authority_granted, false);
+assert.equal(promotionFetchPayload.ticket.state, "human_accepted");
+assert.equal(promotionFetchPayload.ticket.confirmation_risk_profile, "BALANCED_COMPOUNDING");
+const promotionFetchMissing = await worker.fetch(
+  new Request("https://switch.example/api/internal/research-promotion-ticket?ticket_id=missing", {
+    headers: { Authorization: `Bearer ${researchPromotionSyncToken}` },
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionFetchMissing.status, 404);
+
 assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
 assert.ok(indexHtml.includes('requestJson("/api/research-promotion-tickets")'));
 
