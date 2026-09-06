@@ -276,7 +276,9 @@ def main(argv: list[str] | None = None) -> int:
             for issue in issues:
                 print(f"- {issue}")
         if ok:
-            print("internal dependency matrix is current")
+            print("no differences found in checked dependency files against the selected matrix snapshot")
+            if report.missing_files:
+                print("comparison incomplete: consumer dependency files are missing")
     return 1 if args.strict and not ok else 0
 
 
