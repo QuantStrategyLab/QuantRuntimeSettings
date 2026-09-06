@@ -337,6 +337,18 @@ for (const sample of [
  assert.equal(fn('ibkr',{}),sample.expected);
 });
 
+test('account overview exposes desired/applied/application columns and per-row application status', () => {
+  const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
+  assert.ok(html.includes('data-i18n="configuredSwitch"'));
+  assert.ok(html.includes('data-i18n="deployedSwitch"'));
+  assert.ok(html.includes('data-i18n="applicationStatus"'));
+  const overview = app.slice(app.indexOf('function renderAccountOverview'), app.indexOf('function renderControls'));
+  assert.ok(overview.includes('currentRuntimeTargetText(platform, account)'));
+  assert.ok(overview.includes('accountDeploymentText(platform, account)'));
+  assert.ok(overview.includes('accountApplicationText(platform, account)'));
+});
+
 test('legacy lifecycle alias with explicit live flags is not downgraded by the browser',()=>{
  const normalize=frontendFunction('normalizeLifecycleStage',{});
  const fn=frontendFunction('strategyCanSwitchLive',{normalizeAllowedExecutionModes:x=>x,cleanOptionalBoolean:x=>x,normalizeLifecycleStage:normalize,cleanDisplayText:x=>x||''});

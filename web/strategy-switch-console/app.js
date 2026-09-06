@@ -2933,7 +2933,11 @@
         row.append(first);
         for (const value of [
           currentStrategyForAccount(platform, account) ? strategyLabel(currentStrategyForAccount(platform, account)) : t("notRead"),
-          currentRuntimeTargetText(platform, account), accountDeploymentText(platform, account), accountSchedulerText(platform, account),
+          currentRuntimeTargetText(platform, account),
+          accountDeploymentText(platform, account),
+          accountSchedulerText(platform, account),
+          // desired vs applied alignment — unknown when deployment readback is missing/stale
+          accountApplicationText(platform, account),
           accountMonitoringAge(accountMonitoringRecord(platform, account)),
         ]) {
           const cell = document.createElement("td");
