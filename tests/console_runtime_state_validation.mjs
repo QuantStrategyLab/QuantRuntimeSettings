@@ -369,6 +369,7 @@ test('fresh publication cannot refresh an old runtime report',()=>{
 
 test('promotion confirmation disables paper without broker paper support', () => {
   const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  assert.ok(html.includes('id="promotion-decision-panel"'));
   assert.ok(html.includes('id="promotion-confirm-block"'));
   assert.ok(html.includes('id="promotion-ticket-select"'));
   assert.ok(html.includes('id="promotion-risk-profile-select"'));
@@ -376,6 +377,14 @@ test('promotion confirmation disables paper without broker paper support', () =>
   assert.ok(html.includes('id="risk-envelope-preference"'));
   assert.ok(html.includes('id="risk-envelope-capital-band"'));
   assert.ok(html.includes('id="risk-envelope-status"'));
+  const quickFormStart = html.indexOf('id="quick-form"');
+  const promotionPanelPos = html.indexOf('id="promotion-decision-panel"');
+  assert.ok(promotionPanelPos > 0 && promotionPanelPos < quickFormStart);
+  assert.ok(source.includes('function promotionTicketQueueMessage('));
+  assert.ok(source.includes('promotionTicketLoginRequired'));
+  assert.ok(source.includes('promotionTicketLoadFailed'));
+  assert.ok(source.includes('promotionAdminOnly'));
+  assert.ok(source.includes('await refreshResearchPromotionTickets()'));
   assert.ok(source.includes('function renderRiskEnvelopePanel('));
   assert.ok(source.includes('function buildDesignPreviewRiskEnvelopeView('));
   assert.ok(source.includes('live_authority_granted'));
@@ -419,6 +428,32 @@ test('promotion confirmation disables paper without broker paper support', () =>
     }),
     /synthetic matching/,
   );
+});
+
+test('promotion ticket queue surfaces login, load failure, and empty states', () => {
+  const loginRequired = frontendFunction('promotionTicketQueueMessage', {
+    state: { auth: { allowed: false }, researchPromotion: { payload: {} } },
+    t: (key) => key,
+  });
+  assert.equal(loginRequired(), 'promotionTicketLoginRequired');
+  const loadFailed = frontendFunction('promotionTicketQueueMessage', {
+    state: {
+      auth: { allowed: true },
+      researchPromotion: {
+        payload: { data_status: 'unavailable', errors: ['research_promotion_request_failed'] },
+      },
+    },
+    t: (key) => key,
+  });
+  assert.equal(loadFailed(), 'promotionTicketLoadFailed');
+  const empty = frontendFunction('promotionTicketQueueMessage', {
+    state: {
+      auth: { allowed: true },
+      researchPromotion: { payload: { data_status: 'ready', errors: [] } },
+    },
+    t: (key) => key,
+  });
+  assert.equal(empty(), 'promotionTicketEmpty');
 });
 
 test('selected promotion ticket prefers ticket suggested risk profile', () => {

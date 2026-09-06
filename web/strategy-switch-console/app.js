@@ -385,6 +385,7 @@
         paper: "旧版非实盘",
         dryRun: "不下单演练",
         promotionConfirmTitle: "晋级确认（Shadow 后）",
+        promotionDecisionEyebrow: "待决策",
         promotionExecutionMode: "目标执行模式",
         promotionRiskProfile: "风险档",
         promotionConfirmMeta: "仅记录人工意图：真实 paper（若有）或 live，以及风险档。晋级仓位缩放为 0.50/0.75/1.00（≠ Composer MDD 1.00/1.25/1.50）；无券商 paper 不可选 paper；确认不授予实盘权限。",
@@ -393,6 +394,9 @@
         promotionAccept: "接受意图",
         promotionReject: "拒绝",
         promotionTicketEmpty: "当前没有 awaiting_human 的晋级 ticket",
+        promotionTicketLoginRequired: "请先登录（需权限账号）后再刷新",
+        promotionTicketLoadFailed: "晋级队列加载失败，请刷新",
+        promotionAdminOnly: "需管理员才能确认/拒绝",
         promotionTicketSuggested: "ticket 建议风险档：{profile}",
         promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
         promotionDecisionFailed: "晋级确认失败",
@@ -839,6 +843,7 @@
         paper: "Legacy non-live",
         dryRun: "No-order simulation",
         promotionConfirmTitle: "Promotion confirm (after shadow)",
+        promotionDecisionEyebrow: "Decisions",
         promotionExecutionMode: "Target execution mode",
         promotionRiskProfile: "Risk profile",
         promotionConfirmMeta: "Records human intent only: real broker paper (if any) or live, plus risk profile. Promotion size scales are 0.50/0.75/1.00 (not Composer MDD 1.00/1.25/1.50). No synthetic paper; confirm does not grant live authority.",
@@ -847,6 +852,9 @@
         promotionAccept: "Accept intent",
         promotionReject: "Reject",
         promotionTicketEmpty: "No awaiting_human promotion ticket",
+        promotionTicketLoginRequired: "Sign in with an authorized account, then refresh",
+        promotionTicketLoadFailed: "Could not load the promotion queue. Please refresh.",
+        promotionAdminOnly: "An administrator must confirm or reject",
         promotionTicketSuggested: "Ticket suggested risk profile: {profile}",
         promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
         promotionDecisionFailed: "Promotion confirmation failed",
@@ -2176,6 +2184,19 @@
       return tickets.find((ticket) => ticket.ticket_id === selectedId) || null;
     }
 
+    function promotionTicketQueueMessage() {
+      if (!state.auth?.allowed) return t("promotionTicketLoginRequired");
+      const payload = state.researchPromotion?.payload || {};
+      if (payload.data_status === "login_required") return t("promotionTicketLoginRequired");
+      if (
+        payload.data_status === "unavailable"
+        || (Array.isArray(payload.errors) && payload.errors.length > 0)
+      ) {
+        return t("promotionTicketLoadFailed");
+      }
+      return t("promotionTicketEmpty");
+    }
+
     function renderPromotionConfirmControls() {
       const platform = state.selected;
       const ticketSelect = el("promotion-ticket-select");
@@ -2194,7 +2215,7 @@
         const previousTicket = state.researchPromotion.selectedTicketId || ticketSelect.value || "";
         ticketSelect.replaceChildren();
         if (!tickets.length) {
-          ticketSelect.append(new Option(t("promotionTicketEmpty"), "", true, true));
+          ticketSelect.append(new Option(promotionTicketQueueMessage(), "", true, true));
           state.researchPromotion.selectedTicketId = "";
         } else {
           const selectedId = tickets.some((ticket) => ticket.ticket_id === previousTicket)
@@ -2239,9 +2260,13 @@
         meta.textContent = paperSupported ? t("promotionConfirmMeta") : `${t("promotionConfirmMeta")} ${t("promotionPaperUnavailable")}`;
       }
       if (ticketMeta) {
-        ticketMeta.textContent = ticket
-          ? t("promotionTicketSuggested").replace("{profile}", suggested)
-          : t("promotionTicketEmpty");
+        if (ticket) {
+          ticketMeta.textContent = state.auth?.admin
+            ? t("promotionTicketSuggested").replace("{profile}", suggested)
+            : t("promotionAdminOnly");
+        } else {
+          ticketMeta.textContent = promotionTicketQueueMessage();
+        }
       }
       const canDecide = Boolean(ticket && state.auth?.admin);
       if (acceptButton) acceptButton.disabled = !canDecide;
@@ -2252,7 +2277,7 @@
     async function refreshResearchPromotionTickets() {
       if (!state.auth?.allowed) {
         state.researchPromotion.payload = {
-          data_status: "unavailable",
+          data_status: "login_required",
           computed_at: null,
           tickets: [],
           summary: { ticket_count: 0, awaiting_human: 0 },
@@ -4897,6 +4922,7 @@
         await refreshConfig();
         refreshRuntimeTargetLifecycle();
         refreshReconciliationRecovery();
+        await refreshResearchPromotionTickets();
       } else {
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
@@ -5393,7 +5419,12 @@
       button.disabled = true;
       button.textContent = t("refreshingStatus");
       try {
-        await Promise.all([refreshConfig(), refreshRuntimeTargetLifecycle(), refreshReconciliationRecovery()]);
+        await Promise.all([
+          refreshConfig(),
+          refreshRuntimeTargetLifecycle(),
+          refreshReconciliationRecovery(),
+          refreshResearchPromotionTickets(),
+        ]);
       } finally {
         button.disabled = false;
         button.textContent = t("refreshStatus");

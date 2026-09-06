@@ -96,6 +96,58 @@
         <div class="account-overview" id="account-overview" hidden>
           <table><thead><tr><th data-i18n="instanceList">账户实例</th><th data-i18n="configuredStrategy">配置策略</th><th data-i18n="configuredSwitch">配置开关</th><th data-i18n="deployedSwitch">实际开关</th><th data-i18n="schedulerState">自动调度</th><th data-i18n="applicationStatus">应用状态</th><th data-i18n="monitoringTime">记录时间</th></tr></thead><tbody id="account-overview-body"></tbody></table>
         </div>
+
+        <section class="decision-promotion-panel" id="promotion-decision-panel" aria-labelledby="promotion-decision-title">
+          <header class="decision-promotion-head">
+            <span class="eyebrow" data-i18n="promotionDecisionEyebrow">待决策</span>
+            <h3 id="promotion-decision-title" data-i18n="promotionConfirmTitle">晋级确认（Shadow 后）</h3>
+          </header>
+          <div class="promotion-confirm-block" id="promotion-confirm-block">
+            <div class="promotion-confirm-grid">
+              <label class="promotion-ticket-block">
+                <span data-i18n="promotionTicket">待确认 ticket</span>
+                <select id="promotion-ticket-select"></select>
+              </label>
+              <label>
+                <span data-i18n="promotionExecutionMode">目标执行模式</span>
+                <select id="promotion-execution-mode-select"></select>
+              </label>
+              <label>
+                <span data-i18n="promotionRiskProfile">风险档</span>
+                <select id="promotion-risk-profile-select"></select>
+              </label>
+            </div>
+            <div class="promotion-confirm-actions">
+              <button class="btn" id="promotion-accept-button" type="button" data-i18n="promotionAccept">接受意图</button>
+              <button class="btn" id="promotion-reject-button" type="button" data-i18n="promotionReject">拒绝</button>
+            </div>
+            <span class="selection-meta" id="promotion-confirm-meta" data-i18n="promotionConfirmMeta">仅记录人工意图：选平台已定账户、真实 paper（若有）或 live，以及风险档。无券商 paper 时不可选 paper，不做自建撮合；确认不授予实盘权限。风险档默认预填 ticket 建议值，仍可改。</span>
+            <span class="selection-meta" id="promotion-ticket-meta"></span>
+          </div>
+          <div class="risk-envelope-panel" id="risk-envelope-panel" data-status="unknown">
+            <span data-i18n="riskEnvelopeTitle">账户风险信封</span>
+            <dl class="risk-envelope-trio">
+              <div>
+                <dt data-i18n="riskEnvelopePreference">风险偏好</dt>
+                <dd id="risk-envelope-preference">—</dd>
+              </div>
+              <div>
+                <dt data-i18n="riskEnvelopeCapitalBand">资金档</dt>
+                <dd id="risk-envelope-capital-band">—</dd>
+              </div>
+              <div>
+                <dt data-i18n="riskEnvelopeStatus">状态灯</dt>
+                <dd id="risk-envelope-status" data-status="unknown">—</dd>
+              </div>
+            </dl>
+            <details class="risk-envelope-details">
+              <summary data-i18n="riskEnvelopeDetailsSummary">详情</summary>
+              <p class="selection-meta" id="risk-envelope-details"></p>
+            </details>
+            <span class="selection-meta" id="risk-envelope-meta" data-i18n="riskEnvelopeMeta">只读展示；不授予实盘、不自动升档。</span>
+          </div>
+        </section>
+
         <div class="quick-form" id="quick-form">
           <div class="form-step" aria-hidden="true">
             <span>01</span>
@@ -119,53 +171,6 @@
               <button type="button" data-mode="dry_run" data-i18n="dryRun">演练</button>
             </div>
             <span class="selection-meta" id="mode-meta"></span>
-          </div>
-
-          <div class="control-block promotion-confirm-block" id="promotion-confirm-block">
-            <span data-i18n="promotionConfirmTitle">晋级确认（Shadow 后）</span>
-            <div class="promotion-confirm-grid">
-              <label class="promotion-ticket-block">
-                <span data-i18n="promotionTicket">待确认 ticket</span>
-                <select id="promotion-ticket-select"></select>
-              </label>
-              <label>
-                <span data-i18n="promotionExecutionMode">目标执行模式</span>
-                <select id="promotion-execution-mode-select"></select>
-              </label>
-              <label>
-                <span data-i18n="promotionRiskProfile">风险档</span>
-                <select id="promotion-risk-profile-select"></select>
-              </label>
-            </div>
-            <div class="promotion-confirm-actions">
-              <button class="btn" id="promotion-accept-button" type="button" data-i18n="promotionAccept">接受意图</button>
-              <button class="btn" id="promotion-reject-button" type="button" data-i18n="promotionReject">拒绝</button>
-            </div>
-            <span class="selection-meta" id="promotion-confirm-meta" data-i18n="promotionConfirmMeta">仅记录人工意图：选平台已定账户、真实 paper（若有）或 live，以及风险档。无券商 paper 时不可选 paper，不做自建撮合；确认不授予实盘权限。风险档默认预填 ticket 建议值，仍可改。</span>
-            <span class="selection-meta" id="promotion-ticket-meta"></span>
-
-            <div class="risk-envelope-panel" id="risk-envelope-panel" data-status="unknown">
-              <span data-i18n="riskEnvelopeTitle">账户风险信封</span>
-              <dl class="risk-envelope-trio">
-                <div>
-                  <dt data-i18n="riskEnvelopePreference">风险偏好</dt>
-                  <dd id="risk-envelope-preference">—</dd>
-                </div>
-                <div>
-                  <dt data-i18n="riskEnvelopeCapitalBand">资金档</dt>
-                  <dd id="risk-envelope-capital-band">—</dd>
-                </div>
-                <div>
-                  <dt data-i18n="riskEnvelopeStatus">状态灯</dt>
-                  <dd id="risk-envelope-status" data-status="unknown">—</dd>
-                </div>
-              </dl>
-              <details class="risk-envelope-details">
-                <summary data-i18n="riskEnvelopeDetailsSummary">详情</summary>
-                <p class="selection-meta" id="risk-envelope-details"></p>
-              </details>
-              <span class="selection-meta" id="risk-envelope-meta" data-i18n="riskEnvelopeMeta">只读展示；不授予实盘、不自动升档。</span>
-            </div>
           </div>
 
             <label class="control-block account-status-block">
