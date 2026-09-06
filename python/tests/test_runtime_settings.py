@@ -628,7 +628,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
 
         self.assertEqual(report["status"], "attention_required")
         self.assertEqual(report["schema_version"], "platform_health_report.v1")
-        self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 0)
+        self.assertEqual(report["summary"]["runtime_enabled_switchable_count"], 4)
         self.assertIn("codex_repair_context", report)
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
@@ -852,8 +852,16 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 )
 
                 strategy = build_config.load_config()["strategies"][profile]
-                self.assertFalse(strategy["runtime_enabled"])
-                self.assertFalse(strategy["can_switch_live"])
+                restored_live = {
+                    "tqqq_growth_income",
+                    "russell_top50_leader_rotation",
+                }
+                if profile in restored_live:
+                    self.assertTrue(strategy["runtime_enabled"])
+                    self.assertTrue(strategy["can_switch_live"])
+                else:
+                    self.assertFalse(strategy["runtime_enabled"])
+                    self.assertFalse(strategy["can_switch_live"])
                 self.assertEqual(runtime_settings.validate_target(target), [])
 
     def test_live_continuity_rejects_baseline_drift(self):
@@ -961,7 +969,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             projection["summary"]["strategy_profile_count"],
             len(config["strategies"]),
         )
-        self.assertEqual(projection["summary"]["live_switchable_count"], 0)
+        self.assertEqual(projection["summary"]["live_switchable_count"], 4)
         self.assertEqual(
             projection["source"]["content_sha256"],
             build_platform_config._config_content_sha256(config),
