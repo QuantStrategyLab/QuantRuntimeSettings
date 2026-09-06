@@ -44,3 +44,13 @@
 | 本环境真账户纸面读回验收 | **PARK**（无 Schwab 凭据；不调用 provider） |
 
 下一动作：有人类授权与隔离凭据后，在 `CharlesSchwabPlatform` 纸账户做一次只读 reconcile + admission 回归；在此之前不得宣称 Schwab 信封/W2 探针已验收。
+
+## 4. AI 研究晋级自动化（2026-09-07 冻结）
+
+| 项 | 原设想 | 现口径 |
+| --- | --- | --- |
+| 参数/策略再优化 | ~~定时优化~~（日历 cron 盲跑 reopt） | **偏离触发**：低频 health 只评估 drift；未达 `REVIEW`/`CRITICAL` → `PARK`，不优化 |
+| 达标后链路 | — | 有界 reopt → WFA/OOS/回测门 → shadow → **人工**；AI 不授 live、不改实盘参数 |
+| 新策略/插件 | — | 独立晋级线；禁止自动改写已在跑版本 |
+
+冻结文档：[偏离触发研究晋级与人工门 V1](qsl_drift_triggered_research_hitl_v1.zh-CN.md)。代码侧 QPK `research_promotion_cycle` 已接 drift→reopt；待补生产监测门槛与严回测门绑定，**不**新增定时优化 cron。
