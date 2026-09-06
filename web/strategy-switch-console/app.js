@@ -2016,9 +2016,10 @@
     const DEFAULT_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
 
     function platformSupportsBrokerPaper(platform) {
+      // Broker paper/sim only — dry_run is local/synthetic and must not unlock paper.
       const modes = platformConfig[platform]?.supported_execution_modes;
       const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
-      return list.includes("paper") || list.includes("dry_run") || list.includes("dry-run");
+      return list.includes("paper");
     }
 
     function promotionRiskProfileLabel(profile) {

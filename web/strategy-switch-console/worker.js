@@ -3384,9 +3384,10 @@ function researchPromotionTicketKey(ticketId) {
 }
 
 function platformSupportsBrokerPaperMode(platform) {
+  // Broker paper/sim only — dry_run is local/synthetic and must not unlock paper.
   const modes = PLATFORM_CONFIG?.[platform]?.supported_execution_modes;
   const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
-  return list.includes("paper") || list.includes("dry_run") || list.includes("dry-run");
+  return list.includes("paper");
 }
 
 function normalizeResearchPromotionRiskProfile(value, fieldName) {
@@ -3540,6 +3541,33 @@ async function syncResearchPromotionTicketResponse(request, env) {
     ticket = normalizeResearchPromotionTicket(raw);
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid research promotion ticket" }, 400);
+  }
+  if (ticket.state !== "awaiting_human") {
+    return json(
+      { ok: false, error: "research promotion sync only accepts awaiting_human tickets" },
+      400,
+    );
+  }
+  const existingRaw = await readConfigJson(env, researchPromotionTicketKey(ticket.ticket_id));
+  if (existingRaw) {
+    let existing;
+    try {
+      existing = normalizeResearchPromotionTicket(existingRaw, "stored research promotion ticket");
+    } catch (error) {
+      return json(
+        { ok: false, error: error.message || "invalid stored research promotion ticket" },
+        400,
+      );
+    }
+    if (existing.state === "human_accepted" || existing.state === "human_rejected") {
+      return json(
+        {
+          ok: false,
+          error: `refusing to overwrite terminal research promotion ticket state=${existing.state}`,
+        },
+        409,
+      );
+    }
   }
   await writeConfigJson(env, researchPromotionTicketKey(ticket.ticket_id), ticket);
   try {
