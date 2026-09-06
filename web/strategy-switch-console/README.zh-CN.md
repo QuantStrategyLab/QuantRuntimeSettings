@@ -47,6 +47,7 @@ STRATEGY_SWITCH_ADMIN_ORGS
 STRATEGY_HEALTH_SYNC_TOKEN
 CONTROL_PLANE_SYNC_TOKEN
 RESEARCH_TASK_SYNC_TOKEN
+RESEARCH_PROMOTION_SYNC_TOKEN
 M0_RESEARCH_SYNC_TOKEN
 RECONCILIATION_RECOVERY_SYNC_TOKEN
 RECONCILIATION_RECOVERY_CONTROLLER_TOKEN
@@ -378,6 +379,7 @@ wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # 可选；默认复用 RUNTIME_S
 wrangler secret put STRATEGY_HEALTH_SYNC_TOKEN
 wrangler secret put CONTROL_PLANE_SYNC_TOKEN
 wrangler secret put M0_RESEARCH_SYNC_TOKEN
+wrangler secret put RESEARCH_PROMOTION_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
@@ -387,6 +389,10 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+`RESEARCH_PROMOTION_SYNC_TOKEN` 保护 `POST /api/internal/sync-research-promotion-ticket`。
+QuantPlatformKit 侧需配置同名 token，并把 `RESEARCH_PROMOTION_SYNC_URL` 指到该接口。
+soft-sync 不授予 live；控制台上的 accept/reject 只记录人工意图。
+
 如果要启用后台保存，先创建 KV：
 
 ```bash
@@ -395,7 +401,7 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 
 然后把返回的 namespace id 加到 `wrangler.toml`。
 
-GitHub Actions 自动部署需要在 `runtime-strategy-switch` environment 配置 `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`、`STRATEGY_SWITCH_CONSOLE_URL`、`STRATEGY_SWITCH_SYNC_TOKEN`、`M0_RESEARCH_SYNC_TOKEN`，以及 `CLOUDFLARE_API_TOKEN` 或 `CLOUDFLARE_WRANGLER_CONFIG_TOML` 二选一（只有当 `RUNTIME_SETTINGS_GH_TOKEN` 与 Worker 同步密钥相同时才复用它）。如果 Wrangler 能从 token 推断账号，`CLOUDFLARE_ACCOUNT_ID` 可不配。`M0_RESEARCH_SYNC_TOKEN` 必须与另一个受保护的 `m0-research-publisher` Environment 中的同名 secret 一致；它只会被复制到 Worker binding。缺少该值时，workflow 会在部署前失败，不能静默保留 Worker 的旧密钥。workflow 会先部署 Worker，再把内置策略 profile 目录同步到 KV，避免网站继续使用旧的 profile/plugin 元数据。
+GitHub Actions 自动部署需要在 `runtime-strategy-switch` environment 配置 `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`、`STRATEGY_SWITCH_CONSOLE_URL`、`STRATEGY_SWITCH_SYNC_TOKEN`、`M0_RESEARCH_SYNC_TOKEN`，以及 `CLOUDFLARE_API_TOKEN` 或 `CLOUDFLARE_WRANGLER_CONFIG_TOML` 二选一（只有当 `RUNTIME_SETTINGS_GH_TOKEN` 与 Worker 同步密钥相同时才复用它）。若要启用 QPK soft-sync 把 awaiting_human ticket 推到控制台，再配置 `RESEARCH_PROMOTION_SYNC_TOKEN`；deploy 仅在该 secret 存在时同步到 Worker。如果 Wrangler 能从 token 推断账号，`CLOUDFLARE_ACCOUNT_ID` 可不配。`M0_RESEARCH_SYNC_TOKEN` 必须与另一个受保护的 `m0-research-publisher` Environment 中的同名 secret 一致；它只会被复制到 Worker binding。缺少该值时，workflow 会在部署前失败，不能静默保留 Worker 的旧密钥。workflow 会先部署 Worker，再把内置策略 profile 目录同步到 KV，避免网站继续使用旧的 profile/plugin 元数据。
 
 部署：
 
