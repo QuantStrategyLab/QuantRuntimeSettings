@@ -389,8 +389,11 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
-`RESEARCH_PROMOTION_SYNC_TOKEN` 保护 `POST /api/internal/sync-research-promotion-ticket`。
-QuantPlatformKit 侧需配置同名 token，并把 `RESEARCH_PROMOTION_SYNC_URL` 指到该接口。
+`RESEARCH_PROMOTION_SYNC_TOKEN` 保护：
+- `POST /api/internal/sync-research-promotion-ticket`（QPK soft-sync awaiting ticket）
+- `GET /api/internal/research-promotion-ticket?ticket_id=...`（QPK 拉取控制台决定）
+
+QuantPlatformKit 侧需配置同名 token，并把 `RESEARCH_PROMOTION_SYNC_URL` 指到 sync 接口（pull URL 可由它推导）。
 soft-sync 不授予 live；控制台上的 accept/reject 只记录人工意图。
 
 如果要启用后台保存，先创建 KV：
