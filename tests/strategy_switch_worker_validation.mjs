@@ -3460,6 +3460,21 @@ const promotionListPayload = await promotionList.json();
 assert.equal(promotionListPayload.tickets.length, 1);
 assert.equal(promotionListPayload.tickets[0].suggested_risk_profile, "GROWTH_COMPOUNDING");
 assert.equal(promotionListPayload.policy.live_authority_granted, false);
+const listEnvelope = promotionListPayload.tickets[0].risk_envelope_view;
+assert.ok(listEnvelope);
+assert.equal(listEnvelope.source, "design_preview");
+assert.equal(listEnvelope.preference.id, "GROWTH_COMPOUNDING");
+assert.equal(listEnvelope.capital_band.id, "unknown");
+assert.equal(listEnvelope.status.id, "unknown");
+assert.equal(listEnvelope.scales.capital_scale, null);
+assert.equal(listEnvelope.scales.vol_scale, null);
+assert.equal(listEnvelope.scales.dd_scale, null);
+assert.equal(listEnvelope.live_authority_granted, false);
+assert.equal(promotionListPayload.policy.live_authority_granted, false);
+const previewEnvelope = __test.buildRiskEnvelopeView({ riskPreference: "BALANCED_COMPOUNDING" });
+assert.equal(previewEnvelope.preference.label_zh, "均衡");
+assert.equal(previewEnvelope.scales.promotion_size_scale, 0.75);
+assert.equal(previewEnvelope.live_authority_granted, false);
 const promotionAccept = await worker.fetch(
   new Request("https://switch.example/api/research-promotion-decisions", {
     method: "POST",

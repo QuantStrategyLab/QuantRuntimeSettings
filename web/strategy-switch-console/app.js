@@ -399,6 +399,14 @@
         riskCapitalPreservation: "保本优先（晋级仓位×0.50；Composer MDD×1.00）",
         riskBalancedCompounding: "平衡复利（晋级仓位×0.75；Composer MDD×1.25）",
         riskGrowthCompounding: "增长复利（晋级仓位×1.00；Composer MDD×1.50）",
+        riskEnvelopeTitle: "账户风险信封",
+        riskEnvelopePreference: "风险偏好",
+        riskEnvelopeCapitalBand: "资金档",
+        riskEnvelopeStatus: "状态灯",
+        riskEnvelopeDetailsSummary: "详情",
+        riskEnvelopeMeta: "只读展示；不授予实盘、不自动升档。",
+        riskEnvelopeAwaitingEquity: "待对账权益注入",
+        riskEnvelopeUnset: "未设定",
         promotionModeLive: "实盘（仍须另授权启用）",
         promotionModePaper: "券商 paper/sim",
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
@@ -845,6 +853,14 @@
         riskCapitalPreservation: "Capital preservation (promo size ×0.50; Composer MDD ×1.00)",
         riskBalancedCompounding: "Balanced compounding (promo size ×0.75; Composer MDD ×1.25)",
         riskGrowthCompounding: "Growth compounding (promo size ×1.00; Composer MDD ×1.50)",
+        riskEnvelopeTitle: "Account risk envelope",
+        riskEnvelopePreference: "Risk preference",
+        riskEnvelopeCapitalBand: "Capital band",
+        riskEnvelopeStatus: "Status lamp",
+        riskEnvelopeDetailsSummary: "Details",
+        riskEnvelopeMeta: "Read-only; does not grant live authority or auto step-up.",
+        riskEnvelopeAwaitingEquity: "Awaiting reconciled equity",
+        riskEnvelopeUnset: "Unset",
         promotionModeLive: "Live (separate enablement still required)",
         promotionModePaper: "Broker paper/sim",
         liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
@@ -2057,6 +2073,103 @@
       };
     }
 
+
+    function buildDesignPreviewRiskEnvelopeView(riskPreference) {
+      const profile = String(riskPreference || "").trim().toUpperCase();
+      const labels = {
+        CAPITAL_PRESERVATION: { zh: "保全", en: "Preserve" },
+        BALANCED_COMPOUNDING: { zh: "均衡", en: "Balance" },
+        GROWTH_COMPOUNDING: { zh: "增长", en: "Growth" },
+      };
+      const scales = {
+        CAPITAL_PRESERVATION: { composer_mdd_multiple: 1.0, promotion_size_scale: 0.5 },
+        BALANCED_COMPOUNDING: { composer_mdd_multiple: 1.25, promotion_size_scale: 0.75 },
+        GROWTH_COMPOUNDING: { composer_mdd_multiple: 1.5, promotion_size_scale: 1.0 },
+      };
+      const known = Object.prototype.hasOwnProperty.call(labels, profile);
+      return {
+        schema: "qsl.risk_envelope_view.v1",
+        source: "design_preview",
+        preference: known
+          ? { id: profile, label_zh: labels[profile].zh, label_en: labels[profile].en }
+          : { id: "unknown", label_zh: "未设定", label_en: "Unset" },
+        capital_band: {
+          id: "unknown",
+          label_zh: "待对账权益注入",
+          label_en: "Awaiting reconciled equity",
+        },
+        status: {
+          id: "unknown",
+          label_zh: "待对账权益注入",
+          label_en: "Awaiting reconciled equity",
+        },
+        scales: {
+          composer_mdd_multiple: known ? scales[profile].composer_mdd_multiple : null,
+          promotion_size_scale: known ? scales[profile].promotion_size_scale : null,
+          capital_scale: null,
+          vol_scale: null,
+          dd_scale: null,
+        },
+        detail: {
+          dual_scale_note_zh:
+            "双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。资金信封 combined_scale = capital_scale × vol_scale × dd_scale（各因子 ≤1），由系统按权益/波动/回撤计算，禁止自动升档。",
+          dual_scale_note_en:
+            "Dual scale: Composer unlevered-benchmark MDD caps are 1.00 / 1.25 / 1.50; promotion size scales are 0.50 / 0.75 / 1.00 (new promotion / material change only). Envelope combined_scale = capital_scale × vol_scale × dd_scale (each ≤1), system-computed from equity/vol/drawdown; auto step-up is forbidden.",
+        },
+        live_authority_granted: false,
+      };
+    }
+
+    function renderRiskEnvelopePanel() {
+      const preferenceEl = el("risk-envelope-preference");
+      const bandEl = el("risk-envelope-capital-band");
+      const statusEl = el("risk-envelope-status");
+      const detailsEl = el("risk-envelope-details");
+      const panel = el("risk-envelope-panel");
+      if (!preferenceEl || !bandEl || !statusEl || !detailsEl) return;
+      const ticket = selectedPromotionTicket();
+      const riskSelect = el("promotion-risk-profile-select");
+      const selectedProfile = String(riskSelect?.value || ticket?.suggested_risk_profile || DEFAULT_PROMOTION_RISK_PROFILE).trim().toUpperCase();
+      const view = ticket?.risk_envelope_view && typeof ticket.risk_envelope_view === "object"
+        ? {
+            ...ticket.risk_envelope_view,
+            preference: {
+              ...(ticket.risk_envelope_view.preference || {}),
+              ...(buildDesignPreviewRiskEnvelopeView(selectedProfile).preference || {}),
+            },
+            scales: {
+              ...(ticket.risk_envelope_view.scales || {}),
+              ...(buildDesignPreviewRiskEnvelopeView(selectedProfile).scales || {}),
+            },
+          }
+        : buildDesignPreviewRiskEnvelopeView(selectedProfile);
+      const zh = state.lang !== "en";
+      preferenceEl.textContent = zh
+        ? (view.preference?.label_zh || t("riskEnvelopeUnset"))
+        : (view.preference?.label_en || t("riskEnvelopeUnset"));
+      bandEl.textContent = zh
+        ? (view.capital_band?.label_zh || t("riskEnvelopeAwaitingEquity"))
+        : (view.capital_band?.label_en || t("riskEnvelopeAwaitingEquity"));
+      const statusId = String(view.status?.id || "unknown");
+      statusEl.textContent = zh
+        ? (view.status?.label_zh || t("riskEnvelopeAwaitingEquity"))
+        : (view.status?.label_en || t("riskEnvelopeAwaitingEquity"));
+      statusEl.dataset.status = statusId;
+      if (panel) panel.dataset.status = statusId;
+      const scales = view.scales || {};
+      const note = zh ? (view.detail?.dual_scale_note_zh || "") : (view.detail?.dual_scale_note_en || "");
+      const scaleLines = [
+        `Composer MDD ×${scales.composer_mdd_multiple ?? "—"}`,
+        `promo size ×${scales.promotion_size_scale ?? "—"}`,
+        `capital_scale=${scales.capital_scale ?? "null"}`,
+        `vol_scale=${scales.vol_scale ?? "null"}`,
+        `dd_scale=${scales.dd_scale ?? "null"}`,
+        `source=${view.source || "design_preview"}`,
+        `live_authority_granted=${view.live_authority_granted === true}`,
+      ];
+      detailsEl.textContent = `${note}\n${scaleLines.join(" · ")}`;
+    }
+
     function selectedPromotionTicket() {
       const tickets = state.researchPromotion?.payload?.tickets || [];
       const selectedId = state.researchPromotion?.selectedTicketId || "";
@@ -2133,6 +2246,7 @@
       const canDecide = Boolean(ticket && state.auth?.admin);
       if (acceptButton) acceptButton.disabled = !canDecide;
       if (rejectButton) rejectButton.disabled = !canDecide;
+      renderRiskEnvelopePanel();
     }
 
     async function refreshResearchPromotionTickets() {
@@ -2226,6 +2340,7 @@
     el("promotion-risk-profile-select")?.addEventListener("change", () => {
       const riskSelect = el("promotion-risk-profile-select");
       if (riskSelect) riskSelect.dataset.touched = "1";
+      renderRiskEnvelopePanel();
     });
     el("promotion-accept-button")?.addEventListener("click", () => {
       submitResearchPromotionDecision("accept");

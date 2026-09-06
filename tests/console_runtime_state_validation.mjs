@@ -372,6 +372,13 @@ test('promotion confirmation disables paper without broker paper support', () =>
   assert.ok(html.includes('id="promotion-confirm-block"'));
   assert.ok(html.includes('id="promotion-ticket-select"'));
   assert.ok(html.includes('id="promotion-risk-profile-select"'));
+  assert.ok(html.includes('id="risk-envelope-panel"'));
+  assert.ok(html.includes('id="risk-envelope-preference"'));
+  assert.ok(html.includes('id="risk-envelope-capital-band"'));
+  assert.ok(html.includes('id="risk-envelope-status"'));
+  assert.ok(source.includes('function renderRiskEnvelopePanel('));
+  assert.ok(source.includes('function buildDesignPreviewRiskEnvelopeView('));
+  assert.ok(source.includes('live_authority_granted'));
   assert.ok(source.includes('function platformSupportsBrokerPaper('));
   assert.ok(source.includes('function buildPromotionConfirmation('));
   assert.ok(source.includes('function selectedPromotionTicket('));
