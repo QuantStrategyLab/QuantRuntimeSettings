@@ -210,6 +210,7 @@ wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put M0_RESEARCH_SYNC_TOKEN
+wrangler secret put RESEARCH_PROMOTION_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
@@ -219,6 +220,11 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+`RESEARCH_PROMOTION_SYNC_TOKEN` guards `POST /api/internal/sync-research-promotion-ticket`.
+QuantPlatformKit must send the same value as `RESEARCH_PROMOTION_SYNC_TOKEN`, with
+`RESEARCH_PROMOTION_SYNC_URL` pointing at that endpoint. Soft-sync never grants live
+authority; accept/reject on this console only records operator intent.
+
 Create and bind KV if you want `/admin` to save changes:
 
 ```bash
@@ -227,7 +233,7 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 
 Add the returned namespace id to `wrangler.toml`.
 
-For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, `M0_RESEARCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). Add separate `RECONCILIATION_RECOVERY_SYNC_TOKEN` and `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` values before enabling a recovery publisher/controller; the deploy synchronizes each only when present, and the Worker rejects an equal pair. `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. `M0_RESEARCH_SYNC_TOKEN` must match the separately protected `m0-research-publisher` environment secret; it is only copied to the Worker binding. A missing M0 token fails the deployment before it can retain a stale Worker secret. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
+For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, `M0_RESEARCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). Add `RESEARCH_PROMOTION_SYNC_TOKEN` when QPK soft-sync should publish awaiting-human tickets into this console; deploy copies it to the Worker only when present. Add separate `RECONCILIATION_RECOVERY_SYNC_TOKEN` and `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` values before enabling a recovery publisher/controller; the deploy synchronizes each only when present, and the Worker rejects an equal pair. `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. `M0_RESEARCH_SYNC_TOKEN` must match the separately protected `m0-research-publisher` environment secret; it is only copied to the Worker binding. A missing M0 token fails the deployment before it can retain a stale Worker secret. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
 
 An authenticated retry carrying the exact same immutable M0 source-artifact SHA is acknowledged with `200` and `replayed: true`, without another KV write. A different source/run replay or a ledger-time rollback remains rejected with `409`.
 
