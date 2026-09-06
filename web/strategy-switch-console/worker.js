@@ -219,6 +219,30 @@ const RESEARCH_TASK_TYPES = [
 ];
 const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"];
 
+// Research promotion tickets mirror QPK research_promotion_cycle.to_dict().
+// Console may record human intent only; live_authority_granted stays false.
+const RESEARCH_PROMOTION_TICKET_PREFIX = "research_promotion_ticket:";
+const RESEARCH_PROMOTION_TICKET_SCHEMA = "qsl.research_promotion_ticket.v1";
+const RESEARCH_PROMOTION_QUEUE_SCHEMA = "qsl.research_promotion_ticket_queue.v1";
+const RESEARCH_PROMOTION_MAX_TICKETS = 100;
+const RESEARCH_PROMOTION_MAX_BODY_BYTES = 64 * 1024;
+const RESEARCH_PROMOTION_STATES = [
+  "parked",
+  "bounded_reopt",
+  "shadow_recorded",
+  "awaiting_human",
+  "human_accepted",
+  "human_rejected",
+];
+const RESEARCH_PROMOTION_RISK_PROFILES = [
+  "CAPITAL_PRESERVATION",
+  "BALANCED_COMPOUNDING",
+  "GROWTH_COMPOUNDING",
+];
+const RESEARCH_PROMOTION_EXECUTION_MODES = ["live", "paper"];
+const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
+
+
 const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_CONFIG);
 
 function validateAccountOptionsSchemaOrThrow(payload, fieldName = "account_options") {
@@ -431,6 +455,16 @@ export default {
       }
       if (url.pathname === "/api/research-tasks" && request.method === "GET") {
         return await researchTaskResponse(request, env);
+      }
+
+      if (url.pathname === "/api/internal/sync-research-promotion-ticket" && request.method === "POST") {
+        return await syncResearchPromotionTicketResponse(request, env);
+      }
+      if (url.pathname === "/api/research-promotion-tickets" && request.method === "GET") {
+        return await researchPromotionTicketsResponse(request, env);
+      }
+      if (url.pathname === "/api/research-promotion-decisions" && request.method === "POST") {
+        return await recordResearchPromotionDecisionResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
@@ -3334,6 +3368,319 @@ function requireDedicatedReconciliationRecoveryControllerToken(request, env) {
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("reconciliation recovery controller token is invalid", 401);
 }
+
+
+
+function requireDedicatedResearchPromotionSyncToken(request, env) {
+  const expected = String(env.RESEARCH_PROMOTION_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("research promotion sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("research promotion sync token is invalid", 401);
+}
+
+function researchPromotionTicketKey(ticketId) {
+  return `${RESEARCH_PROMOTION_TICKET_PREFIX}${ticketId}`;
+}
+
+function platformSupportsBrokerPaperMode(platform) {
+  const modes = PLATFORM_CONFIG?.[platform]?.supported_execution_modes;
+  const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
+  return list.includes("paper") || list.includes("dry_run") || list.includes("dry-run");
+}
+
+function normalizeResearchPromotionRiskProfile(value, fieldName) {
+  const profile = String(value || "").trim().toUpperCase();
+  if (!RESEARCH_PROMOTION_RISK_PROFILES.includes(profile)) {
+    throw new Error(
+      `${fieldName} must be CAPITAL_PRESERVATION, BALANCED_COMPOUNDING, or GROWTH_COMPOUNDING`,
+    );
+  }
+  return profile;
+}
+
+function normalizePromotionConfirmation(value, fieldName, { paperSupported }) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  // Keep exact QPK PromotionConfirmation.to_dict() fields.
+  assertExactFields(value, ["target_platform", "execution_mode", "risk_profile"], fieldName);
+  const targetPlatform = String(value.target_platform || "").trim();
+  const executionMode = String(value.execution_mode || "").trim().toLowerCase();
+  const riskProfile = normalizeResearchPromotionRiskProfile(
+    value.risk_profile,
+    `${fieldName}.risk_profile`,
+  );
+  if (!targetPlatform) throw new Error(`${fieldName}.target_platform is required`);
+  if (!RESEARCH_PROMOTION_EXECUTION_MODES.includes(executionMode)) {
+    throw new Error(`${fieldName}.execution_mode must be live or paper`);
+  }
+  if (executionMode === "paper" && !paperSupported) {
+    throw new Error("paper is unavailable for this platform; synthetic matching is not supported");
+  }
+  return {
+    target_platform: targetPlatform,
+    execution_mode: executionMode,
+    risk_profile: riskProfile,
+  };
+}
+
+function normalizeResearchPromotionTicket(raw, fieldName = "research promotion ticket") {
+  if (!raw || Array.isArray(raw) || typeof raw !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  const ticketId = String(raw.ticket_id || "").trim();
+  const strategyProfile = String(raw.strategy_profile || "").trim();
+  const domain = String(raw.domain || "").trim();
+  const state = String(raw.state || "").trim();
+  if (!ticketId) throw new Error(`${fieldName}.ticket_id is required`);
+  if (!strategyProfile) throw new Error(`${fieldName}.strategy_profile is required`);
+  if (!domain) throw new Error(`${fieldName}.domain is required`);
+  if (!RESEARCH_PROMOTION_STATES.includes(state)) {
+    throw new Error(`${fieldName}.state is unsupported`);
+  }
+  if (raw.live_authority_granted === true) {
+    throw new Error(`${fieldName}.live_authority_granted must remain false`);
+  }
+  const suggested = normalizeResearchPromotionRiskProfile(
+    raw.suggested_risk_profile || DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
+    `${fieldName}.suggested_risk_profile`,
+  );
+  return {
+    schema: RESEARCH_PROMOTION_TICKET_SCHEMA,
+    ticket_id: ticketId,
+    strategy_profile: strategyProfile,
+    domain,
+    state,
+    drift_status: String(raw.drift_status || ""),
+    drift_score: Number(raw.drift_score || 0),
+    created_at: String(raw.created_at || ""),
+    updated_at: String(raw.updated_at || ""),
+    budget: raw.budget && typeof raw.budget === "object" && !Array.isArray(raw.budget) ? raw.budget : {},
+    proposed_params:
+      raw.proposed_params && typeof raw.proposed_params === "object" && !Array.isArray(raw.proposed_params)
+        ? raw.proposed_params
+        : {},
+    search_iterations: Number(raw.search_iterations || 0),
+    shadow_evidence_kind: String(raw.shadow_evidence_kind || ""),
+    shadow_passed: raw.shadow_passed == null ? null : Boolean(raw.shadow_passed),
+    notification_subject: String(raw.notification_subject || ""),
+    notification_body: String(raw.notification_body || ""),
+    human_decision: String(raw.human_decision || ""),
+    human_decided_at: String(raw.human_decided_at || ""),
+    live_authority_granted: false,
+    suggested_risk_profile: suggested,
+    confirmation_target_platform: String(raw.confirmation_target_platform || ""),
+    confirmation_execution_mode: String(raw.confirmation_execution_mode || ""),
+    confirmation_risk_profile: String(raw.confirmation_risk_profile || ""),
+    notes: Array.isArray(raw.notes) ? raw.notes.map((item) => String(item)) : [],
+  };
+}
+
+function applyResearchPromotionDecision(
+  ticket,
+  { decision, confirmation = null, paperSupported = false, decidedAt = null },
+) {
+  if (ticket.state !== "awaiting_human") {
+    throw new HttpError(`ticket ${ticket.ticket_id} is not awaiting human (state=${ticket.state})`, 409);
+  }
+  const normalized = String(decision || "").trim().toLowerCase();
+  if (normalized !== "accept" && normalized !== "reject") {
+    throw new HttpError("decision must be accept or reject", 400);
+  }
+  const stamp = decidedAt || new Date().toISOString();
+  const next = {
+    ...ticket,
+    human_decision: normalized,
+    human_decided_at: stamp,
+    live_authority_granted: false,
+    updated_at: stamp,
+    notes: [...(ticket.notes || [])],
+  };
+  if (normalized === "accept") {
+    if (!confirmation) {
+      throw new HttpError(
+        "accept requires confirmation (target_platform, execution_mode, risk_profile)",
+        400,
+      );
+    }
+    const confirmed = normalizePromotionConfirmation(confirmation, "confirmation", {
+      paperSupported: Boolean(paperSupported),
+    });
+    next.confirmation_target_platform = confirmed.target_platform;
+    next.confirmation_execution_mode = confirmed.execution_mode;
+    next.confirmation_risk_profile = confirmed.risk_profile;
+    next.state = "human_accepted";
+    next.notes.push(
+      "human_accepted_intent_only_no_live_authority",
+      `confirmation_platform=${confirmed.target_platform}`,
+      `confirmation_mode=${confirmed.execution_mode}`,
+      `confirmation_risk_profile=${confirmed.risk_profile}`,
+    );
+  } else {
+    next.state = "human_rejected";
+    next.notes.push("human_rejected");
+  }
+  return next;
+}
+
+async function syncResearchPromotionTicketResponse(request, env) {
+  requireDedicatedResearchPromotionSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "research promotion KV is not configured" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, RESEARCH_PROMOTION_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion ticket" }, error.status || 400);
+  }
+  let ticket;
+  try {
+    ticket = normalizeResearchPromotionTicket(raw);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion ticket" }, 400);
+  }
+  await writeConfigJson(env, researchPromotionTicketKey(ticket.ticket_id), ticket);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "research-promotion-ticket-sync",
+      action: "sync_research_promotion_ticket",
+      ticket_id: ticket.ticket_id,
+      state: ticket.state,
+      suggested_risk_profile: ticket.suggested_risk_profile,
+      live_authority_granted: false,
+    });
+  } catch {
+    // Intent sync must not depend on optional audit retention.
+  }
+  return json({
+    ok: true,
+    ticket_id: ticket.ticket_id,
+    state: ticket.state,
+    suggested_risk_profile: ticket.suggested_risk_profile,
+    live_authority_granted: false,
+  });
+}
+
+async function listResearchPromotionTickets(env) {
+  if (!hasConfigStore(env)) return [];
+  const store = configStore(env);
+  const listing = await store.list({
+    prefix: RESEARCH_PROMOTION_TICKET_PREFIX,
+    limit: RESEARCH_PROMOTION_MAX_TICKETS,
+  });
+  const keys = listing?.keys || [];
+  const tickets = [];
+  for (const entry of keys) {
+    const key = entry.name || entry;
+    if (!String(key).startsWith(RESEARCH_PROMOTION_TICKET_PREFIX)) continue;
+    const stored = await readConfigJson(env, key);
+    if (!stored) continue;
+    try {
+      const ticket = normalizeResearchPromotionTicket(stored, key);
+      if (ticket.live_authority_granted) continue;
+      tickets.push(ticket);
+    } catch {
+      // Skip corrupt tickets rather than failing the whole queue.
+    }
+  }
+  tickets.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
+  return tickets.slice(0, RESEARCH_PROMOTION_MAX_TICKETS);
+}
+
+async function researchPromotionTicketsResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const tickets = await listResearchPromotionTickets(env);
+  const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
+  return json({
+    schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
+    data_status: hasConfigStore(env) ? "ready" : "unavailable",
+    computed_at: new Date().toISOString(),
+    tickets: awaiting,
+    summary: {
+      ticket_count: awaiting.length,
+      awaiting_human: awaiting.length,
+    },
+    policy: {
+      admin_required_to_decide: true,
+      live_authority_granted: false,
+      no_order: true,
+      notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
+    },
+    errors: [],
+  });
+}
+
+async function recordResearchPromotionDecisionResponse(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, 8 * 1024);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
+  }
+  const ticketId = String(raw?.ticket_id || "").trim();
+  const decision = String(raw?.decision || "").trim().toLowerCase();
+  if (!ticketId) return json({ ok: false, error: "ticket_id is required" }, 400);
+  const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
+  if (!stored) return json({ ok: false, error: "research promotion ticket not found" }, 404);
+  let ticket;
+  try {
+    ticket = normalizeResearchPromotionTicket(stored);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, 400);
+  }
+  const targetPlatform = String(
+    raw?.confirmation?.target_platform || ticket.confirmation_target_platform || "",
+  ).trim();
+  const paperSupported = platformSupportsBrokerPaperMode(targetPlatform);
+  let decided;
+  try {
+    decided = applyResearchPromotionDecision(ticket, {
+      decision,
+      confirmation: raw?.confirmation || null,
+      paperSupported,
+      decidedAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
+  }
+  if (decided.live_authority_granted) {
+    return json({ ok: false, error: "refusing to persist live_authority_granted=true" }, 500);
+  }
+  await writeConfigJson(env, researchPromotionTicketKey(decided.ticket_id), decided);
+  try {
+    await appendAuditLog(env, {
+      ts: decided.updated_at,
+      login: session.login,
+      action: "research_promotion_decision",
+      ticket_id: decided.ticket_id,
+      decision: decided.human_decision,
+      confirmation_target_platform: decided.confirmation_target_platform,
+      confirmation_execution_mode: decided.confirmation_execution_mode,
+      confirmation_risk_profile: decided.confirmation_risk_profile,
+      suggested_risk_profile: decided.suggested_risk_profile,
+      live_authority_granted: false,
+    });
+  } catch {
+    // Decision persistence must not depend on optional audit retention.
+  }
+  return json({
+    ok: true,
+    ticket: decided,
+    live_authority_granted: false,
+  });
+}
+
 
 function requireDedicatedResearchTaskSyncToken(request, env) {
   const expected = String(env.RESEARCH_TASK_SYNC_TOKEN || "");
