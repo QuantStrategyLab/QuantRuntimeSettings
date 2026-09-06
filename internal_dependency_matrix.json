@@ -34,7 +34,7 @@
       "path": "pyproject.toml",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "b13e28759a880dcb446dbfbc580dc032333b065e"
+      "ref": "c812ed70f83d61bdf1816fa5ca112b0f6976c6b6"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
@@ -48,7 +48,7 @@
       "path": "uv.lock",
       "package": "quant-platform-kit",
       "source_repo": "QuantPlatformKit",
-      "ref": "b13e28759a880dcb446dbfbc580dc032333b065e"
+      "ref": "c812ed70f83d61bdf1816fa5ca112b0f6976c6b6"
     },
     {
       "consumer_repo": "CharlesSchwabPlatform",
