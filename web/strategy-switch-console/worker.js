@@ -790,7 +790,7 @@ async function renderAdminPage(state, nonce) {
     : `<tr><td colspan="3">暂无已配置目标 / No configured targets</td></tr>`;
   const riskProfileNotice = state.riskProfileBindingsError
     ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。请先修复 KV 中的记录。`
-    : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。";
+    : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。不要把 1.50× 当成仓位×1.5。";
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
