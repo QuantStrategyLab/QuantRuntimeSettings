@@ -555,7 +555,7 @@ assert.equal(strategyProfiles[4].dca_enabled, true);
 assert.equal(strategyProfiles[4].dca_default_mode, "fixed");
 assert.equal(strategyProfiles[4].dca_default_base_investment_usd, "1000");
 assert.equal(strategyProfiles[5].lifecycle_stage, "shadow_active");
-assert.equal(strategyProfiles[6].lifecycle_stage, "live_enabled");
+assert.equal(strategyProfiles[6].lifecycle_stage, "runtime_enabled");
 
 assert.doesNotThrow(() =>
   __test.assertStrategyAllowedForAccount(
