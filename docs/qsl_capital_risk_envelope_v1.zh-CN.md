@@ -1,7 +1,21 @@
 # QSL 资金风险信封 V1（设计）
 
-> 状态：`DESIGN_ONLY_NOT_WIRED`
+> 状态：`LIBRARY_READY_PLATFORM_WIRING_IN_PROGRESS`
 > 范围：账户/组合层仓位与回撤政策；不授权 live、不下单、不写券商。
+
+## 实现状态（2026-09-07）
+
+| 层 | 内容 | 状态 |
+| --- | --- | --- |
+| D0 | 本文 + 控制台三件套（偏好 / 资金档 / 状态灯）+ 晋级区布局 | **已合**（QRT #383、#384、#386） |
+| D1 | QPK 纯函数 `equity → envelope`（`capital_risk_envelope`）+ 单测 | **已合**（QPK #576） |
+| D2 | 注入对账权益到 `account_new_risk_gate`；超限只禁新风险 | **已合**（QPK #577）；见 [QPK account_new_risk_gate](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md) |
+| D3 | 多账户汇总视图共用信封 | 未做 |
+| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **进行中**（如 LongBridge `feat/account-new-risk-gate-w1`） |
+| W2 | 只读探针（控制台展示 + 注入快照，无 live 副作用） | 进行中；控制台三件套已合，真账户读回仍待各平台 |
+| W3 | 实盘 enable（生产默认开闸 + 人类 live 授权） | **未做** |
+
+组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic_combo_evidence.zh-CN.md`（#578 已合）。
 
 ## 1. 人机分工（产品原则）
 
@@ -84,7 +98,7 @@
 2. 多账户「组合视图」：用汇总权益落入同一张表，再按账户 mandate 分配；仍一账户一 active writer。
 3. 相关组（如 TQQQ+SOXL）：组合预算之和不得突破信封允许的总风险袖（correlation haircut）。
 4. 共账户多策略 allocator：本 V1 **不做**。
-5. 路径选择：**A 虚拟 combo 研究 → B 多账户汇总风险**；暂不做 C 共账户 allocator。
+5. 路径选择：**A 虚拟 combo 研究 → B 多账户汇总风险**（见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)）；暂不做 C 共账户 allocator。
 
 ## 5. AI 自动化边界
 
@@ -103,12 +117,24 @@
 
 ## 6. 接线分期
 
-| 期 | 内容 | 完成定义 |
-| --- | --- | --- |
-| D0 | 本文 + 控制台文案三件套（偏好 / 资金档 / 状态灯） | 人能看懂，无下单副作用 |
-| D1 | QPK 纯函数 `equity → envelope`（含 vol/dd）+ 单测 | 与晋级 sizing 组合的单元证明 |
-| D2 | 注入对账权益到账户新风险门；超限只禁新风险 | 无自动平仓、无复位 |
-| D3 | 多账户汇总视图共用信封 | 仍无共账户 allocator |
+### 6.1 库与设计（D0–D3）
+
+| 期 | 内容 | 完成定义 | 状态 |
+| --- | --- | --- | --- |
+| D0 | 本文 + 控制台文案三件套（偏好 / 资金档 / 状态灯） | 人能看懂，无下单副作用 | **已合** |
+| D1 | QPK 纯函数 `equity → envelope`（含 vol/dd）+ 单测 | 与晋级 sizing 组合的单元证明 | **已合** |
+| D2 | 注入对账权益到账户新风险门；超限只禁新风险 | 无自动平仓、无复位 | **已合**（库）；平台读回见 W1/W2 |
+| D3 | 多账户汇总视图共用信封 | 仍无共账户 allocator | 未做 |
+
+### 6.2 平台接线（W1–W3）
+
+| 期 | 内容 | 完成定义 | 状态 |
+| --- | --- | --- | --- |
+| W1 | 各平台仓把 portfolio/对账读回投影为 `InjectedReconciliationSnapshot` 并调用 `evaluate_new_risk_admission` | 单测 + 平台 CI；默认 fail-closed | **进行中** |
+| W2 | 只读探针：控制台与诊断可展示信封档位/状态灯；`ACCOUNT_NEW_RISK_GATE=0` 仅测试 | 无下单、无 live 授权副作用 | 进行中（控制台已合；真账户探针待平台） |
+| W3 | 生产默认启用账户门 + 明确人类 live/mandate 授权后才可新增风险 | 独立验收；不得绕过 `RiskEngine` | **未做** |
+
+QPK 注入契约与 D2 边界：[account_new_risk_gate.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md)。
 
 ## 7. 非目标
 
