@@ -460,6 +460,9 @@ export default {
       if (url.pathname === "/api/internal/sync-research-promotion-ticket" && request.method === "POST") {
         return await syncResearchPromotionTicketResponse(request, env);
       }
+      if (url.pathname === "/api/internal/research-promotion-ticket" && request.method === "GET") {
+        return await fetchResearchPromotionTicketResponse(request, env);
+      }
       if (url.pathname === "/api/research-promotion-tickets" && request.method === "GET") {
         return await researchPromotionTicketsResponse(request, env);
       }
@@ -3588,6 +3591,31 @@ async function syncResearchPromotionTicketResponse(request, env) {
     ticket_id: ticket.ticket_id,
     state: ticket.state,
     suggested_risk_profile: ticket.suggested_risk_profile,
+    live_authority_granted: false,
+  });
+}
+
+async function fetchResearchPromotionTicketResponse(request, env) {
+  requireDedicatedResearchPromotionSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "research promotion KV is not configured" }, 503);
+  }
+  const ticketId = String(new URL(request.url).searchParams.get("ticket_id") || "").trim();
+  if (!ticketId) return json({ ok: false, error: "ticket_id is required" }, 400);
+  const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
+  if (!stored) return json({ ok: false, error: "research promotion ticket not found" }, 404);
+  let ticket;
+  try {
+    ticket = normalizeResearchPromotionTicket(stored);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, 400);
+  }
+  if (ticket.live_authority_granted) {
+    return json({ ok: false, error: "refusing to expose live_authority_granted=true" }, 500);
+  }
+  return json({
+    ok: true,
+    ticket,
     live_authority_granted: false,
   });
 }

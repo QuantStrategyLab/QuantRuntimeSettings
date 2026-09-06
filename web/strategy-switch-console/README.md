@@ -220,10 +220,13 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
-`RESEARCH_PROMOTION_SYNC_TOKEN` guards `POST /api/internal/sync-research-promotion-ticket`.
+`RESEARCH_PROMOTION_SYNC_TOKEN` guards:
+- `POST /api/internal/sync-research-promotion-ticket` (QPK soft-sync of awaiting tickets)
+- `GET /api/internal/research-promotion-ticket?ticket_id=...` (QPK pull of console decisions)
+
 QuantPlatformKit must send the same value as `RESEARCH_PROMOTION_SYNC_TOKEN`, with
-`RESEARCH_PROMOTION_SYNC_URL` pointing at that endpoint. Soft-sync never grants live
-authority; accept/reject on this console only records operator intent.
+`RESEARCH_PROMOTION_SYNC_URL` pointing at the sync endpoint (pull URL is derived from it).
+Soft-sync never grants live authority; accept/reject on this console only records operator intent.
 
 Create and bind KV if you want `/admin` to save changes:
 
