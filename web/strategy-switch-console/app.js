@@ -389,6 +389,13 @@
         promotionRiskProfile: "风险档",
         promotionConfirmMeta: "仅记录人工意图：真实 paper（若有）或 live，以及风险档。无券商 paper 不可选 paper；确认不授予实盘权限。",
         promotionPaperUnavailable: "该平台无券商 paper/sim，已禁用 paper",
+        promotionTicket: "待确认 ticket",
+        promotionAccept: "接受意图",
+        promotionReject: "拒绝",
+        promotionTicketEmpty: "当前没有 awaiting_human 的晋级 ticket",
+        promotionTicketSuggested: "ticket 建议风险档：{profile}",
+        promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
+        promotionDecisionFailed: "晋级确认失败",
         riskCapitalPreservation: "保本优先",
         riskBalancedCompounding: "平衡复利",
         riskGrowthCompounding: "增长复利",
@@ -828,6 +835,13 @@
         promotionRiskProfile: "Risk profile",
         promotionConfirmMeta: "Records human intent only: real broker paper (if any) or live, plus risk profile. No synthetic paper; confirm does not grant live authority.",
         promotionPaperUnavailable: "Broker paper/sim unavailable on this platform; paper disabled",
+        promotionTicket: "Pending ticket",
+        promotionAccept: "Accept intent",
+        promotionReject: "Reject",
+        promotionTicketEmpty: "No awaiting_human promotion ticket",
+        promotionTicketSuggested: "Ticket suggested risk profile: {profile}",
+        promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
+        promotionDecisionFailed: "Promotion confirmation failed",
         riskCapitalPreservation: "Capital preservation",
         riskBalancedCompounding: "Balanced compounding",
         riskGrowthCompounding: "Growth compounding",
@@ -1114,6 +1128,17 @@
           policy: { research_only: true, no_order: true, size_zero_required: true, p4_p5_p6_authorized: false },
           errors: [],
         },
+      },
+      researchPromotion: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          tickets: [],
+          summary: { ticket_count: 0, awaiting_human: 0 },
+          policy: { live_authority_granted: false, no_order: true },
+          errors: [],
+        },
+        selectedTicketId: "",
       },
       configSource: "default",
       repositories: clone(defaultRepositories),
@@ -2008,34 +2033,72 @@
       executionMode,
       riskProfile,
       paperSupported,
+      suggestedRiskProfile,
     }) {
       const platform = String(targetPlatform || "").trim();
       const mode = String(executionMode || "").trim().toLowerCase();
       const profile = String(riskProfile || DEFAULT_PROMOTION_RISK_PROFILE).trim().toUpperCase();
+      const suggested = String(
+        suggestedRiskProfile || DEFAULT_PROMOTION_RISK_PROFILE,
+      ).trim().toUpperCase();
       if (!platform) throw new Error("target_platform required");
       if (mode !== "live" && mode !== "paper") throw new Error("execution_mode must be live or paper");
       if (!PROMOTION_RISK_PROFILES.includes(profile)) throw new Error("invalid risk_profile");
+      if (!PROMOTION_RISK_PROFILES.includes(suggested)) throw new Error("invalid suggested_risk_profile");
       if (mode === "paper" && !paperSupported) {
         throw new Error("paper unavailable; synthetic matching is not supported");
       }
+      // Exact QPK PromotionConfirmation.to_dict() fields only.
       return {
         target_platform: platform,
         execution_mode: mode,
         risk_profile: profile,
-        live_authority_granted: false,
-        suggested_risk_profile: DEFAULT_PROMOTION_RISK_PROFILE,
       };
+    }
+
+    function selectedPromotionTicket() {
+      const tickets = state.researchPromotion?.payload?.tickets || [];
+      const selectedId = state.researchPromotion?.selectedTicketId || "";
+      return tickets.find((ticket) => ticket.ticket_id === selectedId) || null;
     }
 
     function renderPromotionConfirmControls() {
       const platform = state.selected;
+      const ticketSelect = el("promotion-ticket-select");
       const modeSelect = el("promotion-execution-mode-select");
       const riskSelect = el("promotion-risk-profile-select");
       const meta = el("promotion-confirm-meta");
+      const ticketMeta = el("promotion-ticket-meta");
+      const acceptButton = el("promotion-accept-button");
+      const rejectButton = el("promotion-reject-button");
       if (!modeSelect || !riskSelect) return;
       const paperSupported = platformSupportsBrokerPaper(platform);
+      const tickets = (state.researchPromotion?.payload?.tickets || []).filter(
+        (ticket) => ticket.state === "awaiting_human",
+      );
+      if (ticketSelect) {
+        const previousTicket = state.researchPromotion.selectedTicketId || ticketSelect.value || "";
+        ticketSelect.replaceChildren();
+        if (!tickets.length) {
+          ticketSelect.append(new Option(t("promotionTicketEmpty"), "", true, true));
+          state.researchPromotion.selectedTicketId = "";
+        } else {
+          const selectedId = tickets.some((ticket) => ticket.ticket_id === previousTicket)
+            ? previousTicket
+            : tickets[0].ticket_id;
+          state.researchPromotion.selectedTicketId = selectedId;
+          for (const ticket of tickets) {
+            const label = `${ticket.ticket_id} · ${ticket.strategy_profile || "?"} · ${ticket.suggested_risk_profile || DEFAULT_PROMOTION_RISK_PROFILE}`;
+            ticketSelect.append(new Option(label, ticket.ticket_id, false, ticket.ticket_id === selectedId));
+          }
+        }
+      }
+      const ticket = selectedPromotionTicket();
+      const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
+        ? ticket.suggested_risk_profile
+        : DEFAULT_PROMOTION_RISK_PROFILE;
       const previousMode = modeSelect.value || "live";
-      const previousRisk = riskSelect.value || DEFAULT_PROMOTION_RISK_PROFILE;
+      const previousRisk = riskSelect.value || suggested;
       modeSelect.replaceChildren();
       const liveSelected = previousMode === "live" || (!paperSupported && previousMode === "paper");
       modeSelect.append(new Option(t("promotionModeLive"), "live", false, liveSelected));
@@ -2044,14 +2107,129 @@
       modeSelect.append(paperOption);
       if (!paperSupported) modeSelect.value = "live";
       riskSelect.replaceChildren();
-      const selectedRisk = PROMOTION_RISK_PROFILES.includes(previousRisk) ? previousRisk : DEFAULT_PROMOTION_RISK_PROFILE;
-      for (const profile of PROMOTION_RISK_PROFILES) {
-        riskSelect.append(new Option(promotionRiskProfileLabel(profile), profile, false, profile === selectedRisk));
+      // Prefill from ticket suggestion unless the operator already chose another valid profile.
+      const selectedRisk = PROMOTION_RISK_PROFILES.includes(previousRisk) && previousRisk
+        ? (ticket && !riskSelect.dataset.touched ? suggested : previousRisk)
+        : suggested;
+      if (ticket && !riskSelect.dataset.touched) {
+        // Prefer ticket suggestion on first bind / ticket change.
       }
+      const riskToSelect = ticket && riskSelect.dataset.ticketId !== (ticket?.ticket_id || "")
+        ? suggested
+        : (PROMOTION_RISK_PROFILES.includes(previousRisk) ? previousRisk : suggested);
+      for (const profile of PROMOTION_RISK_PROFILES) {
+        riskSelect.append(new Option(promotionRiskProfileLabel(profile), profile, false, profile === riskToSelect));
+      }
+      riskSelect.dataset.ticketId = ticket?.ticket_id || "";
       if (meta) {
         meta.textContent = paperSupported ? t("promotionConfirmMeta") : `${t("promotionConfirmMeta")} ${t("promotionPaperUnavailable")}`;
       }
+      if (ticketMeta) {
+        ticketMeta.textContent = ticket
+          ? t("promotionTicketSuggested").replace("{profile}", suggested)
+          : t("promotionTicketEmpty");
+      }
+      const canDecide = Boolean(ticket && state.auth?.admin);
+      if (acceptButton) acceptButton.disabled = !canDecide;
+      if (rejectButton) rejectButton.disabled = !canDecide;
     }
+
+    async function refreshResearchPromotionTickets() {
+      if (!state.auth?.allowed) {
+        state.researchPromotion.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          tickets: [],
+          summary: { ticket_count: 0, awaiting_human: 0 },
+          policy: { live_authority_granted: false, no_order: true },
+          errors: [],
+        };
+        renderPromotionConfirmControls();
+        return;
+      }
+      try {
+        const payload = await requestJson("/api/research-promotion-tickets");
+        state.researchPromotion.payload = {
+          data_status: payload?.data_status || "ready",
+          computed_at: payload?.computed_at || null,
+          tickets: Array.isArray(payload?.tickets) ? payload.tickets : [],
+          summary: payload?.summary || { ticket_count: 0, awaiting_human: 0 },
+          policy: {
+            live_authority_granted: false,
+            no_order: true,
+            ...(payload?.policy || {}),
+          },
+          errors: Array.isArray(payload?.errors) ? payload.errors : [],
+        };
+      } catch {
+        state.researchPromotion.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          tickets: [],
+          summary: { ticket_count: 0, awaiting_human: 0 },
+          policy: { live_authority_granted: false, no_order: true },
+          errors: ["research_promotion_request_failed"],
+        };
+      }
+      renderPromotionConfirmControls();
+    }
+
+    async function submitResearchPromotionDecision(decision) {
+      const ticket = selectedPromotionTicket();
+      if (!ticket) {
+        showToast(t("promotionTicketEmpty"));
+        return;
+      }
+      const platform = state.selected;
+      const paperSupported = platformSupportsBrokerPaper(platform);
+      const modeSelect = el("promotion-execution-mode-select");
+      const riskSelect = el("promotion-risk-profile-select");
+      try {
+        const confirmation = decision === "accept"
+          ? buildPromotionConfirmation({
+              targetPlatform: platform,
+              executionMode: modeSelect?.value || "live",
+              riskProfile: riskSelect?.value || ticket.suggested_risk_profile,
+              paperSupported,
+              suggestedRiskProfile: ticket.suggested_risk_profile,
+            })
+          : null;
+        const payload = await requestJson("/api/research-promotion-decisions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticket_id: ticket.ticket_id,
+            decision,
+            confirmation,
+          }),
+        });
+        if (payload?.live_authority_granted) {
+          throw new Error("server attempted to grant live authority");
+        }
+        showToast(t("promotionDecisionSaved"));
+        await refreshResearchPromotionTickets();
+      } catch (error) {
+        showToast(`${t("promotionDecisionFailed")}: ${error.message || error}`);
+      }
+    }
+
+    el("promotion-ticket-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedTicketId = String(event.target.value || "");
+      const riskSelect = el("promotion-risk-profile-select");
+      if (riskSelect) delete riskSelect.dataset.ticketId;
+      renderPromotionConfirmControls();
+    });
+    el("promotion-risk-profile-select")?.addEventListener("change", () => {
+      const riskSelect = el("promotion-risk-profile-select");
+      if (riskSelect) riskSelect.dataset.touched = "1";
+    });
+    el("promotion-accept-button")?.addEventListener("click", () => {
+      submitResearchPromotionDecision("accept");
+    });
+    el("promotion-reject-button")?.addEventListener("click", () => {
+      submitResearchPromotionDecision("reject");
+    });
+
 
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
@@ -5060,6 +5238,7 @@
       refreshExecutionEvidence();
       refreshRuntimeTargetLifecycle();
       refreshResearchTasks();
+      refreshResearchPromotionTickets();
     });
 
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {

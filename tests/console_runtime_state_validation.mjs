@@ -370,10 +370,14 @@ test('fresh publication cannot refresh an old runtime report',()=>{
 test('promotion confirmation disables paper without broker paper support', () => {
   const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
   assert.ok(html.includes('id="promotion-confirm-block"'));
+  assert.ok(html.includes('id="promotion-ticket-select"'));
   assert.ok(html.includes('id="promotion-risk-profile-select"'));
   assert.ok(source.includes('function platformSupportsBrokerPaper('));
   assert.ok(source.includes('function buildPromotionConfirmation('));
+  assert.ok(source.includes('function selectedPromotionTicket('));
   assert.ok(source.includes('synthetic matching is not supported'));
+  assert.ok(source.includes('requestJson("/api/research-promotion-tickets")'));
+  assert.ok(source.includes('/api/research-promotion-decisions'));
   const supports = frontendFunction('platformSupportsBrokerPaper', {
     platformConfig: {
       ibkr: { supported_execution_modes: ['live', 'paper'] },
@@ -389,17 +393,44 @@ test('promotion confirmation disables paper without broker paper support', () =>
   const ok = build({
     targetPlatform: 'ibkr',
     executionMode: 'live',
-    riskProfile: 'CAPITAL_PRESERVATION',
-    paperSupported: false,
+    riskProfile: 'BALANCED_COMPOUNDING',
+    paperSupported: true,
+    suggestedRiskProfile: 'GROWTH_COMPOUNDING',
   });
-  assert.equal(ok.live_authority_granted, false);
+  assert.equal(ok.target_platform, 'ibkr');
+  assert.equal(ok.execution_mode, 'live');
+  assert.equal(ok.risk_profile, 'BALANCED_COMPOUNDING');
+  assert.equal(Object.keys(ok).sort().join(','), 'execution_mode,risk_profile,target_platform');
+  assert.equal(Object.prototype.hasOwnProperty.call(ok, 'live_authority_granted'), false);
   assert.throws(
     () => build({
       targetPlatform: 'firstrade',
       executionMode: 'paper',
       riskProfile: 'CAPITAL_PRESERVATION',
       paperSupported: false,
+      suggestedRiskProfile: 'CAPITAL_PRESERVATION',
     }),
     /synthetic matching/,
   );
+});
+
+test('selected promotion ticket prefers ticket suggested risk profile', () => {
+  const selected = frontendFunction('selectedPromotionTicket', {
+    state: {
+      researchPromotion: {
+        selectedTicketId: 'ticket-1',
+        payload: {
+          tickets: [
+            {
+              ticket_id: 'ticket-1',
+              state: 'awaiting_human',
+              suggested_risk_profile: 'GROWTH_COMPOUNDING',
+              strategy_profile: 'demo',
+            },
+          ],
+        },
+      },
+    },
+  });
+  assert.equal(selected().suggested_risk_profile, 'GROWTH_COMPOUNDING');
 });

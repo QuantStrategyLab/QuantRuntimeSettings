@@ -3371,7 +3371,121 @@ assert.equal(researchTaskReadPayload.data_status, "ready");
 assert.equal(researchTaskReadPayload.summary.task_count, 1);
 assert.equal(researchTaskReadPayload.tasks[0].task.task_id, researchTask.task_id);
 assert.equal(researchTaskReadPayload.policy.no_order, true);
+
 assert.ok(indexHtml.includes('requestJson("/api/research-tasks")'));
+
+// Research promotion tickets: sync QPK-shaped awaiting_human tickets, prefill
+// suggested_risk_profile on accept, and never grant live authority.
+const researchPromotionStore = new Map();
+const researchPromotionKv = {
+  async get(key) { return researchPromotionStore.get(key) || null; },
+  async put(key, value) { researchPromotionStore.set(key, value); },
+  async list({ prefix }) {
+    return {
+      keys: [...researchPromotionStore.keys()]
+        .filter((key) => key.startsWith(prefix))
+        .map((name) => ({ name })),
+    };
+  },
+};
+const researchPromotionSyncToken = ["research", "promotion", "sync"].join("-");
+const researchPromotionEnv = {
+  ...controlEnv,
+  RESEARCH_PROMOTION_SYNC_TOKEN: researchPromotionSyncToken,
+  STRATEGY_SWITCH_CONFIG: researchPromotionKv,
+  ALLOWED_GITHUB_LOGINS: "promo-admin",
+  STRATEGY_SWITCH_ADMIN_LOGINS: "promo-admin",
+};
+const researchPromotionAdminCookie = await __test.makeSession("promo-admin", [], researchPromotionEnv);
+const researchPromotionAdminHeaders = {
+  Cookie: `qsl_switch_session=${researchPromotionAdminCookie}`,
+  Origin: "https://switch.example",
+  "Content-Type": "application/json",
+};
+const researchPromotionTicket = {
+  ticket_id: "promo-ticket-1",
+  strategy_profile: "tqqq_core",
+  domain: "us_equity",
+  state: "awaiting_human",
+  drift_status: "review",
+  drift_score: 1.25,
+  created_at: "2026-09-07T00:00:00Z",
+  updated_at: "2026-09-07T00:00:00Z",
+  budget: {},
+  proposed_params: { lookback: 20 },
+  search_iterations: 2,
+  shadow_evidence_kind: "paired_shadow",
+  shadow_passed: true,
+  notification_subject: "awaiting human",
+  notification_body: "review candidate",
+  human_decision: "",
+  human_decided_at: "",
+  live_authority_granted: false,
+  suggested_risk_profile: "GROWTH_COMPOUNDING",
+  confirmation_target_platform: "",
+  confirmation_execution_mode: "",
+  confirmation_risk_profile: "",
+  notes: [],
+};
+const unauthorizedPromotionSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: { Authorization: "Bearer invalid", "Content-Type": "application/json" },
+    body: JSON.stringify(researchPromotionTicket),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(unauthorizedPromotionSync.status, 401);
+const promotionSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(researchPromotionTicket),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionSync.status, 200);
+assert.equal((await promotionSync.json()).suggested_risk_profile, "GROWTH_COMPOUNDING");
+const promotionList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", {
+    headers: researchPromotionAdminHeaders,
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionList.status, 200);
+const promotionListPayload = await promotionList.json();
+assert.equal(promotionListPayload.tickets.length, 1);
+assert.equal(promotionListPayload.tickets[0].suggested_risk_profile, "GROWTH_COMPOUNDING");
+assert.equal(promotionListPayload.policy.live_authority_granted, false);
+const promotionAccept = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: "promo-ticket-1",
+      decision: "accept",
+      confirmation: {
+        target_platform: "ibkr",
+        execution_mode: "live",
+        risk_profile: "BALANCED_COMPOUNDING",
+      },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(promotionAccept.status, 200);
+const promotionAcceptPayload = await promotionAccept.json();
+assert.equal(promotionAcceptPayload.live_authority_granted, false);
+assert.equal(promotionAcceptPayload.ticket.state, "human_accepted");
+assert.equal(promotionAcceptPayload.ticket.confirmation_risk_profile, "BALANCED_COMPOUNDING");
+assert.equal(promotionAcceptPayload.ticket.suggested_risk_profile, "GROWTH_COMPOUNDING");
+assert.equal(promotionAcceptPayload.ticket.live_authority_granted, false);
+assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
+assert.ok(indexHtml.includes('requestJson("/api/research-promotion-tickets")'));
+
 
 // M0 is a closed, read-only research ingress.  These assertions intentionally
 // exercise only its transport/KV boundary: they must never imply a selector,

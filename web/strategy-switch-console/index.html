@@ -124,6 +124,10 @@
           <div class="control-block promotion-confirm-block" id="promotion-confirm-block">
             <span data-i18n="promotionConfirmTitle">晋级确认（Shadow 后）</span>
             <div class="promotion-confirm-grid">
+              <label class="promotion-ticket-block">
+                <span data-i18n="promotionTicket">待确认 ticket</span>
+                <select id="promotion-ticket-select"></select>
+              </label>
               <label>
                 <span data-i18n="promotionExecutionMode">目标执行模式</span>
                 <select id="promotion-execution-mode-select"></select>
@@ -133,7 +137,12 @@
                 <select id="promotion-risk-profile-select"></select>
               </label>
             </div>
-            <span class="selection-meta" id="promotion-confirm-meta" data-i18n="promotionConfirmMeta">仅记录人工意图：选平台已定账户、真实 paper（若有）或 live，以及风险档。无券商 paper 时不可选 paper，不做自建撮合；确认不授予实盘权限。</span>
+            <div class="promotion-confirm-actions">
+              <button class="btn" id="promotion-accept-button" type="button" data-i18n="promotionAccept">接受意图</button>
+              <button class="btn" id="promotion-reject-button" type="button" data-i18n="promotionReject">拒绝</button>
+            </div>
+            <span class="selection-meta" id="promotion-confirm-meta" data-i18n="promotionConfirmMeta">仅记录人工意图：选平台已定账户、真实 paper（若有）或 live，以及风险档。无券商 paper 时不可选 paper，不做自建撮合；确认不授予实盘权限。风险档默认预填 ticket 建议值，仍可改。</span>
+            <span class="selection-meta" id="promotion-ticket-meta"></span>
           </div>
 
             <label class="control-block account-status-block">
