@@ -3429,6 +3429,51 @@ function normalizePromotionConfirmation(value, fieldName, { paperSupported }) {
   };
 }
 
+function researchPromotionCandidateIdentity(ticket) {
+  return {
+    strategy_profile: String(ticket?.strategy_profile || ""),
+    domain: String(ticket?.domain || ""),
+    proposed_params:
+      ticket?.proposed_params && typeof ticket.proposed_params === "object" && !Array.isArray(ticket.proposed_params)
+        ? ticket.proposed_params
+        : {},
+    search_iterations: Number(ticket?.search_iterations || 0),
+    shadow_evidence_kind: String(ticket?.shadow_evidence_kind || ""),
+  };
+}
+
+function researchPromotionCandidatesMatch(left, right) {
+  return (
+    canonicalResearchTaskJson(researchPromotionCandidateIdentity(left))
+    === canonicalResearchTaskJson(researchPromotionCandidateIdentity(right))
+  );
+}
+
+function assertResearchPromotionExpectedCandidate(ticket, raw, { requireExpectedParams = false } = {}) {
+  if (requireExpectedParams && !Object.prototype.hasOwnProperty.call(raw || {}, "expected_proposed_params")) {
+    throw new HttpError("accept requires expected_proposed_params", 400);
+  }
+  if (!Object.prototype.hasOwnProperty.call(raw || {}, "expected_proposed_params")) return;
+  const expected = raw.expected_proposed_params;
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) {
+    throw new HttpError("expected_proposed_params must be an object", 400);
+  }
+  const stored = ticket.proposed_params || {};
+  if (canonicalResearchTaskJson(expected) !== canonicalResearchTaskJson(stored)) {
+    throw new HttpError("expected_proposed_params does not match stored ticket candidate", 409);
+  }
+  if (raw.expected_strategy_profile != null) {
+    if (String(raw.expected_strategy_profile).trim() !== ticket.strategy_profile) {
+      throw new HttpError("expected_strategy_profile does not match stored ticket", 409);
+    }
+  }
+  if (raw.expected_domain != null) {
+    if (String(raw.expected_domain).trim() !== ticket.domain) {
+      throw new HttpError("expected_domain does not match stored ticket", 409);
+    }
+  }
+}
+
 function normalizeResearchPromotionTicket(raw, fieldName = "research promotion ticket") {
   if (!raw || Array.isArray(raw) || typeof raw !== "object") {
     throw new Error(`${fieldName} must be an object`);
@@ -3483,7 +3528,7 @@ function normalizeResearchPromotionTicket(raw, fieldName = "research promotion t
 
 function applyResearchPromotionDecision(
   ticket,
-  { decision, confirmation = null, paperSupported = false, decidedAt = null },
+  { decision, confirmation = null, paperSupported = false, decidedAt = null, expectedRaw = null },
 ) {
   if (ticket.state !== "awaiting_human") {
     throw new HttpError(`ticket ${ticket.ticket_id} is not awaiting human (state=${ticket.state})`, 409);
@@ -3492,6 +3537,9 @@ function applyResearchPromotionDecision(
   if (normalized !== "accept" && normalized !== "reject") {
     throw new HttpError("decision must be accept or reject", 400);
   }
+  assertResearchPromotionExpectedCandidate(ticket, expectedRaw || {}, {
+    requireExpectedParams: normalized === "accept",
+  });
   const stamp = decidedAt || new Date().toISOString();
   const next = {
     ...ticket,
@@ -3567,6 +3615,19 @@ async function syncResearchPromotionTicketResponse(request, env) {
         {
           ok: false,
           error: `refusing to overwrite terminal research promotion ticket state=${existing.state}`,
+        },
+        409,
+      );
+    }
+    if (
+      existing.state === "awaiting_human"
+      && !researchPromotionCandidatesMatch(existing, ticket)
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "refusing to overwrite awaiting_human research promotion ticket with mismatched candidate identity",
         },
         409,
       );
@@ -3706,6 +3767,7 @@ async function recordResearchPromotionDecisionResponse(request, env) {
       confirmation: raw?.confirmation || null,
       paperSupported,
       decidedAt: new Date().toISOString(),
+      expectedRaw: raw,
     });
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);

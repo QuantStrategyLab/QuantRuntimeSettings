@@ -2202,6 +2202,9 @@
             ticket_id: ticket.ticket_id,
             decision,
             confirmation,
+            expected_proposed_params: ticket.proposed_params || {},
+            expected_strategy_profile: ticket.strategy_profile,
+            expected_domain: ticket.domain,
           }),
         });
         if (payload?.live_authority_granted) {

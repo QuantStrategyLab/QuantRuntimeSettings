@@ -3467,6 +3467,7 @@ const promotionAccept = await worker.fetch(
     body: JSON.stringify({
       ticket_id: "promo-ticket-1",
       decision: "accept",
+      expected_proposed_params: { lookback: 20 },
       confirmation: {
         target_platform: "ibkr",
         execution_mode: "live",
@@ -3512,6 +3513,7 @@ const paperDenied = await worker.fetch(
     body: JSON.stringify({
       ticket_id: "promo-ticket-paper-denied",
       decision: "accept",
+      expected_proposed_params: { lookback: 20 },
       confirmation: {
         target_platform: "ibkr",
         execution_mode: "paper",
@@ -3561,6 +3563,107 @@ const overwriteTerminal = await worker.fetch(
   researchPromotionEnv,
 );
 assert.equal(overwriteTerminal.status, 409);
+
+// Same ticket_id with different immutable candidate fields must not overwrite awaiting.
+const candidateBindTicket = {
+  ...researchPromotionTicket,
+  ticket_id: "promo-ticket-candidate-bind",
+};
+assert.equal(
+  (
+    await worker.fetch(
+      new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${researchPromotionSyncToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(candidateBindTicket),
+      }),
+      researchPromotionEnv,
+    )
+  ).status,
+  200,
+);
+const mismatchedCandidateSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...candidateBindTicket,
+      proposed_params: { lookback: 99 },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(mismatchedCandidateSync.status, 409);
+assert.match(
+  String((await mismatchedCandidateSync.json()).error || ""),
+  /mismatched candidate identity/i,
+);
+const sameContentSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...candidateBindTicket,
+      suggested_risk_profile: "BALANCED_COMPOUNDING",
+      notification_body: "same candidate identity",
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(sameContentSync.status, 200);
+
+const mismatchedAccept = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: "promo-ticket-candidate-bind",
+      decision: "accept",
+      expected_proposed_params: { lookback: 99 },
+      confirmation: {
+        target_platform: "ibkr",
+        execution_mode: "live",
+        risk_profile: "BALANCED_COMPOUNDING",
+      },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(mismatchedAccept.status, 409);
+assert.match(
+  String((await mismatchedAccept.json()).error || ""),
+  /expected_proposed_params does not match/i,
+);
+const matchingAccept = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: "promo-ticket-candidate-bind",
+      decision: "accept",
+      expected_proposed_params: { lookback: 20 },
+      expected_strategy_profile: "tqqq_core",
+      expected_domain: "us_equity",
+      confirmation: {
+        target_platform: "ibkr",
+        execution_mode: "live",
+        risk_profile: "BALANCED_COMPOUNDING",
+      },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(matchingAccept.status, 200);
+assert.equal((await matchingAccept.json()).ticket.state, "human_accepted");
 
 const promotionFetchUnauthorized = await worker.fetch(
   new Request("https://switch.example/api/internal/research-promotion-ticket?ticket_id=promo-ticket-1", {
