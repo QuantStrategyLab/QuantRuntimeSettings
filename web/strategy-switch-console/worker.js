@@ -16,7 +16,22 @@ import {
   DCA_PROFILE_DEFAULTS,
   RUNTIME_CATALOG_PROJECTION,
   STRATEGY_FEATURES,
+  PLATFORM_REPOSITORY_ENV_KEYS,
+  OBSERVABILITY_PLATFORMS,
 } from "./config.js";
+import {
+  DEFAULT_PLATFORM_REPOSITORIES,
+  PLATFORM_REPOSITORY_ENV,
+  PLATFORM_CASH_ONLY_EXECUTION_VARIABLES_MAP as PLATFORM_CASH_ONLY_EXECUTION_VARIABLES,
+  OBSERVABILITY_PLATFORM_IDS,
+  resolvePlatformRepositories,
+  isDcaSupportedPlatform,
+} from "./platform_registry.js";
+import { assertLiveSwitchAllowed, catalogVersionMetadata, isLiveSwitchAllowed } from "./catalog.js";
+import {
+  normalizeAccountOptionsPayload as normalizeAccountOptionsSchemaPayload,
+  parseAccountOptionsJson as parseAccountOptionsSchemaJson,
+} from "./account_options_schema.js";
 import { APP_CSS } from "./app_css.js";
 import { APP_JS } from "./app_js.js";
 
@@ -139,7 +154,7 @@ const RECONCILIATION_RECOVERY_MAX_SOURCES = 100;
 const RECONCILIATION_RECOVERY_MAX_BODY_BYTES = 128 * 1024;
 const RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS = 30 * 60;
 const RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS = 15 * 60 * 1000;
-const RECONCILIATION_RECOVERY_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const RECONCILIATION_RECOVERY_PLATFORMS = OBSERVABILITY_PLATFORM_IDS;
 const RECONCILIATION_RECOVERY_ENVIRONMENTS = ["live"];
 const RECONCILIATION_RECOVERY_STATES = ["RECONCILE_ONLY"];
 const RECONCILIATION_RECOVERY_READINESS = ["blocked", "awaiting_human_confirmation"];
@@ -156,7 +171,7 @@ const EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION = "qsl_execution_evidence_dash
 const EXECUTION_EVIDENCE_MAX_SOURCES = 100;
 const EXECUTION_EVIDENCE_MAX_BODY_BYTES = 256 * 1024;
 const EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
-const EXECUTION_EVIDENCE_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const EXECUTION_EVIDENCE_PLATFORMS = OBSERVABILITY_PLATFORM_IDS;
 const EXECUTION_EVIDENCE_ENVIRONMENTS = ["shadow", "paper", "live"];
 const EXECUTION_EVIDENCE_CAPABILITIES = ["available", "unavailable", "unknown"];
 const EXECUTION_EVIDENCE_STATUSES = ["verified", "pending", "unavailable", "not_applicable"];
@@ -205,6 +220,12 @@ const RESEARCH_TASK_TYPES = [
 const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"];
 
 const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_CONFIG);
+
+function validateAccountOptionsSchemaOrThrow(payload, fieldName = "account_options") {
+  return normalizeAccountOptionsSchemaPayload(payload, fieldName);
+}
+
+
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const LIVE_CONTINUITY_STATES = [
   "NONE",
@@ -215,28 +236,6 @@ const LIVE_CONTINUITY_STATES = [
   "PAUSED",
   "ROLLBACK_LKG",
 ];
-const DEFAULT_PLATFORM_REPOSITORIES = {
-  longbridge: "QuantStrategyLab/LongBridgePlatform",
-  ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
-  schwab: "QuantStrategyLab/CharlesSchwabPlatform",
-  firstrade: "QuantStrategyLab/FirstradePlatform",
-  qmt: "QuantStrategyLab/QmtPlatform",
-  binance: "QuantStrategyLab/BinancePlatform",
-};
-const PLATFORM_REPOSITORY_ENV = {
-  longbridge: ["STRATEGY_SWITCH_LONGBRIDGE_REPO", "RUNTIME_SETTINGS_LONGBRIDGE_REPO"],
-  ibkr: ["STRATEGY_SWITCH_IBKR_REPO", "RUNTIME_SETTINGS_IBKR_REPO"],
-  schwab: ["STRATEGY_SWITCH_SCHWAB_REPO", "RUNTIME_SETTINGS_SCHWAB_REPO"],
-  firstrade: ["STRATEGY_SWITCH_FIRSTRADE_REPO", "RUNTIME_SETTINGS_FIRSTRADE_REPO"],
-  qmt: ["STRATEGY_SWITCH_QMT_REPO", "RUNTIME_SETTINGS_QMT_REPO"],
-  binance: ["STRATEGY_SWITCH_BINANCE_REPO", "RUNTIME_SETTINGS_BINANCE_REPO"],
-};
-const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
-  longbridge: "LONGBRIDGE_CASH_ONLY_EXECUTION",
-  ibkr: "IBKR_CASH_ONLY_EXECUTION",
-  schwab: "SCHWAB_CASH_ONLY_EXECUTION",
-  firstrade: "FIRSTRADE_CASH_ONLY_EXECUTION",
-};
 const LEGACY_CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION";
 const CASH_ONLY_EXECUTION_MODES = ["current", "enabled", "disabled"];
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
@@ -321,6 +320,8 @@ const BOOTSTRAP_CONFIG_JS = [
   `window.__DCA_PROFILE_DEFAULTS__ = ${JSON.stringify(DCA_PROFILE_DEFAULTS)};`,
   `window.__INCOME_LAYER_DEFAULTS__ = ${JSON.stringify(FALLBACK_INCOME_LAYER_DEFAULTS)};`,
   `window.__OPTION_OVERLAY_DEFAULTS__ = ${JSON.stringify(FALLBACK_OPTION_OVERLAY_DEFAULTS)};`,
+  `window.__PLATFORM_MIN_RESERVED_CASH_VARIABLES__ = ${JSON.stringify(PLATFORM_MIN_RESERVED_CASH_VARIABLES)};`,
+  `window.__PLATFORM_RESERVED_CASH_RATIO_VARIABLES__ = ${JSON.stringify(PLATFORM_RESERVED_CASH_RATIO_VARIABLES)};`,
 ].join("\n");
 
 // A secondary external script keeps a failed or stale main bundle from
@@ -621,7 +622,7 @@ async function saveAdminConfig(request, env) {
   const accountOptions = normalizeAccountOptionsInput(raw.account_options, "account_options");
 
   await writeConfigJson(env, AUTH_CONFIG_KEY, authConfig);
-  await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, accountOptions);
+  await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
   await appendAuditLog(env, {
     ts: new Date().toISOString(),
     login: session.login,
@@ -1431,7 +1432,7 @@ async function syncDefaultStrategyForAccount(env, accountOptions, inputs, sessio
     const { options, changed } = updateAccountOptionsDefaultStrategy(accountOptions, inputs);
     let auditLogged = false;
     if (changed) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, options);
+      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(options));
       try {
         await appendAuditLog(env, {
           ts: new Date().toISOString(),
@@ -1475,7 +1476,7 @@ async function syncAccountDefaultResponse(request, env) {
     accountOption = registration.account;
     registeredLegacyContinuityAccount = registration.registered;
     if (registeredLegacyContinuityAccount) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, accountOptions);
+      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
       try {
         await appendAuditLog(env, {
           ts: new Date().toISOString(),
@@ -5519,12 +5520,9 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
       assertDcaPlatform(inputs.platform, inputs.strategy_profile);
       return;
     }
+    assertLiveSwitchAllowed(strategy, inputs.strategy_profile);
     const lifecycleStage = cleanLifecycleStage(strategy.lifecycle_stage || "research_active");
-    if (
-      strategy.runtime_enabled !== true ||
-      strategy.can_switch_live !== true ||
-      !["live_enabled", "runtime_enabled"].includes(lifecycleStage)
-    ) {
+    if (!["live_enabled", "runtime_enabled"].includes(lifecycleStage)) {
       throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
     }
     if (!allowedModes.includes(executionMode)) {
@@ -5896,6 +5894,10 @@ function normalizeAccountOptionsPayload(payload, fieldName = "account options") 
     throw new Error(`${fieldName} must be an object`);
   }
 
+  // Structural gate from account_options_schema.js; cleanAccountOption keeps
+  // console-specific enrichment (domain inference, mode defaults, length caps).
+  validateAccountOptionsSchemaOrThrow(payload, fieldName);
+
   const result = {};
   for (const platform of SUPPORTED_PLATFORMS) {
     const items = payload[platform];
@@ -5972,37 +5974,7 @@ function inferAccountSupportedDomains(platform, option) {
 }
 
 function platformRepositories(env) {
-  const repositories = { ...DEFAULT_PLATFORM_REPOSITORIES };
-  const rawJson = String(
-    env.STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON ||
-      env.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON ||
-      "",
-  ).trim();
-  if (rawJson) {
-    let payload;
-    try {
-      payload = JSON.parse(rawJson);
-    } catch (error) {
-      throw new Error("platform repositories JSON must be valid JSON");
-    }
-    if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-      throw new Error("platform repositories JSON must be an object");
-    }
-    for (const [platform, repository] of Object.entries(payload)) {
-      if (!SUPPORTED_PLATFORMS.includes(platform)) {
-        throw new Error(`unsupported platform repository override: ${platform}`);
-      }
-      repositories[platform] = cleanRepositoryName(repository, `${platform} repository`);
-    }
-  }
-
-  for (const platform of SUPPORTED_PLATFORMS) {
-    for (const name of PLATFORM_REPOSITORY_ENV[platform] || []) {
-      const repository = String(env[name] || "").trim();
-      if (repository) repositories[platform] = cleanRepositoryName(repository, name);
-    }
-  }
-  return repositories;
+  return resolvePlatformRepositories(env);
 }
 
 function normalizeSupportedDomains(value, fieldName) {

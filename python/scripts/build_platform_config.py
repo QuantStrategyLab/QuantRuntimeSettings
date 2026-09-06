@@ -159,15 +159,33 @@ def build_config_module(config: dict) -> str:
     # ── reserved cash variable names ──
     min_cash_vars = {}
     ratio_vars = {}
+    cash_only_vars = {}
+    repository_env_keys = {}
     var_prefixes = {
         "longbridge": "LONGBRIDGE",
         "ibkr": "IBKR",
         "schwab": "SCHWAB",
         "firstrade": "FIRSTRADE",
+        "qmt": "QMT",
+        "binance": "BINANCE",
     }
-    for pid, prefix in var_prefixes.items():
-        min_cash_vars[pid] = f"{prefix}_MIN_RESERVED_CASH_USD"
-        ratio_vars[pid] = f"{prefix}_RESERVED_CASH_RATIO"
+    for pid, pdata in platforms.items():
+        prefix = var_prefixes.get(pid, pid.upper().replace("-", "_"))
+        if (pdata.get("capabilities") or {}).get("reserved_cash"):
+            min_cash_vars[pid] = f"{prefix}_MIN_RESERVED_CASH_USD"
+            ratio_vars[pid] = f"{prefix}_RESERVED_CASH_RATIO"
+            cash_only_vars[pid] = f"{prefix}_CASH_ONLY_EXECUTION"
+        env_keys = (pdata.get("deployment") or {}).get("env_repo_key") or []
+        if env_keys:
+            repository_env_keys[pid] = list(env_keys)
+    observability = meta.get("console_observability") if isinstance(meta, dict) else {}
+    if not isinstance(observability, dict):
+        observability = {}
+    observability_platforms = list(platforms.keys())
+    for extra in observability.get("extra_platforms") or []:
+        name = str(extra).strip()
+        if name and name not in observability_platforms:
+            observability_platforms.append(name)
 
     platform_meta = {
         pid: {
@@ -212,6 +230,12 @@ def build_config_module(config: dict) -> str:
         f"export const PLATFORM_MIN_RESERVED_CASH_VARIABLES = {json.dumps(min_cash_vars, indent=2, ensure_ascii=False)};",
         "",
         f"export const PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {json.dumps(ratio_vars, indent=2, ensure_ascii=False)};",
+        "",
+        f"export const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {json.dumps(cash_only_vars, indent=2, ensure_ascii=False)};",
+        "",
+        f"export const PLATFORM_REPOSITORY_ENV_KEYS = {json.dumps(repository_env_keys, indent=2, ensure_ascii=False)};",
+        "",
+        f"export const OBSERVABILITY_PLATFORMS = {json.dumps(observability_platforms, indent=2, ensure_ascii=False)};",
         "",
     ]
     return "\n".join(lines)
@@ -409,17 +433,18 @@ def main() -> int:
     outputs = _generated_outputs(config)
 
     if args.check:
-        # sync_strategy_switch_page_asset.py intentionally renders the strategy
-        # JS asset with a different (but semantically equivalent) formatter.
-        # The projection has one generator, so it is safe to use as a strict
-        # source-freshness guard even after the full console build pipeline.
-        checkable = {RUNTIME_CATALOG_PROJECTION_TARGET: outputs[RUNTIME_CATALOG_PROJECTION_TARGET]}
-        stale = [path for path, expected in checkable.items() if not path.exists() or path.read_text(encoding="utf-8") != expected]
+        # platform-config.json is the only catalog authority. All generated
+        # console assets must match exactly (no parallel formatters).
+        stale = [
+            path
+            for path, expected in outputs.items()
+            if not path.exists() or path.read_text(encoding="utf-8") != expected
+        ]
         if stale:
             for path in stale:
                 print(f"Generated asset is stale: {path.relative_to(ROOT)}")
             return 1
-        print("Generated runtime catalog projection matches platform-config.json")
+        print("Generated console assets match platform-config.json")
         return 0
 
     for path, content in outputs.items():
