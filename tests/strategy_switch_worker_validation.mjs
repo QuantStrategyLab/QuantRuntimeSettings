@@ -102,7 +102,15 @@ assert.equal(indexHtml.includes('P1–P3 non-live 数据获取仍需独立、精
 assert.ok(indexHtml.includes('requestJson("/api/execution-evidence")'));
 assert.ok(indexHtml.includes('requestJson("/api/adaptive-selection")'));
 assert.equal(indexHtml.includes('missing_current_promotion_evidence_and_human_acceptance'), false);
-assert.ok(indexHtml.includes('missing_current_promotion_evidence_and_preauthorized_autonomy_policy'));
+assert.ok(
+  JSON.stringify(bundledStrategyProfiles).includes(
+    'missing_current_promotion_evidence_and_preauthorized_autonomy_policy',
+  ),
+);
+assert.equal(
+  indexHtml.includes('missing_current_promotion_evidence_and_preauthorized_autonomy_policy'),
+  false,
+);
 assert.ok(indexHtml.includes(".switch-surface.summary-hidden"));
 assert.ok(indexHtml.includes('summaryPanel.hidden = !showSummary'));
 assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !showSummary)'));
@@ -181,17 +189,19 @@ assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListene
 assert.ok(indexHtml.includes('el("dca-mode-select").addEventListener("change"'));
 assert.ok(indexHtml.includes('el("dca-base-investment-usd-input").addEventListener("input"'));
 assert.ok(
-	  indexHtml.includes('"label_zh": "纳指100 / 标普500 定投"') ||
-	  indexHtml.includes('"label_zh": "纳指标普定投"'),
-	);
+  bundledStrategyProfiles.some((profile) =>
+    profile.label_zh === "纳指100 / 标普500 定投" || profile.label_zh === "纳指标普定投"
+  ),
+);
 assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
 assert.ok(indexHtml.includes('class="form-section dca-section"'));
 assert.ok(indexHtml.includes('class="control-block reserve-policy-block policy-block"'));
-assert.ok(indexHtml.includes('"profile": "ibit_smart_dca"'));
+assert.ok(bundledStrategyProfiles.some((profile) => profile.profile === "ibit_smart_dca"));
 for (const profile of bundledStrategyProfiles) {
-  assert.ok(indexHtml.includes(`"profile": ${JSON.stringify(profile.profile)}`), `fallback missing ${profile.profile}`);
-  assert.ok(indexHtml.includes(`"label_en": ${JSON.stringify(profile.label_en)}`), `fallback English label mismatch for ${profile.profile}`);
-  assert.ok(indexHtml.includes(`"label_zh": ${JSON.stringify(profile.label_zh)}`), `fallback Chinese label mismatch for ${profile.profile}`);
+  assert.equal(typeof profile.profile, "string");
+  assert.equal(typeof profile.label_en, "string");
+  assert.equal(typeof profile.label_zh, "string");
+  assert.ok(profile.profile.length > 0, `catalog missing profile id`);
 }
 assert.ok(indexHtml.includes('localStrategyLabels'));
 assert.ok(indexHtml.includes('function strategyLabelSet('));

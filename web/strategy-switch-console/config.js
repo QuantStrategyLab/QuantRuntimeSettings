@@ -142,7 +142,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:90261c8eaf9676c6d9b69c85222c5cb8f54305ca2fc8c0d51c96cf546f2286b0",
+    "content_sha256": "sha256:674f344766201be23ad981815a3160bdafc7c6c8b91e8b4412e89a86ea6a94ea",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -166,11 +166,12 @@ export const RUNTIME_CATALOG_PROJECTION = {
   },
   "summary": {
     "strategy_profile_count": 26,
-    "runtime_enabled_count": 0,
-    "live_switchable_count": 0,
+    "runtime_enabled_count": 4,
+    "live_switchable_count": 4,
     "lifecycle_stage_counts": {
       "live_candidate": 1,
-      "research_active": 21,
+      "research_active": 17,
+      "runtime_enabled": 4,
       "shadow_active": 4
     }
   },
@@ -181,14 +182,15 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "label_en": "NASDAQ Growth Income",
       "label_zh": "纳斯达克增长收益",
       "domain": "us_equity",
-      "lifecycle_stage": "research_active",
-      "runtime_enabled": false,
-      "can_switch_live": false,
+      "lifecycle_stage": "runtime_enabled",
+      "runtime_enabled": true,
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+      "blocked_live_reason": ""
     },
     {
       "profile": "soxl_soxx_trend_income",
@@ -196,14 +198,15 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "label_en": "Semiconductor Trend Income",
       "label_zh": "半导体趋势收益",
       "domain": "us_equity",
-      "lifecycle_stage": "research_active",
-      "runtime_enabled": false,
-      "can_switch_live": false,
+      "lifecycle_stage": "runtime_enabled",
+      "runtime_enabled": true,
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+      "blocked_live_reason": ""
     },
     {
       "profile": "nasdaq_sp500_smart_dca",
@@ -226,14 +229,15 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "label_en": "IBIT Bitcoin DCA",
       "label_zh": "IBIT比特币定投",
       "domain": "us_equity",
-      "lifecycle_stage": "research_active",
-      "runtime_enabled": false,
-      "can_switch_live": false,
+      "lifecycle_stage": "runtime_enabled",
+      "runtime_enabled": true,
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+      "blocked_live_reason": ""
     },
     {
       "profile": "global_etf_rotation",
@@ -255,14 +259,15 @@ export const RUNTIME_CATALOG_PROJECTION = {
       "label_en": "Russell Top50 Leaders",
       "label_zh": "罗素Top50领涨",
       "domain": "us_equity",
-      "lifecycle_stage": "research_active",
-      "runtime_enabled": false,
-      "can_switch_live": false,
+      "lifecycle_stage": "runtime_enabled",
+      "runtime_enabled": true,
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
+      "blocked_live_reason": ""
     },
     {
       "profile": "tecl_xlk_trend_income",
@@ -983,3 +988,47 @@ export const PLATFORM_RESERVED_CASH_RATIO_VARIABLES = {
   "schwab": "SCHWAB_RESERVED_CASH_RATIO",
   "firstrade": "FIRSTRADE_RESERVED_CASH_RATIO"
 };
+
+export const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
+  "longbridge": "LONGBRIDGE_CASH_ONLY_EXECUTION",
+  "ibkr": "IBKR_CASH_ONLY_EXECUTION",
+  "schwab": "SCHWAB_CASH_ONLY_EXECUTION",
+  "firstrade": "FIRSTRADE_CASH_ONLY_EXECUTION"
+};
+
+export const PLATFORM_REPOSITORY_ENV_KEYS = {
+  "longbridge": [
+    "STRATEGY_SWITCH_LONGBRIDGE_REPO",
+    "RUNTIME_SETTINGS_LONGBRIDGE_REPO"
+  ],
+  "ibkr": [
+    "STRATEGY_SWITCH_IBKR_REPO",
+    "RUNTIME_SETTINGS_IBKR_REPO"
+  ],
+  "schwab": [
+    "STRATEGY_SWITCH_SCHWAB_REPO",
+    "RUNTIME_SETTINGS_SCHWAB_REPO"
+  ],
+  "firstrade": [
+    "STRATEGY_SWITCH_FIRSTRADE_REPO",
+    "RUNTIME_SETTINGS_FIRSTRADE_REPO"
+  ],
+  "qmt": [
+    "STRATEGY_SWITCH_QMT_REPO",
+    "RUNTIME_SETTINGS_QMT_REPO"
+  ],
+  "binance": [
+    "STRATEGY_SWITCH_BINANCE_REPO",
+    "RUNTIME_SETTINGS_BINANCE_REPO"
+  ]
+};
+
+export const OBSERVABILITY_PLATFORMS = [
+  "longbridge",
+  "ibkr",
+  "schwab",
+  "firstrade",
+  "qmt",
+  "binance",
+  "alpaca"
+];

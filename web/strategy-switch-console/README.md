@@ -12,7 +12,7 @@ This is the authenticated backend for the personal strategy switch console. It i
 
 - `platform-config.json` → `platforms` supplies labels, codes, colors, repositories, default accounts and capabilities. Menu order follows the platform order in that file.
 - Set deployment variable `STRATEGY_SWITCH_HIDDEN_PLATFORMS` to comma-separated IDs to hide supported platforms (`qmt` hides QMT; an empty string shows all). Visibility does not disable trading or delete accounts/adapters.
-- After catalog edits, run `python3 python/scripts/build_platform_config.py` and `python3 python/scripts/sync_strategy_switch_page_asset.py`, then test and deploy. Do not edit generated `config.js` manually.
+- After catalog edits, run `python3 python/scripts/build_platform_config.py` (catalog/config SSOT) then `python3 python/scripts/sync_strategy_switch_page_asset.py` (HTML/CSS/JS packaging only)`, then test and deploy. Do not edit generated `config.js` manually.
 - Frontend and backend use the same bundled catalog, not an independently fetched GitHub main. A new broker still needs an adapter and capability support before it can trade.
 
 ## Operator model

@@ -13,6 +13,9 @@
       "execution_metadata_is_runtime_authority": false,
       "p1_p3_non_live_data_acquisition_authority": "INDEPENDENT_CONTRACT_REQUIRED",
       "p4_p6_definition": "UNDEFINED"
+    },
+    "console_observability": {
+      "extra_platforms": ["alpaca"]
     }
   },
   "notifications": {

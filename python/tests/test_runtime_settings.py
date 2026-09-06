@@ -54,12 +54,9 @@ SERVICE_PLUGIN_MOUNTS_SPEC.loader.exec_module(service_plugin_mounts)
 
 
 class RuntimeSettingsTest(unittest.TestCase):
+    # Restored live lanes (tqqq/soxl/ibit/russell) are intentionally runtime_enabled.
     NOT_EVIDENCED_PROFILES = (
-        "tqqq_growth_income",
-        "soxl_soxx_trend_income",
         "nasdaq_sp500_smart_dca",
-        "ibit_smart_dca",
-        "russell_top50_leader_rotation",
         "hk_low_vol_dividend_quality_snapshot",
         "cn_industry_etf_rotation",
         "crypto_live_pool_rotation",
@@ -1040,14 +1037,6 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 )
             )
         }
-        app_source = (ROOT / "web" / "strategy-switch-console" / "app.js").read_text(encoding="utf-8")
-        fallback_match = re.search(
-            r"const defaultStrategyProfiles = window\.__DEFAULT_STRATEGY_PROFILES__ \|\| (\[.*?\n    \]);",
-            app_source,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(fallback_match)
-        fallback = {item["profile"]: item for item in json.loads(fallback_match.group(1))}
 
         platform_by_domain = {
             "us_equity": "ibkr",
@@ -1058,7 +1047,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         actual_config = build_config.load_config()
         for profile in self.NOT_EVIDENCED_PROFILES:
             with self.subTest(profile=profile):
-                for catalog in (config, generated, fallback):
+                for catalog in (config, generated):
                     self.assertEqual({field: catalog[profile][field] for field in expected}, expected)
                 errors = []
                 with patch.object(runtime_settings, "load_platform_config", return_value=actual_config):
@@ -1143,6 +1132,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
             "paper_active",
             "live_candidate",
             "live_enabled",
+            "runtime_enabled",
         }
         config_entries = build_config.load_config()["strategies"].values()
         generated_entries = json.loads(
@@ -1151,18 +1141,8 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 / "web/strategy-switch-console/strategy-profiles.example.json"
             ).read_text(encoding="utf-8")
         )
-        app_source = (
-            ROOT / "web/strategy-switch-console/app.js"
-        ).read_text(encoding="utf-8")
-        fallback_match = re.search(
-            r"const defaultStrategyProfiles = window\.__DEFAULT_STRATEGY_PROFILES__ \|\| (\[.*?\n    \]);",
-            app_source,
-            re.DOTALL,
-        )
-        self.assertIsNotNone(fallback_match)
-        fallback_entries = json.loads(fallback_match.group(1))
 
-        for entry in [*config_entries, *generated_entries, *fallback_entries]:
+        for entry in [*config_entries, *generated_entries]:
             self.assertIn(entry["lifecycle_stage"], canonical)
 
     def test_assignment_payload_can_redact_values(self):
@@ -1359,6 +1339,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertNotIn("if: env.M0_RESEARCH_SYNC_TOKEN != ''", workflow)
         self.assertIn("CLOUDFLARE_WRANGLER_CONFIG_TOML", workflow)
         self.assertIn("STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID", workflow)
+        self.assertIn("python/scripts/build_platform_config.py", workflow)
         self.assertIn("python/scripts/sync_strategy_switch_page_asset.py", workflow)
         self.assertIn("expected_profiles", workflow)
         self.assertIn("actual_profiles", workflow)

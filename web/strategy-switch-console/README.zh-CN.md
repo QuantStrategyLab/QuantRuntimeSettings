@@ -14,7 +14,7 @@
 
 - `platform-config.json` 的 `platforms` 是网站平台目录的来源：名称、标识、颜色、仓库、默认账户与能力在此配置；菜单顺序沿用配置中的平台顺序。
 - 只需隐藏已接入平台时，在部署配置中修改 `STRATEGY_SWITCH_HIDDEN_PLATFORMS`（逗号分隔）；例如 `qmt` 隐藏 QMT，空字符串显示全部。隐藏不是停用交易，不删除账户或适配器。
-- 修改目录后运行 `python3 python/scripts/build_platform_config.py` 和 `python3 python/scripts/sync_strategy_switch_page_asset.py`，通过测试后部署网站。不要手改生成的 `config.js`。
+- 修改目录后先运行 `python3 python/scripts/build_platform_config.py`（catalog/config 唯一来源），再运行 `python3 python/scripts/sync_strategy_switch_page_asset.py`（仅打包 HTML/CSS/JS），通过测试后部署网站。不要手改生成的 `config.js` / `strategy_profiles_asset.js`。
 - 前后端使用同一发布版本的目录；不再从远端 main 临时拼入平台。全新券商仍须先接入适配器及对应能力，不能只增加菜单就视为可交易。
 
 ## 操作台模型
@@ -336,7 +336,7 @@ Shadow、修改 runtime 或产生订单。
 新增或重命名策略 profile 时，需要同时做这些事：
 
 - 在 `strategy-profiles.example.json` 增加 runtime-enabled profile id 和显示名称。
-- 运行 `python3 scripts/sync_strategy_switch_page_asset.py` 重新生成 `strategy_profiles_asset.js`。
+- 运行 `python3 python/scripts/build_platform_config.py` 重新生成 `strategy_profiles_asset.js` / `config.js`；`sync_strategy_switch_page_asset.py` 只打包页面资源。
 - 给每个策略 profile 设置 `domain`。当前支持 `us_equity`、`hk_equity` 和 `cn_equity`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `supported_domains`。策略 profile 通过 GitHub 变量的策略切换工作流进行管理。
 - LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。

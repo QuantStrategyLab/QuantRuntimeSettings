@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.strategy_switch_account_options.v1",
+  "title": "Strategy Switch Account Options",
+  "type": "object",
+  "propertyNames": {
+    "pattern": "^[a-z][a-z0-9_]*$"
+  },
+  "additionalProperties": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "required": ["key", "label", "target_name", "supported_domains"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "label": { "type": "string", "minLength": 1 },
+        "target_name": { "type": "string", "minLength": 1 },
+        "supported_domains": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "account_selector": { "type": "string" },
+        "deployment_selector": { "type": "string" },
+        "account_scope": { "type": "string" },
+        "service_name": { "type": "string" },
+        "cash_currency": { "type": "string" },
+        "default_execution_mode": { "type": "string" },
+        "default_strategy_profile": { "type": "string" }
+      }
+    }
+  }
+}
