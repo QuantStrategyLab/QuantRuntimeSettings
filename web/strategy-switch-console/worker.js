@@ -6110,17 +6110,14 @@ function cleanLifecycleStage(value, field = "lifecycle_stage") {
 
 function canonicalLifecycleStage(value, deployment = {}) {
   const stage = cleanLifecycleStage(value);
-  if (["research_active", "shadow_active", "paper_active", "live_candidate", "live_enabled"].includes(stage)) {
+  // Keep runtime_enabled as a first-class catalog stage so bundled SSOT and
+  // /api/strategy-profiles readback stay bit-identical for deploy verification.
+  if (["research_active", "shadow_active", "paper_active", "live_candidate", "live_enabled", "runtime_enabled"].includes(stage)) {
     return stage;
   }
   if (["research", "research_backtest_only", "ai_monitored_candidate"].includes(stage)) return "research_active";
   if (stage === "shadow_candidate") return "shadow_active";
-  if (stage === "runtime_enabled") {
-    const explicitlyLive = deployment.runtimeEnabled === true
-      && deployment.canSwitchLive === true
-      && deployment.allowedExecutionModes?.includes("live");
-    return explicitlyLive ? "live_enabled" : "live_candidate";
-  }
+  void deployment;
   throw new Error(`lifecycle_stage ${stage} is unsupported`);
 }
 
