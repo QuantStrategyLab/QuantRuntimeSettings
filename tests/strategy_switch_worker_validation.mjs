@@ -81,6 +81,9 @@ assert.ok(indexHtml.includes('entries.slice(0, M0_RESEARCH_DISPLAY_LIMIT)'));
 assert.ok(indexHtml.includes('id="adaptive-selection-list"'));
 assert.ok(indexHtml.includes('id="adaptive-selection-notice"'));
 assert.ok(indexHtml.includes('id="account-overview"'));
+assert.ok(indexHtml.includes('data-i18n="applicationStatus"'));
+assert.ok(indexHtml.includes('accountApplicationText(platform, account)'));
+
 assert.ok(indexHtml.includes('id="plan-check-authority"'));
 assert.ok(indexHtml.includes('class="diagnostic-details"'));
 assert.ok(indexHtml.includes('id="control-plane-queue"'));
