@@ -63,9 +63,12 @@ python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 | 下一轮 QPK 候选 | `QuantPlatformKit/QPK_PIN` | 只表示待分阶段推广的候选，不代表任何平台已经升级。 |
 
 `QPK_PIN` 变更先经过候选安装与依赖检查，再以只改该文件的 PR 进入主分支。随后才按
-`strategy → consumer → aggregate bundle` 顺序创建下游 PR；每一个下游 PR 仍须通过自身 CI，
-不会直接触发运行时部署或交易。确认某 consumer 已合入的依赖时，读取该仓库相应提交的
-manifest/lockfile；确认运行版本需要实际部署证据，不能用 matrix、bundle 或候选 pin 代替。
+`strategy → consumer → aggregate bundle` 顺序创建下游 PR；默认模式为 `upgrade-affected`
+（只升落后且受影响仓，拒绝降级；docs/CI-only 候选变更不刷执行仓）。每一个下游 PR 仍须
+通过自身 CI，不会直接触发运行时部署或交易。确认某 consumer 已合入的依赖时，读取该仓库
+相应提交的 manifest/lockfile；确认运行版本需要实际部署证据，不能用 matrix、bundle 或候选
+pin 代替。政策细节见 [internal_dependency_pin_policy.zh-CN.md](internal_dependency_pin_policy.zh-CN.md)
+与 QPK ADR 0003 Amendment 2026-09-06。
 
 在同步下游仓库后，明确扫描范围及 checkout 版本，再用生成器维护和核对保存快照：
 
