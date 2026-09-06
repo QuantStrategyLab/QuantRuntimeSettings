@@ -3483,6 +3483,85 @@ assert.equal(promotionAcceptPayload.ticket.state, "human_accepted");
 assert.equal(promotionAcceptPayload.ticket.confirmation_risk_profile, "BALANCED_COMPOUNDING");
 assert.equal(promotionAcceptPayload.ticket.suggested_risk_profile, "GROWTH_COMPOUNDING");
 assert.equal(promotionAcceptPayload.ticket.live_authority_granted, false);
+
+// dry_run must not unlock paper for research-promotion decisions.
+const paperDeniedTicket = {
+  ...researchPromotionTicket,
+  ticket_id: "promo-ticket-paper-denied",
+};
+assert.equal(
+  (
+    await worker.fetch(
+      new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${researchPromotionSyncToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(paperDeniedTicket),
+      }),
+      researchPromotionEnv,
+    )
+  ).status,
+  200,
+);
+const paperDenied = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: "promo-ticket-paper-denied",
+      decision: "accept",
+      confirmation: {
+        target_platform: "ibkr",
+        execution_mode: "paper",
+        risk_profile: "CAPITAL_PRESERVATION",
+      },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(paperDenied.status, 400);
+assert.match(
+  String((await paperDenied.json()).error || ""),
+  /paper is unavailable|synthetic matching/i,
+);
+
+// Sync ingress only accepts awaiting_human and must not overwrite terminal tickets.
+const nonAwaitingSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...researchPromotionTicket,
+      ticket_id: "promo-ticket-parked",
+      state: "parked",
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(nonAwaitingSync.status, 400);
+const overwriteTerminal = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...researchPromotionTicket,
+      ticket_id: "promo-ticket-1",
+      state: "awaiting_human",
+      suggested_risk_profile: "CAPITAL_PRESERVATION",
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(overwriteTerminal.status, 409);
+
 assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
 assert.ok(indexHtml.includes('requestJson("/api/research-promotion-tickets")'));
 
