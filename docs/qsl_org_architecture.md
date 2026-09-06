@@ -1,6 +1,8 @@
 # QSL Org Architecture & Health Checks
 
-This document defines the organization-level governance model used by QuantRuntimeSettings for QuantStrategyLab repositories.
+This document defines the repository governance and compatibility boundaries used by QuantRuntimeSettings. It does not report deployed account state or certify trading safety.
+
+For coordination and dated research facts, use the existing [P0–P6 policy](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md).
 
 ## Repository layers
 
@@ -42,18 +44,18 @@ python3 python/scripts/qslctl.py check --repo-root /path/to/repo
 Use the org/workspace checks for a prepared workspace that contains cloned QuantStrategyLab repos:
 
 ```bash
-python3 python/scripts/qslctl.py check-all --projects-root /Users/lisiyi/Projects --strict
-python3 python/scripts/qslctl.py report --projects-root /Users/lisiyi/Projects
-python3 python/scripts/qslctl.py plan --projects-root /Users/lisiyi/Projects
-python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --check --strict
-python3 python/scripts/check_internal_dependency_matrix.py --projects-root /Users/lisiyi/Projects --strict
+python3 python/scripts/qslctl.py check-all --projects-root /path/to/prepared-workspace --strict
+python3 python/scripts/qslctl.py report --projects-root /path/to/prepared-workspace
+python3 python/scripts/qslctl.py plan --projects-root /path/to/prepared-workspace
+python3 python/scripts/qslctl.py generate-matrix --projects-root /path/to/prepared-workspace --check --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root /path/to/prepared-workspace --strict
 ```
 
 Operational guidance:
 
 - `check` answers: “Does this repo still match its declared bundle?”
 - `check-all` answers: “Which repos are currently failing the compatibility contract?”
-- `report` answers: “What is broken now, and in which ring?”
+- `report` answers: “Which prepared repositories deviate from compatibility policy, and in which ring?”
 - `plan` answers: “What should be fixed first to converge the workspace?”
 - `generate-matrix --check` and `check_internal_dependency_matrix.py --strict` guard the derived dependency matrix against drift.
 
@@ -72,18 +74,27 @@ Treat the following as the release boundary for QuantRuntimeSettings governance 
   - emergency exception metadata without an expiry plan
   - bundle policy changes that have not passed org-level checks
 
-Recommended promotion sequence:
+Use this sequence only for an intentional compatibility-bundle change, not every shared-library commit. Update only materially affected consumers; workflow references and runtime package pins are distinct.
 
-1. Update the central bundle or tier policy.
+1. Update the applicable central bundle or tier policy.
 2. Re-pin consumer repos in the targeted ring.
 3. Regenerate the matrix and run `check-all` / `generate-matrix --check`.
 4. Promote the next ring only after the current ring is clean or explicitly exceptioned.
 
-## Health-check sufficiency
+## Compatibility-check scope
 
-Current scripts are sufficient for org-level health checks:
+The existing scripts cover repository compatibility checks, not runtime health:
 
 - `python/scripts/qslctl.py` already provides repo checks, workspace checks, ring reports, convergence planning, and matrix generation.
 - `python/scripts/check_internal_dependency_matrix.py` already validates internal git dependency drift across the workspace.
 
-No new script is required for the current scope. The only hard requirement is that the workspace root must contain the relevant cloned QuantStrategyLab repositories; these checks do not turn an arbitrary checkout into an org scan by themselves.
+No new checker is required for this scope. The prepared workspace must contain the relevant repositories; an incomplete checkout is not an organization-wide scan. Report `matrix current` (tracked manifest snapshot) separately from `qslctl bundle drift` (selected compatibility policy). Neither proves deployed version, broker reconciliation, promotion eligibility or trading recovery.
+
+## Runtime and recovery boundaries
+
+- QuantPlatformKit owns shared risk/contracts and infrastructure ports; strategy and pipeline repositories own business/research logic; broker and cloud differences remain in platform adapters. QuantRuntimeSettings owns configuration and compatibility, not market signals or broker truth.
+- Saved configuration, applied runtime/scheduler state, last complete business cycle and actual fills are different facts. Unknown or stale readback stays unknown; CI or an enabled flag cannot stand in for any of them.
+- Verify the configured deployment target: GCP Scheduler/Cloud Run and self-hosted Oracle adapters are distinct. A developer machine is not a production prerequisite. Keep private infrastructure identifiers in deployment configuration, not shared core or this document.
+- Restoring an unchanged approved version does not require repeating the complete research audit. Direct identity, authorization, risk and unresolved-order protections still apply. New strategy/risk changes retain their separate acceptance and live authority.
+- Human-facing management exposes accounts, strategy selection, actual state and actionable decisions. Internal audit/diagnostic details do not become additional enablement gates. Stop-new-orders does not cancel orders, liquidate positions or erase unresolved state.
+- Audit fixes and release adoption are separate: reuse an existing patch, verify the actual consumer and only deploy an affected service. A research library without a service does not need an unrelated restart or data/model rerun. Retain old evidence and identify affected conclusions rather than silently replacing it.
