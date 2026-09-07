@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -120,6 +121,58 @@ class DeploymentObservationTest(unittest.TestCase):
         observation = {'runtime_enabled': None, 'scheduler_state': 'unknown',
                        'strategy_profile': None, 'execution_mode': None}
         self.assertIsNone(_snapshot(deployment=observation)['targets'][0]['deployment']['runtime_enabled'])
+
+    def test_console_keeps_unknown_readback_distinct_from_missing(self) -> None:
+        # Execute the real display functions offline, as in the console's JS suite.
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e", r'''
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+const source = readFileSync('web/strategy-switch-console/app.js', 'utf8');
+const copy = vm.runInNewContext(source.slice(source.indexOf('    const copy ='),
+  source.indexOf('    const storedLang =')) + '\ncopy;');
+function frontendFunction(name, context) {
+  const start = source.indexOf(`    function ${name}(`);
+  assert.ok(start >= 0);
+  const end = source.indexOf('\n    function ', start + 1);
+  return vm.runInNewContext(`(${source.slice(start, end).trim()})`, context);
+}
+for (const lang of ['zh', 'en']) {
+  const t = (key) => copy[lang][key] || copy.en[key] || key;
+  const unknown = lang === 'zh' ? '状态未知' : 'Unknown';
+  const unconfirmed = lang === 'zh' ? '未确认' : 'Unconfirmed';
+  for (const sample of [
+    { deployment: { runtime_enabled: null, scheduler_state: 'unknown' },
+      runtime: unknown, scheduler: unknown },
+    { deployment: null, runtime: unconfirmed, scheduler: unconfirmed },
+    { runtime: unconfirmed, scheduler: unconfirmed },
+    { deployment: { runtime_enabled: true, scheduler_state: 'enabled' }, stale: true,
+      runtime: unconfirmed, scheduler: unconfirmed },
+    { deployment: { runtime_enabled: true, scheduler_state: 'enabled' },
+      runtime: t('runtimeTargetLifecycleStateEnabled'), scheduler: t('scheduleEnabled') },
+    { deployment: { runtime_enabled: false, scheduler_state: 'paused' },
+      runtime: t('runtimeTargetLifecycleStateDisabled'), scheduler: t('schedulePaused') },
+  ]) {
+    const context = { t, accountMonitoringRecord: () => ({
+      freshness: { data_status: 'ready' },
+      deployment_freshness: { data_status: sample.stale ? 'stale' : 'ready' },
+      target: { deployment: sample.deployment },
+    }), runtimeTargetStateForAccount: () => ({ known: true, enabled: true }),
+      currentStrategyForAccount: () => 'synthetic-profile' };
+    context.accountDeploymentObservation = frontendFunction('accountDeploymentObservation', context);
+    assert.equal(frontendFunction('accountDeploymentText', context)('ibkr', {}), sample.runtime);
+    assert.equal(frontendFunction('accountSchedulerText', context)('ibkr', {}), sample.scheduler);
+    if (sample.runtime === unknown || sample.runtime === unconfirmed) {
+      assert.equal(frontendFunction('accountApplicationText', context)('ibkr', {}),
+        t('deploymentUnverified'));
+    }
+  }
+}
+'''],
+            cwd=ROOT, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_raw_provider_fields_and_non_boolean_switch_are_rejected(self):
         base = {'runtime_enabled': False, 'scheduler_state': 'paused',
