@@ -27,6 +27,26 @@ inputs:
     description: HTTPS Strategy Switch Console base URL.
     required: true
 
+  observe-gcp:
+    description: Read the explicitly bound serving revision and Scheduler, without changing them.
+    required: false
+    default: 'false'
+  gcp-project:
+    description: Explicit project for read-only deployment observation.
+    required: false
+  cloud-run-region:
+    description: Explicit service region.
+    required: false
+  cloud-run-service:
+    description: Exact single service for this target, never a guessed list member.
+    required: false
+  scheduler-location:
+    description: Scheduler location; defaults to the explicit service region.
+    required: false
+  deployment-json:
+    description: Optional sanitized observation from a non-GCP deployment adapter.
+    required: false
+
 runs:
   using: composite
   steps:
@@ -41,6 +61,12 @@ runs:
         INPUT_RUNTIME_GUARD: ${{ inputs.runtime-guard }}
         INPUT_EXECUTION_HEARTBEAT: ${{ inputs.execution-heartbeat }}
         INPUT_SYNC_URL: ${{ inputs.sync-url }}
+        INPUT_OBSERVE_GCP: ${{ inputs.observe-gcp }}
+        INPUT_GCP_PROJECT: ${{ inputs.gcp-project }}
+        INPUT_CLOUD_RUN_REGION: ${{ inputs.cloud-run-region }}
+        INPUT_CLOUD_RUN_SERVICE: ${{ inputs.cloud-run-service }}
+        INPUT_SCHEDULER_LOCATION: ${{ inputs.scheduler-location }}
+        INPUT_DEPLOYMENT_JSON: ${{ inputs.deployment-json }}
       run: |
         set -euo pipefail
         if [[ -z "${EXECUTION_EVIDENCE_SYNC_TOKEN:-}" ]]; then
@@ -55,6 +81,13 @@ runs:
         cleanup() { rm -rf "$work_dir"; }
         trap cleanup EXIT
         snapshot_path="$work_dir/runtime-target-lifecycle.json"
+        observation_args=()
+        if [[ "$INPUT_OBSERVE_GCP" == "true" ]]; then
+          INPUT_DEPLOYMENT_JSON="$(python3 "$GITHUB_ACTION_PATH/gcp_observation.py")"
+        fi
+        if [[ -n "$INPUT_DEPLOYMENT_JSON" ]]; then
+          observation_args=(--deployment-json "$INPUT_DEPLOYMENT_JSON")
+        fi
         python3 "$GITHUB_ACTION_PATH/../../python/scripts/runtime_target_lifecycle.py" \
           --source-id "$INPUT_SOURCE_ID" \
           --target-id "$INPUT_TARGET_ID" \
@@ -63,6 +96,7 @@ runs:
           --execution-mode "$INPUT_EXECUTION_MODE" \
           --runtime-guard "$INPUT_RUNTIME_GUARD" \
           --execution-heartbeat "$INPUT_EXECUTION_HEARTBEAT" \
+          "${observation_args[@]}" \
           --output "$snapshot_path"
         curl --fail --silent --show-error \
           --request POST "${INPUT_SYNC_URL}/api/internal/sync-runtime-target-lifecycle-source" \

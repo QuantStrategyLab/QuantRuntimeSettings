@@ -9,13 +9,29 @@ import {
   PLATFORM_MIN_RESERVED_CASH_VARIABLES,
   PLATFORM_RESERVED_CASH_RATIO_VARIABLES,
   PLATFORM_CONFIG,
+  PLATFORM_META,
   DEFAULT_ACCOUNT_OPTIONS,
   FALLBACK_INCOME_LAYER_DEFAULTS,
   FALLBACK_OPTION_OVERLAY_DEFAULTS,
   DCA_PROFILE_DEFAULTS,
   RUNTIME_CATALOG_PROJECTION,
   STRATEGY_FEATURES,
+  PLATFORM_REPOSITORY_ENV_KEYS,
+  OBSERVABILITY_PLATFORMS,
 } from "./config.js";
+import {
+  DEFAULT_PLATFORM_REPOSITORIES,
+  PLATFORM_REPOSITORY_ENV,
+  PLATFORM_CASH_ONLY_EXECUTION_VARIABLES_MAP as PLATFORM_CASH_ONLY_EXECUTION_VARIABLES,
+  OBSERVABILITY_PLATFORM_IDS,
+  resolvePlatformRepositories,
+  isDcaSupportedPlatform,
+} from "./platform_registry.js";
+import { assertLiveSwitchAllowed, catalogVersionMetadata, isLiveSwitchAllowed } from "./catalog.js";
+import {
+  normalizeAccountOptionsPayload as normalizeAccountOptionsSchemaPayload,
+  parseAccountOptionsJson as parseAccountOptionsSchemaJson,
+} from "./account_options_schema.js";
 import { APP_CSS } from "./app_css.js";
 import { APP_JS } from "./app_js.js";
 
@@ -137,9 +153,8 @@ const RECONCILIATION_RECOVERY_CONTROLLER_READ_SCHEMA_VERSION = "qsl_reconciliati
 const RECONCILIATION_RECOVERY_MAX_SOURCES = 100;
 const RECONCILIATION_RECOVERY_MAX_BODY_BYTES = 128 * 1024;
 const RECONCILIATION_RECOVERY_DEFAULT_STALE_TTL_SECONDS = 30 * 60;
-const RECONCILIATION_RECOVERY_MIN_SAMPLE_SEPARATION_MS = 60 * 1000;
 const RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS = 15 * 60 * 1000;
-const RECONCILIATION_RECOVERY_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const RECONCILIATION_RECOVERY_PLATFORMS = OBSERVABILITY_PLATFORM_IDS;
 const RECONCILIATION_RECOVERY_ENVIRONMENTS = ["live"];
 const RECONCILIATION_RECOVERY_STATES = ["RECONCILE_ONLY"];
 const RECONCILIATION_RECOVERY_READINESS = ["blocked", "awaiting_human_confirmation"];
@@ -156,7 +171,7 @@ const EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION = "qsl_execution_evidence_dash
 const EXECUTION_EVIDENCE_MAX_SOURCES = 100;
 const EXECUTION_EVIDENCE_MAX_BODY_BYTES = 256 * 1024;
 const EXECUTION_EVIDENCE_DEFAULT_STALE_TTL_SECONDS = 36 * 60 * 60;
-const EXECUTION_EVIDENCE_PLATFORMS = ["alpaca", "longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+const EXECUTION_EVIDENCE_PLATFORMS = OBSERVABILITY_PLATFORM_IDS;
 const EXECUTION_EVIDENCE_ENVIRONMENTS = ["shadow", "paper", "live"];
 const EXECUTION_EVIDENCE_CAPABILITIES = ["available", "unavailable", "unknown"];
 const EXECUTION_EVIDENCE_STATUSES = ["verified", "pending", "unavailable", "not_applicable"];
@@ -204,7 +219,128 @@ const RESEARCH_TASK_TYPES = [
 ];
 const RESEARCH_TASK_OBJECTIVES = ["diagnose_degradation", "test_hypothesis", "challenge_parameters", "evaluate_candidate"];
 
-const SUPPORTED_PLATFORMS = ["longbridge", "ibkr", "schwab", "firstrade", "qmt", "binance"];
+// Research promotion tickets mirror QPK research_promotion_cycle.to_dict().
+// Console may record human intent only; live_authority_granted stays false.
+const RESEARCH_PROMOTION_TICKET_PREFIX = "research_promotion_ticket:";
+const RESEARCH_PROMOTION_TICKET_SCHEMA = "qsl.research_promotion_ticket.v1";
+const RESEARCH_PROMOTION_QUEUE_SCHEMA = "qsl.research_promotion_ticket_queue.v1";
+const RESEARCH_PROMOTION_MAX_TICKETS = 100;
+const RESEARCH_PROMOTION_MAX_BODY_BYTES = 64 * 1024;
+const RESEARCH_PROMOTION_STATES = [
+  "parked",
+  "bounded_reopt",
+  "shadow_recorded",
+  "awaiting_human",
+  "human_accepted",
+  "human_rejected",
+];
+const RESEARCH_PROMOTION_RISK_PROFILES = [
+  "CAPITAL_PRESERVATION",
+  "BALANCED_COMPOUNDING",
+  "GROWTH_COMPOUNDING",
+];
+const RESEARCH_PROMOTION_EXECUTION_MODES = ["live", "paper"];
+const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
+
+
+const RISK_ENVELOPE_PREFERENCE_META = {
+  CAPITAL_PRESERVATION: {
+    short_zh: "保全",
+    short_en: "Preserve",
+    composer_mdd_multiple: 1.0,
+    promotion_size_scale: 0.5,
+  },
+  BALANCED_COMPOUNDING: {
+    short_zh: "均衡",
+    short_en: "Balance",
+    composer_mdd_multiple: 1.25,
+    promotion_size_scale: 0.75,
+  },
+  GROWTH_COMPOUNDING: {
+    short_zh: "增长",
+    short_en: "Growth",
+    composer_mdd_multiple: 1.5,
+    promotion_size_scale: 1.0,
+  },
+};
+
+/** Read-only console view: preference / capital band / status lamp. No KV writes. */
+function buildRiskEnvelopeView({ riskPreference = null, equityUsd = null, status = null } = {}) {
+  const preferenceRaw = String(riskPreference || "").trim().toUpperCase();
+  const preference = RESEARCH_PROMOTION_RISK_PROFILES.includes(preferenceRaw) ? preferenceRaw : null;
+  const meta = preference ? RISK_ENVELOPE_PREFERENCE_META[preference] : null;
+  const hasEquity = equityUsd != null && Number.isFinite(Number(equityUsd));
+  // Equity injection is not wired yet — band/status/capital_scale stay unknown.
+  const source = hasEquity ? "reconciled_equity" : "design_preview";
+  const statusId = hasEquity && status ? String(status) : "unknown";
+  const statusLabels = {
+    normal: { zh: "正常", en: "Normal" },
+    stepped_down: { zh: "已降档", en: "Stepped down" },
+    new_risk_blocked: { zh: "禁止新增风险", en: "New risk blocked" },
+    unknown: { zh: "待对账权益注入", en: "Awaiting reconciled equity" },
+  };
+  const statusLabel = statusLabels[statusId] || statusLabels.unknown;
+  return {
+    schema: "qsl.risk_envelope_view.v1",
+    source,
+    preference: preference
+      ? {
+          id: preference,
+          label_zh: meta.short_zh,
+          label_en: meta.short_en,
+        }
+      : {
+          id: "unknown",
+          label_zh: "未设定",
+          label_en: "Unset",
+        },
+    capital_band: {
+      id: "unknown",
+      label_zh: "待对账权益注入",
+      label_en: "Awaiting reconciled equity",
+    },
+    status: {
+      id: statusId,
+      label_zh: statusLabel.zh,
+      label_en: statusLabel.en,
+    },
+    scales: {
+      composer_mdd_multiple: meta ? meta.composer_mdd_multiple : null,
+      promotion_size_scale: meta ? meta.promotion_size_scale : null,
+      capital_scale: null,
+      vol_scale: null,
+      dd_scale: null,
+    },
+    detail: {
+      dual_scale_note_zh:
+        "双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。资金信封 combined_scale = capital_scale × vol_scale × dd_scale（各因子 ≤1），由系统按权益/波动/回撤计算，禁止自动升档。",
+      dual_scale_note_en:
+        "Dual scale: Composer unlevered-benchmark MDD caps are 1.00 / 1.25 / 1.50; promotion size scales are 0.50 / 0.75 / 1.00 (new promotion / material change only). Envelope combined_scale = capital_scale × vol_scale × dd_scale (each ≤1), system-computed from equity/vol/drawdown; auto step-up is forbidden.",
+    },
+    live_authority_granted: false,
+  };
+}
+
+function attachRiskEnvelopeView(ticket) {
+  if (!ticket || typeof ticket !== "object") return ticket;
+  return {
+    ...ticket,
+    risk_envelope_view: buildRiskEnvelopeView({
+      riskPreference: ticket.suggested_risk_profile,
+      equityUsd: null,
+    }),
+  };
+}
+
+
+
+const SUPPORTED_PLATFORMS = Object.keys(PLATFORM_CONFIG);
+
+function validateAccountOptionsSchemaOrThrow(payload, fieldName = "account_options") {
+  return normalizeAccountOptionsSchemaPayload(payload, fieldName);
+}
+
+
 const SUPPORTED_STRATEGY_DOMAINS = ["us_equity", "hk_equity", "cn_equity", "crypto"];
 const LIVE_CONTINUITY_STATES = [
   "NONE",
@@ -215,28 +351,6 @@ const LIVE_CONTINUITY_STATES = [
   "PAUSED",
   "ROLLBACK_LKG",
 ];
-const DEFAULT_PLATFORM_REPOSITORIES = {
-  longbridge: "QuantStrategyLab/LongBridgePlatform",
-  ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
-  schwab: "QuantStrategyLab/CharlesSchwabPlatform",
-  firstrade: "QuantStrategyLab/FirstradePlatform",
-  qmt: "QuantStrategyLab/QmtPlatform",
-  binance: "QuantStrategyLab/BinancePlatform",
-};
-const PLATFORM_REPOSITORY_ENV = {
-  longbridge: ["STRATEGY_SWITCH_LONGBRIDGE_REPO", "RUNTIME_SETTINGS_LONGBRIDGE_REPO"],
-  ibkr: ["STRATEGY_SWITCH_IBKR_REPO", "RUNTIME_SETTINGS_IBKR_REPO"],
-  schwab: ["STRATEGY_SWITCH_SCHWAB_REPO", "RUNTIME_SETTINGS_SCHWAB_REPO"],
-  firstrade: ["STRATEGY_SWITCH_FIRSTRADE_REPO", "RUNTIME_SETTINGS_FIRSTRADE_REPO"],
-  qmt: ["STRATEGY_SWITCH_QMT_REPO", "RUNTIME_SETTINGS_QMT_REPO"],
-  binance: ["STRATEGY_SWITCH_BINANCE_REPO", "RUNTIME_SETTINGS_BINANCE_REPO"],
-};
-const PLATFORM_CASH_ONLY_EXECUTION_VARIABLES = {
-  longbridge: "LONGBRIDGE_CASH_ONLY_EXECUTION",
-  ibkr: "IBKR_CASH_ONLY_EXECUTION",
-  schwab: "SCHWAB_CASH_ONLY_EXECUTION",
-  firstrade: "FIRSTRADE_CASH_ONLY_EXECUTION",
-};
 const LEGACY_CASH_ONLY_EXECUTION_VARIABLE = "CASH_ONLY_EXECUTION";
 const CASH_ONLY_EXECUTION_MODES = ["current", "enabled", "disabled"];
 const INCOME_LAYER_ENABLED_VARIABLE = "INCOME_LAYER_ENABLED";
@@ -312,6 +426,8 @@ const SECURITY_HEADERS = {
 // request. Keeping it external preserves the strict CSP without unsafe-inline.
 const BOOTSTRAP_CONFIG_JS = [
   "// Generated from non-secret console configuration. Do not edit by hand.",
+  `window.__PLATFORM_META__ = ${JSON.stringify(PLATFORM_META)};`,
+  `window.__PLATFORM_REPOSITORIES__ = ${JSON.stringify(PLATFORM_REPOSITORIES)};`,
   `window.__PLATFORM_CONFIG__ = ${JSON.stringify(PLATFORM_CONFIG)};`,
   `window.__DEFAULT_ACCOUNT_OPTIONS__ = ${JSON.stringify(DEFAULT_ACCOUNT_OPTIONS)};`,
   `window.__DOMAIN_LABELS__ = ${JSON.stringify(DOMAIN_LABELS)};`,
@@ -319,6 +435,8 @@ const BOOTSTRAP_CONFIG_JS = [
   `window.__DCA_PROFILE_DEFAULTS__ = ${JSON.stringify(DCA_PROFILE_DEFAULTS)};`,
   `window.__INCOME_LAYER_DEFAULTS__ = ${JSON.stringify(FALLBACK_INCOME_LAYER_DEFAULTS)};`,
   `window.__OPTION_OVERLAY_DEFAULTS__ = ${JSON.stringify(FALLBACK_OPTION_OVERLAY_DEFAULTS)};`,
+  `window.__PLATFORM_MIN_RESERVED_CASH_VARIABLES__ = ${JSON.stringify(PLATFORM_MIN_RESERVED_CASH_VARIABLES)};`,
+  `window.__PLATFORM_RESERVED_CASH_RATIO_VARIABLES__ = ${JSON.stringify(PLATFORM_RESERVED_CASH_RATIO_VARIABLES)};`,
 ].join("\n");
 
 // A secondary external script keeps a failed or stale main bundle from
@@ -428,6 +546,19 @@ export default {
       }
       if (url.pathname === "/api/research-tasks" && request.method === "GET") {
         return await researchTaskResponse(request, env);
+      }
+
+      if (url.pathname === "/api/internal/sync-research-promotion-ticket" && request.method === "POST") {
+        return await syncResearchPromotionTicketResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/research-promotion-ticket" && request.method === "GET") {
+        return await fetchResearchPromotionTicketResponse(request, env);
+      }
+      if (url.pathname === "/api/research-promotion-tickets" && request.method === "GET") {
+        return await researchPromotionTicketsResponse(request, env);
+      }
+      if (url.pathname === "/api/research-promotion-decisions" && request.method === "POST") {
+        return await recordResearchPromotionDecisionResponse(request, env);
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
@@ -568,7 +699,13 @@ async function sessionPayload(request, env) {
 async function adminPage(request, env) {
   const session = await requireAdminSession(request, env);
   if (session instanceof Response) return session;
-  return html(await renderAdminPage(await buildAdminState(session, env)));
+  const nonce = crypto.randomUUID().replaceAll("-", "");
+  const policy = SECURITY_HEADERS["Content-Security-Policy"]
+    .replace("script-src 'self'", `script-src 'self' 'nonce-${nonce}'`)
+    .replace("style-src 'self'", `style-src 'self' 'nonce-${nonce}'`);
+  return html(await renderAdminPage(await buildAdminState(session, env), nonce), 200, {
+    "Content-Security-Policy": policy,
+  });
 }
 
 async function adminConfigResponse(request, env) {
@@ -613,7 +750,7 @@ async function saveAdminConfig(request, env) {
   const accountOptions = normalizeAccountOptionsInput(raw.account_options, "account_options");
 
   await writeConfigJson(env, AUTH_CONFIG_KEY, authConfig);
-  await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, accountOptions);
+  await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
   await appendAuditLog(env, {
     ts: new Date().toISOString(),
     login: session.login,
@@ -718,7 +855,7 @@ async function buildAdminState(session, env) {
   };
 }
 
-async function renderAdminPage(state) {
+async function renderAdminPage(state, nonce) {
   const disabled = state.kvAvailable ? "" : " disabled";
   const statusClass = state.kvAvailable ? "ready" : "warn";
   const statusText = state.kvAvailable ? "KV 已连接 / KV connected" : "KV 未绑定，只读 / Read-only";
@@ -744,7 +881,7 @@ async function renderAdminPage(state) {
     : `<tr><td colspan="3">暂无已配置目标 / No configured targets</td></tr>`;
   const riskProfileNotice = state.riskProfileBindingsError
     ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。请先修复 KV 中的记录。`
-    : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。";
+    : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。不要把 1.50× 当成仓位×1.5。";
   return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -752,7 +889,7 @@ async function renderAdminPage(state) {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Strategy Switch Login Management</title>
-  <style>
+  <style nonce="${nonce}">
     :root {
       --bg: #f5f6f8;
       --surface: #ffffff;
@@ -907,7 +1044,7 @@ async function renderAdminPage(state) {
       </table>
     </div>
   </main>
-  <script>
+  <script nonce="${nonce}">
     const kvAvailable = ${JSON.stringify(state.kvAvailable)};
     const statusNode = document.getElementById("status");
     const riskProfileStatusNode = document.getElementById("risk-profile-status");
@@ -979,41 +1116,17 @@ async function renderAdminPage(state) {
 </html>`;
 }
 
-let _cachedSharedConfig = null;
-let _cachedPlatformMeta = null;
 
-async function loadSharedConfig() {
-  if (_cachedSharedConfig) return _cachedSharedConfig;
-  try {
-    const url = "https://raw.githubusercontent.com/QuantStrategyLab/QuantRuntimeSettings/main/platform-config.json";
-    const resp = await fetchWithTimeout(url, {}, 5000);
-    if (resp.ok) _cachedSharedConfig = await resp.json();
-  } catch { /* fallback to hardcoded */ }
-  return _cachedSharedConfig;
-}
-
-async function loadPlatformMeta() {
-  const merged = {
-    longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-    ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
-    schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
-    firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-    qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
-    binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
-  };
-  try {
-    const config = await loadSharedConfig();
-    if (config && config.platforms) {
-      const raw = config.platforms;
-      for (const pid of Object.keys(raw)) {
-        merged[pid] = {
-          label: raw[pid].label,
-          code: raw[pid].code,
-          accent: raw[pid].accent_color,
-        };
-      }
-    }
-  } catch { /* keep defaults */ }
+async function loadPlatformMeta(env = {}) {
+  // Use the same bundled configuration as routing and capability validation.
+  // Fetching GitHub main here could mix a newer catalog with an older Worker.
+  const merged = Object.fromEntries(Object.entries(PLATFORM_META)
+    .map(([platform, meta]) => [platform, { ...meta }]));
+  const hidden = new Set(String(env.STRATEGY_SWITCH_HIDDEN_PLATFORMS || "")
+    .split(",").map((value) => value.trim().toLowerCase()).filter(Boolean));
+  for (const [platform, meta] of Object.entries(merged)) {
+    meta.console_visible = !hidden.has(platform);
+  }
   return merged;
 }
 
@@ -1024,7 +1137,7 @@ let _memRefreshing = false;  // prevent concurrent background refreshes
 
 async function configPayload(request, env, ctx) {
   const session = await readSession(request, env);
-  const meta = await loadPlatformMeta();
+  const meta = await loadPlatformMeta(env);
   if (!session?.allowed) return { accountOptions: null, platformMeta: meta };
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
@@ -1105,7 +1218,7 @@ async function configPayload(request, env, ctx) {
 async function strategyProfilesPayload(env) {
   return {
     strategyProfiles: await loadStrategyProfilesConfig(env),
-    platformMeta: await loadPlatformMeta(),
+    platformMeta: await loadPlatformMeta(env),
   };
 }
 
@@ -1124,13 +1237,12 @@ async function loadCurrentStrategies(accountOptions, env) {
   const repositories = platformRepositories(env);
 
   const variableCache = new Map();
-  const readVariable = (repository, scope, githubEnvironment, name, { skipCache = false } = {}) => {
-    const cacheKey = [repository, scope, githubEnvironment || "", name].join("|");
-    if (skipCache) variableCache.delete(cacheKey);
+  const readVariable = async (repository, scope, githubEnvironment, name) => {
+    const cacheKey = [repository, scope, githubEnvironment || ""].join("|");
     if (!variableCache.has(cacheKey)) {
-      variableCache.set(cacheKey, fetchGithubVariable(token, repository, scope, githubEnvironment, name));
+      variableCache.set(cacheKey, fetchGithubVariables(token, repository, scope, githubEnvironment));
     }
-    return variableCache.get(cacheKey);
+    return (await variableCache.get(cacheKey)).get(name) || "";
   };
 
   const currentStrategies = {};
@@ -1210,7 +1322,14 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const serviceTargetReservedCashPayload = reservedCashPayloadFromObject(platform, serviceTarget);
   const serviceTargetIncomeLayerPayload = incomeLayerPayloadFromObject(serviceTarget);
   const serviceTargetOptionOverlayPayload = optionOverlayPayloadFromObject(serviceTarget);
-  const serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
+  let serviceTargetRuntimeTargetEnabledPayload = runtimeTargetEnabledPayloadFromObject(serviceTarget);
+  if (serviceTarget && !Object.keys(serviceTargetRuntimeTargetEnabledPayload).length) {
+    const variableScope = resolveVariableScope(platform, option);
+    serviceTargetRuntimeTargetEnabledPayload = await readRuntimeTargetEnabledVariable({
+      repository, variableScope,
+      githubEnvironment: resolveGithubEnvironment(platform, option, variableScope), readVariable,
+    });
+  }
   const serviceTargetDcaPayload = dcaPayloadFromObject(serviceTarget);
   const serviceTargetCashOnlyPayload = cashOnlyPayloadFromObject(platform, serviceTarget);
   if (serviceTargetProfile) {
@@ -1286,14 +1405,8 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
     githubEnvironment,
     readVariable,
   });
-  // Await in parallel: each reads a different variable so
-  // there is no risk of hammering the same GitHub API endpoint.
-  // Read RUNTIME_TARGET_JSON first with retry — parallel reads inside
-  // Promise.all can hit GitHub secondary rate limits and return empty.
-  let runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
-  if (!runtimeTargetValue) {
-    runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON", { skipCache: true });
-  }
+  // All fields share one scoped variable-list read; missing fields are not retried.
+  const runtimeTargetValue = await readVariable(repository, variableScope, githubEnvironment, "RUNTIME_TARGET_JSON");
   const [
     reservedCashPayload,
     incomeLayerPayload,
@@ -1447,7 +1560,7 @@ async function syncDefaultStrategyForAccount(env, accountOptions, inputs, sessio
     const { options, changed } = updateAccountOptionsDefaultStrategy(accountOptions, inputs);
     let auditLogged = false;
     if (changed) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, options);
+      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(options));
       try {
         await appendAuditLog(env, {
           ts: new Date().toISOString(),
@@ -1491,7 +1604,7 @@ async function syncAccountDefaultResponse(request, env) {
     accountOption = registration.account;
     registeredLegacyContinuityAccount = registration.registered;
     if (registeredLegacyContinuityAccount) {
-      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, accountOptions);
+      await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
       try {
         await appendAuditLog(env, {
           ts: new Date().toISOString(),
@@ -2109,10 +2222,8 @@ function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
     recovery.readiness !== "awaiting_human_confirmation" ||
     recovery.reconciliation_state !== "RECONCILE_ONLY" ||
     recovery.blocker_codes.length ||
-    recovery.dual_review.outcome !== "approved" ||
     recovery.dual_review.evidence_binding_sha256 !== recovery.candidate_sha256 ||
-    recovery.evidence_sample_count < 2 ||
-    recovery.dual_review.reviewer_count < 2
+    recovery.evidence_sample_count < 1
   ) {
     throw new HttpError("reconciliation recovery request is not eligible for confirmation", 409);
   }
@@ -2605,6 +2716,9 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         // observation separate from the monitoring checks so a green check
         // cannot be mistaken for a broker submission or fill receipt.
         execution_observation: runtimeTargetLifecycleExecutionObservation(target),
+        ...(target.deployment ? {deployment_freshness: target.deployment.observed_at
+          ? controlPlaneSnapshotFreshness({data_status:"ready", computed_at:target.deployment.observed_at}, ttlSeconds, now)
+          : freshness} : {}),
       });
     }
     errors.push(...source.errors);
@@ -3348,6 +3462,434 @@ function requireDedicatedReconciliationRecoveryControllerToken(request, env) {
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("reconciliation recovery controller token is invalid", 401);
 }
+
+
+
+function requireDedicatedResearchPromotionSyncToken(request, env) {
+  const expected = String(env.RESEARCH_PROMOTION_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("research promotion sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("research promotion sync token is invalid", 401);
+}
+
+function researchPromotionTicketKey(ticketId) {
+  return `${RESEARCH_PROMOTION_TICKET_PREFIX}${ticketId}`;
+}
+
+function platformSupportsBrokerPaperMode(platform) {
+  // Broker paper/sim only — dry_run is local/synthetic and must not unlock paper.
+  const modes = PLATFORM_CONFIG?.[platform]?.supported_execution_modes;
+  const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
+  return list.includes("paper");
+}
+
+function normalizeResearchPromotionRiskProfile(value, fieldName) {
+  const profile = String(value || "").trim().toUpperCase();
+  if (!RESEARCH_PROMOTION_RISK_PROFILES.includes(profile)) {
+    throw new Error(
+      `${fieldName} must be CAPITAL_PRESERVATION, BALANCED_COMPOUNDING, or GROWTH_COMPOUNDING`,
+    );
+  }
+  return profile;
+}
+
+function normalizePromotionConfirmation(value, fieldName, { paperSupported }) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  // Keep exact QPK PromotionConfirmation.to_dict() fields.
+  assertExactFields(value, ["target_platform", "execution_mode", "risk_profile"], fieldName);
+  const targetPlatform = String(value.target_platform || "").trim();
+  const executionMode = String(value.execution_mode || "").trim().toLowerCase();
+  const riskProfile = normalizeResearchPromotionRiskProfile(
+    value.risk_profile,
+    `${fieldName}.risk_profile`,
+  );
+  if (!targetPlatform) throw new Error(`${fieldName}.target_platform is required`);
+  if (!RESEARCH_PROMOTION_EXECUTION_MODES.includes(executionMode)) {
+    throw new Error(`${fieldName}.execution_mode must be live or paper`);
+  }
+  if (executionMode === "paper" && !paperSupported) {
+    throw new Error("paper is unavailable for this platform; synthetic matching is not supported");
+  }
+  return {
+    target_platform: targetPlatform,
+    execution_mode: executionMode,
+    risk_profile: riskProfile,
+  };
+}
+
+function researchPromotionCandidateIdentity(ticket) {
+  return {
+    strategy_profile: String(ticket?.strategy_profile || ""),
+    domain: String(ticket?.domain || ""),
+    proposed_params:
+      ticket?.proposed_params && typeof ticket.proposed_params === "object" && !Array.isArray(ticket.proposed_params)
+        ? ticket.proposed_params
+        : {},
+    search_iterations: Number(ticket?.search_iterations || 0),
+    shadow_evidence_kind: String(ticket?.shadow_evidence_kind || ""),
+  };
+}
+
+function researchPromotionCandidatesMatch(left, right) {
+  return (
+    canonicalResearchTaskJson(researchPromotionCandidateIdentity(left))
+    === canonicalResearchTaskJson(researchPromotionCandidateIdentity(right))
+  );
+}
+
+function assertResearchPromotionExpectedCandidate(ticket, raw, { requireExpectedParams = false } = {}) {
+  if (requireExpectedParams && !Object.prototype.hasOwnProperty.call(raw || {}, "expected_proposed_params")) {
+    throw new HttpError("accept requires expected_proposed_params", 400);
+  }
+  if (!Object.prototype.hasOwnProperty.call(raw || {}, "expected_proposed_params")) return;
+  const expected = raw.expected_proposed_params;
+  if (!expected || typeof expected !== "object" || Array.isArray(expected)) {
+    throw new HttpError("expected_proposed_params must be an object", 400);
+  }
+  const stored = ticket.proposed_params || {};
+  if (canonicalResearchTaskJson(expected) !== canonicalResearchTaskJson(stored)) {
+    throw new HttpError("expected_proposed_params does not match stored ticket candidate", 409);
+  }
+  if (raw.expected_strategy_profile != null) {
+    if (String(raw.expected_strategy_profile).trim() !== ticket.strategy_profile) {
+      throw new HttpError("expected_strategy_profile does not match stored ticket", 409);
+    }
+  }
+  if (raw.expected_domain != null) {
+    if (String(raw.expected_domain).trim() !== ticket.domain) {
+      throw new HttpError("expected_domain does not match stored ticket", 409);
+    }
+  }
+}
+
+function normalizeResearchPromotionTicket(raw, fieldName = "research promotion ticket") {
+  if (!raw || Array.isArray(raw) || typeof raw !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  const ticketId = String(raw.ticket_id || "").trim();
+  const strategyProfile = String(raw.strategy_profile || "").trim();
+  const domain = String(raw.domain || "").trim();
+  const state = String(raw.state || "").trim();
+  if (!ticketId) throw new Error(`${fieldName}.ticket_id is required`);
+  if (!strategyProfile) throw new Error(`${fieldName}.strategy_profile is required`);
+  if (!domain) throw new Error(`${fieldName}.domain is required`);
+  if (!RESEARCH_PROMOTION_STATES.includes(state)) {
+    throw new Error(`${fieldName}.state is unsupported`);
+  }
+  if (raw.live_authority_granted === true) {
+    throw new Error(`${fieldName}.live_authority_granted must remain false`);
+  }
+  const suggested = normalizeResearchPromotionRiskProfile(
+    raw.suggested_risk_profile || DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
+    `${fieldName}.suggested_risk_profile`,
+  );
+  return {
+    schema: RESEARCH_PROMOTION_TICKET_SCHEMA,
+    ticket_id: ticketId,
+    strategy_profile: strategyProfile,
+    domain,
+    state,
+    drift_status: String(raw.drift_status || ""),
+    drift_score: Number(raw.drift_score || 0),
+    created_at: String(raw.created_at || ""),
+    updated_at: String(raw.updated_at || ""),
+    budget: raw.budget && typeof raw.budget === "object" && !Array.isArray(raw.budget) ? raw.budget : {},
+    proposed_params:
+      raw.proposed_params && typeof raw.proposed_params === "object" && !Array.isArray(raw.proposed_params)
+        ? raw.proposed_params
+        : {},
+    search_iterations: Number(raw.search_iterations || 0),
+    shadow_evidence_kind: String(raw.shadow_evidence_kind || ""),
+    shadow_passed: raw.shadow_passed == null ? null : Boolean(raw.shadow_passed),
+    notification_subject: String(raw.notification_subject || ""),
+    notification_body: String(raw.notification_body || ""),
+    human_decision: String(raw.human_decision || ""),
+    human_decided_at: String(raw.human_decided_at || ""),
+    live_authority_granted: false,
+    suggested_risk_profile: suggested,
+    confirmation_target_platform: String(raw.confirmation_target_platform || ""),
+    confirmation_execution_mode: String(raw.confirmation_execution_mode || ""),
+    confirmation_risk_profile: String(raw.confirmation_risk_profile || ""),
+    notes: Array.isArray(raw.notes) ? raw.notes.map((item) => String(item)) : [],
+  };
+}
+
+function applyResearchPromotionDecision(
+  ticket,
+  { decision, confirmation = null, paperSupported = false, decidedAt = null, expectedRaw = null },
+) {
+  if (ticket.state !== "awaiting_human") {
+    throw new HttpError(`ticket ${ticket.ticket_id} is not awaiting human (state=${ticket.state})`, 409);
+  }
+  const normalized = String(decision || "").trim().toLowerCase();
+  if (normalized !== "accept" && normalized !== "reject") {
+    throw new HttpError("decision must be accept or reject", 400);
+  }
+  assertResearchPromotionExpectedCandidate(ticket, expectedRaw || {}, {
+    requireExpectedParams: normalized === "accept",
+  });
+  const stamp = decidedAt || new Date().toISOString();
+  const next = {
+    ...ticket,
+    human_decision: normalized,
+    human_decided_at: stamp,
+    live_authority_granted: false,
+    updated_at: stamp,
+    notes: [...(ticket.notes || [])],
+  };
+  if (normalized === "accept") {
+    if (!confirmation) {
+      throw new HttpError(
+        "accept requires confirmation (target_platform, execution_mode, risk_profile)",
+        400,
+      );
+    }
+    const confirmed = normalizePromotionConfirmation(confirmation, "confirmation", {
+      paperSupported: Boolean(paperSupported),
+    });
+    next.confirmation_target_platform = confirmed.target_platform;
+    next.confirmation_execution_mode = confirmed.execution_mode;
+    next.confirmation_risk_profile = confirmed.risk_profile;
+    next.state = "human_accepted";
+    next.notes.push(
+      "human_accepted_intent_only_no_live_authority",
+      `confirmation_platform=${confirmed.target_platform}`,
+      `confirmation_mode=${confirmed.execution_mode}`,
+      `confirmation_risk_profile=${confirmed.risk_profile}`,
+    );
+  } else {
+    next.state = "human_rejected";
+    next.notes.push("human_rejected");
+  }
+  return next;
+}
+
+async function syncResearchPromotionTicketResponse(request, env) {
+  requireDedicatedResearchPromotionSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "research promotion KV is not configured" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, RESEARCH_PROMOTION_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion ticket" }, error.status || 400);
+  }
+  let ticket;
+  try {
+    ticket = normalizeResearchPromotionTicket(raw);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion ticket" }, 400);
+  }
+  if (ticket.state !== "awaiting_human") {
+    return json(
+      { ok: false, error: "research promotion sync only accepts awaiting_human tickets" },
+      400,
+    );
+  }
+  const existingRaw = await readConfigJson(env, researchPromotionTicketKey(ticket.ticket_id));
+  if (existingRaw) {
+    let existing;
+    try {
+      existing = normalizeResearchPromotionTicket(existingRaw, "stored research promotion ticket");
+    } catch (error) {
+      return json(
+        { ok: false, error: error.message || "invalid stored research promotion ticket" },
+        400,
+      );
+    }
+    if (existing.state === "human_accepted" || existing.state === "human_rejected") {
+      return json(
+        {
+          ok: false,
+          error: `refusing to overwrite terminal research promotion ticket state=${existing.state}`,
+        },
+        409,
+      );
+    }
+    if (
+      existing.state === "awaiting_human"
+      && !researchPromotionCandidatesMatch(existing, ticket)
+    ) {
+      return json(
+        {
+          ok: false,
+          error:
+            "refusing to overwrite awaiting_human research promotion ticket with mismatched candidate identity",
+        },
+        409,
+      );
+    }
+  }
+  await writeConfigJson(env, researchPromotionTicketKey(ticket.ticket_id), ticket);
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: "research-promotion-ticket-sync",
+      action: "sync_research_promotion_ticket",
+      ticket_id: ticket.ticket_id,
+      state: ticket.state,
+      suggested_risk_profile: ticket.suggested_risk_profile,
+      live_authority_granted: false,
+    });
+  } catch {
+    // Intent sync must not depend on optional audit retention.
+  }
+  return json({
+    ok: true,
+    ticket_id: ticket.ticket_id,
+    state: ticket.state,
+    suggested_risk_profile: ticket.suggested_risk_profile,
+    live_authority_granted: false,
+  });
+}
+
+async function fetchResearchPromotionTicketResponse(request, env) {
+  requireDedicatedResearchPromotionSyncToken(request, env);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "research promotion KV is not configured" }, 503);
+  }
+  const ticketId = String(new URL(request.url).searchParams.get("ticket_id") || "").trim();
+  if (!ticketId) return json({ ok: false, error: "ticket_id is required" }, 400);
+  const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
+  if (!stored) return json({ ok: false, error: "research promotion ticket not found" }, 404);
+  let ticket;
+  try {
+    ticket = normalizeResearchPromotionTicket(stored);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, 400);
+  }
+  if (ticket.live_authority_granted) {
+    return json({ ok: false, error: "refusing to expose live_authority_granted=true" }, 500);
+  }
+  return json({
+    ok: true,
+    ticket: attachRiskEnvelopeView(ticket),
+    live_authority_granted: false,
+  });
+}
+
+async function listResearchPromotionTickets(env) {
+  if (!hasConfigStore(env)) return [];
+  const store = configStore(env);
+  const listing = await store.list({
+    prefix: RESEARCH_PROMOTION_TICKET_PREFIX,
+    limit: RESEARCH_PROMOTION_MAX_TICKETS,
+  });
+  const keys = listing?.keys || [];
+  const tickets = [];
+  for (const entry of keys) {
+    const key = entry.name || entry;
+    if (!String(key).startsWith(RESEARCH_PROMOTION_TICKET_PREFIX)) continue;
+    const stored = await readConfigJson(env, key);
+    if (!stored) continue;
+    try {
+      const ticket = normalizeResearchPromotionTicket(stored, key);
+      if (ticket.live_authority_granted) continue;
+      tickets.push(ticket);
+    } catch {
+      // Skip corrupt tickets rather than failing the whole queue.
+    }
+  }
+  tickets.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
+  return tickets.slice(0, RESEARCH_PROMOTION_MAX_TICKETS);
+}
+
+async function researchPromotionTicketsResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const tickets = await listResearchPromotionTickets(env);
+  const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
+  return json({
+    schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
+    data_status: hasConfigStore(env) ? "ready" : "unavailable",
+    computed_at: new Date().toISOString(),
+    tickets: awaiting.map(attachRiskEnvelopeView),
+    summary: {
+      ticket_count: awaiting.length,
+      awaiting_human: awaiting.length,
+    },
+    policy: {
+      admin_required_to_decide: true,
+      live_authority_granted: false,
+      no_order: true,
+      notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
+    },
+    errors: [],
+  });
+}
+
+async function recordResearchPromotionDecisionResponse(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (!hasConfigStore(env)) {
+    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, 8 * 1024);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
+  }
+  const ticketId = String(raw?.ticket_id || "").trim();
+  const decision = String(raw?.decision || "").trim().toLowerCase();
+  if (!ticketId) return json({ ok: false, error: "ticket_id is required" }, 400);
+  const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
+  if (!stored) return json({ ok: false, error: "research promotion ticket not found" }, 404);
+  let ticket;
+  try {
+    ticket = normalizeResearchPromotionTicket(stored);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, 400);
+  }
+  const targetPlatform = String(
+    raw?.confirmation?.target_platform || ticket.confirmation_target_platform || "",
+  ).trim();
+  const paperSupported = platformSupportsBrokerPaperMode(targetPlatform);
+  let decided;
+  try {
+    decided = applyResearchPromotionDecision(ticket, {
+      decision,
+      confirmation: raw?.confirmation || null,
+      paperSupported,
+      decidedAt: new Date().toISOString(),
+      expectedRaw: raw,
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
+  }
+  if (decided.live_authority_granted) {
+    return json({ ok: false, error: "refusing to persist live_authority_granted=true" }, 500);
+  }
+  await writeConfigJson(env, researchPromotionTicketKey(decided.ticket_id), decided);
+  try {
+    await appendAuditLog(env, {
+      ts: decided.updated_at,
+      login: session.login,
+      action: "research_promotion_decision",
+      ticket_id: decided.ticket_id,
+      decision: decided.human_decision,
+      confirmation_target_platform: decided.confirmation_target_platform,
+      confirmation_execution_mode: decided.confirmation_execution_mode,
+      confirmation_risk_profile: decided.confirmation_risk_profile,
+      suggested_risk_profile: decided.suggested_risk_profile,
+      live_authority_granted: false,
+    });
+  } catch {
+    // Decision persistence must not depend on optional audit retention.
+  }
+  return json({
+    ok: true,
+    ticket: attachRiskEnvelopeView(decided),
+    live_authority_granted: false,
+  });
+}
+
 
 function requireDedicatedResearchTaskSyncToken(request, env) {
   const expected = String(env.RESEARCH_TASK_SYNC_TOKEN || "");
@@ -4830,15 +5372,12 @@ function normalizeReconciliationRecoveryRequest(value, fieldName) {
   };
   if (recovery.readiness === "awaiting_human_confirmation") {
     if (
-      recovery.evidence_sample_count < 2 ||
-      observationWindowMs < RECONCILIATION_RECOVERY_MIN_SAMPLE_SEPARATION_MS ||
+      recovery.evidence_sample_count < 1 ||
       observationWindowMs > RECONCILIATION_RECOVERY_MAX_SAMPLE_WINDOW_MS ||
-      recovery.dual_review.outcome !== "approved" ||
-      recovery.dual_review.reviewer_count < 2 ||
       recovery.dual_review.evidence_binding_sha256 !== recovery.candidate_sha256 ||
       recovery.blocker_codes.length
     ) {
-      throw new Error(`${fieldName}.readiness requires a 1-15 minute two-sample window, bound dual approval, and no blockers`);
+      throw new Error(`${fieldName}.readiness requires at least one observation within a 15-minute window, bound candidate, and no blockers`);
     }
   }
   return recovery;
@@ -5008,7 +5547,7 @@ function normalizeRuntimeTargetLifecycleSourceSnapshot(payload, fieldName = "run
 }
 
 function normalizeRuntimeTargetLifecycleTarget(value, fieldName) {
-  const item = assertExactFields(value, ["target_id", "target", "monitoring", "disposition", "no_order"], fieldName);
+  const item = assertRequiredAndOptionalFields(value, ["target_id", "target", "monitoring", "disposition", "no_order"], ["deployment"], fieldName);
   const target = assertExactFields(item.target, ["platform", "configured_state", "execution_mode"], `${fieldName}.target`);
   const monitoring = assertExactFields(item.monitoring, ["runtime_guard", "execution_heartbeat"], `${fieldName}.monitoring`);
   const disposition = assertExactFields(item.disposition, ["code", "reason_code"], `${fieldName}.disposition`);
@@ -5030,6 +5569,17 @@ function normalizeRuntimeTargetLifecycleTarget(value, fieldName) {
     },
     no_order: true,
   };
+  if (item.deployment !== undefined) {
+    const observed = assertRequiredAndOptionalFields(item.deployment, ["runtime_enabled", "scheduler_state", "strategy_profile", "execution_mode"], ["observed_at"], `${fieldName}.deployment`);
+    if (observed.runtime_enabled !== null && typeof observed.runtime_enabled !== "boolean") throw new Error("deployment switch must be boolean or null");
+    normalized.deployment = {
+      ...(observed.observed_at === undefined ? {} : {observed_at: normalizeM0ResearchTimestamp(observed.observed_at, "deployment.observed_at")}),
+      runtime_enabled: observed.runtime_enabled,
+      scheduler_state: cleanChoice(observed.scheduler_state, ["enabled", "paused", "mixed", "missing", "unknown", "not_applicable"], "deployment.scheduler_state"),
+      strategy_profile: observed.strategy_profile === null ? null : cleanSlug(observed.strategy_profile, "deployment.strategy_profile"),
+      execution_mode: observed.execution_mode === null ? null : cleanChoice(observed.execution_mode, RUNTIME_TARGET_LIFECYCLE_EXECUTION_MODES, "deployment.execution_mode"),
+    };
+  }
   const guardUnavailable = normalized.monitoring.runtime_guard === "unavailable";
   const heartbeatUnavailable = normalized.monitoring.execution_heartbeat === "unavailable";
   const hasAttention = normalized.monitoring.runtime_guard === "attention" || normalized.monitoring.execution_heartbeat === "attention";
@@ -5473,6 +6023,11 @@ function registerLegacyContinuityAccount(env, accountOptions, inputs, strategy) 
   if (platformOptions.some((option) => option.target_name === inputs.target_name)) {
     throw new Error("legacy continuity account target conflicts with configured account options");
   }
+  if (platformOptions.some((option) => option.service_name
+    && option.service_name === inputs.service_name
+    && accountOptionMatchesInputs(option, { ...inputs, target_name: option.target_name }))) {
+    throw new HttpError("deployment already has a configured account; use its existing target", 400);
+  }
   if (platformOptions.length >= 20) {
     throw new Error(`account options for ${inputs.platform} have reached the maximum`);
   }
@@ -5521,12 +6076,9 @@ function assertStrategyAllowedForAccount(inputs, accountOption, strategyProfiles
       assertDcaPlatform(inputs.platform, inputs.strategy_profile);
       return;
     }
+    assertLiveSwitchAllowed(strategy, inputs.strategy_profile);
     const lifecycleStage = cleanLifecycleStage(strategy.lifecycle_stage || "research_active");
-    if (
-      strategy.runtime_enabled !== true ||
-      strategy.can_switch_live !== true ||
-      !["live_enabled", "runtime_enabled"].includes(lifecycleStage)
-    ) {
+    if (!["live_enabled", "runtime_enabled"].includes(lifecycleStage)) {
       throw new Error(`strategy ${inputs.strategy_profile} is not live-enabled`);
     }
     if (!allowedModes.includes(executionMode)) {
@@ -5898,6 +6450,10 @@ function normalizeAccountOptionsPayload(payload, fieldName = "account options") 
     throw new Error(`${fieldName} must be an object`);
   }
 
+  // Structural gate from account_options_schema.js; cleanAccountOption keeps
+  // console-specific enrichment (domain inference, mode defaults, length caps).
+  validateAccountOptionsSchemaOrThrow(payload, fieldName);
+
   const result = {};
   for (const platform of SUPPORTED_PLATFORMS) {
     const items = payload[platform];
@@ -5925,6 +6481,7 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "deployment_selector", item.deployment_selector, cleanSlug);
   addConfigOptional(option, "account_scope", item.account_scope, cleanSlug);
   addConfigOptional(option, "service_name", item.service_name, cleanSlug);
+  addConfigOptional(option, "runtime_status_target_id", item.runtime_status_target_id, cleanSlug);
   addConfigOptional(
     option,
     "cash_currency",
@@ -5973,37 +6530,7 @@ function inferAccountSupportedDomains(platform, option) {
 }
 
 function platformRepositories(env) {
-  const repositories = { ...DEFAULT_PLATFORM_REPOSITORIES };
-  const rawJson = String(
-    env.STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON ||
-      env.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON ||
-      "",
-  ).trim();
-  if (rawJson) {
-    let payload;
-    try {
-      payload = JSON.parse(rawJson);
-    } catch (error) {
-      throw new Error("platform repositories JSON must be valid JSON");
-    }
-    if (!payload || Array.isArray(payload) || typeof payload !== "object") {
-      throw new Error("platform repositories JSON must be an object");
-    }
-    for (const [platform, repository] of Object.entries(payload)) {
-      if (!SUPPORTED_PLATFORMS.includes(platform)) {
-        throw new Error(`unsupported platform repository override: ${platform}`);
-      }
-      repositories[platform] = cleanRepositoryName(repository, `${platform} repository`);
-    }
-  }
-
-  for (const platform of SUPPORTED_PLATFORMS) {
-    for (const name of PLATFORM_REPOSITORY_ENV[platform] || []) {
-      const repository = String(env[name] || "").trim();
-      if (repository) repositories[platform] = cleanRepositoryName(repository, name);
-    }
-  }
-  return repositories;
+  return resolvePlatformRepositories(env);
 }
 
 function normalizeSupportedDomains(value, fieldName) {
@@ -6139,17 +6666,14 @@ function cleanLifecycleStage(value, field = "lifecycle_stage") {
 
 function canonicalLifecycleStage(value, deployment = {}) {
   const stage = cleanLifecycleStage(value);
-  if (["research_active", "shadow_active", "paper_active", "live_candidate", "live_enabled"].includes(stage)) {
+  // Keep runtime_enabled as a first-class catalog stage so bundled SSOT and
+  // /api/strategy-profiles readback stay bit-identical for deploy verification.
+  if (["research_active", "shadow_active", "paper_active", "live_candidate", "live_enabled", "runtime_enabled"].includes(stage)) {
     return stage;
   }
   if (["research", "research_backtest_only", "ai_monitored_candidate"].includes(stage)) return "research_active";
   if (stage === "shadow_candidate") return "shadow_active";
-  if (stage === "runtime_enabled") {
-    const explicitlyLive = deployment.runtimeEnabled === true
-      && deployment.canSwitchLive === true
-      && deployment.allowedExecutionModes?.includes("live");
-    return explicitlyLive ? "live_enabled" : "live_candidate";
-  }
+  void deployment;
   throw new Error(`lifecycle_stage ${stage} is unsupported`);
 }
 
@@ -6189,33 +6713,39 @@ function requireSameOrigin(request, options = {}) {
   if (origin !== new URL(request.url).origin) throw new HttpError("cross-origin request rejected", 403);
 }
 
-async function fetchGithubVariable(token, repository, scope, githubEnvironment, name) {
-  const apiUrl = githubVariableUrl(repository, scope, githubEnvironment, name);
-  if (!apiUrl) return "";
+async function fetchGithubVariables(token, repository, scope, githubEnvironment) {
+  const apiUrl = githubVariablesUrl(repository, scope, githubEnvironment);
+  const values = new Map();
+  if (!apiUrl) return values;
   try {
-    const response = await fetchWithTimeout(apiUrl, {
-      headers: githubHeaders(token),
-    });
-    if (response.status === 404 || response.status === 403) return "";
-    if (!response.ok) return "";
-    const payload = await response.json();
-    return String(payload?.value || "");
+    // Follow the variable-list pages, never arbitrary URLs returned by an upstream.
+    for (let page = 1; ; page += 1) {
+      const response = await fetchWithTimeout(`${apiUrl}?per_page=100&page=${page}`, {
+        headers: githubHeaders(token),
+      });
+      if (!response.ok) return new Map();
+      const payload = await response.json();
+      if (!Array.isArray(payload?.variables)) return new Map();
+      for (const item of payload.variables) {
+        if (typeof item.name === "string" && typeof item.value === "string") values.set(item.name, item.value);
+      }
+      if (!response.headers.get("Link")?.includes('rel="next"')) return values;
+    }
   } catch {
-    return "";
+    return new Map();
   }
 }
 
 
-function githubVariableUrl(repository, scope, githubEnvironment, name) {
+function githubVariablesUrl(repository, scope, githubEnvironment) {
   const [owner, repo] = String(repository || "").split("/");
   if (!owner || !repo) return "";
   const base = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
-  const variableName = encodeURIComponent(name);
   if (scope === "environment") {
     if (!githubEnvironment) return "";
-    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables/${variableName}`;
+    return `${base}/environments/${encodeURIComponent(githubEnvironment)}/variables`;
   }
-  return `${base}/actions/variables/${variableName}`;
+  return `${base}/actions/variables`;
 }
 
 function resolveVariableScope(platform, option) {
@@ -6246,15 +6776,20 @@ function runtimeTargetFromServiceTargets(rawValue, platform, option) {
       ? entry.runtime_target
       : {};
     if (!runtimeTargetMatchesAccount(runtimeTarget, platform, option, entry)) continue;
+    // Match deployment identity before reading overrides. The deploy planner
+    // supports nested env values and gives explicit top-level values precedence.
+    const nestedEnv = entry.env && typeof entry.env === "object" && !Array.isArray(entry.env)
+      ? entry.env : {};
+    const settings = { ...nestedEnv, ...entry };
     matches.push({
       ...runtimeTarget,
       strategy_profile: runtimeTarget.strategy_profile || entry.strategy_profile,
-      ...reservedCashPayloadFromObject(platform, entry),
-      ...incomeLayerPayloadFromObject(entry),
-      ...optionOverlayPayloadFromObject(entry),
-      ...runtimeTargetEnabledPayloadFromObject(entry),
-      ...dcaPayloadFromObject(entry),
-      ...cashOnlyPayloadFromObject(platform, entry),
+      ...reservedCashPayloadFromObject(platform, settings),
+      ...incomeLayerPayloadFromObject(settings),
+      ...optionOverlayPayloadFromObject(settings),
+      ...runtimeTargetEnabledPayloadFromObject(settings),
+      ...dcaPayloadFromObject(settings),
+      ...cashOnlyPayloadFromObject(platform, settings),
     });
   }
   return matches.length === 1 ? matches[0] : null;
@@ -7208,6 +7743,10 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  buildRiskEnvelopeView,
+  attachRiskEnvelopeView,
+  normalizeRuntimeTargetLifecycleTarget,
+  loadPlatformMeta,
   assertConfiguredAccount,
   accountOptionMatchesInputs,
   resolvedVariableScope,

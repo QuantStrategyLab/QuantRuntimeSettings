@@ -12,6 +12,7 @@ workers_dev = true
 # - STRATEGY_HEALTH_SYNC_TOKEN  # dedicated outbound health snapshot token; never reuse dispatch token
 # - CONTROL_PLANE_SYNC_TOKEN    # dedicated global dashboard snapshot token; never reuse dispatch token
 # - RESEARCH_TASK_SYNC_TOKEN    # dedicated immutable research-task source token; never reuse another token
+# - RESEARCH_PROMOTION_SYNC_TOKEN # dedicated QPK→console research-promotion ticket ingress; never reuse another token
 # - M0_RESEARCH_SYNC_TOKEN      # dedicated read-only M0 research-ledger ingress token; never reuse another token
 # - RECONCILIATION_RECOVERY_SYNC_TOKEN # dedicated legacy recovery evidence ingress token; never reuse another token
 # - RECONCILIATION_RECOVERY_CONTROLLER_TOKEN # dedicated private recovery-controller read token; never reuse another token
@@ -23,6 +24,9 @@ workers_dev = true
 #
 # Optional non-secret variables can be placed here or in the Cloudflare dashboard:
 [vars]
+# Website visibility only; does not disable trading or remove platform support.
+# Comma-separated platform IDs. Set to an empty string to show all platforms.
+STRATEGY_SWITCH_HIDDEN_PLATFORMS = "qmt"
 RUNTIME_SETTINGS_REPO = "QuantStrategyLab/QuantRuntimeSettings"
 RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
 RUNTIME_SETTINGS_REF = "main"

@@ -8,13 +8,21 @@ This is the authenticated backend for the personal strategy switch console. It i
 - Allowlisted GitHub logins can select an account from the dropdown and click `Switch now`; the Worker triggers the GitHub Actions workflow server-side.
 - Tokens stay in Worker secrets and GitHub Actions environment secrets. They are not sent to the browser or committed to the repository.
 
+## Platform directory configuration
+
+- `platform-config.json` → `platforms` supplies labels, codes, colors, repositories, default accounts and capabilities. Menu order follows the platform order in that file.
+- Set deployment variable `STRATEGY_SWITCH_HIDDEN_PLATFORMS` to comma-separated IDs to hide supported platforms (`qmt` hides QMT; an empty string shows all). Visibility does not disable trading or delete accounts/adapters.
+- After catalog edits, run `python3 python/scripts/build_platform_config.py` (catalog/config SSOT) then `python3 python/scripts/sync_strategy_switch_page_asset.py` (HTML/CSS/JS packaging only)`, then test and deploy. Do not edit generated `config.js` manually.
+- Frontend and backend use the same bundled catalog, not an independently fetched GitHub main. A new broker still needs an adapter and capability support before it can trade.
+
 ## Operator model
 
 The web surface is for low-frequency human intervention, not a trading or P&L dashboard:
 
-- **Attention** is the default view: only owner follow-ups appear first; strategy × platform evidence and research tasks are disclosed on demand.
-- **Run plan** groups the existing strategy, account state, plugin, income/option layer, cash reserve, and margin controls into one bounded configuration change. Scope is selected before capital guardrails are confirmed.
-- **Runtime guard** is read-only health context for deciding whether to review, reduce, or continue observing.
+- **Platform management** is the single daily surface: account, strategy, configured switch, monitoring record and freshness appear together, without permanent Attention/System Status tabs.
+- **Your decision needed** appears only for outstanding human decisions; completed items and research counts stay out of the home surface.
+- **Advanced details** is collapsed by default and retains monitoring, research, execution evidence and recovery checks. There is no pretend AI-repair button.
+- An account may configure optional `runtime_status_target_id` to reference an existing lifecycle `target_id`. Matching requires the same platform and a one-to-one link; missing, duplicate or stale records cannot look healthy. This display-only field is not sent to trading workflows. Monitoring success does not prove an order or fill.
 - If no strategy meets all release, runtime-eligibility, and evidence gates, the page disables the Live choice. It never changes configuration automatically or treats health, candidates, or historical `live` metadata as order or runtime authority.
 
 Submitting a plan still uses the existing GitHub Actions configuration workflow and writes an audit record. P4/P5/P6 and all live authority remain subject to independent, verifiable lifecycle contracts.
@@ -83,6 +91,8 @@ Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLO
 ## Portfolio Risk Preference (non-executable intent)
 
 Administrators can select Capital Preservation, Balanced Compounding, or Growth Compounding for a configured platform target in `/admin`. Same-origin, admin-only `GET` / `POST /api/risk-profiles` stores a self-validating `qsl.risk_profile_binding.v1` record under `risk_profile_bindings`; its portable selection is exactly `qsl.risk_profile_selection.v1`, the contract used by the core risk composer.
+
+**Dual-scale clarification**: the same preference name carries two non-interchangeable numbers — Composer unlevered-benchmark MDD ceilings are `CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50; promotion `promotion_sizing` position scales are 0.50 / 0.75 / 1.00 and apply only to new promotions or material changes, never to recompute an existing live book, and never mean “position × 1.5”. This page stores preference intent only; it does not write production policy or weaken RiskEngine.
 
 Every record is fixed to `no_order=true` and `execution_authority_granted=false`. It never enters `RUNTIME_TARGET_JSON`, changes strategy parameters or sizing, dispatches a workflow, accesses brokers or execution cloud resources, or enables paper, shadow, or live. A malformed KV record is unavailable rather than silently defaulted. A future independent, read-only control-plane adapter may consume only `profile_selection`, after separately validating observation evidence and all P4/P5/P6 gates.
 
@@ -173,7 +183,7 @@ The console only allows live-enabled profiles whose `domain` is included in the 
 
 An already authorised target that entered `RECONCILE_ONLY` uses a separate, non-executable recovery path rather than the P6 new-strategy queue. A private runtime publishes a redacted `qsl_reconciliation_recovery_source_snapshot.v1` to `POST /api/internal/sync-reconciliation-recovery-source` with a dedicated `RECONCILIATION_RECOVERY_SYNC_TOKEN`; allowlisted users read `GET /api/reconciliation-recovery`, and an administrator may record `POST /api/reconciliation-recovery-confirmations`. A platform-owned controller reads only the current confirmation binding from `GET /api/internal/reconciliation-recovery-confirmation?recovery_id=...`, protected by a different `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN`.
 
-An item can await confirmation only when it remains `RECONCILE_ONLY`, has two or more read-only samples separated by 1–15 minutes, has a current candidate digest, two approved reviews bound to that same digest, and no blocker. Source and candidate evidence expire after 30 minutes by default. The confirmation is an immutable `no_order=true`, `execution_authority_granted=false` intent only: it cannot dispatch a workflow, read broker credentials, change an account, restore runtime, or place an order. A private platform controller must re-verify raw receipts and the dual-review binding before it may restore the pre-existing runtime; `manual-strategy-switch.yml` rejects all legacy continuity states so it cannot bypass this boundary.
+An item can await confirmation only when it remains `RECONCILE_ONLY`, has one or more source-bound read-only samples within a 15-minute ordered observation window, has a current candidate digest bound to the published row, and has no blocker. Model-review outcome and reviewer count remain visible advisory information; they do not grant or veto confirmation. Source and candidate evidence expire after 30 minutes by default. The confirmation is an immutable `no_order=true`, `execution_authority_granted=false` intent only: it cannot dispatch a workflow, read broker credentials, change an account, restore runtime, or place an order. A private platform controller must re-verify its protected source before it may restore the pre-existing runtime; `manual-strategy-switch.yml` rejects all legacy continuity states so it cannot bypass this boundary.
 
 ## GitHub OAuth App
 
@@ -202,6 +212,7 @@ wrangler secret put SESSION_SECRET
 wrangler secret put RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
 wrangler secret put M0_RESEARCH_SYNC_TOKEN
+wrangler secret put RESEARCH_PROMOTION_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
@@ -211,6 +222,14 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+`RESEARCH_PROMOTION_SYNC_TOKEN` guards:
+- `POST /api/internal/sync-research-promotion-ticket` (QPK soft-sync of awaiting tickets)
+- `GET /api/internal/research-promotion-ticket?ticket_id=...` (QPK pull of console decisions)
+
+QuantPlatformKit must send the same value as `RESEARCH_PROMOTION_SYNC_TOKEN`, with
+`RESEARCH_PROMOTION_SYNC_URL` pointing at the sync endpoint (pull URL is derived from it).
+Soft-sync never grants live authority; accept/reject on this console only records operator intent.
+
 Create and bind KV if you want `/admin` to save changes:
 
 ```bash
@@ -219,7 +238,7 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 
 Add the returned namespace id to `wrangler.toml`.
 
-For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, `M0_RESEARCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). Add separate `RECONCILIATION_RECOVERY_SYNC_TOKEN` and `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` values before enabling a recovery publisher/controller; the deploy synchronizes each only when present, and the Worker rejects an equal pair. `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. `M0_RESEARCH_SYNC_TOKEN` must match the separately protected `m0-research-publisher` environment secret; it is only copied to the Worker binding. A missing M0 token fails the deployment before it can retain a stale Worker secret. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
+For GitHub Actions auto-deploy, configure `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`, `STRATEGY_SWITCH_CONSOLE_URL`, `STRATEGY_SWITCH_SYNC_TOKEN`, `M0_RESEARCH_SYNC_TOKEN`, and either `CLOUDFLARE_API_TOKEN` or `CLOUDFLARE_WRANGLER_CONFIG_TOML` in the `runtime-strategy-switch` environment (or reuse `RUNTIME_SETTINGS_GH_TOKEN` only if it matches the Worker sync secret). Add `RESEARCH_PROMOTION_SYNC_TOKEN` when QPK soft-sync should publish awaiting-human tickets into this console; deploy copies it to the Worker only when present. Add separate `RECONCILIATION_RECOVERY_SYNC_TOKEN` and `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` values before enabling a recovery publisher/controller; the deploy synchronizes each only when present, and the Worker rejects an equal pair. `CLOUDFLARE_ACCOUNT_ID` is optional when Wrangler can infer it from the token. `M0_RESEARCH_SYNC_TOKEN` must match the separately protected `m0-research-publisher` environment secret; it is only copied to the Worker binding. A missing M0 token fails the deployment before it can retain a stale Worker secret. The workflow deploys the Worker and then syncs the bundled strategy profile catalog into KV so the website is not left with stale profile/plugin metadata.
 
 An authenticated retry carrying the exact same immutable M0 source-artifact SHA is acknowledged with `200` and `replayed: true`, without another KV write. A different source/run replay or a ledger-time rollback remains rejected with `409`.
 
@@ -236,3 +255,5 @@ For a full fork checklist, see [docs/strategy_switch_fork_guide.md](../../docs/s
 `RUNTIME_SETTINGS_DISPATCH_TOKEN` only needs permission to dispatch workflows in the `QuantRuntimeSettings` repository. Cross-platform variable writes still happen inside `Manual Strategy Switch` with the GitHub Actions environment secret `RUNTIME_SETTINGS_GH_TOKEN`.
 
 Configure `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` as a secret if it contains real account routes. It is returned only after an allowlisted login. Keep broker, email, cloud, API key, and token values out of this config.
+
+Operator simplification: compatible strategies remain browsable even when live submission is blocked. Existing execution authorization checks are unchanged. Engineering health/research diagnostics have no operator-page entry point; APIs remain available. A configuration/last-check mismatch is not proof of current deployed state.

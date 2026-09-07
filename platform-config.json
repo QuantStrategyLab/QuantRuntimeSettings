@@ -13,6 +13,9 @@
       "execution_metadata_is_runtime_authority": false,
       "p1_p3_non_live_data_acquisition_authority": "INDEPENDENT_CONTRACT_REQUIRED",
       "p4_p6_definition": "UNDEFINED"
+    },
+    "console_observability": {
+      "extra_platforms": ["alpaca"]
     }
   },
   "notifications": {
@@ -23,7 +26,10 @@
       "telegram_chat_id_ref": {
         "source": "runtime_environment",
         "preferred_env": "QSL_GLOBAL_TELEGRAM_CHAT_ID",
-        "fallback_envs": ["GLOBAL_TELEGRAM_CHAT_ID", "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"]
+        "fallback_envs": [
+          "GLOBAL_TELEGRAM_CHAT_ID",
+          "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"
+        ]
       },
       "gcp_projects": [
         "firstradequant",
@@ -32,10 +38,20 @@
         "interactivebrokersquant"
       ],
       "env_aliases": {
-        "bot_token": ["TELEGRAM_TOKEN", "TG_TOKEN", "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"],
-        "chat_id": ["QSL_GLOBAL_TELEGRAM_CHAT_ID", "GLOBAL_TELEGRAM_CHAT_ID", "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"]
+        "bot_token": [
+          "TELEGRAM_TOKEN",
+          "TG_TOKEN",
+          "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN"
+        ],
+        "chat_id": [
+          "QSL_GLOBAL_TELEGRAM_CHAT_ID",
+          "GLOBAL_TELEGRAM_CHAT_ID",
+          "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"
+        ]
       },
-      "deprecated_secret_names": ["crisis-alert-telegram-bot-token"]
+      "deprecated_secret_names": [
+        "crisis-alert-telegram-bot-token"
+      ]
     }
   },
   "domains": {
@@ -155,9 +171,12 @@
         "default_execution_mode": "live"
       },
       "deployment": {
-      "default_execution_mode": "live",
-      "supported_execution_modes": ["live", "dry_run"],
-      "dry_run_only": false,
+        "default_execution_mode": "live",
+        "supported_execution_modes": [
+          "live",
+          "dry_run"
+        ],
+        "dry_run_only": false,
         "runtime_model": "cloud_run",
         "settings_activation": "cloud_run_sync_workflow",
         "live_configured": true,
@@ -198,9 +217,12 @@
         "default_execution_mode": "live"
       },
       "deployment": {
-      "default_execution_mode": "live",
-      "supported_execution_modes": ["live", "dry_run"],
-      "dry_run_only": false,
+        "default_execution_mode": "live",
+        "supported_execution_modes": [
+          "live",
+          "dry_run"
+        ],
+        "dry_run_only": false,
         "runtime_model": "cloud_run",
         "settings_activation": "cloud_run_sync_workflow",
         "live_configured": true,
@@ -239,9 +261,12 @@
         "default_execution_mode": "live"
       },
       "deployment": {
-      "default_execution_mode": "live",
-      "supported_execution_modes": ["live", "dry_run"],
-      "dry_run_only": false,
+        "default_execution_mode": "live",
+        "supported_execution_modes": [
+          "live",
+          "dry_run"
+        ],
+        "dry_run_only": false,
         "runtime_model": "cloud_run",
         "settings_activation": "cloud_run_sync_workflow",
         "live_configured": true,
@@ -280,9 +305,12 @@
         "default_execution_mode": "live"
       },
       "deployment": {
-      "default_execution_mode": "live",
-      "supported_execution_modes": ["live", "dry_run"],
-      "dry_run_only": false,
+        "default_execution_mode": "live",
+        "supported_execution_modes": [
+          "live",
+          "dry_run"
+        ],
+        "dry_run_only": false,
         "runtime_model": "cloud_run",
         "settings_activation": "cloud_run_sync_workflow",
         "live_configured": true,
@@ -320,9 +348,11 @@
         ]
       },
       "deployment": {
-      "default_execution_mode": "dry_run",
-      "supported_execution_modes": ["dry_run"],
-      "dry_run_only": true,
+        "default_execution_mode": "dry_run",
+        "supported_execution_modes": [
+          "dry_run"
+        ],
+        "dry_run_only": true,
         "runtime_model": "not_configured",
         "settings_activation": "not_wired",
         "live_configured": false,
@@ -360,9 +390,12 @@
         ]
       },
       "deployment": {
-      "default_execution_mode": "live",
-      "supported_execution_modes": ["live", "dry_run"],
-      "dry_run_only": false,
+        "default_execution_mode": "live",
+        "supported_execution_modes": [
+          "live",
+          "dry_run"
+        ],
+        "dry_run_only": false,
         "runtime_model": "oracle_vps_self_hosted",
         "settings_activation": "next_runtime_workflow_dispatch",
         "live_configured": true,
@@ -379,14 +412,15 @@
       "label": "纳斯达克增长收益",
       "label_en": "NASDAQ Growth Income",
       "domain": "us_equity",
-      "runtime_enabled": false,
-      "lifecycle_stage": "research_active",
-      "can_switch_live": false,
+      "runtime_enabled": true,
+      "lifecycle_stage": "runtime_enabled",
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "blocked_live_reason": null,
       "live_continuity": {
         "eligible": true,
         "allowed_platforms": [
@@ -424,14 +458,15 @@
       "label": "半导体趋势收益",
       "label_en": "Semiconductor Trend Income",
       "domain": "us_equity",
-      "runtime_enabled": false,
-      "lifecycle_stage": "research_active",
-      "can_switch_live": false,
+      "runtime_enabled": true,
+      "lifecycle_stage": "runtime_enabled",
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "blocked_live_reason": null,
       "live_continuity": {
         "eligible": true,
         "allowed_platforms": [
@@ -499,14 +534,15 @@
       "scheduler_profile_by_plugin": {
         "ibit_zscore_exit": "us_daily"
       },
-      "runtime_enabled": false,
-      "lifecycle_stage": "research_active",
-      "can_switch_live": false,
+      "runtime_enabled": true,
+      "lifecycle_stage": "runtime_enabled",
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "blocked_live_reason": null,
       "live_continuity": {
         "eligible": true,
         "allowed_platforms": [
@@ -580,18 +616,20 @@
       "label_en": "Russell Top50 Leaders",
       "domain": "us_equity",
       "scheduler_profile": "us_snapshot_month_start",
-      "runtime_enabled": false,
-      "lifecycle_stage": "research_active",
-      "can_switch_live": false,
+      "runtime_enabled": true,
+      "lifecycle_stage": "runtime_enabled",
+      "can_switch_live": true,
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
+      "blocked_live_reason": null,
       "live_continuity": {
         "eligible": true,
         "allowed_platforms": [
-          "ibkr"
+          "ibkr",
+          "longbridge"
         ]
       },
       "runtime_artifacts": {

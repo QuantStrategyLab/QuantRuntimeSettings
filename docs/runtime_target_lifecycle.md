@@ -50,3 +50,32 @@ continuity state never turns an explicitly disabled target on.  Conversely,
 candidate P0–P6 status does not by itself turn an `ACTIVE_LKG` target off.
 This contract does not create broker permission, increase capital or
 leverage, reset a hard breaker, or approve a new live target.
+
+## Deployment readback (optional, backwards compatible)
+
+A target can include `deployment` with exactly `runtime_enabled` (boolean/null),
+`scheduler_state` (`enabled`, `paused`, `mixed`, `missing`, `unknown`, `not_applicable`),
+`strategy_profile` (identifier/null), and `execution_mode` (existing mode/null).
+Old sources remain accepted and do **not** imply an observed deployment.
+
+The existing publisher's optional GCP adapter requires explicit project, service,
+region and Scheduler location. It reads the service's single serving revision,
+not a pending template, then matches Scheduler HTTP `/run` jobs to that service URL.
+Multiple serving revisions, missing binding, failed reads and unknown values never
+become enabled/disabled guesses. Zero matching jobs is `missing`, not paused.
+Raw provider responses stay in memory. No resource, service endpoint or order is changed.
+Non-GCP adapters can supply the same sanitized `deployment-json`; they must observe
+the actual host process/configuration, not relabel GitHub intent as host state.
+
+Platform lifecycle workflows refresh after the existing deployment workflow completes,
+including failures. A workflow completion only triggers observation; it is not proof
+that configuration was applied. The website shows desired configuration, actual switch,
+Scheduler state and record time separately. This does not prove a fill or broker health.
+
+References: [Cloud Run describe](https://docs.cloud.google.com/sdk/gcloud/reference/run/services/describe),
+[Scheduler list](https://docs.cloud.google.com/sdk/gcloud/reference/scheduler/jobs/list),
+[workflow_run](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run).
+
+A non-GCP adapter projecting an older execution report must also include optional
+`deployment.observed_at` (UTC). The server computes its freshness independently
+of publication time; a newly published source cannot freshen an old runtime report.

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import io
 import json
 import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 
 
@@ -80,24 +82,70 @@ dependencies = [
             report.issues,
         )
 
-    def test_current_matrix_matches_local_workspace(self):
-        matrix_pins = check_internal_dependency_matrix.load_matrix(ROOT / "internal_dependency_matrix.json")
+    def _run_snapshot_cli(self, files, *, options=()):
+        projects_root = self._make_projects_root(files)
+        pins = [
+            check_internal_dependency_matrix.DependencyPin(repo, "pyproject.toml", "quant-platform-kit", "QuantPlatformKit", ref)
+            for repo, ref in (("ExampleA", "a" * 40), ("ExampleB", "b" * 40))
+        ]
+        matrix_path = projects_root / "matrix.json"
+        matrix_path.write_text(json.dumps(check_internal_dependency_matrix.matrix_payload(pins)), encoding="utf-8")
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = check_internal_dependency_matrix.main(
+                ["--matrix", str(matrix_path), "--projects-root", str(projects_root), *options]
+            )
+        return code, output.getvalue()
 
-        report = check_internal_dependency_matrix.check_matrix(
-            matrix_pins=matrix_pins,
-            projects_root=ROOT.parent,
-        )
+    def _snapshot_files(self):
+        return {
+            f"{repo}/pyproject.toml": "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@" + ref
+            for repo, ref in (("ExampleA", "a" * 40), ("ExampleB", "b" * 40))
+        }
 
-        if report.missing_files:
-            missing_inside_checked_out_repos = [
-                item for item in report.missing_files if (ROOT.parent / item.split("/", 1)[0]).exists()
-            ]
-            self.assertEqual(missing_inside_checked_out_repos, [])
-            self.assertEqual(report.issues, [])
-            return
+    def test_complete_snapshot_accepts_different_pins_per_consumer(self):
+        code, output = self._run_snapshot_cli(self._snapshot_files(), options=("--strict", "--require-consumer-files"))
+        self.assertEqual(code, 0)
+        self.assertIn("checked_files=2", output)
+        self.assertIn("no differences found in checked dependency files against the selected matrix snapshot", output)
+        self.assertNotIn("is current", output)
+        self.assertNotIn("comparison incomplete", output)
 
-        self.assertEqual(report.missing_files, [])
-        self.assertEqual(report.issues, [])
+    def test_missing_consumers_keep_default_and_strict_exit_semantics(self):
+        for files in ({}, {"ExampleA/pyproject.toml": self._snapshot_files()["ExampleA/pyproject.toml"]}):
+            for strict in (False, True):
+                for required in (False, True):
+                    with self.subTest(checked=len(files), strict=strict, required=required):
+                        options = (["--strict"] if strict else []) + (["--require-consumer-files"] if required else [])
+                        code, output = self._run_snapshot_cli(files, options=options)
+                        self.assertEqual(code, int(strict and required))
+                        self.assertIn("missing_files:", output)
+                        self.assertNotIn("is current", output)
+                        if not required:
+                            self.assertIn("comparison incomplete: consumer dependency files are missing", output)
+
+    def test_snapshot_mismatch_is_reported_and_only_strict_changes_exit(self):
+        files = self._snapshot_files()
+        files["ExampleB/pyproject.toml"] = files["ExampleB/pyproject.toml"].replace("b" * 40, "c" * 40)
+        for strict in (False, True):
+            with self.subTest(strict=strict):
+                code, output = self._run_snapshot_cli(files, options=("--strict",) if strict else ())
+                self.assertEqual(code, int(strict))
+                self.assertIn("ref mismatch ExampleB/pyproject.toml", output)
+                self.assertNotIn("no differences found", output)
+
+    def test_missing_snapshot_json_contract_is_unchanged(self):
+        for required in (False, True):
+            with self.subTest(required=required):
+                options = ["--json", "--strict"] + (["--require-consumer-files"] if required else [])
+                code, output = self._run_snapshot_cli({}, options=options)
+                payload = json.loads(output)
+                self.assertEqual(set(payload), {"checked_files", "missing_files", "issues", "ok"})
+                self.assertEqual(payload["checked_files"], 0)
+                self.assertEqual(len(payload["missing_files"]), 2)
+                self.assertEqual(len(payload["issues"]), 2 if required else 0)
+                self.assertEqual(payload["ok"], not required)
+                self.assertEqual(code, int(required))
 
     def test_tracked_qpk_consumer_pins_are_coherent_per_consumer(self):
         tracked_consumers = {
@@ -152,6 +200,9 @@ dependencies = [
         self.assertIn("compat/bundles/<bundle>.toml", document)
         self.assertIn("internal_dependency_matrix.json", document)
         self.assertIn("QuantPlatformKit/QPK_PIN", document)
+        self.assertIn("已保存的依赖快照", document)
+        self.assertIn("projection", document)
+        self.assertNotIn("当前已合入版本的唯一台账", document)
         self.assertNotRegex(document, r"[0-9a-f]{40}")
 
     def test_require_consumer_files_treats_missing_paths_as_issues(self):

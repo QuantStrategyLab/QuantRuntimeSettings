@@ -1,33 +1,17 @@
 
 
-    let platformMeta = {
-      binance: { label: "Binance", code: "BN", accent: "var(--bn)" },
-      firstrade: { label: "Firstrade", code: "FT", accent: "var(--ft)" },
-      ibkr: { label: "IBKR", code: "IB", accent: "var(--ib)" },
-      longbridge: { label: "LongBridge", code: "LB", accent: "var(--lb)" },
-      qmt: { label: "QMT", code: "QM", accent: "var(--qmt)" },
-      schwab: { label: "Schwab", code: "SW", accent: "var(--sw)" },
-    };
+    function requiredInjected(name, value, fallback) {
+      if (value !== undefined && value !== null) return value;
+      console.error(`[strategy-switch-console] missing injected config: ${name}`);
+      return fallback;
+    }
 
-    const platformRepositories = {
-      binance: "QuantStrategyLab/BinancePlatform",
-      firstrade: "QuantStrategyLab/FirstradePlatform",
-      ibkr: "QuantStrategyLab/InteractiveBrokersPlatform",
-      longbridge: "QuantStrategyLab/LongBridgePlatform",
-      qmt: "QuantStrategyLab/QmtPlatform",
-      schwab: "QuantStrategyLab/CharlesSchwabPlatform",
-    };
+    let platformMeta = window.__PLATFORM_META__ || {};
+    const platformRepositories = window.__PLATFORM_REPOSITORIES__ || {};
     // Alias for backward compatibility
     const defaultRepositories = platformRepositories;
 
-    const defaultAccountOptions = window.__DEFAULT_ACCOUNT_OPTIONS__ || {
-      binance: [{"key": "default", "label": "Binance", "target_name": "default", "cash_currency": "USD", "supported_domains": ["crypto"]}],
-      firstrade: [{"key": "preview", "label": "Firstrade", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "firstrade-quant-service"}],
-      ibkr: [{"key": "preview", "label": "IBKR", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
-      longbridge: [{"key": "preview", "label": "LongBridge", "target_name": "preview", "supported_domains": ["us_equity", "hk_equity"], "cash_currency": "USD", "default_execution_mode": "live"}],
-      qmt: [{"key": "default", "label": "QMT", "target_name": "default", "cash_currency": "CNY", "supported_domains": ["cn_equity"], "service_name": "qmt-quant-service"}],
-      schwab: [{"key": "preview", "label": "Schwab", "target_name": "preview", "supported_domains": ["us_equity"], "cash_currency": "USD", "default_execution_mode": "live", "service_name": "charles-schwab-quant-service"}],
-    };
+    const defaultAccountOptions = requiredInjected("__DEFAULT_ACCOUNT_OPTIONS__", window.__DEFAULT_ACCOUNT_OPTIONS__, {});
 
     const domainLabels = window.__DOMAIN_LABELS__ || {
       cn_equity: { zh: "A股", en: "CN A-share" },
@@ -36,74 +20,7 @@
       us_equity: { zh: "美股", en: "US Equity" },
     };
 
-    const platformConfig = window.__PLATFORM_CONFIG__ || {
-      binance: {
-        dry_run_only: false,
-        margin_policy: false,
-        reserved_cash: false,
-        income_layer: false,
-        option_overlay: false,
-        dca: false,
-        execution_mode: "live",
-        service_name: "",
-        default_execution_mode: "live"
-      },
-      firstrade: {
-        dry_run_only: false,
-        margin_policy: true,
-        reserved_cash: true,
-        income_layer: true,
-        option_overlay: true,
-        dca: true,
-        execution_mode: "live",
-        service_name: "firstrade-quant-service",
-        default_execution_mode: "live"
-      },
-      ibkr: {
-        dry_run_only: false,
-        margin_policy: true,
-        reserved_cash: true,
-        income_layer: true,
-        option_overlay: true,
-        dca: true,
-        execution_mode: "live",
-        service_name: "",
-        default_execution_mode: "live"
-      },
-      longbridge: {
-        dry_run_only: false,
-        margin_policy: true,
-        reserved_cash: true,
-        income_layer: true,
-        option_overlay: true,
-        dca: true,
-        execution_mode: "live",
-        service_name: "",
-        default_execution_mode: "live"
-      },
-      qmt: {
-        dry_run_only: true,
-        margin_policy: false,
-        reserved_cash: false,
-        income_layer: false,
-        option_overlay: false,
-        dca: false,
-        execution_mode: "paper",
-        service_name: "qmt-quant-service",
-        default_execution_mode: "paper"
-      },
-      schwab: {
-        dry_run_only: false,
-        margin_policy: true,
-        reserved_cash: true,
-        income_layer: true,
-        option_overlay: true,
-        dca: true,
-        execution_mode: "live",
-        service_name: "charles-schwab-quant-service",
-        default_execution_mode: "live"
-      },
-    };
+    const platformConfig = requiredInjected("__PLATFORM_CONFIG__", window.__PLATFORM_CONFIG__, {});
 
 
 
@@ -142,572 +59,19 @@
     const incomeLayerModes = ["enabled", "disabled"];
     const optionOverlayModes = ["enabled", "disabled"];
     const cashOnlyExecutionModes = ["enabled", "disabled"];
-    const runtimeTargetModes = ["enabled", "disabled"];
+    const runtimeTargetModes = ["current", "enabled", "disabled"];
     const pluginModes = ["none"];
     const dcaModes = ["fixed", "smart"];
     const runtimeTargetEnabledVariable = "RUNTIME_TARGET_ENABLED";
     const incomeLayerEnabledVariable = "INCOME_LAYER_ENABLED";
     const incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD";
     const incomeLayerMaxRatioVariable = "INCOME_LAYER_MAX_RATIO";
-    const dcaProfileDefaults = window.__DCA_PROFILE_DEFAULTS__ || {
-      nasdaq_sp500_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
-      ibit_smart_dca: { defaultMode: "fixed", defaultBaseInvestmentUsd: "1000" },
-    };
+    const dcaProfileDefaults = requiredInjected("__DCA_PROFILE_DEFAULTS__", window.__DCA_PROFILE_DEFAULTS__, {});
     const APP_BOOT_TIMEOUT_MS = 15000;
-    const platformMinReservedCashVariables = {
-      longbridge: "LONGBRIDGE_MIN_RESERVED_CASH_USD",
-      ibkr: "IBKR_MIN_RESERVED_CASH_USD",
-      schwab: "SCHWAB_MIN_RESERVED_CASH_USD",
-      firstrade: "FIRSTRADE_MIN_RESERVED_CASH_USD",
-    };
-    const platformReservedCashRatioVariables = {
-      longbridge: "LONGBRIDGE_RESERVED_CASH_RATIO",
-      ibkr: "IBKR_RESERVED_CASH_RATIO",
-      schwab: "SCHWAB_RESERVED_CASH_RATIO",
-      firstrade: "FIRSTRADE_RESERVED_CASH_RATIO",
-    };
+    const platformMinReservedCashVariables = requiredInjected("__PLATFORM_MIN_RESERVED_CASH_VARIABLES__", window.__PLATFORM_MIN_RESERVED_CASH_VARIABLES__, {});
+    const platformReservedCashRatioVariables = requiredInjected("__PLATFORM_RESERVED_CASH_RATIO_VARIABLES__", window.__PLATFORM_RESERVED_CASH_RATIO_VARIABLES__, {});
 
-    const defaultStrategyProfiles = window.__DEFAULT_STRATEGY_PROFILES__ || [
-      {
-        "profile": "tqqq_growth_income",
-        "label": "纳斯达克增长收益",
-        "label_en": "NASDAQ Growth Income",
-        "label_zh": "纳斯达克增长收益",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": true,
-        "option_overlay_enabled": true,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-        "income_layer_start_usd": "250000",
-        "income_layer_max_ratio": "0.55",
-        "income_layer_allocations": {
-          "SCHD": 0.3,
-          "DGRO": 0.2,
-          "SGOV": 0.4,
-          "SPYI": 0.08,
-          "QQQI": 0.02
-        },
-        "option_overlay_live_gate": "promotion_required",
-        "option_overlay_live_status": "research_only",
-        "option_growth_overlay_enabled": true,
-        "option_growth_overlay_recipe": "tqqq_leaps_growth_v1",
-        "option_growth_overlay_start_usd": "250000",
-        "option_growth_overlay_nav_budget_ratio": "0.03"
-      },
-      {
-        "profile": "soxl_soxx_trend_income",
-        "label": "半导体趋势收益",
-        "label_en": "Semiconductor Trend Income",
-        "label_zh": "半导体趋势收益",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": true,
-        "option_overlay_enabled": true,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-        "income_layer_start_usd": "150000",
-        "income_layer_max_ratio": "0.95",
-        "income_layer_allocations": {
-          "SCHD": 0.15,
-          "DGRO": 0.1,
-          "SGOV": 0.7,
-          "SPYI": 0.04,
-          "QQQI": 0.01
-        },
-        "option_overlay_live_gate": "promotion_required",
-        "option_overlay_live_status": "research_only",
-        "option_income_overlay_enabled": true,
-        "option_income_overlay_recipe": "soxx_put_credit_spread_income_v1",
-        "option_income_overlay_start_usd": "150000",
-        "option_income_overlay_nav_risk_ratio": "0.01"
-      },
-      {
-        "profile": "nasdaq_sp500_smart_dca",
-        "label": "纳指标普定投",
-        "label_en": "NASDAQ/S&P 500 DCA",
-        "label_zh": "纳指标普定投",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-        "dca_enabled": true,
-        "dca_default_mode": "fixed",
-        "dca_default_base_investment_usd": "1000"
-      },
-      {
-        "profile": "ibit_smart_dca",
-        "label": "IBIT比特币定投",
-        "label_en": "IBIT Bitcoin DCA",
-        "label_zh": "IBIT比特币定投",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-        "dca_enabled": true,
-        "dca_default_mode": "fixed",
-        "dca_default_base_investment_usd": "1000"
-      },
-      {
-        "profile": "global_etf_rotation",
-        "label": "全球ETF轮动",
-        "label_en": "Global ETF Rotation",
-        "label_zh": "全球ETF轮动",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": true,
-        "option_overlay_enabled": true,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
-        "income_layer_start_usd": "500000",
-        "income_layer_max_ratio": "0.15",
-        "income_layer_allocations": {
-          "SCHD": 0.4,
-          "DGRO": 0.25,
-          "SGOV": 0.3,
-          "SPYI": 0.05
-        },
-        "option_overlay_live_gate": "promotion_required",
-        "option_overlay_live_status": "research_only",
-        "option_growth_overlay_enabled": true,
-        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-        "option_growth_overlay_start_usd": "500000",
-        "option_growth_overlay_nav_budget_ratio": "0.015"
-      },
-      {
-        "profile": "russell_top50_leader_rotation",
-        "label": "罗素Top50领涨",
-        "label_en": "Russell Top50 Leaders",
-        "label_zh": "罗素Top50领涨",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": true,
-        "option_overlay_enabled": true,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-        "income_layer_start_usd": "300000",
-        "income_layer_max_ratio": "0.25",
-        "income_layer_allocations": {
-          "SCHD": 0.45,
-          "DGRO": 0.3,
-          "SGOV": 0.25
-        },
-        "option_overlay_live_gate": "promotion_required",
-        "option_overlay_live_status": "research_only",
-        "option_growth_overlay_enabled": true,
-        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-        "option_growth_overlay_start_usd": "300000",
-        "option_growth_overlay_nav_budget_ratio": "0.015"
-      },
-      {
-        "profile": "tecl_xlk_trend_income",
-        "label": "TECL/XLK趋势收益",
-        "label_en": "TECL/XLK Trend Income",
-        "label_zh": "TECL/XLK趋势收益",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "failed_promotion_vs_live_profiles"
-      },
-      {
-        "profile": "us_equity_combo",
-        "label": "美股核心组合",
-        "label_en": "US Core Combo",
-        "label_zh": "美股核心组合",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": true,
-        "option_overlay_enabled": true,
-        "combo_enabled": true,
-        "lifecycle_stage": "shadow_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "shadow_candidate_requires_evidence_package",
-        "combo_mode": "dynamic",
-        "income_layer_start_usd": "300000",
-        "income_layer_max_ratio": "0.25",
-        "income_layer_allocations": {
-          "SCHD": 0.25,
-          "DGRO": 0.25,
-          "SGOV": 0.2,
-          "SPYI": 0.15,
-          "QQQI": 0.15
-        },
-        "option_overlay_live_gate": "promotion_required",
-        "option_overlay_live_status": "research_only",
-        "option_growth_overlay_enabled": true,
-        "option_growth_overlay_recipe": "spy_leaps_growth_v1",
-        "option_growth_overlay_start_usd": "300000",
-        "option_growth_overlay_nav_budget_ratio": "0.015"
-      },
-      {
-        "profile": "us_equity_combo_core",
-        "label": "美股核心组合影子",
-        "label_en": "US Core Combo Shadow",
-        "label_zh": "美股核心组合影子",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": true,
-        "lifecycle_stage": "shadow_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "shadow_candidate_requires_evidence_package",
-        "combo_mode": "dynamic"
-      },
-      {
-        "profile": "us_equity_combo_leveraged",
-        "label": "美股加速组合",
-        "label_en": "US Alpha Combo",
-        "label_zh": "美股加速组合",
-        "domain": "us_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": true,
-        "lifecycle_stage": "shadow_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "shadow_candidate_requires_evidence_package",
-        "combo_mode": "dynamic"
-      },
-      {
-        "profile": "hk_global_etf_tactical_rotation",
-        "label": "港股ETF战术轮动",
-        "label_en": "HK ETF Tactical Rotation",
-        "label_zh": "港股ETF战术轮动",
-        "domain": "hk_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "hk_low_vol_dividend_quality_snapshot",
-        "label": "港股红利质量",
-        "label_en": "HK Dividend Quality",
-        "label_zh": "港股红利质量",
-        "domain": "hk_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
-      },
-      {
-        "profile": "hk_equity_combo",
-        "label": "港股恒生组合",
-        "label_en": "HK Core Combo",
-        "label_zh": "港股恒生组合",
-        "domain": "hk_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": true,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
-        "combo_mode": "dynamic"
-      },
-      {
-        "profile": "cn_industry_etf_rotation",
-        "label": "A股行业ETF轮动",
-        "label_en": "CN Industry ETF Rotation",
-        "label_zh": "A股行业ETF轮动",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
-      },
-      {
-        "profile": "cn_industry_etf_rotation_aggressive",
-        "label": "A股ETF轮动",
-        "label_en": "CN ETF Rotation",
-        "label_zh": "A股ETF轮动",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "live_candidate",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "live_candidate_requires_evidence_package"
-      },
-      {
-        "profile": "cn_index_etf_tactical_rotation",
-        "label": "A股宽基ETF战术轮动",
-        "label_en": "CN Index ETF Tactical Rotation",
-        "label_zh": "A股宽基ETF战术轮动",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "cn_chinext_tactical_rotation",
-        "label": "创业板战术轮动",
-        "label_en": "CN ChiNext Tactical Rotation",
-        "label_zh": "创业板战术轮动",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "cn_chinext_growth_momentum_quality",
-        "label": "创业板成长动量质量",
-        "label_en": "CN ChiNext Growth Momentum Quality",
-        "label_zh": "创业板成长动量质量",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "cn_dividend_quality_snapshot",
-        "label": "A股红利质量",
-        "label_en": "CN Dividend Quality",
-        "label_zh": "A股红利质量",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "cn_chinext_growth_momentum_quality_snapshot",
-        "label": "创业板成长质量快照",
-        "label_en": "CN ChiNext Growth Quality Snapshot",
-        "label_zh": "创业板成长质量快照",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "cn_star_growth_momentum_quality",
-        "label": "科创板成长动量质量",
-        "label_en": "CN STAR Growth Momentum Quality",
-        "label_zh": "科创板成长动量质量",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "cn_equity_combo",
-        "label": "A股进取组合",
-        "label_en": "CN Alpha Combo",
-        "label_zh": "A股进取组合",
-        "domain": "cn_equity",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": true,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
-        "combo_mode": "dynamic"
-      },
-      {
-        "profile": "crypto_live_pool_rotation",
-        "label": "加密实时池轮动",
-        "label_en": "Crypto Live Pool Rotation",
-        "label_zh": "加密实时池轮动",
-        "domain": "crypto",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy"
-      },
-      {
-        "profile": "crypto_btc_dca",
-        "label": "BTC定投",
-        "label_en": "BTC DCA",
-        "label_zh": "BTC定投",
-        "domain": "crypto",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "shadow_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "paper",
-          "dry_run"
-        ],
-        "blocked_live_reason": "shadow_candidate_requires_evidence_package"
-      },
-      {
-        "profile": "crypto_trend_rotation",
-        "label": "山寨趋势轮动",
-        "label_en": "Altcoin Trend",
-        "label_zh": "山寨趋势轮动",
-        "domain": "crypto",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": false,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package"
-      },
-      {
-        "profile": "crypto_equity_combo",
-        "label": "加密动量组合",
-        "label_en": "Crypto Core Combo",
-        "label_zh": "加密动量组合",
-        "domain": "crypto",
-        "runtime_enabled": false,
-        "income_layer_enabled": false,
-        "option_overlay_enabled": false,
-        "combo_enabled": true,
-        "lifecycle_stage": "research_active",
-        "can_switch_live": false,
-        "allowed_execution_modes": [
-          "dry_run"
-        ],
-        "blocked_live_reason": "research_backtest_only_requires_evidence_package",
-        "combo_mode": "dynamic"
-      }
-    ];
+    const defaultStrategyProfiles = requiredInjected("__DEFAULT_STRATEGY_PROFILES__", window.__DEFAULT_STRATEGY_PROFILES__, []);
 
     const localStrategyLabels = {
       tqqq_growth_income: { zh: "纳斯达克增长收益", en: "NASDAQ Growth Income" },
@@ -731,74 +95,9 @@
       crypto_equity_combo: { zh: "加密动量组合", en: "Crypto Core Combo" },
     };
 
-    const fallbackIncomeLayerDefaults = window.__INCOME_LAYER_DEFAULTS__ || {
-      tqqq_growth_income: {
-        startUsd: 250000,
-        maxRatio: "0.55",
-        allocations: { SCHD: 0.30, DGRO: 0.20, SGOV: 0.40, SPYI: 0.08, QQQI: 0.02 },
-      },
-      soxl_soxx_trend_income: {
-        startUsd: 150000,
-        maxRatio: "0.95",
-        allocations: { SCHD: 0.15, DGRO: 0.10, SGOV: 0.70, SPYI: 0.04, QQQI: 0.01 },
-      },
-      global_etf_rotation: {
-        startUsd: 500000,
-        maxRatio: "0.15",
-        allocations: { SCHD: 0.40, DGRO: 0.25, SGOV: 0.30, SPYI: 0.05 },
-      },
-      russell_top50_leader_rotation: {
-        startUsd: 300000,
-        maxRatio: "0.25",
-        allocations: { SCHD: 0.45, DGRO: 0.30, SGOV: 0.25 },
-      },
-      us_equity_combo: {
-        startUsd: 300000,
-        maxRatio: "0.25",
-        allocations: { SCHD: 0.25, DGRO: 0.25, SGOV: 0.20, SPYI: 0.15, QQQI: 0.15 },
-      }};
+    const fallbackIncomeLayerDefaults = requiredInjected("__INCOME_LAYER_DEFAULTS__", window.__INCOME_LAYER_DEFAULTS__, {});
     let incomeLayerDefaults = {};
-    const fallbackOptionOverlayDefaults = window.__OPTION_OVERLAY_DEFAULTS__ || {
-      tqqq_growth_income: {
-        liveGate: "promotion_required",
-        liveStatus: "research_only",
-        families: [
-          { family: "growth", recipe: "tqqq_leaps_growth_v1", startUsd: "250000", ratio: "0.03", ratioKind: "budget" },
-        ],
-      },
-      soxl_soxx_trend_income: {
-        liveGate: "promotion_required",
-        liveStatus: "research_only",
-        families: [
-          { family: "income", recipe: "soxx_put_credit_spread_income_v1", startUsd: "150000", ratio: "0.01", ratioKind: "risk" },
-        ],
-      },
-      global_etf_rotation: {
-        liveGate: "promotion_required",
-        liveStatus: "research_only",
-        families: [
-          { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "500000", ratio: "0.015", ratioKind: "budget" },
-        ],
-      },
-      russell_top50_leader_rotation: {
-        liveGate: "promotion_required",
-        liveStatus: "research_only",
-        families: [
-          { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "300000", ratio: "0.015", ratioKind: "budget" },
-        ],
-      },
-      us_equity_combo: {
-        liveGate: "promotion_required",
-        liveStatus: "research_only",
-        families: [
-          { family: "growth", recipe: "spy_leaps_growth_v1", startUsd: "300000", ratio: "0.015", ratioKind: "budget" },
-        ],
-      },
-      us_equity_combo_leveraged: {
-        liveGate: "promotion_required",
-        liveStatus: "research_only",
-        families: [],
-      }};
+    const fallbackOptionOverlayDefaults = requiredInjected("__OPTION_OVERLAY_DEFAULTS__", window.__OPTION_OVERLAY_DEFAULTS__, {});
     let optionOverlayDefaults = {};
 
     const strategyDomains = ["us_equity", "hk_equity", "cn_equity", "crypto"];
@@ -810,18 +109,55 @@
     const copy = {
       zh: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "自动化策略的日常管理",
+        appSubtitle: "平台配置",
+        loginTitle: "管理你的量化平台",
+        loginDescription: "配置策略，关注运行，处理重要决策。",
+        loginUnavailable: "暂时无法确认登录状态，请重新登录。",
+        loginDenied: "当前账号没有访问权限，请切换账号。",
         languageToggle: "切换语言",
         consoleNavigation: "管理台导航",
         dataFreshness: "数据更新时间",
         decisionSummary: "待办摘要",
         healthSummary: "策略健康摘要",
         healthFilters: "筛选策略健康状态",
-        controlPlaneView: "待你处理",
-        healthView: "系统状态",
-        switchView: "策略设置",
+        controlPlaneView: "待办确认",
+        healthView: "运行概览",
+        switchView: "平台设置",
+        refreshStatus: "刷新已有记录",
+        refreshingStatus: "读取中…",
+        configTruthNote: "配置值不代表云端实际状态。",
+        configuredSwitch: "配置开关",
+        observedRuntime: "最近检查",
+        deployedSwitch: "实际开关",
+        schedulerState: "自动调度",
+        applicationStatus: "应用状态",
+        configuredStrategy: "配置策略",
+        scheduleEnabled: "已启用",
+        schedulePaused: "已暂停",
+        scheduleMixed: "部分暂停",
+        scheduleMissing: "未找到任务",
+        scheduleNotApplicable: "不适用",
+        deploymentUnverified: "实际状态待更新",
+        strategyNotApplied: "策略尚未应用",
+        settingsNotApplied: "开关尚未应用",
+        switchesApplied: "开关已同步",
+        scheduleNotApplied: "调度尚未同步",
+        monitoringConfigMismatch: "配置与检查不一致",
+        runtimeUnverified: "暂无记录",
+        monitoringUnlinked: "待关联",
+        monitoringTime: "记录时间",
+        monitoringDetails: "监测详情",
+        platformManagement: "平台管理",
+        advancedDetails: "高级详情",
+        monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
+        instanceList: "账户实例",
+        configDetails: "配置详情",
+        runtimeObservationHint: "实际开关和调度来自部署读回；以记录时间为准，不代表已经成交。",
+        openSystemStatus: "查看高级详情",
+        noConfiguredAccounts: "登录并读取配置后显示账户实例。",
+
         controlPlaneEyebrow: "待处理事项",
-        controlPlaneTitle: "待你处理",
+        controlPlaneTitle: "需要你确认",
         controlPlaneSubtitle: "这里只显示需要你亲自确认的事项。",
         controlCandidateTotal: "监控对象",
         controlDeferred: "待复核",
@@ -841,10 +177,10 @@
         controlStaleNotice: "数据更新延迟，暂不建议据此做新决定。",
         controlUnavailableNotice: "暂时无法读取最新状态，请稍后刷新。",
         controlUpstreamNotice: "部分数据暂不可用，请稍后重试。",
-        controlAttentionNotice: "有 {deferred} 项待复核，{parked} 项已暂停。",
+        controlAttentionNotice: "有 {count} 项需要你确认。",
         controlNormalNotice: "目前没有需要你决定的事项。",
-        controlNormalSummary: "系统会继续监测、优化和记录。",
-        controlStaleSummary: "系统会继续监测；更新后再显示新的事项。",
+        controlNormalSummary: "需要你确认的事项会在这里列出。",
+        controlStaleSummary: "当前记录尚未更新，请勿据此作出新的决定。",
         controlLoginSummary: "登录后查看你的待办和系统概览。",
         controlAttentionSummary: "请查看下方事项并选择下一步。",
         controlEmptyCandidates: "当前没有待处理事项。",
@@ -928,8 +264,8 @@
         runtimeTargetLifecycleCheckUnavailable: "不可用",
         runtimeTargetLifecycleObservationNotDue: "未到应交易窗口",
         runtimeTargetLifecycleObservationMonitoringOnly: "仅监测通过",
-        runtimeTargetLifecycleObservationNotApplicable: "目标停用，不适用",
-        runtimeTargetLifecycleObservationAttention: "需要复核",
+        runtimeTargetLifecycleObservationNotApplicable: "检查时已停用",
+        runtimeTargetLifecycleObservationAttention: "运行检查异常",
         runtimeTargetLifecycleObservationUnavailable: "不可用",
         runtimeTargetLifecycleOrderEvidenceNotCollected: "未采集订单/成交回执",
         runtimeTargetLifecycleDispositionEnabled: "持续监控",
@@ -975,8 +311,8 @@
         researchTaskLimits: "研究预算：最多 {runs} 次 / {seconds} 秒",
         researchTaskNoOrder: "查看当前自动化任务。",
         healthEyebrow: "系统状态",
-        healthTitle: "系统状态",
-        healthSubtitle: "按类别查看健康度和运行情况。",
+        healthTitle: "监测与诊断",
+        healthSubtitle: "账户、配置与监测记录，一处查看。",
         healthTotal: "策略总数",
         healthHealthy: "健康",
         healthWatch: "观察",
@@ -1030,8 +366,8 @@
         logout: "退出",
         signedInAs: "已登录 {login}",
         planEyebrow: "策略设置",
-        planTitle: "修改策略设置",
-        planSubtitle: "选择平台、账户、策略和运行环境；保存前核对本次改动。",
+        planTitle: "平台设置",
+        planSubtitle: "按账户实例管理，互不影响。",
         planAdvancedSummary: "高级设置",
         planAdvancedHint: "运行状态、插件、现金、收入层和定投通常沿用当前配置；需要改动时再展开。",
         planScopeTitle: "选择范围",
@@ -1042,16 +378,45 @@
         planOverlaySubtitle: "仅使用策略已定义的默认边界",
         planCashSubtitle: "现金预留优先于融资；两者不能同时覆盖",
         activePlatform: "目标平台",
-        account: "目标账号",
+        account: "账户",
         strategy: "策略",
         mode: "运行环境",
-        live: "实盘",
+        live: "券商执行",
         paper: "旧版非实盘",
-        dryRun: "模拟运行",
+        dryRun: "不下单演练",
+        promotionConfirmTitle: "晋级确认（Shadow 后）",
+        promotionDecisionEyebrow: "待决策",
+        promotionExecutionMode: "目标执行模式",
+        promotionRiskProfile: "风险档",
+        promotionConfirmMeta: "仅记录人工意图：真实 paper（若有）或 live，以及风险档。晋级仓位缩放为 0.50/0.75/1.00（≠ Composer MDD 1.00/1.25/1.50）；无券商 paper 不可选 paper；确认不授予实盘权限。",
+        promotionPaperUnavailable: "该平台无券商 paper/sim，已禁用 paper",
+        promotionTicket: "待确认 ticket",
+        promotionAccept: "接受意图",
+        promotionReject: "拒绝",
+        promotionTicketEmpty: "当前没有 awaiting_human 的晋级 ticket",
+        promotionTicketLoginRequired: "请先登录（需权限账号）后再刷新",
+        promotionTicketLoadFailed: "晋级队列加载失败，请刷新",
+        promotionAdminOnly: "需管理员才能确认/拒绝",
+        promotionTicketSuggested: "ticket 建议风险档：{profile}",
+        promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
+        promotionDecisionFailed: "晋级确认失败",
+        riskCapitalPreservation: "保本优先（晋级仓位×0.50；Composer MDD×1.00）",
+        riskBalancedCompounding: "平衡复利（晋级仓位×0.75；Composer MDD×1.25）",
+        riskGrowthCompounding: "增长复利（晋级仓位×1.00；Composer MDD×1.50）",
+        riskEnvelopeTitle: "账户风险信封",
+        riskEnvelopePreference: "风险偏好",
+        riskEnvelopeCapitalBand: "资金档",
+        riskEnvelopeStatus: "状态灯",
+        riskEnvelopeDetailsSummary: "详情",
+        riskEnvelopeMeta: "只读展示；不授予实盘、不自动升档。",
+        riskEnvelopeAwaitingEquity: "待对账权益注入",
+        riskEnvelopeUnset: "未设定",
+        promotionModeLive: "实盘（仍须另授权启用）",
+        promotionModePaper: "券商 paper/sim",
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
-        runtimeTargetMode: "账号运行状态",
+        runtimeTargetMode: "平台开关",
         runtimeSectionTitle: "运行与插件",
-        runtimeTargetCurrent: "沿用当前状态",
+        runtimeTargetCurrent: "不修改",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
         runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
@@ -1125,8 +490,8 @@
         reservedCashDefault: "未配置（平台默认：0 {currency} / 0%）",
         reservedCashMeta: "固定金额下限，可单独设置或与比例取较大值。",
         reservedCashRatioMeta: "例如 0.03 表示 3%。",
-        summary: "风险与变更摘要",
-        summaryCurrent: "当前边界",
+        summary: "当前配置",
+        summaryCurrent: "已保存的配置",
         summaryPending: "待提交变更",
         planReadinessTitle: "提交前核对",
         planCheckAccount: "账号与作用范围",
@@ -1139,11 +504,11 @@
         planCheckFix: "需修正",
         planCheckNonLive: "非实盘",
         planCheckNoAuthority: "未就绪",
-        planAuditNote: "本次修改会保存到变更记录。",
+        planAuditNote: "提交配置不等于运行生效。",
         copySummary: "复制状态",
         loginToRun: "登录后提交计划",
         loadingConfig: "读取配置中",
-        configureAccounts: "配置账号后切换",
+        configureAccounts: "暂不能提交",
         runSwitch: "保存设置",
         noChanges: "无变更",
         readonlyNote: "登录后可保存设置。",
@@ -1151,7 +516,7 @@
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "请核对上方改动后保存。",
-        invalidStrategyNote: "当前账号没有可执行策略，暂时不能切换。",
+        invalidStrategyNote: "所选策略尚未获准用于当前运行方式，不能提交。可先查看其他策略；模拟运行不会恢复实盘。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         invalidOptionOverlayNote: "当前策略未定义可启用的期权层。",
@@ -1161,7 +526,7 @@
         repository: "平台仓库",
         selectedAccount: "账号",
         selectedMarket: "市场",
-        currentRuntimeTarget: "当前账号状态",
+        currentRuntimeTarget: "配置开关",
         pendingRuntimeTarget: "待提交账号状态",
         reservedCashPolicy: "当前预留现金",
         currentIncomeLayer: "当前收入层",
@@ -1188,7 +553,7 @@
         cryptoEquity: "加密",
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
-        notRead: "读取失败",
+        notRead: "未确认",
         runtimeTargetOn: "启用",
         runtimeTargetOff: "禁用",
         incomeLayerDefault: "开启，{start}起 {ratio}",
@@ -1202,18 +567,55 @@
       },
       en: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "Daily management for automated strategies",
+        appSubtitle: "Platform settings",
+        loginTitle: "Your trading workspace",
+        loginDescription: "Configure strategies. Monitor operations. Make key decisions.",
+        loginUnavailable: "Unable to verify your session. Please sign in again.",
+        loginDenied: "This account does not have access. Please switch accounts.",
         languageToggle: "Change language",
         consoleNavigation: "Console navigation",
         dataFreshness: "Data freshness",
         decisionSummary: "Decision summary",
         healthSummary: "Strategy health summary",
         healthFilters: "Filter strategy health",
-        controlPlaneView: "Your attention",
-        healthView: "System status",
-        switchView: "Strategy settings",
+        controlPlaneView: "Decisions",
+        healthView: "Runtime overview",
+        switchView: "Platforms",
+        refreshStatus: "Refresh records",
+        refreshingStatus: "Reading…",
+        configTruthNote: "Saved configuration is not observed runtime state.",
+        configuredSwitch: "Configured switch",
+        observedRuntime: "Last check",
+        deployedSwitch: "Deployed switch",
+        schedulerState: "Scheduling",
+        applicationStatus: "Applied status",
+        configuredStrategy: "Configured strategy",
+        scheduleEnabled: "Enabled",
+        schedulePaused: "Paused",
+        scheduleMixed: "Partially paused",
+        scheduleMissing: "No bound jobs",
+        scheduleNotApplicable: "Not applicable",
+        deploymentUnverified: "Deployment not verified",
+        strategyNotApplied: "Strategy not applied",
+        settingsNotApplied: "Switch not applied",
+        switchesApplied: "Switches synchronized",
+        scheduleNotApplied: "Scheduling not synchronized",
+        monitoringConfigMismatch: "Configuration differs from last check",
+        runtimeUnverified: "No record",
+        monitoringUnlinked: "Not linked",
+        monitoringTime: "Recorded at",
+        monitoringDetails: "Monitoring details",
+        platformManagement: "Platform management",
+        advancedDetails: "Advanced details",
+        monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
+        instanceList: "Account instances",
+        configDetails: "Configuration details",
+        runtimeObservationHint: "Deployment and scheduling come from resource readback at the shown time, not proof of fills.",
+        openSystemStatus: "View advanced details",
+        noConfiguredAccounts: "Sign in and load configuration to view account instances.",
+
         controlPlaneEyebrow: "To do",
-        controlPlaneTitle: "Your attention",
+        controlPlaneTitle: "Your decision needed",
         controlPlaneSubtitle: "Only items that need your confirmation appear here.",
         controlCandidateTotal: "Monitored items",
         controlDeferred: "To review",
@@ -1233,10 +635,10 @@
         controlStaleNotice: "Data is delayed. Avoid making a new decision from it for now.",
         controlUnavailableNotice: "The latest status is temporarily unavailable. Please refresh later.",
         controlUpstreamNotice: "Some data is temporarily unavailable. Please retry later.",
-        controlAttentionNotice: "{deferred} item(s) need review and {parked} are paused.",
+        controlAttentionNotice: "{count} item(s) need your decision.",
         controlNormalNotice: "There is nothing you need to decide right now.",
-        controlNormalSummary: "The system will keep monitoring, improving, and recording.",
-        controlStaleSummary: "Monitoring continues; new items will appear after the next update.",
+        controlNormalSummary: "Items requiring your decision appear here.",
+        controlStaleSummary: "These records are not current; avoid making new decisions from them.",
         controlLoginSummary: "Sign in to see your tasks and system overview.",
         controlAttentionSummary: "Review the items below and choose the next step.",
         controlEmptyCandidates: "There is nothing to handle right now.",
@@ -1320,7 +722,7 @@
         runtimeTargetLifecycleCheckUnavailable: "unavailable",
         runtimeTargetLifecycleObservationNotDue: "not in a due window",
         runtimeTargetLifecycleObservationMonitoringOnly: "monitoring only",
-        runtimeTargetLifecycleObservationNotApplicable: "target disabled; not applicable",
+        runtimeTargetLifecycleObservationNotApplicable: "Disabled record",
         runtimeTargetLifecycleObservationAttention: "needs review",
         runtimeTargetLifecycleObservationUnavailable: "unavailable",
         runtimeTargetLifecycleOrderEvidenceNotCollected: "not collected",
@@ -1367,8 +769,8 @@
         researchTaskLimits: "Research budget: up to {runs} run(s) / {seconds}s",
         researchTaskNoOrder: "View the current automation tasks.",
         healthEyebrow: "System status",
-        healthTitle: "System status",
-        healthSubtitle: "Browse health and runtime status by category.",
+        healthTitle: "Runtime overview",
+        healthSubtitle: "Platform runtime records first; expand strategy and research details as needed.",
         healthTotal: "Strategies",
         healthHealthy: "Healthy",
         healthWatch: "Watch",
@@ -1422,7 +824,7 @@
         logout: "Sign out",
         signedInAs: "Signed in as {login}",
         planEyebrow: "Strategy settings",
-        planTitle: "Change strategy settings",
+        planTitle: "Platform settings",
         planSubtitle: "Choose a platform, account, strategy, and environment; review this change before saving.",
         planAdvancedSummary: "Advanced settings",
         planAdvancedHint: "Runtime, plugins, cash, overlays, and DCA normally retain their current setup. Expand only when changing one.",
@@ -1437,9 +839,38 @@
         account: "Target account",
         strategy: "Strategy",
         mode: "Target environment",
-        live: "Live",
+        live: "Broker execution",
         paper: "Legacy non-live",
-        dryRun: "Simulated run",
+        dryRun: "No-order simulation",
+        promotionConfirmTitle: "Promotion confirm (after shadow)",
+        promotionDecisionEyebrow: "Decisions",
+        promotionExecutionMode: "Target execution mode",
+        promotionRiskProfile: "Risk profile",
+        promotionConfirmMeta: "Records human intent only: real broker paper (if any) or live, plus risk profile. Promotion size scales are 0.50/0.75/1.00 (not Composer MDD 1.00/1.25/1.50). No synthetic paper; confirm does not grant live authority.",
+        promotionPaperUnavailable: "Broker paper/sim unavailable on this platform; paper disabled",
+        promotionTicket: "Pending ticket",
+        promotionAccept: "Accept intent",
+        promotionReject: "Reject",
+        promotionTicketEmpty: "No awaiting_human promotion ticket",
+        promotionTicketLoginRequired: "Sign in with an authorized account, then refresh",
+        promotionTicketLoadFailed: "Could not load the promotion queue. Please refresh.",
+        promotionAdminOnly: "An administrator must confirm or reject",
+        promotionTicketSuggested: "Ticket suggested risk profile: {profile}",
+        promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
+        promotionDecisionFailed: "Promotion confirmation failed",
+        riskCapitalPreservation: "Capital preservation (promo size ×0.50; Composer MDD ×1.00)",
+        riskBalancedCompounding: "Balanced compounding (promo size ×0.75; Composer MDD ×1.25)",
+        riskGrowthCompounding: "Growth compounding (promo size ×1.00; Composer MDD ×1.50)",
+        riskEnvelopeTitle: "Account risk envelope",
+        riskEnvelopePreference: "Risk preference",
+        riskEnvelopeCapitalBand: "Capital band",
+        riskEnvelopeStatus: "Status lamp",
+        riskEnvelopeDetailsSummary: "Details",
+        riskEnvelopeMeta: "Read-only; does not grant live authority or auto step-up.",
+        riskEnvelopeAwaitingEquity: "Awaiting reconciled equity",
+        riskEnvelopeUnset: "Unset",
+        promotionModeLive: "Live (separate enablement still required)",
+        promotionModePaper: "Broker paper/sim",
         liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
         runtimeTargetMode: "Account status",
         runtimeSectionTitle: "Runtime and plugins",
@@ -1517,8 +948,8 @@
         reservedCashDefault: "Not configured (platform default: 0 {currency} / 0%)",
         reservedCashMeta: "Fixed cash floor. Use alone or with a ratio.",
         reservedCashRatioMeta: "Use 0.03 for 3%.",
-        summary: "Risk and change summary",
-        summaryCurrent: "Current boundary",
+        summary: "Current configuration",
+        summaryCurrent: "Saved configuration",
         summaryPending: "Pending change",
         planReadinessTitle: "Before submission",
         planCheckAccount: "Account and scope",
@@ -1543,7 +974,7 @@
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "Review the changes above, then save.",
-        invalidStrategyNote: "This account has no runnable strategy, so switching is disabled.",
+        invalidStrategyNote: "The selected strategy is not approved for this execution mode. You can browse other strategies; simulation does not restore live trading.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         invalidOptionOverlayNote: "This strategy does not define an option layer to enable.",
@@ -1580,7 +1011,7 @@
         cryptoEquity: "Crypto",
         currentStrategy: "Current strategy",
         nextStrategy: "Switch strategy",
-        notRead: "Not read",
+        notRead: "Unconfirmed",
         runtimeTargetOn: "Enabled",
         runtimeTargetOff: "Disabled",
         incomeLayerDefault: "Enabled, {start} start, {ratio} max",
@@ -1621,9 +1052,8 @@
     });
 
     const state = {
-      selected: "longbridge",
+      selected: Object.keys(platformMeta)[0] || "",
       lang: initialLang,
-      view: "control",
       appReady: false,
       bootMessageKey: "bootMessage",
       auth: { available: false, allowed: false, admin: false, login: null },
@@ -1723,16 +1153,26 @@
           errors: [],
         },
       },
+      researchPromotion: {
+        payload: {
+          data_status: "unavailable",
+          computed_at: null,
+          tickets: [],
+          summary: { ticket_count: 0, awaiting_human: 0 },
+          policy: { live_authority_granted: false, no_order: true },
+          errors: [],
+        },
+        selectedTicketId: "",
+      },
       configSource: "default",
       repositories: clone(defaultRepositories),
-      forms: {
-        longbridge: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        ibkr: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        schwab: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        firstrade: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none", ...defaultReserveForm() },
-        qmt: { accountKey: "preview", strategy: "", executionMode: "paper", pluginMode: "none", ...defaultReserveForm() },
-        binance: { accountKey: "preview", strategy: "", executionMode: "live", pluginMode: "none" },
-      },
+      forms: Object.fromEntries(Object.keys(platformMeta).map((platform) => [platform, {
+        accountKey: defaultAccountOptions[platform]?.[0]?.key || "preview",
+        strategy: "",
+        executionMode: platformConfig[platform]?.default_execution_mode || "live",
+        pluginMode: "none",
+        ...defaultReserveForm(),
+      }])),
     };
 
     const el = (id) => document.getElementById(id);
@@ -2074,6 +1514,7 @@
     function inferSupportedDomains(platform, account) {
       void account;
       if (platform === "qmt") return ["cn_equity"];
+      if (platform === "binance") return ["crypto"];
       if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
       return ["us_equity"];
     }
@@ -2095,7 +1536,6 @@
       if (!text || text.length > 40 || !/^[a-z0-9._-]+$/.test(text)) return "";
       if (["research_backtest_only", "ai_monitored_candidate"].includes(text)) return "research_active";
       if (text === "shadow_candidate") return "shadow_active";
-      if (text === "runtime_enabled") return "live_candidate";
       return text;
     }
 
@@ -2174,15 +1614,16 @@
       return true;
     }
 
-    function strategyChoicesForAccount(platform = state.selected, account = selectedAccount(platform), executionMode = state.forms[platform]?.executionMode) {
-      const choices = strategyOptions.filter((profile) => strategyAllowedForAccount(platform, account, profile, executionMode));
-      const addChoice = (value) => {
-        const profile = cleanStrategyProfile(value);
-        if (profile && !choices.includes(profile) && strategyAllowedForAccount(platform, account, profile, executionMode)) {
-          choices.push(profile);
-        }
-      };
-      return choices;
+    function strategyCompatibleWithAccount(platform, account, profile) {
+      const entry = strategyCatalogEntry(profile);
+      return Boolean(entry.profile)
+        && (!dcaConfigForStrategy(profile) || platformSupportsDca(platform))
+        && supportedDomainsForAccount(platform, account).includes(entry.domain);
+    }
+
+    function strategyChoicesForAccount(platform = state.selected, account = selectedAccount(platform)) {
+      // Browsing is not execution approval; submission retains its existing checks.
+      return strategyOptions.filter(profile => strategyCompatibleWithAccount(platform, account, profile));
     }
 
     function hasLiveStrategyOption(platform = state.selected, account = selectedAccount(platform)) {
@@ -2266,7 +1707,7 @@
       const entry = currentEntryForAccount(platform, account);
       if (!entry) return { known: false, enabled: null };
       const configured = cleanOptionalBoolean(entry.runtime_target_enabled);
-      return { known: true, enabled: configured ?? true };
+      return { known: configured !== null, enabled: configured };
     }
 
     function runtimeTargetText(enabled) {
@@ -2522,7 +1963,8 @@
       else if (platformSupportsMarginPolicy(platform)) synth.cash_only_execution = true;
       if (merged.min_reserved_cash_usd) synth.min_reserved_cash_usd = merged.min_reserved_cash_usd;
       if (merged.reserved_cash_ratio) synth.reserved_cash_ratio = merged.reserved_cash_ratio;
-      synth.runtime_target_enabled = merged.runtime_target_enabled !== false;
+      // Routing defaults are not a readback of the runtime configuration.
+      synth.runtime_target_enabled = null;
       const execMode = merged.default_execution_mode || platformConfig[platform]?.default_execution_mode || "live";
       synth.execution_mode = execMode;
       synth.dry_run_only = execMode === "paper";
@@ -2588,6 +2030,350 @@
       const text = cleanDisplayNumber(value);
       return text && Number(text) > 0 ? text : "";
     }
+
+
+    const PROMOTION_RISK_PROFILES = [
+      "CAPITAL_PRESERVATION",
+      "BALANCED_COMPOUNDING",
+      "GROWTH_COMPOUNDING",
+    ];
+    const DEFAULT_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
+
+    function platformSupportsBrokerPaper(platform) {
+      // Broker paper/sim only — dry_run is local/synthetic and must not unlock paper.
+      const modes = platformConfig[platform]?.supported_execution_modes;
+      const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
+      return list.includes("paper");
+    }
+
+    function promotionRiskProfileLabel(profile) {
+      if (profile === "CAPITAL_PRESERVATION") return t("riskCapitalPreservation");
+      if (profile === "BALANCED_COMPOUNDING") return t("riskBalancedCompounding");
+      if (profile === "GROWTH_COMPOUNDING") return t("riskGrowthCompounding");
+      return profile;
+    }
+
+    function buildPromotionConfirmation({
+      targetPlatform,
+      executionMode,
+      riskProfile,
+      paperSupported,
+      suggestedRiskProfile,
+    }) {
+      const platform = String(targetPlatform || "").trim();
+      const mode = String(executionMode || "").trim().toLowerCase();
+      const profile = String(riskProfile || DEFAULT_PROMOTION_RISK_PROFILE).trim().toUpperCase();
+      const suggested = String(
+        suggestedRiskProfile || DEFAULT_PROMOTION_RISK_PROFILE,
+      ).trim().toUpperCase();
+      if (!platform) throw new Error("target_platform required");
+      if (mode !== "live" && mode !== "paper") throw new Error("execution_mode must be live or paper");
+      if (!PROMOTION_RISK_PROFILES.includes(profile)) throw new Error("invalid risk_profile");
+      if (!PROMOTION_RISK_PROFILES.includes(suggested)) throw new Error("invalid suggested_risk_profile");
+      if (mode === "paper" && !paperSupported) {
+        throw new Error("paper unavailable; synthetic matching is not supported");
+      }
+      // Exact QPK PromotionConfirmation.to_dict() fields only.
+      return {
+        target_platform: platform,
+        execution_mode: mode,
+        risk_profile: profile,
+      };
+    }
+
+
+    function buildDesignPreviewRiskEnvelopeView(riskPreference) {
+      const profile = String(riskPreference || "").trim().toUpperCase();
+      const labels = {
+        CAPITAL_PRESERVATION: { zh: "保全", en: "Preserve" },
+        BALANCED_COMPOUNDING: { zh: "均衡", en: "Balance" },
+        GROWTH_COMPOUNDING: { zh: "增长", en: "Growth" },
+      };
+      const scales = {
+        CAPITAL_PRESERVATION: { composer_mdd_multiple: 1.0, promotion_size_scale: 0.5 },
+        BALANCED_COMPOUNDING: { composer_mdd_multiple: 1.25, promotion_size_scale: 0.75 },
+        GROWTH_COMPOUNDING: { composer_mdd_multiple: 1.5, promotion_size_scale: 1.0 },
+      };
+      const known = Object.prototype.hasOwnProperty.call(labels, profile);
+      return {
+        schema: "qsl.risk_envelope_view.v1",
+        source: "design_preview",
+        preference: known
+          ? { id: profile, label_zh: labels[profile].zh, label_en: labels[profile].en }
+          : { id: "unknown", label_zh: "未设定", label_en: "Unset" },
+        capital_band: {
+          id: "unknown",
+          label_zh: "待对账权益注入",
+          label_en: "Awaiting reconciled equity",
+        },
+        status: {
+          id: "unknown",
+          label_zh: "待对账权益注入",
+          label_en: "Awaiting reconciled equity",
+        },
+        scales: {
+          composer_mdd_multiple: known ? scales[profile].composer_mdd_multiple : null,
+          promotion_size_scale: known ? scales[profile].promotion_size_scale : null,
+          capital_scale: null,
+          vol_scale: null,
+          dd_scale: null,
+        },
+        detail: {
+          dual_scale_note_zh:
+            "双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。资金信封 combined_scale = capital_scale × vol_scale × dd_scale（各因子 ≤1），由系统按权益/波动/回撤计算，禁止自动升档。",
+          dual_scale_note_en:
+            "Dual scale: Composer unlevered-benchmark MDD caps are 1.00 / 1.25 / 1.50; promotion size scales are 0.50 / 0.75 / 1.00 (new promotion / material change only). Envelope combined_scale = capital_scale × vol_scale × dd_scale (each ≤1), system-computed from equity/vol/drawdown; auto step-up is forbidden.",
+        },
+        live_authority_granted: false,
+      };
+    }
+
+    function renderRiskEnvelopePanel() {
+      const preferenceEl = el("risk-envelope-preference");
+      const bandEl = el("risk-envelope-capital-band");
+      const statusEl = el("risk-envelope-status");
+      const detailsEl = el("risk-envelope-details");
+      const panel = el("risk-envelope-panel");
+      if (!preferenceEl || !bandEl || !statusEl || !detailsEl) return;
+      const ticket = selectedPromotionTicket();
+      const riskSelect = el("promotion-risk-profile-select");
+      const selectedProfile = String(riskSelect?.value || ticket?.suggested_risk_profile || DEFAULT_PROMOTION_RISK_PROFILE).trim().toUpperCase();
+      const view = ticket?.risk_envelope_view && typeof ticket.risk_envelope_view === "object"
+        ? {
+            ...ticket.risk_envelope_view,
+            preference: {
+              ...(ticket.risk_envelope_view.preference || {}),
+              ...(buildDesignPreviewRiskEnvelopeView(selectedProfile).preference || {}),
+            },
+            scales: {
+              ...(ticket.risk_envelope_view.scales || {}),
+              ...(buildDesignPreviewRiskEnvelopeView(selectedProfile).scales || {}),
+            },
+          }
+        : buildDesignPreviewRiskEnvelopeView(selectedProfile);
+      const zh = state.lang !== "en";
+      preferenceEl.textContent = zh
+        ? (view.preference?.label_zh || t("riskEnvelopeUnset"))
+        : (view.preference?.label_en || t("riskEnvelopeUnset"));
+      bandEl.textContent = zh
+        ? (view.capital_band?.label_zh || t("riskEnvelopeAwaitingEquity"))
+        : (view.capital_band?.label_en || t("riskEnvelopeAwaitingEquity"));
+      const statusId = String(view.status?.id || "unknown");
+      statusEl.textContent = zh
+        ? (view.status?.label_zh || t("riskEnvelopeAwaitingEquity"))
+        : (view.status?.label_en || t("riskEnvelopeAwaitingEquity"));
+      statusEl.dataset.status = statusId;
+      if (panel) panel.dataset.status = statusId;
+      const scales = view.scales || {};
+      const note = zh ? (view.detail?.dual_scale_note_zh || "") : (view.detail?.dual_scale_note_en || "");
+      const scaleLines = [
+        `Composer MDD ×${scales.composer_mdd_multiple ?? "—"}`,
+        `promo size ×${scales.promotion_size_scale ?? "—"}`,
+        `capital_scale=${scales.capital_scale ?? "null"}`,
+        `vol_scale=${scales.vol_scale ?? "null"}`,
+        `dd_scale=${scales.dd_scale ?? "null"}`,
+        `source=${view.source || "design_preview"}`,
+        `live_authority_granted=${view.live_authority_granted === true}`,
+      ];
+      detailsEl.textContent = `${note}\n${scaleLines.join(" · ")}`;
+    }
+
+    function selectedPromotionTicket() {
+      const tickets = state.researchPromotion?.payload?.tickets || [];
+      const selectedId = state.researchPromotion?.selectedTicketId || "";
+      return tickets.find((ticket) => ticket.ticket_id === selectedId) || null;
+    }
+
+    function promotionTicketQueueMessage() {
+      if (!state.auth?.allowed) return t("promotionTicketLoginRequired");
+      const payload = state.researchPromotion?.payload || {};
+      if (payload.data_status === "login_required") return t("promotionTicketLoginRequired");
+      if (
+        payload.data_status === "unavailable"
+        || (Array.isArray(payload.errors) && payload.errors.length > 0)
+      ) {
+        return t("promotionTicketLoadFailed");
+      }
+      return t("promotionTicketEmpty");
+    }
+
+    function renderPromotionConfirmControls() {
+      const platform = state.selected;
+      const ticketSelect = el("promotion-ticket-select");
+      const modeSelect = el("promotion-execution-mode-select");
+      const riskSelect = el("promotion-risk-profile-select");
+      const meta = el("promotion-confirm-meta");
+      const ticketMeta = el("promotion-ticket-meta");
+      const acceptButton = el("promotion-accept-button");
+      const rejectButton = el("promotion-reject-button");
+      if (!modeSelect || !riskSelect) return;
+      const paperSupported = platformSupportsBrokerPaper(platform);
+      const tickets = (state.researchPromotion?.payload?.tickets || []).filter(
+        (ticket) => ticket.state === "awaiting_human",
+      );
+      if (ticketSelect) {
+        const previousTicket = state.researchPromotion.selectedTicketId || ticketSelect.value || "";
+        ticketSelect.replaceChildren();
+        if (!tickets.length) {
+          ticketSelect.append(new Option(promotionTicketQueueMessage(), "", true, true));
+          state.researchPromotion.selectedTicketId = "";
+        } else {
+          const selectedId = tickets.some((ticket) => ticket.ticket_id === previousTicket)
+            ? previousTicket
+            : tickets[0].ticket_id;
+          state.researchPromotion.selectedTicketId = selectedId;
+          for (const ticket of tickets) {
+            const label = `${ticket.ticket_id} · ${ticket.strategy_profile || "?"} · ${ticket.suggested_risk_profile || DEFAULT_PROMOTION_RISK_PROFILE}`;
+            ticketSelect.append(new Option(label, ticket.ticket_id, false, ticket.ticket_id === selectedId));
+          }
+        }
+      }
+      const ticket = selectedPromotionTicket();
+      const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
+        ? ticket.suggested_risk_profile
+        : DEFAULT_PROMOTION_RISK_PROFILE;
+      const previousMode = modeSelect.value || "live";
+      const previousRisk = riskSelect.value || suggested;
+      modeSelect.replaceChildren();
+      const liveSelected = previousMode === "live" || (!paperSupported && previousMode === "paper");
+      modeSelect.append(new Option(t("promotionModeLive"), "live", false, liveSelected));
+      const paperOption = new Option(t("promotionModePaper"), "paper", false, paperSupported && previousMode === "paper");
+      paperOption.disabled = !paperSupported;
+      modeSelect.append(paperOption);
+      if (!paperSupported) modeSelect.value = "live";
+      riskSelect.replaceChildren();
+      // Prefill from ticket suggestion unless the operator already chose another valid profile.
+      const selectedRisk = PROMOTION_RISK_PROFILES.includes(previousRisk) && previousRisk
+        ? (ticket && !riskSelect.dataset.touched ? suggested : previousRisk)
+        : suggested;
+      if (ticket && !riskSelect.dataset.touched) {
+        // Prefer ticket suggestion on first bind / ticket change.
+      }
+      const riskToSelect = ticket && riskSelect.dataset.ticketId !== (ticket?.ticket_id || "")
+        ? suggested
+        : (PROMOTION_RISK_PROFILES.includes(previousRisk) ? previousRisk : suggested);
+      for (const profile of PROMOTION_RISK_PROFILES) {
+        riskSelect.append(new Option(promotionRiskProfileLabel(profile), profile, false, profile === riskToSelect));
+      }
+      riskSelect.dataset.ticketId = ticket?.ticket_id || "";
+      if (meta) {
+        meta.textContent = paperSupported ? t("promotionConfirmMeta") : `${t("promotionConfirmMeta")} ${t("promotionPaperUnavailable")}`;
+      }
+      if (ticketMeta) {
+        if (ticket) {
+          ticketMeta.textContent = state.auth?.admin
+            ? t("promotionTicketSuggested").replace("{profile}", suggested)
+            : t("promotionAdminOnly");
+        } else {
+          ticketMeta.textContent = promotionTicketQueueMessage();
+        }
+      }
+      const canDecide = Boolean(ticket && state.auth?.admin);
+      if (acceptButton) acceptButton.disabled = !canDecide;
+      if (rejectButton) rejectButton.disabled = !canDecide;
+      renderRiskEnvelopePanel();
+    }
+
+    async function refreshResearchPromotionTickets() {
+      if (!state.auth?.allowed) {
+        state.researchPromotion.payload = {
+          data_status: "login_required",
+          computed_at: null,
+          tickets: [],
+          summary: { ticket_count: 0, awaiting_human: 0 },
+          policy: { live_authority_granted: false, no_order: true },
+          errors: [],
+        };
+        renderPromotionConfirmControls();
+        return;
+      }
+      try {
+        const payload = await requestJson("/api/research-promotion-tickets");
+        state.researchPromotion.payload = {
+          data_status: payload?.data_status || "ready",
+          computed_at: payload?.computed_at || null,
+          tickets: Array.isArray(payload?.tickets) ? payload.tickets : [],
+          summary: payload?.summary || { ticket_count: 0, awaiting_human: 0 },
+          policy: {
+            live_authority_granted: false,
+            no_order: true,
+            ...(payload?.policy || {}),
+          },
+          errors: Array.isArray(payload?.errors) ? payload.errors : [],
+        };
+      } catch {
+        state.researchPromotion.payload = {
+          data_status: "unavailable",
+          computed_at: null,
+          tickets: [],
+          summary: { ticket_count: 0, awaiting_human: 0 },
+          policy: { live_authority_granted: false, no_order: true },
+          errors: ["research_promotion_request_failed"],
+        };
+      }
+      renderPromotionConfirmControls();
+    }
+
+    async function submitResearchPromotionDecision(decision) {
+      const ticket = selectedPromotionTicket();
+      if (!ticket) {
+        showToast(t("promotionTicketEmpty"));
+        return;
+      }
+      const platform = state.selected;
+      const paperSupported = platformSupportsBrokerPaper(platform);
+      const modeSelect = el("promotion-execution-mode-select");
+      const riskSelect = el("promotion-risk-profile-select");
+      try {
+        const confirmation = decision === "accept"
+          ? buildPromotionConfirmation({
+              targetPlatform: platform,
+              executionMode: modeSelect?.value || "live",
+              riskProfile: riskSelect?.value || ticket.suggested_risk_profile,
+              paperSupported,
+              suggestedRiskProfile: ticket.suggested_risk_profile,
+            })
+          : null;
+        const payload = await requestJson("/api/research-promotion-decisions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticket_id: ticket.ticket_id,
+            decision,
+            confirmation,
+            expected_proposed_params: ticket.proposed_params || {},
+            expected_strategy_profile: ticket.strategy_profile,
+            expected_domain: ticket.domain,
+          }),
+        });
+        if (payload?.live_authority_granted) {
+          throw new Error("server attempted to grant live authority");
+        }
+        showToast(t("promotionDecisionSaved"));
+        await refreshResearchPromotionTickets();
+      } catch (error) {
+        showToast(`${t("promotionDecisionFailed")}: ${error.message || error}`);
+      }
+    }
+
+    el("promotion-ticket-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedTicketId = String(event.target.value || "");
+      const riskSelect = el("promotion-risk-profile-select");
+      if (riskSelect) delete riskSelect.dataset.ticketId;
+      renderPromotionConfirmControls();
+    });
+    el("promotion-risk-profile-select")?.addEventListener("change", () => {
+      const riskSelect = el("promotion-risk-profile-select");
+      if (riskSelect) riskSelect.dataset.touched = "1";
+      renderRiskEnvelopePanel();
+    });
+    el("promotion-accept-button")?.addEventListener("click", () => {
+      submitResearchPromotionDecision("accept");
+    });
+    el("promotion-reject-button")?.addEventListener("click", () => {
+      submitResearchPromotionDecision("reject");
+    });
+
 
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
@@ -2657,8 +2443,7 @@
     function syncRuntimeTargetForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.runtimeTargetTouched) return;
-      const current = runtimeTargetEnabledForAccount(platform, selectedAccount(platform));
-      form.runtimeTargetMode = current === false ? "disabled" : "enabled";
+      form.runtimeTargetMode = "current";
     }
 
     function syncReservePolicyForAccount(platform) {
@@ -2759,7 +2544,7 @@
       if (platform === "longbridge") return `longbridge-quant-${targetName.toLowerCase()}-service`;
       if (platform === "ibkr") return `interactive-brokers-${targetName.toLowerCase()}-service`;
       if (platform === "schwab") return "charles-schwab-quant-service";
-      if (platform === "firstrade") return "firstrade-quant-service";
+      if (platformConfig[platform]?.service_name) return platformConfig[platform].service_name;
       if (platform === "qmt") return "qmt-quant-service";
       return "";
     }
@@ -3118,15 +2903,15 @@
       if (mode === "current") {
         return {
           changed: false,
-          inputs: { runtime_target_enabled: runtimeTargetEnabledForAccount(platform, account) ?? true },
+          inputs: { runtime_target_enabled: runtimeTargetEnabledForAccount(platform, account) },
         };
       }
       const current = runtimeTargetEnabledForAccount(platform, account);
-      const currentEnabled = current ?? true;
+      const currentEnabled = current;
       const nextEnabled = mode === "enabled";
       const entry = currentEntryForAccount(platform, account);
       return {
-        changed: Boolean(entry && current !== null && currentEnabled !== nextEnabled),
+        changed: Boolean(entry && currentEnabled !== nextEnabled),
         inputs: { runtime_target_enabled: nextEnabled },
       };
     }
@@ -3415,7 +3200,10 @@
       const strip = el("platform-strip");
       strip.replaceChildren();
       const showPrivateConfig = hasPrivateConfig();
-      for (const platform of Object.keys(platformMeta)) {
+      const visiblePlatforms = Object.keys(platformMeta).filter((platform) => platformMeta[platform].console_visible !== false);
+      if (!visiblePlatforms.includes(state.selected) && visiblePlatforms.length) state.selected = visiblePlatforms[0];
+      el("switch-view").querySelector(".switch-surface").hidden = !visiblePlatforms.length;
+      for (const platform of visiblePlatforms) {
         ensureAccountSelection(platform);
         const meta = platformMeta[platform];
         const form = state.forms[platform];
@@ -3445,7 +3233,137 @@
       }
     }
 
+    function accountMonitoringRecord(platform, account) {
+      if (!state.auth.allowed || !account?.runtime_status_target_id) return null;
+      const id = account.runtime_status_target_id;
+      if (optionsFor(platform).filter(item => item.runtime_status_target_id === id).length !== 1) return null;
+      const matches = state.runtimeTargetLifecycle.payload.targets.filter(entry =>
+        entry.target?.target?.platform === platform && entry.target?.target_id === id);
+      return matches.length === 1 ? matches[0] : null;
+    }
+
+    function accountMonitoringText(platform, account) {
+      const record = accountMonitoringRecord(platform, account);
+      if (!record) return t(account?.runtime_status_target_id ? "runtimeUnverified" : "monitoringUnlinked");
+      if (record.freshness?.data_status !== "ready") return t("controlDataStale");
+      const configured = runtimeTargetStateForAccount(platform, account);
+      const recorded = record.target?.target?.configured_state;
+      if (configured.known && ["enabled", "disabled"].includes(recorded)
+          && configured.enabled !== (recorded === "enabled")) return t("monitoringConfigMismatch");
+      return runtimeTargetLifecycleObservationLabel(record.execution_observation?.code);
+    }
+
+    function accountDeploymentObservation(platform, account) {
+      const record = accountMonitoringRecord(platform, account);
+      return (record?.deployment_freshness || record?.freshness)?.data_status === "ready" ? record.target?.deployment || null : null;
+    }
+
+    function accountDeploymentText(platform, account) {
+      const observed = accountDeploymentObservation(platform, account);
+      if (typeof observed?.runtime_enabled !== "boolean") return t("notRead");
+      return t(observed.runtime_enabled ? "runtimeTargetLifecycleStateEnabled" : "runtimeTargetLifecycleStateDisabled");
+    }
+
+    function accountSchedulerText(platform, account) {
+      const observed = accountDeploymentObservation(platform, account);
+      return t({enabled:"scheduleEnabled", paused:"schedulePaused", mixed:"scheduleMixed",
+        missing:"scheduleMissing", not_applicable:"scheduleNotApplicable"}[observed?.scheduler_state] || "notRead");
+    }
+
+    function accountApplicationText(platform, account) {
+      const observed = accountDeploymentObservation(platform, account);
+      const configured = runtimeTargetStateForAccount(platform, account);
+      if (!configured.known || typeof observed?.runtime_enabled !== "boolean") return t("deploymentUnverified");
+      const profile = currentStrategyForAccount(platform, account);
+      if (observed.strategy_profile && profile && observed.strategy_profile !== profile) return t("strategyNotApplied");
+      if (observed.runtime_enabled !== configured.enabled) return t("settingsNotApplied");
+      if (!configured.enabled && observed.scheduler_state === "paused") return t("switchesApplied");
+      if (configured.enabled && observed.scheduler_state === "enabled") return t("switchesApplied");
+      return t("scheduleNotApplied");
+    }
+
+    function accountMonitoringAge(record) {
+      const age = (record?.deployment_freshness || record?.freshness)?.age_seconds;
+      if (typeof age !== "number" || !Number.isFinite(age) || age < 0) return "—";
+      const unit = age >= 86400 ? "day" : age >= 3600 ? "hour" : "minute";
+      const seconds = unit === "day" ? 86400 : unit === "hour" ? 3600 : 60;
+      return new Intl.RelativeTimeFormat(state.lang, { numeric: "auto" }).format(-Math.floor(age / seconds), unit);
+    }
+
+    function renderMonitoringOverview() {
+      const body = el("monitoring-overview-body");
+      body.replaceChildren();
+      if (!hasPrivateConfig()) return;
+      for (const platform of Object.keys(platformMeta).filter(p => platformMeta[p].console_visible !== false)) {
+        for (const account of optionsFor(platform)) {
+          const record = accountMonitoringRecord(platform, account);
+          const row = document.createElement("tr");
+          for (const value of [platformMeta[platform].label, account.label,
+            currentRuntimeTargetText(platform, account), accountMonitoringText(platform, account),
+            accountMonitoringAge(record)]) {
+            const cell = document.createElement("td");
+            cell.textContent = value;
+            row.append(cell);
+          }
+          const action = document.createElement("td");
+          const button = document.createElement("button");
+          button.className = "btn";
+          button.type = "button";
+          button.textContent = t("switchView");
+          button.addEventListener("click", () => {
+            state.selected = platform;
+            render();
+            el("account-select").value = account.key;
+            el("account-select").dispatchEvent(new Event("change"));
+          });
+          action.append(button);
+          row.append(action);
+          body.append(row);
+        }
+      }
+    }
+
+    function renderAccountOverview() {
+      const body = el("account-overview-body");
+      body.replaceChildren();
+      el("account-overview").hidden = !hasPrivateConfig();
+      if (!hasPrivateConfig()) return;
+      const platform = state.selected;
+      el("selected-monitoring-status").textContent = accountApplicationText(platform, selectedAccount(platform));
+      for (const account of optionsFor(platform)) {
+        const row = document.createElement("tr");
+        row.classList.toggle("selected", account.key === selectedAccount(platform)?.key);
+        const first = document.createElement("td");
+        const select = document.createElement("button");
+        select.type = "button";
+        select.textContent = account.label;
+        select.setAttribute("aria-pressed", String(account.key === selectedAccount(platform)?.key));
+        select.addEventListener("click", () => {
+          el("account-select").value = account.key;
+          el("account-select").dispatchEvent(new Event("change"));
+        });
+        first.append(select);
+        row.append(first);
+        for (const value of [
+          currentStrategyForAccount(platform, account) ? strategyLabel(currentStrategyForAccount(platform, account)) : t("notRead"),
+          currentRuntimeTargetText(platform, account),
+          accountDeploymentText(platform, account),
+          accountSchedulerText(platform, account),
+          // desired vs applied alignment — unknown when deployment readback is missing/stale
+          accountApplicationText(platform, account),
+          accountMonitoringAge(accountMonitoringRecord(platform, account)),
+        ]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.append(cell);
+        }
+        body.append(row);
+      }
+    }
+
     function renderControls() {
+      renderPromotionConfirmControls();
+
       const platform = state.selected;
       const meta = platformMeta[platform];
       const form = state.forms[platform];
@@ -3522,7 +3440,7 @@
       }
       strategySelect.disabled = !choices.length;
       strategySelect.replaceChildren();
-      if (currentStrategyBlocked) {
+      if (currentStrategyBlocked && !choices.includes(currentStrategy)) {
         const blockedOption = new Option(
           strategyChoiceLabel(currentStrategy, platform, account, form.executionMode),
           currentStrategy,
@@ -3724,6 +3642,12 @@
       currentHeading.className = "summary-section-title";
       currentHeading.textContent = t("summaryCurrent");
       list.appendChild(currentHeading);
+      const detail = document.createElement("details");
+      detail.className = "summary-details";
+      const detailLabel = document.createElement("summary");
+      detailLabel.textContent = t("configDetails");
+      detail.append(detailLabel);
+      const primaryLabels = new Set([t("selectedAccount"), t("currentStrategy"), t("currentRuntimeTarget")]);
       let pendingSectionInserted = false;
       for (const [label, value, rowClass, valueTone] of summaryRows(inputs)) {
         if (!pendingSectionInserted && rowClass === "pending") {
@@ -3751,12 +3675,14 @@
           valueNode.textContent = value;
         }
         row.append(labelNode, valueNode);
-        list.appendChild(row);
+        if (rowClass === "pending" || primaryLabels.has(label)) list.appendChild(row);
+        else detail.appendChild(row);
       }
+      list.appendChild(detail);
 
       const account = selectedAccount();
       const currentEntry = currentEntryForAccount(state.selected, account);
-      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const currentMode = currentEntry?.source === "account_defaults" ? "" : normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
       el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
     }
 
@@ -3859,6 +3785,11 @@
     function renderAppVisibility() {
       document.body.classList.toggle("app-loading", !state.appReady);
       el("boot-message").textContent = t(state.bootMessageKey);
+      el("app-shell").hidden = !state.appReady || !state.auth.allowed;
+      el("login-screen").hidden = !state.appReady || state.auth.allowed;
+      el("login-message").textContent = t(!state.auth.available
+        ? "loginUnavailable" : state.auth.login ? "loginDenied" : "loginDescription");
+      el("login-link").hidden = true;
     }
 
     function normalizeControlPlanePayload(payload) {
@@ -3958,8 +3889,10 @@
     }
 
     function candidateNeedsOperatorAction(item) {
+      const decision = ownerDecisionEntry(item?.candidate_id);
+      if (decision?.intent) return false;
       const recommendation = item?.recommendation?.code || "none";
-      return Boolean(ownerDecisionEntry(item?.candidate_id))
+      return Boolean(decision)
         || item?.lifecycle?.status === "owner_decision_required"
         || recommendation === "owner_live_decision";
     }
@@ -3969,7 +3902,7 @@
       const summary = payload.summary || {};
       const summaryAvailable = state.auth.allowed && payload.data_status !== "unavailable";
       const summaryCount = (value) => (summaryAvailable ? String(Number(value) || 0) : "—");
-      el("control-plane-status").textContent = `${controlPlaneDataStatusText(payload.data_status)} · ${controlPlaneAttentionText(payload.attention)}`;
+      el("control-plane-status").textContent = controlPlaneDataStatusText(payload.data_status);
       el("control-plane-computed-at").textContent = payload.computed_at
         ? t("controlComputedAt").replace("{time}", formatDateTime(payload.computed_at))
         : t("controlComputedAt").replace("{time}", "—");
@@ -3981,15 +3914,16 @@
       const notice = el("control-plane-notice");
       const statePanel = notice.closest(".decision-state");
       const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
+      el("control-plane-view").hidden = !state.auth.allowed || !actionableCandidates.length;
       const queue = el("control-plane-queue");
       queue.hidden = !actionableCandidates.length;
-      statePanel.classList.toggle("is-attention", actionableCandidates.length > 0 || payload.attention?.status === "attention_required");
+      statePanel.classList.toggle("is-attention", actionableCandidates.length > 0);
       statePanel.classList.toggle("is-stale", payload.data_status === "stale");
       statePanel.classList.toggle("is-unavailable", !state.auth.allowed || payload.data_status === "unavailable");
       const stateMark = statePanel.querySelector(".decision-state__mark");
       stateMark.textContent = !state.auth.allowed || payload.data_status === "unavailable"
         ? "i"
-        : ((actionableCandidates.length > 0 || payload.attention?.status === "attention_required" || payload.data_status === "stale") ? "!" : "✓");
+        : ((actionableCandidates.length > 0 || payload.data_status === "stale") ? "!" : "✓");
       if (!state.auth.allowed) {
         notice.textContent = t("controlLoginNotice");
         el("control-plane-summary").textContent = t("controlLoginSummary");
@@ -3999,11 +3933,9 @@
       } else if (payload.data_status !== "ready") {
         notice.textContent = t("controlUnavailableNotice");
         el("control-plane-summary").textContent = t("controlStaleSummary");
-      } else if (payload.attention?.status === "attention_required") {
+      } else if (actionableCandidates.length > 0) {
         notice.textContent = t("controlAttentionNotice")
-          .replace("{deferred}", String(Number(summary.deferred) || 0))
-          .replace("{parked}", String(Number(summary.parked) || 0))
-          .replace("{signals}", String(payload.attention.reason_codes?.length || 0));
+          .replace("{count}", String(actionableCandidates.length));
         el("control-plane-summary").textContent = t("controlAttentionSummary");
       } else if (payload.errors?.length) {
         notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
@@ -4106,8 +4038,14 @@
       };
     }
 
+    function recoveryNeedsOperatorAction(entry) {
+      return !entry.confirmation && entry.recovery?.readiness === "awaiting_human_confirmation";
+    }
+
     function renderReconciliationRecovery() {
       const payload = state.reconciliationRecovery.payload;
+      const pending = payload.recoveries.filter(recoveryNeedsOperatorAction);
+      el("reconciliation-recovery-board").hidden = !state.auth.allowed || !pending.length;
       const notice = el("reconciliation-recovery-notice");
       if (!state.auth.allowed) {
         notice.textContent = t("reconciliationRecoveryLoginNotice");
@@ -4129,7 +4067,7 @@
         list.appendChild(empty);
         return;
       }
-      for (const entry of payload.recoveries) {
+      for (const entry of pending) {
         const recovery = entry.recovery || {};
         const card = document.createElement("article");
         card.className = "health-card";
@@ -4156,7 +4094,6 @@
           && entry.freshness?.data_status === "ready"
           && recovery.readiness === "awaiting_human_confirmation"
           && recovery.blocker_codes?.length === 0
-          && recovery.dual_review?.outcome === "approved"
           && recovery.dual_review?.evidence_binding_sha256 === recovery.candidate_sha256;
         if (entry.confirmation) {
           status.textContent = t("reconciliationRecoveryConfirmed");
@@ -4652,8 +4589,12 @@
 
     function renderRuntimeTargetLifecycle() {
       const payload = state.runtimeTargetLifecycle.payload;
+      renderMonitoringOverview();
+      el("monitoring-computed-at").textContent = t("controlComputedAt").replace("{time}", payload.computed_at ? formatDateTime(payload.computed_at) : "—");
       const notice = el("runtime-target-lifecycle-notice");
-      if (!state.auth.allowed) {
+      if (state.runtimeTargetLifecycle.loading) {
+        notice.textContent = t("refreshingStatus");
+      } else if (!state.auth.allowed) {
         notice.textContent = t("runtimeTargetLifecycleLoginNotice");
       } else if (payload.data_status === "stale") {
         notice.textContent = t("runtimeTargetLifecycleStaleNotice");
@@ -4662,7 +4603,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("runtimeTargetLifecycleUpstreamNotice").replace("{count}", String(payload.errors.length));
       } else {
-        notice.textContent = localizedExternalText(payload.policy?.notice, t("runtimeTargetLifecycleNoOrder"));
+        notice.textContent = t("monitoringSummaryHint");
       }
 
       const list = el("runtime-target-lifecycle-list");
@@ -4675,7 +4616,11 @@
         return;
       }
 
-      const targets = [...payload.targets].sort((left, right) => {
+      const targets = payload.targets.filter(entry => {
+        const platform = entry.target?.target?.platform;
+        return platformMeta[platform]?.console_visible !== false && platformMeta[platform]
+          && optionsFor(platform).some(account => account.runtime_status_target_id === entry.target.target_id);
+      }).sort((left, right) => {
         const leftParked = left.target?.disposition?.code === "parked" ? 0 : 1;
         const rightParked = right.target?.disposition?.code === "parked" ? 0 : 1;
         if (leftParked !== rightParked) return leftParked - rightParked;
@@ -4699,7 +4644,7 @@
           .replace("{mode}", configuration.execution_mode || "unknown");
         const title = document.createElement("h4");
         title.className = "health-card__title";
-        title.textContent = String(target.target_id || "unknown");
+        title.textContent = optionsFor(configuration.platform).find(account => account.runtime_status_target_id === target.target_id)?.label || t("runtimeUnverified");
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
         reason.textContent = runtimeTargetLifecycleReasonLabel(disposition.reason_code);
@@ -4932,17 +4877,10 @@
     }
 
     function renderConsoleView() {
-      const controlButton = el("control-plane-view-button");
-      const healthButton = el("health-view-button");
-      const switchButton = el("switch-view-button");
-      const controlVisible = state.view === "control";
-      const healthVisible = state.view === "health";
-      el("control-plane-view").hidden = !controlVisible;
-      el("health-view").hidden = !healthVisible;
-      el("switch-view").hidden = controlVisible || healthVisible;
-      controlButton.classList.toggle("active", controlVisible);
-      healthButton.classList.toggle("active", healthVisible);
-      switchButton.classList.toggle("active", !controlVisible && !healthVisible);
+      el("switch-view").hidden = false;
+      el("health-view").hidden = true;
+      el("control-plane-view").hidden = !state.auth.allowed
+        || !state.controlPlane.payload.candidates.some(candidateNeedsOperatorAction);
     }
 
     function render() {
@@ -4957,6 +4895,7 @@
       renderHealth();
       renderPlatforms();
       renderControls();
+      renderAccountOverview();
       renderSummary();
       renderPlanReadiness();
       renderAuth();
@@ -4981,6 +4920,9 @@
         await refreshControlPlane();
         await refreshOwnerDecisions();
         await refreshConfig();
+        refreshRuntimeTargetLifecycle();
+        refreshReconciliationRecovery();
+        await refreshResearchPromotionTickets();
       } else {
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
@@ -5204,6 +5146,8 @@
         renderRuntimeTargetLifecycle();
         return;
       }
+      state.runtimeTargetLifecycle.loading = true;
+      renderRuntimeTargetLifecycle();
       try {
         state.runtimeTargetLifecycle.payload = normalizeRuntimeTargetLifecyclePayload(
           await requestJson("/api/runtime-target-lifecycle"),
@@ -5218,7 +5162,9 @@
           errors: ["runtime_target_lifecycle_request_failed"],
         };
       }
+      state.runtimeTargetLifecycle.loading = false;
       renderRuntimeTargetLifecycle();
+      renderAccountOverview();
     }
 
     async function refreshResearchTasks() {
@@ -5264,7 +5210,7 @@
       try {
         const payload = await requestJson("/api/config");
         if (payload.accountOptions) {
-          applyStrategyProfiles(payload.strategyProfiles || defaultStrategyProfiles);
+          applyStrategyProfiles(payload.strategyProfiles || []);
           state.accountOptions = normalizeAccountOptions(payload.accountOptions);
           if (payload.platformMeta) platformMeta = payload.platformMeta;
           state.repositories = normalizePlatformRepositories(payload.platformRepositories || {});
@@ -5304,6 +5250,7 @@
           deployment_selector: item.deployment_selector ? String(item.deployment_selector) : "",
           account_scope: item.account_scope ? String(item.account_scope) : "",
           service_name: item.service_name ? String(item.service_name) : "",
+          runtime_status_target_id: String(item.runtime_status_target_id || ""),
           cash_currency: item.cash_currency || item.market_currency || item.trading_currency
             ? String(item.cash_currency || item.market_currency || item.trading_currency).trim().toUpperCase()
             : "",
@@ -5427,23 +5374,17 @@
 ");
     }
 
-    document.querySelectorAll("[data-view]").forEach((button) => button.addEventListener("click", () => {
-      state.view = ["control", "health", "switch"].includes(button.dataset.view) ? button.dataset.view : "control";
-      renderConsoleView();
-      if (state.view === "control") {
-        refreshControlPlane();
-        refreshOwnerDecisions();
-      }
-      if (state.view === "health") {
-        refreshHealth();
-        refreshReconciliationRecovery();
-        refreshM0Research();
-        refreshAdaptiveSelection();
-        refreshExecutionEvidence();
-        refreshRuntimeTargetLifecycle();
-        refreshResearchTasks();
-      }
-    }));
+    el("health-view").addEventListener("toggle", () => {
+      if (!el("health-view").open) return;
+      refreshHealth();
+      refreshReconciliationRecovery();
+      refreshM0Research();
+      refreshAdaptiveSelection();
+      refreshExecutionEvidence();
+      refreshRuntimeTargetLifecycle();
+      refreshResearchTasks();
+      refreshResearchPromotionTickets();
+    });
 
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
       document.querySelectorAll("[data-health-filter]").forEach((node) => node.classList.remove("active"));
@@ -5470,6 +5411,24 @@
       state.selected = button.dataset.platform;
       state.forms[state.selected].strategyTouched = false;
       render();
+    });
+
+    el("refresh-status-button").addEventListener("click", async () => {
+      if (!state.auth.allowed) return;
+      const button = el("refresh-status-button");
+      button.disabled = true;
+      button.textContent = t("refreshingStatus");
+      try {
+        await Promise.all([
+          refreshConfig(),
+          refreshRuntimeTargetLifecycle(),
+          refreshReconciliationRecovery(),
+          refreshResearchPromotionTickets(),
+        ]);
+      } finally {
+        button.disabled = false;
+        button.textContent = t("refreshStatus");
+      }
     });
 
     el("account-select").addEventListener("change", () => {

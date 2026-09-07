@@ -108,3 +108,22 @@ class RuntimeTargetLifecycleTest(unittest.TestCase):
     def test_disabled_target_rejects_an_execution_heartbeat_claim(self) -> None:
         with self.assertRaisesRegex(lifecycle.RuntimeTargetLifecycleError, "not_applicable"):
             _snapshot(execution_heartbeat="pass")
+
+class DeploymentObservationTest(unittest.TestCase):
+    def test_real_deployment_is_separate_from_desired_state(self):
+        observation = {'runtime_enabled': False, 'scheduler_state': 'paused',
+                       'strategy_profile': 'soxl_soxx_trend_income', 'execution_mode': 'live'}
+        snapshot = _snapshot(deployment=observation)
+        self.assertEqual(snapshot['targets'][0]['deployment'], observation)
+
+    def test_unknown_is_not_disabled(self):
+        observation = {'runtime_enabled': None, 'scheduler_state': 'unknown',
+                       'strategy_profile': None, 'execution_mode': None}
+        self.assertIsNone(_snapshot(deployment=observation)['targets'][0]['deployment']['runtime_enabled'])
+
+    def test_raw_provider_fields_and_non_boolean_switch_are_rejected(self):
+        base = {'runtime_enabled': False, 'scheduler_state': 'paused',
+                'strategy_profile': None, 'execution_mode': None}
+        for change in [{'runtime_enabled': 'false'}, {'project': 'not-publishable'}, {'scheduler_state': 'success'}]:
+            with self.assertRaises(lifecycle.RuntimeTargetLifecycleError):
+                _snapshot(deployment={**base, **change})

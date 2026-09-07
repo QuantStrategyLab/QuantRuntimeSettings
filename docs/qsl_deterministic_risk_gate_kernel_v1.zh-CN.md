@@ -53,6 +53,13 @@ OPEN   + 任意新风险请求     -> NEW_RISK_PROHIBITED, next=OPEN
 
 未来独立网关可在受控存储中把 `next=OPEN` 作为状态变更；恢复必须经过其预先定义的人工/外部操作流程，不能由 AI、GitHub Actions、网页、策略代码或本模块自动完成。减仓/平仓也不在本 V1 的请求模型中，日后必须单独定义为预编码、可回放的规则。
 
+
+## 账户门接线状态（2026-09）
+
+- QRT 本模块仍是**纯判定内核**：不读真账户、不部署、不改账户启停、不自动 reset 熔断。
+- QPK 侧另有注入式只读 adapter 骨架（`account_new_risk_gate`）：调用方注入对账快照投影后，不健康快照只能得到 `NEW_RISK_PROHIBITED`（禁止新增风险）。**尚未挂真账户读回**，也不得据此自动恢复熔断或启用 live。
+- 完整执行网关接线仍按下文「后续接线」顺序；在未冻结 policy、未隔离身份前，P4/P5 继续 `PARKED`。
+
 ## 后续接线（尚未实现）
 
 1. 在独立 P5 shadow adapter 中，先读取/验证 P1–P3、现有 forward-observation 风险控制、policy-gate receipt 与前一最小化 shadow receipt，再把其受限快照注入此内核；保存结果前再次确认摘要一致。

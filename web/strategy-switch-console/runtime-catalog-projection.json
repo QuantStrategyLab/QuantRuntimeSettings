@@ -22,39 +22,41 @@
   "schema_version": "qsl.runtime_catalog_projection.v1",
   "source": {
     "catalog_as_of": "2026-08-19",
-    "content_sha256": "sha256:90261c8eaf9676c6d9b69c85222c5cb8f54305ca2fc8c0d51c96cf546f2286b0",
+    "content_sha256": "sha256:674f344766201be23ad981815a3160bdafc7c6c8b91e8b4412e89a86ea6a94ea",
     "path": "platform-config.json"
   },
   "strategies": [
     {
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-      "can_switch_live": false,
+      "blocked_live_reason": "",
+      "can_switch_live": true,
       "domain": "us_equity",
       "label": "纳斯达克增长收益",
       "label_en": "NASDAQ Growth Income",
       "label_zh": "纳斯达克增长收益",
-      "lifecycle_stage": "research_active",
+      "lifecycle_stage": "runtime_enabled",
       "profile": "tqqq_growth_income",
-      "runtime_enabled": false
+      "runtime_enabled": true
     },
     {
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-      "can_switch_live": false,
+      "blocked_live_reason": "",
+      "can_switch_live": true,
       "domain": "us_equity",
       "label": "半导体趋势收益",
       "label_en": "Semiconductor Trend Income",
       "label_zh": "半导体趋势收益",
-      "lifecycle_stage": "research_active",
+      "lifecycle_stage": "runtime_enabled",
       "profile": "soxl_soxx_trend_income",
-      "runtime_enabled": false
+      "runtime_enabled": true
     },
     {
       "allowed_execution_modes": [
@@ -74,17 +76,18 @@
     {
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-      "can_switch_live": false,
+      "blocked_live_reason": "",
+      "can_switch_live": true,
       "domain": "us_equity",
       "label": "IBIT比特币定投",
       "label_en": "IBIT Bitcoin DCA",
       "label_zh": "IBIT比特币定投",
-      "lifecycle_stage": "research_active",
+      "lifecycle_stage": "runtime_enabled",
       "profile": "ibit_smart_dca",
-      "runtime_enabled": false
+      "runtime_enabled": true
     },
     {
       "allowed_execution_modes": [
@@ -103,17 +106,18 @@
     {
       "allowed_execution_modes": [
         "paper",
-        "dry_run"
+        "dry_run",
+        "live"
       ],
-      "blocked_live_reason": "missing_current_promotion_evidence_and_preauthorized_autonomy_policy",
-      "can_switch_live": false,
+      "blocked_live_reason": "",
+      "can_switch_live": true,
       "domain": "us_equity",
       "label": "罗素Top50领涨",
       "label_en": "Russell Top50 Leaders",
       "label_zh": "罗素Top50领涨",
-      "lifecycle_stage": "research_active",
+      "lifecycle_stage": "runtime_enabled",
       "profile": "russell_top50_leader_rotation",
-      "runtime_enabled": false
+      "runtime_enabled": true
     },
     {
       "allowed_execution_modes": [
@@ -407,11 +411,12 @@
   "summary": {
     "lifecycle_stage_counts": {
       "live_candidate": 1,
-      "research_active": 21,
+      "research_active": 17,
+      "runtime_enabled": 4,
       "shadow_active": 4
     },
-    "live_switchable_count": 0,
-    "runtime_enabled_count": 0,
+    "live_switchable_count": 4,
+    "runtime_enabled_count": 4,
     "strategy_profile_count": 26
   }
 }

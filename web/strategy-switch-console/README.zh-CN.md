@@ -10,14 +10,22 @@
 
 控制台的目标架构见 [QSL 统一决策平台架构 V1](../../docs/qsl_unified_control_console_architecture_v1.zh-CN.md)：人将从这一处查看跨仓健康、候选和需要本人决定的 P6 项；网页不会持有券商凭证或直接下单。现有“策略切换”是历史部署配置工具，不能被视为 P0–P6 运行授权。
 
+## 平台目录配置
+
+- `platform-config.json` 的 `platforms` 是网站平台目录的来源：名称、标识、颜色、仓库、默认账户与能力在此配置；菜单顺序沿用配置中的平台顺序。
+- 只需隐藏已接入平台时，在部署配置中修改 `STRATEGY_SWITCH_HIDDEN_PLATFORMS`（逗号分隔）；例如 `qmt` 隐藏 QMT，空字符串显示全部。隐藏不是停用交易，不删除账户或适配器。
+- 修改目录后先运行 `python3 python/scripts/build_platform_config.py`（catalog/config 唯一来源），再运行 `python3 python/scripts/sync_strategy_switch_page_asset.py`（仅打包 HTML/CSS/JS），通过测试后部署网站。不要手改生成的 `config.js` / `strategy_profiles_asset.js`。
+- 前后端使用同一发布版本的目录；不再从远端 main 临时拼入平台。全新券商仍须先接入适配器及对应能力，不能只增加菜单就视为可交易。
+
 ## 操作台模型
 
 这个页面面向低频人工介入，而不是展示交易、收益或全量运行明细：
 
-- **决策**默认只展示需要所有者跟进的候选和决定。右侧固定说明“先确认事实、再记录意图”的三步判断；研究、证据、恢复核验和运行资料全部放到按需展开区。
-- **策略设置**把原有“切换策略、账号状态、插件、收入/期权层、预留现金和融资”收拢为一次受限配置变更。默认仅显示平台/账号/策略/环境；运行保护、现金、收入层、期权层和定投归入“更多风险边界”，只在确实变更时展开。
-- **系统状态**只读展示健康结论，帮助判断是否复核、降级或继续观察。
-- 页面会在没有任何策略同时满足发布、运行许可和证据门槛时禁用 Live 选择；它不会自动改配置，也不会把健康、候选或历史 `live` 元数据解释为订单或实盘授权。
+- **平台管理**是唯一日常主页面：账户、策略、配置开关、监测记录和更新时间并列显示，不再保留“待你处理／系统状态”常驻导航。
+- **需要你确认**仅在存在未完成的人工决定时出现；已完成项及研究统计不占据首页。已有对账恢复的待人工确认项独立保留，诊断收起不应让确认入口消失。
+- 日常页面不展示监测详情、策略健康评分或研究诊断；现有 API 与内部展示代码保留，但不向操作者开放入口，也不伪装成 AI 已自动修复。
+- 管理员可在账户配置中添加可选 `runtime_status_target_id`，明确关联现有 lifecycle 来源的 `target_id`。必须同时匹配平台且一对一；未关联、重复或过期记录不会显示为正常。该字段仅影响显示，不进入交易工作流。监测通过不代表已下单或成交。
+- 策略列表展示账户市场兼容的选项；查看和选择不代表获得运行许可。提交仍检查发布、运行许可和证据门槛；它不会自动改配置，也不会把健康、候选或历史 `live` 元数据解释为订单或实盘授权。
 
 网页只记录经认证管理员提交的不可执行意图，或发起已有的受限配置工作流；它不会直接读写券商、订单、资金或 runtime 授权。
 
@@ -39,6 +47,7 @@ STRATEGY_SWITCH_ADMIN_ORGS
 STRATEGY_HEALTH_SYNC_TOKEN
 CONTROL_PLANE_SYNC_TOKEN
 RESEARCH_TASK_SYNC_TOKEN
+RESEARCH_PROMOTION_SYNC_TOKEN
 M0_RESEARCH_SYNC_TOKEN
 RECONCILIATION_RECOVERY_SYNC_TOKEN
 RECONCILIATION_RECOVERY_CONTROLLER_TOKEN
@@ -100,6 +109,8 @@ m0_research_ledger_archive:<ledger_sha256>
 ## 组合风险偏好（非执行意图）
 
 管理员可在 `/admin` 为已配置的平台目标选择“保本优先 / 平衡复利 / 增长复利”。页面调用受同源校验和管理员权限保护的 `GET` / `POST /api/risk-profiles`，并只向 `risk_profile_bindings` 保存自校验的 `qsl.risk_profile_binding.v1` 记录；其中可移植的选择部分与核心风险合成器的 `qsl.risk_profile_selection.v1` 完全一致。
+
+**双口径澄清**：同一偏好名称对应两套数值——Composer 相对无杠杆基准的 MDD 天花板为 `CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50；晋级 `promotion_sizing` 仓位缩放为 0.50 / 0.75 / 1.00，且只用于新晋级或材料变更，不重算旧 live，也不等于把仓位乘以 1.5。本页保存的只是偏好意图，不会自动写生产政策或改 RiskEngine。
 
 此记录固定为 `no_order=true` 和 `execution_authority_granted=false`：它不进入 `RUNTIME_TARGET_JSON`、不改策略参数或仓位、不调度 workflow、不读写券商或云执行资源，也不能启用 paper、shadow 或 live。KV 中记录损坏时接口会返回不可用，绝不会静默回退为默认风险偏好。未来独立的只读控制面适配器只能读取其中的 `profile_selection`，仍需另外验证观察证据和完整的 P4/P5/P6 门槛。
 
@@ -269,9 +280,9 @@ POST /api/reconciliation-recovery-confirmations
 GET  /api/internal/reconciliation-recovery-confirmation?recovery_id=<opaque-id>
 ```
 
-来源契约是 `qsl_reconciliation_recovery_source_snapshot.v1`。每项只允许携带不含账户或 broker 状态的：不透明恢复 ID、平台/策略、`RECONCILE_ONLY`、QPK 候选 SHA-256、两次以上只读样本的时间窗与数量、双 AI 审计结果/绑定 SHA-256，以及稳定阻断码。`awaiting_human_confirmation` 只有在“两次样本、至少相隔 1 分钟且不超过 15 分钟、至少两位审计者、双审绑定同一候选、无阻断项”同时满足时才会被接受；来源和最后一次候选观测均默认 30 分钟后过期。任何已过期来源或候选都会使确认入口保持关闭。
+来源契约是 `qsl_reconciliation_recovery_source_snapshot.v1`。每项只允许携带不含账户或 broker 状态的：不透明恢复 ID、平台/策略、`RECONCILE_ONLY`、QPK 候选 SHA-256、一个或多个受来源绑定的只读样本时间窗与数量、模型审计结果/绑定 SHA-256，以及稳定阻断码。`awaiting_human_confirmation` 只有在“样本时间顺序正确且窗口不超过 15 分钟、候选与发布行绑定、无阻断项”同时满足时才会被接受；模型审计结果和审计人数保持可见的 advisory 信息，不会授予或否决确认。来源和最后一次候选观测均默认 30 分钟后过期。任何已过期来源或候选都会使确认入口保持关闭。
 
-控制台管理员确认后，Worker 只保存 `qsl_reconciliation_recovery_confirmation.v1` 的不可执行意图，固定 `no_order=true`、`execution_authority_granted=false`。它不会调用 workflow、读取券商凭证、改账户、下单或启用目标。私有恢复控制器只能以**另一枚** `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` 调用内部只读路径，读取当前候选绑定与确认摘要；Worker 会拒绝该 token 与来源同步 token 相同。控制器仍必须在同一目标上重新验证来源收据与双审绑定，原子写入五项预期状态摘要并切换到 `ACTIVE_LKG`；任一条件不成立就保持 `RECONCILE_ONLY`。旧 `manual-strategy-switch.yml` 明确拒绝任何 `live_continuity_state != NONE`，避免绕开这条链路。
+控制台管理员确认后，Worker 只保存 `qsl_reconciliation_recovery_confirmation.v1` 的不可执行意图，固定 `no_order=true`、`execution_authority_granted=false`。它不会调用 workflow、读取券商凭证、改账户、下单或启用目标。私有恢复控制器只能以**另一枚** `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` 调用内部只读路径，读取当前候选绑定与确认摘要；Worker 会拒绝该 token 与来源同步 token 相同。控制器仍必须在同一目标上重新验证受保护来源，原子写入五项预期状态摘要并切换到 `ACTIVE_LKG`；任一条件不成立就保持 `RECONCILE_ONLY`。旧 `manual-strategy-switch.yml` 明确拒绝任何 `live_continuity_state != NONE`，避免绕开这条链路。
 
 ## 平台运行状态只读接口
 
@@ -328,7 +339,7 @@ Shadow、修改 runtime 或产生订单。
 新增或重命名策略 profile 时，需要同时做这些事：
 
 - 在 `strategy-profiles.example.json` 增加 runtime-enabled profile id 和显示名称。
-- 运行 `python3 scripts/sync_strategy_switch_page_asset.py` 重新生成 `strategy_profiles_asset.js`。
+- 运行 `python3 python/scripts/build_platform_config.py` 重新生成 `strategy_profiles_asset.js` / `config.js`；`sync_strategy_switch_page_asset.py` 只打包页面资源。
 - 给每个策略 profile 设置 `domain`。当前支持 `us_equity`、`hk_equity` 和 `cn_equity`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `supported_domains`。策略 profile 通过 GitHub 变量的策略切换工作流进行管理。
 - LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。
@@ -370,6 +381,7 @@ wrangler secret put STRATEGY_SWITCH_SYNC_TOKEN # 可选；默认复用 RUNTIME_S
 wrangler secret put STRATEGY_HEALTH_SYNC_TOKEN
 wrangler secret put CONTROL_PLANE_SYNC_TOKEN
 wrangler secret put M0_RESEARCH_SYNC_TOKEN
+wrangler secret put RESEARCH_PROMOTION_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_SYNC_TOKEN
 wrangler secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN
 wrangler secret put ALLOWED_GITHUB_LOGINS
@@ -379,6 +391,13 @@ wrangler secret put STRATEGY_SWITCH_ADMIN_ORGS
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
+`RESEARCH_PROMOTION_SYNC_TOKEN` 保护：
+- `POST /api/internal/sync-research-promotion-ticket`（QPK soft-sync awaiting ticket）
+- `GET /api/internal/research-promotion-ticket?ticket_id=...`（QPK 拉取控制台决定）
+
+QuantPlatformKit 侧需配置同名 token，并把 `RESEARCH_PROMOTION_SYNC_URL` 指到 sync 接口（pull URL 可由它推导）。
+soft-sync 不授予 live；控制台上的 accept/reject 只记录人工意图。
+
 如果要启用后台保存，先创建 KV：
 
 ```bash
@@ -387,7 +406,7 @@ wrangler kv namespace create STRATEGY_SWITCH_CONFIG
 
 然后把返回的 namespace id 加到 `wrangler.toml`。
 
-GitHub Actions 自动部署需要在 `runtime-strategy-switch` environment 配置 `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`、`STRATEGY_SWITCH_CONSOLE_URL`、`STRATEGY_SWITCH_SYNC_TOKEN`、`M0_RESEARCH_SYNC_TOKEN`，以及 `CLOUDFLARE_API_TOKEN` 或 `CLOUDFLARE_WRANGLER_CONFIG_TOML` 二选一（只有当 `RUNTIME_SETTINGS_GH_TOKEN` 与 Worker 同步密钥相同时才复用它）。如果 Wrangler 能从 token 推断账号，`CLOUDFLARE_ACCOUNT_ID` 可不配。`M0_RESEARCH_SYNC_TOKEN` 必须与另一个受保护的 `m0-research-publisher` Environment 中的同名 secret 一致；它只会被复制到 Worker binding。缺少该值时，workflow 会在部署前失败，不能静默保留 Worker 的旧密钥。workflow 会先部署 Worker，再把内置策略 profile 目录同步到 KV，避免网站继续使用旧的 profile/plugin 元数据。
+GitHub Actions 自动部署需要在 `runtime-strategy-switch` environment 配置 `STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID`、`STRATEGY_SWITCH_CONSOLE_URL`、`STRATEGY_SWITCH_SYNC_TOKEN`、`M0_RESEARCH_SYNC_TOKEN`，以及 `CLOUDFLARE_API_TOKEN` 或 `CLOUDFLARE_WRANGLER_CONFIG_TOML` 二选一（只有当 `RUNTIME_SETTINGS_GH_TOKEN` 与 Worker 同步密钥相同时才复用它）。若要启用 QPK soft-sync 把 awaiting_human ticket 推到控制台，再配置 `RESEARCH_PROMOTION_SYNC_TOKEN`；deploy 仅在该 secret 存在时同步到 Worker。如果 Wrangler 能从 token 推断账号，`CLOUDFLARE_ACCOUNT_ID` 可不配。`M0_RESEARCH_SYNC_TOKEN` 必须与另一个受保护的 `m0-research-publisher` Environment 中的同名 secret 一致；它只会被复制到 Worker binding。缺少该值时，workflow 会在部署前失败，不能静默保留 Worker 的旧密钥。workflow 会先部署 Worker，再把内置策略 profile 目录同步到 KV，避免网站继续使用旧的 profile/plugin 元数据。
 
 部署：
 

@@ -53,20 +53,24 @@ python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 
 ## 版本真相边界与受控升级
 
-不要在文档中把一个 SHA 解释为“所有平台当前运行版本”。QSL 有三个各司其职的版本来源：
+不要在文档中把一个 SHA 解释为“所有平台当前运行版本”。QSL 的兼容目标、已保存快照和显式扫描结果有不同用途：
 
-| 目的 | 唯一来源 | 含义 |
+| 目的 | 来源 | 含义 |
 | --- | --- | --- |
 | 兼容目标 | `compat/bundles/<bundle>.toml` | 已发布的兼容 bundle；用于严格仓库校验与回退基线。 |
-| 已验证平台实际 pin | `internal_dependency_matrix.json` | 从各 consumer 仓库的 `main` 依赖文件生成；这是平台/策略当前已合入版本的唯一台账。 |
+| 已保存的依赖快照 | `internal_dependency_matrix.json` | 保存生成时所扫描 consumer 依赖文件的 refs；文件本身不证明扫描了完整仓库集合、最新 main 或实际部署。 |
+| 显式扫描所得 projection | `generate-matrix --projects-root ...` 的输出 | 反映指定目录中实际存在的依赖文件；比较前需确认扫描范围及 checkout 版本，不自动代表组织当前状态。 |
 | 下一轮 QPK 候选 | `QuantPlatformKit/QPK_PIN` | 只表示待分阶段推广的候选，不代表任何平台已经升级。 |
 
 `QPK_PIN` 变更先经过候选安装与依赖检查，再以只改该文件的 PR 进入主分支。随后才按
-`strategy → consumer → aggregate bundle` 顺序创建下游 PR；每一个下游 PR 仍须通过自身 CI，
-不会直接触发运行时部署或交易。平台版本与候选不同步时，优先读取 matrix，而不是 bundle
-或候选 pin。
+`strategy → consumer → aggregate bundle` 顺序创建下游 PR；默认模式为 `upgrade-affected`
+（只升落后且受影响仓，拒绝降级；docs/CI-only 候选变更不刷执行仓）。每一个下游 PR 仍须
+通过自身 CI，不会直接触发运行时部署或交易。确认某 consumer 已合入的依赖时，读取该仓库
+相应提交的 manifest/lockfile；确认运行版本需要实际部署证据，不能用 matrix、bundle 或候选
+pin 代替。政策细节见 [internal_dependency_pin_policy.zh-CN.md](internal_dependency_pin_policy.zh-CN.md)
+与 QPK ADR 0003 Amendment 2026-09-06。
 
-在同步下游仓库后，用生成器维护和核对实际台账：
+在同步下游仓库后，明确扫描范围及 checkout 版本，再用生成器维护和核对保存快照：
 
 ```bash
 python3 python/scripts/qslctl.py generate-matrix --projects-root .. --check --strict
@@ -75,13 +79,21 @@ python3 python/scripts/qslctl.py plan --projects-root .. --json --strict
 python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files
 ```
 
-第一条命令用于 CI/监测，第二条只在经过下游 CI 的变更需要提交台账时使用。这样 bundle、
-候选和实际运行依赖不会再因重复手工维护而相互矛盾。
+第一条命令比较指定扫描结果与保存快照；第二条仅在确认扫描范围和依赖变更后更新快照。
+fresh checkout、匹配快照和已部署运行不是同义。不同 consumer 使用不同完整 SHA 可以是
+合法的已验证组合；快照比较不要求全组织同 SHA，也不证明 schema 或依赖解析兼容。
+
+matrix checker 默认只报告差异，`--strict` 才因报告中的 issue 非零退出。缺少 consumer 文件
+始终列入 `missing_files`，只有 `--require-consumer-files` 才将其计为 issue；因此仅 `--strict`
+仍可能在扫描不完整时返回零。文本无差异只针对已检查文件；JSON 的 `ok` 仍表示没有 issue，
+不是扫描完整性或运行健康声明。CI 先运行合成单测，再 checkout consumers 并报告 drift；
+仅修改 matrix 文件时追加 strict 比较，绿色 CI 不代表保存快照已覆盖各仓最新 main。
 
 `plan --strict` 把本地 workspace 中所有 QuantStrategyLab origin checkout 视为 active inventory；
 缺少 `qsl.toml` 的仓库会进入 `workspace_inventory.missing_qsl` 并返回非零。若实际依赖 ref 与
 已发布 bundle 不唯一一致，命令输出稳定排序的 `HUMAN_REQUIRED` 决策表（候选 ref、consumer、
-所需兼容测试），但不会选择或改写 canonical bundle。
+所需兼容测试），但不会选择或改写 canonical bundle。这是版本分歧提示，不是已证实的不兼容；
+选定 bundle 的严格 ref 校验与受影响 consumer 的依赖解析、合同测试仍各自保留。
 
 ## Phase-2 Transition Warning 收敛路径
 
