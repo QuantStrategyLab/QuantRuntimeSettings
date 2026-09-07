@@ -1,35 +1,35 @@
 # QSL 隔夜残留清单（收尾盘点）
 
-> 盘点日：2026-09-07 傍晚。用户已授权工程收尾；**不**自动新开 live、**不**在无凭据时调券商。
+> 盘点日：2026-09-07 晚。用户已授权工程收尾与费用清理；**不**自动新开 live、**不**在无凭据时调券商。
 
 ## 1. 本轮已闭合
 
 | 项 | 结果 |
 | --- | --- |
-| 平台 W1 代码 + 首轮 Cloud Run 部署 | Schwab/IBKR/LB 均已上 W1 |
+| 平台 W1 代码 + Cloud Run 部署 + QPK pin `d4e86f1` | Schwab/IBKR/LB |
 | QPK D1–D3 / W2 / HITL 门 / drift 评估器+探针 | #576–#582 |
-| 三平台 QPK pin → `d4e86f1` | LB [#446](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/446)、IBKR [#488](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/488)、Schwab [#380](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/380) |
-| pin 镜像再部署 | Schwab [#34106478634](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/34106478634)、IBKR [#34106490081](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/34106490081)、LB [#34106495767](https://github.com/QuantStrategyLab/LongBridgePlatform/actions/runs/34106495767) |
-| HITL 政策 / 状态文档 | QRT #388/#389/#390 |
-| IBKR/LB admission 只读复验 | 部署后 PASS（enabled 账户按原配置） |
-| Schwab `/health` 外网 404 | **非缺陷**：`ingress=internal` |
+| QPK store 注入 `drift_score` | [#583](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/583) → `020a1ee` |
+| 三平台 lifecycle 只读 drift observe + pin `020a1ee` | Schwab [#381](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/381)、IBKR [#489](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/489)、LB [#447](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/447) |
+| GCP 费用：revision/AR 压到 keep=2；Firstrade 删 `*/5` monitor | 已执行；月投不需要 session 轮询 |
+| HITL accept→apply | 既有 `test_research_promotion_cycle` 覆盖；本轮未再扩 |
 
 ## 2. Drift 监测口径
 
 | 能力 | 状态 |
 | --- | --- |
-| `evaluate_production_drift_health` | 已合 #581 |
-| `production_drift_health_probe` CLI | 已合 #582；只读、零 reopt |
-| 示例 | `python -m quant_platform_kit.strategy_lifecycle.production_drift_health_probe --strategy-profile … --domain … --as-of YYYY-MM-DD --drift-score 0.2` |
-| 平台观测 metrics 自动注入 | **仍待**：需各平台从既有证据/生命周期快照注入脱敏 `drift_score`；未达 REVIEW/CRITICAL 不得 optimize |
+| `evaluate_production_drift_health` / probe CLI | 已合 |
+| `probe_production_drift_health_from_store` | 已合 #583；缺分 → `parked`，不编造 0.0 |
+| 平台 `production_drift_health_observe.py` | lifecycle cron 只读；未达 REVIEW/CRITICAL 不得 optimize |
+| `LIFECYCLE_PERFORMANCE_BUCKET` | 可选 repo var；未配置时 observe 报告 `not_due`/`parked` |
 
 ## 3. 仍 PARK
 
 | 项 | 原因 |
 | --- | --- |
-| 真下单 / 新开 live | 本会话不执行；既有 `ACTIVE_LKG` 延续 ≠ 新授权 |
-| 本机直读 IBKR/LB GSM | 不在本地 schwab 项目；继续用 Cloud Run 挂载 |
-| 观测 → drift_score 生产管道 | 探针就绪；读回源绑定另开 |
+| 真下单 / 新开 live | 既有 `ACTIVE_LKG` ≠ 新授权 |
+| 本机直读 IBKR/LB GSM | 继续用 Cloud Run 挂载 |
+| Console D3 聚合视图 | 可选；信封 trio 已够运维 |
+| 配置 `LIFECYCLE_PERFORMANCE_BUCKET` 指向真实 lifecycle GCS | 有桶后再填；否则 observe 保持 PARK |
 
 ## 4. 明确不做
 

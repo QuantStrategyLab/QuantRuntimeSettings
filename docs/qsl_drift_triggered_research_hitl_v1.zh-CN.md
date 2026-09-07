@@ -99,9 +99,9 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 | QPK `ResearchPromotionBudget` | **已合** | `allow_live_enablement` 构造即拒绝 True |
 | QPK `enforce_promotion_backtest_gates` | **已合**（#580） | reopt 后、shadow 前 fail-closed；缺/失败证据 → `PARK` |
 | QPK `evaluate_production_drift_health` | **已合**（#581） | 版本化阈值 + 只读 metrics → `DriftResult`；cron 只可评估 |
-| QPK `production_drift_health_probe` | **已合**（#582） | 可调度只读 CLI；`actionable` 仅 REVIEW/CRITICAL；**零** optimize |
-| 生产 drift **观测读回源** | **部分** | 探针/评估器就绪；平台需注入脱敏 `drift_score`（无凭据不调券商） |
-| 三平台 QPK pin | **已合并再部署** | pin `d4e86f1`（含 #580–#582） |
+| QPK `production_drift_health_probe` | **已合**（#582/#583） | CLI + `from-store`；缺分 PARK；**零** optimize |
+| 生产 drift **观测读回源** | **已接线** | 三平台 lifecycle observe；需可选 `LIFECYCLE_PERFORMANCE_BUCKET` |
+| 三平台 QPK pin | **PR 中** | pin `020a1ee`（Schwab #381 / IBKR #489 / LB #447） |
 | 定时 cron 独立 reopt | **禁止** | 不得新增；既有 health 检查须保持零优化副作用 |
 | `build_config` `scheduled_*` 触发器文案 | **已澄清** | 语义为「lane 允许响应 drift/人工复测」，非日历优化 |
 
@@ -128,9 +128,9 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 
 ## 8. 残留工程（读回与部署，非再造框架）
 
-1. 生产观测 → `evaluate_production_drift_health` 的脱敏 metrics 注入（无凭据则 PARK）。
-2. 健康检查工作流审计：确认零 reopt 副作用。
-3. 控制台 `AWAITING_HUMAN` 摘要已有；保持无默认 live 按钮。
-4. W3 / 云端部署开闸需单独账户清单 + 凭据 + 明确 enable 授权。
+1. ~~生产观测 → `evaluate_production_drift_health` 的脱敏 metrics 注入~~（平台 lifecycle observe + QPK #583）
+2. 健康检查工作流：lifecycle 已含零 reopt drift 步骤；确认 `LIFECYCLE_PERFORMANCE_BUCKET` 指向真实桶后分数才非 PARK
+3. 控制台 `AWAITING_HUMAN` 摘要已有；保持无默认 live 按钮
+4. W3 / 云端部署开闸需单独账户清单 + 凭据 + 明确 enable 授权
 
-验收（政策层）：读者能复述「未偏离不优化、偏离后有界链、人工门前不 live」；能指出严门与 drift 评估器已在 QPK，缺口在观测读回与部署。
+验收（政策层）：读者能复述「未偏离不优化、偏离后有界链、人工门前不 live」；能指出严门与 drift 评估器已在 QPK，平台 cron 只读评估。
