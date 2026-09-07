@@ -1,42 +1,39 @@
 # QSL 隔夜残留清单（收尾盘点）
 
-> 盘点日：2026-09-07 下午（部署跟进）。用户已授权工程收尾；**不**自动新开 live、**不**在无凭据时调券商。
+> 盘点日：2026-09-07 傍晚。用户已授权工程收尾；**不**自动新开 live、**不**在无凭据时调券商。
 
 ## 1. 本轮已闭合
 
 | 项 | 结果 |
 | --- | --- |
-| 平台 W1 代码 | Schwab #379、IBKR #487、LB #444/#445 已合 main |
-| QPK D1–D3 / W2 / HITL 门 / drift 评估器 | #576–#581 |
-| HITL 政策 + 状态文档 | QRT #388/#389 |
-| 治理 PR | QRT #357、QPK #551/#561；LB #440 已关 |
-| **Schwab Cloud Run W1 部署** | Deploy [#34102174739](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/34102174739) → commit `25bb77a`，admission PASS，continuity GH=RUN=`ACTIVE_LKG` |
-| **IBKR Cloud Run W1 部署** | Deploy [#34102891125](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/34102891125) → 全服务 commit `3f1722e` |
-| **LongBridge Cloud Run W1 部署** | Deploy [#34102896886](https://github.com/QuantStrategyLab/LongBridgePlatform/actions/runs/34102896886) → PAPER/HK/SG commit `e35dac7` |
-| Schwab `/health` 外网 404 | **非缺陷**：`ingress=internal`（仅内网/调度可探）；不改为外网开放 |
+| 平台 W1 代码 + 首轮 Cloud Run 部署 | Schwab/IBKR/LB 均已上 W1 |
+| QPK D1–D3 / W2 / HITL 门 / drift 评估器+探针 | #576–#582 |
+| 三平台 QPK pin → `d4e86f1` | LB [#446](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/446)、IBKR [#488](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/488)、Schwab [#380](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/380) |
+| pin 镜像再部署 | Schwab [#34106478634](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/34106478634)、IBKR [#34106490081](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/34106490081)、LB [#34106495767](https://github.com/QuantStrategyLab/LongBridgePlatform/actions/runs/34106495767) |
+| HITL 政策 / 状态文档 | QRT #388/#389/#390 |
+| IBKR/LB admission 只读复验 | 部署后 PASS（enabled 账户按原配置） |
+| Schwab `/health` 外网 404 | **非缺陷**：`ingress=internal` |
 
-## 2. 部署结果（2026-09-07）
+## 2. Drift 监测口径
 
-| 平台 | 部署前 | 部署后 | 状态 |
-| --- | --- | --- | --- |
-| Schwab | `1f0ce32` | `25bb77a`（W1） | **完成** |
-| IBKR（5 服务） | `cebf5d7` | `3f1722e`（W1） | **完成** |
-| LongBridge PAPER/HK/SG | `39d4b57` | `e35dac7`（W1+#445） | **完成** |
+| 能力 | 状态 |
+| --- | --- |
+| `evaluate_production_drift_health` | 已合 #581 |
+| `production_drift_health_probe` CLI | 已合 #582；只读、零 reopt |
+| 示例 | `python -m quant_platform_kit.strategy_lifecycle.production_drift_health_probe --strategy-profile … --domain … --as-of YYYY-MM-DD --drift-score 0.2` |
+| 平台观测 metrics 自动注入 | **仍待**：需各平台从既有证据/生命周期快照注入脱敏 `drift_score`；未达 REVIEW/CRITICAL 不得 optimize |
 
-## 3. 仍 PARK / 待外部条件
+## 3. 仍 PARK
 
-| 项 | 原因 | 下一动作 |
-| --- | --- | --- |
-| 生产 drift **观测读回源**接线 | 评估器已合；缺平台 metrics 注入 | health 只评估、达阈值才入 promotion cycle |
-| IBKR/LB GSM 本地直读 | secret 不在 `charlesschwabquant`；运行时由各项目 Cloud Run 挂载 | 优先用部署读回，不落盘密钥 |
-| 真下单 / 新开 live | 未授权本会话执行 | 需单独账户清单 + enable 确认 |
+| 项 | 原因 |
+| --- | --- |
+| 真下单 / 新开 live | 本会话不执行；既有 `ACTIVE_LKG` 延续 ≠ 新授权 |
+| 本机直读 IBKR/LB GSM | 不在本地 schwab 项目；继续用 Cloud Run 挂载 |
+| 观测 → drift_score 生产管道 | 探针就绪；读回源绑定另开 |
 
-## 4. 明确不做（仍冻结）
+## 4. 明确不做
 
-- 日历盲跑 reopt；`scheduled_*` ≠ 优化 cron
-- 共账户 allocator（路径 C）
-- AI 升档 / 授 live / 复位熔断 / 改 BUY/SELL
-- 为探测 `/health` 而把 Cloud Run 改为 public ingress
+- 日历盲跑 reopt；改 public ingress；共账户 allocator；AI 升档/授 live
 
 ## 5. 交叉引用
 
