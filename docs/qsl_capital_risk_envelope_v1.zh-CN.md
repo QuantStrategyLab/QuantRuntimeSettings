@@ -11,9 +11,9 @@
 | D1 | QPK 纯函数 `equity → envelope`（`capital_risk_envelope`）+ 单测 | **已合**（QPK #576） |
 | D2 | 注入对账权益到 `account_new_risk_gate`；超限只禁新风险 | **已合**（QPK #577）；见 [QPK account_new_risk_gate](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md) |
 | D3 | 多账户汇总视图共用信封（`evaluate_multi_account_envelope_view`） | **已合**（QPK #580）；只读，无 allocator/下单 |
-| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **已合**（Schwab #379、IBKR #487、LB #444）；**未**宣称云端已部署 |
-| W2 | 只读探针（控制台三件套 + QPK W2 CLI；真账户读回另验） | **库侧已合**（QPK #579）；Schwab/真账户读回仍 PARK（无凭据） |
-| W3 | 实盘 enable（生产默认开闸 + 人类 live 授权） | **PARK**：本环境无券商凭据；授权工程收尾 ≠ 已启 live / 已下单 |
+| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **已合且已部署**：Schwab `25bb77a`、IBKR `3f1722e`、LB `e35dac7`（见隔夜清单） |
+| W2 | 只读探针（控制台三件套 + QPK W2 CLI；真账户读回另验） | **库侧已合**（QPK #579）；本地直读凭据仍 PARK；优先用 Cloud Run 挂载只读验收 |
+| W3 | 实盘 enable（生产默认开闸 + 人类 live 授权） | **PARK**：本会话不新开 live / 不下单；既有 `ACTIVE_LKG` 延续不等于新授权 |
 
 组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic_combo_evidence.zh-CN.md`（#578 已合）。
 
