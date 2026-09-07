@@ -1,6 +1,6 @@
 # QSL 多策略组合 A→B V1（设计）
 
-> 状态：`DESIGN_ONLY_NOT_WIRED`
+> 状态：`DESIGN_FROZEN_A_LIBRARY_READY_B_VIEW_READY`
 > 范围：虚拟 combo 研究与多账户汇总风险的路径选择；不授权 live、不下单、不写券商、不部署真账户。
 > 上游：已合资金信封栈见 [资金风险信封 V1](qsl_capital_risk_envelope_v1.zh-CN.md)。
 
@@ -62,13 +62,13 @@ B 依赖信封 D2/D3 接线分期；本设计不提前发明第二套账户闸�
 - 真账户部署、券商接线、共账户 allocator（C）
 - 新建平行风控框架或削弱 `RiskEngine`
 
-## 7. 下一验证（本 PR 只文档）
+## 7. 实现对照（2026-09-07 收尾）
 
-| 项 | 本 PR | 后续 |
-| --- | --- | --- |
-| 路径选择 A→B、不做 C | 本文冻结 | — |
-| synthetic combo evidence（契约 + 合成单测） | 不做 | 独立工程 PR，RED→GREEN |
-| 多账户汇总视图接线 | 不做 | 随信封 D3 |
-| 真账户 / live | 不做 | 需单独人类授权 |
+| 项 | 状态 |
+| --- | --- |
+| 路径选择 A→B、不做 C | 本文冻结 |
+| synthetic combo evidence | **已合**（QPK #578） |
+| 多账户汇总视图（路径 B / D3） | **已合**（QPK #580 `evaluate_multi_account_envelope_view`）；只读解释，无执行权 |
+| 真账户读回 / live / 部署 | **PARK**；需凭据与单独 enable 授权 |
 
-验收（设计层）：读者能区分 A/B/C；能指出组合只经 haircut 进入既有信封→硬门→`RiskEngine` 链；下一动作仅为 synthetic combo evidence，而非部署。
+验收：读者能区分 A/B/C；组合只经 haircut 进入信封→硬门→`RiskEngine`；库侧 A/B 视图已就绪，不等于已启实盘。
