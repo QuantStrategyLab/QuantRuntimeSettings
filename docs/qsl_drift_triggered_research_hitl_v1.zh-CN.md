@@ -100,8 +100,10 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 | QPK `enforce_promotion_backtest_gates` | **已合**（#580） | reopt 后、shadow 前 fail-closed；缺/失败证据 → `PARK` |
 | QPK `evaluate_production_drift_health` | **已合**（#581） | 版本化阈值 + 只读 metrics → `DriftResult`；cron 只可评估 |
 | QPK `production_drift_health_probe` | **已合**（#582/#583） | CLI + `from-store`；缺分 PARK；**零** optimize |
+| QPK `production_drift_new_risk` → NEW_RISK gate | **已合**（#589） | Policy A：`REVIEW`/`CRITICAL` 仅禁新增风险；**零** optimize；pin `d5f3723` |
+| 平台 NEW_RISK `production_drift_status` 注入 | **PR 中** | Schwab [#390](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/390)、LB [#456](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/456)；pin `d5f3723` |
 | 生产 drift **观测读回源** | **已接线** | 三平台 lifecycle observe 统一读取 lifecycle store 中的 `drift_score`；`LIFECYCLE_PERFORMANCE_BUCKET` 已指向共享桶 |
-| 三平台 QPK pin | **PR 中** | pin `020a1ee`（Schwab #381 / IBKR #489 / LB #447） |
+| 三平台 QPK pin | **PR 中** | pin `d5f3723`（Schwab #390 / LB #456；既有 observe pin `020a1ee` 见 #381/#447） |
 | 定时 cron 独立 reopt | **禁止** | 不得新增；既有 health 检查须保持零优化副作用 |
 | `build_config` `scheduled_*` 触发器文案 | **已澄清** | 语义为「lane 允许响应 drift/人工复测」，非日历优化 |
 
@@ -130,9 +132,10 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 
 ## 8. 残留工程（读回与部署，非再造框架）
 
-1. ~~生产观测 → `evaluate_production_drift_health` 的脱敏 metrics 注入~~（平台 lifecycle observe + QPK #583）
-2. 健康检查工作流：lifecycle 已含零 reopt drift 步骤；平台与 UES GitHub vars 已配置共享 lifecycle bucket，UES `drift-check` 必须持续写同一桶
-3. 控制台 `AWAITING_HUMAN` 摘要已有；保持无默认 live 按钮
-4. W3 / 云端部署开闸需单独账户清单 + 凭据 + 明确 enable 授权
+1. ~~生产观测 → `evaluate_production_drift_health` 的脱敏 metrics 注入~~（平台 lifecycle observe + QPK #583）；**残留**：生产 metrics → `drift_score` 持续读回与校验（非 gate 再造）
+2. 平台 NEW_RISK `production_drift_status` 注入：QPK #589 已合；Schwab [#390](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/390) / LB [#456](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/456) 待合并部署
+3. 健康检查工作流：lifecycle 已含零 reopt drift 步骤；平台与 UES GitHub vars 已配置共享 lifecycle bucket，UES `drift-check` 必须持续写同一桶
+4. 控制台 `AWAITING_HUMAN` 摘要已有；保持无默认 live 按钮
+5. W3 / 云端部署开闸需单独账户清单 + 凭据 + 明确 enable 授权
 
 验收（政策层）：读者能复述「未偏离不优化、偏离后有界链、人工门前不 live」；能指出严门与 drift 评估器已在 QPK，平台 cron 只读评估。
