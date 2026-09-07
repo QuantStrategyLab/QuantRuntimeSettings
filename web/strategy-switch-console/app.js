@@ -136,7 +136,9 @@
         schedulePaused: "已暂停",
         scheduleMixed: "部分暂停",
         scheduleMissing: "未找到任务",
+        scheduleUnknown: "状态未知",
         scheduleNotApplicable: "不适用",
+        runtimeStateUnknown: "状态未知",
         deploymentUnverified: "实际状态待更新",
         strategyNotApplied: "策略尚未应用",
         settingsNotApplied: "开关尚未应用",
@@ -594,7 +596,9 @@
         schedulePaused: "Paused",
         scheduleMixed: "Partially paused",
         scheduleMissing: "No bound jobs",
+        scheduleUnknown: "Unknown",
         scheduleNotApplicable: "Not applicable",
+        runtimeStateUnknown: "Unknown",
         deploymentUnverified: "Deployment not verified",
         strategyNotApplied: "Strategy not applied",
         settingsNotApplied: "Switch not applied",
@@ -3260,14 +3264,18 @@
 
     function accountDeploymentText(platform, account) {
       const observed = accountDeploymentObservation(platform, account);
-      if (typeof observed?.runtime_enabled !== "boolean") return t("notRead");
+      // Ready observation with null switch is "unknown", not the same as missing readback.
+      if (!observed) return t("notRead");
+      if (typeof observed.runtime_enabled !== "boolean") return t("runtimeStateUnknown");
       return t(observed.runtime_enabled ? "runtimeTargetLifecycleStateEnabled" : "runtimeTargetLifecycleStateDisabled");
     }
 
     function accountSchedulerText(platform, account) {
       const observed = accountDeploymentObservation(platform, account);
+      if (!observed) return t("notRead");
       return t({enabled:"scheduleEnabled", paused:"schedulePaused", mixed:"scheduleMixed",
-        missing:"scheduleMissing", not_applicable:"scheduleNotApplicable"}[observed?.scheduler_state] || "notRead");
+        missing:"scheduleMissing", unknown:"scheduleUnknown",
+        not_applicable:"scheduleNotApplicable"}[observed.scheduler_state] || "notRead");
     }
 
     function accountApplicationText(platform, account) {
