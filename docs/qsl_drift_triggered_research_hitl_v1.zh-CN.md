@@ -1,6 +1,6 @@
 # QSL 偏离触发研究晋级与人工门 V1（冻结口径）
 
-> 状态：`POLICY_FROZEN_IMPLEMENTATION_PARTIAL`
+> 状态：`POLICY_FROZEN_LIBRARY_GATES_MERGED`
 > 范围：AI 研究晋级自动化边界；不授权 live、不改实盘参数、不部署、不新增定时盲跑优化。
 > 确认日：2026-09-07（用户冻结）。
 
@@ -91,16 +91,17 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 
 控制台与 Issue 只呈现 **状态 + 下一人工动作**；内部 SHA、ticket id、fold 细节折叠在详情。
 
-## 5. 实现对照（2026-09-07）
+## 5. 实现对照（2026-09-07 收尾）
 
 | 层 | 状态 | 说明 |
 | --- | --- | --- |
-| QPK `run_research_promotion_cycle` | **已合** | `REVIEW`/`CRITICAL` → bounded reopt → shadow → `AWAITING_HUMAN` |
+| QPK `run_research_promotion_cycle` | **已合** | `REVIEW`/`CRITICAL` → bounded reopt → 严回测门 → shadow → `AWAITING_HUMAN` |
 | QPK `ResearchPromotionBudget` | **已合** | `allow_live_enablement` 构造即拒绝 True |
-| 生产 drift 监测门槛 | **未接线** | 需定义阈值、读回源、与 ticket 绑定 |
-| reopt → WFA/OOS 硬门 | **部分** | 标准与编排器存在；promotion cycle 入口需显式 enforce |
+| QPK `enforce_promotion_backtest_gates` | **已合**（#580） | reopt 后、shadow 前 fail-closed；缺/失败证据 → `PARK` |
+| QPK `evaluate_production_drift_health` | **已合**（#581） | 版本化阈值 + 只读 metrics → `DriftResult`；cron 只可评估 |
+| 生产 drift **读回源**接线 | **未接** | 需平台/观测注入脱敏 metrics；无凭据不调券商 |
 | 定时 cron 独立 reopt | **禁止** | 不得新增；既有 health 检查须保持零优化副作用 |
-| `build_config` `scheduled_*` 触发器文案 | **待澄清** | 语义改为「lane 允许响应 drift/人工」，非日历优化 |
+| `build_config` `scheduled_*` 触发器文案 | **已澄清** | 语义为「lane 允许响应 drift/人工复测」，非日历优化 |
 
 与 P0–P6 总表关系：日更 P1–P3、组合就绪度复评、AIAudit 诊断均为 **观察/记录** 轨，见 [P0–P6 当前状态](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md) §当前实现登记。本文不扩大为「观察 → 自动调参/自动交易」。
 
@@ -115,17 +116,18 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 ## 7. 交叉引用
 
 - QPK 实现：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/research_promotion_cycle.py`
+- QPK 生产 drift：`QuantPlatformKit/src/quant_platform_kit/strategy_lifecycle/production_drift_evaluator.py`
 - 晋级标准：[strategy_promotion_risk_standard.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/strategy_promotion_risk_standard.zh-CN.md)
 - 资金信封：[qsl_capital_risk_envelope_v1.zh-CN.md](qsl_capital_risk_envelope_v1.zh-CN.md)
 - 组合 A→B：[qsl_multi_strategy_combo_ab_v1.zh-CN.md](qsl_multi_strategy_combo_ab_v1.zh-CN.md)
 - 研究任务（只读队列）：[qsl_research_task_v1.zh-CN.md](qsl_research_task_v1.zh-CN.md)
 - 隔夜清单：[qsl_overnight_open_items.zh-CN.md](qsl_overnight_open_items.zh-CN.md)
 
-## 8. 下一工程动作（本文不实施）
+## 8. 残留工程（读回与部署，非再造框架）
 
-1. 生产 drift 评估器：阈值配置版本 + 只读读回 + `DriftResult` 输出。
-2. promotion runner：reopt 回调内强制 `BacktestOrchestrator` / evidence package 门，失败即 `PARK`。
-3. 清理/注释 `automation_policy.triggers` 中 `scheduled_*` 的「日历优化」误读；与健康检查工作流审计。
-4. 控制台只读投影：`AWAITING_HUMAN` ticket 摘要（无 live 按钮默认可用）。
+1. 生产观测 → `evaluate_production_drift_health` 的脱敏 metrics 注入（无凭据则 PARK）。
+2. 健康检查工作流审计：确认零 reopt 副作用。
+3. 控制台 `AWAITING_HUMAN` 摘要已有；保持无默认 live 按钮。
+4. W3 / 云端部署开闸需单独账户清单 + 凭据 + 明确 enable 授权。
 
-验收（政策层）：读者能复述「未偏离不优化、偏离后有界链、人工门前不 live」；能指出代码已在 QPK、缺口在监测与回测门绑定。
+验收（政策层）：读者能复述「未偏离不优化、偏离后有界链、人工门前不 live」；能指出严门与 drift 评估器已在 QPK，缺口在观测读回与部署。

@@ -3,17 +3,17 @@
 > 状态：`LIBRARY_READY_PLATFORM_WIRING_IN_PROGRESS`
 > 范围：账户/组合层仓位与回撤政策；不授权 live、不下单、不写券商。
 
-## 实现状态（2026-09-07）
+## 实现状态（2026-09-07 收尾）
 
 | 层 | 内容 | 状态 |
 | --- | --- | --- |
 | D0 | 本文 + 控制台三件套（偏好 / 资金档 / 状态灯）+ 晋级区布局 | **已合**（QRT #383、#384、#386） |
 | D1 | QPK 纯函数 `equity → envelope`（`capital_risk_envelope`）+ 单测 | **已合**（QPK #576） |
 | D2 | 注入对账权益到 `account_new_risk_gate`；超限只禁新风险 | **已合**（QPK #577）；见 [QPK account_new_risk_gate](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md) |
-| D3 | 多账户汇总视图共用信封 | 未做 |
-| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **进行中**（如 LongBridge `feat/account-new-risk-gate-w1`） |
-| W2 | 只读探针（控制台展示 + 注入快照，无 live 副作用） | 进行中；控制台三件套已合，真账户读回仍待各平台 |
-| W3 | 实盘 enable（生产默认开闸 + 人类 live 授权） | **未做** |
+| D3 | 多账户汇总视图共用信封（`evaluate_multi_account_envelope_view`） | **已合**（QPK #580）；只读，无 allocator/下单 |
+| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **已合**（Schwab #379、IBKR #487、LB #444）；**未**宣称云端已部署 |
+| W2 | 只读探针（控制台三件套 + QPK W2 CLI；真账户读回另验） | **库侧已合**（QPK #579）；Schwab/真账户读回仍 PARK（无凭据） |
+| W3 | 实盘 enable（生产默认开闸 + 人类 live 授权） | **PARK**：本环境无券商凭据；授权工程收尾 ≠ 已启 live / 已下单 |
 
 组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic_combo_evidence.zh-CN.md`（#578 已合）。
 

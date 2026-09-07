@@ -735,6 +735,12 @@ def build_live_candidate_queue(strategy_catalog: object | None = None) -> list[d
 
 
 def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, object]:
+    """Build lane metadata for research automation.
+
+    ``scheduled_retest`` / ``scheduled_research`` mean the lane may respond to a
+    human- or drift-triggered retest/research request. They are **not** calendar
+    cron hooks that independently start parameter reoptimization.
+    """
     lifecycle_stage = str(strategy.get("lifecycle_stage") or "").strip()
     can_switch_live = strategy.get("can_switch_live") is True
     runtime_enabled = strategy.get("runtime_enabled") is True
@@ -743,6 +749,7 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
     continuity = strategy.get("live_continuity") if isinstance(strategy.get("live_continuity"), dict) else {}
     if runtime_enabled and can_switch_live and lifecycle_stage == "runtime_enabled":
         lane = "live_equivalent_optimization"
+        # scheduled_retest: allow drift/human-gated retest on this lane — not blind cron reopt
         triggers = ["health_degradation", "parameter_drift", "scheduled_retest", "market_regime_shift"]
         max_autonomy = "auto_pr_or_trusted_live_equivalent"
         operating_policy_required = True
@@ -757,6 +764,7 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
         evidence_required = ["live_candidate_evidence", "preauthorized_operating_policy_receipt"]
     elif lifecycle_stage in {"shadow_candidate", "ai_monitored_candidate"}:
         lane = "shadow_research"
+        # scheduled_retest: lane may accept drift/human retest — not a reopt calendar
         triggers = ["shadow_disagreement", "web_research_signal", "scheduled_retest"]
         max_autonomy = "auto_pr_research_only"
         operating_policy_required = True
@@ -764,6 +772,7 @@ def _automation_policy_for_strategy(profile: str, strategy: dict) -> dict[str, o
         evidence_required = ["shadow_metrics", "preauthorized_operating_policy_receipt"]
     else:
         lane = "research_backlog"
+        # scheduled_research: backlog may queue human/drift research — not blind optimize
         triggers = ["web_research_signal", "manual_request", "scheduled_research"]
         max_autonomy = "auto_pr_research_only"
         operating_policy_required = False
