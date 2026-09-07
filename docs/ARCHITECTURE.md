@@ -89,6 +89,7 @@ platform-config.json  (single source of truth)
 │
 ├── schemas/                             # Shared JSON Schema (consumed by both)
 │   └── runtime-target.schema.json       # Runtime target validation schema
+│   # 完整引用状态盘点（含其余 21 个 schema 文件）：docs/qsl_qrt_dead_contract_inventory.zh-CN.md
 │
 ├── tests/                               # JavaScript tests
 │   ├── strategy_switch_worker_validation.mjs
