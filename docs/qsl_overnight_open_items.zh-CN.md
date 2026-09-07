@@ -8,8 +8,8 @@
 | --- | --- |
 | 平台 W1 代码 + Cloud Run 部署 + QPK pin `d4e86f1` | Schwab/IBKR/LB；禁买/禁新增风险已接线 |
 | QPK D1–D3 / W2 / HITL 门 / drift 评估器+探针 | #576–#582 |
-| QPK store 注入 `drift_score` | [#583](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/583) → `020a1ee` |
-| 三平台 lifecycle 只读 drift observe + pin `020a1ee` | Schwab [#381](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/381)、IBKR [#489](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/489)、LB [#447](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/447) |
+| QPK `production_drift_new_risk` → NEW_RISK gate | 已合 [#589](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/589) → `d5f3723`；Policy A 仅禁新增风险 |
+| 平台 NEW_RISK drift 注入 + pin `d5f3723` | Schwab [#390](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/390)、LB [#456](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/456) |
 | GCP 费用：revision/AR 压到 keep=2；Firstrade 删 `*/5` monitor | 已执行；月投不需要 session 轮询 |
 | HITL 库与 accept→apply | 库侧已就绪；既有 `test_research_promotion_cycle` 覆盖；无日历 reopt |
 
@@ -20,6 +20,7 @@
 | `evaluate_production_drift_health` / probe CLI | 已合 |
 | `probe_production_drift_health_from_store` | 已合 #583；缺分 → `parked`，不编造 0.0 |
 | 平台 `production_drift_health_observe.py` | lifecycle cron 只读；未达 REVIEW/CRITICAL 不得 optimize |
+| 生产 metrics → `drift_score` 读回 | lifecycle store 已接线；持续校验 UES/平台写入同一桶 |
 | `LIFECYCLE_PERFORMANCE_BUCKET` | 平台与 UES GitHub vars 已配置为 `gs://qsl-runtime-logs-shared/strategy-lifecycle/v1` |
 
 ## 3. 仍 PARK
