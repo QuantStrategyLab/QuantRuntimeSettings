@@ -135,6 +135,45 @@ class ActivationContractTest(unittest.TestCase):
         activation["activation_sha256"] = activation_contract.calculate_activation_sha256(activation)
         return activation
 
+    def _promotion_manifest(self, *, execution_mode: str = "paper") -> dict[str, object]:
+        manifest: dict[str, object] = {
+            "schema": "qsl.activation.v2",
+            "manifest_kind": "promotion",
+            "single_use_id": "promotion.soxl-signal.ibkr-us.20260903.001",
+            "issued_at": "2026-09-03T08:00:00Z",
+            "expires_at": "2026-09-03T10:00:00Z",
+            "digest_algorithm": "sha256",
+            "contract_only": True,
+            "candidate": {
+                "strategy_profile": "soxl-signal",
+                "source_revision": self._revision("a"),
+                "artifact_sha256": self._sha("b"),
+                "config_sha256": self._sha("c"),
+                "risk_sha256": self._sha("d"),
+            },
+            "target": {
+                "platform": "ibkr",
+                "target_name": "ibkr-us",
+                "execution_mode": execution_mode,
+            },
+        }
+        manifest["promotion_sha256"] = activation_contract.calculate_promotion_sha256(manifest)
+        return manifest
+
+    def _validate_promotion(self, manifest: dict[str, object], **kwargs):
+        candidate = kwargs.pop("expected_candidate", manifest.get("candidate"))
+        target = kwargs.pop("expected_target", manifest.get("target"))
+        assert isinstance(candidate, dict)
+        assert isinstance(target, dict)
+        return activation_contract.validate_promotion_manifest(
+            manifest,
+            as_of="2026-09-03T09:00:00Z",
+            expected_single_use_id=kwargs.pop("expected_single_use_id", manifest["single_use_id"]),
+            expected_candidate=copy.deepcopy(candidate),
+            expected_target=copy.deepcopy(target),
+            **kwargs,
+        )
+
     def _validate(self, activation: dict[str, object], **kwargs):
         return activation_contract.validate_activation(
             activation,
@@ -146,8 +185,9 @@ class ActivationContractTest(unittest.TestCase):
     def test_schema_is_closed_contract_only_and_uses_canonical_stages(self):
         schema = json.loads((ROOT.parent / "schemas" / "qsl-activation.v2.schema.json").read_text())
         self.assertEqual(schema["$id"], "qsl.activation.v2")
-        self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(schema["properties"]["contract_only"], {"const": True})
+        legacy = schema["$defs"]["legacyActivation"]
+        self.assertFalse(legacy["additionalProperties"])
+        self.assertEqual(legacy["properties"]["contract_only"], {"const": True})
         self.assertEqual(
             schema["$defs"]["stage"]["enum"],
             ["DISABLED", "PAPER_DRY_RUN", "SHADOW", "LIMITED_LIVE", "FULL_LIVE"],
@@ -155,6 +195,139 @@ class ActivationContractTest(unittest.TestCase):
         self.assertIn("does not prove", schema["description"])
         for field in ("created_at", "effective_at", "expires_at"):
             self.assertEqual(schema["$defs"]["timestamp"]["format"], "date-time")
+
+    def test_schema_has_closed_minimal_promotion_manifest(self):
+        schema = json.loads((ROOT.parent / "schemas" / "qsl-activation.v2.schema.json").read_text())
+        promotion = schema["$defs"]["promotionManifest"]
+
+        self.assertEqual(schema["oneOf"], [{"$ref": "#/$defs/legacyActivation"}, {"$ref": "#/$defs/promotionManifest"}])
+        self.assertFalse(promotion["additionalProperties"])
+        self.assertEqual(promotion["properties"]["manifest_kind"], {"const": "promotion"})
+        self.assertEqual(promotion["properties"]["contract_only"], {"const": True})
+        self.assertEqual(
+            set(schema["$defs"]["promotionCandidate"]["required"]),
+            {"strategy_profile", "source_revision", "artifact_sha256", "config_sha256", "risk_sha256"},
+        )
+        self.assertEqual(schema["$defs"]["promotionTarget"]["properties"]["execution_mode"]["enum"], ["paper", "live"])
+
+    def test_promotion_manifest_binds_exact_expected_inputs_and_digest(self):
+        manifest = self._promotion_manifest()
+        validated = self._validate_promotion(manifest)
+
+        self.assertEqual(validated, manifest)
+        self.assertEqual(
+            activation_contract.canonical_promotion_json(manifest),
+            activation_contract.canonical_promotion_json(dict(reversed(manifest.items()))),
+        )
+
+    def test_promotion_manifest_missing_unknown_and_mutation_fail_closed(self):
+        for mutate, message in (
+            (lambda value: value.pop("candidate"), "missing required field"),
+            (lambda value: value["candidate"].pop("risk_sha256"), "missing required field"),
+            (lambda value: value.update({"unknown": True}), "unknown field"),
+            (lambda value: value.update({"contract_only": False}), "contract_only"),
+        ):
+            with self.subTest(message=message):
+                manifest = self._promotion_manifest()
+                expected_candidate = copy.deepcopy(manifest["candidate"])
+                expected_target = copy.deepcopy(manifest["target"])
+                mutate(manifest)
+                manifest["promotion_sha256"] = activation_contract.calculate_promotion_sha256(manifest)
+                with self.assertRaisesRegex(activation_contract.ActivationValidationError, message):
+                    self._validate_promotion(
+                        manifest,
+                        expected_candidate=expected_candidate,
+                        expected_target=expected_target,
+                    )
+
+        mutated = self._promotion_manifest()
+        mutated["candidate"]["config_sha256"] = self._sha("e")
+        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "promotion_sha256 mismatch"):
+            self._validate_promotion(mutated)
+
+    def test_promotion_manifest_expected_binding_and_aliases_fail_closed(self):
+        manifest = self._promotion_manifest()
+        candidate = copy.deepcopy(manifest["candidate"])
+        target = copy.deepcopy(manifest["target"])
+        assert isinstance(candidate, dict)
+        assert isinstance(target, dict)
+
+        mismatches = (
+            {"expected_single_use_id": "promotion.other.001"},
+            {"expected_candidate": {**candidate, "source_revision": self._revision("e")}},
+            {"expected_candidate": {**candidate, "artifact_sha256": self._sha("e")}},
+            {"expected_candidate": {**candidate, "config_sha256": self._sha("e")}},
+            {"expected_candidate": {**candidate, "risk_sha256": self._sha("e")}},
+            {"expected_target": {**target, "target_name": "ibkr-other"}},
+            {"expected_target": {**target, "execution_mode": "live"}},
+        )
+        for kwargs in mismatches:
+            with self.subTest(kwargs=kwargs):
+                with self.assertRaisesRegex(activation_contract.ActivationValidationError, "exact expected"):
+                    self._validate_promotion(manifest, **kwargs)
+
+        alias = self._promotion_manifest(execution_mode="dry_run")
+        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "paper or live"):
+            self._validate_promotion(alias)
+
+        for mutate, message in (
+            (lambda value: value["candidate"].update({"source_revision": self._revision("0")}), "unknown revision"),
+            (lambda value: value["candidate"].update({"artifact_sha256": self._sha("0")}), "unknown digest"),
+            (lambda value: value["target"].update({"target_name": "default"}), "moving or default alias"),
+        ):
+            with self.subTest(message=message):
+                manifest = self._promotion_manifest()
+                mutate(manifest)
+                manifest["promotion_sha256"] = activation_contract.calculate_promotion_sha256(manifest)
+                with self.assertRaisesRegex(activation_contract.ActivationValidationError, message):
+                    self._validate_promotion(manifest)
+
+    def test_promotion_manifest_time_window_is_current_and_injectable(self):
+        manifest = self._promotion_manifest()
+        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "not yet valid"):
+            activation_contract.validate_promotion_manifest(
+                manifest,
+                as_of="2026-09-03T07:59:59Z",
+                expected_single_use_id=manifest["single_use_id"],
+                expected_candidate=manifest["candidate"],
+                expected_target=manifest["target"],
+            )
+        with self.assertRaisesRegex(activation_contract.ActivationValidationError, "expired"):
+            activation_contract.validate_promotion_manifest(
+                manifest,
+                as_of="2026-09-03T10:00:00Z",
+                expected_single_use_id=manifest["single_use_id"],
+                expected_candidate=manifest["candidate"],
+                expected_target=manifest["target"],
+            )
+
+    def test_manual_switch_preflights_manifest_before_rejecting_unwired_apply_and_sync(self):
+        workflow = (ROOT.parent / ".github" / "workflows" / "manual-strategy-switch.yml").read_text()
+
+        self.assertIn("promotion_manifest_json:", workflow)
+        self.assertIn("promotion_single_use_id:", workflow)
+        self.assertIn("default: dry_run", workflow)
+        self.assertIn("Verify immutable Promotion Manifest", workflow)
+        for argument in (
+            "--promotion-manifest",
+            "--expected-single-use-id",
+            "--expected-strategy-profile",
+            "--expected-source-revision",
+            "--expected-artifact-sha256",
+            "--expected-config-sha256",
+            "--expected-risk-sha256",
+            "--expected-platform",
+            "--expected-target-name",
+            "--expected-execution-mode",
+        ):
+            self.assertIn(argument, workflow)
+        verify_index = workflow.index("Verify immutable Promotion Manifest")
+        reject_index = workflow.index("Reject unconnected activation apply and sync")
+        apply_index = workflow.index("Apply GitHub variable updates")
+        self.assertLess(verify_index, reject_index)
+        self.assertLess(reject_index, apply_index)
+        self.assertNotIn("gh workflow run", workflow)
+        self.assertNotIn("--ref main", workflow)
 
     def test_valid_activation_binds_bundle_authority_target_and_digest(self):
         activation = self._activation()

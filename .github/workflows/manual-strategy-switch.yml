@@ -26,11 +26,11 @@ on:
         description: "live is gated; dry_run is the universal no-order path. paper is retained only as a legacy alias for dry_run, not P4 paper trading."
         required: true
         type: choice
-        default: live
+        default: dry_run
         options:
-          - live
           - dry_run
           - paper
+          - live
       live_continuity_state:
         description: "Optional frozen legacy live baseline state. This cannot create a new live permission or increase risk."
         required: true
@@ -44,14 +44,6 @@ on:
           - RISK_REDUCTION_ONLY
           - PAUSED
           - ROLLBACK_LKG
-      live_continuity_baseline_id:
-        description: "Required only with a continuity state: audited identifier of the existing authorised baseline."
-        required: false
-        type: string
-      live_continuity_captured_at:
-        description: "Required only with a continuity state: ISO date when the exact legacy target was captured."
-        required: false
-        type: string
       variable_scope:
         description: "Where GitHub variables are written. blank = platform default."
         required: false
@@ -127,13 +119,21 @@ on:
           - auto
           - allow_create
           - off
+      promotion_manifest_json:
+        description: "Required for apply: immutable qsl.activation.v2 Promotion Manifest JSON. Never include credentials or account data."
+        required: false
+        type: string
+      promotion_single_use_id:
+        description: "Required for apply: exact non-secret single_use_id from the Promotion Manifest."
+        required: false
+        type: string
       apply:
         description: "Actually write GitHub variables. false = preview only."
         required: true
         type: boolean
         default: false
       trigger_platform_sync:
-        description: "After apply, dispatch a supported Cloud Run environment sync workflow."
+        description: "Reserved. Rejected until durable single-use consumption and immutable platform sync are wired."
         required: true
         type: boolean
         default: false
@@ -169,8 +169,6 @@ jobs:
       STRATEGY_PROFILE: ${{ inputs.strategy_profile }}
       EXECUTION_MODE: ${{ inputs.execution_mode }}
       LIVE_CONTINUITY_STATE: ${{ inputs.live_continuity_state }}
-      LIVE_CONTINUITY_BASELINE_ID: ${{ inputs.live_continuity_baseline_id }}
-      LIVE_CONTINUITY_CAPTURED_AT: ${{ inputs.live_continuity_captured_at }}
       VARIABLE_SCOPE: ${{ inputs.variable_scope }}
       GITHUB_ENVIRONMENT_NAME: ${{ inputs.github_environment }}
       DEPLOYMENT_SELECTOR: ${{ inputs.deployment_selector }}
@@ -185,6 +183,8 @@ jobs:
       INCOME_LAYER_MAX_RATIO: ${{ inputs.income_layer_max_ratio }}
       OPTION_OVERLAY_MODE: ${{ inputs.option_overlay_mode }}
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
+      PROMOTION_MANIFEST_JSON: ${{ inputs.promotion_manifest_json }}
+      PROMOTION_SINGLE_USE_ID: ${{ inputs.promotion_single_use_id }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
       CONFIRM_APPLY: ${{ inputs.confirm_apply }}
@@ -239,6 +239,10 @@ jobs:
           fi
 
           if [ "${APPLY_SWITCH}" = "true" ]; then
+            if [ -z "${PROMOTION_MANIFEST_JSON:-}" ] || [ -z "${PROMOTION_SINGLE_USE_ID:-}" ]; then
+              echo "apply=true requires an immutable Promotion Manifest and its exact single_use_id." >&2
+              exit 2
+            fi
             if [ -z "${GH_TOKEN:-}" ]; then
               echo "RUNTIME_SETTINGS_GH_TOKEN is required for apply=true." >&2
               exit 2
@@ -443,11 +447,6 @@ jobs:
           if [ "${PLUGIN_MODE}" = "current" ]; then
             args+=(--current-plugin-mounts-json-file "${CURRENT_PLUGIN_MOUNTS_JSON_FILE}")
           fi
-          if [ "${LIVE_CONTINUITY_STATE}" != "NONE" ]; then
-            args+=(--live-continuity-state "${LIVE_CONTINUITY_STATE}")
-            args+=(--live-continuity-baseline-id "${LIVE_CONTINUITY_BASELINE_ID}")
-            args+=(--live-continuity-captured-at "${LIVE_CONTINUITY_CAPTURED_AT}")
-          fi
           if [ -n "${EXTRA_VARIABLES_JSON:-}" ]; then
             args+=(--extra-variables-json "${EXTRA_VARIABLES_JSON}")
           fi
@@ -472,6 +471,66 @@ jobs:
           python3 python/scripts/build_runtime_switch.py "${args[@]}"
           python3 python/scripts/runtime_settings.py validate "${target_file}"
           echo "TARGET_FILE=${target_file}" >> "$GITHUB_ENV"
+
+      - name: Verify immutable Promotion Manifest
+        if: env.APPLY_SWITCH == 'true'
+        run: |
+          set -euo pipefail
+          manifest_file="${RUNNER_TEMP}/promotion-manifest.json"
+          trap 'rm -f "${manifest_file}"' EXIT
+          printf '%s' "${PROMOTION_MANIFEST_JSON}" > "${manifest_file}"
+
+          mapfile -t binding < <(python3 - "${manifest_file}" "${TARGET_FILE}" <<'PY'
+          import hashlib
+          import json
+          import sys
+
+          try:
+              manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+              candidate = manifest["candidate"]
+              target_bytes = open(sys.argv[2], "rb").read()
+              target = json.loads(target_bytes)
+              runtime_target = target["runtime_target"]
+              values = (
+                  candidate["source_revision"],
+                  candidate["artifact_sha256"],
+                  candidate["risk_sha256"],
+                  hashlib.sha256(target_bytes).hexdigest(),
+                  runtime_target["strategy_profile"],
+                  runtime_target["platform_id"],
+                  target["target_id"].split("/", 1)[1],
+                  runtime_target["execution_mode"],
+              )
+          except (KeyError, OSError, TypeError, ValueError):
+              raise SystemExit("promotion manifest or generated target binding is invalid") from None
+          if not all(isinstance(value, str) and "\n" not in value for value in values):
+              raise SystemExit("promotion manifest or generated target binding is invalid")
+          print(*values, sep="\n")
+          PY
+          )
+          if [ "${#binding[@]}" -ne 8 ]; then
+            echo "Promotion Manifest binding is incomplete." >&2
+            exit 2
+          fi
+
+          python3 python/scripts/activation_contract.py \
+            --promotion-manifest \
+            --input "${manifest_file}" \
+            --expected-single-use-id "${PROMOTION_SINGLE_USE_ID}" \
+            --expected-source-revision "${binding[0]}" \
+            --expected-artifact-sha256 "${binding[1]}" \
+            --expected-risk-sha256 "${binding[2]}" \
+            --expected-config-sha256 "${binding[3]}" \
+            --expected-strategy-profile "${binding[4]}" \
+            --expected-platform "${binding[5]}" \
+            --expected-target-name "${binding[6]}" \
+            --expected-execution-mode "${binding[7]}"
+
+      - name: Reject unconnected activation apply and sync
+        if: env.APPLY_SWITCH == 'true'
+        run: |
+          echo "Promotion Manifest verified, but durable single-use consumption and immutable cross-platform activation are not wired; apply and sync remain disabled." >&2
+          exit 2
 
       - name: Preview assignments
         run: |
@@ -533,27 +592,6 @@ jobs:
       - name: Apply GitHub variable updates
         if: env.APPLY_SWITCH == 'true'
         run: python3 python/scripts/runtime_settings.py apply "${TARGET_FILE}" --yes
-
-      - name: Dispatch platform sync workflow
-        if: env.APPLY_SWITCH == 'true' && env.TRIGGER_PLATFORM_SYNC == 'true'
-        env:
-          TARGET_REPOSITORY: ${{ steps.platform.outputs.repository }}
-        run: |
-          set -euo pipefail
-          workflow="${PLATFORM_SYNC_WORKFLOW:-sync-cloud-run-env.yml}"
-          case "${PLATFORM}" in
-            longbridge|ibkr)
-              gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main -f target=configured
-              ;;
-            schwab|firstrade)
-              gh workflow run "${workflow}" --repo "${TARGET_REPOSITORY}" --ref main
-              ;;
-            *)
-              echo "No platform sync dispatch rule for ${PLATFORM}" >&2
-              exit 2
-              ;;
-          esac
-          echo "Dispatched ${workflow} in ${TARGET_REPOSITORY}."
 
       - name: Sync strategy switch account defaults
         if: env.APPLY_SWITCH == 'true' && env.STRATEGY_SWITCH_CONSOLE_URL != ''
