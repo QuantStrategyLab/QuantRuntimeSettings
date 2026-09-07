@@ -11,9 +11,11 @@
 | D1 | QPK 纯函数 `equity → envelope`（`capital_risk_envelope`）+ 单测 | **已合**（QPK #576） |
 | D2 | 注入对账权益到 `account_new_risk_gate`；超限只禁新风险 | **已合**（QPK #577）；见 [QPK account_new_risk_gate](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md) |
 | D3 | 多账户汇总视图共用信封（`evaluate_multi_account_envelope_view`） | **已合**（QPK #580）；只读，无 allocator/下单 |
-| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **已合且已部署**：Schwab `25bb77a`、IBKR `3f1722e`、LB `e35dac7`（见隔夜清单） |
+| W1 | 平台仓接线（portfolio → 快照投影 → 门评估） | **已合且已部署至 Cloud Run**：Schwab `25bb77a`、IBKR `3f1722e`、LB `e35dac7`；禁买/禁新增风险已接 |
 | W2 | 只读探针（控制台三件套 + QPK W2 CLI；真账户读回另验） | **库侧已合**（QPK #579）；本地直读凭据仍 PARK；优先用 Cloud Run 挂载只读验收 |
 | W3 | 实盘 enable（生产默认开闸 + 人类 live 授权） | **PARK**：本会话不新开 live / 不下单；既有 `ACTIVE_LKG` 延续不等于新授权 |
+
+W1 当前只闭合禁买/禁新增风险；`combined_scale` 应用于平台目标仓位缩放仍 **PARK**。
 
 组合路径 A→B 见 [多策略组合 A→B V1](qsl_multi_strategy_combo_ab_v1.zh-CN.md)；QPK 合成证据见 `QuantPlatformKit/docs/synthetic_combo_evidence.zh-CN.md`（#578 已合）。
 
@@ -33,6 +35,8 @@
 2. 当前资金档（系统判定，只读）
 3. 一个状态灯：正常 / 已降档 / 禁止新增风险
 
+控制台没有账户权益读回时可以展示 `design_preview`，但不得把预览档位当作真实账户状态或新风险授权。
+
 进阶数字（1.50× MDD、0.75 size、`capital_scale` / `vol_scale` / `dd_scale`）折叠在「详情」，避免把人推入双口径迷宫。
 
 ## 2. 在仓位栈中的位置
@@ -47,7 +51,7 @@
       → RiskEngine → 执行
 ```
 
-`combined_scale = clamp(capital_scale × vol_scale × dd_scale, 0, 1)`。缺省观测时对应因子取 `1`（不假冒已风控），但权益缺失时状态灯为 `unknown`，不授新风险接线。
+`combined_scale = clamp(capital_scale × vol_scale × dd_scale, 0, 1)`。该计算已在库侧具备，平台把它应用到目标仓位的缩仓 sizing 仍待接线。缺省观测时对应因子取 `1`（不假冒已风控），但权益缺失时状态灯为 `unknown`，只能展示 `design_preview`，不授新风险接线。
 
 与已有双口径并存，第三人称「资金存活约束」：
 
@@ -124,15 +128,17 @@
 | D0 | 本文 + 控制台文案三件套（偏好 / 资金档 / 状态灯） | 人能看懂，无下单副作用 | **已合** |
 | D1 | QPK 纯函数 `equity → envelope`（含 vol/dd）+ 单测 | 与晋级 sizing 组合的单元证明 | **已合** |
 | D2 | 注入对账权益到账户新风险门；超限只禁新风险 | 无自动平仓、无复位 | **已合**（库）；平台读回见 W1/W2 |
-| D3 | 多账户汇总视图共用信封 | 仍无共账户 allocator | 未做 |
+| D3 | 多账户汇总视图共用信封 | 仍无共账户 allocator | **已合**（QPK #580） |
 
 ### 6.2 平台接线（W1–W3）
 
 | 期 | 内容 | 完成定义 | 状态 |
 | --- | --- | --- | --- |
-| W1 | 各平台仓把 portfolio/对账读回投影为 `InjectedReconciliationSnapshot` 并调用 `evaluate_new_risk_admission` | 单测 + 平台 CI；默认 fail-closed | **进行中** |
+| W1 | 各平台仓把 portfolio/对账读回投影为 `InjectedReconciliationSnapshot` 并调用 `evaluate_new_risk_admission` | 单测 + 平台 CI；默认 fail-closed | **已合且已部署至 Cloud Run**；禁买/禁新增风险已接 |
 | W2 | 只读探针：控制台与诊断可展示信封档位/状态灯；`ACCOUNT_NEW_RISK_GATE=0` 仅测试 | 无下单、无 live 授权副作用 | 进行中（控制台已合；真账户探针待平台） |
 | W3 | 生产默认启用账户门 + 明确人类 live/mandate 授权后才可新增风险 | 独立验收；不得绕过 `RiskEngine` | **未做** |
+
+`combined_scale` 的平台 sizing 接线仍 **未做**；只允许缩仓、不允许扩仓，缺失或无效输入不得放宽风险。
 
 QPK 注入契约与 D2 边界：[account_new_risk_gate.zh-CN.md](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/main/docs/account_new_risk_gate.zh-CN.md)。
 

@@ -100,10 +100,12 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 | QPK `enforce_promotion_backtest_gates` | **已合**（#580） | reopt 后、shadow 前 fail-closed；缺/失败证据 → `PARK` |
 | QPK `evaluate_production_drift_health` | **已合**（#581） | 版本化阈值 + 只读 metrics → `DriftResult`；cron 只可评估 |
 | QPK `production_drift_health_probe` | **已合**（#582/#583） | CLI + `from-store`；缺分 PARK；**零** optimize |
-| 生产 drift **观测读回源** | **已接线** | 三平台 lifecycle observe；需可选 `LIFECYCLE_PERFORMANCE_BUCKET` |
+| 生产 drift **观测读回源** | **已接线** | 三平台 lifecycle observe 统一读取 lifecycle store 中的 `drift_score`；`LIFECYCLE_PERFORMANCE_BUCKET` 已指向共享桶 |
 | 三平台 QPK pin | **PR 中** | pin `020a1ee`（Schwab #381 / IBKR #489 / LB #447） |
 | 定时 cron 独立 reopt | **禁止** | 不得新增；既有 health 检查须保持零优化副作用 |
 | `build_config` `scheduled_*` 触发器文案 | **已澄清** | 语义为「lane 允许响应 drift/人工复测」，非日历优化 |
+
+生产分数只以 lifecycle store 为来源，不从平台日志或 UES 另算第二份分数。平台 lifecycle observe 与 UES `drift-check` 是双轨消费者；UES 必须写入同一 `gs://qsl-runtime-logs-shared/strategy-lifecycle/v1`，避免来源分叉。
 
 与 P0–P6 总表关系：日更 P1–P3、组合就绪度复评、AIAudit 诊断均为 **观察/记录** 轨，见 [P0–P6 当前状态](QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md) §当前实现登记。本文不扩大为「观察 → 自动调参/自动交易」。
 
@@ -129,7 +131,7 @@ QPK `quant_platform_kit.strategy_lifecycle.research_promotion_cycle` 已将可�
 ## 8. 残留工程（读回与部署，非再造框架）
 
 1. ~~生产观测 → `evaluate_production_drift_health` 的脱敏 metrics 注入~~（平台 lifecycle observe + QPK #583）
-2. 健康检查工作流：lifecycle 已含零 reopt drift 步骤；确认 `LIFECYCLE_PERFORMANCE_BUCKET` 指向真实桶后分数才非 PARK
+2. 健康检查工作流：lifecycle 已含零 reopt drift 步骤；平台与 UES GitHub vars 已配置共享 lifecycle bucket，UES `drift-check` 必须持续写同一桶
 3. 控制台 `AWAITING_HUMAN` 摘要已有；保持无默认 live 按钮
 4. W3 / 云端部署开闸需单独账户清单 + 凭据 + 明确 enable 授权
 
