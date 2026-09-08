@@ -2856,10 +2856,11 @@
     }
 
     function pendingReservePolicy(inputs, platform = state.selected, account = selectedAccount(platform)) {
+      const mode = normalizeReservePolicyMode(inputs.reserved_cash_policy_mode);
+      if (mode === "current") return { changed: false, inputs: {} };
       const current = currentReservePolicyForAccount(platform, account);
       const currentFloor = cleanDisplayNumber(current.minReservedCashUsd);
       const currentRatio = cleanDisplayRatio(current.reservedCashRatio);
-      const mode = normalizeReservePolicyMode(inputs.reserved_cash_policy_mode);
       const next = {
         min_reserved_cash_usd: cleanDisplayNumber(inputs.min_reserved_cash_usd),
         reserved_cash_ratio: cleanDisplayRatio(inputs.reserved_cash_ratio),
