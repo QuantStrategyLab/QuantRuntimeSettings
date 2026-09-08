@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { test } from 'node:test';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
+import { normalizeAccountOptionsPayload as normalizeAccountSchema } from '../web/strategy-switch-console/account_options_schema.js';
 
 const source = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
 function frontendFunction(name, context) {
@@ -14,6 +15,23 @@ function frontendFunction(name, context) {
   return vm.runInNewContext(`(${source.slice(start, end).trim()})`, context);
 }
 const cleanOptionalBoolean = (value) => typeof value === 'boolean' ? value : null;
+test('account persistence preserves explicit observation and variable-source bindings', () => {
+  const source = { ibkr: [{ key: 'fixture', label: 'Fixture', target_name: 'fixture', supported_domains: ['us_equity'],
+    runtime_status_target_id: 'ibkr.fixture', github_environment: 'fixture-environment', variable_scope: 'environment' }] };
+  assert.deepEqual(normalizeAccountSchema(source), source);
+});
+for (const [mode, expected] of [[undefined, false], ['current', false], ['none', true], ['floor', true]]) {
+  test(`cash preview preserves current policy unless explicitly overridden: ${mode}`, () => {
+    const fn = frontendFunction('pendingReservePolicy', {
+      currentReservePolicyForAccount: () => ({ minReservedCashUsd: '100', reservedCashRatio: '0.1' }),
+      currentEntryForAccount: () => ({}),
+      cleanDisplayNumber: value => String(value ?? ''),
+      cleanDisplayRatio: value => String(value ?? ''),
+      normalizeReservePolicyMode: value => value || 'current',
+    });
+    assert.equal(fn({ reserved_cash_policy_mode: mode }, 'ibkr', {}).changed, expected);
+  });
+}
 for (const value of [undefined, true, false]) {
   test(`frontend does not invent enabled: ${value}`, () => {
     const fn = frontendFunction('runtimeTargetStateForAccount', {
