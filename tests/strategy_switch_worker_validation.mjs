@@ -3290,6 +3290,85 @@ assert.equal(runtimeTargetLifecyclePayload.policy.no_order, true);
 assert.equal(runtimeTargetLifecyclePayload.policy.execution_observation_read_only, true);
 assert.equal(runtimeTargetLifecyclePayload.policy.order_or_fill_evidence, "not_collected");
 
+// Routine heartbeats must refresh their evidence time without rewriting audit_log.
+const lifecycleUsageStore = new Map();
+const existingOperatorAudit = { action: "manual_strategy_switch", login: "health-user", ts: controlNow };
+lifecycleUsageStore.set("audit_log", JSON.stringify([existingOperatorAudit]));
+const lifecycleWrites = [];
+const lifecycleUsageEnv = {
+  ...executionEvidenceEnv,
+  STRATEGY_SWITCH_CONFIG: {
+    ...controlKv,
+    async get(key) { return lifecycleUsageStore.get(key) || null; },
+    async put(key, value) { lifecycleWrites.push(key); lifecycleUsageStore.set(key, value); },
+  },
+};
+async function publishCountedLifecycle(source) {
+  lifecycleWrites.length = 0;
+  const response = await worker.fetch(new Request("https://switch.example/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(source),
+  }), lifecycleUsageEnv);
+  assert.equal(response.status, 200);
+}
+const usageSourceKey = "runtime_target_lifecycle_source:longbridge.sg";
+const usageSource = structuredClone(runtimeTargetLifecycleSourcePayload);
+usageSource.generated_at = new Date(Date.now() - 120000).toISOString();
+usageSource.computed_at = usageSource.generated_at;
+usageSource.targets[0].deployment = {
+  runtime_enabled: false, scheduler_state: "paused", strategy_profile: "soxl_soxx_trend_income",
+  execution_mode: "dry_run", observed_at: usageSource.generated_at,
+};
+await publishCountedLifecycle(usageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+const firstLifecycleAudit = lifecycleUsageStore.get("audit_log");
+assert.deepEqual(JSON.parse(firstLifecycleAudit).at(-1), existingOperatorAudit);
+const refreshedUsageSource = structuredClone(usageSource);
+refreshedUsageSource.generated_at = new Date(Date.now() - 60000).toISOString();
+refreshedUsageSource.computed_at = refreshedUsageSource.generated_at;
+refreshedUsageSource.targets[0].deployment.observed_at = refreshedUsageSource.generated_at;
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey]);
+assert.equal(lifecycleUsageStore.get("audit_log"), firstLifecycleAudit);
+const storedRefreshedUsage = JSON.parse(lifecycleUsageStore.get(usageSourceKey));
+assert.equal(storedRefreshedUsage.generated_at, refreshedUsageSource.generated_at);
+assert.equal(storedRefreshedUsage.targets[0].deployment.observed_at, refreshedUsageSource.generated_at);
+
+const changedUsageSource = structuredClone(refreshedUsageSource);
+changedUsageSource.targets[0].monitoring.runtime_guard = "attention";
+changedUsageSource.targets[0].disposition = { code: "parked", reason_code: "runtime_guard_attention" };
+await publishCountedLifecycle(changedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+await publishCountedLifecycle(refreshedUsageSource); // Recovery is also a state change.
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+const changedDeploymentSource = structuredClone(refreshedUsageSource);
+changedDeploymentSource.targets[0].deployment.scheduler_state = "unknown";
+await publishCountedLifecycle(changedDeploymentSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+lifecycleUsageStore.set(usageSourceKey, "invalid previous snapshot");
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+const workingLifecycleGet = lifecycleUsageEnv.STRATEGY_SWITCH_CONFIG.get;
+lifecycleUsageEnv.STRATEGY_SWITCH_CONFIG.get = async (key) => {
+  if (key === usageSourceKey) throw new Error("synthetic previous snapshot read failure");
+  return workingLifecycleGet(key);
+};
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+lifecycleUsageEnv.STRATEGY_SWITCH_CONFIG.get = workingLifecycleGet;
+const staleUsageSource = structuredClone(refreshedUsageSource);
+staleUsageSource.computed_at = new Date(Date.now() - 48 * 3600000).toISOString();
+staleUsageSource.generated_at = staleUsageSource.computed_at;
+lifecycleUsageStore.set(usageSourceKey, JSON.stringify(staleUsageSource));
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+const staleDeploymentSource = structuredClone(refreshedUsageSource);
+staleDeploymentSource.targets[0].deployment.observed_at = staleUsageSource.computed_at;
+lifecycleUsageStore.set(usageSourceKey, JSON.stringify(staleDeploymentSource));
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+
 const researchTaskSyncValue = ["research", "task", "sync"].join("-");
 const researchTaskEnv = { ...controlEnv, RESEARCH_TASK_SYNC_TOKEN: researchTaskSyncValue };
 const researchTaskCookie = await __test.makeSession("health-user", [], researchTaskEnv);
