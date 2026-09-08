@@ -2,6 +2,8 @@
 
 [简体中文](README.zh-CN.md)
 
+Alpaca Market Data supplies US equity research inputs; no Alpaca trading target is currently configured. The extra `alpaca` observability identifier preserves historical/research evidence compatibility and does not create a trading account or grant runtime control. Keep data-source health separate from execution heartbeats. The retained AlpacaPlatform shadow/paper contracts are not a deployment. IBKR Gateway is a connection/session component; QMT is an A-share adapter without a configured broker target. Account controls follow actual configured targets, not the repository inventory.
+
 This is the authenticated backend for the personal strategy switch console. It is intentionally thin:
 
 - Visitors who are not signed in, or are not in the allowlist, can only view the public page.
@@ -44,9 +46,13 @@ Historical extension prerequisites (not current tasks or configuration-only prer
 
 The web surface is for low-frequency human intervention, not a trading or P&L dashboard:
 
-- **Platform management** is the single daily surface: account, strategy, configured switch, monitoring record and freshness appear together, without permanent Attention/System Status tabs.
-- **Your decision needed** appears only for outstanding human decisions; completed items and research counts stay out of the home surface.
-- **Advanced details** is collapsed by default and retains monitoring, research, execution evidence and recovery checks. There is no pretend AI-repair button.
+The interface uses a white canvas, a single deep teal accent and compact tables. Narrow screens use horizontal platform navigation and a horizontally scrollable account table that also accepts keyboard focus.
+
+- **Decisions and accounts** is the daily surface: pending research candidates, owner decisions and reconciliation confirmations precede the account list. Completed items leave the confirmation area; a failed research queue read is unavailable, never an empty queue.
+- Each account shows its configured strategy and switch, actual switch, scheduling, application status, observation age and one next step. Missing or stale readback stays unknown; an aligned switch with unknown scheduling is not shown as applied.
+- **Strategy settings** starts collapsed. Clicking an account or “Review settings” only opens and selects that account; it does not save or enable anything. The existing main action handles enable/switch, while disable uses `STOP_ONLY`. A saved setting does not prove the platform stopped. Plugins, income and options remain under advanced settings; selection grants no runtime permission.
+- Candidate confirmation remains outside strategy settings. Accept/reject records intent only, without account binding, paper/live enablement or replacement of a running strategy. The intended platform is explicit; risk-scale meanings and candidate IDs are in details. Submission feedback stays visible when settings are collapsed.
+- Engineering monitoring and research diagnostics have no operator entry point. Pending recovery confirmations remain visible independently. There is no pretend AI-repair button.
 - An account may configure optional `runtime_status_target_id` to reference an existing lifecycle `target_id`. Matching requires the same platform and a one-to-one link; missing, duplicate or stale records cannot look healthy. This display-only field is not sent to trading workflows. Monitoring success does not prove an order or fill.
 - If no strategy meets all release, runtime-eligibility, and evidence gates, the page disables the Live choice. It never changes configuration automatically or treats health, candidates, or historical `live` metadata as order or runtime authority.
 

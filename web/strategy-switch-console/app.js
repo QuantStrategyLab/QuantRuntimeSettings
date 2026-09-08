@@ -109,7 +109,7 @@
     const copy = {
       zh: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "平台配置",
+        appSubtitle: "低频决策台",
         loginTitle: "管理你的量化平台",
         loginDescription: "配置策略，关注运行，处理重要决策。",
         loginUnavailable: "暂时无法确认登录状态，请重新登录。",
@@ -139,7 +139,7 @@
         scheduleUnknown: "状态未知",
         scheduleNotApplicable: "不适用",
         runtimeStateUnknown: "状态未知",
-        deploymentUnverified: "实际状态待更新",
+        deploymentUnverified: "实际状态未知",
         strategyNotApplied: "策略尚未应用",
         settingsNotApplied: "开关尚未应用",
         switchesApplied: "开关已同步",
@@ -149,7 +149,15 @@
         monitoringUnlinked: "待关联",
         monitoringTime: "记录时间",
         monitoringDetails: "监测详情",
-        platformManagement: "平台管理",
+        platformManagement: "决策与账户",
+        strategySettings: "策略设置",
+        strategySettingsHint: "需要启停或调整策略时展开",
+        accountNextStep: "下一步",
+        accountScrollHint: "左右滑动查看实际状态与下一步",
+        awaitDeploymentReadback: "等待有效读回",
+        noSwitchAction: "开关无需处理",
+        reviewAccountSettings: "复核设置",
+        advancedSelectionNotice: "插件、收入层和期权的选择不授予运行许可；只使用策略已绑定的能力。",
         advancedDetails: "高级详情",
         monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
         instanceList: "账户实例",
@@ -386,25 +394,29 @@
         live: "券商执行",
         paper: "旧版非实盘",
         dryRun: "不下单演练",
-        promotionConfirmTitle: "晋级确认（Shadow 后）",
+        promotionConfirmTitle: "确认研究候选",
         promotionDecisionEyebrow: "待决策",
         promotionExecutionMode: "目标执行模式",
         promotionRiskProfile: "风险档",
-        promotionConfirmMeta: "仅记录人工意图：真实 paper（若有）或 live，以及风险档。晋级仓位缩放为 0.50/0.75/1.00（≠ Composer MDD 1.00/1.25/1.50）；无券商 paper 不可选 paper；确认不授予实盘权限。",
+        promotionConfirmMeta: "接受仅记录意向，不启用交易，也不替换正在运行的策略。",
+        promotionTargetSummary: "意向平台：{platform}。本次确认不绑定账户或授予执行权限。",
+        promotionTargetUnavailable: "有研究候选待确认，但当前没有可见目标平台。",
+        promotionRiskDetails: "风险档与账户资料",
+        promotionRiskScaleMeta: "按保本、平衡、增长顺序，晋级仓位缩放为 0.50 / 0.75 / 1.00，仅适用于新晋级或材料变更；组合相对无杠杆基准的回撤上限倍数为 1.00 / 1.25 / 1.50。两者含义不同，不会据此调整现有实盘。",
         promotionPaperUnavailable: "该平台无券商 paper/sim，已禁用 paper",
-        promotionTicket: "待确认 ticket",
+        promotionTicket: "待确认候选",
         promotionAccept: "接受意图",
         promotionReject: "拒绝",
-        promotionTicketEmpty: "当前没有 awaiting_human 的晋级 ticket",
+        promotionTicketEmpty: "当前没有待确认的研究候选。",
         promotionTicketLoginRequired: "请先登录（需权限账号）后再刷新",
-        promotionTicketLoadFailed: "晋级队列加载失败，请刷新",
+        promotionTicketLoadFailed: "研究候选队列暂不可用，请刷新记录；不能据此判断没有待办。",
         promotionAdminOnly: "需管理员才能确认/拒绝",
-        promotionTicketSuggested: "ticket 建议风险档：{profile}",
+        promotionTicketSuggested: "候选建议风险档：{profile}",
         promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
         promotionDecisionFailed: "晋级确认失败",
-        riskCapitalPreservation: "保本优先（晋级仓位×0.50；Composer MDD×1.00）",
-        riskBalancedCompounding: "平衡复利（晋级仓位×0.75；Composer MDD×1.25）",
-        riskGrowthCompounding: "增长复利（晋级仓位×1.00；Composer MDD×1.50）",
+        riskCapitalPreservation: "保本优先",
+        riskBalancedCompounding: "平衡复利",
+        riskGrowthCompounding: "增长复利",
         riskEnvelopeTitle: "账户风险信封",
         riskEnvelopePreference: "风险偏好",
         riskEnvelopeCapitalBand: "资金档",
@@ -424,7 +436,7 @@
         runtimeTargetCurrent: "不修改",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
-        runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。选择停用后点主操作提交；后台只写停用配置，平台是否已应用显示为未知。",
+        runtimeTargetModeMeta: "选择后使用下方主操作提交。保存停用配置不代表平台已停止；实际状态以读回为准。",
         pluginMode: "插件状态",
         pluginModeNone: "不挂载旧插件",
         pluginModeMeta: "当前候选未绑定插件；旧插件不会自动挂载。",
@@ -572,7 +584,7 @@
       },
       en: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "Platform settings",
+        appSubtitle: "Decision desk",
         loginTitle: "Your trading workspace",
         loginDescription: "Configure strategies. Monitor operations. Make key decisions.",
         loginUnavailable: "Unable to verify your session. Please sign in again.",
@@ -602,7 +614,7 @@
         scheduleUnknown: "Unknown",
         scheduleNotApplicable: "Not applicable",
         runtimeStateUnknown: "Unknown",
-        deploymentUnverified: "Deployment not verified",
+        deploymentUnverified: "Actual state unknown",
         strategyNotApplied: "Strategy not applied",
         settingsNotApplied: "Switch not applied",
         switchesApplied: "Switches synchronized",
@@ -612,7 +624,15 @@
         monitoringUnlinked: "Not linked",
         monitoringTime: "Recorded at",
         monitoringDetails: "Monitoring details",
-        platformManagement: "Platform management",
+        platformManagement: "Decisions and accounts",
+        strategySettings: "Strategy settings",
+        strategySettingsHint: "Expand to enable, disable or change a strategy",
+        accountNextStep: "Next step",
+        accountScrollHint: "Scroll horizontally for actual status and next step",
+        awaitDeploymentReadback: "Await verified readback",
+        noSwitchAction: "No switch action needed",
+        reviewAccountSettings: "Review settings",
+        advancedSelectionNotice: "Selecting plugins, income or options does not grant runtime permission. Only strategy-bound capabilities can be used.",
         advancedDetails: "Advanced details",
         monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
         instanceList: "Account instances",
@@ -849,25 +869,29 @@
         live: "Broker execution",
         paper: "Legacy non-live",
         dryRun: "No-order simulation",
-        promotionConfirmTitle: "Promotion confirm (after shadow)",
+        promotionConfirmTitle: "Review research candidate",
         promotionDecisionEyebrow: "Decisions",
         promotionExecutionMode: "Target execution mode",
         promotionRiskProfile: "Risk profile",
-        promotionConfirmMeta: "Records human intent only: real broker paper (if any) or live, plus risk profile. Promotion size scales are 0.50/0.75/1.00 (not Composer MDD 1.00/1.25/1.50). No synthetic paper; confirm does not grant live authority.",
+        promotionConfirmMeta: "Accept records intent only. It does not enable trading or replace the running strategy.",
+        promotionTargetSummary: "Intended platform: {platform}. This confirmation does not bind an account or grant execution authority.",
+        promotionTargetUnavailable: "Research candidates await confirmation, but no target platform is visible.",
+        promotionRiskDetails: "Risk profiles and account context",
+        promotionRiskScaleMeta: "For preservation, balanced and growth profiles, promotion size scales are 0.50 / 0.75 / 1.00 for new promotions or material changes only. Portfolio drawdown caps relative to the unlevered benchmark are 1.00 / 1.25 / 1.50. These have different meanings and do not change existing live settings.",
         promotionPaperUnavailable: "Broker paper/sim unavailable on this platform; paper disabled",
-        promotionTicket: "Pending ticket",
+        promotionTicket: "Pending candidate",
         promotionAccept: "Accept intent",
         promotionReject: "Reject",
-        promotionTicketEmpty: "No awaiting_human promotion ticket",
+        promotionTicketEmpty: "No research candidates awaiting confirmation.",
         promotionTicketLoginRequired: "Sign in with an authorized account, then refresh",
-        promotionTicketLoadFailed: "Could not load the promotion queue. Please refresh.",
+        promotionTicketLoadFailed: "Research candidate queue unavailable. Refresh records; this does not mean there are no pending decisions.",
         promotionAdminOnly: "An administrator must confirm or reject",
-        promotionTicketSuggested: "Ticket suggested risk profile: {profile}",
+        promotionTicketSuggested: "Candidate suggested risk profile: {profile}",
         promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
         promotionDecisionFailed: "Promotion confirmation failed",
-        riskCapitalPreservation: "Capital preservation (promo size ×0.50; Composer MDD ×1.00)",
-        riskBalancedCompounding: "Balanced compounding (promo size ×0.75; Composer MDD ×1.25)",
-        riskGrowthCompounding: "Growth compounding (promo size ×1.00; Composer MDD ×1.50)",
+        riskCapitalPreservation: "Capital preservation",
+        riskBalancedCompounding: "Balanced compounding",
+        riskGrowthCompounding: "Growth compounding",
         riskEnvelopeTitle: "Account risk envelope",
         riskEnvelopePreference: "Risk preference",
         riskEnvelopeCapitalBand: "Capital band",
@@ -887,7 +911,7 @@
         runtimeTargetCurrent: "Keep current status",
         runtimeTargetEnabled: "Enabled",
         runtimeTargetDisabled: "Disabled",
-        runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work. Choose Disabled, then use the main action; only the disable setting is written and platform application stays unknown.",
+        runtimeTargetModeMeta: "Select a change, then use the main action below. Saving a disable setting does not prove the platform stopped; actual state requires readback.",
         pluginMode: "Plugin status",
         pluginModeNone: "Do not mount legacy plugins",
         pluginModeMeta: "The current candidate has no bound plugin; legacy plugins are not auto-mounted.",
@@ -2200,7 +2224,7 @@
       const payload = state.researchPromotion?.payload || {};
       if (payload.data_status === "login_required") return t("promotionTicketLoginRequired");
       if (
-        payload.data_status === "unavailable"
+        payload.data_status !== "ready"
         || (Array.isArray(payload.errors) && payload.errors.length > 0)
       ) {
         return t("promotionTicketLoadFailed");
@@ -2210,6 +2234,23 @@
 
     function renderPromotionConfirmControls() {
       const platform = state.selected;
+      const platformVisible = platformMeta[platform]?.console_visible !== false;
+      const payload = state.researchPromotion?.payload || {};
+      const queueReady = payload.data_status === "ready" && !(payload.errors || []).length;
+      const tickets = state.auth?.allowed && queueReady
+        ? (payload.tickets || []).filter((ticket) => ticket.state === "awaiting_human")
+        : [];
+      const panel = el("promotion-decision-panel");
+      if (panel) panel.hidden = !tickets.length || !platformVisible;
+      const notice = el("promotion-queue-notice");
+      if (notice) {
+        notice.hidden = !state.auth?.allowed || (tickets.length > 0 && platformVisible);
+        notice.textContent = tickets.length && !platformVisible ? t("promotionTargetUnavailable") : promotionTicketQueueMessage();
+      }
+      const targetSummary = el("promotion-target-summary");
+      if (targetSummary) {
+        targetSummary.textContent = t("promotionTargetSummary").replace("{platform}", platformMeta[platform]?.label || t("commonUnknown"));
+      }
       const ticketSelect = el("promotion-ticket-select");
       const modeSelect = el("promotion-execution-mode-select");
       const riskSelect = el("promotion-risk-profile-select");
@@ -2219,9 +2260,6 @@
       const rejectButton = el("promotion-reject-button");
       if (!modeSelect || !riskSelect) return;
       const paperSupported = platformSupportsBrokerPaper(platform);
-      const tickets = (state.researchPromotion?.payload?.tickets || []).filter(
-        (ticket) => ticket.state === "awaiting_human",
-      );
       if (ticketSelect) {
         const previousTicket = state.researchPromotion.selectedTicketId || ticketSelect.value || "";
         ticketSelect.replaceChildren();
@@ -2234,12 +2272,14 @@
             : tickets[0].ticket_id;
           state.researchPromotion.selectedTicketId = selectedId;
           for (const ticket of tickets) {
-            const label = `${ticket.ticket_id} · ${ticket.strategy_profile || "?"} · ${ticket.suggested_risk_profile || DEFAULT_PROMOTION_RISK_PROFILE}`;
+            const label = `${strategyLabel(ticket.strategy_profile || "?")} · ${formatDateTime(ticket.created_at)}`;
             ticketSelect.append(new Option(label, ticket.ticket_id, false, ticket.ticket_id === selectedId));
           }
         }
       }
       const ticket = selectedPromotionTicket();
+      const ticketDetail = el("promotion-ticket-detail");
+      if (ticketDetail) ticketDetail.textContent = ticket ? `${ticket.ticket_id} · ${formatDateTime(ticket.created_at)}` : "";
       const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
         ? ticket.suggested_risk_profile
         : DEFAULT_PROMOTION_RISK_PROFILE;
@@ -2273,13 +2313,13 @@
       if (ticketMeta) {
         if (ticket) {
           ticketMeta.textContent = state.auth?.admin
-            ? t("promotionTicketSuggested").replace("{profile}", suggested)
+            ? t("promotionTicketSuggested").replace("{profile}", promotionRiskProfileLabel(suggested))
             : t("promotionAdminOnly");
         } else {
           ticketMeta.textContent = promotionTicketQueueMessage();
         }
       }
-      const canDecide = Boolean(ticket && state.auth?.admin);
+      const canDecide = Boolean(ticket && state.auth?.admin && platformVisible);
       if (acceptButton) acceptButton.disabled = !canDecide;
       if (rejectButton) rejectButton.disabled = !canDecide;
       renderRiskEnvelopePanel();
@@ -3213,7 +3253,7 @@
       const showPrivateConfig = hasPrivateConfig();
       const visiblePlatforms = Object.keys(platformMeta).filter((platform) => platformMeta[platform].console_visible !== false);
       if (!visiblePlatforms.includes(state.selected) && visiblePlatforms.length) state.selected = visiblePlatforms[0];
-      el("switch-view").querySelector(".switch-surface").hidden = !visiblePlatforms.length;
+      el("switch-view").hidden = !visiblePlatforms.length;
       for (const platform of visiblePlatforms) {
         ensureAccountSelection(platform);
         const meta = platformMeta[platform];
@@ -3294,7 +3334,27 @@
       if (observed.runtime_enabled !== configured.enabled) return t("settingsNotApplied");
       if (!configured.enabled && observed.scheduler_state === "paused") return t("switchesApplied");
       if (configured.enabled && observed.scheduler_state === "enabled") return t("switchesApplied");
+      if (!observed.scheduler_state || observed.scheduler_state === "unknown") return t("deploymentUnverified");
       return t("scheduleNotApplied");
+    }
+
+    function accountNextStep(platform, account) {
+      const status = accountApplicationText(platform, account);
+      if (status === t("deploymentUnverified")) return { label: t("awaitDeploymentReadback"), openSettings: false };
+      if (status === t("switchesApplied")) return { label: t("noSwitchAction"), openSettings: false };
+      return { label: t("reviewAccountSettings"), openSettings: true };
+    }
+
+    function openAccountSettings(platform, account) {
+      state.selected = platform;
+      render();
+      const select = el("account-select");
+      select.value = account.key;
+      select.dispatchEvent(new Event("change"));
+      const settings = el("strategy-settings");
+      settings.open = true;
+      settings.scrollIntoView({ block: "start" });
+      select.focus({ preventScroll: true });
     }
 
     function accountMonitoringAge(record) {
@@ -3353,10 +3413,7 @@
         select.type = "button";
         select.textContent = account.label;
         select.setAttribute("aria-pressed", String(account.key === selectedAccount(platform)?.key));
-        select.addEventListener("click", () => {
-          el("account-select").value = account.key;
-          el("account-select").dispatchEvent(new Event("change"));
-        });
+        select.addEventListener("click", () => openAccountSettings(platform, account));
         first.append(select);
         row.append(first);
         for (const value of [
@@ -3372,6 +3429,19 @@
           cell.textContent = value;
           row.append(cell);
         }
+        const next = accountNextStep(platform, account);
+        const action = document.createElement("td");
+        action.className = "account-next-step";
+        if (next.openSettings) {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = next.label;
+          button.addEventListener("click", () => openAccountSettings(platform, account));
+          action.append(button);
+        } else {
+          action.textContent = next.label;
+        }
+        row.append(action);
         body.append(row);
       }
     }

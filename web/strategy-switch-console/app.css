@@ -3122,72 +3122,101 @@
     }
 
 /* Lightweight operator surface. Existing diagnostic and safety controls remain available. */
-.operator-console { background: #fff; --bg: #fff; --accent: #087b83; --line: #e1e6eb; }
-.operator-console .topbar { position: static; display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; max-width: none; margin: 0; padding: 18px 28px; min-height: 72px; border-bottom: 1px solid var(--line); background: #fff; }
+.operator-console { background: #fff; --bg: #fff; --accent: #136f63; --line: #e1e6eb; --ink: #17232d; --muted: #65717d; }
+.operator-console .topbar { position: static; display: flex; flex-direction: row; align-items: center; justify-content: space-between; width: 100%; max-width: none; margin: 0; padding: 18px 28px; min-height: 68px; border-bottom: 1px solid var(--line); background: #fff; }
 .operator-console .brand { display: flex; align-items: center; gap: 22px; }
 .operator-console .brand::before { display: none; }
 .operator-console .brand h1 { font-size: 21px; letter-spacing: -.5px; }
 .operator-console .brand p { margin: 0; padding-left: 22px; border-left: 1px solid var(--line); font-size: 14px; }
-.operator-console .shell { width: 100%; display: grid; grid-template-columns: 208px minmax(0, 1fr); gap: 0; max-width: none; margin: 0; padding: 0; }
-.operator-console .platform-strip { grid-column: 1; grid-row: 1 / span 4; display: flex; flex-direction: column; align-self: stretch; gap: 6px; padding: 28px 12px; margin: 0; border-right: 1px solid var(--line); background: #fff; border-radius: 0; }
-.operator-console .platform-button { flex: none; width: 100%; min-height: 52px; padding: 12px 14px; display: flex; align-items: center; gap: 12px; background: transparent; border: 0; border-left: 3px solid transparent; border-radius: 0; box-shadow: none; text-align: left; }
-.operator-console .platform-button.active { background: #edf6f6; border-left-color: var(--accent); color: var(--accent); box-shadow: none; }
+.operator-console .shell {
+  width: 100%; min-height: calc(100svh - 68px); display: grid; grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto auto auto 1fr; align-content: start;
+  grid-template-areas: "platforms heading" "platforms decisions" "platforms recovery"
+    "platforms promotion" "platforms queue" "platforms accounts" "platforms health";
+  gap: 0; max-width: none; margin: 0; padding: 0;
+}
+.operator-console .platform-strip { grid-area: platforms; display: flex; flex-direction: column; align-self: stretch; gap: 4px; padding: 24px 0; margin: 0; border-right: 1px solid var(--line); background: #f3f5f7; border-radius: 0; box-shadow: none; }
+.operator-console .platform-button { flex: none; width: 100%; min-height: 54px; padding: 12px 18px; display: flex; align-items: center; gap: 12px; background: transparent; border: 0; border-left: 3px solid transparent; border-radius: 0; box-shadow: none; text-align: left; }
+.operator-console .platform-button.active { background: var(--accent); border-left-color: var(--accent); color: #fff; box-shadow: none; }
 .operator-console .platform-button::after { display: none; }
 .operator-console .platform-button .mark { width: 28px; height: 28px; border-radius: 5px; font-size: 11px; display: grid; place-items: center; background: #f0f3f5; color: var(--muted); }
 .operator-console .platform-copy > span, .operator-console .platform-copy > small { display: none; }
-.operator-console .platform-copy strong { font-size: 14px; font-weight: 600; }
-.operator-console .console-nav { width: 100%; grid-column: 2; margin: 0; padding: 0 32px; min-height: 60px; border-bottom: 1px solid var(--line); border-radius: 0; background: #fff; justify-content: flex-start; gap: 24px; box-shadow: none; }
+.operator-console .platform-copy strong { font-size: 14px; font-weight: 500; }
+.operator-console .platform-button.active .mark { color: #fff; background: #ffffff18; }
+.operator-console .platform-button.active .platform-copy strong { color: #fff; }
+.operator-console .console-nav { width: 100%; grid-area: heading; margin: 0; padding: 36px 36px 24px; min-height: 108px; border: 0; border-radius: 0; background: #fff; justify-content: flex-start; gap: 24px; box-shadow: none; }
 .operator-console .console-nav__button { padding: 17px 8px; font-size: 14px; border-radius: 0; background: transparent; }
 .operator-console .console-nav__button.active { color: var(--accent); background: transparent; box-shadow: inset 0 -2px var(--accent); }
-.operator-console #switch-view, .operator-console #control-plane-view, .operator-console #health-view { grid-column: 2; min-width: 0; margin: 0; padding: 28px 32px 48px; }
+.operator-console #switch-view, .operator-console #control-plane-view, .operator-console #health-view { min-width: 0; margin: 0; padding: 28px 36px; }
+.operator-console #switch-view { grid-area: accounts; }
+.operator-console #control-plane-view { grid-area: decisions; }
+.operator-console #health-view { grid-area: health; }
+.operator-console #reconciliation-recovery-board { grid-area: recovery; min-width: 0; margin: 0; padding: 24px 32px; }
+.operator-console .promotion-queue-notice { grid-area: queue; margin: 0; padding: 20px 32px 0; font-size: 13px; color: var(--muted); }
+.operator-console .shell > .toast { position: fixed; z-index: 20; bottom: 20px; left: 20px; right: 20px; max-width: 900px; margin: 0 auto; padding: 14px 18px; border: 1px solid var(--line-strong); border-radius: 6px; background: #fff; color: var(--ink); font-weight: 500; }
 .operator-console .plan-intro { display: none; }
 .operator-console .switch-surface { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 280px; align-items: start; gap: 28px; border: 0; background: transparent; box-shadow: none; border-radius: 0; }
 .operator-console .switch-panel { min-height: 0; display: block; padding: 0; min-width: 0; border: 0; background: transparent; }
 .operator-console .panel-head { border: 0; padding: 0; margin: 0 0 20px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 16px; }
 .operator-console .panel-head .eyebrow, .operator-console .form-step, .operator-console .form-section-heading { display: none; }
-.operator-console .panel-head h2 { font-size: 28px; margin: 0; }
+.operator-console .panel-head h2 { font-size: 24px; margin: 0; }
 .operator-console .panel-head p { font-size: 13px; color: var(--muted); margin: 0; }
 .operator-console .config-truth-note { margin: 0 0 16px; padding: 14px 18px; background: #f5f7f9; border-radius: 5px; color: #53616f; font-size: 13px; }
-.operator-console .account-overview { border: 1px solid var(--line); border-radius: 7px; overflow-x: auto; margin-bottom: 20px; }
-.operator-console .account-overview table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.operator-console .account-overview { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); border-radius: 0; overflow-x: auto; margin-bottom: 12px; }
+.operator-console .account-overview table { width: 100%; min-width: 920px; border-collapse: collapse; font-size: 13px; text-align: left; font-variant-numeric: tabular-nums; }
 .operator-console .account-overview th { color: #62707b; font-size: 12px; font-weight: 500; background: #fcfdfd; }
-.operator-console .account-overview th, .operator-console .account-overview td { padding: 16px 15px; border-bottom: 1px solid var(--line); }
+.operator-console .account-overview th, .operator-console .account-overview td { padding: 13px 12px; border-bottom: 1px solid var(--line); }
 .operator-console .account-overview tr:last-child td { border-bottom: 0; }
-.operator-console .account-overview tr.selected { background: #edf6f6; }
+.operator-console .account-overview tr.selected { background: #f7faf9; }
 .operator-console .account-overview tr.selected td:first-child { box-shadow: inset 3px 0 var(--accent); }
 .operator-console .account-overview td:last-child { color: var(--muted); white-space: nowrap; }
 .operator-console .account-overview button { background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; font-weight: 600; }
+.operator-console .account-overview .account-next-step button { color: var(--accent); }
+.operator-console .account-state-note { margin: 0 0 28px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.operator-console .account-scroll-hint { display: none; }
+.operator-console .account-overview:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.operator-console .strategy-settings { border-top: 1px solid var(--line); padding-top: 18px; }
+.operator-console .strategy-settings > summary { cursor: pointer; display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px; font-size: 16px; font-weight: 600; list-style: none; }
+.operator-console .strategy-settings > summary::-webkit-details-marker { display: none; }
+.operator-console .strategy-settings > summary small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.operator-console .strategy-settings > summary::before { content: ""; width: 7px; height: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); margin: 0 4px 0 2px; }
+.operator-console .strategy-settings[open] > summary { margin-bottom: 24px; }
+.operator-console .strategy-settings[open] > summary::before { transform: rotate(45deg); }
+.operator-console .promotion-context { border-top: 1px solid var(--line); padding-top: 22px; margin-top: 10px; font-size: 14px; }
+.operator-console .promotion-context > summary { cursor: pointer; color: var(--ink); font-weight: 500; }
+.operator-console .promotion-context > p { margin: 12px 0; }
 .operator-console .decision-promotion-panel {
+  grid-area: promotion;
+  min-width: 0;
   display: grid;
   gap: 16px;
-  margin-bottom: 20px;
-  padding: 24px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
+  margin: 12px 36px 0;
+  padding: 0 0 28px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
   background: #fff;
 }
-.operator-console .decision-promotion-head .eyebrow {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
 .operator-console .decision-promotion-head h3 {
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 .operator-console .promotion-confirm-block {
   display: grid;
-  gap: 12px;
+  gap: 18px;
 }
+.operator-console #promotion-confirm-meta { font-size: 13px; line-height: 1.75; color: var(--muted); }
+.operator-console .promotion-confirm-actions .btn { min-width: 116px; min-height: 42px; border-radius: 5px; font-size: 14px; box-shadow: none; }
+.operator-console #promotion-accept-button:not(:disabled) { background: var(--accent); color: white; border-color: var(--accent); }
+.operator-console .btn { border-radius: 5px; box-shadow: none; font-size: 13px; }
+.operator-console .top-actions .btn, .operator-console #refresh-status-button { background: transparent; color: var(--muted); border-color: transparent; }
+.operator-console .btn:hover:not(:disabled) { border-color: var(--accent); }
 .operator-console .promotion-confirm-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
+  grid-template-columns: 1.25fr 1fr 1fr;
+  max-width: 900px;
+  gap: 24px;
 }
 .operator-console .promotion-confirm-grid label {
   display: grid;
@@ -3252,7 +3281,7 @@
   .operator-console .brand { min-width: 0; flex: 1; }
   .operator-console .brand h1 { font-size: 18px; white-space: nowrap; }
   .operator-console .brand p, .operator-console .auth-status { display: none; }
-  .operator-console .shell { width: 100%; display: block; }
+  .operator-console .shell { width: 100%; min-height: 0; display: block; }
   .operator-console .platform-strip { flex-direction: row; overflow-x: auto; padding: 8px 12px; gap: 4px; border-right: 0; border-bottom: 1px solid var(--line); }
   .operator-console .platform-button { width: auto; min-height: 42px; padding: 9px 12px; gap: 6px; border-left: 0; border-bottom: 2px solid transparent; }
   .operator-console .platform-button.active { border-bottom-color: var(--accent); }
@@ -3264,9 +3293,15 @@
   .operator-console .panel-head h2 { font-size: 24px; }
   .operator-console .quick-form { grid-template-columns: 1fr; padding: 18px; gap: 18px; }
   .operator-console .promotion-confirm-grid { grid-template-columns: 1fr; }
-  .operator-console .decision-promotion-panel { padding: 18px; }
+  .operator-console .decision-promotion-panel { padding: 0 0 24px; }
+  .operator-console #promotion-decision-panel { margin: 20px 16px 0; }
+  .operator-console #reconciliation-recovery-board { padding: 20px 16px; }
+  .operator-console .promotion-queue-notice { padding: 20px 16px 0; }
   .operator-console .account-overview th, .operator-console .account-overview td { padding: 14px 10px; font-size: 12px; }
   .operator-console .account-overview th { white-space: nowrap; }
+  .operator-console .account-scroll-hint { display: block; margin: -8px 0 14px; font-size: 12px; color: var(--muted); }
+  .operator-console .account-overview th:first-child, .operator-console .account-overview td:first-child { position: sticky; left: 0; background: #fff; border-right: 1px solid var(--line); }
+  .operator-console .account-overview tr.selected td:first-child { background: #f7faf9; }
 }
 
 .operator-console .login-screen { min-height: calc(100vh - 90px); display: grid; place-items: center; padding: 32px 20px; background: #f7f9fa; }
@@ -3283,15 +3318,21 @@
 .operator-console .monitoring-overview tbody tr:last-child td { border-bottom: 0; }
 .operator-console .monitoring-overview .btn { min-height: 30px; padding: 4px 10px; white-space: nowrap; font-size: 12px; }
 
-.operator-console .management-heading { justify-content: space-between; align-items: center; gap: 12px; }
-.operator-console .management-heading h2 { font-size: 17px; margin: 0; font-weight: 600; }
+.operator-console .management-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.operator-console .management-heading h2 { font-size: 28px; margin: 0; font-weight: 600; }
 .operator-console .management-heading > div { display: flex; align-items: center; gap: 16px; }
 .operator-console #monitoring-computed-at { font-size: 11px; color: var(--muted); }
 .operator-console .advanced-workspace { border-top: 1px solid var(--line); }
-.operator-console .advanced-workspace > summary { cursor: pointer; font-size: 14px; color: var(--muted); }
+.operator-console .advanced-workspace > summary { cursor: pointer; padding: 22px 0; font-size: 14px; color: var(--ink); font-weight: 500; }
 .operator-console .advanced-workspace > .health-head { margin-top: 24px; }
 @media (max-width: 700px) {
-  .operator-console .management-heading { padding: 14px 20px; }
+  .operator-console .management-heading { padding: 24px 16px 12px; min-height: 0; }
+  .operator-console .management-heading h2 { font-size: 24px; }
+  .operator-console .management-heading > div { flex: 0 0 auto; }
+  .operator-console .strategy-settings > summary { gap: 10px; }
+  .operator-console .strategy-settings > summary small { flex-basis: 100%; padding-left: 24px; }
+  .operator-console .platform-button { white-space: nowrap; }
+  .operator-console #health-view { padding-top: 8px; }
   .operator-console .management-heading > div { gap: 8px; }
   .operator-console #monitoring-computed-at { display: none; }
 }
