@@ -564,6 +564,7 @@ export default {
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
       if (url.pathname === "/api/runtime-stop" && request.method === "POST") return await dispatchRuntimeStop(request, env);
+      if (url.pathname === "/api/runtime-resume" && request.method === "POST") return await dispatchBinanceResume(request, env);
       if (url.pathname === "/bootstrap-config.js") {
         return new Response(BOOTSTRAP_CONFIG_JS, {
           status: 200,
@@ -1789,8 +1790,17 @@ async function resolveCurrentStrategyForAccount({ platform, option, optionsCount
   const runtimeTargetMatches = runtimeTarget && runtimeTargetMatchesAccount(runtimeTarget, platform, option);
   const runtimeTargetProfile = runtimeTargetMatches ? cleanCurrentStrategy(runtimeTarget.strategy_profile) : "";
   if (runtimeTargetProfile) {
+    let resumeTarget = null;
+    if (platform === "binance" && repository === "QuantStrategyLab/BinancePlatform" && variableScope === "repository") {
+      const values = { RUNTIME_TARGET_JSON: runtimeTargetValue };
+      for (const name of ["RUNTIME_TARGET_ENABLED", "BINANCE_RECOVERY_CONTROL_ENABLED", "BINANCE_DRY_RUN", "STRATEGY_PROFILE", "CLOUD_RUN_SERVICE_TARGETS_JSON"]) {
+        values[name] = await readVariable(repository, variableScope, githubEnvironment, name);
+      }
+      resumeTarget = await binanceResumeTarget(values, option);
+    }
     return {
       strategy_profile: runtimeTargetProfile,
+      ...(resumeTarget ? { binance_resume_target_sha256: resumeTarget.runtime_target_sha256 } : {}),
       ...runtimeModePayload(runtimeTarget),
       ...reservedCashPayload,
       ...incomeLayerPayload,
@@ -1923,6 +1933,83 @@ async function dispatchRuntimeStop(request, env) {
     ok: true, configured: false, platform_applied: false,
     actions_url: `https://github.com/${repository}/actions/workflows/${workflow}`,
   });
+}
+
+async function binanceResumeTarget(values, option) {
+  const target = parseJsonObject(values.RUNTIME_TARGET_JSON);
+  const continuity = target?.live_continuity;
+  if (values.RUNTIME_TARGET_ENABLED !== "false" || values.BINANCE_RECOVERY_CONTROL_ENABLED !== "true"
+    || !["", "false"].includes(values.BINANCE_DRY_RUN || "")
+    || !["", "crypto_live_pool_rotation"].includes(values.STRATEGY_PROFILE || "")
+    || values.CLOUD_RUN_SERVICE_TARGETS_JSON
+    || target?.platform_id !== "binance" || target.strategy_profile !== "crypto_live_pool_rotation"
+    || target.execution_mode !== "live" || target.dry_run_only !== false
+    || continuity?.baseline_kind !== "legacy_authorized"
+    || !["RECONCILE_ONLY", "ACTIVE_LKG"].includes(continuity?.state)
+    || typeof continuity.baseline_id !== "string" || !continuity.baseline_id.trim()
+    || typeof continuity.captured_at !== "string" || !continuity.captured_at.trim()
+    || !/^[a-f0-9]{64}$/.test(continuity.baseline_target_sha256 || "")) return null;
+  const inputs = { ...option, platform: "binance" };
+  const identity = { platform_id: "binance" };
+  for (const field of ["deployment_selector", "account_selector", "account_scope", "service_name"]) {
+    const value = inputs[field] || defaultInputValue(field, inputs);
+    identity[field] = field === "account_selector"
+      ? String(value || "").split(",").map((item) => item.trim()).filter(Boolean) : value;
+    if (!value || JSON.stringify(identity[field]) !== JSON.stringify(target[field])) return null;
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(values.RUNTIME_TARGET_JSON));
+  return {
+    runtime_target: identity,
+    runtime_target_sha256: [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+  };
+}
+
+async function dispatchBinanceResume(request, env) {
+  requireEnv(env, "RUNTIME_SETTINGS_DISPATCH_TOKEN");
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const raw = await request.json();
+  if (!raw || Array.isArray(raw) || typeof raw !== "object"
+    || Object.keys(raw).some((key) => !["platform", "target_name", "runtime_target_sha256", "confirm"].includes(key))
+    || raw.platform !== "binance" || raw.confirm !== "RESUME_EXISTING"
+    || typeof raw.runtime_target_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(raw.runtime_target_sha256)) {
+    throw new HttpError("resume accepts only the existing Binance target and RESUME_EXISTING confirmation", 400);
+  }
+  const config = await loadAccountOptionsConfig(env);
+  const matches = (config.options?.binance || []).filter((item) => item.target_name === raw.target_name);
+  const repository = platformRepositories(env).binance;
+  if (matches.length !== 1 || repository !== "QuantStrategyLab/BinancePlatform"
+    || resolvedVariableScope(matches[0].variable_scope, { ...matches[0], platform: "binance" }) !== "repository") {
+    throw new HttpError("resume requires one configured Binance repository target", 400);
+  }
+  let target;
+  try {
+    const variables = await fetchGithubVariables(env.RUNTIME_SETTINGS_DISPATCH_TOKEN, repository, "repository", "");
+    target = await binanceResumeTarget(Object.fromEntries(variables), matches[0]);
+  } catch {
+    return json({ ok: false, error: "resume source unavailable; no request submitted" }, 502);
+  }
+  if (!target || target.runtime_target_sha256 !== raw.runtime_target_sha256) {
+    return json({ ok: false, error: "existing recovery configuration changed or unavailable; refresh before continuing" }, 409);
+  }
+  // Only the external switch is requested. The platform's private ACTIVE_LKG
+  // validator remains mandatory; a console confirmation cannot activate it.
+  const resumeRequest = { target_id: `binance/${matches[0].target_name}`,
+    github: { repository, variable_scope: "repository" }, ...target };
+  const settingsRepository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
+  const workflow = "manual-binance-resume.yml";
+  try {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${settingsRepository}/actions/workflows/${workflow}/dispatches`, {
+      method: "POST", headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
+      body: JSON.stringify({ ref: "main", inputs: { resume_request: JSON.stringify(resumeRequest), apply: "true", confirm: "RESUME_EXISTING" } }),
+    });
+    if (!response.ok) throw new Error("dispatch failed");
+  } catch {
+    return json({ ok: false, error: "resume dispatch unverified; check the existing run before retrying" }, 502);
+  }
+  return json({ ok: true, configured: false, platform_applied: false,
+    actions_url: `https://github.com/${settingsRepository}/actions/workflows/${workflow}` });
 }
 
 async function dispatchSwitch(request, env) {

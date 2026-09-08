@@ -1,0 +1,44 @@
+name: Resume Existing Binance Target
+
+on:
+  workflow_dispatch:
+    inputs:
+      resume_request:
+        description: "Existing Binance identity and current target digest, without strategy or cash edits."
+        required: true
+        type: string
+      apply:
+        description: "Save only the external enable setting. Platform recovery checks still apply."
+        required: true
+        type: boolean
+        default: false
+      confirm:
+        description: "RESUME_EXISTING is required to save the setting."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-strategy-switch-binance
+  cancel-in-progress: false
+
+jobs:
+  resume:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    env:
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - name: Verify current target and requested switch setting
+        run: python3 python/scripts/resume_binance_runtime.py
+      - name: Report the verification boundary
+        run: |
+          echo 'Existing Binance switch configuration checked. The platform still verifies its private committed recovery control before execution. This run does not activate that control, invoke a strategy cycle or prove business recovery.' >> "$GITHUB_STEP_SUMMARY"

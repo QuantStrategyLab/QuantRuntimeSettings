@@ -101,6 +101,7 @@ jobs:
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_stop_worker_validation.mjs
+          node --experimental-default-type=module tests/binance_resume_worker_validation.mjs
           node --experimental-default-type=module --test tests/console_runtime_state_validation.mjs
           sed -n '/<script>/,/<\/script>/p' web/strategy-switch-console/index.html | sed '1d;$d' | node --check --input-type=commonjs
           node --check --input-type=module < web/strategy-switch-console/page_asset.js
