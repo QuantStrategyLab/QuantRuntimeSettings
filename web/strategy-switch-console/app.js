@@ -417,11 +417,14 @@
         promotionModePaper: "券商 paper/sim",
         liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
         runtimeTargetMode: "平台开关",
+        runtimeStopConfirm: "将为当前账号提交停用。只保存并核对停用配置，不应用表单其他修改；平台是否已停止仍未知。不撤单、不平仓，不能保证在途请求结束。继续？",
+        runtimeStopPending: "停用请求已提交。配置保存结果请查看任务；平台应用未请求，实际运行状态未知，请勿重复提交。",
+        runtimeStopReadyNote: "已选择停用：主操作只提交严格停用配置，不要求策略重新上架，也不应用其他表单修改。",
         runtimeSectionTitle: "运行与插件",
         runtimeTargetCurrent: "不修改",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
-        runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。",
+        runtimeTargetModeMeta: "停用后正式运行会跳过，模拟运行和健康检查仍可用。选择停用后点主操作提交；后台只写停用配置，平台是否已应用显示为未知。",
         pluginMode: "插件状态",
         pluginModeNone: "不挂载旧插件",
         pluginModeMeta: "当前候选未绑定插件；旧插件不会自动挂载。",
@@ -877,11 +880,14 @@
         promotionModePaper: "Broker paper/sim",
         liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
         runtimeTargetMode: "Account status",
+        runtimeStopConfirm: "Submit disable for this account. Only the disable setting is saved and verified; other form edits are ignored. Whether the platform has stopped remains unknown. No cancellation or liquidation; in-flight work may continue. Continue?",
+        runtimeStopPending: "Disable requested. Inspect the task for the configuration save result. Platform application was not requested; actual runtime state is unknown. Do not submit again.",
+        runtimeStopReadyNote: "Disable selected: the main action submits a strict stop-only configuration save. Strategy re-listing is not required and other form edits are not applied.",
         runtimeSectionTitle: "Runtime and plugins",
         runtimeTargetCurrent: "Keep current status",
         runtimeTargetEnabled: "Enabled",
         runtimeTargetDisabled: "Disabled",
-        runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work.",
+        runtimeTargetModeMeta: "Disabled accounts skip live runs; dry runs and health checks still work. Choose Disabled, then use the main action; only the disable setting is written and platform application stays unknown.",
         pluginMode: "Plugin status",
         pluginModeNone: "Do not mount legacy plugins",
         pluginModeMeta: "The current candidate has no bound plugin; legacy plugins are not auto-mounted.",
@@ -1034,6 +1040,7 @@
       ? storedLang
       : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
     const clone = (value) => JSON.parse(JSON.stringify(value));
+    const runtimeStopLock = { pending: false };
     const defaultReserveForm = () => ({
       reservePolicyMode: "current",
       minReservedCashUsd: "",
@@ -3749,6 +3756,8 @@
       const dispatch = el("dispatch-button");
       const hasPrivateAccounts = state.configSource === "private";
       const loadingConfig = state.configSource === "loading";
+      const stopOnlySelection = normalizeRuntimeTargetMode(state.forms[state.selected]?.runtimeTargetMode) === "disabled"
+        && Boolean(selectedAccount(state.selected)?.target_name);
       const hasRunnableStrategy = hasRunnableStrategySelection();
       const hasValidReserve = hasValidExecutionCashPolicy();
       const hasValidIncomeLayer = hasValidIncomeLayerPolicy();
@@ -3760,13 +3769,24 @@
         hasValidOptionOverlay &&
         hasValidDca;
       const hasPendingChange = hasPrivateAccounts && hasValidStrategy && hasPendingChanges(buildInputs());
-      dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
-      dispatch.textContent = state.auth.allowed
-        ? (loadingConfig
-          ? t("loadingConfig")
-          : (hasPrivateAccounts ? (hasValidStrategy ? (hasPendingChange ? t("runSwitch") : t("noChanges")) : t("configureAccounts")) : t("configureAccounts")))
-        : t("loginToRun");
+      if (stopOnlySelection) {
+        dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || runtimeStopLock.pending;
+        dispatch.textContent = state.auth.allowed
+          ? (loadingConfig ? t("loadingConfig") : (hasPrivateAccounts ? t("runSwitch") : t("configureAccounts")))
+          : t("loginToRun");
+      } else {
+        dispatch.disabled = !state.auth.allowed || loadingConfig || !hasPrivateAccounts || !hasValidStrategy || !hasPendingChange;
+        dispatch.textContent = state.auth.allowed
+          ? (loadingConfig
+            ? t("loadingConfig")
+            : (hasPrivateAccounts ? (hasValidStrategy ? (hasPendingChange ? t("runSwitch") : t("noChanges")) : t("configureAccounts")) : t("configureAccounts")))
+          : t("loginToRun");
+      }
       const note = el("action-note");
+      if (stopOnlySelection && state.auth.allowed && !loadingConfig && hasPrivateAccounts) {
+        note.textContent = t("runtimeStopReadyNote");
+        note.classList.toggle("warning", false);
+      } else {
       note.textContent = state.auth.allowed
         ? (loadingConfig
           ? t("loadingConfigNote")
@@ -3788,6 +3808,7 @@
         "warning",
         state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy),
       );
+      }
     }
 
     function renderAppVisibility() {
@@ -5352,8 +5373,36 @@
       return normalized;
     }
 
+    async function dispatchRuntimeStop() {
+      if (runtimeStopLock.pending || !state.auth.allowed || !window.confirm(t("runtimeStopConfirm"))) return;
+      const account = selectedAccount(state.selected);
+      if (!account?.target_name) return;
+      runtimeStopLock.pending = true;
+      const dispatch = el("dispatch-button");
+      if (dispatch) dispatch.disabled = true;
+      showToast(t("dispatching"), { duration: 0 });
+      try {
+        const response = await fetch("/api/runtime-stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: state.selected, target_name: account.target_name, confirm: "STOP_ONLY" }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || t("dispatchFailed"));
+        showToast(t("runtimeStopPending"), { duration: 12000 });
+        if (payload.actions_url) window.open(payload.actions_url, "_blank", "noopener,noreferrer");
+      } catch (error) {
+        showToast(`${t("dispatchFailed")}: ${error.message}`, { duration: 12000 });
+      }
+      // A timeout does not prove GitHub rejected the request. Keep the main
+      // control locked until the operator reloads after checking the existing run.
+    }
+
     async function dispatchSwitch() {
       if (!state.auth.allowed) return;
+      if (normalizeRuntimeTargetMode(state.forms[state.selected]?.runtimeTargetMode) === "disabled") {
+        return dispatchRuntimeStop();
+      }
       showToast(t("dispatching"), { duration: 0 });
       try {
         const response = await fetch("/api/switch", {

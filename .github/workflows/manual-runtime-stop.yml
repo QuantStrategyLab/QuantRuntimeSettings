@@ -1,0 +1,59 @@
+name: Manual Runtime Stop
+
+on:
+  workflow_dispatch:
+    inputs:
+      stop_request:
+        description: "Exact existing target identity only; current configuration is read by the worker."
+        required: true
+        type: string
+      apply:
+        description: "Save the disable setting. This does not prove the platform has applied it."
+        required: true
+        type: boolean
+        default: false
+      confirm:
+        description: "STOP_ONLY is required for writes. No activation, sync, cancellation or liquidation."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# A platform can have multiple targets in one variable. Serialize their writer,
+# including the existing switch workflow; target-level concurrency is insufficient.
+concurrency:
+  group: runtime-strategy-switch-${{ fromJSON(inputs.stop_request).runtime_target.platform_id }}
+  cancel-in-progress: false
+
+jobs:
+  stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    env:
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      APPLY_STOP: ${{ inputs.apply }}
+      CONFIRM_STOP: ${{ inputs.confirm }}
+      RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON: ${{ vars.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON }}
+      RUNTIME_SETTINGS_LONGBRIDGE_REPO: ${{ vars.RUNTIME_SETTINGS_LONGBRIDGE_REPO }}
+      RUNTIME_SETTINGS_IBKR_REPO: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO }}
+      RUNTIME_SETTINGS_SCHWAB_REPO: ${{ vars.RUNTIME_SETTINGS_SCHWAB_REPO }}
+      RUNTIME_SETTINGS_FIRSTRADE_REPO: ${{ vars.RUNTIME_SETTINGS_FIRSTRADE_REPO }}
+      RUNTIME_SETTINGS_QMT_REPO: ${{ vars.RUNTIME_SETTINGS_QMT_REPO }}
+      RUNTIME_SETTINGS_BINANCE_REPO: ${{ vars.RUNTIME_SETTINGS_BINANCE_REPO }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - name: Save and verify only the stop setting
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${APPLY_STOP}" = "true" ]; then
+            python3 python/scripts/runtime_settings.py stop --yes --confirm "${CONFIRM_STOP}"
+          else
+            python3 python/scripts/runtime_settings.py stop
+          fi
+      - name: Report the verification boundary
+        run: |
+          echo 'Stop configuration checked only. No platform workflow or cloud update was requested. Actual runtime application is unknown; do not infer stopped execution, cancellation, liquidation or completion of in-flight work.' >> "$GITHUB_STEP_SUMMARY"

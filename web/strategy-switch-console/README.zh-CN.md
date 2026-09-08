@@ -10,6 +10,31 @@
 
 控制台的目标架构见 [QSL 统一决策平台架构 V1](../../docs/qsl_unified_control_console_architecture_v1.zh-CN.md)：人将从这一处查看跨仓健康、候选和需要本人决定的 P6 项；网页不会持有券商凭证或直接下单。现有“策略切换”是历史部署配置工具，不能被视为 P0–P6 运行授权。
 
+## 严格停用入口的当前边界
+
+主操作在账号运行状态选择「停用/禁用」时进入 `/api/runtime-stop` 与 `manual-runtime-stop.yml`，不要求当前策略重新上架；登录、同源和精确已配置目标绑定仍必须成立。页面不再提供独立的“仅保存停用配置”按钮。请求只接受平台、目标名与 `STOP_ONLY` 确认，目标身份由服务端配置派生，不接受表单里的策略、风险或账户修改。
+
+工作流仅保存并核对 GitHub 停用配置，不派发平台工作流、不进行云端认证或更新运行服务；CLI 不再提供 `--apply-platform`。`configured=true` 只表示已核对期望配置，`platform_applied=false` 表示未证明实际应用，页面应显示未知而非已停用。不调用 env-sync、不撤单、平仓或保证在途请求结束。既有 `manual-strategy-switch.yml` 的 activation apply 硬拒绝保持不变，不能把它当仅停用通道。
+
+配置读取覆盖完整 repo/environment 分页并按真实消费者优先级选择原变量所属 scope：继承的服务 inventory 不复制到 environment；LongBridge 的 exact-service 顶层开关例外按其实际优先级处理。写入只经 stdin、零自动重试，写前/写后比对不输出变量值。与原 switch 共用平台级 workflow concurrency，避免多个目标同时覆盖共享 inventory；这不是对外部管理员写入的原子 CAS，执行期间其他配置 writer 必须停写。超时/读回不一致须核查原请求，不推断未接受后重试；两个网页入口共享 pending/unknown 锁。
+
+### 保留的 Cloud Run 扩展（已与本配置路径断开）
+
+下述 adapter/action、独立测试和四平台 workflow 草稿作为未发布的后续扩展保留，不属于 G07 配置入口验收前置，也不能随其自动发布。网页、控制工作流与配置 CLI 已不再调用这些文件。保留可执行文件不等于禁止其被单独手工运行；未来采用须另行明确范围和权限。
+
+`actions/stop-cloud-run-runtime` 通过平台自有 workflow 消费既有部署身份产生的临时 access token，不落凭据文件、不额外启动 gcloud 认证。请求从 `GITHUB_EVENT_PATH` 读取，当前配置经受限 GH 客户端进程内读取，不把请求或全量 vars 放到 runner 的 env/with 日志面。云资源由实际配置和精确绑定的目标派生。平台 caller 在认证前验证身份/已保存停用，应用前再读一次；普通 action 默认只检查，写入需 `apply=true` 和 `STOP_ONLY`。
+
+实现只发送一次带当前 etag 的窄字段 PATCH，将现有 `RUNTIME_TARGET_ENABLED` 改为 false；其他环境值、策略、账户、风险与容器配置保留。更新环境会创建新 revision，因此仅接受单容器、固定镜像 digest、数字版本的 secret 引用及全部流量跟随 latest 的稳定服务；分流/tag、活动部署、浮动镜像/secret、身份冲突或不支持的形态都拒绝，不通过广义部署来“修好”前置。保留原只读生命周期 action，不让它获得写权限。
+
+提交后只观察同一 operation，并读回实际承接流量的 revision。冲突、超时、失败或差异保持未验证，不重试 PATCH、不回滚；成功仅说明该时点服务的标准执行开关为 false，不证明在途请求结束、所有特殊执行入口关闭、撤单、平仓或资金对账。此前 caller 贯通有 synthetic 测试，该历史结果不代表当前仅保存配置的网页路径。尚未发布 pin、运行远端 CI 或实测 Cloud Run。
+
+扩展的历史采用前置（不是当前待办，也不是仅保存配置的前置）：
+- LongBridge 只复用既有 `longbridge-paper`、`longbridge-hk`、`longbridge-sg` environment；IBKR/Schwab/Firstrade 沿既有 repository/main/WIF 边界，仅支持 repository scope，不创建名为 runtime-stop 的新审批环境。范围不匹配时不进入云端步骤；不能把跳过任务当已停用。
+- 若未来另行批准采用，须使用真实已发布的 `QRT_RUNTIME_STOP_REF`，不填占位 SHA；四平台 workflow 不随当前配置入口补丁交付。可选 `RUNTIME_SETTINGS_REPOSITORY` 只供已审核的源仓选择。
+- 实际 repo/environment 配置须有匹配部署的 `GCP_PROJECT_ID`、`CLOUD_RUN_REGION`；认证使用相同既有身份的 `GCP_WORKLOAD_IDENTITY_PROVIDER`、`GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT`，不自动搬迁配置或扩大 IAM。
+- 配置读取使用该平台已有 GitHub token；内置 token 若不具备 Variables/适用 Environment 只读权限，应先确认既有获准客户端，必要时经人工批准配置仅本仓只读的 `RUNTIME_STOP_CONFIG_READ_TOKEN`。不得复制全局配置写 token、错误后换凭据重试或假称权限已验证。
+- 当前服务是否满足单容器、固定镜像/secret 版本和流量约束仍需一次获准读回。授权、未决请求、已发布版本及这些直接运行条件齐备后才进行有界真实验证；不借此重跑全组织审计或提前启用策略。
+
 ## 平台目录配置
 
 - `platform-config.json` 的 `platforms` 是网站平台目录的来源：名称、标识、颜色、仓库、默认账户与能力在此配置；菜单顺序沿用配置中的平台顺序。

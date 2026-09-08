@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1163,6 +1164,221 @@ def build_assignments(target: dict[str, Any]) -> list[Assignment]:
     return assignments
 
 
+def _stop_request_identity(request: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
+    error = "stop requires an unambiguous current target with matching identity"
+    identity_fields = {"platform_id", "deployment_selector", "account_selector", "account_scope", "service_name"}
+    if not isinstance(request, dict) or set(request) != {"target_id", "github", "runtime_target"}:
+        raise ValueError(error)
+    identity = request["runtime_target"]
+    if not isinstance(identity, dict) or set(identity) != identity_fields:
+        raise ValueError(error)
+    for field in identity_fields - {"account_selector"}:
+        if not isinstance(identity[field], str) or not identity[field].strip():
+            raise ValueError(error)
+    selectors = identity["account_selector"]
+    if (not isinstance(selectors, list) or not selectors
+            or not all(isinstance(value, str) and value.strip() for value in selectors)
+            or len(set(selectors)) != len(selectors)):
+        raise ValueError(error)
+    platform = identity["platform_id"]
+    target_id = request["target_id"]
+    if (platform not in SUPPORTED_PLATFORMS or not isinstance(target_id, str)
+            or not re.fullmatch(re.escape(platform) + r"/[A-Za-z0-9][A-Za-z0-9._-]*", target_id)):
+        raise ValueError(error)
+    github = request["github"]
+    errors: list[str] = []
+    validate_github(request, errors)
+    if (errors or set(github) - {"repository", "variable_scope", "environment"}
+            or github["repository"] != platform_repository(platform)):
+        raise ValueError(error)
+    return target_id, identity, github
+
+
+def build_stop_assignments(request: dict[str, Any], current_variables: dict[str, str]) -> list[Assignment]:
+    """Plan only a disable change against authoritative, caller-read variables.
+
+    Authentication, source ownership and application belong to the caller.
+    This function does not prove that a running platform stopped.
+    """
+    target_id, identity, github = _stop_request_identity(request)
+    error = "stop requires an unambiguous current target with matching identity"
+    errors: list[str] = []
+    if not isinstance(current_variables, dict):
+        raise ValueError(error)
+
+    def matches(current: Any) -> bool:
+        return isinstance(current, dict) and all(current.get(key) == value for key, value in identity.items())
+
+    def parse(name: str) -> Any:
+        try:
+            return json.loads(current_variables[name])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(error) from None
+
+    inventory_name = "CLOUD_RUN_SERVICE_TARGETS_JSON"
+    if inventory_name in current_variables:
+        inventory = parse(inventory_name)
+        entries = inventory.get("targets") if isinstance(inventory, dict) else inventory
+        if not isinstance(entries, list) or not entries or not all(isinstance(entry, dict) for entry in entries):
+            raise ValueError(error)
+        validate_nonsecret_service_target_inventory(inventory, path=inventory_name, errors=errors)
+        if errors:
+            raise ValueError("stop refuses a secret-bearing service inventory")
+        try:
+            index = select_service_target_entry_index(identity, entries, allow_account_scope_fallback=False)
+        except ValueError:
+            raise ValueError(error) from None
+        if index is None or not matches(entries[index].get("runtime_target")):
+            raise ValueError(error)
+        # Some consumers prefer an environment target for its exact service.
+        # An inventory match alone must not authorize stopping another target.
+        source_service = str(current_variables.get("CLOUD_RUN_SERVICE") or "").strip()
+        if (source_service == identity["service_name"]
+                and "RUNTIME_TARGET_JSON" in current_variables
+                and not matches(parse("RUNTIME_TARGET_JSON"))):
+            raise ValueError(error)
+        entry = entries[index]
+        for field in ("service_name", "account_scope"):
+            if _service_target_identity(entry, field) != {identity[field]}:
+                raise ValueError(error)
+        if (identity["platform_id"] == "longbridge" and source_service == identity["service_name"]
+                and str(current_variables.get("RUNTIME_TARGET_ENABLED") or "").strip()):
+            # LongBridge alone prefers this exact service's top-level override.
+            # Writing only the inventory would leave an inherited true active.
+            name, value = "RUNTIME_TARGET_ENABLED", "false"
+        else:
+            # The other per-service consumers prefer the inventory override.
+            entry["RUNTIME_TARGET_ENABLED"] = "false"
+            name, value = inventory_name, compact_json(inventory)
+    else:
+        if not matches(parse("RUNTIME_TARGET_JSON")):
+            raise ValueError(error)
+        for name in ("CLOUD_RUN_SERVICE", "CLOUD_RUN_SERVICES"):
+            services = str(current_variables.get(name) or "").replace(",", " ").split()
+            if services and set(services) != {identity["service_name"]}:
+                raise ValueError(error)
+        name, value = "RUNTIME_TARGET_ENABLED", "false"
+    return [Assignment(target_id, github["repository"], github["variable_scope"], github.get("environment"), name, value)]
+
+
+def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
+    """Read every page into memory; never expose variable values or GH errors."""
+    endpoint = f"repos/{github['repository']}"
+    if github["variable_scope"] == "environment":
+        endpoint += f"/environments/{quote(github['environment'], safe='')}"
+    endpoint += "/variables?per_page=100"
+    try:
+        result = subprocess.run(
+            ["gh", "api", "--method", "GET", "--paginate", "--slurp", endpoint],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        if result.returncode != 0:
+            raise ValueError
+        pages = json.loads(result.stdout)
+        if not isinstance(pages, list) or not pages:
+            raise ValueError
+        values: dict[str, str] = {}
+        total = pages[0]["total_count"]
+        if type(total) is not int or total < 0:
+            raise ValueError
+        for page in pages:
+            if page["total_count"] != total or not isinstance(page["variables"], list):
+                raise ValueError
+            for item in page["variables"]:
+                name, value = item["name"], item["value"]
+                if not isinstance(name, str) or not name or not isinstance(value, str) or name in values:
+                    raise ValueError
+                values[name] = value
+        if len(values) != total:
+            raise ValueError
+        return values
+    except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, IndexError):
+        raise ValueError("stop_source_unavailable") from None
+
+
+def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, bool]:
+    """Save a stop under the single configuration writer; no platform sync.
+
+    Workflow concurrency serializes known writers. The pre-write comparison is
+    a stale-read check, not an atomic CAS against external administrators.
+    """
+    _, _, github = _stop_request_identity(request)
+    repository_scope = {"repository": github["repository"], "variable_scope": "repository"}
+
+    def read() -> tuple[dict[str, str], dict[str, str]]:
+        repository = read_stop_variables(repository_scope)
+        environment = read_stop_variables(github) if github["variable_scope"] == "environment" else {}
+        return repository, environment
+
+    before = read()
+    effective = {**before[0], **before[1]}
+    inventory = "CLOUD_RUN_SERVICE_TARGETS_JSON"
+    assignment = build_stop_assignments(request, effective)[0]
+    owner = github
+    if assignment.name == inventory and inventory not in before[1]:
+        owner = repository_scope
+        assignment = Assignment(assignment.target_id, assignment.repository, "repository", None,
+                                assignment.name, assignment.value)
+    if not apply:
+        return {"configured": False, "platform_applied": False, "preview": True}
+    # Never overwrite a source that changed after planning. No automatic retry.
+    if read() != before:
+        raise ValueError("stop_source_changed")
+    owner_index = 1 if owner["variable_scope"] == "environment" else 0
+    current_value = before[owner_index].get(assignment.name)
+    unchanged = current_value == assignment.value
+    if assignment.name == inventory and current_value is not None:
+        unchanged = json.loads(current_value) == json.loads(assignment.value)
+    if not unchanged:
+        command = ["gh", "variable", "set", assignment.name, "--repo", assignment.repository]
+        if assignment.variable_scope == "environment":
+            command.extend(["--env", assignment.environment or ""])
+        try:
+            result = subprocess.run(command, input=assignment.value, text=True, capture_output=True,
+                                    timeout=60, check=False)
+            if result.returncode != 0:
+                raise ValueError
+        except (OSError, subprocess.SubprocessError, ValueError):
+            raise ValueError("stop_write_outcome_unverified") from None
+        expected = [dict(before[0]), dict(before[1])]
+        expected[owner_index][assignment.name] = assignment.value
+        try:
+            after = read()
+        except ValueError:
+            raise ValueError("stop_readback_unverified") from None
+        if after != tuple(expected):
+            raise ValueError("stop_readback_unverified")
+    return {"configured": True, "platform_applied": False, "preview": False}
+
+
+def load_stop_request() -> dict[str, Any]:
+    """Use GitHub's event file without interpolating private inputs into step logs."""
+    event_path = os.environ.get("GITHUB_EVENT_PATH")
+    if event_path:
+        path = Path(event_path)
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 1024 * 1024:
+            raise ValueError("stop_event_unverified")
+        with path.open() as source:
+            return json.loads(json.load(source)["inputs"]["stop_request"])
+    # Local CLI/testing only; GitHub workflows must not place this value in env/with.
+    return json.loads(os.environ.get("RUNTIME_STOP_REQUEST_JSON", ""))
+
+
+def command_stop(args: argparse.Namespace) -> int:
+    if args.yes and args.confirm != "STOP_ONLY":
+        print("stop requires --confirm STOP_ONLY for writes", file=sys.stderr)
+        return 2
+    try:
+        request = load_stop_request()
+        result = execute_stop(request, apply=args.yes)
+    except (OSError, ValueError, TypeError, KeyError):
+        # Underlying errors and private target/config values stay out of logs.
+        print("stop_not_verified; do not retry or infer platform state", file=sys.stderr)
+        return 2
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
 def load_targets(paths: list[str]) -> list[tuple[Path, dict[str, Any]]]:
     return [(path, load_target(path)) for path in discover_target_paths(paths)]
 
@@ -1385,6 +1601,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="print exact values in the preview; avoid this in public CI logs",
     )
     apply.set_defaults(func=command_apply)
+
+    stop = subparsers.add_parser("stop", help="save only an existing target's disable setting; never activate or sync")
+    stop.add_argument("--yes", action="store_true")
+    stop.add_argument("--confirm", default="")
+    stop.set_defaults(func=command_stop)
 
     repository = subparsers.add_parser("repository", help="print the configured platform repository")
     repository.add_argument("platform", choices=sorted(SUPPORTED_PLATFORMS))
