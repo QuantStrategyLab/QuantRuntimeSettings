@@ -151,7 +151,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: runtime-strategy-switch-${{ inputs.platform }}-${{ inputs.target_name }}
+  group: runtime-strategy-switch-${{ inputs.platform }}
   cancel-in-progress: false
 
 jobs:

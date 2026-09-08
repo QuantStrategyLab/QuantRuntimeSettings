@@ -562,6 +562,7 @@ export default {
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
+      if (url.pathname === "/api/runtime-stop" && request.method === "POST") return await dispatchRuntimeStop(request, env);
       if (url.pathname === "/bootstrap-config.js") {
         return new Response(BOOTSTRAP_CONFIG_JS, {
           status: 200,
@@ -1502,6 +1503,63 @@ function logout(request) {
   requireSameOrigin(request, { requireOrigin: true });
   return json({ ok: true }, 200, {
     "Set-Cookie": clearCookie(SESSION_COOKIE),
+  });
+}
+
+async function dispatchRuntimeStop(request, env) {
+  requireEnv(env, "RUNTIME_SETTINGS_DISPATCH_TOKEN");
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const raw = await request.json();
+  if (!raw || Array.isArray(raw) || typeof raw !== "object"
+    || Object.keys(raw).some((key) => !["platform", "target_name", "confirm"].includes(key))
+    || raw.confirm !== "STOP_ONLY") {
+    throw new HttpError("stop accepts only platform, target_name and STOP_ONLY confirmation", 400);
+  }
+  const platform = cleanChoice(raw.platform, SUPPORTED_PLATFORMS, "platform");
+  const targetName = cleanSlug(raw.target_name, "target_name");
+  const accountConfig = await loadAccountOptionsConfig(env);
+  const matches = (accountConfig.options?.[platform] || []).filter((item) => item.target_name === targetName);
+  if (matches.length !== 1) throw new HttpError("stop requires one configured target", 400);
+  // Derive routing only from protected account configuration, not form edits.
+  // The workflow independently checks this identity against current variables.
+  const inputs = { ...matches[0], platform, target_name: targetName };
+  inputs.variable_scope = resolvedVariableScope(inputs.variable_scope, inputs);
+  for (const field of ["deployment_selector", "account_scope", "account_selector", "service_name", "github_environment"]) {
+    inputs[field] = inputs[field] || defaultInputValue(field, inputs);
+  }
+  const identity = {
+    platform_id: platform,
+    deployment_selector: inputs.deployment_selector,
+    account_selector: String(inputs.account_selector || "").split(",").map((item) => item.trim()).filter(Boolean),
+    account_scope: inputs.account_scope,
+    service_name: inputs.service_name,
+  };
+  if (!identity.deployment_selector || !identity.account_selector.length || !identity.account_scope || !identity.service_name) {
+    throw new HttpError("stop target identity is incomplete", 400);
+  }
+  const github = { repository: platformRepositories(env)[platform], variable_scope: inputs.variable_scope };
+  if (github.variable_scope === "environment") github.environment = inputs.github_environment;
+  const stopRequest = { target_id: `${platform}/${targetName}`, github, runtime_target: identity };
+  const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
+  const workflow = "manual-runtime-stop.yml";
+  try {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${repository}/actions/workflows/${workflow}/dispatches`, {
+      method: "POST",
+      headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
+      body: JSON.stringify({
+        ref: env.RUNTIME_SETTINGS_REF || "main",
+        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY" },
+      }),
+    });
+    if (!response.ok) throw new Error("dispatch failed");
+  } catch {
+    return json({ ok: false, error: "stop dispatch unverified; check the existing run before retrying" }, 502);
+  }
+  return json({
+    ok: true, configured: false, platform_applied: false,
+    actions_url: `https://github.com/${repository}/actions/workflows/${workflow}`,
   });
 }
 
