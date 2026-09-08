@@ -51,12 +51,13 @@ crons = ["*/5 * * * *"]
 # binding = "STRATEGY_SWITCH_CONFIG"
 # id = "replace-with-cloudflare-kv-namespace-id"
 
-# OPTIONAL runtime instance drafts. Do not enable until the documented legacy
-# configuration freeze/import/readback is approved. This adds a metered SQLite
-# Durable Object; missing binding preserves existing behavior. No alarm/cron.
-# [[durable_objects.bindings]]
-# name = "STRATEGY_SWITCH_RUNTIME_INSTANCES"
-# class_name = "RuntimeInstances"
-# [[migrations]]
-# tag = "runtime-instances-v1"
-# new_sqlite_classes = ["RuntimeInstances"]
+# Runtime instance drafts use SQLite storage, supported on Workers Free.
+# Initialization remains an explicit administrator import. Until then all
+# instance writers reject changes and existing execution reads legacy config.
+# Do not remove this binding to roll back after import; see the runbook.
+[[durable_objects.bindings]]
+name = "STRATEGY_SWITCH_RUNTIME_INSTANCES"
+class_name = "RuntimeInstances"
+[[migrations]]
+tag = "runtime-instances-v1"
+new_sqlite_classes = ["RuntimeInstances"]
