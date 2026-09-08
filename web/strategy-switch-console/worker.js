@@ -3147,6 +3147,17 @@ function executionEvidenceSourceKey(sourceId) {
   return `${EXECUTION_EVIDENCE_SOURCE_PREFIX}${sourceId}`;
 }
 
+function runtimeTargetLifecycleAuditState(source) {
+  if (!source) return null;
+  const state = structuredClone(source);
+  delete state.generated_at;
+  delete state.computed_at;
+  for (const target of state.targets) {
+    if (target.deployment) delete target.deployment.observed_at;
+  }
+  return JSON.stringify(state);
+}
+
 async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
   // This publisher has the same narrow scope as execution evidence: sanitized
   // platform status only, never credentials, accounts, orders, or commands.
@@ -3166,17 +3177,28 @@ async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid runtime target lifecycle payload" }, 400);
   }
-  await writeConfigJson(env, runtimeTargetLifecycleSourceKey(source.source_id), source);
+  const sourceKey = runtimeTargetLifecycleSourceKey(source.source_id);
+  let previous = null;
   try {
-    await appendAuditLog(env, {
-      ts: new Date().toISOString(),
-      login: "runtime-target-lifecycle-source-sync",
-      action: "sync_runtime_target_lifecycle_source",
-      source_id: source.source_id,
-      schema_version: source.schema_version,
-      target_count: source.targets.length,
-      data_status: source.data_status,
-    });
+    previous = normalizeRuntimeTargetLifecycleSourceSnapshot(await readConfigJson(env, sourceKey));
+  } catch {
+    // Missing/unreadable history must not prevent a fresh, valid observation.
+  }
+  // Always retain the new evidence timestamps. Only the optional rolling audit
+  // skips unchanged polling records; operator actions are audited separately.
+  await writeConfigJson(env, sourceKey, source);
+  try {
+    if (runtimeTargetLifecycleAuditState(previous) !== runtimeTargetLifecycleAuditState(source)) {
+      await appendAuditLog(env, {
+        ts: new Date().toISOString(),
+        login: "runtime-target-lifecycle-source-sync",
+        action: "sync_runtime_target_lifecycle_source",
+        source_id: source.source_id,
+        schema_version: source.schema_version,
+        target_count: source.targets.length,
+        data_status: source.data_status,
+      });
+    }
   } catch {
     // A valid no-order snapshot remains useful when convenience audit retention fails.
   }
