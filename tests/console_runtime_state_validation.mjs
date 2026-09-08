@@ -356,12 +356,13 @@ for (const sample of [
  assert.equal(fn('ibkr',{}),sample.expected);
 });
 
-test('account overview exposes desired/applied/application columns and per-row application status', () => {
+test('account details keep saved, deployed and application state separate', () => {
   const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
   assert.ok(html.includes('data-i18n="configuredSwitch"'));
-  assert.ok(html.includes('data-i18n="deployedSwitch"'));
-  assert.ok(html.includes('data-i18n="applicationStatus"'));
+  assert.ok(html.includes('class="account-facts"'));
+  assert.ok(app.includes('["deployedSwitch", accountDeploymentText(platform, account)]'));
+  assert.ok(app.includes('["applicationStatus", accountApplicationText(platform, account)]'));
   const overview = app.slice(app.indexOf('function renderAccountOverview'), app.indexOf('function renderControls'));
   assert.ok(overview.includes('currentRuntimeTargetText(platform, account)'));
   assert.ok(overview.includes('accountDeploymentText(platform, account)'));
@@ -552,6 +553,7 @@ test('opening account settings selects the exact account without submitting or e
   const fn = frontendFunction('openAccountSettings', { state, el: id => nodes[id], render: () => events.push('render'), Event });
   fn('ibkr', { key: 'second-account' });
   assert.equal(state.selected, 'ibkr');
+  assert.equal(state.view, 'accounts');
   assert.equal(nodes['account-select'].value, 'second-account');
   assert.equal(nodes['strategy-settings'].open, true);
   assert.equal(state.forms.ibkr.runtimeTargetMode, 'current');
@@ -568,7 +570,7 @@ test('decisions and account observations stay outside collapsed strategy setting
   }
   assert.ok(html.indexOf('id="promotion-decision-panel"') < html.indexOf('id="account-overview"'));
   assert.ok(html.indexOf('id="quick-form"') > settings);
-  assert.ok(html.includes('data-i18n="accountNextStep"'));
+  assert.ok(source.includes('["accountDetailAction", accountNextStep(platform, account).label]'));
   assert.equal((html.match(/id="dispatch-button"/g) || []).length, 1);
 });
 
@@ -624,4 +626,82 @@ test('hiding all platforms also hides account observations outside the settings 
   frontendFunction('renderPlatforms', { el: id => nodes[id], state: { selected: 'ibkr' },
     platformMeta: { ibkr: { console_visible: false } }, hasPrivateConfig: () => true })();
   assert.equal(nodes['switch-view'].hidden, true);
+});
+
+for (const sample of [
+  { configured: undefined, application: 'deploymentUnverified', unknown: true, attention: true },
+  { configured: true, application: 'deploymentUnverified', unknown: true, attention: true },
+  { configured: false, application: 'deploymentUnverified', unknown: true, attention: true },
+  { configured: true, application: 'settingsNotApplied', unknown: false, attention: true },
+  { configured: false, application: 'switchesApplied', unknown: false, attention: false },
+  { configured: true, application: 'switchesApplied', observation: 'attention', unknown: false, attention: true },
+]) test('overview keeps saved settings separate from actual state '+JSON.stringify(sample), () => {
+  const context = {
+    hasPrivateConfig: () => true,
+    platformMeta: { binance: { label: 'Binance' }, hidden: { console_visible: false } },
+    optionsFor: () => [{ key: 'account', label: 'Account' }],
+    currentStrategyForAccount: () => 'example', strategyLabel: () => 'Example',
+    runtimeTargetStateForAccount: () => ({ known: sample.configured !== undefined, enabled: sample.configured }),
+    accountApplicationText: () => sample.application,
+    accountMonitoringRecord: () => ({ freshness: { data_status: 'ready' }, execution_observation: { code: sample.observation } }),
+    accountMonitoringAge: () => '1 minute ago', accountMonitoringText: () => 'record', t: x => x,
+  };
+  const rows = frontendFunction('overviewAccounts', context)();
+  assert.equal(rows.length, 1, 'hidden platforms never appear');
+  assert.equal(rows[0].configured, sample.configured === undefined ? 'unknown' : sample.configured ? 'enabled' : 'disabled');
+  assert.equal(rows[0].unknown, sample.unknown);
+  assert.equal(rows[0].attention, sample.attention);
+  assert.equal(frontendFunction('overviewAccounts', {...context, hasPrivateConfig: () => false})().length, 0);
+});
+
+test('overview filters preserve unknown and search only the chosen scope', () => {
+  const rows = [
+    { platformLabel: 'Binance', account: { label: 'Main' }, strategy: 'Crypto', configured: 'enabled', attention: true },
+    { platformLabel: 'IBKR', account: { label: 'Second' }, strategy: 'Trend', configured: 'disabled', attention: false },
+    { platformLabel: 'LongBridge', account: { label: 'SG' }, strategy: 'Trend', configured: 'unknown', attention: true },
+  ];
+  const filter = frontendFunction('filterOverviewAccounts', {});
+  assert.equal(filter(rows, 'disabled', '').length, 1);
+  assert.equal(filter(rows, 'enabled', '').length, 1);
+  assert.equal(filter(rows, 'attention', '').length, 2);
+  assert.equal(filter(rows, 'all', '  bINAnCe ').length, 1);
+  assert.equal(filter(rows, 'enabled', 'Trend').length, 0);
+  assert.equal(filter(rows, 'all', 'not-found').length, 0);
+});
+
+for (const view of ['overview', 'accounts', 'research']) test(`workspace navigation isolates ${view} from the other jobs`, () => {
+  const nodes = {};
+  const nav = { hidden: true };
+  const buttons = ['overview', 'accounts', 'research'].map(workspace => ({
+    dataset: { workspace }, attributes: {},
+    setAttribute(key, value) { this.attributes[key] = value; },
+    removeAttribute(key) { delete this.attributes[key]; },
+  }));
+  const state = { view, appReady: true, auth: { allowed: true }, refreshing: false };
+  const context = { state, t: key => key, el: id => nodes[id] ??= {},
+    document: { querySelector: () => nav, querySelectorAll: () => buttons } };
+  const render = frontendFunction('renderWorkspace', context);
+  render();
+  for (const name of ['overview', 'accounts', 'research']) assert.equal(nodes[`${name}-view`].hidden, name !== view);
+  assert.equal(nodes['platform-strip'].hidden, view === 'overview');
+  assert.equal(nodes['health-view'].hidden, view !== 'research');
+  assert.equal(buttons.filter(button => button.attributes['aria-current'] === 'page').length, 1);
+  assert.equal(nav.hidden, false);
+  state.auth.allowed = false;
+  render();
+  assert.equal(nav.hidden, true, 'private navigation must disappear on logout');
+});
+
+test('viewing an account does not expand editing or change the configured switch', () => {
+  const state = { selected: 'longbridge', forms: { binance: { runtimeTargetMode: 'current' } } };
+  const nodes = {
+    'strategy-settings': { open: true }, 'workspace-title': { scrollIntoView() {} },
+    'account-select': { value: '', dispatchEvent() {}, focus() {} },
+  };
+  const fn = frontendFunction('openAccountSettings', { state, el: id => nodes[id], render() {}, Event });
+  fn('binance', { key: 'default' }, false);
+  assert.equal(state.view, 'accounts');
+  assert.equal(nodes['account-select'].value, 'default');
+  assert.equal(nodes['strategy-settings'].open, false);
+  assert.equal(state.forms.binance.runtimeTargetMode, 'current');
 });

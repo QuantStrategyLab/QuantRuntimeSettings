@@ -109,7 +109,57 @@
     const copy = {
       zh: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "低频决策台",
+        appSubtitle: "管理控制台",
+        workspaceNavigation: "管理页面",
+        overviewNav: "运行总览",
+        accountsNav: "账户管理",
+        researchNav: "研究与确认",
+        overviewDescription: "查看已保存的配置、实际读回与最近运行记录。",
+        accountsDescription: "先查看当前账户状态，需要调整时再展开设置。",
+        researchDescription: "查看候选与待办，按需展开研究记录。",
+        configuredAccounts: "已配置账户",
+        configuredEnabled: "配置已启用",
+        configuredDisabled: "配置已停用",
+        actualUnverified: "实际状态待确认",
+        accountsTitle: "账户",
+        accountFilters: "筛选账户",
+        filterAll: "全部",
+        filterEnabled: "已启用",
+        filterDisabled: "已停用",
+        filterAttention: "待确认 / 不一致",
+        searchAccounts: "搜索账户或策略",
+        overviewRuntime: "运行情况",
+        latestReadback: "最近读回",
+        accountActions: "账户操作",
+        viewAccount: "查看",
+        viewAccountLabel: "查看 {account}",
+        overviewEvidenceNote: "状态来自实际读回；保存配置不代表已经运行或成交。",
+        clearFilters: "清除筛选",
+        viewUnverified: "查看待确认账户",
+        overviewUnverifiedTitle: "实际运行状态尚未完整读回",
+        overviewUnverifiedDescription: "启用配置不代表策略已开始运行。",
+        overviewAttentionTitle: "有账户需要核对",
+        overviewAttentionDescription: "配置与实际读回不一致，或运行记录提示异常。请查看对应账户。",
+        overviewReadTitle: "配置与开关读回一致",
+        overviewReadDescription: "这表示开关已应用；策略执行及成交请以运行报告为准。",
+        overviewLoadingTitle: "正在读取账户状态",
+        overviewLoadingDescription: "配置和运行读回将分别显示，请稍候。",
+        overviewUnavailableTitle: "暂时未读到账户配置",
+        overviewUnavailableDescription: "请刷新重试。无法读取的状态不会作为停用或正常显示。",
+        overviewEmptyTitle: "没有匹配的账户",
+        overviewEmptyDescription: "试试其他关键词，或清除当前筛选。",
+        overviewNoAccountsTitle: "暂无可显示的账户",
+        overviewNoAccountsDescription: "当前没有可显示的账户配置。",
+        accountResults: "{count} / {total} 个账户",
+        pageRefreshed: "本页刷新 {time}",
+        pageNotRefreshed: "等待读取",
+        savedState: "配置：{state}",
+        overviewActualUnknown: "实际待确认",
+        overviewRuntimeAttention: "运行记录需核对",
+        viewResearch: "查看研究与确认",
+        researchPendingCount: "有 {count} 个研究候选待确认",
+        researchIntro: "研究候选与当前运行分开管理。接受候选只记录意向，不启用交易。",
+        accountDetailAction: "下一步",
         loginTitle: "管理你的量化平台",
         loginDescription: "配置策略，关注运行，处理重要决策。",
         loginUnavailable: "暂时无法确认登录状态，请重新登录。",
@@ -123,7 +173,7 @@
         controlPlaneView: "待办确认",
         healthView: "运行概览",
         switchView: "平台设置",
-        refreshStatus: "刷新已有记录",
+        refreshStatus: "刷新状态",
         refreshingStatus: "读取中…",
         configTruthNote: "配置值不代表云端实际状态。",
         configuredSwitch: "配置开关",
@@ -427,7 +477,7 @@
         riskEnvelopeUnset: "未设定",
         promotionModeLive: "实盘（仍须另授权启用）",
         promotionModePaper: "券商 paper/sim",
-        liveModeUnavailable: "该策略暂不支持实盘，请选择非实盘。",
+        liveModeUnavailable: "本次切换暂不具备实盘资格。现有账户状态请看上方。",
         runtimeTargetMode: "平台开关",
         runtimeStopConfirm: "将为当前账号提交停用。只保存并核对停用配置，不应用表单其他修改；平台是否已停止仍未知。不撤单、不平仓，不能保证在途请求结束。继续？",
         runtimeStopPending: "停用请求已提交。配置保存结果请查看任务；平台应用未请求，实际运行状态未知，请勿重复提交。",
@@ -533,7 +583,7 @@
         loadingConfigNote: "正在读取账号配置和当前状态。",
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "请核对上方改动后保存。",
-        invalidStrategyNote: "所选策略尚未获准用于当前运行方式，不能提交。可先查看其他策略；模拟运行不会恢复实盘。",
+        invalidStrategyNote: "本次策略切换不满足所选运行方式的条件，暂不能提交。现有账户状态请看上方。",
         binanceResume: "恢复当前实盘目标",
         binanceResumeHint: "恢复当前实盘目标只保存启用开关，保留现有策略和资金配置。运行端仍会核验恢复记录。",
         binanceResumeModeHint: "恢复原目标请用上方恢复按钮；下方表单用于切换策略。",
@@ -590,7 +640,57 @@
       },
       en: {
         appTitle: "QuantStrategyLab",
-        appSubtitle: "Decision desk",
+        appSubtitle: "Management console",
+        workspaceNavigation: "Management pages",
+        overviewNav: "Overview",
+        accountsNav: "Accounts",
+        researchNav: "Research & decisions",
+        overviewDescription: "Saved settings, actual readback, and recent runtime records.",
+        accountsDescription: "Review the account first. Expand settings when you need to make a change.",
+        researchDescription: "Review candidates and decisions. Open research records as needed.",
+        configuredAccounts: "Configured accounts",
+        configuredEnabled: "Enabled in settings",
+        configuredDisabled: "Disabled in settings",
+        actualUnverified: "Actual state unverified",
+        accountsTitle: "Accounts",
+        accountFilters: "Filter accounts",
+        filterAll: "All",
+        filterEnabled: "Enabled",
+        filterDisabled: "Disabled",
+        filterAttention: "Unverified / mismatch",
+        searchAccounts: "Search accounts or strategies",
+        overviewRuntime: "Runtime state",
+        latestReadback: "Latest readback",
+        accountActions: "Account actions",
+        viewAccount: "View",
+        viewAccountLabel: "View {account}",
+        overviewEvidenceNote: "Status comes from runtime readback. Saved settings do not prove execution or fills.",
+        clearFilters: "Clear filters",
+        viewUnverified: "View accounts to check",
+        overviewUnverifiedTitle: "Actual runtime state is not fully verified",
+        overviewUnverifiedDescription: "An enabled setting does not prove the strategy has started.",
+        overviewAttentionTitle: "Some accounts need a closer look",
+        overviewAttentionDescription: "Settings differ from readback, or a runtime record needs attention. Review the affected accounts.",
+        overviewReadTitle: "Settings agree with switch readback",
+        overviewReadDescription: "Switches are applied. Check runtime reports for strategy execution and fills.",
+        overviewLoadingTitle: "Reading account state",
+        overviewLoadingDescription: "Settings and runtime readback will appear separately. Please wait.",
+        overviewUnavailableTitle: "Account settings could not be read",
+        overviewUnavailableDescription: "Refresh to try again. Missing state is not shown as disabled or healthy.",
+        overviewEmptyTitle: "No matching accounts",
+        overviewEmptyDescription: "Try another search, or clear your filters.",
+        overviewNoAccountsTitle: "No accounts to display",
+        overviewNoAccountsDescription: "No visible account configuration is available.",
+        accountResults: "{count} of {total} accounts",
+        pageRefreshed: "Page refreshed {time}",
+        pageNotRefreshed: "Waiting for data",
+        savedState: "Setting: {state}",
+        overviewActualUnknown: "Unverified",
+        overviewRuntimeAttention: "Check runtime record",
+        viewResearch: "View research & decisions",
+        researchPendingCount: "{count} research candidates await a decision",
+        researchIntro: "Research candidates are separate from current runtime. Accepting records intent; it does not enable trading.",
+        accountDetailAction: "Next step",
         loginTitle: "Your trading workspace",
         loginDescription: "Configure strategies. Monitor operations. Make key decisions.",
         loginUnavailable: "Unable to verify your session. Please sign in again.",
@@ -604,7 +704,7 @@
         controlPlaneView: "Decisions",
         healthView: "Runtime overview",
         switchView: "Platforms",
-        refreshStatus: "Refresh records",
+        refreshStatus: "Refresh status",
         refreshingStatus: "Reading…",
         configTruthNote: "Saved configuration is not observed runtime state.",
         configuredSwitch: "Configured switch",
@@ -908,7 +1008,7 @@
         riskEnvelopeUnset: "Unset",
         promotionModeLive: "Live (separate enablement still required)",
         promotionModePaper: "Broker paper/sim",
-        liveModeUnavailable: "This strategy is not ready for Live. Choose a non-live environment.",
+        liveModeUnavailable: "This selection is not eligible for a new live switch. See the current account state above.",
         runtimeTargetMode: "Account status",
         runtimeStopConfirm: "Submit disable for this account. Only the disable setting is saved and verified; other form edits are ignored. Whether the platform has stopped remains unknown. No cancellation or liquidation; in-flight work may continue. Continue?",
         runtimeStopPending: "Disable requested. Inspect the task for the configuration save result. Platform application was not requested; actual runtime state is unknown. Do not submit again.",
@@ -1014,7 +1114,7 @@
         loadingConfigNote: "Reading account config and current state.",
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "Review the changes above, then save.",
-        invalidStrategyNote: "The selected strategy is not approved for this execution mode. You can browse other strategies; simulation does not restore live trading.",
+        invalidStrategyNote: "This strategy switch does not meet the requirements for the selected execution mode. See the current account state above.",
         binanceResume: "Resume current live target",
         binanceResumeHint: "Restore only the enable setting, preserving the current strategy and cash configuration. The runtime still verifies the recovery record.",
         binanceResumeModeHint: "Use the resume button above for the existing target; the form below switches strategies.",
@@ -1100,6 +1200,11 @@
     });
 
     const state = {
+      view: "overview",
+      overviewFilter: "all",
+      overviewSearch: "",
+      lastRefreshAt: null,
+      refreshing: false,
       selected: Object.keys(platformMeta)[0] || "",
       lang: initialLang,
       appReady: false,
@@ -2377,6 +2482,7 @@
         };
       }
       renderPromotionConfirmControls();
+      renderOverview();
     }
 
     async function submitResearchPromotionDecision(decision) {
@@ -3259,6 +3365,9 @@
       document.querySelectorAll("[data-i18n-aria-label]").forEach((node) => {
         node.setAttribute("aria-label", t(node.dataset.i18nAriaLabel));
       });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach((node) => {
+        node.placeholder = t(node.dataset.i18nPlaceholder);
+      });
       el("lang-button").textContent = state.lang === "zh" ? "EN" : "中";
     }
 
@@ -3279,6 +3388,7 @@
         button.type = "button";
         button.dataset.platform = platform;
         button.classList.toggle("active", platform === state.selected);
+        button.setAttribute("aria-pressed", String(platform === state.selected));
         const mark = document.createElement("span");
         mark.className = "mark";
         mark.textContent = meta.code;
@@ -3360,15 +3470,16 @@
       return { label: t("reviewAccountSettings"), openSettings: true };
     }
 
-    function openAccountSettings(platform, account) {
+    function openAccountSettings(platform, account, edit = true) {
+      state.view = "accounts";
       state.selected = platform;
       render();
       const select = el("account-select");
       select.value = account.key;
       select.dispatchEvent(new Event("change"));
       const settings = el("strategy-settings");
-      settings.open = true;
-      settings.scrollIntoView({ block: "start" });
+      settings.open = edit;
+      (edit ? settings : el("workspace-title")).scrollIntoView({ block: "start" });
       select.focus({ preventScroll: true });
     }
 
@@ -3419,45 +3530,27 @@
       el("account-overview").hidden = !hasPrivateConfig();
       if (!hasPrivateConfig()) return;
       const platform = state.selected;
-      el("selected-monitoring-status").textContent = accountApplicationText(platform, selectedAccount(platform));
-      for (const account of optionsFor(platform)) {
-        const row = document.createElement("tr");
-        row.classList.toggle("selected", account.key === selectedAccount(platform)?.key);
-        const first = document.createElement("td");
-        const select = document.createElement("button");
-        select.type = "button";
-        select.textContent = account.label;
-        select.setAttribute("aria-pressed", String(account.key === selectedAccount(platform)?.key));
-        select.addEventListener("click", () => openAccountSettings(platform, account));
-        first.append(select);
-        row.append(first);
-        for (const value of [
-          currentStrategyForAccount(platform, account) ? strategyLabel(currentStrategyForAccount(platform, account)) : t("notRead"),
-          currentRuntimeTargetText(platform, account),
-          accountDeploymentText(platform, account),
-          accountSchedulerText(platform, account),
-          // desired vs applied alignment — unknown when deployment readback is missing/stale
-          accountApplicationText(platform, account),
-          accountMonitoringAge(accountMonitoringRecord(platform, account)),
-        ]) {
-          const cell = document.createElement("td");
-          cell.textContent = value;
-          row.append(cell);
-        }
-        const next = accountNextStep(platform, account);
-        const action = document.createElement("td");
-        action.className = "account-next-step";
-        if (next.openSettings) {
-          const button = document.createElement("button");
-          button.type = "button";
-          button.textContent = next.label;
-          button.addEventListener("click", () => openAccountSettings(platform, account));
-          action.append(button);
-        } else {
-          action.textContent = next.label;
-        }
-        row.append(action);
-        body.append(row);
+      const account = selectedAccount(platform);
+      el("selected-monitoring-status").textContent = accountApplicationText(platform, account);
+      const profile = currentStrategyForAccount(platform, account);
+      const facts = [
+        ["configuredStrategy", profile ? strategyLabel(profile) : t("notRead")],
+        ["configuredSwitch", currentRuntimeTargetText(platform, account)],
+        ["deployedSwitch", accountDeploymentText(platform, account)],
+        ["schedulerState", accountSchedulerText(platform, account)],
+        ["applicationStatus", accountApplicationText(platform, account)],
+        ["latestReadback", accountMonitoringAge(accountMonitoringRecord(platform, account))],
+        ["observedRuntime", accountMonitoringText(platform, account)],
+        ["accountDetailAction", accountNextStep(platform, account).label],
+      ];
+      for (const [label, value] of facts) {
+        const pair = document.createElement("div");
+        const term = document.createElement("dt");
+        term.textContent = t(label);
+        const detail = document.createElement("dd");
+        detail.textContent = value;
+        pair.append(term, detail);
+        body.append(pair);
       }
     }
 
@@ -4704,7 +4797,7 @@
     function renderRuntimeTargetLifecycle() {
       const payload = state.runtimeTargetLifecycle.payload;
       renderMonitoringOverview();
-      el("monitoring-computed-at").textContent = t("controlComputedAt").replace("{time}", payload.computed_at ? formatDateTime(payload.computed_at) : "—");
+      renderOverview();
       const notice = el("runtime-target-lifecycle-notice");
       if (state.runtimeTargetLifecycle.loading) {
         notice.textContent = t("refreshingStatus");
@@ -4990,6 +5083,155 @@
       }
     }
 
+    function overviewAccounts() {
+      if (!hasPrivateConfig()) return [];
+      const rows = [];
+      for (const platform of Object.keys(platformMeta).filter(key => platformMeta[key].console_visible !== false)) {
+        for (const account of optionsFor(platform)) {
+          const saved = runtimeTargetStateForAccount(platform, account);
+          const record = accountMonitoringRecord(platform, account);
+          const application = accountApplicationText(platform, account);
+          const unknown = application === t("deploymentUnverified");
+          const runtimeAttention = record?.freshness?.data_status === "ready"
+            && record.execution_observation?.code === "attention";
+          const profile = currentStrategyForAccount(platform, account);
+          rows.push({
+            platform, platformLabel: platformMeta[platform].label, account,
+            strategy: profile ? strategyLabel(profile) : t("notRead"),
+            configured: saved.known ? (saved.enabled ? "enabled" : "disabled") : "unknown",
+            application, unknown, runtimeAttention,
+            attention: application !== t("switchesApplied") || runtimeAttention,
+            observation: accountMonitoringText(platform, account),
+            age: accountMonitoringAge(record),
+          });
+        }
+      }
+      return rows;
+    }
+
+    function filterOverviewAccounts(rows, filter, search) {
+      const query = String(search || "").trim().toLocaleLowerCase();
+      return rows.filter(row => {
+        const inScope = filter === "attention" ? row.attention
+          : ["enabled", "disabled"].includes(filter) ? row.configured === filter : true;
+        return inScope && (!query || [row.platformLabel, row.account.label, row.strategy]
+          .some(value => String(value || "").toLocaleLowerCase().includes(query)));
+      });
+    }
+
+    function renderOverview() {
+      const rows = overviewAccounts();
+      const available = hasPrivateConfig();
+      const unknown = rows.filter(row => row.unknown).length;
+      const mismatch = rows.some(row => row.attention && (!row.unknown || row.runtimeAttention));
+      const counts = { total: rows.length, enabled: rows.filter(row => row.configured === "enabled").length,
+        disabled: rows.filter(row => row.configured === "disabled").length, unknown };
+      for (const [key, value] of Object.entries(counts)) {
+        el(`overview-count-${key}`).textContent = available ? String(value) : "—";
+      }
+      const noticeKey = state.configSource === "loading" ? "overviewLoading"
+        : !available ? "overviewUnavailable" : mismatch ? "overviewAttention"
+        : unknown ? "overviewUnverified" : rows.length ? "overviewRead" : "overviewNoAccounts";
+      el("overview-notice-title").textContent = t(`${noticeKey}Title`);
+      el("overview-notice-description").textContent = t(`${noticeKey}Description`);
+      el("overview-notice").hidden = !available || !rows.length;
+      el("overview-notice").classList.toggle("needs-attention", mismatch);
+      el("overview-attention-button").hidden = !available || !rows.some(row => row.attention);
+
+      const filtered = filterOverviewAccounts(rows, state.overviewFilter, state.overviewSearch);
+      el("overview-result-count").textContent = available
+        ? t("accountResults").replace("{count}", filtered.length).replace("{total}", rows.length) : "—";
+      document.querySelectorAll("[data-overview-filter]").forEach(button => {
+        button.setAttribute("aria-pressed", String(button.dataset.overviewFilter === state.overviewFilter));
+        button.disabled = !available;
+      });
+      el("overview-search").disabled = !available;
+      const body = el("overview-accounts-body");
+      body.replaceChildren();
+      for (const row of filtered) {
+        const tr = document.createElement("tr");
+        const accountCell = document.createElement("td");
+        accountCell.className = "overview-account";
+        const mark = document.createElement("span");
+        mark.className = "account-mark";
+        mark.setAttribute("aria-hidden", "true");
+        mark.textContent = platformMeta[row.platform].code;
+        const identity = document.createElement("span");
+        const name = document.createElement("strong");
+        name.textContent = row.account.label;
+        const platform = document.createElement("small");
+        platform.textContent = row.platformLabel;
+        identity.append(name, platform);
+        accountCell.append(mark, identity);
+        const strategyCell = document.createElement("td");
+        strategyCell.className = "overview-strategy";
+        strategyCell.textContent = row.strategy;
+        const runtimeCell = document.createElement("td");
+        runtimeCell.className = "overview-runtime";
+        const actual = document.createElement("span");
+        actual.className = `runtime-badge ${row.unknown && !row.runtimeAttention ? "unverified" : row.attention ? "attention" : "applied"}`;
+        actual.textContent = row.runtimeAttention ? t("overviewRuntimeAttention")
+          : row.unknown ? t("overviewActualUnknown") : row.application;
+        const saved = document.createElement("small");
+        saved.textContent = t("savedState").replace("{state}", t({
+          enabled: "runtimeTargetLifecycleStateEnabled", disabled: "runtimeTargetLifecycleStateDisabled",
+          unknown: "runtimeStateUnknown",
+        }[row.configured]));
+        runtimeCell.append(actual, saved);
+        const readbackCell = document.createElement("td");
+        readbackCell.className = "overview-readback";
+        const age = document.createElement("span");
+        age.textContent = row.age;
+        const observation = document.createElement("small");
+        observation.textContent = row.observation;
+        const mobileLabel = document.createElement("span");
+        mobileLabel.className = "mobile-readback-label";
+        mobileLabel.textContent = `${t("latestReadback")}：`;
+        readbackCell.append(mobileLabel, age, observation);
+        const actionCell = document.createElement("td");
+        actionCell.className = "overview-action";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "btn";
+        button.textContent = t("viewAccount");
+        button.setAttribute("aria-label", t("viewAccountLabel").replace("{account}", `${row.platformLabel} ${row.account.label}`));
+        button.addEventListener("click", () => openAccountSettings(row.platform, row.account, false));
+        actionCell.append(button);
+        tr.append(accountCell, strategyCell, runtimeCell, readbackCell, actionCell);
+        body.append(tr);
+      }
+      el("overview-empty").hidden = filtered.length > 0;
+      const emptyKey = !available ? (state.configSource === "loading" ? "overviewLoading" : "overviewUnavailable")
+        : rows.length ? "overviewEmpty" : "overviewNoAccounts";
+      el("overview-empty-title").textContent = t(`${emptyKey}Title`);
+      el("overview-empty-description").textContent = t(`${emptyKey}Description`);
+      el("overview-reset").hidden = !available || !rows.length;
+      el("monitoring-computed-at").textContent = state.lastRefreshAt
+        ? t("pageRefreshed").replace("{time}", new Intl.DateTimeFormat(locale(), {hour: "2-digit", minute: "2-digit"}).format(new Date(state.lastRefreshAt)))
+        : t("pageNotRefreshed");
+      const queue = state.researchPromotion.payload;
+      const pending = queue.data_status === "ready" && !queue.errors?.length
+        ? queue.tickets.filter(ticket => ticket.state === "awaiting_human").length : 0;
+      el("overview-research-link").hidden = !state.auth.allowed || !pending;
+      el("overview-research-summary").textContent = t("researchPendingCount").replace("{count}", pending);
+    }
+
+    function renderWorkspace() {
+      el("refresh-status-button").disabled = state.refreshing;
+      el("refresh-status-button").textContent = t(state.refreshing ? "refreshingStatus" : "refreshStatus");
+      const view = ["overview", "accounts", "research"].includes(state.view) ? state.view : "overview";
+      for (const name of ["overview", "accounts", "research"]) el(`${name}-view`).hidden = view !== name;
+      el("platform-strip").hidden = view === "overview";
+      el("health-view").hidden = view !== "research";
+      el("workspace-title").textContent = t(`${view}Nav`);
+      el("workspace-description").textContent = t(`${view}Description`);
+      document.querySelector(".workspace-nav").hidden = !state.appReady || !state.auth.allowed;
+      document.querySelectorAll(".workspace-nav [data-workspace]").forEach(button => {
+        if (button.dataset.workspace === view) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+      });
+    }
+
     function renderConsoleView() {
       el("switch-view").hidden = false;
       el("health-view").hidden = true;
@@ -5015,6 +5257,8 @@
       renderPlanReadiness();
       renderAuth();
       renderAppVisibility();
+      renderWorkspace();
+      renderOverview();
     }
 
     async function refreshSession() {
@@ -5348,6 +5592,7 @@
           state.bootMessageKey = "bootPublic";
         }
       } finally {
+        state.lastRefreshAt = new Date().toISOString();
         state.appReady = true;
         render();
       }
@@ -5559,6 +5804,36 @@
 ");
     }
 
+    document.querySelectorAll("[data-workspace]").forEach(button => button.addEventListener("click", () => {
+      state.view = button.dataset.workspace;
+      render();
+      el("workspace-title").focus({ preventScroll: true });
+      window.scrollTo({ top: 0 });
+    }));
+
+    document.querySelectorAll("[data-overview-filter]").forEach(button => button.addEventListener("click", () => {
+      state.overviewFilter = button.dataset.overviewFilter;
+      renderOverview();
+    }));
+    el("overview-search").addEventListener("input", () => {
+      state.overviewSearch = el("overview-search").value;
+      renderOverview();
+    });
+    el("overview-reset").addEventListener("click", () => {
+      state.overviewFilter = "all";
+      state.overviewSearch = "";
+      el("overview-search").value = "";
+      renderOverview();
+      el("overview-search").focus();
+    });
+    el("overview-attention-button").addEventListener("click", () => {
+      state.overviewFilter = "attention";
+      state.overviewSearch = "";
+      el("overview-search").value = "";
+      renderOverview();
+      el("overview-search").focus();
+    });
+
     el("health-view").addEventListener("toggle", () => {
       if (!el("health-view").open) return;
       refreshHealth();
@@ -5601,6 +5876,7 @@
     el("refresh-status-button").addEventListener("click", async () => {
       if (!state.auth.allowed) return;
       const button = el("refresh-status-button");
+      state.refreshing = true;
       button.disabled = true;
       button.textContent = t("refreshingStatus");
       try {
@@ -5609,8 +5885,13 @@
           refreshRuntimeTargetLifecycle(),
           refreshReconciliationRecovery(),
           refreshResearchPromotionTickets(),
+          refreshControlPlane(),
+          refreshOwnerDecisions(),
         ]);
       } finally {
+        state.refreshing = false;
+        state.lastRefreshAt = new Date().toISOString();
+        render();
         button.disabled = false;
         button.textContent = t("refreshStatus");
       }
