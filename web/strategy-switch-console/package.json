@@ -1,0 +1,13 @@
+{
+  "name": "qsl-strategy-switch-console-tests",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "miniflare": "4.20260730.0"
+  },
+  "overrides": {
+    "miniflare": {
+      "undici": "7.29.0"
+    }
+  }
+}

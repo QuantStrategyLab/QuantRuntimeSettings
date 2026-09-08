@@ -9,7 +9,8 @@ const source = readFileSync(new URL('../web/strategy-switch-console/app.js', imp
 function frontendFunction(name, context) {
   const start = source.indexOf(`    function ${name}(`);
   assert.ok(start >= 0);
-  const end = source.indexOf('\n    function ', start + 1);
+  const next = source.slice(start + 1).search(/\n    (?:async )?function /);
+  const end = next < 0 ? source.length : start + 1 + next;
   return vm.runInNewContext(`(${source.slice(start, end).trim()})`, context);
 }
 const cleanOptionalBoolean = (value) => typeof value === 'boolean' ? value : null;
@@ -475,4 +476,134 @@ test('selected promotion ticket prefers ticket suggested risk profile', () => {
     },
   });
   assert.equal(selected().suggested_risk_profile, 'GROWTH_COMPOUNDING');
+});
+
+for (const sample of [
+  { name: 'empty queue', allowed: true, status: 'ready', tickets: [], visible: false, notice: 'promotionTicketEmpty' },
+  { name: 'pending candidate', allowed: true, status: 'ready', tickets: [{ state: 'awaiting_human' }], visible: true },
+  { name: 'completed candidate', allowed: true, status: 'ready', tickets: [{ state: 'human_accepted' }], visible: false, notice: 'promotionTicketEmpty' },
+  { name: 'failed queue with old candidate', allowed: true, status: 'unavailable', tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTicketLoadFailed' },
+  { name: 'stale queue', allowed: true, status: 'stale', tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTicketLoadFailed' },
+  { name: 'queue errors', allowed: true, status: 'ready', errors: ['unavailable'], tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTicketLoadFailed' },
+  { name: 'signed out', allowed: false, status: 'ready', tickets: [{ state: 'awaiting_human' }], visible: false },
+  { name: 'hidden target platform', allowed: true, platformVisible: false, status: 'ready', tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTargetUnavailable' },
+]) test(`promotion panel shows actionable candidates only: ${sample.name}`, () => {
+  const nodes = {
+    'promotion-decision-panel': { hidden: false },
+    'promotion-queue-notice': { hidden: false, textContent: '' },
+  };
+  const context = {
+    state: { selected: 'ibkr', auth: { allowed: sample.allowed }, researchPromotion: {
+      payload: { data_status: sample.status, tickets: sample.tickets, errors: sample.errors || [] },
+    } },
+    el: id => nodes[id], t: key => key, platformMeta: { ibkr: { console_visible: sample.platformVisible !== false } },
+  };
+  context.promotionTicketQueueMessage = frontendFunction('promotionTicketQueueMessage', context);
+  frontendFunction('renderPromotionConfirmControls', context)();
+  assert.equal(nodes['promotion-decision-panel'].hidden, !sample.visible);
+  assert.equal(nodes['promotion-queue-notice'].hidden, !sample.allowed || sample.visible);
+  if (sample.notice) assert.equal(nodes['promotion-queue-notice'].textContent, sample.notice);
+});
+
+for (const status of ['deploymentUnverified', 'switchesApplied', 'strategyNotApplied', 'settingsNotApplied', 'scheduleNotApplied']) {
+  test(`account next step stays within observed configuration: ${status}`, () => {
+    const fn = frontendFunction('accountNextStep', { accountApplicationText: () => status, t: key => key });
+    const step = fn('ibkr', {});
+    assert.equal(step.label, status === 'deploymentUnverified' ? 'awaitDeploymentReadback'
+      : status === 'switchesApplied' ? 'noSwitchAction' : 'reviewAccountSettings');
+    assert.equal(step.openSettings, !['deploymentUnverified', 'switchesApplied'].includes(status));
+  });
+}
+
+test('unknown scheduler readback remains unknown when the switch agrees', () => {
+  const fn = frontendFunction('accountApplicationText', {
+    accountDeploymentObservation: () => ({ runtime_enabled: true, scheduler_state: 'unknown', strategy_profile: 'example' }),
+    runtimeTargetStateForAccount: () => ({ known: true, enabled: true }),
+    currentStrategyForAccount: () => 'example', t: key => key,
+  });
+  assert.equal(fn('ibkr', {}), 'deploymentUnverified');
+});
+
+test('opening account settings selects the exact account without submitting or enabling', () => {
+  const events = [];
+  const state = { selected: 'schwab', forms: { ibkr: { runtimeTargetMode: 'current' } } };
+  const nodes = {
+    'strategy-settings': { open: false, scrollIntoView: () => events.push('scroll') },
+    'account-select': { value: '', dispatchEvent: event => events.push(event.type), focus: () => events.push('focus') },
+  };
+  const fn = frontendFunction('openAccountSettings', { state, el: id => nodes[id], render: () => events.push('render'), Event });
+  fn('ibkr', { key: 'second-account' });
+  assert.equal(state.selected, 'ibkr');
+  assert.equal(nodes['account-select'].value, 'second-account');
+  assert.equal(nodes['strategy-settings'].open, true);
+  assert.equal(state.forms.ibkr.runtimeTargetMode, 'current');
+  assert.deepEqual(events, ['render', 'change', 'scroll', 'focus']);
+});
+
+test('decisions and account observations stay outside collapsed strategy settings', () => {
+  const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  const settings = html.indexOf('id="strategy-settings"');
+  assert.ok(settings > 0);
+  assert.match(html, /<details class="strategy-settings" id="strategy-settings">/);
+  for (const id of ['control-plane-view', 'promotion-decision-panel', 'reconciliation-recovery-board', 'account-overview', 'toast']) {
+    assert.ok(html.indexOf(`id="${id}"`) < settings, `${id} must remain visible with settings collapsed`);
+  }
+  assert.ok(html.indexOf('id="promotion-decision-panel"') < html.indexOf('id="account-overview"'));
+  assert.ok(html.indexOf('id="quick-form"') > settings);
+  assert.ok(html.includes('data-i18n="accountNextStep"'));
+  assert.equal((html.match(/id="dispatch-button"/g) || []).length, 1);
+});
+
+test('promotion rendering preserves candidate identity, target context and admin-only actions', () => {
+  const nodes = Object.fromEntries([
+    'promotion-decision-panel', 'promotion-queue-notice', 'promotion-target-summary',
+    'promotion-ticket-select', 'promotion-execution-mode-select', 'promotion-risk-profile-select',
+    'promotion-confirm-meta', 'promotion-ticket-meta', 'promotion-ticket-detail',
+    'promotion-accept-button', 'promotion-reject-button',
+  ].map(id => [id, {
+    hidden: false, textContent: '', value: '', dataset: {}, options: [],
+    replaceChildren() { this.options = []; this.value = ''; },
+    append(option) { this.options.push(option); if (option.selected) this.value = option.value; },
+  }]));
+  const ticket = { ticket_id: 'candidate-one', strategy_profile: 'example', created_at: '2026-09-08T00:00:00Z',
+    state: 'awaiting_human', suggested_risk_profile: 'GROWTH_COMPOUNDING' };
+  const context = {
+    state: { selected: 'ibkr', auth: { allowed: true, admin: false }, researchPromotion: {
+      selectedTicketId: '', payload: { data_status: 'ready', tickets: [ticket], errors: [] },
+    } },
+    el: id => nodes[id], platformMeta: { ibkr: { label: 'IBKR' } },
+    t: key => key === 'promotionTargetSummary' ? 'Target: {platform}' : key,
+    platformSupportsBrokerPaper: () => false, strategyLabel: () => 'Example strategy',
+    formatDateTime: value => value, renderRiskEnvelopePanel: () => {},
+    PROMOTION_RISK_PROFILES: ['CAPITAL_PRESERVATION', 'BALANCED_COMPOUNDING', 'GROWTH_COMPOUNDING'],
+    DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
+    Option: class { constructor(text, value, _defaultSelected, selected) { Object.assign(this, { text, value, selected }); } },
+  };
+  for (const name of ['promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel']) {
+    context[name] = frontendFunction(name, context);
+  }
+  const render = frontendFunction('renderPromotionConfirmControls', context);
+  render();
+  assert.equal(nodes['promotion-ticket-select'].value, ticket.ticket_id);
+  assert.equal(nodes['promotion-target-summary'].textContent, 'Target: IBKR');
+  assert.equal(nodes['promotion-risk-profile-select'].value, 'GROWTH_COMPOUNDING');
+  assert.equal(nodes['promotion-execution-mode-select'].options.find(option => option.value === 'paper').disabled, true);
+  assert.equal(nodes['promotion-accept-button'].disabled, true);
+  assert.equal(nodes['promotion-reject-button'].disabled, true);
+  context.state.auth.admin = true;
+  render();
+  assert.equal(nodes['promotion-accept-button'].disabled, false);
+  context.state.researchPromotion.payload.tickets = [{ ...ticket, state: 'human_accepted' }];
+  render();
+  assert.equal(nodes['promotion-decision-panel'].hidden, true);
+  assert.equal(nodes['promotion-accept-button'].disabled, true);
+  assert.equal(context.state.researchPromotion.selectedTicketId, '');
+});
+
+test('hiding all platforms also hides account observations outside the settings form', () => {
+  const surface = { hidden: false };
+  const nodes = { 'platform-strip': { replaceChildren() {} }, 'switch-view': { hidden: false, querySelector: () => surface } };
+  frontendFunction('renderPlatforms', { el: id => nodes[id], state: { selected: 'ibkr' },
+    platformMeta: { ibkr: { console_visible: false } }, hasPrivateConfig: () => true })();
+  assert.equal(nodes['switch-view'].hidden, true);
 });

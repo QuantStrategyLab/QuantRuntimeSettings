@@ -466,6 +466,7 @@ export default {
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
       if (url.pathname === "/api/config") return json(await configPayload(request, env, ctx));
+      if (url.pathname === "/api/admin/runtime-instances") return await runtimeInstancesResponse(request, env);
       if (url.pathname === "/api/admin/config" && request.method === "GET") {
         return await adminConfigResponse(request, env);
       }
@@ -618,6 +619,207 @@ class HttpError extends Error {
   }
 }
 
+// One fixed object owns instance state and its revision. KV remains the ACL and
+// observation store; it is never a CAS substitute or a writable replica here.
+function hasRuntimeInstanceStore(env) {
+  return env.STRATEGY_SWITCH_RUNTIME_INSTANCES !== undefined && env.STRATEGY_SWITCH_RUNTIME_INSTANCES !== null;
+}
+
+async function runtimeInstanceCommand(env, command) {
+  const namespace = env.STRATEGY_SWITCH_RUNTIME_INSTANCES;
+  if (!namespace?.idFromName || !namespace?.get) throw new HttpError("runtime_instances_not_bound", 503);
+  try {
+    const stub = namespace.get(namespace.idFromName("runtime-instances"));
+    const response = await stub.fetch("https://runtime-instances/", command ? {
+      method: "POST", body: JSON.stringify(command),
+    } : {});
+    const result = await response.json();
+    if (!response.ok) throw new HttpError(result.error || "runtime_instances_unavailable", response.status);
+    return result;
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError("runtime_instances_unavailable", 503);
+  }
+}
+
+function runtimeInstanceAccountOptions(instances) {
+  const options = {};
+  for (const instance of instances) {
+    if (instance.kind !== "existing") continue;
+    (options[instance.platform] ||= []).push(instance.config);
+  }
+  return options;
+}
+
+function runtimeInstanceConflict(instances, platform, config, exceptKey = null) {
+  const selectors = (value) => String(value || "").split(",").map((item) => item.trim().toLowerCase()).filter(Boolean);
+  for (const item of instances) {
+    if (item.platform !== platform || item.key === exceptKey) continue;
+    const other = item.config;
+    if (item.key === config.key || other.target_name === config.target_name ||
+        (other.service_name && other.service_name === config.service_name) ||
+        selectors(other.account_selector).some((value) => selectors(config.account_selector).includes(value))) {
+      throw new HttpError("runtime_instance_identity_conflict", 409);
+    }
+  }
+}
+
+function runtimeInstanceFields(raw, allowed) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).some((key) => !allowed.includes(key))) {
+    throw new HttpError("invalid_runtime_instance_fields", 400);
+  }
+}
+
+async function runtimeInstancesResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (request.method === "GET") return json(await runtimeInstanceCommand(env));
+  if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  requireSameOrigin(request, { requireOrigin: true });
+  let raw;
+  try {
+    const text = await request.text();
+    if (text.length > 16384) throw new Error();
+    raw = JSON.parse(text);
+  } catch {
+    throw new HttpError("invalid_runtime_instance_request", 400);
+  }
+  runtimeInstanceFields(raw, ["action", "expected_revision", "platform", "key", "config", "confirm"]);
+  const command = { action: raw.action, expected_revision: raw.expected_revision, actor: session.login };
+  if (raw.action === "initialize") {
+    if (raw.confirm !== "IMPORT_EXISTING_CONFIG") throw new HttpError("runtime_instance_import_confirmation_required", 400);
+    // Explicit, one-time import only. A deployment must freeze legacy writers
+    // and review this input before enabling the binding and importing it.
+    command.account_options = (await loadLegacyAccountOptionsConfig(env)).options || {};
+  } else if (raw.action === "create" || raw.action === "edit") {
+    try {
+      if (!SUPPORTED_PLATFORMS.includes(raw.platform) || PLATFORM_CONFIG[raw.platform].dry_run_only) throw new Error();
+      runtimeInstanceFields(raw.config, ["key", "label", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name", "github_environment", "variable_scope", "cash_currency", "supported_domains", "default_strategy_profile", "default_execution_mode"]);
+      const option = cleanAccountOption(raw.config, raw.platform, 0);
+      if (!option.account_selector || !option.deployment_selector || !option.service_name) throw new Error();
+      option.default_execution_mode = raw.config.default_execution_mode || "dry_run";
+      option.default_strategy_profile = cleanSlug(raw.config.default_strategy_profile, "default_strategy_profile");
+      assertStrategyAllowedForAccount({ platform: raw.platform, strategy_profile: option.default_strategy_profile, execution_mode: option.default_execution_mode }, option, await loadStrategyProfilesConfig(env));
+      command.platform = raw.platform;
+      command.config = option;
+      if (raw.action === "edit") command.key = cleanSlug(raw.key, "key");
+    } catch {
+      throw new HttpError("invalid_runtime_instance_config", 400);
+    }
+  } else if (raw.action === "request_retirement") {
+    command.platform = raw.platform;
+    command.key = raw.key;
+  } else {
+    throw new HttpError("unsupported_runtime_instance_action", 400);
+  }
+  return json(await runtimeInstanceCommand(env, command));
+}
+
+export class RuntimeInstances {
+  constructor(ctx) {
+    this.storage = ctx.storage;
+    this.sql = ctx.storage.sql;
+    this.sql.exec("CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)");
+  }
+
+  read() {
+    const row = this.sql.exec("SELECT revision, payload FROM instance_state WHERE id = 1").toArray()[0];
+    return row ? { revision: row.revision, instances: JSON.parse(row.payload), initialized: true } : { revision: 0, instances: [], initialized: false };
+  }
+
+  response(state) {
+    return {
+      ok: true, ...state, account_options: runtimeInstanceAccountOptions(state.instances),
+      history: this.sql.exec("SELECT entry FROM instance_history ORDER BY revision DESC LIMIT 50").toArray().map((row) => JSON.parse(row.entry)),
+      no_order: true, execution_authority_granted: false,
+    };
+  }
+
+  async fetch(request) {
+    try {
+      if (request.method === "GET") return json(this.response(this.read()));
+      if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
+      let command;
+      try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
+      // No awaits or external I/O inside this SQLite transaction. Every state
+      // change, version advance, and history row commits together or rolls back.
+      return json(this.storage.transactionSync(() => {
+        const state = this.read();
+        if (!command || typeof command.actor !== "string" || !command.actor) throw new HttpError("runtime_instance_actor_required", 400);
+        if (command.action !== "sync_defaults") {
+          if (!Number.isSafeInteger(command.expected_revision) || command.expected_revision < 0) throw new HttpError("runtime_instance_revision_required", 400);
+          if (command.expected_revision !== state.revision) throw new HttpError("runtime_instance_revision_conflict", 409);
+        }
+        const ts = new Date().toISOString();
+        let changed = true;
+        let before = null;
+        let after = null;
+        if (command.action === "initialize") {
+          if (state.initialized) throw new HttpError("runtime_instances_already_initialized", 409);
+          for (const [platform, options] of Object.entries(command.account_options)) {
+            for (const config of options) {
+              if (state.instances.some((item) => item.platform === platform && (item.key === config.key || item.config.target_name === config.target_name))) throw new HttpError("runtime_instance_identity_conflict", 409);
+              state.instances.push({ platform, key: config.key, kind: "existing", config, enabled: null, platform_applied: null, application_status: "unknown", retirement_status: "none", created_at: ts, updated_at: ts });
+            }
+          }
+          state.initialized = true;
+        } else {
+          if (!state.initialized) throw new HttpError("runtime_instances_not_initialized", 409);
+          const item = state.instances.find((candidate) => candidate.platform === command.platform && candidate.key === command.key);
+          if (command.action === "create") {
+            if (state.instances.length >= 120) throw new HttpError("runtime_instance_limit_reached", 409);
+            runtimeInstanceConflict(state.instances, command.platform, command.config);
+            after = { platform: command.platform, key: command.config.key, kind: "draft", config: command.config, enabled: false, platform_applied: false, application_status: "unapplied", retirement_status: "none", created_at: ts, updated_at: ts };
+            state.instances.push(after);
+          } else if (command.action === "edit") {
+            if (!item || item.kind !== "draft" || item.retirement_status !== "none") throw new HttpError("runtime_instance_draft_edit_required", 409);
+            if (item.key !== command.config.key) throw new HttpError("runtime_instance_key_immutable", 409);
+            runtimeInstanceConflict(state.instances, command.platform, command.config, item.key);
+            before = structuredClone(item);
+            item.config = command.config;
+            item.updated_at = ts;
+            after = item;
+          } else if (command.action === "request_retirement") {
+            if (!item) throw new HttpError("runtime_instance_not_found", 404);
+            before = structuredClone(item);
+            changed = item.retirement_status !== "requested";
+            item.retirement_status = "requested";
+            if (changed) item.updated_at = ts;
+            after = item;
+          } else if (command.action === "sync_defaults") {
+            const current = runtimeInstanceAccountOptions(state.instances);
+            const update = updateAccountOptionsDefaultStrategy(current, command.inputs);
+            changed = update.changed;
+            for (const instance of state.instances) {
+              if (instance.kind !== "existing") continue;
+              const config = update.options[instance.platform]?.find((option) => option.key === instance.key);
+              if (config) {
+                const defaults = {};
+                for (const field of ["default_execution_mode", "default_strategy_profile"]) {
+                  if (instance.config[field] !== undefined) defaults[field] = instance.config[field];
+                }
+                instance.config = { ...config, ...defaults };
+              }
+            }
+          } else {
+            throw new HttpError("unsupported_runtime_instance_action", 400);
+          }
+        }
+        if (changed) {
+          state.revision += 1;
+          this.sql.exec("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, payload = excluded.payload", state.revision, JSON.stringify(state.instances));
+          this.sql.exec("INSERT INTO instance_history (revision, entry) VALUES (?, ?)", state.revision, JSON.stringify({ revision: state.revision, ts, login: command.actor, action: command.action, before, after }));
+        }
+        return this.response(state);
+      }));
+    } catch (error) {
+      return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError ? error.status : 409);
+    }
+  }
+}
+
 async function startLogin(request, env) {
   requireEnv(env, "GITHUB_CLIENT_ID");
   const url = new URL(request.url);
@@ -750,8 +952,14 @@ async function saveAdminConfig(request, env) {
   };
   const accountOptions = normalizeAccountOptionsInput(raw.account_options, "account_options");
 
+  if (hasRuntimeInstanceStore(env)) {
+    const instances = await runtimeInstanceCommand(env);
+    if (!instances.initialized || canonicalResearchTaskJson(accountOptions) !== canonicalResearchTaskJson(normalizeAccountOptionsPayload(instances.account_options))) {
+      throw new HttpError("runtime_instances_managed_separately", 409);
+    }
+  }
   await writeConfigJson(env, AUTH_CONFIG_KEY, authConfig);
-  await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
+  if (!hasRuntimeInstanceStore(env)) await writeConfigJson(env, ACCOUNT_OPTIONS_KEY, validateAccountOptionsSchemaOrThrow(accountOptions));
   await appendAuditLog(env, {
     ts: new Date().toISOString(),
     login: session.login,
@@ -842,6 +1050,16 @@ async function buildAdminState(session, env) {
   const authConfig = await loadAuthConfig(env);
   const accountConfig = await loadAccountOptionsConfig(env);
   const riskProfileBindingState = await loadRiskProfileBindings(env);
+  const runtimeInstances = hasRuntimeInstanceStore(env) ? await runtimeInstanceCommand(env) : null;
+  let runtimeInstanceStrategies = [];
+  if (runtimeInstances) {
+    try {
+      runtimeInstanceStrategies = (await loadStrategyProfilesConfig(env)).filter((item) => (item.allowed_execution_modes || []).includes("dry_run")).map((item) => ({ profile: item.profile, label: item.label, domain: item.domain }));
+    } catch {
+      // Catalog failure affects draft authoring, never existing instance
+      // readback, retirement requests, or the original access-management page.
+    }
+  }
   return {
     ok: true,
     session: { login: session.login, admin: true },
@@ -853,14 +1071,144 @@ async function buildAdminState(session, env) {
     riskProfileBindingsError: riskProfileBindingState.error,
     riskProfileBindingTargets: riskProfileBindingTargets(accountConfig.options),
     auditLog: await loadAuditLog(env),
+    runtimeInstances,
+    runtimeInstanceStrategies,
+    runtimeInstanceStrategiesAvailable: runtimeInstanceStrategies.length > 0,
   };
+}
+
+function renderRuntimeInstancesPanel(state) {
+  const bound = Boolean(state.runtimeInstances);
+  const disabled = bound && state.runtimeInstances.initialized && state.runtimeInstanceStrategiesAvailable ? "" : " disabled";
+  const field = (name, label, required = true) => `<label>${label}<input id="instance-${name}" name="${name}" maxlength="120"${required ? " required" : ""}${disabled}></label>`;
+  return `<section class="panel" aria-labelledby="instance-heading">
+    <h2 id="instance-heading">运行实例</h2>
+    <p class="muted">新增先保存为草稿，保持未启用、未应用。已有实例的运行状态请在控制台查看；退役请求仍需完成停机与在途订单核对。</p>
+    ${bound ? (!state.runtimeInstances.initialized ? `<label class="instance-init"><input id="instance-import-confirm" type="checkbox">我已核对下方当前账号配置，并暂停其他配置写入。</label><button class="btn" id="instance-import" type="button">导入现有配置</button>` : "") : `<p class="muted">实例管理尚未接入存储；现有运行配置继续可用。</p>`}
+    <div class="instance-list" id="instance-list"></div>
+    ${bound && !state.runtimeInstanceStrategiesAvailable ? `<p class="muted">策略目录暂不可用，草稿创建和编辑已暂停；实例查看、退役请求和登录权限管理仍可使用。</p>` : ""}
+    <details id="instance-editor"${bound && state.runtimeInstances.initialized ? " open" : ""}>
+      <summary id="instance-editor-title">新增实例草稿</summary>
+      <form id="runtime-instance-form">
+        <div class="grid">
+          <label>平台<select id="instance-platform" name="platform"${disabled}>${SUPPORTED_PLATFORMS.filter((platform) => !PLATFORM_CONFIG[platform].dry_run_only).map((platform) => `<option value="${platform}">${escapeHtml(PLATFORM_META[platform].label)}</option>`).join("")}</select></label>
+          ${field("label", "实例名称")}
+          ${field("key", "实例标识（创建后保留）")}
+          ${field("target_name", "运行目标")}
+          ${field("account_selector", "已有账户引用")}
+          ${field("deployment_selector", "已有部署引用")}
+          ${field("service_name", "服务名称")}
+          ${field("account_scope", "账户组引用（选填）", false)}
+          ${field("github_environment", "GitHub 环境引用（选填）", false)}
+          <label>计划策略<select id="instance-default_strategy_profile" name="default_strategy_profile"${disabled}>${state.runtimeInstanceStrategies.map((profile) => `<option value="${escapeHtml(profile.profile)}">${escapeHtml(profile.label)}</option>`).join("")}</select></label>
+        </div>
+        <p class="muted">只填写配置引用，不填写密码、Token 或密钥。草稿保存不会部署服务或接管账户。</p>
+        <div class="form-actions"><button class="btn primary" id="instance-save" type="submit"${disabled}>保存草稿</button><button class="btn" id="instance-cancel" type="button"${disabled}>取消编辑</button></div>
+      </form>
+    </details>
+    <p id="instance-status" role="status"></p>
+    <details><summary>实例变更记录</summary><div id="instance-history" class="muted"></div></details>
+  </section>`;
+}
+
+function runtimeInstancesAdminScript(state) {
+  const initial = JSON.stringify(state.runtimeInstances).replaceAll("<", "\\u003c");
+  const strategies = JSON.stringify(state.runtimeInstanceStrategies).replaceAll("<", "\\u003c");
+  return `
+    let instanceState = ${initial};
+    const instanceStrategies = ${strategies};
+    const instanceStrategiesAvailable = ${JSON.stringify(state.runtimeInstanceStrategiesAvailable)};
+    let editingInstance = null;
+    const instanceStatus = document.getElementById("instance-status");
+    const instanceForm = document.getElementById("runtime-instance-form");
+    const instanceFields = ["key", "label", "target_name", "account_selector", "deployment_selector", "service_name", "account_scope", "github_environment", "default_strategy_profile"];
+    function renderInstances() {
+      const list = document.getElementById("instance-list");
+      list.replaceChildren();
+      for (const item of instanceState?.instances || []) {
+        const row = document.createElement("div"); row.className = "instance-row";
+        const detail = document.createElement("div");
+        const title = document.createElement("strong"); title.textContent = item.config.label + " · " + item.platform;
+        const identity = document.createElement("p"); identity.className = "muted"; identity.textContent = item.key + " / " + item.config.target_name;
+        const status = document.createElement("p"); status.className = "instance-state";
+        status.textContent = (item.kind === "draft" ? "草稿 · 未启用 · 未应用" : "已有配置 · 实际运行状态请查看控制台") + (item.retirement_status === "requested" ? " · 已请求退役，尚未停机" : "");
+        detail.append(title, identity, status); row.append(detail);
+        const actions = document.createElement("div"); actions.className = "actions";
+        if (item.kind === "draft" && item.retirement_status === "none") {
+          const edit = document.createElement("button"); edit.className = "btn"; edit.type = "button"; edit.textContent = "编辑草稿";
+          edit.disabled = !instanceStrategiesAvailable;
+          edit.onclick = () => {
+            editingInstance = item;
+            for (const field of instanceFields) document.getElementById("instance-" + field).value = item.config[field] || "";
+            document.getElementById("instance-platform").value = item.platform;
+            document.getElementById("instance-platform").disabled = true;
+            document.getElementById("instance-key").readOnly = true;
+            document.getElementById("instance-editor-title").textContent = "编辑实例草稿";
+            document.getElementById("instance-editor").open = true;
+            document.getElementById("instance-label").focus();
+          }; actions.append(edit);
+        }
+        if (item.retirement_status !== "requested") {
+          const retire = document.createElement("button"); retire.className = "btn"; retire.type = "button"; retire.textContent = "请求退役";
+          retire.onclick = () => changeInstance({ action: "request_retirement", platform: item.platform, key: item.key }, "退役请求已保存；尚未停机或移除配置。");
+          actions.append(retire);
+        }
+        row.append(actions); list.append(row);
+      }
+      const history = document.getElementById("instance-history"); history.replaceChildren();
+      const labels = { initialize: "导入现有配置", create: "新增草稿", edit: "编辑草稿", request_retirement: "请求退役", sync_defaults: "同步运行设置" };
+      for (const entry of instanceState?.history || []) {
+        const line = document.createElement("p"); line.textContent = entry.ts + " · " + entry.login + " · " + (labels[entry.action] || entry.action); history.append(line);
+      }
+    }
+    async function changeInstance(change, message) {
+      instanceStatus.textContent = "正在保存…";
+      try {
+        const response = await fetch("/api/admin/runtime-instances", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...change, expected_revision: instanceState?.revision ?? 0 }) });
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+          if (response.status === 409) {
+            const latest = await fetch("/api/admin/runtime-instances");
+            if (latest.ok) { instanceState = await latest.json(); renderInstances(); }
+          }
+          throw new Error(result.error === "runtime_instance_revision_conflict" ? "配置已被更新，请核对后重新提交。" : result.error === "runtime_instance_identity_conflict" ? "实例标识、账户引用或服务已被占用，请核对配置。" : "未能保存，请检查必填项、策略范围与当前实例状态。");
+        }
+        instanceState = result; renderInstances(); instanceStatus.textContent = message; return true;
+      } catch (error) { instanceStatus.textContent = error.message; return false; }
+    }
+    function resetInstanceEditor() {
+      editingInstance = null; instanceForm.reset();
+      document.getElementById("instance-key").readOnly = false;
+      document.getElementById("instance-platform").disabled = !instanceState?.initialized || !instanceStrategiesAvailable;
+      document.getElementById("instance-editor-title").textContent = "新增实例草稿";
+    }
+    document.getElementById("instance-cancel").onclick = resetInstanceEditor;
+    instanceForm.addEventListener("submit", async (event) => {
+      event.preventDefault(); if (!instanceState?.initialized || !instanceStrategiesAvailable) return;
+      const config = { ...(editingInstance?.config || {}) };
+      for (const field of instanceFields) { const value = document.getElementById("instance-" + field).value.trim(); if (value) config[field] = value; else delete config[field]; }
+      config.default_execution_mode ||= "dry_run";
+      const strategy = instanceStrategies.find((item) => item.profile === config.default_strategy_profile);
+      if (strategy && !config.supported_domains?.includes(strategy.domain)) config.supported_domains = [strategy.domain];
+      if (config.github_environment) config.variable_scope = "environment";
+      else delete config.variable_scope;
+      const change = { action: editingInstance ? "edit" : "create", platform: document.getElementById("instance-platform").value, config };
+      if (editingInstance) change.key = editingInstance.key;
+      if (await changeInstance(change, "草稿已保存；未启用、未应用。")) resetInstanceEditor();
+    });
+    document.getElementById("instance-import")?.addEventListener("click", async () => {
+      if (!document.getElementById("instance-import-confirm").checked) { instanceStatus.textContent = "请先核对当前配置与配置写入状态。"; return; }
+      if (await changeInstance({ action: "initialize", confirm: "IMPORT_EXISTING_CONFIG" }, "已导入配置；运行状态保持未知。")) window.location.reload();
+    });
+    renderInstances();
+  `;
 }
 
 async function renderAdminPage(state, nonce) {
   const disabled = state.kvAvailable ? "" : " disabled";
   const statusClass = state.kvAvailable ? "ready" : "warn";
   const statusText = state.kvAvailable ? "KV 已连接 / KV connected" : "KV 未绑定，只读 / Read-only";
-  const sourceText = state.accountOptionSource === "kv"
+  const sourceText = state.accountOptionSource === "durable_object" ? "实例配置存储" : state.accountOptionSource === "kv"
     ? "KV"
     : (state.accountOptionSource === "secret" ? "Worker secret" : "none");
   const accountRows = SUPPORTED_PLATFORMS.map((platform) => {
@@ -889,7 +1237,7 @@ async function renderAdminPage(state, nonce) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
-  <title>Strategy Switch Login Management</title>
+  <title>Strategy Switch Administration</title>
   <style nonce="${nonce}">
     :root {
       --bg: #f5f6f8;
@@ -903,7 +1251,7 @@ async function renderAdminPage(state, nonce) {
     }
     * { box-sizing: border-box; }
     body { margin: 0; min-height: 100svh; background: var(--bg); color: var(--ink); letter-spacing: 0; }
-    button, textarea, select { font: inherit; letter-spacing: 0; }
+    button, input, textarea, select { font: inherit; letter-spacing: 0; }
     .topbar {
       min-height: 68px; display: flex; align-items: center; justify-content: space-between; gap: 16px;
       padding: 16px 28px; border-bottom: 1px solid var(--line); background: rgba(250, 251, 252, 0.94);
@@ -941,8 +1289,19 @@ async function renderAdminPage(state, nonce) {
       width: 100%; min-height: 118px; resize: vertical; border: 1px solid var(--line); border-radius: 8px;
       background: var(--surface); color: var(--ink); padding: 11px 12px; line-height: 1.45; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     }
-    select { min-height: 36px; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 0 9px; }
+    input, select { min-height: 36px; width: 100%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); padding: 0 9px; }
     textarea.json { min-height: 320px; }
+    .instance-list { display: grid; gap: 12px; }
+    .instance-row { padding: 14px 0; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 12px; }
+    .instance-row p { margin: 6px 0; overflow-wrap: anywhere; }
+    .instance-row > div { min-width: 0; }
+    .instance-row .actions { align-content: flex-start; }
+    #instance-status { min-height: 20px; color: var(--muted); font-size: 13px; }
+    .instance-state { font-size: 12px; color: var(--accent); }
+    .instance-init { display: flex; gap: 10px; align-items: center; }
+    .instance-init input { width: auto; }
+    details summary { cursor: pointer; color: var(--muted); }
+
     .panel { padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th, td { padding: 10px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -954,14 +1313,15 @@ async function renderAdminPage(state, nonce) {
       .shell { width: min(100% - 24px, 1080px); padding-top: 16px; }
       .status, .grid { grid-template-columns: 1fr; }
       textarea.json { min-height: 260px; }
+      .instance-row { flex-direction: column; }
     }
   </style>
 </head>
 <body>
   <header class="topbar">
     <div class="brand">
-      <h1>登录管理 / Login Management</h1>
-      <p>GitHub OAuth 2.0 管理策略切换权限。</p>
+      <h1>管理设置</h1>
+      <p>运行实例、登录权限与组合风险偏好。</p>
     </div>
     <div class="actions">
       <a class="btn" href="/">返回切换页</a>
@@ -983,6 +1343,7 @@ async function renderAdminPage(state, nonce) {
         <span>账号配置来源 / Account source</span>
       </div>
     </div>
+    ${renderRuntimeInstancesPanel(state)}
     <form class="panel" id="admin-form">
       <section>
         <h2>登录权限 / Login Access</h2>
@@ -1008,8 +1369,8 @@ async function renderAdminPage(state, nonce) {
       </section>
       <section>
         <h2>账号下拉 / Account Options</h2>
-        <p class="muted">这里只保存账号路由，不保存 broker 密码、token、API key 或云密钥。</p>
-        <textarea class="json" id="account-options"${disabled}>${escapeHtml(JSON.stringify(state.accountOptions, null, 2))}</textarea>
+        <p class="muted">这里只保存账号路由，不保存 broker 密码、token、API key 或云密钥。${state.runtimeInstances ? " 实例管理已接管配置；此处只读，新增请使用上方表单。" : ""}</p>
+        <textarea class="json" id="account-options"${state.runtimeInstances ? " readonly" : disabled}>${escapeHtml(JSON.stringify(state.accountOptions, null, 2))}</textarea>
       </section>
       <div class="form-actions">
         <button class="btn primary" id="save-button" type="submit"${disabled}>保存配置</button>
@@ -1046,6 +1407,7 @@ async function renderAdminPage(state, nonce) {
     </div>
   </main>
   <script nonce="${nonce}">
+    ${runtimeInstancesAdminScript(state)}
     const kvAvailable = ${JSON.stringify(state.kvAvailable)};
     const statusNode = document.getElementById("status");
     const riskProfileStatusNode = document.getElementById("risk-profile-status");
@@ -1613,6 +1975,14 @@ async function dispatchSwitch(request, env) {
 }
 
 async function syncDefaultStrategyForAccount(env, accountOptions, inputs, session) {
+  if (hasRuntimeInstanceStore(env)) {
+    try {
+      await runtimeInstanceCommand(env, { action: "sync_defaults", actor: session?.login || "github-actions", inputs });
+      return { synced: true, audit_logged: true };
+    } catch (error) {
+      return { synced: false, reason: error instanceof HttpError ? error.message : "runtime_instances_unavailable" };
+    }
+  }
   if (!hasConfigStore(env)) return { synced: false, reason: "kv_not_bound" };
   try {
     const { options, changed } = updateAccountOptionsDefaultStrategy(accountOptions, inputs);
@@ -1657,6 +2027,7 @@ async function syncAccountDefaultResponse(request, env) {
   let accountOption = configuredAccountForInputs(inputs, accountOptions);
   let registeredLegacyContinuityAccount = false;
   if (!accountOption) {
+    if (hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instance_registration_requires_management", 409);
     const registration = registerLegacyContinuityAccount(env, accountOptions, inputs, strategy);
     accountOptions = registration.options;
     accountOption = registration.account;
@@ -7384,6 +7755,16 @@ function hasOrgMatch(orgLogins, configuredOrgs) {
 }
 
 async function loadAccountOptionsConfig(env) {
+  if (hasRuntimeInstanceStore(env)) {
+    const state = await runtimeInstanceCommand(env);
+    if (state.initialized) return { options: state.account_options, source: "durable_object" };
+    // Existing execution can read the frozen legacy configuration during import;
+    // every instance writer rejects this uninitialized state.
+  }
+  return loadLegacyAccountOptionsConfig(env);
+}
+
+async function loadLegacyAccountOptionsConfig(env) {
   if (hasConfigStore(env)) {
     const stored = await readConfigJson(env, ACCOUNT_OPTIONS_KEY);
     if (stored) {

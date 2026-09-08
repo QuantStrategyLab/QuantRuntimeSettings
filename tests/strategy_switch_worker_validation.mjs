@@ -3988,3 +3988,21 @@ assert.equal(m0DamagedCurrentPayload.source_computed_at, null);
 assert.equal(m0DamagedCurrentPayload.data_status, "unavailable");
 assert.deepEqual(m0DamagedCurrentPayload.subjects, []);
 globalThis.Date = m0RealDate;
+
+// The optional management API must fail closed without changing legacy config.
+const instanceUnboundEnv = { SESSION_SECRET: "instance-test-session", STRATEGY_SWITCH_ADMIN_LOGINS: "fixture-admin" };
+const instanceUnboundCookie = await __test.makeSession("fixture-admin", [], instanceUnboundEnv);
+const instanceUnboundRead = await worker.fetch(new Request("https://switch.example/api/admin/runtime-instances", {
+  headers: { Cookie: `qsl_switch_session=${instanceUnboundCookie}` },
+}), instanceUnboundEnv);
+assert.equal(instanceUnboundRead.status, 503);
+assert.equal((await instanceUnboundRead.json()).error, "runtime_instances_not_bound");
+const instanceUnboundAnonymous = await worker.fetch(new Request("https://switch.example/api/admin/runtime-instances"), instanceUnboundEnv);
+assert.equal(instanceUnboundAnonymous.status, 401);
+const instanceUnboundBrokenCatalogEnv = { ...instanceUnboundEnv, STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: "{invalid" };
+for (const endpoint of ["/admin", "/api/admin/config"]) {
+  const response = await worker.fetch(new Request(`https://switch.example${endpoint}`, {
+    headers: { Cookie: `qsl_switch_session=${instanceUnboundCookie}` },
+  }), instanceUnboundBrokenCatalogEnv);
+  assert.equal(response.status, 200, `unbound instance module must not make ${endpoint} depend on the strategy catalog`);
+}
