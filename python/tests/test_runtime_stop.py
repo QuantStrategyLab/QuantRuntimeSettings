@@ -256,6 +256,22 @@ class RuntimeStopTests(unittest.TestCase):
                     self.assertRaisesRegex(ValueError, "^stop_source_unavailable$"):
                 runtime_settings.read_stop_variables(self.request["github"])
 
+    def test_variable_reader_uses_actions_for_repository_and_encodes_environment(self):
+        repository = "QuantStrategyLab/BinancePlatform"
+        for scope, expected in [
+            ({"repository": repository, "variable_scope": "repository"},
+             f"repos/{repository}/actions/variables?per_page=100"),
+            ({"repository": repository, "variable_scope": "environment", "environment": "test/env"},
+             f"repos/{repository}/environments/test%2Fenv/variables?per_page=100"),
+        ]:
+            def source(command, **kwargs):
+                if command != ["gh", "api", "--method", "GET", "--paginate", "--slurp", expected]:
+                    return subprocess.CompletedProcess(command, 1, "", "not found")
+                return subprocess.CompletedProcess(command, 0, '[{"total_count":0,"variables":[]}]', "")
+            with self.subTest(scope=scope["variable_scope"]), \
+                    patch.object(runtime_settings.subprocess, "run", side_effect=source):
+                self.assertEqual(runtime_settings.read_stop_variables(scope), {})
+
     def test_cli_requires_explicit_stop_confirmation_before_read_or_write(self):
         with patch.dict(os.environ, {"RUNTIME_STOP_REQUEST_JSON": json.dumps(self.request)}, clear=True), \
                 patch.object(runtime_settings, "execute_stop") as execute, contextlib.redirect_stderr(io.StringIO()):

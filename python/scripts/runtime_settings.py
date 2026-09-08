@@ -1266,6 +1266,8 @@ def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
     endpoint = f"repos/{github['repository']}"
     if github["variable_scope"] == "environment":
         endpoint += f"/environments/{quote(github['environment'], safe='')}"
+    else:
+        endpoint += "/actions"
     endpoint += "/variables?per_page=100"
     try:
         result = subprocess.run(
