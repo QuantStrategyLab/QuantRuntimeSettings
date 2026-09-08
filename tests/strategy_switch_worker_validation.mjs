@@ -3314,9 +3314,11 @@ async function publishCountedLifecycle(source) {
 }
 const usageSourceKey = "runtime_target_lifecycle_source:longbridge.sg";
 const usageSource = structuredClone(runtimeTargetLifecycleSourcePayload);
+usageSource.generated_at = new Date(Date.now() - 120000).toISOString();
+usageSource.computed_at = usageSource.generated_at;
 usageSource.targets[0].deployment = {
   runtime_enabled: false, scheduler_state: "paused", strategy_profile: "soxl_soxx_trend_income",
-  execution_mode: "dry_run", observed_at: new Date(Date.now() - 120000).toISOString(),
+  execution_mode: "dry_run", observed_at: usageSource.generated_at,
 };
 await publishCountedLifecycle(usageSource);
 assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
@@ -3355,6 +3357,17 @@ lifecycleUsageEnv.STRATEGY_SWITCH_CONFIG.get = async (key) => {
 await publishCountedLifecycle(refreshedUsageSource);
 assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
 lifecycleUsageEnv.STRATEGY_SWITCH_CONFIG.get = workingLifecycleGet;
+const staleUsageSource = structuredClone(refreshedUsageSource);
+staleUsageSource.computed_at = new Date(Date.now() - 48 * 3600000).toISOString();
+staleUsageSource.generated_at = staleUsageSource.computed_at;
+lifecycleUsageStore.set(usageSourceKey, JSON.stringify(staleUsageSource));
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
+const staleDeploymentSource = structuredClone(refreshedUsageSource);
+staleDeploymentSource.targets[0].deployment.observed_at = staleUsageSource.computed_at;
+lifecycleUsageStore.set(usageSourceKey, JSON.stringify(staleDeploymentSource));
+await publishCountedLifecycle(refreshedUsageSource);
+assert.deepEqual(lifecycleWrites, [usageSourceKey, "audit_log"]);
 
 const researchTaskSyncValue = ["research", "task", "sync"].join("-");
 const researchTaskEnv = { ...controlEnv, RESEARCH_TASK_SYNC_TOKEN: researchTaskSyncValue };

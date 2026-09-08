@@ -3147,13 +3147,18 @@ function executionEvidenceSourceKey(sourceId) {
   return `${EXECUTION_EVIDENCE_SOURCE_PREFIX}${sourceId}`;
 }
 
-function runtimeTargetLifecycleAuditState(source) {
+function runtimeTargetLifecycleAuditState(source, ttlSeconds, now) {
   if (!source) return null;
   const state = structuredClone(source);
+  state.freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now).data_status;
   delete state.generated_at;
   delete state.computed_at;
   for (const target of state.targets) {
-    if (target.deployment) delete target.deployment.observed_at;
+    if (target.deployment?.observed_at) {
+      target.deployment.observed_at = controlPlaneSnapshotFreshness({
+        data_status: "ready", computed_at: target.deployment.observed_at,
+      }, ttlSeconds, now).data_status;
+    }
   }
   return JSON.stringify(state);
 }
@@ -3188,7 +3193,9 @@ async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
   // skips unchanged polling records; operator actions are audited separately.
   await writeConfigJson(env, sourceKey, source);
   try {
-    if (runtimeTargetLifecycleAuditState(previous) !== runtimeTargetLifecycleAuditState(source)) {
+    const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
+    const now = Date.now();
+    if (runtimeTargetLifecycleAuditState(previous, ttlSeconds, now) !== runtimeTargetLifecycleAuditState(source, ttlSeconds, now)) {
       await appendAuditLog(env, {
         ts: new Date().toISOString(),
         login: "runtime-target-lifecycle-source-sync",
