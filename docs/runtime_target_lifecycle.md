@@ -51,6 +51,27 @@ candidate P0–P6 status does not by itself turn an `ACTIVE_LKG` target off.
 This contract does not create broker permission, increase capital or
 leverage, reset a hard breaker, or approve a new live target.
 
+### Resume the existing Binance switch
+
+The console offers a separate **Resume current live target** action for the
+configured Binance legacy target. It does not use the candidate strategy form.
+The authenticated request binds the current target's exact bytes; protected
+`manual-binance-resume.yml` re-reads the repository variables and saves only
+`RUNTIME_TARGET_ENABLED=true`. It rejects changed identity/configuration,
+non-legacy targets, other platforms/scopes, a disabled recovery-control guard,
+and strategy or cash edits. Existing stop/switch writers share its concurrency
+group. The pre-write comparison detects stale reads; it is not an atomic CAS
+against an external administrator.
+
+This action restores an external setting, **not** private recovery authority.
+Binance's `resolve_runtime_target_strategy` still loads and validates the
+committed private recovery record and requires `ACTIVE_LKG` before execution.
+Neither the console nor this workflow activates that record, changes the
+frozen target, calls a trading cycle, or claims business recovery. A missing or
+invalid private record still blocks the platform. The final enable submission
+is an explicit operator action. For read-only verification, dispatch the same
+workflow with `apply=false`; it validates current configuration without writes.
+
 ## Deployment readback (optional, backwards compatible)
 
 A target can include `deployment` with exactly `runtime_enabled` (boolean/null),

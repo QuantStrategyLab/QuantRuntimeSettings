@@ -163,6 +163,11 @@
         <p class="account-state-note" data-i18n="runtimeObservationHint">实际开关和调度以记录时间为准，不代表已经成交。</p>
         <details class="strategy-settings" id="strategy-settings">
           <summary><span data-i18n="strategySettings">策略设置</span><small data-i18n="strategySettingsHint">需要启停或调整策略时展开</small></summary>
+          <div class="health-notice" id="binance-resume-panel" hidden>
+            <p data-i18n="binanceResumeHint">恢复当前实盘目标只保存启用开关，保留现有策略和资金配置。运行端仍会核验恢复记录。</p>
+            <button class="btn" id="binance-resume-button" type="button" data-i18n="binanceResume">恢复当前实盘目标</button>
+            <p class="selection-meta" id="binance-resume-status"></p>
+          </div>
     <section class="switch-surface">
       <div class="switch-panel" id="switch-panel">
         <div class="quick-form" id="quick-form">

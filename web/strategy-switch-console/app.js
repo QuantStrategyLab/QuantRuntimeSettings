@@ -534,6 +534,12 @@
         missingConfigNote: "账号配置未加载，暂时不能执行。",
         readyNote: "请核对上方改动后保存。",
         invalidStrategyNote: "所选策略尚未获准用于当前运行方式，不能提交。可先查看其他策略；模拟运行不会恢复实盘。",
+        binanceResume: "恢复当前实盘目标",
+        binanceResumeHint: "恢复当前实盘目标只保存启用开关，保留现有策略和资金配置。运行端仍会核验恢复记录。",
+        binanceResumeModeHint: "恢复原目标请用上方恢复按钮；下方表单用于切换策略。",
+        binanceResumeConfirm: "确认恢复当前 Binance 实盘目标？只保存启用开关，保留现有策略和资金配置；此表单中未保存的修改不会提交。运行端通过恢复与风险检查后才会执行。",
+        binanceResumePending: "恢复请求已提交。请查看处理结果并刷新配置；实际恢复以平台运行记录为准。",
+        binanceResumeUnknown: "提交结果未确认。请先查看已有处理记录，再刷新页面，避免重复提交。",
         invalidReservePolicyNote: "请为当前预留现金策略填写有效金额或比例。",
         invalidIncomeLayerNote: "请填写有效的收入层起始金额和最高比例。",
         invalidOptionOverlayNote: "当前策略未定义可启用的期权层。",
@@ -1009,6 +1015,12 @@
         missingConfigNote: "Account config is not loaded, so switching is disabled.",
         readyNote: "Review the changes above, then save.",
         invalidStrategyNote: "The selected strategy is not approved for this execution mode. You can browse other strategies; simulation does not restore live trading.",
+        binanceResume: "Resume current live target",
+        binanceResumeHint: "Restore only the enable setting, preserving the current strategy and cash configuration. The runtime still verifies the recovery record.",
+        binanceResumeModeHint: "Use the resume button above for the existing target; the form below switches strategies.",
+        binanceResumeConfirm: "Resume the current Binance live target? Only the enable setting will be saved. Current strategy and cash settings are retained; unsaved form edits will not be submitted. Execution still requires runtime recovery and risk checks.",
+        binanceResumePending: "Resume requested. Check the result and refresh configuration; actual recovery requires platform runtime evidence.",
+        binanceResumeUnknown: "Submission is unconfirmed. Check the existing run before refreshing and retrying.",
         invalidReservePolicyNote: "Enter a valid amount or ratio for the selected reserved-cash policy.",
         invalidIncomeLayerNote: "Enter a valid income layer start amount and max ratio.",
         invalidOptionOverlayNote: "This strategy does not define an option layer to enable.",
@@ -1065,6 +1077,7 @@
       : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
     const clone = (value) => JSON.parse(JSON.stringify(value));
     const runtimeStopLock = { pending: false };
+    const binanceResumeLock = { pending: false, messageKey: "" };
     const defaultReserveForm = () => ({
       reservePolicyMode: "current",
       minReservedCashUsd: "",
@@ -1616,6 +1629,7 @@
     }
 
     function strategyActionNoteText(platform = state.selected, account = selectedAccount(platform)) {
+      if (platform === "binance" && binanceResumeDigest()) return t("binanceResumeModeHint");
       const profile = state.forms[platform]?.strategy || "";
       const meta = strategyDisplayMetaText(platform, account, profile);
       return meta ? `${t("invalidStrategyNote")}\n${meta}` : t("invalidStrategyNote");
@@ -3709,7 +3723,7 @@
       });
       el("mode-meta").textContent = !supportedModes.includes("live")
         ? t("qmtDryRunOnlyNote")
-        : (!liveModeAvailable ? t("liveModeUnavailable") : "");
+        : (!liveModeAvailable ? t(binanceResumeDigest() ? "binanceResumeModeHint" : "liveModeUnavailable") : "");
     }
 
     function renderSummary() {
@@ -4995,6 +5009,7 @@
       renderHealth();
       renderPlatforms();
       renderControls();
+      renderBinanceResume();
       renderAccountOverview();
       renderSummary();
       renderPlanReadiness();
@@ -5422,6 +5437,8 @@
             option_overlay_enabled: optionOverlayEnabled,
             cash_only_execution: cashOnlyExecution,
             runtime_target_enabled: runtimeTargetEnabled,
+            binance_resume_target_sha256: /^[a-f0-9]{64}$/.test(entry?.binance_resume_target_sha256 || "")
+              ? entry.binance_resume_target_sha256 : "",
             dca_mode: dcaMode,
             dca_base_investment_usd: dcaBaseInvestmentUsd,
             source: entry?.source ? String(entry.source) : "",
@@ -5442,6 +5459,46 @@
         }
       }
       return normalized;
+    }
+
+    function binanceResumeDigest() {
+      if (!state.auth.allowed || state.configSource !== "private" || state.selected !== "binance") return "";
+      const entry = currentEntryForAccount("binance", selectedAccount("binance"));
+      return entry?.runtime_target_enabled === false ? entry.binance_resume_target_sha256 || "" : "";
+    }
+
+    function renderBinanceResume() {
+      const visible = Boolean(binanceResumeDigest());
+      el("binance-resume-panel").hidden = !visible;
+      el("binance-resume-button").disabled = !visible || binanceResumeLock.pending;
+      el("binance-resume-status").textContent = binanceResumeLock.messageKey ? t(binanceResumeLock.messageKey) : "";
+    }
+
+    async function dispatchBinanceResume() {
+      if (binanceResumeLock.pending || !state.auth.allowed || state.selected !== "binance") return;
+      const digest = binanceResumeDigest();
+      const account = selectedAccount("binance");
+      if (!digest || !account?.target_name || !window.confirm(t("binanceResumeConfirm"))) return;
+      binanceResumeLock.pending = true;
+      binanceResumeLock.messageKey = "dispatching";
+      render();
+      try {
+        const response = await fetch("/api/runtime-resume", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform: "binance", target_name: account.target_name,
+            runtime_target_sha256: digest, confirm: "RESUME_EXISTING" }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error("resume submission unverified");
+        binanceResumeLock.messageKey = "binanceResumePending";
+        if (payload.actions_url) window.open(payload.actions_url, "_blank", "noopener,noreferrer");
+      } catch {
+        binanceResumeLock.messageKey = "binanceResumeUnknown";
+      }
+      // Keep the lock after success or an uncertain write. Refresh only after
+      // inspecting the existing workflow; no automatic retry or trading call.
+      render();
+      showToast(t(binanceResumeLock.messageKey), { duration: 12000 });
     }
 
     async function dispatchRuntimeStop() {
@@ -5693,6 +5750,7 @@
     });
 
     el("dispatch-button").addEventListener("click", dispatchSwitch);
+    el("binance-resume-button").addEventListener("click", dispatchBinanceResume);
     el("logout-button").addEventListener("click", handleLogout);
     el("lang-button").addEventListener("click", () => {
       state.lang = state.lang === "zh" ? "en" : "zh";
