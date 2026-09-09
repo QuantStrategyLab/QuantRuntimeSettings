@@ -70,6 +70,13 @@ assert.equal(indexHtml.includes('id="health-view-button"'), false);
 assert.match(indexHtml, /<details class="health-view advanced-workspace" id="health-view" hidden>/);
 assert.ok(indexHtml.includes('id="control-plane-view"'));
 assert.ok(indexHtml.includes('id="control-plane-list"'));
+assert.ok(indexHtml.includes('function forwardObservationDisplayText('));
+assert.ok(indexHtml.includes('function candidateIsControlPlaneVisible('));
+assert.ok(indexHtml.includes('function renderControlPlaneHeading('));
+assert.ok(indexHtml.includes('观察进度 {completed} / {required} 个交易日'));
+assert.ok(indexHtml.includes('No-order observation progress: {completed} / {required} trading days'));
+assert.ok(indexHtml.includes('自动观察的最新记录，无需操作。'));
+assert.ok(indexHtml.includes('Latest automated observation. No action is needed.'));
 assert.ok(indexHtml.includes('id="m0-research-notice"'));
 assert.ok(indexHtml.includes('id="m0-research-list"'));
 assert.match(indexHtml, /<details class="diagnostic-details">\s*<summary data-i18n="diagnosticDetails">/);
@@ -302,6 +309,9 @@ const servedAppJs = await servedAppResponse.text();
 assert.equal(servedAppResponse.status, 200);
 assert.equal(servedAppResponse.headers.get("Cache-Control"), "no-store");
 assert.ok(servedAppJs.includes("function hasPrivateConfig()"));
+assert.ok(servedAppJs.includes("function forwardObservationDisplayText("));
+assert.ok(servedAppJs.includes("function candidateIsControlPlaneVisible("));
+assert.ok(servedAppJs.includes("function renderControlPlaneHeading("));
 assert.equal(servedAppJs.includes("ibitZscoreExit"), false);
 assert.equal(servedAppJs.includes("ibit_zscore_exit_mode"), false);
 assert.equal(servedAppJs.includes("ibkr-primary"), false);
@@ -2357,6 +2367,108 @@ assert.equal(sourceControlPayload.data_status, "ready");
 assert.deepEqual(sourceControlPayload.summary, { candidate_count: 1, deferred: 0, parked: 0, owner_decision_required: 0 });
 assert.deepEqual(sourceControlPayload.attention, { status: "research_only", reason_codes: [] });
 assert.equal(sourceControlPayload.candidates[0].candidate_id, "tqqq_core_only_p2_v5");
+
+const forwardControlStore = new Map();
+const forwardControlEnv = {
+  ...controlEnv,
+  STRATEGY_SWITCH_CONFIG: {
+    async get(key) { return forwardControlStore.get(key) || null; },
+    async put(key, value) { forwardControlStore.set(key, value); },
+    async list({ prefix = "", limit = 1000 } = {}) {
+      return {
+        keys: [...forwardControlStore.keys()]
+          .filter((key) => key.startsWith(prefix))
+          .slice(0, limit)
+          .map((name) => ({ name })),
+      };
+    },
+  },
+};
+const forwardControlCookie = await __test.makeSession("health-user", [], forwardControlEnv);
+const forwardControlHeaders = { Cookie: `qsl_switch_session=${forwardControlCookie}` };
+const forwardCandidate = {
+  ...controlSourcePayload.candidates[0],
+  candidate_id: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+  lifecycle: { stage: "P4", status: "shadow" },
+  forward_observation: {
+    state: "FORWARD_ACTIVE",
+    observations_completed: 8,
+    required_trading_sessions: 252,
+    last_observed_session: "2026-09-08",
+    observed_at: controlNow,
+    no_order: true,
+    live_authority_granted: false,
+  },
+};
+const forwardControlSource = {
+  ...controlSourcePayload,
+  source_id: "uesp.soxl_v7_forward",
+  candidates: [forwardCandidate],
+};
+const forwardControlSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify(forwardControlSource),
+  }),
+  forwardControlEnv,
+);
+assert.equal(forwardControlSync.status, 200);
+const forwardControlRead = await worker.fetch(
+  new Request("https://switch.example/api/control-plane", { headers: forwardControlHeaders }),
+  forwardControlEnv,
+);
+const forwardControlPayload = await forwardControlRead.json();
+assert.deepEqual(forwardControlPayload.candidates[0].forward_observation, forwardCandidate.forward_observation);
+
+for (const [index, invalidForwardObservation] of [
+  { ...forwardCandidate.forward_observation, observations_completed: 253 },
+  { ...forwardCandidate.forward_observation, no_order: false },
+  { ...forwardCandidate.forward_observation, live_authority_granted: true },
+  { ...forwardCandidate.forward_observation, observed_at: null },
+  { ...forwardCandidate.forward_observation, observed_at: "not-a-timestamp" },
+  { ...forwardCandidate.forward_observation, last_observed_session: "2026-02-30" },
+  { ...forwardCandidate.forward_observation, unexpected: "field" },
+].entries()) {
+  const invalidForwardSync = await worker.fetch(
+    new Request("https://switch.example/api/internal/sync-control-plane-source", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...forwardControlSource,
+        source_id: `uesp.soxl_v7_invalid_${index}`,
+        candidates: [{ ...forwardCandidate, forward_observation: invalidForwardObservation }],
+      }),
+    }),
+    forwardControlEnv,
+  );
+  assert.equal(invalidForwardSync.status, 400);
+}
+const p6ForwardSync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-control-plane-source", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${controlSyncValue}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...forwardControlSource,
+      source_id: "uesp.soxl_v7_p6_rejected",
+      candidates: [{
+        ...forwardCandidate,
+        lifecycle: { stage: "P6", status: "owner_decision_required" },
+        recommendation: { code: "owner_live_decision", reason: "must not carry forward observation" },
+      }],
+    }),
+  }),
+  forwardControlEnv,
+);
+assert.equal(p6ForwardSync.status, 400);
+assert.equal(
+  __test.normalizeControlPlaneSourceSnapshot({
+    ...forwardControlSource,
+    source_id: "uesp.legacy_candidate",
+    candidates: [{ ...forwardCandidate, forward_observation: undefined }],
+  }).candidates[0].forward_observation,
+  undefined,
+);
 
 const adaptiveSelectionSyncValue = ["adaptive", "selection", "sync"].join("-");
 const adaptiveSelectionEnv = { ...controlEnv, ADAPTIVE_SELECTION_SYNC_TOKEN: adaptiveSelectionSyncValue };

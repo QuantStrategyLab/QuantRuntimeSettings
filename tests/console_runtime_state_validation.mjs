@@ -264,14 +264,23 @@ for (const scenario of ['ready','stale','missing','wrong-platform','duplicate-so
   });
 }
 
-for (const pending of [false,true]) {
-  test(`human decision panel appears only when needed: ${pending}`, () => {
+for (const scenario of [
+  {name:'no visible candidate',allowed:true,candidates:[],pending:false,visible:false},
+  {name:'human decision',allowed:true,candidates:[{}],pending:true,visible:true},
+  {name:'forward-only signed out',allowed:false,candidates:[{forward_observation:{}}],pending:false,visible:false},
+  {name:'forward-only signed in',allowed:true,candidates:[{forward_observation:{}}],pending:false,visible:true},
+]) {
+  test(`control-plane visibility: ${scenario.name}`, () => {
     const nodes=Object.fromEntries(['switch-view','health-view','control-plane-view'].map(id=>[id,{hidden:false}]));
-    const fn=frontendFunction('renderConsoleView',{el:id=>nodes[id],state:{auth:{allowed:true},controlPlane:{payload:{candidates:pending?[{}]:[]}}},candidateNeedsOperatorAction:()=>pending});
+    const fn=frontendFunction('renderConsoleView',{
+      el:id=>nodes[id],
+      state:{auth:{allowed:scenario.allowed},controlPlane:{payload:{candidates:scenario.candidates}}},
+      candidateIsControlPlaneVisible:item=>scenario.pending||Boolean(item?.forward_observation),
+    });
     fn();
     assert.equal(nodes['switch-view'].hidden,false);
     assert.equal(nodes['health-view'].hidden,true);
-    assert.equal(nodes['control-plane-view'].hidden,!pending);
+    assert.equal(nodes['control-plane-view'].hidden,!scenario.visible);
   });
 }
 
