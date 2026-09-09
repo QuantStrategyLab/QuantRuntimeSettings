@@ -179,6 +179,45 @@ for (const intent of [null, { decision: 'approved' }]) {
   });
 }
 
+test('a parked AIAudit research result stays outside the owner-action queue', () => {
+  const action = frontendFunction('candidateNeedsOperatorAction', {
+    ownerDecisionEntry: () => null,
+  });
+  const visible = frontendFunction('candidateIsControlPlaneVisible', {
+    candidateNeedsOperatorAction: action,
+    isParkedResearchResult: frontendFunction('isParkedResearchResult'),
+  });
+  const candidate = {
+    source_id: 'aiaudit.soxl_manual_validation',
+    lifecycle: { stage: 'P3', status: 'parked' },
+    recommendation: { code: 'park' },
+    evidence: { p3_evidence_id: '34407783620' },
+  };
+  assert.equal(action(candidate), false);
+  assert.equal(visible(candidate), false);
+  assert.equal(frontendFunction('isParkedResearchResult')(candidate), true);
+});
+
+test('only the explicit AIAudit SOXL validation source gets a run link', () => {
+  const fn = frontendFunction('parkedResearchResultSourceUrl', {
+    isParkedResearchResult: frontendFunction('isParkedResearchResult'),
+  });
+  assert.equal(
+    fn({ source_id: 'aiaudit.soxl_manual_validation', lifecycle: { stage: 'P3', status: 'parked' }, recommendation: { code: 'park' }, evidence: { p3_evidence_id: '34407783620' } }),
+    'https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/34407783620',
+  );
+  assert.equal(fn({ source_id: 'uesp.soxl_daily_research', evidence: { p3_evidence_id: '34407783620' } }), '');
+  assert.equal(fn({ source_id: 'aiaudit.soxl_manual_validation', evidence: { p3_evidence_id: 'not-a-run' } }), '');
+});
+
+test('parked research results preserve the source reason and use a neutral fallback', () => {
+  const fn = frontendFunction('parkedResearchResultReason', {
+    t: key => ({ parkedResearchResultFallback: 'validation retained' })[key],
+  });
+  assert.equal(fn({ recommendation: { reason: 'Drawdown improvement was insufficient for the selected objective.' } }), 'Drawdown improvement was insufficient for the selected objective.');
+  assert.equal(fn({ recommendation: { reason: '   ' } }), 'validation retained');
+});
+
 test('all platforms remain readable within the Worker external request budget', async () => {
   const original = globalThis.fetch;
   let requests = 0;

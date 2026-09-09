@@ -2367,6 +2367,7 @@ assert.equal(sourceControlPayload.data_status, "ready");
 assert.deepEqual(sourceControlPayload.summary, { candidate_count: 1, deferred: 0, parked: 0, owner_decision_required: 0 });
 assert.deepEqual(sourceControlPayload.attention, { status: "research_only", reason_codes: [] });
 assert.equal(sourceControlPayload.candidates[0].candidate_id, "tqqq_core_only_p2_v5");
+assert.equal(sourceControlPayload.candidates[0].source_id, "uesp.tqqq_daily_research");
 
 const forwardControlStore = new Map();
 const forwardControlEnv = {
