@@ -21,8 +21,10 @@ def main() -> None:
     inputs = dispatch["inputs"]
     request = json.loads(inputs["stop_request"])
     identity = request["runtime_target"]
-    assert identity["platform_id"] == "ibkr"
-    assert all("synthetic" in str(value) for key, value in identity.items() if key != "platform_id")
+    hk = identity["platform_id"] == "longbridge"
+    assert identity["platform_id"] in {"ibkr", "longbridge"}
+    assert "synthetic" in identity["deployment_selector"]
+    assert all("synthetic" in value for value in identity["account_selector"])
     runtime = {**identity, "strategy_profile": "retired-synthetic-profile", "execution_mode": "live",
                "dry_run_only": False, "overrides": {"risk_limit": 0.01}}
     inventory = {"targets": [
@@ -31,12 +33,15 @@ def main() -> None:
     ], "defaults": {"synthetic_keep": True}}
     repository = {"CLOUD_RUN_SERVICE_TARGETS_JSON": json.dumps(inventory)}
     environment = {"RUNTIME_TARGET_JSON": json.dumps(runtime), "CLOUD_RUN_SERVICE": identity["service_name"]}
+    if hk:
+        repository = {}
+        environment = {"RUNTIME_TARGET_ENABLED": "false"}
     with tempfile.TemporaryDirectory(prefix="qsl-stop-workflow-") as directory:
         temp = Path(directory)
         state = temp / "state.json"
         event = temp / "event.json"
         event.write_text(json.dumps({"inputs": inputs}))
-        state.write_text(json.dumps({"repository": repository, "environment": environment, "writes": 0}))
+        state.write_text(json.dumps({"repository": repository, "environment": environment, "writes": 0, "request": request, "hk": hk}))
         gh = temp / "gh"
         gh.write_text(f"#!{sys.executable}\n" + textwrap.dedent('''\
             import json, os, sys
@@ -45,15 +50,24 @@ def main() -> None:
             state = json.loads(path.read_text())
             args = sys.argv[1:]
             if args[:1] == ["api"]:
-                assert args[args.index("--method") + 1] == "GET"
-                assert args[-1].endswith("/variables?per_page=100")
-                scope = "environment" if "/environments/" in args[-1] else "repository"
-                items = [{"name": name, "value": value} for name, value in state[scope].items()]
-                print(json.dumps([{"total_count": len(items), "variables": items}]))
+                if args[args.index("--method") + 1] == "POST":
+                    assert state["hk"] and state["environment"]["RUNTIME_TARGET_ENABLED"] == "false"
+                    assert args == ["api", "--method", "POST", "repos/QuantStrategyLab/LongBridgePlatform/actions/workflows/stop-hk-runtime.yml/dispatches", "--input", "-"]
+                    payload = json.load(sys.stdin)
+                    assert payload["ref"] == "main" and payload["inputs"]["confirm"] == "STOP_ONLY"
+                    assert json.loads(payload["inputs"]["stop_request"]) == state["request"]
+                    state["dispatches"] = state.get("dispatches", 0) + 1
+                    path.write_text(json.dumps(state))
+                else:
+                    assert args[args.index("--method") + 1] == "GET"
+                    assert args[-1].endswith("/variables?per_page=100")
+                    scope = "environment" if "/environments/" in args[-1] else "repository"
+                    items = [{"name": name, "value": value} for name, value in state[scope].items()]
+                    print(json.dumps([{"total_count": len(items), "variables": items}]))
             elif args[:2] == ["variable", "set"]:
                 assert "--body" not in args
                 scope = "environment" if "--env" in args else "repository"
-                assert args[2] == "CLOUD_RUN_SERVICE_TARGETS_JSON"
+                assert args[2] == ("RUNTIME_TARGET_ENABLED" if state["hk"] else "CLOUD_RUN_SERVICE_TARGETS_JSON")
                 state[scope][args[2]] = sys.stdin.read()
                 state["writes"] += 1
                 path.write_text(json.dumps(state))
@@ -62,26 +76,35 @@ def main() -> None:
         '''))
         gh.chmod(0o700)
         workflow = (ROOT / ".github/workflows/manual-runtime-stop.yml").read_text()
-        step = workflow.split("      - name: Save and verify only the stop setting\n", 1)[1]
+        step = workflow.split("      - name: Save the stop setting or apply an already-saved HK stop\n", 1)[1]
         shell = textwrap.dedent(step.split("        run: |\n", 1)[1].split("      - name:", 1)[0])
         env = {
             "PATH": f"{temp}:{Path(sys.executable).parent}:/usr/bin:/bin",
             "HOME": directory, "PYTHONDONTWRITEBYTECODE": "1",
             "SYNTHETIC_GH_STATE": str(state), "GITHUB_EVENT_PATH": str(event),
             "APPLY_STOP": inputs["apply"], "CONFIRM_STOP": inputs["confirm"],
+            "APPLY_HK_STOP": inputs.get("apply_hk_stop", "false"),
         }
         assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env
         result = subprocess.run(["/bin/bash", "-c", shell], cwd=ROOT, env=env,
                                 capture_output=True, text=True, timeout=20)
         assert result.returncode == 0, "synthetic workflow did not finish successfully"
-        assert json.loads(result.stdout) == {"configured": True, "platform_applied": False, "preview": False}
+        expected = {"configured": True, "platform_applied": False, "preview": False}
+        if hk:
+            expected["platform_apply_requested"] = True
+        assert json.loads(result.stdout) == expected
         after = json.loads(state.read_text())
-        inventory["targets"][0]["RUNTIME_TARGET_ENABLED"] = "false"
-        assert json.loads(after["repository"]["CLOUD_RUN_SERVICE_TARGETS_JSON"]) == inventory
-        assert after["environment"] == environment
-        assert after["writes"] == 1
-        assert after.get("dispatches", 0) == 0
-    print("Worker -> workflow -> CLI -> synthetic GitHub readback: PASS; configuration only, no platform dispatch")
+        if hk:
+            assert after["repository"] == repository
+            assert after["environment"] == {**environment, "RUNTIME_TARGET_ENABLED": "false"}
+        else:
+            inventory["targets"][0]["RUNTIME_TARGET_ENABLED"] = "false"
+            assert json.loads(after["repository"]["CLOUD_RUN_SERVICE_TARGETS_JSON"]) == inventory
+            assert after["environment"] == environment
+        assert after["writes"] == (0 if hk else 1)
+        assert after.get("dispatches", 0) == (1 if hk else 0)
+    print("Worker -> workflow -> CLI -> synthetic GitHub readback: PASS; " +
+          ("one HK stop request, application remains unverified" if hk else "configuration only, no platform dispatch"))
 
 
 if __name__ == "__main__":

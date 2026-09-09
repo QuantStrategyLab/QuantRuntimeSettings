@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -59,6 +60,68 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         self.assertEqual(rejected.exception.code, 2)
         save.assert_not_called()
         external.assert_not_called()
+
+    def hk_request(self):
+        return {"target_id": "longbridge/hk", "github": {
+            "repository": "QuantStrategyLab/LongBridgePlatform", "variable_scope": "environment", "environment": "longbridge-hk"},
+            "runtime_target": {"platform_id": "longbridge", "deployment_selector": "synthetic-hk",
+                               "account_selector": ["synthetic-account"], "account_scope": "HK",
+                               "service_name": "longbridge-quant-hk-service"}}
+
+    def test_hk_stop_dispatch_reads_saved_false_without_writing_or_reading_protected_identity(self):
+        self.request = self.hk_request()
+        self.args.apply_hk_stop = True
+        order = []
+        def read(*args, **kwargs):
+            order.append("read")
+            return {"RUNTIME_TARGET_ENABLED": "false"}
+        def dispatch(command, **kwargs):
+            order.append("dispatch")
+            self.assertEqual(command, ["gh", "api", "--method", "POST",
+                "repos/QuantStrategyLab/LongBridgePlatform/actions/workflows/stop-hk-runtime.yml/dispatches", "--input", "-"])
+            payload = json.loads(kwargs["input"])
+            self.assertEqual(payload["ref"], "main")
+            self.assertEqual(payload["inputs"]["confirm"], "STOP_ONLY")
+            self.assertEqual(json.loads(payload["inputs"]["stop_request"]), self.request)
+            self.assertNotIn("synthetic-account", " ".join(command))
+            return subprocess.CompletedProcess(command, 0, "", "")
+        with patch.object(settings, "execute_stop") as save, patch.object(settings, "read_stop_variables", side_effect=read), patch.object(settings.subprocess, "run", side_effect=dispatch):
+            code, output = self.command()
+        self.assertEqual(code, 0)
+        self.assertEqual(order, ["read", "dispatch"])
+        save.assert_not_called()
+        self.assertTrue(json.loads(output)["platform_apply_requested"])
+        self.assertFalse(json.loads(output)["platform_applied"])
+
+    def test_hk_scope_rejects_other_target_before_configuration_write(self):
+        self.args.apply_hk_stop = True
+        for target in [self.request, {**self.hk_request(), "target_id": "longbridge/sg"}]:
+            self.request = target
+            with self.subTest(target=target["target_id"]), patch.object(settings, "execute_stop") as save, patch.object(settings.subprocess, "run") as external:
+                self.assertEqual(self.command()[0], 2)
+                save.assert_not_called()
+                external.assert_not_called()
+
+    def test_hk_preview_or_missing_saved_stop_never_dispatches(self):
+        self.request = self.hk_request()
+        self.args.apply_hk_stop = True
+        for saved in [{}, {"RUNTIME_TARGET_ENABLED": "true"}, {"RUNTIME_TARGET_ENABLED": "unknown"}]:
+            with patch.object(settings, "execute_stop") as save, patch.object(settings, "read_stop_variables", return_value=saved), patch.object(settings.subprocess, "run") as external:
+                self.assertEqual(self.command()[0], 2)
+                external.assert_not_called()
+                save.assert_not_called()
+        self.args.yes = False
+        with patch.object(settings, "read_stop_variables") as read:
+            self.assertEqual(self.command()[0], 2)
+            read.assert_not_called()
+
+    def test_hk_unknown_dispatch_is_not_retried_or_reported_applied(self):
+        self.request = self.hk_request()
+        self.args.apply_hk_stop = True
+        with patch.object(settings, "read_stop_variables", return_value={"RUNTIME_TARGET_ENABLED": "false"}), \
+                patch.object(settings.subprocess, "run", side_effect=subprocess.TimeoutExpired("synthetic", 45)) as external:
+            self.assertEqual(self.command()[0], 2)
+            self.assertEqual(external.call_count, 1)
 
     def test_event_file_wins_over_inline_environment_and_invalid_event_never_dispatches(self):
         with tempfile.TemporaryDirectory() as directory:
