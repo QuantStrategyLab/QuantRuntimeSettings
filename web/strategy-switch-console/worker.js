@@ -3517,6 +3517,7 @@ async function aggregateControlPlaneSources(env) {
       candidateIds.add(candidate.candidate_id);
       candidates.push({
         ...candidate,
+        source_id: source.source_id,
         freshness: mergeControlPlaneFreshness(candidate.freshness, sourceFreshness),
       });
     }

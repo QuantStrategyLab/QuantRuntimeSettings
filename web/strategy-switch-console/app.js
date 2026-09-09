@@ -252,6 +252,11 @@
         controlEmptyCandidates: "当前没有待处理事项。",
         controlNoRecommendation: "暂未给出处理建议。",
         controlItemMeta: "{kind} · {domain} · 最近更新：{freshness}",
+        parkedResearchResultFallback: "验证结果已保留，尚未进入模拟观察。",
+        parkedResearchResultSource: "查看验证来源",
+        parkedResearchResultsTitle: "研究记录",
+        parkedResearchResultTitle: "SOXL 研究验证",
+        parkedResearchResultStatus: "尚未模拟观察",
         forwardObservationProgress: "观察进度 {completed} / {required} 个交易日 · 最近观察 {session} · 不下单",
         forwardObservationActive: "继续观察",
         forwardObservationPaused: "保持暂停",
@@ -798,6 +803,11 @@
         controlEmptyCandidates: "There is nothing to handle right now.",
         controlNoRecommendation: "No action is recommended yet.",
         controlItemMeta: "{kind} · {domain} · updated {freshness}",
+        parkedResearchResultFallback: "The validation result is retained and has not entered simulated observation.",
+        parkedResearchResultSource: "View validation source",
+        parkedResearchResultsTitle: "Research records",
+        parkedResearchResultTitle: "SOXL research validation",
+        parkedResearchResultStatus: "Not in simulated observation",
         forwardObservationProgress: "No-order observation progress: {completed} / {required} trading days · last observed {session}",
         forwardObservationActive: "Keep monitoring",
         forwardObservationPaused: "Keep paused",
@@ -4144,8 +4154,72 @@
         || recommendation === "owner_live_decision";
     }
 
+    function isParkedResearchResult(item) {
+      return item?.source_id === "aiaudit.soxl_manual_validation"
+        && item?.lifecycle?.stage === "P3"
+        && item.lifecycle.status === "parked"
+        && item?.recommendation?.code === "park";
+    }
+
     function candidateIsControlPlaneVisible(item) {
-      return candidateNeedsOperatorAction(item) || Boolean(item?.forward_observation);
+      return candidateNeedsOperatorAction(item)
+        || Boolean(item?.forward_observation);
+    }
+
+    function parkedResearchResultSourceUrl(item) {
+      if (!isParkedResearchResult(item)) return "";
+      const runId = String(item?.evidence?.p3_evidence_id || "").trim();
+      return /^\d{6,20}$/.test(runId)
+        ? `https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/${runId}`
+        : "";
+    }
+
+    function parkedResearchResultReason(item) {
+      const reason = String(item?.recommendation?.reason || "").trim();
+      return reason || t("parkedResearchResultFallback");
+    }
+
+    function renderParkedResearchResults() {
+      const board = el("parked-research-results");
+      const list = el("parked-research-results-list");
+      const results = state.controlPlane.payload.candidates.filter(isParkedResearchResult);
+      board.hidden = !state.auth.allowed || !results.length;
+      list.replaceChildren();
+      for (const item of results) {
+        const card = document.createElement("article");
+        card.className = "health-card";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const meta = document.createElement("div");
+        meta.className = "health-card__meta";
+        meta.textContent = t("parkedResearchResultsTitle");
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = t("parkedResearchResultTitle");
+        const reason = document.createElement("p");
+        reason.className = "health-card__reason";
+        reason.textContent = parkedResearchResultReason(item);
+        main.append(meta, title, reason);
+        const sourceUrl = parkedResearchResultSourceUrl(item);
+        if (sourceUrl) {
+          const source = document.createElement("a");
+          source.className = "health-card__meta";
+          source.href = sourceUrl;
+          source.target = "_blank";
+          source.rel = "noreferrer";
+          source.textContent = t("parkedResearchResultSource");
+          main.appendChild(source);
+        }
+        const status = document.createElement("div");
+        status.className = "health-card__score";
+        const label = document.createElement("small");
+        label.textContent = t("parkedResearchResultsTitle");
+        const stage = document.createElement("strong");
+        stage.textContent = t("parkedResearchResultStatus");
+        status.append(label, stage);
+        card.append(main, status);
+        list.appendChild(card);
+      }
     }
 
     function forwardObservationDisplayText(observation) {
@@ -4251,7 +4325,7 @@
         reason.className = "health-card__reason";
         reason.textContent = item.forward_observation
           ? forwardObservationActionText(item.forward_observation)
-          : t("controlAttentionSummary");
+          : (isParkedResearchResult(item) ? parkedResearchResultReason(item) : t("controlAttentionSummary"));
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
         detail.textContent = t("controlItemMeta")
@@ -4264,6 +4338,16 @@
           observation.className = "health-card__meta";
           observation.textContent = forwardObservationDisplayText(item.forward_observation);
           main.appendChild(observation);
+        }
+        const parkedResultUrl = parkedResearchResultSourceUrl(item);
+        if (parkedResultUrl) {
+          const source = document.createElement("a");
+          source.className = "health-card__meta";
+          source.href = parkedResultUrl;
+          source.target = "_blank";
+          source.rel = "noreferrer";
+          source.textContent = t("parkedResearchResultSource");
+          main.appendChild(source);
         }
         const stateBlock = document.createElement("div");
         stateBlock.className = "health-card__score";
@@ -5335,6 +5419,7 @@
       applyLanguage();
       renderConsoleView();
       renderControlPlane();
+      renderParkedResearchResults();
       renderM0Research();
       renderAdaptiveSelection();
       renderExecutionEvidence();
