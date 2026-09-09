@@ -1926,7 +1926,8 @@ async function dispatchRuntimeStop(request, env) {
       headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
       body: JSON.stringify({
         ref: env.RUNTIME_SETTINGS_REF || "main",
-        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY" },
+        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY",
+          ...(platform === "longbridge" && targetName === "hk" ? { apply_hk_stop: "true" } : {}) },
       }),
     });
     if (!response.ok) throw new Error("dispatch failed");

@@ -1366,13 +1366,53 @@ def load_stop_request() -> dict[str, Any]:
     return json.loads(os.environ.get("RUNTIME_STOP_REQUEST_JSON", ""))
 
 
+def require_hk_stop_target(request: dict[str, Any]) -> None:
+    """The first platform consumer is the existing HK stop, never activation."""
+    target_id, identity, github = _stop_request_identity(request)
+    if (target_id != "longbridge/hk" or identity["account_scope"] != "HK"
+            or identity["service_name"] != "longbridge-quant-hk-service"
+            or github != {"repository": "QuantStrategyLab/LongBridgePlatform",
+                          "variable_scope": "environment", "environment": "longbridge-hk"}):
+        raise ValueError("stop_platform_target_unsupported")
+
+
+def dispatch_hk_stop(request: dict[str, Any]) -> None:
+    require_hk_stop_target(request)
+    # HK identity is in the platform's protected environment, not readable via
+    # the settings variable API. Apply only an already-saved stop; the platform
+    # independently matches that identity before any cloud operation.
+    if read_stop_variables(request["github"]).get("RUNTIME_TARGET_ENABLED") != "false":
+        raise ValueError("stop_saved_configuration_required")
+    payload = {"ref": "main", "inputs": {"stop_request": json.dumps(request), "confirm": "STOP_ONLY"}}
+    try:
+        result = subprocess.run(
+            ["gh", "api", "--method", "POST",
+             "repos/QuantStrategyLab/LongBridgePlatform/actions/workflows/stop-hk-runtime.yml/dispatches", "--input", "-"],
+            input=json.dumps(payload), text=True, capture_output=True, timeout=45, check=False,
+        )
+        if result.returncode:
+            raise ValueError
+    except (ValueError, OSError, subprocess.SubprocessError):
+        # A failed response may follow an accepted dispatch. Never retry it here.
+        raise ValueError("stop_platform_dispatch_unverified") from None
+
+
 def command_stop(args: argparse.Namespace) -> int:
     if args.yes and args.confirm != "STOP_ONLY":
         print("stop requires --confirm STOP_ONLY for writes", file=sys.stderr)
         return 2
     try:
         request = load_stop_request()
-        result = execute_stop(request, apply=args.yes)
+        apply_hk_stop = getattr(args, "apply_hk_stop", False)
+        if apply_hk_stop:
+            if not args.yes:
+                raise ValueError("stop_platform_apply_requires_saved_stop")
+            require_hk_stop_target(request)
+        if apply_hk_stop:
+            dispatch_hk_stop(request)
+            result = {"configured": True, "platform_applied": False, "preview": False, "platform_apply_requested": True}
+        else:
+            result = execute_stop(request, apply=args.yes)
     except (OSError, ValueError, TypeError, KeyError):
         # Underlying errors and private target/config values stay out of logs.
         print("stop_not_verified; do not retry or infer platform state", file=sys.stderr)
@@ -1607,6 +1647,7 @@ def build_parser() -> argparse.ArgumentParser:
     stop = subparsers.add_parser("stop", help="save only an existing target's disable setting; never activate or sync")
     stop.add_argument("--yes", action="store_true")
     stop.add_argument("--confirm", default="")
+    stop.add_argument("--apply-hk-stop", action="store_true", help="apply an already-saved LongBridge HK stop; never writes configuration or enables a target")
     stop.set_defaults(func=command_stop)
 
     repository = subparsers.add_parser("repository", help="print the configured platform repository")

@@ -16,6 +16,11 @@ on:
         description: "STOP_ONLY is required for writes. No activation, sync, cancellation or liquidation."
         required: false
         type: string
+      apply_hk_stop:
+        description: "Apply only an already-saved LongBridge HK stop. The platform verifies its protected identity and reads back actual controls."
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -35,6 +40,7 @@ jobs:
       GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       APPLY_STOP: ${{ inputs.apply }}
       CONFIRM_STOP: ${{ inputs.confirm }}
+      APPLY_HK_STOP: ${{ inputs.apply_hk_stop }}
       RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON: ${{ vars.RUNTIME_SETTINGS_PLATFORM_REPOSITORIES_JSON }}
       RUNTIME_SETTINGS_LONGBRIDGE_REPO: ${{ vars.RUNTIME_SETTINGS_LONGBRIDGE_REPO }}
       RUNTIME_SETTINGS_IBKR_REPO: ${{ vars.RUNTIME_SETTINGS_IBKR_REPO }}
@@ -45,15 +51,19 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
-      - name: Save and verify only the stop setting
+      - name: Save the stop setting or apply an already-saved HK stop
         shell: bash
         run: |
           set -euo pipefail
+          set --
+          if [ "${APPLY_HK_STOP:-false}" = "true" ]; then
+            set -- --apply-hk-stop
+          fi
           if [ "${APPLY_STOP}" = "true" ]; then
-            python3 python/scripts/runtime_settings.py stop --yes --confirm "${CONFIRM_STOP}"
+            python3 python/scripts/runtime_settings.py stop --yes --confirm "${CONFIRM_STOP}" "$@"
           else
-            python3 python/scripts/runtime_settings.py stop
+            python3 python/scripts/runtime_settings.py stop "$@"
           fi
       - name: Report the verification boundary
         run: |
-          echo 'Stop configuration checked only. No platform workflow or cloud update was requested. Actual runtime application is unknown; do not infer stopped execution, cancellation, liquidation or completion of in-flight work.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Ordinary requests save stop configuration only. An HK apply request requires an already-saved stop and does not write configuration. Dispatch is not application: use the platform run and fresh lifecycle readback. Cancellation, liquidation and completion of in-flight work are never implied.' >> "$GITHUB_STEP_SUMMARY"

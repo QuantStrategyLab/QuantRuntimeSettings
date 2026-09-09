@@ -68,6 +68,21 @@ try {
   assert.match(chain.stdout, /configuration only, no platform dispatch/);
   env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON = JSON.stringify({ ibkr: [account] });
 
+  const hkAccount = { ...account, key: "hk", target_name: "hk", account_scope: "HK",
+    github_environment: "longbridge-hk", service_name: "longbridge-quant-hk-service" };
+  env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON = JSON.stringify({ longbridge: [hkAccount] });
+  const hkResponse = await request({ platform: "longbridge", target_name: "hk", confirm: "STOP_ONLY" });
+  assert.equal(hkResponse.status, 200);
+  assert.equal((await hkResponse.json()).platform_applied, false);
+  const hkDispatch = JSON.parse(calls.at(-1).init.body);
+  assert.equal(hkDispatch.inputs.apply_hk_stop, "true");
+  const hkProbe = spawnSync("python3", [fileURLToPath(new URL("./helpers/runtime_stop_workflow_probe.py", import.meta.url))], {
+    input: JSON.stringify(hkDispatch), encoding: "utf8",
+  });
+  assert.equal(hkProbe.status, 0, "synthetic HK workflow probe failed");
+  assert.match(hkProbe.stdout, /one HK stop request, application remains unverified/);
+  env.STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON = JSON.stringify({ ibkr: [account] });
+
   for (const input of [
     { ...body, target_name: "unknown" }, { ...body, confirm: "APPLY_AND_SYNC" },
     { ...body, strategy_profile: "replacement" }, { ...body, service_name: "other-service" },
@@ -132,7 +147,7 @@ try {
   const failure = await request();
   assert.equal(failure.status, 502);
   assert.equal((await failure.text()).includes("synthetic-sensitive-provider-error"), false);
-  console.log("runtime stop: 12 Worker scenarios + 4 UI scenarios + both configuration-scope readbacks passed; no platform dispatch, external calls mocked");
+  console.log("runtime stop: Worker/UI and both configuration-scope readbacks passed; HK requests one bounded stop, other platforms remain configuration-only; external calls mocked");
 } finally {
   globalThis.fetch = originalFetch;
 }
