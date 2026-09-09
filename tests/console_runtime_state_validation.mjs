@@ -583,6 +583,17 @@ test('decisions and account observations stay outside collapsed strategy setting
   assert.equal((html.match(/id="dispatch-button"/g) || []).length, 1);
 });
 
+for (const sample of [
+  { ticket: { shadow_passed: true, shadow_evidence_kind: '' }, result: 'promotionObservationReported promotionEvidenceSourceMissing' },
+  { ticket: { shadow_passed: true, shadow_evidence_kind: 'paired_forward_observation' }, result: 'promotionObservationReported promotionEvidenceNeedsReview' },
+  { ticket: { shadow_passed: false, shadow_evidence_kind: 'paired_forward_observation' }, result: 'promotionObservationFailed promotionEvidenceNeedsReview' },
+  { ticket: { shadow_passed: null }, result: 'promotionObservationMissing promotionEvidenceSourceMissing' },
+  { ticket: { shadow_passed: 'true', shadow_evidence_kind: '   ' }, result: 'promotionObservationMissing promotionEvidenceSourceMissing' },
+]) test(`promotion evidence separates reported outcome from provenance: ${JSON.stringify(sample.ticket)}`, () => {
+  const message = frontendFunction('promotionTicketEvidenceMessage', { t: key => key });
+  assert.equal(message(sample.ticket), sample.result);
+});
+
 test('promotion rendering preserves candidate identity, target context and admin-only actions', () => {
   const nodes = Object.fromEntries([
     'promotion-decision-panel', 'promotion-queue-notice', 'promotion-target-summary',
@@ -608,7 +619,7 @@ test('promotion rendering preserves candidate identity, target context and admin
     DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
     Option: class { constructor(text, value, _defaultSelected, selected) { Object.assign(this, { text, value, selected }); } },
   };
-  for (const name of ['promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel']) {
+  for (const name of ['promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage']) {
     context[name] = frontendFunction(name, context);
   }
   const render = frontendFunction('renderPromotionConfirmControls', context);
@@ -622,6 +633,7 @@ test('promotion rendering preserves candidate identity, target context and admin
   context.state.auth.admin = true;
   render();
   assert.equal(nodes['promotion-accept-button'].disabled, false);
+  assert.match(nodes['promotion-ticket-meta'].textContent, /promotionObservationMissing promotionEvidenceSourceMissing/);
   context.state.researchPromotion.payload.tickets = [{ ...ticket, state: 'human_accepted' }];
   render();
   assert.equal(nodes['promotion-decision-panel'].hidden, true);

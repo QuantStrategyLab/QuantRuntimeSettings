@@ -472,6 +472,11 @@
         promotionTicketLoadFailed: "研究候选队列暂不可用，请刷新记录；不能据此判断没有待办。",
         promotionAdminOnly: "需管理员才能确认/拒绝",
         promotionTicketSuggested: "候选建议风险档：{profile}",
+        promotionObservationReported: "记录上报观察通过，尚不代表完整验证通过。",
+        promotionObservationFailed: "记录上报观察未通过。",
+        promotionObservationMissing: "记录未提供观察结果。",
+        promotionEvidenceSourceMissing: "材料待核实：记录未注明观察材料类型，请先核实来源。",
+        promotionEvidenceNeedsReview: "观察材料类型已注明，仍需核对来源与完整验证材料。",
         promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
         promotionDecisionFailed: "晋级确认失败",
         riskCapitalPreservation: "保本优先",
@@ -1013,6 +1018,11 @@
         promotionTicketLoadFailed: "Research candidate queue unavailable. Refresh records; this does not mean there are no pending decisions.",
         promotionAdminOnly: "An administrator must confirm or reject",
         promotionTicketSuggested: "Candidate suggested risk profile: {profile}",
+        promotionObservationReported: "The record reports a passed observation; this does not establish complete validation.",
+        promotionObservationFailed: "The record reports a failed observation.",
+        promotionObservationMissing: "The record provides no observation outcome.",
+        promotionEvidenceSourceMissing: "Evidence needs review: no observation evidence type is recorded. Check its source first.",
+        promotionEvidenceNeedsReview: "An observation evidence type is recorded. Its source and complete validation still need review.",
         promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
         promotionDecisionFailed: "Promotion confirmation failed",
         riskCapitalPreservation: "Capital preservation",
@@ -2371,6 +2381,15 @@
       return t("promotionTicketEmpty");
     }
 
+    function promotionTicketEvidenceMessage(ticket) {
+      const outcome = ticket?.shadow_passed === true
+        ? "promotionObservationReported"
+        : ticket?.shadow_passed === false ? "promotionObservationFailed" : "promotionObservationMissing";
+      const provenance = String(ticket?.shadow_evidence_kind || "").trim()
+        ? "promotionEvidenceNeedsReview" : "promotionEvidenceSourceMissing";
+      return `${t(outcome)} ${t(provenance)}`;
+    }
+
     function renderPromotionConfirmControls() {
       const platform = state.selected;
       const platformVisible = platformMeta[platform]?.console_visible !== false;
@@ -2451,9 +2470,10 @@
       }
       if (ticketMeta) {
         if (ticket) {
-          ticketMeta.textContent = state.auth?.admin
+          const decisionMeta = state.auth?.admin
             ? t("promotionTicketSuggested").replace("{profile}", promotionRiskProfileLabel(suggested))
             : t("promotionAdminOnly");
+          ticketMeta.textContent = `${decisionMeta} ${promotionTicketEvidenceMessage(ticket)}`;
         } else {
           ticketMeta.textContent = promotionTicketQueueMessage();
         }
