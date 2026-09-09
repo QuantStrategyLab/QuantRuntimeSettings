@@ -92,6 +92,10 @@ const CONTROL_PLANE_RECOMMENDATIONS = [
   "none", "keep_research", "defer", "park", "auto_paper_evaluation", "auto_shadow_evaluation", "owner_live_decision",
 ];
 const CONTROL_PLANE_AUTOMATION_STATES = ["not_configured", "configured", "active"];
+const FORWARD_OBSERVATION_STATES = [
+  "PARKED", "FORWARD_ACTIVE", "PAUSED", "FORWARD_COMPLETE_HUMAN_REVIEW", "MANUAL_HOLD", "IDENTITY_MISMATCH", "RISK_BLOCKED", "REVOKED", "SUPERSEDED",
+];
+const FORWARD_OBSERVATION_RESEARCH_STAGES = new Set(["P1", "P2", "P3", "P4"]);
 // M1 adaptive selections are a separate read-only projection. They are not
 // lifecycle evidence, an account instruction, or an execution permission.
 const ADAPTIVE_SELECTION_SOURCE_PREFIX = "adaptive_selection_source:";
@@ -5730,6 +5734,9 @@ function normalizeControlPlaneCandidates(value, fieldName) {
     if (!isOwnerDecision && (lifecycle.status === "owner_decision_required" || recommendation.code === "owner_live_decision")) {
       throw new Error(`${prefix} only P6 can require an owner_live_decision`);
     }
+    const forwardObservation = item.forward_observation === undefined
+      ? undefined
+      : normalizeForwardObservation(item.forward_observation, lifecycle, prefix);
     return {
       candidate_id: candidateId,
       candidate_kind: cleanChoice(item.candidate_kind, CONTROL_PLANE_CANDIDATE_KINDS, `${prefix}.candidate_kind`),
@@ -5738,8 +5745,42 @@ function normalizeControlPlaneCandidates(value, fieldName) {
       evidence: normalizeControlPlaneEvidence(item.evidence, prefix),
       recommendation,
       freshness: normalizeStrategyHealthFreshness(item.freshness, `${prefix}.freshness`),
+      ...(forwardObservation === undefined ? {} : { forward_observation: forwardObservation }),
     };
   });
+}
+
+function normalizeForwardObservation(value, lifecycle, prefix) {
+  if (!FORWARD_OBSERVATION_RESEARCH_STAGES.has(lifecycle.stage)) {
+    throw new Error(`${prefix}.forward_observation is only allowed for research stages`);
+  }
+  const observation = assertExactFields(value, [
+    "state", "observations_completed", "required_trading_sessions", "last_observed_session", "observed_at", "no_order", "live_authority_granted",
+  ], `${prefix}.forward_observation`);
+  const completed = observation.observations_completed;
+  const required = observation.required_trading_sessions;
+  if (!Number.isSafeInteger(completed) || !Number.isSafeInteger(required) || completed < 0 || required < 1 || completed > required || required > 10000) {
+    throw new Error(`${prefix}.forward_observation observation counts are invalid`);
+  }
+  if (observation.no_order !== true) throw new Error(`${prefix}.forward_observation.no_order must be true`);
+  if (observation.live_authority_granted !== false) throw new Error(`${prefix}.forward_observation.live_authority_granted must be false`);
+  return {
+    state: cleanChoice(observation.state, FORWARD_OBSERVATION_STATES, `${prefix}.forward_observation.state`),
+    observations_completed: completed,
+    required_trading_sessions: required,
+    last_observed_session: normalizeForwardObservationDate(observation.last_observed_session, `${prefix}.forward_observation.last_observed_session`),
+    observed_at: normalizeStrategyHealthTimestamp(observation.observed_at, `${prefix}.forward_observation.observed_at`),
+    no_order: true,
+    live_authority_granted: false,
+  };
+}
+
+function normalizeForwardObservationDate(value, fieldName) {
+  const text = normalizeStrategyHealthText(value, fieldName, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || Number.isNaN(Date.parse(`${text}T00:00:00.000Z`)) || new Date(`${text}T00:00:00.000Z`).toISOString().slice(0, 10) !== text) {
+    throw new Error(`${fieldName} must be an ISO date`);
+  }
+  return text;
 }
 
 function normalizeControlPlaneIdentifier(value, fieldName, nullable = true) {

@@ -219,6 +219,10 @@
         controlPlaneEyebrow: "待处理事项",
         controlPlaneTitle: "需要你确认",
         controlPlaneSubtitle: "这里只显示需要你亲自确认的事项。",
+        controlPlaneProgressTitle: "观察进度",
+        controlPlaneProgressSubtitle: "自动观察的最新记录，无需操作。",
+        controlPlaneMixedTitle: "研究进度与待办",
+        controlPlaneMixedSubtitle: "自动观察与需要确认的事项。",
         controlCandidateTotal: "监控对象",
         controlDeferred: "待复核",
         controlParked: "暂停中",
@@ -226,6 +230,8 @@
         controlQueueEyebrow: "优先处理",
         controlQueueHint: "有风险或需要确认时才出现",
         controlCandidateBoard: "需要你处理",
+        controlProgressBoard: "观察中的策略",
+        controlMixedBoard: "研究进度与待办",
         controlDataReady: "已更新",
         controlDataStale: "更新延迟",
         controlDataUnavailable: "暂时无法读取",
@@ -246,6 +252,10 @@
         controlEmptyCandidates: "当前没有待处理事项。",
         controlNoRecommendation: "暂未给出处理建议。",
         controlItemMeta: "{kind} · {domain} · 最近更新：{freshness}",
+        forwardObservationProgress: "观察进度 {completed} / {required} 个交易日 · 最近观察 {session} · 不下单",
+        forwardObservationActive: "继续观察",
+        forwardObservationPaused: "保持暂停",
+        forwardObservationComplete: "观察完成，等待复核",
         controlNext: "处理建议",
         controlStatus: "当前状态",
         ownerDecisionTitle: "请选择下一步",
@@ -750,6 +760,10 @@
         controlPlaneEyebrow: "To do",
         controlPlaneTitle: "Your decision needed",
         controlPlaneSubtitle: "Only items that need your confirmation appear here.",
+        controlPlaneProgressTitle: "Observation progress",
+        controlPlaneProgressSubtitle: "Latest automated observation. No action is needed.",
+        controlPlaneMixedTitle: "Research progress & tasks",
+        controlPlaneMixedSubtitle: "Automated observations and items needing your confirmation.",
         controlCandidateTotal: "Monitored items",
         controlDeferred: "To review",
         controlParked: "Paused",
@@ -757,6 +771,8 @@
         controlQueueEyebrow: "Priority",
         controlQueueHint: "Only appears when action is needed",
         controlCandidateBoard: "Needs your attention",
+        controlProgressBoard: "Strategies under observation",
+        controlMixedBoard: "Research progress & tasks",
         controlDataReady: "Up to date",
         controlDataStale: "Update delayed",
         controlDataUnavailable: "Unavailable",
@@ -777,6 +793,10 @@
         controlEmptyCandidates: "There is nothing to handle right now.",
         controlNoRecommendation: "No action is recommended yet.",
         controlItemMeta: "{kind} · {domain} · updated {freshness}",
+        forwardObservationProgress: "No-order observation progress: {completed} / {required} trading days · last observed {session}",
+        forwardObservationActive: "Keep monitoring",
+        forwardObservationPaused: "Keep paused",
+        forwardObservationComplete: "Observation complete — review",
         controlNext: "Recommended action",
         controlStatus: "Current status",
         ownerDecisionTitle: "Choose the next step",
@@ -4104,6 +4124,43 @@
         || recommendation === "owner_live_decision";
     }
 
+    function candidateIsControlPlaneVisible(item) {
+      return candidateNeedsOperatorAction(item) || Boolean(item?.forward_observation);
+    }
+
+    function forwardObservationDisplayText(observation) {
+      if (!observation || typeof observation !== "object") return "";
+      return t("forwardObservationProgress")
+        .replace("{completed}", String(observation.observations_completed ?? "—"))
+        .replace("{required}", String(observation.required_trading_sessions ?? "—"))
+        .replace("{session}", String(observation.last_observed_session || "—"));
+    }
+
+    function forwardObservationActionText(observation) {
+      if (observation?.state === "FORWARD_COMPLETE_HUMAN_REVIEW") return t("forwardObservationComplete");
+      if (observation?.state === "FORWARD_ACTIVE") return t("forwardObservationActive");
+      return t("forwardObservationPaused");
+    }
+
+    function renderControlPlaneHeading({ hasActionable, hasForwardObservation }) {
+      const title = el("control-plane-view-title");
+      const subtitle = title?.nextElementSibling;
+      const board = el("control-queue-title");
+      if (hasActionable && hasForwardObservation) {
+        title.textContent = t("controlPlaneMixedTitle");
+        subtitle.textContent = t("controlPlaneMixedSubtitle");
+        board.textContent = t("controlMixedBoard");
+      } else if (hasForwardObservation) {
+        title.textContent = t("controlPlaneProgressTitle");
+        subtitle.textContent = t("controlPlaneProgressSubtitle");
+        board.textContent = t("controlProgressBoard");
+      } else {
+        title.textContent = t("controlPlaneTitle");
+        subtitle.textContent = t("controlPlaneSubtitle");
+        board.textContent = t("controlCandidateBoard");
+      }
+    }
+
     function renderControlPlane() {
       const payload = state.controlPlane.payload;
       const summary = payload.summary || {};
@@ -4121,9 +4178,14 @@
       const notice = el("control-plane-notice");
       const statePanel = notice.closest(".decision-state");
       const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
-      el("control-plane-view").hidden = !state.auth.allowed || !actionableCandidates.length;
+      const displayedCandidates = payload.candidates.filter(candidateIsControlPlaneVisible);
+      renderControlPlaneHeading({
+        hasActionable: actionableCandidates.length > 0,
+        hasForwardObservation: displayedCandidates.some((item) => item.forward_observation),
+      });
+      el("control-plane-view").hidden = !state.auth.allowed || !displayedCandidates.length;
       const queue = el("control-plane-queue");
-      queue.hidden = !actionableCandidates.length;
+      queue.hidden = !displayedCandidates.length;
       statePanel.classList.toggle("is-attention", actionableCandidates.length > 0);
       statePanel.classList.toggle("is-stale", payload.data_status === "stale");
       statePanel.classList.toggle("is-unavailable", !state.auth.allowed || payload.data_status === "unavailable");
@@ -4154,7 +4216,7 @@
 
       const list = el("control-plane-list");
       list.replaceChildren();
-      for (const item of actionableCandidates) {
+      for (const item of displayedCandidates) {
         const card = document.createElement("article");
         card.className = "health-card";
         const main = document.createElement("div");
@@ -4167,7 +4229,9 @@
         title.textContent = String(item.candidate_id || "unknown");
         const reason = document.createElement("p");
         reason.className = "health-card__reason";
-        reason.textContent = t("controlAttentionSummary");
+        reason.textContent = item.forward_observation
+          ? forwardObservationActionText(item.forward_observation)
+          : t("controlAttentionSummary");
         const detail = document.createElement("div");
         detail.className = "health-card__meta";
         detail.textContent = t("controlItemMeta")
@@ -4175,12 +4239,20 @@
           .replace("{domain}", domainLabel(item.domain || ""))
           .replace("{freshness}", operatorLabel("freshness", item.freshness?.status || "unknown"));
         main.append(meta, title, reason, detail);
+        if (item.forward_observation) {
+          const observation = document.createElement("div");
+          observation.className = "health-card__meta";
+          observation.textContent = forwardObservationDisplayText(item.forward_observation);
+          main.appendChild(observation);
+        }
         const stateBlock = document.createElement("div");
         stateBlock.className = "health-card__score";
         const label = document.createElement("small");
         label.textContent = t("controlNext");
         const stage = document.createElement("strong");
-        stage.textContent = operatorLabel("action", item.recommendation?.code || "none");
+        stage.textContent = item.forward_observation
+          ? forwardObservationActionText(item.forward_observation)
+          : operatorLabel("action", item.recommendation?.code || "none");
         const recommendation = document.createElement("small");
         recommendation.textContent = `${t("controlStatus")}：${operatorLabel("status", item.lifecycle?.status)}`;
         stateBlock.append(label, stage, recommendation);
@@ -5236,7 +5308,7 @@
       el("switch-view").hidden = false;
       el("health-view").hidden = true;
       el("control-plane-view").hidden = !state.auth.allowed
-        || !state.controlPlane.payload.candidates.some(candidateNeedsOperatorAction);
+        || !state.controlPlane.payload.candidates.some(candidateIsControlPlaneVisible);
     }
 
     function render() {
