@@ -3901,6 +3901,13 @@ assert.equal(promotionFetchMissing.status, 404);
 
 assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
 assert.ok(indexHtml.includes('requestJson("/api/research-promotion-tickets")'));
+assert.ok(indexHtml.includes('function promotionTicketDetailMessage(ticket)'));
+assert.ok(indexHtml.includes('promotionTicketEvidenceKind'));
+assert.ok(indexHtml.includes('promotionTicketParams'));
+assert.ok(indexHtml.includes('promotionTicketNotification'));
+assert.ok(indexHtml.includes('ticket.notification_body'));
+assert.ok(indexHtml.includes('ticket.shadow_evidence_kind'));
+assert.ok(indexHtml.includes('ticket.proposed_params'));
 
 
 // M0 is a closed, read-only research ingress.  These assertions intentionally
