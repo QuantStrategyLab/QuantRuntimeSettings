@@ -15,7 +15,7 @@ spec.loader.exec_module(module)
 
 
 class V7CredentialTests(unittest.TestCase):
-    def execute(self, *, ref="refs/heads/main", branch="main", status=404, write_error=False, malformed_404=False, apply=True):
+    def execute(self, *, ref="refs/heads/main", branch="main", status=404, write_error=False, malformed_404=False, apply=True, check_client=False):
         writes = []
         reads = []
         env = {"GITHUB_REPOSITORY": "QuantStrategyLab/QuantRuntimeSettings", "GITHUB_REF": ref,
@@ -37,6 +37,8 @@ class V7CredentialTests(unittest.TestCase):
 
         def opener(request, timeout):
             reads.append(request)
+            if check_client and request.get_header("User-agent") != "QuantRuntimeSettings-V7CredentialBinding/1.0":
+                raise urllib.error.HTTPError(request.full_url, 403, "synthetic edge rejection", {}, io.BytesIO(b"error code: 1010"))
             payload = {} if malformed_404 else {"ok": False, "error": "research promotion ticket not found"}
             raise urllib.error.HTTPError(request.full_url, status, "synthetic", {}, io.BytesIO(json.dumps(payload).encode()))
 
@@ -77,6 +79,12 @@ class V7CredentialTests(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(writes, [])
         self.assertEqual(len(reads), 1)
+
+    def test_identified_service_client_reaches_credential_check(self):
+        error, writes, reads = self.execute(apply=False, check_client=True)
+        self.assertIsNone(error)
+        self.assertEqual(writes, [])
+        self.assertEqual(reads[0].get_header("Authorization"), "Bearer synthetic-review")
 
     def test_cli_defaults_to_read_only(self):
         with patch.object(module, "provision") as provision, redirect_stdout(io.StringIO()):
