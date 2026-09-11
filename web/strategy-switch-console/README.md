@@ -10,6 +10,26 @@ This is the authenticated backend for the personal strategy switch console. It i
 - Allowlisted GitHub logins can select an account from the dropdown and click `Switch now`; the Worker triggers the GitHub Actions workflow server-side.
 - Tokens stay in Worker secrets and GitHub Actions environment secrets. They are not sent to the browser or committed to the repository.
 
+## SOXL validation result publisher
+
+`AAB_VALIDATION_SYNC_TOKEN` is an optional, separate credential for AIAuditBridge's
+`aiaudit.soxl_manual_validation` source on `POST /api/internal/sync-control-plane-source`.
+It accepts one `soxl_three_asset_mid_weight_validation_<run_id>` record whose
+evidence refers to that run, with domain `us_equity`, lifecycle `P3/parked` and
+recommendation `park`. It does not authorize other sources, research decisions,
+runtime controls or the aggregate control-plane endpoint. The original
+`CONTROL_PLANE_SYNC_TOKEN` remains available to existing publishers.
+
+After explicit credential/deployment authorization, generate a distinct random
+value in a restricted client and bind it without printing it to this repository's
+`runtime-strategy-switch` environment and the AIAuditBridge repository secret of
+the same name. Do not reuse a task, promotion, runtime or personal token. The
+existing console deploy workflow installs this optional Worker secret; deploy
+the accepting Worker before invoking AIAuditBridge's existing `publish_validation`
+operation. A failure or unknown result stops publication; inspect before retrying.
+Removing the new credential disables only this publication path. No migration
+or rotation of the original control-plane credential is required.
+
 ## Current stop-only boundary
 
 Choosing Disabled on the account runtime control and submitting the main action enters `/api/runtime-stop` and `manual-runtime-stop.yml`, without requiring the current strategy to be re-listed. Authentication, same-origin and an exact configured target remain required. There is no separate "save disable configuration only" button. The request accepts only platform, target name and `STOP_ONLY`; routing comes from server configuration, not editable strategy/risk/account form fields.
