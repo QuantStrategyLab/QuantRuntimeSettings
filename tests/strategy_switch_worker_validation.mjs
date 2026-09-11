@@ -4198,3 +4198,65 @@ for (const endpoint of ["/admin", "/api/admin/config"]) {
   }), instanceUnboundBrokenCatalogEnv);
   assert.equal(response.status, 200, `unbound instance module must not make ${endpoint} depend on the strategy catalog`);
 }
+
+// The AAB result publisher can update one non-actionable source without the
+// shared control-plane credential or access to other research/trading routes.
+const validationToken = "synthetic-only-validation-publisher";
+const validationSource = {
+  ...controlSourcePayload,
+  source_id: "aiaudit.soxl_manual_validation",
+  candidates: [{
+    ...controlPayload.candidates[0],
+    candidate_id: "soxl_three_asset_mid_weight_validation_123",
+    lifecycle: { stage: "P3", status: "parked" },
+    evidence: { ...controlPayload.candidates[0].evidence, p2_config_digest: null, p3_evidence_id: "123" },
+    recommendation: { code: "park", reason: "Completed research; not eligible for promotion." },
+  }],
+};
+async function validationIngress(payload, { token = validationToken, endpoint = "/api/internal/sync-control-plane-source", overrides = {} } = {}) {
+  const writes = [];
+  const env = {
+    AAB_VALIDATION_SYNC_TOKEN: validationToken,
+    STRATEGY_SWITCH_CONFIG: {
+      async get() { return null; },
+      async put(key, value) { writes.push({ key, value }); },
+    },
+    ...overrides,
+  };
+  const response = await worker.fetch(new Request(`https://switch.example${endpoint}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }), env);
+  return { response, writes };
+}
+const validationAccepted = await validationIngress(validationSource);
+assert.equal(validationAccepted.response.status, 200, "dedicated result credential must work without a shared token");
+assert.equal((await validationAccepted.response.json()).source_id, validationSource.source_id);
+assert.ok(validationAccepted.writes.some(({ value }) => JSON.parse(value).source_id === validationSource.source_id));
+const wrongValidationToken = await validationIngress(validationSource, { token: "incorrect" });
+assert.equal(wrongValidationToken.response.status, 401);
+assert.equal(wrongValidationToken.writes.length, 0);
+for (const payload of [
+  controlSourcePayload,
+  { ...validationSource, candidates: [] },
+  { ...validationSource, candidates: [validationSource.candidates[0], { ...validationSource.candidates[0], candidate_id: "other" }] },
+  { ...validationSource, candidates: [{ ...validationSource.candidates[0], candidate_id: "unrelated-candidate" }] },
+  { ...validationSource, candidates: [{ ...validationSource.candidates[0], evidence: { ...validationSource.candidates[0].evidence, p3_evidence_id: "456" } }] },
+  { ...validationSource, candidates: [{ ...validationSource.candidates[0], domain: "hk_equity" }] },
+  { ...validationSource, candidates: [{ ...validationSource.candidates[0], lifecycle: { stage: "P6", status: "evidence_pending" } }] },
+  { ...validationSource, candidates: [{ ...validationSource.candidates[0], recommendation: { code: "keep_research", reason: "Unauthorized change" } }] },
+]) {
+  const denied = await validationIngress(payload);
+  assert.ok([400, 403].includes(denied.response.status), "dedicated token must reject an out-of-scope source/candidate");
+  assert.equal(denied.writes.length, 0);
+}
+for (const endpoint of ["/api/internal/sync-control-plane", "/api/internal/sync-research-task-source", "/api/internal/sync-research-promotion-ticket", "/api/research-promotion-decisions", "/api/owner-decisions"]) {
+  const denied = await validationIngress(validationSource, { endpoint });
+  assert.ok(denied.response.status >= 400, `dedicated token must not authorize ${endpoint}`);
+  assert.equal(denied.writes.length, 0);
+}
+const oldControlTokenAccepted = await validationIngress(controlSourcePayload, {
+  token: controlSyncValue, overrides: { CONTROL_PLANE_SYNC_TOKEN: controlSyncValue },
+});
+assert.equal(oldControlTokenAccepted.response.status, 200, "existing control-plane publishers remain supported");

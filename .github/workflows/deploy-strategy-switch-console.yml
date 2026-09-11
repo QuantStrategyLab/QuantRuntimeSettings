@@ -40,6 +40,7 @@ jobs:
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
+      AAB_VALIDATION_SYNC_TOKEN: ${{ secrets.AAB_VALIDATION_SYNC_TOKEN }}
       RESEARCH_TASK_SYNC_TOKEN: ${{ secrets.RESEARCH_TASK_SYNC_TOKEN }}
       RESEARCH_PROMOTION_SYNC_TOKEN: ${{ secrets.RESEARCH_PROMOTION_SYNC_TOKEN }}
       EXECUTION_EVIDENCE_SYNC_TOKEN: ${{ secrets.EXECUTION_EVIDENCE_SYNC_TOKEN }}
@@ -148,6 +149,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put CONTROL_PLANE_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional AAB validation-only ingress token
+        if: env.AAB_VALIDATION_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$AAB_VALIDATION_SYNC_TOKEN" | npx wrangler@4.106.0 secret put AAB_VALIDATION_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional strategy-health ingress token
         if: env.STRATEGY_HEALTH_SYNC_TOKEN != ''

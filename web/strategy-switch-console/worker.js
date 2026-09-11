@@ -2297,7 +2297,7 @@ async function syncControlPlaneResponse(request, env) {
 }
 
 async function syncControlPlaneSourceResponse(request, env) {
-  requireDedicatedControlPlaneSyncToken(request, env);
+  const validationOnly = requireControlPlaneSourceSyncToken(request, env);
   if (!hasConfigStore(env)) {
     return json({ ok: false, error: "control plane KV is not configured" }, 503);
   }
@@ -2314,6 +2314,20 @@ async function syncControlPlaneSourceResponse(request, env) {
     source = normalizeControlPlaneSourceSnapshot(raw, "control plane source snapshot");
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid control plane source payload" }, 400);
+  }
+
+  if (validationOnly) {
+    const candidate = source.candidates[0];
+    const runId = candidate?.candidate_id?.match(/^soxl_three_asset_mid_weight_validation_([1-9][0-9]*)$/)?.[1];
+    if (
+      source.source_id !== "aiaudit.soxl_manual_validation" ||
+      source.candidates.length !== 1 || !runId ||
+      candidate.candidate_kind !== "individual" || candidate.domain !== "us_equity" ||
+      candidate.lifecycle.stage !== "P3" || candidate.lifecycle.status !== "parked" ||
+      candidate.recommendation.code !== "park" || candidate.evidence.p3_evidence_id !== runId
+    ) {
+      return json({ ok: false, error: "validation publisher scope mismatch" }, 403);
+    }
   }
 
   await writeConfigJson(env, controlPlaneSourceKey(source.source_id), source);
@@ -3977,6 +3991,18 @@ function requireDedicatedControlPlaneSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("control plane sync token is invalid", 401);
+}
+
+function requireControlPlaneSourceSyncToken(request, env) {
+  const validationToken = String(env.AAB_VALIDATION_SYNC_TOKEN || "");
+  const token = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  // Check the narrower credential first, including accidental equal bindings.
+  if (validationToken && token === validationToken) return true;
+  if (validationToken && !env.CONTROL_PLANE_SYNC_TOKEN) {
+    throw new HttpError("control plane source sync token is invalid", 401);
+  }
+  requireDedicatedControlPlaneSyncToken(request, env);
+  return false;
 }
 
 function requireDedicatedAdaptiveSelectionSyncToken(request, env) {
