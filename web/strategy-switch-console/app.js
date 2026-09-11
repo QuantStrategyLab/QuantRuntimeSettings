@@ -292,6 +292,16 @@
         reconciliationRecoverySuccess: "恢复决定已保存。",
         reconciliationRecoveryFailed: "无法保存恢复决定",
         reconciliationRecoveryNoOrder: "查看当前恢复状态。",
+        binancePrivateScopeBoard: "Binance 私密资产清单",
+        binancePrivateScopeAccount: "Binance 当前采集账户",
+        binancePrivateScopePrivateIdentity: "私密账户摘要不在页面显示。",
+        binancePrivateScopeEmpty: "empty：当前没有可显示的有效清单。",
+        binancePrivateScopeUnavailable: "暂时无法读取私密清单。",
+        binancePrivateScopeObservedAt: "观测时间：{time}",
+        binancePrivateScopeHistoricalWarning: "历史差异尚未核清；清单仅供人工核对，不授予下单或处置权限。",
+        binancePrivateScopeAsset: "资产",
+        binancePrivateScopeFree: "可用",
+        binancePrivateScopeLocked: "锁定",
         executionEvidenceBoard: "执行与成交记录",
         executionEvidenceLoginNotice: "登录后查看执行和成交记录。",
         executionEvidenceStaleNotice: "执行记录更新延迟，请结合最新平台状态判断。",
@@ -846,6 +856,16 @@
         reconciliationRecoverySuccess: "Recovery decision saved.",
         reconciliationRecoveryFailed: "Could not save the recovery decision",
         reconciliationRecoveryNoOrder: "View the current recovery status.",
+        binancePrivateScopeBoard: "Private Binance asset list",
+        binancePrivateScopeAccount: "Current collected Binance account",
+        binancePrivateScopePrivateIdentity: "The private account digest is not displayed.",
+        binancePrivateScopeEmpty: "empty: There is no current valid list to display.",
+        binancePrivateScopeUnavailable: "not_available: The private list cannot be read right now.",
+        binancePrivateScopeObservedAt: "Observed at: {time}",
+        binancePrivateScopeHistoricalWarning: "Historical differences remain unresolved. This list is for manual comparison only and grants no order or remediation authority.",
+        binancePrivateScopeAsset: "Asset",
+        binancePrivateScopeFree: "Free",
+        binancePrivateScopeLocked: "Locked",
         executionEvidenceBoard: "Execution and fills",
         executionEvidenceLoginNotice: "Sign in to see execution and fill records.",
         executionEvidenceStaleNotice: "Execution records are delayed. Check the latest platform status as well.",
@@ -1224,6 +1244,7 @@
     const clone = (value) => JSON.parse(JSON.stringify(value));
     const runtimeStopLock = { pending: false };
     const binanceResumeLock = { pending: false, messageKey: "" };
+    let binancePrivateScopeRequestGeneration = 0;
     const defaultReserveForm = () => ({
       reservePolicyMode: "current",
       minReservedCashUsd: "",
@@ -1293,6 +1314,10 @@
           errors: [],
         },
         submittingRecoveryId: null,
+      },
+      binancePrivateScope: {
+        status: "not_available",
+        report: null,
       },
       m0Research: {
         payload: {
@@ -4544,6 +4569,90 @@
       }
     }
 
+    function clearBinancePrivateScope(status = "not_available") {
+      binancePrivateScopeRequestGeneration += 1;
+      state.binancePrivateScope = { status, report: null };
+      el("binance-private-scope-list")?.replaceChildren();
+    }
+
+    function normalizeBinancePrivateScopePayload(payload) {
+      if (!payload || payload.ok !== true || !("report" in payload)) {
+        throw new Error("invalid Binance private scope payload");
+      }
+      if (payload.report === null) return null;
+      const report = payload.report;
+      if (!report || typeof report !== "object" || Array.isArray(report) || report.platform !== "binance" || !Array.isArray(report.assets)) {
+        throw new Error("invalid Binance private scope report");
+      }
+      return {
+        observed_at: String(report.observed_at || ""),
+        assets: report.assets.map((item) => {
+          if (!item || typeof item !== "object" || Array.isArray(item)) {
+            throw new Error("invalid Binance private scope asset");
+          }
+          return {
+            asset: String(item.asset || ""),
+            free: String(item.free || ""),
+            locked: String(item.locked || ""),
+          };
+        }),
+      };
+    }
+
+    function renderBinancePrivateScope() {
+      const board = el("binance-private-scope-board");
+      const authorized = Boolean(state.auth.allowed && state.auth.admin);
+      board.hidden = !authorized || state.selected !== "binance";
+      const list = el("binance-private-scope-list");
+      list.replaceChildren();
+      if (board.hidden) return;
+      const notice = el("binance-private-scope-notice");
+      const { status, report } = state.binancePrivateScope;
+      if (status === "not_available") {
+        notice.textContent = t("binancePrivateScopeUnavailable");
+        return;
+      }
+      if (!report) {
+        notice.textContent = t("binancePrivateScopeEmpty");
+        return;
+      }
+      notice.textContent = t("binancePrivateScopeObservedAt").replace("{time}", report.observed_at || "—");
+      const account = document.createElement("p");
+      account.className = "binance-private-scope__account";
+      account.textContent = `${t("binancePrivateScopeAccount")} · ${t("binancePrivateScopePrivateIdentity")}`;
+      const warning = document.createElement("p");
+      warning.className = "binance-private-scope__warning";
+      warning.textContent = t("binancePrivateScopeHistoricalWarning");
+      list.append(account, warning);
+      if (!report.assets.length) return;
+      const tableWrap = document.createElement("div");
+      tableWrap.className = "binance-private-scope__table-wrap";
+      const table = document.createElement("table");
+      table.className = "binance-private-scope__table";
+      const head = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      for (const label of ["binancePrivateScopeAsset", "binancePrivateScopeFree", "binancePrivateScopeLocked"]) {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        cell.textContent = t(label);
+        headRow.appendChild(cell);
+      }
+      head.appendChild(headRow);
+      const body = document.createElement("tbody");
+      for (const asset of report.assets) {
+        const row = document.createElement("tr");
+        for (const value of [asset.asset, asset.free, asset.locked]) {
+          const cell = document.createElement("td");
+          cell.textContent = value;
+          row.appendChild(cell);
+        }
+        body.appendChild(row);
+      }
+      table.append(head, body);
+      tableWrap.appendChild(table);
+      list.appendChild(tableWrap);
+    }
+
     const M0_RESEARCH_DISPLAY_LIMIT = 100;
 
     const m0ResearchLabels = {
@@ -5443,6 +5552,7 @@
       renderConsoleView();
       renderControlPlane();
       renderParkedResearchResults();
+      renderBinancePrivateScope();
       renderM0Research();
       renderAdaptiveSelection();
       renderExecutionEvidence();
@@ -5481,8 +5591,11 @@
         await refreshConfig();
         refreshRuntimeTargetLifecycle();
         refreshReconciliationRecovery();
+        if (state.auth.allowed && state.auth.admin) refreshBinancePrivateScope();
+        else clearBinancePrivateScope();
         await refreshResearchPromotionTickets();
       } else {
+        clearBinancePrivateScope();
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
         render();
@@ -5567,6 +5680,29 @@
         };
       }
       renderReconciliationRecovery();
+    }
+
+    async function refreshBinancePrivateScope() {
+      if (!state.auth.allowed || !state.auth.admin) {
+        clearBinancePrivateScope();
+        renderBinancePrivateScope();
+        return;
+      }
+      const requestGeneration = ++binancePrivateScopeRequestGeneration;
+      try {
+        const report = normalizeBinancePrivateScopePayload(
+          await requestJson("/api/binance-private-scope"),
+        );
+        if (requestGeneration !== binancePrivateScopeRequestGeneration || !state.auth.allowed || !state.auth.admin) return;
+        state.binancePrivateScope = {
+          status: report ? "available" : "empty",
+          report,
+        };
+      } catch {
+        if (requestGeneration !== binancePrivateScopeRequestGeneration) return;
+        clearBinancePrivateScope();
+      }
+      renderBinancePrivateScope();
     }
 
     async function refreshM0Research() {
@@ -5994,6 +6130,9 @@
     }
 
     async function handleLogout() {
+      state.auth = { available: true, allowed: false, admin: false, login: null };
+      clearBinancePrivateScope();
+      renderBinancePrivateScope();
       await fetch("/api/logout", { method: "POST" });
       window.location.reload();
     }
@@ -6084,6 +6223,7 @@
           refreshConfig(),
           refreshRuntimeTargetLifecycle(),
           refreshReconciliationRecovery(),
+          refreshBinancePrivateScope(),
           refreshResearchPromotionTickets(),
           refreshControlPlane(),
           refreshOwnerDecisions(),
@@ -6250,6 +6390,7 @@
         await refreshSession();
       } catch {
         state.auth = { available: false, allowed: false, admin: false, login: null };
+        clearBinancePrivateScope();
         state.configSource = "default";
         state.currentStrategies = {};
         state.bootMessageKey = "bootTimeout";
