@@ -644,21 +644,28 @@ test('promotion rendering preserves candidate identity, target context and admin
     replaceChildren() { this.options = []; this.value = ''; },
     append(option) { this.options.push(option); if (option.selected) this.value = option.value; },
   }]));
-  const ticket = { ticket_id: 'candidate-one', strategy_profile: 'example', created_at: '2026-09-08T00:00:00Z',
-    state: 'awaiting_human', suggested_risk_profile: 'GROWTH_COMPOUNDING' };
+  const ticket = { ticket_id: 'candidate-one', strategy_profile: 'SOXL V7 frozen252 forward', created_at: '2026-09-08T00:00:00Z',
+    state: 'awaiting_human', suggested_risk_profile: 'GROWTH_COMPOUNDING',
+    shadow_evidence_kind: 'shadow_decision', shadow_passed: false,
+    proposed_params: { cash_reserve_ratio: 0.03 }, notification_body: 'Forward observation remains pending.' };
   const context = {
     state: { selected: 'ibkr', auth: { allowed: true, admin: false }, researchPromotion: {
       selectedTicketId: '', payload: { data_status: 'ready', tickets: [ticket], errors: [] },
     } },
     el: id => nodes[id], platformMeta: { ibkr: { label: 'IBKR' } },
-    t: key => key === 'promotionTargetSummary' ? 'Target: {platform}' : key,
+    t: key => ({
+      promotionTargetSummary: 'Target: {platform}',
+      promotionTicketEvidenceKind: 'Evidence: {kind}',
+      promotionTicketParams: 'Parameters: {params}',
+      promotionTicketNotification: 'Note: {body}',
+    }[key] || key),
     platformSupportsBrokerPaper: () => false, strategyLabel: () => 'Example strategy',
     formatDateTime: value => value, renderRiskEnvelopePanel: () => {},
     PROMOTION_RISK_PROFILES: ['CAPITAL_PRESERVATION', 'BALANCED_COMPOUNDING', 'GROWTH_COMPOUNDING'],
     DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
     Option: class { constructor(text, value, _defaultSelected, selected) { Object.assign(this, { text, value, selected }); } },
   };
-  for (const name of ['promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage']) {
+  for (const name of ['promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage', 'promotionTicketDetailMessage']) {
     context[name] = frontendFunction(name, context);
   }
   const render = frontendFunction('renderPromotionConfirmControls', context);
@@ -672,7 +679,11 @@ test('promotion rendering preserves candidate identity, target context and admin
   context.state.auth.admin = true;
   render();
   assert.equal(nodes['promotion-accept-button'].disabled, false);
-  assert.match(nodes['promotion-ticket-meta'].textContent, /promotionObservationMissing promotionEvidenceSourceMissing/);
+  assert.match(nodes['promotion-ticket-meta'].textContent, /promotionObservationFailed promotionEvidenceNeedsReview/);
+  assert.match(nodes['promotion-ticket-detail'].textContent, /shadow_decision/);
+  assert.match(nodes['promotion-ticket-detail'].textContent, /promotionObservationFailed/);
+  assert.match(nodes['promotion-ticket-detail'].textContent, /cash_reserve_ratio/);
+  assert.match(nodes['promotion-ticket-detail'].textContent, /Forward observation remains pending/);
   context.state.researchPromotion.payload.tickets = [{ ...ticket, state: 'human_accepted' }];
   render();
   assert.equal(nodes['promotion-decision-panel'].hidden, true);

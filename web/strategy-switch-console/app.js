@@ -477,6 +477,9 @@
         promotionTicketLoadFailed: "研究候选队列暂不可用，请刷新记录；不能据此判断没有待办。",
         promotionAdminOnly: "需管理员才能确认/拒绝",
         promotionTicketSuggested: "候选建议风险档：{profile}",
+        promotionTicketEvidenceKind: "观察材料类型：{kind}",
+        promotionTicketParams: "候选参数：{params}",
+        promotionTicketNotification: "记录说明：{body}",
         promotionObservationReported: "记录上报观察通过，尚不代表完整验证通过。",
         promotionObservationFailed: "记录上报观察未通过。",
         promotionObservationMissing: "记录未提供观察结果。",
@@ -1028,6 +1031,9 @@
         promotionTicketLoadFailed: "Research candidate queue unavailable. Refresh records; this does not mean there are no pending decisions.",
         promotionAdminOnly: "An administrator must confirm or reject",
         promotionTicketSuggested: "Candidate suggested risk profile: {profile}",
+        promotionTicketEvidenceKind: "Observation evidence type: {kind}",
+        promotionTicketParams: "Candidate parameters: {params}",
+        promotionTicketNotification: "Record note: {body}",
         promotionObservationReported: "The record reports a passed observation; this does not establish complete validation.",
         promotionObservationFailed: "The record reports a failed observation.",
         promotionObservationMissing: "The record provides no observation outcome.",
@@ -2400,6 +2406,23 @@
       return `${t(outcome)} ${t(provenance)}`;
     }
 
+    function promotionTicketDetailMessage(ticket) {
+      if (!ticket) return "";
+      const evidenceKind = String(ticket.shadow_evidence_kind || "").trim() || t("commonUnknown");
+      const params = JSON.stringify(ticket.proposed_params || {});
+      const detail = [
+        `${ticket.ticket_id} · ${formatDateTime(ticket.created_at)}`,
+        t("promotionTicketEvidenceKind").replace("{kind}", evidenceKind),
+        promotionTicketEvidenceMessage(ticket),
+        t("promotionTicketParams").replace("{params}", params),
+      ];
+      const notification = String(ticket.notification_body || "").trim();
+      if (notification) {
+        detail.push(t("promotionTicketNotification").replace("{body}", notification));
+      }
+      return detail.join(" · ");
+    }
+
     function renderPromotionConfirmControls() {
       const platform = state.selected;
       const platformVisible = platformMeta[platform]?.console_visible !== false;
@@ -2447,7 +2470,7 @@
       }
       const ticket = selectedPromotionTicket();
       const ticketDetail = el("promotion-ticket-detail");
-      if (ticketDetail) ticketDetail.textContent = ticket ? `${ticket.ticket_id} · ${formatDateTime(ticket.created_at)}` : "";
+      if (ticketDetail) ticketDetail.textContent = promotionTicketDetailMessage(ticket);
       const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
         ? ticket.suggested_risk_profile
         : DEFAULT_PROMOTION_RISK_PROFILE;
