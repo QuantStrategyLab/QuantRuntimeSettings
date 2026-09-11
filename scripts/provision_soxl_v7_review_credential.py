@@ -50,7 +50,13 @@ def provision(*, env, run=subprocess.run, opener=urllib.request.urlopen, apply=F
     # Only this authenticated, application-specific 404 verifies the existing
     # credential. No real ticket is created or human decision submitted.
     print("V7_BINDING_CHECK console_credential", flush=True)
-    request = urllib.request.Request(PROBE_URL, headers={"Authorization": "Bearer " + token, "Accept": "application/json"})
+    request = urllib.request.Request(PROBE_URL, headers={
+        "Authorization": "Bearer " + token,
+        "Accept": "application/json",
+        # Identify the actual service client; the generic urllib signature is
+        # rejected at the edge before the Worker's credential check.
+        "User-Agent": "QuantRuntimeSettings-V7CredentialBinding/1.0",
+    })
     try:
         with opener(request, timeout=15) as response:
             response.read()
