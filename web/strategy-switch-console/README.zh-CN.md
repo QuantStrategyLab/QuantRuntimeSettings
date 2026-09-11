@@ -137,6 +137,7 @@ control_plane_snapshot
 research_task_source:<source_id>
 m0_research_ledger_current
 m0_research_ledger_archive:<ledger_sha256>
+private_binance_scope_report
 ```
 
 没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
@@ -318,6 +319,12 @@ GET  /api/internal/reconciliation-recovery-confirmation?recovery_id=<opaque-id>
 来源契约是 `qsl_reconciliation_recovery_source_snapshot.v1`。每项只允许携带不含账户或 broker 状态的：不透明恢复 ID、平台/策略、`RECONCILE_ONLY`、QPK 候选 SHA-256、一个或多个受来源绑定的只读样本时间窗与数量、模型审计结果/绑定 SHA-256，以及稳定阻断码。`awaiting_human_confirmation` 只有在“样本时间顺序正确且窗口不超过 15 分钟、候选与发布行绑定、无阻断项”同时满足时才会被接受；模型审计结果和审计人数保持可见的 advisory 信息，不会授予或否决确认。来源和最后一次候选观测均默认 30 分钟后过期。任何已过期来源或候选都会使确认入口保持关闭。
 
 控制台管理员确认后，Worker 只保存 `qsl_reconciliation_recovery_confirmation.v1` 的不可执行意图，固定 `no_order=true`、`execution_authority_granted=false`。它不会调用 workflow、读取券商凭证、改账户、下单或启用目标。私有恢复控制器只能以**另一枚** `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN` 调用内部只读路径，读取当前候选绑定与确认摘要；Worker 会拒绝该 token 与来源同步 token 相同。控制器仍必须在同一目标上重新验证受保护来源，原子写入五项预期状态摘要并切换到 `ACTIVE_LKG`；任一条件不成立就保持 `RECONCILE_ONLY`。旧 `manual-strategy-switch.yml` 明确拒绝任何 `live_continuity_state != NONE`，避免绕开这条链路。
+
+## Binance 私密资产清单
+
+Oracle 上的受限采集流程可用既有 `RECONCILIATION_RECOVERY_SYNC_TOKEN` 将 Binance 当前账户的最小资产清单提交到 `POST /api/internal/binance-private-scope`。Worker 只写固定 KV key `private_binance_scope_report`，物理 TTL 为 24 小时；请求观测时间必须在过去 10 分钟内，未来偏差最多 60 秒。成功响应只含观测时间、来源 run ID 和资产行数，不回传资产明细，也不写入普通审计、健康、恢复或管理员聚合。
+
+`GET /api/binance-private-scope` 同时要求有效 allowlist 会话和管理员权限，匿名返回 401，非管理员返回 403。超过 24 小时、缺失或损坏的记录统一返回 `report: null`。管理台只在选择 Binance 时显示这个独立区域，使用文本节点呈现定点数量；退出登录、权限失去或读取失败会立即清空。它不在浏览器持久化清单，不采集券商数据，也不提供处置、确认或下单入口。
 
 ## 平台运行状态只读接口
 

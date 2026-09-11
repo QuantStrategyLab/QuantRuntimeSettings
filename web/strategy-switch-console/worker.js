@@ -164,6 +164,15 @@ const RECONCILIATION_RECOVERY_STATES = ["RECONCILE_ONLY"];
 const RECONCILIATION_RECOVERY_READINESS = ["blocked", "awaiting_human_confirmation"];
 const RECONCILIATION_RECOVERY_DUAL_REVIEW_OUTCOMES = ["approved", "rejected", "unavailable"];
 const RECONCILIATION_RECOVERY_MAX_REQUESTS = 100;
+// Private Binance holdings use one isolated KV record. They are never folded
+// into public health, recovery, control-plane, or admin aggregates.
+const BINANCE_PRIVATE_SCOPE_KEY = "private_binance_scope_report";
+const BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES = 256 * 1024;
+const BINANCE_PRIVATE_SCOPE_MAX_ASSETS = 5000;
+const BINANCE_PRIVATE_SCOPE_WRITE_TTL_SECONDS = 24 * 60 * 60;
+const BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS = 10 * 60 * 1000;
+const BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS = 60 * 1000;
+const BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Execution evidence is deliberately a separate, read-only projection.  A
 // candidate's research lifecycle is portable; a broker/data/execution result
 // is only meaningful for the exact target platform and lane that produced it.
@@ -533,6 +542,12 @@ export default {
       }
       if (url.pathname === "/api/reconciliation-recovery-confirmations" && request.method === "POST") {
         return await recordReconciliationRecoveryConfirmationResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/binance-private-scope" && request.method === "POST") {
+        return await syncBinancePrivateScopeResponse(request, env);
+      }
+      if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
+        return await binancePrivateScopeResponse(request, env);
       }
       if (url.pathname === "/api/internal/sync-execution-evidence-source" && request.method === "POST") {
         return await syncExecutionEvidenceSourceResponse(request, env);
@@ -2689,6 +2704,58 @@ async function reconciliationRecoveryResponse(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!hasConfigStore(env)) return json(emptyReconciliationRecoveryPayload("snapshot_unavailable"));
   return json(await aggregateReconciliationRecoverySources(env));
+}
+
+async function syncBinancePrivateScopeResponse(request, env) {
+  requireDedicatedReconciliationRecoverySyncToken(request, env);
+  const store = configStore(env);
+  if (!store) {
+    return json({ ok: false, error: "binance_private_scope_storage_unavailable" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, BINANCE_PRIVATE_SCOPE_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: "invalid_binance_private_scope_payload" }, error.status === 413 ? 413 : 400);
+  }
+  let report;
+  try {
+    report = normalizeBinancePrivateScopeReport(raw, { requireIngestFreshness: true });
+  } catch {
+    return json({ ok: false, error: "invalid_binance_private_scope_payload" }, 400);
+  }
+  try {
+    await store.put(BINANCE_PRIVATE_SCOPE_KEY, JSON.stringify(report), {
+      expirationTtl: BINANCE_PRIVATE_SCOPE_WRITE_TTL_SECONDS,
+    });
+  } catch {
+    return json({ ok: false, error: "binance_private_scope_storage_unavailable" }, 503);
+  }
+  return json({
+    ok: true,
+    observed_at: report.observed_at,
+    source_run_id: report.source_run_id,
+    asset_count: report.assets.length,
+  });
+}
+
+async function binancePrivateScopeResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.allowed || !session.admin) return json({ ok: false, error: "admin required" }, 403);
+  if (!hasConfigStore(env)) return json({ ok: true, report: null });
+  try {
+    const raw = await readConfigJson(env, BINANCE_PRIVATE_SCOPE_KEY);
+    if (!raw) return json({ ok: true, report: null });
+    const report = normalizeBinancePrivateScopeReport(raw);
+    const ageMs = Date.now() - Date.parse(report.observed_at);
+    if (ageMs > BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS || ageMs < -BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS) {
+      return json({ ok: true, report: null });
+    }
+    return json({ ok: true, report });
+  } catch {
+    return json({ ok: true, report: null });
+  }
 }
 
 // This is a least-privilege service-to-service read for a platform-owned
@@ -5889,6 +5956,95 @@ function normalizeControlPlanePolicy(value, fieldName) {
     p6_owner_decision_required: true,
     notice: sanitizeStrategyHealthText(source.notice, `${fieldName}.policy.notice`, 240, false, "live 仍需所有者明确决定。"),
   };
+}
+
+function normalizeBinancePrivateScopeReport(payload, { requireIngestFreshness = false } = {}) {
+  const report = assertExactFields(payload, [
+    "platform",
+    "observed_at",
+    "source_run_id",
+    "source_sha",
+    "account_scope_sha256",
+    "assets",
+    "historical_difference_unresolved",
+    "no_order",
+    "execution_authority_granted",
+  ], "Binance private scope report");
+  if (report.platform !== "binance") throw new Error("Binance private scope report.platform must be binance");
+  const observedAt = report.observed_at;
+  if (typeof observedAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(observedAt)) {
+    throw new Error("Binance private scope report.observed_at must be an ISO timestamp with timezone");
+  }
+  const observedAtMs = Date.parse(observedAt);
+  if (!Number.isFinite(observedAtMs)) {
+    throw new Error("Binance private scope report.observed_at must be valid");
+  }
+  if (requireIngestFreshness) {
+    const ageMs = Date.now() - observedAtMs;
+    if (ageMs > BINANCE_PRIVATE_SCOPE_INGEST_MAX_AGE_MS || ageMs < -BINANCE_PRIVATE_SCOPE_FUTURE_SKEW_MS) {
+      throw new Error("Binance private scope report.observed_at is outside the ingestion window");
+    }
+  }
+  const sourceRunId = report.source_run_id;
+  if (typeof sourceRunId !== "string" || !/^[1-9]\d{0,19}$/.test(sourceRunId)) {
+    throw new Error("Binance private scope report.source_run_id must be a decimal string");
+  }
+  const sourceSha = report.source_sha;
+  if (typeof sourceSha !== "string" || !/^[0-9a-fA-F]{40}$/.test(sourceSha)) {
+    throw new Error("Binance private scope report.source_sha must be a 40 character hex string");
+  }
+  const accountScopeSha256 = report.account_scope_sha256;
+  if (typeof accountScopeSha256 !== "string" || !/^[0-9a-fA-F]{64}$/.test(accountScopeSha256)) {
+    throw new Error("Binance private scope report.account_scope_sha256 must be a 64 character hex string");
+  }
+  if (!Array.isArray(report.assets) || report.assets.length > BINANCE_PRIVATE_SCOPE_MAX_ASSETS) {
+    throw new Error(`Binance private scope report.assets must contain at most ${BINANCE_PRIVATE_SCOPE_MAX_ASSETS} items`);
+  }
+  const seenAssets = new Set();
+  const assets = report.assets.map((value, index) => {
+    const item = assertExactFields(value, ["asset", "free", "locked"], `Binance private scope report.assets[${index}]`);
+    const asset = item.asset;
+    if (typeof asset !== "string" || !/^[\p{L}\p{N}]{1,20}$/u.test(asset)) {
+      throw new Error(`Binance private scope report.assets[${index}].asset is invalid`);
+    }
+    if (seenAssets.has(asset)) throw new Error("Binance private scope report.assets contains duplicate assets");
+    seenAssets.add(asset);
+    const free = normalizeBinancePrivateScopeDecimal(item.free, `Binance private scope report.assets[${index}].free`);
+    const locked = normalizeBinancePrivateScopeDecimal(item.locked, `Binance private scope report.assets[${index}].locked`);
+    if (binancePrivateScopeDecimalIsZero(free) && binancePrivateScopeDecimalIsZero(locked)) {
+      throw new Error(`Binance private scope report.assets[${index}] must not be an all-zero row`);
+    }
+    return { asset, free, locked };
+  });
+  if (report.historical_difference_unresolved !== true) {
+    throw new Error("Binance private scope report.historical_difference_unresolved must be true");
+  }
+  if (report.no_order !== true) throw new Error("Binance private scope report.no_order must be true");
+  if (report.execution_authority_granted !== false) {
+    throw new Error("Binance private scope report.execution_authority_granted must be false");
+  }
+  return {
+    platform: "binance",
+    observed_at: observedAt,
+    source_run_id: sourceRunId,
+    source_sha: sourceSha.toLowerCase(),
+    account_scope_sha256: accountScopeSha256.toLowerCase(),
+    assets,
+    historical_difference_unresolved: true,
+    no_order: true,
+    execution_authority_granted: false,
+  };
+}
+
+function normalizeBinancePrivateScopeDecimal(value, fieldName) {
+  if (typeof value !== "string" || !/^\d+(?:\.\d+)?$/.test(value)) {
+    throw new Error(`${fieldName} must be a non-negative finite decimal string`);
+  }
+  return value;
+}
+
+function binancePrivateScopeDecimalIsZero(value) {
+  return /^0+(?:\.0+)?$/.test(value);
 }
 
 function normalizeReconciliationRecoverySourceSnapshot(payload, fieldName = "reconciliation recovery source snapshot") {

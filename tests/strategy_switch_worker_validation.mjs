@@ -4267,3 +4267,5 @@ const oldControlTokenAccepted = await validationIngress(controlSourcePayload, {
   token: controlSyncValue, overrides: { CONTROL_PLANE_SYNC_TOKEN: controlSyncValue },
 });
 assert.equal(oldControlTokenAccepted.response.status, 200, "existing control-plane publishers remain supported");
+
+await import("./binance_private_scope_worker_validation.mjs");

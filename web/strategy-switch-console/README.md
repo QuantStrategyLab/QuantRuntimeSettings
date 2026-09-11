@@ -135,6 +135,7 @@ account_options
 strategy_profiles
 risk_profile_bindings
 audit_log
+private_binance_scope_report
 ```
 
 Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
@@ -235,6 +236,12 @@ The console only allows live-enabled profiles whose `domain` is included in the 
 An already authorised target that entered `RECONCILE_ONLY` uses a separate, non-executable recovery path rather than the P6 new-strategy queue. A private runtime publishes a redacted `qsl_reconciliation_recovery_source_snapshot.v1` to `POST /api/internal/sync-reconciliation-recovery-source` with a dedicated `RECONCILIATION_RECOVERY_SYNC_TOKEN`; allowlisted users read `GET /api/reconciliation-recovery`, and an administrator may record `POST /api/reconciliation-recovery-confirmations`. A platform-owned controller reads only the current confirmation binding from `GET /api/internal/reconciliation-recovery-confirmation?recovery_id=...`, protected by a different `RECONCILIATION_RECOVERY_CONTROLLER_TOKEN`.
 
 An item can await confirmation only when it remains `RECONCILE_ONLY`, has one or more source-bound read-only samples within a 15-minute ordered observation window, has a current candidate digest bound to the published row, and has no blocker. Model-review outcome and reviewer count remain visible advisory information; they do not grant or veto confirmation. Source and candidate evidence expire after 30 minutes by default. The confirmation is an immutable `no_order=true`, `execution_authority_granted=false` intent only: it cannot dispatch a workflow, read broker credentials, change an account, restore runtime, or place an order. A private platform controller must re-verify its protected source before it may restore the pre-existing runtime; `manual-strategy-switch.yml` rejects all legacy continuity states so it cannot bypass this boundary.
+
+## Private Binance Asset List
+
+A restricted collector on Oracle may use the existing `RECONCILIATION_RECOVERY_SYNC_TOKEN` to submit the current Binance account's minimal asset list to `POST /api/internal/binance-private-scope`. The Worker writes only the fixed `private_binance_scope_report` KV key with a 24-hour physical TTL. Observations must be no more than 10 minutes old and may be at most 60 seconds in the future. The success acknowledgement contains only the observation time, source run ID, and asset count; asset details never enter the ordinary audit, health, recovery, or admin aggregates.
+
+`GET /api/binance-private-scope` requires both an allowed session and administrator status. Anonymous requests receive 401 and non-admin sessions receive 403. Missing, malformed, or older-than-24-hour records return `report: null`. The console shows the independent list only for an administrator viewing Binance, renders fixed-point quantities as text, and immediately clears it on logout, permission loss, or read failure. It does not persist the list in the browser, collect broker data, or expose remediation, confirmation, or order controls.
 
 ## GitHub OAuth App
 
