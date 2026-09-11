@@ -5,6 +5,8 @@ from pathlib import Path
 import subprocess
 import unittest
 import urllib.error
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
 path = Path(__file__).resolve().parents[2] / "scripts/provision_soxl_v7_review_credential.py"
 spec = importlib.util.spec_from_file_location("v7_credential", path)
@@ -13,7 +15,7 @@ spec.loader.exec_module(module)
 
 
 class V7CredentialTests(unittest.TestCase):
-    def execute(self, *, ref="refs/heads/main", branch="main", status=404, write_error=False, malformed_404=False):
+    def execute(self, *, ref="refs/heads/main", branch="main", status=404, write_error=False, malformed_404=False, apply=True):
         writes = []
         reads = []
         env = {"GITHUB_REPOSITORY": "QuantStrategyLab/QuantRuntimeSettings", "GITHUB_REF": ref,
@@ -39,7 +41,7 @@ class V7CredentialTests(unittest.TestCase):
             raise urllib.error.HTTPError(request.full_url, status, "synthetic", {}, io.BytesIO(json.dumps(payload).encode()))
 
         try:
-            module.provision(env=env, run=run, opener=opener)
+            module.provision(env=env, run=run, opener=opener, apply=apply)
             error = None
         except Exception as exc:
             error = exc
@@ -69,6 +71,39 @@ class V7CredentialTests(unittest.TestCase):
         error, writes, _ = self.execute(write_error=True)
         self.assertIsInstance(error, subprocess.TimeoutExpired)
         self.assertEqual(len(writes), 1)
+
+    def test_check_only_verifies_credential_without_writing(self):
+        error, writes, reads = self.execute(apply=False)
+        self.assertIsNone(error)
+        self.assertEqual(writes, [])
+        self.assertEqual(len(reads), 1)
+
+    def test_cli_defaults_to_read_only(self):
+        with patch.object(module, "provision") as provision, redirect_stdout(io.StringIO()):
+            self.assertEqual(module.main([]), 0)
+        self.assertFalse(provision.call_args.kwargs["apply"])
+
+    def test_failure_log_identifies_http_status_without_body_or_token(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            error, writes, _ = self.execute(status=403, apply=False)
+        self.assertIsNotNone(error)
+        self.assertEqual(writes, [])
+        self.assertIn("V7_BINDING_CHECK console_credential", output.getvalue())
+        self.assertIn("V7_BINDING_HTTP_STATUS 403", output.getvalue())
+        self.assertNotIn("synthetic", output.getvalue())
+
+    def test_github_failure_logs_status_without_sensitive_stderr(self):
+        env = {"GITHUB_REPOSITORY": "QuantStrategyLab/QuantRuntimeSettings", "GITHUB_REF": "refs/heads/main",
+               "GH_TOKEN": "synthetic-management", module.SECRET: "synthetic-review"}
+        output = io.StringIO()
+        def run(args, **kwargs):
+            raise subprocess.CalledProcessError(1, args, stderr="synthetic-management rejected (HTTP 403)")
+        with redirect_stdout(output), self.assertRaises(subprocess.CalledProcessError):
+            module.provision(env=env, run=run)
+        self.assertIn("V7_BINDING_CHECK destination_environment", output.getvalue())
+        self.assertIn("V7_BINDING_GITHUB_STATUS 403", output.getvalue())
+        self.assertNotIn("synthetic", output.getvalue())
 
 
 if __name__ == "__main__":
