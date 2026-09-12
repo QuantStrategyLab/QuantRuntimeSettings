@@ -477,9 +477,11 @@
         promotionConfirmTitle: "确认研究候选",
         promotionDecisionEyebrow: "待决策",
         promotionExecutionMode: "目标执行模式",
+        promotionExecutionModeReadonly: "所选账户模式：{mode}（实际状态以运行读回为准）",
+        promotionNoOrderCannotConfirm: "当前账户是不下单演练；不能把它记录成券商 paper 或实盘意向。",
         promotionRiskProfile: "风险档",
         promotionConfirmMeta: "接受仅记录意向，不启用交易，也不替换正在运行的策略。",
-        promotionTargetSummary: "意向平台：{platform}。本次确认不绑定账户或授予执行权限。",
+        promotionTargetSummary: "意向平台：{platform}；当前账户：{account}。本次确认不绑定账户或授予执行权限。",
         promotionTargetUnavailable: "有研究候选待确认，但当前没有可见目标平台。",
         promotionRiskDetails: "风险档与账户资料",
         promotionRiskScaleMeta: "按保本、平衡、增长顺序，晋级仓位缩放为 0.50 / 0.75 / 1.00，仅适用于新晋级或材料变更；组合相对无杠杆基准的回撤上限倍数为 1.00 / 1.25 / 1.50。两者含义不同，不会据此调整现有实盘。",
@@ -510,6 +512,20 @@
         promotionEvidenceNeedsReview: "观察材料类型已注明，仍需核对来源与完整验证材料。",
         promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
         promotionDecisionFailed: "晋级确认失败",
+        promotionApplicationTitle: "应用准备",
+        promotionApplicationHint: "只读核对候选、具体账户和现有策略目录；不会提交变更。",
+        promotionApplicationCandidate: "研究候选",
+        promotionApplicationAccount: "目标账户",
+        promotionApplicationReady: "账户与策略检查通过；账户应用尚未接通，系统未提交变更。",
+        promotionApplicationBlocked: "当前不能应用：{reasons}。系统未提交变更。",
+        promotionApplicationOpen: "在账户设置中查看",
+        promotionApplicationEmpty: "没有可准备的研究候选。",
+        promotionApplicationBlockActivation: "账户应用尚未接通",
+        promotionApplicationBlockParams: "缺少可运行的策略参数",
+        promotionApplicationBlockStrategy: "缺少同名可运行的策略版本",
+        promotionApplicationBlockAccount: "没有匹配的已配置账户",
+        promotionApplicationBlockEvidence: "研究材料尚未核实",
+        promotionApplicationBlockPreflight: "账户或策略检查未通过",
         riskCapitalPreservation: "保本优先",
         riskBalancedCompounding: "平衡复利",
         riskGrowthCompounding: "增长复利",
@@ -1042,9 +1058,11 @@
         promotionConfirmTitle: "Review research candidate",
         promotionDecisionEyebrow: "Decisions",
         promotionExecutionMode: "Target execution mode",
+        promotionExecutionModeReadonly: "Selected account mode: {mode} (verify against runtime readback)",
+        promotionNoOrderCannotConfirm: "This account is in no-order simulation; it cannot be recorded as broker paper or live intent.",
         promotionRiskProfile: "Risk profile",
         promotionConfirmMeta: "Accept records intent only. It does not enable trading or replace the running strategy.",
-        promotionTargetSummary: "Intended platform: {platform}. This confirmation does not bind an account or grant execution authority.",
+        promotionTargetSummary: "Intended platform: {platform}; current account: {account}. This confirmation does not bind an account or grant execution authority.",
         promotionTargetUnavailable: "Research candidates await confirmation, but no target platform is visible.",
         promotionRiskDetails: "Risk profiles and account context",
         promotionRiskScaleMeta: "For preservation, balanced and growth profiles, promotion size scales are 0.50 / 0.75 / 1.00 for new promotions or material changes only. Portfolio drawdown caps relative to the unlevered benchmark are 1.00 / 1.25 / 1.50. These have different meanings and do not change existing live settings.",
@@ -1075,6 +1093,20 @@
         promotionEvidenceNeedsReview: "An observation evidence type is recorded. Its source and complete validation still need review.",
         promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
         promotionDecisionFailed: "Promotion confirmation failed",
+        promotionApplicationTitle: "Application preparation",
+        promotionApplicationHint: "Read-only candidate, account, and strategy checks. This does not submit a change.",
+        promotionApplicationCandidate: "Research candidate",
+        promotionApplicationAccount: "Target account",
+        promotionApplicationReady: "Account and strategy checks passed. Account application is not connected; no change was submitted.",
+        promotionApplicationBlocked: "Cannot apply: {reasons}. No change was submitted.",
+        promotionApplicationOpen: "Review in account settings",
+        promotionApplicationEmpty: "No research candidate is available for preparation.",
+        promotionApplicationBlockActivation: "account application is not connected",
+        promotionApplicationBlockParams: "runnable strategy parameters are missing",
+        promotionApplicationBlockStrategy: "a same-name runnable strategy version is missing",
+        promotionApplicationBlockAccount: "no configured account matches",
+        promotionApplicationBlockEvidence: "research evidence is not verified",
+        promotionApplicationBlockPreflight: "account or strategy preflight failed",
         riskCapitalPreservation: "Capital preservation",
         riskBalancedCompounding: "Balanced compounding",
         riskGrowthCompounding: "Growth compounding",
@@ -1384,11 +1416,14 @@
           data_status: "unavailable",
           computed_at: null,
           tickets: [],
+          applications: [],
           summary: { ticket_count: 0, awaiting_human: 0 },
           policy: { live_authority_granted: false, no_order: true },
           errors: [],
         },
         selectedTicketId: "",
+        selectedApplicationTicketId: "",
+        selectedApplicationAccountKey: "",
       },
       configSource: "default",
       repositories: clone(defaultRepositories),
@@ -2266,13 +2301,6 @@
     ];
     const DEFAULT_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
 
-    function platformSupportsBrokerPaper(platform) {
-      // Broker paper/sim only — dry_run is local/synthetic and must not unlock paper.
-      const modes = platformConfig[platform]?.supported_execution_modes;
-      const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
-      return list.includes("paper");
-    }
-
     function promotionRiskProfileLabel(profile) {
       if (profile === "CAPITAL_PRESERVATION") return t("riskCapitalPreservation");
       if (profile === "BALANCED_COMPOUNDING") return t("riskBalancedCompounding");
@@ -2493,6 +2521,100 @@
       return detail.join(" · ");
     }
 
+    function promotionApplications() {
+      const payload = state.researchPromotion?.payload || {};
+      if (payload.data_status !== "ready" || payload.errors?.length) return [];
+      return Array.isArray(payload.applications) ? payload.applications : [];
+    }
+
+    function selectedPromotionApplication() {
+      const applications = promotionApplications();
+      const selectedId = state.researchPromotion.selectedApplicationTicketId || "";
+      return applications.find((item) => item.ticket_id === selectedId) || applications[0] || null;
+    }
+
+    function selectedPromotionApplicationAccount(application = selectedPromotionApplication()) {
+      const accounts = application?.application_preparation?.account_options || [];
+      const selectedKey = state.researchPromotion.selectedApplicationAccountKey || "";
+      return accounts.find((item) => `${item.platform}/${item.key}` === selectedKey) || accounts[0] || null;
+    }
+
+    function promotionApplicationBlockerLabel(code) {
+      if (code === "activation_not_connected") return t("promotionApplicationBlockActivation");
+      if (code === "candidate_params_unbound") return t("promotionApplicationBlockParams");
+      if (code === "strategy_not_configured") return t("promotionApplicationBlockStrategy");
+      if (code === "configured_account_missing") return t("promotionApplicationBlockAccount");
+      if (code === "research_evidence_unverified") return t("promotionApplicationBlockEvidence");
+      return t("promotionApplicationBlockPreflight");
+    }
+
+    function renderPromotionApplicationPreparation() {
+      const applications = promotionApplications();
+      const block = el("promotion-application-block");
+      const applicationSelect = el("promotion-application-select");
+      const accountSelect = el("promotion-application-account-select");
+      const status = el("promotion-application-status");
+      const openButton = el("promotion-application-open");
+      if (!block || !applicationSelect || !accountSelect || !status || !openButton) return;
+      block.hidden = !applications.length;
+      applicationSelect.replaceChildren();
+      if (!applications.length) {
+        status.textContent = t("promotionApplicationEmpty");
+        openButton.disabled = true;
+        return;
+      }
+      const previousId = state.researchPromotion.selectedApplicationTicketId;
+      const selectedId = applications.some((item) => item.ticket_id === previousId)
+        ? previousId : applications[0].ticket_id;
+      state.researchPromotion.selectedApplicationTicketId = selectedId;
+      for (const application of applications) {
+        applicationSelect.append(new Option(
+          promotionTicketDisplayName(application),
+          application.ticket_id,
+          false,
+          application.ticket_id === selectedId,
+        ));
+      }
+      const application = selectedPromotionApplication();
+      const accounts = application?.application_preparation?.account_options || [];
+      accountSelect.replaceChildren();
+      const previousAccount = state.researchPromotion.selectedApplicationAccountKey;
+      const selectedAccountKey = accounts.some((item) => `${item.platform}/${item.key}` === previousAccount)
+        ? previousAccount : (accounts[0] ? `${accounts[0].platform}/${accounts[0].key}` : "");
+      state.researchPromotion.selectedApplicationAccountKey = selectedAccountKey;
+      for (const account of accounts) {
+        const key = `${account.platform}/${account.key}`;
+        const mode = t(account.configured_execution_mode === "live" ? "live" : "dryRun");
+        accountSelect.append(new Option(
+          `${platformMeta[account.platform]?.label || account.platform} · ${account.label} · ${mode}`,
+          key,
+          false,
+          key === selectedAccountKey,
+        ));
+      }
+      if (!accounts.length) accountSelect.append(new Option(t("promotionApplicationBlockAccount"), ""));
+      const account = selectedPromotionApplicationAccount(application);
+      const blockers = [
+        ...(application?.application_preparation?.blocker_codes || []),
+        ...(account?.blocker_codes || []),
+      ];
+      const uniqueBlockers = [...new Set(blockers)];
+      const preflightReady = application?.application_preparation?.preflight_status === "ready"
+        && account?.preflight_status === "ready";
+      status.textContent = preflightReady
+        ? t("promotionApplicationReady")
+        : t("promotionApplicationBlocked").replace(
+            "{reasons}",
+            uniqueBlockers.map(promotionApplicationBlockerLabel).join("、"),
+          );
+      openButton.disabled = !preflightReady;
+    }
+
+    function promotionConfirmationExecutionMode(platform = state.selected) {
+      const mode = defaultExecutionModeForAccount(platform, selectedAccount(platform), "live");
+      return mode === "live" ? "live" : "";
+    }
+
     function renderPromotionConfirmControls() {
       const platform = state.selected;
       const platformVisible = platformMeta[platform]?.console_visible !== false;
@@ -2502,27 +2624,29 @@
         ? (payload.tickets || []).filter((ticket) => ticket.state === "awaiting_human")
         : [];
       const tickets = state.auth?.allowed ? reviewablePromotionTickets(payload) : [];
+      const applications = state.auth?.allowed ? promotionApplications() : [];
       renderUnverifiedPromotionRecords(pendingTickets.filter(promotionTicketNeedsSourceCheck));
       const panel = el("promotion-decision-panel");
-      if (panel) panel.hidden = !tickets.length || !platformVisible;
+      if (panel) panel.hidden = (!tickets.length && !applications.length) || !platformVisible;
       const notice = el("promotion-queue-notice");
       if (notice) {
-        notice.hidden = !state.auth?.allowed || (tickets.length > 0 && platformVisible);
+        notice.hidden = !state.auth?.allowed || ((tickets.length > 0 || applications.length > 0) && platformVisible);
         notice.textContent = tickets.length && !platformVisible ? t("promotionTargetUnavailable") : promotionTicketQueueMessage();
       }
       const targetSummary = el("promotion-target-summary");
       if (targetSummary) {
-        targetSummary.textContent = t("promotionTargetSummary").replace("{platform}", platformMeta[platform]?.label || t("commonUnknown"));
+        targetSummary.textContent = t("promotionTargetSummary")
+          .replace("{platform}", platformMeta[platform]?.label || t("commonUnknown"))
+          .replace("{account}", selectedAccount(platform)?.label || t("commonUnknown"));
       }
       const ticketSelect = el("promotion-ticket-select");
-      const modeSelect = el("promotion-execution-mode-select");
+      const modeReadonly = el("promotion-execution-mode-readonly");
       const riskSelect = el("promotion-risk-profile-select");
       const meta = el("promotion-confirm-meta");
       const ticketMeta = el("promotion-ticket-meta");
       const acceptButton = el("promotion-accept-button");
       const rejectButton = el("promotion-reject-button");
-      if (!modeSelect || !riskSelect) return;
-      const paperSupported = platformSupportsBrokerPaper(platform);
+      if (!modeReadonly || !riskSelect) return;
       if (ticketSelect) {
         const previousTicket = state.researchPromotion.selectedTicketId || ticketSelect.value || "";
         ticketSelect.replaceChildren();
@@ -2546,15 +2670,12 @@
       const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
         ? ticket.suggested_risk_profile
         : DEFAULT_PROMOTION_RISK_PROFILE;
-      const previousMode = modeSelect.value || "live";
       const previousRisk = riskSelect.value || suggested;
-      modeSelect.replaceChildren();
-      const liveSelected = previousMode === "live" || (!paperSupported && previousMode === "paper");
-      modeSelect.append(new Option(t("promotionModeLive"), "live", false, liveSelected));
-      const paperOption = new Option(t("promotionModePaper"), "paper", false, paperSupported && previousMode === "paper");
-      paperOption.disabled = !paperSupported;
-      modeSelect.append(paperOption);
-      if (!paperSupported) modeSelect.value = "live";
+      const promotionMode = promotionConfirmationExecutionMode(platform);
+      modeReadonly.textContent = t("promotionExecutionModeReadonly").replace(
+        "{mode}",
+        t(promotionMode === "live" ? "live" : "dryRun"),
+      );
       riskSelect.replaceChildren();
       // Prefill from ticket suggestion unless the operator already chose another valid profile.
       const selectedRisk = PROMOTION_RISK_PROFILES.includes(previousRisk) && previousRisk
@@ -2571,7 +2692,7 @@
       }
       riskSelect.dataset.ticketId = ticket?.ticket_id || "";
       if (meta) {
-        meta.textContent = paperSupported ? t("promotionConfirmMeta") : `${t("promotionConfirmMeta")} ${t("promotionPaperUnavailable")}`;
+        meta.textContent = promotionMode ? t("promotionConfirmMeta") : `${t("promotionConfirmMeta")} ${t("promotionNoOrderCannotConfirm")}`;
       }
       if (ticketMeta) {
         if (ticket) {
@@ -2583,10 +2704,11 @@
           ticketMeta.textContent = promotionTicketQueueMessage();
         }
       }
-      const canDecide = Boolean(ticket && state.auth?.admin && platformVisible);
+      const canDecide = Boolean(ticket && state.auth?.admin && platformVisible && promotionMode);
       if (acceptButton) acceptButton.disabled = !canDecide;
-      if (rejectButton) rejectButton.disabled = !canDecide;
+      if (rejectButton) rejectButton.disabled = !Boolean(ticket && state.auth?.admin && platformVisible);
       renderRiskEnvelopePanel();
+      renderPromotionApplicationPreparation();
     }
 
     async function refreshResearchPromotionTickets() {
@@ -2595,6 +2717,7 @@
           data_status: "login_required",
           computed_at: null,
           tickets: [],
+          applications: [],
           summary: { ticket_count: 0, awaiting_human: 0 },
           policy: { live_authority_granted: false, no_order: true },
           errors: [],
@@ -2608,6 +2731,7 @@
           data_status: payload?.data_status || "ready",
           computed_at: payload?.computed_at || null,
           tickets: Array.isArray(payload?.tickets) ? payload.tickets : [],
+          applications: Array.isArray(payload?.applications) ? payload.applications : [],
           summary: payload?.summary || { ticket_count: 0, awaiting_human: 0 },
           policy: {
             live_authority_granted: false,
@@ -2621,6 +2745,7 @@
           data_status: "unavailable",
           computed_at: null,
           tickets: [],
+          applications: [],
           summary: { ticket_count: 0, awaiting_human: 0 },
           policy: { live_authority_granted: false, no_order: true },
           errors: ["research_promotion_request_failed"],
@@ -2637,16 +2762,15 @@
         return;
       }
       const platform = state.selected;
-      const paperSupported = platformSupportsBrokerPaper(platform);
-      const modeSelect = el("promotion-execution-mode-select");
+      const executionMode = promotionConfirmationExecutionMode(platform);
       const riskSelect = el("promotion-risk-profile-select");
       try {
         const confirmation = decision === "accept"
           ? buildPromotionConfirmation({
               targetPlatform: platform,
-              executionMode: modeSelect?.value || "live",
+              executionMode,
               riskProfile: riskSelect?.value || ticket.suggested_risk_profile,
-              paperSupported,
+              paperSupported: false,
               suggestedRiskProfile: ticket.suggested_risk_profile,
             })
           : null;
@@ -2683,6 +2807,16 @@
       if (riskSelect) riskSelect.dataset.touched = "1";
       renderRiskEnvelopePanel();
     });
+    el("promotion-application-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedApplicationTicketId = String(event.target.value || "");
+      state.researchPromotion.selectedApplicationAccountKey = "";
+      renderPromotionApplicationPreparation();
+    });
+    el("promotion-application-account-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedApplicationAccountKey = String(event.target.value || "");
+      renderPromotionApplicationPreparation();
+    });
+    el("promotion-application-open")?.addEventListener("click", openSelectedPromotionApplicationAccount);
     el("promotion-accept-button")?.addEventListener("click", () => {
       submitResearchPromotionDecision("accept");
     });
@@ -2690,6 +2824,15 @@
       submitResearchPromotionDecision("reject");
     });
 
+    function openSelectedPromotionApplicationAccount() {
+      const application = selectedPromotionApplication();
+      const account = selectedPromotionApplicationAccount(application);
+      if (
+        application?.application_preparation?.preflight_status !== "ready"
+        || account?.preflight_status !== "ready"
+      ) return;
+      openAccountSettings(account.platform, account, true);
+    }
 
     function normalizeExecutionMode(value, dryRunOnly) {
       const mode = String(value || "").trim().toLowerCase();
@@ -2718,18 +2861,9 @@
         currentEntryForAccount(platform, account)?.dry_run_only,
       );
       if (currentMode) return currentMode;
-      const hint = [
-        account?.key,
-        account?.label,
-        account?.target_name,
-        account?.deployment_selector,
-        account?.account_scope,
-        account?.service_name,
-      ].join(" ").toLowerCase();
-      if (hint.split(/\s+/).includes("paper") || hint.includes("-paper") || hint.includes("_paper") || hint.includes("dry_run") || hint.includes("dry-run")) {
-        return "dry_run";
-      }
-      return fallback;
+      return normalizeExecutionMode(account?.default_execution_mode)
+        || normalizeExecutionMode(platformConfig[platform]?.default_execution_mode)
+        || fallback;
     }
 
     function defaultStrategyForAccount(platform, account) {
@@ -6064,6 +6198,7 @@
           cash_currency: item.cash_currency || item.market_currency || item.trading_currency
             ? String(item.cash_currency || item.market_currency || item.trading_currency).trim().toUpperCase()
             : "",
+          default_execution_mode: normalizeExecutionMode(item.default_execution_mode) || "",
           supported_domains: normalizeSupportedDomains(platform, item),
           github_environment: item.github_environment ? String(item.github_environment) : "",
           variable_scope: item.variable_scope ? String(item.variable_scope) : "",

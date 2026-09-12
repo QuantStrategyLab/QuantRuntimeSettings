@@ -139,7 +139,7 @@
           </label>
           <label>
             <span data-i18n="promotionExecutionMode">目标执行模式</span>
-            <select id="promotion-execution-mode-select"></select>
+            <span class="selection-meta" id="promotion-execution-mode-readonly"></span>
           </label>
           <label>
             <span data-i18n="promotionRiskProfile">风险档</span>
@@ -151,6 +151,22 @@
           <button class="btn" id="promotion-reject-button" type="button" data-i18n="promotionReject">拒绝</button>
         </div>
         <span class="selection-meta" id="promotion-ticket-meta"></span>
+      </div>
+      <div class="promotion-confirm-block" id="promotion-application-block" hidden>
+        <strong data-i18n="promotionApplicationTitle">应用准备</strong>
+        <p class="selection-meta" data-i18n="promotionApplicationHint">只读核对候选、具体账户和现有策略目录；不会提交变更。</p>
+        <div class="promotion-confirm-grid">
+          <label>
+            <span data-i18n="promotionApplicationCandidate">研究候选</span>
+            <select id="promotion-application-select"></select>
+          </label>
+          <label>
+            <span data-i18n="promotionApplicationAccount">目标账户</span>
+            <select id="promotion-application-account-select"></select>
+          </label>
+        </div>
+        <p class="selection-meta" id="promotion-application-status"></p>
+        <button class="btn" id="promotion-application-open" type="button" data-i18n="promotionApplicationOpen">在账户设置中查看</button>
       </div>
       <details class="promotion-context">
         <summary data-i18n="promotionRiskDetails">风险档与账户资料</summary>
