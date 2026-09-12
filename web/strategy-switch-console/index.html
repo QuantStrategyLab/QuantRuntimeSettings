@@ -89,30 +89,19 @@
           <div class="health-list" id="reconciliation-recovery-history-list"></div>
         </details>
       </section>
-      <dl class="overview-metrics">
-        <div><dt data-i18n="configuredAccounts">已配置账户</dt><dd id="overview-count-total">—</dd></div>
-        <div><dt data-i18n="configuredEnabled">配置已启用</dt><dd id="overview-count-enabled">—</dd></div>
-        <div><dt data-i18n="configuredDisabled">配置已停用</dt><dd id="overview-count-disabled">—</dd></div>
-        <div><dt data-i18n="actualUnverified">实际状态待核实</dt><dd id="overview-count-unknown">—</dd></div>
-      </dl>
-      <div class="overview-notice" id="overview-notice" role="status">
-        <span class="notice-mark" aria-hidden="true">i</span>
-        <div><strong id="overview-notice-title"></strong><p id="overview-notice-description"></p></div>
-        <button class="text-button" type="button" id="overview-attention-button" data-i18n="viewUnverified">查看待核实账户</button>
-      </div>
       <section class="accounts-board" aria-labelledby="accounts-board-title">
         <header class="board-heading"><h3 id="accounts-board-title" data-i18n="accountsTitle">账户</h3><span id="overview-result-count" role="status"></span></header>
         <div class="overview-toolbar">
           <div class="overview-filters" role="group" aria-label="筛选账户" data-i18n-aria-label="accountFilters">
             <button type="button" data-overview-filter="all" aria-pressed="true" data-i18n="filterAll">全部</button>
-            <button type="button" data-overview-filter="enabled" aria-pressed="false" data-i18n="filterEnabled">已启用</button>
-            <button type="button" data-overview-filter="disabled" aria-pressed="false" data-i18n="filterDisabled">已停用</button>
-            <button type="button" data-overview-filter="attention" aria-pressed="false" data-i18n="filterAttention">待核实 / 不一致</button>
+            <button type="button" data-overview-filter="normal" aria-pressed="false"><span data-i18n="filterNormal">正常</span> <span data-overview-count="normal"></span></button>
+            <button type="button" data-overview-filter="paused" aria-pressed="false"><span data-i18n="filterPaused">暂停</span> <span data-overview-count="paused"></span></button>
+            <button type="button" data-overview-filter="abnormal" aria-pressed="false"><span data-i18n="filterAbnormal">异常</span> <span data-overview-count="abnormal"></span></button>
           </div>
           <label class="overview-search"><span class="sr-only" data-i18n="searchAccounts">搜索账户或策略</span><input type="search" id="overview-search" autocomplete="off" data-i18n-placeholder="searchAccounts" placeholder="搜索账户或策略"></label>
         </div>
         <div class="overview-table-wrap">
-          <table class="overview-table"><thead><tr><th scope="col" data-i18n="account">账户</th><th scope="col" data-i18n="configuredStrategy">配置策略</th><th scope="col" data-i18n="overviewRuntime">运行情况</th><th scope="col" data-i18n="latestReadback">最近读回</th><th scope="col"><span class="sr-only" data-i18n="accountActions">账户操作</span></th></tr></thead><tbody id="overview-accounts-body"></tbody></table>
+          <table class="overview-table"><thead><tr><th scope="col" data-i18n="account">账户</th><th scope="col" data-i18n="configuredStrategy">配置策略</th><th scope="col" data-i18n="overviewRuntime">运行情况</th><th scope="col" data-i18n="latestReadback">最近检查</th><th scope="col"><span class="sr-only" data-i18n="accountActions">账户操作</span></th></tr></thead><tbody id="overview-accounts-body"></tbody></table>
         </div>
         <div class="overview-empty" id="overview-empty" hidden><strong id="overview-empty-title"></strong><p id="overview-empty-description"></p><button class="btn" type="button" id="overview-reset" data-i18n="clearFilters">清除筛选</button></div>
         <p class="board-footnote" data-i18n="overviewEvidenceNote">状态来自实际读回；保存配置不代表已经运行或成交。</p>
@@ -123,12 +112,12 @@
     <p class="platform-strip-label" id="platform-strip-label" hidden></p>
     <nav class="platform-strip" id="platform-strip" aria-label="平台" data-i18n-aria-label="activePlatform" hidden></nav>
     <section id="research-view" hidden>
-    <p class="research-intro" data-i18n="researchIntro">研究候选与当前运行分开管理。接受候选只记录意向，不启用交易。</p>
+    <p class="research-intro" data-i18n="researchIntro">研究候选与当前运行分开管理。</p>
     <section class="decision-promotion-panel" id="promotion-decision-panel" aria-labelledby="promotion-decision-title" hidden>
       <header class="decision-promotion-head">
         <h3 id="promotion-decision-title" data-i18n="promotionConfirmTitle">确认研究候选</h3>
       </header>
-      <p data-i18n="promotionDecisionHint">请先看研究结果、风险和材料来源。接受只记录意向，不会替换当前策略或开启交易。</p>
+      <p data-i18n="promotionDecisionHint">先查看研究结果、风险和来源，再决定是否接受建议。</p>
       <p class="selection-meta" id="promotion-target-summary"></p>
       <div class="promotion-confirm-block" id="promotion-confirm-block">
         <span class="selection-meta" id="promotion-confirm-meta" data-i18n="promotionConfirmMeta">接受仅记录意向，不启用交易，也不替换正在运行的策略。</span>
@@ -138,7 +127,16 @@
             <select id="promotion-ticket-select"></select>
           </label>
           <label>
-            <span data-i18n="promotionExecutionMode">目标执行模式</span>
+            <span data-i18n="promotionTargetPlatform">目标平台</span>
+            <select id="promotion-target-platform-select"></select>
+          </label>
+          <label>
+            <span data-i18n="promotionBrokerEnvironment">券商环境</span>
+            <select id="promotion-broker-environment-select"></select>
+          </label>
+          <label>
+            <span data-i18n="promotionAccount">具体账户</span>
+            <select id="promotion-selected-account-select"></select>
             <span class="selection-meta" id="promotion-execution-mode-readonly"></span>
           </label>
           <label>
@@ -154,17 +152,7 @@
       </div>
       <div class="promotion-confirm-block" id="promotion-application-block" hidden>
         <strong data-i18n="promotionApplicationTitle">应用准备</strong>
-        <p class="selection-meta" data-i18n="promotionApplicationHint">只读核对候选、具体账户和现有策略目录；不会提交变更。</p>
-        <div class="promotion-confirm-grid">
-          <label>
-            <span data-i18n="promotionApplicationCandidate">研究候选</span>
-            <select id="promotion-application-select"></select>
-          </label>
-          <label>
-            <span data-i18n="promotionApplicationAccount">目标账户</span>
-            <select id="promotion-application-account-select"></select>
-          </label>
-        </div>
+        <p class="selection-meta" data-i18n="promotionApplicationHint">只读核对当前候选、具体账户和现有策略目录；选择项在上方确认区域统一管理，不会提交变更。</p>
         <p class="selection-meta" id="promotion-application-status"></p>
         <button class="btn" id="promotion-application-open" type="button" data-i18n="promotionApplicationOpen">在账户设置中查看</button>
       </div>

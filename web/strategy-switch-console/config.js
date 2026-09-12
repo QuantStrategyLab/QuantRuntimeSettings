@@ -37,6 +37,10 @@ export const PLATFORM_META = {
 export const PLATFORM_CONFIG = {
   "longbridge": {
     "dry_run_only": false,
+    "supported_domains": [
+      "us_equity",
+      "hk_equity"
+    ],
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
@@ -52,6 +56,10 @@ export const PLATFORM_CONFIG = {
   },
   "ibkr": {
     "dry_run_only": false,
+    "supported_domains": [
+      "us_equity",
+      "hk_equity"
+    ],
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
@@ -67,6 +75,9 @@ export const PLATFORM_CONFIG = {
   },
   "schwab": {
     "dry_run_only": false,
+    "supported_domains": [
+      "us_equity"
+    ],
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
@@ -82,6 +93,9 @@ export const PLATFORM_CONFIG = {
   },
   "firstrade": {
     "dry_run_only": false,
+    "supported_domains": [
+      "us_equity"
+    ],
     "margin_policy": true,
     "reserved_cash": true,
     "income_layer": true,
@@ -97,6 +111,9 @@ export const PLATFORM_CONFIG = {
   },
   "qmt": {
     "dry_run_only": true,
+    "supported_domains": [
+      "cn_equity"
+    ],
     "margin_policy": false,
     "reserved_cash": false,
     "income_layer": false,
@@ -111,6 +128,9 @@ export const PLATFORM_CONFIG = {
   },
   "binance": {
     "dry_run_only": false,
+    "supported_domains": [
+      "crypto"
+    ],
     "margin_policy": false,
     "reserved_cash": false,
     "income_layer": false,

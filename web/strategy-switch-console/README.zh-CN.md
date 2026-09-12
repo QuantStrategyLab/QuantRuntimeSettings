@@ -120,6 +120,8 @@ STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 
 `admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS`，或 KV 后台管理员名单/组织中。直接访问 `/admin` 可以管理允许登录的 GitHub 用户、组织和账号下拉路由；非管理员会返回 403。
 
+账号配置可增加 `broker_environment: "live"` 或 `"paper"`。缺少该字段的旧配置继续兼容，但在新的研究候选接受中保持未知且不能选择。`broker_environment` 表示券商账户环境，`default_execution_mode` 仍表示 adapter 模式（`live` 或 `dry_run`）。LongBridge 支持明确的 paper 模拟账户配合 live adapter；IBKR 当前只支持 live。候选选择只记录研究意向，不会激活 adapter。
+
 ## 登录管理后台
 
 登录方式使用 GitHub OAuth 2.0，并请求 `read:org` scope 来校验 GitHub 组织成员关系。建议把 `QuantStrategyLab` 放在 `STRATEGY_SWITCH_ADMIN_ORGS`，同时把你自己的 GitHub login 放在 `STRATEGY_SWITCH_ADMIN_LOGINS` 作为兜底管理员。

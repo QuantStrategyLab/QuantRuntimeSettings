@@ -20,6 +20,22 @@ test('account persistence preserves explicit observation and variable-source bin
     runtime_status_target_id: 'ibkr.fixture', github_environment: 'fixture-environment', variable_scope: 'environment' }] };
   assert.deepEqual(normalizeAccountSchema(source), source);
 });
+
+test('account schema preserves an explicit broker environment without inferring missing values', () => {
+  const normalized = normalizeAccountSchema({
+    longbridge: [{
+      key: 'paper', label: 'Paper', target_name: 'paper', supported_domains: ['us_equity'],
+      broker_environment: 'paper', default_execution_mode: 'live',
+    }],
+    ibkr: [{ key: 'legacy', label: 'Legacy', target_name: 'legacy', supported_domains: ['us_equity'] }],
+  });
+  assert.equal(normalized.longbridge[0].broker_environment, 'paper');
+  assert.equal(normalized.longbridge[0].default_execution_mode, 'live');
+  assert.equal('broker_environment' in normalized.ibkr[0], false);
+  assert.throws(() => normalizeAccountSchema({
+    longbridge: [{ key: 'bad', label: 'Bad', target_name: 'bad', supported_domains: ['us_equity'], broker_environment: 'sandbox' }],
+  }), /broker_environment/);
+});
 for (const [mode, expected] of [[undefined, false], ['current', false], ['none', true], ['floor', true]]) {
   test(`cash preview preserves current policy unless explicitly overridden: ${mode}`, () => {
     const fn = frontendFunction('pendingReservePolicy', {
@@ -448,7 +464,7 @@ test('account details keep saved, deployed and application state separate', () =
   assert.ok(app.includes('["deployedSwitch", accountDeploymentText(platform, account)]'));
   assert.ok(app.includes('["applicationStatus", application]'));
   const overview = app.slice(app.indexOf('function renderAccountOverview'), app.indexOf('function renderControls'));
-  assert.ok(overview.includes('currentRuntimeTargetText(platform, account)'));
+  assert.ok(overview.includes('runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationMismatch)'));
   assert.ok(overview.includes('accountDeploymentText(platform, account)'));
   assert.ok(overview.includes('accountApplicationText(platform, account)'));
 });
@@ -580,7 +596,7 @@ for (const sample of [
   { name: 'unverified record', allowed: true, status: 'ready', tickets: [{state:'awaiting_human'}], applications: [], visible:false, notice:'promotionTicketEmpty' },
   { name: 'empty queue', allowed: true, status: 'ready', tickets: [], applications: [], visible: false, notice: 'promotionTicketEmpty' },
   { name: 'pending candidate', allowed: true, status: 'ready', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: true },
-  { name: 'accepted application preparation', allowed: true, status: 'ready', tickets: [], applications: [{ state: 'human_accepted' }], visible: true },
+  { name: 'accepted application preparation', allowed: true, status: 'ready', tickets: [], applications: [{ state: 'human_accepted' }], visible: true, notice: 'promotionTicketEmpty' },
   { name: 'failed queue with old candidate', allowed: true, status: 'unavailable', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: false, notice: 'promotionTicketLoadFailed' },
   { name: 'stale queue', allowed: true, status: 'stale', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: false, notice: 'promotionTicketLoadFailed' },
   { name: 'queue errors', allowed: true, status: 'ready', errors: ['unavailable'], tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: false, notice: 'promotionTicketLoadFailed' },
@@ -605,7 +621,7 @@ for (const sample of [
   context.promotionTicketQueueMessage = frontendFunction('promotionTicketQueueMessage', context);
   frontendFunction('renderPromotionConfirmControls', context)();
   assert.equal(nodes['promotion-decision-panel'].hidden, !sample.visible);
-  assert.equal(nodes['promotion-queue-notice'].hidden, !sample.allowed || sample.visible);
+  assert.equal(nodes['promotion-queue-notice'].hidden, !sample.allowed || (sample.visible && !sample.notice));
   if (sample.notice) assert.equal(nodes['promotion-queue-notice'].textContent, sample.notice);
 });
 
@@ -631,13 +647,18 @@ test('research page puts current decisions before collapsed history and labels t
   assert.ok(decision > 0 && emptyState > decision && history > emptyState);
   assert.match(html, /<details[^>]+id="parked-research-results"[^>]*>/);
   assert.ok(html.includes('id="platform-strip-label"'));
+  assert.equal(html.includes('id="overview-notice"'), false);
+  assert.equal(html.includes('id="overview-count-total"'), false);
+  assert.match(html, /data-overview-filter="normal"/);
+  assert.match(html, /data-overview-filter="paused"/);
+  assert.match(html, /data-overview-filter="abnormal"/);
 });
 
 for (const status of ['deploymentUnverified', 'switchesApplied', 'strategyNotApplied', 'settingsNotApplied', 'scheduleNotApplied']) {
   test(`account next step stays within observed configuration: ${status}`, () => {
     const fn = frontendFunction('accountNextStep', { accountApplicationText: () => status, t: key => key });
     const step = fn('ibkr', {});
-    assert.equal(step.label, status === 'deploymentUnverified' ? 'awaitDeploymentReadback'
+    assert.equal(step.label, status === 'deploymentUnverified' ? 'recheckRuntimeStatus'
       : status === 'switchesApplied' ? 'noSwitchAction' : 'reviewAccountSettings');
     assert.equal(step.openSettings, !['deploymentUnverified', 'switchesApplied'].includes(status));
   });
@@ -690,20 +711,22 @@ test('account status follows runtime readback instead of the form execution mode
       accountObservationAge: () => '5 minutes ago',
       accountMonitoringText: () => 'not in a due window',
       accountNextStep: () => ({ label: 'noSwitchAction' }),
+      runtimeTargetStateForAccount: () => ({ known: true, enabled: true }),
+      runtimeOverviewStatus: () => ({ status: 'normal', reason: '' }),
       t: key => key,
     };
     frontendFunction('renderAccountOverview', context)();
     rendered.push(nodes['account-overview-body'].children.map(pair =>
       pair.children.map(child => child.textContent)));
     assert.deepEqual(nodes['account-runtime-details-body'].children.map(pair => pair.children[0].textContent), [
-      'deployedSwitch', 'schedulerState', 'applicationStatus', 'latestReadback',
+      'deployedSwitch', 'schedulerState', 'applicationStatus',
     ]);
   }
   assert.deepEqual(rendered[0], rendered[1]);
   assert.deepEqual(rendered[0], [
+    ['overviewRuntime', 'overviewRuntimeNormal'],
     ['configuredStrategy', 'Example strategy'],
-    ['configuredSwitch', 'configured enabled'],
-    ['observedRuntime', 'not in a due window · 5 minutes ago'],
+    ['latestReadback', '5 minutes ago'],
   ]);
 });
 
@@ -727,6 +750,8 @@ test('account status shows a next step only when observed state needs attention'
     accountSchedulerText: () => 'paused', accountApplicationText: () => 'settingsNotApplied',
     accountMonitoringRecord: () => ({ freshness: { data_status: 'ready' }, execution_observation: { code: 'attention' } }),
     accountMonitoringAge: () => '2 minutes ago', accountObservationAge: () => '2 minutes ago', accountMonitoringText: () => 'needs review',
+    runtimeTargetStateForAccount: () => ({ known: true, enabled: true }),
+    runtimeOverviewStatus: () => ({ status: 'abnormal', reason: 'config' }),
     accountNextStep: () => ({ label: 'reviewAccountSettings' }), t: key => key,
   };
   frontendFunction('renderAccountOverview', context)();
@@ -829,7 +854,13 @@ test('promotion rendering preserves candidate identity, target context and admin
     }[key] || key),
     strategyLabel: () => 'Example strategy', selectedAccount: () => ({ label: 'Primary account' }),
     formatDateTime: value => value, renderRiskEnvelopePanel: () => {}, renderUnverifiedPromotionRecords: () => {},
-    renderPromotionApplicationPreparation: () => {}, promotionConfirmationExecutionMode: () => 'live',
+    renderPromotionApplicationPreparation: () => {},
+    selectedPromotionApplication: () => null,
+    renderPromotionSelectionControls: () => {
+      nodes['promotion-execution-mode-readonly'].textContent = 'Mode: live';
+      return { platform: 'ibkr', key: 'primary', label: 'Primary account', broker_environment: 'live' };
+    },
+    promotionConfirmationExecutionMode: () => 'live',
     PROMOTION_RISK_PROFILES: ['CAPITAL_PRESERVATION', 'BALANCED_COMPOUNDING', 'GROWTH_COMPOUNDING'],
     DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
     Option: class { constructor(text, value, _defaultSelected, selected) { Object.assign(this, { text, value, selected }); } },
@@ -874,13 +905,38 @@ test('hiding all platforms also hides account observations outside the settings 
   assert.equal(nodes['switch-view'].hidden, true);
 });
 
+test('overview status maps fresh runtime evidence to the user-facing state', () => {
+  const status = frontendFunction('runtimeOverviewStatus', {})
+    .bind(null);
+  const assertStatus = (actual, expectedStatus, expectedReason) => {
+    assert.equal(actual.status, expectedStatus);
+    assert.equal(actual.reason, expectedReason);
+  };
+  assertStatus(status({ known: true, enabled: true }, true, {
+    freshness: { data_status: 'ready' }, execution_observation: { code: 'monitoring_only' },
+  }), 'normal', '');
+  assertStatus(status({ known: true, enabled: false }, true, {
+    freshness: { data_status: 'ready' }, execution_observation: { code: 'not_applicable' },
+  }), 'paused', '');
+  assertStatus(status({ known: true, enabled: true }, true, {
+    freshness: { data_status: 'ready' }, execution_observation: { code: 'attention' },
+  }), 'abnormal', 'attention');
+  assertStatus(status({ known: true, enabled: true }, true, {
+    freshness: { data_status: 'stale' }, execution_observation: { code: 'monitoring_only' },
+  }), 'abnormal', 'stale');
+  assertStatus(status({ known: true, enabled: true }, true, null), 'abnormal', 'pending');
+  assertStatus(status({ known: true, enabled: true }, false, {
+    freshness: { data_status: 'ready' }, execution_observation: { code: 'not_due' },
+  }, true), 'abnormal', 'config');
+});
+
 for (const sample of [
-  { configured: undefined, application: 'deploymentUnverified', unknown: true, attention: true },
-  { configured: true, application: 'deploymentUnverified', unknown: true, attention: true },
-  { configured: false, application: 'deploymentUnverified', unknown: true, attention: true },
-  { configured: true, application: 'settingsNotApplied', unknown: false, attention: true },
-  { configured: false, application: 'switchesApplied', unknown: false, attention: false },
-  { configured: true, application: 'switchesApplied', observation: 'attention', unknown: false, attention: true },
+  { configured: undefined, application: 'deploymentUnverified', unknown: true, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'config' },
+  { configured: true, application: 'deploymentUnverified', unknown: true, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'config' },
+  { configured: false, application: 'deploymentUnverified', unknown: true, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'config' },
+  { configured: true, application: 'settingsNotApplied', unknown: false, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'config' },
+  { configured: false, application: 'switchesApplied', observation: 'not_applicable', unknown: false, attention: false, runtimeStatus: 'paused', runtimeReason: '' },
+  { configured: true, application: 'switchesApplied', observation: 'attention', unknown: false, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'attention' },
 ]) test('overview keeps saved settings separate from actual state '+JSON.stringify(sample), () => {
   const context = {
     hasPrivateConfig: () => true,
@@ -890,28 +946,31 @@ for (const sample of [
     runtimeTargetStateForAccount: () => ({ known: sample.configured !== undefined, enabled: sample.configured }),
     accountApplicationText: () => sample.application,
     accountMonitoringRecord: () => ({ freshness: { data_status: 'ready' }, execution_observation: { code: sample.observation } }),
-    accountMonitoringAge: () => '1 minute ago', accountMonitoringText: () => 'record', t: x => x,
+    accountMonitoringAge: () => 'deployment age', accountObservationAge: () => '1 minute ago', accountMonitoringText: () => 'record', t: x => x,
+    runtimeOverviewStatus: () => ({ status: sample.runtimeStatus, reason: sample.runtimeReason }),
   };
   const rows = frontendFunction('overviewAccounts', context)();
   assert.equal(rows.length, 1, 'hidden platforms never appear');
   assert.equal(rows[0].configured, sample.configured === undefined ? 'unknown' : sample.configured ? 'enabled' : 'disabled');
   assert.equal(rows[0].unknown, sample.unknown);
   assert.equal(rows[0].attention, sample.attention);
+  assert.equal(rows[0].runtimeStatus, sample.runtimeStatus);
+  assert.equal(rows[0].runtimeReason, sample.runtimeReason);
   assert.equal(frontendFunction('overviewAccounts', {...context, hasPrivateConfig: () => false})().length, 0);
 });
 
 test('overview filters preserve unknown and search only the chosen scope', () => {
   const rows = [
-    { platformLabel: 'Binance', account: { label: 'Main' }, strategy: 'Crypto', configured: 'enabled', attention: true },
-    { platformLabel: 'IBKR', account: { label: 'Second' }, strategy: 'Trend', configured: 'disabled', attention: false },
-    { platformLabel: 'LongBridge', account: { label: 'SG' }, strategy: 'Trend', configured: 'unknown', attention: true },
+    { platformLabel: 'Binance', account: { label: 'Main' }, strategy: 'Crypto', runtimeStatus: 'abnormal' },
+    { platformLabel: 'IBKR', account: { label: 'Second' }, strategy: 'Trend', runtimeStatus: 'paused' },
+    { platformLabel: 'LongBridge', account: { label: 'SG' }, strategy: 'Trend', runtimeStatus: 'normal' },
   ];
   const filter = frontendFunction('filterOverviewAccounts', {});
-  assert.equal(filter(rows, 'disabled', '').length, 1);
-  assert.equal(filter(rows, 'enabled', '').length, 1);
-  assert.equal(filter(rows, 'attention', '').length, 2);
+  assert.equal(filter(rows, 'paused', '').length, 1);
+  assert.equal(filter(rows, 'normal', '').length, 1);
+  assert.equal(filter(rows, 'abnormal', '').length, 1);
   assert.equal(filter(rows, 'all', '  bINAnCe ').length, 1);
-  assert.equal(filter(rows, 'enabled', 'Trend').length, 0);
+  assert.equal(filter(rows, 'normal', 'Trend').length, 1);
   assert.equal(filter(rows, 'all', 'not-found').length, 0);
 });
 
@@ -929,7 +988,7 @@ for (const view of ['overview', 'accounts', 'research']) test(`workspace navigat
   const render = frontendFunction('renderWorkspace', context);
   render();
   for (const name of ['overview', 'accounts', 'research']) assert.equal(nodes[`${name}-view`].hidden, name !== view);
-  assert.equal(nodes['platform-strip'].hidden, view === 'overview');
+  assert.equal(nodes['platform-strip'].hidden, view !== 'accounts');
   assert.equal(nodes['health-view'].hidden, view !== 'research');
   assert.equal(buttons.filter(button => button.attributes['aria-current'] === 'page').length, 1);
   assert.equal(nav.hidden, false);

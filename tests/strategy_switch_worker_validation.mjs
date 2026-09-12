@@ -528,6 +528,24 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       can_switch_live: true,
       allowed_execution_modes: ["live", "dry_run"],
     },
+    {
+      profile: "paper_only_candidate",
+      label: "Paper only candidate",
+      domain: "us_equity",
+      runtime_enabled: false,
+      lifecycle_stage: "research_active",
+      can_switch_live: false,
+      allowed_execution_modes: ["paper"],
+    },
+    {
+      profile: "tqqq_core",
+      label: "TQQQ core",
+      domain: "us_equity",
+      runtime_enabled: true,
+      lifecycle_stage: "runtime_enabled",
+      can_switch_live: true,
+      allowed_execution_modes: ["live", "dry_run"],
+    },
   ],
   "test_strategy_profiles",
 );
@@ -630,6 +648,7 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
         deployment_selector: "demo-ibkr-tqqq",
         account_scope: "demo-ibkr-tqqq",
         service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+        broker_environment: "live",
       },
     ],
     schwab: [
@@ -651,6 +670,66 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
   },
   "test_account_options",
 );
+
+const candidateSelectionOptions = __test.normalizeAccountOptionsPayload({
+  longbridge: [{
+    key: 'paper', label: 'LongBridge paper', target_name: 'paper',
+    supported_domains: ['us_equity'], broker_environment: 'paper',
+    default_execution_mode: 'live',
+  }],
+  ibkr: [{
+    key: 'live', label: 'IBKR live', target_name: 'live',
+    supported_domains: ['us_equity'], broker_environment: 'live',
+    default_execution_mode: 'live',
+  }],
+}, 'candidate_selection_options');
+assert.deepEqual(
+  __test.validateResearchPromotionSelectedAccount({
+    ticket: { strategy_profile: 'paper_only_candidate', domain: 'us_equity' },
+    selectedAccount: { platform: 'longbridge', key: 'paper' },
+    confirmation: { target_platform: 'longbridge', execution_mode: 'paper', risk_profile: 'CAPITAL_PRESERVATION' },
+    accountOptions: candidateSelectionOptions,
+    strategyProfiles,
+  }),
+  { platform: 'longbridge', key: 'paper', broker_environment: 'paper' },
+);
+assert.throws(
+  () => __test.validateResearchPromotionSelectedAccount({
+    ticket: { strategy_profile: 'paper_only_candidate', domain: 'us_equity' },
+    selectedAccount: { platform: 'ibkr', key: 'live' },
+    confirmation: { target_platform: 'ibkr', execution_mode: 'paper', risk_profile: 'CAPITAL_PRESERVATION' },
+    accountOptions: candidateSelectionOptions,
+    strategyProfiles,
+  }),
+  /paper|environment/,
+);
+assert.throws(
+  () => __test.validateResearchPromotionSelectedAccount({
+    ticket: { strategy_profile: 'paper_only_candidate', domain: 'us_equity' },
+    selectedAccount: { platform: 'longbridge', key: 'paper' },
+    confirmation: { target_platform: 'longbridge', execution_mode: 'live', risk_profile: 'CAPITAL_PRESERVATION' },
+    accountOptions: candidateSelectionOptions,
+    strategyProfiles,
+  }),
+  /does not match|paper/,
+);
+const crossPlatformDomainOptions = __test.normalizeAccountOptionsPayload({
+  qmt: [{
+    key: 'misdeclared-us', label: 'QMT misdeclared US', target_name: 'misdeclared-us',
+    supported_domains: ['us_equity'], broker_environment: 'live', default_execution_mode: 'live',
+  }],
+}, 'cross_platform_domain_options');
+assert.throws(
+  () => __test.validateResearchPromotionSelectedAccount({
+    ticket: { strategy_profile: 'tqqq_core', domain: 'us_equity' },
+    selectedAccount: { platform: 'qmt', key: 'misdeclared-us' },
+    confirmation: { target_platform: 'qmt', execution_mode: 'live', risk_profile: 'CAPITAL_PRESERVATION' },
+    accountOptions: crossPlatformDomainOptions,
+    strategyProfiles,
+  }),
+  /domain/,
+);
+assert.deepEqual(__test.supportedDomainsForAccount('qmt', crossPlatformDomainOptions.qmt[0]), []);
 
 assert.deepEqual(accountOptions.longbridge[0].supported_domains, ["us_equity", "hk_equity"]);
 assert.deepEqual(accountOptions.longbridge[1].supported_domains, ["us_equity", "hk_equity"]);
@@ -3661,7 +3740,7 @@ assert.equal(promotionListPayload.applications[0].application_preparation.prefli
 assert.equal(promotionListPayload.applications[0].application_preparation.dispatch_allowed, false);
 assert.deepEqual(
   promotionListPayload.applications[0].application_preparation.blocker_codes,
-  ["activation_not_connected", "candidate_params_unbound", "strategy_not_configured"],
+  ["activation_not_connected", "candidate_params_unbound"],
 );
 const listEnvelope = promotionListPayload.tickets[0].risk_envelope_view;
 assert.ok(listEnvelope);
@@ -3691,6 +3770,7 @@ const promotionAccept = await worker.fetch(
         execution_mode: "live",
         risk_profile: "BALANCED_COMPOUNDING",
       },
+      selected_account: { platform: "ibkr", key: "ibkr-primary" },
     }),
   }),
   researchPromotionEnv,
@@ -3745,6 +3825,7 @@ assert.equal(
             execution_mode: "live",
             risk_profile: "BALANCED_COMPOUNDING",
           },
+          selected_account: { platform: "ibkr", key: "ibkr-primary" },
         }),
       }),
       researchPromotionEnv,
@@ -3802,6 +3883,7 @@ assert.deepEqual(readyApplication.application_preparation.account_options, [{
   key: "ibkr-primary",
   label: "ibkr-primary",
   configured_execution_mode: "live",
+  broker_environment: "live",
   preflight_status: "ready",
   blocker_codes: [],
 }]);
@@ -3814,6 +3896,7 @@ assert.equal(blockedV7Application.application_preparation.dispatch_allowed, fals
 assert.deepEqual(blockedV7Application.application_preparation.blocker_codes, [
   "activation_not_connected",
   "candidate_params_unbound",
+  "configured_account_missing",
   "strategy_not_configured",
 ]);
 
@@ -3886,6 +3969,7 @@ const paperDenied = await worker.fetch(
         execution_mode: "paper",
         risk_profile: "CAPITAL_PRESERVATION",
       },
+      selected_account: { platform: "ibkr", key: "ibkr-primary" },
     }),
   }),
   researchPromotionEnv,
@@ -4001,6 +4085,7 @@ const mismatchedAccept = await worker.fetch(
         execution_mode: "live",
         risk_profile: "BALANCED_COMPOUNDING",
       },
+      selected_account: { platform: "ibkr", key: "ibkr-primary" },
     }),
   }),
   researchPromotionEnv,
@@ -4025,6 +4110,7 @@ const matchingAccept = await worker.fetch(
         execution_mode: "live",
         risk_profile: "BALANCED_COMPOUNDING",
       },
+      selected_account: { platform: "ibkr", key: "ibkr-primary" },
     }),
   }),
   researchPromotionEnv,
@@ -4062,8 +4148,11 @@ assert.equal(promotionFetchMissing.status, 404);
 assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
 assert.equal(indexHtml.includes('id="promotion-execution-mode-select"'), false);
 assert.ok(indexHtml.includes('id="promotion-execution-mode-readonly"'));
-assert.ok(indexHtml.includes('id="promotion-application-select"'));
-assert.ok(indexHtml.includes('id="promotion-application-account-select"'));
+assert.ok(indexHtml.includes('id="promotion-target-platform-select"'));
+assert.ok(indexHtml.includes('id="promotion-broker-environment-select"'));
+assert.ok(indexHtml.includes('id="promotion-selected-account-select"'));
+assert.equal(indexHtml.includes('id="promotion-application-select"'), false);
+assert.equal(indexHtml.includes('id="promotion-application-account-select"'), false);
 assert.ok(indexHtml.includes('id="promotion-application-status"'));
 assert.ok(indexHtml.includes('function renderPromotionApplicationPreparation()'));
 assert.equal(indexHtml.includes('hint.split(/\\s+/).includes("paper")'), false);

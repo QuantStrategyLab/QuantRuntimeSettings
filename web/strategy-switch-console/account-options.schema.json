@@ -25,6 +25,7 @@
         "account_scope": { "type": "string" },
         "service_name": { "type": "string" },
         "cash_currency": { "type": "string" },
+        "broker_environment": { "type": "string", "enum": ["live", "paper"] },
         "default_execution_mode": { "type": "string" },
         "default_strategy_profile": { "type": "string" }
       }

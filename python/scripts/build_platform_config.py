@@ -45,6 +45,7 @@ def build_config_module(config: dict) -> str:
         depl = pdata["deployment"]
         platform_config[pid] = {
             "dry_run_only": depl.get("dry_run_only", False),
+            "supported_domains": pdata.get("supported_domains", []),
             "margin_policy": caps.get("margin_policy", False),
             "reserved_cash": caps.get("reserved_cash", False),
             "income_layer": caps.get("income_layer", False),
