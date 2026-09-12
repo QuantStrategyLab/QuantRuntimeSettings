@@ -100,6 +100,7 @@ jobs:
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs
+          node --experimental-default-type=module tests/account_diagnosis_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_stop_worker_validation.mjs
           node --experimental-default-type=module tests/binance_resume_worker_validation.mjs
           node --experimental-default-type=module --test tests/console_runtime_state_validation.mjs
