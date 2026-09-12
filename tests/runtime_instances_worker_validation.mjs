@@ -134,6 +134,15 @@ try {
   const retirementWithoutCatalog = await call({ action: "request_retirement", expected_revision: beforeRestart.revision, platform: "ibkr", key: draft.key });
   assert.equal(retirementWithoutCatalog.status, 200);
   assert.equal(retirementWithoutCatalog.body.instances[1].retirement_status, "requested");
+  const setBrokerEnvironment = await call({ action: "set_broker_environment", expected_revision: retirementWithoutCatalog.body.revision, platform: "ibkr", key: "existing", broker_environment: "live" });
+  assert.equal(setBrokerEnvironment.status, 200);
+  const configuredEnvironment = setBrokerEnvironment.body.instances.find((item) => item.key === "existing");
+  assert.equal(configuredEnvironment.config.broker_environment, "live");
+  assert.equal(configuredEnvironment.enabled, null);
+  assert.equal(configuredEnvironment.platform_applied, null);
+  assert.equal(configuredEnvironment.application_status, "unknown");
+  assert.equal(setBrokerEnvironment.body.history[0].action, "set_broker_environment");
+  assert.equal(outbound, 0, "environment metadata must not dispatch workflows or broker requests");
   // Inject a real SQLite failure after instance_state is written. This test-only
   // subclass is never in production: rollback must restore both tables.
   await mf.dispose();

@@ -117,35 +117,31 @@
         overviewDescription: "查看已保存的配置、实际读回与最近运行记录。",
         accountsDescription: "先查看当前账户状态，需要调整时再展开设置。",
         researchDescription: "查看候选与待办，按需展开研究记录。",
-        configuredAccounts: "已配置账户",
-        configuredEnabled: "配置已启用",
-        configuredDisabled: "配置已停用",
-        actualUnverified: "实际状态待核实",
         accountsTitle: "账户",
         accountFilters: "筛选账户",
         filterAll: "全部",
-        filterEnabled: "已启用",
-        filterDisabled: "已停用",
-        filterAttention: "待核实 / 不一致",
+        filterNormal: "正常",
+        filterPaused: "暂停",
+        filterAbnormal: "异常",
         searchAccounts: "搜索账户或策略",
         overviewRuntime: "运行情况",
-        latestReadback: "最近读回",
+        latestReadback: "最近检查",
         accountActions: "账户操作",
         viewAccount: "查看",
         viewAccountLabel: "查看 {account}",
-        overviewEvidenceNote: "状态来自实际读回；保存配置不代表已经运行或成交。",
+        overviewEvidenceNote: "状态来自最近检查；保存配置不代表策略已经运行或有成交。",
         clearFilters: "清除筛选",
         viewUnverified: "查看待核实账户",
         overviewUnverifiedTitle: "实际运行状态尚未完整读回",
         overviewUnverifiedDescription: "启用配置不代表策略已开始运行。",
         overviewAttentionTitle: "有账户需要核对",
-        overviewAttentionDescription: "配置与实际读回不一致，或运行记录提示异常。请查看对应账户。",
-        overviewReadTitle: "配置与开关读回一致",
-        overviewReadDescription: "这表示开关已应用；策略执行及成交请以运行报告为准。",
+        overviewAttentionDescription: "有账户的配置还没同步，或最近检查需要查看。请打开对应账户。",
+        overviewReadTitle: "配置与最近检查一致",
+        overviewReadDescription: "开关已经同步；策略运行和成交请以运行报告为准。",
         overviewLoadingTitle: "正在读取账户状态",
         overviewLoadingDescription: "配置和运行读回将分别显示，请稍候。",
         overviewUnavailableTitle: "暂时未读到账户配置",
-        overviewUnavailableDescription: "请刷新重试。无法读取的状态不会作为停用或正常显示。",
+        overviewUnavailableDescription: "请刷新重试。读不到的状态会显示为异常，并标明原因。",
         overviewEmptyTitle: "没有匹配的账户",
         overviewEmptyDescription: "试试其他关键词，或清除当前筛选。",
         overviewNoAccountsTitle: "暂无可显示的账户",
@@ -155,10 +151,16 @@
         pageNotRefreshed: "等待读取",
         savedState: "配置：{state}",
         overviewActualUnknown: "实际待核实",
-        overviewRuntimeAttention: "运行记录需核对",
+        overviewRuntimeNormal: "正常",
+        overviewRuntimePaused: "暂停",
+        overviewRuntimeAbnormal: "异常",
+        overviewRuntimeReasonPending: "状态待确认",
+        overviewRuntimeReasonStale: "检查过期",
+        overviewRuntimeReasonConfig: "配置未同步",
+        overviewRuntimeReasonAttention: "最近检查发现问题",
         viewResearch: "前往研究页",
         researchPendingCount: "研究页有 {count} 条可审候选",
-        researchIntro: "研究候选与当前运行分开管理。接受候选只记录意向，不启用交易。",
+        researchIntro: "研究候选与当前运行分开管理。",
         accountDetailAction: "下一步",
         loginTitle: "管理你的量化平台",
         loginDescription: "配置策略，关注运行，处理重要决策。",
@@ -199,11 +201,12 @@
         monitoringUnlinked: "待关联",
         monitoringTime: "记录时间",
         monitoringDetails: "监测详情",
-        promotionIntentPlatform: "接受候选时的意向平台",
+        promotionIntentPlatform: "建议使用的平台",
         platformManagement: "决策与账户",
         strategySettings: "策略设置",
         strategySettingsHint: "需要启停或调整策略时展开",
         accountNextStep: "下一步",
+        recheckRuntimeStatus: "重新检查状态",
         accountScrollHint: "左右滑动查看实际状态与下一步",
         awaitDeploymentReadback: "等待有效读回",
         noSwitchAction: "开关无需处理",
@@ -218,7 +221,7 @@
 
         controlPlaneEyebrow: "待处理事项",
         controlPlaneTitle: "需要你决定",
-        controlPlaneSubtitle: "只有材料完整且仍需你确认的事项会出现在这里。",
+        controlPlaneSubtitle: "这里显示仍需要你决定的事项。",
         controlPlaneProgressTitle: "观察进度",
         controlPlaneProgressSubtitle: "自动观察的最新记录，无需操作。",
         controlPlaneMixedTitle: "研究进度与待办",
@@ -239,14 +242,14 @@
         controlAttentionRequired: "需要关注",
         controlAttentionUnavailable: "等待数据",
         controlLoginNotice: "登录后查看待处理事项和运行状态。",
-        controlStaleNotice: "部分研究材料待更新；更新前暂不能确认是否有新的决策事项。",
+        controlStaleNotice: "有些研究数据还没更新，暂时无法确认新的事项。",
         controlUnavailableNotice: "暂时无法读取最新状态，请稍后刷新。",
-        controlUpstreamNotice: "部分材料待核实；核实前暂不能确认是否有新的决策事项。",
+        controlUpstreamNotice: "有些研究数据还没准备好，暂时无法确认新的事项。",
         controlAttentionNotice: "有 {count} 项需要你确认。",
         controlNormalNotice: "目前没有需要你决定的事项。",
-        controlNormalSummary: "暂时无需操作，可查看账户和研究进度。",
-        controlStaleSummary: "材料更新后再确认待办。",
-        controlUnavailableSummary: "最新材料无法读取，暂不能确认新的决策事项。",
+        controlNormalSummary: "暂无需要你决定的事项。你可以查看账户和研究进度。",
+        controlStaleSummary: "数据更新后再看待办。",
+        controlUnavailableSummary: "暂时读不到最新数据，无法确认新的事项。",
         controlLoginSummary: "登录后查看你的待办和系统概览。",
         controlAttentionSummary: "请查看下方事项并记录你的决定。",
         decisionBackgroundSummary: "系统进度与历史记录",
@@ -266,9 +269,9 @@
         controlStatus: "当前状态",
         ownerDecisionTitle: "请选择下一步",
         ownerDecisionAdminOnly: "请由管理员确认。",
-        ownerDecisionReady: "材料已齐备。这里记录决定，不会直接启用交易。",
+        ownerDecisionReady: "数据已准备好。这里记录决定，不会直接启用交易。",
         ownerDecisionRecorded: "已保存：{decision}",
-        ownerDecisionApprove: "记录试运行意向",
+        ownerDecisionApprove: "接受建议",
         ownerDecisionPark: "保持暂停",
         ownerDecisionRetire: "停止跟踪",
         ownerDecisionConfirm: "确认保存此项决定？",
@@ -353,7 +356,7 @@
         runtimeTargetLifecycleCheckNotApplicable: "不适用",
         runtimeTargetLifecycleCheckUnavailable: "不可用",
         runtimeTargetLifecycleObservationNotDue: "未到应交易窗口",
-        runtimeTargetLifecycleObservationMonitoringOnly: "仅监测通过",
+        runtimeTargetLifecycleObservationMonitoringOnly: "最近检查通过",
         runtimeTargetLifecycleObservationNotApplicable: "检查时已停用",
         runtimeTargetLifecycleObservationAttention: "运行检查异常",
         runtimeTargetLifecycleObservationUnavailable: "不可用",
@@ -476,18 +479,21 @@
         dryRun: "不下单演练",
         promotionConfirmTitle: "确认研究候选",
         promotionDecisionEyebrow: "待决策",
+        promotionTargetPlatform: "目标平台",
+        promotionBrokerEnvironment: "券商环境",
+        promotionAccount: "具体账户",
         promotionExecutionMode: "目标执行模式",
-        promotionExecutionModeReadonly: "所选账户模式：{mode}（实际状态以运行读回为准）",
+        promotionExecutionModeReadonly: "账户环境：{mode}",
         promotionNoOrderCannotConfirm: "当前账户是不下单演练；不能把它记录成券商 paper 或实盘意向。",
         promotionRiskProfile: "风险档",
-        promotionConfirmMeta: "接受仅记录意向，不启用交易，也不替换正在运行的策略。",
-        promotionTargetSummary: "意向平台：{platform}；当前账户：{account}。本次确认不绑定账户或授予执行权限。",
+        promotionConfirmMeta: "接受建议只记录研究决定，不会启用交易或替换当前策略。",
+        promotionTargetSummary: "建议平台：{platform}；当前账户：{account}。",
         promotionTargetUnavailable: "有研究候选待确认，但当前没有可见目标平台。",
         promotionRiskDetails: "风险档与账户资料",
-        promotionRiskScaleMeta: "按保本、平衡、增长顺序，晋级仓位缩放为 0.50 / 0.75 / 1.00，仅适用于新晋级或材料变更；组合相对无杠杆基准的回撤上限倍数为 1.00 / 1.25 / 1.50。两者含义不同，不会据此调整现有实盘。",
+        promotionRiskScaleMeta: "按控制回撤、兼顾收益与回撤、更看重收益的顺序，晋级仓位缩放为 0.50 / 0.75 / 1.00，仅适用于新晋级或数据变更；组合相对无杠杆基准的回撤上限倍数为 1.00 / 1.25 / 1.50。两者含义不同，不会据此调整现有实盘。",
         promotionPaperUnavailable: "该平台无券商 paper/sim，已禁用 paper",
         promotionTicket: "待确认候选",
-        promotionAccept: "接受意图",
+        promotionAccept: "接受建议",
         promotionReject: "拒绝",
         promotionTicketEmpty: "当前没有待确认的研究候选。",
         promotionTicketLoginRequired: "请先登录（需权限账号）后再刷新",
@@ -501,23 +507,23 @@
         promotionUnverifiedCount: "{count} 条旧记录 · 材料待核实",
         promotionUnverifiedHint: "这是一条旧研究记录，缺少观察材料类型，尚不能认定为已验证的策略。暂不需要接受或拒绝；补齐来源后再评估。",
         promotionOriginalRecord: "查看原始名称与材料",
-        promotionDecisionHint: "请先看研究结果、风险和材料来源，再决定是否接受这份建议。接受只记录意向，不会替换当前策略或开启交易。",
-        promotionTicketEvidenceKind: "观察材料类型：{kind}",
-        promotionTicketParams: "候选参数：{params}",
-        promotionTicketNotification: "记录说明：{body}",
+        promotionDecisionHint: "先查看研究结果、风险和来源，再决定是否接受建议。",
+        promotionTicketEvidenceKind: "观察类型：{kind}",
+        promotionTicketParams: "建议参数：{params}",
+        promotionTicketNotification: "说明：{body}",
         promotionObservationReported: "记录上报观察通过，尚不代表完整验证通过。",
         promotionObservationFailed: "记录上报观察未通过。",
         promotionObservationMissing: "记录未提供观察结果。",
-        promotionEvidenceSourceMissing: "材料待核实：记录未注明观察材料类型，请先核实来源。",
-        promotionEvidenceNeedsReview: "观察材料类型已注明，仍需核对来源与完整验证材料。",
+        promotionEvidenceSourceMissing: "来源还没写清楚：记录没有观察类型，请先查看来源。",
+        promotionEvidenceNeedsReview: "已注明观察类型，但来源和完整检查还需要查看。",
         promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
         promotionDecisionFailed: "晋级确认失败",
-        promotionApplicationTitle: "应用准备",
-        promotionApplicationHint: "只读核对候选、具体账户和现有策略目录；不会提交变更。",
+        promotionApplicationTitle: "账户检查",
+        promotionApplicationHint: "这里只查看候选、账户和策略是否匹配；选择项在上方管理，不会提交变更。",
         promotionApplicationCandidate: "研究候选",
         promotionApplicationAccount: "目标账户",
-        promotionApplicationReady: "账户与策略检查通过；账户应用尚未接通，系统未提交变更。",
-        promotionApplicationBlocked: "当前不能应用：{reasons}。系统未提交变更。",
+        promotionApplicationReady: "账户和策略检查通过；系统没有提交变更。",
+        promotionApplicationBlocked: "当前还不能使用：{reasons}。系统没有提交变更。",
         promotionApplicationOpen: "在账户设置中查看",
         promotionApplicationEmpty: "没有可准备的研究候选。",
         promotionApplicationBlockActivation: "账户应用尚未接通",
@@ -525,10 +531,11 @@
         promotionApplicationBlockStrategy: "缺少同名可运行的策略版本",
         promotionApplicationBlockAccount: "没有匹配的已配置账户",
         promotionApplicationBlockEvidence: "研究材料尚未核实",
+        promotionApplicationBlockBrokerEnvironment: "券商环境未明确或不受支持",
         promotionApplicationBlockPreflight: "账户或策略检查未通过",
-        riskCapitalPreservation: "保本优先",
-        riskBalancedCompounding: "平衡复利",
-        riskGrowthCompounding: "增长复利",
+        riskCapitalPreservation: "优先控制回撤",
+        riskBalancedCompounding: "兼顾收益与回撤",
+        riskGrowthCompounding: "更看重收益",
         riskEnvelopeTitle: "账户风险信封",
         riskEnvelopePreference: "风险偏好",
         riskEnvelopeCapitalBand: "资金档",
@@ -537,8 +544,8 @@
         riskEnvelopeMeta: "只读展示；不授予实盘、不自动升档。",
         riskEnvelopeAwaitingEquity: "待对账权益注入",
         riskEnvelopeUnset: "未设定",
-        promotionModeLive: "实盘（仍须另授权启用）",
-        promotionModePaper: "券商 paper/sim",
+        promotionModeLive: "实盘交易",
+        promotionModePaper: "模拟交易",
         liveModeUnavailable: "本次切换暂不具备实盘资格。现有账户状态请看上方。",
         runtimeTargetMode: "平台开关",
         runtimeStopConfirm: "将为当前账号提交停用。只保存并核对停用配置，不应用表单其他修改；平台是否已停止仍未知。不撤单、不平仓，不能保证在途请求结束。继续？",
@@ -698,35 +705,31 @@
         overviewDescription: "Saved settings, actual readback, and recent runtime records.",
         accountsDescription: "Review the account first. Expand settings when you need to make a change.",
         researchDescription: "Review candidates and decisions. Open research records as needed.",
-        configuredAccounts: "Configured accounts",
-        configuredEnabled: "Enabled in settings",
-        configuredDisabled: "Disabled in settings",
-        actualUnverified: "Actual state unverified",
         accountsTitle: "Accounts",
         accountFilters: "Filter accounts",
         filterAll: "All",
-        filterEnabled: "Enabled",
-        filterDisabled: "Disabled",
-        filterAttention: "Unverified / mismatch",
+        filterNormal: "Normal",
+        filterPaused: "Paused",
+        filterAbnormal: "Needs attention",
         searchAccounts: "Search accounts or strategies",
         overviewRuntime: "Runtime state",
-        latestReadback: "Latest readback",
+        latestReadback: "Latest check",
         accountActions: "Account actions",
         viewAccount: "View",
         viewAccountLabel: "View {account}",
-        overviewEvidenceNote: "Status comes from runtime readback. Saved settings do not prove execution or fills.",
+        overviewEvidenceNote: "Status comes from the latest check. Saved settings do not prove execution or fills.",
         clearFilters: "Clear filters",
         viewUnverified: "View accounts to check",
         overviewUnverifiedTitle: "Actual runtime state is not fully verified",
         overviewUnverifiedDescription: "An enabled setting does not prove the strategy has started.",
         overviewAttentionTitle: "Some accounts need a closer look",
-        overviewAttentionDescription: "Settings differ from readback, or a runtime record needs attention. Review the affected accounts.",
-        overviewReadTitle: "Settings agree with switch readback",
-        overviewReadDescription: "Switches are applied. Check runtime reports for strategy execution and fills.",
+        overviewAttentionDescription: "An account is out of sync, or its latest check needs review. Open the affected account.",
+        overviewReadTitle: "Settings agree with the latest check",
+        overviewReadDescription: "The switch is synchronized. Use runtime reports for strategy execution and fills.",
         overviewLoadingTitle: "Reading account state",
         overviewLoadingDescription: "Settings and runtime readback will appear separately. Please wait.",
         overviewUnavailableTitle: "Account settings could not be read",
-        overviewUnavailableDescription: "Refresh to try again. Missing state is not shown as disabled or healthy.",
+        overviewUnavailableDescription: "Refresh to try again. Missing state is shown as needing attention with a reason.",
         overviewEmptyTitle: "No matching accounts",
         overviewEmptyDescription: "Try another search, or clear your filters.",
         overviewNoAccountsTitle: "No accounts to display",
@@ -736,10 +739,16 @@
         pageNotRefreshed: "Waiting for data",
         savedState: "Setting: {state}",
         overviewActualUnknown: "Unverified",
-        overviewRuntimeAttention: "Check runtime record",
+        overviewRuntimeNormal: "Normal",
+        overviewRuntimePaused: "Paused",
+        overviewRuntimeAbnormal: "Needs attention",
+        overviewRuntimeReasonPending: "Status needs confirmation",
+        overviewRuntimeReasonStale: "Check is out of date",
+        overviewRuntimeReasonConfig: "Settings not synchronized",
+        overviewRuntimeReasonAttention: "The latest check found a problem",
         viewResearch: "Go to research",
         researchPendingCount: "{count} reviewable candidate(s) in Research",
-        researchIntro: "Research candidates are separate from current runtime. Accepting records intent; it does not enable trading.",
+        researchIntro: "Research candidates are separate from current runtime.",
         accountDetailAction: "Next step",
         loginTitle: "Your trading workspace",
         loginDescription: "Configure strategies. Monitor operations. Make key decisions.",
@@ -780,11 +789,12 @@
         monitoringUnlinked: "Not linked",
         monitoringTime: "Recorded at",
         monitoringDetails: "Monitoring details",
-        promotionIntentPlatform: "Intent platform when accepting a candidate",
+        promotionIntentPlatform: "Suggested platform",
         platformManagement: "Decisions and accounts",
         strategySettings: "Strategy settings",
         strategySettingsHint: "Expand to enable, disable or change a strategy",
         accountNextStep: "Next step",
+        recheckRuntimeStatus: "Recheck status",
         accountScrollHint: "Scroll horizontally for actual status and next step",
         awaitDeploymentReadback: "Await verified readback",
         noSwitchAction: "No switch action needed",
@@ -799,7 +809,7 @@
 
         controlPlaneEyebrow: "To do",
         controlPlaneTitle: "Decisions for you",
-        controlPlaneSubtitle: "Only current, complete items that still need your confirmation appear here.",
+        controlPlaneSubtitle: "This is where items that still need your decision appear.",
         controlPlaneProgressTitle: "Observation progress",
         controlPlaneProgressSubtitle: "Latest automated observation. No action is needed.",
         controlPlaneMixedTitle: "Research progress & tasks",
@@ -820,14 +830,14 @@
         controlAttentionRequired: "Needs attention",
         controlAttentionUnavailable: "Waiting for data",
         controlLoginNotice: "Sign in to see your to-do items and runtime status.",
-        controlStaleNotice: "Some research material needs updating. Until then, new decision items cannot be confirmed.",
+        controlStaleNotice: "Some research data has not been updated, so new items cannot be confirmed yet.",
         controlUnavailableNotice: "The latest status is temporarily unavailable. Please refresh later.",
-        controlUpstreamNotice: "Some material needs verification. Until then, new decision items cannot be confirmed.",
+        controlUpstreamNotice: "Some research data is not ready, so new items cannot be confirmed yet.",
         controlAttentionNotice: "{count} item(s) need your decision.",
         controlNormalNotice: "There is nothing you need to decide right now.",
-        controlNormalSummary: "No action is needed now. You can review account and research progress.",
-        controlStaleSummary: "Check decision items after the material is updated.",
-        controlUnavailableSummary: "The latest material could not be read, so new decision items cannot be confirmed.",
+        controlNormalSummary: "There is nothing you need to decide right now. You can review account and research progress.",
+        controlStaleSummary: "Check the to-do items after the data is updated.",
+        controlUnavailableSummary: "The latest data could not be read, so new items cannot be confirmed.",
         controlLoginSummary: "Sign in to see your tasks and system overview.",
         controlAttentionSummary: "Review the items below and record your decision.",
         decisionBackgroundSummary: "System progress and decision history",
@@ -847,9 +857,9 @@
         controlStatus: "Current status",
         ownerDecisionTitle: "Choose the next step",
         ownerDecisionAdminOnly: "An administrator needs to confirm this.",
-        ownerDecisionReady: "The evidence is ready. This records a decision; it does not enable trading.",
+        ownerDecisionReady: "The data is ready. This records a decision; it does not enable trading.",
         ownerDecisionRecorded: "Saved: {decision}",
-        ownerDecisionApprove: "Record trial intent",
+        ownerDecisionApprove: "Accept suggestion",
         ownerDecisionPark: "Keep parked",
         ownerDecisionRetire: "Stop tracking",
         ownerDecisionConfirm: "Save this decision?",
@@ -934,7 +944,7 @@
         runtimeTargetLifecycleCheckNotApplicable: "not applicable",
         runtimeTargetLifecycleCheckUnavailable: "unavailable",
         runtimeTargetLifecycleObservationNotDue: "not in a due window",
-        runtimeTargetLifecycleObservationMonitoringOnly: "monitoring only",
+        runtimeTargetLifecycleObservationMonitoringOnly: "latest check passed",
         runtimeTargetLifecycleObservationNotApplicable: "Disabled record",
         runtimeTargetLifecycleObservationAttention: "needs review",
         runtimeTargetLifecycleObservationUnavailable: "unavailable",
@@ -1057,18 +1067,21 @@
         dryRun: "No-order simulation",
         promotionConfirmTitle: "Review research candidate",
         promotionDecisionEyebrow: "Decisions",
+        promotionTargetPlatform: "Target platform",
+        promotionBrokerEnvironment: "Broker environment",
+        promotionAccount: "Specific account",
         promotionExecutionMode: "Target execution mode",
-        promotionExecutionModeReadonly: "Selected account mode: {mode} (verify against runtime readback)",
+        promotionExecutionModeReadonly: "Account environment: {mode}",
         promotionNoOrderCannotConfirm: "This account is in no-order simulation; it cannot be recorded as broker paper or live intent.",
         promotionRiskProfile: "Risk profile",
-        promotionConfirmMeta: "Accept records intent only. It does not enable trading or replace the running strategy.",
-        promotionTargetSummary: "Intended platform: {platform}; current account: {account}. This confirmation does not bind an account or grant execution authority.",
+        promotionConfirmMeta: "Accepting records your research decision. It does not enable trading or replace the current strategy.",
+        promotionTargetSummary: "Suggested platform: {platform}; current account: {account}.",
         promotionTargetUnavailable: "Research candidates await confirmation, but no target platform is visible.",
         promotionRiskDetails: "Risk profiles and account context",
-        promotionRiskScaleMeta: "For preservation, balanced and growth profiles, promotion size scales are 0.50 / 0.75 / 1.00 for new promotions or material changes only. Portfolio drawdown caps relative to the unlevered benchmark are 1.00 / 1.25 / 1.50. These have different meanings and do not change existing live settings.",
+        promotionRiskScaleMeta: "For drawdown control, balanced and growth-focused profiles, promotion size scales are 0.50 / 0.75 / 1.00 for new promotions or data changes only. Portfolio drawdown caps relative to the unlevered benchmark are 1.00 / 1.25 / 1.50. These have different meanings and do not change existing live settings.",
         promotionPaperUnavailable: "Broker paper/sim unavailable on this platform; paper disabled",
         promotionTicket: "Pending candidate",
-        promotionAccept: "Accept intent",
+        promotionAccept: "Accept suggestion",
         promotionReject: "Reject",
         promotionTicketEmpty: "No research candidates awaiting confirmation.",
         promotionTicketLoginRequired: "Sign in with an authorized account, then refresh",
@@ -1082,23 +1095,23 @@
         promotionUnverifiedCount: "{count} older record(s) · evidence unverified",
         promotionUnverifiedHint: "This older research record does not identify its observation evidence. It is not a verified strategy. No acceptance or rejection is needed now; review it after its source is established.",
         promotionOriginalRecord: "View original name and evidence",
-        promotionDecisionHint: "Review the research result, risk and evidence source before accepting this proposal. Acceptance records intent; it does not replace the current strategy or start trading.",
-        promotionTicketEvidenceKind: "Observation evidence type: {kind}",
-        promotionTicketParams: "Candidate parameters: {params}",
-        promotionTicketNotification: "Record note: {body}",
+        promotionDecisionHint: "Review the research result, risk and source before accepting the suggestion.",
+        promotionTicketEvidenceKind: "Observation type: {kind}",
+        promotionTicketParams: "Suggested parameters: {params}",
+        promotionTicketNotification: "Note: {body}",
         promotionObservationReported: "The record reports a passed observation; this does not establish complete validation.",
         promotionObservationFailed: "The record reports a failed observation.",
         promotionObservationMissing: "The record provides no observation outcome.",
-        promotionEvidenceSourceMissing: "Evidence needs review: no observation evidence type is recorded. Check its source first.",
-        promotionEvidenceNeedsReview: "An observation evidence type is recorded. Its source and complete validation still need review.",
+        promotionEvidenceSourceMissing: "The source is unclear: no observation type is recorded. Check the source first.",
+        promotionEvidenceNeedsReview: "An observation type is recorded, but its source and complete checks still need review.",
         promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
         promotionDecisionFailed: "Promotion confirmation failed",
-        promotionApplicationTitle: "Application preparation",
-        promotionApplicationHint: "Read-only candidate, account, and strategy checks. This does not submit a change.",
+        promotionApplicationTitle: "Account check",
+        promotionApplicationHint: "This only checks whether the candidate, account and strategy match. Selections are managed above; no change is submitted.",
         promotionApplicationCandidate: "Research candidate",
         promotionApplicationAccount: "Target account",
-        promotionApplicationReady: "Account and strategy checks passed. Account application is not connected; no change was submitted.",
-        promotionApplicationBlocked: "Cannot apply: {reasons}. No change was submitted.",
+        promotionApplicationReady: "Account and strategy checks passed; no change was submitted.",
+        promotionApplicationBlocked: "This cannot be used yet: {reasons}. No change was submitted.",
         promotionApplicationOpen: "Review in account settings",
         promotionApplicationEmpty: "No research candidate is available for preparation.",
         promotionApplicationBlockActivation: "account application is not connected",
@@ -1106,10 +1119,11 @@
         promotionApplicationBlockStrategy: "a same-name runnable strategy version is missing",
         promotionApplicationBlockAccount: "no configured account matches",
         promotionApplicationBlockEvidence: "research evidence is not verified",
+        promotionApplicationBlockBrokerEnvironment: "broker environment is missing or unsupported",
         promotionApplicationBlockPreflight: "account or strategy preflight failed",
-        riskCapitalPreservation: "Capital preservation",
-        riskBalancedCompounding: "Balanced compounding",
-        riskGrowthCompounding: "Growth compounding",
+        riskCapitalPreservation: "Drawdown control",
+        riskBalancedCompounding: "Balanced return and drawdown",
+        riskGrowthCompounding: "Growth focused",
         riskEnvelopeTitle: "Account risk envelope",
         riskEnvelopePreference: "Risk preference",
         riskEnvelopeCapitalBand: "Capital band",
@@ -1118,8 +1132,8 @@
         riskEnvelopeMeta: "Read-only; does not grant live authority or auto step-up.",
         riskEnvelopeAwaitingEquity: "Awaiting reconciled equity",
         riskEnvelopeUnset: "Unset",
-        promotionModeLive: "Live (separate enablement still required)",
-        promotionModePaper: "Broker paper/sim",
+        promotionModeLive: "Live trading",
+        promotionModePaper: "Simulated trading",
         liveModeUnavailable: "This selection is not eligible for a new live switch. See the current account state above.",
         runtimeTargetMode: "Account status",
         runtimeStopConfirm: "Submit disable for this account. Only the disable setting is saved and verified; other form edits are ignored. Whether the platform has stopped remains unknown. No cancellation or liquidation; in-flight work may continue. Continue?",
@@ -1423,6 +1437,8 @@
         },
         selectedTicketId: "",
         selectedApplicationTicketId: "",
+        selectedApplicationPlatform: "",
+        selectedApplicationEnvironment: "",
         selectedApplicationAccountKey: "",
       },
       configSource: "default",
@@ -1774,6 +1790,8 @@
 
     function inferSupportedDomains(platform, account) {
       void account;
+      const configured = typeof platformConfig !== "undefined" ? platformConfig[platform]?.supported_domains : null;
+      if (Array.isArray(configured) && configured.length) return [...configured];
       if (platform === "qmt") return ["cn_equity"];
       if (platform === "binance") return ["crypto"];
       if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
@@ -2536,7 +2554,12 @@
     function selectedPromotionApplicationAccount(application = selectedPromotionApplication()) {
       const accounts = application?.application_preparation?.account_options || [];
       const selectedKey = state.researchPromotion.selectedApplicationAccountKey || "";
-      return accounts.find((item) => `${item.platform}/${item.key}` === selectedKey) || accounts[0] || null;
+      const platform = state.researchPromotion.selectedApplicationPlatform || "";
+      const environment = state.researchPromotion.selectedApplicationEnvironment || "";
+      return accounts.find((item) => `${item.platform}/${item.key}` === selectedKey)
+        || accounts.find((item) => (!platform || item.platform === platform) && (!environment || item.broker_environment === environment))
+        || accounts[0]
+        || null;
     }
 
     function promotionApplicationBlockerLabel(code) {
@@ -2545,54 +2568,67 @@
       if (code === "strategy_not_configured") return t("promotionApplicationBlockStrategy");
       if (code === "configured_account_missing") return t("promotionApplicationBlockAccount");
       if (code === "research_evidence_unverified") return t("promotionApplicationBlockEvidence");
+      if (code === "broker_environment_unknown" || code === "broker_environment_unsupported") return t("promotionApplicationBlockBrokerEnvironment");
       return t("promotionApplicationBlockPreflight");
+    }
+
+    function renderPromotionSelectionControls(application = selectedPromotionApplication()) {
+      const platformSelect = el("promotion-target-platform-select");
+      const environmentSelect = el("promotion-broker-environment-select");
+      const accountSelect = el("promotion-selected-account-select");
+      if (!platformSelect || !environmentSelect || !accountSelect) return null;
+      const accounts = application?.application_preparation?.account_options || [];
+      const platforms = [...new Set(accounts.map((item) => item.platform))];
+      const previousPlatform = state.researchPromotion.selectedApplicationPlatform;
+      const platform = platforms.includes(previousPlatform) ? previousPlatform : (platforms[0] || "");
+      state.researchPromotion.selectedApplicationPlatform = platform;
+      platformSelect.replaceChildren();
+      for (const value of platforms) {
+        platformSelect.append(new Option(platformMeta[value]?.label || value, value, false, value === platform));
+      }
+      if (!platforms.length) platformSelect.append(new Option(t("promotionApplicationBlockAccount"), "", true, true));
+      const platformAccounts = accounts.filter((item) => item.platform === platform);
+      const environments = [...new Set(platformAccounts.map((item) => item.broker_environment).filter(Boolean))];
+      const previousEnvironment = state.researchPromotion.selectedApplicationEnvironment;
+      const environment = environments.includes(previousEnvironment) ? previousEnvironment : (environments[0] || "");
+      state.researchPromotion.selectedApplicationEnvironment = environment;
+      environmentSelect.replaceChildren();
+      for (const value of environments) {
+        environmentSelect.append(new Option(value === "paper" ? t("promotionModePaper") : t("promotionModeLive"), value, false, value === environment));
+      }
+      if (!environments.length) environmentSelect.append(new Option(t("commonUnknown"), "", true, true));
+      const filteredAccounts = platformAccounts.filter((item) => item.broker_environment === environment);
+      const previousKey = state.researchPromotion.selectedApplicationAccountKey;
+      const selectedKey = filteredAccounts.some((item) => `${item.platform}/${item.key}` === previousKey)
+        ? previousKey : (filteredAccounts[0] ? `${filteredAccounts[0].platform}/${filteredAccounts[0].key}` : "");
+      state.researchPromotion.selectedApplicationAccountKey = selectedKey;
+      accountSelect.replaceChildren();
+      for (const account of filteredAccounts) {
+        accountSelect.append(new Option(`${account.label} · ${account.key}`, `${account.platform}/${account.key}`, false, `${account.platform}/${account.key}` === selectedKey));
+      }
+      if (!filteredAccounts.length) accountSelect.append(new Option(t("promotionApplicationBlockAccount"), "", true, true));
+      const selected = filteredAccounts.find((item) => `${item.platform}/${item.key}` === selectedKey) || null;
+      const modeReadonly = el("promotion-execution-mode-readonly");
+      if (modeReadonly) {
+        const modeLabel = selected?.broker_environment === "paper" ? t("promotionModePaper") : selected?.broker_environment === "live" ? t("promotionModeLive") : t("commonUnknown");
+        modeReadonly.textContent = selected ? t("promotionExecutionModeReadonly").replace("{mode}", modeLabel) : "";
+      }
+      return selected;
     }
 
     function renderPromotionApplicationPreparation() {
       const applications = promotionApplications();
       const block = el("promotion-application-block");
-      const applicationSelect = el("promotion-application-select");
-      const accountSelect = el("promotion-application-account-select");
       const status = el("promotion-application-status");
       const openButton = el("promotion-application-open");
-      if (!block || !applicationSelect || !accountSelect || !status || !openButton) return;
+      if (!block || !status || !openButton) return;
       block.hidden = !applications.length;
-      applicationSelect.replaceChildren();
       if (!applications.length) {
         status.textContent = t("promotionApplicationEmpty");
         openButton.disabled = true;
         return;
       }
-      const previousId = state.researchPromotion.selectedApplicationTicketId;
-      const selectedId = applications.some((item) => item.ticket_id === previousId)
-        ? previousId : applications[0].ticket_id;
-      state.researchPromotion.selectedApplicationTicketId = selectedId;
-      for (const application of applications) {
-        applicationSelect.append(new Option(
-          promotionTicketDisplayName(application),
-          application.ticket_id,
-          false,
-          application.ticket_id === selectedId,
-        ));
-      }
       const application = selectedPromotionApplication();
-      const accounts = application?.application_preparation?.account_options || [];
-      accountSelect.replaceChildren();
-      const previousAccount = state.researchPromotion.selectedApplicationAccountKey;
-      const selectedAccountKey = accounts.some((item) => `${item.platform}/${item.key}` === previousAccount)
-        ? previousAccount : (accounts[0] ? `${accounts[0].platform}/${accounts[0].key}` : "");
-      state.researchPromotion.selectedApplicationAccountKey = selectedAccountKey;
-      for (const account of accounts) {
-        const key = `${account.platform}/${account.key}`;
-        const mode = t(account.configured_execution_mode === "live" ? "live" : "dryRun");
-        accountSelect.append(new Option(
-          `${platformMeta[account.platform]?.label || account.platform} · ${account.label} · ${mode}`,
-          key,
-          false,
-          key === selectedAccountKey,
-        ));
-      }
-      if (!accounts.length) accountSelect.append(new Option(t("promotionApplicationBlockAccount"), ""));
       const account = selectedPromotionApplicationAccount(application);
       const blockers = [
         ...(application?.application_preparation?.blocker_codes || []),
@@ -2611,8 +2647,9 @@
     }
 
     function promotionConfirmationExecutionMode(platform = state.selected) {
-      const mode = defaultExecutionModeForAccount(platform, selectedAccount(platform), "live");
-      return mode === "live" ? "live" : "";
+      void platform;
+      const brokerEnvironment = selectedPromotionApplicationAccount()?.broker_environment;
+      return brokerEnvironment || "";
     }
 
     function renderPromotionConfirmControls() {
@@ -2630,9 +2667,11 @@
       if (panel) panel.hidden = (!tickets.length && !applications.length) || !platformVisible;
       const notice = el("promotion-queue-notice");
       if (notice) {
-        notice.hidden = !state.auth?.allowed || ((tickets.length > 0 || applications.length > 0) && platformVisible);
+        notice.hidden = !state.auth?.allowed || (tickets.length > 0 && platformVisible);
         notice.textContent = tickets.length && !platformVisible ? t("promotionTargetUnavailable") : promotionTicketQueueMessage();
       }
+      const confirmationBlock = el("promotion-confirm-block");
+      if (confirmationBlock) confirmationBlock.hidden = !tickets.length;
       const targetSummary = el("promotion-target-summary");
       if (targetSummary) {
         targetSummary.textContent = t("promotionTargetSummary")
@@ -2665,6 +2704,17 @@
         }
       }
       const ticket = selectedPromotionTicket();
+      const selectedPromotionAccount = typeof renderPromotionSelectionControls === "function"
+        ? renderPromotionSelectionControls(selectedPromotionApplication())
+        : null;
+      const selectedPlatformVisible = selectedPromotionAccount
+        ? platformMeta[selectedPromotionAccount.platform]?.console_visible !== false
+        : platformVisible;
+      if (targetSummary) {
+        targetSummary.textContent = t("promotionTargetSummary")
+          .replace("{platform}", platformMeta[selectedPromotionAccount?.platform || platform]?.label || t("commonUnknown"))
+          .replace("{account}", selectedPromotionAccount?.label || selectedAccount(platform)?.label || t("commonUnknown"));
+      }
       const ticketDetail = el("promotion-ticket-detail");
       if (ticketDetail) ticketDetail.textContent = promotionTicketDetailMessage(ticket);
       const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
@@ -2672,10 +2722,6 @@
         : DEFAULT_PROMOTION_RISK_PROFILE;
       const previousRisk = riskSelect.value || suggested;
       const promotionMode = promotionConfirmationExecutionMode(platform);
-      modeReadonly.textContent = t("promotionExecutionModeReadonly").replace(
-        "{mode}",
-        t(promotionMode === "live" ? "live" : "dryRun"),
-      );
       riskSelect.replaceChildren();
       // Prefill from ticket suggestion unless the operator already chose another valid profile.
       const selectedRisk = PROMOTION_RISK_PROFILES.includes(previousRisk) && previousRisk
@@ -2704,9 +2750,16 @@
           ticketMeta.textContent = promotionTicketQueueMessage();
         }
       }
-      const canDecide = Boolean(ticket && state.auth?.admin && platformVisible && promotionMode);
+      const canDecide = Boolean(
+        ticket
+        && state.auth?.admin
+        && selectedPlatformVisible
+        && promotionMode
+        && selectedPromotionAccount
+        && selectedPromotionAccount.broker_environment === promotionMode
+      );
       if (acceptButton) acceptButton.disabled = !canDecide;
-      if (rejectButton) rejectButton.disabled = !Boolean(ticket && state.auth?.admin && platformVisible);
+      if (rejectButton) rejectButton.disabled = !Boolean(ticket && state.auth?.admin);
       renderRiskEnvelopePanel();
       renderPromotionApplicationPreparation();
     }
@@ -2761,8 +2814,10 @@
         showToast(t("promotionTicketEmpty"));
         return;
       }
-      const platform = state.selected;
-      const executionMode = promotionConfirmationExecutionMode(platform);
+      const application = selectedPromotionApplication();
+      const selected = selectedPromotionApplicationAccount(application);
+      const platform = selected?.platform || "";
+      const executionMode = selected?.broker_environment || "";
       const riskSelect = el("promotion-risk-profile-select");
       try {
         const confirmation = decision === "accept"
@@ -2770,7 +2825,7 @@
               targetPlatform: platform,
               executionMode,
               riskProfile: riskSelect?.value || ticket.suggested_risk_profile,
-              paperSupported: false,
+              paperSupported: executionMode !== "paper" || platform === "longbridge",
               suggestedRiskProfile: ticket.suggested_risk_profile,
             })
           : null;
@@ -2781,6 +2836,7 @@
             ticket_id: ticket.ticket_id,
             decision,
             confirmation,
+            ...(decision === "accept" ? { selected_account: { platform: selected?.platform || "", key: selected?.key || "" } } : {}),
             expected_proposed_params: ticket.proposed_params || {},
             expected_strategy_profile: ticket.strategy_profile,
             expected_domain: ticket.domain,
@@ -2798,23 +2854,33 @@
 
     el("promotion-ticket-select")?.addEventListener("change", (event) => {
       state.researchPromotion.selectedTicketId = String(event.target.value || "");
+      state.researchPromotion.selectedApplicationTicketId = state.researchPromotion.selectedTicketId;
+      state.researchPromotion.selectedApplicationPlatform = "";
+      state.researchPromotion.selectedApplicationEnvironment = "";
+      state.researchPromotion.selectedApplicationAccountKey = "";
       const riskSelect = el("promotion-risk-profile-select");
       if (riskSelect) delete riskSelect.dataset.ticketId;
+      renderPromotionConfirmControls();
+    });
+    el("promotion-target-platform-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedApplicationPlatform = String(event.target.value || "");
+      state.researchPromotion.selectedApplicationEnvironment = "";
+      state.researchPromotion.selectedApplicationAccountKey = "";
+      renderPromotionConfirmControls();
+    });
+    el("promotion-broker-environment-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedApplicationEnvironment = String(event.target.value || "");
+      state.researchPromotion.selectedApplicationAccountKey = "";
+      renderPromotionConfirmControls();
+    });
+    el("promotion-selected-account-select")?.addEventListener("change", (event) => {
+      state.researchPromotion.selectedApplicationAccountKey = String(event.target.value || "");
       renderPromotionConfirmControls();
     });
     el("promotion-risk-profile-select")?.addEventListener("change", () => {
       const riskSelect = el("promotion-risk-profile-select");
       if (riskSelect) riskSelect.dataset.touched = "1";
       renderRiskEnvelopePanel();
-    });
-    el("promotion-application-select")?.addEventListener("change", (event) => {
-      state.researchPromotion.selectedApplicationTicketId = String(event.target.value || "");
-      state.researchPromotion.selectedApplicationAccountKey = "";
-      renderPromotionApplicationPreparation();
-    });
-    el("promotion-application-account-select")?.addEventListener("change", (event) => {
-      state.researchPromotion.selectedApplicationAccountKey = String(event.target.value || "");
-      renderPromotionApplicationPreparation();
     });
     el("promotion-application-open")?.addEventListener("click", openSelectedPromotionApplicationAccount);
     el("promotion-accept-button")?.addEventListener("click", () => {
@@ -3742,9 +3808,26 @@
       return t("scheduleNotApplied");
     }
 
+    function runtimeOverviewStatus(saved, applicationApplied, record, configurationMismatch = false) {
+      const ready = record?.freshness?.data_status === "ready";
+      const code = record?.execution_observation?.code;
+      const healthy = code === "monitoring_only"
+        || code === "not_due"
+        || (code === "not_applicable" && saved.known && saved.enabled === false);
+      if (applicationApplied && ready && healthy) {
+        return { status: saved.known && saved.enabled === false ? "paused" : "normal", reason: "" };
+      }
+      return {
+        status: "abnormal",
+        reason: record?.freshness?.data_status === "stale"
+          ? "stale"
+          : code === "attention" ? "attention" : configurationMismatch ? "config" : "pending",
+      };
+    }
+
     function accountNextStep(platform, account) {
       const status = accountApplicationText(platform, account);
-      if (status === t("deploymentUnverified")) return { label: t("awaitDeploymentReadback"), openSettings: false };
+      if (status === t("deploymentUnverified")) return { label: t("recheckRuntimeStatus"), openSettings: false };
       if (status === t("switchesApplied")) return { label: t("noSwitchAction"), openSettings: false };
       return { label: t("reviewAccountSettings"), openSettings: true };
     }
@@ -3825,10 +3908,13 @@
       const record = accountMonitoringRecord(platform, account);
       const monitoring = accountMonitoringText(platform, account);
       const observationAge = accountObservationAge(record);
-      const deploymentAge = accountMonitoringAge(record);
       const application = accountApplicationText(platform, account);
-      const profile = currentStrategyForAccount(platform, account);
+      const saved = runtimeTargetStateForAccount(platform, account);
+      const configurationMismatch = ["settingsNotApplied", "strategyNotApplied", "scheduleNotApplied"]
+        .map(key => t(key)).includes(application) || monitoring === t("monitoringConfigMismatch");
+      const runtimeStatus = runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationMismatch);
       const observationCode = record?.execution_observation?.code;
+      const profile = currentStrategyForAccount(platform, account);
       const monitoringNeedsAttention = !record
         || record.freshness?.data_status !== "ready"
         || ["attention", "unavailable"].includes(observationCode)
@@ -3836,18 +3922,18 @@
       const needsAttention = application !== t("switchesApplied") || monitoringNeedsAttention;
       const nextStep = application !== t("switchesApplied")
         ? accountNextStep(platform, account).label
+        : runtimeStatus.status === "abnormal" ? t("recheckRuntimeStatus")
         : t("openSystemStatus");
       const facts = [
+        ["overviewRuntime", `${t(runtimeStatus.status === "normal" ? "overviewRuntimeNormal" : runtimeStatus.status === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal")}${runtimeStatus.status === "abnormal" ? ` · ${t(runtimeStatus.reason === "stale" ? "overviewRuntimeReasonStale" : runtimeStatus.reason === "config" ? "overviewRuntimeReasonConfig" : runtimeStatus.reason === "attention" ? "overviewRuntimeReasonAttention" : "overviewRuntimeReasonPending")}` : ""}`],
         ["configuredStrategy", profile ? strategyLabel(profile) : t("notRead")],
-        ["configuredSwitch", currentRuntimeTargetText(platform, account)],
-        ["observedRuntime", observationAge === "—" ? monitoring : `${monitoring} · ${observationAge}`],
+        ["latestReadback", observationAge === "—" ? t("runtimeUnverified") : observationAge],
         ...(needsAttention ? [["accountDetailAction", nextStep]] : []),
       ];
       const detailFacts = [
         ["deployedSwitch", accountDeploymentText(platform, account)],
         ["schedulerState", accountSchedulerText(platform, account)],
         ["applicationStatus", application],
-        ["latestReadback", deploymentAge],
       ];
       for (const [target, rows] of [[body, facts], [detailsBody, detailFacts]]) {
         for (const [label, value] of rows) {
@@ -5646,15 +5732,19 @@
           const unknown = application === t("deploymentUnverified");
           const runtimeAttention = record?.freshness?.data_status === "ready"
             && record.execution_observation?.code === "attention";
+          const configurationMismatch = ["settingsNotApplied", "strategyNotApplied", "scheduleNotApplied"]
+            .map(key => t(key)).includes(application) || accountMonitoringText(platform, account) === t("monitoringConfigMismatch");
+          const runtimeSummary = runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationMismatch);
           const profile = currentStrategyForAccount(platform, account);
           rows.push({
             platform, platformLabel: platformMeta[platform].label, account,
             strategy: profile ? strategyLabel(profile) : t("notRead"),
             configured: saved.known ? (saved.enabled ? "enabled" : "disabled") : "unknown",
             application, unknown, runtimeAttention,
-            attention: application !== t("switchesApplied") || runtimeAttention,
+            runtimeStatus: runtimeSummary.status, runtimeReason: runtimeSummary.reason,
+            attention: runtimeSummary.status === "abnormal",
             observation: accountMonitoringText(platform, account),
-            age: accountMonitoringAge(record),
+            age: accountObservationAge(record),
           });
         }
       }
@@ -5664,8 +5754,8 @@
     function filterOverviewAccounts(rows, filter, search) {
       const query = String(search || "").trim().toLocaleLowerCase();
       return rows.filter(row => {
-        const inScope = filter === "attention" ? row.attention
-          : ["enabled", "disabled"].includes(filter) ? row.configured === filter : true;
+        const inScope = ["normal", "paused", "abnormal"].includes(filter)
+          ? row.runtimeStatus === filter : true;
         return inScope && (!query || [row.platformLabel, row.account.label, row.strategy]
           .some(value => String(value || "").toLocaleLowerCase().includes(query)));
       });
@@ -5674,21 +5764,8 @@
     function renderOverview() {
       const rows = overviewAccounts();
       const available = hasPrivateConfig();
-      const unknown = rows.filter(row => row.unknown).length;
-      const mismatch = rows.some(row => row.attention && (!row.unknown || row.runtimeAttention));
-      const counts = { total: rows.length, enabled: rows.filter(row => row.configured === "enabled").length,
-        disabled: rows.filter(row => row.configured === "disabled").length, unknown };
-      for (const [key, value] of Object.entries(counts)) {
-        el(`overview-count-${key}`).textContent = available ? String(value) : "—";
-      }
-      const noticeKey = state.configSource === "loading" ? "overviewLoading"
-        : !available ? "overviewUnavailable" : mismatch ? "overviewAttention"
-        : unknown ? "overviewUnverified" : rows.length ? "overviewRead" : "overviewNoAccounts";
-      el("overview-notice-title").textContent = t(`${noticeKey}Title`);
-      el("overview-notice-description").textContent = t(`${noticeKey}Description`);
-      el("overview-notice").hidden = !available || !rows.length;
-      el("overview-notice").classList.toggle("needs-attention", mismatch);
-      el("overview-attention-button").hidden = !available || !rows.some(row => row.attention);
+      const counts = Object.fromEntries(["normal", "paused", "abnormal"]
+        .map(status => [status, rows.filter(row => row.runtimeStatus === status).length]));
 
       const filtered = filterOverviewAccounts(rows, state.overviewFilter, state.overviewSearch);
       el("overview-result-count").textContent = available
@@ -5696,6 +5773,8 @@
       document.querySelectorAll("[data-overview-filter]").forEach(button => {
         button.setAttribute("aria-pressed", String(button.dataset.overviewFilter === state.overviewFilter));
         button.disabled = !available;
+        const count = button.querySelector("[data-overview-count]");
+        if (count) count.textContent = available ? `(${counts[button.dataset.overviewFilter] || 0})` : "";
       });
       el("overview-search").disabled = !available;
       const body = el("overview-accounts-body");
@@ -5721,9 +5800,14 @@
         const runtimeCell = document.createElement("td");
         runtimeCell.className = "overview-runtime";
         const actual = document.createElement("span");
-        actual.className = `runtime-badge ${row.unknown && !row.runtimeAttention ? "unverified" : row.attention ? "attention" : "applied"}`;
-        actual.textContent = row.runtimeAttention ? t("overviewRuntimeAttention")
-          : row.unknown ? t("overviewActualUnknown") : row.application;
+        actual.className = `runtime-badge ${row.runtimeStatus === "abnormal" ? "attention" : row.runtimeStatus === "paused" ? "unverified" : "applied"}`;
+        const statusKey = row.runtimeStatus === "normal" ? "overviewRuntimeNormal"
+          : row.runtimeStatus === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal";
+        const reasonKey = row.runtimeReason === "stale" ? "overviewRuntimeReasonStale"
+          : row.runtimeReason === "config" ? "overviewRuntimeReasonConfig"
+            : row.runtimeReason === "attention" ? "overviewRuntimeReasonAttention"
+              : "overviewRuntimeReasonPending";
+        actual.textContent = `${t(statusKey)}${row.runtimeStatus === "abnormal" ? ` · ${t(reasonKey)}` : ""}`;
         const saved = document.createElement("small");
         saved.textContent = t("savedState").replace("{state}", t({
           enabled: "runtimeTargetLifecycleStateEnabled", disabled: "runtimeTargetLifecycleStateDisabled",
@@ -5774,9 +5858,9 @@
       el("refresh-status-button").textContent = t(state.refreshing ? "refreshingStatus" : "refreshStatus");
       const view = ["overview", "accounts", "research"].includes(state.view) ? state.view : "overview";
       for (const name of ["overview", "accounts", "research"]) el(`${name}-view`).hidden = view !== name;
-      el("platform-strip").hidden = view === "overview";
-      el("platform-strip-label").hidden = view === "overview";
-      el("platform-strip-label").textContent = t(view === "research" ? "promotionIntentPlatform" : "activePlatform");
+      el("platform-strip").hidden = view !== "accounts";
+      el("platform-strip-label").hidden = view !== "accounts";
+      el("platform-strip-label").textContent = t("activePlatform");
       el("health-view").hidden = view !== "research";
       el("workspace-title").textContent = t(`${view}Nav`);
       el("workspace-description").textContent = t(`${view}Description`);
@@ -6414,14 +6498,6 @@
       renderOverview();
       el("overview-search").focus();
     });
-    el("overview-attention-button").addEventListener("click", () => {
-      state.overviewFilter = "attention";
-      state.overviewSearch = "";
-      el("overview-search").value = "";
-      renderOverview();
-      el("overview-search").focus();
-    });
-
     el("health-view").addEventListener("toggle", () => {
       if (!el("health-view").open) return;
       refreshHealth();

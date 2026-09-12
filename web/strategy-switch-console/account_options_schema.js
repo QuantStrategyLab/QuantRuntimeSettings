@@ -1,6 +1,7 @@
 // Account-options schema validation for Worker KV/secret payloads.
 
 export const ACCOUNT_OPTION_SCHEMA_VERSION = "qsl.strategy_switch_account_options.v1";
+export const BROKER_ENVIRONMENTS = ["live", "paper"];
 
 const PLATFORM_KEY_RE = /^[a-z][a-z0-9_]*$/;
 const OPTION_KEY_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
@@ -15,6 +16,15 @@ function asString(value, field) {
 function asOptionalString(value, field) {
   if (value === undefined || value === null || value === "") return undefined;
   return asString(value, field);
+}
+
+function asOptionalBrokerEnvironment(value, field) {
+  const text = asOptionalString(value, field);
+  if (text === undefined) return undefined;
+  if (!BROKER_ENVIRONMENTS.includes(text)) {
+    throw new Error(`${field} must be live or paper`);
+  }
+  return text;
 }
 
 function asStringArray(value, field) {
@@ -52,6 +62,11 @@ export function normalizeAccountOption(platform, raw, index = 0) {
     const value = asOptionalString(raw[field], `${platform}[${index}].${field}`);
     if (value !== undefined) option[field] = value;
   }
+  const brokerEnvironment = asOptionalBrokerEnvironment(
+    raw.broker_environment,
+    `${platform}[${index}].broker_environment`,
+  );
+  if (brokerEnvironment !== undefined) option.broker_environment = brokerEnvironment;
   return option;
 }
 

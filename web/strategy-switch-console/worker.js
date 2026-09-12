@@ -29,6 +29,7 @@ import {
 } from "./platform_registry.js";
 import { assertLiveSwitchAllowed, catalogVersionMetadata, isLiveSwitchAllowed } from "./catalog.js";
 import {
+  BROKER_ENVIRONMENTS,
   normalizeAccountOptionsPayload as normalizeAccountOptionsSchemaPayload,
   parseAccountOptionsJson as parseAccountOptionsSchemaJson,
 } from "./account_options_schema.js";
@@ -709,7 +710,7 @@ async function runtimeInstancesResponse(request, env) {
   } catch {
     throw new HttpError("invalid_runtime_instance_request", 400);
   }
-  runtimeInstanceFields(raw, ["action", "expected_revision", "platform", "key", "config", "confirm"]);
+  runtimeInstanceFields(raw, ["action", "expected_revision", "platform", "key", "config", "broker_environment", "confirm"]);
   const command = { action: raw.action, expected_revision: raw.expected_revision, actor: session.login };
   if (raw.action === "initialize") {
     if (raw.confirm !== "IMPORT_EXISTING_CONFIG") throw new HttpError("runtime_instance_import_confirmation_required", 400);
@@ -719,7 +720,7 @@ async function runtimeInstancesResponse(request, env) {
   } else if (raw.action === "create" || raw.action === "edit") {
     try {
       if (!SUPPORTED_PLATFORMS.includes(raw.platform) || PLATFORM_CONFIG[raw.platform].dry_run_only) throw new Error();
-      runtimeInstanceFields(raw.config, ["key", "label", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name", "github_environment", "variable_scope", "cash_currency", "supported_domains", "default_strategy_profile", "default_execution_mode"]);
+      runtimeInstanceFields(raw.config, ["key", "label", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name", "github_environment", "variable_scope", "cash_currency", "supported_domains", "broker_environment", "default_strategy_profile", "default_execution_mode"]);
       const option = cleanAccountOption(raw.config, raw.platform, 0);
       if (!option.account_selector || !option.deployment_selector || !option.service_name) throw new Error();
       option.default_execution_mode = raw.config.default_execution_mode || "dry_run";
@@ -730,6 +731,16 @@ async function runtimeInstancesResponse(request, env) {
       if (raw.action === "edit") command.key = cleanSlug(raw.key, "key");
     } catch {
       throw new HttpError("invalid_runtime_instance_config", 400);
+    }
+  } else if (raw.action === "set_broker_environment") {
+    try {
+      if (!SUPPORTED_PLATFORMS.includes(raw.platform) || PLATFORM_CONFIG[raw.platform].dry_run_only) throw new Error();
+      command.platform = cleanChoice(raw.platform, SUPPORTED_PLATFORMS, "platform");
+      command.key = cleanSlug(raw.key, "key");
+      command.broker_environment = normalizeBrokerEnvironment(raw.broker_environment);
+      if (!supportedBrokerEnvironmentsForPlatform(command.platform).includes(command.broker_environment)) throw new Error();
+    } catch {
+      throw new HttpError("invalid_broker_environment", 400);
     }
   } else if (raw.action === "request_retirement") {
     command.platform = raw.platform;
@@ -811,6 +822,19 @@ export class RuntimeInstances {
             changed = item.retirement_status !== "requested";
             item.retirement_status = "requested";
             if (changed) item.updated_at = ts;
+            after = item;
+          } else if (command.action === "set_broker_environment") {
+            if (!item || item.kind !== "existing") throw new HttpError("runtime_instance_existing_required", 409);
+            if (!BROKER_ENVIRONMENTS.includes(command.broker_environment)
+              || !supportedBrokerEnvironmentsForPlatform(command.platform).includes(command.broker_environment)) {
+              throw new HttpError("invalid_broker_environment", 400);
+            }
+            before = structuredClone(item);
+            changed = item.config.broker_environment !== command.broker_environment;
+            if (changed) {
+              item.config = { ...item.config, broker_environment: command.broker_environment };
+              item.updated_at = ts;
+            }
             after = item;
           } else if (command.action === "sync_defaults") {
             const current = runtimeInstanceAccountOptions(state.instances);
@@ -1124,6 +1148,7 @@ function renderRuntimeInstancesPanel(state) {
           ${field("service_name", "服务名称")}
           ${field("account_scope", "账户组引用（选填）", false)}
           ${field("github_environment", "GitHub 环境引用（选填）", false)}
+          <label>券商环境<select id="instance-broker_environment" name="broker_environment"${disabled}><option value="">未知 / 未设置</option><option value="live">live · 实盘券商</option><option value="paper">paper · 券商模拟</option></select></label>
           <label>计划策略<select id="instance-default_strategy_profile" name="default_strategy_profile"${disabled}>${state.runtimeInstanceStrategies.map((profile) => `<option value="${escapeHtml(profile.profile)}">${escapeHtml(profile.label)}</option>`).join("")}</select></label>
         </div>
         <p class="muted">只填写配置引用，不填写密码、Token 或密钥。草稿保存不会部署服务或接管账户。</p>
@@ -1142,10 +1167,11 @@ function runtimeInstancesAdminScript(state) {
     let instanceState = ${initial};
     const instanceStrategies = ${strategies};
     const instanceStrategiesAvailable = ${JSON.stringify(state.runtimeInstanceStrategiesAvailable)};
+    const brokerEnvironmentOptions = ${JSON.stringify(Object.fromEntries(SUPPORTED_PLATFORMS.map((platform) => [platform, supportedBrokerEnvironmentsForPlatform(platform)])))};
     let editingInstance = null;
     const instanceStatus = document.getElementById("instance-status");
     const instanceForm = document.getElementById("runtime-instance-form");
-    const instanceFields = ["key", "label", "target_name", "account_selector", "deployment_selector", "service_name", "account_scope", "github_environment", "default_strategy_profile"];
+    const instanceFields = ["key", "label", "target_name", "account_selector", "deployment_selector", "service_name", "account_scope", "github_environment", "broker_environment", "default_strategy_profile"];
     function renderInstances() {
       const list = document.getElementById("instance-list");
       list.replaceChildren();
@@ -1158,6 +1184,20 @@ function runtimeInstancesAdminScript(state) {
         status.textContent = (item.kind === "draft" ? "草稿 · 未启用 · 未应用" : "已有配置 · 实际运行状态请查看控制台") + (item.retirement_status === "requested" ? " · 已请求退役，尚未停机" : "");
         detail.append(title, identity, status); row.append(detail);
         const actions = document.createElement("div"); actions.className = "actions";
+        if (item.kind === "existing") {
+          const environment = document.createElement("select");
+          environment.setAttribute("aria-label", "券商环境");
+          environment.append(new Option("未知 / 未设置", ""));
+          for (const value of (brokerEnvironmentOptions[item.platform] || [])) {
+            environment.append(new Option(value, value));
+          }
+          environment.value = item.config.broker_environment || "";
+          const saveEnvironment = document.createElement("button"); saveEnvironment.className = "btn"; saveEnvironment.type = "button"; saveEnvironment.textContent = "保存券商环境";
+          saveEnvironment.disabled = !environment.value;
+          environment.onchange = () => { saveEnvironment.disabled = !environment.value; };
+          saveEnvironment.onclick = () => changeInstance({ action: "set_broker_environment", platform: item.platform, key: item.key, broker_environment: environment.value }, "券商环境已保存；未改变启用、应用或路由状态。");
+          actions.append(environment, saveEnvironment);
+        }
         if (item.kind === "draft" && item.retirement_status === "none") {
           const edit = document.createElement("button"); edit.className = "btn"; edit.type = "button"; edit.textContent = "编辑草稿";
           edit.disabled = !instanceStrategiesAvailable;
@@ -1180,7 +1220,7 @@ function runtimeInstancesAdminScript(state) {
         row.append(actions); list.append(row);
       }
       const history = document.getElementById("instance-history"); history.replaceChildren();
-      const labels = { initialize: "导入现有配置", create: "新增草稿", edit: "编辑草稿", request_retirement: "请求退役", sync_defaults: "同步运行设置" };
+      const labels = { initialize: "导入现有配置", create: "新增草稿", edit: "编辑草稿", set_broker_environment: "设置券商环境", request_retirement: "请求退役", sync_defaults: "同步运行设置" };
       for (const entry of instanceState?.history || []) {
         const line = document.createElement("p"); line.textContent = entry.ts + " · " + entry.login + " · " + (labels[entry.action] || entry.action); history.append(line);
       }
@@ -4133,10 +4173,21 @@ function researchPromotionTicketKey(ticketId) {
 }
 
 function platformSupportsBrokerPaperMode(platform) {
-  // Broker paper/sim only — dry_run is local/synthetic and must not unlock paper.
-  const modes = PLATFORM_CONFIG?.[platform]?.supported_execution_modes;
-  const list = Array.isArray(modes) ? modes.map((item) => String(item || "").toLowerCase()) : [];
-  return list.includes("paper");
+  // Broker paper/sim is distinct from the local dry_run adapter. LongBridge's
+  // paper account is currently the only configured broker simulation route.
+  return platform === "longbridge";
+}
+
+function supportedBrokerEnvironmentsForPlatform(platform) {
+  return platformSupportsBrokerPaperMode(platform) ? [...BROKER_ENVIRONMENTS] : ["live"];
+}
+
+function normalizeBrokerEnvironment(value, fieldName = "broker_environment") {
+  const environment = String(value || "").trim();
+  if (!BROKER_ENVIRONMENTS.includes(environment)) {
+    throw new Error(`${fieldName} must be live or paper`);
+  }
+  return environment;
 }
 
 function normalizeResearchPromotionRiskProfile(value, fieldName) {
@@ -4173,6 +4224,59 @@ function normalizePromotionConfirmation(value, fieldName, { paperSupported }) {
     execution_mode: executionMode,
     risk_profile: riskProfile,
   };
+}
+
+function validateResearchPromotionSelectedAccount({
+  ticket,
+  selectedAccount,
+  confirmation,
+  accountOptions,
+  strategyProfiles,
+}) {
+  assertExactFields(selectedAccount, ["platform", "key"], "selected_account");
+  const platform = cleanChoice(selectedAccount.platform, SUPPORTED_PLATFORMS, "selected_account.platform");
+  const key = cleanSlug(selectedAccount.key, "selected_account.key");
+  const targetPlatform = String(confirmation?.target_platform || "").trim();
+  if (targetPlatform !== platform) {
+    throw new HttpError("selected_account platform does not match confirmation target_platform", 409);
+  }
+  const option = (accountOptions?.[platform] || []).find((item) => item.key === key);
+  if (!option) throw new HttpError("selected_account does not match configured account", 409);
+  const brokerEnvironment = String(option.broker_environment || "").trim();
+  if (!BROKER_ENVIRONMENTS.includes(brokerEnvironment)) {
+    throw new HttpError("selected account broker environment is unknown", 409);
+  }
+  if (!supportedBrokerEnvironmentsForPlatform(platform).includes(brokerEnvironment)) {
+    throw new HttpError(`${platform} does not support broker environment ${brokerEnvironment}`, 400);
+  }
+  if (String(confirmation?.execution_mode || "").trim().toLowerCase() !== brokerEnvironment) {
+    throw new HttpError("selected account broker environment does not match confirmation execution_mode", 409);
+  }
+  const strategy = (Array.isArray(strategyProfiles) ? strategyProfiles : [])
+    .find((item) => item.profile === ticket?.strategy_profile);
+  if (!strategy) throw new HttpError("selected candidate strategy profile is not configured", 409);
+  if (strategy.domain !== ticket?.domain) {
+    throw new HttpError("selected candidate strategy domain does not match ticket domain", 409);
+  }
+  if (!supportedDomainsForAccount(platform, option).includes(ticket.domain)) {
+    throw new HttpError("selected account does not support candidate domain", 409);
+  }
+  if (PLATFORM_CONFIG[platform]?.dry_run_only) {
+    throw new HttpError(`${platform} does not support broker execution`, 400);
+  }
+  assertDcaPlatform(platform, ticket.strategy_profile);
+  if (!(strategy.allowed_execution_modes || []).includes(brokerEnvironment)) {
+    throw new HttpError(`strategy ${strategy.profile} does not support broker environment ${brokerEnvironment}`, 400);
+  }
+  // A broker paper/live selection still needs the real adapter path. The
+  // account's dry_run default is not an implicit paper capability.
+  const adapterMode = cleanExecutionMode(
+    option.default_execution_mode || PLATFORM_CONFIG[platform]?.default_execution_mode || "live",
+  );
+  if (adapterMode !== "live") {
+    throw new HttpError("selected account adapter is not configured for broker execution", 400);
+  }
+  return { platform, key, broker_environment: brokerEnvironment };
 }
 
 function researchPromotionCandidateIdentity(ticket) {
@@ -4274,7 +4378,16 @@ function normalizeResearchPromotionTicket(raw, fieldName = "research promotion t
 
 function applyResearchPromotionDecision(
   ticket,
-  { decision, confirmation = null, paperSupported = false, decidedAt = null, expectedRaw = null },
+  {
+    decision,
+    confirmation = null,
+    paperSupported = false,
+    selectedAccount = null,
+    accountOptions = null,
+    strategyProfiles = null,
+    decidedAt = null,
+    expectedRaw = null,
+  },
 ) {
   if (ticket.state !== "awaiting_human") {
     throw new HttpError(`ticket ${ticket.ticket_id} is not awaiting human (state=${ticket.state})`, 409);
@@ -4304,6 +4417,16 @@ function applyResearchPromotionDecision(
     }
     const confirmed = normalizePromotionConfirmation(confirmation, "confirmation", {
       paperSupported: Boolean(paperSupported),
+    });
+    if (!selectedAccount) {
+      throw new HttpError("accept requires selected_account", 400);
+    }
+    validateResearchPromotionSelectedAccount({
+      ticket,
+      selectedAccount,
+      confirmation: confirmed,
+      accountOptions,
+      strategyProfiles,
     });
     next.confirmation_target_platform = confirmed.target_platform;
     next.confirmation_execution_mode = confirmed.execution_mode;
@@ -4503,7 +4626,7 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
   const confirmedPlatform = String(ticket.confirmation_target_platform || "").trim();
   const platforms = confirmedPlatform ? [confirmedPlatform] : SUPPORTED_PLATFORMS;
   const accounts = [];
-  for (const platform of platforms) {
+  for (const platform of strategy ? platforms : []) {
     const options = Array.isArray(accountOptions?.[platform]) ? accountOptions[platform] : [];
     for (const option of options) {
       if (!supportedDomainsForAccount(platform, option).includes(ticket.domain)) continue;
@@ -4513,35 +4636,38 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
       );
       if (strategy) {
         try {
-          const inputs = normalizeSwitchInputs({
-            platform,
-            target_name: option.target_name,
-            strategy_profile: ticket.strategy_profile,
-            execution_mode: configuredExecutionMode,
-            variable_scope: option.variable_scope || "default",
-            plugin_mode: "none",
-            option_overlay_mode: "current",
-            cash_only_execution_mode: "current",
-            account_selector: option.account_selector,
-            deployment_selector: option.deployment_selector,
-            account_scope: option.account_scope,
-            service_name: option.service_name,
-            github_environment: option.github_environment,
-            apply: true,
-            trigger_platform_sync: true,
-            confirm_apply: "APPLY_AND_SYNC",
+          const brokerEnvironment = normalizeBrokerEnvironment(
+            option.broker_environment,
+            `account_options.${platform}.${option.key}.broker_environment`,
+          );
+          if (!supportedBrokerEnvironmentsForPlatform(platform).includes(brokerEnvironment)) {
+            throw new HttpError(`${platform} does not support broker environment ${brokerEnvironment}`, 400);
+          }
+          const executionMode = String(
+            ticket.confirmation_execution_mode || brokerEnvironment,
+          ).trim().toLowerCase();
+          validateResearchPromotionSelectedAccount({
+            ticket,
+            selectedAccount: { platform, key: option.key },
+            confirmation: {
+              target_platform: platform,
+              execution_mode: executionMode,
+              risk_profile: ticket.confirmation_risk_profile || ticket.suggested_risk_profile,
+            },
+            accountOptions,
+            strategyProfiles,
           });
-          assertConfiguredAccount(inputs, accountOptions);
-          assertStrategyAllowedForAccount(inputs, option, strategyProfiles);
         } catch (error) {
           accountBlockers.push(researchPromotionApplicationBlocker(error));
         }
       }
+      if (accountBlockers.length) continue;
       accounts.push({
         platform,
         key: option.key,
         label: option.label,
         configured_execution_mode: configuredExecutionMode,
+        broker_environment: option.broker_environment,
         preflight_status: accountBlockers.length ? "blocked" : (strategy ? "ready" : "blocked"),
         blocker_codes: [...new Set(accountBlockers)],
       });
@@ -4567,6 +4693,8 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
 
 function researchPromotionApplicationBlocker(error) {
   const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("broker environment is unknown")) return "broker_environment_unknown";
+  if (message.includes("does not support broker environment")) return "broker_environment_unsupported";
   if (message.includes("not configured")) return "strategy_not_configured";
   if (message.includes("domain") && message.includes("not supported")) return "strategy_domain_not_supported";
   if (message.includes("live-enabled") || message.includes("blocked for live") || message.includes("does not allow")) {
@@ -4605,12 +4733,17 @@ async function recordResearchPromotionDecisionResponse(request, env) {
     raw?.confirmation?.target_platform || ticket.confirmation_target_platform || "",
   ).trim();
   const paperSupported = platformSupportsBrokerPaperMode(targetPlatform);
+  const accountConfig = decision === "accept" ? await loadAccountOptionsConfig(env) : null;
+  const strategyProfiles = decision === "accept" ? await loadStrategyProfilesConfig(env) : null;
   let decided;
   try {
     decided = applyResearchPromotionDecision(ticket, {
       decision,
       confirmation: raw?.confirmation || null,
       paperSupported,
+      selectedAccount: raw?.selected_account || null,
+      accountOptions: accountConfig?.options,
+      strategyProfiles,
       decidedAt: new Date().toISOString(),
       expectedRaw: raw,
     });
@@ -7362,6 +7495,7 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "account_scope", item.account_scope, cleanSlug);
   addConfigOptional(option, "service_name", item.service_name, cleanSlug);
   addConfigOptional(option, "runtime_status_target_id", item.runtime_status_target_id, cleanSlug);
+  addConfigOptional(option, "broker_environment", item.broker_environment, normalizeBrokerEnvironment);
   addConfigOptional(option, "default_execution_mode", item.default_execution_mode, cleanExecutionMode);
   addConfigOptional(
     option,
@@ -7397,17 +7531,18 @@ function shouldInferSupportedDomains(value) {
 }
 
 function supportedDomainsForAccount(platform, option) {
+  const platformDomains = inferAccountSupportedDomains(platform, option || {});
   if (Array.isArray(option?.supported_domains) && option.supported_domains.length) {
-    return normalizeSupportedDomains(option.supported_domains, "supported_domains");
+    return normalizeSupportedDomains(option.supported_domains, "supported_domains")
+      .filter((domain) => platformDomains.includes(domain));
   }
-  return inferAccountSupportedDomains(platform, option || {});
+  return platformDomains;
 }
 
 function inferAccountSupportedDomains(platform, option) {
   void option;
-  if (platform === "qmt") return ["cn_equity"];
-  if (platform === "longbridge" || platform === "ibkr") return ["us_equity", "hk_equity"];
-  return ["us_equity"];
+  const domains = PLATFORM_CONFIG[platform]?.supported_domains;
+  return Array.isArray(domains) ? [...domains] : [];
 }
 
 function platformRepositories(env) {
@@ -8639,6 +8774,7 @@ export const __test = {
   normalizeRuntimeTargetLifecycleTarget,
   loadPlatformMeta,
   assertConfiguredAccount,
+  validateResearchPromotionSelectedAccount,
   accountOptionMatchesInputs,
   resolvedVariableScope,
   currentStrategiesTimeoutMs: CURRENT_STRATEGIES_TIMEOUT_MS,

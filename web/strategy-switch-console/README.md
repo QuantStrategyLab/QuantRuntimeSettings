@@ -123,6 +123,8 @@ The login entrypoint is `/login` on the Worker domain. The page header keeps a s
 
 `admin=true` means the login or one of its GitHub organizations is listed in `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, or the KV-backed admin config. Open `/admin` to manage allowed GitHub logins, organizations, and account dropdown routes; non-admin users receive 403.
 
+Account options may include `broker_environment: "live"` or `"paper"`. A missing value remains unknown for backward compatibility and cannot be selected for a new research promotion acceptance. `broker_environment` describes the broker account environment; `default_execution_mode` still describes the adapter mode (`live` or `dry_run`). LongBridge supports an explicit paper broker account with a live adapter, while IBKR is currently live-only. These candidate selections record research intent and do not activate an adapter.
+
 ## Admin Management
 
 GitHub OAuth 2.0 is the only login method. The Worker requests the `read:org` scope to verify GitHub organization membership. Put `QuantStrategyLab` in `STRATEGY_SWITCH_ADMIN_ORGS`, and keep your own GitHub login in `STRATEGY_SWITCH_ADMIN_LOGINS` as a break-glass admin.
