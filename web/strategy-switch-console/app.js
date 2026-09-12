@@ -154,13 +154,21 @@
         overviewRuntimeNormal: "正常",
         overviewRuntimePaused: "暂停",
         overviewRuntimeAbnormal: "异常",
-        overviewRuntimeReasonPending: "状态待确认",
-        overviewRuntimeReasonStale: "检查过期",
+        overviewRuntimeReasonPending: "检查未完成",
+        overviewRuntimeReasonMissing: "尚未收到运行检查",
+        accountRuntimeSummary: "运行状态摘要",
+        monitoringViewReason: "查看原因",
+        overviewRuntimeReasonStale: "检查已过期（{age}）",
         overviewRuntimeReasonConfig: "配置未同步",
+        overviewRuntimeReasonSwitch: "开关未同步",
+        overviewRuntimeReasonStrategy: "策略未同步",
+        overviewRuntimeReasonSchedule: "调度未同步",
         overviewRuntimeReasonAttention: "最近检查发现问题",
         viewResearch: "前往研究页",
         researchPendingCount: "研究页有 {count} 条可审候选",
         researchIntro: "研究候选与当前运行分开管理。",
+        monitoringDiagnosticsView: "监控诊断",
+        researchCandidatesView: "研究候选",
         accountDetailAction: "下一步",
         loginTitle: "管理你的量化平台",
         loginDescription: "配置策略，关注运行，处理重要决策。",
@@ -204,14 +212,14 @@
         promotionIntentPlatform: "建议使用的平台",
         platformManagement: "决策与账户",
         strategySettings: "策略设置",
-        strategySettingsHint: "需要启停或调整策略时展开",
+        strategySettingsHint: "",
         accountNextStep: "下一步",
         recheckRuntimeStatus: "重新检查状态",
         accountScrollHint: "左右滑动查看实际状态与下一步",
         awaitDeploymentReadback: "等待有效读回",
         noSwitchAction: "开关无需处理",
         reviewAccountSettings: "复核设置",
-        advancedSelectionNotice: "插件、收入层和期权的选择不授予运行许可；只使用策略已绑定的能力。",
+        advancedSelectionNotice: "",
         advancedDetails: "高级详情",
         monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
         instanceList: "账户实例",
@@ -473,10 +481,10 @@
         activePlatform: "目标平台",
         account: "账户",
         strategy: "策略",
-        mode: "运行环境",
-        live: "券商执行",
+        mode: "执行方式",
+        live: "按策略下单",
         paper: "旧版非实盘",
-        dryRun: "不下单演练",
+        dryRun: "只计算信号",
         promotionConfirmTitle: "确认研究候选",
         promotionDecisionEyebrow: "待决策",
         promotionTargetPlatform: "目标平台",
@@ -552,7 +560,7 @@
         runtimeStopPending: "停用请求已提交。配置保存结果请查看任务；平台应用未请求，实际运行状态未知，请勿重复提交。",
         runtimeStopReadyNote: "已选择停用：主操作只提交严格停用配置，不要求策略重新上架，也不应用其他表单修改。",
         runtimeSectionTitle: "运行与插件",
-        runtimeTargetCurrent: "不修改",
+        runtimeTargetCurrent: "",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
         runtimeTargetModeMeta: "选择后使用下方主操作提交。保存停用配置不代表平台已停止；实际状态以读回为准。",
@@ -672,7 +680,7 @@
         dispatching: "正在触发工作流...",
         dispatched: "已触发工作流",
         dispatchFailed: "触发失败",
-        targetMeta: "目标 {target} · 服务 {service} · 市场 {domains}",
+        targetMeta: "",
         strategyMeta: "支持市场：{domains}",
         strategyLifecycleMeta: "当前门槛 {stage}",
         strategyBlockedCountMeta: "{count} 个策略未达 live 门槛",
@@ -683,7 +691,7 @@
         cryptoEquity: "加密",
         currentStrategy: "当前策略",
         nextStrategy: "切换策略",
-        notRead: "未确认",
+        notRead: "暂未读取",
         runtimeTargetOn: "启用",
         runtimeTargetOff: "禁用",
         incomeLayerDefault: "开启，{start}起 {ratio}",
@@ -743,12 +751,18 @@
         overviewRuntimePaused: "Paused",
         overviewRuntimeAbnormal: "Needs attention",
         overviewRuntimeReasonPending: "Status needs confirmation",
-        overviewRuntimeReasonStale: "Check is out of date",
+        overviewRuntimeReasonMissing: "No runtime check received",
+        overviewRuntimeReasonStale: "Check is out of date ({age})",
         overviewRuntimeReasonConfig: "Settings not synchronized",
+        overviewRuntimeReasonSwitch: "Switch not synchronized",
+        overviewRuntimeReasonStrategy: "Strategy not synchronized",
+        overviewRuntimeReasonSchedule: "Scheduling not synchronized",
         overviewRuntimeReasonAttention: "The latest check found a problem",
         viewResearch: "Go to research",
         researchPendingCount: "{count} reviewable candidate(s) in Research",
         researchIntro: "Research candidates are separate from current runtime.",
+        monitoringDiagnosticsView: "Monitoring",
+        researchCandidatesView: "Research candidates",
         accountDetailAction: "Next step",
         loginTitle: "Your trading workspace",
         loginDescription: "Configure strategies. Monitor operations. Make key decisions.",
@@ -792,14 +806,14 @@
         promotionIntentPlatform: "Suggested platform",
         platformManagement: "Decisions and accounts",
         strategySettings: "Strategy settings",
-        strategySettingsHint: "Expand to enable, disable or change a strategy",
+        strategySettingsHint: "",
         accountNextStep: "Next step",
         recheckRuntimeStatus: "Recheck status",
         accountScrollHint: "Scroll horizontally for actual status and next step",
         awaitDeploymentReadback: "Await verified readback",
         noSwitchAction: "No switch action needed",
         reviewAccountSettings: "Review settings",
-        advancedSelectionNotice: "Selecting plugins, income or options does not grant runtime permission. Only strategy-bound capabilities can be used.",
+        advancedSelectionNotice: "",
         advancedDetails: "Advanced details",
         monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
         instanceList: "Account instances",
@@ -1061,10 +1075,10 @@
         activePlatform: "Target platform",
         account: "Target account",
         strategy: "Strategy",
-        mode: "Target environment",
-        live: "Broker execution",
+        mode: "Execution",
+        live: "Place orders by strategy",
         paper: "Legacy non-live",
-        dryRun: "No-order simulation",
+        dryRun: "Calculate signals only",
         promotionConfirmTitle: "Review research candidate",
         promotionDecisionEyebrow: "Decisions",
         promotionTargetPlatform: "Target platform",
@@ -1140,7 +1154,7 @@
         runtimeStopPending: "Disable requested. Inspect the task for the configuration save result. Platform application was not requested; actual runtime state is unknown. Do not submit again.",
         runtimeStopReadyNote: "Disable selected: the main action submits a strict stop-only configuration save. Strategy re-listing is not required and other form edits are not applied.",
         runtimeSectionTitle: "Runtime and plugins",
-        runtimeTargetCurrent: "Keep current status",
+        runtimeTargetCurrent: "",
         runtimeTargetEnabled: "Enabled",
         runtimeTargetDisabled: "Disabled",
         runtimeTargetModeMeta: "Select a change, then use the main action below. Saving a disable setting does not prove the platform stopped; actual state requires readback.",
@@ -1260,7 +1274,7 @@
         dispatching: "Dispatching workflow...",
         dispatched: "Workflow dispatched",
         dispatchFailed: "Dispatch failed",
-        targetMeta: "target {target} · service {service} · market {domains}",
+        targetMeta: "",
         strategyMeta: "Markets: {domains}",
         strategyLifecycleMeta: "current gate {stage}",
         strategyBlockedCountMeta: "{count} strategies are blocked from live",
@@ -1271,7 +1285,7 @@
         cryptoEquity: "Crypto",
         currentStrategy: "Current strategy",
         nextStrategy: "Switch strategy",
-        notRead: "Unconfirmed",
+        notRead: "Not read yet",
         runtimeTargetOn: "Enabled",
         runtimeTargetOff: "Disabled",
         incomeLayerDefault: "Enabled, {start} start, {ratio} max",
@@ -1312,10 +1326,13 @@
       dcaBaseInvestmentUsd: "",
       dcaTouched: false,
       strategyTouched: false,
+      executionModeTouched: false,
+      pluginModeTouched: false,
     });
 
     const state = {
       view: "overview",
+      researchInternalView: "monitoring",
       overviewFilter: "all",
       overviewSearch: "",
       lastRefreshAt: null,
@@ -1446,7 +1463,7 @@
       forms: Object.fromEntries(Object.keys(platformMeta).map((platform) => [platform, {
         accountKey: defaultAccountOptions[platform]?.[0]?.key || "preview",
         strategy: "",
-        executionMode: platformConfig[platform]?.default_execution_mode || "live",
+        executionMode: "",
         pluginMode: "none",
         ...defaultReserveForm(),
       }])),
@@ -1976,7 +1993,7 @@
     function runtimeTargetModeLabel(mode) {
       if (mode === "enabled") return t("runtimeTargetEnabled");
       if (mode === "disabled") return t("runtimeTargetDisabled");
-      return t("runtimeTargetCurrent");
+      return "";
     }
 
     function runtimeTargetEnabledForAccount(platform, account) {
@@ -2025,7 +2042,7 @@
     function incomeLayerModeLabel(mode) {
       if (mode === "enabled") return t("incomeLayerEnabled");
       if (mode === "disabled") return t("incomeLayerDisabled");
-      return t("incomeLayerCurrent");
+      return "";
     }
 
     function optionOverlayDefaultForStrategy(profile) {
@@ -2043,7 +2060,7 @@
     function optionOverlayModeLabel(mode) {
       if (mode === "enabled") return t("optionOverlayEnabled");
       if (mode === "disabled") return t("optionOverlayDisabled");
-      return t("optionOverlayCurrent");
+      return "";
     }
 
     function optionOverlayText(enabled) {
@@ -2057,7 +2074,7 @@
     function cashOnlyExecutionModeLabel(mode) {
       if (mode === "enabled") return t("cashOnlyExecutionNo");
       if (mode === "disabled") return t("cashOnlyExecutionYes");
-      return t("cashOnlyExecutionCurrent");
+      return "";
     }
 
     function cashOnlyExecutionText(enabled) {
@@ -2070,24 +2087,21 @@
     }
 
     function effectiveCashOnlyExecutionForAccount(platform, account) {
-      const configured = currentCashOnlyExecutionForAccount(platform, account);
-      if (configured !== null) return configured;
-      if (!platformSupportsMarginPolicy(platform)) return null;
-      return platformCashOnlyExecutionDefault();
+      return currentCashOnlyExecutionForAccount(platform, account);
     }
 
     function currentCashOnlyExecutionForAccount(platform, account) {
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       if (entry) {
         const val = cleanOptionalBoolean(entry.cash_only_execution);
         if (val !== null) return val;
       }
-      return platformCashOnlyExecutionDefault();
+      return null;
     }
 
     function currentCashOnlyExecutionText(platform = state.selected, account = selectedAccount(platform)) {
       if (!platformSupportsMarginPolicy(platform)) return t("notRead");
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       if (!entry) return t("notRead");
       const configured = cleanOptionalBoolean(entry.cash_only_execution);
       if (configured === null) return t("cashOnlyExecutionDefault");
@@ -2095,14 +2109,12 @@
     }
 
     function currentOptionOverlayForAccount(platform, account) {
-      return cleanOptionalBoolean(currentEntryForAccount(platform, account)?.option_overlay_enabled);
+      return cleanOptionalBoolean(accountReadbackEntry(platform, account)?.option_overlay_enabled);
     }
 
     function effectiveOptionOverlayForAccount(platform, account, profile = state.forms[platform]?.strategy) {
       const configured = currentOptionOverlayForAccount(platform, account);
-      if (configured !== null) return configured;
-      if (!optionOverlaySupported(profile)) return null;
-      return true;
+      return configured === null ? null : configured;
     }
 
     function optionOverlayDefaultSummaryDetail(defaults) {
@@ -2124,7 +2136,7 @@
     }
 
     function currentOptionOverlayText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       if (!entry) return t("notRead");
       const configured = cleanOptionalBoolean(entry.option_overlay_enabled);
       if (!optionOverlaySupported(profile)) {
@@ -2154,7 +2166,7 @@
     function effectiveIncomeLayerForAccount(platform, account, profile = state.forms[platform]?.strategy) {
       const defaults = incomeLayerDefaultForStrategy(profile);
       if (!defaults) return null;
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       if (!entry) return null;
       const current = incomeLayerFromEntry(entry);
       if (!incomeLayerFieldsConfigured(entry)) {
@@ -2174,13 +2186,12 @@
     function currentDcaForAccount(platform, account, profile = state.forms[platform]?.strategy) {
       const defaults = dcaConfigForStrategy(profile);
       if (!defaults) return { supported: false, mode: "", baseInvestmentUsd: "" };
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
+      if (!entry) return { supported: true, mode: "", baseInvestmentUsd: "" };
       return {
         supported: true,
-        mode: normalizeDcaMode(entry?.dca_mode || account?.dca_mode || defaults.defaultMode),
-        baseInvestmentUsd: cleanDisplayPositiveNumber(entry?.dca_base_investment_usd) ||
-          cleanDisplayPositiveNumber(account?.dca_base_investment_usd) ||
-          defaults.defaultBaseInvestmentUsd,
+        mode: normalizeDcaMode(entry.dca_mode),
+        baseInvestmentUsd: cleanDisplayPositiveNumber(entry.dca_base_investment_usd),
       };
     }
 
@@ -2231,24 +2242,14 @@
         .map((value) => String(value));
       const entry = resolveCurrentEntryByKey(byPlatform, keys);
       if (entry) return entry;
-      const globalDefaults = window.__DEFAULT_ACCOUNT_OPTIONS__?.[platform]?.[0] || {};
-      const merged = { ...globalDefaults, ...(account || {}) };
-      const synth = {
+      // Account options describe routing. They are not a readback of the
+      // runtime configuration, so leave all runtime values unknown until the
+      // authoritative current-strategies snapshot supplies them.
+      return {
         strategy_profile: "",
         source: "account_defaults",
+        runtime_target_enabled: null,
       };
-      const cashMode = merged.cash_only_execution_mode;
-      if (cashMode === "enabled") synth.cash_only_execution = true;
-      else if (cashMode === "disabled") synth.cash_only_execution = false;
-      else if (platformSupportsMarginPolicy(platform)) synth.cash_only_execution = true;
-      if (merged.min_reserved_cash_usd) synth.min_reserved_cash_usd = merged.min_reserved_cash_usd;
-      if (merged.reserved_cash_ratio) synth.reserved_cash_ratio = merged.reserved_cash_ratio;
-      // Routing defaults are not a readback of the runtime configuration.
-      synth.runtime_target_enabled = null;
-      const execMode = merged.default_execution_mode || platformConfig[platform]?.default_execution_mode || "live";
-      synth.execution_mode = execMode;
-      synth.dry_run_only = execMode === "paper";
-      return synth;
     }
 
     function currentEntryHasState(entry) {
@@ -2269,8 +2270,13 @@
       );
     }
 
-    function currentStrategyForAccount(platform, account) {
+    function accountReadbackEntry(platform, account) {
       const entry = currentEntryForAccount(platform, account);
+      return entry?.source === "account_defaults" ? null : entry;
+    }
+
+    function currentStrategyForAccount(platform, account) {
+      const entry = accountReadbackEntry(platform, account);
       return cleanStrategyProfile(entry?.strategy_profile) || "";
     }
 
@@ -2920,16 +2926,10 @@
       return null;
     }
 
-    function defaultExecutionModeForAccount(platform, account, fallback = "live") {
+    function defaultExecutionModeForAccount(platform, account) {
       if (platformDryRunOnly(platform)) return "dry_run";
-      const currentMode = normalizeExecutionMode(
-        currentEntryForAccount(platform, account)?.execution_mode,
-        currentEntryForAccount(platform, account)?.dry_run_only,
-      );
-      if (currentMode) return currentMode;
-      return normalizeExecutionMode(account?.default_execution_mode)
-        || normalizeExecutionMode(platformConfig[platform]?.default_execution_mode)
-        || fallback;
+      const entry = accountReadbackEntry(platform, account);
+      return normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
     }
 
     function defaultStrategyForAccount(platform, account) {
@@ -2941,12 +2941,10 @@
     function syncStrategyForAccount(platform) {
       const account = selectedAccount(platform);
       if (!account) return;
-      state.forms[platform].strategy = defaultStrategyForAccount(platform, account);
-      state.forms[platform].executionMode = defaultExecutionModeForAccount(
-        platform,
-        account,
-      );
-      state.forms[platform].pluginMode = currentPluginModeForAccount(platform, account);
+      const form = state.forms[platform];
+      if (!form.strategyTouched) form.strategy = defaultStrategyForAccount(platform, account);
+      if (!form.executionModeTouched) form.executionMode = defaultExecutionModeForAccount(platform, account);
+      if (!form.pluginModeTouched) form.pluginMode = currentPluginModeForAccount(platform, account);
       syncRuntimeTargetForAccount(platform);
       syncReservePolicyForAccount(platform);
       syncIncomeLayerForAccount(platform);
@@ -2965,6 +2963,13 @@
     function syncReservePolicyForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.reservedCashTouched) return;
+      const entry = accountReadbackEntry(platform, selectedAccount(platform));
+      if (!entry) {
+        form.reservePolicyMode = "current";
+        form.minReservedCashUsd = "";
+        form.reservedCashRatio = "";
+        return;
+      }
       const policy = currentReservePolicyForAccount(platform, selectedAccount(platform));
       const hasFloor = Boolean(policy.minReservedCashUsd);
       const hasRatio = Boolean(policy.reservedCashRatio);
@@ -2979,16 +2984,19 @@
     function syncIncomeLayerForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.incomeLayerTouched) return;
-      const defaults = incomeLayerDefaultForStrategy(form.strategy);
       const current = currentIncomeLayerForAccount(platform, selectedAccount(platform));
-      const entry = currentEntryForAccount(platform, selectedAccount(platform));
+      const entry = accountReadbackEntry(platform, selectedAccount(platform));
       if (entry && incomeLayerFieldsConfigured(entry)) {
         form.incomeLayerMode = current.enabled === false ? "disabled" : "enabled";
       } else {
-        form.incomeLayerMode = incomeLayerSupported(form.strategy) ? "enabled" : "disabled";
+        form.incomeLayerMode = "current";
+        form.incomeLayerStartUsd = "";
+        form.incomeLayerMaxRatio = "";
       }
-      form.incomeLayerStartUsd = current.startUsd || String(defaults?.startUsd || "");
-      form.incomeLayerMaxRatio = current.maxRatio || defaults?.maxRatio || "";
+      if (entry && incomeLayerFieldsConfigured(entry)) {
+        form.incomeLayerStartUsd = current.startUsd;
+        form.incomeLayerMaxRatio = current.maxRatio;
+      }
     }
 
     function syncOptionOverlayForAccount(platform) {
@@ -2999,13 +3007,13 @@
         form.optionOverlayMode = configured;
         return;
       }
-      const entry = currentEntryForAccount(platform, selectedAccount(platform));
+      const entry = accountReadbackEntry(platform, selectedAccount(platform));
       const rawValue = cleanOptionalBoolean(entry?.option_overlay_enabled);
       if (rawValue !== null) {
         form.optionOverlayMode = rawValue ? "enabled" : "disabled";
         return;
       }
-      form.optionOverlayMode = optionOverlaySupported(form.strategy) ? "enabled" : "disabled";
+      form.optionOverlayMode = "current";
     }
 
     function syncCashOnlyExecutionForAccount(platform) {
@@ -3016,21 +3024,20 @@
         form.cashOnlyExecutionMode = configured;
         return;
       }
-      const entry = currentEntryForAccount(platform, selectedAccount(platform));
+      const entry = accountReadbackEntry(platform, selectedAccount(platform));
       const rawValue = cleanOptionalBoolean(entry?.cash_only_execution);
       if (rawValue !== null) {
         form.cashOnlyExecutionMode = rawValue ? "enabled" : "disabled";
         return;
       }
-      // No explicit config — use platform default (cash-only for margin-capable platforms)
-      form.cashOnlyExecutionMode = platformSupportsMarginPolicy(platform) ? "enabled" : "disabled";
+      form.cashOnlyExecutionMode = "current";
     }
 
     function syncDcaForAccount(platform) {
       const form = state.forms[platform];
       if (!form || form.dcaTouched) return;
       const current = currentDcaForAccount(platform, selectedAccount(platform), form.strategy);
-      form.dcaMode = current.supported ? current.mode : "fixed";
+      form.dcaMode = current.supported && current.mode ? current.mode : "fixed";
       form.dcaBaseInvestmentUsd = current.supported ? current.baseInvestmentUsd : "";
     }
 
@@ -3045,6 +3052,8 @@
         state.forms[platform].optionOverlayTouched = false;
         state.forms[platform].cashOnlyExecutionTouched = false;
         state.forms[platform].dcaTouched = false;
+        state.forms[platform].executionModeTouched = false;
+        state.forms[platform].pluginModeTouched = false;
         state.forms[platform].strategy = defaultStrategyForAccount(platform, options[0]);
         state.forms[platform].pluginMode = currentPluginModeForAccount(platform, options[0]);
         syncRuntimeTargetForAccount(platform);
@@ -3065,15 +3074,8 @@
       return "";
     }
 
-    function accountMetaText(platform = state.selected) {
-      const account = selectedAccount(platform);
-      const targetName = account.target_name || account.key;
-      const raw = account.service_name || derivedService(platform, targetName);
-      const service = raw || (state.lang === "zh" ? "无" : "-");
-      return t("targetMeta")
-        .replace("{target}", targetName)
-        .replace("{service}", service)
-        .replace("{domains}", supportedDomainLabel(platform, account));
+    function accountMetaText() {
+      return "";
     }
 
     function hasRunnableStrategySelection(platform = state.selected) {
@@ -3205,7 +3207,7 @@
     }
 
     function dcaOverrideForForm(form) {
-      if (!dcaSupported(form?.strategy) || !platformSupportsDca(state.selected)) return null;
+      if (!form?.dcaTouched || !dcaSupported(form?.strategy) || !platformSupportsDca(state.selected)) return null;
       const mode = normalizeDcaMode(form?.dcaMode);
       const baseInvestmentUsd = cleanDisplayPositiveNumber(form?.dcaBaseInvestmentUsd);
       if (!baseInvestmentUsd) return null;
@@ -3229,7 +3231,7 @@
         strategy_profile: form.strategy,
         execution_mode: form.executionMode,
         variable_scope: account.variable_scope || "default",
-        plugin_mode: normalizePluginMode(form.pluginMode),
+        plugin_mode: form.pluginModeTouched ? normalizePluginMode(form.pluginMode) : "current",
         service_targets_mode: "auto",
         apply: "true",
         trigger_platform_sync: "true",
@@ -3245,12 +3247,13 @@
       ]) {
         if (account[field]) inputs[field] = account[field];
       }
-      const reserveOverride = platformSupportsReservedCashPolicy(platform)
+      const reserveTouched = Boolean(form.reservedCashTouched);
+      const reserveOverride = reserveTouched && platformSupportsReservedCashPolicy(platform)
         ? reservePolicyOverrideForForm(form, platform)
         : null;
       if (platformSupportsReservedCashPolicy(platform)) {
-        inputs.reserved_cash_policy_mode = normalizeReservePolicyMode(form.reservePolicyMode);
-        if (reserveOverride) {
+        inputs.reserved_cash_policy_mode = reserveTouched ? normalizeReservePolicyMode(form.reservePolicyMode) : "current";
+        if (reserveTouched && reserveOverride) {
           Object.assign(inputs, reserveOverride.inputs);
           mergeExtraVariables(inputs, reserveOverride.extraVariables);
         }
@@ -3261,21 +3264,24 @@
         Object.assign(inputs, runtimeTargetOverride.inputs);
         mergeExtraVariables(inputs, runtimeTargetOverride.extraVariables);
       }
-      const incomeOverride = incomeLayerOverrideForForm(form);
-      inputs.income_layer_mode = normalizeIncomeLayerMode(form.incomeLayerMode);
-      if (incomeOverride) {
+      const incomeTouched = Boolean(form.incomeLayerTouched);
+      const incomeOverride = incomeTouched ? incomeLayerOverrideForForm(form) : null;
+      inputs.income_layer_mode = incomeTouched ? normalizeIncomeLayerMode(form.incomeLayerMode) : "current";
+      if (incomeTouched && incomeOverride) {
         Object.assign(inputs, incomeOverride.inputs);
         mergeExtraVariables(inputs, incomeOverride.extraVariables);
       }
-      const optionOverlayOverride = optionOverlayOverrideForForm(form);
-      inputs.option_overlay_mode = normalizeOptionOverlayMode(form.optionOverlayMode);
-      if (optionOverlayOverride) {
+      const optionOverlayTouched = Boolean(form.optionOverlayTouched);
+      const optionOverlayOverride = optionOverlayTouched ? optionOverlayOverrideForForm(form) : null;
+      inputs.option_overlay_mode = optionOverlayTouched ? normalizeOptionOverlayMode(form.optionOverlayMode) : "current";
+      if (optionOverlayTouched && optionOverlayOverride) {
         Object.assign(inputs, optionOverlayOverride.inputs);
       }
-      const cashOnlyOverride = cashOnlyExecutionOverrideForForm(form, platform);
+      const cashOnlyTouched = Boolean(form.cashOnlyExecutionTouched);
+      const cashOnlyOverride = cashOnlyTouched ? cashOnlyExecutionOverrideForForm(form, platform) : null;
       if (platformSupportsMarginPolicy(platform)) {
-        inputs.cash_only_execution_mode = normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode);
-        if (cashOnlyOverride) {
+        inputs.cash_only_execution_mode = cashOnlyTouched ? normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode) : "current";
+        if (cashOnlyTouched && cashOnlyOverride) {
           Object.assign(inputs, cashOnlyOverride.inputs);
         }
       }
@@ -3426,7 +3432,7 @@
       const current = runtimeTargetEnabledForAccount(platform, account);
       const currentEnabled = current;
       const nextEnabled = mode === "enabled";
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       return {
         changed: Boolean(entry && currentEnabled !== nextEnabled),
         inputs: { runtime_target_enabled: nextEnabled },
@@ -3438,7 +3444,7 @@
       const defaults = incomeLayerDefaultForStrategy(profile);
       if (!defaults) return { supported: false, changed: false, inputs: {} };
       const mode = normalizeIncomeLayerMode(inputs.income_layer_mode);
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       const rawCurrent = currentIncomeLayerForAccount(platform, account);
       const effective = effectiveIncomeLayerForAccount(platform, account, profile);
       const currentEnabled = effective?.enabled ?? true;
@@ -3523,7 +3529,7 @@
       }
       const current = effectiveCashOnlyExecutionForAccount(platform, account);
       const nextEnabled = mode === "enabled";
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       return {
         changed: Boolean(entry && current !== null && current !== nextEnabled),
         inputs: { cash_only_execution: nextEnabled },
@@ -3568,7 +3574,7 @@
         nextPluginMode,
         strategyChanged: Boolean(nextProfile && ((state.forms[platform]?.strategyTouched) || (currentProfile && currentProfile !== nextProfile))),
         modeChanged: Boolean(inputs.execution_mode && currentMode && currentMode !== inputs.execution_mode),
-        pluginModeChanged: Boolean(nextPluginMode && currentPluginMode && currentPluginMode !== nextPluginMode),
+        pluginModeChanged: Boolean(state.forms[platform]?.pluginModeTouched && nextPluginMode && currentPluginMode !== nextPluginMode),
         runtimeTargetChanged: runtimeTarget.changed,
         reserveCashChanged: reserve.changed,
         incomeLayerChanged: income.changed,
@@ -3808,7 +3814,7 @@
       return t("scheduleNotApplied");
     }
 
-    function runtimeOverviewStatus(saved, applicationApplied, record, configurationMismatch = false) {
+    function runtimeOverviewStatus(saved, applicationApplied, record, configurationReason = "") {
       const ready = record?.freshness?.data_status === "ready";
       const code = record?.execution_observation?.code;
       const healthy = code === "monitoring_only"
@@ -3819,9 +3825,10 @@
       }
       return {
         status: "abnormal",
-        reason: record?.freshness?.data_status === "stale"
-          ? "stale"
-          : code === "attention" ? "attention" : configurationMismatch ? "config" : "pending",
+        reason: !record ? "missing"
+          : record.freshness?.data_status === "stale" ? "stale"
+            : code === "attention" ? "attention"
+              : (typeof configurationReason === "string" ? configurationReason : configurationReason ? "config" : "") || "pending",
       };
     }
 
@@ -3861,6 +3868,32 @@
       return new Intl.RelativeTimeFormat(state.lang, { numeric: "auto" }).format(-Math.floor(age / seconds), unit);
     }
 
+    function runtimeStatusDisplayText(platform, account) {
+      const saved = runtimeTargetStateForAccount(platform, account);
+      const record = accountMonitoringRecord(platform, account);
+      const application = accountApplicationText(platform, account);
+      const configurationMismatch = ["settingsNotApplied", "strategyNotApplied", "scheduleNotApplied"]
+        .map(key => t(key)).includes(application) || accountMonitoringText(platform, account) === t("monitoringConfigMismatch");
+      const configurationReason = application === t("strategyNotApplied") ? "strategy"
+        : application === t("scheduleNotApplied") ? "schedule"
+          : application === t("settingsNotApplied") || configurationMismatch ? "switch" : "";
+      const status = runtimeOverviewStatus(saved, application === t("switchesApplied"), record,
+        configurationReason);
+      const statusReasonText = reason => {
+        const reasonKey = reason === "missing" ? "overviewRuntimeReasonMissing"
+          : reason === "stale" ? "overviewRuntimeReasonStale"
+            : reason === "switch" ? "overviewRuntimeReasonSwitch"
+              : reason === "strategy" ? "overviewRuntimeReasonStrategy"
+                : reason === "schedule" ? "overviewRuntimeReasonSchedule"
+                  : reason === "config" ? "overviewRuntimeReasonConfig"
+                    : reason === "attention" ? "overviewRuntimeReasonAttention" : "overviewRuntimeReasonPending";
+        return t(reasonKey).replace("{age}", accountObservationAge(record));
+      };
+      const statusKey = status.status === "normal" ? "overviewRuntimeNormal" : status.status === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal";
+      if (status.status !== "abnormal") return t(statusKey);
+      return `${t(statusKey)} · ${statusReasonText(status.reason)}`;
+    }
+
     function renderMonitoringOverview() {
       const body = el("monitoring-overview-body");
       body.replaceChildren();
@@ -3870,8 +3903,7 @@
           const record = accountMonitoringRecord(platform, account);
           const row = document.createElement("tr");
           for (const value of [platformMeta[platform].label, account.label,
-            currentRuntimeTargetText(platform, account), accountMonitoringText(platform, account),
-            accountMonitoringAge(record)]) {
+            runtimeStatusDisplayText(platform, account), accountObservationAge(record)]) {
             const cell = document.createElement("td");
             cell.textContent = value;
             row.append(cell);
@@ -3880,12 +3912,10 @@
           const button = document.createElement("button");
           button.className = "btn";
           button.type = "button";
-          button.textContent = t("switchView");
+          button.textContent = runtimeStatusDisplayText(platform, account).startsWith(t("overviewRuntimeAbnormal"))
+            ? t("monitoringViewReason") : t("switchView");
           button.addEventListener("click", () => {
-            state.selected = platform;
-            render();
-            el("account-select").value = account.key;
-            el("account-select").dispatchEvent(new Event("change"));
+            openAccountSettings(platform, account, false);
           });
           action.append(button);
           row.append(action);
@@ -3910,9 +3940,25 @@
       const observationAge = accountObservationAge(record);
       const application = accountApplicationText(platform, account);
       const saved = runtimeTargetStateForAccount(platform, account);
+      const observed = (record?.deployment_freshness || record?.freshness)?.data_status === "ready"
+        ? record.target?.deployment || null : null;
       const configurationMismatch = ["settingsNotApplied", "strategyNotApplied", "scheduleNotApplied"]
         .map(key => t(key)).includes(application) || monitoring === t("monitoringConfigMismatch");
-      const runtimeStatus = runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationMismatch);
+      const configurationReason = application === t("strategyNotApplied") ? "strategy"
+        : application === t("scheduleNotApplied") ? "schedule"
+          : application === t("settingsNotApplied") || configurationMismatch ? "switch" : "";
+      const runtimeStatus = runtimeOverviewStatus(saved, application === t("switchesApplied"), record,
+        configurationReason);
+      const statusReasonText = reason => {
+        const reasonKey = reason === "missing" ? "overviewRuntimeReasonMissing"
+          : reason === "stale" ? "overviewRuntimeReasonStale"
+            : reason === "switch" ? "overviewRuntimeReasonSwitch"
+              : reason === "strategy" ? "overviewRuntimeReasonStrategy"
+                : reason === "schedule" ? "overviewRuntimeReasonSchedule"
+                  : reason === "config" ? "overviewRuntimeReasonConfig"
+                    : reason === "attention" ? "overviewRuntimeReasonAttention" : "overviewRuntimeReasonPending";
+        return t(reasonKey).replace("{age}", accountObservationAge(record));
+      };
       const observationCode = record?.execution_observation?.code;
       const profile = currentStrategyForAccount(platform, account);
       const monitoringNeedsAttention = !record
@@ -3924,12 +3970,27 @@
         ? accountNextStep(platform, account).label
         : runtimeStatus.status === "abnormal" ? t("recheckRuntimeStatus")
         : t("openSystemStatus");
+      const runtimeSummary = runtimeStatus.status === "abnormal"
+        ? statusReasonText(runtimeStatus.reason)
+        : !observed || !saved.known
+          ? t("overviewRuntimeReasonPending")
+          : application === t("switchesApplied") && !saved.enabled && observed.scheduler_state === "paused"
+          ? `${t("overviewRuntimePaused")}，未发现运行故障。`
+          : application === t("switchesApplied") && saved.enabled && observed.scheduler_state === "enabled"
+            ? "配置已应用，自动调度正常。"
+            : application === t("strategyNotApplied") ? t("strategyNotApplied")
+              : application === t("settingsNotApplied") ? t("settingsNotApplied")
+                : application === t("scheduleNotApplied") ? t("scheduleNotApplied")
+                  : observed.scheduler_state === "missing" ? t("scheduleMissing")
+                    : t("overviewRuntimeReasonPending");
       const facts = [
-        ["overviewRuntime", `${t(runtimeStatus.status === "normal" ? "overviewRuntimeNormal" : runtimeStatus.status === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal")}${runtimeStatus.status === "abnormal" ? ` · ${t(runtimeStatus.reason === "stale" ? "overviewRuntimeReasonStale" : runtimeStatus.reason === "config" ? "overviewRuntimeReasonConfig" : runtimeStatus.reason === "attention" ? "overviewRuntimeReasonAttention" : "overviewRuntimeReasonPending")}` : ""}`],
+        ["overviewRuntime", `${t(runtimeStatus.status === "normal" ? "overviewRuntimeNormal" : runtimeStatus.status === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal")}${runtimeStatus.status === "abnormal" ? ` · ${statusReasonText(runtimeStatus.reason)}` : ""}`],
         ["configuredStrategy", profile ? strategyLabel(profile) : t("notRead")],
         ["latestReadback", observationAge === "—" ? t("runtimeUnverified") : observationAge],
         ...(needsAttention ? [["accountDetailAction", nextStep]] : []),
       ];
+      const detailSummary = details.querySelector?.("summary");
+      if (detailSummary) detailSummary.textContent = `${t("accountRuntimeSummary")}：${runtimeSummary}`;
       const detailFacts = [
         ["deployedSwitch", accountDeploymentText(platform, account)],
         ["schedulerState", accountSchedulerText(platform, account)],
@@ -3945,6 +4006,21 @@
           pair.append(term, detail);
           target.append(pair);
         }
+      }
+    }
+
+    function renderCurrentValueSelect(select, modes, selected, known, label, placeholder = t("notRead")) {
+      select.replaceChildren();
+      if (!known) {
+        const option = new Option(placeholder, "", true, true);
+        option.disabled = true;
+        select.append(option);
+        select.disabled = true;
+        return;
+      }
+      select.disabled = false;
+      for (const mode of modes) {
+        select.append(new Option(label(mode), mode, false, mode === selected));
       }
     }
 
@@ -4022,10 +4098,8 @@
       }
       el("account-meta").textContent = accounts.length ? accountMetaText(platform) : "";
 
-      if (choices.length && !choices.includes(form.strategy) && !currentStrategyBlocked) {
-        form.strategy = choices[0];
-      }
-      strategySelect.disabled = !choices.length;
+      const strategyKnown = Boolean(form.strategy || form.strategyTouched);
+      strategySelect.disabled = !choices.length || !strategyKnown;
       strategySelect.replaceChildren();
       if (currentStrategyBlocked && !choices.includes(currentStrategy)) {
         const blockedOption = new Option(
@@ -4044,18 +4118,26 @@
           );
         }
       } else {
-        strategySelect.append(new Option(t("noStrategy"), ""));
+        const option = new Option(strategyKnown ? t("noStrategy") : t("notRead"), "", true, true);
+        option.disabled = true;
+        strategySelect.append(option);
       }
       el("strategy-meta").textContent = account
         ? strategyDisplayMetaText(platform, account, form.strategy)
         : "";
-      runtimeTargetEnabledSelect.replaceChildren();
-      for (const mode of runtimeTargetModes) {
-        runtimeTargetEnabledSelect.append(
-          new Option(runtimeTargetModeLabel(mode), mode, false, mode === normalizeRuntimeTargetMode(form.runtimeTargetMode)),
-        );
-      }
+      const runtimeTarget = runtimeTargetStateForAccount(platform, account);
+      const runtimeTargetSelected = form.runtimeTargetTouched
+        ? normalizeRuntimeTargetMode(form.runtimeTargetMode)
+        : (runtimeTarget.known ? (runtimeTarget.enabled ? "enabled" : "disabled") : "");
+      renderCurrentValueSelect(
+        runtimeTargetEnabledSelect,
+        ["enabled", "disabled"],
+        runtimeTargetSelected,
+        runtimeTarget.known || form.runtimeTargetTouched,
+        runtimeTargetModeLabel,
+      );
       pluginModeSelect.replaceChildren();
+      pluginModeSelect.disabled = false;
       for (const mode of pluginModes) {
         pluginModeSelect.append(new Option(pluginModeLabel(mode), mode, false, mode === normalizePluginMode(form.pluginMode)));
       }
@@ -4064,11 +4146,16 @@
       el("option-overlay-section").hidden = false;
       incomeLayerModeSelect.replaceChildren();
       if (incomeDefaults) {
-        incomeLayerModeSelect.disabled = false;
-        for (const mode of incomeLayerModes) {
-          incomeLayerModeSelect.append(new Option(incomeLayerModeLabel(mode), mode, false, mode === normalizeIncomeLayerMode(form.incomeLayerMode)));
-        }
-        el("income-layer-mode-meta").textContent = incomeLayerDefaultMetaText(incomeDefaults);
+        const readback = accountReadbackEntry(platform, account);
+        const currentIncome = currentIncomeLayerForAccount(platform, account);
+        const incomeKnown = Boolean(readback && incomeLayerFieldsConfigured(readback));
+        const incomeSelected = form.incomeLayerTouched
+          ? normalizeIncomeLayerMode(form.incomeLayerMode)
+          : (incomeKnown ? (currentIncome.enabled === false ? "disabled" : "enabled") : "");
+        renderCurrentValueSelect(incomeLayerModeSelect, incomeLayerModes, incomeSelected, incomeKnown || form.incomeLayerTouched, incomeLayerModeLabel);
+        el("income-layer-mode-meta").textContent = incomeKnown
+          ? incomeLayerDefaultMetaText(incomeDefaults)
+          : t("notRead");
         el("income-layer-start-meta").textContent = t("incomeLayerStartMeta");
         el("income-layer-ratio-meta").textContent = t("incomeLayerAllocationMeta").replace(
           "{allocations}",
@@ -4096,10 +4183,19 @@
       const reserveBlocksMargin = supportsMargin && supportsReserve && reserveCashOverrideActive(form);
 
       if (supportsReserve) {
-        reservePolicyModeSelect.replaceChildren();
-        for (const mode of reservePolicyModes) {
-          reservePolicyModeSelect.append(new Option(t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`), mode, false, mode === normalizeReservePolicyMode(form.reservePolicyMode)));
-        }
+        const reserveReadback = accountReadbackEntry(platform, account);
+        const reserveKnown = Boolean(reserveReadback);
+        const reservePolicy = currentReservePolicyForAccount(platform, account);
+        const currentReserveMode = reservePolicy.minReservedCashUsd && reservePolicy.reservedCashRatio
+          ? "max" : reservePolicy.minReservedCashUsd ? "floor" : reservePolicy.reservedCashRatio ? "ratio" : "none";
+        const reserveSelected = form.reservedCashTouched ? normalizeReservePolicyMode(form.reservePolicyMode) : (reserveKnown ? currentReserveMode : "");
+        renderCurrentValueSelect(
+          reservePolicyModeSelect,
+          reservePolicyModes,
+          reserveSelected,
+          reserveKnown || form.reservedCashTouched,
+          mode => t(`reservePolicy${mode[0].toUpperCase()}${mode.slice(1)}`),
+        );
         const reserveMode = normalizeReservePolicyMode(form.reservePolicyMode);
         el("min-reserved-cash-label").textContent = t("minReservedCash").replace(
           "{currency}",
@@ -4137,13 +4233,14 @@
       const optionDefaults = optionOverlayDefaultForStrategy(form.strategy);
       optionOverlayModeSelect.replaceChildren();
       if (optionDefaults) {
-        optionOverlayModeSelect.disabled = false;
-        for (const mode of optionOverlayModes) {
-          optionOverlayModeSelect.append(
-            new Option(optionOverlayModeLabel(mode), mode, false, mode === normalizeOptionOverlayMode(form.optionOverlayMode)),
-          );
-        }
-        el("option-overlay-mode-meta").textContent = optionOverlayDefaultMetaText(optionDefaults);
+        const optionReadback = accountReadbackEntry(platform, account);
+        const optionValue = cleanOptionalBoolean(optionReadback?.option_overlay_enabled);
+        const optionKnown = optionValue !== null;
+        const optionSelected = form.optionOverlayTouched
+          ? normalizeOptionOverlayMode(form.optionOverlayMode)
+          : (optionKnown ? (optionValue ? "enabled" : "disabled") : "");
+        renderCurrentValueSelect(optionOverlayModeSelect, optionOverlayModes, optionSelected, optionKnown || form.optionOverlayTouched, optionOverlayModeLabel);
+        el("option-overlay-mode-meta").textContent = optionKnown ? optionOverlayDefaultMetaText(optionDefaults) : t("notRead");
       } else {
         optionOverlayModeSelect.disabled = true;
         optionOverlayModeSelect.append(new Option(t("optionOverlayNotSupported"), "current"));
@@ -4151,16 +4248,19 @@
       }
 
       if (supportsMargin) {
-        cashOnlyExecutionModeSelect.replaceChildren();
-        for (const mode of cashOnlyExecutionModes) {
-          const option = new Option(
-            mode === "enabled" ? t("cashOnlyExecutionNo") : t("cashOnlyExecutionYes"),
-            mode,
-            false,
-            mode === normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode),
-          );
-          cashOnlyExecutionModeSelect.append(option);
-        }
+        const cashReadback = accountReadbackEntry(platform, account);
+        const cashValue = cleanOptionalBoolean(cashReadback?.cash_only_execution);
+        const cashKnown = cashValue !== null;
+        const cashSelected = form.cashOnlyExecutionTouched
+          ? normalizeCashOnlyExecutionMode(form.cashOnlyExecutionMode)
+          : (cashKnown ? (cashValue ? "enabled" : "disabled") : "");
+        renderCurrentValueSelect(
+          cashOnlyExecutionModeSelect,
+          cashOnlyExecutionModes,
+          cashSelected,
+          cashKnown || form.cashOnlyExecutionTouched,
+          mode => mode === "enabled" ? t("cashOnlyExecutionNo") : t("cashOnlyExecutionYes"),
+        );
         el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
         el("cash-only-execution-mode-meta").textContent = reserveBlocksMargin
           ? t("executionCashReserveBlocksMargin")
@@ -4174,18 +4274,18 @@
       dcaModeSelect.replaceChildren();
       const dcaAllowed = Boolean(dcaDefaults) && platformSupportsDca(platform);
       if (dcaAllowed) {
-        dcaModeSelect.disabled = false;
-        for (const mode of dcaModes) {
-          dcaModeSelect.append(new Option(dcaModeLabel(mode), mode, false, mode === normalizeDcaMode(form.dcaMode)));
-        }
-        if (!cleanDisplayPositiveNumber(form.dcaBaseInvestmentUsd)) {
-          form.dcaBaseInvestmentUsd = dcaDefaults.defaultBaseInvestmentUsd;
-        }
-        dcaBaseInvestmentUsdInput.disabled = false;
-        dcaBaseInvestmentUsdInput.value = form.dcaBaseInvestmentUsd;
-        el("dca-mode-meta").textContent = t("dcaDefaultMeta")
-          .replace("{mode}", dcaModeLabel(dcaDefaults.defaultMode))
-          .replace("{amount}", formatUsd(dcaDefaults.defaultBaseInvestmentUsd));
+        const dcaReadback = accountReadbackEntry(platform, account);
+        const dcaCurrent = currentDcaForAccount(platform, account, form.strategy);
+        const dcaKnown = Boolean(dcaReadback && dcaCurrent.mode && dcaCurrent.baseInvestmentUsd);
+        const dcaSelected = form.dcaTouched ? normalizeDcaMode(form.dcaMode) : (dcaKnown ? dcaCurrent.mode : "");
+        renderCurrentValueSelect(dcaModeSelect, dcaModes, dcaSelected, dcaKnown || form.dcaTouched, dcaModeLabel);
+        dcaBaseInvestmentUsdInput.disabled = !dcaKnown && !form.dcaTouched;
+        dcaBaseInvestmentUsdInput.value = dcaKnown || form.dcaTouched ? form.dcaBaseInvestmentUsd : "";
+        el("dca-mode-meta").textContent = dcaKnown
+          ? t("dcaDefaultMeta")
+            .replace("{mode}", dcaModeLabel(dcaDefaults.defaultMode))
+            .replace("{amount}", formatUsd(dcaDefaults.defaultBaseInvestmentUsd))
+          : t("notRead");
         el("dca-base-meta").textContent = t("dcaModeMeta");
       } else {
         dcaModeSelect.disabled = true;
@@ -4201,16 +4301,19 @@
 
       const supportedModes = supportedExecutionModesForPlatform(platform);
       const liveModeAvailable = supportedModes.includes("live") && hasLiveStrategyOption(platform, account);
-      if (!supportedModes.includes(form.executionMode)) form.executionMode = "dry_run";
+      const executionModeKnown = Boolean(form.executionMode || form.executionModeTouched);
       document.querySelectorAll("#mode-control [data-mode]").forEach((button) => {
-        button.disabled = !supportedModes.includes(button.dataset.mode) || (
+        button.disabled = !executionModeKnown || !supportedModes.includes(button.dataset.mode) || (
           button.dataset.mode === "live" && !liveModeAvailable
         );
         button.classList.toggle("active", button.dataset.mode === form.executionMode);
       });
-      el("mode-meta").textContent = !supportedModes.includes("live")
-        ? t("qmtDryRunOnlyNote")
-        : (!liveModeAvailable ? t(binanceResumeDigest() ? "binanceResumeModeHint" : "liveModeUnavailable") : "");
+      el("mode-unread").hidden = executionModeKnown;
+      el("mode-meta").textContent = !executionModeKnown
+        ? t("notRead")
+        : (!supportedModes.includes("live")
+          ? t("qmtDryRunOnlyNote")
+          : (!liveModeAvailable ? t(binanceResumeDigest() ? "binanceResumeModeHint" : "liveModeUnavailable") : ""));
     }
 
     function renderSummary() {
@@ -5445,6 +5548,7 @@
       renderMonitoringOverview();
       renderOverview();
       const notice = el("runtime-target-lifecycle-notice");
+      notice.hidden = false;
       if (state.runtimeTargetLifecycle.loading) {
         notice.textContent = t("refreshingStatus");
       } else if (!state.auth.allowed) {
@@ -5456,7 +5560,8 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("runtimeTargetLifecycleUpstreamNotice").replace("{count}", String(payload.errors.length));
       } else {
-        notice.textContent = t("monitoringSummaryHint");
+        notice.textContent = "";
+        notice.hidden = true;
       }
 
       const list = el("runtime-target-lifecycle-list");
@@ -5547,6 +5652,9 @@
 
     function renderResearchTasks() {
       const payload = state.researchTasks.payload;
+      const board = el("research-task-board");
+      const hasValidReport = state.auth.allowed && payload.data_status === "ready" && payload.tasks.length > 0;
+      if (board) board.hidden = !hasValidReport;
       const notice = el("research-task-notice");
       if (!state.auth.allowed) {
         notice.textContent = t("researchTaskLoginNotice");
@@ -5642,6 +5750,8 @@
 
     function renderHealth() {
       const payload = state.health.payload;
+      const board = el("health-summary-board");
+      if (board) board.hidden = !state.auth.allowed || payload.data_status === "unavailable" || !payload.strategies.length;
       const summary = payload.summary || {};
       const healthCount = (status) => Math.max(
         Number(summary[status]) || 0,
@@ -5742,7 +5852,10 @@
             && record.execution_observation?.code === "attention";
           const configurationMismatch = ["settingsNotApplied", "strategyNotApplied", "scheduleNotApplied"]
             .map(key => t(key)).includes(application) || accountMonitoringText(platform, account) === t("monitoringConfigMismatch");
-          const runtimeSummary = runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationMismatch);
+          const configurationReason = application === t("strategyNotApplied") ? "strategy"
+            : application === t("scheduleNotApplied") ? "schedule"
+              : application === t("settingsNotApplied") || configurationMismatch ? "switch" : "";
+          const runtimeSummary = runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationReason);
           const profile = currentStrategyForAccount(platform, account);
           rows.push({
             platform, platformLabel: platformMeta[platform].label, account,
@@ -5811,11 +5924,14 @@
         actual.className = `runtime-badge ${row.runtimeStatus === "abnormal" ? "attention" : row.runtimeStatus === "paused" ? "unverified" : "applied"}`;
         const statusKey = row.runtimeStatus === "normal" ? "overviewRuntimeNormal"
           : row.runtimeStatus === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal";
-        const reasonKey = row.runtimeReason === "stale" ? "overviewRuntimeReasonStale"
-          : row.runtimeReason === "config" ? "overviewRuntimeReasonConfig"
-            : row.runtimeReason === "attention" ? "overviewRuntimeReasonAttention"
-              : "overviewRuntimeReasonPending";
-        actual.textContent = `${t(statusKey)}${row.runtimeStatus === "abnormal" ? ` · ${t(reasonKey)}` : ""}`;
+        const reasonKey = row.runtimeReason === "missing" ? "overviewRuntimeReasonMissing"
+          : row.runtimeReason === "stale" ? "overviewRuntimeReasonStale"
+            : row.runtimeReason === "switch" ? "overviewRuntimeReasonSwitch"
+              : row.runtimeReason === "strategy" ? "overviewRuntimeReasonStrategy"
+                : row.runtimeReason === "schedule" ? "overviewRuntimeReasonSchedule"
+                  : row.runtimeReason === "config" ? "overviewRuntimeReasonConfig"
+                    : row.runtimeReason === "attention" ? "overviewRuntimeReasonAttention" : "overviewRuntimeReasonPending";
+        actual.textContent = `${t(statusKey)}${row.runtimeStatus === "abnormal" ? ` · ${t(reasonKey).replace("{age}", row.age)}` : ""}`;
         const saved = document.createElement("small");
         saved.textContent = t("savedState").replace("{state}", t({
           enabled: "runtimeTargetLifecycleStateEnabled", disabled: "runtimeTargetLifecycleStateDisabled",
@@ -5870,6 +5986,14 @@
       el("platform-strip-label").hidden = view !== "accounts";
       el("platform-strip-label").textContent = t("activePlatform");
       el("health-view").hidden = view !== "research";
+      document.querySelectorAll?.("[data-research-panel]")?.forEach((panel) => {
+        panel.hidden = panel.dataset.researchPanel !== state.researchInternalView;
+      });
+      document.querySelectorAll?.("[data-research-internal-view]")?.forEach((button) => {
+        const active = button.dataset.researchInternalView === state.researchInternalView;
+        button.classList?.toggle("active", active);
+        button.setAttribute?.("aria-selected", String(active));
+      });
       el("workspace-title").textContent = t(`${view}Nav`);
       el("workspace-description").textContent = t(`${view}Description`);
       document.querySelector(".workspace-nav").hidden = !state.appReady || !state.auth.allowed;
@@ -6506,17 +6630,21 @@
       renderOverview();
       el("overview-search").focus();
     });
-    el("health-view").addEventListener("toggle", () => {
-      if (!el("health-view").open) return;
-      refreshHealth();
-      refreshReconciliationRecovery();
-      refreshM0Research();
-      refreshAdaptiveSelection();
-      refreshExecutionEvidence();
-      refreshRuntimeTargetLifecycle();
-      refreshResearchTasks();
-      refreshResearchPromotionTickets();
-    });
+    document.querySelectorAll("[data-research-internal-view]").forEach((button) => button.addEventListener("click", () => {
+      state.researchInternalView = button.dataset.researchInternalView === "research" ? "research" : "monitoring";
+      renderWorkspace();
+      if (state.researchInternalView === "research") {
+        refreshHealth();
+        refreshReconciliationRecovery();
+        refreshM0Research();
+        refreshAdaptiveSelection();
+        refreshExecutionEvidence();
+        refreshResearchTasks();
+        refreshResearchPromotionTickets();
+      } else {
+        refreshRuntimeTargetLifecycle();
+      }
+    }));
 
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
       document.querySelectorAll("[data-health-filter]").forEach((node) => node.classList.remove("active"));
@@ -6579,6 +6707,8 @@
       state.forms[state.selected].cashOnlyExecutionTouched = false;
       state.forms[state.selected].dcaTouched = false;
       state.forms[state.selected].strategyTouched = false;
+      state.forms[state.selected].executionModeTouched = false;
+      state.forms[state.selected].pluginModeTouched = false;
       syncStrategyForAccount(state.selected);
       render();
     });
@@ -6600,12 +6730,14 @@
       if (!button || button.disabled) return;
       if (!supportedExecutionModesForPlatform(state.selected).includes(button.dataset.mode)) return;
       state.forms[state.selected].executionMode = button.dataset.mode;
+      state.forms[state.selected].executionModeTouched = true;
       render();
     });
 
     el("plugin-mode-select").addEventListener("change", () => {
       const form = state.forms[state.selected];
       form.pluginMode = normalizePluginMode(el("plugin-mode-select").value);
+      form.pluginModeTouched = true;
       render();
     });
 

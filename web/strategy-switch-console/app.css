@@ -3262,7 +3262,7 @@
 .operator-console #monitoring-computed-at { font-size: 11px; color: var(--muted); }
 .operator-console .advanced-workspace { border-top: 1px solid var(--line); }
 .operator-console .advanced-workspace > summary { cursor: pointer; padding: 22px 0; font-size: 14px; color: var(--ink); font-weight: 500; }
-.operator-console .advanced-workspace > .health-head { margin-top: 24px; }
+.operator-console .advanced-workspace > .health-head { margin-top: 0; }
 @media (max-width: 700px) {
   .operator-console .management-heading { padding: 24px 16px 12px; min-height: 0; }
   .operator-console .management-heading h2 { font-size: 24px; }
@@ -3555,3 +3555,51 @@
 .promotion-old-record h4 { margin: 0 0 8px; }
 .promotion-old-record p { color: var(--muted); line-height: 1.7; overflow-wrap: anywhere; }
 .promotion-old-record details { font-size: 13px; }
+
+/* Keep controls aligned without centering the page copy. */
+.operator-console .btn,
+.operator-console .run-button,
+.operator-console .mode button,
+.operator-console .research-internal-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1.25;
+}
+
+.operator-console .mode {
+  align-items: stretch;
+}
+
+.operator-console .mode button {
+  min-height: 42px;
+}
+
+.operator-console .research-internal-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.operator-console .research-internal-tab {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.operator-console .research-internal-tab.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.operator-console .mode-unread {
+  align-self: center;
+}

@@ -118,6 +118,131 @@ for (const sample of [
   });
 }
 
+test('missing runtime mode stays unread instead of using account defaults', () => {
+  const fn = frontendFunction('defaultExecutionModeForAccount', {
+    platformDryRunOnly: () => false,
+    accountReadbackEntry: () => null,
+    normalizeExecutionMode: value => value === 'live' ? 'live' : '',
+  });
+  assert.equal(fn('ibkr', { default_execution_mode: 'live' }), '');
+});
+
+test('refresh keeps dirty strategy and execution edits intact', () => {
+  const form = {
+    strategy: 'edited_strategy', executionMode: 'dry_run', pluginMode: 'none',
+    strategyTouched: true, executionModeTouched: true, pluginModeTouched: true,
+  };
+  const fn = frontendFunction('syncStrategyForAccount', {
+    state: { forms: { ibkr: form } }, selectedAccount: () => ({ key: 'main' }),
+    defaultStrategyForAccount: () => 'readback_strategy',
+    defaultExecutionModeForAccount: () => 'live',
+    currentPluginModeForAccount: () => 'none',
+    syncRuntimeTargetForAccount: () => {}, syncReservePolicyForAccount: () => {},
+    syncIncomeLayerForAccount: () => {}, syncOptionOverlayForAccount: () => {},
+    syncCashOnlyExecutionForAccount: () => {}, reconcileExecutionCashPolicy: () => {},
+    syncDcaForAccount: () => {},
+  });
+  fn('ibkr');
+  assert.equal(form.strategy, 'edited_strategy');
+  assert.equal(form.executionMode, 'dry_run');
+});
+
+test('unknown income layer stays current until readback or an explicit edit', () => {
+  const form = {
+    strategy: 'income_strategy', incomeLayerTouched: false,
+    incomeLayerMode: 'enabled', incomeLayerStartUsd: '5000', incomeLayerMaxRatio: '0.2',
+  };
+  const fn = frontendFunction('syncIncomeLayerForAccount', {
+    state: { forms: { ibkr: form } },
+    selectedAccount: () => ({ key: 'main' }),
+    incomeLayerDefaultForStrategy: () => ({ startUsd: 5000, maxRatio: '0.2' }),
+    currentIncomeLayerForAccount: () => ({ enabled: null, startUsd: '', maxRatio: '' }),
+    accountReadbackEntry: () => null,
+  });
+  fn('ibkr');
+  assert.deepEqual(form, {
+    strategy: 'income_strategy', incomeLayerTouched: false,
+    incomeLayerMode: 'current', incomeLayerStartUsd: '', incomeLayerMaxRatio: '',
+  });
+});
+
+test('untouched DCA settings never become a submitted override', () => {
+  const fn = frontendFunction('dcaOverrideForForm', {
+    dcaSupported: () => true, platformSupportsDca: () => true,
+    normalizeDcaMode: value => value || 'fixed',
+    cleanDisplayPositiveNumber: value => String(value || ''),
+    state: { selected: 'ibkr' },
+  });
+  assert.equal(fn({ dcaMode: 'fixed', dcaBaseInvestmentUsd: '1000', dcaTouched: false }), null);
+  assert.equal(JSON.stringify(fn({ dcaMode: 'smart', dcaBaseInvestmentUsd: '1000', dcaTouched: true })), JSON.stringify({
+    inputs: { dca_mode: 'smart', dca_base_investment_usd: '1000' },
+  }));
+});
+
+test('buildInputs keeps untouched policy layers current and serializes only touched layers', () => {
+  const form = {
+    strategy: 'edited_strategy', executionMode: 'live', pluginMode: 'none', pluginModeTouched: false,
+    runtimeTargetMode: 'current', reservedCashTouched: false, reservePolicyMode: 'max',
+    incomeLayerTouched: false, incomeLayerMode: 'enabled', optionOverlayTouched: false, optionOverlayMode: 'enabled',
+    cashOnlyExecutionTouched: false, cashOnlyExecutionMode: 'disabled', dcaTouched: false,
+  };
+  const context = {
+    state: { selected: 'ibkr', forms: { ibkr: form } },
+    selectedAccount: () => ({ key: 'main', target_name: 'main', variable_scope: 'default' }),
+    normalizePluginMode: value => value,
+    platformSupportsReservedCashPolicy: () => true,
+    platformSupportsMarginPolicy: () => true,
+    normalizeReservePolicyMode: value => value || 'current',
+    normalizeRuntimeTargetMode: value => value || 'current',
+    normalizeIncomeLayerMode: value => value || 'current',
+    normalizeOptionOverlayMode: value => value || 'current',
+    normalizeCashOnlyExecutionMode: value => value || 'current',
+    runtimeTargetOverrideForForm: () => null,
+    incomeLayerOverrideForForm: () => ({ inputs: { income_layer_mode: 'enabled' }, extraVariables: { INCOME: 'true' } }),
+    optionOverlayOverrideForForm: () => ({ inputs: { option_overlay_mode: 'enabled' } }),
+    cashOnlyExecutionOverrideForForm: () => ({ inputs: { cash_only_execution_mode: 'disabled' } }),
+    reservePolicyOverrideForForm: () => ({ inputs: { min_reserved_cash_usd: '100' }, extraVariables: { RESERVE: '100' } }),
+    dcaOverrideForForm: () => null,
+    mergeExtraVariables: (inputs, values) => {
+      const merged = inputs.extra_variables_json ? JSON.parse(inputs.extra_variables_json) : {};
+      Object.assign(merged, values);
+      inputs.extra_variables_json = JSON.stringify(merged);
+    },
+  };
+  const build = frontendFunction('buildInputs', context);
+  const untouched = build('ibkr');
+  assert.equal(untouched.reserved_cash_policy_mode, 'current');
+  assert.equal(untouched.income_layer_mode, 'current');
+  assert.equal(untouched.option_overlay_mode, 'current');
+  assert.equal(untouched.cash_only_execution_mode, 'current');
+  assert.equal('extra_variables_json' in untouched, false);
+  assert.equal('min_reserved_cash_usd' in untouched, false);
+
+  form.reservedCashTouched = true;
+  form.incomeLayerTouched = true;
+  form.optionOverlayTouched = true;
+  form.cashOnlyExecutionTouched = true;
+  const touched = build('ibkr');
+  assert.equal(touched.reserved_cash_policy_mode, 'max');
+  assert.equal(touched.income_layer_mode, 'enabled');
+  assert.equal(touched.option_overlay_mode, 'enabled');
+  assert.equal(touched.cash_only_execution_mode, 'disabled');
+  assert.deepEqual(JSON.parse(touched.extra_variables_json), { INCOME: 'true', RESERVE: '100' });
+  assert.equal(touched.min_reserved_cash_usd, '100');
+});
+
+test('account settings copy removes guesswork and keeps the two research views', () => {
+  const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
+  assert.ok(html.includes('按策略下单'));
+  assert.ok(html.includes('只计算信号'));
+  assert.ok(html.includes('data-research-internal-view="monitoring"'));
+  assert.ok(html.includes('data-research-internal-view="research"'));
+  assert.equal(html.includes('需要启停或调整策略时展开'), false);
+  assert.equal(html.includes('插件、收入层和期权的选择不授予运行许可'), false);
+  assert.equal(app.includes('target {target} · service {service} · market {domains}'), false);
+});
+
 test('loading an account never silently prepares an enable override', () => {
   for (const configured of [undefined, true, false]) {
     const form = { runtimeTargetTouched: false };
@@ -386,7 +511,7 @@ test('browsing a candidate does not make it runnable', () => {
 test('operator page has no engineering diagnostics entry point', () => {
   const html=readFileSync(new URL('../web/strategy-switch-console/index.html',import.meta.url),'utf8');
   assert.doesNotMatch(html,/id="open-system-status"/);
-  assert.match(html,/<details[^>]+id="health-view"[^>]+hidden/);
+  assert.match(html,/<section[^>]+id="health-view"[^>]+hidden/);
 });
 
 for (const sample of [
@@ -459,12 +584,14 @@ for (const sample of [
 test('account details keep saved, deployed and application state separate', () => {
   const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
-  assert.ok(html.includes('data-i18n="configuredSwitch"'));
+  assert.ok(html.includes('data-i18n="overviewRuntime"'));
+  assert.ok(html.includes('data-i18n="latestReadback"'));
+  assert.ok(html.indexOf('data-research-internal-view="monitoring"') < html.indexOf('id="promotion-decision-panel"'));
   assert.ok(html.includes('class="account-facts"'));
   assert.ok(app.includes('["deployedSwitch", accountDeploymentText(platform, account)]'));
   assert.ok(app.includes('["applicationStatus", application]'));
   const overview = app.slice(app.indexOf('function renderAccountOverview'), app.indexOf('function renderControls'));
-  assert.ok(overview.includes('runtimeOverviewStatus(saved, application === t("switchesApplied"), record, configurationMismatch)'));
+  assert.ok(overview.includes('runtimeOverviewStatus(saved, application === t("switchesApplied"), record,\n        configurationReason)'));
   assert.ok(overview.includes('accountDeploymentText(platform, account)'));
   assert.ok(overview.includes('accountApplicationText(platform, account)'));
 });
@@ -932,7 +1059,10 @@ test('overview status maps fresh runtime evidence to the user-facing state', () 
   assertStatus(status({ known: true, enabled: true }, true, {
     freshness: { data_status: 'stale' }, execution_observation: { code: 'monitoring_only' },
   }), 'abnormal', 'stale');
-  assertStatus(status({ known: true, enabled: true }, true, null), 'abnormal', 'pending');
+  assertStatus(status({ known: true, enabled: true }, true, null), 'abnormal', 'missing');
+  assertStatus(status({ known: true, enabled: true }, false, {
+    freshness: { data_status: 'ready' }, execution_observation: { code: 'not_due' },
+  }, 'strategy'), 'abnormal', 'strategy');
   assertStatus(status({ known: true, enabled: true }, false, {
     freshness: { data_status: 'ready' }, execution_observation: { code: 'not_due' },
   }, true), 'abnormal', 'config');

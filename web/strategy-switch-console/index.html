@@ -112,7 +112,11 @@
     <p class="platform-strip-label" id="platform-strip-label" hidden></p>
     <nav class="platform-strip" id="platform-strip" aria-label="平台" data-i18n-aria-label="activePlatform" hidden></nav>
     <section id="research-view" hidden>
-    <p class="research-intro" data-i18n="researchIntro">研究候选与当前运行分开管理。</p>
+    <div class="research-internal-tabs" role="tablist" aria-label="研究视图">
+      <button class="research-internal-tab active" type="button" role="tab" aria-selected="true" data-research-internal-view="monitoring" data-i18n="monitoringDiagnosticsView">监控诊断</button>
+      <button class="research-internal-tab" type="button" role="tab" aria-selected="false" data-research-internal-view="research" data-i18n="researchCandidatesView">研究候选</button>
+    </div>
+    <section class="research-candidate-content" data-research-panel="research">
     <section class="decision-promotion-panel" id="promotion-decision-panel" aria-labelledby="promotion-decision-title" hidden>
       <header class="decision-promotion-head">
         <h3 id="promotion-decision-title" data-i18n="promotionConfirmTitle">确认研究候选</h3>
@@ -200,6 +204,7 @@
       <div id="binance-private-scope-list"></div>
     </section>
     </section>
+    </section>
 
     <section id="accounts-view" hidden>
     <section id="switch-view">
@@ -220,7 +225,7 @@
         </div>
 
         <details class="strategy-settings" id="strategy-settings">
-          <summary><span data-i18n="strategySettings">策略设置</span><small data-i18n="strategySettingsHint">需要启停或调整策略时展开</small></summary>
+          <summary><span data-i18n="strategySettings">策略设置</span></summary>
           <div class="health-notice" id="binance-resume-panel" hidden>
             <p data-i18n="binanceResumeHint">恢复当前实盘目标只保存启用开关，保留现有策略和资金配置。运行端仍会核验恢复记录。</p>
             <button class="btn" id="binance-resume-button" type="button" data-i18n="binanceResume">恢复当前实盘目标</button>
@@ -242,8 +247,9 @@
           <div class="control-block mode-block">
             <span data-i18n="mode">模式</span>
             <div class="mode" id="mode-control">
-              <button type="button" data-mode="live" class="active" data-i18n="live">实盘</button>
-              <button type="button" data-mode="dry_run" data-i18n="dryRun">演练</button>
+              <button type="button" data-mode="live" class="active" data-i18n="live">按策略下单</button>
+              <button type="button" data-mode="dry_run" data-i18n="dryRun">只计算信号</button>
+              <span class="selection-meta mode-unread" id="mode-unread" hidden data-i18n="notRead">暂未读取</span>
             </div>
             <span class="selection-meta" id="mode-meta"></span>
           </div>
@@ -255,7 +261,6 @@
             </label>
           <details class="plan-advanced">
             <summary data-i18n="planAdvancedSummary">高级设置</summary>
-            <p class="selection-meta" data-i18n="advancedSelectionNotice">插件、收入层和期权的选择不授予运行许可；只使用策略已绑定的能力。</p>
             <p class="selection-meta" id="account-meta"></p>
           <div class="form-section runtime-section">
             <div class="form-section-heading">
@@ -374,25 +379,17 @@
         </details>
     </section>
     </section>
-    <details class="health-view advanced-workspace" id="health-view" hidden>
-      <summary data-i18n="advancedDetails">高级详情</summary>
-      <div class="health-head">
-        <div>
-          <h2 id="health-view-title" data-i18n="healthTitle">运行概览</h2>
-          <p data-i18n="healthSubtitle">默认只显示需要关注的问题。</p>
-        </div>
-        <div class="health-meta">
-        </div>
+    <section class="health-view advanced-workspace" id="health-view" hidden>
+      <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite" data-research-panel="monitoring">正在读取监测记录…</div>
+      <div class="monitoring-overview" data-research-panel="monitoring">
+        <table><thead><tr><th data-i18n="activePlatform">平台</th><th data-i18n="account">账户</th><th data-i18n="overviewRuntime">运行情况</th><th data-i18n="latestReadback">最近检查</th><th></th></tr></thead><tbody id="monitoring-overview-body"></tbody></table>
       </div>
-      <div id="runtime-target-lifecycle-notice" class="health-notice" role="status" aria-live="polite">正在读取监测记录…</div>
-      <div class="monitoring-overview">
-        <table><thead><tr><th data-i18n="activePlatform">平台</th><th data-i18n="account">账户</th><th data-i18n="configuredSwitch">配置开关</th><th data-i18n="observedRuntime">监测记录</th><th data-i18n="monitoringTime">记录时间</th><th></th></tr></thead><tbody id="monitoring-overview-body"></tbody></table>
-      </div>
-      <details class="diagnostic-details">
+      <div id="account-ai-action-slot" class="account-ai-action-slot" hidden data-research-panel="monitoring"></div>
+      <details class="diagnostic-details" data-research-panel="monitoring">
         <summary data-i18n="monitoringDetails">监测详情</summary>
         <div class="health-list" id="runtime-target-lifecycle-list"></div>
       </details>
-      <details class="diagnostic-details">
+      <details class="diagnostic-details" id="health-summary-board" data-research-panel="research">
         <summary data-i18n="healthSummary">策略健康摘要</summary>
         <span id="health-status" class="pill">—</span>
         <span id="health-computed-at">—</span>
@@ -413,7 +410,7 @@
       </div>
       <div class="health-list" id="health-list"></div>
       </details>
-      <details class="diagnostic-details">
+      <details class="diagnostic-details" data-research-panel="research">
         <summary data-i18n="diagnosticDetails">查看诊断详情</summary>
         <p data-i18n="diagnosticDetailsHint">仅在排查问题或查看研究记录时使用。</p>
         <div class="diagnostic-section">
@@ -432,13 +429,13 @@
           <div id="execution-evidence-notice" class="health-notice" role="status" aria-live="polite">登录后查看执行和成交记录。</div>
           <div class="health-list" id="execution-evidence-list"></div>
         </div>
-        <div class="diagnostic-section">
+        <div class="diagnostic-section" id="research-task-board">
           <h3 data-i18n="researchTaskBoard">自动化任务</h3>
           <div id="research-task-notice" class="health-notice" role="status" aria-live="polite">登录后查看自动化任务。</div>
           <div class="health-list" id="research-task-list"></div>
         </div>
       </details>
-    </details>
+    </section>
   </main>
 
   <script src="/boot-recovery.js"></script>
