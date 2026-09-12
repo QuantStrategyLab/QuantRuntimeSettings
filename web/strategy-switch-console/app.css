@@ -2308,56 +2308,6 @@
       color: var(--ink);
     }
 
-    .plan-readiness {
-      margin: 0 18px 16px;
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      overflow: hidden;
-    }
-
-    .plan-readiness h3 {
-      margin: 0;
-      padding: 11px 13px;
-      border-bottom: 1px solid var(--line);
-      background: #fbfcfc;
-      font-size: 13px;
-    }
-
-    .plan-readiness ul {
-      margin: 0;
-      padding: 0;
-      list-style: none;
-    }
-
-    .plan-readiness li {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 10px 13px;
-      border-bottom: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 12px;
-    }
-
-    .plan-readiness li:last-child {
-      border-bottom: 0;
-    }
-
-    .plan-readiness strong {
-      color: var(--muted);
-      font-size: 12px;
-      white-space: nowrap;
-    }
-
-    .plan-readiness strong[data-tone="ready"] {
-      color: var(--accent);
-    }
-
-    .plan-readiness strong[data-tone="warning"] {
-      color: var(--danger);
-    }
-
     .summary-actions {
       display: grid;
       gap: 8px;
@@ -2427,9 +2377,6 @@
         margin-left: 0;
       }
 
-      .plan-readiness {
-        margin-inline: 14px;
-      }
     }
 
     /* Decision-first console: surface only the low-frequency choices an owner makes. */
@@ -3172,7 +3119,6 @@
 .operator-console .account-overview td:last-child { color: var(--muted); white-space: nowrap; }
 .operator-console .account-overview button { background: none; border: 0; padding: 0; color: inherit; text-align: left; cursor: pointer; font-weight: 600; }
 .operator-console .account-overview .account-next-step button { color: var(--accent); }
-.operator-console .account-state-note { margin: 0 0 28px; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .operator-console .account-scroll-hint { display: none; }
 .operator-console .account-overview:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .operator-console .strategy-settings { border-top: 1px solid var(--line); padding-top: 18px; }
@@ -3258,16 +3204,8 @@
 .operator-console .summary-value { font-size: 13px; overflow-wrap: anywhere; }
 .operator-console .summary-details { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .operator-console .summary-details > summary { cursor: pointer; color: var(--muted); font-size: 12px; }
-.operator-console .runtime-observation { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 18px; font-size: 13px; }
-.operator-console .runtime-observation > div { display: flex; justify-content: space-between; gap: 15px; }
-.operator-console .runtime-observation strong { color: #64717d; font-weight: 500; }
-.operator-console .runtime-observation p { font-size: 12px; line-height: 1.8; color: var(--muted); }
-.operator-console .runtime-observation .btn { border: 0; padding: 0; min-height: 30px; color: var(--accent); font-size: 13px; background: none; }
 .operator-console .summary-actions { border-top: 1px solid var(--line); margin-top: 18px; padding-top: 16px; }
 .operator-console .summary-actions p { font-size: 11px; line-height: 1.7; }
-.operator-console .plan-readiness { margin-top: 12px; }
-.operator-console .plan-check-details { margin-top: 18px; color: var(--muted); font-size: 12px; }
-.operator-console .plan-check-details > summary { cursor: pointer; }
 .operator-console [hidden] { display: none !important; }
 .operator-console button:focus-visible, .operator-console summary:focus-visible, .operator-console select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 @media (max-width: 1100px) {
@@ -3459,6 +3397,7 @@
 .console-clarity .overview-empty strong { font-size: 16px; font-weight: 600; }
 .console-clarity .overview-empty p { color: var(--muted); font-size: 13px; margin: 10px 0 20px; }
 .console-clarity .overview-research-link { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 16px 0 0; padding: 8px 4px; color: var(--muted); font-size: 13px; }
+.console-clarity .platform-strip-label { margin: 0 0 8px; color: var(--muted); font-size: 12px; }
 .operator-console.console-clarity .platform-strip { position: static; display: flex; flex-direction: row; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding: 0; width: 100%; background: none; border: 0; }
 .operator-console.console-clarity .platform-button { display: inline-flex; align-items: center; width: auto; min-height: 44px; gap: 8px; padding: 8px 14px; background: white; border: 1px solid var(--line); border-radius: 6px; }
 .operator-console.console-clarity .platform-button.active { color: var(--accent); background: var(--accent-soft); border-color: #b5dcd5; }
@@ -3471,10 +3410,13 @@
 .operator-console.console-clarity .account-selector { display: grid; gap: 8px; max-width: 360px; margin-bottom: 24px; }
 .operator-console.console-clarity .account-selector select { min-height: 44px; }
 .operator-console.console-clarity .account-overview { margin: 0 0 16px; border: 1px solid var(--line); border-radius: 7px; overflow: visible; }
-.console-clarity .account-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0; padding: 8px; }
-.console-clarity .account-facts > div { padding: 16px; min-width: 0; }
-.console-clarity .account-facts dt { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
-.console-clarity .account-facts dd { margin: 0; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.console-clarity .account-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: 0; padding: 8px; }
+.console-clarity .account-facts > div, .console-clarity .account-runtime-facts > div { padding: 16px; min-width: 0; }
+.console-clarity .account-facts dt, .console-clarity .account-runtime-facts dt { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+.console-clarity .account-facts dd, .console-clarity .account-runtime-facts dd { margin: 0; font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+.console-clarity .account-runtime-details { margin: 0 16px 12px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.console-clarity .account-runtime-details > summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
+.console-clarity .account-runtime-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; color: var(--ink); }
 .operator-console.console-clarity .strategy-settings { margin-top: 24px; padding-top: 24px; }
 .operator-console.console-clarity .strategy-settings > summary { min-height: 44px; }
 .operator-console.console-clarity .switch-surface { grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; margin-top: 0; }
@@ -3508,6 +3450,9 @@
 .operator-console.console-clarity #promotion-decision-panel { margin: 0; padding: 24px; border: 1px solid var(--line); border-radius: 8px; }
 .console-clarity .research-intro { margin: 0 0 20px; color: var(--muted); font-size: 14px; line-height: 1.7; }
 .operator-console.console-clarity .promotion-queue-notice { margin: 0; padding: 24px; background: white; border: 1px solid var(--line); border-radius: 8px; font-size: 14px; }
+.operator-console.console-clarity .parked-research-results { margin-top: 20px; padding: 20px 24px; background: white; border: 1px solid var(--line); border-radius: 8px; }
+.operator-console.console-clarity .parked-research-results > summary { min-height: 44px; cursor: pointer; color: var(--muted); font-size: 13px; line-height: 44px; }
+.operator-console.console-clarity .parked-research-results[open] > summary { margin-bottom: 12px; }
 .operator-console.console-clarity #health-view { padding: 0; margin: 24px 0 0; background: transparent; border: 0; border-top: 1px solid var(--line); }
 .operator-console.console-clarity .boot-screen, .operator-console.console-clarity .login-screen { margin-left: 232px; width: calc(100% - 232px); }
 .console-clarity button:focus-visible, .console-clarity input:focus-visible, .console-clarity select:focus-visible, .console-clarity summary:focus-visible, .console-clarity a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
@@ -3518,6 +3463,7 @@
   .console-clarity .overview-notice .text-button { margin-left: 38px; }
   .operator-console.console-clarity .switch-surface { grid-template-columns: minmax(0, 1fr); }
   .console-clarity .account-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .console-clarity .account-runtime-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .console-clarity .overview-table td { padding: 16px 10px; }
   .console-clarity .account-mark { display: none !important; }
 }
@@ -3588,8 +3534,9 @@
   .operator-console.console-clarity #reconciliation-recovery-board .health-card__score strong { margin: 0; font-size: 13px; }
   .operator-console.console-clarity .account-selector { max-width: none; }
   .console-clarity .account-facts { padding: 0; }
-  .console-clarity .account-facts > div { padding: 14px 12px; }
-  .console-clarity .account-facts dd { font-size: 13px; }
+  .console-clarity .account-facts, .console-clarity .account-runtime-facts { grid-template-columns: minmax(0, 1fr); }
+  .console-clarity .account-facts > div, .console-clarity .account-runtime-facts > div { padding: 14px 12px; }
+  .console-clarity .account-facts dd, .console-clarity .account-runtime-facts dd { font-size: 13px; }
   .operator-console.console-clarity .quick-form { grid-template-columns: minmax(0, 1fr); padding: 16px; }
   .operator-console.console-clarity .promotion-confirm-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .operator-console.console-clarity .summary-panel { padding: 16px; }
