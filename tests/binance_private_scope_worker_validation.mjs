@@ -187,13 +187,17 @@ const logoutStart = app.indexOf("    async function handleLogout() {");
 const logoutEnd = app.indexOf("\n    function ", logoutStart + 1);
 assert.ok(app.slice(logoutStart, logoutEnd).indexOf("clearBinancePrivateScope()") < app.slice(logoutStart, logoutEnd).indexOf('fetch("/api/logout"'));
 
+const scopeVisibilityStart = app.indexOf("    function binancePrivateScopeShouldShow(");
+const scopeVisibilityEnd = app.indexOf("\n    function ", scopeVisibilityStart + 1);
+assert.ok(scopeVisibilityStart > 0 && scopeVisibilityEnd > scopeVisibilityStart);
 const renderStart = app.indexOf("    function renderBinancePrivateScope() {");
 const renderEnd = app.indexOf("\n    function ", renderStart + 1);
 assert.ok(renderStart > 0 && renderEnd > renderStart);
+const renderSource = `${app.slice(scopeVisibilityStart, scopeVisibilityEnd)}\n${app.slice(renderStart, renderEnd)}`;
 for (const auth of [{ allowed: false, admin: true }, { allowed: true, admin: false }]) {
   const board = { hidden: false };
   const list = { cleared: false, replaceChildren() { this.cleared = true; } };
-  runInNewContext(`${app.slice(renderStart, renderEnd)}\n renderBinancePrivateScope();`, {
+  runInNewContext(`${renderSource}\n renderBinancePrivateScope();`, {
     state: { auth, selected: "binance", binancePrivateScope: { status: "available", report: validReport } },
     el: (id) => ({
       "binance-private-scope-board": board,
@@ -209,7 +213,7 @@ for (const auth of [{ allowed: false, admin: true }, { allowed: true, admin: fal
 {
   const board = { hidden: true };
   const notice = { textContent: "" };
-  runInNewContext(`${app.slice(renderStart, renderEnd)}\n renderBinancePrivateScope();`, {
+  runInNewContext(`${renderSource}\n renderBinancePrivateScope();`, {
     state: { auth: { allowed: true, admin: true }, selected: "binance", binancePrivateScope: { status: "empty", report: null } },
     el: (id) => ({
       "binance-private-scope-board": board,
@@ -219,8 +223,8 @@ for (const auth of [{ allowed: false, admin: true }, { allowed: true, admin: fal
     document: { createElement() { throw new Error("empty render should not create detail DOM"); } },
     t: (key) => key,
   });
-  assert.equal(board.hidden, false);
-  assert.equal(notice.textContent, "binancePrivateScopeEmpty");
+  assert.equal(board.hidden, true);
+  assert.equal(notice.textContent, "");
 }
 
 const refreshStart = app.indexOf("    async function refreshBinancePrivateScope() {");

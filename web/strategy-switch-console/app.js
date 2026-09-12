@@ -2664,7 +2664,7 @@
       const applications = state.auth?.allowed ? promotionApplications() : [];
       renderUnverifiedPromotionRecords(pendingTickets.filter(promotionTicketNeedsSourceCheck));
       const panel = el("promotion-decision-panel");
-      if (panel) panel.hidden = (!tickets.length && !applications.length) || !platformVisible;
+      if (panel) panel.hidden = !tickets.length || !platformVisible;
       const notice = el("promotion-queue-notice");
       if (notice) {
         notice.hidden = !state.auth?.allowed || (tickets.length > 0 && platformVisible);
@@ -4929,15 +4929,23 @@
       };
     }
 
+    function binancePrivateScopeShouldShow(currentState) {
+      return Boolean(
+        currentState?.auth?.allowed
+        && currentState?.auth?.admin
+        && currentState.selected === "binance"
+        && currentState.binancePrivateScope?.report,
+      );
+    }
+
     function renderBinancePrivateScope() {
       const board = el("binance-private-scope-board");
-      const authorized = Boolean(state.auth.allowed && state.auth.admin);
-      board.hidden = !authorized || state.selected !== "binance";
+      const { status, report } = state.binancePrivateScope;
+      board.hidden = !binancePrivateScopeShouldShow(state);
       const list = el("binance-private-scope-list");
       list.replaceChildren();
       if (board.hidden) return;
       const notice = el("binance-private-scope-notice");
-      const { status, report } = state.binancePrivateScope;
       if (status === "not_available") {
         notice.textContent = t("binancePrivateScopeUnavailable");
         return;
