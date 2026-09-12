@@ -254,6 +254,10 @@ const RESEARCH_PROMOTION_RISK_PROFILES = [
 ];
 const RESEARCH_PROMOTION_EXECUTION_MODES = ["live", "paper"];
 const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
+// The workflow has an explicit fail-closed guard until immutable activation
+// and durable single-use consumption are connected. Keep the console from
+// dispatching a workflow that cannot apply the requested target.
+const SWITCH_ACTIVATION_CONNECTED = false;
 
 
 const RISK_ENVELOPE_PREFERENCE_META = {
@@ -2050,6 +2054,13 @@ async function dispatchSwitch(request, env) {
   const accountConfig = await loadAccountOptionsConfig(env);
   const accountOption = assertConfiguredAccount(inputs, accountConfig.options);
   assertStrategyAllowedForAccount(inputs, accountOption, await loadStrategyProfilesConfig(env));
+  if (!SWITCH_ACTIVATION_CONNECTED) {
+    return json({
+      ok: false,
+      error: "账户应用尚未接通，系统未提交变更",
+      workflow_dispatched: false,
+    }, 409);
+  }
   const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
   const workflow = env.RUNTIME_SETTINGS_WORKFLOW || DEFAULT_WORKFLOW;
   const apiUrl = `https://api.github.com/repos/${repository}/actions/workflows/${workflow}/dispatches`;
@@ -4447,23 +4458,122 @@ async function researchPromotionTicketsResponse(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   const tickets = await listResearchPromotionTickets(env);
   const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
+  const applicationTickets = tickets.filter((ticket) =>
+    ticket.state === "awaiting_human" || ticket.state === "human_accepted");
+  const accountConfig = await loadAccountOptionsConfig(env);
+  const strategyProfiles = await loadStrategyProfilesConfig(env);
+  const applications = applicationTickets.map((ticket) =>
+    attachResearchPromotionApplicationPreparation(ticket, accountConfig.options, strategyProfiles));
   return json({
     schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
     data_status: hasConfigStore(env) ? "ready" : "unavailable",
     computed_at: new Date().toISOString(),
     tickets: awaiting.map(attachRiskEnvelopeView),
+    applications,
     summary: {
       ticket_count: awaiting.length,
       awaiting_human: awaiting.length,
+      application_count: applications.length,
     },
     policy: {
       admin_required_to_decide: true,
       live_authority_granted: false,
       no_order: true,
+      application_dispatch_allowed: false,
+      activation_status: "not_connected",
       notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
     },
     errors: [],
   });
+}
+
+function attachResearchPromotionApplicationPreparation(ticket, accountOptions, strategyProfiles) {
+  const blockers = new Set(["activation_not_connected"]);
+  if (ticket?.shadow_passed !== true || !String(ticket?.shadow_evidence_kind || "").trim()) {
+    blockers.add("research_evidence_unverified");
+  }
+  const params = ticket?.proposed_params;
+  if (!params || Array.isArray(params) || typeof params !== "object" || Object.keys(params).length) {
+    blockers.add("candidate_params_unbound");
+  }
+  const strategy = (Array.isArray(strategyProfiles) ? strategyProfiles : [])
+    .find((item) => item.profile === ticket.strategy_profile);
+  if (!strategy) blockers.add("strategy_not_configured");
+
+  const confirmedPlatform = String(ticket.confirmation_target_platform || "").trim();
+  const platforms = confirmedPlatform ? [confirmedPlatform] : SUPPORTED_PLATFORMS;
+  const accounts = [];
+  for (const platform of platforms) {
+    const options = Array.isArray(accountOptions?.[platform]) ? accountOptions[platform] : [];
+    for (const option of options) {
+      if (!supportedDomainsForAccount(platform, option).includes(ticket.domain)) continue;
+      const accountBlockers = [];
+      const configuredExecutionMode = cleanExecutionMode(
+        option.default_execution_mode || PLATFORM_CONFIG[platform]?.default_execution_mode || "live",
+      );
+      if (strategy) {
+        try {
+          const inputs = normalizeSwitchInputs({
+            platform,
+            target_name: option.target_name,
+            strategy_profile: ticket.strategy_profile,
+            execution_mode: configuredExecutionMode,
+            variable_scope: option.variable_scope || "default",
+            plugin_mode: "none",
+            option_overlay_mode: "current",
+            cash_only_execution_mode: "current",
+            account_selector: option.account_selector,
+            deployment_selector: option.deployment_selector,
+            account_scope: option.account_scope,
+            service_name: option.service_name,
+            github_environment: option.github_environment,
+            apply: true,
+            trigger_platform_sync: true,
+            confirm_apply: "APPLY_AND_SYNC",
+          });
+          assertConfiguredAccount(inputs, accountOptions);
+          assertStrategyAllowedForAccount(inputs, option, strategyProfiles);
+        } catch (error) {
+          accountBlockers.push(researchPromotionApplicationBlocker(error));
+        }
+      }
+      accounts.push({
+        platform,
+        key: option.key,
+        label: option.label,
+        configured_execution_mode: configuredExecutionMode,
+        preflight_status: accountBlockers.length ? "blocked" : (strategy ? "ready" : "blocked"),
+        blocker_codes: [...new Set(accountBlockers)],
+      });
+    }
+  }
+  if (!accounts.length) blockers.add("configured_account_missing");
+  if (strategy && accounts.length && accounts.every((account) => account.preflight_status !== "ready")) {
+    blockers.add("account_preflight_failed");
+  }
+  const candidateBlockers = [...blockers].filter((code) => code !== "activation_not_connected");
+  return {
+    ...attachRiskEnvelopeView(ticket),
+    application_preparation: {
+      status: "blocked",
+      preflight_status: candidateBlockers.length ? "blocked" : "ready",
+      activation_status: "not_connected",
+      dispatch_allowed: false,
+      blocker_codes: [...blockers].sort(),
+      account_options: accounts,
+    },
+  };
+}
+
+function researchPromotionApplicationBlocker(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  if (message.includes("not configured")) return "strategy_not_configured";
+  if (message.includes("domain") && message.includes("not supported")) return "strategy_domain_not_supported";
+  if (message.includes("live-enabled") || message.includes("blocked for live") || message.includes("does not allow")) {
+    return "strategy_execution_not_allowed";
+  }
+  if (message.includes("configured account")) return "configured_account_mismatch";
+  return "account_preflight_failed";
 }
 
 async function recordResearchPromotionDecisionResponse(request, env) {
@@ -7252,6 +7362,7 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "account_scope", item.account_scope, cleanSlug);
   addConfigOptional(option, "service_name", item.service_name, cleanSlug);
   addConfigOptional(option, "runtime_status_target_id", item.runtime_status_target_id, cleanSlug);
+  addConfigOptional(option, "default_execution_mode", item.default_execution_mode, cleanExecutionMode);
   addConfigOptional(
     option,
     "cash_currency",

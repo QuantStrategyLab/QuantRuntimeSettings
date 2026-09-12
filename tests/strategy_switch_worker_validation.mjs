@@ -3585,6 +3585,8 @@ const researchPromotionEnv = {
   ...controlEnv,
   RESEARCH_PROMOTION_SYNC_TOKEN: researchPromotionSyncToken,
   STRATEGY_SWITCH_CONFIG: researchPromotionKv,
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify(accountOptions),
+  STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(strategyProfiles),
   ALLOWED_GITHUB_LOGINS: "promo-admin",
   STRATEGY_SWITCH_ADMIN_LOGINS: "promo-admin",
 };
@@ -3652,6 +3654,15 @@ const promotionListPayload = await promotionList.json();
 assert.equal(promotionListPayload.tickets.length, 1);
 assert.equal(promotionListPayload.tickets[0].suggested_risk_profile, "GROWTH_COMPOUNDING");
 assert.equal(promotionListPayload.policy.live_authority_granted, false);
+assert.equal(promotionListPayload.applications.length, 1);
+assert.equal(promotionListPayload.applications[0].ticket_id, "promo-ticket-1");
+assert.equal(promotionListPayload.applications[0].application_preparation.status, "blocked");
+assert.equal(promotionListPayload.applications[0].application_preparation.preflight_status, "blocked");
+assert.equal(promotionListPayload.applications[0].application_preparation.dispatch_allowed, false);
+assert.deepEqual(
+  promotionListPayload.applications[0].application_preparation.blocker_codes,
+  ["activation_not_connected", "candidate_params_unbound", "strategy_not_configured"],
+);
 const listEnvelope = promotionListPayload.tickets[0].risk_envelope_view;
 assert.ok(listEnvelope);
 assert.equal(listEnvelope.source, "design_preview");
@@ -3691,6 +3702,155 @@ assert.equal(promotionAcceptPayload.ticket.state, "human_accepted");
 assert.equal(promotionAcceptPayload.ticket.confirmation_risk_profile, "BALANCED_COMPOUNDING");
 assert.equal(promotionAcceptPayload.ticket.suggested_risk_profile, "GROWTH_COMPOUNDING");
 assert.equal(promotionAcceptPayload.ticket.live_authority_granted, false);
+
+// Accepted records remain readable for account handoff preparation. A registered
+// executable profile can pass local account/profile preflight, but activation is
+// still explicitly blocked and no workflow request is made.
+const applicationReadyTicket = {
+  ...researchPromotionTicket,
+  ticket_id: "promo-ticket-application-ready",
+  strategy_profile: "tqqq_growth_income",
+  proposed_params: {},
+};
+assert.equal(
+  (
+    await worker.fetch(
+      new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${researchPromotionSyncToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(applicationReadyTicket),
+      }),
+      researchPromotionEnv,
+    )
+  ).status,
+  200,
+);
+assert.equal(
+  (
+    await worker.fetch(
+      new Request("https://switch.example/api/research-promotion-decisions", {
+        method: "POST",
+        headers: researchPromotionAdminHeaders,
+        body: JSON.stringify({
+          ticket_id: applicationReadyTicket.ticket_id,
+          decision: "accept",
+          expected_proposed_params: {},
+          expected_strategy_profile: applicationReadyTicket.strategy_profile,
+          expected_domain: applicationReadyTicket.domain,
+          confirmation: {
+            target_platform: "ibkr",
+            execution_mode: "live",
+            risk_profile: "BALANCED_COMPOUNDING",
+          },
+        }),
+      }),
+      researchPromotionEnv,
+    )
+  ).status,
+  200,
+);
+const v7UnboundApplicationTicket = {
+  ...researchPromotionTicket,
+  ticket_id: "rpt-soxl-v7-unbound-application",
+  strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+  budget: { allow_live_enablement: false, max_search_iterations: 0 },
+  proposed_params: {
+    candidate_id: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+    config_sha256: "8".repeat(64),
+  },
+  search_iterations: 0,
+  shadow_evidence_kind: "v7_nonlive_shadow_and_simulated_paper",
+};
+assert.equal(
+  (
+    await worker.fetch(
+      new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${researchPromotionSyncToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(v7UnboundApplicationTicket),
+      }),
+      researchPromotionEnv,
+    )
+  ).status,
+  200,
+);
+const applicationList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", {
+    headers: researchPromotionAdminHeaders,
+  }),
+  researchPromotionEnv,
+);
+assert.equal(applicationList.status, 200);
+const applicationListPayload = await applicationList.json();
+const readyApplication = applicationListPayload.applications.find(
+  (item) => item.ticket_id === applicationReadyTicket.ticket_id,
+);
+assert.equal(readyApplication.state, "human_accepted");
+assert.equal(readyApplication.application_preparation.preflight_status, "ready");
+assert.equal(readyApplication.application_preparation.status, "blocked");
+assert.equal(readyApplication.application_preparation.activation_status, "not_connected");
+assert.equal(readyApplication.application_preparation.dispatch_allowed, false);
+assert.deepEqual(readyApplication.application_preparation.blocker_codes, ["activation_not_connected"]);
+assert.deepEqual(readyApplication.application_preparation.account_options, [{
+  platform: "ibkr",
+  key: "ibkr-primary",
+  label: "ibkr-primary",
+  configured_execution_mode: "live",
+  preflight_status: "ready",
+  blocker_codes: [],
+}]);
+const blockedV7Application = applicationListPayload.applications.find(
+  (item) => item.ticket_id === v7UnboundApplicationTicket.ticket_id,
+);
+assert.equal(blockedV7Application.state, "awaiting_human");
+assert.equal(blockedV7Application.application_preparation.preflight_status, "blocked");
+assert.equal(blockedV7Application.application_preparation.dispatch_allowed, false);
+assert.deepEqual(blockedV7Application.application_preparation.blocker_codes, [
+  "activation_not_connected",
+  "candidate_params_unbound",
+  "strategy_not_configured",
+]);
+
+let switchWorkflowRequests = 0;
+const fetchBeforeBlockedApplication = globalThis.fetch;
+globalThis.fetch = async () => {
+  switchWorkflowRequests += 1;
+  throw new Error("workflow dispatch must not be attempted while activation is disconnected");
+};
+const blockedApplicationSwitch = await worker.fetch(
+  new Request("https://switch.example/api/switch", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      platform: "ibkr",
+      target_name: "ibkr-primary",
+      account_selector: "DEMO_IBKR_PRIMARY",
+      deployment_selector: "demo-ibkr-tqqq",
+      account_scope: "demo-ibkr-tqqq",
+      service_name: "interactive-brokers-demo-ibkr-tqqq-service",
+      strategy_profile: "tqqq_growth_income",
+      execution_mode: "live",
+      variable_scope: "repository",
+      plugin_mode: "none",
+      option_overlay_mode: "current",
+      cash_only_execution_mode: "current",
+      apply: true,
+      trigger_platform_sync: true,
+      confirm_apply: "APPLY_AND_SYNC",
+    }),
+  }),
+  { ...researchPromotionEnv, RUNTIME_SETTINGS_DISPATCH_TOKEN: "not-used" },
+);
+globalThis.fetch = fetchBeforeBlockedApplication;
+assert.equal(blockedApplicationSwitch.status, 409);
+assert.match(String((await blockedApplicationSwitch.json()).error || ""), /账户应用尚未接通/);
+assert.equal(switchWorkflowRequests, 0);
 
 // dry_run must not unlock paper for research-promotion decisions.
 const paperDeniedTicket = {
@@ -3900,6 +4060,13 @@ const promotionFetchMissing = await worker.fetch(
 assert.equal(promotionFetchMissing.status, 404);
 
 assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
+assert.equal(indexHtml.includes('id="promotion-execution-mode-select"'), false);
+assert.ok(indexHtml.includes('id="promotion-execution-mode-readonly"'));
+assert.ok(indexHtml.includes('id="promotion-application-select"'));
+assert.ok(indexHtml.includes('id="promotion-application-account-select"'));
+assert.ok(indexHtml.includes('id="promotion-application-status"'));
+assert.ok(indexHtml.includes('function renderPromotionApplicationPreparation()'));
+assert.equal(indexHtml.includes('hint.split(/\\s+/).includes("paper")'), false);
 assert.ok(indexHtml.includes('requestJson("/api/research-promotion-tickets")'));
 assert.ok(indexHtml.includes('function promotionTicketDetailMessage(ticket)'));
 assert.ok(indexHtml.includes('promotionTicketEvidenceKind'));
