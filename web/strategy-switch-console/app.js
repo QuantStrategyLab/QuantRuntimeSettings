@@ -492,6 +492,14 @@
         promotionTicketLoadFailed: "研究候选队列暂不可用，请刷新记录；不能据此判断没有待办。",
         promotionAdminOnly: "需管理员才能确认/拒绝",
         promotionTicketSuggested: "候选建议风险档：{profile}",
+        promotionUnnamedRecord: "未命名策略记录 {number}",
+        promotionFlowRecord: "流程检查记录 · 来源待核实",
+        promotionOldRecord: "旧记录",
+        promotionParameterProposal: "参数调整建议",
+        promotionUnverifiedCount: "{count} 条旧记录 · 材料待核实",
+        promotionUnverifiedHint: "这是一条旧研究记录，缺少观察材料类型，尚不能认定为已验证的策略。暂不需要接受或拒绝；补齐来源后再评估。",
+        promotionOriginalRecord: "查看原始名称与材料",
+        promotionDecisionHint: "请先看研究结果、风险和材料来源，再决定是否接受这份建议。接受只记录意向，不会替换当前策略或开启交易。",
         promotionTicketEvidenceKind: "观察材料类型：{kind}",
         promotionTicketParams: "候选参数：{params}",
         promotionTicketNotification: "记录说明：{body}",
@@ -1061,6 +1069,14 @@
         promotionTicketLoadFailed: "Research candidate queue unavailable. Refresh records; this does not mean there are no pending decisions.",
         promotionAdminOnly: "An administrator must confirm or reject",
         promotionTicketSuggested: "Candidate suggested risk profile: {profile}",
+        promotionUnnamedRecord: "Unnamed strategy record {number}",
+        promotionFlowRecord: "Workflow check record · source unverified",
+        promotionOldRecord: "Older record",
+        promotionParameterProposal: "Parameter proposal",
+        promotionUnverifiedCount: "{count} older record(s) · evidence unverified",
+        promotionUnverifiedHint: "This older research record does not identify its observation evidence. It is not a verified strategy. No acceptance or rejection is needed now; review it after its source is established.",
+        promotionOriginalRecord: "View original name and evidence",
+        promotionDecisionHint: "Review the research result, risk and evidence source before accepting this proposal. Acceptance records intent; it does not replace the current strategy or start trading.",
         promotionTicketEvidenceKind: "Observation evidence type: {kind}",
         promotionTicketParams: "Candidate parameters: {params}",
         promotionTicketNotification: "Record note: {body}",
@@ -2419,6 +2435,43 @@
       return tickets.find((ticket) => ticket.ticket_id === selectedId) || null;
     }
 
+    function promotionTicketNeedsSourceCheck(ticket) {
+      return !String(ticket?.shadow_evidence_kind || "").trim();
+    }
+
+    function promotionTicketDisplayName(ticket, index = 0) {
+      const profile = String(ticket?.strategy_profile || "");
+      if (profile === "synthetic-profile") return t("promotionUnnamedRecord").replace("{number}", String(index + 1));
+      if (profile === "smoke") return t("promotionFlowRecord");
+      const label = profile === "soxl_soxx_trend_income" ? `SOXL · ${strategyLabel(profile)}` : strategyLabel(profile || "?");
+      return `${label} · ${t(promotionTicketNeedsSourceCheck(ticket) ? "promotionOldRecord" : "promotionParameterProposal")}`;
+    }
+
+    function renderUnverifiedPromotionRecords(tickets) {
+      const section = el("promotion-unverified-records");
+      const list = el("promotion-unverified-list");
+      if (!section || !list) return;
+      section.hidden = !tickets.length;
+      el("promotion-unverified-summary").textContent = t("promotionUnverifiedCount").replace("{count}", String(tickets.length));
+      list.replaceChildren();
+      tickets.forEach((ticket, index) => {
+        const card = document.createElement("article");
+        card.className = "promotion-old-record";
+        const title = document.createElement("h4");
+        title.textContent = promotionTicketDisplayName(ticket, index);
+        const hint = document.createElement("p");
+        hint.textContent = t("promotionUnverifiedHint");
+        const details = document.createElement("details");
+        const summary = document.createElement("summary");
+        summary.textContent = t("promotionOriginalRecord");
+        const evidence = document.createElement("p");
+        evidence.textContent = `${ticket.strategy_profile || "?"} · ${promotionTicketDetailMessage(ticket)}`;
+        details.append(summary, evidence);
+        card.append(title, hint, details);
+        list.appendChild(card);
+      });
+    }
+
     function promotionTicketQueueMessage() {
       if (!state.auth?.allowed) return t("promotionTicketLoginRequired");
       const payload = state.researchPromotion?.payload || {};
@@ -2463,9 +2516,11 @@
       const platformVisible = platformMeta[platform]?.console_visible !== false;
       const payload = state.researchPromotion?.payload || {};
       const queueReady = payload.data_status === "ready" && !(payload.errors || []).length;
-      const tickets = state.auth?.allowed && queueReady
+      const pendingTickets = state.auth?.allowed && queueReady
         ? (payload.tickets || []).filter((ticket) => ticket.state === "awaiting_human")
         : [];
+      const tickets = pendingTickets.filter((ticket) => !promotionTicketNeedsSourceCheck(ticket));
+      renderUnverifiedPromotionRecords(pendingTickets.filter(promotionTicketNeedsSourceCheck));
       const panel = el("promotion-decision-panel");
       if (panel) panel.hidden = !tickets.length || !platformVisible;
       const notice = el("promotion-queue-notice");
@@ -2498,7 +2553,7 @@
             : tickets[0].ticket_id;
           state.researchPromotion.selectedTicketId = selectedId;
           for (const ticket of tickets) {
-            const label = `${strategyLabel(ticket.strategy_profile || "?")} · ${formatDateTime(ticket.created_at)}`;
+            const label = `${promotionTicketDisplayName(ticket)} · ${formatDateTime(ticket.created_at)}`;
             ticketSelect.append(new Option(label, ticket.ticket_id, false, ticket.ticket_id === selectedId));
           }
         }
@@ -5595,10 +5650,15 @@
         ? t("pageRefreshed").replace("{time}", new Intl.DateTimeFormat(locale(), {hour: "2-digit", minute: "2-digit"}).format(new Date(state.lastRefreshAt)))
         : t("pageNotRefreshed");
       const queue = state.researchPromotion.payload;
-      const pending = queue.data_status === "ready" && !queue.errors?.length
-        ? queue.tickets.filter(ticket => ticket.state === "awaiting_human").length : 0;
-      el("overview-research-link").hidden = !state.auth.allowed || !pending;
-      el("overview-research-summary").textContent = t("researchPendingCount").replace("{count}", pending);
+      const pendingTickets = queue.data_status === "ready" && !queue.errors?.length
+        ? queue.tickets.filter(ticket => ticket.state === "awaiting_human") : [];
+      const pending = pendingTickets.filter(ticket => !promotionTicketNeedsSourceCheck(ticket)).length;
+      const unverified = pendingTickets.length - pending;
+      el("overview-research-link").hidden = !state.auth.allowed || !pendingTickets.length;
+      el("overview-research-summary").textContent = [
+        pending ? t("researchPendingCount").replace("{count}", pending) : "",
+        unverified ? t("promotionUnverifiedCount").replace("{count}", unverified) : "",
+      ].filter(Boolean).join(" · ");
     }
 
     function renderWorkspace() {
