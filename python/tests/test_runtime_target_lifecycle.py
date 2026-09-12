@@ -141,7 +141,7 @@ function frontendFunction(name, context) {
 for (const lang of ['zh', 'en']) {
   const t = (key) => copy[lang][key] || copy.en[key] || key;
   const unknown = lang === 'zh' ? '状态未知' : 'Unknown';
-  const unconfirmed = lang === 'zh' ? '未确认' : 'Unconfirmed';
+  const unconfirmed = t('notRead');
   for (const sample of [
     { deployment: { runtime_enabled: null, scheduler_state: 'unknown' },
       runtime: unknown, scheduler: unknown },
