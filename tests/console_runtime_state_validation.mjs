@@ -210,6 +210,20 @@ test('a parked AIAudit research result stays outside the owner-action queue', ()
   assert.equal(frontendFunction('isParkedResearchResult')(candidate), true);
 });
 
+test('stale research material is not presented as a read failure', () => {
+  const classify = frontendFunction('controlPlaneSourceCondition', {});
+  assert.equal(JSON.stringify(classify(
+    { data_status: 'stale', errors: ['source_stale', 'p3_parked', 'decision_data_projection_parked'] },
+    { data_status: 'stale', errors: ['control_plane_not_ready'] },
+    { data_status: 'ready', errors: [] },
+  )), JSON.stringify({ status: 'stale', unavailable: false, stale: true, needsReview: true }));
+  assert.equal(JSON.stringify(classify(
+    { data_status: 'unavailable', errors: ['control_plane_request_failed'] },
+    { data_status: 'ready', errors: [] },
+    { data_status: 'ready', errors: [] },
+  )), JSON.stringify({ status: 'unavailable', unavailable: true, stale: false, needsReview: true }));
+});
+
 test('only the explicit AIAudit SOXL validation source gets a run link', () => {
   const fn = frontendFunction('parkedResearchResultSourceUrl', {
     isParkedResearchResult: frontendFunction('isParkedResearchResult'),
@@ -432,7 +446,7 @@ test('account details keep saved, deployed and application state separate', () =
   assert.ok(html.includes('data-i18n="configuredSwitch"'));
   assert.ok(html.includes('class="account-facts"'));
   assert.ok(app.includes('["deployedSwitch", accountDeploymentText(platform, account)]'));
-  assert.ok(app.includes('["applicationStatus", accountApplicationText(platform, account)]'));
+  assert.ok(app.includes('["applicationStatus", application]'));
   const overview = app.slice(app.indexOf('function renderAccountOverview'), app.indexOf('function renderControls'));
   assert.ok(overview.includes('currentRuntimeTargetText(platform, account)'));
   assert.ok(overview.includes('accountDeploymentText(platform, account)'));
@@ -589,12 +603,37 @@ for (const sample of [
     el: id => nodes[id], t: key => key, platformMeta: { ibkr: { console_visible: sample.platformVisible !== false } },
   };
   context.promotionTicketNeedsSourceCheck = frontendFunction('promotionTicketNeedsSourceCheck', context);
+  context.reviewablePromotionTickets = frontendFunction('reviewablePromotionTickets', context);
   context.renderUnverifiedPromotionRecords = () => {};
   context.promotionTicketQueueMessage = frontendFunction('promotionTicketQueueMessage', context);
   frontendFunction('renderPromotionConfirmControls', context)();
   assert.equal(nodes['promotion-decision-panel'].hidden, !sample.visible);
   assert.equal(nodes['promotion-queue-notice'].hidden, !sample.allowed || sample.visible);
   if (sample.notice) assert.equal(nodes['promotion-queue-notice'].textContent, sample.notice);
+});
+
+test('only reviewable promotion tickets create a dashboard research entry', () => {
+  const reviewable = frontendFunction('reviewablePromotionTickets', {
+    promotionTicketNeedsSourceCheck: ticket => !ticket.shadow_evidence_kind,
+  });
+  const tickets = [
+    { state: 'awaiting_human' },
+    { state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' },
+    { state: 'human_accepted', shadow_evidence_kind: 'paired_forward_observation' },
+  ];
+  assert.equal(reviewable({ data_status: 'ready', errors: [], tickets }).length, 1);
+  assert.equal(reviewable({ data_status: 'stale', errors: [], tickets }).length, 0);
+  assert.equal(reviewable({ data_status: 'ready', errors: ['source_unavailable'], tickets }).length, 0);
+});
+
+test('research page puts current decisions before collapsed history and labels the intent platform', () => {
+  const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  const decision = html.indexOf('id="promotion-decision-panel"');
+  const emptyState = html.indexOf('id="promotion-queue-notice"');
+  const history = html.indexOf('id="parked-research-results"');
+  assert.ok(decision > 0 && emptyState > decision && history > emptyState);
+  assert.match(html, /<details[^>]+id="parked-research-results"[^>]*>/);
+  assert.ok(html.includes('id="platform-strip-label"'));
 });
 
 for (const status of ['deploymentUnverified', 'switchesApplied', 'strategyNotApplied', 'settingsNotApplied', 'scheduleNotApplied']) {
@@ -614,6 +653,89 @@ test('unknown scheduler readback remains unknown when the switch agrees', () => 
     currentStrategyForAccount: () => 'example', t: key => key,
   });
   assert.equal(fn('ibkr', {}), 'deploymentUnverified');
+});
+
+test('account status follows runtime readback instead of the form execution mode', () => {
+  const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
+  for (const id of ['plan-check-account', 'plan-check-strategy', 'plan-check-risk', 'plan-check-authority', 'selected-monitoring-status']) {
+    assert.equal(html.includes(`id="${id}"`), false, `${id} should not appear in the account page`);
+  }
+
+  function createNode() {
+    return {
+      children: [], hidden: false, textContent: '',
+      append(...children) { this.children.push(...children); },
+      replaceChildren(...children) { this.children = children; },
+    };
+  }
+  const rendered = [];
+  for (const executionMode of ['live', 'dry_run']) {
+    const nodes = {
+      'account-overview': createNode(),
+      'account-overview-body': createNode(),
+      'account-runtime-details': createNode(),
+      'account-runtime-details-body': createNode(),
+    };
+    const context = {
+      state: { selected: 'ibkr', forms: { ibkr: { executionMode } } },
+      el: id => nodes[id],
+      document: { createElement: () => createNode() },
+      hasPrivateConfig: () => true,
+      selectedAccount: () => ({ key: 'main' }),
+      currentStrategyForAccount: () => 'example',
+      strategyLabel: () => 'Example strategy',
+      currentRuntimeTargetText: () => 'configured enabled',
+      accountDeploymentText: () => 'deployed enabled',
+      accountSchedulerText: () => 'scheduled',
+      accountApplicationText: () => 'switchesApplied',
+      accountMonitoringRecord: () => ({ freshness: { data_status: 'ready' }, execution_observation: { code: 'not_due' } }),
+      accountMonitoringAge: () => '5 minutes ago',
+      accountObservationAge: () => '5 minutes ago',
+      accountMonitoringText: () => 'not in a due window',
+      accountNextStep: () => ({ label: 'noSwitchAction' }),
+      t: key => key,
+    };
+    frontendFunction('renderAccountOverview', context)();
+    rendered.push(nodes['account-overview-body'].children.map(pair =>
+      pair.children.map(child => child.textContent)));
+    assert.deepEqual(nodes['account-runtime-details-body'].children.map(pair => pair.children[0].textContent), [
+      'deployedSwitch', 'schedulerState', 'applicationStatus', 'latestReadback',
+    ]);
+  }
+  assert.deepEqual(rendered[0], rendered[1]);
+  assert.deepEqual(rendered[0], [
+    ['configuredStrategy', 'Example strategy'],
+    ['configuredSwitch', 'configured enabled'],
+    ['observedRuntime', 'not in a due window · 5 minutes ago'],
+  ]);
+});
+
+test('account status shows a next step only when observed state needs attention', () => {
+  function createNode() {
+    return {
+      children: [], hidden: false, textContent: '',
+      append(...children) { this.children.push(...children); },
+      replaceChildren(...children) { this.children = children; },
+    };
+  }
+  const nodes = Object.fromEntries([
+    'account-overview', 'account-overview-body', 'account-runtime-details', 'account-runtime-details-body',
+  ].map(id => [id, createNode()]));
+  const context = {
+    state: { selected: 'ibkr', forms: { ibkr: { executionMode: 'live' } } },
+    el: id => nodes[id], document: { createElement: () => createNode() },
+    hasPrivateConfig: () => true, selectedAccount: () => ({ key: 'main' }),
+    currentStrategyForAccount: () => 'example', strategyLabel: () => 'Example strategy',
+    currentRuntimeTargetText: () => 'configured enabled', accountDeploymentText: () => 'deployed disabled',
+    accountSchedulerText: () => 'paused', accountApplicationText: () => 'settingsNotApplied',
+    accountMonitoringRecord: () => ({ freshness: { data_status: 'ready' }, execution_observation: { code: 'attention' } }),
+    accountMonitoringAge: () => '2 minutes ago', accountObservationAge: () => '2 minutes ago', accountMonitoringText: () => 'needs review',
+    accountNextStep: () => ({ label: 'reviewAccountSettings' }), t: key => key,
+  };
+  frontendFunction('renderAccountOverview', context)();
+  assert.deepEqual(nodes['account-overview-body'].children.at(-1).children.map(child => child.textContent), [
+    'accountDetailAction', 'reviewAccountSettings',
+  ]);
 });
 
 test('opening account settings selects the exact account without submitting or enabling', () => {
@@ -643,7 +765,7 @@ test('decisions and account observations stay outside collapsed strategy setting
   }
   assert.ok(html.indexOf('id="promotion-decision-panel"') < html.indexOf('id="account-overview"'));
   assert.ok(html.indexOf('id="quick-form"') > settings);
-  assert.ok(source.includes('["accountDetailAction", accountNextStep(platform, account).label]'));
+  assert.ok(source.includes('...(needsAttention ? [["accountDetailAction", nextStep]] : [])'));
   assert.equal((html.match(/id="dispatch-button"/g) || []).length, 1);
 });
 
@@ -690,7 +812,7 @@ test('promotion rendering preserves candidate identity, target context and admin
     DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
     Option: class { constructor(text, value, _defaultSelected, selected) { Object.assign(this, { text, value, selected }); } },
   };
-  for (const name of ['promotionTicketNeedsSourceCheck', 'promotionTicketDisplayName', 'promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage', 'promotionTicketDetailMessage']) {
+  for (const name of ['promotionTicketNeedsSourceCheck', 'reviewablePromotionTickets', 'promotionTicketDisplayName', 'promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage', 'promotionTicketDetailMessage']) {
     context[name] = frontendFunction(name, context);
   }
   const render = frontendFunction('renderPromotionConfirmControls', context);

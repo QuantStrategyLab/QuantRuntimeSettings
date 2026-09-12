@@ -65,7 +65,6 @@
           </div>
           <div class="decision-freshness" aria-label="数据更新时间" data-i18n-aria-label="dataFreshness">
             <span id="control-plane-status" class="pill">等待登录</span>
-            <span id="control-plane-computed-at">最近计算：—</span>
           </div>
         </header>
         <div class="decision-state" role="status" aria-live="polite">
@@ -121,22 +120,10 @@
       <div class="overview-research-link" id="overview-research-link" hidden><span id="overview-research-summary"></span><button class="text-button" type="button" data-workspace="research" data-i18n="viewResearch">查看研究与确认</button></div>
 
     </section>
+    <p class="platform-strip-label" id="platform-strip-label" hidden></p>
     <nav class="platform-strip" id="platform-strip" aria-label="平台" data-i18n-aria-label="activePlatform" hidden></nav>
     <section id="research-view" hidden>
     <p class="research-intro" data-i18n="researchIntro">研究候选与当前运行分开管理。接受候选只记录意向，不启用交易。</p>
-    <section class="diagnostic-section binance-private-scope" id="binance-private-scope-board" hidden aria-labelledby="binance-private-scope-title">
-      <h3 id="binance-private-scope-title" data-i18n="binancePrivateScopeBoard">Binance 私密资产清单</h3>
-      <div id="binance-private-scope-notice" class="health-notice" role="status" aria-live="polite">暂时无法读取私密清单。</div>
-      <div id="binance-private-scope-list"></div>
-    </section>
-    <section class="diagnostic-section" id="parked-research-results" hidden aria-labelledby="parked-research-results-title">
-      <h3 id="parked-research-results-title" data-i18n="parkedResearchResultsTitle">研究记录</h3>
-      <div class="health-list" id="parked-research-results-list"></div>
-    </section>
-    <details class="promotion-unverified-records" id="promotion-unverified-records" hidden>
-      <summary id="promotion-unverified-summary">旧记录 · 材料待核实</summary>
-      <div id="promotion-unverified-list"></div>
-    </details>
     <section class="decision-promotion-panel" id="promotion-decision-panel" aria-labelledby="promotion-decision-title" hidden>
       <header class="decision-promotion-head">
         <h3 id="promotion-decision-title" data-i18n="promotionConfirmTitle">确认研究候选</h3>
@@ -195,6 +182,19 @@
     </section>
 
     <p class="promotion-queue-notice" id="promotion-queue-notice" role="status" aria-live="polite" hidden></p>
+    <details class="diagnostic-section parked-research-results" id="parked-research-results" hidden>
+      <summary id="parked-research-results-title" data-i18n="parkedResearchResultsTitle">研究记录</summary>
+      <div class="health-list" id="parked-research-results-list"></div>
+    </details>
+    <details class="promotion-unverified-records" id="promotion-unverified-records" hidden>
+      <summary id="promotion-unverified-summary">旧记录 · 材料待核实</summary>
+      <div id="promotion-unverified-list"></div>
+    </details>
+    <section class="diagnostic-section binance-private-scope" id="binance-private-scope-board" hidden aria-labelledby="binance-private-scope-title">
+      <h3 id="binance-private-scope-title" data-i18n="binancePrivateScopeBoard">Binance 私密资产清单</h3>
+      <div id="binance-private-scope-notice" class="health-notice" role="status" aria-live="polite">暂时无法读取私密清单。</div>
+      <div id="binance-private-scope-list"></div>
+    </section>
     </section>
 
     <section id="accounts-view" hidden>
@@ -209,9 +209,12 @@
 
         <div class="account-overview" id="account-overview" role="region" aria-label="账户状态" data-i18n-aria-label="instanceList" hidden>
           <dl class="account-facts" id="account-overview-body"></dl>
+          <details class="account-runtime-details" id="account-runtime-details">
+            <summary data-i18n="monitoringDetails">监测详情</summary>
+            <dl class="account-runtime-facts" id="account-runtime-details-body"></dl>
+          </details>
         </div>
 
-        <p class="account-state-note" data-i18n="runtimeObservationHint">实际开关和调度以记录时间为准，不代表已经成交。</p>
         <details class="strategy-settings" id="strategy-settings">
           <summary><span data-i18n="strategySettings">策略设置</span><small data-i18n="strategySettingsHint">需要启停或调整策略时展开</small></summary>
           <div class="health-notice" id="binance-resume-panel" hidden>
@@ -359,22 +362,6 @@
           <span class="pill" id="mode-pill">live</span>
         </div>
         <div class="summary-list" id="summary-list" role="list"></div>
-        <details class="plan-check-details">
-          <summary id="plan-readiness-title" data-i18n="planReadinessTitle">提交前核对</summary>
-        <section class="plan-readiness" aria-labelledby="plan-readiness-title">
-
-          <ul>
-            <li><span data-i18n="planCheckAccount">账号与作用范围</span><strong id="plan-check-account">等待配置</strong></li>
-            <li><span data-i18n="planCheckStrategy">策略与目标环境</span><strong id="plan-check-strategy">等待选择</strong></li>
-            <li><span data-i18n="planCheckRisk">现金与风险设置</span><strong id="plan-check-risk">等待核对</strong></li>
-            <li><span data-i18n="planCheckAuthority">实盘状态</span><strong id="plan-check-authority">等待核对</strong></li>
-          </ul>
-        </section>
-        </details>
-        <div class="runtime-observation">
-          <div><span data-i18n="applicationStatus">应用状态</span><strong id="selected-monitoring-status">—</strong></div>
-          <p data-i18n="runtimeObservationHint">监测记录不代表已下单或成交。</p>
-        </div>
         <div class="summary-actions">
           <button class="btn" id="copy-button" type="button" data-i18n="copySummary">复制状态</button>
         </div>

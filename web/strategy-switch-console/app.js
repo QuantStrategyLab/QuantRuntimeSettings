@@ -177,7 +177,7 @@
         refreshingStatus: "读取中…",
         configTruthNote: "配置值不代表云端实际状态。",
         configuredSwitch: "配置开关",
-        observedRuntime: "最近检查",
+        observedRuntime: "最近运行检查",
         deployedSwitch: "实际开关",
         schedulerState: "自动调度",
         applicationStatus: "应用状态",
@@ -199,6 +199,7 @@
         monitoringUnlinked: "待关联",
         monitoringTime: "记录时间",
         monitoringDetails: "监测详情",
+        promotionIntentPlatform: "接受候选时的意向平台",
         platformManagement: "决策与账户",
         strategySettings: "策略设置",
         strategySettingsHint: "需要启停或调整策略时展开",
@@ -212,7 +213,6 @@
         monitoringSummaryHint: "仅展示已配置账户的记录；监测通过不代表已成交。",
         instanceList: "账户实例",
         configDetails: "配置详情",
-        runtimeObservationHint: "实际开关和调度来自部署读回；以记录时间为准，不代表已经成交。",
         openSystemStatus: "查看高级详情",
         noConfiguredAccounts: "登录并读取配置后显示账户实例。",
 
@@ -238,15 +238,15 @@
         controlAttentionResearchOnly: "暂无待处理事项",
         controlAttentionRequired: "需要关注",
         controlAttentionUnavailable: "等待数据",
-        controlComputedAt: "更新于：{time}",
         controlLoginNotice: "登录后查看待处理事项和运行状态。",
-        controlStaleNotice: "数据更新延迟，暂不建议据此做新决定。",
+        controlStaleNotice: "部分研究材料待更新；更新前暂不能确认是否有新的决策事项。",
         controlUnavailableNotice: "暂时无法读取最新状态，请稍后刷新。",
-        controlUpstreamNotice: "部分数据暂不可用，请稍后重试。",
+        controlUpstreamNotice: "部分材料待核实；核实前暂不能确认是否有新的决策事项。",
         controlAttentionNotice: "有 {count} 项需要你确认。",
         controlNormalNotice: "目前没有需要你决定的事项。",
         controlNormalSummary: "暂时无需操作，可查看账户和研究进度。",
-        controlStaleSummary: "当前记录尚未更新，请勿据此作出新的决定。",
+        controlStaleSummary: "材料更新后再确认待办。",
+        controlUnavailableSummary: "最新材料无法读取，暂不能确认新的决策事项。",
         controlLoginSummary: "登录后查看你的待办和系统概览。",
         controlAttentionSummary: "请查看下方事项并记录你的决定。",
         decisionBackgroundSummary: "系统进度与历史记录",
@@ -606,18 +606,6 @@
         summary: "当前配置",
         summaryCurrent: "已保存的配置",
         summaryPending: "待提交变更",
-        planReadinessTitle: "提交前核对",
-        planCheckAccount: "账号与作用范围",
-        planCheckStrategy: "策略与目标环境",
-        planCheckRisk: "现金与风险设置",
-        planCheckAuthority: "实盘状态",
-        planCheckWaiting: "等待配置",
-        planCheckSelected: "已读取",
-        planCheckValid: "已校验",
-        planCheckFix: "需修正",
-        planCheckNonLive: "非实盘",
-        planCheckNoAuthority: "未就绪",
-        planAuditNote: "提交配置不等于运行生效。",
         copySummary: "复制状态",
         loginToRun: "登录后提交计划",
         loadingConfig: "读取配置中",
@@ -754,7 +742,7 @@
         refreshingStatus: "Reading…",
         configTruthNote: "Saved configuration is not observed runtime state.",
         configuredSwitch: "Configured switch",
-        observedRuntime: "Last check",
+        observedRuntime: "Latest runtime check",
         deployedSwitch: "Deployed switch",
         schedulerState: "Scheduling",
         applicationStatus: "Applied status",
@@ -776,6 +764,7 @@
         monitoringUnlinked: "Not linked",
         monitoringTime: "Recorded at",
         monitoringDetails: "Monitoring details",
+        promotionIntentPlatform: "Intent platform when accepting a candidate",
         platformManagement: "Decisions and accounts",
         strategySettings: "Strategy settings",
         strategySettingsHint: "Expand to enable, disable or change a strategy",
@@ -789,7 +778,6 @@
         monitoringSummaryHint: "Records for configured accounts only. Monitoring success does not imply a fill.",
         instanceList: "Account instances",
         configDetails: "Configuration details",
-        runtimeObservationHint: "Deployment and scheduling come from resource readback at the shown time, not proof of fills.",
         openSystemStatus: "View advanced details",
         noConfiguredAccounts: "Sign in and load configuration to view account instances.",
 
@@ -815,15 +803,15 @@
         controlAttentionResearchOnly: "Nothing to do",
         controlAttentionRequired: "Needs attention",
         controlAttentionUnavailable: "Waiting for data",
-        controlComputedAt: "Updated: {time}",
         controlLoginNotice: "Sign in to see your to-do items and runtime status.",
-        controlStaleNotice: "Data is delayed. Avoid making a new decision from it for now.",
+        controlStaleNotice: "Some research material needs updating. Until then, new decision items cannot be confirmed.",
         controlUnavailableNotice: "The latest status is temporarily unavailable. Please refresh later.",
-        controlUpstreamNotice: "Some data is temporarily unavailable. Please retry later.",
+        controlUpstreamNotice: "Some material needs verification. Until then, new decision items cannot be confirmed.",
         controlAttentionNotice: "{count} item(s) need your decision.",
         controlNormalNotice: "There is nothing you need to decide right now.",
         controlNormalSummary: "No action is needed now. You can review account and research progress.",
-        controlStaleSummary: "These records are not current; avoid making new decisions from them.",
+        controlStaleSummary: "Check decision items after the material is updated.",
+        controlUnavailableSummary: "The latest material could not be read, so new decision items cannot be confirmed.",
         controlLoginSummary: "Sign in to see your tasks and system overview.",
         controlAttentionSummary: "Review the items below and record your decision.",
         decisionBackgroundSummary: "System progress and decision history",
@@ -1183,18 +1171,6 @@
         summary: "Current configuration",
         summaryCurrent: "Saved configuration",
         summaryPending: "Pending change",
-        planReadinessTitle: "Before submission",
-        planCheckAccount: "Account and scope",
-        planCheckStrategy: "Strategy and environment",
-        planCheckRisk: "Cash and risk settings",
-        planCheckAuthority: "Live status",
-        planCheckWaiting: "Waiting",
-        planCheckSelected: "Read",
-        planCheckValid: "Checked",
-        planCheckFix: "Needs correction",
-        planCheckNonLive: "Non-live",
-        planCheckNoAuthority: "Not ready",
-        planAuditNote: "This change is saved in the change history.",
         copySummary: "Copy state",
         loginToRun: "Sign in to submit a plan",
         loadingConfig: "Loading config",
@@ -2439,6 +2415,12 @@
       return !String(ticket?.shadow_evidence_kind || "").trim();
     }
 
+    function reviewablePromotionTickets(payload) {
+      if (payload?.data_status !== "ready" || payload?.errors?.length) return [];
+      return (payload.tickets || []).filter((ticket) =>
+        ticket.state === "awaiting_human" && !promotionTicketNeedsSourceCheck(ticket));
+    }
+
     function promotionTicketDisplayName(ticket, index = 0) {
       const profile = String(ticket?.strategy_profile || "");
       if (profile === "synthetic-profile") return t("promotionUnnamedRecord").replace("{number}", String(index + 1));
@@ -2519,7 +2501,7 @@
       const pendingTickets = state.auth?.allowed && queueReady
         ? (payload.tickets || []).filter((ticket) => ticket.state === "awaiting_human")
         : [];
-      const tickets = pendingTickets.filter((ticket) => !promotionTicketNeedsSourceCheck(ticket));
+      const tickets = state.auth?.allowed ? reviewablePromotionTickets(payload) : [];
       renderUnverifiedPromotionRecords(pendingTickets.filter(promotionTicketNeedsSourceCheck));
       const panel = el("promotion-decision-panel");
       if (panel) panel.hidden = !tickets.length || !platformVisible;
@@ -3654,6 +3636,14 @@
       return new Intl.RelativeTimeFormat(state.lang, { numeric: "auto" }).format(-Math.floor(age / seconds), unit);
     }
 
+    function accountObservationAge(record) {
+      const age = record?.freshness?.age_seconds;
+      if (typeof age !== "number" || !Number.isFinite(age) || age < 0) return "—";
+      const unit = age >= 86400 ? "day" : age >= 3600 ? "hour" : "minute";
+      const seconds = unit === "day" ? 86400 : unit === "hour" ? 3600 : 60;
+      return new Intl.RelativeTimeFormat(state.lang, { numeric: "auto" }).format(-Math.floor(age / seconds), unit);
+    }
+
     function renderMonitoringOverview() {
       const body = el("monitoring-overview-body");
       body.replaceChildren();
@@ -3689,31 +3679,52 @@
 
     function renderAccountOverview() {
       const body = el("account-overview-body");
+      const details = el("account-runtime-details");
+      const detailsBody = el("account-runtime-details-body");
       body.replaceChildren();
+      detailsBody.replaceChildren();
       el("account-overview").hidden = !hasPrivateConfig();
+      details.hidden = !hasPrivateConfig();
       if (!hasPrivateConfig()) return;
       const platform = state.selected;
       const account = selectedAccount(platform);
-      el("selected-monitoring-status").textContent = accountApplicationText(platform, account);
+      const record = accountMonitoringRecord(platform, account);
+      const monitoring = accountMonitoringText(platform, account);
+      const observationAge = accountObservationAge(record);
+      const deploymentAge = accountMonitoringAge(record);
+      const application = accountApplicationText(platform, account);
       const profile = currentStrategyForAccount(platform, account);
+      const observationCode = record?.execution_observation?.code;
+      const monitoringNeedsAttention = !record
+        || record.freshness?.data_status !== "ready"
+        || ["attention", "unavailable"].includes(observationCode)
+        || monitoring === t("monitoringConfigMismatch");
+      const needsAttention = application !== t("switchesApplied") || monitoringNeedsAttention;
+      const nextStep = application !== t("switchesApplied")
+        ? accountNextStep(platform, account).label
+        : t("openSystemStatus");
       const facts = [
         ["configuredStrategy", profile ? strategyLabel(profile) : t("notRead")],
         ["configuredSwitch", currentRuntimeTargetText(platform, account)],
+        ["observedRuntime", observationAge === "—" ? monitoring : `${monitoring} · ${observationAge}`],
+        ...(needsAttention ? [["accountDetailAction", nextStep]] : []),
+      ];
+      const detailFacts = [
         ["deployedSwitch", accountDeploymentText(platform, account)],
         ["schedulerState", accountSchedulerText(platform, account)],
-        ["applicationStatus", accountApplicationText(platform, account)],
-        ["latestReadback", accountMonitoringAge(accountMonitoringRecord(platform, account))],
-        ["observedRuntime", accountMonitoringText(platform, account)],
-        ["accountDetailAction", accountNextStep(platform, account).label],
+        ["applicationStatus", application],
+        ["latestReadback", deploymentAge],
       ];
-      for (const [label, value] of facts) {
-        const pair = document.createElement("div");
-        const term = document.createElement("dt");
-        term.textContent = t(label);
-        const detail = document.createElement("dd");
-        detail.textContent = value;
-        pair.append(term, detail);
-        body.append(pair);
+      for (const [target, rows] of [[body, facts], [detailsBody, detailFacts]]) {
+        for (const [label, value] of rows) {
+          const pair = document.createElement("div");
+          const term = document.createElement("dt");
+          term.textContent = t(label);
+          const detail = document.createElement("dd");
+          detail.textContent = value;
+          pair.append(term, detail);
+          target.append(pair);
+        }
       }
     }
 
@@ -4042,44 +4053,6 @@
       el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
     }
 
-    function setPlanCheck(id, value, tone) {
-      const node = el(id);
-      if (!node) return;
-      node.textContent = value;
-      node.dataset.tone = tone || "neutral";
-    }
-
-    function renderPlanReadiness() {
-      const platform = state.selected;
-      const account = selectedAccount(platform);
-      const configured = hasPrivateConfig() && Boolean(account?.key);
-      const runnable = configured && hasRunnableStrategySelection(platform);
-      const riskValid = configured && hasValidExecutionCashPolicy(platform) &&
-        hasValidIncomeLayerPolicy(platform) && hasValidOptionOverlayPolicy(platform) && hasValidDcaPolicy(platform);
-      const form = state.forms[platform];
-      const isNonLive = normalizeExecutionMode(form?.executionMode, false) !== "live";
-      setPlanCheck(
-        "plan-check-account",
-        configured ? t("planCheckSelected") : t("planCheckWaiting"),
-        configured ? "ready" : "neutral",
-      );
-      setPlanCheck(
-        "plan-check-strategy",
-        runnable ? t("planCheckValid") : (configured ? t("planCheckFix") : t("planCheckWaiting")),
-        runnable ? "ready" : (configured ? "warning" : "neutral"),
-      );
-      setPlanCheck(
-        "plan-check-risk",
-        riskValid ? t("planCheckValid") : (configured ? t("planCheckFix") : t("planCheckWaiting")),
-        riskValid ? "ready" : (configured ? "warning" : "neutral"),
-      );
-      setPlanCheck(
-        "plan-check-authority",
-        isNonLive ? t("planCheckNonLive") : t("planCheckNoAuthority"),
-        isNonLive ? "ready" : "warning",
-      );
-    }
-
     function renderAuth() {
       const status = el("auth-status");
       const loginLink = el("login-link");
@@ -4377,6 +4350,19 @@
       }
     }
 
+    function controlPlaneSourceCondition(payload, ownerDecisions, recoveryPayload) {
+      const sources = [payload, ownerDecisions, recoveryPayload];
+      const unavailable = sources.some((source) => source?.data_status === "unavailable");
+      const stale = !unavailable && sources.some((source) => source?.data_status === "stale");
+      const needsReview = sources.some((source) => Boolean(source?.errors?.length));
+      return {
+        status: unavailable ? "unavailable" : (stale || needsReview ? "stale" : "ready"),
+        unavailable,
+        stale,
+        needsReview,
+      };
+    }
+
     function renderControlPlane() {
       const payload = state.controlPlane.payload;
       const pendingRecoveries = state.reconciliationRecovery.payload.recoveries.filter(recoveryNeedsOperatorAction);
@@ -4384,21 +4370,13 @@
       const backgroundCandidates = payload.candidates.filter((item) =>
         !candidateNeedsOperatorAction(item) && candidateIsDecisionBackgroundVisible(item));
       const actionableCount = actionableCandidates.length + pendingRecoveries.length;
-      const sourceStale = payload.data_status === "stale"
-        || state.reconciliationRecovery.payload.data_status === "stale";
-      const sourcesUnavailable = payload.data_status === "unavailable"
-        || state.ownerDecisions.data_status === "unavailable"
-        || state.reconciliationRecovery.payload.data_status === "unavailable"
-        || Boolean(payload.errors?.length)
-        || Boolean(state.ownerDecisions.errors?.length)
-        || Boolean(state.reconciliationRecovery.payload.errors?.length);
-      const decisionStatus = actionableCount ? "ready" : (sourcesUnavailable ? "unavailable" : (sourceStale ? "stale" : "ready"));
-      const computedAt = [payload.computed_at, state.reconciliationRecovery.payload.computed_at]
-        .filter(Boolean).sort().at(-1);
+      const sourceCondition = controlPlaneSourceCondition(
+        payload,
+        state.ownerDecisions,
+        state.reconciliationRecovery.payload,
+      );
+      const decisionStatus = actionableCount ? "ready" : sourceCondition.status;
       el("control-plane-status").textContent = controlPlaneDataStatusText(decisionStatus);
-      el("control-plane-computed-at").textContent = computedAt
-        ? t("controlComputedAt").replace("{time}", formatDateTime(computedAt))
-        : t("controlComputedAt").replace("{time}", "—");
 
       const notice = el("control-plane-notice");
       const statePanel = notice.closest(".decision-state");
@@ -4407,12 +4385,12 @@
       const queue = el("control-plane-queue");
       queue.hidden = !actionableCandidates.length;
       statePanel.classList.toggle("is-attention", actionableCount > 0);
-      statePanel.classList.toggle("is-stale", !actionableCount && sourceStale);
-      statePanel.classList.toggle("is-unavailable", !state.auth.allowed || (!actionableCount && sourcesUnavailable));
+      statePanel.classList.toggle("is-stale", !actionableCount && decisionStatus === "stale");
+      statePanel.classList.toggle("is-unavailable", !state.auth.allowed || (!actionableCount && sourceCondition.unavailable));
       const stateMark = statePanel.querySelector(".decision-state__mark");
-      stateMark.textContent = !state.auth.allowed || (!actionableCount && sourcesUnavailable)
+      stateMark.textContent = !state.auth.allowed || (!actionableCount && sourceCondition.unavailable)
         ? "i"
-        : ((actionableCount > 0 || sourceStale) ? "!" : "✓");
+        : ((actionableCount > 0 || decisionStatus === "stale") ? "!" : "✓");
       if (!state.auth.allowed) {
         notice.textContent = t("controlLoginNotice");
         el("control-plane-summary").textContent = t("controlLoginSummary");
@@ -4420,14 +4398,14 @@
         notice.textContent = t("controlAttentionNotice")
           .replace("{count}", String(actionableCount));
         el("control-plane-summary").textContent = t("controlAttentionSummary");
-      } else if (sourcesUnavailable) {
+      } else if (sourceCondition.unavailable) {
         notice.textContent = t("controlUnavailableNotice");
-        el("control-plane-summary").textContent = t("controlStaleSummary");
-      } else if (sourceStale) {
+        el("control-plane-summary").textContent = t("controlUnavailableSummary");
+      } else if (sourceCondition.stale) {
         notice.textContent = t("controlStaleNotice");
         el("control-plane-summary").textContent = t("controlStaleSummary");
-      } else if (payload.errors?.length) {
-        notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
+      } else if (sourceCondition.needsReview) {
+        notice.textContent = t("controlUpstreamNotice");
         el("control-plane-summary").textContent = t("controlStaleSummary");
       } else {
         notice.textContent = t("controlNormalNotice");
@@ -5650,15 +5628,11 @@
         ? t("pageRefreshed").replace("{time}", new Intl.DateTimeFormat(locale(), {hour: "2-digit", minute: "2-digit"}).format(new Date(state.lastRefreshAt)))
         : t("pageNotRefreshed");
       const queue = state.researchPromotion.payload;
-      const pendingTickets = queue.data_status === "ready" && !queue.errors?.length
-        ? queue.tickets.filter(ticket => ticket.state === "awaiting_human") : [];
-      const pending = pendingTickets.filter(ticket => !promotionTicketNeedsSourceCheck(ticket)).length;
-      const unverified = pendingTickets.length - pending;
-      el("overview-research-link").hidden = !state.auth.allowed || !pendingTickets.length;
-      el("overview-research-summary").textContent = [
-        pending ? t("researchPendingCount").replace("{count}", pending) : "",
-        unverified ? t("promotionUnverifiedCount").replace("{count}", unverified) : "",
-      ].filter(Boolean).join(" · ");
+      const pending = reviewablePromotionTickets(queue).length;
+      el("overview-research-link").hidden = !state.auth.allowed || pending === 0;
+      el("overview-research-summary").textContent = pending
+        ? t("researchPendingCount").replace("{count}", pending)
+        : "";
     }
 
     function renderWorkspace() {
@@ -5667,6 +5641,8 @@
       const view = ["overview", "accounts", "research"].includes(state.view) ? state.view : "overview";
       for (const name of ["overview", "accounts", "research"]) el(`${name}-view`).hidden = view !== name;
       el("platform-strip").hidden = view === "overview";
+      el("platform-strip-label").hidden = view === "overview";
+      el("platform-strip-label").textContent = t(view === "research" ? "promotionIntentPlatform" : "activePlatform");
       el("health-view").hidden = view !== "research";
       el("workspace-title").textContent = t(`${view}Nav`);
       el("workspace-description").textContent = t(`${view}Description`);
@@ -5701,7 +5677,6 @@
       renderBinanceResume();
       renderAccountOverview();
       renderSummary();
-      renderPlanReadiness();
       renderAuth();
       renderAppVisibility();
       renderWorkspace();
