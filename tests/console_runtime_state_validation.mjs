@@ -170,17 +170,29 @@ test('admin page CSP permits only its own inline script and style', async () => 
   assert.ok(!csp.includes('unsafe-inline'));
 });
 
-for (const intent of [null, { decision: 'approved' }]) {
-  test(`completed owner decision is not an outstanding action: ${Boolean(intent)}`, () => {
+for (const sample of [
+  { name: 'fresh and ready', control: 'ready', queue: 'ready', freshness: 'fresh', intent: null, expected: true },
+  { name: 'already confirmed', control: 'ready', queue: 'ready', freshness: 'fresh', intent: { decision: 'keep_parked' }, expected: false },
+  { name: 'stale candidate', control: 'ready', queue: 'ready', freshness: 'stale', intent: null, expected: false },
+  { name: 'stale control plane', control: 'stale', queue: 'ready', freshness: 'fresh', intent: null, expected: false },
+  { name: 'owner queue unavailable', control: 'ready', queue: 'unavailable', freshness: 'fresh', intent: null, expected: false },
+]) {
+  test(`only current P6 evidence becomes an owner action: ${sample.name}`, () => {
     const fn = frontendFunction('candidateNeedsOperatorAction', {
-      ownerDecisionEntry: () => ({ intent }),
+      state: { controlPlane: { payload: { data_status: sample.control } }, ownerDecisions: { data_status: sample.queue } },
+      ownerDecisionEntry: () => ({ intent: sample.intent }),
     });
-    assert.equal(fn({ lifecycle: { status: 'owner_decision_required' } }), !intent);
+    assert.equal(fn({
+      lifecycle: { stage: 'P6', status: 'owner_decision_required' },
+      recommendation: { code: 'owner_live_decision' },
+      freshness: { status: sample.freshness },
+    }), sample.expected);
   });
 }
 
 test('a parked AIAudit research result stays outside the owner-action queue', () => {
   const action = frontendFunction('candidateNeedsOperatorAction', {
+    state: { controlPlane: { payload: { data_status: 'ready' } }, ownerDecisions: { data_status: 'ready' } },
     ownerDecisionEntry: () => null,
   });
   const visible = frontendFunction('candidateIsControlPlaneVisible', {
@@ -304,7 +316,7 @@ for (const scenario of ['ready','stale','missing','wrong-platform','duplicate-so
 }
 
 for (const scenario of [
-  {name:'no visible candidate',allowed:true,candidates:[],pending:false,visible:false},
+  {name:'no visible candidate',allowed:true,candidates:[],pending:false,visible:true},
   {name:'human decision',allowed:true,candidates:[{}],pending:true,visible:true},
   {name:'forward-only signed out',allowed:false,candidates:[{forward_observation:{}}],pending:false,visible:false},
   {name:'forward-only signed in',allowed:true,candidates:[{forward_observation:{}}],pending:false,visible:true},
@@ -364,11 +376,21 @@ test('Binance without an explicit market uses crypto, not US equities',()=>{
   assert.deepEqual(Array.from(frontendFunction('inferSupportedDomains',{})('binance',{})),['crypto']);
 });
 
-test('only pending human reconciliation confirmations appear outside diagnostics',()=>{
-  const needs=frontendFunction('recoveryNeedsOperatorAction',{});
-  assert.equal(needs({recovery:{readiness:'awaiting_human_confirmation'}}),true);
-  assert.equal(needs({recovery:{readiness:'awaiting_human_confirmation'},confirmation:{}}),false);
-  assert.equal(needs({recovery:{readiness:'blocked'}}),false);
+test('only current complete recovery evidence becomes an action',()=>{
+  const context={state:{reconciliationRecovery:{payload:{data_status:'ready'}}}};
+  const ready={freshness:{data_status:'ready'},recovery:{readiness:'awaiting_human_confirmation',blocker_codes:[],candidate_sha256:'a',dual_review:{evidence_binding_sha256:'a'}}};
+  const needs=frontendFunction('recoveryNeedsOperatorAction',context);
+  assert.equal(needs(ready),true);
+  assert.equal(needs({...ready,confirmation:{}}),false);
+  assert.equal(needs({...ready,freshness:{data_status:'stale'}}),false);
+  assert.equal(needs({...ready,recovery:{...ready.recovery,readiness:'blocked'}}),false);
+  assert.equal(needs({...ready,recovery:{...ready.recovery,blocker_codes:['missing_sample']}}),false);
+  assert.equal(needs({...ready,recovery:{...ready.recovery,dual_review:{evidence_binding_sha256:'b'}}}),false);
+  context.state.reconciliationRecovery.payload.data_status='stale';
+  assert.equal(needs(ready),false);
+  const access=frontendFunction('recoveryConfirmationAvailableToCurrentUser',{recoveryNeedsOperatorAction:()=>true,state:{auth:{admin:false}}});
+  assert.equal(access(ready),false);
+  assert.equal(frontendFunction('recoveryConfirmationAvailableToCurrentUser',{recoveryNeedsOperatorAction:()=>true,state:{auth:{admin:true}}})(ready),true);
   const html=readFileSync(new URL('../web/strategy-switch-console/index.html',import.meta.url),'utf8');
   assert.ok(html.indexOf('id="reconciliation-recovery-board"')<html.indexOf('id="health-view"'));
 });

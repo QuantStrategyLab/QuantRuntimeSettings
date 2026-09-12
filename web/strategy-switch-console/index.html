@@ -57,16 +57,49 @@
     </header>
 
     <section id="overview-view" aria-labelledby="workspace-title">
+      <section class="decision-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
+        <header class="decision-head">
+          <div>
+            <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">需要你决定</h2>
+            <p data-i18n="controlPlaneSubtitle">只有材料完整且仍需你确认的事项会出现在这里。</p>
+          </div>
+          <div class="decision-freshness" aria-label="数据更新时间" data-i18n-aria-label="dataFreshness">
+            <span id="control-plane-status" class="pill">等待登录</span>
+            <span id="control-plane-computed-at">最近计算：—</span>
+          </div>
+        </header>
+        <div class="decision-state" role="status" aria-live="polite">
+          <span class="decision-state__mark" aria-hidden="true">✓</span>
+          <div>
+            <strong id="control-plane-notice">登录后查看待处理事项。</strong>
+            <span id="control-plane-summary">—</span>
+          </div>
+        </div>
+        <section class="decision-queue" id="control-plane-queue" aria-labelledby="control-queue-title" hidden>
+          <div class="decision-board-head"><h3 id="control-queue-title" data-i18n="controlCandidateBoard">需要你处理</h3></div>
+          <div class="health-list" id="control-plane-list"></div>
+        </section>
+        <div class="diagnostic-section" id="reconciliation-recovery-board" hidden>
+          <h3 data-i18n="reconciliationRecoveryBoard">恢复前确认</h3>
+          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite"></div>
+          <div class="health-list" id="reconciliation-recovery-list"></div>
+        </div>
+        <details class="decision-background" id="decision-background" hidden>
+          <summary data-i18n="decisionBackgroundSummary">系统进度与历史记录</summary>
+          <div class="health-list" id="control-plane-progress-list"></div>
+          <div class="health-list" id="reconciliation-recovery-history-list"></div>
+        </details>
+      </section>
       <dl class="overview-metrics">
         <div><dt data-i18n="configuredAccounts">已配置账户</dt><dd id="overview-count-total">—</dd></div>
         <div><dt data-i18n="configuredEnabled">配置已启用</dt><dd id="overview-count-enabled">—</dd></div>
         <div><dt data-i18n="configuredDisabled">配置已停用</dt><dd id="overview-count-disabled">—</dd></div>
-        <div><dt data-i18n="actualUnverified">实际状态待确认</dt><dd id="overview-count-unknown">—</dd></div>
+        <div><dt data-i18n="actualUnverified">实际状态待核实</dt><dd id="overview-count-unknown">—</dd></div>
       </dl>
       <div class="overview-notice" id="overview-notice" role="status">
         <span class="notice-mark" aria-hidden="true">i</span>
         <div><strong id="overview-notice-title"></strong><p id="overview-notice-description"></p></div>
-        <button class="text-button" type="button" id="overview-attention-button" data-i18n="viewUnverified">查看待确认账户</button>
+        <button class="text-button" type="button" id="overview-attention-button" data-i18n="viewUnverified">查看待核实账户</button>
       </div>
       <section class="accounts-board" aria-labelledby="accounts-board-title">
         <header class="board-heading"><h3 id="accounts-board-title" data-i18n="accountsTitle">账户</h3><span id="overview-result-count" role="status"></span></header>
@@ -75,7 +108,7 @@
             <button type="button" data-overview-filter="all" aria-pressed="true" data-i18n="filterAll">全部</button>
             <button type="button" data-overview-filter="enabled" aria-pressed="false" data-i18n="filterEnabled">已启用</button>
             <button type="button" data-overview-filter="disabled" aria-pressed="false" data-i18n="filterDisabled">已停用</button>
-            <button type="button" data-overview-filter="attention" aria-pressed="false" data-i18n="filterAttention">待确认 / 不一致</button>
+            <button type="button" data-overview-filter="attention" aria-pressed="false" data-i18n="filterAttention">待核实 / 不一致</button>
           </div>
           <label class="overview-search"><span class="sr-only" data-i18n="searchAccounts">搜索账户或策略</span><input type="search" id="overview-search" autocomplete="off" data-i18n-placeholder="searchAccounts" placeholder="搜索账户或策略"></label>
         </div>
@@ -87,44 +120,6 @@
       </section>
       <div class="overview-research-link" id="overview-research-link" hidden><span id="overview-research-summary"></span><button class="text-button" type="button" data-workspace="research" data-i18n="viewResearch">查看研究与确认</button></div>
 
-    <section hidden class="decision-view" id="control-plane-view" aria-labelledby="control-plane-view-title">
-      <header class="decision-head">
-        <div>
-          <h2 id="control-plane-view-title" data-i18n="controlPlaneTitle">待办确认</h2>
-          <p data-i18n="controlPlaneSubtitle">这里只显示需要你亲自确认的事项。</p>
-        </div>
-        <div class="decision-freshness" aria-label="数据更新时间" data-i18n-aria-label="dataFreshness">
-          <span id="control-plane-status" class="pill">等待登录</span>
-          <span id="control-plane-computed-at">最近计算：—</span>
-        </div>
-      </header>
-      <div class="decision-state" role="status" aria-live="polite">
-        <span class="decision-state__mark" aria-hidden="true">✓</span>
-        <div>
-          <strong id="control-plane-notice">登录后查看待处理事项和运行状态。</strong>
-          <span id="control-plane-summary">—</span>
-        </div>
-      </div>
-      <div hidden class="decision-summary" aria-label="待办摘要" data-i18n-aria-label="decisionSummary">
-        <span><strong id="control-count-owner-decision">0</strong><small data-i18n="controlOwnerDecision">待处理</small></span>
-        <span><strong id="control-count-deferred">0</strong><small data-i18n="controlDeferred">待复核</small></span>
-        <span><strong id="control-count-parked">0</strong><small data-i18n="controlParked">暂停中</small></span>
-        <span><strong id="control-count-candidates">0</strong><small data-i18n="controlCandidateTotal">监控对象</small></span>
-      </div>
-      <section class="decision-queue" id="control-plane-queue" aria-labelledby="control-queue-title" hidden>
-        <div class="decision-board-head">
-          <h3 id="control-queue-title" data-i18n="controlCandidateBoard">需要你处理</h3>
-        </div>
-        <div class="health-list" id="control-plane-list"></div>
-      </section>
-    </section>
-
-
-        <div class="diagnostic-section" id="reconciliation-recovery-board" hidden>
-          <h3 data-i18n="reconciliationRecoveryBoard">恢复事项</h3>
-          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite">登录后查看需要恢复或复核的事项。</div>
-          <div class="health-list" id="reconciliation-recovery-list"></div>
-        </div>
     </section>
     <nav class="platform-strip" id="platform-strip" aria-label="平台" data-i18n-aria-label="activePlatform" hidden></nav>
     <section id="research-view" hidden>
