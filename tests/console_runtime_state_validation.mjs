@@ -596,7 +596,7 @@ for (const sample of [
   { name: 'unverified record', allowed: true, status: 'ready', tickets: [{state:'awaiting_human'}], applications: [], visible:false, notice:'promotionTicketEmpty' },
   { name: 'empty queue', allowed: true, status: 'ready', tickets: [], applications: [], visible: false, notice: 'promotionTicketEmpty' },
   { name: 'pending candidate', allowed: true, status: 'ready', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: true },
-  { name: 'accepted application preparation', allowed: true, status: 'ready', tickets: [], applications: [{ state: 'human_accepted' }], visible: true, notice: 'promotionTicketEmpty' },
+  { name: 'accepted application preparation stays in history', allowed: true, status: 'ready', tickets: [], applications: [{ state: 'human_accepted' }], visible: false, notice: 'promotionTicketEmpty' },
   { name: 'failed queue with old candidate', allowed: true, status: 'unavailable', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: false, notice: 'promotionTicketLoadFailed' },
   { name: 'stale queue', allowed: true, status: 'stale', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: false, notice: 'promotionTicketLoadFailed' },
   { name: 'queue errors', allowed: true, status: 'ready', errors: ['unavailable'], tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], applications: [], visible: false, notice: 'promotionTicketLoadFailed' },
@@ -623,6 +623,14 @@ for (const sample of [
   assert.equal(nodes['promotion-decision-panel'].hidden, !sample.visible);
   assert.equal(nodes['promotion-queue-notice'].hidden, !sample.allowed || (sample.visible && !sample.notice));
   if (sample.notice) assert.equal(nodes['promotion-queue-notice'].textContent, sample.notice);
+});
+
+test('Binance private scope is shown only with a valid report', () => {
+  const shouldShow = frontendFunction('binancePrivateScopeShouldShow', {});
+  assert.equal(shouldShow({ auth: { allowed: true, admin: true }, selected: 'binance', binancePrivateScope: { status: 'empty', report: null } }), false);
+  assert.equal(shouldShow({ auth: { allowed: true, admin: true }, selected: 'binance', binancePrivateScope: { status: 'not_available', report: null } }), false);
+  assert.equal(shouldShow({ auth: { allowed: true, admin: true }, selected: 'binance', binancePrivateScope: { status: 'available', report: { platform: 'binance', assets: [] } } }), true);
+  assert.equal(shouldShow({ auth: { allowed: true, admin: false }, selected: 'binance', binancePrivateScope: { status: 'available', report: { platform: 'binance', assets: [] } } }), false);
 });
 
 test('only reviewable promotion tickets create a dashboard research entry', () => {
