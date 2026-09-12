@@ -4548,7 +4548,7 @@
       } else if (payload.errors?.length) {
         notice.textContent = t("reconciliationRecoveryUpstreamNotice").replace("{count}", payload.errors.length);
       } else {
-        notice.textContent = localizedExternalText(payload.policy?.notice, t("reconciliationRecoveryNoOrder"));
+        notice.textContent = t("reconciliationRecoveryNoOrder");
       }
       const list = el("reconciliation-recovery-list");
       list.replaceChildren();
