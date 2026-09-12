@@ -3601,3 +3601,10 @@
 @media (prefers-reduced-motion: reduce) {
   .console-clarity *, .console-clarity *::before, .console-clarity *::after { scroll-behavior: auto !important; animation: none !important; transition: none !important; }
 }
+
+.promotion-unverified-records { margin: 20px 0; padding: 20px; border: 1px solid var(--line); border-radius: 8px; background: var(--soft); }
+.promotion-unverified-records summary { min-height: 44px; cursor: pointer; line-height: 1.6; }
+.promotion-old-record { padding: 16px 0; border-top: 1px solid var(--line); }
+.promotion-old-record h4 { margin: 0 0 8px; }
+.promotion-old-record p { color: var(--muted); line-height: 1.7; overflow-wrap: anywhere; }
+.promotion-old-record details { font-size: 13px; }

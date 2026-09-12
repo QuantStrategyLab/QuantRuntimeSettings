@@ -568,14 +568,15 @@ test('selected promotion ticket prefers ticket suggested risk profile', () => {
 });
 
 for (const sample of [
+  { name: 'unverified record', allowed: true, status: 'ready', tickets: [{state:'awaiting_human'}], visible:false, notice:'promotionTicketEmpty' },
   { name: 'empty queue', allowed: true, status: 'ready', tickets: [], visible: false, notice: 'promotionTicketEmpty' },
-  { name: 'pending candidate', allowed: true, status: 'ready', tickets: [{ state: 'awaiting_human' }], visible: true },
+  { name: 'pending candidate', allowed: true, status: 'ready', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], visible: true },
   { name: 'completed candidate', allowed: true, status: 'ready', tickets: [{ state: 'human_accepted' }], visible: false, notice: 'promotionTicketEmpty' },
-  { name: 'failed queue with old candidate', allowed: true, status: 'unavailable', tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTicketLoadFailed' },
-  { name: 'stale queue', allowed: true, status: 'stale', tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTicketLoadFailed' },
-  { name: 'queue errors', allowed: true, status: 'ready', errors: ['unavailable'], tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTicketLoadFailed' },
-  { name: 'signed out', allowed: false, status: 'ready', tickets: [{ state: 'awaiting_human' }], visible: false },
-  { name: 'hidden target platform', allowed: true, platformVisible: false, status: 'ready', tickets: [{ state: 'awaiting_human' }], visible: false, notice: 'promotionTargetUnavailable' },
+  { name: 'failed queue with old candidate', allowed: true, status: 'unavailable', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], visible: false, notice: 'promotionTicketLoadFailed' },
+  { name: 'stale queue', allowed: true, status: 'stale', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], visible: false, notice: 'promotionTicketLoadFailed' },
+  { name: 'queue errors', allowed: true, status: 'ready', errors: ['unavailable'], tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], visible: false, notice: 'promotionTicketLoadFailed' },
+  { name: 'signed out', allowed: false, status: 'ready', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], visible: false },
+  { name: 'hidden target platform', allowed: true, platformVisible: false, status: 'ready', tickets: [{ state: 'awaiting_human', shadow_evidence_kind: 'paired_forward_observation' }], visible: false, notice: 'promotionTargetUnavailable' },
 ]) test(`promotion panel shows actionable candidates only: ${sample.name}`, () => {
   const nodes = {
     'promotion-decision-panel': { hidden: false },
@@ -587,6 +588,8 @@ for (const sample of [
     } },
     el: id => nodes[id], t: key => key, platformMeta: { ibkr: { console_visible: sample.platformVisible !== false } },
   };
+  context.promotionTicketNeedsSourceCheck = frontendFunction('promotionTicketNeedsSourceCheck', context);
+  context.renderUnverifiedPromotionRecords = () => {};
   context.promotionTicketQueueMessage = frontendFunction('promotionTicketQueueMessage', context);
   frontendFunction('renderPromotionConfirmControls', context)();
   assert.equal(nodes['promotion-decision-panel'].hidden, !sample.visible);
@@ -682,12 +685,12 @@ test('promotion rendering preserves candidate identity, target context and admin
       promotionTicketNotification: 'Note: {body}',
     }[key] || key),
     platformSupportsBrokerPaper: () => false, strategyLabel: () => 'Example strategy',
-    formatDateTime: value => value, renderRiskEnvelopePanel: () => {},
+    formatDateTime: value => value, renderRiskEnvelopePanel: () => {}, renderUnverifiedPromotionRecords: () => {},
     PROMOTION_RISK_PROFILES: ['CAPITAL_PRESERVATION', 'BALANCED_COMPOUNDING', 'GROWTH_COMPOUNDING'],
     DEFAULT_PROMOTION_RISK_PROFILE: 'CAPITAL_PRESERVATION',
     Option: class { constructor(text, value, _defaultSelected, selected) { Object.assign(this, { text, value, selected }); } },
   };
-  for (const name of ['promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage', 'promotionTicketDetailMessage']) {
+  for (const name of ['promotionTicketNeedsSourceCheck', 'promotionTicketDisplayName', 'promotionTicketQueueMessage', 'selectedPromotionTicket', 'promotionRiskProfileLabel', 'promotionTicketEvidenceMessage', 'promotionTicketDetailMessage']) {
     context[name] = frontendFunction(name, context);
   }
   const render = frontendFunction('renderPromotionConfirmControls', context);
@@ -797,4 +800,11 @@ test('viewing an account does not expand editing or change the configured switch
   assert.equal(nodes['account-select'].value, 'default');
   assert.equal(nodes['strategy-settings'].open, false);
   assert.equal(state.forms.binance.runtimeTargetMode, 'current');
+});
+
+test('unverified promotion records are separated by evidence, not by test-like names', () => {
+  const check = frontendFunction('promotionTicketNeedsSourceCheck', {});
+  assert.equal(check({strategy_profile:'synthetic-profile',shadow_evidence_kind:'paired_forward_observation'}),false);
+  assert.equal(check({strategy_profile:'soxl_soxx_trend_income'}),true);
+  assert.equal(check({shadow_evidence_kind:'  '}),true);
 });
