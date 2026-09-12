@@ -120,13 +120,13 @@
         configuredAccounts: "已配置账户",
         configuredEnabled: "配置已启用",
         configuredDisabled: "配置已停用",
-        actualUnverified: "实际状态待确认",
+        actualUnverified: "实际状态待核实",
         accountsTitle: "账户",
         accountFilters: "筛选账户",
         filterAll: "全部",
         filterEnabled: "已启用",
         filterDisabled: "已停用",
-        filterAttention: "待确认 / 不一致",
+        filterAttention: "待核实 / 不一致",
         searchAccounts: "搜索账户或策略",
         overviewRuntime: "运行情况",
         latestReadback: "最近读回",
@@ -135,7 +135,7 @@
         viewAccountLabel: "查看 {account}",
         overviewEvidenceNote: "状态来自实际读回；保存配置不代表已经运行或成交。",
         clearFilters: "清除筛选",
-        viewUnverified: "查看待确认账户",
+        viewUnverified: "查看待核实账户",
         overviewUnverifiedTitle: "实际运行状态尚未完整读回",
         overviewUnverifiedDescription: "启用配置不代表策略已开始运行。",
         overviewAttentionTitle: "有账户需要核对",
@@ -154,10 +154,10 @@
         pageRefreshed: "本页刷新 {time}",
         pageNotRefreshed: "等待读取",
         savedState: "配置：{state}",
-        overviewActualUnknown: "实际待确认",
+        overviewActualUnknown: "实际待核实",
         overviewRuntimeAttention: "运行记录需核对",
-        viewResearch: "查看研究与确认",
-        researchPendingCount: "有 {count} 个研究候选待确认",
+        viewResearch: "前往研究页",
+        researchPendingCount: "研究页有 {count} 条可审候选",
         researchIntro: "研究候选与当前运行分开管理。接受候选只记录意向，不启用交易。",
         accountDetailAction: "下一步",
         loginTitle: "管理你的量化平台",
@@ -217,8 +217,8 @@
         noConfiguredAccounts: "登录并读取配置后显示账户实例。",
 
         controlPlaneEyebrow: "待处理事项",
-        controlPlaneTitle: "需要你确认",
-        controlPlaneSubtitle: "这里只显示需要你亲自确认的事项。",
+        controlPlaneTitle: "需要你决定",
+        controlPlaneSubtitle: "只有材料完整且仍需你确认的事项会出现在这里。",
         controlPlaneProgressTitle: "观察进度",
         controlPlaneProgressSubtitle: "自动观察的最新记录，无需操作。",
         controlPlaneMixedTitle: "研究进度与待办",
@@ -245,10 +245,11 @@
         controlUpstreamNotice: "部分数据暂不可用，请稍后重试。",
         controlAttentionNotice: "有 {count} 项需要你确认。",
         controlNormalNotice: "目前没有需要你决定的事项。",
-        controlNormalSummary: "需要你确认的事项会在这里列出。",
+        controlNormalSummary: "暂时无需操作，可查看账户和研究进度。",
         controlStaleSummary: "当前记录尚未更新，请勿据此作出新的决定。",
         controlLoginSummary: "登录后查看你的待办和系统概览。",
-        controlAttentionSummary: "请查看下方事项并选择下一步。",
+        controlAttentionSummary: "请查看下方事项并记录你的决定。",
+        decisionBackgroundSummary: "系统进度与历史记录",
         controlEmptyCandidates: "当前没有待处理事项。",
         controlNoRecommendation: "暂未给出处理建议。",
         controlItemMeta: "{kind} · {domain} · 最近更新：{freshness}",
@@ -265,33 +266,37 @@
         controlStatus: "当前状态",
         ownerDecisionTitle: "请选择下一步",
         ownerDecisionAdminOnly: "请由管理员确认。",
-        ownerDecisionReady: "相关信息已就绪，请选择下一步。",
+        ownerDecisionReady: "材料已齐备。这里记录决定，不会直接启用交易。",
         ownerDecisionRecorded: "已保存：{decision}",
-        ownerDecisionApprove: "确认试运行",
+        ownerDecisionApprove: "记录试运行意向",
         ownerDecisionPark: "保持暂停",
         ownerDecisionRetire: "停止跟踪",
         ownerDecisionConfirm: "确认保存此项决定？",
         ownerDecisionSubmitting: "正在保存…",
         ownerDecisionSuccess: "决定已保存。",
         ownerDecisionFailed: "无法保存决定",
-        reconciliationRecoveryBoard: "恢复事项",
+        reconciliationRecoveryBoard: "恢复前确认",
         reconciliationRecoveryLoginNotice: "登录后查看需要恢复或复核的事项。",
         reconciliationRecoveryStaleNotice: "恢复信息更新延迟，请等待下一次检查。",
         reconciliationRecoveryUnavailableNotice: "暂时没有可用的恢复信息。",
         reconciliationRecoveryUpstreamNotice: "部分恢复信息暂不可用，请先查看阻断原因。",
         reconciliationRecoveryEmpty: "当前没有需要恢复的事项。",
-        reconciliationRecoveryMeta: "{platform} · {strategy}",
+        reconciliationRecoveryTitle: "{platform} 恢复检查",
+        reconciliationRecoveryMeta: "{strategy}",
+        reconciliationRecoveryReason: "这个账户已完成恢复前核对。请决定是否记录恢复意向。",
+        reconciliationRecoveryImpact: "记录后，系统会重新核验当前状态；不会立即开始交易，也不会解除风险停用。",
+        reconciliationRecoveryTechnicalDetails: "查看检查依据",
         reconciliationRecoveryDetail: "状态：{state} · 样本：{samples} · 复核：{review} · 最近更新：{lastObserved}",
         reconciliationRecoveryBlocked: "仍需处理：{blockers}",
-        reconciliationRecoveryReady: "相关核对已完成，等待确认。",
+        reconciliationRecoveryReady: "核对已完成，等待你记录恢复决定。",
         reconciliationRecoveryAdminOnly: "请由管理员确认。",
         reconciliationRecoveryConfirmed: "恢复确认已保存。",
-        reconciliationRecoveryConfirm: "确认恢复",
-        reconciliationRecoveryConfirmPrompt: "确认保存恢复决定？",
+        reconciliationRecoveryConfirm: "记录恢复决定",
+        reconciliationRecoveryConfirmPrompt: "记录这项恢复决定？保存后仍需运行端重新核验，交易开关和熔断保持独立。",
         reconciliationRecoverySubmitting: "正在保存…",
-        reconciliationRecoverySuccess: "恢复决定已保存。",
+        reconciliationRecoverySuccess: "恢复决定已记录，等待运行端重新核验。",
         reconciliationRecoveryFailed: "无法保存恢复决定",
-        reconciliationRecoveryNoOrder: "查看当前恢复状态。",
+        reconciliationRecoveryNoOrder: "这里仅记录决定，不会直接恢复交易。",
         binancePrivateScopeBoard: "Binance 私密资产清单",
         binancePrivateScopeAccount: "Binance 当前采集账户",
         binancePrivateScopePrivateIdentity: "私密账户摘要不在页面显示。",
@@ -720,8 +725,8 @@
         savedState: "Setting: {state}",
         overviewActualUnknown: "Unverified",
         overviewRuntimeAttention: "Check runtime record",
-        viewResearch: "View research & decisions",
-        researchPendingCount: "{count} research candidates await a decision",
+        viewResearch: "Go to research",
+        researchPendingCount: "{count} reviewable candidate(s) in Research",
         researchIntro: "Research candidates are separate from current runtime. Accepting records intent; it does not enable trading.",
         accountDetailAction: "Next step",
         loginTitle: "Your trading workspace",
@@ -781,8 +786,8 @@
         noConfiguredAccounts: "Sign in and load configuration to view account instances.",
 
         controlPlaneEyebrow: "To do",
-        controlPlaneTitle: "Your decision needed",
-        controlPlaneSubtitle: "Only items that need your confirmation appear here.",
+        controlPlaneTitle: "Decisions for you",
+        controlPlaneSubtitle: "Only current, complete items that still need your confirmation appear here.",
         controlPlaneProgressTitle: "Observation progress",
         controlPlaneProgressSubtitle: "Latest automated observation. No action is needed.",
         controlPlaneMixedTitle: "Research progress & tasks",
@@ -809,10 +814,11 @@
         controlUpstreamNotice: "Some data is temporarily unavailable. Please retry later.",
         controlAttentionNotice: "{count} item(s) need your decision.",
         controlNormalNotice: "There is nothing you need to decide right now.",
-        controlNormalSummary: "Items requiring your decision appear here.",
+        controlNormalSummary: "No action is needed now. You can review account and research progress.",
         controlStaleSummary: "These records are not current; avoid making new decisions from them.",
         controlLoginSummary: "Sign in to see your tasks and system overview.",
-        controlAttentionSummary: "Review the items below and choose the next step.",
+        controlAttentionSummary: "Review the items below and record your decision.",
+        decisionBackgroundSummary: "System progress and decision history",
         controlEmptyCandidates: "There is nothing to handle right now.",
         controlNoRecommendation: "No action is recommended yet.",
         controlItemMeta: "{kind} · {domain} · updated {freshness}",
@@ -829,33 +835,37 @@
         controlStatus: "Current status",
         ownerDecisionTitle: "Choose the next step",
         ownerDecisionAdminOnly: "An administrator needs to confirm this.",
-        ownerDecisionReady: "The relevant information is ready. Choose the next step.",
+        ownerDecisionReady: "The evidence is ready. This records a decision; it does not enable trading.",
         ownerDecisionRecorded: "Saved: {decision}",
-        ownerDecisionApprove: "Confirm trial run",
+        ownerDecisionApprove: "Record trial intent",
         ownerDecisionPark: "Keep parked",
         ownerDecisionRetire: "Stop tracking",
         ownerDecisionConfirm: "Save this decision?",
         ownerDecisionSubmitting: "Saving…",
         ownerDecisionSuccess: "Decision saved.",
         ownerDecisionFailed: "Could not save the decision",
-        reconciliationRecoveryBoard: "Recovery items",
+        reconciliationRecoveryBoard: "Recovery decision",
         reconciliationRecoveryLoginNotice: "Sign in to see recovery and review items.",
         reconciliationRecoveryStaleNotice: "Recovery information is delayed. Wait for the next check.",
         reconciliationRecoveryUnavailableNotice: "Recovery information is temporarily unavailable.",
         reconciliationRecoveryUpstreamNotice: "Some recovery information is unavailable. Review the blockers first.",
         reconciliationRecoveryEmpty: "There are no recovery items right now.",
-        reconciliationRecoveryMeta: "{platform} · {strategy}",
+        reconciliationRecoveryTitle: "{platform} recovery check",
+        reconciliationRecoveryMeta: "{strategy}",
+        reconciliationRecoveryReason: "This account has completed its recovery checks. Decide whether to record recovery intent.",
+        reconciliationRecoveryImpact: "After it is recorded, the system checks current state again. Trading does not start immediately, and risk stops stay in place.",
+        reconciliationRecoveryTechnicalDetails: "View check evidence",
         reconciliationRecoveryDetail: "status: {state} · samples: {samples} · review: {review} · updated: {lastObserved}",
         reconciliationRecoveryBlocked: "Still needed: {blockers}",
-        reconciliationRecoveryReady: "The relevant checks are complete and await confirmation.",
+        reconciliationRecoveryReady: "Checks are complete. Record your recovery decision.",
         reconciliationRecoveryAdminOnly: "An administrator needs to confirm this.",
         reconciliationRecoveryConfirmed: "Recovery confirmation saved.",
-        reconciliationRecoveryConfirm: "Confirm recovery",
-        reconciliationRecoveryConfirmPrompt: "Save this recovery decision?",
+        reconciliationRecoveryConfirm: "Record recovery decision",
+        reconciliationRecoveryConfirmPrompt: "Record this recovery decision? The runtime must still re-check current state; trading switches and circuit breakers remain independent.",
         reconciliationRecoverySubmitting: "Saving…",
-        reconciliationRecoverySuccess: "Recovery decision saved.",
+        reconciliationRecoverySuccess: "Recovery decision recorded. Waiting for the runtime to re-check current state.",
         reconciliationRecoveryFailed: "Could not save the recovery decision",
-        reconciliationRecoveryNoOrder: "View the current recovery status.",
+        reconciliationRecoveryNoOrder: "This records a decision; it does not resume trading directly.",
         binancePrivateScopeBoard: "Private Binance asset list",
         binancePrivateScopeAccount: "Current collected Binance account",
         binancePrivateScopePrivateIdentity: "The private account digest is not displayed.",
@@ -4195,11 +4205,14 @@
 
     function candidateNeedsOperatorAction(item) {
       const decision = ownerDecisionEntry(item?.candidate_id);
-      if (decision?.intent) return false;
-      const recommendation = item?.recommendation?.code || "none";
-      return Boolean(decision)
-        || item?.lifecycle?.status === "owner_decision_required"
-        || recommendation === "owner_live_decision";
+      return state.controlPlane.payload.data_status === "ready"
+        && state.ownerDecisions.data_status === "ready"
+        && item?.freshness?.status === "fresh"
+        && item?.lifecycle?.stage === "P6"
+        && item.lifecycle.status === "owner_decision_required"
+        && item?.recommendation?.code === "owner_live_decision"
+        && Boolean(decision)
+        && !decision.intent;
     }
 
     function isParkedResearchResult(item) {
@@ -4210,8 +4223,14 @@
     }
 
     function candidateIsControlPlaneVisible(item) {
-      return candidateNeedsOperatorAction(item)
-        || Boolean(item?.forward_observation);
+      return candidateNeedsOperatorAction(item);
+    }
+
+    function candidateIsDecisionBackgroundVisible(item) {
+      return Boolean(item?.forward_observation)
+        || Boolean(ownerDecisionEntry(item?.candidate_id)?.intent)
+        || item?.lifecycle?.status === "owner_decision_required"
+        || item?.recommendation?.code === "owner_live_decision";
     }
 
     function parkedResearchResultSourceUrl(item) {
@@ -4305,49 +4324,53 @@
 
     function renderControlPlane() {
       const payload = state.controlPlane.payload;
-      const summary = payload.summary || {};
-      const summaryAvailable = state.auth.allowed && payload.data_status !== "unavailable";
-      const summaryCount = (value) => (summaryAvailable ? String(Number(value) || 0) : "—");
-      el("control-plane-status").textContent = controlPlaneDataStatusText(payload.data_status);
-      el("control-plane-computed-at").textContent = payload.computed_at
-        ? t("controlComputedAt").replace("{time}", formatDateTime(payload.computed_at))
+      const pendingRecoveries = state.reconciliationRecovery.payload.recoveries.filter(recoveryNeedsOperatorAction);
+      const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
+      const backgroundCandidates = payload.candidates.filter((item) =>
+        !candidateNeedsOperatorAction(item) && candidateIsDecisionBackgroundVisible(item));
+      const actionableCount = actionableCandidates.length + pendingRecoveries.length;
+      const sourceStale = payload.data_status === "stale"
+        || state.reconciliationRecovery.payload.data_status === "stale";
+      const sourcesUnavailable = payload.data_status === "unavailable"
+        || state.ownerDecisions.data_status === "unavailable"
+        || state.reconciliationRecovery.payload.data_status === "unavailable"
+        || Boolean(payload.errors?.length)
+        || Boolean(state.ownerDecisions.errors?.length)
+        || Boolean(state.reconciliationRecovery.payload.errors?.length);
+      const decisionStatus = actionableCount ? "ready" : (sourcesUnavailable ? "unavailable" : (sourceStale ? "stale" : "ready"));
+      const computedAt = [payload.computed_at, state.reconciliationRecovery.payload.computed_at]
+        .filter(Boolean).sort().at(-1);
+      el("control-plane-status").textContent = controlPlaneDataStatusText(decisionStatus);
+      el("control-plane-computed-at").textContent = computedAt
+        ? t("controlComputedAt").replace("{time}", formatDateTime(computedAt))
         : t("controlComputedAt").replace("{time}", "—");
-      el("control-count-candidates").textContent = summaryCount(summary.candidate_count);
-      el("control-count-deferred").textContent = summaryCount(summary.deferred);
-      el("control-count-parked").textContent = summaryCount(summary.parked);
-      el("control-count-owner-decision").textContent = summaryCount(summary.owner_decision_required);
 
       const notice = el("control-plane-notice");
       const statePanel = notice.closest(".decision-state");
-      const actionableCandidates = payload.candidates.filter(candidateNeedsOperatorAction);
-      const displayedCandidates = payload.candidates.filter(candidateIsControlPlaneVisible);
-      renderControlPlaneHeading({
-        hasActionable: actionableCandidates.length > 0,
-        hasForwardObservation: displayedCandidates.some((item) => item.forward_observation),
-      });
-      el("control-plane-view").hidden = !state.auth.allowed || !displayedCandidates.length;
+      renderControlPlaneHeading({ hasActionable: actionableCount > 0, hasForwardObservation: false });
+      el("control-plane-view").hidden = !state.auth.allowed;
       const queue = el("control-plane-queue");
-      queue.hidden = !displayedCandidates.length;
-      statePanel.classList.toggle("is-attention", actionableCandidates.length > 0);
-      statePanel.classList.toggle("is-stale", payload.data_status === "stale");
-      statePanel.classList.toggle("is-unavailable", !state.auth.allowed || payload.data_status === "unavailable");
+      queue.hidden = !actionableCandidates.length;
+      statePanel.classList.toggle("is-attention", actionableCount > 0);
+      statePanel.classList.toggle("is-stale", !actionableCount && sourceStale);
+      statePanel.classList.toggle("is-unavailable", !state.auth.allowed || (!actionableCount && sourcesUnavailable));
       const stateMark = statePanel.querySelector(".decision-state__mark");
-      stateMark.textContent = !state.auth.allowed || payload.data_status === "unavailable"
+      stateMark.textContent = !state.auth.allowed || (!actionableCount && sourcesUnavailable)
         ? "i"
-        : ((actionableCandidates.length > 0 || payload.data_status === "stale") ? "!" : "✓");
+        : ((actionableCount > 0 || sourceStale) ? "!" : "✓");
       if (!state.auth.allowed) {
         notice.textContent = t("controlLoginNotice");
         el("control-plane-summary").textContent = t("controlLoginSummary");
-      } else if (payload.data_status === "stale") {
-        notice.textContent = t("controlStaleNotice");
-        el("control-plane-summary").textContent = t("controlStaleSummary");
-      } else if (payload.data_status !== "ready") {
+      } else if (actionableCount > 0) {
+        notice.textContent = t("controlAttentionNotice")
+          .replace("{count}", String(actionableCount));
+        el("control-plane-summary").textContent = t("controlAttentionSummary");
+      } else if (sourcesUnavailable) {
         notice.textContent = t("controlUnavailableNotice");
         el("control-plane-summary").textContent = t("controlStaleSummary");
-      } else if (actionableCandidates.length > 0) {
-        notice.textContent = t("controlAttentionNotice")
-          .replace("{count}", String(actionableCandidates.length));
-        el("control-plane-summary").textContent = t("controlAttentionSummary");
+      } else if (sourceStale) {
+        notice.textContent = t("controlStaleNotice");
+        el("control-plane-summary").textContent = t("controlStaleSummary");
       } else if (payload.errors?.length) {
         notice.textContent = t("controlUpstreamNotice").replace("{count}", payload.errors.length);
         el("control-plane-summary").textContent = t("controlStaleSummary");
@@ -4358,7 +4381,7 @@
 
       const list = el("control-plane-list");
       list.replaceChildren();
-      for (const item of displayedCandidates) {
+      for (const item of actionableCandidates) {
         const card = document.createElement("article");
         card.className = "health-card";
         const main = document.createElement("div");
@@ -4450,6 +4473,31 @@
         card.append(main, stateBlock);
         list.appendChild(card);
       }
+
+      const progressList = el("control-plane-progress-list");
+      progressList.replaceChildren();
+      for (const item of backgroundCandidates) {
+        const card = document.createElement("article");
+        card.className = "health-card is-background";
+        const main = document.createElement("div");
+        main.className = "health-card__main";
+        const title = document.createElement("h4");
+        title.className = "health-card__title";
+        title.textContent = String(item.candidate_id || "unknown");
+        const detail = document.createElement("p");
+        detail.className = "health-card__reason";
+        const recordedDecision = ownerDecisionEntry(item.candidate_id)?.intent?.decision;
+        detail.textContent = item.forward_observation
+          ? forwardObservationDisplayText(item.forward_observation)
+          : (recordedDecision
+            ? t("ownerDecisionRecorded").replace("{decision}", ownerDecisionLabel(recordedDecision))
+            : t("controlStaleSummary"));
+        main.append(title, detail);
+        card.appendChild(main);
+        progressList.appendChild(card);
+      }
+      el("decision-background").hidden = !backgroundCandidates.length
+        && !state.reconciliationRecovery.payload.recoveries.some((entry) => !recoveryNeedsOperatorAction(entry));
     }
 
     function normalizeReconciliationRecoveryPayload(payload) {
@@ -4470,12 +4518,25 @@
     }
 
     function recoveryNeedsOperatorAction(entry) {
-      return !entry.confirmation && entry.recovery?.readiness === "awaiting_human_confirmation";
+      const recovery = entry?.recovery || {};
+      return state.reconciliationRecovery.payload.data_status === "ready"
+        && entry?.freshness?.data_status === "ready"
+        && !entry?.confirmation
+        && recovery.readiness === "awaiting_human_confirmation"
+        && Array.isArray(recovery.blocker_codes)
+        && recovery.blocker_codes.length === 0
+        && Boolean(recovery.candidate_sha256)
+        && recovery.dual_review?.evidence_binding_sha256 === recovery.candidate_sha256;
+    }
+
+    function recoveryConfirmationAvailableToCurrentUser(entry) {
+      return recoveryNeedsOperatorAction(entry) && state.auth.admin;
     }
 
     function renderReconciliationRecovery() {
       const payload = state.reconciliationRecovery.payload;
       const pending = payload.recoveries.filter(recoveryNeedsOperatorAction);
+      const history = payload.recoveries.filter((entry) => !recoveryNeedsOperatorAction(entry));
       el("reconciliation-recovery-board").hidden = !state.auth.allowed || !pending.length;
       const notice = el("reconciliation-recovery-notice");
       if (!state.auth.allowed) {
@@ -4491,41 +4552,46 @@
       }
       const list = el("reconciliation-recovery-list");
       list.replaceChildren();
-      if (!payload.recoveries.length) {
-        const empty = document.createElement("div");
-        empty.className = "health-card__empty";
-        empty.textContent = t("reconciliationRecoveryEmpty");
-        list.appendChild(empty);
-        return;
-      }
-      for (const entry of pending) {
+      const historyList = el("reconciliation-recovery-history-list");
+      historyList.replaceChildren();
+      const renderEntry = (entry, target) => {
         const recovery = entry.recovery || {};
         const card = document.createElement("article");
-        card.className = "health-card";
+        card.className = `health-card${recoveryNeedsOperatorAction(entry) ? "" : " is-background"}`;
         const main = document.createElement("div");
         main.className = "health-card__main";
         const meta = document.createElement("div");
         meta.className = "health-card__meta";
         meta.textContent = t("reconciliationRecoveryMeta")
-          .replace("{platform}", recovery.platform || "unknown")
-          .replace("{strategy}", recovery.strategy_profile || "unknown");
+          .replace("{strategy}", strategyLabel(recovery.strategy_profile || "unknown"));
         const title = document.createElement("h4");
         title.className = "health-card__title";
-        title.textContent = String(recovery.recovery_id || "unknown");
+        const platformKey = String(recovery.platform || "").toLowerCase();
+        const platformLabel = platformMeta[platformKey]?.label || recovery.platform || t("commonUnknown");
+        title.textContent = t("reconciliationRecoveryTitle").replace("{platform}", platformLabel);
         const detail = document.createElement("p");
         detail.className = "health-card__reason";
-        detail.textContent = t("reconciliationRecoveryDetail")
+        const ready = recoveryNeedsOperatorAction(entry);
+        detail.textContent = entry.confirmation
+          ? t("reconciliationRecoveryConfirmed")
+          : (ready ? t("reconciliationRecoveryReason") : t("reconciliationRecoveryBlocked")
+            .replace("{blockers}", (recovery.blocker_codes || []).join(", ") || recovery.readiness || "unknown"));
+        const impact = document.createElement("p");
+        impact.className = "health-card__meta decision-impact";
+        impact.textContent = t("reconciliationRecoveryImpact");
+        const technical = document.createElement("details");
+        technical.className = "decision-technical-details";
+        const technicalSummary = document.createElement("summary");
+        technicalSummary.textContent = t("reconciliationRecoveryTechnicalDetails");
+        const technicalBody = document.createElement("p");
+        technicalBody.textContent = `${recovery.recovery_id || "unknown"} · ${t("reconciliationRecoveryDetail")
           .replace("{state}", recovery.reconciliation_state || "unknown")
           .replace("{samples}", String(recovery.evidence_sample_count || 0))
           .replace("{review}", recovery.dual_review?.outcome || "unknown")
-          .replace("{lastObserved}", recovery.last_observed_at || "—");
+          .replace("{lastObserved}", recovery.last_observed_at || "—")}`;
+        technical.append(technicalSummary, technicalBody);
         const status = document.createElement("div");
         status.className = "health-card__meta";
-        const ready = payload.data_status === "ready"
-          && entry.freshness?.data_status === "ready"
-          && recovery.readiness === "awaiting_human_confirmation"
-          && recovery.blocker_codes?.length === 0
-          && recovery.dual_review?.evidence_binding_sha256 === recovery.candidate_sha256;
         if (entry.confirmation) {
           status.textContent = t("reconciliationRecoveryConfirmed");
         } else if (!ready) {
@@ -4533,11 +4599,11 @@
             .replace("{blockers}", (recovery.blocker_codes || []).join(", ") || recovery.readiness || "unknown");
         } else if (!state.auth.admin) {
           status.textContent = t("reconciliationRecoveryAdminOnly");
-        } else {
-          status.textContent = t("reconciliationRecoveryReady");
         }
-        main.append(meta, title, detail, status);
-        if (ready && !entry.confirmation && state.auth.admin) {
+        main.append(meta, title, detail, impact);
+        if (status.textContent) main.appendChild(status);
+        main.appendChild(technical);
+        if (recoveryConfirmationAvailableToCurrentUser(entry)) {
           const actions = document.createElement("div");
           actions.className = "owner-decision__actions";
           const button = document.createElement("button");
@@ -4562,11 +4628,22 @@
           ? t("recoveryConfirmedStatus")
           : (ready ? t("recoveryReadyStatus") : t("recoveryBlockedStatus"));
         const freshness = document.createElement("small");
-        freshness.textContent = entry.freshness?.data_status || "unknown";
+        freshness.textContent = controlPlaneDataStatusText(entry.freshness?.data_status);
         stateBlock.append(label, stateText, freshness);
         card.append(main, stateBlock);
-        list.appendChild(card);
+        target.appendChild(card);
+      };
+      for (const entry of pending) renderEntry(entry, list);
+      for (const entry of history) renderEntry(entry, historyList);
+      if (!pending.length && !history.length) {
+        const empty = document.createElement("div");
+        empty.className = "health-card__empty";
+        empty.textContent = t("reconciliationRecoveryEmpty");
+        historyList.appendChild(empty);
       }
+      el("decision-background").hidden = !history.length
+        && !state.controlPlane.payload.candidates.some((item) =>
+          !candidateNeedsOperatorAction(item) && candidateIsDecisionBackgroundVisible(item));
     }
 
     function clearBinancePrivateScope(status = "not_available") {
@@ -5543,14 +5620,14 @@
     function renderConsoleView() {
       el("switch-view").hidden = false;
       el("health-view").hidden = true;
-      el("control-plane-view").hidden = !state.auth.allowed
-        || !state.controlPlane.payload.candidates.some(candidateIsControlPlaneVisible);
+      el("control-plane-view").hidden = !state.auth.allowed;
     }
 
     function render() {
       applyLanguage();
       renderConsoleView();
       renderControlPlane();
+      renderReconciliationRecovery();
       renderParkedResearchResults();
       renderBinancePrivateScope();
       renderM0Research();
@@ -5662,6 +5739,7 @@
 
     async function refreshReconciliationRecovery() {
       if (!state.auth.allowed) {
+        renderControlPlane();
         renderReconciliationRecovery();
         return;
       }
@@ -5679,6 +5757,7 @@
           errors: ["reconciliation_recovery_request_failed"],
         };
       }
+      renderControlPlane();
       renderReconciliationRecovery();
     }
 

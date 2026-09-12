@@ -3485,6 +3485,20 @@
 .operator-console.console-clarity .selection-meta { font-size: 12px; color: var(--muted); }
 .operator-console.console-clarity #binance-resume-panel { margin: 0 0 24px; }
 .operator-console.console-clarity #control-plane-view, .operator-console.console-clarity #reconciliation-recovery-board, .operator-console.console-clarity #binance-private-scope-board { margin: 20px 0 0; padding: 24px; border: 1px solid var(--line); border-radius: 8px; background: white; }
+.operator-console.console-clarity #control-plane-view { margin-top: 0; }
+.operator-console.console-clarity #control-plane-view { grid-template-columns: minmax(0, 1fr); }
+.operator-console.console-clarity #control-plane-view > * { grid-column: 1 / -1; min-width: 0; }
+.operator-console.console-clarity #reconciliation-recovery-board { grid-area: auto; width: 100%; margin-top: 16px; padding: 20px; background: #fffaf0; border-color: var(--warning-line); }
+.operator-console.console-clarity #reconciliation-recovery-board .health-list,
+.operator-console.console-clarity #reconciliation-recovery-board .health-card { width: 100%; min-width: 0; }
+.operator-console.console-clarity #reconciliation-recovery-board .health-card__score strong { font-size: 14px; line-height: 1.35; }
+.console-clarity .decision-background { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+.console-clarity .decision-background > summary, .console-clarity .decision-technical-details > summary { min-height: 44px; cursor: pointer; color: var(--muted); font-size: 13px; }
+.console-clarity .decision-background > .health-list + .health-list { margin-top: 10px; }
+.console-clarity .health-card.is-background { box-shadow: none; background: var(--soft); }
+.console-clarity .decision-impact { max-width: 720px; margin-top: 8px; line-height: 1.6; }
+.console-clarity .decision-technical-details { margin-top: 8px; }
+.console-clarity .decision-technical-details p { margin: 0 0 8px; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
 .binance-private-scope__account, .binance-private-scope__warning { margin: 12px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
 .binance-private-scope__warning { color: #7b5a12; }
 .binance-private-scope__table-wrap { margin-top: 16px; overflow-x: auto; }
@@ -3569,6 +3583,9 @@
   .console-clarity .board-footnote { font-size: 11px; margin-top: 12px; }
   .console-clarity .overview-research-link { font-size: 12px; flex-wrap: wrap; gap: 0; }
   .operator-console.console-clarity #switch-view, .operator-console.console-clarity #promotion-decision-panel, .operator-console.console-clarity #control-plane-view, .operator-console.console-clarity #reconciliation-recovery-board, .operator-console.console-clarity #binance-private-scope-board { padding: 18px; }
+  .operator-console.console-clarity #reconciliation-recovery-board .health-card { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .operator-console.console-clarity #reconciliation-recovery-board .health-card__score { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; min-width: 0; padding: 12px 0 0; border-top: 1px solid var(--line); border-left: 0; text-align: left; }
+  .operator-console.console-clarity #reconciliation-recovery-board .health-card__score strong { margin: 0; font-size: 13px; }
   .operator-console.console-clarity .account-selector { max-width: none; }
   .console-clarity .account-facts { padding: 0; }
   .console-clarity .account-facts > div { padding: 14px 12px; }
