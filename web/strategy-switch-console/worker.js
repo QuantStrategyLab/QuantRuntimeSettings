@@ -219,6 +219,24 @@ const RUNTIME_TARGET_LIFECYCLE_EXECUTION_OBSERVATIONS = ["not_due", "monitoring_
 const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
   "none", "target_intentionally_disabled", "runtime_guard_attention", "execution_heartbeat_attention", "monitoring_unavailable",
 ];
+const ACCOUNT_DIAGNOSIS_REQUEST_PATH = "/api/account-diagnosis";
+const ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX = "/api/internal/account-diagnosis/";
+const ACCOUNT_DIAGNOSIS_PLATFORM = "binance";
+const ACCOUNT_DIAGNOSIS_TARGET_ID = "binance.crypto_live_pool_rotation";
+const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/AIAuditBridge";
+const ACCOUNT_DIAGNOSIS_WORKFLOW = "codex_audit.yml";
+const ACCOUNT_DIAGNOSIS_RECHECK_REPOSITORY = "QuantStrategyLab/BinancePlatform";
+const ACCOUNT_DIAGNOSIS_RECHECK_WORKFLOW = "runtime-target-lifecycle.yml";
+const ACCOUNT_DIAGNOSIS_TRIGGERS = ["incident", "manual_check"];
+const ACCOUNT_DIAGNOSIS_STATUSES = ["queued", "running", "succeeded", "failed", "unknown"];
+const ACCOUNT_DIAGNOSIS_REASON_CODES = ["diagnosis_ready", "capacity_unavailable", "codex_unavailable", "invalid_response"];
+const ACCOUNT_DIAGNOSIS_MAX_BODY_BYTES = 16 * 1024;
+const ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS = 600;
+const ACCOUNT_DIAGNOSIS_DEDUPE_WINDOW_MS = 24 * 60 * 60 * 1000;
+const ACCOUNT_DIAGNOSIS_AUTO_ENABLED_ENV = "ACCOUNT_DIAGNOSIS_AUTO_ENABLED";
+const ACCOUNT_DIAGNOSIS_DO_ACTIONS = new Set([
+  "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck",
+]);
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -566,6 +584,12 @@ export default {
       if (url.pathname === "/api/runtime-target-lifecycle" && request.method === "GET") {
         return await runtimeTargetLifecycleResponse(request, env);
       }
+      if (url.pathname === ACCOUNT_DIAGNOSIS_REQUEST_PATH) {
+        return await accountDiagnosisResponse(request, env, url);
+      }
+      if (url.pathname.startsWith(ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX)) {
+        return await accountDiagnosisInternalResponse(request, env, url);
+      }
       if (url.pathname === "/api/internal/sync-research-task-source" && request.method === "POST") {
         return await syncResearchTaskSourceResponse(request, env);
       }
@@ -695,6 +719,31 @@ function runtimeInstanceFields(raw, allowed) {
   }
 }
 
+function accountDiagnosisTaskFromRow(row) {
+  if (!row) return null;
+  return {
+    request_id: row.request_id,
+    platform: row.platform,
+    key: row.account_key,
+    target_id: row.target_id,
+    trigger: row.trigger,
+    observed_at: row.observed_at,
+    checks: JSON.parse(row.checks_json),
+    state_fingerprint: row.state_fingerprint,
+    status: row.status,
+    workflow_run_id: row.workflow_run_id || null,
+    workflow_run_attempt: row.workflow_run_attempt || null,
+    job_id: row.job_id || null,
+    summary: row.summary || "",
+    reason_code: row.reason_code || "",
+    dispatch_state: row.dispatch_state,
+    recheck_dispatch_state: row.recheck_dispatch_state,
+    auto_source: row.auto_source || "manual",
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 async function runtimeInstancesResponse(request, env) {
   const session = await readSession(request, env);
   if (!session) return json({ ok: false, error: "login required" }, 401);
@@ -757,6 +806,28 @@ export class RuntimeInstances {
     this.sql = ctx.storage.sql;
     this.sql.exec("CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_diagnosis_tasks (
+      request_id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      observed_at TEXT NOT NULL,
+      checks_json TEXT NOT NULL,
+      state_fingerprint TEXT NOT NULL,
+      status TEXT NOT NULL,
+      workflow_run_id TEXT,
+      workflow_run_attempt TEXT,
+      job_id TEXT,
+      summary TEXT NOT NULL,
+      reason_code TEXT NOT NULL,
+      dispatch_state TEXT NOT NULL,
+      recheck_dispatch_state TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+    try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN auto_source TEXT NOT NULL DEFAULT 'manual'"); } catch { /* already present */ }
+    this.sql.exec("CREATE INDEX IF NOT EXISTS account_diagnosis_tasks_fingerprint ON account_diagnosis_tasks (target_id, state_fingerprint, updated_at)");
   }
 
   read() {
@@ -778,6 +849,9 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
+      if (ACCOUNT_DIAGNOSIS_DO_ACTIONS.has(command?.action)) {
+        return json(await this.accountDiagnosisCommand(command));
+      }
       // No awaits or external I/O inside this SQLite transaction. Every state
       // change, version advance, and history row commits together or rolls back.
       return json(this.storage.transactionSync(() => {
@@ -865,6 +939,110 @@ export class RuntimeInstances {
     } catch (error) {
       return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError ? error.status : 409);
     }
+  }
+
+  accountDiagnosisCommand(command) {
+    return this.storage.transactionSync(() => {
+      if (!command || typeof command.actor !== "string" || !command.actor) {
+        throw new HttpError("runtime_instance_actor_required", 400);
+      }
+      if (command.action === "diagnosis_create") {
+        const autoSource = command.auto_source === "source_sync" ? "source_sync" : "manual";
+        const existing = autoSource === "source_sync"
+          ? this.sql.exec(
+            "SELECT * FROM account_diagnosis_tasks WHERE target_id = ? AND auto_source = ? AND updated_at >= ? ORDER BY updated_at DESC LIMIT 1",
+            command.target_id, autoSource, new Date(Number(command.now) - ACCOUNT_DIAGNOSIS_DEDUPE_WINDOW_MS).toISOString(),
+          ).toArray()[0]
+          : this.sql.exec(
+            "SELECT * FROM account_diagnosis_tasks WHERE target_id = ? AND state_fingerprint = ? ORDER BY updated_at DESC LIMIT 1",
+            command.target_id, command.state_fingerprint,
+          ).toArray()[0];
+        const existingAge = existing ? Date.parse(existing.updated_at) : Number.NaN;
+        const existingIsRecent = Number.isFinite(existingAge)
+          && existingAge >= Number(command.now) - ACCOUNT_DIAGNOSIS_DEDUPE_WINDOW_MS;
+        if (existing && existingIsRecent) return { ok: true, created: false, task: accountDiagnosisTaskFromRow(existing) };
+        const task = {
+          request_id: command.request_id,
+          platform: command.platform,
+          key: command.key,
+          target_id: command.target_id,
+          trigger: command.trigger,
+          observed_at: command.observed_at,
+          checks: command.checks,
+          state_fingerprint: command.state_fingerprint,
+          status: "queued",
+          workflow_run_id: null,
+          workflow_run_attempt: null,
+          job_id: null,
+          summary: "",
+          reason_code: "",
+          dispatch_state: "pending",
+          recheck_dispatch_state: "not_requested",
+          created_at: command.created_at,
+          updated_at: command.created_at,
+        };
+        this.sql.exec(
+          `INSERT INTO account_diagnosis_tasks
+            (request_id, platform, account_key, target_id, trigger, observed_at, checks_json, state_fingerprint,
+             status, workflow_run_id, workflow_run_attempt, job_id, summary, reason_code, dispatch_state,
+             recheck_dispatch_state, created_at, updated_at, auto_source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          task.request_id, task.platform, task.key, task.target_id, task.trigger, task.observed_at,
+          JSON.stringify(task.checks), task.state_fingerprint, task.status, null, null, null,
+          task.summary, task.reason_code, task.dispatch_state, task.recheck_dispatch_state,
+          task.created_at, task.updated_at, autoSource,
+        );
+        return { ok: true, created: true, task };
+      }
+      if (command.action === "diagnosis_latest") {
+        const row = this.sql.exec(
+          "SELECT * FROM account_diagnosis_tasks WHERE platform = ? AND account_key = ? ORDER BY updated_at DESC LIMIT 1",
+          command.platform, command.key,
+        ).toArray()[0];
+        return { ok: true, task: accountDiagnosisTaskFromRow(row) };
+      }
+      const requestId = command.request_id;
+      const row = this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0];
+      if (!row) throw new HttpError("account_diagnosis_request_not_found", 404);
+      if (command.action === "diagnosis_read") return { ok: true, task: accountDiagnosisTaskFromRow(row) };
+      if (command.action === "diagnosis_mark_dispatch") {
+        if (row.dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
+        this.sql.exec("UPDATE account_diagnosis_tasks SET dispatch_state = ?, updated_at = ? WHERE request_id = ?", command.dispatch_state, command.updated_at, requestId);
+        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_claim") {
+        const claimed = row.status === "queued" && ["pending", "sent", "unknown"].includes(row.dispatch_state);
+        if (claimed) {
+          this.sql.exec(
+            "UPDATE account_diagnosis_tasks SET status = 'running', workflow_run_id = ?, workflow_run_attempt = ?, updated_at = ? WHERE request_id = ?",
+            command.workflow_run_id, command.workflow_run_attempt, command.updated_at, requestId,
+          );
+        }
+        return { ok: true, claimed };
+      }
+      if (command.action === "diagnosis_result") {
+        const sameRun = row.workflow_run_id === command.workflow_run_id && row.workflow_run_attempt === command.workflow_run_attempt;
+        if (["succeeded", "failed", "unknown"].includes(row.status)) {
+          if (!sameRun) throw new HttpError("account_diagnosis_workflow_binding_conflict", 409);
+          return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
+        }
+        if (row.status !== "running" || !sameRun) throw new HttpError("account_diagnosis_workflow_binding_conflict", 409);
+        const recheckState = command.status === "succeeded" ? "pending" : "not_requested";
+        this.sql.exec(
+          `UPDATE account_diagnosis_tasks
+           SET status = ?, job_id = ?, summary = ?, reason_code = ?, recheck_dispatch_state = ?, updated_at = ?
+           WHERE request_id = ?`,
+          command.status, command.job_id || null, command.summary, command.reason_code, recheckState, command.updated_at, requestId,
+        );
+        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      if (command.action === "diagnosis_mark_recheck") {
+        if (row.recheck_dispatch_state !== "pending") return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
+        this.sql.exec("UPDATE account_diagnosis_tasks SET recheck_dispatch_state = ?, updated_at = ? WHERE request_id = ?", command.recheck_dispatch_state, command.updated_at, requestId);
+        return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
+      }
+      throw new HttpError("unsupported_account_diagnosis_action", 400);
+    });
   }
 }
 
@@ -3346,6 +3524,7 @@ async function syncRuntimeTargetLifecycleSourceResponse(request, env) {
   } catch {
     // A valid no-order snapshot remains useful when convenience audit retention fails.
   }
+  await maybeAutoDispatchAccountDiagnosis(env, source);
   return json({
     ok: true,
     source_id: source.source_id,
@@ -3360,6 +3539,376 @@ async function runtimeTargetLifecycleResponse(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!hasConfigStore(env)) return json(emptyRuntimeTargetLifecyclePayload("snapshot_unavailable"));
   return json(await aggregateRuntimeTargetLifecycleSources(env));
+}
+
+function requireAccountDiagnosisToken(request, env) {
+  const expected = String(env.ACCOUNT_DIAGNOSIS_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("account diagnosis sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("account diagnosis sync token is invalid", 401);
+}
+
+function accountDiagnosisRequestId(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(text)) {
+    throw new HttpError("invalid_account_diagnosis_request_id", 400);
+  }
+  return text;
+}
+
+function accountDiagnosisChecks(entry, dataStatus) {
+  const target = entry?.target?.target || {};
+  const monitoring = entry?.target?.monitoring || {};
+  const deployment = entry?.target?.deployment || {};
+  return {
+    configured_state: ["enabled", "disabled"].includes(target.configured_state) ? target.configured_state : "unknown",
+    runtime_enabled: typeof deployment.runtime_enabled === "boolean" ? deployment.runtime_enabled : null,
+    scheduler_state: ["enabled", "paused"].includes(deployment.scheduler_state) ? deployment.scheduler_state : "unknown",
+    runtime_guard: ["pass", "attention", "unavailable"].includes(monitoring.runtime_guard) ? monitoring.runtime_guard : "unavailable",
+    execution_heartbeat: ["pass", "attention", "unavailable", "not_due", "not_applicable"].includes(monitoring.execution_heartbeat)
+      ? monitoring.execution_heartbeat : "unavailable",
+    freshness: ["ready", "stale", "unavailable"].includes(entry?.freshness?.data_status)
+      ? entry.freshness.data_status : (dataStatus === "ready" ? "unavailable" : dataStatus),
+  };
+}
+
+function accountDiagnosisHasConfirmedAttention(checks) {
+  return ["ready", "stale"].includes(checks.freshness)
+    && (checks.freshness === "stale" || (checks.configured_state !== "disabled" && checks.runtime_enabled === false)
+      || (checks.configured_state === "enabled" && checks.scheduler_state === "paused")
+      || checks.runtime_guard === "attention" || checks.execution_heartbeat === "attention");
+}
+
+function accountDiagnosisStateFingerprint(targetId, checks) {
+  return `${targetId}:${JSON.stringify(checks)}`;
+}
+
+async function accountDiagnosisAccount(env, platform, key) {
+  if (platform !== ACCOUNT_DIAGNOSIS_PLATFORM) throw new HttpError("account_diagnosis_platform_unavailable", 409);
+  let config;
+  try {
+    config = await loadAccountOptionsConfig(env);
+  } catch {
+    throw new HttpError("account_diagnosis_account_unavailable", 409);
+  }
+  const options = Array.isArray(config.options?.[ACCOUNT_DIAGNOSIS_PLATFORM])
+    ? config.options[ACCOUNT_DIAGNOSIS_PLATFORM].filter(item => item?.key === key) : [];
+  if (options.length !== 1) throw new HttpError("account_diagnosis_account_unavailable", 409);
+  const account = options[0];
+  const targetId = String(account.runtime_status_target_id || "").trim();
+  if (targetId !== ACCOUNT_DIAGNOSIS_TARGET_ID) throw new HttpError("account_diagnosis_target_unavailable", 409);
+  const allIdentityMatches = Object.entries(config.options || {}).flatMap(([itemPlatform, items]) =>
+    (Array.isArray(items) ? items : []).filter(item => String(item?.runtime_status_target_id || "").trim() === targetId)
+      .map(item => ({ platform: itemPlatform, key: item.key })));
+  if (allIdentityMatches.length !== 1 || allIdentityMatches[0].platform !== platform || allIdentityMatches[0].key !== key) {
+    throw new HttpError("account_diagnosis_target_unavailable", 409);
+  }
+  return { platform, key, account, targetId, config };
+}
+
+async function accountDiagnosisContext(env, platform, key) {
+  const identity = await accountDiagnosisAccount(env, platform, key);
+  if (!hasConfigStore(env)) throw new HttpError("account_diagnosis_status_unavailable", 409);
+  const sources = await readRuntimeTargetLifecycleSources(env);
+  const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
+  const matches = [];
+  for (const source of sources) {
+    const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, Date.now());
+    for (const target of source.targets) {
+      if (target.target_id === identity.targetId && target.target.platform === identity.platform) {
+        matches.push({ target, freshness, observedAt: source.computed_at || source.generated_at });
+      }
+    }
+  }
+  if (matches.length !== 1) {
+    throw new HttpError("account_diagnosis_status_unavailable", 409);
+  }
+  const entry = matches[0];
+  const checks = accountDiagnosisChecks(entry, entry.freshness.data_status);
+  if (!["ready", "stale"].includes(checks.freshness)) throw new HttpError("account_diagnosis_status_unavailable", 409);
+  const observedAt = entry.observedAt;
+  if (!observedAt) throw new HttpError("account_diagnosis_status_unavailable", 409);
+  return {
+    platform, key, targetId: identity.targetId, checks, observedAt,
+    stateFingerprint: accountDiagnosisStateFingerprint(identity.targetId, checks),
+    attention: accountDiagnosisHasConfirmedAttention(checks),
+  };
+}
+
+function accountDiagnosisPublicTask(task, recheckStatus = task?.recheck_dispatch_state) {
+  if (!task) return null;
+  return {
+    request_id: task.request_id,
+    platform: task.platform,
+    key: task.key,
+    target_id: task.target_id,
+    trigger: task.trigger,
+    status: task.status,
+    summary: task.summary || "",
+    reason_code: task.reason_code || "",
+    dispatch_state: task.dispatch_state,
+    recheck_status: recheckStatus,
+    created_at: task.created_at,
+    updated_at: task.updated_at,
+  };
+}
+
+async function accountDiagnosisRecheckStatus(env, task) {
+  if (!task || task.status !== "succeeded" || task.recheck_dispatch_state !== "sent") {
+    return task?.recheck_dispatch_state || "not_requested";
+  }
+  const resultAt = Date.parse(task.updated_at);
+  if (!Number.isFinite(resultAt)) return "sent";
+  try {
+    const sources = await readRuntimeTargetLifecycleSources(env);
+    const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
+    const matches = [];
+    for (const source of sources) {
+      const freshness = controlPlaneSnapshotFreshness(source, ttlSeconds, Date.now());
+      const observedAt = source.computed_at || source.generated_at;
+      if (freshness.data_status !== "ready" || !observedAt || Date.parse(observedAt) <= resultAt) continue;
+      for (const target of source.targets) {
+        if (target.target_id === task.target_id && target.target.platform === task.platform) {
+          matches.push({ target, freshness, observedAt });
+        }
+      }
+    }
+    if (matches.length !== 1) return "sent";
+    const checks = accountDiagnosisChecks(matches[0], matches[0].freshness.data_status);
+    if (checks.freshness !== "ready" || checks.runtime_guard === "unavailable" || checks.execution_heartbeat === "unavailable"
+      || checks.runtime_enabled === null || checks.scheduler_state === "unknown") return "unavailable";
+    if (checks.configured_state === "enabled") {
+      return checks.runtime_enabled === true && checks.scheduler_state === "enabled"
+        && checks.runtime_guard === "pass" && ["pass", "not_due"].includes(checks.execution_heartbeat) ? "passed" : "attention";
+    }
+    if (checks.configured_state === "disabled") {
+      return checks.runtime_enabled === false && checks.scheduler_state === "paused"
+        && checks.runtime_guard === "pass" && checks.execution_heartbeat === "not_applicable" ? "passed" : "attention";
+    }
+    return "unavailable";
+  } catch {
+    return "sent";
+  }
+}
+
+function accountDiagnosisInternalTask(task) {
+  return {
+    request_id: task.request_id,
+    platform: task.platform,
+    key: task.key,
+    target_id: task.target_id,
+    trigger: task.trigger,
+    observed_at: task.observed_at,
+    checks: task.checks,
+    status: task.status,
+  };
+}
+
+async function dispatchAccountDiagnosis(env, requestId) {
+  const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
+  if (!token) throw new HttpError("account_diagnosis_dispatch_unavailable", 503);
+  const url = `https://api.github.com/repos/${ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY}/actions/workflows/${ACCOUNT_DIAGNOSIS_WORKFLOW}/dispatches`;
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: githubHeaders(token),
+    body: JSON.stringify({ ref: "main", inputs: { account_diagnosis_request_id: requestId } }),
+  });
+  if (!response.ok) throw new HttpError("account_diagnosis_dispatch_unverified", 502);
+}
+
+function accountDiagnosisAutoEnabled(env) {
+  return String(env[ACCOUNT_DIAGNOSIS_AUTO_ENABLED_ENV] || "").toLowerCase() === "true";
+}
+
+async function accountDiagnosisIdentityForTarget(env, targetId) {
+  let config;
+  try {
+    config = await loadAccountOptionsConfig(env);
+  } catch {
+    return null;
+  }
+  const matches = Object.entries(config.options || {}).flatMap(([platform, items]) =>
+    (Array.isArray(items) ? items : [])
+      .filter(item => String(item?.runtime_status_target_id || "").trim() === targetId)
+      .map(item => ({ platform, key: item.key })));
+  if (matches.length !== 1 || matches[0].platform !== ACCOUNT_DIAGNOSIS_PLATFORM) return null;
+  try {
+    return await accountDiagnosisAccount(env, matches[0].platform, matches[0].key);
+  } catch {
+    return null;
+  }
+}
+
+async function maybeAutoDispatchAccountDiagnosis(env, source) {
+  if (!accountDiagnosisAutoEnabled(env)) return;
+  try {
+    const matchingTargets = source.targets.filter(item =>
+      item.target_id === ACCOUNT_DIAGNOSIS_TARGET_ID && item.target?.platform === ACCOUNT_DIAGNOSIS_PLATFORM);
+    if (matchingTargets.length !== 1) return;
+    const target = matchingTargets[0];
+    const freshness = controlPlaneSnapshotFreshness(source, executionEvidenceStaleTtlSeconds(env), Date.now());
+    if (freshness.data_status !== "ready") return;
+    const checks = accountDiagnosisChecks({ target, freshness }, freshness.data_status);
+    if (checks.configured_state !== "enabled" || !accountDiagnosisHasConfirmedAttention(checks)) return;
+    const identity = await accountDiagnosisIdentityForTarget(env, ACCOUNT_DIAGNOSIS_TARGET_ID);
+    if (!identity) return;
+    const observedAt = source.computed_at || source.generated_at;
+    if (!observedAt) return;
+    const createdAt = new Date().toISOString();
+    const requestId = crypto.randomUUID();
+    const created = await runtimeInstanceCommand(env, {
+      action: "diagnosis_create", actor: "runtime-target-lifecycle-source-sync", request_id: requestId,
+      platform: identity.platform, key: identity.key, target_id: identity.targetId, trigger: "incident",
+      observed_at: observedAt, checks, state_fingerprint: accountDiagnosisStateFingerprint(identity.targetId, checks),
+      created_at: createdAt, now: Date.now(), auto_source: "source_sync",
+    });
+    if (!created.created) return;
+    try {
+      await dispatchAccountDiagnosis(env, requestId);
+      await runtimeInstanceCommand(env, {
+        action: "diagnosis_mark_dispatch", actor: "runtime-target-lifecycle-source-sync",
+        request_id: requestId, dispatch_state: "sent", updated_at: new Date().toISOString(),
+      });
+    } catch {
+      await runtimeInstanceCommand(env, {
+        action: "diagnosis_mark_dispatch", actor: "runtime-target-lifecycle-source-sync",
+        request_id: requestId, dispatch_state: "unknown", updated_at: new Date().toISOString(),
+      });
+    }
+  } catch {
+    // Source sync remains successful if the opt-in diagnostic dispatch is unavailable.
+  }
+}
+
+async function dispatchAccountDiagnosisRecheck(env, requestId) {
+  const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
+  if (!token) throw new HttpError("account_diagnosis_recheck_unavailable", 503);
+  const url = `https://api.github.com/repos/${ACCOUNT_DIAGNOSIS_RECHECK_REPOSITORY}/actions/workflows/${ACCOUNT_DIAGNOSIS_RECHECK_WORKFLOW}/dispatches`;
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: githubHeaders(token),
+    body: JSON.stringify({ ref: "main" }),
+  });
+  if (!response.ok) throw new HttpError("account_diagnosis_recheck_unverified", 502);
+}
+
+async function accountDiagnosisResponse(request, env, url) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "account_diagnosis_storage_unavailable" }, 503);
+  if (request.method === "GET") {
+    const params = [...url.searchParams.keys()].sort();
+    if (params.join(",") !== "key,platform") return json({ ok: false, error: "account_diagnosis_query_required" }, 400);
+    try {
+      const identity = await accountDiagnosisAccount(env, url.searchParams.get("platform"), url.searchParams.get("key"));
+      const result = await runtimeInstanceCommand(env, { action: "diagnosis_latest", actor: session.login, platform: identity.platform, key: identity.key });
+      const recheckStatus = await accountDiagnosisRecheckStatus(env, result.task);
+      return json({ ok: true, account: { platform: identity.platform, key: identity.key, target_id: identity.targetId }, task: accountDiagnosisPublicTask(result.task, recheckStatus) });
+    } catch (error) {
+      if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status);
+      return json({ ok: false, error: "account_diagnosis_unavailable" }, 503);
+    }
+  }
+  if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  try { requireSameOrigin(request, { requireOrigin: true }); } catch (error) { return json({ ok: false, error: error.message }, error.status || 403); }
+  let raw;
+  try { raw = await readBoundedJson(request, ACCOUNT_DIAGNOSIS_MAX_BODY_BYTES); } catch (error) {
+    return json({ ok: false, error: error.message || "invalid_account_diagnosis_request" }, error.status || 400);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || Object.keys(raw).sort().join(",") !== "key,platform,trigger") {
+    return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
+  }
+  if (!ACCOUNT_DIAGNOSIS_TRIGGERS.includes(raw.trigger)) return json({ ok: false, error: "invalid_account_diagnosis_trigger" }, 400);
+  if (!env.RUNTIME_SETTINGS_DISPATCH_TOKEN) return json({ ok: false, error: "account_diagnosis_dispatch_unavailable" }, 503);
+  try {
+    const context = await accountDiagnosisContext(env, raw.platform, raw.key);
+    if (raw.trigger === "incident" && !context.attention) {
+      return json({ ok: false, error: "account_diagnosis_incident_requires_attention" }, 409);
+    }
+    const requestId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const created = await runtimeInstanceCommand(env, {
+      action: "diagnosis_create", actor: session.login, request_id: requestId,
+      platform: context.platform, key: context.key, target_id: context.targetId, trigger: raw.trigger,
+      observed_at: context.observedAt, checks: context.checks, state_fingerprint: context.stateFingerprint, created_at: createdAt, now: Date.now(),
+    });
+    if (!created.created) return json({ ok: true, deduplicated: true, request_id: created.task.request_id, status: created.task.status, task: accountDiagnosisPublicTask(created.task) }, 200);
+    try {
+      await dispatchAccountDiagnosis(env, requestId);
+      await runtimeInstanceCommand(env, { action: "diagnosis_mark_dispatch", actor: session.login, request_id: requestId, dispatch_state: "sent", updated_at: new Date().toISOString() });
+    } catch (error) {
+      await runtimeInstanceCommand(env, { action: "diagnosis_mark_dispatch", actor: session.login, request_id: requestId, dispatch_state: "unknown", updated_at: new Date().toISOString() });
+      const latest = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: session.login, request_id: requestId });
+      return json({ ok: false, error: error.message || "account_diagnosis_dispatch_unverified", request_id: latest.task.request_id, status: latest.task.status, task: accountDiagnosisPublicTask(latest.task) }, error.status || 502);
+    }
+    const latest = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: session.login, request_id: requestId });
+    return json({ ok: true, status: "queued", request_id: latest.task.request_id, task: accountDiagnosisPublicTask(latest.task) }, 202);
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status);
+    return json({ ok: false, error: "account_diagnosis_unavailable" }, 503);
+  }
+}
+
+async function accountDiagnosisInternalResponse(request, env, url) {
+  try { requireAccountDiagnosisToken(request, env); } catch (error) { return json({ ok: false, error: error.message }, error.status || 401); }
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "account_diagnosis_storage_unavailable" }, 503);
+  if (url.search) return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
+  let requestId;
+  try { requestId = accountDiagnosisRequestId(url.pathname.slice(ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX.length)); } catch (error) {
+    return json({ ok: false, error: error.message }, error.status || 400);
+  }
+  if (request.method === "GET") {
+    try {
+      const result = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: "aab-account-diagnosis", request_id: requestId });
+      return json(accountDiagnosisInternalTask(result.task));
+    } catch (error) {
+      return json({ ok: false, error: error.message || "account_diagnosis_request_not_found" }, error.status || 404);
+    }
+  }
+  if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  let raw;
+  try { raw = await readBoundedJson(request, ACCOUNT_DIAGNOSIS_MAX_BODY_BYTES); } catch (error) {
+    return json({ ok: false, error: error.message || "invalid_account_diagnosis_request" }, error.status || 400);
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || raw.request_id !== requestId) {
+    return json({ ok: false, error: "invalid_account_diagnosis_request" }, 400);
+  }
+  try {
+    if (raw.status === "running" && Object.keys(raw).sort().join(",") === "request_id,status,workflow_run_attempt,workflow_run_id") {
+      if (!/^[1-9][0-9]{0,20}$/.test(String(raw.workflow_run_id)) || !/^[1-9][0-9]{0,5}$/.test(String(raw.workflow_run_attempt))) throw new HttpError("invalid_account_diagnosis_claim", 400);
+      const result = await runtimeInstanceCommand(env, { action: "diagnosis_claim", actor: "aab-account-diagnosis", request_id: requestId, workflow_run_id: String(raw.workflow_run_id), workflow_run_attempt: String(raw.workflow_run_attempt), updated_at: new Date().toISOString() });
+      return json({ ok: true, claimed: Boolean(result.claimed) });
+    }
+    const allowed = ["job_id", "request_id", "status", "summary", "reason_code", "workflow_run_id", "workflow_run_attempt"];
+    if (!ACCOUNT_DIAGNOSIS_STATUSES.slice(2).includes(raw.status) || !allowed.includes("job_id")
+      || !Object.keys(raw).every(key => allowed.includes(key))
+      || Object.keys(raw).length < 6
+      || !ACCOUNT_DIAGNOSIS_REASON_CODES.includes(raw.reason_code)
+      || !/^[1-9][0-9]{0,20}$/.test(String(raw.workflow_run_id))
+      || !/^[1-9][0-9]{0,5}$/.test(String(raw.workflow_run_attempt))
+      || typeof raw.summary !== "string" || !raw.summary.trim() || raw.summary.length > ACCOUNT_DIAGNOSIS_SUMMARY_MAX_CHARS
+      || (raw.job_id !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(String(raw.job_id)))) {
+      throw new HttpError("invalid_account_diagnosis_result", 400);
+    }
+    const result = await runtimeInstanceCommand(env, {
+      action: "diagnosis_result", actor: "aab-account-diagnosis", request_id: requestId,
+      status: raw.status, workflow_run_id: String(raw.workflow_run_id), workflow_run_attempt: String(raw.workflow_run_attempt),
+      job_id: raw.job_id === undefined ? null : String(raw.job_id), summary: raw.summary.trim(), reason_code: raw.reason_code,
+      updated_at: new Date().toISOString(),
+    });
+    if (result.changed && raw.status === "succeeded") {
+      try {
+        await dispatchAccountDiagnosisRecheck(env, requestId);
+        await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "sent", updated_at: new Date().toISOString() });
+      } catch {
+        await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "unknown", updated_at: new Date().toISOString() });
+      }
+    }
+    return json({ ok: true, replayed: !result.changed, recheck_status: result.task?.recheck_dispatch_state || "not_requested" });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid_account_diagnosis_result" }, error.status || 409);
+  }
 }
 
 async function aggregateRuntimeTargetLifecycleSources(env) {

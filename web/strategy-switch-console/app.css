@@ -3603,3 +3603,7 @@
 .operator-console .mode-unread {
   align-self: center;
 }
+
+#runtime-target-lifecycle-notice:empty {
+  display: none;
+}

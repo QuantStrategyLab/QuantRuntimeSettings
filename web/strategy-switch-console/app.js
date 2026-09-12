@@ -158,6 +158,17 @@
         overviewRuntimeReasonMissing: "尚未收到运行检查",
         accountRuntimeSummary: "运行状态摘要",
         monitoringViewReason: "查看原因",
+        accountDiagnosisButton: "AI诊断并复查",
+        accountDiagnosisQueued: "已排队等待诊断",
+        accountDiagnosisDispatchUnknown: "提交结果未确认，请稍后重新检查",
+        accountDiagnosisRunning: "正在诊断",
+        accountDiagnosisRechecking: "正在复查",
+        accountDiagnosisSuccess: "检查正常",
+        accountDiagnosisNeedsReview: "仍需处理：{summary}",
+        accountDiagnosisRecheckUnknown: "复查结果未确认，请重新检查状态",
+        accountDiagnosisRecheckUnavailable: "复查资料还不完整，请重新检查状态",
+        accountDiagnosisFailed: "诊断未完成：{reason}",
+        accountDiagnosisUnavailable: "暂时无法诊断，请先完成状态检查",
         overviewRuntimeReasonStale: "检查已过期（{age}）",
         overviewRuntimeReasonConfig: "配置未同步",
         overviewRuntimeReasonSwitch: "开关未同步",
@@ -563,7 +574,7 @@
         runtimeTargetCurrent: "",
         runtimeTargetEnabled: "启用",
         runtimeTargetDisabled: "禁用",
-        runtimeTargetModeMeta: "选择后使用下方主操作提交。保存停用配置不代表平台已停止；实际状态以读回为准。",
+        runtimeTargetModeMeta: "保存后，系统会检查是否生效。",
         pluginMode: "插件状态",
         pluginModeNone: "不挂载旧插件",
         pluginModeMeta: "当前候选未绑定插件；旧插件不会自动挂载。",
@@ -758,6 +769,17 @@
         overviewRuntimeReasonStrategy: "Strategy not synchronized",
         overviewRuntimeReasonSchedule: "Scheduling not synchronized",
         overviewRuntimeReasonAttention: "The latest check found a problem",
+        accountDiagnosisButton: "AI diagnose and recheck",
+        accountDiagnosisQueued: "Queued for diagnosis",
+        accountDiagnosisDispatchUnknown: "Submission not confirmed; check again shortly",
+        accountDiagnosisRunning: "Diagnosis in progress",
+        accountDiagnosisRechecking: "Rechecking",
+        accountDiagnosisSuccess: "Check passed",
+        accountDiagnosisNeedsReview: "Still needs attention: {summary}",
+        accountDiagnosisRecheckUnknown: "Recheck result not confirmed; check status again",
+        accountDiagnosisRecheckUnavailable: "The recheck data is incomplete; check status again",
+        accountDiagnosisFailed: "Diagnosis did not complete: {reason}",
+        accountDiagnosisUnavailable: "Diagnosis is unavailable until a current status check exists",
         viewResearch: "Go to research",
         researchPendingCount: "{count} reviewable candidate(s) in Research",
         researchIntro: "Research candidates are separate from current runtime.",
@@ -1431,6 +1453,11 @@
           policy: { lifecycle_status_read_only: true, no_order: true },
           errors: [],
         },
+      },
+      accountDiagnosis: {
+        tasks: {},
+        loading: {},
+        submitting: {},
       },
       researchTasks: {
         payload: {
@@ -3780,6 +3807,78 @@
       return runtimeTargetLifecycleObservationLabel(record.execution_observation?.code);
     }
 
+    function accountDiagnosisKey(platform, account) {
+      return `${platform}:${account?.key || ""}`;
+    }
+
+    function accountDiagnosisEligible(platform, account) {
+      return state.auth.allowed
+        && platform === "binance"
+        && account?.runtime_status_target_id === "binance.crypto_live_pool_rotation";
+    }
+
+    function accountDiagnosisTask(platform, account) {
+      return state.accountDiagnosis.tasks[accountDiagnosisKey(platform, account)] || null;
+    }
+
+    function accountDiagnosisStatusAvailable(platform, account) {
+      const record = accountMonitoringRecord(platform, account);
+      return ["ready", "stale"].includes(record?.freshness?.data_status);
+    }
+
+    function accountDiagnosisStatusText(task) {
+      if (!task) return "";
+      if (task.status === "queued" && task.dispatch_state === "unknown") return t("accountDiagnosisDispatchUnknown");
+      if (task.status === "queued") return t("accountDiagnosisQueued");
+      if (task.status === "running") return t("accountDiagnosisRunning");
+      if (task.status === "succeeded" && task.recheck_status === "sent") return t("accountDiagnosisRechecking");
+      if (task.status === "succeeded" && task.recheck_status === "attention") {
+        const reason = task.summary || t("accountDiagnosisUnavailable");
+        return t("accountDiagnosisNeedsReview").replace("{summary}", reason);
+      }
+      if (task.status === "succeeded" && task.recheck_status === "passed") return t("accountDiagnosisSuccess");
+      if (task.status === "succeeded" && task.recheck_status === "unavailable") return t("accountDiagnosisRecheckUnavailable");
+      if (task.status === "succeeded") return t("accountDiagnosisRecheckUnknown");
+      if (task.status === "failed" || task.status === "unknown") {
+        const reason = task.summary || task.reason_code || t("accountDiagnosisUnavailable");
+        return t("accountDiagnosisFailed").replace("{reason}", reason);
+      }
+      return "";
+    }
+
+    function accountDiagnosisTrigger(platform, account) {
+      const record = accountMonitoringRecord(platform, account);
+      const deployment = record?.target?.deployment;
+      const monitoring = record?.target?.monitoring || {};
+      const configuredState = record?.target?.target?.configured_state;
+      const confirmedAttention = record?.freshness?.data_status === "ready"
+        && ((configuredState !== "disabled" && deployment?.runtime_enabled === false)
+          || (configuredState === "enabled" && deployment?.scheduler_state === "paused")
+          || monitoring.runtime_guard === "attention"
+          || monitoring.execution_heartbeat === "attention");
+      return confirmedAttention ? "incident" : "manual_check";
+    }
+
+    function renderAccountDiagnosisAction() {
+      const action = el("account-diagnosis-action");
+      const button = el("account-diagnosis-button");
+      const status = el("account-diagnosis-status");
+      if (!action || !button || !status) return;
+      const platform = state.selected;
+      const account = selectedAccount(platform);
+      const eligible = accountDiagnosisEligible(platform, account);
+      const task = eligible ? accountDiagnosisTask(platform, account) : null;
+      const statusAvailable = accountDiagnosisStatusAvailable(platform, account);
+      action.hidden = !eligible;
+      button.disabled = !eligible || !statusAvailable
+        || Boolean(state.accountDiagnosis.submitting[accountDiagnosisKey(platform, account)])
+        || ["queued", "running"].includes(task?.status)
+        || (task?.status === "succeeded" && task?.recheck_status === "sent");
+      button.textContent = t("accountDiagnosisButton");
+      status.textContent = task ? accountDiagnosisStatusText(task)
+        : eligible && !statusAvailable ? t("accountDiagnosisUnavailable") : "";
+    }
+
     function accountDeploymentObservation(platform, account) {
       const record = accountMonitoringRecord(platform, account);
       return (record?.deployment_freshness || record?.freshness)?.data_status === "ready" ? record.target?.deployment || null : null;
@@ -3918,6 +4017,22 @@
             openAccountSettings(platform, account, false);
           });
           action.append(button);
+          const statusText = runtimeStatusDisplayText(platform, account);
+          if (accountDiagnosisEligible(platform, account) && statusText.startsWith(t("overviewRuntimeAbnormal"))) {
+            const diagnosisButton = document.createElement("button");
+            diagnosisButton.className = "btn";
+            diagnosisButton.type = "button";
+            diagnosisButton.dataset.accountDiagnosis = "true";
+            diagnosisButton.dataset.platform = platform;
+            diagnosisButton.dataset.accountKey = account.key;
+            diagnosisButton.textContent = t("accountDiagnosisButton");
+            const task = accountDiagnosisTask(platform, account);
+            diagnosisButton.disabled = !accountDiagnosisStatusAvailable(platform, account)
+              || Boolean(state.accountDiagnosis.submitting[accountDiagnosisKey(platform, account)])
+              || ["queued", "running"].includes(task?.status)
+              || (task?.status === "succeeded" && task?.recheck_status === "sent");
+            action.append(diagnosisButton);
+          }
           row.append(action);
           body.append(row);
         }
@@ -3932,7 +4047,10 @@
       detailsBody.replaceChildren();
       el("account-overview").hidden = !hasPrivateConfig();
       details.hidden = !hasPrivateConfig();
-      if (!hasPrivateConfig()) return;
+      if (!hasPrivateConfig()) {
+        if (typeof renderAccountDiagnosisAction === "function") renderAccountDiagnosisAction();
+        return;
+      }
       const platform = state.selected;
       const account = selectedAccount(platform);
       const record = accountMonitoringRecord(platform, account);
@@ -4007,6 +4125,7 @@
           target.append(pair);
         }
       }
+      if (typeof renderAccountDiagnosisAction === "function") renderAccountDiagnosisAction();
     }
 
     function renderCurrentValueSelect(select, modes, selected, known, label, placeholder = t("notRead")) {
@@ -6051,7 +6170,8 @@
         await refreshControlPlane();
         await refreshOwnerDecisions();
         await refreshConfig();
-        refreshRuntimeTargetLifecycle();
+        await refreshRuntimeTargetLifecycle();
+        await refreshAccountDiagnosis();
         refreshReconciliationRecovery();
         if (state.auth.allowed && state.auth.admin) refreshBinancePrivateScope();
         else clearBinancePrivateScope();
@@ -6324,6 +6444,51 @@
       state.runtimeTargetLifecycle.loading = false;
       renderRuntimeTargetLifecycle();
       renderAccountOverview();
+    }
+
+    async function refreshAccountDiagnosis(platform = state.selected, account = selectedAccount(platform)) {
+      if (!accountDiagnosisEligible(platform, account)) return;
+      const diagnosisKey = accountDiagnosisKey(platform, account);
+      state.accountDiagnosis.loading[diagnosisKey] = true;
+      renderAccountDiagnosisAction();
+      try {
+        const payload = await requestJson(`/api/account-diagnosis?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(account.key)}`);
+        state.accountDiagnosis.tasks[diagnosisKey] = payload.task || null;
+      } catch {
+        state.accountDiagnosis.tasks[diagnosisKey] = null;
+      } finally {
+        delete state.accountDiagnosis.loading[diagnosisKey];
+        renderAccountDiagnosisAction();
+        renderMonitoringOverview();
+      }
+    }
+
+    async function dispatchAccountDiagnosis(button) {
+      const platform = String(button.dataset.platform || state.selected);
+      const account = optionsFor(platform).find(item => item.key === button.dataset.accountKey) || selectedAccount(platform);
+      if (!accountDiagnosisEligible(platform, account)) return;
+      const diagnosisKey = accountDiagnosisKey(platform, account);
+      if (state.accountDiagnosis.submitting[diagnosisKey]) return;
+      const trigger = button.dataset.diagnosisTrigger || accountDiagnosisTrigger(platform, account);
+      state.accountDiagnosis.submitting[diagnosisKey] = true;
+      renderAccountDiagnosisAction();
+      renderMonitoringOverview();
+      try {
+        const response = await fetch("/api/account-diagnosis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ platform, key: account.key, trigger }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || t("accountDiagnosisUnavailable"));
+        state.accountDiagnosis.tasks[diagnosisKey] = payload.task || null;
+      } catch (error) {
+        showToast(error.message || t("accountDiagnosisUnavailable"), { duration: 9000 });
+      } finally {
+        delete state.accountDiagnosis.submitting[diagnosisKey];
+        renderAccountDiagnosisAction();
+        renderMonitoringOverview();
+      }
     }
 
     async function refreshResearchTasks() {
@@ -6665,6 +6830,15 @@
       recordReconciliationRecoveryConfirmation(button);
     });
 
+    el("account-diagnosis-button").addEventListener("click", event => {
+      dispatchAccountDiagnosis(event.currentTarget);
+    });
+    el("monitoring-overview-body").addEventListener("click", event => {
+      const button = event.target.closest("[data-account-diagnosis]");
+      if (!button || button.disabled) return;
+      dispatchAccountDiagnosis(button);
+    });
+
     el("platform-strip").addEventListener("click", (event) => {
       const button = event.target.closest("[data-platform]");
       if (!button) return;
@@ -6689,6 +6863,7 @@
           refreshControlPlane(),
           refreshOwnerDecisions(),
         ]);
+        await refreshAccountDiagnosis();
       } finally {
         state.refreshing = false;
         state.lastRefreshAt = new Date().toISOString();
@@ -6711,6 +6886,7 @@
       state.forms[state.selected].pluginModeTouched = false;
       syncStrategyForAccount(state.selected);
       render();
+      refreshAccountDiagnosis();
     });
 
     el("strategy-select").addEventListener("change", () => {
