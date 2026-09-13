@@ -296,11 +296,9 @@ const V7_PAPER_PREVIEW_PROFILE = "soxl_soxx_core_only_p2_v7_longterm_compounding
 const V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY = "QuantStrategyLab/LongBridgePlatform";
 const V7_PAPER_APPLICATION_WORKFLOW = "apply-paper-candidate.yml";
 const V7_PAPER_APPLICATION_UES_REVISION = "d1ca798d880cd83965f3da5081850ca48a616d19";
-// Replaced with the reviewed LongBridge application release before this path
-// is enabled in production. It is a server constant, never caller input.
-// Synthetic 40-hex source pin for the offline slice. Replace with the
-// reviewed LongBridge application merge SHA before enabling the workflow.
-const V7_PAPER_APPLICATION_SOURCE_COMMIT = "9c72bee16d63f68f4e2397042380e6ef5d880c27";
+// Reviewed LongBridge application merge SHA for the paused validation slice.
+// This remains a server constant and is never caller input or an enablement.
+const V7_PAPER_APPLICATION_SOURCE_COMMIT = "b5f5d2686fe4c65e26260dcea550c8b5268a3243";
 const V7_PAPER_APPLICATION_TICKET_RE = /^rpt_[0-9a-f]{64}$/;
 const V7_PAPER_APPLICATION_ACCOUNT_KEY = "paper";
 const V7_PAPER_APPLICATION_ACCOUNT_SCOPE = "PAPER";
