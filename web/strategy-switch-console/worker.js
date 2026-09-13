@@ -221,7 +221,6 @@ const RUNTIME_TARGET_LIFECYCLE_REASON_CODES = [
 ];
 const ACCOUNT_DIAGNOSIS_REQUEST_PATH = "/api/account-diagnosis";
 const ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX = "/api/internal/account-diagnosis/";
-const ACCOUNT_DIAGNOSIS_PLATFORM = "binance";
 const ACCOUNT_DIAGNOSIS_TARGET_ID = "binance.crypto_live_pool_rotation";
 const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
   [ACCOUNT_DIAGNOSIS_TARGET_ID]: Object.freeze({
@@ -3607,7 +3606,7 @@ function accountDiagnosisStateFingerprint(targetId, checks) {
 
 function accountDiagnosisTargetSpec(platform, targetId) {
   const spec = ACCOUNT_DIAGNOSIS_TARGETS[String(targetId || "").trim()];
-  return spec && spec.platform === platform ? spec : null;
+  return spec && (platform == null || spec.platform === platform) ? spec : null;
 }
 
 async function accountDiagnosisAccount(env, platform, key) {
@@ -3747,6 +3746,8 @@ function accountDiagnosisAutoEnabled(env) {
 }
 
 async function accountDiagnosisIdentityForTarget(env, targetId) {
+  const spec = accountDiagnosisTargetSpec(null, targetId);
+  if (!spec) return null;
   let config;
   try {
     config = await loadAccountOptionsConfig(env);
@@ -3757,7 +3758,7 @@ async function accountDiagnosisIdentityForTarget(env, targetId) {
     (Array.isArray(items) ? items : [])
       .filter(item => String(item?.runtime_status_target_id || "").trim() === targetId)
       .map(item => ({ platform, key: item.key })));
-  if (matches.length !== 1 || matches[0].platform !== ACCOUNT_DIAGNOSIS_PLATFORM) return null;
+  if (matches.length !== 1 || matches[0].platform !== spec.platform) return null;
   try {
     return await accountDiagnosisAccount(env, matches[0].platform, matches[0].key);
   } catch {
@@ -3767,42 +3768,45 @@ async function accountDiagnosisIdentityForTarget(env, targetId) {
 
 async function maybeAutoDispatchAccountDiagnosis(env, source) {
   if (!accountDiagnosisAutoEnabled(env)) return;
-  try {
-    const matchingTargets = source.targets.filter(item =>
-      item.target_id === ACCOUNT_DIAGNOSIS_TARGET_ID && item.target?.platform === ACCOUNT_DIAGNOSIS_PLATFORM);
-    if (matchingTargets.length !== 1) return;
-    const target = matchingTargets[0];
-    const freshness = controlPlaneSnapshotFreshness(source, executionEvidenceStaleTtlSeconds(env), Date.now());
-    if (freshness.data_status !== "ready") return;
-    const checks = accountDiagnosisChecks({ target, freshness }, freshness.data_status);
-    if (checks.configured_state !== "enabled" || !accountDiagnosisHasConfirmedAttention(checks)) return;
-    const identity = await accountDiagnosisIdentityForTarget(env, ACCOUNT_DIAGNOSIS_TARGET_ID);
-    if (!identity) return;
-    const observedAt = source.computed_at || source.generated_at;
-    if (!observedAt) return;
-    const createdAt = new Date().toISOString();
-    const requestId = crypto.randomUUID();
-    const created = await runtimeInstanceCommand(env, {
-      action: "diagnosis_create", actor: "runtime-target-lifecycle-source-sync", request_id: requestId,
-      platform: identity.platform, key: identity.key, target_id: identity.targetId, trigger: "incident",
-      observed_at: observedAt, checks, state_fingerprint: accountDiagnosisStateFingerprint(identity.targetId, checks),
-      created_at: createdAt, now: Date.now(), auto_source: "source_sync",
-    });
-    if (!created.created) return;
+  const now = Date.now();
+  const freshness = controlPlaneSnapshotFreshness(source, executionEvidenceStaleTtlSeconds(env), now);
+  if (freshness.data_status !== "ready") return;
+  const observedAt = source.computed_at || source.generated_at;
+  if (!observedAt) return;
+  for (const [targetId, spec] of Object.entries(ACCOUNT_DIAGNOSIS_TARGETS)) {
     try {
-      await dispatchAccountDiagnosis(env, requestId);
-      await runtimeInstanceCommand(env, {
-        action: "diagnosis_mark_dispatch", actor: "runtime-target-lifecycle-source-sync",
-        request_id: requestId, dispatch_state: "sent", updated_at: new Date().toISOString(),
+      const matchingTargets = source.targets.filter(item =>
+        item.target_id === targetId && item.target?.platform === spec.platform);
+      if (matchingTargets.length !== 1) continue;
+      const target = matchingTargets[0];
+      const checks = accountDiagnosisChecks({ target, freshness }, freshness.data_status);
+      if (checks.configured_state !== "enabled" || !accountDiagnosisHasConfirmedAttention(checks)) continue;
+      const identity = await accountDiagnosisIdentityForTarget(env, targetId);
+      if (!identity) continue;
+      const createdAt = new Date().toISOString();
+      const requestId = crypto.randomUUID();
+      const created = await runtimeInstanceCommand(env, {
+        action: "diagnosis_create", actor: "runtime-target-lifecycle-source-sync", request_id: requestId,
+        platform: identity.platform, key: identity.key, target_id: identity.targetId, trigger: "incident",
+        observed_at: observedAt, checks, state_fingerprint: accountDiagnosisStateFingerprint(identity.targetId, checks),
+        created_at: createdAt, now, auto_source: "source_sync",
       });
+      if (!created.created) continue;
+      try {
+        await dispatchAccountDiagnosis(env, requestId);
+        await runtimeInstanceCommand(env, {
+          action: "diagnosis_mark_dispatch", actor: "runtime-target-lifecycle-source-sync",
+          request_id: requestId, dispatch_state: "sent", updated_at: new Date().toISOString(),
+        });
+      } catch {
+        await runtimeInstanceCommand(env, {
+          action: "diagnosis_mark_dispatch", actor: "runtime-target-lifecycle-source-sync",
+          request_id: requestId, dispatch_state: "unknown", updated_at: new Date().toISOString(),
+        });
+      }
     } catch {
-      await runtimeInstanceCommand(env, {
-        action: "diagnosis_mark_dispatch", actor: "runtime-target-lifecycle-source-sync",
-        request_id: requestId, dispatch_state: "unknown", updated_at: new Date().toISOString(),
-      });
+      // One target's unavailable identity or dispatch must not affect the other targets.
     }
-  } catch {
-    // Source sync remains successful if the opt-in diagnostic dispatch is unavailable.
   }
 }
 
