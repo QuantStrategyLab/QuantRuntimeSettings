@@ -3812,9 +3812,10 @@
     }
 
     function accountDiagnosisEligible(platform, account) {
+      const targetId = String(account?.runtime_status_target_id || "");
       return state.auth.allowed
-        && platform === "binance"
-        && account?.runtime_status_target_id === "binance.crypto_live_pool_rotation";
+        && ((platform === "binance" && targetId === "binance.crypto_live_pool_rotation")
+          || (platform === "longbridge" && ["longbridge.paper", "longbridge.hk", "longbridge.sg"].includes(targetId)));
     }
 
     function accountDiagnosisTask(platform, account) {
@@ -6446,21 +6447,26 @@
       renderAccountOverview();
     }
 
-    async function refreshAccountDiagnosis(platform = state.selected, account = selectedAccount(platform)) {
-      if (!accountDiagnosisEligible(platform, account)) return;
-      const diagnosisKey = accountDiagnosisKey(platform, account);
-      state.accountDiagnosis.loading[diagnosisKey] = true;
+    async function refreshAccountDiagnosis(platform, account) {
+      const targets = platform && account
+        ? [[platform, account]]
+        : Object.keys(platformMeta).flatMap(itemPlatform => optionsFor(itemPlatform)
+          .filter(item => accountDiagnosisEligible(itemPlatform, item))
+          .map(item => [itemPlatform, item]));
+      await Promise.all(targets.map(async ([itemPlatform, item]) => {
+        const diagnosisKey = accountDiagnosisKey(itemPlatform, item);
+        state.accountDiagnosis.loading[diagnosisKey] = true;
+        try {
+          const payload = await requestJson(`/api/account-diagnosis?platform=${encodeURIComponent(itemPlatform)}&key=${encodeURIComponent(item.key)}`);
+          state.accountDiagnosis.tasks[diagnosisKey] = payload.task || null;
+        } catch {
+          state.accountDiagnosis.tasks[diagnosisKey] = null;
+        } finally {
+          delete state.accountDiagnosis.loading[diagnosisKey];
+        }
+      }));
       renderAccountDiagnosisAction();
-      try {
-        const payload = await requestJson(`/api/account-diagnosis?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(account.key)}`);
-        state.accountDiagnosis.tasks[diagnosisKey] = payload.task || null;
-      } catch {
-        state.accountDiagnosis.tasks[diagnosisKey] = null;
-      } finally {
-        delete state.accountDiagnosis.loading[diagnosisKey];
-        renderAccountDiagnosisAction();
-        renderMonitoringOverview();
-      }
+      renderMonitoringOverview();
     }
 
     async function dispatchAccountDiagnosis(button) {

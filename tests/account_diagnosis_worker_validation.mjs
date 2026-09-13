@@ -11,6 +11,16 @@ const require = createRequire(new URL("../web/strategy-switch-console/package.js
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 
 const targetId = "binance.crypto_live_pool_rotation";
+const longbridgeAccounts = ["paper", "hk", "sg"].map(key => ({
+  key,
+  label: `LongBridge ${key}`,
+  target_name: key,
+  runtime_status_target_id: `longbridge.${key}`,
+  supported_domains: [key === "paper" || key === "hk" ? "hk_equity" : "us_equity"],
+  service_name: `longbridge-quant-${key}-service`,
+  broker_environment: key === "paper" ? "paper" : "live",
+  default_execution_mode: "live",
+}));
 const now = new Date().toISOString();
 const account = {
   key: "default",
@@ -25,7 +35,7 @@ const bindings = {
   SESSION_SECRET: "synthetic-only-session-key",
   STRATEGY_SWITCH_ADMIN_LOGINS: "fixture-admin",
   ALLOWED_GITHUB_LOGINS: "fixture-reader",
-  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [account] }),
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [account], longbridge: longbridgeAccounts }),
   EXECUTION_EVIDENCE_SYNC_TOKEN: "synthetic-lifecycle-token",
   ACCOUNT_DIAGNOSIS_SYNC_TOKEN: "synthetic-diagnosis-token",
   ACCOUNT_DIAGNOSIS_AUTO_ENABLED: "false",
@@ -113,6 +123,93 @@ try {
     body: lifecycleSource({ sourceId: "qmt-stale-fixture", platform: "qmt", sourceTargetId: "qmt.cn_pool", generatedAt: "2020-01-01T00:00:00Z", computedAt: "2020-01-01T00:00:00Z" }),
   });
   assert.equal(staleOtherPlatform.status, 200);
+
+  const longbridgeTasks = [];
+  for (const longbridgeAccount of longbridgeAccounts) {
+    const seededLongbridge = await call("/api/internal/sync-runtime-target-lifecycle-source", {
+      method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+      body: lifecycleSource({
+        sourceId: `longbridge-${longbridgeAccount.key}-fixture`,
+        platform: "longbridge",
+        sourceTargetId: longbridgeAccount.runtime_status_target_id,
+        runtimeGuard: longbridgeAccount.key === "hk" ? "attention" : "pass",
+        runtimeEnabled: longbridgeAccount.key !== "hk",
+        scheduler: longbridgeAccount.key === "hk" ? "paused" : "enabled",
+      }),
+    });
+    assert.equal(seededLongbridge.status, 200);
+    const beforeLongbridgeManual = dispatches.length;
+    const longbridgeManual = await call("/api/account-diagnosis", {
+      method: "POST", body: { platform: "longbridge", key: longbridgeAccount.key, trigger: "manual_check" },
+    });
+    assert.equal(longbridgeManual.status, 202);
+    assert.equal(longbridgeManual.body.task.target_id, longbridgeAccount.runtime_status_target_id);
+    assert.equal(dispatches.length, beforeLongbridgeManual + 1);
+    assert.match(dispatches.at(-1).url, /QuantStrategyLab\/AIAuditBridge\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
+    longbridgeTasks.push(longbridgeManual.body.task);
+    const longbridgeIncident = await call("/api/account-diagnosis", {
+      method: "POST", body: { platform: "longbridge", key: longbridgeAccount.key, trigger: "incident" },
+    });
+    if (longbridgeAccount.key === "hk") {
+      assert.equal(longbridgeIncident.status, 200);
+      assert.equal(longbridgeIncident.body.deduplicated, true);
+    } else {
+      assert.equal(longbridgeIncident.status, 409);
+      assert.equal(longbridgeIncident.body.error, "account_diagnosis_incident_requires_attention");
+    }
+  }
+  const pausedDisabledSeed = await call("/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+    body: lifecycleSource({
+      sourceId: "longbridge-paper-fixture", platform: "longbridge", sourceTargetId: "longbridge.paper",
+      configuredState: "disabled", runtimeEnabled: false, scheduler: "paused", heartbeat: "not_applicable",
+    }),
+  });
+  assert.equal(pausedDisabledSeed.status, 200);
+  const pausedDisabledIncident = await call("/api/account-diagnosis", {
+    method: "POST", body: { platform: "longbridge", key: "paper", trigger: "incident" },
+  });
+  assert.equal(pausedDisabledIncident.status, 409);
+  const pausedDisabledManual = await call("/api/account-diagnosis", {
+    method: "POST", body: { platform: "longbridge", key: "paper", trigger: "manual_check" },
+  });
+  assert.equal(pausedDisabledManual.status, 202);
+  const staleLongbridgeSeed = await call("/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+    body: lifecycleSource({
+      sourceId: "longbridge-sg-fixture", platform: "longbridge", sourceTargetId: "longbridge.sg",
+      generatedAt: "2020-01-01T00:00:00Z", computedAt: "2020-01-01T00:00:00Z", runtimeGuard: "pass",
+      runtimeEnabled: true, scheduler: "enabled",
+    }),
+  });
+  assert.equal(staleLongbridgeSeed.status, 200);
+  const staleLongbridgeIncident = await call("/api/account-diagnosis", {
+    method: "POST", body: { platform: "longbridge", key: "sg", trigger: "incident" },
+  });
+  assert.equal(staleLongbridgeIncident.status, 202, "a stale LongBridge target remains diagnosable");
+  assert.equal(staleLongbridgeIncident.body.task.target_id, "longbridge.sg");
+  const crossAccountTarget = await call("/api/account-diagnosis", {
+    method: "POST", body: { platform: "longbridge", key: "paper", trigger: "manual_check" },
+  });
+  assert.equal(crossAccountTarget.status, 200);
+  assert.equal(crossAccountTarget.body.deduplicated, true);
+
+  const longbridgeClaim = await call(`/api/internal/account-diagnosis/${longbridgeTasks[0].request_id}`, {
+    method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-diagnosis-token" },
+    body: { request_id: longbridgeTasks[0].request_id, status: "running", workflow_run_id: "200", workflow_run_attempt: "1" },
+  });
+  assert.deepEqual(longbridgeClaim.body, { ok: true, claimed: true });
+  const beforeLongbridgeResult = dispatches.length;
+  const longbridgeResult = await call(`/api/internal/account-diagnosis/${longbridgeTasks[0].request_id}`, {
+    method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-diagnosis-token" },
+    body: { request_id: longbridgeTasks[0].request_id, status: "succeeded", workflow_run_id: "200", workflow_run_attempt: "1", job_id: "lb_job_ABC-123", summary: "LongBridge 只读检查已完成。", reason_code: "diagnosis_ready" },
+  });
+  assert.equal(longbridgeResult.status, 200);
+  assert.equal(dispatches.length, beforeLongbridgeResult + 1);
+  assert.match(dispatches.at(-1).url, /QuantStrategyLab\/LongBridgePlatform\/actions\/workflows\/runtime-target-lifecycle\.yml\/dispatches$/);
+  assert.deepEqual(JSON.parse(dispatches.at(-1).body), { ref: "main", inputs: { target: "paper" } });
+  // Keep the original Binance assertions independent from the preceding LB cases.
+  dispatches.length = 0;
 
   let incidentHealthy = await call("/api/account-diagnosis", {
     method: "POST", body: { platform: "binance", key: "default", trigger: "incident" },
@@ -311,12 +408,19 @@ try {
   assert.equal(autoSeed.status, 200);
   assert.equal(autoSeedDifferentFingerprint.status, 200);
   assert.equal(dispatches.length, autoDispatchCount + 1, "different auto fingerprints still share one target-level 24-hour quota");
+  const autoLongbridgeBefore = dispatches.length;
+  const autoLongbridge = await autoCall("/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+    body: lifecycleSource({ sourceId: "longbridge-auto-diagnosis-fixture", platform: "longbridge", sourceTargetId: "longbridge.hk", runtimeGuard: "attention", runtimeEnabled: true, scheduler: "enabled" }),
+  });
+  assert.equal(autoLongbridge.status, 200);
+  assert.equal(dispatches.length, autoLongbridgeBefore, "source-sync auto dispatch remains Binance-only");
 
   const revision = await call("/api/admin/runtime-instances");
   assert.equal(revision.status, 200);
   assert.equal(revision.body.revision, 0);
   assert.equal(revision.body.initialized, false);
-  console.log("account diagnosis validation: PASS (Binance-only binding, strict auth, dedupe, atomic claim, callback binding, one no-input recheck dispatch, no account mutation)");
+  console.log("account diagnosis validation: PASS (Binance and LongBridge bindings, strict auth, dedupe, atomic claim, callback binding, read-only rechecks, no account mutation)");
 } finally {
   await mf.dispose();
   if (autoMf) await autoMf.dispose();
