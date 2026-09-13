@@ -633,7 +633,7 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertIn("automation_registry", report)
         self.assertIn("automation_lane_counts", report["summary"])
         self.assertEqual(report["summary"]["dry_run_uncovered_strategy_count"], 0)
-        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 26)
+        self.assertEqual(report["summary"]["dry_run_covered_strategy_count"], 27)
         self.assertGreater(report["summary"]["dry_run_route_count"], 0)
         self.assertEqual(
             report["summary"]["declared_dry_run_route_count"],
@@ -673,8 +673,8 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(route["buildable_dry_run_platforms"], ["ibkr", "longbridge"])
         self.assertEqual(route["blocked_reason"], "")
         self.assertNotIn("hk_low_vol_dividend_quality_snapshot", coverage["artifact_blocked_profiles"])
-        self.assertEqual(coverage["summary"]["declared_dry_run_route_count"], 59)
-        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 59)
+        self.assertEqual(coverage["summary"]["declared_dry_run_route_count"], 63)
+        self.assertEqual(coverage["summary"]["buildable_dry_run_route_count"], 63)
 
     def test_feature_snapshot_platform_coverage_matches_runtime_injection(self):
         self.assertEqual(
