@@ -15,6 +15,102 @@ function frontendFunction(name, context) {
   return vm.runInNewContext(`(${source.slice(start, end).trim()})`, context);
 }
 const cleanOptionalBoolean = (value) => typeof value === 'boolean' ? value : null;
+
+test('runtime mode normalization keeps paper identity while dispatch stays fail closed', () => {
+  const realCleanOptionalBoolean = frontendFunction('cleanOptionalBoolean', {});
+  const normalizeExecutionMode = frontendFunction('normalizeExecutionMode', {});
+  const normalizeExecutionEnvironment = frontendFunction('normalizeExecutionEnvironment', {});
+  const executionEnvironmentFromEntry = frontendFunction('executionEnvironmentFromEntry', {
+    cleanOptionalBoolean: realCleanOptionalBoolean,
+    normalizeExecutionEnvironment,
+  });
+  const executionModeForDispatch = frontendFunction('executionModeForDispatch', {
+    cleanOptionalBoolean: realCleanOptionalBoolean,
+    normalizeExecutionEnvironment,
+    normalizeExecutionMode,
+  });
+  const cleanDisplayNumber = value => {
+    const text = String(value ?? '').trim();
+    const numeric = Number(text);
+    return text && Number.isFinite(numeric) && numeric >= 0 ? text : '';
+  };
+  const normalizeCurrentStrategies = frontendFunction('normalizeCurrentStrategies', {
+    platformMeta: { longbridge: {} },
+    cleanStrategyProfile: frontendFunction('cleanStrategyProfile', {}),
+    cleanDisplayNumber,
+    cleanDisplayRatio: value => Number(cleanDisplayNumber(value)) <= 1 ? cleanDisplayNumber(value) : '',
+    cleanOptionalBoolean: realCleanOptionalBoolean,
+    normalizeDcaMode: value => value || 'fixed',
+    cleanDisplayPositiveNumber: value => Number(cleanDisplayNumber(value)) > 0 ? cleanDisplayNumber(value) : '',
+    normalizeExecutionEnvironment,
+    normalizeExecutionMode,
+  });
+  const cases = [
+    { name: 'legacy paper dry run', raw: { execution_mode: 'paper', dry_run_only: true }, display: 'dry_run', dispatch: 'dry_run' },
+    { name: 'legacy paper active', raw: { execution_mode: 'paper', dry_run_only: false }, display: 'paper', dispatch: 'live' },
+    { name: 'legacy paper missing safety flag', raw: { execution_mode: 'paper' }, display: 'dry_run', dispatch: 'dry_run' },
+    { name: 'explicit paper uses internal live', raw: { execution_mode: 'live', execution_environment: 'paper', dry_run_only: false }, display: 'paper', dispatch: 'live' },
+  ];
+  for (const sample of cases) {
+    const entry = normalizeCurrentStrategies({ longbridge: { synthetic: { strategy_profile: 'fixture', ...sample.raw } } }).longbridge.synthetic;
+    const accountReadbackEntry = () => entry;
+    const executionEnvironmentForAccount = frontendFunction('executionEnvironmentForAccount', {
+      accountReadbackEntry,
+      cleanOptionalBoolean: realCleanOptionalBoolean,
+      configuredAccountEnvironment: () => '',
+      executionEnvironmentFromEntry,
+      normalizeExecutionMode,
+    });
+    assert.equal(executionEnvironmentForAccount('longbridge', {}), sample.display, `${sample.name} display`);
+    assert.equal(executionModeForDispatch(entry), sample.dispatch, `${sample.name} dispatch`);
+  }
+
+  const configuredPaperDisplay = frontendFunction('executionEnvironmentForAccount', {
+    accountReadbackEntry: () => ({ execution_mode_raw: 'live', dry_run_only: false }),
+    cleanOptionalBoolean: realCleanOptionalBoolean,
+    configuredAccountEnvironment: () => 'paper',
+    executionEnvironmentFromEntry,
+    normalizeExecutionMode,
+  });
+  assert.equal(configuredPaperDisplay('longbridge', { broker_environment: 'paper' }), 'paper');
+  const configuredPaperDryRunDisplay = frontendFunction('executionEnvironmentForAccount', {
+    accountReadbackEntry: () => ({ execution_mode_raw: 'dry_run', dry_run_only: null }),
+    cleanOptionalBoolean: realCleanOptionalBoolean,
+    configuredAccountEnvironment: () => 'paper',
+    executionEnvironmentFromEntry,
+    normalizeExecutionMode,
+  });
+  assert.equal(configuredPaperDryRunDisplay('longbridge', { broker_environment: 'paper' }), 'dry_run');
+  assert.equal(executionModeForDispatch({ execution_mode_raw: 'live', dry_run_only: null }), '');
+});
+
+test('frontend account normalization and display preserve broker identity and all U account selectors', () => {
+  const normalizeExecutionEnvironment = frontendFunction('normalizeExecutionEnvironment', {});
+  const normalize = frontendFunction('normalizeAccountOptions', {
+    clone: value => structuredClone(value),
+    defaultAccountOptions: { ibkr: [], longbridge: [] },
+    platformMeta: { ibkr: {}, longbridge: {} },
+    normalizeExecutionEnvironment,
+    normalizeExecutionMode: frontendFunction('normalizeExecutionMode', {}),
+    normalizePluginMode: value => value || 'none',
+    normalizeAllowedExecutionModes: value => value || [],
+    cleanOptionalBoolean: frontendFunction('cleanOptionalBoolean', {}),
+    normalizeIncomeLayerMode: value => value || '',
+    normalizeOptionOverlayMode: value => value || '',
+    normalizeCashOnlyExecutionMode: value => value || '',
+    normalizeRuntimeTargetMode: value => value || '',
+    normalizeReservePolicyMode: value => value || '',
+    normalizeDcaMode: value => value || '',
+    cleanDisplayPositiveNumber: value => String(value || ''),
+    normalizeSupportedDomains: () => [],
+  });
+  const result = normalize({
+    ibkr: [{ key: 'synthetic', label: 'strategy-name', account_selector: 'U10000001, U10000002' }],
+    longbridge: [{ key: 'paper', label: 'Paper', broker_environment: 'paper' }],
+  });
+  assert.equal(result.longbridge[0].broker_environment, 'paper');
+  assert.equal(frontendFunction('accountDisplayLabel', {})(result.ibkr[0]), 'U10000001 / U10000002');
+});
 test('account persistence preserves explicit observation and variable-source bindings', () => {
   const source = { ibkr: [{ key: 'fixture', label: 'Fixture', target_name: 'fixture', supported_domains: ['us_equity'],
     runtime_status_target_id: 'ibkr.fixture', github_environment: 'fixture-environment', variable_scope: 'environment' }] };
@@ -119,10 +215,16 @@ for (const sample of [
 }
 
 test('missing runtime mode stays unread instead of using account defaults', () => {
+  const realCleanOptionalBoolean = frontendFunction('cleanOptionalBoolean', {});
+  const normalizeExecutionEnvironment = frontendFunction('normalizeExecutionEnvironment', {});
   const fn = frontendFunction('defaultExecutionModeForAccount', {
     platformDryRunOnly: () => false,
     accountReadbackEntry: () => null,
-    normalizeExecutionMode: value => value === 'live' ? 'live' : '',
+    executionModeForDispatch: frontendFunction('executionModeForDispatch', {
+      cleanOptionalBoolean: realCleanOptionalBoolean,
+      normalizeExecutionEnvironment,
+      normalizeExecutionMode: frontendFunction('normalizeExecutionMode', {}),
+    }),
   });
   assert.equal(fn('ibkr', { default_execution_mode: 'live' }), '');
 });
@@ -234,13 +336,75 @@ test('buildInputs keeps untouched policy layers current and serializes only touc
 test('account settings copy removes guesswork and keeps the two research views', () => {
   const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
-  assert.ok(html.includes('按策略下单'));
-  assert.ok(html.includes('只计算信号'));
+  assert.ok(html.includes('id="mode-display"'));
+  assert.ok(html.includes('id="execution-mode-select"'));
+  assert.equal(html.includes('data-mode="live"'), false);
   assert.ok(html.includes('data-research-internal-view="monitoring"'));
   assert.ok(html.includes('data-research-internal-view="research"'));
   assert.equal(html.includes('需要启停或调整策略时展开'), false);
   assert.equal(html.includes('插件、收入层和期权的选择不授予运行许可'), false);
   assert.equal(app.includes('target {target} · service {service} · market {domains}'), false);
+});
+
+test('missing optional strategy fields distinguish a successful read from a read failure', () => {
+  const t = key => ({
+    notRead: '暂未读取', notConfigured: '未设置', strategyDefault: '使用策略默认',
+    incomeLayerNotSupported: '该策略未定义收入层', optionOverlayNotSupported: '该策略未定义期权层',
+  })[key] || key;
+  const currentCashOnlyExecutionText = frontendFunction('currentCashOnlyExecutionText', {
+    state: { selected: 'ibkr' }, selectedAccount: () => ({}), platformSupportsMarginPolicy: () => true,
+    accountReadbackEntry: () => ({}), cleanOptionalBoolean, cashOnlyExecutionText: () => 'configured', t,
+  });
+  assert.equal(currentCashOnlyExecutionText('ibkr', {}), '未设置');
+
+  const currentOptionOverlayText = frontendFunction('currentOptionOverlayText', {
+    state: { selected: 'ibkr', forms: { ibkr: { strategy: 'fixture' } } }, selectedAccount: () => ({}),
+    accountReadbackEntry: () => ({}), cleanOptionalBoolean, optionOverlaySupported: () => true,
+    optionOverlayText: () => 'configured', t,
+  });
+  assert.equal(currentOptionOverlayText('ibkr', {}, 'fixture'), '使用策略默认');
+
+  const currentIncomeLayerText = frontendFunction('currentIncomeLayerText', {
+    state: { selected: 'ibkr', forms: { ibkr: { strategy: 'fixture' } } }, selectedAccount: () => ({}),
+    incomeLayerDefaultForStrategy: () => ({ startUsd: 1, maxRatio: '0.1' }), accountReadbackEntry: () => null,
+    incomeLayerFromEntry: () => ({ enabled: null, startUsd: '', maxRatio: '' }), incomeLayerFieldsConfigured: () => false, t,
+  });
+  assert.equal(currentIncomeLayerText('ibkr', {}, 'fixture'), '暂未读取');
+});
+
+test('diagnosis action keeps progress in a compact busy button and completed result outside it', () => {
+  const nodes = {};
+  const el = id => nodes[id] ??= {
+    classList: { toggle(name, enabled) { this[name] = enabled; } },
+    setAttribute(name, value) { this[name] = value; },
+    removeAttribute(name) { delete this[name]; },
+  };
+  const state = { selected: 'longbridge', accountDiagnosis: { tasks: {}, submitting: {} } };
+  const account = { key: 'paper' };
+  const t = key => ({ accountDiagnosisButton: 'AI诊断', accountDiagnosisSubmitting: '诊断中…',
+    accountDiagnosisQueuedButton: '排队中…', accountDiagnosisRunningButton: '诊断中…',
+    accountDiagnosisRecheckingButton: '复查中…', accountDiagnosisSuccess: '检查正常' })[key] || key;
+  const render = frontendFunction('renderAccountDiagnosisAction', {
+    el, state, selectedAccount: () => account, accountDiagnosisEligible: () => true,
+    accountDiagnosisStatusAvailable: () => true, accountDiagnosisKey: () => 'longbridge:paper',
+    accountDiagnosisTask: () => state.accountDiagnosis.tasks['longbridge:paper'] || null,
+    accountDiagnosisStatusText: task => task.recheck_status === 'passed' ? '检查正常' : '', t,
+  });
+  state.accountDiagnosis.submitting['longbridge:paper'] = true;
+  render();
+  assert.equal(el('account-diagnosis-button').textContent, '诊断中…');
+  assert.equal(el('account-diagnosis-button')['aria-busy'], 'true');
+  assert.equal(el('account-diagnosis-status').textContent, '');
+  state.accountDiagnosis.submitting['longbridge:paper'] = false;
+  state.accountDiagnosis.tasks['longbridge:paper'] = { status: 'succeeded', recheck_status: 'sent' };
+  render();
+  assert.equal(el('account-diagnosis-button').textContent, '复查中…');
+  assert.equal(el('account-diagnosis-status').textContent, '');
+  state.accountDiagnosis.tasks['longbridge:paper'].recheck_status = 'passed';
+  render();
+  assert.equal(el('account-diagnosis-button').textContent, 'AI诊断');
+  assert.equal(el('account-diagnosis-button')['aria-busy'], undefined);
+  assert.equal(el('account-diagnosis-status').textContent, '检查正常');
 });
 
 test('loading an account never silently prepares an enable override', () => {
@@ -1166,7 +1330,9 @@ test('overview filters preserve unknown and search only the chosen scope', () =>
     { platformLabel: 'IBKR', account: { label: 'Second' }, strategy: 'Trend', runtimeStatus: 'paused' },
     { platformLabel: 'LongBridge', account: { label: 'SG' }, strategy: 'Trend', runtimeStatus: 'normal' },
   ];
-  const filter = frontendFunction('filterOverviewAccounts', {});
+  const filter = frontendFunction('filterOverviewAccounts', {
+    accountDisplayLabel: frontendFunction('accountDisplayLabel', {}),
+  });
   assert.equal(filter(rows, 'paused', '').length, 1);
   assert.equal(filter(rows, 'normal', '').length, 1);
   assert.equal(filter(rows, 'abnormal', '').length, 1);

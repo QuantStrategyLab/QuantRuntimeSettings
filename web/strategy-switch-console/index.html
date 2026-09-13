@@ -225,7 +225,7 @@
             <dl class="account-runtime-facts" id="account-runtime-details-body"></dl>
           </details>
           <div class="account-diagnosis-action" id="account-diagnosis-action" hidden>
-            <button class="btn" id="account-diagnosis-button" type="button" data-i18n="accountDiagnosisButton">AI诊断并复查</button>
+            <button class="btn" id="account-diagnosis-button" type="button" data-i18n="accountDiagnosisButton">AI诊断</button>
             <p class="selection-meta" id="account-diagnosis-status" role="status" aria-live="polite"></p>
           </div>
         </div>
@@ -251,11 +251,9 @@
           </label>
 
           <div class="control-block mode-block">
-            <span data-i18n="mode">模式</span>
-            <div class="mode" id="mode-control">
-              <button type="button" data-mode="live" class="active" data-i18n="live">按策略下单</button>
-              <button type="button" data-mode="dry_run" data-i18n="dryRun">只计算信号</button>
-              <span class="selection-meta mode-unread" id="mode-unread" hidden data-i18n="notRead">暂未读取</span>
+            <span data-i18n="mode">运行方式</span>
+            <div class="mode" id="mode-control" role="status" aria-live="polite">
+              <strong id="mode-display" data-i18n="modeUnknown">账户类型待确认</strong>
             </div>
             <span class="selection-meta" id="mode-meta"></span>
           </div>
@@ -268,6 +266,11 @@
           <details class="plan-advanced">
             <summary data-i18n="planAdvancedSummary">高级设置</summary>
             <p class="selection-meta" id="account-meta"></p>
+            <label class="control-block execution-mode-setting-block">
+              <span data-i18n="executionModeSetting">执行方式设置</span>
+              <select id="execution-mode-select"></select>
+              <span class="selection-meta" data-i18n="executionModeSettingMeta">仅修改现有执行设置；不下单检查不会写入交易订单。</span>
+            </label>
           <div class="form-section runtime-section">
             <div class="form-section-heading">
               <span>02</span>
