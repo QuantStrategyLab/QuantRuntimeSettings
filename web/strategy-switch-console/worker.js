@@ -223,10 +223,30 @@ const ACCOUNT_DIAGNOSIS_REQUEST_PATH = "/api/account-diagnosis";
 const ACCOUNT_DIAGNOSIS_INTERNAL_PREFIX = "/api/internal/account-diagnosis/";
 const ACCOUNT_DIAGNOSIS_PLATFORM = "binance";
 const ACCOUNT_DIAGNOSIS_TARGET_ID = "binance.crypto_live_pool_rotation";
+const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
+  [ACCOUNT_DIAGNOSIS_TARGET_ID]: Object.freeze({
+    platform: "binance",
+    recheckRepository: "QuantStrategyLab/BinancePlatform",
+    recheckWorkflow: "runtime-target-lifecycle.yml",
+  }),
+  "longbridge.paper": Object.freeze({
+    platform: "longbridge",
+    recheckRepository: "QuantStrategyLab/LongBridgePlatform",
+    recheckWorkflow: "runtime-target-lifecycle.yml",
+  }),
+  "longbridge.hk": Object.freeze({
+    platform: "longbridge",
+    recheckRepository: "QuantStrategyLab/LongBridgePlatform",
+    recheckWorkflow: "runtime-target-lifecycle.yml",
+  }),
+  "longbridge.sg": Object.freeze({
+    platform: "longbridge",
+    recheckRepository: "QuantStrategyLab/LongBridgePlatform",
+    recheckWorkflow: "runtime-target-lifecycle.yml",
+  }),
+});
 const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/AIAuditBridge";
 const ACCOUNT_DIAGNOSIS_WORKFLOW = "codex_audit.yml";
-const ACCOUNT_DIAGNOSIS_RECHECK_REPOSITORY = "QuantStrategyLab/BinancePlatform";
-const ACCOUNT_DIAGNOSIS_RECHECK_WORKFLOW = "runtime-target-lifecycle.yml";
 const ACCOUNT_DIAGNOSIS_TRIGGERS = ["incident", "manual_check"];
 const ACCOUNT_DIAGNOSIS_STATUSES = ["queued", "running", "succeeded", "failed", "unknown"];
 const ACCOUNT_DIAGNOSIS_REASON_CODES = ["diagnosis_ready", "capacity_unavailable", "codex_unavailable", "invalid_response"];
@@ -3584,20 +3604,24 @@ function accountDiagnosisStateFingerprint(targetId, checks) {
   return `${targetId}:${JSON.stringify(checks)}`;
 }
 
+function accountDiagnosisTargetSpec(platform, targetId) {
+  const spec = ACCOUNT_DIAGNOSIS_TARGETS[String(targetId || "").trim()];
+  return spec && spec.platform === platform ? spec : null;
+}
+
 async function accountDiagnosisAccount(env, platform, key) {
-  if (platform !== ACCOUNT_DIAGNOSIS_PLATFORM) throw new HttpError("account_diagnosis_platform_unavailable", 409);
   let config;
   try {
     config = await loadAccountOptionsConfig(env);
   } catch {
     throw new HttpError("account_diagnosis_account_unavailable", 409);
   }
-  const options = Array.isArray(config.options?.[ACCOUNT_DIAGNOSIS_PLATFORM])
-    ? config.options[ACCOUNT_DIAGNOSIS_PLATFORM].filter(item => item?.key === key) : [];
+  const options = Array.isArray(config.options?.[platform])
+    ? config.options[platform].filter(item => item?.key === key) : [];
   if (options.length !== 1) throw new HttpError("account_diagnosis_account_unavailable", 409);
   const account = options[0];
   const targetId = String(account.runtime_status_target_id || "").trim();
-  if (targetId !== ACCOUNT_DIAGNOSIS_TARGET_ID) throw new HttpError("account_diagnosis_target_unavailable", 409);
+  if (!accountDiagnosisTargetSpec(platform, targetId)) throw new HttpError("account_diagnosis_target_unavailable", 409);
   const allIdentityMatches = Object.entries(config.options || {}).flatMap(([itemPlatform, items]) =>
     (Array.isArray(items) ? items : []).filter(item => String(item?.runtime_status_target_id || "").trim() === targetId)
       .map(item => ({ platform: itemPlatform, key: item.key })));
@@ -3781,14 +3805,19 @@ async function maybeAutoDispatchAccountDiagnosis(env, source) {
   }
 }
 
-async function dispatchAccountDiagnosisRecheck(env, requestId) {
+async function dispatchAccountDiagnosisRecheck(env, task) {
   const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
   if (!token) throw new HttpError("account_diagnosis_recheck_unavailable", 503);
-  const url = `https://api.github.com/repos/${ACCOUNT_DIAGNOSIS_RECHECK_REPOSITORY}/actions/workflows/${ACCOUNT_DIAGNOSIS_RECHECK_WORKFLOW}/dispatches`;
+  const spec = accountDiagnosisTargetSpec(task?.platform, task?.target_id);
+  if (!spec) throw new HttpError("account_diagnosis_target_unavailable", 409);
+  const url = `https://api.github.com/repos/${spec.recheckRepository}/actions/workflows/${spec.recheckWorkflow}/dispatches`;
+  const body = task.platform === "longbridge"
+    ? { ref: "main", inputs: { target: task.target_id.slice("longbridge.".length) } }
+    : { ref: "main" };
   const response = await fetchWithTimeout(url, {
     method: "POST",
     headers: githubHeaders(token),
-    body: JSON.stringify({ ref: "main" }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new HttpError("account_diagnosis_recheck_unverified", 502);
 }
@@ -3899,7 +3928,7 @@ async function accountDiagnosisInternalResponse(request, env, url) {
     });
     if (result.changed && raw.status === "succeeded") {
       try {
-        await dispatchAccountDiagnosisRecheck(env, requestId);
+        await dispatchAccountDiagnosisRecheck(env, result.task);
         await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "sent", updated_at: new Date().toISOString() });
       } catch {
         await runtimeInstanceCommand(env, { action: "diagnosis_mark_recheck", actor: "aab-account-diagnosis", request_id: requestId, recheck_dispatch_state: "unknown", updated_at: new Date().toISOString() });
