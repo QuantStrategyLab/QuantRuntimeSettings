@@ -293,6 +293,25 @@ const RESEARCH_PROMOTION_RISK_PROFILES = [
 const RESEARCH_PROMOTION_EXECUTION_MODES = ["live", "paper"];
 const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
 const V7_PAPER_PREVIEW_PROFILE = "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve";
+const V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY = "QuantStrategyLab/LongBridgePlatform";
+const V7_PAPER_APPLICATION_WORKFLOW = "apply-paper-candidate.yml";
+const V7_PAPER_APPLICATION_UES_REVISION = "d1ca798d880cd83965f3da5081850ca48a616d19";
+// Replaced with the reviewed LongBridge application release before this path
+// is enabled in production. It is a server constant, never caller input.
+// Synthetic 40-hex source pin for the offline slice. Replace with the
+// reviewed LongBridge application merge SHA before enabling the workflow.
+const V7_PAPER_APPLICATION_SOURCE_COMMIT = "9c72bee16d63f68f4e2397042380e6ef5d880c27";
+const V7_PAPER_APPLICATION_TICKET_RE = /^rpt_[0-9a-f]{64}$/;
+const V7_PAPER_APPLICATION_ACCOUNT_KEY = "paper";
+const V7_PAPER_APPLICATION_ACCOUNT_SCOPE = "PAPER";
+const V7_PAPER_APPLICATION_SERVICE = "longbridge-quant-paper-service";
+const V7_PAPER_APPLICATION_MAX_BODY_BYTES = 16 * 1024;
+const V7_PAPER_APPLICATION_STATUSES = ["approved", "claimed", "applied_paused", "rejected", "uncertain"];
+const V7_PAPER_APPLICATION_DISPATCH_STATES = ["pending", "sent", "unknown"];
+const V7_PAPER_APPLICATION_REASON_CODES = ["", "readback_mismatch", "workflow_rejected", "workflow_uncertain", "dispatch_unverified", "account_changed", "qualification_failed"];
+const V7_PAPER_APPLICATION_DO_ACTIONS = new Set([
+  "application_create", "application_latest", "application_read", "application_mark_dispatch", "application_claim", "application_result",
+]);
 // The workflow has an explicit fail-closed guard until immutable activation
 // and durable single-use consumption are connected. Keep the console from
 // dispatching a workflow that cannot apply the requested target.
@@ -629,6 +648,12 @@ export default {
       if (url.pathname === "/api/research-promotion-decisions" && request.method === "POST") {
         return await recordResearchPromotionDecisionResponse(request, env);
       }
+      if (url.pathname === "/api/research-promotion-applications") {
+        return await researchPromotionApplicationResponse(request, env, url);
+      }
+      if (url.pathname.startsWith("/api/internal/research-promotion-application/")) {
+        return await researchPromotionApplicationInternalResponse(request, env, url);
+      }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
       if (url.pathname === "/api/runtime-stop" && request.method === "POST") return await dispatchRuntimeStop(request, env);
@@ -764,6 +789,37 @@ function accountDiagnosisTaskFromRow(row) {
   };
 }
 
+function researchPromotionApplicationFromRow(row) {
+  if (!row) return null;
+  return {
+    application_id: row.application_id,
+    ticket_id: row.ticket_id,
+    status: row.status,
+    dispatch_state: row.dispatch_state,
+    claim_token: row.claim_token,
+    platform_id: row.platform_id,
+    account_key: row.account_key,
+    account_scope: row.account_scope,
+    account_selector: row.account_selector,
+    service_name: row.service_name,
+    broker_environment: row.broker_environment,
+    expected_revision: Number(row.expected_revision),
+    expected_strategy_profile: row.expected_strategy_profile,
+    strategy_profile: row.strategy_profile,
+    candidate_id: row.candidate_id,
+    config_sha256: row.config_sha256,
+    source_commit: row.source_commit,
+    approved_ues_revision: row.approved_ues_revision,
+    desired_state: row.desired_state,
+    workflow_run_id: row.workflow_run_id || null,
+    workflow_run_attempt: row.workflow_run_attempt || null,
+    reason_code: row.reason_code || "",
+    readback: row.readback_json ? JSON.parse(row.readback_json) : null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
 async function runtimeInstancesResponse(request, env) {
   const session = await readSession(request, env);
   if (!session) return json({ ok: false, error: "login required" }, 401);
@@ -848,6 +904,38 @@ export class RuntimeInstances {
     )`);
     try { this.sql.exec("ALTER TABLE account_diagnosis_tasks ADD COLUMN auto_source TEXT NOT NULL DEFAULT 'manual'"); } catch { /* already present */ }
     this.sql.exec("CREATE INDEX IF NOT EXISTS account_diagnosis_tasks_fingerprint ON account_diagnosis_tasks (target_id, state_fingerprint, updated_at)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS research_promotion_applications (
+      application_id TEXT PRIMARY KEY,
+      ticket_id TEXT NOT NULL,
+      status TEXT NOT NULL,
+      dispatch_state TEXT NOT NULL,
+      claim_token TEXT NOT NULL,
+      platform_id TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      account_scope TEXT NOT NULL,
+      account_selector TEXT NOT NULL,
+      service_name TEXT NOT NULL,
+      broker_environment TEXT NOT NULL,
+      expected_revision INTEGER NOT NULL,
+      expected_strategy_profile TEXT NOT NULL,
+      strategy_profile TEXT NOT NULL,
+      candidate_id TEXT NOT NULL,
+      config_sha256 TEXT NOT NULL,
+      source_commit TEXT NOT NULL,
+      approved_ues_revision TEXT NOT NULL,
+      desired_state TEXT NOT NULL,
+      workflow_run_id TEXT,
+      workflow_run_attempt TEXT,
+      reason_code TEXT NOT NULL,
+      readback_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )`);
+    // A rejected application is a terminal record, but an explicitly
+    // re-qualified user request may create a new attempt. Keep history while
+    // deduplicating all still-active/uncertain attempts.
+    this.sql.exec("DROP INDEX IF EXISTS research_promotion_applications_ticket_account");
+    this.sql.exec("CREATE INDEX IF NOT EXISTS research_promotion_applications_ticket_account_idx ON research_promotion_applications (ticket_id, platform_id, account_key, status)");
   }
 
   read() {
@@ -871,6 +959,9 @@ export class RuntimeInstances {
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
       if (ACCOUNT_DIAGNOSIS_DO_ACTIONS.has(command?.action)) {
         return json(await this.accountDiagnosisCommand(command));
+      }
+      if (V7_PAPER_APPLICATION_DO_ACTIONS.has(command?.action)) {
+        return json(await this.applicationCommand(command));
       }
       // No awaits or external I/O inside this SQLite transaction. Every state
       // change, version advance, and history row commits together or rolls back.
@@ -1062,6 +1153,154 @@ export class RuntimeInstances {
         return { ok: true, changed: true, task: accountDiagnosisTaskFromRow(this.sql.exec("SELECT * FROM account_diagnosis_tasks WHERE request_id = ?", requestId).toArray()[0]) };
       }
       throw new HttpError("unsupported_account_diagnosis_action", 400);
+    });
+  }
+
+  applicationCommand(command) {
+    return this.storage.transactionSync(() => {
+      if (!command || typeof command.actor !== "string" || !command.actor) {
+        throw new HttpError("runtime_instance_actor_required", 400);
+      }
+      if (command.action === "application_create") {
+        const existing = this.sql.exec(
+          "SELECT * FROM research_promotion_applications WHERE ticket_id = ? AND platform_id = ? AND account_key = ? AND status <> 'rejected' ORDER BY created_at DESC LIMIT 1",
+          command.ticket_id, command.platform_id, command.account_key,
+        ).toArray()[0];
+        if (existing) return { ok: true, created: false, application: researchPromotionApplicationFromRow(existing) };
+        const application = {
+          application_id: command.application_id,
+          ticket_id: command.ticket_id,
+          status: "approved",
+          dispatch_state: "pending",
+          claim_token: command.claim_token,
+          platform_id: command.platform_id,
+          account_key: command.account_key,
+          account_scope: command.account_scope,
+          account_selector: command.account_selector,
+          service_name: command.service_name,
+          broker_environment: command.broker_environment,
+          expected_revision: command.expected_revision,
+          expected_strategy_profile: command.expected_strategy_profile,
+          strategy_profile: command.strategy_profile,
+          candidate_id: command.candidate_id,
+          config_sha256: command.config_sha256,
+          source_commit: command.source_commit,
+          approved_ues_revision: command.approved_ues_revision,
+          desired_state: "paused",
+          workflow_run_id: null,
+          workflow_run_attempt: null,
+          reason_code: "",
+          readback: null,
+          created_at: command.created_at,
+          updated_at: command.created_at,
+        };
+        this.sql.exec(
+          `INSERT INTO research_promotion_applications
+           (application_id, ticket_id, status, dispatch_state, claim_token, platform_id, account_key,
+            account_scope, account_selector, service_name, broker_environment, expected_revision,
+            expected_strategy_profile, strategy_profile, candidate_id, config_sha256, source_commit,
+            approved_ues_revision, desired_state, workflow_run_id, workflow_run_attempt, reason_code,
+            readback_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          application.application_id, application.ticket_id, application.status, application.dispatch_state,
+          application.claim_token, application.platform_id, application.account_key, application.account_scope,
+          application.account_selector, application.service_name, application.broker_environment,
+          application.expected_revision, application.expected_strategy_profile, application.strategy_profile,
+          application.candidate_id, application.config_sha256, application.source_commit,
+          application.approved_ues_revision, application.desired_state, null, null, application.reason_code,
+          null, application.created_at, application.updated_at,
+        );
+        return { ok: true, created: true, application };
+      }
+      if (command.action === "application_latest") {
+        const row = this.sql.exec(
+          "SELECT * FROM research_promotion_applications WHERE ticket_id = ? ORDER BY created_at DESC LIMIT 1",
+          command.ticket_id,
+        ).toArray()[0];
+        return { ok: true, application: researchPromotionApplicationFromRow(row) };
+      }
+      const applicationId = command.application_id;
+      const row = this.sql.exec("SELECT * FROM research_promotion_applications WHERE application_id = ?", applicationId).toArray()[0];
+      if (!row) throw new HttpError("research_promotion_application_not_found", 404);
+      if (command.action === "application_read") return { ok: true, application: researchPromotionApplicationFromRow(row) };
+      if (command.action === "application_mark_dispatch") {
+        if (row.status !== "approved" || row.dispatch_state !== "pending") return { ok: true, changed: false, application: researchPromotionApplicationFromRow(row) };
+        this.sql.exec("UPDATE research_promotion_applications SET dispatch_state = ?, updated_at = ? WHERE application_id = ?", command.dispatch_state, command.updated_at, applicationId);
+        return { ok: true, changed: true, application: researchPromotionApplicationFromRow(this.sql.exec("SELECT * FROM research_promotion_applications WHERE application_id = ?", applicationId).toArray()[0]) };
+      }
+      if (command.action === "application_claim") {
+        const state = this.read();
+        const instance = state.instances.find((item) => item.kind === "existing"
+          && item.platform === row.platform_id && item.key === row.account_key);
+        const config = instance?.config || {};
+        const bindingStillMatches = state.revision === Number(row.expected_revision)
+          && String(config.default_strategy_profile || "") === row.expected_strategy_profile
+          && String(config.broker_environment || "") === row.broker_environment
+          && String(config.account_selector || "") === row.account_selector
+          && String(config.service_name || "") === row.service_name;
+        const claimed = row.status === "approved" && ["pending", "sent", "unknown"].includes(row.dispatch_state)
+          && row.claim_token === command.claim_token && bindingStillMatches;
+        if (claimed) {
+          this.sql.exec(
+            "UPDATE research_promotion_applications SET status = 'claimed', workflow_run_id = ?, workflow_run_attempt = ?, updated_at = ? WHERE application_id = ? AND status = 'approved'",
+            command.workflow_run_id, command.workflow_run_attempt, command.updated_at, applicationId,
+          );
+        }
+        return { ok: true, claimed, reason: claimed ? "" : (bindingStillMatches ? "already_claimed_or_invalid_token" : "account_changed") };
+      }
+      if (command.action === "application_result") {
+        const sameRun = row.workflow_run_id === command.workflow_run_id
+          && row.workflow_run_attempt === command.workflow_run_attempt
+          && row.claim_token === command.claim_token;
+        if (["applied_paused", "rejected", "uncertain"].includes(row.status)) {
+          if (!sameRun) throw new HttpError("research_promotion_application_workflow_binding_conflict", 409);
+          return { ok: true, changed: false, application: researchPromotionApplicationFromRow(row) };
+        }
+        if (row.status !== "claimed" || !sameRun) throw new HttpError("research_promotion_application_workflow_binding_conflict", 409);
+        let effectiveStatus = command.status;
+        let effectiveReasonCode = command.reason_code;
+        if (command.status === "applied_paused") {
+          const state = this.read();
+          const instance = state.instances.find((item) => item.kind === "existing"
+            && item.platform === row.platform_id && item.key === row.account_key);
+          const config = instance?.config || {};
+          const bindingStillMatches = state.revision === Number(row.expected_revision)
+            && String(config.default_strategy_profile || "") === row.expected_strategy_profile
+            && String(config.broker_environment || "") === row.broker_environment
+            && String(config.account_selector || "") === row.account_selector
+            && String(config.service_name || "") === row.service_name;
+          if (!bindingStillMatches) {
+            effectiveStatus = "uncertain";
+            effectiveReasonCode = "account_changed";
+          } else {
+            const before = structuredClone(instance);
+            instance.config = { ...instance.config, default_strategy_profile: row.strategy_profile };
+            instance.enabled = false;
+            instance.platform_applied = true;
+            instance.application_status = "applied_paused";
+            instance.updated_at = command.updated_at;
+            state.revision += 1;
+            this.sql.exec("INSERT INTO instance_state (id, revision, payload) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET revision = excluded.revision, payload = excluded.payload", state.revision, JSON.stringify(state.instances));
+            this.sql.exec("INSERT INTO instance_history (revision, entry) VALUES (?, ?)", state.revision, JSON.stringify({
+              revision: state.revision,
+              ts: command.updated_at,
+              login: command.actor,
+              action: "research_promotion_application_applied_paused",
+              before,
+              after: instance,
+            }));
+          }
+        }
+        this.sql.exec(
+          `UPDATE research_promotion_applications
+           SET status = ?, reason_code = ?, readback_json = ?, updated_at = ?
+           WHERE application_id = ?`,
+          effectiveStatus, effectiveReasonCode, command.readback ? JSON.stringify(command.readback) : null,
+          command.updated_at, applicationId,
+        );
+        return { ok: true, changed: true, application: researchPromotionApplicationFromRow(this.sql.exec("SELECT * FROM research_promotion_applications WHERE application_id = ?", applicationId).toArray()[0]) };
+      }
+      throw new HttpError("unsupported_research_promotion_application_action", 400);
     });
   }
 }
@@ -4945,7 +5184,10 @@ function normalizeResearchPromotionTicket(raw, fieldName = "research promotion t
         : {},
     search_iterations: Number(raw.search_iterations || 0),
     shadow_evidence_kind: String(raw.shadow_evidence_kind || ""),
-    shadow_passed: raw.shadow_passed == null ? null : Boolean(raw.shadow_passed),
+    // Qualification must never treat string values such as "false" as a
+    // passed observation. Keep malformed legacy values unknown and let the
+    // application gate reject them.
+    shadow_passed: raw.shadow_passed === true ? true : raw.shadow_passed === false ? false : null,
     notification_subject: String(raw.notification_subject || ""),
     notification_body: String(raw.notification_body || ""),
     human_decision: String(raw.human_decision || ""),
@@ -5168,8 +5410,20 @@ async function researchPromotionTicketsResponse(request, env) {
     ticket.state === "awaiting_human" || ticket.state === "human_accepted");
   const accountConfig = await loadAccountOptionsConfig(env);
   const strategyProfiles = await loadStrategyProfilesConfig(env);
-  const applications = applicationTickets.map((ticket) =>
-    attachResearchPromotionApplicationPreparation(ticket, accountConfig.options, strategyProfiles));
+  const applications = [];
+  for (const ticket of applicationTickets) {
+    const preparation = attachResearchPromotionApplicationPreparation(ticket, accountConfig.options, strategyProfiles);
+    let application = null;
+    if (hasRuntimeInstanceStore(env)) {
+      try {
+        const stored = await runtimeInstanceCommand(env, { action: "application_latest", actor: session.login, ticket_id: ticket.ticket_id });
+        application = publicResearchPromotionApplication(stored.application);
+      } catch {
+        // Application storage is optional for the research-only queue view.
+      }
+    }
+    applications.push({ ...preparation, application });
+  }
   return json({
     schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
     data_status: hasConfigStore(env) ? "ready" : "unavailable",
@@ -5404,6 +5658,265 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   });
 }
 
+function v7PaperApplicationCandidate(strategy, ticket) {
+  if (ticket?.shadow_evidence_kind !== "v7_nonlive_shadow_and_simulated_paper") {
+    throw new HttpError("v7_shadow_evidence_kind_not_qualified", 409);
+  }
+  const notes = Array.isArray(ticket?.notes) ? ticket.notes : [];
+  const requiredEvidence = [
+    "frozen_v7_forward_financial_gates_passed_research_only",
+    "forward_record_sha256",
+    "financial_evidence_sha256",
+    "p1_manifest_sha256",
+    "p4_policy_sha256",
+    "baseline_p3_evidence_sha256",
+  ];
+  if (notes[0] !== requiredEvidence[0] || requiredEvidence.slice(1).some((prefix) =>
+    !notes.some((note) => new RegExp(`^${prefix}=[0-9a-f]{64}$`).test(String(note))))) {
+    throw new HttpError("v7_shadow_evidence_provenance_incomplete", 409);
+  }
+  const identity = strategy?.profile === V7_PAPER_PREVIEW_PROFILE
+    ? strategy.research_candidate_identity || null
+    : null;
+  if (!identity || ticket?.domain !== "us_equity") {
+    throw new HttpError("research_candidate_not_eligible_for_paper_application", 409);
+  }
+  const params = ticket?.proposed_params;
+  if (!params || Array.isArray(params) || typeof params !== "object"
+    || canonicalResearchTaskJson(params) !== canonicalResearchTaskJson(identity)) {
+    throw new HttpError("candidate_params_unbound", 409);
+  }
+  return {
+    candidate_id: String(identity.candidate_id || ""),
+    config_sha256: String(identity.config_sha256 || ""),
+  };
+}
+
+async function loadStoredResearchPromotionTicket(env, ticketId) {
+  if (!hasConfigStore(env)) throw new HttpError("research promotion KV is not configured", 503);
+  const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
+  if (!stored) throw new HttpError("research promotion ticket not found", 404);
+  try {
+    return normalizeResearchPromotionTicket(stored, "stored research promotion ticket");
+  } catch (error) {
+    throw new HttpError(error.message || "invalid stored research promotion ticket", 409);
+  }
+}
+
+async function qualifyV7PaperApplication(env, { ticketId, selectedAccount, expectedRevision }) {
+  assertExactFields(selectedAccount, ["platform", "key"], "selected_account");
+  const platform = cleanChoice(selectedAccount.platform, SUPPORTED_PLATFORMS, "selected_account.platform");
+  const key = cleanSlug(selectedAccount.key, "selected_account.key");
+  if (platform !== "longbridge" || key !== V7_PAPER_APPLICATION_ACCOUNT_KEY) {
+    throw new HttpError("only the configured LongBridge paper account is supported", 409);
+  }
+  if (!V7_PAPER_APPLICATION_TICKET_RE.test(String(ticketId || ""))) {
+    throw new HttpError("research promotion ticket is not from the V7 producer", 409);
+  }
+  if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+    throw new HttpError("runtime instance revision is required", 400);
+  }
+  const ticket = await loadStoredResearchPromotionTicket(env, ticketId);
+  if (ticket.state !== "human_accepted") throw new HttpError("research candidate is not human_accepted", 409);
+  if (ticket.live_authority_granted !== false || ticket.shadow_passed !== true || !String(ticket.shadow_evidence_kind || "").trim()) {
+    throw new HttpError("research candidate evidence is not qualified", 409);
+  }
+  const strategyProfiles = await loadStrategyProfilesConfig(env);
+  const strategy = (Array.isArray(strategyProfiles) ? strategyProfiles : [])
+    .find((item) => item.profile === ticket.strategy_profile);
+  if (!strategy) throw new HttpError("selected candidate strategy profile is not configured", 409);
+  const candidate = v7PaperApplicationCandidate(strategy, ticket);
+  const state = await runtimeInstanceCommand(env);
+  if (!state.initialized) throw new HttpError("runtime instances are not initialized", 409);
+  if (state.revision !== expectedRevision) throw new HttpError("runtime instance revision conflict", 409);
+  const instance = (state.instances || []).find((item) => item.kind === "existing" && item.platform === platform && item.key === key && item.retirement_status === "none");
+  const config = instance?.config;
+  if (!config) throw new HttpError("selected LongBridge paper account is unavailable", 409);
+  if (String(config.broker_environment || "") !== "paper"
+    || String(config.account_selector || "") !== V7_PAPER_APPLICATION_ACCOUNT_SCOPE
+    || String(config.service_name || "") !== V7_PAPER_APPLICATION_SERVICE
+    || String(config.runtime_status_target_id || "") !== "longbridge.paper"
+    || String(config.default_execution_mode || "") !== "live") {
+    throw new HttpError("selected LongBridge paper account binding is incomplete", 409);
+  }
+  const expectedStrategyProfile = String(config.default_strategy_profile || "").trim();
+  if (!expectedStrategyProfile) throw new HttpError("selected account strategy profile is unknown", 409);
+  validateResearchPromotionSelectedAccount({
+    ticket,
+    selectedAccount: { platform, key },
+    confirmation: {
+      target_platform: ticket.confirmation_target_platform,
+      execution_mode: ticket.confirmation_execution_mode,
+      risk_profile: ticket.confirmation_risk_profile,
+    },
+    accountOptions: { longbridge: [config] },
+    strategyProfiles,
+  });
+  return {
+    ticket,
+    strategy,
+    candidate,
+    revision: state.revision,
+    account: {
+      platform_id: platform,
+      account_key: key,
+      account_scope: V7_PAPER_APPLICATION_ACCOUNT_SCOPE,
+      account_selector: V7_PAPER_APPLICATION_ACCOUNT_SCOPE,
+      service_name: V7_PAPER_APPLICATION_SERVICE,
+      broker_environment: "paper",
+      expected_strategy_profile: expectedStrategyProfile,
+    },
+  };
+}
+
+function publicResearchPromotionApplication(application) {
+  if (!application) return null;
+  const { claim_token: _claimToken, ...publicApplication } = application;
+  return publicApplication;
+}
+
+async function dispatchV7PaperApplication(env, applicationId) {
+  const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
+  if (!token) throw new HttpError("paper application dispatch unavailable", 503);
+  const url = `https://api.github.com/repos/${V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY}/actions/workflows/${V7_PAPER_APPLICATION_WORKFLOW}/dispatches`;
+  const response = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: githubHeaders(token),
+    body: JSON.stringify({ ref: "main", inputs: { application_id: applicationId } }),
+  });
+  if (!response.ok) throw new HttpError("paper application dispatch unverified", 502);
+}
+
+function applicationIdFromPath(pathname) {
+  const value = String(pathname || "").slice("/api/internal/research-promotion-application/".length);
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)) {
+    throw new HttpError("invalid application_id", 400);
+  }
+  return value;
+}
+
+async function researchPromotionApplicationResponse(request, env, url) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (request.method === "GET") {
+    const keys = [...url.searchParams.keys()].sort();
+    if (keys.join(",") !== "ticket_id") return json({ ok: false, error: "ticket_id is required" }, 400);
+    try {
+      const result = await runtimeInstanceCommand(env, { action: "application_latest", actor: session.login, ticket_id: String(url.searchParams.get("ticket_id") || "") });
+      return json({ ok: true, application: publicResearchPromotionApplication(result.application) });
+    } catch (error) {
+      if (error instanceof HttpError && error.message === "unsupported_research_promotion_application_action") return json({ ok: true, application: null });
+      return json({ ok: false, error: error.message || "paper application unavailable" }, error.status || 503);
+    }
+  }
+  if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  try { requireSameOrigin(request, { requireOrigin: true }); } catch (error) { return json({ ok: false, error: error.message }, error.status || 403); }
+  let raw;
+  try { raw = await readBoundedJson(request, V7_PAPER_APPLICATION_MAX_BODY_BYTES); } catch (error) { return json({ ok: false, error: error.message }, error.status || 400); }
+  try {
+    assertExactFields(raw, ["expected_revision", "selected_account", "ticket_id"], "paper application request");
+    const qualified = await qualifyV7PaperApplication(env, {
+      ticketId: raw.ticket_id,
+      selectedAccount: raw.selected_account,
+      expectedRevision: raw.expected_revision,
+    });
+    const applicationId = crypto.randomUUID();
+    const createdAt = new Date().toISOString();
+    const created = await runtimeInstanceCommand(env, {
+      action: "application_create", actor: session.login, application_id: applicationId,
+      ticket_id: qualified.ticket.ticket_id, claim_token: randomToken(), platform_id: qualified.account.platform_id,
+      account_key: qualified.account.account_key, account_scope: qualified.account.account_scope,
+      account_selector: qualified.account.account_selector, service_name: qualified.account.service_name,
+      broker_environment: qualified.account.broker_environment, expected_revision: qualified.revision,
+      expected_strategy_profile: qualified.account.expected_strategy_profile, strategy_profile: qualified.ticket.strategy_profile,
+      candidate_id: qualified.candidate.candidate_id, config_sha256: qualified.candidate.config_sha256,
+      source_commit: V7_PAPER_APPLICATION_SOURCE_COMMIT, approved_ues_revision: V7_PAPER_APPLICATION_UES_REVISION,
+      created_at: createdAt,
+    });
+    if (!created.created) return json({ ok: true, deduplicated: true, application: publicResearchPromotionApplication(created.application) });
+    try {
+      await dispatchV7PaperApplication(env, applicationId);
+      await runtimeInstanceCommand(env, { action: "application_mark_dispatch", actor: session.login, application_id: applicationId, dispatch_state: "sent", updated_at: new Date().toISOString() });
+    } catch (error) {
+      await runtimeInstanceCommand(env, { action: "application_mark_dispatch", actor: session.login, application_id: applicationId, dispatch_state: "unknown", updated_at: new Date().toISOString() });
+      const latest = await runtimeInstanceCommand(env, { action: "application_read", actor: session.login, application_id: applicationId });
+      return json({ ok: false, error: error.message || "paper application dispatch unverified", application: publicResearchPromotionApplication(latest.application) }, error.status || 502);
+    }
+    const latest = await runtimeInstanceCommand(env, { action: "application_read", actor: session.login, application_id: applicationId });
+    return json({ ok: true, status: "approved", application: publicResearchPromotionApplication(latest.application) }, 202);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid paper application" }, error.status || 409);
+  }
+}
+
+function validateV7PaperApplicationReadback(application, readback) {
+  if (!readback || typeof readback !== "object" || Array.isArray(readback)) return false;
+  return readback.application_id === application.application_id
+    && readback.platform_id === application.platform_id
+    && readback.account_scope === application.account_scope
+    && readback.service_name === application.service_name
+    && readback.strategy_profile === application.strategy_profile
+    && readback.candidate_id === application.candidate_id
+    && readback.config_sha256 === application.config_sha256
+    && readback.source_commit === application.source_commit
+    && readback.ues_revision === application.approved_ues_revision
+    && readback.runtime_target_enabled === false
+    && typeof readback.revision_name === "string" && readback.revision_name.trim() !== "";
+}
+
+async function researchPromotionApplicationInternalResponse(request, env, url) {
+  try { requireDedicatedExecutionEvidenceSyncToken(request, env); } catch (error) { return json({ ok: false, error: error.message }, error.status || 401); }
+  if (!hasRuntimeInstanceStore(env) || url.search) return json({ ok: false, error: "invalid paper application request" }, 400);
+  let applicationId;
+  try { applicationId = applicationIdFromPath(url.pathname); } catch (error) { return json({ ok: false, error: error.message }, error.status || 400); }
+  if (request.method === "GET") {
+    try {
+      const result = await runtimeInstanceCommand(env, { action: "application_read", actor: "longbridge-paper-application", application_id: applicationId });
+      const application = result.application;
+      const { claim_token: claimToken, workflow_run_id: workflowRunId, workflow_run_attempt: workflowRunAttempt, ...record } = application;
+      return json({ ok: true, application: {
+        ...record,
+        claim: { token: claimToken, workflow_run_id: workflowRunId, workflow_run_attempt: workflowRunAttempt },
+        workflow: { repository: V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY, workflow: V7_PAPER_APPLICATION_WORKFLOW, ref: "main" },
+      } });
+    } catch (error) { return json({ ok: false, error: error.message }, error.status || 404); }
+  }
+  if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+  let raw;
+  try { raw = await readBoundedJson(request, V7_PAPER_APPLICATION_MAX_BODY_BYTES); } catch (error) { return json({ ok: false, error: error.message }, error.status || 400); }
+  try {
+    if (raw?.status === "claimed") {
+      assertExactFields(raw, ["application_id", "claim", "status"], "paper application claim");
+      assertExactFields(raw.claim, ["token", "workflow_run_attempt", "workflow_run_id"], "paper application claim.claim");
+      if (raw.application_id !== applicationId || !/^[1-9][0-9]{0,20}$/.test(String(raw.claim.workflow_run_id)) || !/^[1-9][0-9]{0,5}$/.test(String(raw.claim.workflow_run_attempt)) || !/^[A-Za-z0-9_-]{24,128}$/.test(String(raw.claim.token))) throw new HttpError("invalid paper application claim", 400);
+      const current = await runtimeInstanceCommand(env, { action: "application_read", actor: "longbridge-paper-application", application_id: applicationId });
+      const stored = current.application;
+      if (stored.claim_token !== String(raw.claim.token)) throw new HttpError("invalid paper application claim token", 409);
+      try {
+        await qualifyV7PaperApplication(env, {
+          ticketId: stored.ticket_id,
+          selectedAccount: { platform: stored.platform_id, key: stored.account_key },
+          expectedRevision: stored.expected_revision,
+        });
+      } catch (error) {
+        throw new HttpError(error.message === "runtime instance revision conflict" ? "account_changed" : "qualification_changed", 409);
+      }
+      const result = await runtimeInstanceCommand(env, { action: "application_claim", actor: "longbridge-paper-application", application_id: applicationId, claim_token: String(raw.claim.token), workflow_run_id: String(raw.claim.workflow_run_id), workflow_run_attempt: String(raw.claim.workflow_run_attempt), updated_at: new Date().toISOString() });
+      return json({ ok: true, claimed: Boolean(result.claimed), reason: result.reason || "" });
+    }
+    assertExactFields(raw, ["application_id", "claim", "readback", "status"], "paper application result");
+    assertExactFields(raw.claim, ["token", "workflow_run_attempt", "workflow_run_id"], "paper application result.claim");
+    if (raw.application_id !== applicationId || !["applied_paused", "rejected", "uncertain"].includes(raw.status) || !/^[1-9][0-9]{0,20}$/.test(String(raw.claim.workflow_run_id)) || !/^[1-9][0-9]{0,5}$/.test(String(raw.claim.workflow_run_attempt)) || !/^[A-Za-z0-9_-]{24,128}$/.test(String(raw.claim.token))) throw new HttpError("invalid paper application result", 400);
+    const current = await runtimeInstanceCommand(env, { action: "application_read", actor: "longbridge-paper-application", application_id: applicationId });
+    const application = current.application;
+    const readbackMatches = raw.status === "applied_paused" && validateV7PaperApplicationReadback(application, raw.readback);
+    const persistedStatus = raw.status === "applied_paused" && !readbackMatches ? "uncertain" : raw.status;
+    const reasonCode = persistedStatus === "uncertain" && raw.status === "applied_paused" ? "readback_mismatch" : raw.status === "rejected" ? "workflow_rejected" : raw.status === "uncertain" ? "workflow_uncertain" : "";
+    const result = await runtimeInstanceCommand(env, { action: "application_result", actor: "longbridge-paper-application", application_id: applicationId, claim_token: String(raw.claim.token), workflow_run_id: String(raw.claim.workflow_run_id), workflow_run_attempt: String(raw.claim.workflow_run_attempt), status: persistedStatus, reason_code: reasonCode, readback: raw.readback, updated_at: new Date().toISOString() });
+    return json({ ok: true, replayed: !result.changed, status: result.application.status });
+  } catch (error) { return json({ ok: false, error: error.message || "invalid paper application result" }, error.status || 409); }
+}
 
 function requireDedicatedResearchTaskSyncToken(request, env) {
   const expected = String(env.RESEARCH_TASK_SYNC_TOKEN || "");
@@ -8147,6 +8660,7 @@ function cleanAccountOption(item, platform, index) {
   addConfigOptional(option, "runtime_status_target_id", item.runtime_status_target_id, cleanSlug);
   addConfigOptional(option, "broker_environment", item.broker_environment, normalizeBrokerEnvironment);
   addConfigOptional(option, "default_execution_mode", item.default_execution_mode, cleanExecutionMode);
+  addConfigOptional(option, "default_strategy_profile", item.default_strategy_profile, cleanSlug);
   addConfigOptional(
     option,
     "cash_currency",

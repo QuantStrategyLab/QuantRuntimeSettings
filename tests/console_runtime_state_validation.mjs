@@ -8,7 +8,7 @@ import { normalizeAccountOptionsPayload as normalizeAccountSchema } from '../web
 
 const source = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
 function frontendFunction(name, context) {
-  const start = source.indexOf(`    function ${name}(`);
+  const start = Math.max(source.indexOf(`    function ${name}(`), source.indexOf(`    async function ${name}(`));
   assert.ok(start >= 0);
   const next = source.slice(start + 1).search(/\n    (?:async )?function /);
   const end = next < 0 ? source.length : start + 1 + next;
@@ -1038,6 +1038,69 @@ test('hiding all platforms also hides account observations outside the settings 
   frontendFunction('renderPlatforms', { el: id => nodes[id], state: { selected: 'ibkr' },
     platformMeta: { ibkr: { console_visible: false } }, hasPrivateConfig: () => true })();
   assert.equal(nodes['switch-view'].hidden, true);
+});
+
+test('paper application UI allows an explicit retry only after rejection', () => {
+  const nodes = {
+    'promotion-application-block': { hidden: false },
+    'promotion-application-status': { textContent: '' },
+    'promotion-application-progress': { textContent: '' },
+    'promotion-application-deploy': { hidden: true, disabled: true },
+    'promotion-application-open': { disabled: true },
+  };
+  const account = { platform: 'longbridge', key: 'paper', broker_environment: 'paper', preflight_status: 'ready' };
+  const base = {
+    ticket_id: 'rpt_' + '1'.repeat(64),
+    application_preparation: { preflight_status: 'ready', blocker_codes: [], preview_request: { platform_id: 'longbridge' } },
+    accounts: [account],
+  };
+  const context = {
+    el: id => nodes[id],
+    t: key => ({
+      promotionApplicationReady: 'ready',
+      promotionApplicationRejected: 'rejected: {reason}',
+      promotionApplicationDispatchUnknown: 'submission unconfirmed',
+    }[key] || key),
+    promotionApplications: () => [base],
+    selectedPromotionApplication: () => base,
+    selectedPromotionApplicationAccount: () => account,
+    promotionApplicationBlockerLabel: code => code,
+    promotionApplicationReasonLabel: () => 'deployment rejected',
+  };
+  const render = frontendFunction('renderPromotionApplicationPreparation', context);
+  base.application = { status: 'rejected', reason_code: 'workflow_rejected' };
+  render();
+  assert.equal(nodes['promotion-application-deploy'].hidden, false);
+  assert.equal(nodes['promotion-application-deploy'].disabled, false);
+  assert.equal(nodes['promotion-application-progress'].textContent, 'rejected: deployment rejected');
+  base.application = { status: 'approved', dispatch_state: 'unknown' };
+  render();
+  assert.equal(nodes['promotion-application-deploy'].hidden, true);
+  assert.equal(nodes['promotion-application-deploy'].disabled, true);
+  assert.equal(nodes['promotion-application-progress'].textContent, 'submission unconfirmed');
+});
+
+test('paper application submission refreshes before keeping an unknown result disabled', async () => {
+  const button = { disabled: false };
+  const application = {
+    ticket_id: 'rpt_' + '2'.repeat(64),
+    application_preparation: { preflight_status: 'ready', preview_request: { platform_id: 'longbridge' } },
+  };
+  let refreshed = false;
+  const context = {
+    selectedPromotionApplication: () => application,
+    selectedPromotionApplicationAccount: () => ({ platform: 'longbridge', key: 'paper', broker_environment: 'paper' }),
+    el: id => id === 'promotion-application-deploy' ? button : null,
+    requestJson: async () => ({ revision: 4 }),
+    fetch: async () => ({ ok: false, status: 502, json: async () => ({ ok: false, error: 'dispatch unverified' }) }),
+    refreshResearchPromotionTickets: async () => { refreshed = true; application.application = { status: 'approved', dispatch_state: 'unknown' }; },
+    showToast: () => {},
+    t: key => key,
+  };
+  const submit = frontendFunction('submitV7PaperApplication', context);
+  await submit();
+  assert.equal(refreshed, true);
+  assert.equal(button.disabled, true);
 });
 
 test('overview status maps fresh runtime evidence to the user-facing state', () => {

@@ -156,8 +156,10 @@
       </div>
       <div class="promotion-confirm-block" id="promotion-application-block" hidden>
         <strong data-i18n="promotionApplicationTitle">应用准备</strong>
-        <p class="selection-meta" data-i18n="promotionApplicationHint">只读核对当前候选、具体账户和现有策略目录；选择项在上方确认区域统一管理，不会提交变更。</p>
+        <p class="selection-meta" data-i18n="promotionApplicationHint">合格候选可部署到已确认的模拟账户；部署后保持暂停，启用是独立步骤。</p>
         <p class="selection-meta" id="promotion-application-status"></p>
+        <p class="selection-meta" id="promotion-application-progress" role="status" aria-live="polite"></p>
+        <button class="btn" id="promotion-application-deploy" type="button" data-i18n="promotionApplicationDeploy" hidden>部署到模拟账户</button>
         <button class="btn" id="promotion-application-open" type="button" data-i18n="promotionApplicationOpen">在账户设置中查看</button>
       </div>
       <details class="promotion-context">
