@@ -538,12 +538,19 @@
         promotionDecisionSaved: "已记录晋级意图（未授予实盘权限）",
         promotionDecisionFailed: "晋级确认失败",
         promotionApplicationTitle: "账户检查",
-        promotionApplicationHint: "这里只查看候选、账户和策略是否匹配；选择项在上方管理，不会提交变更。",
+        promotionApplicationHint: "合格候选可部署到已确认的模拟账户；部署后保持暂停，启用是独立步骤。",
         promotionApplicationCandidate: "研究候选",
         promotionApplicationAccount: "目标账户",
         promotionApplicationReady: "账户和策略检查通过；系统没有提交变更。",
         promotionApplicationBlocked: "当前还不能使用：{reasons}。系统没有提交变更。",
         promotionApplicationOpen: "在账户设置中查看",
+        promotionApplicationDeploy: "部署到模拟账户",
+        promotionApplicationQueued: "已提交部署申请；账户会保持暂停。",
+        promotionApplicationDispatchUnknown: "提交结果尚未确认，暂不重复提交。",
+        promotionApplicationClaimed: "部署处理中；账户会保持暂停。",
+        promotionApplicationApplied: "已部署并核对版本，当前暂停。",
+        promotionApplicationRejected: "部署未通过：{reason}",
+        promotionApplicationUncertain: "部署结果待确认，请查看最近检查。",
         promotionApplicationEmpty: "没有可准备的研究候选。",
         promotionApplicationBlockActivation: "账户应用尚未接通",
         promotionApplicationBlockParams: "缺少可运行的策略参数",
@@ -1143,12 +1150,19 @@
         promotionDecisionSaved: "Promotion intent recorded (no live authority granted)",
         promotionDecisionFailed: "Promotion confirmation failed",
         promotionApplicationTitle: "Account check",
-        promotionApplicationHint: "This only checks whether the candidate, account and strategy match. Selections are managed above; no change is submitted.",
+        promotionApplicationHint: "A qualified candidate can be deployed to the confirmed paper account; it stays paused after deployment. Enabling it is a separate step.",
         promotionApplicationCandidate: "Research candidate",
         promotionApplicationAccount: "Target account",
         promotionApplicationReady: "Account and strategy checks passed; no change was submitted.",
         promotionApplicationBlocked: "This cannot be used yet: {reasons}. No change was submitted.",
         promotionApplicationOpen: "Review in account settings",
+        promotionApplicationDeploy: "Deploy to paper account",
+        promotionApplicationQueued: "Deployment request submitted; the account will remain paused.",
+        promotionApplicationDispatchUnknown: "The submission result is unconfirmed; no duplicate submission will be made.",
+        promotionApplicationClaimed: "Deployment is in progress; the account will remain paused.",
+        promotionApplicationApplied: "The candidate was deployed and its version was checked; the account is paused.",
+        promotionApplicationRejected: "Deployment was rejected: {reason}",
+        promotionApplicationUncertain: "Deployment result is unconfirmed. Check the latest status.",
         promotionApplicationEmpty: "No research candidate is available for preparation.",
         promotionApplicationBlockActivation: "account application is not connected",
         promotionApplicationBlockParams: "runnable strategy parameters are missing",
@@ -2605,6 +2619,17 @@
       return t("promotionApplicationBlockPreflight");
     }
 
+    function promotionApplicationReasonLabel(code) {
+      const labels = {
+        readback_mismatch: state.lang === "zh" ? "版本核对不一致" : "version readback did not match",
+        workflow_rejected: state.lang === "zh" ? "部署未通过" : "deployment was rejected",
+        workflow_uncertain: state.lang === "zh" ? "部署结果待确认" : "deployment result is unconfirmed",
+        account_changed: state.lang === "zh" ? "账户配置已变化" : "account configuration changed",
+        qualification_changed: state.lang === "zh" ? "候选资格已变化" : "candidate qualification changed",
+      };
+      return labels[String(code || "")] || (state.lang === "zh" ? "状态待确认" : "status is unconfirmed");
+    }
+
     function renderPromotionSelectionControls(application = selectedPromotionApplication()) {
       const platformSelect = el("promotion-target-platform-select");
       const environmentSelect = el("promotion-broker-environment-select");
@@ -2653,11 +2678,16 @@
       const applications = promotionApplications();
       const block = el("promotion-application-block");
       const status = el("promotion-application-status");
+      const progress = el("promotion-application-progress");
+      const deployButton = el("promotion-application-deploy");
       const openButton = el("promotion-application-open");
-      if (!block || !status || !openButton) return;
+      if (!block || !status || !openButton || !deployButton) return;
       block.hidden = !applications.length;
       if (!applications.length) {
         status.textContent = t("promotionApplicationEmpty");
+        if (progress) progress.textContent = "";
+        deployButton.hidden = true;
+        deployButton.disabled = true;
         openButton.disabled = true;
         return;
       }
@@ -2677,6 +2707,55 @@
             uniqueBlockers.map(promotionApplicationBlockerLabel).join("、"),
           );
       openButton.disabled = !preflightReady;
+      const storedApplication = application?.application || null;
+      const previewReady = Boolean(application?.application_preparation?.preview_request)
+        && preflightReady && account?.platform === "longbridge" && account?.broker_environment === "paper";
+      const canRetryRejected = storedApplication?.status === "rejected";
+      deployButton.hidden = !previewReady || Boolean(storedApplication && !canRetryRejected);
+      deployButton.disabled = !previewReady || Boolean(storedApplication && !canRetryRejected);
+      if (progress) {
+        if (!storedApplication) progress.textContent = previewReady ? "" : "";
+        else if (storedApplication.status === "approved" && storedApplication.dispatch_state === "unknown") progress.textContent = t("promotionApplicationDispatchUnknown");
+        else if (storedApplication.status === "approved") progress.textContent = t("promotionApplicationQueued");
+        else if (storedApplication.status === "claimed") progress.textContent = t("promotionApplicationClaimed");
+        else if (storedApplication.status === "applied_paused") progress.textContent = t("promotionApplicationApplied");
+        else if (storedApplication.status === "rejected") progress.textContent = t("promotionApplicationRejected").replace("{reason}", promotionApplicationReasonLabel(storedApplication.reason_code));
+        else progress.textContent = t("promotionApplicationUncertain");
+      }
+    }
+
+    async function submitV7PaperApplication() {
+      const application = selectedPromotionApplication();
+      const account = selectedPromotionApplicationAccount(application);
+      const ticketId = application?.ticket_id || "";
+      if (!ticketId || !account || application?.application_preparation?.preflight_status !== "ready"
+        || !application?.application_preparation?.preview_request || account.platform !== "longbridge"
+        || account.broker_environment !== "paper") return;
+      const button = el("promotion-application-deploy");
+      if (button) button.disabled = true;
+      try {
+        const instanceState = await requestJson("/api/admin/runtime-instances");
+        const response = await fetch("/api/research-promotion-applications", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ticket_id: ticketId,
+            selected_account: { platform: account.platform, key: account.key },
+            expected_revision: Number(instanceState.revision),
+          }),
+        });
+        const payload = await response.json();
+        if (!response.ok || !payload.ok) throw new Error(payload.error || t("promotionApplicationUncertain"));
+        await refreshResearchPromotionTickets();
+      } catch (error) {
+        // A dispatch response can be unknown after the server has persisted it.
+        // Refresh first so the rendered application state decides whether the
+        // button remains disabled; never turn a possibly submitted request back
+        // into an apparent retry.
+        try { await refreshResearchPromotionTickets(); } catch { /* keep the button disabled until a later refresh */ }
+        showToast(error.message || t("promotionApplicationUncertain"), { duration: 9000 });
+        if (button) button.disabled = true;
+      }
     }
 
     function promotionConfirmationExecutionMode(platform = state.selected) {
@@ -2916,6 +2995,9 @@
       renderRiskEnvelopePanel();
     });
     el("promotion-application-open")?.addEventListener("click", openSelectedPromotionApplicationAccount);
+    el("promotion-application-deploy")?.addEventListener("click", () => {
+      submitV7PaperApplication();
+    });
     el("promotion-accept-button")?.addEventListener("click", () => {
       submitResearchPromotionDecision("accept");
     });
