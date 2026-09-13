@@ -38,8 +38,10 @@ CRITICAL_STRATEGY_PROFILE_FIELDS = {
     "allowed_execution_modes",
     "blocked_live_reason",
     "live_continuity",
+    "research_candidate_identity",
 }
 LIVE_CONTINUITY_POLICY_FIELDS = {"eligible", "allowed_platforms"}
+RESEARCH_CANDIDATE_IDENTITY_FIELDS = {"candidate_id", "config_sha256"}
 SCHEDULER_FIELDS = {"timezone", "main_time", "probe_time", "precheck_time"}
 MARKET_FIELDS = {"market", "market_calendar", "market_timezone"}
 FEATURE_SNAPSHOT_FIELDS = {"required", "path", "manifest_path", "max_age_days"}
@@ -286,6 +288,32 @@ def validate(config: dict) -> list[str]:
             errors.append(
                 f"strategy {sid}: allowed_execution_modes must include dry_run for the universal no-order path"
             )
+        candidate_identity = sdata.get("research_candidate_identity")
+        if candidate_identity is not None:
+            if not isinstance(candidate_identity, dict):
+                errors.append(f"strategy {sid}: research_candidate_identity must be an object")
+            else:
+                unsupported_identity = sorted(set(candidate_identity) - RESEARCH_CANDIDATE_IDENTITY_FIELDS)
+                if unsupported_identity:
+                    errors.append(
+                        f"strategy {sid}: unsupported research_candidate_identity fields {unsupported_identity}"
+                    )
+                candidate_id = candidate_identity.get("candidate_id")
+                config_sha256 = candidate_identity.get("config_sha256")
+                if candidate_id != sid:
+                    errors.append(f"strategy {sid}: research_candidate_identity.candidate_id must match profile")
+                if (
+                    not isinstance(config_sha256, str)
+                    or len(config_sha256) != 64
+                    or any(char not in "0123456789abcdefABCDEF" for char in config_sha256)
+                ):
+                    errors.append(
+                        f"strategy {sid}: research_candidate_identity.config_sha256 must be a 64-character sha256"
+                    )
+                if sdata.get("runtime_enabled") is True or sdata.get("can_switch_live") is True or "live" in allowed_execution_modes:
+                    errors.append(
+                        f"strategy {sid}: research_candidate_identity requires a non-live research-only profile"
+                    )
         plugin_overrides = sdata.get("scheduler_profile_by_plugin", {})
         if not isinstance(plugin_overrides, dict):
             errors.append(f"strategy {sid}: scheduler_profile_by_plugin must be an object")
@@ -991,6 +1019,12 @@ def strategy_to_json_compat(strategies: dict) -> list[dict]:
             "runtime_enabled": s.get("runtime_enabled", False),
         }
         entry.update(_strategy_profile_gate_fields(s))
+        candidate_identity = s.get("research_candidate_identity")
+        if isinstance(candidate_identity, dict):
+            entry["research_candidate_identity"] = {
+                "candidate_id": candidate_identity.get("candidate_id"),
+                "config_sha256": candidate_identity.get("config_sha256"),
+            }
         f = s.get("features", {})
         if f.get("income_layer"):
             entry["income_layer_enabled"] = True

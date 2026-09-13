@@ -502,6 +502,33 @@
         "nav_risk_ratio": 0.01
       }
     },
+    "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve": {
+      "label": "SOXL/SOXX核心长期复利V7研究预览",
+      "label_en": "SOXL/SOXX Core Long-Term Compounding V7 Research Preview",
+      "domain": "us_equity",
+      "runtime_enabled": false,
+      "lifecycle_stage": "research_active",
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_only_named_profile",
+      "live_continuity": {
+        "eligible": false,
+        "allowed_platforms": []
+      },
+      "research_candidate_identity": {
+        "candidate_id": "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+        "config_sha256": "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1"
+      },
+      "features": {
+        "income_layer": false,
+        "option_overlay": false,
+        "dca": false,
+        "combo": false
+      }
+    },
     "nasdaq_sp500_smart_dca": {
       "label": "纳指标普定投",
       "label_en": "NASDAQ/S&P 500 DCA",

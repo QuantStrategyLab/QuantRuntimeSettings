@@ -17,6 +17,17 @@ const indexHtml = [
 const bundledStrategyProfiles = JSON.parse(
   readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"),
 );
+const bundledV7Profile = bundledStrategyProfiles.find(
+  (item) => item.profile === "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+);
+assert.deepEqual(bundledV7Profile?.research_candidate_identity, {
+  candidate_id: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+  config_sha256: "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1",
+});
+assert.equal(bundledV7Profile?.runtime_enabled, false);
+assert.equal(bundledV7Profile?.can_switch_live, false);
+assert.deepEqual(bundledV7Profile?.allowed_execution_modes, ["paper", "dry_run"]);
+assert.deepEqual(bundledV7Profile?.live_continuity, { eligible: false, allowed_platforms: [] });
 const m0ResearchDashboardSchema = JSON.parse(
   readFileSync(resolve(root, "schemas/qsl-m0-research-dashboard.v1.schema.json"), "utf8"),
 );
@@ -546,6 +557,21 @@ const strategyProfiles = __test.normalizeStrategyProfilesPayload(
       allowed_execution_modes: ["paper"],
     },
     {
+      profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+      label: "SOXL/SOXX core-only V7 research preview",
+      domain: "us_equity",
+      runtime_enabled: false,
+      lifecycle_stage: "research_active",
+      can_switch_live: false,
+      allowed_execution_modes: ["paper", "dry_run"],
+      blocked_live_reason: "research_only_named_profile",
+      live_continuity: { eligible: false, allowed_platforms: [] },
+      research_candidate_identity: {
+        candidate_id: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+        config_sha256: "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1",
+      },
+    },
+    {
       profile: "tqqq_core",
       label: "TQQQ core",
       domain: "us_equity",
@@ -645,6 +671,15 @@ const accountOptions = __test.normalizeAccountOptionsPayload(
         target_name: "sg",
         account_selector: "SG",
         plugin_mode: "auto",
+      },
+      {
+        key: "paper",
+        label: "LongBridge paper",
+        target_name: "paper",
+        account_selector: "PAPER",
+        supported_domains: ["us_equity", "hk_equity"],
+        broker_environment: "paper",
+        default_execution_mode: "live",
       },
     ],
     ibkr: [
@@ -3848,7 +3883,8 @@ const v7UnboundApplicationTicket = {
   budget: { allow_live_enablement: false, max_search_iterations: 0 },
   proposed_params: {
     candidate_id: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
-    config_sha256: "8".repeat(64),
+    config_sha256: "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1",
+    unexpected: "must-be-rejected",
   },
   search_iterations: 0,
   shadow_evidence_kind: "v7_nonlive_shadow_and_simulated_paper",
@@ -3886,6 +3922,7 @@ assert.equal(readyApplication.application_preparation.status, "blocked");
 assert.equal(readyApplication.application_preparation.activation_status, "not_connected");
 assert.equal(readyApplication.application_preparation.dispatch_allowed, false);
 assert.deepEqual(readyApplication.application_preparation.blocker_codes, ["activation_not_connected"]);
+assert.equal(readyApplication.application_preparation.preview_request, null);
 assert.deepEqual(readyApplication.application_preparation.account_options, [{
   platform: "ibkr",
   key: "ibkr-primary",
@@ -3904,9 +3941,104 @@ assert.equal(blockedV7Application.application_preparation.dispatch_allowed, fals
 assert.deepEqual(blockedV7Application.application_preparation.blocker_codes, [
   "activation_not_connected",
   "candidate_params_unbound",
-  "configured_account_missing",
-  "strategy_not_configured",
 ]);
+assert.equal(blockedV7Application.application_preparation.preview_request, null);
+
+// A mature, human-accepted V7 candidate may prepare a paper preview request
+// for the configured LongBridge paper account. The adapter remains live while
+// the broker environment is paper; activation is still disconnected.
+const v7PreviewApplicationTicket = {
+  ...researchPromotionTicket,
+  ticket_id: "rpt-soxl-v7-preview-application",
+  strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+  budget: { allow_live_enablement: false, max_search_iterations: 0 },
+  proposed_params: {
+    candidate_id: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+    config_sha256: "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1",
+  },
+  search_iterations: 0,
+  shadow_evidence_kind: "v7_nonlive_shadow_and_simulated_paper",
+};
+assert.equal(
+  (
+    await worker.fetch(
+      new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${researchPromotionSyncToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(v7PreviewApplicationTicket),
+      }),
+      researchPromotionEnv,
+    )
+  ).status,
+  200,
+);
+const v7AwaitingList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", {
+    headers: researchPromotionAdminHeaders,
+  }),
+  researchPromotionEnv,
+);
+const v7AwaitingApplication = (await v7AwaitingList.json()).applications.find(
+  (item) => item.ticket_id === v7PreviewApplicationTicket.ticket_id,
+);
+assert.equal(v7AwaitingApplication.state, "awaiting_human");
+assert.equal(v7AwaitingApplication.application_preparation.preview_request, null);
+const v7PreviewAccept = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-decisions", {
+    method: "POST",
+    headers: researchPromotionAdminHeaders,
+    body: JSON.stringify({
+      ticket_id: v7PreviewApplicationTicket.ticket_id,
+      decision: "accept",
+      expected_proposed_params: v7PreviewApplicationTicket.proposed_params,
+      expected_strategy_profile: v7PreviewApplicationTicket.strategy_profile,
+      expected_domain: v7PreviewApplicationTicket.domain,
+      confirmation: {
+        target_platform: "longbridge",
+        execution_mode: "paper",
+        risk_profile: "CAPITAL_PRESERVATION",
+      },
+      selected_account: { platform: "longbridge", key: "paper" },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(v7PreviewAccept.status, 200);
+const v7PreviewList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", {
+    headers: researchPromotionAdminHeaders,
+  }),
+  researchPromotionEnv,
+);
+assert.equal(v7PreviewList.status, 200);
+const v7PreviewListPayload = await v7PreviewList.json();
+const v7PreviewApplication = v7PreviewListPayload.applications.find(
+  (item) => item.ticket_id === v7PreviewApplicationTicket.ticket_id,
+);
+assert.equal(v7PreviewApplication.state, "human_accepted");
+assert.equal(v7PreviewApplication.application_preparation.status, "blocked");
+assert.equal(v7PreviewApplication.application_preparation.activation_status, "not_connected");
+assert.equal(v7PreviewApplication.application_preparation.dispatch_allowed, false);
+assert.deepEqual(v7PreviewApplication.application_preparation.blocker_codes, ["activation_not_connected"]);
+assert.deepEqual(v7PreviewApplication.application_preparation.preview_request, {
+  platform_id: "longbridge",
+  account_scope: "PAPER",
+  strategy_profile: v7PreviewApplicationTicket.strategy_profile,
+  candidate_id: v7PreviewApplicationTicket.proposed_params.candidate_id,
+  config_sha256: v7PreviewApplicationTicket.proposed_params.config_sha256,
+});
+assert.deepEqual(v7PreviewApplication.application_preparation.account_options, [{
+  platform: "longbridge",
+  key: "paper",
+  label: "LongBridge paper",
+  configured_execution_mode: "live",
+  broker_environment: "paper",
+  preflight_status: "ready",
+  blocker_codes: [],
+}]);
 
 let switchWorkflowRequests = 0;
 const fetchBeforeBlockedApplication = globalThis.fetch;
