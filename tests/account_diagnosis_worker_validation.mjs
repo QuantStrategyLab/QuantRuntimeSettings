@@ -126,6 +126,7 @@ try {
 
   const longbridgeTasks = [];
   for (const longbridgeAccount of longbridgeAccounts) {
+    const beforeLongbridgeSourceSync = dispatches.length;
     const seededLongbridge = await call("/api/internal/sync-runtime-target-lifecycle-source", {
       method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
       body: lifecycleSource({
@@ -138,6 +139,7 @@ try {
       }),
     });
     assert.equal(seededLongbridge.status, 200);
+    assert.equal(dispatches.length, beforeLongbridgeSourceSync, "disabled auto switch must keep LongBridge source sync read-only");
     const beforeLongbridgeManual = dispatches.length;
     const longbridgeManual = await call("/api/account-diagnosis", {
       method: "POST", body: { platform: "longbridge", key: longbridgeAccount.key, trigger: "manual_check" },
@@ -414,7 +416,49 @@ try {
     body: lifecycleSource({ sourceId: "longbridge-auto-diagnosis-fixture", platform: "longbridge", sourceTargetId: "longbridge.hk", runtimeGuard: "attention", runtimeEnabled: true, scheduler: "enabled" }),
   });
   assert.equal(autoLongbridge.status, 200);
-  assert.equal(dispatches.length, autoLongbridgeBefore, "source-sync auto dispatch remains Binance-only");
+  assert.equal(dispatches.length, autoLongbridgeBefore + 1, "the enabled abnormal LongBridge account creates its AAB task");
+  const autoLongbridgeDispatch = JSON.parse(dispatches.at(-1).body);
+  assert.match(dispatches.at(-1).url, /QuantStrategyLab\/AIAuditBridge\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
+  assert.match(autoLongbridgeDispatch.inputs.account_diagnosis_request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  const autoLongbridgeRead = await autoCall(`/api/internal/account-diagnosis/${autoLongbridgeDispatch.inputs.account_diagnosis_request_id}`, {
+    headers: { Authorization: "Bearer synthetic-diagnosis-token" },
+  });
+  assert.equal(autoLongbridgeRead.status, 200);
+  assert.deepEqual({ platform: autoLongbridgeRead.body.platform, key: autoLongbridgeRead.body.key, target_id: autoLongbridgeRead.body.target_id }, {
+    platform: "longbridge", key: "hk", target_id: "longbridge.hk",
+  });
+  const autoLongbridgeClaim = await autoCall(`/api/internal/account-diagnosis/${autoLongbridgeDispatch.inputs.account_diagnosis_request_id}`, {
+    method: "POST", headers: { Authorization: "Bearer synthetic-diagnosis-token" },
+    body: { request_id: autoLongbridgeDispatch.inputs.account_diagnosis_request_id, status: "running", workflow_run_id: "300", workflow_run_attempt: "1" },
+  });
+  assert.deepEqual(autoLongbridgeClaim.body, { ok: true, claimed: true });
+  const autoLongbridgeResult = await autoCall(`/api/internal/account-diagnosis/${autoLongbridgeDispatch.inputs.account_diagnosis_request_id}`, {
+    method: "POST", headers: { Authorization: "Bearer synthetic-diagnosis-token" },
+    body: { request_id: autoLongbridgeDispatch.inputs.account_diagnosis_request_id, status: "succeeded", workflow_run_id: "300", workflow_run_attempt: "1", job_id: "lb_auto_job_ABC-123", summary: "LongBridge 只读诊断已完成。", reason_code: "diagnosis_ready" },
+  });
+  assert.equal(autoLongbridgeResult.status, 200);
+  assert.match(dispatches.at(-1).url, /QuantStrategyLab\/LongBridgePlatform\/actions\/workflows\/runtime-target-lifecycle\.yml\/dispatches$/);
+  assert.deepEqual(JSON.parse(dispatches.at(-1).body), { ref: "main", inputs: { target: "hk" } });
+
+  const autoNormalPaper = await autoCall("/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+    body: lifecycleSource({ sourceId: "longbridge-auto-normal-paper", platform: "longbridge", sourceTargetId: "longbridge.paper", runtimeGuard: "pass", heartbeat: "pass", runtimeEnabled: true, scheduler: "enabled" }),
+  });
+  assert.equal(autoNormalPaper.status, 200);
+  const autoPausedSg = await autoCall("/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+    body: lifecycleSource({ sourceId: "longbridge-auto-paused-sg", platform: "longbridge", sourceTargetId: "longbridge.sg", configuredState: "disabled", runtimeGuard: "pass", heartbeat: "not_applicable", runtimeEnabled: false, scheduler: "paused" }),
+  });
+  assert.equal(autoPausedSg.status, 200);
+  const afterSafeTargets = dispatches.length;
+  assert.equal(afterSafeTargets, autoLongbridgeBefore + 2, "normal paper and intentionally paused SG do not dispatch");
+
+  const autoLongbridgeDuplicate = await autoCall("/api/internal/sync-runtime-target-lifecycle-source", {
+    method: "POST", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
+    body: lifecycleSource({ sourceId: "longbridge-auto-diagnosis-duplicate", platform: "longbridge", sourceTargetId: "longbridge.hk", runtimeGuard: "attention", runtimeEnabled: true, scheduler: "enabled" }),
+  });
+  assert.equal(autoLongbridgeDuplicate.status, 200);
+  assert.equal(dispatches.length, afterSafeTargets, "repeated abnormal source sync is bounded by the per-account 24-hour quota");
 
   const revision = await call("/api/admin/runtime-instances");
   assert.equal(revision.status, 200);
