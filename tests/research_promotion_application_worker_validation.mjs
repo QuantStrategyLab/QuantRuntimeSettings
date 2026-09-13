@@ -200,7 +200,7 @@ try {
     strategy_profile: v7.profile,
     candidate_id: v7.research_candidate_identity.candidate_id,
     config_sha256: v7.research_candidate_identity.config_sha256,
-    source_commit: "b5f5d2686fe4c65e26260dcea550c8b5268a3243",
+    source_commit: "3c5b3d203f5456b59e2d002850f856e4821fe625",
     ues_revision: "d1ca798d880cd83965f3da5081850ca48a616d19",
     runtime_target_enabled: false,
     revision_name: "longbridge-paper-v7-paused-701",
