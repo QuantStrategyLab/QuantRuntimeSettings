@@ -3743,6 +3743,30 @@ const researchPromotionTicket = {
   confirmation_execution_mode: "",
   confirmation_risk_profile: "",
   notes: [],
+  research_summary: {
+    identity: {
+      strategy_profile: "tqqq_core",
+      domain: "us_equity",
+      proposed_params: { lookback: 20 },
+    },
+    strategy_description: "按趋势和风险边界调整ETF配置。",
+    plugins: null,
+    comparison: {
+      status: "comparable",
+      start_date: "2020-01-01",
+      end_date: "2026-08-31",
+      cost_model: "after_cost",
+      baseline: { cagr: 0.08, max_drawdown: -0.2 },
+      candidate: { cagr: 0.12, max_drawdown: -0.15 },
+    },
+    limitations: ["观察窗口仍有限。"],
+    ai_explanation: {
+      status: "available",
+      text: "这段说明只解释研究结论，不授予交易权限。",
+      provider: "codex",
+      model: "gpt-6-astra",
+    },
+  },
 };
 const unauthorizedPromotionSync = await worker.fetch(
   new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
@@ -3776,6 +3800,9 @@ assert.equal(promotionList.status, 200);
 const promotionListPayload = await promotionList.json();
 assert.equal(promotionListPayload.tickets.length, 1);
 assert.equal(promotionListPayload.tickets[0].suggested_risk_profile, "GROWTH_COMPOUNDING");
+assert.equal(promotionListPayload.tickets[0].research_summary.plugins, null);
+assert.equal(promotionListPayload.tickets[0].research_summary.comparison.candidate.cagr, 0.12);
+assert.equal(promotionListPayload.tickets[0].research_summary.ai_explanation.provider, "codex");
 assert.equal(promotionListPayload.policy.live_authority_granted, false);
 assert.equal(promotionListPayload.applications.length, 1);
 assert.equal(promotionListPayload.applications[0].ticket_id, "promo-ticket-1");
@@ -3797,6 +3824,95 @@ assert.equal(listEnvelope.scales.vol_scale, null);
 assert.equal(listEnvelope.scales.dd_scale, null);
 assert.equal(listEnvelope.live_authority_granted, false);
 assert.equal(promotionListPayload.policy.live_authority_granted, false);
+
+const noPluginSummarySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...researchPromotionTicket,
+      research_summary: { ...researchPromotionTicket.research_summary, plugins: [] },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(noPluginSummarySync.status, 200);
+const noPluginList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", { headers: researchPromotionAdminHeaders }),
+  researchPromotionEnv,
+);
+assert.deepEqual((await noPluginList.json()).tickets[0].research_summary.plugins, []);
+
+const mismatchedIdentitySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...researchPromotionTicket,
+      research_summary: {
+        ...researchPromotionTicket.research_summary,
+        identity: { ...researchPromotionTicket.research_summary.identity, domain: "crypto" },
+      },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(mismatchedIdentitySync.status, 200);
+const mismatchedIdentityList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", { headers: researchPromotionAdminHeaders }),
+  researchPromotionEnv,
+);
+assert.equal(Object.prototype.hasOwnProperty.call((await mismatchedIdentityList.json()).tickets[0], "research_summary"), false);
+const invalidSummarySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      ...researchPromotionTicket,
+      research_summary: {
+        ...researchPromotionTicket.research_summary,
+        comparison: {
+          ...researchPromotionTicket.research_summary.comparison,
+          baseline: { cagr: null, max_drawdown: true },
+          candidate: { cagr: "NaN", max_drawdown: "Infinity" },
+        },
+      },
+    }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(invalidSummarySync.status, 200);
+const invalidSummaryList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", { headers: researchPromotionAdminHeaders }),
+  researchPromotionEnv,
+);
+assert.equal(Object.prototype.hasOwnProperty.call((await invalidSummaryList.json()).tickets[0], "research_summary"), false);
+const legacySummarySync = await worker.fetch(
+  new Request("https://switch.example/api/internal/sync-research-promotion-ticket", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${researchPromotionSyncToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ...researchPromotionTicket, research_summary: undefined }),
+  }),
+  researchPromotionEnv,
+);
+assert.equal(legacySummarySync.status, 200);
+const legacySummaryList = await worker.fetch(
+  new Request("https://switch.example/api/research-promotion-tickets", { headers: researchPromotionAdminHeaders }),
+  researchPromotionEnv,
+);
+assert.equal(Object.prototype.hasOwnProperty.call((await legacySummaryList.json()).tickets[0], "research_summary"), false);
 const previewEnvelope = __test.buildRiskEnvelopeView({ riskPreference: "BALANCED_COMPOUNDING" });
 assert.equal(previewEnvelope.preference.label_zh, "均衡");
 assert.equal(previewEnvelope.scales.promotion_size_scale, 0.75);
@@ -4305,6 +4421,11 @@ assert.ok(indexHtml.includes('promotionTicketNotification'));
 assert.ok(indexHtml.includes('ticket.notification_body'));
 assert.ok(indexHtml.includes('ticket.shadow_evidence_kind'));
 assert.ok(indexHtml.includes('ticket.proposed_params'));
+assert.ok(indexHtml.includes('id="promotion-research-summary"'));
+assert.ok(indexHtml.includes('id="promotion-click-effect"'));
+assert.ok(indexHtml.includes('function promotionResearchSummaryMessage(ticket)'));
+assert.ok(indexHtml.includes('research_summary'));
+assert.ok(indexHtml.includes('textContent = promotionResearchSummaryMessage(ticket)'));
 
 
 // M0 is a closed, read-only research ingress.  These assertions intentionally

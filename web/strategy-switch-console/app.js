@@ -516,6 +516,17 @@
         promotionRiskProfile: "风险档",
         promotionConfirmMeta: "接受建议只记录研究决定，不会启用交易或替换当前策略。",
         promotionTargetSummary: "建议平台：{platform}；当前账户：{account}。",
+        promotionClickEffect: "点击后：只记录人工决定；{mode}账户不会因此启用交易或下单。",
+        promotionResearchSummary: "研究简述",
+        promotionResearchSummaryMissing: "尚未提供收益对比/策略说明。{strategy}；{observation}",
+        promotionResearchSummaryMissingParts: "未提供：{items}",
+        promotionStrategyDescription: "策略说明：{description}",
+        promotionPluginsUnknown: "插件：未提供",
+        promotionPluginsNone: "插件：无",
+        promotionPlugins: "插件：{description}",
+        promotionComparison: "回测：{startDate}—{endDate}；候选扣费后年化 {candidateCagr}；候选最大回撤 {candidateDrawdown}；基准扣费后年化 {baselineCagr}；基准最大回撤 {baselineDrawdown}",
+        promotionLimitations: "不足：{limitations}",
+        promotionAiExplanation: "AI说明（仅供参考）：{text}",
         promotionTargetUnavailable: "有研究候选待确认，但当前没有可见目标平台。",
         promotionRiskDetails: "风险档与账户资料",
         promotionRiskScaleMeta: "按控制回撤、兼顾收益与回撤、更看重收益的顺序，晋级仓位缩放为 0.50 / 0.75 / 1.00，仅适用于新晋级或数据变更；组合相对无杠杆基准的回撤上限倍数为 1.00 / 1.25 / 1.50。两者含义不同，不会据此调整现有实盘。",
@@ -1139,6 +1150,17 @@
         promotionRiskProfile: "Risk profile",
         promotionConfirmMeta: "Accepting records your research decision. It does not enable trading or replace the current strategy.",
         promotionTargetSummary: "Suggested platform: {platform}; current account: {account}.",
+        promotionClickEffect: "After clicking: this only records a human decision; the {mode} account will not be enabled or place orders because of it.",
+        promotionResearchSummary: "Research summary",
+        promotionResearchSummaryMissing: "Return comparison / strategy explanation not provided. {strategy}; {observation}",
+        promotionResearchSummaryMissingParts: "Not provided: {items}",
+        promotionStrategyDescription: "Strategy: {description}",
+        promotionPluginsUnknown: "Plugins: not provided",
+        promotionPluginsNone: "Plugins: none",
+        promotionPlugins: "Plugins: {description}",
+        promotionComparison: "Backtest: {startDate}—{endDate}; candidate after-cost CAGR {candidateCagr}; candidate max drawdown {candidateDrawdown}; baseline after-cost CAGR {baselineCagr}; baseline max drawdown {baselineDrawdown}",
+        promotionLimitations: "Limitations: {limitations}",
+        promotionAiExplanation: "AI explanation (advisory): {text}",
         promotionTargetUnavailable: "Research candidates await confirmation, but no target platform is visible.",
         promotionRiskDetails: "Risk profiles and account context",
         promotionRiskScaleMeta: "For drawdown control, balanced and growth-focused profiles, promotion size scales are 0.50 / 0.75 / 1.00 for new promotions or data changes only. Portfolio drawdown caps relative to the unlevered benchmark are 1.00 / 1.25 / 1.50. These have different meanings and do not change existing live settings.",
@@ -2607,6 +2629,96 @@
       return `${t(outcome)} ${t(provenance)}`;
     }
 
+    function promotionSummaryCanonical(value) {
+      if (value === null) return "null";
+      if (typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+      if (typeof value === "number") return Number.isFinite(value) ? JSON.stringify(value) : "";
+      if (Array.isArray(value)) return `[${value.map(promotionSummaryCanonical).join(",")}]`;
+      if (!value || typeof value !== "object") return "";
+      return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${promotionSummaryCanonical(value[key])}`).join(",")}}`;
+    }
+
+    function promotionResearchSummaryForDisplay(ticket) {
+      const summary = ticket?.research_summary;
+      if (!summary || typeof summary !== "object" || Array.isArray(summary)) return null;
+      const identity = summary.identity;
+      if (!identity || identity.strategy_profile !== ticket.strategy_profile || identity.domain !== ticket.domain
+        || promotionSummaryCanonical(identity.proposed_params) !== promotionSummaryCanonical(ticket.proposed_params || {})) {
+        return null;
+      }
+      return summary;
+    }
+
+    function formatPromotionPercent(value) {
+      if (typeof value !== "number" || !Number.isFinite(value)) return "";
+      return `${(value * 100).toFixed(2)}%`;
+    }
+
+    function promotionResearchSummaryMessage(ticket) {
+      const summary = promotionResearchSummaryForDisplay(ticket);
+      const strategy = strategyLabel(ticket?.strategy_profile || "") || t("commonUnknown");
+      const observation = promotionTicketEvidenceMessage(ticket);
+      if (!summary) {
+        return t("promotionResearchSummaryMissing")
+          .replace("{strategy}", strategy)
+          .replace("{observation}", observation);
+      }
+      const lines = [t("promotionResearchSummary")];
+      const missing = [];
+      const description = String(summary.strategy_description || "").trim();
+      if (description) lines.push(t("promotionStrategyDescription").replace("{description}", description));
+      else missing.push(state.lang === "zh" ? "策略说明" : "strategy explanation");
+      if (summary.plugins === null) {
+        lines.push(t("promotionPluginsUnknown"));
+      } else if (Array.isArray(summary.plugins) && summary.plugins.length === 0) {
+        lines.push(t("promotionPluginsNone"));
+      } else if (Array.isArray(summary.plugins)) {
+        const descriptions = summary.plugins.map((plugin) => String(plugin?.description || "").trim()).filter(Boolean);
+        lines.push(descriptions.length
+          ? t("promotionPlugins").replace("{description}", descriptions.join("、"))
+          : t("promotionPluginsUnknown"));
+      }
+      const comparison = summary.comparison;
+      const candidate = comparison?.candidate;
+      const baseline = comparison?.baseline;
+      const candidateCagr = formatPromotionPercent(candidate?.cagr);
+      const candidateDrawdown = formatPromotionPercent(candidate?.max_drawdown);
+      const baselineCagr = formatPromotionPercent(baseline?.cagr);
+      const baselineDrawdown = formatPromotionPercent(baseline?.max_drawdown);
+      const startDate = String(comparison?.start_date || "").trim();
+      const endDate = String(comparison?.end_date || "").trim();
+      if (comparison?.status === "comparable" && startDate && endDate
+        && candidateCagr && candidateDrawdown && baselineCagr && baselineDrawdown) {
+        lines.push(t("promotionComparison")
+          .replace("{startDate}", startDate)
+          .replace("{endDate}", endDate)
+          .replace("{candidateCagr}", candidateCagr)
+          .replace("{candidateDrawdown}", candidateDrawdown)
+          .replace("{baselineCagr}", baselineCagr)
+          .replace("{baselineDrawdown}", baselineDrawdown));
+      } else {
+        missing.push(state.lang === "zh" ? "收益对比" : "return comparison");
+      }
+      const limitations = Array.isArray(summary.limitations)
+        ? summary.limitations.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      if (limitations.length) lines.push(t("promotionLimitations").replace("{limitations}", limitations.join("；")));
+      else missing.push(state.lang === "zh" ? "不足" : "limitations");
+      const ai = summary.ai_explanation;
+      if (ai?.status === "available" && ai.provider === "codex" && String(ai.text || "").trim()) {
+        lines.push(t("promotionAiExplanation").replace("{text}", String(ai.text).trim()));
+      }
+      if (missing.length) lines.push(t("promotionResearchSummaryMissingParts").replace("{items}", missing.join(state.lang === "zh" ? "、" : ", ")));
+      return lines.join(" · ");
+    }
+
+    function promotionClickEffectMessage(account) {
+      const mode = account?.broker_environment === "paper"
+        ? t("promotionModePaper")
+        : account?.broker_environment === "live" ? t("promotionModeLive") : t("commonUnknown");
+      return t("promotionClickEffect").replace("{mode}", mode);
+    }
+
     function promotionTicketDetailMessage(ticket) {
       if (!ticket) return "";
       const evidenceKind = String(ticket.shadow_evidence_kind || "").trim() || t("commonUnknown");
@@ -2867,6 +2979,10 @@
       }
       const ticketDetail = el("promotion-ticket-detail");
       if (ticketDetail) ticketDetail.textContent = promotionTicketDetailMessage(ticket);
+      const researchSummary = el("promotion-research-summary");
+      if (researchSummary) researchSummary.textContent = promotionResearchSummaryMessage(ticket);
+      const clickEffect = el("promotion-click-effect");
+      if (clickEffect) clickEffect.textContent = promotionClickEffectMessage(selectedPromotionAccount);
       const suggested = PROMOTION_RISK_PROFILES.includes(ticket?.suggested_risk_profile)
         ? ticket.suggested_risk_profile
         : DEFAULT_PROMOTION_RISK_PROFILE;

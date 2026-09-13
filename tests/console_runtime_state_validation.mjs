@@ -786,6 +786,8 @@ test('promotion confirmation uses the selected account mode as read-only context
   assert.equal(html.includes('id="promotion-execution-mode-select"'), false);
   assert.ok(html.includes('id="promotion-execution-mode-readonly"'));
   assert.ok(html.includes('id="promotion-risk-profile-select"'));
+  assert.ok(html.includes('id="promotion-research-summary"'));
+  assert.ok(html.includes('id="promotion-click-effect"'));
   assert.ok(html.includes('id="risk-envelope-panel"'));
   assert.ok(html.includes('id="risk-envelope-preference"'));
   assert.ok(html.includes('id="risk-envelope-capital-band"'));
@@ -803,6 +805,9 @@ test('promotion confirmation uses the selected account mode as read-only context
   assert.ok(source.includes('live_authority_granted'));
   assert.ok(source.includes('function buildPromotionConfirmation('));
   assert.ok(source.includes('function promotionConfirmationExecutionMode('));
+  assert.ok(source.includes('function promotionResearchSummaryMessage('));
+  assert.ok(source.includes('textContent = promotionResearchSummaryMessage(ticket)'));
+  assert.ok(source.includes('promotionClickEffectMessage(selectedPromotionAccount)'));
   assert.ok(source.includes('function selectedPromotionTicket('));
   assert.equal(source.includes('hint.split(/\\s+/).includes("paper")'), false);
   assert.ok(source.includes('synthetic matching is not supported'));
@@ -834,6 +839,82 @@ test('promotion confirmation uses the selected account mode as read-only context
     }),
     /synthetic matching/,
   );
+});
+
+test('promotion research summary keeps numeric evidence bounded and identity-bound', () => {
+  const labels = {
+    promotionResearchSummary: '研究简述',
+    promotionStrategyDescription: '策略说明：{description}',
+    promotionPlugins: '插件：{description}',
+    promotionPluginsUnknown: '插件：未提供',
+    promotionPluginsNone: '插件：无',
+    promotionComparison: '回测：{startDate}—{endDate}；候选年化 {candidateCagr}；候选回撤 {candidateDrawdown}；基准年化 {baselineCagr}；基准回撤 {baselineDrawdown}',
+    promotionLimitations: '不足：{limitations}',
+    promotionAiExplanation: 'AI说明（仅供参考）：{text}',
+    promotionResearchSummaryMissingParts: '未提供：{items}',
+    promotionResearchSummaryMissing: '尚未提供收益对比/策略说明。{strategy}；{observation}',
+  };
+  const summarize = frontendFunction('promotionResearchSummaryMessage', {
+    state: { lang: 'zh' },
+    t: key => labels[key] || key,
+    strategyLabel: () => '测试策略',
+    promotionTicketEvidenceMessage: () => '观察已记录',
+    promotionSummaryCanonical: frontendFunction('promotionSummaryCanonical', {}),
+    promotionResearchSummaryForDisplay: frontendFunction('promotionResearchSummaryForDisplay', {
+      promotionSummaryCanonical: frontendFunction('promotionSummaryCanonical', {}),
+    }),
+    formatPromotionPercent: frontendFunction('formatPromotionPercent', {}),
+  });
+  const ticket = {
+    strategy_profile: 'tqqq_core',
+    domain: 'us_equity',
+    proposed_params: { lookback: 20 },
+    shadow_passed: true,
+    research_summary: {
+      identity: { strategy_profile: 'tqqq_core', domain: 'us_equity', proposed_params: { lookback: 20 } },
+      strategy_description: '按趋势调整配置',
+      plugins: [],
+      comparison: {
+        status: 'comparable',
+        start_date: '2020-01-01',
+        end_date: '2021-01-01',
+        cost_model: 'internal_cost_model_id',
+        baseline: { cagr: 0.08, max_drawdown: -0.2 },
+        candidate: { cagr: 0.12, max_drawdown: -0.15 },
+      },
+      limitations: ['观察窗口有限'],
+      ai_explanation: { status: 'available', provider: 'codex', text: '只解释研究结果', model: 'test' },
+    },
+  };
+  const message = summarize(ticket);
+  assert.match(message, /回测：2020-01-01—2021-01-01/);
+  assert.match(message, /12\.00%/);
+  assert.match(message, /-15\.00%/);
+  assert.equal(message.includes('internal_cost_model_id'), false);
+  assert.equal(message.includes('lookback'), false);
+  assert.equal(message.includes('<'), false);
+  const mismatched = { ...ticket, research_summary: { ...ticket.research_summary, identity: { ...ticket.research_summary.identity, domain: 'crypto' } } };
+  assert.match(summarize(mismatched), /尚未提供收益对比\/策略说明/);
+  const unavailable = {
+    ...ticket,
+    research_summary: {
+      ...ticket.research_summary,
+      comparison: { status: 'unavailable' },
+      ai_explanation: { status: 'unavailable', provider: '', text: '', model: '' },
+    },
+  };
+  assert.equal(summarize(unavailable).includes('0.00%'), false);
+  assert.equal(summarize(unavailable).includes('AI说明'), false);
+  const clickEffect = frontendFunction('promotionClickEffectMessage', {
+    t: key => ({
+      promotionClickEffect: '点击后：只记录人工决定；{mode}账户不会因此启用交易或下单。',
+      promotionModePaper: '模拟交易',
+      promotionModeLive: '实盘交易',
+      commonUnknown: '未知',
+    }[key] || key),
+  });
+  assert.match(clickEffect({ broker_environment: 'paper' }), /模拟交易账户/);
+  assert.match(clickEffect({ broker_environment: 'live' }), /实盘交易账户/);
 });
 
 test('promotion ticket queue surfaces login, load failure, and empty states', () => {
