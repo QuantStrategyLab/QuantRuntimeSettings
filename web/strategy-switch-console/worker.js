@@ -5144,6 +5144,127 @@ function assertResearchPromotionExpectedCandidate(ticket, raw, { requireExpected
   }
 }
 
+function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_summary") {
+  if (raw == null) return null;
+  if (!raw || Array.isArray(raw) || typeof raw !== "object") return null;
+  try {
+    const identity = raw.identity;
+    if (!identity || Array.isArray(identity) || typeof identity !== "object") return null;
+    const identityParams = identity.proposed_params;
+    if (
+      String(identity.strategy_profile || "").trim() !== ticket.strategy_profile
+      || String(identity.domain || "").trim() !== ticket.domain
+      || !identityParams || Array.isArray(identityParams)
+      || canonicalResearchTaskJson(identityParams) !== canonicalResearchTaskJson(ticket.proposed_params || {})
+    ) return null;
+
+    if (raw.strategy_description != null && typeof raw.strategy_description !== "string") return null;
+    const strategyDescription = String(raw.strategy_description || "").trim();
+    if (strategyDescription.length > 500) return null;
+
+    let plugins = null;
+    if (raw.plugins === null) {
+      plugins = null;
+    } else if (Array.isArray(raw.plugins)) {
+      plugins = raw.plugins.map((plugin, index) => {
+        if (!plugin || Array.isArray(plugin) || typeof plugin !== "object") {
+          throw new Error(`${fieldName}.plugins[${index}] must be an object`);
+        }
+        if (typeof plugin.id !== "string" || typeof plugin.description !== "string") {
+          throw new Error(`${fieldName}.plugins[${index}] must include text fields`);
+        }
+        const id = plugin.id.trim();
+        const description = plugin.description.trim();
+        if (id.length > 120 || description.length > 300) throw new Error(`${fieldName}.plugins[${index}] is too long`);
+        return { id, description };
+      });
+    } else if (raw.plugins == null) {
+      plugins = null;
+    } else {
+      return null;
+    }
+
+    const comparison = raw.comparison == null ? { status: "unavailable" } : raw.comparison;
+    if (!comparison || Array.isArray(comparison) || typeof comparison !== "object") return null;
+    const comparisonStatus = String(comparison.status || "").trim();
+    if (comparisonStatus !== "comparable" && comparisonStatus !== "unavailable") return null;
+    const optionalText = (value, name) => {
+      if (value == null) return null;
+      if (typeof value !== "string") throw new Error(`${fieldName}.${name} must be text or null`);
+      const text = value.trim();
+      if (text.length > 120) throw new Error(`${fieldName}.${name} is too long`);
+      return text;
+    };
+    const normalizeMetrics = (value, name) => {
+      if (!value || Array.isArray(value) || typeof value !== "object") {
+        throw new Error(`${fieldName}.${name} must be an object`);
+      }
+      const cagr = value.cagr;
+      const maxDrawdown = value.max_drawdown;
+      if (typeof cagr !== "number" || typeof maxDrawdown !== "number"
+        || !Number.isFinite(cagr) || !Number.isFinite(maxDrawdown)
+        || cagr < -1 || maxDrawdown < -1 || maxDrawdown > 0) {
+        throw new Error(`${fieldName}.${name} must use finite numbers`);
+      }
+      return { cagr, max_drawdown: maxDrawdown };
+    };
+    const normalizedComparison = {
+      status: comparisonStatus,
+      start_date: optionalText(comparison.start_date, "comparison.start_date"),
+      end_date: optionalText(comparison.end_date, "comparison.end_date"),
+      cost_model: optionalText(comparison.cost_model, "comparison.cost_model"),
+      baseline: null,
+      candidate: null,
+    };
+    if (comparisonStatus === "comparable") {
+      if (!normalizedComparison.start_date || !normalizedComparison.end_date || !normalizedComparison.cost_model) return null;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.start_date)
+        || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.end_date)) return null;
+      const startMillis = Date.parse(`${normalizedComparison.start_date}T00:00:00Z`);
+      const endMillis = Date.parse(`${normalizedComparison.end_date}T00:00:00Z`);
+      if (!Number.isFinite(startMillis) || !Number.isFinite(endMillis) || startMillis > endMillis) return null;
+      normalizedComparison.baseline = normalizeMetrics(comparison.baseline, "comparison.baseline");
+      normalizedComparison.candidate = normalizeMetrics(comparison.candidate, "comparison.candidate");
+    } else {
+      if (comparison.baseline != null) normalizeMetrics(comparison.baseline, "comparison.baseline");
+      if (comparison.candidate != null) normalizeMetrics(comparison.candidate, "comparison.candidate");
+    }
+
+    if (!Array.isArray(raw.limitations) || raw.limitations.length > 8 || raw.limitations.some((item) => typeof item !== "string" || item.length > 300)) return null;
+    const ai = raw.ai_explanation == null
+      ? { status: "unavailable", text: "", provider: "", model: "" }
+      : raw.ai_explanation;
+    if (!ai || Array.isArray(ai) || typeof ai !== "object") return null;
+    const aiStatus = String(ai.status || "").trim();
+    if (aiStatus !== "available" && aiStatus !== "unavailable") return null;
+    if (typeof ai.text !== "string" || typeof ai.provider !== "string" || typeof ai.model !== "string"
+      || ai.text.length > 600 || ai.model.length > 120) return null;
+    if (ai.provider !== "" && ai.provider !== "codex") return null;
+    if (aiStatus === "available" && ai.provider !== "codex") return null;
+    if (aiStatus === "unavailable" && ai.provider !== "") return null;
+
+    return {
+      identity: {
+        strategy_profile: ticket.strategy_profile,
+        domain: ticket.domain,
+        proposed_params: ticket.proposed_params || {},
+      },
+      strategy_description: strategyDescription,
+      plugins,
+      comparison: normalizedComparison,
+      limitations: raw.limitations.map((item) => item.trim()),
+      ai_explanation: {
+        status: aiStatus,
+        text: ai.text.trim(),
+        provider: ai.provider,
+        model: ai.model.trim(),
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 function normalizeResearchPromotionTicket(raw, fieldName = "research promotion ticket") {
   if (!raw || Array.isArray(raw) || typeof raw !== "object") {
     throw new Error(`${fieldName} must be an object`);
@@ -5165,7 +5286,7 @@ function normalizeResearchPromotionTicket(raw, fieldName = "research promotion t
     raw.suggested_risk_profile || DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
     `${fieldName}.suggested_risk_profile`,
   );
-  return {
+  const normalizedTicket = {
     schema: RESEARCH_PROMOTION_TICKET_SCHEMA,
     ticket_id: ticketId,
     strategy_profile: strategyProfile,
@@ -5197,6 +5318,9 @@ function normalizeResearchPromotionTicket(raw, fieldName = "research promotion t
     confirmation_risk_profile: String(raw.confirmation_risk_profile || ""),
     notes: Array.isArray(raw.notes) ? raw.notes.map((item) => String(item)) : [],
   };
+  const researchSummary = normalizeResearchPromotionSummary(raw.research_summary, normalizedTicket, `${fieldName}.research_summary`);
+  if (researchSummary) normalizedTicket.research_summary = researchSummary;
+  return normalizedTicket;
 }
 
 function applyResearchPromotionDecision(
