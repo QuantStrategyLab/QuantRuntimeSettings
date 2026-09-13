@@ -158,7 +158,11 @@
         overviewRuntimeReasonMissing: "尚未收到运行检查",
         accountRuntimeSummary: "运行状态摘要",
         monitoringViewReason: "查看原因",
-        accountDiagnosisButton: "AI诊断并复查",
+        accountDiagnosisButton: "AI诊断",
+        accountDiagnosisSubmitting: "诊断中…",
+        accountDiagnosisQueuedButton: "排队中…",
+        accountDiagnosisRunningButton: "诊断中…",
+        accountDiagnosisRecheckingButton: "复查中…",
         accountDiagnosisQueued: "已排队等待诊断",
         accountDiagnosisDispatchUnknown: "提交结果未确认，请稍后重新检查",
         accountDiagnosisRunning: "正在诊断",
@@ -492,10 +496,15 @@
         activePlatform: "目标平台",
         account: "账户",
         strategy: "策略",
-        mode: "执行方式",
-        live: "按策略下单",
-        paper: "旧版非实盘",
-        dryRun: "只计算信号",
+        mode: "运行方式",
+        live: "实盘交易",
+        paper: "模拟交易",
+        dryRun: "无下单检查",
+        modeUnknown: "账户类型待确认",
+        executionModeSetting: "执行方式设置",
+        executionModeLive: "执行交易",
+        executionModeDryRun: "仅检查，不下单",
+        executionModeSettingMeta: "仅修改现有执行设置；不下单检查不会写入交易订单。",
         promotionConfirmTitle: "确认研究候选",
         promotionDecisionEyebrow: "待决策",
         promotionTargetPlatform: "目标平台",
@@ -720,6 +729,8 @@
         optionOverlayDefaultSimple: "开启",
         optionOverlayDefault: "开启，{detail}",
         cashOnlyExecutionDefault: "仅用现金",
+        notConfigured: "未设置",
+        strategyDefault: "使用策略默认",
       },
       en: {
         appTitle: "QuantStrategyLab",
@@ -776,7 +787,11 @@
         overviewRuntimeReasonStrategy: "Strategy not synchronized",
         overviewRuntimeReasonSchedule: "Scheduling not synchronized",
         overviewRuntimeReasonAttention: "The latest check found a problem",
-        accountDiagnosisButton: "AI diagnose and recheck",
+        accountDiagnosisButton: "AI diagnose",
+        accountDiagnosisSubmitting: "Diagnosing…",
+        accountDiagnosisQueuedButton: "Queued…",
+        accountDiagnosisRunningButton: "Diagnosing…",
+        accountDiagnosisRecheckingButton: "Rechecking…",
         accountDiagnosisQueued: "Queued for diagnosis",
         accountDiagnosisDispatchUnknown: "Submission not confirmed; check again shortly",
         accountDiagnosisRunning: "Diagnosis in progress",
@@ -1104,10 +1119,15 @@
         activePlatform: "Target platform",
         account: "Target account",
         strategy: "Strategy",
-        mode: "Execution",
-        live: "Place orders by strategy",
-        paper: "Legacy non-live",
-        dryRun: "Calculate signals only",
+        mode: "Runtime mode",
+        live: "Live trading",
+        paper: "Paper trading",
+        dryRun: "No-order check",
+        modeUnknown: "Account type to be confirmed",
+        executionModeSetting: "Execution setting",
+        executionModeLive: "Execute trades",
+        executionModeDryRun: "Check only, no orders",
+        executionModeSettingMeta: "Changes the existing execution setting; no-order checks do not write trade orders.",
         promotionConfirmTitle: "Review research candidate",
         promotionDecisionEyebrow: "Decisions",
         promotionTargetPlatform: "Target platform",
@@ -1332,6 +1352,8 @@
         optionOverlayDefaultSimple: "Strategy default: enabled",
         optionOverlayDefault: "Enabled, {detail}",
         cashOnlyExecutionDefault: "Cash only",
+        notConfigured: "Not set",
+        strategyDefault: "Use strategy default",
       },
     };
 
@@ -1597,6 +1619,18 @@
       const options = optionsFor(platform);
       const form = state.forms[platform];
       return options.find((option) => option.key === form.accountKey) || options[0];
+    }
+
+    function accountDisplayLabel(account) {
+      const selectors = String(account?.account_selector || "")
+        .split(/[\s,;|]+/)
+        .map(value => value.trim())
+        .filter(value => /^U\d+$/i.test(value))
+        .map(value => value.toUpperCase());
+      const accountIds = [...new Set(selectors)];
+      return accountIds.length
+        ? accountIds.join(" / ")
+        : String(account?.label || account?.target_name || account?.key || "");
     }
 
     function hasPrivateConfig() {
@@ -1988,7 +2022,10 @@
     }
 
     function modeLabel(mode) {
-      return mode === "dry_run" ? t("dryRun") : mode === "paper" ? t("paper") : t("live");
+      if (mode === "dry_run") return t("dryRun");
+      if (mode === "paper") return t("paper");
+      if (mode === "live") return t("live");
+      return t("modeUnknown");
     }
 
     function normalizePluginMode(value) {
@@ -2145,7 +2182,7 @@
       const entry = accountReadbackEntry(platform, account);
       if (!entry) return t("notRead");
       const configured = cleanOptionalBoolean(entry.cash_only_execution);
-      if (configured === null) return t("cashOnlyExecutionDefault");
+      if (configured === null) return t("notConfigured");
       return cashOnlyExecutionText(configured);
     }
 
@@ -2183,7 +2220,7 @@
       if (!optionOverlaySupported(profile)) {
         return configured === null ? t("optionOverlayNotSupported") : optionOverlayText(configured);
       }
-      if (configured === null) return optionOverlayDefaultText(profile);
+      if (configured === null) return t("strategyDefault");
       return optionOverlayText(configured);
     }
 
@@ -2307,6 +2344,7 @@
           cleanOptionalBoolean(entry.runtime_target_enabled) !== null ||
           normalizeDcaMode(entry.dca_mode || "") !== "fixed" ||
           cleanDisplayPositiveNumber(entry.dca_base_investment_usd) ||
+          normalizeExecutionEnvironment(entry.execution_environment) ||
           normalizeExecutionMode(entry.execution_mode, entry.dry_run_only),
       );
     }
@@ -3035,10 +3073,57 @@
       return null;
     }
 
+    function normalizeExecutionEnvironment(value) {
+      const environment = String(value || "").trim().toLowerCase();
+      return environment === "live" || environment === "paper" || environment === "shadow" ? environment : "";
+    }
+
+    function executionEnvironmentFromEntry(entry) {
+      if (!entry || entry.source === "account_defaults") return "";
+      const explicit = normalizeExecutionEnvironment(entry.execution_environment);
+      if (explicit) return explicit;
+      const rawMode = String(entry.execution_mode_raw || entry.execution_mode || "").trim().toLowerCase();
+      if (rawMode === "paper") return cleanOptionalBoolean(entry.dry_run_only) === false ? "paper" : "";
+      if (rawMode === "live") return "live";
+      return "";
+    }
+
+    function configuredAccountEnvironment(account) {
+      return normalizeExecutionEnvironment(account?.broker_environment || account?.execution_environment);
+    }
+
+    function executionEnvironmentForAccount(platform, account) {
+      const entry = accountReadbackEntry(platform, account);
+      if (!entry) return "";
+      const dryRunOnly = cleanOptionalBoolean(entry.dry_run_only);
+      const rawMode = String(entry.execution_mode_raw || entry.execution_mode || "").trim().toLowerCase();
+      if (dryRunOnly === true || rawMode === "dry_run" || rawMode === "dry-run") return "dry_run";
+      if (rawMode === "paper" && dryRunOnly === null) return "dry_run";
+      if (dryRunOnly === null) return "";
+      const configured = configuredAccountEnvironment(account);
+      if (configured === "live" || configured === "paper") return configured;
+      const explicit = executionEnvironmentFromEntry(entry);
+      if (explicit === "live" || explicit === "paper") return explicit;
+      if (normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only) === "live") return "live";
+      return "";
+    }
+
+    function executionModeForDispatch(entry) {
+      if (!entry) return "";
+      const dryRunOnly = cleanOptionalBoolean(entry?.dry_run_only);
+      if (dryRunOnly === true) return "dry_run";
+      const rawMode = String(entry?.execution_mode_raw || entry?.execution_mode || "").trim().toLowerCase();
+      const environment = normalizeExecutionEnvironment(entry?.execution_environment);
+      if (rawMode === "dry_run" || rawMode === "dry-run") return "dry_run";
+      if (dryRunOnly === null) return rawMode === "paper" || environment === "paper" ? "dry_run" : "";
+      if (rawMode === "paper" || environment === "paper") return "live";
+      return normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
+    }
+
     function defaultExecutionModeForAccount(platform, account) {
       if (platformDryRunOnly(platform)) return "dry_run";
       const entry = accountReadbackEntry(platform, account);
-      return normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
+      return executionModeForDispatch(entry);
     }
 
     function defaultStrategyForAccount(platform, account) {
@@ -3460,13 +3545,11 @@
     function currentIncomeLayerText(platform = state.selected, account = selectedAccount(platform), profile = state.forms[platform]?.strategy) {
       const defaults = incomeLayerDefaultForStrategy(profile);
       if (!defaults) return t("incomeLayerNotSupported");
-      const entry = currentEntryForAccount(platform, account);
+      const entry = accountReadbackEntry(platform, account);
       if (!entry) return t("notRead");
       const current = incomeLayerFromEntry(entry);
       if (!incomeLayerFieldsConfigured(entry)) {
-        return t("incomeLayerDefault")
-          .replace("{start}", formatUsd(defaults.startUsd))
-          .replace("{ratio}", formatRatioPercent(defaults.maxRatio));
+        return t("strategyDefault");
       }
       const enabled = current.enabled ?? true;
       const startUsd = current.startUsd || String(defaults.startUsd);
@@ -3666,7 +3749,7 @@
       const currentProfile = currentStrategyForAccount(platform, account);
       const nextProfile = cleanStrategyProfile(inputs.strategy_profile);
       const currentEntry = currentEntryForAccount(platform, account);
-      const currentMode = normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const currentMode = executionModeForDispatch(currentEntry);
       const currentPluginMode = currentPluginModeForAccount(platform, account);
       const nextPluginMode = normalizePluginMode(inputs.plugin_mode);
       const runtimeTarget = pendingRuntimeTarget(inputs, platform, account);
@@ -3758,7 +3841,7 @@
       const currentStrategyText = changes.currentProfile ? strategyLabel(changes.currentProfile) : t("notRead");
       const rows = [
         [t("repository"), state.repositories[state.selected] || defaultRepositories[state.selected]],
-        [t("selectedAccount"), account.label],
+        [t("selectedAccount"), accountDisplayLabel(account)],
         [t("currentStrategy"), currentStrategyText],
         [t("selectedMarket"), supportedDomainLabel(state.selected, account)],
         [
@@ -3859,7 +3942,7 @@
         copyNode.append(labelNode);
         if (showPrivateConfig) {
           const accountNode = document.createElement("span");
-          accountNode.textContent = account.label;
+          accountNode.textContent = accountDisplayLabel(account);
           const strategyNode = document.createElement("small");
           strategyNode.textContent = strategyLabel(form.strategy);
           copyNode.append(accountNode, strategyNode);
@@ -3952,13 +4035,24 @@
       const eligible = accountDiagnosisEligible(platform, account);
       const task = eligible ? accountDiagnosisTask(platform, account) : null;
       const statusAvailable = accountDiagnosisStatusAvailable(platform, account);
+      const key = accountDiagnosisKey(platform, account);
+      const submitting = Boolean(state.accountDiagnosis.submitting[key]);
+      const busy = submitting || ["queued", "running"].includes(task?.status)
+        || (task?.status === "succeeded" && task?.recheck_status === "sent");
       action.hidden = !eligible;
       button.disabled = !eligible || !statusAvailable
-        || Boolean(state.accountDiagnosis.submitting[accountDiagnosisKey(platform, account)])
+        || submitting
         || ["queued", "running"].includes(task?.status)
         || (task?.status === "succeeded" && task?.recheck_status === "sent");
-      button.textContent = t("accountDiagnosisButton");
-      status.textContent = task ? accountDiagnosisStatusText(task)
+      button.textContent = submitting ? t("accountDiagnosisSubmitting")
+        : task?.status === "queued" ? t("accountDiagnosisQueuedButton")
+          : task?.status === "running" ? t("accountDiagnosisRunningButton")
+            : task?.status === "succeeded" && task?.recheck_status === "sent"
+              ? t("accountDiagnosisRecheckingButton") : t("accountDiagnosisButton");
+      button.classList.toggle("is-busy", busy);
+      if (busy) button.setAttribute("aria-busy", "true");
+      else button.removeAttribute("aria-busy");
+      status.textContent = task && !busy ? accountDiagnosisStatusText(task)
         : eligible && !statusAvailable ? t("accountDiagnosisUnavailable") : "";
     }
 
@@ -4084,7 +4178,7 @@
         for (const account of optionsFor(platform)) {
           const record = accountMonitoringRecord(platform, account);
           const row = document.createElement("tr");
-          for (const value of [platformMeta[platform].label, account.label,
+          for (const value of [platformMeta[platform].label, accountDisplayLabel(account),
             runtimeStatusDisplayText(platform, account), accountObservationAge(record)]) {
             const cell = document.createElement("td");
             cell.textContent = value;
@@ -4243,6 +4337,7 @@
       const accountSelect = el("account-select");
       const strategySelect = el("strategy-select");
       const runtimeTargetEnabledSelect = el("runtime-target-enabled-select");
+      const executionModeSelect = el("execution-mode-select");
       const pluginModeSelect = el("plugin-mode-select");
       const incomeLayerModeSelect = el("income-layer-mode-select");
       const incomeLayerStartUsdInput = el("income-layer-start-usd-input");
@@ -4267,6 +4362,7 @@
         accountSelect.replaceChildren();
         strategySelect.replaceChildren();
         runtimeTargetEnabledSelect.replaceChildren();
+        executionModeSelect.replaceChildren();
         pluginModeSelect.replaceChildren();
         incomeLayerModeSelect.replaceChildren();
         optionOverlayModeSelect.replaceChildren();
@@ -4293,7 +4389,7 @@
       accountSelect.replaceChildren();
       if (accounts.length) {
         for (const account of accounts) {
-          accountSelect.append(new Option(account.label, account.key, false, account.key === form.accountKey));
+          accountSelect.append(new Option(accountDisplayLabel(account), account.key, false, account.key === form.accountKey));
         }
       } else {
         accountSelect.append(new Option(t("noAccount"), ""));
@@ -4354,10 +4450,17 @@
         const incomeSelected = form.incomeLayerTouched
           ? normalizeIncomeLayerMode(form.incomeLayerMode)
           : (incomeKnown ? (currentIncome.enabled === false ? "disabled" : "enabled") : "");
-        renderCurrentValueSelect(incomeLayerModeSelect, incomeLayerModes, incomeSelected, incomeKnown || form.incomeLayerTouched, incomeLayerModeLabel);
+        renderCurrentValueSelect(
+          incomeLayerModeSelect,
+          incomeLayerModes,
+          incomeSelected,
+          incomeKnown || form.incomeLayerTouched,
+          incomeLayerModeLabel,
+          readback ? t("strategyDefault") : t("notRead"),
+        );
         el("income-layer-mode-meta").textContent = incomeKnown
           ? incomeLayerDefaultMetaText(incomeDefaults)
-          : t("notRead");
+          : (readback ? t("strategyDefault") : t("notRead"));
         el("income-layer-start-meta").textContent = t("incomeLayerStartMeta");
         el("income-layer-ratio-meta").textContent = t("incomeLayerAllocationMeta").replace(
           "{allocations}",
@@ -4441,8 +4544,17 @@
         const optionSelected = form.optionOverlayTouched
           ? normalizeOptionOverlayMode(form.optionOverlayMode)
           : (optionKnown ? (optionValue ? "enabled" : "disabled") : "");
-        renderCurrentValueSelect(optionOverlayModeSelect, optionOverlayModes, optionSelected, optionKnown || form.optionOverlayTouched, optionOverlayModeLabel);
-        el("option-overlay-mode-meta").textContent = optionKnown ? optionOverlayDefaultMetaText(optionDefaults) : t("notRead");
+        renderCurrentValueSelect(
+          optionOverlayModeSelect,
+          optionOverlayModes,
+          optionSelected,
+          optionKnown || form.optionOverlayTouched,
+          optionOverlayModeLabel,
+          optionReadback ? t("strategyDefault") : t("notRead"),
+        );
+        el("option-overlay-mode-meta").textContent = optionKnown
+          ? optionOverlayDefaultMetaText(optionDefaults)
+          : (optionReadback ? t("strategyDefault") : t("notRead"));
       } else {
         optionOverlayModeSelect.disabled = true;
         optionOverlayModeSelect.append(new Option(t("optionOverlayNotSupported"), "current"));
@@ -4462,6 +4574,7 @@
           cashSelected,
           cashKnown || form.cashOnlyExecutionTouched,
           mode => mode === "enabled" ? t("cashOnlyExecutionNo") : t("cashOnlyExecutionYes"),
+          cashReadback ? t("notConfigured") : t("notRead"),
         );
         el("cash-only-policy-block").classList.toggle("policy-block-muted", reserveBlocksMargin);
         el("cash-only-execution-mode-meta").textContent = reserveBlocksMargin
@@ -4504,13 +4617,18 @@
       const supportedModes = supportedExecutionModesForPlatform(platform);
       const liveModeAvailable = supportedModes.includes("live") && hasLiveStrategyOption(platform, account);
       const executionModeKnown = Boolean(form.executionMode || form.executionModeTouched);
-      document.querySelectorAll("#mode-control [data-mode]").forEach((button) => {
-        button.disabled = !executionModeKnown || !supportedModes.includes(button.dataset.mode) || (
-          button.dataset.mode === "live" && !liveModeAvailable
-        );
-        button.classList.toggle("active", button.dataset.mode === form.executionMode);
-      });
-      el("mode-unread").hidden = executionModeKnown;
+      renderCurrentValueSelect(
+        executionModeSelect,
+        supportedModes,
+        form.executionMode,
+        executionModeKnown,
+        mode => mode === "live" ? t("executionModeLive") : t("executionModeDryRun"),
+      );
+      for (const option of executionModeSelect.options) {
+        option.disabled = option.value === "live" && !liveModeAvailable;
+      }
+      const displayedMode = executionEnvironmentForAccount(platform, account);
+      el("mode-display").textContent = modeLabel(displayedMode);
       el("mode-meta").textContent = !executionModeKnown
         ? t("notRead")
         : (!supportedModes.includes("live")
@@ -4573,8 +4691,7 @@
       list.appendChild(detail);
 
       const account = selectedAccount();
-      const currentEntry = currentEntryForAccount(state.selected, account);
-      const currentMode = currentEntry?.source === "account_defaults" ? "" : normalizeExecutionMode(currentEntry?.execution_mode, currentEntry?.dry_run_only);
+      const currentMode = executionEnvironmentForAccount(state.selected, account);
       el("mode-pill").textContent = currentMode ? modeLabel(currentMode) : t("notRead");
     }
 
@@ -6079,7 +6196,7 @@
       return rows.filter(row => {
         const inScope = ["normal", "paused", "abnormal"].includes(filter)
           ? row.runtimeStatus === filter : true;
-        return inScope && (!query || [row.platformLabel, row.account.label, row.strategy]
+        return inScope && (!query || [row.platformLabel, accountDisplayLabel(row.account), row.account.label, row.strategy]
           .some(value => String(value || "").toLocaleLowerCase().includes(query)));
       });
     }
@@ -6112,7 +6229,7 @@
         mark.textContent = platformMeta[row.platform].code;
         const identity = document.createElement("span");
         const name = document.createElement("strong");
-        name.textContent = row.account.label;
+        name.textContent = accountDisplayLabel(row.account);
         const platform = document.createElement("small");
         platform.textContent = row.platformLabel;
         identity.append(name, platform);
@@ -6156,7 +6273,7 @@
         button.type = "button";
         button.className = "btn";
         button.textContent = t("viewAccount");
-        button.setAttribute("aria-label", t("viewAccountLabel").replace("{account}", `${row.platformLabel} ${row.account.label}`));
+        button.setAttribute("aria-label", t("viewAccountLabel").replace("{account}", `${row.platformLabel} ${accountDisplayLabel(row.account)}`));
         button.addEventListener("click", () => openAccountSettings(row.platform, row.account, false));
         actionCell.append(button);
         tr.append(accountCell, strategyCell, runtimeCell, readbackCell, actionCell);
@@ -6660,6 +6777,8 @@
           label: String(item.label || item.target_name || item.key || platform),
           target_name: String(item.target_name || item.key || ""),
           account_selector: item.account_selector ? String(item.account_selector) : "",
+          broker_environment: normalizeExecutionEnvironment(item.broker_environment),
+          execution_environment: normalizeExecutionEnvironment(item.execution_environment),
           deployment_selector: item.deployment_selector ? String(item.deployment_selector) : "",
           account_scope: item.account_scope ? String(item.account_scope) : "",
           service_name: item.service_name ? String(item.service_name) : "",
@@ -6709,7 +6828,10 @@
           const runtimeTargetEnabled = cleanOptionalBoolean(entry?.runtime_target_enabled);
           const dcaMode = entry?.dca_mode ? normalizeDcaMode(entry.dca_mode) : "";
           const dcaBaseInvestmentUsd = cleanDisplayPositiveNumber(entry?.dca_base_investment_usd);
-          const executionMode = normalizeExecutionMode(entry?.execution_mode, entry?.dry_run_only);
+          const executionModeRaw = String(entry?.execution_mode || "").trim().toLowerCase();
+          const executionEnvironment = normalizeExecutionEnvironment(entry?.execution_environment);
+          const executionMode = normalizeExecutionMode(executionModeRaw, entry?.dry_run_only);
+          const dryRunOnly = cleanOptionalBoolean(entry?.dry_run_only);
           if (
             !profile &&
             !minReservedCashUsd &&
@@ -6722,12 +6844,15 @@
             runtimeTargetEnabled === null &&
             !dcaMode &&
             !dcaBaseInvestmentUsd &&
-            !executionMode
+            !executionMode &&
+            !executionEnvironment
           ) continue;
           normalized[platform][String(key)] = {
             strategy_profile: profile,
             execution_mode: executionMode,
-            dry_run_only: entry?.dry_run_only === true || entry?.dry_run_only === "true" || entry?.dry_run_only === "1",
+            execution_mode_raw: executionModeRaw,
+            execution_environment: executionEnvironment,
+            dry_run_only: dryRunOnly,
             min_reserved_cash_usd: minReservedCashUsd,
             reserved_cash_ratio: reservedCashRatio,
             income_layer_enabled: incomeLayerEnabled,
@@ -6989,11 +7114,10 @@
       render();
     });
 
-    el("mode-control").addEventListener("click", (event) => {
-      const button = event.target.closest("[data-mode]");
-      if (!button || button.disabled) return;
-      if (!supportedExecutionModesForPlatform(state.selected).includes(button.dataset.mode)) return;
-      state.forms[state.selected].executionMode = button.dataset.mode;
+    el("execution-mode-select").addEventListener("change", () => {
+      const mode = el("execution-mode-select").value;
+      if (!supportedExecutionModesForPlatform(state.selected).includes(mode)) return;
+      state.forms[state.selected].executionMode = mode;
       state.forms[state.selected].executionModeTouched = true;
       render();
     });
