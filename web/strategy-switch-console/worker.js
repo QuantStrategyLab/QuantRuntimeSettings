@@ -298,7 +298,7 @@ const V7_PAPER_APPLICATION_WORKFLOW = "apply-paper-candidate.yml";
 const V7_PAPER_APPLICATION_UES_REVISION = "d1ca798d880cd83965f3da5081850ca48a616d19";
 // Reviewed LongBridge application merge SHA for the paused validation slice.
 // This remains a server constant and is never caller input or an enablement.
-const V7_PAPER_APPLICATION_SOURCE_COMMIT = "b5f5d2686fe4c65e26260dcea550c8b5268a3243";
+const V7_PAPER_APPLICATION_SOURCE_COMMIT = "3c5b3d203f5456b59e2d002850f856e4821fe625";
 const V7_PAPER_APPLICATION_TICKET_RE = /^rpt_[0-9a-f]{64}$/;
 const V7_PAPER_APPLICATION_ACCOUNT_KEY = "paper";
 const V7_PAPER_APPLICATION_ACCOUNT_SCOPE = "PAPER";
