@@ -270,6 +270,12 @@ def build_strategy_profile_entries(config: dict) -> list[dict]:
             "combo_enabled": feat.get("combo", False),
         }
         entry.update(_strategy_profile_gate_fields(sdata))
+        candidate_identity = sdata.get("research_candidate_identity")
+        if isinstance(candidate_identity, dict):
+            entry["research_candidate_identity"] = {
+                "candidate_id": candidate_identity.get("candidate_id"),
+                "config_sha256": candidate_identity.get("config_sha256"),
+            }
         if feat.get("combo"):
             entry["combo_mode"] = feat.get("combo_mode", "dynamic")
         inc = sdata.get("income_layer_defaults")

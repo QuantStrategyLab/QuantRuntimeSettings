@@ -162,7 +162,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:674f344766201be23ad981815a3160bdafc7c6c8b91e8b4412e89a86ea6a94ea",
+    "content_sha256": "sha256:802727c367e14c17db39ff8c7c6ba837c49a9e2bb5b62d65a3f85b023dcd2c03",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -185,12 +185,12 @@ export const RUNTIME_CATALOG_PROJECTION = {
     "p4_p6_definition": "UNDEFINED"
   },
   "summary": {
-    "strategy_profile_count": 26,
+    "strategy_profile_count": 27,
     "runtime_enabled_count": 4,
     "live_switchable_count": 4,
     "lifecycle_stage_counts": {
       "live_candidate": 1,
-      "research_active": 17,
+      "research_active": 18,
       "runtime_enabled": 4,
       "shadow_active": 4
     }
@@ -227,6 +227,21 @@ export const RUNTIME_CATALOG_PROJECTION = {
         "live"
       ],
       "blocked_live_reason": ""
+    },
+    {
+      "profile": "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
+      "label": "SOXL/SOXX核心长期复利V7研究预览",
+      "label_en": "SOXL/SOXX Core Long-Term Compounding V7 Research Preview",
+      "label_zh": "SOXL/SOXX核心长期复利V7研究预览",
+      "domain": "us_equity",
+      "lifecycle_stage": "research_active",
+      "runtime_enabled": false,
+      "can_switch_live": false,
+      "allowed_execution_modes": [
+        "paper",
+        "dry_run"
+      ],
+      "blocked_live_reason": "research_only_named_profile"
     },
     {
       "profile": "nasdaq_sp500_smart_dca",
@@ -846,6 +861,12 @@ export const STRATEGY_FEATURES = {
   "soxl_soxx_trend_income": {
     "income_layer": true,
     "option_overlay": true,
+    "dca": false,
+    "combo": false
+  },
+  "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve": {
+    "income_layer": false,
+    "option_overlay": false,
     "dca": false,
     "combo": false
   },

@@ -293,6 +293,7 @@ const RESEARCH_PROMOTION_RISK_PROFILES = [
 ];
 const RESEARCH_PROMOTION_EXECUTION_MODES = ["live", "paper"];
 const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
+const V7_PAPER_PREVIEW_PROFILE = "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve";
 // The workflow has an explicit fail-closed guard until immutable activation
 // and durable single-use consumption are connected. Keep the console from
 // dispatching a workflow that cannot apply the requested target.
@@ -5194,11 +5195,22 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
     blockers.add("research_evidence_unverified");
   }
   const params = ticket?.proposed_params;
-  if (!params || Array.isArray(params) || typeof params !== "object" || Object.keys(params).length) {
-    blockers.add("candidate_params_unbound");
-  }
   const strategy = (Array.isArray(strategyProfiles) ? strategyProfiles : [])
     .find((item) => item.profile === ticket.strategy_profile);
+  const candidateIdentity = strategy?.profile === V7_PAPER_PREVIEW_PROFILE
+    ? strategy.research_candidate_identity || null
+    : null;
+  const candidateParamsBound = candidateIdentity
+    ? Boolean(
+      params
+      && !Array.isArray(params)
+      && typeof params === "object"
+      && canonicalResearchTaskJson(params) === canonicalResearchTaskJson(candidateIdentity),
+    )
+    : Boolean(params && !Array.isArray(params) && typeof params === "object" && !Object.keys(params).length);
+  if (!candidateParamsBound) {
+    blockers.add("candidate_params_unbound");
+  }
   if (!strategy) blockers.add("strategy_not_configured");
 
   const confirmedPlatform = String(ticket.confirmation_target_platform || "").trim();
@@ -5256,6 +5268,38 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
     blockers.add("account_preflight_failed");
   }
   const candidateBlockers = [...blockers].filter((code) => code !== "activation_not_connected");
+  const previewAccounts = (
+    ticket?.state === "human_accepted"
+    && ticket?.shadow_passed === true
+    && String(ticket?.shadow_evidence_kind || "").trim()
+    && candidateIdentity
+    && strategy?.domain === "us_equity"
+    && candidateParamsBound
+    && candidateBlockers.length === 0
+  )
+    ? accounts.filter((account) => {
+      const option = (accountOptions?.[account.platform] || [])
+        .find((item) => item.key === account.key);
+      return (
+        account.platform === "longbridge"
+        && account.broker_environment === "paper"
+        && account.configured_execution_mode === "live"
+        && String(option?.account_selector || "").trim()
+      );
+    })
+    : [];
+  const previewRequest = previewAccounts.length === 1
+    ? {
+      platform_id: previewAccounts[0].platform,
+      account_scope: String(
+        (accountOptions?.[previewAccounts[0].platform] || [])
+          .find((item) => item.key === previewAccounts[0].key)?.account_selector || "",
+      ).trim(),
+      strategy_profile: ticket.strategy_profile,
+      candidate_id: params.candidate_id,
+      config_sha256: params.config_sha256,
+    }
+    : null;
   return {
     ...attachRiskEnvelopeView(ticket),
     application_preparation: {
@@ -5265,6 +5309,7 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
       dispatch_allowed: false,
       blocker_codes: [...blockers].sort(),
       account_options: accounts,
+      preview_request: previewRequest,
     },
   };
 }
@@ -7867,6 +7912,13 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
         `${fieldName}[${index}].live_continuity`,
       );
     }
+    if (item.research_candidate_identity !== undefined && item.research_candidate_identity !== null) {
+      entry.research_candidate_identity = normalizeResearchCandidateIdentity(
+        item.research_candidate_identity,
+        `${fieldName}[${index}].research_candidate_identity`,
+        profile,
+      );
+    }
     addConfigOptional(entry, "latest_evidence_status", item.latest_evidence_status, cleanLifecycleStage);
     addConfigOptional(entry, "plugin_gate_status", item.plugin_gate_status, cleanLifecycleStage);
     // DCA detection: accept from item payload OR hardcoded DCA_PROFILE_CONFIG
@@ -7895,6 +7947,22 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
     result.push(entry);
   }
   return result;
+}
+
+function normalizeResearchCandidateIdentity(value, fieldName, profile) {
+  if (!value || Array.isArray(value) || typeof value !== "object") {
+    throw new Error(`${fieldName} must be an object`);
+  }
+  assertExactFields(value, ["candidate_id", "config_sha256"], fieldName);
+  const candidateId = cleanCurrentStrategy(value.candidate_id);
+  if (!candidateId || candidateId !== profile) {
+    throw new Error(`${fieldName}.candidate_id must match profile`);
+  }
+  const configSha256 = String(value.config_sha256 || "").trim().toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(configSha256)) {
+    throw new Error(`${fieldName}.config_sha256 must be a 64-character sha256`);
+  }
+  return { candidate_id: candidateId, config_sha256: configSha256 };
 }
 
 function normalizeLiveContinuityPolicy(value, fieldName) {
@@ -9353,6 +9421,7 @@ export const __test = {
   loadPlatformMeta,
   assertConfiguredAccount,
   validateResearchPromotionSelectedAccount,
+  attachResearchPromotionApplicationPreparation,
   accountOptionMatchesInputs,
   resolvedVariableScope,
   currentStrategiesTimeoutMs: CURRENT_STRATEGIES_TIMEOUT_MS,
