@@ -84,7 +84,6 @@ class QSLCompatCheckerTest(unittest.TestCase):
                     "]\n"
                 ),
             )
-
             ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
 
             self.assertTrue(ok)
@@ -92,6 +91,177 @@ class QSLCompatCheckerTest(unittest.TestCase):
             self.assertEqual(warnings, [])
             self.assertIn("bundle=2026.07.2", notes)
             self.assertIn("upgrade_ring=ring_e", notes)
+
+    def test_current_scope_accepts_declared_manifest_ref_even_when_bundle_differs(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "ops/tooling"\n'
+                    'upgrade_ring = "ring_e"\n'
+                    '[compat]\n'
+                    'bundle = "2026.07.2"\n'
+                    'requires = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@'
+                    + "b" * 40
+                    + '"]\n'
+                ),
+                pyproject=(
+                    'dependencies = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/'
+                    "QuantPlatformKit.git@"
+                    + "b" * 40
+                    + '"]\n'
+                ),
+            )
+
+            (repo_root / "uv.lock").write_text(
+                'source = "git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@' + "b" * 40 + '"\n',
+                encoding="utf-8",
+            )
+            current = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root, scope="current")
+            frozen = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root, scope="frozen")
+
+            self.assertTrue(current[0])
+            self.assertIn("scope=current", current[3])
+            self.assertFalse(frozen[0])
+            self.assertTrue(any("bundle pin mismatch" in issue for issue in frozen[1]))
+
+    def test_current_scope_rejects_short_main_unmanaged_and_manifest_conflicts(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_repo_tiers(compat_root)
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "ops/tooling"\n'
+                    'upgrade_ring = "ring_e"\n'
+                    '[compat]\n'
+                    'bundle = "2026.07.2"\n'
+                    'requires = [\n'
+                    '"quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@abc123",\n'
+                    '"malformed @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@",\n'
+                    '"other @ git+https://github.com/QuantStrategyLab/Other.git@' + "c" * 40 + '"\n]\n'
+                ),
+                pyproject=(
+                    'dependencies = [\n'
+                    '"quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@abc123",\n'
+                    '"quant-platform-kit @ https://github.com/QuantStrategyLab/QuantPlatformKit.git?rev=main",\n'
+                    '"other @ git+https://github.com/QuantStrategyLab/Other.git@' + "c" * 40 + '"\n]\n'
+                ),
+            )
+            (repo_root / "uv.lock").write_text(
+                'source = "git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@' + "d" * 40 + '"\n',
+                encoding="utf-8",
+            )
+
+            ok, issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope="current"
+            )
+
+            self.assertFalse(ok)
+            self.assertTrue(any("forbidden short/invalid ref 'abc123'" in issue for issue in issues))
+            self.assertTrue(any("malformed current qsl.requires entry" in issue for issue in issues))
+            self.assertTrue(any("forbidden ref 'main'" in issue for issue in issues))
+            self.assertTrue(any("unmanaged" in issue for issue in issues))
+            self.assertTrue(any("manifest/lock refs disagree" in issue for issue in issues))
+
+    def test_current_rejects_missing_direct_dependency_from_lock(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "ops/tooling"\nupgrade_ring = "ring_e"\n[compat]\n'
+                    'bundle = "2026.07.2"\nrequires = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/'
+                    + "QuantPlatformKit.git@" + "b" * 40 + '"]\n'
+                ),
+                pyproject=(
+                    'dependencies = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/'
+                    + "QuantPlatformKit.git@" + "b" * 40 + '"]\n'
+                ),
+            )
+            (repo_root / "uv.lock").write_text('version = 1\n', encoding="utf-8")
+            ok, issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope="current"
+            )
+            self.assertFalse(ok)
+            self.assertTrue(any("current lock missing direct dependency" in issue for issue in issues))
+
+    def test_current_allows_research_only_ops_dependency_but_base_dependency_is_blocked(self):
+        def run(base_dependency: bool, marker: str = "extra == 'research'"):
+            with tempfile.TemporaryDirectory() as workspace:
+                root = Path(workspace)
+                compat_root = root / "QuantRuntimeSettings"
+                self._write_repo_tiers(compat_root)
+                ref = "a" * 40
+                self._write_bundle(compat_root, "2026.07.2", {"AIAuditBridge": ref})
+                dependency_root = root / "AIAuditBridge"
+                dependency_root.mkdir()
+                (dependency_root / "qsl.toml").write_text(
+                    'tier = "ops/tooling"\nupgrade_ring = "ring_e"\n[compat]\n'
+                    'bundle = "2026.07.2"\n', encoding="utf-8"
+                )
+                repo_root = root / "Consumer"
+                repo_root.mkdir()
+                (repo_root / "qsl.toml").write_text(
+                    'tier = "core"\nupgrade_ring = "ring_a"\n[compat]\n'
+                    'bundle = "2026.07.2"\nrequires = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/'
+                    + "AIAuditBridge.git@" + ref + '"]\n', encoding="utf-8"
+                )
+                base = ('"ai-gateway-client @ git+https://github.com/QuantStrategyLab/AIAuditBridge.git@' + ref + '"') if base_dependency else ''
+                deps = (base + ',') if base else ''
+                (repo_root / "pyproject.toml").write_text(
+                    '[project]\nname = "consumer"\ndependencies = [' + deps + ']\n'
+                    '[project.optional-dependencies]\nresearch = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/'
+                    + "AIAuditBridge.git@" + ref + '"]\n', encoding="utf-8"
+                )
+                (repo_root / "uv.lock").write_text(
+                    'version = 1\n[[package]]\nname = "consumer"\nsource = { editable = "." }\n'
+                    '[package.metadata]\nrequires-dist = [{ name = "ai-gateway-client", marker = "' + marker + '", git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev='
+                    + ref + '" }]\n\n[[package]]\nname = "ai-gateway-client"\nsource = { git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev='
+                    + ref + '" }\n', encoding="utf-8"
+                )
+                return check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root, scope="current")
+
+        allowed = run(False)
+        self.assertTrue(allowed[0], allowed[1])
+        blocked = run(True)
+        self.assertFalse(blocked[0])
+        self.assertTrue(any("forbidden dependency direction" in issue for issue in blocked[1]))
+        complex_marker = run(False, "extra == 'research' or extra == 'test'")
+        self.assertFalse(complex_marker[0])
+        self.assertTrue(any("forbidden dependency direction" in issue for issue in complex_marker[1]))
+
+    def test_frozen_scope_keeps_historical_2026090_b13_mismatch_blocked(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.09.0", {"QuantPlatformKit": "0" * 40})
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "strategy-lib"\n'
+                    'upgrade_ring = "ring_b"\n'
+                    '[compat]\n'
+                    'bundle = "2026.09.0"\n'
+                    'requires = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@'
+                    + "b" * 40
+                    + '"]\n'
+                ),
+                pyproject=(
+                    'dependencies = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/'
+                    "QuantPlatformKit.git@"
+                    + "b" * 40
+                    + '"]\n'
+                ),
+            )
+
+            ok, issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope="frozen"
+            )
+
+            self.assertFalse(ok)
+            self.assertTrue(any("bundle pin mismatch" in issue for issue in issues))
 
     def test_not_enforced_bundle_reports_warning_for_short_sha_and_mismatch_but_main_stays_issue(self):
         with tempfile.TemporaryDirectory() as workspace:

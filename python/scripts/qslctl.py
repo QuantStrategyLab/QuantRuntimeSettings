@@ -127,7 +127,7 @@ def iter_qsl_repos(projects_root: Path) -> list[Path]:
     return repos
 
 
-def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
+def check_repo(repo_root: Path, compat_root: Path, scope: str = "frozen") -> RepoCheckResult:
     checkout_branch, default_branch = _checkout_context(repo_root)
     if not (repo_root / "qsl.toml").exists():
         return RepoCheckResult(
@@ -159,7 +159,9 @@ def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
         inventory_status = "invalid_qsl"
     else:
         try:
-            ok, issues, warnings, notes = check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root)
+            ok, issues, warnings, notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope=scope
+            )
         except (FileNotFoundError, ValueError, TypeError) as exc:
             ok = False
             issues = [str(exc)]
@@ -190,8 +192,8 @@ def check_repo(repo_root: Path, compat_root: Path) -> RepoCheckResult:
     )
 
 
-def check_all(projects_root: Path, compat_root: Path) -> list[RepoCheckResult]:
-    return [check_repo(repo_root=repo, compat_root=compat_root) for repo in iter_qsl_repos(projects_root)]
+def check_all(projects_root: Path, compat_root: Path, scope: str = "frozen") -> list[RepoCheckResult]:
+    return [check_repo(repo_root=repo, compat_root=compat_root, scope=scope) for repo in iter_qsl_repos(projects_root)]
 
 
 def _result_payload(result: RepoCheckResult) -> dict[str, Any]:
@@ -394,9 +396,11 @@ def _default_branch_results(results: list[RepoCheckResult]) -> tuple[list[RepoCh
 
 
 def _with_workspace_scope(
-    report: dict[str, Any], *, mainline_only: bool, excluded: list[RepoCheckResult]
+    report: dict[str, Any], *, mainline_only: bool, excluded: list[RepoCheckResult], scope: str
 ) -> dict[str, Any]:
     report["scope"] = "local_default_branch_checkouts" if mainline_only else "all_local_checkouts"
+    report["compatibility_scope"] = scope
+    report["workspace_scope"] = report["scope"]
     report["excluded_nondefault_checkouts"] = [
         {
             "repo": result.repo,
@@ -409,7 +413,7 @@ def _with_workspace_scope(
 
 
 def _dependency_convergence(
-    repositories: list[dict[str, Any]], projects_root: Path, compat_root: Path
+    repositories: list[dict[str, Any]], projects_root: Path, compat_root: Path, scope: str = "frozen"
 ) -> tuple[list[dict[str, Any]], list[str], dict[str, Any]]:
     included_repositories = {item["repo"] for item in repositories}
     pins = [
@@ -458,7 +462,10 @@ def _dependency_convergence(
         observed_refs = sorted(
             ref for ref, metadata in refs.items() if "workspace" in metadata["origins"]
         )
-        is_consistent = len(published_refs) == 1 and (not observed_refs or observed_refs == published_refs)
+        if scope == "current":
+            is_consistent = all(check_qsl_compat._is_full_sha(ref) for ref in observed_refs)
+        else:
+            is_consistent = len(published_refs) == 1 and (not observed_refs or observed_refs == published_refs)
         decisions.append(
             {
                 "source_repo": source_repo,
@@ -498,6 +505,7 @@ def _workspace_plan(
     *,
     projects_root: Path,
     compat_root: Path,
+    scope: str = "frozen",
     inventory_repositories: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     phases: list[dict[str, Any]] = []
@@ -531,6 +539,7 @@ def _workspace_plan(
         report["repositories"],
         projects_root=projects_root,
         compat_root=compat_root,
+        scope=scope,
     )
     inventory = report["repositories"] if inventory_repositories is None else inventory_repositories
     missing_qsl = [
@@ -658,7 +667,7 @@ def _print_check_result(result: RepoCheckResult) -> None:
 
 
 def _cmd_check(args: argparse.Namespace) -> int:
-    result = check_repo(repo_root=args.repo_root.resolve(), compat_root=args.compat_root.resolve())
+    result = check_repo(repo_root=args.repo_root.resolve(), compat_root=args.compat_root.resolve(), scope=args.scope)
     if args.json:
         print(json.dumps(_result_payload(result), ensure_ascii=False, indent=2))
     else:
@@ -667,7 +676,7 @@ def _cmd_check(args: argparse.Namespace) -> int:
 
 
 def _cmd_check_all(args: argparse.Namespace) -> int:
-    results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve(), scope=args.scope)
     payload = _summary_payload(results)
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -686,10 +695,10 @@ def _cmd_check_all(args: argparse.Namespace) -> int:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
-    all_results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    all_results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve(), scope=args.scope)
     results, excluded = _default_branch_results(all_results) if args.mainline_only else (all_results, [])
     report = _workspace_report(results, compat_root=args.compat_root.resolve())
-    _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded)
+    _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded, scope=args.scope)
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
@@ -698,17 +707,20 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_plan(args: argparse.Namespace) -> int:
-    all_results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve())
+    all_results = check_all(projects_root=args.projects_root.resolve(), compat_root=args.compat_root.resolve(), scope=args.scope)
     results, excluded = _default_branch_results(all_results) if args.mainline_only else (all_results, [])
     report = _workspace_report(results, compat_root=args.compat_root.resolve())
-    _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded)
+    _with_workspace_scope(report, mainline_only=args.mainline_only, excluded=excluded, scope=args.scope)
     plan = _workspace_plan(
         report,
         projects_root=args.projects_root.resolve(),
         compat_root=args.compat_root.resolve(),
+        scope=args.scope,
         inventory_repositories=[_result_payload(result) for result in all_results],
     )
     plan["scope"] = report["scope"]
+    plan["compatibility_scope"] = args.scope
+    plan["workspace_scope"] = report["workspace_scope"]
     plan["excluded_nondefault_checkouts"] = report["excluded_nondefault_checkouts"]
     if args.json:
         print(json.dumps(plan, ensure_ascii=False, indent=2))
@@ -767,6 +779,7 @@ def build_parser() -> argparse.ArgumentParser:
     check.add_argument("--compat-root", type=Path, default=DEFAULT_COMPAT_ROOT)
     check.add_argument("--json", action="store_true")
     check.add_argument("--strict", action="store_true", help="Exit non-zero when the repo has issues.")
+    check.add_argument("--scope", choices=("frozen", "current"), default="frozen")
     check.set_defaults(func=_cmd_check)
 
     check_all_parser = subparsers.add_parser("check-all", help="Check all local QuantStrategyLab qsl.toml repositories.")
@@ -775,6 +788,7 @@ def build_parser() -> argparse.ArgumentParser:
     check_all_parser.add_argument("--json", action="store_true")
     check_all_parser.add_argument("--strict", action="store_true", help="Exit non-zero when any repo has issues.")
     check_all_parser.add_argument("--verbose", action="store_true", help="Print passing repositories too.")
+    check_all_parser.add_argument("--scope", choices=("frozen", "current"), default="frozen")
     check_all_parser.set_defaults(func=_cmd_check_all)
 
     report = subparsers.add_parser("report", help="Summarize current QSL workspace status by ring and issue type.")
@@ -786,6 +800,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only include local checkouts on their configured origin default branch; never fetches or claims remote freshness.",
     )
+    report.add_argument("--scope", choices=("frozen", "current"), default="frozen")
     report.set_defaults(func=_cmd_report)
 
     plan = subparsers.add_parser("plan", help="Render a ring-by-ring QSL convergence plan from current workspace state.")
@@ -797,6 +812,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Exit non-zero when inventory or dependency authority needs a human decision.",
     )
+    plan.add_argument("--scope", choices=("frozen", "current"), default="frozen")
     plan.add_argument(
         "--mainline-only",
         action="store_true",

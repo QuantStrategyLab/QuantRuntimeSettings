@@ -19,6 +19,8 @@ python3 python/scripts/qslctl.py check --repo-root ../UsEquityStrategies
 python3 python/scripts/qslctl.py check-all --projects-root /Users/lisiyi/Projects
 python3 python/scripts/qslctl.py report --projects-root /Users/lisiyi/Projects
 python3 python/scripts/qslctl.py plan --projects-root /Users/lisiyi/Projects
+python3 python/scripts/qslctl.py report --projects-root /Users/lisiyi/Projects --scope current
+python3 python/scripts/qslctl.py plan --projects-root /Users/lisiyi/Projects --scope current
 python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --check
 python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --sync
 ```
@@ -34,13 +36,14 @@ python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/P
 
 - `qslctl report` is read-only. It groups the current workspace by ring, status, and bundle hotspot.
 - `qslctl plan` is read-only. It renders the ring-by-ring convergence order and highlights which repos should be fixed before the next ring starts.
+- Both commands default to `--scope frozen`, preserving exact bundle ref checks. `--scope current` checks each consumer's `qsl.requires` against its manifests, locks, and applicable legacy constraints; `CONSISTENT` then means current declaration consistency only. Different valid full SHAs across consumers do not alone require `HUMAN_REQUIRED`, while actual issues, missing repositories, and invalid configuration still do.
 - Use `report` to answer “what is broken right now?” and `plan` to answer “what should we fix first?”
 
 ## QSL exception lifecycle check
 
 Use the repository workflow `.github/workflows/qsl_exception_lifecycle.yml` to run a scheduled or manual report.
 
-The workflow first reads the current bundle from `qsl.toml`, prepares a temporary workspace, links the current `QuantRuntimeSettings` checkout, clones every repo listed in that bundle manifest, checks each repo out to its pinned bundle SHA, and then runs `qslctl report` against that prepared workspace.
+The workflow first reads the current bundle from `qsl.toml`, prepares a temporary workspace, links the current `QuantRuntimeSettings` checkout, clones the existing bundle repository set, and runs `qslctl report` against that prepared workspace. Scheduled runs and manual runs default to `current`, checking each cloned repository at its resolved `origin/main` SHA. Manual runs can select `frozen` to check the exact bundle SHAs.
 
 It checks each prepared QuantStrategyLab repo for:
 
