@@ -14,6 +14,15 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const profiles = JSON.parse(readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"));
 const v7 = profiles.find((item) => item.profile === "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
 assert.ok(v7?.research_candidate_identity);
+const syntheticCandidateIdentity = {
+  candidate_id: "synthetic_candidate_fixture",
+  config_sha256: "f".repeat(64),
+};
+profiles.push({
+  ...v7,
+  profile: "synthetic_candidate_fixture",
+  research_candidate_identity: syntheticCandidateIdentity,
+});
 
 const paperAccount = {
   key: "paper",
@@ -200,8 +209,8 @@ try {
     strategy_profile: v7.profile,
     candidate_id: v7.research_candidate_identity.candidate_id,
     config_sha256: v7.research_candidate_identity.config_sha256,
-    source_commit: "3c5b3d203f5456b59e2d002850f856e4821fe625",
-    ues_revision: "d1ca798d880cd83965f3da5081850ca48a616d19",
+    source_commit: "dcdcb579001e0be5579810121fc7894206e06445",
+    ues_revision: "b83ef4b3ae67c47d132ddd660ba3ccc60d474c85",
     runtime_target_enabled: false,
     revision_name: "longbridge-paper-v7-paused-701",
   };
@@ -242,6 +251,20 @@ try {
   });
   assert.equal(malformedResult.status, 409);
   assert.match(malformedResult.body.error, /evidence|qualified/);
+
+  const unsupportedAdapterTicket = ticket(`rpt_${"7".repeat(64)}`, {
+    strategy_profile: "synthetic_candidate_fixture",
+    proposed_params: { ...syntheticCandidateIdentity },
+  });
+  assert.equal((await syncTicket(unsupportedAdapterTicket)).status, 200);
+  assert.equal((await acceptTicket(unsupportedAdapterTicket.ticket_id, syntheticCandidateIdentity)).status, 200);
+  const unsupportedAdapter = await call("/api/research-promotion-applications", {
+    method: "POST",
+    body: { ...firstApplicationBody, ticket_id: unsupportedAdapterTicket.ticket_id, expected_revision: appliedState.body.revision },
+  });
+  assert.equal(unsupportedAdapter.status, 409);
+  assert.match(unsupportedAdapter.body.error, /adapter is not configured/);
+  assert.equal(dispatches.length, 1, "unsupported candidate adapter is rejected before dispatch");
 
   const unknownDispatchTicket = ticket(`rpt_${"5".repeat(64)}`);
   assert.equal((await syncTicket(unknownDispatchTicket)).status, 200);

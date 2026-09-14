@@ -295,10 +295,10 @@ const DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE = "CAPITAL_PRESERVATION";
 const V7_PAPER_PREVIEW_PROFILE = "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve";
 const V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY = "QuantStrategyLab/LongBridgePlatform";
 const V7_PAPER_APPLICATION_WORKFLOW = "apply-paper-candidate.yml";
-const V7_PAPER_APPLICATION_UES_REVISION = "d1ca798d880cd83965f3da5081850ca48a616d19";
+const V7_PAPER_APPLICATION_UES_REVISION = "b83ef4b3ae67c47d132ddd660ba3ccc60d474c85";
 // Reviewed LongBridge application merge SHA for the paused validation slice.
 // This remains a server constant and is never caller input or an enablement.
-const V7_PAPER_APPLICATION_SOURCE_COMMIT = "3c5b3d203f5456b59e2d002850f856e4821fe625";
+const V7_PAPER_APPLICATION_SOURCE_COMMIT = "dcdcb579001e0be5579810121fc7894206e06445";
 const V7_PAPER_APPLICATION_TICKET_RE = /^rpt_[0-9a-f]{64}$/;
 const V7_PAPER_APPLICATION_ACCOUNT_KEY = "paper";
 const V7_PAPER_APPLICATION_ACCOUNT_SCOPE = "PAPER";
@@ -5286,14 +5286,17 @@ function normalizeResearchPromotionTicket(raw, fieldName = "research promotion t
     raw.suggested_risk_profile || DEFAULT_RESEARCH_PROMOTION_RISK_PROFILE,
     `${fieldName}.suggested_risk_profile`,
   );
+  const driftStatus = String(raw.drift_status || "");
   const normalizedTicket = {
     schema: RESEARCH_PROMOTION_TICKET_SCHEMA,
     ticket_id: ticketId,
     strategy_profile: strategyProfile,
     domain,
     state,
-    drift_status: String(raw.drift_status || ""),
-    drift_score: Number(raw.drift_score || 0),
+    drift_status: driftStatus,
+    drift_score: driftStatus === "new_research" && raw.drift_score === null
+      ? null
+      : Number(raw.drift_score || 0),
     created_at: String(raw.created_at || ""),
     updated_at: String(raw.updated_at || ""),
     budget: raw.budget && typeof raw.budget === "object" && !Array.isArray(raw.budget) ? raw.budget : {},
@@ -5577,9 +5580,8 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
   const params = ticket?.proposed_params;
   const strategy = (Array.isArray(strategyProfiles) ? strategyProfiles : [])
     .find((item) => item.profile === ticket.strategy_profile);
-  const candidateIdentity = strategy?.profile === V7_PAPER_PREVIEW_PROFILE
-    ? strategy.research_candidate_identity || null
-    : null;
+  const candidateIdentity = researchCandidateIdentityForStrategy(strategy);
+  const applicationAdapter = researchCandidateApplicationAdapter(strategy);
   const candidateParamsBound = candidateIdentity
     ? Boolean(
       params
@@ -5592,6 +5594,7 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
     blockers.add("candidate_params_unbound");
   }
   if (!strategy) blockers.add("strategy_not_configured");
+  if (candidateIdentity && !applicationAdapter) blockers.add("paper_application_adapter_unavailable");
 
   const confirmedPlatform = String(ticket.confirmation_target_platform || "").trim();
   const platforms = confirmedPlatform ? [confirmedPlatform] : SUPPORTED_PLATFORMS;
@@ -5653,6 +5656,7 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
     && ticket?.shadow_passed === true
     && String(ticket?.shadow_evidence_kind || "").trim()
     && candidateIdentity
+    && applicationAdapter
     && strategy?.domain === "us_equity"
     && candidateParamsBound
     && candidateBlockers.length === 0
@@ -5691,6 +5695,21 @@ function attachResearchPromotionApplicationPreparation(ticket, accountOptions, s
       account_options: accounts,
       preview_request: previewRequest,
     },
+  };
+}
+
+function researchCandidateIdentityForStrategy(strategy) {
+  const identity = strategy?.research_candidate_identity;
+  return identity && typeof identity === "object" && !Array.isArray(identity) ? identity : null;
+}
+
+function researchCandidateApplicationAdapter(strategy) {
+  if (strategy?.profile !== V7_PAPER_PREVIEW_PROFILE) return null;
+  return {
+    platform: "longbridge",
+    account_key: V7_PAPER_APPLICATION_ACCOUNT_KEY,
+    workflow_repository: V7_PAPER_APPLICATION_WORKFLOW_REPOSITORY,
+    workflow: V7_PAPER_APPLICATION_WORKFLOW,
   };
 }
 
@@ -5781,6 +5800,9 @@ async function recordResearchPromotionDecisionResponse(request, env) {
 }
 
 function v7PaperApplicationCandidate(strategy, ticket) {
+  if (!researchCandidateApplicationAdapter(strategy)) {
+    throw new HttpError("paper application adapter is not configured for candidate", 409);
+  }
   if (ticket?.shadow_evidence_kind !== "v7_nonlive_shadow_and_simulated_paper") {
     throw new HttpError("v7_shadow_evidence_kind_not_qualified", 409);
   }
@@ -5797,9 +5819,7 @@ function v7PaperApplicationCandidate(strategy, ticket) {
     !notes.some((note) => new RegExp(`^${prefix}=[0-9a-f]{64}$`).test(String(note))))) {
     throw new HttpError("v7_shadow_evidence_provenance_incomplete", 409);
   }
-  const identity = strategy?.profile === V7_PAPER_PREVIEW_PROFILE
-    ? strategy.research_candidate_identity || null
-    : null;
+  const identity = researchCandidateIdentityForStrategy(strategy);
   if (!identity || ticket?.domain !== "us_equity") {
     throw new HttpError("research_candidate_not_eligible_for_paper_application", 409);
   }
@@ -10057,6 +10077,7 @@ function escapeHtml(value) {
 export const __test = {
   buildRiskEnvelopeView,
   attachRiskEnvelopeView,
+  normalizeResearchPromotionTicket,
   normalizeRuntimeTargetLifecycleTarget,
   loadPlatformMeta,
   assertConfiguredAccount,

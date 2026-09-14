@@ -3790,6 +3790,18 @@ const promotionSync = await worker.fetch(
 );
 assert.equal(promotionSync.status, 200);
 assert.equal((await promotionSync.json()).suggested_risk_profile, "GROWTH_COMPOUNDING");
+const newResearchTicket = {
+  ...researchPromotionTicket,
+  ticket_id: "new-research-ticket",
+  drift_status: "new_research",
+  drift_score: null,
+};
+const normalizedNewResearch = __test.normalizeResearchPromotionTicket(newResearchTicket);
+assert.equal(normalizedNewResearch.drift_status, "new_research");
+assert.equal(normalizedNewResearch.drift_score, null);
+const normalizedLegacy = __test.normalizeResearchPromotionTicket(researchPromotionTicket);
+assert.equal(normalizedLegacy.drift_status, "review");
+assert.equal(normalizedLegacy.drift_score, 1.25);
 const promotionList = await worker.fetch(
   new Request("https://switch.example/api/research-promotion-tickets", {
     headers: researchPromotionAdminHeaders,
@@ -4156,6 +4168,31 @@ assert.deepEqual(v7PreviewApplication.application_preparation.account_options, [
   preflight_status: "ready",
   blocker_codes: [],
 }]);
+
+// A candidate identity can be prepared generically for display, but without
+// an explicitly reviewed production adapter it remains blocked and produces
+// no platform application request.
+const syntheticCandidateIdentity = {
+  candidate_id: "synthetic_candidate_fixture",
+  config_sha256: "f".repeat(64),
+};
+const syntheticPreparation = __test.attachResearchPromotionApplicationPreparation(
+  {
+    ...v7PreviewApplicationTicket,
+    ticket_id: "synthetic-candidate-fixture",
+    strategy_profile: "synthetic_candidate_fixture",
+    proposed_params: syntheticCandidateIdentity,
+  },
+  accountOptions,
+  [{
+    profile: "synthetic_candidate_fixture",
+    domain: "us_equity",
+    allowed_execution_modes: ["paper"],
+    research_candidate_identity: syntheticCandidateIdentity,
+  }],
+);
+assert.equal(syntheticPreparation.application_preparation.preview_request, null);
+assert.ok(syntheticPreparation.application_preparation.blocker_codes.includes("paper_application_adapter_unavailable"));
 
 let switchWorkflowRequests = 0;
 const fetchBeforeBlockedApplication = globalThis.fetch;
