@@ -12,11 +12,12 @@ This repository defines the QSL central compatibility manifest and its upgrade p
 - `qsl.toml`
   - 本仓库自身的 QSL 元信息：`tier`、`compat`/`bundle`、`upgrade_ring`。
 - `scripts/check_qsl_compat.py`
-  - 在任意仓库根目录运行，校验：
+  - 在任意仓库根目录运行，默认以 `frozen` scope 校验：
     - 禁止 `@main`
     - 禁止短 SHA
     - 禁止 `requirements.txt` / `constraints.txt`（未设置 `allow_legacy=true` 时）
     - 内部依赖 Ref 是否与 `compat/bundles/<bundle>.toml` 一致
+  - `--scope current` 按 consumer 自己声明的 `qsl.requires`，核对 `pyproject.toml`、`uv.lock` 和适用 legacy 文件中的受管 git refs；仍拒绝缺声明、短 SHA、`main`、manifest/lock 冲突、unmanaged source 和禁止依赖方向，但不把 bundle 差异当作 current 一致性结论。
 - `scripts/render_qsl_dependency_graph.py`
   - 输出当前仓库的 QSL 依赖图（Markdown / Text）。
 
@@ -40,6 +41,7 @@ enforce_bundle = true    # 过渡仓库可设 false；ref drift 会降级为 war
 
 ```bash
 python scripts/check_qsl_compat.py --repo-root . --non-strict
+python scripts/check_qsl_compat.py --repo-root . --scope current --non-strict
 python scripts/render_qsl_dependency_graph.py --repo-root . --format md
 ```
 

@@ -226,6 +226,8 @@ class QslCtlTest(unittest.TestCase):
         payload = json.loads(buf.getvalue())
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["scope"], "local_default_branch_checkouts")
+        self.assertEqual(payload["compatibility_scope"], "frozen")
+        self.assertEqual(payload["workspace_scope"], "local_default_branch_checkouts")
         self.assertEqual(payload["total_repositories"], 1)
         self.assertEqual(payload["strict_repositories"], 0)
         self.assertEqual(payload["excluded_nondefault_checkouts"], [
@@ -316,6 +318,40 @@ class QslCtlTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(payload["decision_status"], "CONSISTENT")
         self.assertEqual(payload["dependency_decisions"][0]["status"], "CONSISTENT")
+
+    def test_plan_current_accepts_different_valid_consumer_shas(self) -> None:
+        with tempfile.TemporaryDirectory() as workspace:
+            root = Path(workspace)
+            compat_root = root / "QuantRuntimeSettings"
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            for name, ref in (("ConsumerA", "a" * 40), ("ConsumerB", "b" * 40)):
+                self._write_repo(root / name, "2026.07.2", ref)
+                (root / name / "qsl.toml").write_text(
+                    'tier = "strategy-lib"\nupgrade_ring = "ring_b"\n'
+                    '[compat]\nbundle = "2026.07.2"\nrequires = ["quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@'
+                    + ref + '"]\n', encoding="utf-8"
+                )
+                (root / name / "uv.lock").write_text(
+                    'source = "git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@' + ref + '"\n',
+                    encoding="utf-8",
+                )
+
+            buf = io.StringIO()
+            with patch.object(qslctl, "_is_quant_repo", return_value=True), contextlib.redirect_stdout(buf):
+                exit_code = qslctl.main([
+                    "plan", "--projects-root", str(root), "--compat-root", str(compat_root),
+                    "--scope", "current", "--json", "--strict"
+                ])
+
+        payload = json.loads(buf.getvalue())
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(payload["scope"], "all_local_checkouts")
+        self.assertEqual(payload["compatibility_scope"], "current")
+        self.assertEqual(payload["decision_status"], "CONSISTENT")
+        decision = next(item for item in payload["dependency_decisions"] if item["source_repo"] == "QuantPlatformKit")
+        self.assertEqual(decision["status"], "CONSISTENT")
+        self.assertEqual(decision["consumer_repositories"], ["ConsumerA", "ConsumerB"])
 
     def test_plan_strict_fails_closed_when_configured_bundle_manifest_is_missing(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:
@@ -484,6 +520,8 @@ class QslCtlTest(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertEqual(payload["decision_status"], "HUMAN_REQUIRED")
         self.assertEqual(payload["scope"], "local_default_branch_checkouts")
+        self.assertEqual(payload["compatibility_scope"], "frozen")
+        self.assertEqual(payload["workspace_scope"], "local_default_branch_checkouts")
         self.assertEqual(payload["workspace_inventory"]["missing_qsl"][0]["repo"], "FeatureRepo")
         self.assertEqual(
             payload["excluded_nondefault_checkouts"],

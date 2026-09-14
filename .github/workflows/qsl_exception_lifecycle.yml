@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "17 3 * * 1"
   workflow_dispatch:
+    inputs:
+      scope:
+        description: Compatibility scope to evaluate
+        required: true
+        default: current
+        type: choice
+        options:
+          - current
+          - frozen
 
 permissions:
   contents: read
@@ -29,6 +38,7 @@ jobs:
         id: workspace
         env:
           GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+          QSL_SCOPE: ${{ github.event_name == 'schedule' && 'current' || inputs.scope || 'current' }}
         run: |
           set -euo pipefail
           workspace="${RUNNER_TEMP}/qsl-workspace"
@@ -59,6 +69,7 @@ jobs:
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"bundle={bundle}\n")
               output.write(f"workspace={os.environ['RUNNER_TEMP']}/qsl-workspace\n")
+              output.write(f"scope={os.environ['QSL_SCOPE']}\n")
           for repo, ref in sorted(repos.items()):
               print(f"{repo}\t{ref}")
           PY
@@ -69,8 +80,61 @@ jobs:
               continue
             fi
             gh repo clone "QuantStrategyLab/$repo" "$workspace/$repo"
-            git -C "$workspace/$repo" checkout --detach "$ref"
+            if [ "${QSL_SCOPE}" = "frozen" ]; then
+              git -C "$workspace/$repo" checkout --detach "$ref"
+            else
+              git -C "$workspace/$repo" checkout --detach origin/main
+              printf '%s\t%s\n' "$repo" "$(git -C "$workspace/$repo" rev-parse HEAD)" >> qsl-current-refs.tsv
+            fi
           done < qsl-bundle-repos.tsv
+
+      - name: Prepare CN research dependency identity
+        id: research_dependency
+        if: steps.workspace.outputs.scope == 'current'
+        env:
+          GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          workspace = Path(os.environ["RUNNER_TEMP"]) / "qsl-workspace"
+          manifest = workspace / "CnEquityStrategies" / "pyproject.toml"
+          if not manifest.exists():
+              raise SystemExit(0)
+          project = tomllib.loads(manifest.read_text(encoding="utf-8")).get("project", {})
+          research = project.get("optional-dependencies", {}).get("research", [])
+          pattern = re.compile(
+              r"^ai-gateway-client\s*@\s*git\+https://github\.com/"
+              r"QuantStrategyLab/AIAuditBridge\.git@([0-9a-f]{40})$"
+          )
+          matches = [pattern.fullmatch(item.strip()) for item in research if isinstance(item, str)]
+          matches = [match for match in matches if match]
+          if not matches:
+              raise SystemExit(0)
+          if len(matches) != 1:
+              raise SystemExit("CN research AIAuditBridge dependency is missing or ambiguous")
+          ref = matches[0].group(1)
+          destination = Path(os.environ["GITHUB_WORKSPACE"]).parent / "AIAuditBridge"
+          if destination.exists() or destination.is_symlink():
+              raise SystemExit(f"refusing to overwrite existing dependency identity checkout: {destination}")
+          Path(os.environ["RUNNER_TEMP"], "qsl-aiauditbridge-identity-created").write_text(
+              str(destination), encoding="utf-8"
+          )
+          subprocess.run(
+              ["gh", "repo", "clone", "QuantStrategyLab/AIAuditBridge", str(destination)],
+              check=True,
+          )
+          subprocess.run(["git", "-C", str(destination), "checkout", "--detach", ref], check=True)
+          actual = subprocess.check_output(["git", "-C", str(destination), "rev-parse", "HEAD"], text=True).strip()
+          if actual != ref:
+              raise SystemExit(f"AIAuditBridge identity checkout mismatch: expected {ref}, got {actual}")
+          Path("qsl-aiauditbridge-identity.tsv").write_text(f"AIAuditBridge\t{actual}\n", encoding="utf-8")
+          PY
 
       - name: Generate QSL compatibility report
         id: report
@@ -79,6 +143,7 @@ jobs:
           python3 python/scripts/qslctl.py report \
             --projects-root "${{ steps.workspace.outputs.workspace }}" \
             --compat-root . \
+            --scope "${{ steps.workspace.outputs.scope }}" \
             --json > qsl-report.json
           python3 - <<'PY'
           import json
@@ -88,6 +153,7 @@ jobs:
           report = json.loads(Path("qsl-report.json").read_text(encoding="utf-8"))
           lines = [
               "## QSL Exception Lifecycle Report",
+              f"- Scope: `${{ steps.workspace.outputs.scope }}`",
               f"- Bundle: `${os.environ['QSL_BUNDLE']}`",
               f"- Workspace: `${os.environ['QSL_WORKSPACE']}`",
               f"- Total repositories: `{report['total_repositories']}`",
@@ -109,9 +175,38 @@ jobs:
           print(summary, end="")
           Path(os.environ["GITHUB_STEP_SUMMARY"]).write_text(summary, encoding="utf-8")
 
+          current_refs = Path("qsl-current-refs.tsv")
+          if current_refs.exists():
+              with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
+                  handle.write("\n### Current main checkout SHAs\n")
+                  for line in current_refs.read_text(encoding="utf-8").splitlines():
+                      repo, sha = line.split("\t", 1)
+                      handle.write(f"- `{repo}`: `{sha}`\n")
+
+          identity_refs = Path("qsl-aiauditbridge-identity.tsv")
+          if identity_refs.exists():
+              with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
+                  handle.write("\n### Research dependency identity checkout\n")
+                  for line in identity_refs.read_text(encoding="utf-8").splitlines():
+                      repo, sha = line.split("\t", 1)
+                      handle.write(f"- `{repo}`: `{sha}` (identity-only)\n")
+
           if report["strict_repositories"] or report["warning_repositories"]:
               raise SystemExit(1)
           PY
         env:
           QSL_BUNDLE: ${{ steps.workspace.outputs.bundle }}
           QSL_WORKSPACE: ${{ steps.workspace.outputs.workspace }}
+
+      - name: Clean up research dependency identity
+        if: always()
+        run: |
+          set -euo pipefail
+          marker="${RUNNER_TEMP}/qsl-aiauditbridge-identity-created"
+          if [ -f "$marker" ]; then
+            destination="$(cat "$marker")"
+            case "$destination" in
+              "${GITHUB_WORKSPACE}/../AIAuditBridge") rm -rf "$destination" "$marker" ;;
+              *) echo "refusing to clean unexpected dependency identity path: $destination" >&2; exit 1 ;;
+            esac
+          fi
