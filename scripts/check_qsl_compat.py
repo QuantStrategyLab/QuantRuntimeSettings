@@ -300,7 +300,7 @@ def _validate_dependency_direction(
 
 
 def _is_research_extra_only_dependency(repo_root: Path, pin: GitRef) -> bool:
-    """Prove a git dependency is reachable only through the research extra.
+    """Prove a git dependency is reachable only through an approved AI extra.
 
     The manifest and uv lock must independently identify the dependency as a
     research-only requirement.  This deliberately does not treat arbitrary
@@ -319,25 +319,38 @@ def _is_research_extra_only_dependency(repo_root: Path, pin: GitRef) -> bool:
     if not isinstance(project, dict):
         return False
     optional = project.get("optional-dependencies")
-    research = optional.get("research") if isinstance(optional, dict) else None
-    if not isinstance(research, list):
-        return False
-    dependency_name = next(
-        (
-            str(item).split("@", 1)[0].strip().lower()
-            for item in research
-            if isinstance(item, str) and "QuantStrategyLab/" + pin.repo + ".git@" in item
-        ),
-        None,
-    )
-    if not dependency_name:
+    if not isinstance(optional, dict):
         return False
     base_dependencies = project.get("dependencies", [])
-    if isinstance(base_dependencies, list) and any(
-        isinstance(item, str) and item.split("@", 1)[0].strip().lower() == dependency_name
-        for item in base_dependencies
-    ):
-        return False
+    for extra_name in ("ai", "research"):
+        requirements = optional.get(extra_name)
+        if not isinstance(requirements, list):
+            continue
+        dependency_name = next(
+            (
+                str(item).split("@", 1)[0].strip().lower()
+                for item in requirements
+                if isinstance(item, str) and "QuantStrategyLab/" + pin.repo + ".git@" in item
+            ),
+            None,
+        )
+        if not dependency_name:
+            continue
+        if isinstance(base_dependencies, list) and any(
+            isinstance(item, str) and item.split("@", 1)[0].strip().lower() == dependency_name
+            for item in base_dependencies
+        ):
+            continue
+        if _lock_proves_optional_git_dependency(
+            lock=lock, dependency_name=dependency_name, extra_name=extra_name, pin=pin
+        ):
+            return True
+    return False
+
+
+def _lock_proves_optional_git_dependency(
+    *, lock: dict[str, Any], dependency_name: str, extra_name: str, pin: GitRef
+) -> bool:
     packages = lock.get("package")
     if not isinstance(packages, list):
         return False
@@ -357,17 +370,59 @@ def _is_research_extra_only_dependency(repo_root: Path, pin: GitRef) -> bool:
     requires_dist = metadata.get("requires-dist") if isinstance(metadata, dict) else None
     if not isinstance(requires_dist, list):
         return False
-    for requirement in requires_dist:
-        if not isinstance(requirement, dict):
-            continue
-        if str(requirement.get("name", "")).lower() != dependency_name:
-            continue
+    matching = [
+        requirement
+        for requirement in requires_dist
+        if isinstance(requirement, dict)
+        and str(requirement.get("name", "")).lower() == dependency_name
+    ]
+    if not matching:
+        return False
+    for requirement in matching:
         marker = str(requirement.get("marker", "")).strip()
-        research_marker = bool(re.fullmatch(r"\(?\s*extra\s*==\s*(['\"])research\1\s*\)?", marker))
+        extra_marker = bool(
+            re.fullmatch(rf"\(?\s*extra\s*==\s*(['\"]){re.escape(extra_name)}\1\s*\)?", marker)
+        )
         git = str(requirement.get("git", ""))
-        if research_marker and f"QuantStrategyLab/{pin.repo}.git" in git:
-            return True
-    return False
+        if not extra_marker or f"QuantStrategyLab/{pin.repo}.git" not in git:
+            return False
+    return True
+
+
+_MIRROR_REQUIREMENT_RE = re.compile(
+    r"[A-Za-z0-9_.-]+\s+@\s+git\+https://github\.com/QuantStrategyLab/"
+    r"[A-Za-z0-9_.-]+\.git@[0-9a-f]{40}"
+)
+
+
+def _mirror_entries(path: Path, issues: list[str]) -> list[str]:
+    entries: list[str] = []
+    for index, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if not _MIRROR_REQUIREMENT_RE.fullmatch(line):
+            issues.append(f"invalid qsl pin mirror entry in {path.name}:{index}")
+            continue
+        entries.append(line)
+    return entries
+
+
+def _validate_live_constraint_mirror(
+    *, repo_root: Path, constraint_path: Path, known_repos: set[str], issues: list[str]
+) -> bool:
+    pins_path = repo_root / "qsl-pins.txt"
+    if not pins_path.exists():
+        return False
+    constraint_entries = _mirror_entries(constraint_path, issues)
+    pin_entries = _mirror_entries(pins_path, issues)
+    for entry in constraint_entries + pin_entries:
+        match = re.search(r"QuantStrategyLab/([^/]+)\.git@", entry)
+        if match and match.group(1) not in known_repos:
+            issues.append(f"unmanaged qsl pin mirror entry in {constraint_path.name}: {match.group(1)}")
+    if constraint_entries != pin_entries:
+        issues.append(f"qsl pin mirror mismatch: {constraint_path.name} vs {pins_path.name}")
+    return True
 
 
 def _extract_git_refs(path: Path) -> list[GitRef]:
@@ -535,8 +590,18 @@ def _check_current(
     lock_path = repo_root / "uv.lock"
     lock_refs = _extract_git_refs(lock_path)
     actual_refs = manifest_refs + lock_refs
+    mirror_files: set[Path] = set()
     for path in legacy_files:
         refs = _extract_git_refs(repo_root / path)
+        if repo_root.name == "QuantPlatformKit" and path.name in live_constraint_files and _validate_live_constraint_mirror(
+            repo_root=repo_root,
+            constraint_path=repo_root / path,
+            known_repos=managed_repos,
+            issues=issues,
+        ):
+            mirror_files.add(path)
+        if path in mirror_files:
+            continue
         if path.name in live_constraint_files:
             actual_refs.extend(refs)
         elif qsl_cfg["allow_legacy"]:

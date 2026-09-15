@@ -7,7 +7,7 @@ management.
 
 - `compat/bundles/*.toml` is the source of truth for internal repository commit pins.
 - Each consumer repository declares its bundle in `qsl.toml`.
-- Consumer files (`pyproject.toml`, `uv.lock`, `requirements.txt`, `constraints.txt`) must match the declared bundle.
+- Consumer installation files (`pyproject.toml`, `uv.lock`, and actual legacy requirements) must match the declared bundle. A `live_constraint_files` entry such as `constraints.txt` is treated as pin metadata only when it is an exact source/full-SHA mirror of the same repository's `qsl-pins.txt`; malformed or mismatched mirrors fail validation.
 - `internal_dependency_matrix.json` is generated from local consumer dependency files; do not hand-edit it except for emergency repair.
 
 ## CLI
@@ -36,7 +36,7 @@ python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/P
 
 - `qslctl report` is read-only. It groups the current workspace by ring, status, and bundle hotspot.
 - `qslctl plan` is read-only. It renders the ring-by-ring convergence order and highlights which repos should be fixed before the next ring starts.
-- Both commands default to `--scope frozen`, preserving exact bundle ref checks. `--scope current` checks each consumer's `qsl.requires` against its manifests, locks, and applicable legacy constraints; `CONSISTENT` then means current declaration consistency only. Different valid full SHAs across consumers do not alone require `HUMAN_REQUIRED`, while actual issues, missing repositories, and invalid configuration still do.
+- Both commands default to `--scope frozen`, preserving exact bundle ref checks. `--scope current` checks each consumer's `qsl.requires` against its manifests, locks, and actual legacy dependencies; a `live_constraint_files` mirror is checked against `qsl-pins.txt` for metadata integrity without becoming an install dependency. `CONSISTENT` then means current declaration consistency only. Different valid full SHAs across consumers do not alone require `HUMAN_REQUIRED`, while actual issues, missing repositories, and invalid configuration still do.
 - Use `report` to answer “what is broken right now?” and `plan` to answer “what should we fix first?”
 
 ## QSL exception lifecycle check

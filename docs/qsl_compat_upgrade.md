@@ -17,7 +17,7 @@ This repository defines the QSL central compatibility manifest and its upgrade p
     - 禁止短 SHA
     - 禁止 `requirements.txt` / `constraints.txt`（未设置 `allow_legacy=true` 时）
     - 内部依赖 Ref 是否与 `compat/bundles/<bundle>.toml` 一致
-  - `--scope current` 按 consumer 自己声明的 `qsl.requires`，核对 `pyproject.toml`、`uv.lock` 和适用 legacy 文件中的受管 git refs；仍拒绝缺声明、短 SHA、`main`、manifest/lock 冲突、unmanaged source 和禁止依赖方向，但不把 bundle 差异当作 current 一致性结论。
+  - `--scope current` 按 consumer 自己声明的 `qsl.requires`，核对 `pyproject.toml`、`uv.lock` 和适用 legacy 文件中的受管 git refs；标记为 `live_constraint_files` 的 legacy 文件只有在与同仓 `qsl-pins.txt` 逐条 exact mirror（来源与完整 SHA 均正确）时才作为 pin metadata，不作为安装依赖。镜像缺失、格式错误或不一致仍失败；其他 legacy 文件仍按实际依赖检查。仍拒绝缺声明、短 SHA、`main`、manifest/lock 冲突、unmanaged source 和禁止依赖方向，但不把 bundle 差异当作 current 一致性结论。
 - `scripts/render_qsl_dependency_graph.py`
   - 输出当前仓库的 QSL 依赖图（Markdown / Text）。
 

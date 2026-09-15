@@ -204,9 +204,12 @@ jobs:
           set -euo pipefail
           marker="${RUNNER_TEMP}/qsl-aiauditbridge-identity-created"
           if [ -f "$marker" ]; then
-            destination="$(cat "$marker")"
-            case "$destination" in
-              "${GITHUB_WORKSPACE}/../AIAuditBridge") rm -rf "$destination" "$marker" ;;
-              *) echo "refusing to clean unexpected dependency identity path: $destination" >&2; exit 1 ;;
-            esac
+            destination="$(realpath -m "$(cat "$marker")")"
+            expected="$(realpath -m "${GITHUB_WORKSPACE}/../AIAuditBridge")"
+            if [ "$destination" = "$expected" ]; then
+              rm -rf "$destination" "$marker"
+            else
+              echo "refusing to clean unexpected dependency identity path: $destination" >&2
+              exit 1
+            fi
           fi
