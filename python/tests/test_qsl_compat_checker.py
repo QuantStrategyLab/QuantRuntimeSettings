@@ -96,7 +96,11 @@ class QSLCompatCheckerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             compat_root = Path(workspace)
             self._write_repo_tiers(compat_root)
-            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_bundle(
+                compat_root,
+                "2026.07.2",
+                {"QuantPlatformKit": "a" * 40, "UsEquityStrategies": "b" * 40},
+            )
             repo_root = self._make_repo_root(
                 qsl_toml=(
                     'tier = "ops/tooling"\n'
@@ -169,7 +173,11 @@ class QSLCompatCheckerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as workspace:
             compat_root = Path(workspace)
             self._write_repo_tiers(compat_root)
-            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            self._write_bundle(
+                compat_root,
+                "2026.07.2",
+                {"QuantPlatformKit": "a" * 40, "UsEquityStrategies": "b" * 40},
+            )
             repo_root = self._make_repo_root(
                 qsl_toml=(
                     'tier = "ops/tooling"\nupgrade_ring = "ring_e"\n[compat]\n'
@@ -188,8 +196,93 @@ class QSLCompatCheckerTest(unittest.TestCase):
             self.assertFalse(ok)
             self.assertTrue(any("current lock missing direct dependency" in issue for issue in issues))
 
-    def test_current_allows_research_only_ops_dependency_but_base_dependency_is_blocked(self):
-        def run(base_dependency: bool, marker: str = "extra == 'research'"):
+    def test_current_treats_exact_qpk_constraint_mirror_as_pin_metadata(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(
+                compat_root,
+                "2026.07.2",
+                {"QuantPlatformKit": "a" * 40, "UsEquityStrategies": "b" * 40},
+            )
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "core"\nupgrade_ring = "ring_a"\nallow_legacy = true\n'
+                    'legacy_reason = "qsl-pins mirror"\n[compat]\nbundle = "2026.07.2"\n'
+                    'live_constraint_files = ["constraints.txt"]\n'
+                ),
+                pyproject="",
+            )
+            repo_root = repo_root.rename(Path(workspace) / "QuantPlatformKit")
+            entries = (
+                "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@" + "a" * 40,
+                "us-equity-strategies @ git+https://github.com/QuantStrategyLab/UsEquityStrategies.git@" + "b" * 40,
+            )
+            (repo_root / "qsl-pins.txt").write_text("# source\n" + "\n".join(entries) + "\n", encoding="utf-8")
+            (repo_root / "constraints.txt").write_text("# mirror\n" + "\n".join(entries) + "\n", encoding="utf-8")
+            ok, issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope="current"
+            )
+            self.assertTrue(ok, issues)
+
+            strategy_root = Path(workspace) / "CnEquityStrategies"
+            strategy_root.mkdir()
+            for name in ("qsl.toml", "pyproject.toml", "qsl-pins.txt", "constraints.txt"):
+                (strategy_root / name).write_text((repo_root / name).read_text(encoding="utf-8"), encoding="utf-8")
+            blocked, strategy_issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=strategy_root, compat_root=compat_root, scope="current"
+            )
+            self.assertFalse(blocked)
+            self.assertTrue(any("missing current qsl.requires declaration" in issue for issue in strategy_issues))
+
+    def test_current_rejects_invalid_or_mismatched_qpk_constraint_mirror(self):
+        with tempfile.TemporaryDirectory() as workspace:
+            compat_root = Path(workspace)
+            self._write_repo_tiers(compat_root)
+            self._write_bundle(compat_root, "2026.07.2", {"QuantPlatformKit": "a" * 40})
+            repo_root = self._make_repo_root(
+                qsl_toml=(
+                    'tier = "core"\nupgrade_ring = "ring_a"\nallow_legacy = true\n'
+                    '[compat]\nbundle = "2026.07.2"\nlive_constraint_files = ["constraints.txt"]\n'
+                ),
+                pyproject="",
+            )
+            repo_root = repo_root.rename(Path(workspace) / "QuantPlatformKit")
+            (repo_root / "qsl-pins.txt").write_text(
+                "quant-platform-kit @ git+https://github.com/QuantStrategyLab/QuantPlatformKit.git@" + "a" * 40 + "\n",
+                encoding="utf-8",
+            )
+            (repo_root / "constraints.txt").write_text(
+                "quant-platform-kit @ https://example.com/QuantPlatformKit.git@main\n", encoding="utf-8"
+            )
+            ok, issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope="current"
+            )
+            self.assertFalse(ok)
+            self.assertTrue(any("invalid qsl pin mirror entry" in issue for issue in issues))
+            self.assertTrue(any("qsl pin mirror mismatch" in issue for issue in issues))
+
+            (repo_root / "qsl-pins.txt").write_text(
+                "unknown @ git+https://github.com/QuantStrategyLab/UnknownRepo.git@" + "c" * 40 + "\n",
+                encoding="utf-8",
+            )
+            (repo_root / "constraints.txt").write_text(
+                "unknown @ git+https://github.com/QuantStrategyLab/UnknownRepo.git@" + "c" * 40 + "\n",
+                encoding="utf-8",
+            )
+            ok, issues, _warnings, _notes = check_qsl_compat._check(
+                repo_root=repo_root, compat_root=compat_root, scope="current"
+            )
+            self.assertFalse(ok)
+            self.assertTrue(any("unmanaged qsl pin mirror entry" in issue for issue in issues))
+
+    def test_current_allows_approved_optional_ops_dependency_but_base_dependency_is_blocked(self):
+        def run(
+            base_dependency: bool,
+            marker: str = "extra == 'research'",
+            extra_name: str = "research",
+            duplicate_marker: str | None = None,
+        ):
             with tempfile.TemporaryDirectory() as workspace:
                 root = Path(workspace)
                 compat_root = root / "QuantRuntimeSettings"
@@ -213,13 +306,15 @@ class QSLCompatCheckerTest(unittest.TestCase):
                 deps = (base + ',') if base else ''
                 (repo_root / "pyproject.toml").write_text(
                     '[project]\nname = "consumer"\ndependencies = [' + deps + ']\n'
-                    '[project.optional-dependencies]\nresearch = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/'
+                    '[project.optional-dependencies]\n' + extra_name + ' = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/'
                     + "AIAuditBridge.git@" + ref + '"]\n', encoding="utf-8"
                 )
+                lock_requires = '{ name = "ai-gateway-client", marker = "' + marker + '", git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev=' + ref + '" }'
+                if duplicate_marker is not None:
+                    lock_requires += ', { name = "ai-gateway-client", marker = "' + duplicate_marker + '", git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev=' + ref + '" }'
                 (repo_root / "uv.lock").write_text(
                     'version = 1\n[[package]]\nname = "consumer"\nsource = { editable = "." }\n'
-                    '[package.metadata]\nrequires-dist = [{ name = "ai-gateway-client", marker = "' + marker + '", git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev='
-                    + ref + '" }]\n\n[[package]]\nname = "ai-gateway-client"\nsource = { git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev='
+                    '[package.metadata]\nrequires-dist = [' + lock_requires + ']\n\n[[package]]\nname = "ai-gateway-client"\nsource = { git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev='
                     + ref + '" }\n', encoding="utf-8"
                 )
                 return check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root, scope="current")
@@ -232,6 +327,11 @@ class QSLCompatCheckerTest(unittest.TestCase):
         complex_marker = run(False, "extra == 'research' or extra == 'test'")
         self.assertFalse(complex_marker[0])
         self.assertTrue(any("forbidden dependency direction" in issue for issue in complex_marker[1]))
+        ai_extra = run(False, "extra == 'ai'", "ai")
+        self.assertTrue(ai_extra[0], ai_extra[1])
+        duplicate_marker = run(False, duplicate_marker="extra == 'research' or extra == 'test'")
+        self.assertFalse(duplicate_marker[0])
+        self.assertTrue(any("forbidden dependency direction" in issue for issue in duplicate_marker[1]))
 
     def test_frozen_scope_keeps_historical_2026090_b13_mismatch_blocked(self):
         with tempfile.TemporaryDirectory() as workspace:

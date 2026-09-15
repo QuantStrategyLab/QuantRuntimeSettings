@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 import tempfile
 import importlib.util
+import os
+import re
+import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 
@@ -32,6 +36,55 @@ class QslExceptionLifecycleWorkflowTest(unittest.TestCase):
         self.assertIn('git -C "$workspace/$repo" checkout --detach origin/main', workflow)
         self.assertIn('git -C "$workspace/$repo" rev-parse HEAD', workflow)
         self.assertIn('if report["strict_repositories"] or report["warning_repositories"]:', workflow)
+        self.assertIn('destination="$(realpath -m "$(cat "$marker")")"', workflow)
+        self.assertIn('expected="$(realpath -m "${GITHUB_WORKSPACE}/../AIAuditBridge")"', workflow)
+
+    def test_cleanup_shell_normalizes_resolved_identity_marker_path(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "runner" / "work" / "QRT"
+            identity = root / "runner" / "work" / "AIAuditBridge"
+            workspace.mkdir(parents=True)
+            identity.mkdir()
+            workflow = (ROOT / ".github/workflows/qsl_exception_lifecycle.yml").read_text(encoding="utf-8")
+            match = re.search(
+                r"- name: Clean up research dependency identity\n"
+                r"\s+if: always\(\)\n\s+run: \|\n((?:\s{10}.*\n)+)",
+                workflow,
+            )
+            self.assertIsNotNone(match)
+            script = textwrap.dedent(match.group(1))
+            # macOS ships a realpath without GNU's -m; provide the same tiny
+            # command surface locally while exercising the workflow shell.
+            bin_dir = root / "bin"
+            bin_dir.mkdir()
+            (bin_dir / "realpath").write_text(
+                "#!/usr/bin/env python3\n"
+                "import os, sys\n"
+                "args = sys.argv[1:]\n"
+                "if args and args[0] == '-m': args = args[1:]\n"
+                "print(os.path.abspath(os.path.normpath(args[0])))\n",
+                encoding="utf-8",
+            )
+            (bin_dir / "realpath").chmod(0o755)
+            env = {
+                "RUNNER_TEMP": str(root / "runner"),
+                "GITHUB_WORKSPACE": str(workspace.resolve()),
+                "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}",
+            }
+            marker = root / "runner" / "qsl-aiauditbridge-identity-created"
+            marker.write_text(str(identity.resolve()), encoding="utf-8")
+            subprocess.run(["bash", "-c", script], check=True, env=env, capture_output=True, text=True)
+            self.assertFalse(identity.exists())
+            self.assertFalse(marker.exists())
+
+            unexpected = root / "runner" / "unexpected-AIAuditBridge"
+            unexpected.mkdir()
+            marker.write_text(str(unexpected.resolve()), encoding="utf-8")
+            result = subprocess.run(["bash", "-c", script], check=False, env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertTrue(unexpected.exists())
+            self.assertTrue(marker.exists())
 
     def test_workflow_layout_current_checks_four_consumers_and_keeps_direction_fail_closed(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
