@@ -190,7 +190,7 @@ const EXECUTION_EVIDENCE_ENVIRONMENTS = ["shadow", "paper", "live"];
 const EXECUTION_EVIDENCE_CAPABILITIES = ["available", "unavailable", "unknown"];
 const EXECUTION_EVIDENCE_STATUSES = ["verified", "pending", "unavailable", "not_applicable"];
 const EXECUTION_RECEIPT_OUTCOMES = [
-  "not_due", "no_action", "risk_blocked", "submitted", "broker_acknowledged", "partially_filled", "filled", "reconciliation_required", "failed",
+  "not_due", "no_action", "no_signal", "no_rebalance", "risk_blocked", "submitted", "broker_acknowledged", "partially_filled", "filled", "reconciliation_required", "failed",
 ];
 const EXECUTION_RECEIPT_CONFIRMATIONS = [
   "not_applicable", "not_observed", "acknowledged", "partially_filled", "filled", "reconciliation_required",
@@ -7770,7 +7770,7 @@ function normalizeExecutionEvidenceDeployment(value, fieldName) {
   if (executionReceipt !== null) {
     const expectedExecutionStatus = ["failed", "reconciliation_required"].includes(executionReceipt.outcome)
       ? "unavailable"
-      : "verified";
+      : (["no_signal", "no_rebalance"].includes(executionReceipt.outcome) ? "not_applicable" : "verified");
     if (normalized.evidence.target_execution !== expectedExecutionStatus) {
       throw new Error(`${fieldName}.execution_receipt does not match target_execution evidence`);
     }
@@ -7790,6 +7790,8 @@ function normalizeExecutionEvidenceReceipt(value, fieldName) {
   const allowedConfirmations = {
     not_due: ["not_applicable"],
     no_action: ["not_applicable"],
+    no_signal: ["not_applicable"],
+    no_rebalance: ["not_applicable"],
     risk_blocked: ["not_applicable"],
     submitted: ["not_observed"],
     broker_acknowledged: ["acknowledged"],

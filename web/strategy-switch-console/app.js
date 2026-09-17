@@ -114,9 +114,9 @@
         overviewNav: "运行总览",
         accountsNav: "账户管理",
         researchNav: "研究与确认",
-        overviewDescription: "查看已保存的配置、实际读回与最近运行记录。",
-        accountsDescription: "先查看当前账户状态，需要调整时再展开设置。",
-        researchDescription: "查看候选与待办，按需展开研究记录。",
+        overviewDescription: "先看有没有必须你确认的事，再扫账户是否异常；改配置放到账户管理。",
+        accountsDescription: "先看读回状态；要改开关或策略时再展开设置。提交只记意图，不等于成交。",
+        researchDescription: "只处理有材料的候选与晋级确认；接受意图不等于实盘授权。",
         accountsTitle: "账户",
         accountFilters: "筛选账户",
         filterAll: "全部",
@@ -750,9 +750,9 @@
         overviewNav: "Overview",
         accountsNav: "Accounts",
         researchNav: "Research & decisions",
-        overviewDescription: "Saved settings, actual readback, and recent runtime records.",
-        accountsDescription: "Review the account first. Expand settings when you need to make a change.",
-        researchDescription: "Review candidates and decisions. Open research records as needed.",
+        overviewDescription: "Check decisions first, then scan account anomalies. Change settings under Accounts.",
+        accountsDescription: "Review readback first. Expand settings only when changing. Submit records intent, not a fill.",
+        researchDescription: "Handle candidates with complete material only. Accepting intent is not live authority.",
         accountsTitle: "Accounts",
         accountFilters: "Filter accounts",
         filterAll: "All",
@@ -1412,7 +1412,6 @@
 
     const state = {
       view: "overview",
-      researchInternalView: "monitoring",
       overviewFilter: "all",
       overviewSearch: "",
       lastRefreshAt: null,
@@ -6421,14 +6420,7 @@
       el("platform-strip-label").hidden = view !== "accounts";
       el("platform-strip-label").textContent = t("activePlatform");
       el("health-view").hidden = view !== "research";
-      document.querySelectorAll?.("[data-research-panel]")?.forEach((panel) => {
-        panel.hidden = panel.dataset.researchPanel !== state.researchInternalView;
-      });
-      document.querySelectorAll?.("[data-research-internal-view]")?.forEach((button) => {
-        const active = button.dataset.researchInternalView === state.researchInternalView;
-        button.classList?.toggle("active", active);
-        button.setAttribute?.("aria-selected", String(active));
-      });
+      el("monitoring-diagnostics").hidden = view !== "research";
       el("workspace-title").textContent = t(`${view}Nav`);
       el("workspace-description").textContent = t(`${view}Description`);
       document.querySelector(".workspace-nav").hidden = !state.appReady || !state.auth.allowed;
@@ -7102,9 +7094,23 @@
 ");
     }
 
+    function refreshResearchWorkspace() {
+      return Promise.allSettled([
+        refreshHealth(),
+        refreshReconciliationRecovery(),
+        refreshM0Research(),
+        refreshAdaptiveSelection(),
+        refreshExecutionEvidence(),
+        refreshResearchTasks(),
+        refreshResearchPromotionTickets(),
+        refreshRuntimeTargetLifecycle(),
+      ]);
+    }
+
     document.querySelectorAll("[data-workspace]").forEach(button => button.addEventListener("click", () => {
       state.view = button.dataset.workspace;
       render();
+      if (state.view === "research") void refreshResearchWorkspace();
       el("workspace-title").focus({ preventScroll: true });
       window.scrollTo({ top: 0 });
     }));
@@ -7124,22 +7130,6 @@
       renderOverview();
       el("overview-search").focus();
     });
-    document.querySelectorAll("[data-research-internal-view]").forEach((button) => button.addEventListener("click", () => {
-      state.researchInternalView = button.dataset.researchInternalView === "research" ? "research" : "monitoring";
-      renderWorkspace();
-      if (state.researchInternalView === "research") {
-        refreshHealth();
-        refreshReconciliationRecovery();
-        refreshM0Research();
-        refreshAdaptiveSelection();
-        refreshExecutionEvidence();
-        refreshResearchTasks();
-        refreshResearchPromotionTickets();
-      } else {
-        refreshRuntimeTargetLifecycle();
-      }
-    }));
-
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
       document.querySelectorAll("[data-health-filter]").forEach((node) => node.classList.remove("active"));
       button.classList.add("active");

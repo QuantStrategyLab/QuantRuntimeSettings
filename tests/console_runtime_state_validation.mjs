@@ -333,14 +333,18 @@ test('buildInputs keeps untouched policy layers current and serializes only touc
   assert.equal(touched.min_reserved_cash_usd, '100');
 });
 
-test('account settings copy removes guesswork and keeps the two research views', () => {
+test('account settings copy removes guesswork and prioritizes research candidates', () => {
   const html = readFileSync(new URL('../web/strategy-switch-console/index.html', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
   assert.ok(html.includes('id="mode-display"'));
   assert.ok(html.includes('id="execution-mode-select"'));
   assert.equal(html.includes('data-mode="live"'), false);
-  assert.ok(html.includes('data-research-internal-view="monitoring"'));
-  assert.ok(html.includes('data-research-internal-view="research"'));
+  assert.equal(html.includes('research-internal-tabs'), false);
+  assert.equal(html.includes('data-research-internal-view'), false);
+  assert.ok(html.includes('id="monitoring-diagnostics" hidden'));
+  assert.ok(html.indexOf('id="promotion-decision-panel"') < html.indexOf('id="monitoring-diagnostics"'));
+  assert.equal(app.includes('researchInternalView'), false);
+  assert.ok(app.includes('if (state.view === "research") void refreshResearchWorkspace()'));
   assert.equal(html.includes('需要启停或调整策略时展开'), false);
   assert.equal(html.includes('插件、收入层和期权的选择不授予运行许可'), false);
   assert.equal(app.includes('target {target} · service {service} · market {domains}'), false);
@@ -750,7 +754,7 @@ test('account details keep saved, deployed and application state separate', () =
   const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
   assert.ok(html.includes('data-i18n="overviewRuntime"'));
   assert.ok(html.includes('data-i18n="latestReadback"'));
-  assert.ok(html.indexOf('data-research-internal-view="monitoring"') < html.indexOf('id="promotion-decision-panel"'));
+  assert.ok(html.indexOf('id="promotion-decision-panel"') < html.indexOf('id="monitoring-diagnostics"'));
   assert.ok(html.includes('class="account-facts"'));
   assert.ok(app.includes('["deployedSwitch", accountDeploymentText(platform, account)]'));
   assert.ok(app.includes('["applicationStatus", application]'));

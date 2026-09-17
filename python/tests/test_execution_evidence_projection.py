@@ -52,6 +52,8 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
             "filled": "filled",
             "failed": "not_observed",
             "reconciliation_required": "reconciliation_required",
+            "no_signal": "not_applicable",
+            "no_rebalance": "not_applicable",
         }[outcome]
         observed_at = "2026-08-25T16:00:00Z"
         return {
@@ -142,6 +144,27 @@ class ExecutionEvidenceProjectionTest(unittest.TestCase):
         serialized = json.dumps(snapshot, sort_keys=True)
         for forbidden in ("receipt_id", "must-not-be-projected", "account_ids", "api_token", "gs://"):
             self.assertNotIn(forbidden, serialized)
+
+    def test_accepts_non_action_receipts_without_granting_execution_authority(self):
+        for outcome in ("no_signal", "no_rebalance"):
+            with self.subTest(outcome=outcome):
+                report = self._report()
+                report["execution_receipt"] = self._execution_receipt(outcome=outcome)
+
+                snapshot = projection.build_execution_evidence_source_snapshot(
+                    [report],
+                    source_id="runtime-reports",
+                    now=datetime(2026, 8, 25, 16, 5, tzinfo=UTC),
+                )
+
+                deployment = snapshot["deployments"][0]
+                self.assertEqual(deployment["evidence"]["target_execution"], "not_applicable")
+                self.assertEqual(deployment["recommendation"], {
+                    "code": "parked",
+                    "reason_code": "target_execution_receipt_observed",
+                })
+                self.assertEqual(deployment["execution_receipt"]["outcome"], outcome)
+                self.assertEqual(deployment["execution_receipt"]["broker_confirmation"], "not_applicable")
 
     def test_rejects_a_tampered_execution_receipt_without_claiming_execution(self):
         report = self._report()
