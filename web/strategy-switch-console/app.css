@@ -3575,8 +3575,7 @@
 /* Keep controls aligned without centering the page copy. */
 .operator-console .btn,
 .operator-console .run-button,
-.operator-console .mode button,
-.operator-console .research-internal-tab {
+.operator-console .mode button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3630,30 +3629,6 @@
 
 @keyframes diagnosis-spin {
   to { transform: rotate(360deg); }
-}
-
-.operator-console .research-internal-tabs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px;
-  border-bottom: 1px solid var(--line);
-}
-
-.operator-console .research-internal-tab {
-  min-height: 36px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.operator-console .research-internal-tab.active {
-  background: var(--ink);
-  color: #fff;
 }
 
 .operator-console .mode-unread {
