@@ -1412,7 +1412,6 @@
 
     const state = {
       view: "overview",
-      researchInternalView: "monitoring",
       overviewFilter: "all",
       overviewSearch: "",
       lastRefreshAt: null,
@@ -6421,14 +6420,7 @@
       el("platform-strip-label").hidden = view !== "accounts";
       el("platform-strip-label").textContent = t("activePlatform");
       el("health-view").hidden = view !== "research";
-      document.querySelectorAll?.("[data-research-panel]")?.forEach((panel) => {
-        panel.hidden = panel.dataset.researchPanel !== state.researchInternalView;
-      });
-      document.querySelectorAll?.("[data-research-internal-view]")?.forEach((button) => {
-        const active = button.dataset.researchInternalView === state.researchInternalView;
-        button.classList?.toggle("active", active);
-        button.setAttribute?.("aria-selected", String(active));
-      });
+      el("monitoring-diagnostics").hidden = view !== "research";
       el("workspace-title").textContent = t(`${view}Nav`);
       el("workspace-description").textContent = t(`${view}Description`);
       document.querySelector(".workspace-nav").hidden = !state.appReady || !state.auth.allowed;
@@ -7102,9 +7094,23 @@
 ");
     }
 
+    function refreshResearchWorkspace() {
+      return Promise.allSettled([
+        refreshHealth(),
+        refreshReconciliationRecovery(),
+        refreshM0Research(),
+        refreshAdaptiveSelection(),
+        refreshExecutionEvidence(),
+        refreshResearchTasks(),
+        refreshResearchPromotionTickets(),
+        refreshRuntimeTargetLifecycle(),
+      ]);
+    }
+
     document.querySelectorAll("[data-workspace]").forEach(button => button.addEventListener("click", () => {
       state.view = button.dataset.workspace;
       render();
+      if (state.view === "research") void refreshResearchWorkspace();
       el("workspace-title").focus({ preventScroll: true });
       window.scrollTo({ top: 0 });
     }));
@@ -7124,22 +7130,6 @@
       renderOverview();
       el("overview-search").focus();
     });
-    document.querySelectorAll("[data-research-internal-view]").forEach((button) => button.addEventListener("click", () => {
-      state.researchInternalView = button.dataset.researchInternalView === "research" ? "research" : "monitoring";
-      renderWorkspace();
-      if (state.researchInternalView === "research") {
-        refreshHealth();
-        refreshReconciliationRecovery();
-        refreshM0Research();
-        refreshAdaptiveSelection();
-        refreshExecutionEvidence();
-        refreshResearchTasks();
-        refreshResearchPromotionTickets();
-      } else {
-        refreshRuntimeTargetLifecycle();
-      }
-    }));
-
     document.querySelectorAll("[data-health-filter]").forEach((button) => button.addEventListener("click", () => {
       document.querySelectorAll("[data-health-filter]").forEach((node) => node.classList.remove("active"));
       button.classList.add("active");

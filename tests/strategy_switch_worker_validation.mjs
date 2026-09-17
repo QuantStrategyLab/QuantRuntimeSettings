@@ -3446,6 +3446,56 @@ assert.deepEqual(receiptDeployment.deployment.execution_receipt, {
   observed_at: executionReceiptObservedAt,
 });
 
+for (const outcome of ["no_signal", "no_rebalance"]) {
+  const nonActionPayload = {
+    ...executionReceiptEvidenceSourcePayload,
+    source_id: `longbridge.execution_receipt.${outcome}`,
+    deployments: [{
+      ...executionReceiptEvidenceSourcePayload.deployments[0],
+      deployment_id: `soxl_soxx_trend_income.${outcome}.longbridge.paper`,
+      strategy: {
+        ...executionReceiptEvidenceSourcePayload.deployments[0].strategy,
+        candidate_id: `soxl_soxx_trend_income.${outcome}`,
+      },
+      evidence: {
+        ...executionReceiptEvidenceSourcePayload.deployments[0].evidence,
+        target_execution: "not_applicable",
+      },
+      execution_receipt: {
+        outcome,
+        broker_confirmation: "not_applicable",
+        observed_at: executionReceiptObservedAt,
+      },
+    }],
+  };
+  const syncResponse = await worker.fetch(
+    new Request("https://switch.example/api/internal/sync-execution-evidence-source", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${executionEvidenceSyncValue}`, "Content-Type": "application/json" },
+      body: JSON.stringify(nonActionPayload),
+    }),
+    executionEvidenceEnv,
+  );
+  assert.equal(syncResponse.status, 200);
+}
+const nonActionEvidenceRead = await worker.fetch(
+  new Request("https://switch.example/api/execution-evidence", { headers: executionEvidenceCookieHeaders }),
+  executionEvidenceEnv,
+);
+const nonActionEvidencePayload = await nonActionEvidenceRead.json();
+for (const outcome of ["no_signal", "no_rebalance"]) {
+  const deployment = nonActionEvidencePayload.deployments.find(
+    (entry) => entry.deployment.deployment_id === `soxl_soxx_trend_income.${outcome}.longbridge.paper`,
+  );
+  assert.equal(deployment.deployment.evidence.target_execution, "not_applicable");
+  assert.equal(deployment.deployment.recommendation.code, "parked");
+  assert.deepEqual(deployment.deployment.execution_receipt, {
+    outcome,
+    broker_confirmation: "not_applicable",
+    observed_at: executionReceiptObservedAt,
+  });
+}
+
 const runtimeTargetLifecycleSourcePayload = {
   schema_version: "qsl_runtime_target_lifecycle_source_snapshot.v1",
   source_id: "longbridge.sg",

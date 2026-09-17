@@ -50,6 +50,8 @@ _EXECUTION_RECEIPT_OUTCOMES = frozenset(
     {
         "not_due",
         "no_action",
+        "no_signal",
+        "no_rebalance",
         "risk_blocked",
         "submitted",
         "broker_acknowledged",
@@ -72,6 +74,8 @@ _EXECUTION_RECEIPT_CONFIRMATIONS = frozenset(
 _EXECUTION_RECEIPT_OUTCOME_CONFIRMATIONS = {
     "not_due": frozenset({"not_applicable"}),
     "no_action": frozenset({"not_applicable"}),
+    "no_signal": frozenset({"not_applicable"}),
+    "no_rebalance": frozenset({"not_applicable"}),
     "risk_blocked": frozenset({"not_applicable"}),
     "submitted": frozenset({"not_observed"}),
     "broker_acknowledged": frozenset({"acknowledged"}),
@@ -298,6 +302,8 @@ def _execution_evidence_from_receipt(
     if receipt is None:
         return "pending", "target_execution_evidence_missing"
     outcome = receipt["outcome"]
+    if outcome in {"no_signal", "no_rebalance"}:
+        return "not_applicable", "target_execution_receipt_observed"
     if outcome == "reconciliation_required":
         return "unavailable", "target_execution_reconciliation_required"
     if outcome == "failed":
