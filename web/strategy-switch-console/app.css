@@ -16,8 +16,8 @@
       --qmt: #b45309;
       --bn: #f0b90b;
       font-family:
-        Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
-        "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+        "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", ui-sans-serif,
+        system-ui, sans-serif;
     }
 
     * {
@@ -3328,7 +3328,22 @@
 /* Daily workspace: overview first, account changes and research in separate views. */
 .operator-console.console-clarity {
   --ink: #172d35; --muted: #667680; --accent: #10766a; --accent-soft: #e9f4f2; --line: #dfe6ea;
-  background: #f6f7f9; color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: #f6f7f9; color: var(--ink);
+  font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+}
+.operator-console.console-clarity .management-heading h2,
+.operator-console.console-clarity .board-heading h3,
+.operator-console.console-clarity .decision-head h2 {
+  font-family: "Source Serif 4", "Songti SC", "Noto Serif SC", Georgia, serif;
+  font-optical-sizing: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .operator-console.console-clarity *,
+  .operator-console.console-clarity *::before,
+  .operator-console.console-clarity *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 .console-clarity .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
 .operator-console.console-clarity .topbar { position: fixed; inset: 0 auto 0 0; width: 232px; height: 100dvh; padding: 30px 16px 24px; display: flex; flex-direction: column; align-items: stretch; gap: 32px; border: 0; border-right: 1px solid var(--line); background: #fafbfc; box-shadow: none; z-index: 20; }
