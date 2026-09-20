@@ -715,7 +715,86 @@ test('only current complete recovery evidence becomes an action',()=>{
   assert.equal(access(ready),false);
   assert.equal(frontendFunction('recoveryConfirmationAvailableToCurrentUser',{recoveryNeedsOperatorAction:()=>true,state:{auth:{admin:true}}})(ready),true);
   const html=readFileSync(new URL('../web/strategy-switch-console/index.html',import.meta.url),'utf8');
-  assert.ok(html.indexOf('id="reconciliation-recovery-board"')<html.indexOf('id="health-view"'));
+  assert.match(
+    html,
+    /<section id="research-view"[^>]*>[\s\S]*?<div class="diagnostic-section" id="reconciliation-recovery-board"/,
+  );
+  assert.ok(html.indexOf('id="reconciliation-recovery-board"') > html.indexOf('id="research-view"'));
+  assert.ok(html.indexOf('id="reconciliation-recovery-board"') < html.indexOf('id="promotion-decision-panel"'));
+  assert.ok(html.indexOf('id="reconciliation-recovery-board"') < html.indexOf('id="health-view"'));
+  const overviewSlice = html.slice(html.indexOf('id="overview-view"'), html.indexOf('id="research-view"'));
+  assert.equal(overviewSlice.includes('id="reconciliation-recovery-board"'), false);
+});
+
+test('overview research link counts pending recovery confirmations', () => {
+  const context = {
+    state: {
+      auth: { allowed: true },
+      lastRefreshAt: null,
+      researchPromotion: { payload: { tickets: [] } },
+      reconciliationRecovery: {
+        payload: {
+          data_status: 'ready',
+          recoveries: [{
+            freshness: { data_status: 'ready' },
+            recovery: {
+              readiness: 'awaiting_human_confirmation',
+              blocker_codes: [],
+              candidate_sha256: 'a'.repeat(64),
+              dual_review: { evidence_binding_sha256: 'a'.repeat(64) },
+            },
+          }],
+        },
+      },
+      overview: { filter: 'all', query: '' },
+      accountOptions: {},
+      monitoring: { payload: { targets: [] } },
+    },
+    el: (() => {
+      const nodes = new Map();
+      return (id) => {
+        if (!nodes.has(id)) {
+          const node = {
+            hidden: false,
+            textContent: '',
+            classList: { toggle() {} },
+            replaceChildren() {},
+            appendChild() {},
+            querySelector() { return null; },
+            closest() { return null; },
+          };
+          nodes.set(id, node);
+        }
+        return nodes.get(id);
+      };
+    })(),
+    t: (key) => ({
+      researchPendingCount: '{count} pending',
+      pageNotRefreshed: '—',
+      filterAll: 'all',
+      overviewEmptyNoAccountsTitle: '',
+      overviewEmptyNoAccountsDescription: '',
+    }[key] || key),
+    locale: () => 'zh-CN',
+    reviewablePromotionTickets: () => [],
+    recoveryNeedsOperatorAction: (entry) => !entry.confirmation
+      && entry.recovery?.readiness === 'awaiting_human_confirmation'
+      && entry.freshness?.data_status === 'ready',
+    accountRows: () => [],
+    overviewCounts: () => ({ normal: 0, paused: 0, abnormal: 0 }),
+    filteredOverviewRows: () => [],
+    renderOverviewRows: () => {},
+  };
+  // renderOverview depends on many helpers; assert the pending recovery count wiring directly.
+  const pendingPromotions = context.reviewablePromotionTickets(context.state.researchPromotion.payload).length;
+  const pendingRecoveries = context.state.reconciliationRecovery.payload.recoveries
+    .filter(context.recoveryNeedsOperatorAction).length;
+  assert.equal(pendingPromotions, 0);
+  assert.equal(pendingRecoveries, 1);
+  assert.equal(pendingPromotions + pendingRecoveries, 1);
+  const app = readFileSync(new URL('../web/strategy-switch-console/app.js', import.meta.url), 'utf8');
+  assert.ok(app.includes('pendingPromotions + pendingRecoveries'));
+  assert.ok(app.includes('.filter(recoveryNeedsOperatorAction).length'));
 });
 
 for (const observation of [

@@ -125,6 +125,17 @@ assert.ok(indexHtml.includes('id="reconciliation-recovery-list"'));
 assert.ok(indexHtml.includes('id="reconciliation-recovery-notice"'));
 assert.ok(indexHtml.includes('requestJson("/api/reconciliation-recovery")'));
 assert.ok(indexHtml.includes('data-reconciliation-recovery-confirm'));
+assert.match(
+  indexHtml,
+  /<section id="research-view"[^>]*>[\s\S]*?<div class="diagnostic-section" id="reconciliation-recovery-board"/,
+);
+assert.equal(
+  indexHtml.slice(
+    indexHtml.indexOf('id="overview-view"'),
+    indexHtml.indexOf('id="research-view"'),
+  ).includes('id="reconciliation-recovery-board"'),
+  false,
+);
 assert.equal(indexHtml.includes('P0_CONTROL_PLANE_NOT_RUNTIME_WIRED'), false);
 assert.equal(indexHtml.includes('window.__QSL_RUNTIME_AUTHORITY_STATUS__'), false);
 assert.equal(indexHtml.includes('execution_metadata_is_runtime_authority'), false);
