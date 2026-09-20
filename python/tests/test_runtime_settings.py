@@ -320,6 +320,20 @@ class RuntimeSettingsTest(unittest.TestCase):
             build_config.validate(config),
         )
 
+    def test_manual_writers_reject_non_main_and_do_not_claim_concurrency_complete_lock(self):
+        stop = (ROOT / ".github" / "workflows" / "manual-runtime-stop.yml").read_text(encoding="utf-8")
+        resume = (ROOT / ".github" / "workflows" / "manual-binance-resume.yml").read_text(encoding="utf-8")
+        switch = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
+
+        self.assertIn("if: github.ref == 'refs/heads/main'", stop)
+        self.assertIn("if: github.ref == 'refs/heads/main'", resume)
+        self.assertIn("stale_writer_ref_rejected", switch)
+        self.assertIn('refs/heads/main', switch)
+        for workflow in (stop, resume, switch):
+            self.assertIn("complete cross-workflow or", workflow)
+            self.assertIn("cross-repository lock", workflow)
+            self.assertIn("cancel-in-progress: false", workflow)
+
     def test_manual_switch_rejects_unsupported_sync_before_variable_write(self):
         workflow = (ROOT / ".github" / "workflows" / "manual-strategy-switch.yml").read_text(encoding="utf-8")
 

@@ -201,6 +201,73 @@ def redacted_value() -> str:
     return "<redacted>"
 
 
+PRODUCTION_WRITER_REF = "refs/heads/main"
+
+
+def production_resource_key(
+    *,
+    repository: str,
+    variable_scope: str,
+    environment: str | None,
+    name: str,
+) -> str:
+    """Stable identity for one GitHub Actions variable write destination."""
+    return f"{repository}|{variable_scope}|{environment or ''}|{name}"
+
+
+def require_production_writer_ref(ref: str | None = None) -> str:
+    """Reject writes from feature branches or other stale workflow refs.
+
+    Shared workflow concurrency only serializes known writers in this repository.
+    It is not a complete cross-workflow or cross-repository lock.
+    """
+    actual = os.environ.get("GITHUB_REF", "") if ref is None else ref
+    if actual != PRODUCTION_WRITER_REF:
+        raise ValueError("stale_writer_ref_rejected")
+    return actual
+
+
+def value_audit_token(value: str | None) -> str:
+    if value is None:
+        return "absent"
+    if value in {"true", "false"}:
+        return value
+    return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def related_run_from_env() -> str:
+    run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
+    attempt = os.environ.get("GITHUB_RUN_ATTEMPT", "").strip() or "1"
+    if not run_id:
+        return "local"
+    return f"{run_id}/{attempt}"
+
+
+def build_resource_write_audit(
+    *,
+    resource_key: str,
+    reason: str,
+    old_value: str | None,
+    new_value: str | None,
+    readback: str,
+    operator: str | None = None,
+    related_run: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "resource_key": resource_key,
+        "operator": operator or os.environ.get("GITHUB_ACTOR") or "unknown",
+        "reason": reason,
+        "related_run": related_run or related_run_from_env(),
+        "old_value": value_audit_token(old_value),
+        "new_value": value_audit_token(new_value),
+        "readback": readback,
+        "concurrency_complete_lock": False,
+        "writer_sha": os.environ.get("GITHUB_SHA") or "unknown",
+        "writer_workflow": os.environ.get("GITHUB_WORKFLOW") or "unknown",
+        "writer_ref": os.environ.get("GITHUB_REF") or "unknown",
+    }
+
+
 def assignment_payload(assignment: Assignment, *, redact_values: bool = False) -> dict[str, Any]:
     payload = {
         "target_id": assignment.target_id,
@@ -210,6 +277,12 @@ def assignment_payload(assignment: Assignment, *, redact_values: bool = False) -
         "name": assignment.name,
         "action": "delete" if assignment.deletes_variable else "set",
         "value": redacted_value() if redact_values else assignment.value,
+        "resource_key": production_resource_key(
+            repository=assignment.repository,
+            variable_scope=assignment.variable_scope,
+            environment=assignment.environment,
+            name=assignment.name,
+        ),
     }
     if redact_values:
         payload["value_redacted"] = True
@@ -1298,10 +1371,11 @@ def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
         raise ValueError("stop_source_unavailable") from None
 
 
-def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, bool]:
+def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, Any]:
     """Save a stop under the single configuration writer; no platform sync.
 
-    Workflow concurrency serializes known writers. The pre-write comparison is
+    Workflow concurrency serializes known writers in this repository. It is not a
+    complete cross-workflow or cross-repository lock. The pre-write comparison is
     a stale-read check, not an atomic CAS against external administrators.
     """
     _, _, github = _stop_request_identity(request)
@@ -1321,8 +1395,20 @@ def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, b
         owner = repository_scope
         assignment = Assignment(assignment.target_id, assignment.repository, "repository", None,
                                 assignment.name, assignment.value)
+    resource_key = production_resource_key(
+        repository=assignment.repository,
+        variable_scope=assignment.variable_scope,
+        environment=assignment.environment,
+        name=assignment.name,
+    )
     if not apply:
-        return {"configured": False, "platform_applied": False, "preview": True}
+        return {
+            "configured": False,
+            "platform_applied": False,
+            "preview": True,
+            "resource_key": resource_key,
+        }
+    require_production_writer_ref()
     # Never overwrite a source that changed after planning. No automatic retry.
     if read() != before:
         raise ValueError("stop_source_changed")
@@ -1331,6 +1417,7 @@ def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, b
     unchanged = current_value == assignment.value
     if assignment.name == inventory and current_value is not None:
         unchanged = json.loads(current_value) == json.loads(assignment.value)
+    readback = "skipped_unchanged"
     if not unchanged:
         command = ["gh", "variable", "set", assignment.name, "--repo", assignment.repository]
         if assignment.variable_scope == "environment":
@@ -1350,7 +1437,19 @@ def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, b
             raise ValueError("stop_readback_unverified") from None
         if after != tuple(expected):
             raise ValueError("stop_readback_unverified")
-    return {"configured": True, "platform_applied": False, "preview": False}
+        readback = "matched"
+    return {
+        "configured": True,
+        "platform_applied": False,
+        "preview": False,
+        "resource_write_audit": build_resource_write_audit(
+            resource_key=resource_key,
+            reason="runtime_stop",
+            old_value=current_value,
+            new_value=assignment.value,
+            readback=readback,
+        ),
+    }
 
 
 def load_stop_request() -> dict[str, Any]:
@@ -1408,9 +1507,20 @@ def command_stop(args: argparse.Namespace) -> int:
             if not args.yes:
                 raise ValueError("stop_platform_apply_requires_saved_stop")
             require_hk_stop_target(request)
-        if apply_hk_stop:
+            require_production_writer_ref()
             dispatch_hk_stop(request)
-            result = {"configured": True, "platform_applied": False, "preview": False, "platform_apply_requested": True}
+            result = {
+                "configured": True,
+                "platform_applied": False,
+                "preview": False,
+                "platform_apply_requested": True,
+                "resource_key": production_resource_key(
+                    repository=request["github"]["repository"],
+                    variable_scope=request["github"]["variable_scope"],
+                    environment=request["github"].get("environment"),
+                    name="RUNTIME_TARGET_ENABLED",
+                ),
+            }
         else:
             result = execute_stop(request, apply=args.yes)
     except (OSError, ValueError, TypeError, KeyError):
@@ -1489,6 +1599,7 @@ def command_apply(args: argparse.Namespace) -> int:
             print("Values are redacted by default; add --show-values only in a private local terminal.")
         return 0
 
+    require_production_writer_ref()
     for assignment in all_assignments:
         result = subprocess.run(
             assignment.gh_command(),

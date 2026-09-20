@@ -20,6 +20,9 @@ on:
 permissions:
   contents: read
 
+# Serialize known Binance writers in this repository with stop/switch. This is
+# not a complete cross-workflow or cross-repository lock; writers still rely on
+# pre-write comparison, readback, fail-closed checks, and main-only apply gates.
 concurrency:
   group: runtime-strategy-switch-binance
   cancel-in-progress: false

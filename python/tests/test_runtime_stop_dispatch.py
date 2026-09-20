@@ -21,11 +21,15 @@ class RuntimeStopDispatchTests(unittest.TestCase):
         fixture = fixtures.RuntimeStopTests()
         fixture.setUp()
         self.request = fixture.request
-        self.args = argparse.Namespace(yes=True, confirm="STOP_ONLY")
+        self.args = argparse.Namespace(yes=True, confirm="STOP_ONLY", apply_hk_stop=False)
+        self.enterContext(patch.dict(os.environ, {"GITHUB_REF": "refs/heads/main"}, clear=False))
 
     def command(self):
-        with patch.dict(os.environ, {"RUNTIME_STOP_REQUEST_JSON": json.dumps(self.request)}, clear=True), \
-                contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+        with patch.dict(
+            os.environ,
+            {"RUNTIME_STOP_REQUEST_JSON": json.dumps(self.request), "GITHUB_REF": "refs/heads/main"},
+            clear=True,
+        ), contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
             code = settings.command_stop(self.args)
         self.assertNotIn("synthetic", out.getvalue() + err.getvalue())
         return code, out.getvalue()

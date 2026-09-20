@@ -82,17 +82,34 @@ def main() -> None:
             "PATH": f"{temp}:{Path(sys.executable).parent}:/usr/bin:/bin",
             "HOME": directory, "PYTHONDONTWRITEBYTECODE": "1",
             "SYNTHETIC_GH_STATE": str(state), "GITHUB_EVENT_PATH": str(event),
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_ACTOR": "synthetic-operator",
+            "GITHUB_RUN_ID": "35500000099",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_SHA": "c" * 40,
+            "GITHUB_WORKFLOW": "Manual Runtime Stop",
             "APPLY_STOP": inputs["apply"], "CONFIRM_STOP": inputs["confirm"],
             "APPLY_HK_STOP": inputs.get("apply_hk_stop", "false"),
         }
         assert "GH_TOKEN" not in env and "GITHUB_TOKEN" not in env
         result = subprocess.run(["/bin/bash", "-c", shell], cwd=ROOT, env=env,
                                 capture_output=True, text=True, timeout=20)
-        assert result.returncode == 0, "synthetic workflow did not finish successfully"
-        expected = {"configured": True, "platform_applied": False, "preview": False}
+        assert result.returncode == 0, result.stderr or "synthetic workflow did not finish successfully"
+        payload = json.loads(result.stdout)
+        assert payload["configured"] is True
+        assert payload["platform_applied"] is False
+        assert payload["preview"] is False
         if hk:
-            expected["platform_apply_requested"] = True
-        assert json.loads(result.stdout) == expected
+            assert payload["platform_apply_requested"] is True
+            assert payload["resource_key"].endswith("|RUNTIME_TARGET_ENABLED")
+        else:
+            audit = payload["resource_write_audit"]
+            assert audit["reason"] == "runtime_stop"
+            assert audit["readback"] == "matched"
+            assert audit["concurrency_complete_lock"] is False
+            assert audit["resource_key"].endswith("|CLOUD_RUN_SERVICE_TARGETS_JSON")
+            assert audit["old_value"].startswith("sha256:")
+            assert audit["new_value"].startswith("sha256:")
         after = json.loads(state.read_text())
         if hk:
             assert after["repository"] == repository

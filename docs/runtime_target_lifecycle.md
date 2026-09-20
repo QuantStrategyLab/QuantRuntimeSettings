@@ -60,8 +60,10 @@ The authenticated request binds the current target's exact bytes; protected
 `RUNTIME_TARGET_ENABLED=true`. It rejects changed identity/configuration,
 non-legacy targets, other platforms/scopes, a disabled recovery-control guard,
 and strategy or cash edits. Existing stop/switch writers share its concurrency
-group. The pre-write comparison detects stale reads; it is not an atomic CAS
-against an external administrator.
+group in this repository. That group is not a complete cross-workflow or
+cross-repository lock. The pre-write comparison detects stale reads; it is not
+an atomic CAS against an external administrator. Apply remains limited to
+`refs/heads/main`.
 
 This action restores an external setting, **not** private recovery authority.
 Binance's `resolve_runtime_target_strategy` still loads and validates the
