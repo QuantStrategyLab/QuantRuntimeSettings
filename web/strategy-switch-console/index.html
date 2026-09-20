@@ -81,11 +81,6 @@
           <div class="decision-board-head"><h3 id="control-queue-title" data-i18n="controlCandidateBoard">需要你处理</h3></div>
           <div class="health-list" id="control-plane-list"></div>
         </section>
-        <div class="diagnostic-section" id="reconciliation-recovery-board" hidden>
-          <h3 data-i18n="reconciliationRecoveryBoard">恢复前确认</h3>
-          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite"></div>
-          <div class="health-list" id="reconciliation-recovery-list"></div>
-        </div>
         <details class="decision-background" id="decision-background" hidden>
           <summary data-i18n="decisionBackgroundSummary">系统进度与历史记录</summary>
           <div class="health-list" id="control-plane-progress-list"></div>
@@ -116,6 +111,11 @@
     <nav class="platform-strip" id="platform-strip" aria-label="平台" data-i18n-aria-label="activePlatform" hidden></nav>
     <section id="research-view" hidden>
     <section class="research-candidate-content">
+        <div class="diagnostic-section" id="reconciliation-recovery-board" hidden>
+          <h3 data-i18n="reconciliationRecoveryBoard">恢复前确认</h3>
+          <div id="reconciliation-recovery-notice" class="health-notice" role="status" aria-live="polite"></div>
+          <div class="health-list" id="reconciliation-recovery-list"></div>
+        </div>
     <section class="decision-promotion-panel" id="promotion-decision-panel" aria-labelledby="promotion-decision-title" hidden>
       <header class="decision-promotion-head">
         <h3 id="promotion-decision-title" data-i18n="promotionConfirmTitle">确认研究候选</h3>

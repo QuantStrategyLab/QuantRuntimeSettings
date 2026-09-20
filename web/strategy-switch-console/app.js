@@ -116,7 +116,7 @@
         researchNav: "研究与确认",
         overviewDescription: "先看有没有必须你确认的事，再扫账户是否异常；改配置放到账户管理。",
         accountsDescription: "先看读回状态；要改开关或策略时再展开设置。提交只记意图，不等于成交。",
-        researchDescription: "只处理有材料的候选与晋级确认；接受意图不等于实盘授权。",
+        researchDescription: "处理恢复前确认，以及有材料的研究候选与晋级确认；记录意图不等于实盘授权。",
         accountsTitle: "账户",
         accountFilters: "筛选账户",
         filterAll: "全部",
@@ -180,7 +180,7 @@
         overviewRuntimeReasonSchedule: "调度未同步",
         overviewRuntimeReasonAttention: "最近检查发现问题",
         viewResearch: "前往研究页",
-        researchPendingCount: "研究页有 {count} 条可审候选",
+        researchPendingCount: "研究与确认页有 {count} 条待处理事项",
         researchIntro: "研究候选与当前运行分开管理。",
         monitoringDiagnosticsView: "监控诊断",
         researchCandidatesView: "研究候选",
@@ -752,7 +752,7 @@
         researchNav: "Research & decisions",
         overviewDescription: "Check decisions first, then scan account anomalies. Change settings under Accounts.",
         accountsDescription: "Review readback first. Expand settings only when changing. Submit records intent, not a fill.",
-        researchDescription: "Handle candidates with complete material only. Accepting intent is not live authority.",
+        researchDescription: "Handle recovery confirmations and research candidates with complete material. Recording intent is not live authority.",
         accountsTitle: "Accounts",
         accountFilters: "Filter accounts",
         filterAll: "All",
@@ -814,7 +814,7 @@
         accountDiagnosisFailed: "Diagnosis did not complete: {reason}",
         accountDiagnosisUnavailable: "Diagnosis is unavailable until a current status check exists",
         viewResearch: "Go to research",
-        researchPendingCount: "{count} reviewable candidate(s) in Research",
+        researchPendingCount: "{count} item(s) waiting in Research & decisions",
         researchIntro: "Research candidates are separate from current runtime.",
         monitoringDiagnosticsView: "Monitoring",
         researchCandidatesView: "Research candidates",
@@ -6404,7 +6404,10 @@
         ? t("pageRefreshed").replace("{time}", new Intl.DateTimeFormat(locale(), {hour: "2-digit", minute: "2-digit"}).format(new Date(state.lastRefreshAt)))
         : t("pageNotRefreshed");
       const queue = state.researchPromotion.payload;
-      const pending = reviewablePromotionTickets(queue).length;
+      const pendingPromotions = reviewablePromotionTickets(queue).length;
+      const pendingRecoveries = state.reconciliationRecovery.payload.recoveries
+        .filter(recoveryNeedsOperatorAction).length;
+      const pending = pendingPromotions + pendingRecoveries;
       el("overview-research-link").hidden = !state.auth.allowed || pending === 0;
       el("overview-research-summary").textContent = pending
         ? t("researchPendingCount").replace("{count}", pending)
