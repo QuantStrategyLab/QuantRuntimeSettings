@@ -25,14 +25,18 @@ on:
 permissions:
   contents: read
 
-# A platform can have multiple targets in one variable. Serialize their writer,
-# including the existing switch workflow; target-level concurrency is insufficient.
+# A platform can have multiple targets in one variable. Serialize known writers
+# in this repository, including the existing switch workflow; target-level
+# concurrency is insufficient. This is not a complete cross-workflow or
+# cross-repository lock; writers still rely on pre-write comparison, readback,
+# fail-closed checks, and main-only apply gates.
 concurrency:
   group: runtime-strategy-switch-${{ fromJSON(inputs.stop_request).runtime_target.platform_id }}
   cancel-in-progress: false
 
 jobs:
   stop:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: runtime-strategy-switch

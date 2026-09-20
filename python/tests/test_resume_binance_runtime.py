@@ -32,12 +32,19 @@ class ResumeBinanceRuntimeTests(unittest.TestCase):
         self.request = dict(target_id="binance/synthetic", runtime_target=self.identity,
                             github=dict(repository="QuantStrategyLab/BinancePlatform", variable_scope="repository"),
                             runtime_target_sha256=hashlib.sha256(self.variables["RUNTIME_TARGET_JSON"].encode()).hexdigest())
+        self.enterContext(patch.dict(os.environ, {"GITHUB_REF": "refs/heads/main"}, clear=False))
 
     def test_preview_is_read_only_and_does_not_claim_active_recovery(self):
         with patch.object(resume, "read_stop_variables", return_value=self.variables), \
                 patch.object(resume.subprocess, "run") as write:
             result = resume.execute_resume(self.request)
-        self.assertEqual(result, dict(configured=False, platform_applied=False, preview=True))
+        self.assertEqual(result["configured"], False)
+        self.assertEqual(result["platform_applied"], False)
+        self.assertEqual(result["preview"], True)
+        self.assertEqual(
+            result["resource_key"],
+            "QuantStrategyLab/BinancePlatform|repository||RUNTIME_TARGET_ENABLED",
+        )
         write.assert_not_called()
 
     def test_save_only_changes_existing_switch_and_checks_complete_readback(self):
@@ -46,13 +53,15 @@ class ResumeBinanceRuntimeTests(unittest.TestCase):
         with patch.object(resume, "read_stop_variables", side_effect=[before, before, after]), \
                 patch.object(resume.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as write:
             result = resume.execute_resume(self.request, apply=True)
-        self.assertEqual(result, dict(configured=True, platform_applied=False, preview=False))
+        self.assertEqual(result["configured"], True)
+        self.assertEqual(result["platform_applied"], False)
+        self.assertEqual(result["preview"], False)
+        self.assertIn("resource_write_audit", result)
         self.assertEqual(write.call_count, 1)
         self.assertEqual(write.call_args.args[0], ["gh", "variable", "set", "RUNTIME_TARGET_ENABLED",
                                                   "--repo", "QuantStrategyLab/BinancePlatform"])
         self.assertEqual(write.call_args.kwargs["input"], "true")
         self.assertEqual(self.variables, before)
-
     def test_mismatch_missing_guard_or_ambiguous_source_never_writes(self):
         mutations = [{"RUNTIME_TARGET_ENABLED": "true"}, {"RUNTIME_TARGET_ENABLED": ""},
                      {"BINANCE_RECOVERY_CONTROL_ENABLED": "false"}, {"BINANCE_DRY_RUN": "true"},
@@ -139,6 +148,42 @@ class ResumeBinanceRuntimeTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "^resume_readback_unverified$"):
             resume.execute_resume(self.request, apply=True)
         self.assertEqual(write.call_count, 1)
+
+    def test_apply_rejects_non_main_writer_before_variable_io(self):
+        with patch.dict(os.environ, {"GITHUB_REF": "refs/heads/feature/old-resume"}, clear=False), \
+                patch.object(resume, "read_stop_variables", return_value=self.variables) as read, \
+                patch.object(resume.subprocess, "run") as write, \
+                self.assertRaisesRegex(ValueError, "^stale_writer_ref_rejected$"):
+            resume.execute_resume(self.request, apply=True)
+        write.assert_not_called()
+        self.assertGreaterEqual(read.call_count, 1)
+
+    def test_apply_audit_records_resource_key_and_enable_transition(self):
+        after = dict(self.variables, RUNTIME_TARGET_ENABLED="true")
+        env = {
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_ACTOR": "synthetic-operator",
+            "GITHUB_RUN_ID": "35500000002",
+            "GITHUB_RUN_ATTEMPT": "2",
+            "GITHUB_SHA": "b" * 40,
+            "GITHUB_WORKFLOW": "Resume Existing Binance Target",
+        }
+        with patch.dict(os.environ, env, clear=False), \
+                patch.object(resume, "read_stop_variables", side_effect=[self.variables, self.variables, after]), \
+                patch.object(resume.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            result = resume.execute_resume(self.request, apply=True)
+        audit = result["resource_write_audit"]
+        self.assertEqual(
+            audit["resource_key"],
+            "QuantStrategyLab/BinancePlatform|repository||RUNTIME_TARGET_ENABLED",
+        )
+        self.assertEqual(audit["operator"], "synthetic-operator")
+        self.assertEqual(audit["reason"], "binance_resume")
+        self.assertEqual(audit["related_run"], "35500000002/2")
+        self.assertEqual(audit["old_value"], "false")
+        self.assertEqual(audit["new_value"], "true")
+        self.assertEqual(audit["readback"], "matched")
+        self.assertIs(audit["concurrency_complete_lock"], False)
 
 
 if __name__ == "__main__":

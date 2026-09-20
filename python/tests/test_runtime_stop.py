@@ -42,6 +42,7 @@ class RuntimeStopTests(unittest.TestCase):
             "overrides": {"risk_limit": 0.01},
             "live_continuity": {"state": "RECONCILE_ONLY"},
         }
+        self.enterContext(patch.dict(os.environ, {"GITHUB_REF": "refs/heads/main"}, clear=False))
 
     def build(self, variables):
         # No catalog admission or new activation may be needed to stop.
@@ -179,8 +180,13 @@ class RuntimeStopTests(unittest.TestCase):
             result = runtime_settings.execute_stop(self.request, apply=False)
         read.assert_called_once_with(self.request["github"])
         run.assert_not_called()
-        self.assertEqual(result, {"configured": False, "platform_applied": False, "preview": True})
-
+        self.assertEqual(result["configured"], False)
+        self.assertEqual(result["platform_applied"], False)
+        self.assertEqual(result["preview"], True)
+        self.assertEqual(
+            result["resource_key"],
+            "QuantStrategyLab/InteractiveBrokersPlatform|repository||RUNTIME_TARGET_ENABLED",
+        )
     def test_execute_writes_once_using_stdin_then_checks_exact_readback(self):
         before = {"RUNTIME_TARGET_JSON": json.dumps(self.current), "KEEP": "synthetic-unrelated"}
         after = {**before, "RUNTIME_TARGET_ENABLED": "false"}
@@ -277,6 +283,66 @@ class RuntimeStopTests(unittest.TestCase):
                 patch.object(runtime_settings, "execute_stop") as execute, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(runtime_settings.main(["stop", "--yes"]), 2)
         execute.assert_not_called()
+
+    def test_production_resource_key_names_repository_scope_environment_and_variable(self):
+        self.assertEqual(
+            runtime_settings.production_resource_key(
+                repository="QuantStrategyLab/InteractiveBrokersPlatform",
+                variable_scope="environment",
+                environment="synthetic-env",
+                name="RUNTIME_TARGET_ENABLED",
+            ),
+            "QuantStrategyLab/InteractiveBrokersPlatform|environment|synthetic-env|RUNTIME_TARGET_ENABLED",
+        )
+        self.assertEqual(
+            runtime_settings.production_resource_key(
+                repository="QuantStrategyLab/BinancePlatform",
+                variable_scope="repository",
+                environment=None,
+                name="RUNTIME_TARGET_ENABLED",
+            ),
+            "QuantStrategyLab/BinancePlatform|repository||RUNTIME_TARGET_ENABLED",
+        )
+
+    def test_apply_rejects_non_main_writer_without_writing(self):
+        before = {"RUNTIME_TARGET_JSON": json.dumps(self.current)}
+        with patch.dict(os.environ, {"GITHUB_REF": "refs/heads/feature/old-stop"}, clear=False), \
+                patch.object(runtime_settings, "read_stop_variables", return_value=before) as read, \
+                patch.object(runtime_settings.subprocess, "run") as run, \
+                self.assertRaisesRegex(ValueError, "^stale_writer_ref_rejected$"):
+            runtime_settings.execute_stop(self.request, apply=True)
+        run.assert_not_called()
+        self.assertGreaterEqual(read.call_count, 1)
+
+    def test_apply_audit_records_resource_key_operator_reason_run_values_and_readback(self):
+        before = {"RUNTIME_TARGET_JSON": json.dumps(self.current), "KEEP": "synthetic-unrelated"}
+        after = {**before, "RUNTIME_TARGET_ENABLED": "false"}
+        env = {
+            "GITHUB_REF": "refs/heads/main",
+            "GITHUB_ACTOR": "synthetic-operator",
+            "GITHUB_RUN_ID": "35500000001",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_SHA": "a" * 40,
+            "GITHUB_WORKFLOW": "Manual Runtime Stop",
+        }
+        with patch.dict(os.environ, env, clear=False), \
+                patch.object(runtime_settings, "read_stop_variables", side_effect=[before, before, after]), \
+                patch.object(runtime_settings.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)):
+            result = runtime_settings.execute_stop(self.request, apply=True)
+        audit = result["resource_write_audit"]
+        self.assertEqual(
+            audit["resource_key"],
+            "QuantStrategyLab/InteractiveBrokersPlatform|repository||RUNTIME_TARGET_ENABLED",
+        )
+        self.assertEqual(audit["operator"], "synthetic-operator")
+        self.assertEqual(audit["reason"], "runtime_stop")
+        self.assertEqual(audit["related_run"], "35500000001/1")
+        self.assertEqual(audit["old_value"], "absent")
+        self.assertEqual(audit["new_value"], "false")
+        self.assertEqual(audit["readback"], "matched")
+        self.assertIs(audit["concurrency_complete_lock"], False)
+        self.assertEqual(audit["writer_sha"], "a" * 40)
+        self.assertEqual(audit["writer_workflow"], "Manual Runtime Stop")
 
 
 if __name__ == "__main__":

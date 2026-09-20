@@ -150,6 +150,9 @@ on:
 permissions:
   contents: read
 
+# Serialize known writers for one platform in this repository. This is not a
+# complete cross-workflow or cross-repository lock; writers still rely on
+# pre-write comparison, readback, fail-closed checks, and main-only apply gates.
 concurrency:
   group: runtime-strategy-switch-${{ inputs.platform }}
   cancel-in-progress: false
@@ -239,6 +242,10 @@ jobs:
           fi
 
           if [ "${APPLY_SWITCH}" = "true" ]; then
+            if [ "${GITHUB_REF:-}" != "refs/heads/main" ]; then
+              echo "stale_writer_ref_rejected" >&2
+              exit 2
+            fi
             if [ -z "${PROMOTION_MANIFEST_JSON:-}" ] || [ -z "${PROMOTION_SINGLE_USE_ID:-}" ]; then
               echo "apply=true requires an immutable Promotion Manifest and its exact single_use_id." >&2
               exit 2

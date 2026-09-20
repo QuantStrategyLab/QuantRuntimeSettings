@@ -14,7 +14,14 @@ import re
 import subprocess
 import sys
 
-from runtime_settings import _stop_request_identity, build_stop_assignments, read_stop_variables
+from runtime_settings import (
+    _stop_request_identity,
+    build_resource_write_audit,
+    build_stop_assignments,
+    production_resource_key,
+    read_stop_variables,
+    require_production_writer_ref,
+)
 
 
 def validate_request(request):
@@ -61,10 +68,18 @@ def execute_resume(request, *, apply=False):
     github = request["github"]
     before = read_stop_variables(github)
     validate_source(request, before)
+    resource_key = production_resource_key(
+        repository=github["repository"],
+        variable_scope=github["variable_scope"],
+        environment=github.get("environment"),
+        name="RUNTIME_TARGET_ENABLED",
+    )
     if not apply:
-        return dict(configured=False, platform_applied=False, preview=True)
-    # Shared workflow concurrency protects known writers. This comparison is
-    # a stale-read check, not an atomic CAS against external administrators.
+        return dict(configured=False, platform_applied=False, preview=True, resource_key=resource_key)
+    require_production_writer_ref()
+    # Shared workflow concurrency serializes known writers in this repository. It
+    # is not a complete cross-workflow or cross-repository lock. This comparison
+    # is a stale-read check, not an atomic CAS against external administrators.
     if read_stop_variables(github) != before:
         raise ValueError("resume_source_changed")
     try:
@@ -82,7 +97,18 @@ def execute_resume(request, *, apply=False):
         raise ValueError("resume_readback_unverified") from None
     if after != dict(before, RUNTIME_TARGET_ENABLED="true"):
         raise ValueError("resume_readback_unverified")
-    return dict(configured=True, platform_applied=False, preview=False)
+    return dict(
+        configured=True,
+        platform_applied=False,
+        preview=False,
+        resource_write_audit=build_resource_write_audit(
+            resource_key=resource_key,
+            reason="binance_resume",
+            old_value=before.get("RUNTIME_TARGET_ENABLED"),
+            new_value="true",
+            readback="matched",
+        ),
+    )
 
 
 def main():
