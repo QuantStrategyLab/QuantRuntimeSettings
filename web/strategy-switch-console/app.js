@@ -120,16 +120,16 @@
         accountsTitle: "账户",
         accountFilters: "筛选账户",
         filterAll: "全部",
-        filterNormal: "正常",
-        filterPaused: "暂停",
-        filterAbnormal: "异常",
+        filterNormal: "监测正常",
+        filterPaused: "按配置停用",
+        filterAbnormal: "需核对",
         searchAccounts: "搜索账户或策略",
         overviewRuntime: "运行情况",
         latestReadback: "最近检查",
         accountActions: "账户操作",
         viewAccount: "查看",
         viewAccountLabel: "查看 {account}",
-        overviewEvidenceNote: "状态来自最近检查；保存配置不代表策略已经运行或有成交。",
+        overviewEvidenceNote: "运行情况只反映配置和最近监测；完整业务周期、订单/成交及对账需单独核实。",
         clearFilters: "清除筛选",
         viewUnverified: "查看待核实账户",
         overviewUnverifiedTitle: "实际运行状态尚未完整读回",
@@ -151,9 +151,12 @@
         pageNotRefreshed: "等待读取",
         savedState: "配置：{state}",
         overviewActualUnknown: "实际待核实",
-        overviewRuntimeNormal: "正常",
-        overviewRuntimePaused: "暂停",
-        overviewRuntimeAbnormal: "异常",
+        overviewRuntimeNormal: "配置与监测正常",
+        overviewRuntimePaused: "按配置停用",
+        overviewRuntimeAbnormal: "需处理或核对",
+        overviewBusinessEvidence: "业务证据",
+        overviewBusinessEvidenceUnverified: "完整周期、订单/成交及对账未核实",
+        overviewBusinessEvidenceDisabled: "停用配置已核对；在途订单与对账未核实",
         overviewRuntimeReasonPending: "检查未完成",
         overviewRuntimeReasonMissing: "尚未收到运行检查",
         accountRuntimeSummary: "运行状态摘要",
@@ -345,6 +348,8 @@
         executionEvidenceReceiptMissing: "执行回执：未采集",
         executionEvidenceReceiptNotDue: "未到应交易窗口",
         executionEvidenceReceiptNoAction: "策略未产生订单",
+        executionEvidenceReceiptNoSignal: "策略未产生交易信号",
+        executionEvidenceReceiptNoRebalance: "无需调仓",
         executionEvidenceReceiptRiskBlocked: "已被风控拦截",
         executionEvidenceReceiptSubmitted: "已提交，尚未确认",
         executionEvidenceReceiptAcknowledged: "券商已确认",
@@ -386,7 +391,7 @@
         runtimeTargetLifecycleOrderEvidenceNotCollected: "未采集订单/成交回执",
         runtimeTargetLifecycleDispositionEnabled: "持续监控",
         runtimeTargetLifecycleDispositionDisabled: "无执行验证",
-        runtimeTargetLifecycleDispositionParked: "已暂停",
+        runtimeTargetLifecycleDispositionParked: "状态待核对",
         runtimeTargetLifecycleReasonNone: "监测正常",
         runtimeTargetLifecycleReasonDisabled: "按配置停用，仍持续验证",
         runtimeTargetLifecycleReasonRuntimeGuard: "运行监测需要复核",
@@ -756,16 +761,16 @@
         accountsTitle: "Accounts",
         accountFilters: "Filter accounts",
         filterAll: "All",
-        filterNormal: "Normal",
-        filterPaused: "Paused",
-        filterAbnormal: "Needs attention",
+        filterNormal: "Monitoring normal",
+        filterPaused: "Disabled as configured",
+        filterAbnormal: "Needs review",
         searchAccounts: "Search accounts or strategies",
         overviewRuntime: "Runtime state",
         latestReadback: "Latest check",
         accountActions: "Account actions",
         viewAccount: "View",
         viewAccountLabel: "View {account}",
-        overviewEvidenceNote: "Status comes from the latest check. Saved settings do not prove execution or fills.",
+        overviewEvidenceNote: "Runtime state covers settings and recent monitoring. Verify the full business cycle, orders/fills, and reconciliation separately.",
         clearFilters: "Clear filters",
         viewUnverified: "View accounts to check",
         overviewUnverifiedTitle: "Actual runtime state is not fully verified",
@@ -787,9 +792,12 @@
         pageNotRefreshed: "Waiting for data",
         savedState: "Setting: {state}",
         overviewActualUnknown: "Unverified",
-        overviewRuntimeNormal: "Normal",
-        overviewRuntimePaused: "Paused",
-        overviewRuntimeAbnormal: "Needs attention",
+        overviewRuntimeNormal: "Config and monitoring normal",
+        overviewRuntimePaused: "Disabled as configured",
+        overviewRuntimeAbnormal: "Needs review or action",
+        overviewBusinessEvidence: "Business evidence",
+        overviewBusinessEvidenceUnverified: "Full cycle, orders/fills, and reconciliation unverified",
+        overviewBusinessEvidenceDisabled: "Disabled setting checked; pending orders and reconciliation unverified",
         overviewRuntimeReasonPending: "Status needs confirmation",
         overviewRuntimeReasonMissing: "No runtime check received",
         overviewRuntimeReasonStale: "Check is out of date ({age})",
@@ -979,6 +987,8 @@
         executionEvidenceReceiptMissing: "execution receipt: not collected",
         executionEvidenceReceiptNotDue: "not in a due window",
         executionEvidenceReceiptNoAction: "strategy produced no order",
+        executionEvidenceReceiptNoSignal: "strategy produced no trading signal",
+        executionEvidenceReceiptNoRebalance: "no rebalance needed",
         executionEvidenceReceiptRiskBlocked: "blocked by risk controls",
         executionEvidenceReceiptSubmitted: "submitted; not yet confirmed",
         executionEvidenceReceiptAcknowledged: "broker acknowledged",
@@ -1020,7 +1030,7 @@
         runtimeTargetLifecycleOrderEvidenceNotCollected: "not collected",
         runtimeTargetLifecycleDispositionEnabled: "continue monitoring",
         runtimeTargetLifecycleDispositionDisabled: "disabled validation",
-        runtimeTargetLifecycleDispositionParked: "parked",
+        runtimeTargetLifecycleDispositionParked: "status needs review",
         runtimeTargetLifecycleReasonNone: "monitoring normal",
         runtimeTargetLifecycleReasonDisabled: "intentionally disabled; validation continues",
         runtimeTargetLifecycleReasonRuntimeGuard: "runtime guard needs review",
@@ -4223,6 +4233,11 @@
       };
     }
 
+    function accountBusinessEvidenceText(runtimeStatus) {
+      // Lifecycle checks do not carry account-bound cycle, broker, or reconciliation receipts.
+      return t(runtimeStatus === "paused" ? "overviewBusinessEvidenceDisabled" : "overviewBusinessEvidenceUnverified");
+    }
+
     function accountNextStep(platform, account) {
       const status = accountApplicationText(platform, account);
       if (status === t("deploymentUnverified")) return { label: t("recheckRuntimeStatus"), openSettings: false };
@@ -4395,6 +4410,7 @@
                     : t("overviewRuntimeReasonPending");
       const facts = [
         ["overviewRuntime", `${t(runtimeStatus.status === "normal" ? "overviewRuntimeNormal" : runtimeStatus.status === "paused" ? "overviewRuntimePaused" : "overviewRuntimeAbnormal")}${runtimeStatus.status === "abnormal" ? ` · ${statusReasonText(runtimeStatus.reason)}` : ""}`],
+        ["overviewBusinessEvidence", accountBusinessEvidenceText(runtimeStatus.status)],
         ["configuredStrategy", profile ? strategyLabel(profile) : t("notRead")],
         ["latestReadback", observationAge === "—" ? t("runtimeUnverified") : observationAge],
         ...(needsAttention ? [["accountDetailAction", nextStep]] : []),
@@ -5810,6 +5826,8 @@
       return {
         not_due: t("executionEvidenceReceiptNotDue"),
         no_action: t("executionEvidenceReceiptNoAction"),
+        no_signal: t("executionEvidenceReceiptNoSignal"),
+        no_rebalance: t("executionEvidenceReceiptNoRebalance"),
         risk_blocked: t("executionEvidenceReceiptRiskBlocked"),
         submitted: t("executionEvidenceReceiptSubmitted"),
         broker_acknowledged: t("executionEvidenceReceiptAcknowledged"),
@@ -6297,6 +6315,7 @@
             configured: saved.known ? (saved.enabled ? "enabled" : "disabled") : "unknown",
             application, unknown, runtimeAttention,
             runtimeStatus: runtimeSummary.status, runtimeReason: runtimeSummary.reason,
+            businessEvidence: accountBusinessEvidenceText(runtimeSummary.status),
             attention: runtimeSummary.status === "abnormal",
             observation: accountMonitoringText(platform, account),
             age: accountObservationAge(record),
@@ -6371,7 +6390,11 @@
           enabled: "runtimeTargetLifecycleStateEnabled", disabled: "runtimeTargetLifecycleStateDisabled",
           unknown: "runtimeStateUnknown",
         }[row.configured]));
-        runtimeCell.append(actual, saved);
+        const businessEvidence = document.createElement("small");
+        businessEvidence.textContent = `${t("overviewBusinessEvidence")}：${row.businessEvidence}`;
+        const runtimeDetails = document.createElement("div");
+        runtimeDetails.append(actual, saved, businessEvidence);
+        runtimeCell.append(runtimeDetails);
         const readbackCell = document.createElement("td");
         readbackCell.className = "overview-readback";
         const age = document.createElement("span");
