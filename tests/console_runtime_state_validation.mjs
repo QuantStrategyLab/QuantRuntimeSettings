@@ -14,6 +14,7 @@ function frontendFunction(name, context) {
   const end = next < 0 ? source.length : start + 1 + next;
   return vm.runInNewContext(`(${source.slice(start, end).trim()})`, context);
 }
+const accountBusinessEvidenceText = frontendFunction('accountBusinessEvidenceText', { t: key => key });
 const cleanOptionalBoolean = (value) => typeof value === 'boolean' ? value : null;
 
 test('runtime mode normalization keeps paper identity while dispatch stays fail closed', () => {
@@ -1176,6 +1177,7 @@ test('account status follows runtime readback instead of the form execution mode
       accountNextStep: () => ({ label: 'noSwitchAction' }),
       runtimeTargetStateForAccount: () => ({ known: true, enabled: true }),
       runtimeOverviewStatus: () => ({ status: 'normal', reason: '' }),
+      accountBusinessEvidenceText,
       t: key => key,
     };
     frontendFunction('renderAccountOverview', context)();
@@ -1188,6 +1190,7 @@ test('account status follows runtime readback instead of the form execution mode
   assert.deepEqual(rendered[0], rendered[1]);
   assert.deepEqual(rendered[0], [
     ['overviewRuntime', 'overviewRuntimeNormal'],
+    ['overviewBusinessEvidence', 'overviewBusinessEvidenceUnverified'],
     ['configuredStrategy', 'Example strategy'],
     ['latestReadback', '5 minutes ago'],
   ]);
@@ -1215,6 +1218,7 @@ test('account status shows a next step only when observed state needs attention'
     accountMonitoringAge: () => '2 minutes ago', accountObservationAge: () => '2 minutes ago', accountMonitoringText: () => 'needs review',
     runtimeTargetStateForAccount: () => ({ known: true, enabled: true }),
     runtimeOverviewStatus: () => ({ status: 'abnormal', reason: 'config' }),
+    accountBusinessEvidenceText,
     accountNextStep: () => ({ label: 'reviewAccountSettings' }), t: key => key,
   };
   frontendFunction('renderAccountOverview', context)();
@@ -1459,6 +1463,12 @@ test('overview status maps fresh runtime evidence to the user-facing state', () 
   }, true), 'abnormal', 'config');
 });
 
+test('account business evidence remains unverified for monitored and disabled accounts', () => {
+  assert.equal(accountBusinessEvidenceText('normal'), 'overviewBusinessEvidenceUnverified');
+  assert.equal(accountBusinessEvidenceText('abnormal'), 'overviewBusinessEvidenceUnverified');
+  assert.equal(accountBusinessEvidenceText('paused'), 'overviewBusinessEvidenceDisabled');
+});
+
 for (const sample of [
   { configured: undefined, application: 'deploymentUnverified', unknown: true, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'config' },
   { configured: true, application: 'deploymentUnverified', unknown: true, attention: true, runtimeStatus: 'abnormal', runtimeReason: 'config' },
@@ -1477,6 +1487,7 @@ for (const sample of [
     accountMonitoringRecord: () => ({ freshness: { data_status: 'ready' }, execution_observation: { code: sample.observation } }),
     accountMonitoringAge: () => 'deployment age', accountObservationAge: () => '1 minute ago', accountMonitoringText: () => 'record', t: x => x,
     runtimeOverviewStatus: () => ({ status: sample.runtimeStatus, reason: sample.runtimeReason }),
+    accountBusinessEvidenceText,
   };
   const rows = frontendFunction('overviewAccounts', context)();
   assert.equal(rows.length, 1, 'hidden platforms never appear');
@@ -1485,6 +1496,8 @@ for (const sample of [
   assert.equal(rows[0].attention, sample.attention);
   assert.equal(rows[0].runtimeStatus, sample.runtimeStatus);
   assert.equal(rows[0].runtimeReason, sample.runtimeReason);
+  assert.equal(rows[0].businessEvidence, sample.runtimeStatus === 'paused'
+    ? 'overviewBusinessEvidenceDisabled' : 'overviewBusinessEvidenceUnverified');
   assert.equal(frontendFunction('overviewAccounts', {...context, hasPrivateConfig: () => false})().length, 0);
 });
 
