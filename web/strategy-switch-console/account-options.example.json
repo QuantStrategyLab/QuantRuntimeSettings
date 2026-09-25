@@ -38,9 +38,9 @@
       "label": "soxl",
       "target_name": "soxl",
       "account_selector": "EXAMPLE_IBKR_SOXL",
-      "deployment_selector": "live-u15998061",
-      "account_scope": "live-u15998061",
-      "service_name": "interactive-brokers-quant-live-u15998061-service",
+      "deployment_selector": "example-ibkr-soxl",
+      "account_scope": "example-ibkr-soxl",
+      "service_name": "example-ibkr-soxl-service",
       "cash_currency": "USD",
       "supported_domains": [
         "us_equity",
@@ -52,9 +52,9 @@
       "label": "tqqq",
       "target_name": "tqqq",
       "account_selector": "EXAMPLE_IBKR_TQQQ",
-      "deployment_selector": "live-u16608560",
-      "account_scope": "live-u16608560",
-      "service_name": "interactive-brokers-quant-live-u16608560-service",
+      "deployment_selector": "example-ibkr-tqqq",
+      "account_scope": "example-ibkr-tqqq",
+      "service_name": "example-ibkr-tqqq-service",
       "cash_currency": "USD",
       "supported_domains": [
         "us_equity",
@@ -68,7 +68,7 @@
       "label": "live",
       "target_name": "live",
       "account_selector": "live",
-      "service_name": "charles-schwab-quant-service",
+      "service_name": "example-schwab-service",
       "cash_currency": "USD",
       "supported_domains": [
         "us_equity"
@@ -81,7 +81,7 @@
       "label": "live",
       "target_name": "live",
       "account_selector": "firstrade",
-      "service_name": "firstrade-quant-service",
+      "service_name": "example-firstrade-service",
       "cash_currency": "USD",
       "supported_domains": [
         "us_equity"
@@ -97,7 +97,7 @@
       "deployment_selector": "qmt",
       "account_selector": "qmt",
       "account_scope": "CN",
-      "service_name": "qmt-quant-service",
+      "service_name": "example-qmt-service",
       "cash_currency": "CNY",
       "supported_domains": [
         "cn_equity"
