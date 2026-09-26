@@ -7525,6 +7525,19 @@
       guidedResult.textContent = preview?.decision_preview
         ? `当前模型在 ${preview.decision_preview.decision_date} 已知的 ${preview.decision_preview.scenario_count} 个情景中选择 ${preview.decision_preview.selected_action}。${preview.decision_preview.no_advantage ? "相对先前动作没有评分优势。" : "一步评分仅在本次候选与约束内比较。"} ${preview.historical_execution_check?.trade_date || "下一日"} 的历史模拟费用为 ${preview.historical_execution_check?.total_fees_usd ?? "未知"} 美元；这是事后核对，不是下单或未来收益保证。`
         : "";
+      const guidedAllocation = el("ux1-guided-allocation");
+      guidedAllocation.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview;
+      if (preview?.decision_preview) {
+        const decision = preview.decision_preview;
+        const budgets = Object.entries(decision.member_budgets_usd || {})
+          .map(([name, amount]) => `${name.toUpperCase()} ${Number(amount).toFixed(2)} 美元`).join("、");
+        const targets = Object.entries(decision.asset_targets_usd || {}).flatMap(([member, assets]) =>
+          Object.entries(assets).filter(([, amount]) => amount !== 0)
+            .map(([symbol, amount]) => `${member}/${symbol} ${Number(amount).toFixed(2)} 美元`)).join("、");
+        guidedAllocation.textContent = `本次成员预算：${budgets || "未提供"}。模拟资产目标：${targets || "未提供"}。资产目标是研究计算结果，不代表已经成交。`;
+      } else {
+        guidedAllocation.textContent = "";
+      }
       let note = el("ux1-intent-note");
       if (!note) {
         note = document.createElement("p");

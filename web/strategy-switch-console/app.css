@@ -3778,7 +3778,8 @@
   display: none;
 }
 
-#ux1-guided-result {
+#ux1-guided-result,
+#ux1-guided-allocation {
   padding: 0.85rem 1rem;
   border-radius: 0.7rem;
   background: #edf5f4;
