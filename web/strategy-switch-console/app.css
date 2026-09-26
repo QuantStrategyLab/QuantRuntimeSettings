@@ -3638,3 +3638,149 @@
 #runtime-target-lifecycle-notice:empty {
   display: none;
 }
+
+.ux1-research {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 28px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+
+.ux1-head,
+.ux1-mode,
+.ux1-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ux1-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ux1-fields label,
+.ux1-research .control-block {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.ux1-research select,
+.ux1-research input {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.ux1-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.ux1-facts div {
+  min-width: 0;
+}
+
+.ux1-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.ux1-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ux1-comparison-grid article {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  overflow-wrap: anywhere;
+}
+
+.ux1-comparison-grid p {
+  margin: 8px 0 0;
+}
+
+.ux1-results article,
+.ux1-status,
+#ux1-owner-decisions,
+#ux1-evidence {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--soft);
+}
+
+.ux1-results dd,
+.ux1-results .ux1-facts,
+#ux1-evidence-body,
+#ux1-scope-note,
+#ux1-reasons {
+  overflow-wrap: anywhere;
+}
+
+.ux1-error:empty {
+  display: none;
+}
+
+.ux1-error {
+  color: var(--danger);
+}
+
+.ux1-research :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+  .ux1-research {
+    padding: 14px;
+  }
+
+  .ux1-fields,
+  .ux1-facts,
+  .ux1-results,
+  .ux1-research.ux1-compare .ux1-results {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ux1-comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ux1-actions .btn {
+    flex: 1 1 100%;
+  }
+}
+.ux1-guided-view .ux1-technical,
+.ux1-guided-view #ux1-scope-note,
+.ux1-guided-view #ux1-reasons {
+  display: none;
+}
+
+#ux1-guided-result {
+  padding: 0.85rem 1rem;
+  border-radius: 0.7rem;
+  background: #edf5f4;
+  line-height: 1.55;
+}

@@ -35,6 +35,26 @@ import {
 } from "./account_options_schema.js";
 import { APP_CSS } from "./app_css.js";
 import { APP_JS } from "./app_js.js";
+import {
+  UX1_DRAFT_SCHEMA,
+  UX1_STUDY,
+  Ux1InputError,
+  assertUx1DraftPost,
+  assertUx1IntentPost,
+  assertUx1PreviewPost,
+  buildUx1PreviewRequest,
+  canonicalJson,
+  classifyUx1Draft,
+  defaultUx1Draft,
+  localUx1Preview,
+  normalizeUx1Draft,
+  projectUx1CalculatorResult,
+  ux1CustomDraft,
+  ux1Fingerprint,
+  ux1IntentAllowed,
+  ux1IntentRecord,
+  ux1ReceiptId,
+} from "./ux1_research_contract.js";
 
 const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
@@ -652,6 +672,13 @@ export default {
       if (url.pathname.startsWith("/api/internal/research-promotion-application/")) {
         return await researchPromotionApplicationInternalResponse(request, env, url);
       }
+      if (url.pathname === "/api/ux1/draft" && request.method === "GET") return await ux1DraftGet(request, env);
+      if (url.pathname === "/api/ux1/draft" && request.method === "POST") return await ux1DraftPost(request, env);
+      if (url.pathname === "/api/ux1/preview" && request.method === "POST") return await ux1PreviewPost(request, env);
+      if (url.pathname === "/api/ux1/intent" && request.method === "POST") return await ux1IntentPost(request, env);
+      if (url.pathname === "/api/ux1/draft" || url.pathname === "/api/ux1/preview" || url.pathname === "/api/ux1/intent") {
+        return json({ ok: false, error: "method_not_allowed" }, 405);
+      }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
       if (url.pathname === "/api/runtime-stop" && request.method === "POST") return await dispatchRuntimeStop(request, env);
@@ -732,6 +759,186 @@ async function runtimeInstanceCommand(env, command) {
     if (error instanceof HttpError) throw error;
     throw new HttpError("runtime_instances_unavailable", 503);
   }
+}
+
+function ux1Flags() {
+  return {
+    schema_version: UX1_DRAFT_SCHEMA,
+    study: UX1_STUDY,
+    account_connection: "native_not_observed",
+    native_observed: false,
+    credential_access_unavailable: true,
+    research_only: true,
+    no_order: true,
+    execution_authority_granted: false,
+    workflow_dispatched: false,
+    runtime_mutated: false,
+    d1_native: "NATIVE_PENDING_EXTERNAL",
+    d1_status: "PARTIAL",
+  };
+}
+
+function ux1StatePayload({ revision, fingerprint, draft, preview, intent, duplicate = false, unchanged = false }) {
+  return {
+    ok: true,
+    ...ux1Flags(),
+    revision,
+    fingerprint,
+    custom_draft: ux1CustomDraft(draft),
+    draft,
+    preview,
+    intent,
+    duplicate,
+    unchanged,
+  };
+}
+
+async function requireUx1Session(request, env) {
+  const session = await readSession(request, env);
+  if (!session) throw new HttpError("login required", 401);
+  if (!session.allowed) throw new HttpError("allowlist required", 403);
+  return session;
+}
+
+async function readUx1Body(request) {
+  const text = await request.text();
+  if (text.length > 16384) throw new Ux1InputError("ux1_body_too_large");
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Ux1InputError("ux1_invalid_json");
+  }
+}
+
+function parseUx1Slot(result) {
+  if (!result?.found) return null;
+  return {
+    revision: result.revision,
+    fingerprint: result.fingerprint,
+    draft: JSON.parse(result.draft_json),
+    preview: result.preview_json ? JSON.parse(result.preview_json) : null,
+    intent: result.intent_json ? JSON.parse(result.intent_json) : null,
+  };
+}
+
+async function ux1ReadSlot(env, login) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("ux1_research_store_not_bound", 503);
+  return parseUx1Slot(await runtimeInstanceCommand(env, { action: "ux1_read", login }));
+}
+
+async function ux1DraftGet(request, env) {
+  const session = await requireUx1Session(request, env);
+  const slot = await ux1ReadSlot(env, session.login);
+  if (!slot) {
+    const draft = defaultUx1Draft();
+    return json(ux1StatePayload({ revision: 0, fingerprint: await ux1Fingerprint(draft), draft, preview: null, intent: null }));
+  }
+  return json(ux1StatePayload(slot));
+}
+
+async function ux1DraftPost(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await requireUx1Session(request, env);
+  const parsed = assertUx1DraftPost(await readUx1Body(request));
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("ux1_research_store_not_bound", 503);
+  const saved = await runtimeInstanceCommand(env, {
+    action: "ux1_save",
+    login: session.login,
+    expected_revision: parsed.expected_revision,
+    draft_json: canonicalJson(parsed.draft),
+    fingerprint: await ux1Fingerprint(parsed.draft),
+  });
+  return json(ux1StatePayload({ ...parseUx1Slot({ ...saved, found: true }), unchanged: Boolean(saved.unchanged) }));
+}
+
+async function ux1PreviewPost(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await requireUx1Session(request, env);
+  const parsed = assertUx1PreviewPost(await readUx1Body(request));
+  const slot = await ux1ReadSlot(env, session.login);
+  if (!slot || slot.revision !== parsed.expected_revision) throw new HttpError("ux1_preview_conflict", 409);
+  const draft = normalizeUx1Draft(slot.draft);
+  const fingerprint = await ux1Fingerprint(draft);
+  if (fingerprint !== slot.fingerprint) throw new HttpError("ux1_preview_conflict", 409);
+  const gate = classifyUx1Draft(draft);
+  let preview;
+  if (gate.kind === "missing_input" || gate.kind === "unsupported_scope") {
+    preview = localUx1Preview({ draft, fingerprint, status: gate.kind, reasons: gate.reasons });
+  } else {
+    const binding = env.UX1_RESEARCH_CALCULATOR;
+    if (!binding || typeof binding.fetch !== "function") {
+      return json({
+        ok: false,
+        error: "calculator_not_connected",
+        status: "calculator_not_connected",
+        ...ux1Flags(),
+        revision: slot.revision,
+        fingerprint,
+        custom_draft: ux1CustomDraft(draft),
+        draft,
+        preview: null,
+        decision_preview: null,
+        historical_execution_check: null,
+      }, 503);
+    }
+    const calculatorRequest = buildUx1PreviewRequest(draft);
+    let calculatorResponse;
+    try {
+      calculatorResponse = await binding.fetch("https://ux1-research-calculator/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: canonicalJson(calculatorRequest),
+      });
+    } catch {
+      throw new HttpError("calculator_failed", 502);
+    }
+    const calculatorText = await calculatorResponse.text();
+    if (!calculatorResponse.ok || calculatorText.length > 65536) throw new HttpError("calculator_failed", 502);
+    let raw;
+    try {
+      raw = JSON.parse(calculatorText);
+    } catch {
+      throw new HttpError("calculator_failed", 502);
+    }
+    try {
+      preview = projectUx1CalculatorResult(raw, calculatorRequest, draft, fingerprint);
+    } catch (error) {
+      if (error instanceof Ux1InputError) throw new HttpError(error.message, error.status || 502);
+      throw new HttpError("calculator_result_rejected", 502);
+    }
+  }
+  const stored = await runtimeInstanceCommand(env, {
+    action: "ux1_store_preview",
+    login: session.login,
+    expected_revision: slot.revision,
+    fingerprint,
+    preview_json: canonicalJson(preview),
+  });
+  return json(ux1StatePayload(parseUx1Slot({ ...stored, found: true })));
+}
+
+async function ux1IntentPost(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await requireUx1Session(request, env);
+  const parsed = assertUx1IntentPost(await readUx1Body(request));
+  const slot = await ux1ReadSlot(env, session.login);
+  if (!slot || slot.revision !== parsed.expected_revision || slot.fingerprint !== parsed.fingerprint || !ux1IntentAllowed(slot.preview) || slot.preview.fingerprint !== parsed.fingerprint) {
+    throw new HttpError("ux1_intent_conflict", 409);
+  }
+  const intent = ux1IntentRecord({
+    login: session.login,
+    revision: slot.revision,
+    fingerprint: slot.fingerprint,
+    receiptId: await ux1ReceiptId(session.login, slot.revision, slot.fingerprint),
+  });
+  const stored = await runtimeInstanceCommand(env, {
+    action: "ux1_save_intent",
+    login: session.login,
+    expected_revision: slot.revision,
+    fingerprint: slot.fingerprint,
+    intent_json: canonicalJson(intent),
+  });
+  return json(ux1StatePayload({ ...parseUx1Slot({ ...stored, found: true }), duplicate: Boolean(stored.duplicate) }));
 }
 
 function runtimeInstanceAccountOptions(instances) {
@@ -934,6 +1141,14 @@ export class RuntimeInstances {
     // deduplicating all still-active/uncertain attempts.
     this.sql.exec("DROP INDEX IF EXISTS research_promotion_applications_ticket_account");
     this.sql.exec("CREATE INDEX IF NOT EXISTS research_promotion_applications_ticket_account_idx ON research_promotion_applications (ticket_id, platform_id, account_key, status)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS ux1_research_slot (
+      login TEXT PRIMARY KEY,
+      revision INTEGER NOT NULL,
+      draft_json TEXT NOT NULL,
+      fingerprint TEXT NOT NULL,
+      preview_json TEXT,
+      intent_json TEXT
+    )`);
   }
 
   read() {
@@ -960,6 +1175,9 @@ export class RuntimeInstances {
       }
       if (V7_PAPER_APPLICATION_DO_ACTIONS.has(command?.action)) {
         return json(await this.applicationCommand(command));
+      }
+      if (typeof command?.action === "string" && command.action.startsWith("ux1_")) {
+        return json(this.ux1ResearchCommand(command));
       }
       // No awaits or external I/O inside this SQLite transaction. Every state
       // change, version advance, and history row commits together or rolls back.
@@ -1299,6 +1517,63 @@ export class RuntimeInstances {
         return { ok: true, changed: true, application: researchPromotionApplicationFromRow(this.sql.exec("SELECT * FROM research_promotion_applications WHERE application_id = ?", applicationId).toArray()[0]) };
       }
       throw new HttpError("unsupported_research_promotion_application_action", 400);
+    });
+  }
+
+  ux1ResearchCommand(command) {
+    return this.storage.transactionSync(() => {
+      const login = String(command?.login || "");
+      if (!/^[a-z0-9-]{1,39}$/.test(login)) throw new HttpError("ux1_login_invalid", 400);
+      const row = this.sql.exec(
+        "SELECT revision, draft_json, fingerprint, preview_json, intent_json FROM ux1_research_slot WHERE login = ?",
+        login,
+      ).toArray()[0];
+      const found = {
+        ok: true,
+        found: Boolean(row),
+        revision: row ? Number(row.revision) : 0,
+        draft_json: row?.draft_json || null,
+        fingerprint: row?.fingerprint || null,
+        preview_json: row?.preview_json || null,
+        intent_json: row?.intent_json || null,
+      };
+      if (command.action === "ux1_read") return found;
+      if (command.action === "ux1_save") {
+        if (!Number.isSafeInteger(command.expected_revision) || command.expected_revision < 0) throw new HttpError("ux1_revision_required", 400);
+        if ((row ? Number(row.revision) : 0) !== command.expected_revision) throw new HttpError("ux1_revision_conflict", 409);
+        if (typeof command.draft_json !== "string" || typeof command.fingerprint !== "string" || command.draft_json.length > 16384) {
+          throw new HttpError("ux1_invalid_body", 400);
+        }
+        if (row && row.draft_json === command.draft_json && row.fingerprint === command.fingerprint) return { ...found, unchanged: true };
+        const revision = (row ? Number(row.revision) : 0) + 1;
+        this.sql.exec(
+          `INSERT INTO ux1_research_slot (login, revision, draft_json, fingerprint, preview_json, intent_json)
+           VALUES (?, ?, ?, ?, NULL, NULL)
+           ON CONFLICT(login) DO UPDATE SET revision = excluded.revision, draft_json = excluded.draft_json,
+             fingerprint = excluded.fingerprint, preview_json = NULL, intent_json = NULL`,
+          login, revision, command.draft_json, command.fingerprint,
+        );
+        return { ok: true, found: true, unchanged: false, revision, draft_json: command.draft_json, fingerprint: command.fingerprint, preview_json: null, intent_json: null };
+      }
+      if (command.action === "ux1_store_preview") {
+        if (!row || Number(row.revision) !== command.expected_revision || row.fingerprint !== command.fingerprint) throw new HttpError("ux1_preview_conflict", 409);
+        if (typeof command.preview_json !== "string" || command.preview_json.length > 65536) throw new HttpError("ux1_invalid_body", 400);
+        this.sql.exec("UPDATE ux1_research_slot SET preview_json = ? WHERE login = ? AND revision = ?", command.preview_json, login, Number(row.revision));
+        return { ...found, preview_json: command.preview_json };
+      }
+      if (command.action === "ux1_save_intent") {
+        if (!row || Number(row.revision) !== command.expected_revision || row.fingerprint !== command.fingerprint || !row.preview_json) {
+          throw new HttpError("ux1_intent_conflict", 409);
+        }
+        if (row.intent_json) {
+          const existing = JSON.parse(row.intent_json);
+          if (existing.revision === Number(row.revision) && existing.fingerprint === row.fingerprint) return { ...found, duplicate: true };
+        }
+        if (typeof command.intent_json !== "string" || command.intent_json.length > 4096) throw new HttpError("ux1_invalid_body", 400);
+        this.sql.exec("UPDATE ux1_research_slot SET intent_json = ? WHERE login = ? AND revision = ?", command.intent_json, login, Number(row.revision));
+        return { ...found, intent_json: command.intent_json, duplicate: false };
+      }
+      throw new HttpError("unsupported_ux1_action", 400);
     });
   }
 }

@@ -1420,8 +1420,55 @@
       pluginModeTouched: false,
     });
 
+    const ux1AdvancedFields = [
+      ["plugin_mode", "ux1-plugin-mode", ["none", "auto", "current"]],
+      ["income_layer_mode", "ux1-income-layer-mode", ["enabled", "disabled", "current"]],
+      ["option_overlay_mode", "ux1-option-overlay-mode", ["current", "enabled", "disabled"]],
+      ["reserve_policy_mode", "ux1-reserve-policy-mode", ["current", "none", "ratio", "floor", "max"]],
+      ["cash_only_execution_mode", "ux1-cash-only-execution-mode", ["current", "enabled", "disabled"]],
+      ["dca_mode", "ux1-dca-mode", ["fixed", "smart"]],
+    ];
+    const ux1AmountFields = [
+      ["income_layer_start_usd", "ux1-income-layer-start-usd"],
+      ["income_layer_max_ratio", "ux1-income-layer-max-ratio"],
+      ["min_reserved_cash_usd", "ux1-min-reserved-cash-usd"],
+      ["reserved_cash_ratio", "ux1-reserved-cash-ratio"],
+      ["dca_base_investment_usd", "ux1-dca-base-investment-usd"],
+    ];
+    const emptyUx1Draft = () => ({
+      objective: "one_step_net_log_score",
+      research_case_id: "r8_first_dynamic_2023_03_29",
+      advanced_settings: {
+        plugin_mode: null,
+        income_layer_mode: null,
+        income_layer_start_usd: null,
+        income_layer_max_ratio: null,
+        option_overlay_mode: null,
+        reserve_policy_mode: null,
+        min_reserved_cash_usd: null,
+        reserved_cash_ratio: null,
+        cash_only_execution_mode: null,
+        dca_mode: null,
+        dca_base_investment_usd: null,
+      },
+    });
+
     const state = {
       view: "overview",
+      ux1: {
+        viewMode: localStorage.getItem("qsl-ux1-view-mode") === "advanced" ? "advanced" : "guided",
+        revision: 0,
+        fingerprint: "",
+        draft: emptyUx1Draft(),
+        preview: null,
+        intent: null,
+        dirty: false,
+        editEpoch: 0,
+        busy: false,
+        error: "",
+        compare: false,
+        loaded: false,
+      },
       overviewFilter: "all",
       overviewSearch: "",
       lastRefreshAt: null,
@@ -6484,6 +6531,7 @@
       renderAppVisibility();
       renderWorkspace();
       renderOverview();
+      renderUx1();
     }
 
     async function refreshSession() {
@@ -6501,6 +6549,7 @@
         state.auth = { available: false, allowed: false, admin: false, login: null };
       }
       if (state.auth.allowed) {
+        await refreshUx1Draft();
         await refreshControlPlane();
         await refreshOwnerDecisions();
         await refreshConfig();
@@ -6511,6 +6560,7 @@
         else clearBinancePrivateScope();
         await refreshResearchPromotionTickets();
       } else {
+        clearUx1Private();
         clearBinancePrivateScope();
         state.bootMessageKey = "bootPublic";
         state.appReady = true;
@@ -7108,6 +7158,8 @@
 
     async function handleLogout() {
       state.auth = { available: true, allowed: false, admin: false, login: null };
+      clearUx1Private();
+      renderUx1();
       clearBinancePrivateScope();
       renderBinancePrivateScope();
       await fetch("/api/logout", { method: "POST" });
@@ -7364,6 +7416,7 @@
       render();
     });
 
+    bindUx1Research();
     applyStrategyProfiles(defaultStrategyProfiles);
     for (const platform of Object.keys(platformMeta)) syncStrategyForAccount(platform);
     render();
@@ -7381,5 +7434,358 @@
         state.bootMessageKey = "bootTimeout";
         state.appReady = true;
         render();
+      }
+    }
+
+    function clearUx1Private() {
+      state.ux1.revision = 0;
+      state.ux1.fingerprint = "";
+      state.ux1.draft = emptyUx1Draft();
+      state.ux1.preview = null;
+      state.ux1.intent = null;
+      state.ux1.dirty = false;
+      state.ux1.editEpoch += 1;
+      state.ux1.busy = false;
+      state.ux1.error = "";
+      state.ux1.loaded = false;
+    }
+
+    function setUx1ViewMode(mode) {
+      if (mode !== "guided" && mode !== "advanced") return;
+      syncUx1DraftFromDom();
+      state.ux1.viewMode = mode;
+      localStorage.setItem("qsl-ux1-view-mode", mode);
+      renderUx1();
+    }
+
+    function syncUx1DraftFromDom() {
+      const draft = state.ux1.draft;
+      const objective = el("ux1-objective");
+      const researchCase = el("ux1-research-case");
+      if (!objective || !researchCase) return;
+      draft.objective = objective.value || null;
+      draft.research_case_id = researchCase.value || null;
+      for (const [key, id] of ux1AdvancedFields) draft.advanced_settings[key] = el(id).value || null;
+      for (const [key, id] of ux1AmountFields) {
+        const text = el(id).value.trim();
+        draft.advanced_settings[key] = text ? text : null;
+      }
+    }
+
+    function ux1Custom(draft) {
+      return Object.values(draft.advanced_settings).some((value) => value !== null);
+    }
+
+    function renderUx1() {
+      const root = el("ux1-research");
+      if (!root) return;
+      const guided = state.ux1.viewMode !== "advanced";
+      el("ux1-guided").hidden = !guided;
+      el("ux1-advanced").hidden = guided;
+      el("ux1-mode-guided").setAttribute("aria-pressed", guided ? "true" : "false");
+      el("ux1-mode-advanced").setAttribute("aria-pressed", guided ? "false" : "true");
+      root.classList.toggle("ux1-compare", state.ux1.compare);
+      root.classList.toggle("ux1-guided-view", guided);
+      el("ux1-compare-button").setAttribute("aria-pressed", state.ux1.compare ? "true" : "false");
+      el("ux1-comparison").hidden = !state.ux1.compare;
+      const draft = state.ux1.draft;
+      if (document.activeElement !== el("ux1-objective")) el("ux1-objective").value = draft.objective || "";
+      if (document.activeElement !== el("ux1-research-case")) el("ux1-research-case").value = draft.research_case_id || "";
+      for (const [key, id] of ux1AdvancedFields) {
+        if (document.activeElement !== el(id)) el(id).value = draft.advanced_settings[key] || "";
+      }
+      for (const [key, id] of ux1AmountFields) {
+        if (document.activeElement !== el(id)) el(id).value = draft.advanced_settings[key] || "";
+      }
+      const reserve = draft.advanced_settings.reserve_policy_mode;
+      el("ux1-reserve-summary").textContent = reserve
+        ? `已声明 ${reserve}。该自定义值留在草案中，尚不参与本次 R8 计算，也不关闭原完整 v2。`
+        : "未声明。空白不表示原完整 v2 的预留已关闭。";
+      el("ux1-custom-notice").hidden = !ux1Custom(draft);
+      el("ux1-stale").hidden = !(state.ux1.dirty && state.ux1.preview);
+      el("ux1-form-error").textContent = state.ux1.error || "";
+      const reserveError = state.ux1.error.startsWith("预留政策") ? state.ux1.error : "";
+      el("ux1-reserve-error").hidden = !reserveError;
+      el("ux1-reserve-error").textContent = reserveError;
+      for (const id of ["ux1-reserve-policy-mode", "ux1-min-reserved-cash-usd", "ux1-reserved-cash-ratio"]) {
+        el(id).setAttribute("aria-invalid", reserveError ? "true" : "false");
+      }
+      const signedIn = Boolean(state.auth.allowed);
+      for (const id of ["ux1-preview-button", "ux1-save-button", "ux1-intent-button"]) el(id).disabled = !signedIn || state.ux1.busy;
+      for (const id of ["ux1-objective", "ux1-research-case", ...ux1AdvancedFields.map((item) => item[1]), ...ux1AmountFields.map((item) => item[1])]) {
+        el(id).disabled = !signedIn || state.ux1.busy;
+      }
+      renderUx1Preview(state.ux1.preview);
+    }
+
+    function renderUx1Preview(preview) {
+      renderUx1Comparison(preview);
+      const guidedResult = el("ux1-guided-result");
+      guidedResult.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview;
+      guidedResult.textContent = preview?.decision_preview
+        ? `当前模型在 ${preview.decision_preview.decision_date} 已知的 ${preview.decision_preview.scenario_count} 个情景中选择 ${preview.decision_preview.selected_action}。${preview.decision_preview.no_advantage ? "相对先前动作没有评分优势。" : "一步评分仅在本次候选与约束内比较。"} ${preview.historical_execution_check?.trade_date || "下一日"} 的历史模拟费用为 ${preview.historical_execution_check?.total_fees_usd ?? "未知"} 美元；这是事后核对，不是下单或未来收益保证。`
+        : "";
+      let note = el("ux1-intent-note");
+      if (!note) {
+        note = document.createElement("p");
+        note.id = "ux1-intent-note";
+        el("ux1-results").after(note);
+      }
+      note.textContent = state.ux1.intent ? `已保存不可执行意向 ${state.ux1.intent.receipt_id}` : "";
+      fillUx1Facts(el("ux1-decision-body"), preview?.decision_preview, [
+        ["decision_date", "决策时点"],
+        ["scenarios_observed_through", "已知情景截止"],
+        ["scenario_count", "情景数"],
+        ["selected_action", "所选动作"],
+        ["previous_action_retained", "沿用上一动作"],
+        ["no_advantage", "评分无优势"],
+        ["curve_ratio", "资本比例"],
+        ["wealth_reference_usd", "财富参考（美元）"],
+        ["aggregate_member_cap_usd", "成员上限（美元）"],
+        ["outer_cash_target_usd", "外层现金目标（美元）"],
+      ]);
+      fillUx1Facts(el("ux1-historical-body"), preview?.historical_execution_check, [
+        ["trade_date", "模拟成交时点"],
+        ["no_action", "模拟股数为零"],
+        ["total_fees_usd", "模拟费用（美元）"],
+        ["settled_cash_usd", "已结算现金（美元）"],
+        ["pending_sale_usd", "在途卖出（美元）"],
+        ["receivable_usd", "应收（美元）"],
+        ["shortages", "未满足股数"],
+      ]);
+      const scope = el("ux1-scope-note");
+      const reasons = el("ux1-reasons");
+      reasons.replaceChildren();
+      if (!preview) {
+        scope.textContent = "";
+        return;
+      }
+      scope.textContent = [
+        preview.status,
+        preview.model_scope || "",
+        preview.optimality_scope || "",
+        preview.source_class,
+        preview.no_order ? "no_order" : "",
+        preview.native_observed ? "" : "native_not_observed",
+      ].filter(Boolean).join(" · ");
+      if (preview.evidence) {
+        el("ux1-evidence-body").textContent = [
+          `模型 ${preview.evidence.model_id}`,
+          `来源保证 ${preview.evidence.source_assurance}`,
+          `资本政策 ${preview.evidence.capital_policy_id} (${preview.evidence.capital_policy_sha256})`,
+          `结算政策 ${preview.evidence.settlement_policy_id} (${preview.evidence.settlement_policy_sha256})`,
+          `R7 ${preview.evidence.r7_policy_sha256}`,
+          `R8 ${preview.evidence.r8_policy_sha256}`,
+          `原始资料清单 ${preview.evidence.raw_manifest_sha256}`,
+          `R6 清单 ${preview.evidence.r6_manifest_sha256}`,
+          `R6 固定输入 ${preview.evidence.r6_materialized_file_sha256}`,
+        ].join(" · ");
+      }
+      for (const item of preview.unsupported_reasons || []) {
+        const li = document.createElement("li");
+        li.textContent = `${item.field}: ${item.reason}`;
+        reasons.append(li);
+      }
+      for (const item of preview.limitations || []) {
+        const li = document.createElement("li");
+        li.textContent = item;
+        reasons.append(li);
+      }
+    }
+
+    function renderUx1Comparison(preview) {
+      const body = el("ux1-comparison-body");
+      body.replaceChildren();
+      if (!state.ux1.compare) return;
+      const decision = state.ux1.dirty ? null : preview?.decision_preview;
+      if (!decision) {
+        body.textContent = state.ux1.dirty
+          ? "业务字段已改，重新生成方案后才能比较当前动作。"
+          : "先生成研究方案，再比较 B0–B3 的评分。";
+        return;
+      }
+      const previous = decision.scores[decision.previous_action];
+      for (const action of ["B0", "B1", "B2", "B3"]) {
+        const card = document.createElement("article");
+        const title = document.createElement("strong");
+        title.textContent = [action, action === decision.selected_action ? "本次选择" : "", action === decision.previous_action ? "先前动作" : ""].filter(Boolean).join(" · ");
+        const score = document.createElement("p");
+        score.textContent = `一步评分 ${decision.scores[action].toPrecision(8)}`;
+        const delta = document.createElement("p");
+        delta.textContent = `相对先前动作约 ${(decision.scores[action] - previous).toPrecision(8)}`;
+        card.append(title, score, delta);
+        body.append(card);
+      }
+    }
+
+    function fillUx1Facts(node, record, rows) {
+      node.replaceChildren();
+      if (!record) return;
+      const list = document.createElement("dl");
+      for (const [key, label] of rows) {
+        if (record[key] === undefined) continue;
+        const wrap = document.createElement("div");
+        if (!["decision_date", "scenario_count", "selected_action", "no_advantage", "curve_ratio", "trade_date", "no_action", "total_fees_usd", "shortages"].includes(key)) wrap.className = "ux1-technical";
+        const term = document.createElement("dt");
+        term.textContent = label;
+        const value = document.createElement("dd");
+        value.textContent = typeof record[key] === "object" ? JSON.stringify(record[key]) : String(record[key]);
+        wrap.append(term, value);
+        list.append(wrap);
+      }
+      for (const key of ["scores", "member_budgets_usd", "asset_targets_usd", "trade_shares", "fees_usd"]) {
+        if (!record[key]) continue;
+        const wrap = document.createElement("div");
+        wrap.className = "ux1-technical";
+        const term = document.createElement("dt");
+        term.textContent = key;
+        const value = document.createElement("dd");
+        value.textContent = JSON.stringify(record[key]);
+        wrap.append(term, value);
+        list.append(wrap);
+      }
+      node.append(list);
+    }
+
+    async function ux1Send(url, body) {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      });
+      const payload = await response.json();
+      if (!response.ok || payload.ok === false) throw new Error(payload.error || "ux1_request_failed");
+      return payload;
+    }
+
+    function applyUx1Payload(payload, expectedEditEpoch = state.ux1.editEpoch) {
+      if (!state.auth.allowed) return false;
+      state.ux1.revision = payload.revision;
+      state.ux1.fingerprint = payload.fingerprint;
+      if (state.ux1.editEpoch !== expectedEditEpoch) {
+        state.ux1.preview = null;
+        state.ux1.intent = null;
+        state.ux1.dirty = true;
+        state.ux1.loaded = true;
+        return false;
+      }
+      state.ux1.draft = payload.draft;
+      state.ux1.preview = payload.preview;
+      state.ux1.intent = payload.intent;
+      state.ux1.dirty = false;
+      state.ux1.loaded = true;
+      state.ux1.error = "";
+      return true;
+    }
+
+    async function refreshUx1Draft() {
+      if (!state.auth.allowed) return;
+      try {
+        const payload = await requestJson("/api/ux1/draft");
+        if (!state.ux1.dirty) applyUx1Payload(payload);
+        else state.ux1.loaded = true;
+      } catch {
+        state.ux1.error = "研究草案暂时读不到。";
+      }
+      renderUx1();
+    }
+
+    async function saveUx1Draft() {
+      syncUx1DraftFromDom();
+      const editEpoch = state.ux1.editEpoch;
+      const payload = await ux1Send("/api/ux1/draft", {
+        expected_revision: state.ux1.revision,
+        objective: state.ux1.draft.objective,
+        research_case_id: state.ux1.draft.research_case_id,
+        advanced_settings: state.ux1.draft.advanced_settings,
+      });
+      applyUx1Payload(payload, editEpoch);
+      return payload;
+    }
+
+    async function previewUx1() {
+      if (state.ux1.dirty || state.ux1.revision === 0) await saveUx1Draft();
+      if (state.ux1.dirty) throw new Error("草案已改，需要重新生成研究方案");
+      const editEpoch = state.ux1.editEpoch;
+      const payload = await ux1Send("/api/ux1/preview", { expected_revision: state.ux1.revision });
+      applyUx1Payload(payload, editEpoch);
+    }
+
+    async function saveUx1Intent() {
+      if (state.ux1.dirty) throw new Error("草案已改，需要重新生成研究方案");
+      const editEpoch = state.ux1.editEpoch;
+      const payload = await ux1Send("/api/ux1/intent", {
+        expected_revision: state.ux1.revision,
+        fingerprint: state.ux1.fingerprint,
+      });
+      applyUx1Payload(payload, editEpoch);
+    }
+
+    function bindUx1Research() {
+      const objective = el("ux1-objective");
+      if (!objective || objective.dataset.bound === "true") return;
+      objective.dataset.bound = "true";
+      fillUx1Select(objective, [["", "未选择"], ["one_step_net_log_score", "一步净对数评分"], ["global_optimum", "全局最优（尚不参与本次计算）"]]);
+      fillUx1Select(el("ux1-research-case"), [["", "未选择"], ["r8_first_dynamic_2023_03_29", "R8 2023-03-29"], ["original_full_v2", "原完整 v2（本次不映射，功能保持原身份）"]]);
+      for (const [, id, values] of ux1AdvancedFields) {
+        fillUx1Select(el(id), [["", "未声明"], ...values.map((value) => [value, value])]);
+      }
+      const markDirty = () => {
+        syncUx1DraftFromDom();
+        state.ux1.dirty = true;
+        state.ux1.editEpoch += 1;
+        renderUx1();
+      };
+      for (const id of ["ux1-objective", "ux1-research-case", ...ux1AdvancedFields.map((item) => item[1]), ...ux1AmountFields.map((item) => item[1])]) {
+        el(id).addEventListener("change", markDirty);
+        el(id).addEventListener("input", markDirty);
+      }
+      el("ux1-mode-guided").addEventListener("click", () => setUx1ViewMode("guided"));
+      el("ux1-mode-advanced").addEventListener("click", () => setUx1ViewMode("advanced"));
+      el("ux1-compare-button").addEventListener("click", () => {
+        state.ux1.compare = !state.ux1.compare;
+        renderUx1();
+      });
+      el("ux1-evidence-button").addEventListener("click", () => {
+        const evidence = el("ux1-evidence");
+        evidence.open = true;
+        evidence.focus();
+      });
+      el("ux1-owner-button").addEventListener("click", () => el("ux1-owner-decisions").focus());
+      el("ux1-save-button").addEventListener("click", () => runUx1(saveUx1Draft));
+      el("ux1-preview-button").addEventListener("click", () => runUx1(previewUx1));
+      el("ux1-intent-button").addEventListener("click", () => runUx1(saveUx1Intent));
+    }
+
+    function fillUx1Select(node, options) {
+      node.replaceChildren();
+      for (const [value, label] of options) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        node.append(option);
+      }
+    }
+
+    async function runUx1(action) {
+      if (!state.auth.allowed || state.ux1.busy) return;
+      state.ux1.busy = true;
+      state.ux1.error = "";
+      renderUx1();
+      try {
+        await action();
+      } catch (error) {
+        const messages = {
+          ux1_reserve_fields: "预留政策与金额或比例不匹配，请在高级模式补齐对应字段。",
+          ux1_advanced_value_invalid: "高级字段格式或范围无效，请检查对应输入。",
+          ux1_revision_conflict: "草案已在其他标签页更新，请刷新后再保存。",
+          ux1_preview_conflict: "草案已变化，请重新保存后生成方案。",
+          calculator_not_connected: "本地数值计算尚未连接，研究草案仍可保存。",
+        };
+        state.ux1.error = messages[error.message] || error.message || "研究请求失败";
+      } finally {
+        state.ux1.busy = false;
+        renderUx1();
       }
     }
