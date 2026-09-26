@@ -1,0 +1,317 @@
+"""Independently validate and project development review messages in QRS."""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import json
+import math
+import re
+import sys
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Mapping
+
+
+SCHEMA = "qsl.development_research_review.v1"
+STATE_SCHEMA = "qsl.development_research_review_state.v1"
+SOURCE_SUMMARY_SHA256 = "7c4a2dcf03c2becb19c012e015f86c5a1f5b6f845afd7d88516a2c515462da91"
+CANDIDATE_ID = "r8_finite_action_joint_account_60session_b0_startup_development_v2"
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_IDENTITY = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
+_FORBIDDEN_KEY = re.compile(r"(?:^|_)(?:uri|path|raw|account|credential|personal)(?:_|$)", re.IGNORECASE)
+_AUTHORITY = {
+    "review_disposition": "advisory",
+    "mode": "read_only",
+    "no_order": True,
+    "adoption": False,
+    "codegen": False,
+    "experiment": False,
+    "notification": False,
+    "trade": False,
+}
+_INPUT_NAMES = {
+    "source_manifest", "r6_manifest", "r6_materialized_file", "future_manifest",
+    "future_page_boxx_actions_1", "future_page_boxx_bars_1",
+    "future_page_qqq_actions_1", "future_page_qqq_bars_1",
+    "future_page_qqqm_actions_1", "future_page_qqqm_bars_1",
+    "future_page_soxl_actions_1", "future_page_soxl_bars_1",
+    "future_page_soxx_actions_1", "future_page_soxx_bars_1",
+    "future_page_tqqq_actions_1", "future_page_tqqq_bars_1",
+    "license_basis_record", "r7_engine", "r7_policy", "r8_engine", "r8_policy",
+    "capital_policy", "settlement_policy", "research_runner", "tqqq_contract",
+}
+_METRICS = {"cagr_252_sessions", "cumulative_return", "max_drawdown", "total_fees_usd"}
+_SCALES = ("1000", "10000", "100000")
+_VARIANTS = ("C0", "C1", "C2")
+
+
+class DevelopmentResearchReviewError(ValueError):
+    """Raised for invalid, unsafe, or conflicting development review data."""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+def canonical_json(value: object) -> str:
+    try:
+        return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except (TypeError, ValueError) as exc:
+        raise DevelopmentResearchReviewError("invalid_json_value") from exc
+
+
+def digest(value: object) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _finite(value: object) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _forbidden_key(value: object) -> bool:
+    if isinstance(value, Mapping):
+        return any(_FORBIDDEN_KEY.search(str(key)) or _forbidden_key(nested) for key, nested in value.items())
+    if isinstance(value, list):
+        return any(_forbidden_key(item) for item in value)
+    return False
+
+
+def _check_digest(value: object, code: str) -> str:
+    if not isinstance(value, str) or _SHA256.fullmatch(value) is None:
+        raise DevelopmentResearchReviewError(code)
+    return value
+
+
+def _check_identity(value: object, code: str) -> str:
+    if not isinstance(value, str) or _IDENTITY.fullmatch(value) is None:
+        raise DevelopmentResearchReviewError(code)
+    return value
+
+
+def _check_result(value: object) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {"session_count", "scales_usd", "variants", "paths", "comparisons"}:
+        raise DevelopmentResearchReviewError("invalid_result")
+    if value["session_count"] != 856 or value["scales_usd"] != [1000, 10000, 100000] or value["variants"] != list(_VARIANTS):
+        raise DevelopmentResearchReviewError("invalid_result")
+    paths, comparisons = value["paths"], value["comparisons"]
+    if not isinstance(paths, Mapping) or set(paths) != set(_SCALES):
+        raise DevelopmentResearchReviewError("invalid_result")
+    if not isinstance(comparisons, Mapping) or set(comparisons) != set(_SCALES):
+        raise DevelopmentResearchReviewError("invalid_result")
+    for scale in _SCALES:
+        scale_paths = paths[scale]
+        if not isinstance(scale_paths, Mapping) or set(scale_paths) != set(_VARIANTS):
+            raise DevelopmentResearchReviewError("invalid_result")
+        for variant in _VARIANTS:
+            metrics = scale_paths[variant]
+            if not isinstance(metrics, Mapping) or set(metrics) != _METRICS or not all(_finite(item) for item in metrics.values()):
+                raise DevelopmentResearchReviewError("invalid_result")
+        scale_comparisons = comparisons[scale]
+        if not isinstance(scale_comparisons, Mapping) or set(scale_comparisons) != {"C1_minus_C0", "C2_minus_C1"}:
+            raise DevelopmentResearchReviewError("invalid_result")
+        if any(not isinstance(item, Mapping) or not item or not all(_finite(number) for number in item.values())
+               for item in scale_comparisons.values()):
+            raise DevelopmentResearchReviewError("invalid_result")
+    return copy.deepcopy(dict(value))
+
+
+def _economic_identity(message: Mapping[str, Any]) -> dict[str, Any]:
+    identities = message["identities"]
+    return {
+        "schema": message["schema"],
+        "identities": identities,
+        "upstream_input_index_sha256": digest(message["upstream_input_index"]),
+        "policy_id": identities["policy_id"],
+        "policy_sha256": identities["policy_sha256"],
+        "settlement_policy_id": identities["settlement_policy_id"],
+        "settlement_policy_sha256": identities["settlement_policy_sha256"],
+        "cost_id": identities["cost_id"],
+        "message_version": message["message_version"],
+    }
+
+
+def validate_development_research_review(payload: object) -> dict[str, Any]:
+    """Validate the independent QRS view of the new message contract."""
+    if not isinstance(payload, Mapping):
+        raise DevelopmentResearchReviewError("invalid_message")
+    if _forbidden_key(payload):
+        raise DevelopmentResearchReviewError("forbidden_field")
+    expected_fields = {
+        "schema", "evidence_kind", "message_version", "created_at", "identities", "provenance",
+        "upstream_input_index", "source_extension_window", "session_count", "capital_scales_usd",
+        "result", "result_digest", "completion", "research_stage", "source_assurance",
+        "strict_point_in_time_certified", "limitations", "authority", "duplicate_key", "message_sha256",
+    }
+    if set(payload) != expected_fields:
+        raise DevelopmentResearchReviewError("unexpected_or_missing_field")
+    message = copy.deepcopy(dict(payload))
+    if message["schema"] != SCHEMA or message["evidence_kind"] != "development_research_review" or message["message_version"] != 1:
+        raise DevelopmentResearchReviewError("unsupported_review_schema")
+    if message["research_stage"] != "development":
+        raise DevelopmentResearchReviewError("research_stage_upgrade")
+    if message["source_assurance"] != "single_source_structural_only_no_cross_provider_verification":
+        raise DevelopmentResearchReviewError("source_assurance_upgrade")
+    if message["strict_point_in_time_certified"] is not False:
+        raise DevelopmentResearchReviewError("pit_upgrade")
+    if message["authority"] != _AUTHORITY:
+        raise DevelopmentResearchReviewError("permission_upgrade")
+    if message["completion"] != {"status": "complete", "aggregate_recovery": "matched"}:
+        raise DevelopmentResearchReviewError("incomplete_aggregate")
+    expected_limitations = [
+        "single_source_structural_only_no_cross_provider_verification",
+        "corporate_action_process_date_is_a_retrospective_proxy",
+        "capital_curve_is_pre_specified_not_optimized",
+        "no_paper_shadow_live_deployment_account_or_trading_authority",
+    ]
+    if message["limitations"] != expected_limitations:
+        raise DevelopmentResearchReviewError("limitations_mismatch")
+    if message["session_count"] != 856 or message["capital_scales_usd"] != [1000, 10000, 100000]:
+        raise DevelopmentResearchReviewError("incomplete_aggregate")
+
+    provenance = message["provenance"]
+    if not isinstance(provenance, Mapping) or set(provenance) != {
+        "source_summary_schema", "source_summary_bytes_sha256", "upstream_input_index_sha256", "normalized_result_sha256"
+    }:
+        raise DevelopmentResearchReviewError("invalid_provenance")
+    if provenance["source_summary_schema"] != "qsl.research.post_r9_capital_study.v1":
+        raise DevelopmentResearchReviewError("unsupported_source_summary")
+    if _check_digest(provenance["source_summary_bytes_sha256"], "source_summary_digest_mismatch") != SOURCE_SUMMARY_SHA256:
+        raise DevelopmentResearchReviewError("source_summary_digest_mismatch")
+
+    index = message["upstream_input_index"]
+    if not isinstance(index, list) or len(index) != len(_INPUT_NAMES):
+        raise DevelopmentResearchReviewError("missing_upstream_input")
+    normalized_index: list[dict[str, str]] = []
+    for entry in index:
+        if not isinstance(entry, Mapping) or set(entry) != {"name", "sha256"}:
+            raise DevelopmentResearchReviewError("invalid_upstream_input")
+        name = _check_identity(entry["name"], "invalid_upstream_input")
+        value = _check_digest(entry["sha256"], "invalid_upstream_input")
+        normalized_index.append({"name": name, "sha256": value})
+    names = [entry["name"] for entry in normalized_index]
+    if len(set(names)) != len(names) or set(names) != _INPUT_NAMES:
+        raise DevelopmentResearchReviewError("missing_upstream_input")
+    if provenance["upstream_input_index_sha256"] != digest(normalized_index):
+        raise DevelopmentResearchReviewError("input_index_digest_mismatch")
+
+    identities = message["identities"]
+    identity_fields = {
+        "study_id", "candidate_id", "portfolio_id", "strategy_id", "strategy_revision_sha256",
+        "producer_id", "producer_revision_sha256", "runner_id", "policy_id", "policy_sha256",
+        "settlement_policy_id", "settlement_policy_sha256", "cost_id", "cost_bps",
+    }
+    if not isinstance(identities, Mapping) or set(identities) != identity_fields:
+        raise DevelopmentResearchReviewError("invalid_identity")
+    if identities["study_id"] != "post_r9_capital_study" or identities["candidate_id"] != CANDIDATE_ID:
+        raise DevelopmentResearchReviewError("candidate_identity_mismatch")
+    if identities["portfolio_id"] != CANDIDATE_ID or identities["strategy_id"] != CANDIDATE_ID:
+        raise DevelopmentResearchReviewError("candidate_identity_mismatch")
+    if identities["producer_id"] != "aiauditbridge":
+        raise DevelopmentResearchReviewError("producer_identity_mismatch")
+    for key in ("strategy_revision_sha256", "producer_revision_sha256", "runner_id", "policy_sha256", "settlement_policy_sha256"):
+        _check_digest(identities[key], "invalid_identity")
+    for key in ("policy_id", "settlement_policy_id", "cost_id"):
+        _check_identity(identities[key], "invalid_identity")
+    if identities["cost_bps"] != 10 or identities["cost_id"] != "flat_10bps":
+        raise DevelopmentResearchReviewError("cost_identity_mismatch")
+    if not isinstance(message["created_at"], str) or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", message["created_at"]) is None:
+        raise DevelopmentResearchReviewError("invalid_created_at")
+    try:
+        datetime.fromisoformat(message["created_at"].replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise DevelopmentResearchReviewError("invalid_created_at") from exc
+
+    result = _check_result(message["result"])
+    result_digest = _check_digest(message["result_digest"], "result_digest_mismatch")
+    if digest(result) != result_digest or provenance["normalized_result_sha256"] != result_digest:
+        raise DevelopmentResearchReviewError("result_digest_mismatch")
+    window = message["source_extension_window"]
+    if not isinstance(window, Mapping) or set(window) != {"first_session", "last_session", "future_session_count"}:
+        raise DevelopmentResearchReviewError("invalid_window")
+    if window["first_session"] != "2025-01-02" or window["last_session"] != "2026-08-25" or window["future_session_count"] != 412:
+        raise DevelopmentResearchReviewError("invalid_window")
+    if result["session_count"] != message["session_count"] or result["scales_usd"] != message["capital_scales_usd"]:
+        raise DevelopmentResearchReviewError("result_identity_mismatch")
+
+    duplicate_key = _check_digest(message["duplicate_key"], "duplicate_key_mismatch")
+    if duplicate_key != digest(_economic_identity(message)):
+        raise DevelopmentResearchReviewError("duplicate_key_mismatch")
+    expected_message_digest = _check_digest(message["message_sha256"], "message_digest_mismatch")
+    digest_body = dict(message)
+    digest_body.pop("message_sha256")
+    if digest(digest_body) != expected_message_digest:
+        raise DevelopmentResearchReviewError("message_digest_mismatch")
+    return message
+
+
+def _project(message: Mapping[str, Any]) -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "schema": STATE_SCHEMA,
+        "status": "reviewable",
+        "review_disposition": "advisory",
+        "research_stage": "development",
+        "identities": copy.deepcopy(dict(message["identities"])),
+        "provenance": {
+            "source_summary_bytes_sha256": message["provenance"]["source_summary_bytes_sha256"],
+            "upstream_input_index_sha256": message["provenance"]["upstream_input_index_sha256"],
+            "result_digest": message["result_digest"],
+        },
+        "source_extension_window": copy.deepcopy(dict(message["source_extension_window"])),
+        "session_count": message["session_count"],
+        "capital_scales_usd": list(message["capital_scales_usd"]),
+        "result": copy.deepcopy(dict(message["result"])),
+        "source_assurance": message["source_assurance"],
+        "strict_point_in_time_certified": False,
+        "limitations": list(message["limitations"]),
+        "authority": dict(_AUTHORITY),
+        "duplicate_key": message["duplicate_key"],
+    }
+    state["state_identity"] = digest(state)
+    return state
+
+
+class DuplicateReviewRegistry:
+    """Detect duplicate economic identities in an in-process local read."""
+
+    def __init__(self) -> None:
+        self._seen: dict[str, str] = {}
+
+    def record(self, payload: object) -> dict[str, str]:
+        message = validate_development_research_review(payload)
+        key, result_digest = message["duplicate_key"], message["result_digest"]
+        previous = self._seen.get(key)
+        if previous is not None and previous != result_digest:
+            raise DevelopmentResearchReviewError("duplicate_key_conflict")
+        self._seen[key] = result_digest
+        return {"duplicate_key": key, "result_digest": result_digest,
+                "status": "duplicate" if previous else "accepted"}
+
+
+def consume_development_research_review(payload: object, *, registry: DuplicateReviewRegistry | None = None) -> dict[str, Any]:
+    message = validate_development_research_review(payload)
+    if registry is not None:
+        registry.record(message)
+    return _project(message)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--input", required=True, type=Path, help="AIAuditBridge v1 JSON message")
+    args = parser.parse_args()
+    try:
+        message = json.loads(args.input.read_text(encoding="utf-8"))
+        state = consume_development_research_review(message)
+    except (OSError, json.JSONDecodeError) as exc:
+        print(f"development review rejected: invalid_input ({type(exc).__name__})", file=sys.stderr)
+        return 2
+    except DevelopmentResearchReviewError as exc:
+        print(f"development review rejected: {exc.code}", file=sys.stderr)
+        return 2
+    print(canonical_json(state))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
