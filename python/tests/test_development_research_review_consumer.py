@@ -33,6 +33,13 @@ class DevelopmentResearchReviewConsumerTests(unittest.TestCase):
         ).hexdigest()
         return message
 
+    def _reseal_projection(self, message: dict) -> dict:
+        message["result_digest"] = consumer.digest(message["result"])
+        message["provenance"]["normalized_result_sha256"] = message["result_digest"]
+        message["provenance"]["upstream_input_index_sha256"] = consumer.digest(message["upstream_input_index"])
+        message["duplicate_key"] = consumer.digest(consumer._economic_identity(message))
+        return self._reseal(message)
+
     def test_actual_aab_message_projects_to_stable_read_only_state(self) -> None:
         first = consumer.consume_development_research_review(self.message)
         second = consumer.consume_development_research_review(copy.deepcopy(self.message))
@@ -127,8 +134,32 @@ class DevelopmentResearchReviewConsumerTests(unittest.TestCase):
         changed["result"]["paths"]["1000"]["C0"]["cumulative_return"] += 0.01
         changed["result_digest"] = consumer.digest(changed["result"])
         changed["provenance"]["normalized_result_sha256"] = changed["result_digest"]
-        with self.assertRaisesRegex(consumer.DevelopmentResearchReviewError, "duplicate_key_conflict"):
+        with self.assertRaisesRegex(consumer.DevelopmentResearchReviewError, "result_anchor_mismatch"):
             registry.record(self._reseal(changed))
+
+    def test_resealed_projection_tampering_is_rejected_against_fixed_a_anchors(self) -> None:
+        mutations = (
+            ("policy_id", lambda m: m["identities"].update(policy_id="forged_policy")),
+            ("policy_digest", lambda m: (m["identities"].update(policy_sha256="a" * 64),
+                next(i for i in m["upstream_input_index"] if i["name"] == "capital_policy").update(sha256="a" * 64))),
+            ("settlement", lambda m: (m["identities"].update(settlement_policy_id="forged_settlement",
+                settlement_policy_sha256="b" * 64),
+                next(i for i in m["upstream_input_index"] if i["name"] == "settlement_policy").update(sha256="b" * 64))),
+            ("runner", lambda m: (m["identities"].update(runner_id="c" * 64),
+                next(i for i in m["upstream_input_index"] if i["name"] == "research_runner").update(sha256="c" * 64))),
+            ("strategy", lambda m: (m["identities"].update(strategy_revision_sha256="d" * 64),
+                next(i for i in m["upstream_input_index"] if i["name"] == "r8_engine").update(sha256="d" * 64))),
+            ("input_index", lambda m: next(i for i in m["upstream_input_index"] if i["name"] == "source_manifest").update(sha256="e" * 64)),
+            ("result", lambda m: m["result"]["paths"]["1000"]["C0"].update(
+                cumulative_return=m["result"]["paths"]["1000"]["C0"]["cumulative_return"] + 0.01)),
+        )
+        for label, mutation in mutations:
+            with self.subTest(label=label):
+                forged = copy.deepcopy(self.message)
+                mutation(forged)
+                self._reseal_projection(forged)
+                with self.assertRaises(consumer.DevelopmentResearchReviewError):
+                    consumer.validate_development_research_review(forged)
 
 
 if __name__ == "__main__":

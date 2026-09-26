@@ -20,14 +20,14 @@
         "candidate_id": {"const": "r8_finite_action_joint_account_60session_b0_startup_development_v2"},
         "portfolio_id": {"const": "r8_finite_action_joint_account_60session_b0_startup_development_v2"},
         "strategy_id": {"const": "r8_finite_action_joint_account_60session_b0_startup_development_v2"},
-        "strategy_revision_sha256": {"$ref": "#/$defs/sha256"},
+        "strategy_revision_sha256": {"const": "9d23d3ccc8e15cbdb0d5e42fdcc2232b76899f9f269ba0442a33120660919599"},
         "producer_id": {"const": "aiauditbridge"},
         "producer_revision_sha256": {"$ref": "#/$defs/sha256"},
-        "runner_id": {"$ref": "#/$defs/sha256"},
-        "policy_id": {"$ref": "#/$defs/identity"},
-        "policy_sha256": {"$ref": "#/$defs/sha256"},
-        "settlement_policy_id": {"$ref": "#/$defs/identity"},
-        "settlement_policy_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_id": {"const": "0d05facfa7f35b53b95eee1e580204ece00c226c84ea13fa990c9e20a8a818c3"},
+        "policy_id": {"const": "post_r9_active_capital_boundary_v1"},
+        "policy_sha256": {"const": "59a70fefa6c4714206f73945c02bc153c2c1c6d7a52adefaa9574bed30359a01"},
+        "settlement_policy_id": {"const": "post_r9_us_equity_dtc_standard_settlement_v1"},
+        "settlement_policy_sha256": {"const": "c135c023ee7329ad6103021ffbb79d4cdfea01e903ac331865c157a6a1246853"},
         "cost_id": {"const": "flat_10bps"},
         "cost_bps": {"const": 10}
       }
@@ -39,8 +39,8 @@
       "properties": {
         "source_summary_schema": {"const": "qsl.research.post_r9_capital_study.v1"},
         "source_summary_bytes_sha256": {"const": "7c4a2dcf03c2becb19c012e015f86c5a1f5b6f845afd7d88516a2c515462da91"},
-        "upstream_input_index_sha256": {"$ref": "#/$defs/sha256"},
-        "normalized_result_sha256": {"$ref": "#/$defs/sha256"}
+        "upstream_input_index_sha256": {"const": "c2bf94e786c2674bebcc893e0a054a1f15dd7a40b0749aaf4ca6ca755e3322e4"},
+        "normalized_result_sha256": {"const": "6db9f5fa6faed193b03fd6d053e7ad378754310b4d59e74d68dddd55d8528be2"}
       }
     },
     "upstream_input_index": {
@@ -78,7 +78,7 @@
         "comparisons": {"$ref": "#/$defs/comparisons"}
       }
     },
-    "result_digest": {"$ref": "#/$defs/sha256"},
+    "result_digest": {"const": "6db9f5fa6faed193b03fd6d053e7ad378754310b4d59e74d68dddd55d8528be2"},
     "completion": {
       "type": "object",
       "additionalProperties": false,

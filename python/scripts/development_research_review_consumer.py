@@ -17,6 +17,14 @@ from typing import Any, Mapping
 SCHEMA = "qsl.development_research_review.v1"
 STATE_SCHEMA = "qsl.development_research_review_state.v1"
 SOURCE_SUMMARY_SHA256 = "7c4a2dcf03c2becb19c012e015f86c5a1f5b6f845afd7d88516a2c515462da91"
+A_UPSTREAM_INPUT_INDEX_SHA256 = "c2bf94e786c2674bebcc893e0a054a1f15dd7a40b0749aaf4ca6ca755e3322e4"
+A_NORMALIZED_RESULT_SHA256 = "6db9f5fa6faed193b03fd6d053e7ad378754310b4d59e74d68dddd55d8528be2"
+A_STRATEGY_REVISION_SHA256 = "9d23d3ccc8e15cbdb0d5e42fdcc2232b76899f9f269ba0442a33120660919599"
+A_RUNNER_SHA256 = "0d05facfa7f35b53b95eee1e580204ece00c226c84ea13fa990c9e20a8a818c3"
+A_POLICY_ID = "post_r9_active_capital_boundary_v1"
+A_POLICY_SHA256 = "59a70fefa6c4714206f73945c02bc153c2c1c6d7a52adefaa9574bed30359a01"
+A_SETTLEMENT_POLICY_ID = "post_r9_us_equity_dtc_standard_settlement_v1"
+A_SETTLEMENT_POLICY_SHA256 = "c135c023ee7329ad6103021ffbb79d4cdfea01e903ac331865c157a6a1246853"
 CANDIDATE_ID = "r8_finite_action_joint_account_60session_b0_startup_development_v2"
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _IDENTITY = re.compile(r"^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$")
@@ -195,6 +203,8 @@ def validate_development_research_review(payload: object) -> dict[str, Any]:
         raise DevelopmentResearchReviewError("missing_upstream_input")
     if provenance["upstream_input_index_sha256"] != digest(normalized_index):
         raise DevelopmentResearchReviewError("input_index_digest_mismatch")
+    if provenance["upstream_input_index_sha256"] != A_UPSTREAM_INPUT_INDEX_SHA256:
+        raise DevelopmentResearchReviewError("input_index_anchor_mismatch")
 
     identities = message["identities"]
     identity_fields = {
@@ -216,6 +226,17 @@ def validate_development_research_review(payload: object) -> dict[str, Any]:
         _check_identity(identities[key], "invalid_identity")
     if identities["cost_bps"] != 10 or identities["cost_id"] != "flat_10bps":
         raise DevelopmentResearchReviewError("cost_identity_mismatch")
+    input_digests = {entry["name"]: entry["sha256"] for entry in normalized_index}
+    if identities["policy_id"] != A_POLICY_ID or identities["policy_sha256"] != A_POLICY_SHA256:
+        raise DevelopmentResearchReviewError("policy_anchor_mismatch")
+    if identities["settlement_policy_id"] != A_SETTLEMENT_POLICY_ID or identities["settlement_policy_sha256"] != A_SETTLEMENT_POLICY_SHA256:
+        raise DevelopmentResearchReviewError("settlement_anchor_mismatch")
+    if identities["strategy_revision_sha256"] != A_STRATEGY_REVISION_SHA256 or input_digests.get("r8_engine") != A_STRATEGY_REVISION_SHA256:
+        raise DevelopmentResearchReviewError("strategy_anchor_mismatch")
+    if identities["runner_id"] != A_RUNNER_SHA256 or input_digests.get("research_runner") != A_RUNNER_SHA256:
+        raise DevelopmentResearchReviewError("runner_anchor_mismatch")
+    if input_digests.get("capital_policy") != A_POLICY_SHA256 or input_digests.get("settlement_policy") != A_SETTLEMENT_POLICY_SHA256:
+        raise DevelopmentResearchReviewError("policy_input_anchor_mismatch")
     if not isinstance(message["created_at"], str) or re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", message["created_at"]) is None:
         raise DevelopmentResearchReviewError("invalid_created_at")
     try:
@@ -227,6 +248,8 @@ def validate_development_research_review(payload: object) -> dict[str, Any]:
     result_digest = _check_digest(message["result_digest"], "result_digest_mismatch")
     if digest(result) != result_digest or provenance["normalized_result_sha256"] != result_digest:
         raise DevelopmentResearchReviewError("result_digest_mismatch")
+    if result_digest != A_NORMALIZED_RESULT_SHA256:
+        raise DevelopmentResearchReviewError("result_anchor_mismatch")
     window = message["source_extension_window"]
     if not isinstance(window, Mapping) or set(window) != {"first_session", "last_session", "future_session_count"}:
         raise DevelopmentResearchReviewError("invalid_window")

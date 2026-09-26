@@ -13,6 +13,9 @@
 25 项上游输入索引、候选/runner/策略引擎/政策/结算/费用身份、session 数、资本规模、
 路径指标和带符号的比较结果。输入索引含 source manifest、R6/R7/R8 输入、future
 manifest、页面与许可记录、政策、runner 和 TQQQ 合同；不含输出账本。
+生产端和 QRS 都固定校验该索引整体摘要、规范化结果摘要，以及 R8 strategy、runner、
+capital policy、settlement 身份，并核对这些身份与索引对应项。保留固定 source 摘要、
+但重算消息摘要/key 不能使被篡改的投影通过。
 `producer_revision_sha256` 是 AIAuditBridge producer 模块源码字节的 SHA-256，表示源码身份，
 不是签名或经过认证的构建证明。QRS 校验其格式，并将其计入 duplicate key 与 state identity。
 
