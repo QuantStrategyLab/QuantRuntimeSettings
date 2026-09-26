@@ -6,6 +6,9 @@ import importlib.util
 import json
 import os
 import re
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -160,6 +163,111 @@ class DevelopmentResearchReviewConsumerTests(unittest.TestCase):
                 self._reseal_projection(forged)
                 with self.assertRaises(consumer.DevelopmentResearchReviewError):
                     consumer.validate_development_research_review(forged)
+
+
+    def _run_cli(self, message: dict, state: Path, extra: list[str], work: Path) -> subprocess.CompletedProcess[str]:
+        incoming = work / "incoming.json"
+        incoming.write_text(consumer.canonical_json(message) + "\n", encoding="utf-8")
+        os.chmod(incoming, 0o600)
+        env = os.environ.copy()
+        env.pop("PYTHONPATH", None)
+        return subprocess.run(
+            [sys.executable, str(SCRIPT), "--input", str(incoming), "--state", str(state), *extra],
+            cwd=work,
+            env=env,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_new_process_replay_keeps_identity_when_created_at_changes(self) -> None:
+        revision = self.message["identities"]["producer_revision_sha256"]
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            state = work / "receipt.json"
+            first = self._run_cli(self.message, state, ["--expected-producer-revision", revision], work)
+            self.assertEqual(first.returncode, 0, first.stderr)
+            first_state = json.loads(first.stdout)
+            self.assertEqual(first_state["status"], "reviewable")
+            self.assertEqual(first_state["source_assurance"],
+                             "single_source_structural_only_no_cross_provider_verification")
+            self.assertIs(first_state["strict_point_in_time_certified"], False)
+            self.assertEqual(first_state["authority"]["mode"], "read_only")
+            self.assertTrue(first_state["authority"]["no_order"])
+            self.assertFalse(first_state["authority"]["trade"])
+            self.assertEqual(len(self.message["upstream_input_index"]), 25)
+            stored = state.read_bytes()
+            self.assertEqual(state.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(len(json.loads(stored)["receipts"]), 1)
+
+            later = copy.deepcopy(self.message)
+            later["created_at"] = "2026-09-27T03:41:00Z"
+            later.pop("message_sha256")
+            later["message_sha256"] = hashlib.sha256(consumer.canonical_json(later).encode("utf-8")).hexdigest()
+            second = self._run_cli(later, state, ["--expected-producer-revision", revision], work)
+            self.assertEqual(second.returncode, 0, second.stderr)
+            second_state = json.loads(second.stdout)
+            self.assertEqual(second_state, first_state)
+            self.assertEqual(second_state["duplicate_key"], first_state["duplicate_key"])
+            self.assertEqual(second_state["provenance"]["result_digest"], first_state["provenance"]["result_digest"])
+            self.assertEqual(state.read_bytes(), stored)
+
+    def test_corrupted_result_digest_does_not_overwrite_the_receipt(self) -> None:
+        revision = self.message["identities"]["producer_revision_sha256"]
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            state = work / "receipt.json"
+            accepted = self._run_cli(self.message, state, ["--expected-producer-revision", revision], work)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            payload = json.loads(state.read_text(encoding="utf-8"))
+            key = self.message["duplicate_key"]
+            payload["receipts"][key]["result_digest"] = "0" * 64
+            state.write_text(consumer.canonical_json(payload) + "\n", encoding="utf-8")
+            os.chmod(state, 0o600)
+            before = state.read_bytes()
+            rejected = self._run_cli(self.message, state, ["--expected-producer-revision", revision], work)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("invalid_receipt_store", rejected.stderr)
+            self.assertEqual(state.read_bytes(), before)
+
+    def test_recomputed_producer_revision_is_rejected_on_the_d1_path(self) -> None:
+        revision = self.message["identities"]["producer_revision_sha256"]
+        changed = copy.deepcopy(self.message)
+        changed["identities"]["producer_revision_sha256"] = "a" * 64
+        changed["duplicate_key"] = consumer.digest(consumer._economic_identity(changed))
+        changed = self._reseal(changed)
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            state = work / "receipt.json"
+            rejected = self._run_cli(changed, state, ["--expected-producer-revision", revision], work)
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("producer_revision_mismatch", rejected.stderr)
+            self.assertFalse(state.exists())
+
+    def test_manifest_binds_the_producer_revision(self) -> None:
+        revision = self.message["identities"]["producer_revision_sha256"]
+        with tempfile.TemporaryDirectory() as directory:
+            work = Path(directory)
+            state = work / "receipt.json"
+            manifest = work / "manifest.json"
+            manifest.write_text(json.dumps({"aab": {"producer_revision_sha256": revision}}) + "\n", encoding="utf-8")
+            os.chmod(manifest, 0o600)
+            accepted = self._run_cli(self.message, state, ["--integration-manifest", str(manifest)], work)
+            self.assertEqual(accepted.returncode, 0, accepted.stderr)
+            self.assertEqual(json.loads(accepted.stdout)["status"], "reviewable")
+            conflict = work / "other.json"
+            conflict.write_text(json.dumps({"producer_revision_sha256": "b" * 64}) + "\n", encoding="utf-8")
+            rejected = self._run_cli(
+                self.message,
+                work / "unused.json",
+                ["--expected-producer-revision", revision, "--integration-manifest", str(conflict)],
+                work,
+            )
+            self.assertEqual(rejected.returncode, 2)
+            self.assertIn("producer_revision_binding_conflict", rejected.stderr)
+            self.assertFalse((work / "unused.json").exists())
+
+
 
 
 if __name__ == "__main__":

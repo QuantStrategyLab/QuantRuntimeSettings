@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fcntl
 import hashlib
 import json
 import math
+import os
 import re
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping
@@ -319,13 +322,155 @@ def consume_development_research_review(payload: object, *, registry: DuplicateR
     return _project(message)
 
 
+def producer_revision_from_manifest(payload: object) -> str:
+    """Read the expected AAB producer source revision from a local integration manifest."""
+    if not isinstance(payload, Mapping):
+        raise DevelopmentResearchReviewError("invalid_integration_manifest")
+    found: list[str] = []
+    direct = payload.get("producer_revision_sha256")
+    if isinstance(direct, str):
+        found.append(direct)
+    for key in ("aab", "producer"):
+        nested = payload.get(key)
+        if isinstance(nested, Mapping) and isinstance(nested.get("producer_revision_sha256"), str):
+            found.append(nested["producer_revision_sha256"])
+    unique = list(dict.fromkeys(found))
+    if len(unique) != 1:
+        raise DevelopmentResearchReviewError("invalid_integration_manifest")
+    return _check_digest(unique[0], "invalid_producer_revision")
+
+
+def resolve_expected_producer_revision(cli_value: str | None, manifest: object | None) -> str:
+    """Bind one expected producer revision from the CLI option, the manifest, or both when equal."""
+    expected = _check_digest(cli_value, "invalid_producer_revision") if cli_value is not None else None
+    from_manifest = producer_revision_from_manifest(manifest) if manifest is not None else None
+    if expected is None and from_manifest is None:
+        raise DevelopmentResearchReviewError("producer_revision_unbound")
+    if expected is not None and from_manifest is not None and expected != from_manifest:
+        raise DevelopmentResearchReviewError("producer_revision_binding_conflict")
+    resolved = expected if expected is not None else from_manifest
+    if resolved is None:
+        raise DevelopmentResearchReviewError("producer_revision_unbound")
+    return resolved
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    directory = path.parent
+    directory.mkdir(parents=True, mode=0o700, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=directory)
+    tmp_path = Path(tmp_name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        tmp_path.unlink(missing_ok=True)
+        raise
+    os.chmod(path, 0o600)
+
+
+def _checked_receipt(duplicate_key: str, result_digest: str, record: Mapping[str, Any]) -> dict[str, Any]:
+    receipt = record.get("receipt")
+    if not isinstance(receipt, Mapping):
+        raise DevelopmentResearchReviewError("invalid_receipt_store")
+    if receipt.get("duplicate_key") != duplicate_key:
+        raise DevelopmentResearchReviewError("invalid_receipt_store")
+    provenance = receipt.get("provenance")
+    if not isinstance(provenance, Mapping) or provenance.get("result_digest") != result_digest:
+        raise DevelopmentResearchReviewError("invalid_receipt_store")
+    body = dict(receipt)
+    identity = body.pop("state_identity", None)
+    if identity != digest(body):
+        raise DevelopmentResearchReviewError("invalid_receipt_store")
+    body["state_identity"] = identity
+    return body
+
+
+class LocalReceiptStore:
+    """Persist one review receipt per economic duplicate key across processes."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+
+    def consume(self, message: Mapping[str, Any]) -> dict[str, Any]:
+        if self.path.is_symlink():
+            raise DevelopmentResearchReviewError("invalid_receipt_store")
+        key, result_digest = message["duplicate_key"], message["result_digest"]
+        self.path.parent.mkdir(parents=True, mode=0o700, exist_ok=True)
+        lock_path = self.path.with_name(f".{self.path.name}.lock")
+        if lock_path.is_symlink():
+            raise DevelopmentResearchReviewError("invalid_receipt_store")
+        lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            os.fchmod(lock_fd, 0o600)
+            fcntl.flock(lock_fd, fcntl.LOCK_EX)
+            records = self._load_records()
+            current = records.get(key)
+            if current is not None:
+                if not isinstance(current, Mapping) or current.get("result_digest") != result_digest:
+                    raise DevelopmentResearchReviewError("duplicate_key_conflict")
+                return _checked_receipt(key, result_digest, current)
+            receipt = _project(message)
+            records[key] = {"result_digest": result_digest, "receipt": receipt}
+            _atomic_write(self.path, canonical_json({"receipts": records}) + "\n")
+            return receipt
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+            os.close(lock_fd)
+
+    def _load_records(self) -> dict[str, Any]:
+        if not self.path.exists():
+            return {}
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise DevelopmentResearchReviewError("invalid_receipt_store") from exc
+        receipts = payload.get("receipts") if isinstance(payload, Mapping) else None
+        if not isinstance(payload, Mapping) or set(payload) != {"receipts"} or not isinstance(receipts, dict):
+            raise DevelopmentResearchReviewError("invalid_receipt_store")
+        for key, record in receipts.items():
+            if not isinstance(key, str) or not isinstance(record, Mapping):
+                raise DevelopmentResearchReviewError("invalid_receipt_store")
+            result_digest = record.get("result_digest")
+            _check_digest(result_digest, "invalid_receipt_store")
+            _checked_receipt(key, result_digest, record)
+        return dict(receipts)
+
+
+def consume_bound_review(
+    payload: object,
+    *,
+    state_path: Path,
+    expected_producer_revision: str,
+) -> dict[str, Any]:
+    """Validate one message, pin the D1 producer revision, and persist its receipt."""
+    message = validate_development_research_review(payload)
+    if message["identities"]["producer_revision_sha256"] != expected_producer_revision:
+        raise DevelopmentResearchReviewError("producer_revision_mismatch")
+    return LocalReceiptStore(state_path).consume(message)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", required=True, type=Path, help="AIAuditBridge v1 JSON message")
+    parser.add_argument("--state", required=True, type=Path, help="local receipt file for cross-process dedup")
+    parser.add_argument("--expected-producer-revision", help="required AAB producer source SHA-256")
+    parser.add_argument("--integration-manifest", type=Path, help="JSON manifest containing producer_revision_sha256")
     args = parser.parse_args()
     try:
+        manifest = None
+        if args.integration_manifest is not None:
+            manifest = json.loads(args.integration_manifest.read_text(encoding="utf-8"))
+        expected = resolve_expected_producer_revision(args.expected_producer_revision, manifest)
         message = json.loads(args.input.read_text(encoding="utf-8"))
-        state = consume_development_research_review(message)
+        state = consume_bound_review(
+            message,
+            state_path=args.state,
+            expected_producer_revision=expected,
+        )
     except (OSError, json.JSONDecodeError) as exc:
         print(f"development review rejected: invalid_input ({type(exc).__name__})", file=sys.stderr)
         return 2

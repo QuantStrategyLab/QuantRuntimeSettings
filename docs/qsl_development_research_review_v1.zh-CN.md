@@ -31,11 +31,25 @@ key 由研究、候选/组合、生产者/runner、上游输入、政策/结算/
 `result_digest` 单独比较，以便同一经济身份出现不同结果时能拒绝冲突。`created_at` 不参与
 key 或 state identity。
 
-运行真实本地消息：
+运行真实本地消息。普通安装 `python/` 之后，可以从两个仓库之外的目录调用
+`qsl-development-research-review`，不必把多个源码树放进 `PYTHONPATH`。未安装时仍可直接运行脚本：
 
 ```sh
-python3 python/scripts/development_research_review_consumer.py --input /tmp/development-research-review-a.json
+python3 python/scripts/development_research_review_consumer.py \
+  --input <message.json> \
+  --state <receipt.json> \
+  --expected-producer-revision <producer-sha256>
 ```
+
+`--integration-manifest <manifest.json>` 可以代替显式修订参数。清单是 JSON，`producer_revision_sha256`
+位于顶层，或位于 `aab` / `producer` 对象中。两个来源同时给出时必须相同。这条 D1 路径会拒绝
+生产者修订与绑定值不一致的消息，即使调用方重算了 duplicate key 和 message seal。
+
+`--state` 保存本地收据。同一 duplicate key 且同一 `result_digest` 在新进程里返回已经保存的
+reviewable state，不追加第二条。`created_at` 不进入经济身份；只改变它并重算 message seal 时，
+key、结果和 state identity 保持不变。同一 key 的 `result_digest` 不同则拒绝，并且不覆盖原文件。
+写入先落到同目录临时文件，再 `os.replace`；收据和锁文件模式都是 `0600`。锁文件只锁这一份收据。
+此入口不调用 AI、实验、通知或发布。
 
 可执行 JSON Schema 位于 `schemas/qsl-development-research-review.v1.schema.json`。
 SHA-256 是完整性校验，不是签名，也不证明消息由可信身份签发。A 的来源只达到单一数据源
