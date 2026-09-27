@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { spawn } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +14,7 @@ import {
   ux1Fingerprint,
 } from "../web/strategy-switch-console/ux1_research_contract.js";
 import {
+  ux1DemoTest,
   calculatorChildEnv,
   parseUx1DemoArgs,
   parseUx1OperatorConfig,
@@ -23,6 +24,14 @@ import {
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
+
+assert.ok(await ux1DemoTest.processExecutable(process.pid, "darwin"));
+if (process.platform === "linux") {
+  assert.equal(
+    await ux1DemoTest.processExecutable(process.pid, "linux"),
+    await readlink(`/proc/${process.pid}/exe`),
+  );
+}
 
 const reordered = defaultUx1Draft();
 reordered.advanced_settings = Object.fromEntries(Object.entries(reordered.advanced_settings).reverse());

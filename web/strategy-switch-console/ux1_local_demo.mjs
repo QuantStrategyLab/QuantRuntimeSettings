@@ -6,7 +6,7 @@
 import { execFile, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readlink, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -304,7 +304,10 @@ function processCommand(pid) {
   });
 }
 
-function processExecutable(pid) {
+function processExecutable(pid, platform = process.platform) {
+  if (platform === "linux") {
+    return readlink(`/proc/${pid}/exe`).catch(() => "");
+  }
   return new Promise((resolve) => {
     execFile("ps", ["-p", String(pid), "-o", "comm="], { shell: false }, (error, stdout) => {
       resolve(error ? "" : String(stdout || "").trim());
@@ -327,6 +330,8 @@ async function demoWorkerdListener(port) {
   const bundled = path.join(path.dirname(fileURLToPath(import.meta.url)), "node_modules", "@cloudflare") + path.sep;
   return executable.startsWith(bundled) && /\/workerd[^/]*\/bin\/workerd$/.test(executable) ? listeners[0] : null;
 }
+
+export const ux1DemoTest = Object.freeze({ processExecutable });
 
 async function recoverRecordedListener(args) {
   const instance = await readInstance(args.instanceFile);
