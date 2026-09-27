@@ -17,6 +17,31 @@ export type SwitchDraft = {
   touched: Record<string, boolean>;
 };
 
+export type AccountSettingOverridePatch = {
+  strategy_profile?: string | null;
+  income_layer_enabled?: boolean | null;
+  reserved_cash_floor?: string | null;
+};
+
+export function accountSettingDraftBody(input: {
+  expectedDraftRevision: number;
+  identity: Record<string, unknown>;
+  overrides: AccountSettingOverridePatch;
+  acknowledgeIdentityConflict?: boolean;
+}): Record<string, unknown> {
+  const overrides: Record<string, string | boolean | null> = {};
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "strategy_profile")) overrides.strategy_profile = input.overrides.strategy_profile ?? null;
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "income_layer_enabled")) overrides.income_layer_enabled = input.overrides.income_layer_enabled ?? null;
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "reserved_cash_floor")) overrides.reserved_cash_floor = input.overrides.reserved_cash_floor ?? null;
+  const body: Record<string, unknown> = {
+    expected_draft_revision: input.expectedDraftRevision,
+    identity: input.identity,
+    overrides,
+  };
+  if (input.acknowledgeIdentityConflict) body.acknowledge_identity_conflict = true;
+  return body;
+}
+
 export function defaultSwitchDraft(account: AccountOption, current: CurrentStrategy | null, platform: string): SwitchDraft {
   return {
     strategy: current?.strategy_profile || String(account.default_strategy_profile || ""),

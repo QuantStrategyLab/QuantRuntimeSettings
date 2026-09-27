@@ -299,6 +299,11 @@ const HUMAN_DECISION_DO_ACTIONS = new Set([
   "owner_decide", "recovery_decide", "promotion_decide",
   "owner_read", "recovery_read", "promotion_read",
 ]);
+const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
+  "risk_profile_read", "risk_profile_replace", "risk_profile_set",
+  "account_settings_read", "account_settings_save",
+]);
+const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor"];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -620,6 +625,12 @@ export default {
       }
       if (url.pathname === "/api/risk-profiles" && request.method === "POST") {
         return await saveRiskProfileBindings(request, env);
+      }
+      if (url.pathname === "/api/account-settings" && request.method === "GET") {
+        return await accountSettingsResponse(request, env);
+      }
+      if (url.pathname === "/api/account-settings" && request.method === "POST") {
+        return await saveAccountSettings(request, env);
       }
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
         return await syncAccountDefaultResponse(request, env);
@@ -1957,6 +1968,245 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (kind, subject_id, source_id)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS risk_profile_authority (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      revision INTEGER NOT NULL,
+      imported INTEGER NOT NULL,
+      bindings_json TEXT NOT NULL
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_draft (
+      platform TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      identity_json TEXT NOT NULL,
+      overrides_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (platform, account_key)
+    )`);
+  }
+
+  accountSettingsCommand(command) {
+    if (!command || typeof command.actor !== "string" || !command.actor) throw new HttpError("runtime_instance_actor_required", 400);
+    if (command.action === "risk_profile_read") return this.readRiskProfileAuthority(command.legacy);
+    if (command.action === "risk_profile_replace") return this.replaceRiskProfileAuthority(command);
+    if (command.action === "risk_profile_set") return this.setRiskProfileAuthority(command);
+    if (command.action === "account_settings_read") return this.readAccountSettings(command);
+    if (command.action === "account_settings_save") return this.saveAccountSettings(command);
+    throw new HttpError("unsupported_account_settings_action", 400);
+  }
+
+  ensureRiskProfileAuthority(legacy) {
+    const row = this.sql.exec("SELECT revision, imported, bindings_json FROM risk_profile_authority WHERE id = 1").toArray()[0];
+    if (row) return row;
+    if (legacy?.state === "blocked") throw new HttpError("risk_profile_bindings_invalid", 409);
+    const bindings = legacy?.state === "valid" && Array.isArray(legacy.bindings) ? legacy.bindings : [];
+    const payload = JSON.stringify(bindings);
+    this.sql.exec("INSERT INTO risk_profile_authority (id, revision, imported, bindings_json) VALUES (1, 0, 1, ?)", payload);
+    return { revision: 0, imported: 1, bindings_json: payload };
+  }
+
+  storedRiskBindings(row) {
+    let bindings;
+    try { bindings = JSON.parse(row.bindings_json); } catch { throw new HttpError("risk_profile_bindings_invalid", 409); }
+    if (!Array.isArray(bindings)) throw new HttpError("risk_profile_bindings_invalid", 409);
+    return bindings;
+  }
+
+  assertStoredRiskBinding(binding, accountOptions) {
+    if (!binding || Array.isArray(binding) || typeof binding !== "object") throw new HttpError("invalid_risk_profile_binding", 400);
+    if (binding.no_order !== true || binding.execution_authority_granted !== false) throw new HttpError("risk_profile_execution_authority_rejected", 400);
+    if (binding.scope_id !== riskProfileScopeId(binding.platform, binding.target_name)) throw new HttpError("invalid_risk_profile_binding", 400);
+    if (!RISK_PROFILE_PREFERENCES.includes(binding.profile_selection?.risk_preference)) throw new HttpError("invalid_risk_profile_binding", 400);
+    if (!riskProfileBindingTargets(accountOptions).some((target) => target.platform === binding.platform && target.target_name === binding.target_name)) {
+      throw new HttpError("risk_profile_binding_target_not_configured", 409);
+    }
+  }
+
+  writeRiskProfileAuthority(row, bindings) {
+    const current = this.storedRiskBindings(row);
+    const same = canonicalResearchTaskJson(current) === canonicalResearchTaskJson(bindings);
+    const revision = same ? Number(row.revision) : Number(row.revision) + 1;
+    if (!same) this.sql.exec("UPDATE risk_profile_authority SET revision = ?, bindings_json = ? WHERE id = 1", revision, JSON.stringify(bindings));
+    const state = this.read();
+    return {
+      ok: true,
+      revision,
+      bindings,
+      account_options: runtimeInstanceAccountOptions(state.instances),
+      instance_revision: state.revision,
+      initialized: state.initialized,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  readRiskProfileAuthority(legacy) {
+    const row = this.ensureRiskProfileAuthority(legacy);
+    const state = this.read();
+    return {
+      ok: true,
+      revision: Number(row.revision),
+      bindings: this.storedRiskBindings(row),
+      account_options: runtimeInstanceAccountOptions(state.instances),
+      instance_revision: state.revision,
+      initialized: state.initialized,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  requireRiskRevision(command, row) {
+    if (!Number.isSafeInteger(command.expected_revision) || command.expected_revision !== Number(row.revision)) {
+      throw new HttpError("risk_profile_revision_conflict", 409);
+    }
+  }
+
+  replaceRiskProfileAuthority(command) {
+    const row = this.ensureRiskProfileAuthority(command.legacy);
+    this.requireRiskRevision(command, row);
+    const options = runtimeInstanceAccountOptions(this.read().instances);
+    if (!Array.isArray(command.bindings)) throw new HttpError("invalid_risk_profile_binding", 400);
+    for (const binding of command.bindings) this.assertStoredRiskBinding(binding, options);
+    const bindings = [...command.bindings].sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+    return this.writeRiskProfileAuthority(row, bindings);
+  }
+
+  setRiskProfileAuthority(command) {
+    const row = this.ensureRiskProfileAuthority(command.legacy);
+    this.requireRiskRevision(command, row);
+    const options = runtimeInstanceAccountOptions(this.read().instances);
+    if (!riskProfileBindingTargets(options).some((target) => target.platform === command.platform && target.target_name === command.target_name)) {
+      throw new HttpError("risk_profile_binding_target_not_configured", 409);
+    }
+    const scopeId = riskProfileScopeId(command.platform, command.target_name);
+    const current = this.storedRiskBindings(row).filter((binding) => binding.scope_id !== scopeId);
+    if (command.risk_change === "clear") return this.writeRiskProfileAuthority(row, current);
+    if (command.risk_change !== "set") throw new HttpError("invalid_risk_profile_change", 400);
+    this.assertStoredRiskBinding(command.binding, options);
+    if (command.binding.scope_id !== scopeId) throw new HttpError("invalid_risk_profile_binding", 400);
+    current.push(command.binding);
+    current.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+    return this.writeRiskProfileAuthority(row, current);
+  }
+
+  existingAccountInstance(platform, key) {
+    const state = this.read();
+    if (!state.initialized) throw new HttpError("runtime_instances_not_initialized", 409);
+    const item = state.instances.find((candidate) => candidate.kind === "existing" && candidate.platform === platform && candidate.key === key);
+    if (!item) throw new HttpError("account_settings_not_found", 404);
+    return { state, item, identity: accountSettingsIdentity(item) };
+  }
+
+  accountSettingDraftView(item, identity) {
+    const row = this.sql.exec(
+      "SELECT revision, identity_json, overrides_json FROM account_setting_draft WHERE platform = ? AND account_key = ?",
+      item.platform, item.key,
+    ).toArray()[0];
+    if (!row) return { status: "empty", revision: 0, identity: null, current_identity: identity, overrides: {} };
+    let storedIdentity = null;
+    let overrides = {};
+    try {
+      storedIdentity = JSON.parse(row.identity_json);
+      overrides = JSON.parse(row.overrides_json);
+    } catch {
+      throw new HttpError("account_settings_draft_invalid", 409);
+    }
+    const conflict = canonicalResearchTaskJson(storedIdentity) !== canonicalResearchTaskJson(identity);
+    return {
+      status: conflict ? "identity_conflict" : "current",
+      revision: Number(row.revision),
+      identity: storedIdentity,
+      current_identity: identity,
+      overrides: overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {},
+    };
+  }
+
+  readAccountSettings(command) {
+    const { state, item, identity } = this.existingAccountInstance(command.platform, command.key);
+    const risk = this.readRiskProfileAuthority(command.legacy);
+    const scopeId = riskProfileScopeId(item.platform, identity.target_name);
+    const binding = risk.bindings.find((entry) => entry.scope_id === scopeId) || null;
+    return {
+      ok: true,
+      found: true,
+      platform: item.platform,
+      key: item.key,
+      instance_revision: state.revision,
+      identity,
+      config: item.config,
+      draft: this.accountSettingDraftView(item, identity),
+      risk: {
+        revision: risk.revision,
+        scope_id: scopeId,
+        preference: binding?.profile_selection?.risk_preference || null,
+        binding,
+      },
+      bindings: risk.bindings,
+      account_options: risk.account_options,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  saveAccountSettingDraft(item, identity, command) {
+    if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
+      throw new HttpError("account_settings_identity_required", 400);
+    }
+    if (canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) {
+      throw new HttpError("account_settings_identity_conflict", 409);
+    }
+    if (!Number.isSafeInteger(command.expected_draft_revision) || command.expected_draft_revision < 0) {
+      throw new HttpError("account_settings_draft_revision_conflict", 409);
+    }
+    const row = this.sql.exec(
+      "SELECT revision, identity_json, overrides_json FROM account_setting_draft WHERE platform = ? AND account_key = ?",
+      item.platform, item.key,
+    ).toArray()[0];
+    const now = new Date().toISOString();
+    if (!row) {
+      if (command.expected_draft_revision !== 0) throw new HttpError("account_settings_draft_revision_conflict", 409);
+      const overrides = applyAccountSettingOverrides({}, command.overrides);
+      this.sql.exec(
+        "INSERT INTO account_setting_draft (platform, account_key, revision, identity_json, overrides_json, updated_at) VALUES (?, ?, 1, ?, ?, ?)",
+        item.platform, item.key, JSON.stringify(identity), JSON.stringify(overrides), now,
+      );
+      return;
+    }
+    if (command.expected_draft_revision !== Number(row.revision)) throw new HttpError("account_settings_draft_revision_conflict", 409);
+    const storedIdentity = JSON.parse(row.identity_json);
+    const conflict = canonicalResearchTaskJson(storedIdentity) !== canonicalResearchTaskJson(identity);
+    if (conflict && command.acknowledge_identity_conflict !== true) throw new HttpError("account_settings_identity_conflict", 409);
+    const storedOverrides = JSON.parse(row.overrides_json);
+    const base = conflict ? {} : storedOverrides;
+    const overrides = applyAccountSettingOverrides(base, command.overrides);
+    if (!conflict && canonicalResearchTaskJson(overrides) === canonicalResearchTaskJson(storedOverrides)) return;
+    this.sql.exec(
+      "UPDATE account_setting_draft SET revision = ?, identity_json = ?, overrides_json = ?, updated_at = ? WHERE platform = ? AND account_key = ?",
+      Number(row.revision) + 1, JSON.stringify(identity), JSON.stringify(overrides), now, item.platform, item.key,
+    );
+  }
+
+  saveAccountSettings(command) {
+    const { item, identity } = this.existingAccountInstance(command.platform, command.key);
+    const hasDraft = Object.prototype.hasOwnProperty.call(command, "overrides");
+    const hasRisk = Object.prototype.hasOwnProperty.call(command, "risk_change");
+    if (!hasDraft && !hasRisk) throw new HttpError("account_settings_change_required", 400);
+    if (hasDraft) this.saveAccountSettingDraft(item, identity, command);
+    if (hasRisk) {
+      if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
+        throw new HttpError("account_settings_identity_required", 400);
+      }
+      if (canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) {
+        throw new HttpError("account_settings_identity_conflict", 409);
+      }
+      this.setRiskProfileAuthority({
+        ...command,
+        platform: identity.platform,
+        target_name: identity.target_name,
+        expected_revision: command.expected_risk_revision,
+      });
+    }
+    return { ...this.readAccountSettings(command), adopted: false };
   }
 
   read() {
@@ -1989,6 +2239,9 @@ export class RuntimeInstances {
       }
       if (typeof command?.action === "string" && command.action.startsWith("ux1_")) {
         return json(this.ux1ResearchCommand(command));
+      }
+      if (ACCOUNT_SETTINGS_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.accountSettingsCommand(command)));
       }
       // No awaits or external I/O inside this SQLite transaction. Every state
       // change, version advance, and history row commits together or rolls back.
@@ -2875,12 +3128,13 @@ async function riskProfileBindingsResponse(request, env) {
       reason: bindingState.error,
       no_order: true,
       execution_authority_granted: false,
-    }, 409);
+    }, bindingState.status || 409);
   }
   return json({
     ok: true,
+    revision: bindingState.revision,
     bindings: bindingState.bindings,
-    configured_targets: riskProfileBindingTargets((await loadAccountOptionsConfig(env)).options),
+    configured_targets: riskProfileBindingTargets(bindingState.account_options || {}),
     no_order: true,
     execution_authority_granted: false,
   });
@@ -2891,40 +3145,196 @@ async function saveRiskProfileBindings(request, env) {
   const session = await readSession(request, env);
   if (!session) return json({ ok: false, error: "login required" }, 401);
   if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required to save risk profiles" }, 400);
-  }
-
   let raw;
   try {
     raw = await request.json();
   } catch {
     return json({ ok: false, error: "request body must be valid JSON" }, 400);
   }
-  const accountConfig = await loadAccountOptionsConfig(env);
+  if (!hasRuntimeInstanceStore(env)) {
+    try {
+      await buildRiskProfileBindings({ bindings: raw?.bindings }, (await loadLegacyAccountOptionsConfig(env)).options || {}, session.login);
+    } catch (error) {
+      return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
+    }
+    return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+  }
+  const legacy = await readRiskProfileLegacy(env);
+  let observed;
+  try {
+    observed = await runtimeInstanceCommand(env, { action: "risk_profile_read", actor: session.login, legacy });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  if (!Number.isSafeInteger(raw?.expected_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
+  if (raw.expected_revision !== observed.revision) return json({ ok: false, error: "risk_profile_revision_conflict" }, 409);
   let bindings;
   try {
-    bindings = await buildRiskProfileBindings(raw, accountConfig.options, session.login);
+    bindings = await buildRiskProfileBindings({ bindings: raw.bindings }, observed.account_options, session.login);
   } catch (error) {
     return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
   }
-  await writeConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
-    schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
-    bindings,
-  });
-  await appendAuditLog(env, {
-    ts: new Date().toISOString(),
-    login: session.login,
-    action: "save_risk_profile_bindings",
-    binding_count: bindings.length,
-  });
+  let saved;
+  try {
+    saved = await runtimeInstanceCommand(env, {
+      action: "risk_profile_replace",
+      actor: session.login,
+      expected_revision: observed.revision,
+      bindings,
+      legacy,
+    });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  if (hasConfigStore(env)) {
+    await mirrorConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
+      schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+      bindings: saved.bindings,
+    });
+  }
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: session.login,
+      action: "save_risk_profile_bindings",
+      binding_count: saved.bindings.length,
+    });
+  } catch { /* audit failure does not undo the durable object decision */ }
   return json({
     ok: true,
-    bindings,
-    configured_targets: riskProfileBindingTargets(accountConfig.options),
+    revision: saved.revision,
+    bindings: saved.bindings,
+    configured_targets: riskProfileBindingTargets(saved.account_options || {}),
     no_order: true,
     execution_authority_granted: false,
   });
+}
+
+function accountSettingsOperations(admin) {
+  return {
+    save_draft: Boolean(admin),
+    save_risk_preference: Boolean(admin),
+    apply_strategy: false,
+    activation: false,
+    reason: "strategy_application_not_connected",
+  };
+}
+
+function accountSettingsPayload(observed, effective, admin) {
+  return {
+    ok: true,
+    platform: observed.platform,
+    key: observed.key,
+    instance_revision: observed.instance_revision,
+    identity: observed.identity,
+    effective,
+    draft: observed.draft,
+    risk: {
+      revision: observed.risk.revision,
+      scope_id: observed.risk.scope_id,
+      preference: observed.risk.preference,
+    },
+    operations: accountSettingsOperations(admin),
+    adopted: false,
+    no_order: true,
+    execution_authority_granted: false,
+  };
+}
+
+async function accountSettingsResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  const url = new URL(request.url);
+  const platform = url.searchParams.get("platform") || "";
+  const key = url.searchParams.get("key") || "";
+  if (!SUPPORTED_PLATFORMS.includes(platform) || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+  const legacy = await readRiskProfileLegacy(env);
+  let observed;
+  try {
+    observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform, key, legacy });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  return json(accountSettingsPayload(observed, await effectiveAccountSettings(env, observed), session.admin));
+}
+
+async function saveAccountSettings(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  let raw;
+  try { raw = await request.json(); } catch { return json({ ok: false, error: "request body must be valid JSON" }, 400); }
+  const platform = raw?.platform;
+  const key = raw?.key;
+  if (!SUPPORTED_PLATFORMS.includes(platform) || typeof key !== "string" || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+  const legacy = await readRiskProfileLegacy(env);
+  let observed;
+  try {
+    observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform, key, legacy });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  const wantsDraft = Object.prototype.hasOwnProperty.call(raw, "overrides");
+  const wantsRisk = Object.prototype.hasOwnProperty.call(raw, "risk_preference");
+  if ((wantsDraft || wantsRisk) && (!raw.identity || Array.isArray(raw.identity) || typeof raw.identity !== "object")) {
+    return json({ ok: false, error: "account_settings_identity_required" }, 400);
+  }
+  if ((wantsDraft || wantsRisk) && canonicalResearchTaskJson(raw.identity) !== canonicalResearchTaskJson(observed.identity)) {
+    return json({ ok: false, error: "account_settings_identity_conflict" }, 409);
+  }
+  const command = { action: "account_settings_save", actor: session.login, platform, key, legacy };
+  if (wantsDraft || wantsRisk) command.identity = raw.identity;
+  if (wantsDraft) {
+    if (!Number.isSafeInteger(raw.expected_draft_revision)) return json({ ok: false, error: "account_settings_draft_revision_required" }, 400);
+    if (raw.expected_draft_revision !== observed.draft.revision) return json({ ok: false, error: "account_settings_draft_revision_conflict" }, 409);
+    command.overrides = raw.overrides;
+    command.expected_draft_revision = observed.draft.revision;
+    if (raw.acknowledge_identity_conflict === true) command.acknowledge_identity_conflict = true;
+  }
+  if (wantsRisk) {
+    if (!Number.isSafeInteger(raw.expected_risk_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
+    if (raw.expected_risk_revision !== observed.risk.revision) return json({ ok: false, error: "risk_profile_revision_conflict" }, 409);
+    command.expected_risk_revision = observed.risk.revision;
+    if (raw.risk_preference === null) command.risk_change = "clear";
+    else {
+      let built;
+      try {
+        built = await buildRiskProfileBindings(
+          { bindings: [{ platform, target_name: observed.identity.target_name, risk_preference: raw.risk_preference }] },
+          observed.account_options,
+          session.login,
+        );
+      } catch (error) {
+        return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
+      }
+      command.risk_change = "set";
+      command.binding = built[0];
+    }
+  }
+  if (!Object.prototype.hasOwnProperty.call(command, "overrides") && !Object.prototype.hasOwnProperty.call(command, "risk_change")) {
+    return json({ ok: false, error: "account_settings_change_required" }, 400);
+  }
+  let saved;
+  try {
+    saved = await runtimeInstanceCommand(env, command);
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  if (command.risk_change && hasConfigStore(env)) {
+    await mirrorConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
+      schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+      bindings: saved.bindings,
+    });
+  }
+  return json(accountSettingsPayload(saved, await effectiveAccountSettings(env, saved), true));
 }
 
 async function requireAdminSession(request, env) {
@@ -2958,8 +3368,9 @@ async function buildAdminState(session, env) {
     accountOptions: accountConfig.options || {},
     accountOptionSource: accountConfig.source,
     riskProfileBindings: riskProfileBindingState.bindings,
+    riskProfileRevision: riskProfileBindingState.revision,
     riskProfileBindingsError: riskProfileBindingState.error,
-    riskProfileBindingTargets: riskProfileBindingTargets(accountConfig.options),
+    riskProfileBindingTargets: riskProfileBindingTargets(riskProfileBindingState.account_options || accountConfig.options || {}),
     auditLog: await loadAuditLog(env),
     runtimeInstances,
     runtimeInstanceStrategies,
@@ -3112,6 +3523,7 @@ function runtimeInstancesAdminScript(state) {
 
 async function renderAdminPage(state, nonce) {
   const disabled = state.kvAvailable ? "" : " disabled";
+  const riskDisabled = Number.isSafeInteger(state.riskProfileRevision) ? "" : " disabled";
   const statusClass = state.kvAvailable ? "ready" : "warn";
   const statusText = state.kvAvailable ? "KV 已连接 / KV connected" : "KV 未绑定，只读 / Read-only";
   const sourceText = state.accountOptionSource === "durable_object" ? "实例配置存储" : state.accountOptionSource === "kv"
@@ -3131,11 +3543,11 @@ async function renderAdminPage(state, nonce) {
     ? state.riskProfileBindingTargets.map((target) => {
       const selected = profileByScope.get(target.scope_id)?.profile_selection?.risk_preference || "";
       const option = (value, label) => `<option value="${escapeHtml(value)}"${selected === value ? " selected" : ""}>${escapeHtml(label)}</option>`;
-      return `<tr><td>${escapeHtml(target.platform)}</td><td>${escapeHtml(target.target_name)}</td><td><select data-risk-profile-platform="${escapeHtml(target.platform)}" data-risk-profile-target="${escapeHtml(target.target_name)}"${disabled}>${option("", "未设置 / Not configured")}${option("CAPITAL_PRESERVATION", "保本优先 / Capital preservation")}${option("BALANCED_COMPOUNDING", "平衡复利 / Balanced compounding")}${option("GROWTH_COMPOUNDING", "增长复利 / Growth compounding")}</select></td></tr>`;
+      return `<tr><td>${escapeHtml(target.platform)}</td><td>${escapeHtml(target.target_name)}</td><td><select data-risk-profile-platform="${escapeHtml(target.platform)}" data-risk-profile-target="${escapeHtml(target.target_name)}"${riskDisabled}>${option("", "未设置 / Not configured")}${option("CAPITAL_PRESERVATION", "保本优先 / Capital preservation")}${option("BALANCED_COMPOUNDING", "平衡复利 / Balanced compounding")}${option("GROWTH_COMPOUNDING", "增长复利 / Growth compounding")}</select></td></tr>`;
     }).join("")
     : `<tr><td colspan="3">暂无已配置目标 / No configured targets</td></tr>`;
   const riskProfileNotice = state.riskProfileBindingsError
-    ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。请先修复 KV 中的记录。`
+    ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。没有可核对的版本时不能保存。`
     : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。不要把 1.50× 当成仓位×1.5。";
   return `<!doctype html>
 <html lang="zh-CN">
@@ -3293,7 +3705,7 @@ async function renderAdminPage(state, nonce) {
         </table>
       </section>
       <div class="form-actions">
-        <button class="btn primary" id="save-risk-profile-button" type="submit"${disabled}>保存风险偏好</button>
+        <button class="btn primary" id="save-risk-profile-button" type="submit"${riskDisabled}>保存风险偏好</button>
         <span id="risk-profile-status"></span>
       </div>
     </form>
@@ -3315,6 +3727,7 @@ async function renderAdminPage(state, nonce) {
   <script nonce="${nonce}">
     ${runtimeInstancesAdminScript(state)}
     const kvAvailable = ${JSON.stringify(state.kvAvailable)};
+    let riskProfileRevision = ${JSON.stringify(Number.isSafeInteger(state.riskProfileRevision) ? state.riskProfileRevision : null)};
     const statusNode = document.getElementById("status");
     const riskProfileStatusNode = document.getElementById("risk-profile-status");
     const setStatus = (message) => { statusNode.textContent = message; };
@@ -3358,7 +3771,10 @@ async function renderAdminPage(state, nonce) {
 
     document.getElementById("risk-profile-form").addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!kvAvailable) return;
+      if (!Number.isSafeInteger(riskProfileRevision)) {
+        riskProfileStatusNode.textContent = "没有可核对的版本，未保存 / Revision is unavailable";
+        return;
+      }
       const bindings = [...document.querySelectorAll("[data-risk-profile-platform]")]
         .map((node) => ({
           platform: node.dataset.riskProfilePlatform,
@@ -3371,10 +3787,11 @@ async function renderAdminPage(state, nonce) {
         const response = await fetch("/api/risk-profiles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bindings }),
+          body: JSON.stringify({ bindings, expected_revision: riskProfileRevision }),
         });
         const payload = await response.json();
-        if (!response.ok || !payload.ok) throw new Error(payload.error || "save failed");
+        if (!response.ok || !payload.ok || !Number.isSafeInteger(payload.revision)) throw new Error(payload.error || "save failed");
+        riskProfileRevision = payload.revision;
         riskProfileStatusNode.textContent = "已保存；仅为不可执行的风险偏好意图 / Saved as no-order preference";
       } catch (error) {
         riskProfileStatusNode.textContent = "保存失败 / Save failed: " + error.message;
@@ -11790,20 +12207,117 @@ async function buildRiskProfileBindings(payload, accountOptions, updatedBy) {
   return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
 }
 
-async function loadRiskProfileBindings(env) {
-  if (!hasConfigStore(env)) return { bindings: [], error: null };
+function accountSettingsIdentity(instance) {
+  const config = instance?.config || {};
+  const broker = config.broker_environment;
+  return {
+    platform: instance.platform,
+    key: instance.key,
+    target_name: typeof config.target_name === "string" ? config.target_name : "",
+    broker_environment: broker === "live" || broker === "paper" ? broker : null,
+    account_selector: typeof config.account_selector === "string" ? config.account_selector : "",
+    deployment_selector: typeof config.deployment_selector === "string" ? config.deployment_selector : "",
+    account_scope: typeof config.account_scope === "string" ? config.account_scope : "",
+    service_name: typeof config.service_name === "string" ? config.service_name : "",
+  };
+}
+
+function applyAccountSettingOverrides(current, patch) {
+  if (!patch || Array.isArray(patch) || typeof patch !== "object") throw new HttpError("invalid_account_setting_overrides", 400);
+  const next = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  for (const key of Object.keys(patch)) {
+    if (!ACCOUNT_SETTING_OVERRIDE_FIELDS.includes(key)) throw new HttpError("invalid_account_setting_overrides", 400);
+    const value = patch[key];
+    if (value === null) {
+      delete next[key];
+      continue;
+    }
+    if (typeof value === "number") throw new HttpError("invalid_account_setting_overrides", 400);
+    if (key === "income_layer_enabled") {
+      if (typeof value !== "boolean") throw new HttpError("invalid_account_setting_overrides", 400);
+      next[key] = value;
+    } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
+      throw new HttpError("invalid_account_setting_overrides", 400);
+    } else {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+async function readRiskProfileLegacy(env) {
+  if (!hasConfigStore(env)) return { state: "absent" };
   try {
     const stored = await readConfigJson(env, RISK_PROFILE_BINDINGS_KEY);
-    if (!stored) return { bindings: [], error: null };
-    return {
-      bindings: await normalizeRiskProfileBindingRegistry(stored),
-      error: null,
-    };
+    if (!stored) return { state: "absent" };
+    return { state: "valid", bindings: await normalizeRiskProfileBindingRegistry(stored) };
   } catch {
-    // Do not silently default malformed owner intent.  It has no runtime
-    // authority, but the next control-plane adapter must see the failure.
-    return { bindings: [], error: "risk_profile_bindings_invalid" };
+    return { state: "blocked" };
   }
+}
+
+async function loadRiskProfileBindings(env) {
+  if (!hasRuntimeInstanceStore(env)) {
+    return { bindings: [], revision: null, account_options: null, error: "runtime_instances_not_bound", status: 503 };
+  }
+  const legacy = await readRiskProfileLegacy(env);
+  try {
+    const state = await runtimeInstanceCommand(env, { action: "risk_profile_read", actor: "risk-profile-read", legacy });
+    return { bindings: state.bindings, revision: state.revision, account_options: state.account_options, error: null, status: 200 };
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return {
+      bindings: [],
+      revision: null,
+      account_options: null,
+      error: error instanceof HttpError ? error.message : "runtime_instances_unavailable",
+      status,
+    };
+  }
+}
+
+async function effectiveAccountSettings(env, observed) {
+  const broker = observed.identity?.broker_environment === "live" || observed.identity?.broker_environment === "paper"
+    ? { status: "known", value: observed.identity.broker_environment }
+    : { status: "unknown" };
+  const effective = {
+    strategy_profile: { status: "unknown" },
+    broker_environment: broker,
+    income_layer_enabled: { status: "unknown" },
+    reserved_cash_floor: { status: "unknown" },
+  };
+  const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+  const repository = platformRepositories(env)?.[observed.platform];
+  if (!token || !repository || !observed.config) return effective;
+  const options = Array.isArray(observed.account_options?.[observed.platform]) ? observed.account_options[observed.platform] : [];
+  const variableCache = new Map();
+  const readVariable = async (repo, scope, githubEnvironment, name) => {
+    const cacheKey = [repo, scope, githubEnvironment || ""].join("|");
+    if (!variableCache.has(cacheKey)) variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment));
+    const values = await variableCache.get(cacheKey);
+    return values?.get(name) || "";
+  };
+  let current = null;
+  try {
+    current = await resolveCurrentStrategyForAccount({
+      platform: observed.platform,
+      option: observed.config,
+      optionsCount: options.length || 1,
+      repository,
+      readVariable,
+    });
+  } catch {
+    return effective;
+  }
+  if (!current || typeof current !== "object") return effective;
+  if (typeof current.strategy_profile === "string" && current.strategy_profile) {
+    effective.strategy_profile = { status: "known", value: current.strategy_profile };
+  }
+  if (typeof current.income_layer_enabled === "boolean") effective.income_layer_enabled = { status: "known", value: current.income_layer_enabled };
+  if (typeof current.min_reserved_cash_usd === "string" && current.min_reserved_cash_usd) {
+    effective.reserved_cash_floor = { status: "known", value: current.min_reserved_cash_usd };
+  }
+  return effective;
 }
 
 function hasConfigStore(env) {

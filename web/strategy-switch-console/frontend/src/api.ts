@@ -156,6 +156,14 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
   return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive };
 }
 
+export function accountSettingsPath(platform: string, key: string): string {
+  return `/api/account-settings?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(key)}`;
+}
+
+export async function loadAccountSettings(platform: string, key: string): Promise<Record<string, any>> {
+  return getJson<Record<string, any>>(accountSettingsPath(platform, key));
+}
+
 export async function loadAdminModel(): Promise<AdminModel> {
   const [config, instances, risk] = await Promise.all([
     source(getJson<Record<string, any>>("/api/admin/config")),

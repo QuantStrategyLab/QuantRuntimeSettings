@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, Source, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson } from "./api";
+import { AccessError, getJson, invalidatePrivateSession, loadAccountSettings, loadAdminModel, loadReadModel, postJson } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
+import { createAccountSettingsController, type AccountSettingsOp } from "./accountSettingsState";
 import { accountMatchesStatusFilter, applicationRetryAllowed, buildConfirmationFingerprint, buildHomeAttention, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisStatusKey, diagnosisUserSummary, ownerDecisionBinding, pageFromWorkspace, presentAccountState, promotionAiExplanation, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
 import { DCA_SUPPORTED_PLATFORMS, DOMAIN_LABELS, PLATFORM_CONFIG } from "../../config.js";
 import { formatAccountCount, LocaleContext, renderLocaleMessage, translate, useLocale, useT, type Language, type LocaleMessage } from "./locales";
@@ -740,6 +741,7 @@ function App() {
       </section>
       {active && activeForm ? <section className="content-section account-editor"><div className="section-heading"><h2>{t("{account} · 账户状态", { account: active.account.label || active.account.target_name })}</h2></div>
         <AccountFacts row={active}/>
+        <AccountSettingsPanel platform={active.platform} accountKey={active.account.key} admin={Boolean(model?.session.admin)} />
         {(() => { const view = diagnosisUserSummary(diagnosis[active.id]); const refreshOnly = view.action === "refresh"; return <section className="diagnosis-panel"><h3>{t("账户检查")}</h3><strong>{t(view.status)}</strong><p>{t(view.reason)}</p><button className="button button-secondary" type="button" disabled={!model?.session.allowed || busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading || (!refreshOnly && diagnosis[active.id]?.available !== true)} onClick={() => refreshOnly ? void readDiagnosisStatus(active) : void runDiagnosis(active)}>{busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading ? t("正在检查…") : t(refreshOnly ? "刷新状态" : "检查账户")}</button>{diagnosis[active.id]?.available === true && diagnosis[active.id]?.task && <details><summary>{t("查看技术详情")}</summary><p>{t(diagnosisStatusKey(diagnosis[active.id]?.task))}</p><pre>{JSON.stringify(diagnosis[active.id]?.task, null, 2)}</pre></details>}</section>; })()}
         <details className="strategy-settings"><summary>{t("\u7B56\u7565\u4E0E\u8FD0\u884C\u8BBE\u7F6E")}</summary>
           <div className="field-grid"><label>{t("\u8FD0\u884C\u7B56\u7565")}<select value={activeForm.strategy} onChange={e => updateForm(active, { strategy: e.target.value })}><option value="">{t("\u9009\u62E9\u7B56\u7565")}</option>{allowedProfiles.map(profile => <option key={profile.profile} value={profile.profile}>{profile.label || profile.profile}</option>)}</select></label>
@@ -970,6 +972,101 @@ function RecoveryCard({ entry, canConfirm, onConfirm, busy }: {
         <details><summary>{t("查看恢复检查详情")}</summary><p>{t("准备状态：{readiness} · 对账：{reconciliation}", { readiness: t(displayStatus(r.readiness)), reconciliation: t(displayStatus(r.reconciliation_state)) })}</p><p>{t("阻塞项：{blockers} · 双审：{review}", { blockers: Array.isArray(r.blocker_codes) && r.blocker_codes.length ? t("{count} 项需核对", { count: r.blocker_codes.length }) : t("无"), review: t(displayStatus(r.dual_review?.outcome)) })}</p>{!canConfirm && !entry.confirmation && <p className="section-note">{t("当前资料不满足双审绑定、freshness 或管理员条件，不能确认。")}</p>}<pre>{JSON.stringify({ recovery_id: r.recovery_id, candidate_sha256: r.candidate_sha256, dual_review: r.dual_review, last_observed_at: r.last_observed_at }, null, 2)}</pre></details>
     </article>;
 }
+function AccountSettingsPanel({ platform, accountKey, admin }: { platform: string; accountKey: string; admin: boolean }) {
+    const t = useT();
+    const controller = useRef(createAccountSettingsController()).current;
+    const pendingRead = useRef<AccountSettingsOp | null>(null);
+    const [, setTick] = useState(0);
+    const sync = () => setTick((value) => value + 1);
+    const selectedId = `${platform}:${accountKey}`;
+    if (controller.selectedId() !== selectedId) pendingRead.current = controller.select({ platform, key: accountKey });
+    const view = controller.view();
+    const settings = view.settings;
+    useEffect(() => {
+        const op = pendingRead.current ?? controller.start("read");
+        pendingRead.current = null;
+        void (async () => {
+            try {
+                const payload = await loadAccountSettings(platform, accountKey);
+                if (controller.applyRead(op, payload)) sync();
+            } catch (error) {
+                if (controller.applyUnavailable(op, error instanceof Error ? error.message : "account_settings_unavailable")) sync();
+            }
+        })();
+        return () => { controller.abandon(op); };
+    }, [platform, accountKey, controller]);
+    const refreshAfterFailure = async (op: AccountSettingsOp) => {
+        const refresh = controller.start("refresh");
+        try {
+            const payload = await loadAccountSettings(op.account.platform, op.account.key);
+            if (controller.applyRefresh(refresh, payload)) sync();
+        } catch {
+            controller.abandon(refresh);
+        }
+    };
+    const saveDraft = async () => {
+        if (!admin || view.saving) return;
+        const started = controller.startSave("draft");
+        const body = controller.requestBody(started);
+        if (!started || !body || !controller.markSaving(started, "draft")) return;
+        sync();
+        try {
+            const currentBody = controller.requestBody(started);
+            if (!currentBody) return;
+            const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
+            if (!controller.isCurrent(started)) return;
+            if (controller.applySave(started, saved, t("草案已保存，尚未改变实际运行。"))) sync();
+        } catch (error) {
+            const status = (error as { status?: number })?.status;
+            if (!controller.fail(started, status === 409 ? t("版本已变化，未覆盖已保存内容。") : t("账户设置暂不可用。"))) return;
+            sync();
+            await refreshAfterFailure(started);
+        } finally {
+            if (controller.finish(started)) sync();
+        }
+    };
+    const savePreference = async () => {
+        if (!admin || view.saving) return;
+        const started = controller.startSave("risk");
+        const body = controller.requestBody(started);
+        if (!started || !body || !controller.markSaving(started, "risk")) return;
+        sync();
+        try {
+            const currentBody = controller.requestBody(started);
+            if (!currentBody) return;
+            const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
+            if (!controller.isCurrent(started)) return;
+            if (controller.applySave(started, saved, t("风险偏好已保存，不改变执行限额或启用状态。"))) sync();
+        } catch (error) {
+            const status = (error as { status?: number })?.status;
+            if (!controller.fail(started, status === 409 ? t("版本已变化，未覆盖已保存内容。") : t("账户设置暂不可用。"))) return;
+            sync();
+            await refreshAfterFailure(started);
+        } finally {
+            if (controller.finish(started)) sync();
+        }
+    };
+    const effectiveStrategy = settings?.effective?.strategy_profile?.status === "known" ? settings.effective.strategy_profile.value : t("有效策略尚未读回，保持未知。");
+    const broker = settings?.effective?.broker_environment?.status === "known" ? settings.effective.broker_environment.value : t("未知");
+    return <section className="content-section account-settings-draft"><div className="section-heading"><h2>{t("有效配置")}</h2></div>
+      {view.unavailable ? <p className="section-note">{t("账户设置暂不可用。")}</p> : <>
+        <p className="section-note">{effectiveStrategy}</p>
+        <p className="section-note">{t("券商环境只读。")} {broker}</p>
+        {settings?.draft?.status === "identity_conflict" && <p className="section-note">{t("账户身份已变化，保留的旧草案不会当作当前设置。")}</p>}
+        {settings?.operations?.apply_strategy === false && <p className="section-note">{t("策略应用尚未接通，保存不会生效。")}</p>}
+        <div className="field-grid">
+          <label>{t("策略覆盖")}<input value={view.draft.strategy} onChange={event => { controller.edit({ strategy: event.target.value, strategyTouched: true, clearStrategy: false }); sync(); }} /></label>
+          <label>{t("收入层覆盖")}<select value={view.draft.income} onChange={event => { controller.edit({ income: event.target.value, incomeTouched: true }); sync(); }}><option value="">{t("不修改")}</option><option value="true">{t("开启")}</option><option value="false">{t("关闭覆盖")}</option><option value="clear">{t("清除覆盖")}</option></select></label>
+          <label>{t("预留现金覆盖")}<input value={view.draft.floor} onChange={event => { controller.edit({ floor: event.target.value, floorTouched: true, clearFloor: false }); sync(); }} /></label>
+          <label>{t("组合风险偏好")}<select value={view.preference} onChange={event => { controller.edit({ preference: event.target.value }); sync(); }}><option value="">{t("清除覆盖")}</option>{RISK_PROFILES.map(item => <option key={item} value={item}>{({ CAPITAL_PRESERVATION: t("保护资本"), BALANCED_COMPOUNDING: t("均衡复利"), GROWTH_COMPOUNDING: t("增长复利") } as Record<string, string>)[item]}</option>)}</select></label>
+        </div>
+        {settings?.draft?.status === "identity_conflict" && <label><input type="checkbox" checked={view.draft.acknowledge} onChange={event => { controller.edit({ acknowledge: event.target.checked }); sync(); }} />{t("确认替换已失效草案")}</label>}
+        {admin && settings?.operations?.save_draft && <div className="form-actions"><button className="button button-secondary" type="button" disabled={Boolean(view.saving)} onClick={() => void saveDraft()}>{t("保存草案")}</button><button className="button button-secondary" type="button" disabled={Boolean(view.saving) || !Number.isSafeInteger(settings?.risk?.revision)} onClick={() => { controller.edit({ clearStrategy: true, strategyTouched: false }); sync(); }}>{t("清除策略覆盖")}</button><button className="button button-secondary" type="button" disabled={Boolean(view.saving)} onClick={() => { controller.edit({ clearFloor: true, floorTouched: false }); sync(); }}>{t("清除预留覆盖")}</button><button className="button button-secondary" type="button" disabled={Boolean(view.saving) || !Number.isSafeInteger(settings?.risk?.revision)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button></div>}
+        {view.notice && <p className="section-note" role="status">{view.notice}</p>}
+      </>}
+    </section>;
+}
+
 function AdminPanel({ model, session, text, setText, risk, setRisk, instanceDraft, setInstanceDraft, editing, setEditing, busy, setBusy, onRefresh, onError, confirmAction }: {
     model: AdminModel | null;
     session?: Session;
@@ -1025,10 +1122,14 @@ function AdminPanel({ model, session, text, setText, risk, setRisk, instanceDraf
     const saveRisk = async () => {
         if (!session?.admin || busy.riskSave)
             return;
+        if (!Number.isSafeInteger(riskState.revision)) {
+            onError(copy("没有可核对的风险偏好版本，未保存。"));
+            return;
+        }
         const bindings = Array.from(riskState.configured_targets || []).map((target: any) => ({ platform: target.platform, target_name: target.target_name, risk_preference: risk[`${target.platform}:${target.target_name}`] || "" })).filter((entry: any) => entry.risk_preference);
         setBusy(prev => ({ ...prev, riskSave: true }));
         try {
-            await postJson("/api/risk-profiles", { bindings });
+            await postJson("/api/risk-profiles", { bindings, expected_revision: riskState.revision });
             onError(copy("风险偏好已保存为不可执行意向；不改变策略、仓位或实盘权限。"));
             onRefresh();
         }

@@ -111,6 +111,8 @@ jobs:
           node --experimental-default-type=module tests/account_diagnosis_worker_validation.mjs
           node --experimental-default-type=module tests/research_promotion_application_worker_validation.mjs
           node tests/human_decisions_worker_validation.mjs
+          node tests/account_settings_worker_validation.mjs
+          node --experimental-strip-types tests/account_settings_state_validation.mjs
           node --experimental-default-type=module tests/runtime_stop_worker_validation.mjs
           node --experimental-default-type=module tests/binance_resume_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_research_worker_validation.mjs

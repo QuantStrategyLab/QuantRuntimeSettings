@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {
-  buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
+  accountSettingDraftBody, buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
   confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionAiExplanation,
   summarizeExternalResearchSubject,
@@ -209,4 +209,19 @@ assert.notEqual(buildConfirmationFingerprint({ ...snapshotBase, promotionApplica
   "promotion application readback state invalidates a confirmation");
 assert.notEqual(buildConfirmationFingerprint({ ...snapshotBase, promotionTickets: [{ ...snapshotBase.promotionTickets[0], proposed_params: { risk: "high" } }] }), snapshotFingerprint,
   "candidate parameter changes invalidate a confirmation");
+const draftBody = accountSettingDraftBody({
+  expectedDraftRevision: 3,
+  identity: { platform: "longbridge", key: "hk" },
+  overrides: { income_layer_enabled: false, reserved_cash_floor: "0" },
+});
+assert.equal(draftBody.overrides.income_layer_enabled, false);
+assert.equal(draftBody.overrides.reserved_cash_floor, "0");
+assert.equal(Object.hasOwn(draftBody.overrides, "strategy_profile"), false, "unedited draft fields stay omitted");
+const clearedDraft = accountSettingDraftBody({
+  expectedDraftRevision: 3,
+  identity: { platform: "longbridge", key: "hk" },
+  overrides: { reserved_cash_floor: null },
+});
+assert.equal(clearedDraft.overrides.reserved_cash_floor, null);
+assert.equal(Object.hasOwn(clearedDraft.overrides, "income_layer_enabled"), false);
 console.log("console_v2_operations_validation: PASS");
