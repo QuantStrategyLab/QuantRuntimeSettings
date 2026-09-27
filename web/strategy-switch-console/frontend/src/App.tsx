@@ -4,9 +4,9 @@ import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, Sour
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { DISPLAY_STORAGE_KEY, normalizeDisplayMode, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
-import { applicationRetryAllowed, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
+import { applicationRetryAllowed, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisConclusionKey, diagnosisNextStepKey, diagnosisStatusKey, hasChangedSwitchDraft, hasUnsavedModeEdits, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, shouldBlockModeReload, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
 import { DCA_SUPPORTED_PLATFORMS, PLATFORM_CONFIG } from "../../config.js";
-import { LocaleContext, renderLocaleMessage, translate, useLocale, useT, type Language, type LocaleMessage } from "./locales";
+import { formatAccountCount, LocaleContext, renderLocaleMessage, translate, useLocale, useT, type Language, type LocaleMessage } from "./locales";
 type Page = "overview" | "strategy" | "accounts" | "reports";
 type Mode = "simple" | "professional";
 type Theme = "light" | "dark" | "system";
@@ -37,6 +37,7 @@ const NAV: Array<{
 const RISK_PROFILES = ["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"];
 const PROMOTION_RISK = ["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"];
 const platformSettings = PLATFORM_CONFIG as Record<string, any>;
+const ACCOUNT_PLAN_SUBMISSION_AVAILABLE = false;
 const emptyUxDraft = (): UxDraft => ({ draft: { objective: "one_step_net_log_score", research_case_id: "r8_first_dynamic_2023_03_29", advanced_settings: {} }, revision: 0, preview: null, intent: null });
 function safeGet(key: string): string | null {
     try {
@@ -68,21 +69,7 @@ function valueStatus(source: Source<any> | undefined): string {
     return ({ ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "状态未知" } as Record<string, string>)[String(status || "")] || "未提供";
 }
 function diagnosisSummary(task: any): string {
-    if (!task)
-        return "尚无运行诊断记录";
-    if (["queued", "running"].includes(String(task.status || "")))
-        return task.status === "queued" ? "诊断排队中" : "诊断处理中";
-    if (task.status === "unknown")
-        return "诊断结果待确认，请先读回状态";
-    if (task.status === "failed")
-        return "诊断未完成";
-    if (task.status === "succeeded" && task.recheck_status === "passed")
-        return "诊断完成，复核通过";
-    if (task.status === "succeeded" && task.recheck_status === "sent")
-        return "诊断已完成，复核仍在进行";
-    if (task.status === "succeeded")
-        return "诊断完成，复核状态未知";
-    return "诊断状态暂不可用";
+    return diagnosisStatusKey(task);
 }
 function displayStatus(value: unknown, _translate?: (key: string) => string): string {
     const labels: Record<string, string> = { observed: "已收到心跳", healthy: "运行状态可供核对", live: "执行（live）", ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "结果待确认", active: "运行中", paused: "已暂停", disabled: "已停用", enabled: "已启用", monitoring_only: "仅监测", not_due: "等待检查周期", attention: "需要核对", failed: "未完成", succeeded: "已完成", queued: "排队中", running: "处理中", approved: "请求已批准", rejected: "已明确拒绝", claimed: "已领取处理中", pending: "等待提交", sent: "已提交", fixed: "固定金额", current: "保持现状", none: "不启用", auto: "自动选择", smart: "智能定投", ratio: "比例", floor: "固定金额下限", max: "金额与比例取较大值", paper: "模拟账户环境", dry_run: "禁止下单验证", ready_to_apply: "可供核对" };
@@ -103,7 +90,6 @@ function brokerEnvironment(value: unknown, t: (key: string) => string): string {
 function executionMode(value: unknown, t: (key: string) => string): string {
     return value === "live" ? t("执行（live）") : value === "dry_run" ? t("执行（dry_run）") : value === "paper" ? t("执行（paper）") : t("状态未知");
 }
-function accountCount(count:number,t:(key:string,values?:Record<string,string|number>)=>string):string { return t(count===1?"{count} account":"{count} accounts",{count}); }
 function requestErrorKey(error: unknown): string {
     const status = Number((error as any)?.status || 0);
     if (status === 401 || status === 403)
@@ -176,7 +162,7 @@ function App() {
     const initialPage = new URLSearchParams(window.location.search).get("workspace");
     const [page, setPage] = useState<Page>(pageFromWorkspace(initialPage));
     const [adminPath, setAdminPath] = useState(window.location.pathname === "/admin");
-    const [mode, setMode] = useState<Mode>(() => normalizeDisplayMode(safeGet(DISPLAY_STORAGE_KEY)));
+    const [mode] = useState<Mode>(() => normalizeDisplayMode(safeGet(DISPLAY_STORAGE_KEY)));
     const [theme, setTheme] = useState<Theme>(() => normalizeThemePreference(safeGet(THEME_STORAGE_KEY)));
     const [language, setLanguage] = useState<Language>(initialLanguage);
     const t = (key: string, values: Record<string, string | number> = {}) => translate(key, language, values);
@@ -370,17 +356,49 @@ function App() {
         if (!model?.session.allowed || !active?.account.key)
             return;
         let alive = true;
+        setDiagnosis(prev => ({ ...prev, [active.id]: { ...prev[active.id], loading: true } }));
         getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(active.platform)}&key=${encodeURIComponent(active.account.key)}`)
             .then(result => {
             if (alive)
-                setDiagnosis(prev => ({ ...prev, [active.id]: { task: result.task || null } }));
+                setDiagnosis(prev => ({ ...prev, [active.id]: { available: true, loading: false, task: result.task || null } }));
         })
             .catch(error => {
             if (error instanceof AccessError)
                 clearPrivateState(false);
+            else if (alive)
+                setDiagnosis(prev => ({ ...prev, [active.id]: { available: false, loading: false, task: null } }));
         });
         return () => { alive = false; };
     }, [model?.session.allowed, active?.id]);
+    useEffect(() => {
+        const current = active ? diagnosis[active.id] : null;
+        const task = current?.task;
+        if (!model?.session.allowed || page !== "accounts" || !active || current?.available !== true
+            || !["queued", "running"].includes(String(task?.status || "")) && task?.recheck_status !== "sent")
+            return;
+        let alive = true;
+        let attempts = 0;
+        const timer = window.setInterval(async () => {
+            if (document.visibilityState === "hidden" || attempts >= 5) {
+                window.clearInterval(timer);
+                return;
+            }
+            attempts += 1;
+            try {
+                const result = await getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(active.platform)}&key=${encodeURIComponent(active.account.key)}`);
+                if (alive)
+                    setDiagnosis(prev => ({ ...prev, [active.id]: { available: true, loading: false, task: result.task || null } }));
+            }
+            catch (error) {
+                if (error instanceof AccessError)
+                    clearPrivateState(false);
+                else if (alive)
+                    setDiagnosis(prev => ({ ...prev, [active.id]: { ...prev[active.id], available: false, loading: false } }));
+                window.clearInterval(timer);
+            }
+        }, 3000);
+        return () => { alive = false; window.clearInterval(timer); };
+    }, [model?.session.allowed, page, active?.id, diagnosis[active?.id || ""]?.task?.status, diagnosis[active?.id || ""]?.task?.recheck_status, diagnosis[active?.id || ""]?.available]);
     const setPageAndRoute = (next: Page) => { setAdminPath(false); setPage(next); const url = next === "overview" ? "/" : `/?workspace=${next === "strategy" ? "research" : next}`; window.history.pushState({ page: next }, "", url); };
     useEffect(() => { const pop = () => { setAdminPath(window.location.pathname === "/admin"); const w = new URLSearchParams(window.location.search).get("workspace"); setPage(pageFromWorkspace(w)); }; window.addEventListener("popstate", pop); return () => window.removeEventListener("popstate", pop); }, []);
     const enterAdmin = () => { setAdminPath(true); window.history.pushState({ admin: true }, "", "/admin"); };
@@ -405,13 +423,13 @@ function App() {
             onceLocks.current.release(key);
         setBusy(prev => ({ ...prev, [key]: false }));
     };
-    const submitAccountPlan = async (row: AccountRow) => {
+    const submitAccountPlan = async (row: AccountRow, stopOnly = false) => {
         if (!model?.session.allowed || switchLocks.current.has(row.id))
             return;
         const form = currentForm(row);
         if (!form)
             return;
-        if (form.runtimeMode === "disabled") {
+        if (stopOnly || form.runtimeMode === "disabled") {
             if (!await confirmAction({ title: t("确认停用运行目标"), target: `${row.platformLabel} / ${row.account.label || row.account.key} · ${row.account.target_name || row.account.key}`, summary: t("当前策略：{strategy}", { strategy: row.current?.strategy_profile || form.strategy || t("未读取") }), consequence: t("停用只阻止新的触发，不会撤单、平仓或清除在途请求。"), tone: "danger" }))
                 return;
             switchLocks.current.add(row.id);
@@ -428,6 +446,10 @@ function App() {
             finally {
                 setBusy(prev => ({ ...prev, [`stop:${row.id}`]: false }));
             }
+            return;
+        }
+        if (!ACCOUNT_PLAN_SUBMISSION_AVAILABLE) {
+            setErrorMessage(copy("账户计划提交暂未接通；当前可以查看设置，停用入口仍按原确认流程执行。"));
             return;
         }
         try {
@@ -584,6 +606,49 @@ function App() {
     const selectedAppAccount = appAccounts.find((account: any) => `${account.platform}:${account.key}` === promotionAccountId) || null;
     const decisionCandidates = model?.control.value?.candidates?.filter(candidate => candidate.lifecycle?.stage === "P6" && candidate.lifecycle?.status === "owner_decision_required") || [];
     const pendingRecoveries = model?.recovery.value?.recoveries || [];
+    const changeDisplayMode = async (nextMode: Mode) => {
+        if (nextMode === mode)
+            return;
+        const operationKeys = [
+            ...rows.flatMap(row => [`switch:${row.id}`, `stop:${row.id}`, `resume:${row.id}`]),
+            ...decisionCandidates.map((item: any) => `owner:${item.candidate?.candidate_id}`),
+            ...pendingRecoveries.map((item: any) => `recovery:${item.recovery?.recovery_id}`),
+            ...apps.map((item: any) => `apply:${item.ticket_id}`),
+        ];
+        const protectedLock = switchLocks.current.size > 0 || onceLocks.current.hasAny(operationKeys)
+            || onceLocks.current.hasAnyWithPrefixes(["switch:", "stop:", "resume:", "owner:", "recovery:", "apply:"]);
+        const requestBusy = refreshing || uxBusy || Object.values(busy).some(Boolean);
+        if (shouldBlockModeReload({ requestBusy, protectedLock })) {
+            setErrorMessage(copy("当前有请求正在处理或结果待确认。请先读回状态；为避免丢失防重复锁，暂不切换。"));
+            return;
+        }
+        const accountDirty = rows.some(row => hasChangedSwitchDraft(switchDrafts[row.id], defaultSwitchDraft(row.account, row.current, row.platform)));
+        const adminConfig = adminModel?.config.value || {};
+        const baseAdminText: Record<string, string> = {
+            allowed_logins: (adminConfig.authConfig?.allowed_logins || []).join("\n"),
+            allowed_orgs: (adminConfig.authConfig?.allowed_orgs || []).join("\n"),
+            admin_logins: (adminConfig.authConfig?.admin_logins || []).join("\n"),
+            admin_orgs: (adminConfig.authConfig?.admin_orgs || []).join("\n"),
+            account_options: JSON.stringify(adminConfig.accountOptions || {}, null, 2),
+        };
+        const baseAdminRisk = Object.fromEntries((adminModel?.risk.value?.bindings || []).map((entry: any) => [`${entry.platform}:${entry.target_name}`, entry.profile_selection?.risk_preference || ""]));
+        const adminDirty = Boolean(editingInstance || Object.keys(instanceDraft).length
+            || Object.keys(adminText).some(key => adminText[key] !== baseAdminText[key])
+            || JSON.stringify(adminRisk) !== JSON.stringify(baseAdminRisk));
+        if (hasUnsavedModeEdits({ research: uxDirty, account: accountDirty, admin: adminDirty })) {
+            const confirmed = await confirmAction({
+                title: t("切换信息模式"), target: t(nextMode === "simple" ? "简易" : "专业"),
+                summary: t("即将重新加载当前页面以应用显示模式。语言、主题和当前页面会保留。"),
+                consequence: t("此页面有未保存的修改。继续切换会放弃这些修改。"), tone: "danger",
+            });
+            if (!confirmed)
+                return;
+        }
+        safeSet(DISPLAY_STORAGE_KEY, nextMode);
+        safeSet("qsl-switch-lang", language);
+        safeSet(THEME_STORAGE_KEY, theme);
+        window.location.reload();
+    };
     const renderOverview = () => <>
     <div className="page-title-row"><div><h1>{t("\u8D44\u4EA7\u603B\u89C8")}</h1><p>{t("\u5148\u6838\u5BF9\u5F85\u529E\u4E0E\u8D26\u6237\u8FD0\u884C\u72B6\u6001\u3002\u8D44\u4EA7\u4F30\u503C\u6765\u6E90\u5C1A\u672A\u63A5\u5165\u3002")}</p></div><button className="button button-secondary" onClick={() => void refresh()} disabled={refreshing} type="button">{refreshing ? t("\u8BFB\u53D6\u4E2D\u2026") : t("\u5237\u65B0\u8D44\u6599")}</button></div>
     <section className="review-banner"><span className="review-mark" aria-hidden="true">!</span><div><h2>{model?.runtime.value?.data_status === "ready" ? t("\u8FD0\u884C\u8D44\u6599\u53EF\u4F9B\u6838\u5BF9") : t("\u8FD0\u884C\u8D44\u6599\u5C1A\u5F85\u6838\u5BF9")}</h2><p>{t("\u914D\u7F6E\u542F\u7528\u4E0D\u4EE3\u8868\u5B9E\u9645\u8FD0\u884C\u6B63\u5E38\uFF1B\u7F3A\u5C11\u8BFB\u56DE\u65F6\u4FDD\u6301\u672A\u77E5\u3002")}</p></div><button className="button button-primary" onClick={() => setPageAndRoute("accounts")} type="button">{t("\u67E5\u770B\u8D26\u6237")}</button></section>
@@ -609,8 +674,9 @@ function App() {
         return <>
     <div className="page-title-row"><div><h1>{t("\u7B56\u7565\u65B9\u6848")}</h1><p>{t("\u67E5\u770B\u5386\u53F2\u7814\u7A76\u7ED3\u679C\u3001\u5019\u9009\u610F\u5411\u548C\u9700\u8981\u4EBA\u5DE5\u6838\u5BF9\u7684\u6062\u590D\u4E8B\u9879\u3002")}</p></div><DetailTime title={t("\u7814\u7A76\u8D44\u6599\u66F4\u65B0\u65F6\u95F4")} value={sourceTime(model?.research.value) || model?.research.value?.job?.updated_at}/></div>
       <div className="two-column-layout"><div className="page-main-column">
-        <section className="content-section ux-editor"><div className="section-heading"><h2>{t("\u7814\u7A76\u8349\u6848\u4E0E\u5386\u53F2\u7ED3\u679C")}</h2><span>{t("版本 {revision} {dirty}",{revision:uxDraft.revision ?? 0,dirty:uxDirty?t("\u00B7 \u6709\u672A\u4FDD\u5B58\u7F16\u8F91"):""})}</span></div>
+        <section className="content-section ux-editor"><div className="section-heading"><h2>{t("\u7814\u7A76\u8349\u6848\u4E0E\u5386\u53F2\u7ED3\u679C")}</h2><span>{mode === "professional" ? t("版本 {revision} {dirty}",{revision:uxDraft.revision ?? 0,dirty:uxDirty?t("\u00B7 \u6709\u672A\u4FDD\u5B58\u7F16\u8F91"):""}) : t(uxDirty ? "有未保存的编辑" : "当前设置未改变")}</span></div>
           <div className="research-metrics"><div><span>{t("\u5386\u53F2\u5E74\u5316\u6536\u76CA")}</span><strong>—</strong><small>{t("\u5B8C\u6574\u51C0\u503C\u66F2\u7EBF\u4E0D\u8DB3")}</small></div><div><span>{t("\u6700\u5927\u56DE\u64A4")}</span><strong>—</strong><small>{t("\u65E0\u6CD5\u4ECE\u5355\u6B21\u9884\u89C8\u8BA1\u7B97")}</small></div><div><span>{t("\u98CE\u9669\u5224\u65AD")}</span><strong>{t("\u5F85\u8BC4\u4F30")}</strong><small>{t("\u975E\u8D26\u6237\u5B89\u5168\u5224\u65AD")}</small></div></div>
+          {mode === "professional" ? <>
           <div className="field-grid"><label>{t("\u7814\u7A76\u76EE\u6807")}<OptionList values={["one_step_net_log_score", "global_optimum"]} value={uxDraft.draft?.objective || "one_step_net_log_score"} labels={{ one_step_net_log_score: t("\u4E00\u6B65\u51C0\u5BF9\u6570\u8BC4\u5206"), global_optimum: t("\u5168\u5C40\u6700\u4F18\uFF08\u5F53\u524D\u4E0D\u53C2\u4E0E\u8BA1\u7B97\uFF09") }} onChange={value => changeDraft({ objective: value })}/></label>
             <label>{t("\u5386\u53F2\u6848\u4F8B")}<OptionList values={["r8_first_dynamic_2023_03_29", "original_full_v2"]} value={uxDraft.draft?.research_case_id || "r8_first_dynamic_2023_03_29"} labels={{ r8_first_dynamic_2023_03_29: "R8 · 2023-03-29", original_full_v2: t("\u539F\u5B8C\u6574 v2\uFF08\u672C\u6B21\u672A\u6620\u5C04\uFF09") }} onChange={value => changeDraft({ research_case_id: value })}/></label></div>
           <p className="section-note">{t("\u751F\u6210\u53EA\u8BFB\u53D6\u51BB\u7ED3\u5386\u53F2\u7814\u7A76\u6848\u4F8B\uFF0C\u4E0D\u4F1A\u4E0B\u5355\u3002\u7814\u7A76\u98CE\u683C\u504F\u597D\u8BA1\u7B97\u5C1A\u672A\u63A5\u5165\uFF0C\u4EE5\u4E0B\u8BBE\u7F6E\u4EC5\u662F\u73B0\u6709\u8349\u6848\u5B57\u6BB5\u3002")}</p>
@@ -619,11 +685,12 @@ function App() {
             {[["income_layer_start_usd", t("\u6536\u5165\u5C42\u8D77\u59CB\u91D1\u989D")], ["income_layer_max_ratio", t("\u6536\u5165\u5C42\u6700\u9AD8\u6BD4\u4F8B")], ["min_reserved_cash_usd", t("\u6700\u5C0F\u9884\u7559\u73B0\u91D1")], ["reserved_cash_ratio", t("\u9884\u7559\u73B0\u91D1\u6BD4\u4F8B")], ["dca_base_investment_usd", t("\u5B9A\u6295\u57FA\u51C6\u91D1\u989D")]].map(([key, label]) => <label key={key}>{label}<input value={String(advanced[key] ?? "")} inputMode="decimal" onChange={e => changeDraft({}, { [key]: e.target.value })}/></label>)}
           </div></details>
           <div className="form-actions"><button className="button button-secondary" type="button" disabled={uxBusy} onClick={() => void runUx("save")}>{t("\u4FDD\u5B58\u7814\u7A76\u8349\u6848")}</button><button className="button button-primary" type="button" disabled={uxBusy || maybePromise} onClick={() => void runUx("preview")}>{uxBusy ? t("\u5904\u7406\u4E2D\u2026") : maybePromise ? t("\u7814\u7A76\u4EFB\u52A1\u5904\u7406\u4E2D") : t("\u751F\u6210\u7814\u7A76\u65B9\u6848")}</button><button className="button button-secondary" type="button" disabled={uxBusy || !valid || maybePromise} onClick={() => void runUx("intent")}>{t("\u4FDD\u5B58\u4E0D\u53EF\u6267\u884C\u610F\u5411")}</button><button className="button button-secondary" type="button" onClick={() => setUxCompare(value => !value)}>{uxCompare ? t("\u9690\u85CF\u52A8\u4F5C\u5BF9\u7167") : t("\u6BD4\u8F83\u65B9\u6848")}</button></div>
+          </> : <div className="simple-mode-note"><p>{t("研究参数仅在专业模式中显示和编辑。")}</p><button className="text-link" type="button" onClick={() => void changeDisplayMode("professional")}>{t("切换到专业模式以查看研究设置")} →</button></div>}
           {uxError && <p className="inline-error" role="alert">{renderLocaleMessage(uxError,language)}</p>}
           <p className="section-note">{t("研究状态：{status} · 过期或结果不明时，不会沿用旧预览。", { status: ({ queued: t("\u6392\u961F\u4E2D"), running: t("\u8FD0\u884C\u4E2D"), unknown: t("\u7ED3\u679C\u5F85\u786E\u8BA4"), stale: t("\u5DF2\u8FC7\u671F"), computed: t("\u5DF2\u5B8C\u6210") } as Record<string, string>)[String(uxDraft.job?.status || preview?.status || "")] || t("\u65E0\u5F85\u5904\u7406\u4EFB\u52A1") })}</p>
-          {valid && decision ? <div className="research-result"><h3>{t("\u5F53\u524D\u6709\u6548\u5386\u53F2\u9884\u89C8")}</h3><dl className="fact-list"><div><dt>{t("\u72B6\u6001")}</dt><dd>{t(displayStatus(preview?.status))}</dd></div><div><dt>{t("\u9009\u4E2D\u52A8\u4F5C")}</dt><dd>{decisionLabel(decision.selected_action, t)}</dd></div><div><dt>{t("\u5386\u53F2\u60C5\u666F\u6570")}</dt><dd>{decision.scenario_count ?? "—"}</dd></div><div><dt>{t("\u51B3\u7B56\u65E5\u671F")}</dt><dd>{decision.decision_date || "—"}</dd></div><div><dt>{t("\u6B21\u65E5\u6838\u5BF9")}</dt><dd>{preview?.historical_execution_check?.trade_date || t("\u672A\u63D0\u4F9B")}</dd></div></dl><details><summary>{t("\u6765\u6E90\u4E0E\u9650\u5236")}</summary><pre>{JSON.stringify(preview, null, 2)}</pre></details></div> : <Empty title={maybePromise ? t("研究任务仍在处理") : model?.research.error ? t("\u7814\u7A76\u72B6\u6001\u6682\u4E0D\u53EF\u7528") : t("\u6682\u65E0\u6709\u6548\u9884\u89C8\u7ED3\u679C")} detail={t("\u5F53\u524D\u53EA\u663E\u793A\u4E0E\u672C\u8349\u6848 revision/fingerprint \u7ED1\u5B9A\u7684\u6709\u6548\u7ED3\u679C\u3002\u65E7\u7ED3\u679C\u5931\u6548\u6216\u8BFB\u53D6\u5931\u8D25\u65F6\u4E0D\u4F1A\u6CBF\u7528\u3002")}/>}
-          {uxCompare && valid && <div className="compare-view"><h3>{t("\u52A8\u4F5C\u5BF9\u7167")}</h3><pre>{JSON.stringify(preview?.comparison || preview?.action_comparison || preview?.decision_preview || {}, null, 2)}</pre></div>}
-          <details className="research-evidence"><summary>{t("\u67E5\u770B\u4F9D\u636E\u4E0E\u5B8C\u6574\u7ED3\u679C")}</summary><pre>{JSON.stringify(preview || uxDraft.intent || {}, null, 2)}</pre></details>
+          {valid && decision ? <div className="research-result"><h3>{t("\u5F53\u524D\u6709\u6548\u5386\u53F2\u9884\u89C8")}</h3><dl className="fact-list"><div><dt>{t("\u72B6\u6001")}</dt><dd>{t(displayStatus(preview?.status))}</dd></div><div><dt>{t("\u9009\u4E2D\u52A8\u4F5C")}</dt><dd>{decisionLabel(decision.selected_action, t)}</dd></div><div><dt>{t("\u5386\u53F2\u60C5\u666F\u6570")}</dt><dd>{decision.scenario_count ?? "—"}</dd></div><div><dt>{t("\u51B3\u7B56\u65E5\u671F")}</dt><dd>{decision.decision_date || "—"}</dd></div><div><dt>{t("\u6B21\u65E5\u6838\u5BF9")}</dt><dd>{preview?.historical_execution_check?.trade_date || t("\u672A\u63D0\u4F9B")}</dd></div></dl>{mode === "professional" && <details><summary>{t("\u6765\u6E90\u4E0E\u9650\u5236")}</summary><pre>{JSON.stringify(preview, null, 2)}</pre></details>}</div> : <Empty title={maybePromise ? t("研究任务仍在处理") : model?.research.error ? t("\u7814\u7A76\u72B6\u6001\u6682\u4E0D\u53EF\u7528") : t("\u6682\u65E0\u6709\u6548\u9884\u89C8\u7ED3\u679C")} detail={t("\u5F53\u524D\u53EA\u663E\u793A\u4E0E\u672C\u8349\u6848 revision/fingerprint \u7ED1\u5B9A\u7684\u6709\u6548\u7ED3\u679C\u3002\u65E7\u7ED3\u679C\u5931\u6548\u6216\u8BFB\u53D6\u5931\u8D25\u65F6\u4E0D\u4F1A\u6CBF\u7528\u3002")}/>}
+          {mode === "professional" && uxCompare && valid && <div className="compare-view"><h3>{t("\u52A8\u4F5C\u5BF9\u7167")}</h3><pre>{JSON.stringify(preview?.comparison || preview?.action_comparison || preview?.decision_preview || {}, null, 2)}</pre></div>}
+          {mode === "professional" && <details className="research-evidence"><summary>{t("\u67E5\u770B\u4F9D\u636E\u4E0E\u5B8C\u6574\u7ED3\u679C")}</summary><pre>{JSON.stringify(preview || uxDraft.intent || {}, null, 2)}</pre></details>}
         </section>
         <section className="content-section"><div className="section-heading"><h2>{t("\u7814\u7A76\u5019\u9009\u4E0E paper \u5E94\u7528")}</h2><DetailTime title={t("\u961F\u5217\u66F4\u65B0\u65F6\u95F4")} value={sourceTime(model?.promotions.value)}/></div>
           {model?.promotions.error || model?.promotions.value?.data_status !== "ready" ? <Empty title={t("\u5019\u9009\u961F\u5217\u4E0D\u53EF\u786E\u8BA4")} detail={t("\u5F53\u524D\u65E0\u6CD5\u6838\u5BF9\u5019\u9009\u548C\u5E94\u7528\u72B6\u6001\u3002")}/> : <>
@@ -703,14 +770,15 @@ function App() {
     const renderAccounts = () => <>
     <div className="page-title-row"><div><h1>{t("\u8D26\u6237\u4E0E\u8FD0\u884C")}</h1><p>{t("\u67E5\u770B\u8D26\u6237\u8BBE\u7F6E\u548C\u8FD0\u884C\u68C0\u67E5\uFF1B\u63D0\u4EA4\u8BBE\u7F6E\u540E\u4ECD\u9700\u5355\u72EC\u6838\u5BF9\u5E94\u7528\u72B6\u6001\u3002")}</p></div><DetailTime title={t("\u8FD0\u884C\u8D44\u6599\u65F6\u95F4")} value={sourceTime(model?.runtime.value)}/></div>
     <div className="two-column-layout"><div className="page-main-column">
-      <section className="content-section"><div className="section-heading"><h2>{t("\u8D26\u6237\u6E05\u5355")}</h2><span>{model?.config.error ? t("\u8D26\u6237\u914D\u7F6E\u4E0D\u53EF\u8BFB") : accountCount(rows.length,t)}</span></div>
+      <section className="content-section"><div className="section-heading"><h2>{t("\u8D26\u6237\u6E05\u5355")}</h2><span>{model?.config.error ? t("\u8D26\u6237\u914D\u7F6E\u4E0D\u53EF\u8BFB") : formatAccountCount(rows.length, language)}</span></div>
         <div className="account-selector-row"><label>{t("\u9009\u62E9\u8D26\u6237")}<select value={active?.id || ""} onChange={e => setSelectedId(e.target.value)}>{rows.map(row => <option key={row.id} value={row.id}>{row.platformLabel} · {row.account.label || row.account.target_name}</option>)}</select></label></div>
         <AccountTable rows={rows} model={model} mode={mode} selected={active?.id} onSelect={row => setSelectedId(row.id)}/>
       </section>
       {active && activeForm ? <section className="content-section account-editor"><div className="section-heading"><h2>{t("{account} · 配置与计划", { account: active.account.label || active.account.target_name })}</h2><span>{t(statusFor(active, model?.runtime.value?.data_status).label)}</span></div>
         <AccountFacts row={active} model={model} mode={mode}/>
-        <div className="diagnosis-row"><button className="button button-secondary" type="button" disabled={!model?.session.allowed || busy[`diagnosis:${active.id}`] || ["queued", "running", "unknown"].includes(String(diagnosis[active.id]?.task?.status || "")) || diagnosis[active.id]?.task?.recheck_status === "sent"} onClick={() => void runDiagnosis(active)}>{busy[`diagnosis:${active.id}`] ? t("\u6B63\u5728\u8BFB\u53D6\u8BCA\u65AD\u2026") : t("\u8BF7\u6C42 AI \u8FD0\u884C\u8BCA\u65AD")}</button><span>{t(diagnosisSummary(diagnosis[active.id]?.task))}</span></div>
-        <details className="strategy-settings" open={mode === "professional"}><summary>{t("\u7B56\u7565\u4E0E\u8FD0\u884C\u8BBE\u7F6E")}</summary>
+        <div className="diagnosis-row"><button className="button button-secondary" type="button" disabled={!model?.session.allowed || diagnosis[active.id]?.loading || diagnosis[active.id]?.available !== true || busy[`diagnosis:${active.id}`] || ["queued", "running", "unknown"].includes(String(diagnosis[active.id]?.task?.status || "")) || diagnosis[active.id]?.task?.recheck_status === "sent"} onClick={() => void runDiagnosis(active)}>{busy[`diagnosis:${active.id}`] ? t("\u6B63\u5728\u8BFB\u53D6\u8BCA\u65AD\u2026") : t("AI\u8BCA\u65AD\u4E0E\u590D\u6838")}</button><span>{diagnosis[active.id]?.available === false ? t("在线诊断暂不可用") : t(diagnosisSummary(diagnosis[active.id]?.task))}</span><button className="text-link" type="button" disabled={!model?.session.allowed || busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading} onClick={() => void readDiagnosisStatus(active)}>{busy[`diagnosis-read:${active.id}`] || diagnosis[active.id]?.loading ? t("正在读取诊断…") : t("读取诊断状态")}</button></div>
+        {diagnosis[active.id]?.available === true && diagnosis[active.id]?.task && <div className="diagnosis-result"><strong>{t("诊断结论")}: {t(diagnosisConclusionKey(diagnosis[active.id]?.task))}</strong><p>{t("后续核对")}: {t(diagnosisNextStepKey(diagnosis[active.id]?.task))}</p></div>}
+        {mode === "simple" ? <div className="simple-mode-note"><h3>{t("账户摘要")}</h3><p><strong>{t("当前策略")}:</strong> {active.current?.strategy_profile || t("未读取")}</p><p>{t("运行设置仅在专业模式中显示。账户状态与停用入口仍可使用。")}</p><button className="text-link" type="button" onClick={() => void changeDisplayMode("professional")}>{t("切换到专业模式以查看运行设置")} →</button></div> : <details className="strategy-settings" open><summary>{t("\u7B56\u7565\u4E0E\u8FD0\u884C\u8BBE\u7F6E")}</summary>
           <div className="field-grid"><label>{t("\u8FD0\u884C\u7B56\u7565")}<select value={activeForm.strategy} onChange={e => updateForm(active, { strategy: e.target.value })}><option value="">{t("\u9009\u62E9\u7B56\u7565")}</option>{allowedProfiles.map(profile => <option key={profile.profile} value={profile.profile}>{profile.label || profile.profile}</option>)}</select></label>
           <label>{t("\u6267\u884C\u65B9\u5F0F")}<OptionList values={(platformSettings[active.platform]?.supported_execution_modes || ["dry_run"]).filter((v: string) => v === "live" || v === "dry_run")} value={activeForm.executionMode} labels={{ live: t("\u6267\u884C\uFF08live\uFF0C\u6309\u8D26\u6237\u73AF\u5883\u8DEF\u7531\uFF09"), dry_run: t("\u7981\u6B62\u4E0B\u5355\u9A8C\u8BC1\uFF08dry_run\uFF09") }} onChange={value => updateForm(active, { executionMode: value })}/></label>
           <label>{t("\u8D26\u6237\u76EE\u6807\u542F\u505C")}<OptionList values={["current", "enabled", "disabled"]} value={activeForm.runtimeMode} labels={{ current: t("\u4FDD\u6301\u5F53\u524D\u8BBE\u7F6E"), enabled: t("\u542F\u7528\u914D\u7F6E"), disabled: t("\u505C\u7528\u76EE\u6807") }} onChange={value => updateForm(active, { runtimeMode: value as SwitchDraft["runtimeMode"] })}/></label>
@@ -722,24 +790,31 @@ function App() {
           {platformSettings[active.platform]?.dca && DCA_SUPPORTED_PLATFORMS.has(active.platform) && <><label>{t("\u5B9A\u6295\u6A21\u5F0F")}<OptionList values={["fixed", "smart"]} value={activeForm.dcaMode} labels={{ fixed: t("固定金额"), smart: t("智能定投") }} onChange={value => updateForm(active, { dcaMode: value as SwitchDraft["dcaMode"], touched: { dca: true } })}/></label><label>{t("\u5B9A\u6295\u57FA\u51C6\u91D1\u989D")}<input value={activeForm.dcaBase} inputMode="decimal" onChange={e => updateForm(active, { dcaBase: e.target.value, touched: { dca: true } })}/></label></>}
           </div>
           <p className="section-note">{t("摘要预览：{platform} / {target} · 券商环境 {environment} · {strategy} · 执行（{execution}）· 启停 {runtime}。执行方式不会改变账户环境或权限。", { platform: active.platform, target: active.account.target_name, environment: brokerEnvironment(active.account.broker_environment, t), strategy: activeForm.strategy || t("\u672A\u9009\u62E9\u7B56\u7565"), execution: executionMode(activeForm.executionMode, t), runtime: t(displayStatus(activeForm.runtimeMode)) })}</p>
-          <div className="form-actions"><button className="button button-primary" type="button" disabled={!model?.session.allowed || switchLocks.current.has(active.id) || busy[`switch:${active.id}`] || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active)}>{switchLocks.current.has(active.id) ? t("\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF0C\u7B49\u5F85\u8BFB\u56DE") : activeForm.runtimeMode === "disabled" ? t("\u63D0\u4EA4\u505C\u7528\u8BF7\u6C42") : t("\u63D0\u4EA4\u8BA1\u5212")}</button><button className="button button-secondary" type="button" onClick={() => void navigator.clipboard?.writeText(`${active.platform} ${active.account.label || active.account.key}\n${activeForm.strategy}\n${activeForm.executionMode}`)}>{t("\u590D\u5236\u6458\u8981")}</button></div>
-          {active.platform === "binance" && canResumeBinance(active.platform, active.account, active.current) && <button type="button" className="button button-secondary" disabled={busy[`resume:${active.id}`] || onceLocks.current.isLocked(`resume:${active.id}`)} onClick={() => void resumeBinance(active)}>{t("\u6062\u590D\u73B0\u6709 Binance \u76EE\u6807")}</button>}
-        </details>
+          <div className="form-actions"><button className="button button-primary" type="button" disabled={(!ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled") || !model?.session.allowed || switchLocks.current.has(active.id) || busy[`switch:${active.id}`] || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active)}>{switchLocks.current.has(active.id) ? t("\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF0C\u7B49\u5F85\u8BFB\u56DE") : !ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled" ? t("设置保存暂未接通") : activeForm.runtimeMode === "disabled" ? t("\u63D0\u4EA4\u505C\u7528\u8BF7\u6C42") : t("\u63D0\u4EA4\u8BA1\u5212")}</button><button className="button button-secondary" type="button" onClick={() => void navigator.clipboard?.writeText(`${active.platform} ${active.account.label || active.account.key}\n${activeForm.strategy}\n${activeForm.executionMode}`)}>{t("\u590D\u5236\u6458\u8981")}</button></div>
+          <p className="section-note">{t("账户计划提交暂未接通；当前可以查看设置，停用入口仍按原确认流程执行。")}</p>
+        </details>}
+        <div className="account-safety-actions"><button className="button button-danger" type="button" disabled={!model?.session.allowed || switchLocks.current.has(active.id) || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active, true)}>{busy[`stop:${active.id}`] ? t("正在提交…") : t("提交停用请求")}</button>{active.platform === "binance" && canResumeBinance(active.platform, active.account, active.current) && <button type="button" className="button button-secondary" disabled={busy[`resume:${active.id}`] || onceLocks.current.isLocked(`resume:${active.id}`)} onClick={() => void resumeBinance(active)}>{t("恢复现有 Binance 目标")}</button>}</div>
       </section> : <Empty title={t("\u8D26\u6237\u914D\u7F6E\u6682\u4E0D\u53EF\u7528")} detail={t("API \u672A\u8FD4\u56DE\u53EF\u7528\u8D26\u6237\uFF0C\u672A\u4F7F\u7528\u9ED8\u8BA4\u8D26\u6237\u66FF\u4EE3\u3002")}/>}
       <section className="content-section"><h2>{t("\u7B56\u7565\u5065\u5EB7")}</h2><div className="overview-filters">{[["attention", t("\u9700\u8981\u5173\u6CE8")], ["all", t("\u5168\u90E8\u7B56\u7565")]].map(([key, label]) => <button key={key} aria-pressed={healthFilter === key} onClick={() => setHealthFilter(key)} type="button">{label}</button>)}</div><SourceList source={model?.health} items={(model?.health.value?.strategies || []).filter((entry: any) => healthFilter === "all" || entry.status !== "healthy").map((entry: any) => t("{profile} · {status} · {score} · {date}", { profile: entry.profile || entry.strategy_id, status: t(displayStatus(entry.status)), score: entry.score ?? "—", date: stamp(entry.as_of, language) }))} empty={t("\u6682\u65E0\u7B56\u7565\u5065\u5EB7\u8BB0\u5F55")}/></section>
-      </div><aside className="editorial-rail"><h2>{t("\u8FD0\u884C\u8FB9\u754C")}</h2><p>{t("\u914D\u7F6E\u8BFB\u56DE\u3001\u8FD0\u884C\u76D1\u6D4B\u548C\u6210\u4EA4\u8BC1\u636E\u5206\u522B\u6838\u5BF9\u3002")}</p>{active && <><div className="rail-step"><span>01</span><strong>{t(statusFor(active, model?.runtime.value?.data_status).label)}</strong><p>{t(statusFor(active, model?.runtime.value?.data_status).detail)}</p></div><DetailTime title={t("\u8D26\u6237\u68C0\u67E5")} value={active.runtime?.target?.deployment?.observed_at}/></>}<p className="warning-note">{t("\u505C\u7528\u65B0\u89E6\u53D1\u4E0D\u7B49\u4E8E\u64A4\u5355\u3001\u5E73\u4ED3\u6216\u6E05\u9664\u5728\u9014\u8BF7\u6C42\u3002")}</p><details><summary>{t("\u8FD0\u884C\u68C0\u67E5\u8BE6\u60C5\uFF08\u4E13\u4E1A\u4FE1\u606F\uFF09")}</summary>{(model?.runtime.value?.targets || []).filter((item: any) => item.target?.target?.platform === active?.platform).map((item: any) => <pre key={item.target.target_id}>{JSON.stringify(item, null, 2)}</pre>)}</details></aside></div>
+      </div><aside className="editorial-rail"><h2>{t("\u8FD0\u884C\u8FB9\u754C")}</h2><p>{t("\u914D\u7F6E\u8BFB\u56DE\u3001\u8FD0\u884C\u76D1\u6D4B\u548C\u6210\u4EA4\u8BC1\u636E\u5206\u522B\u6838\u5BF9\u3002")}</p>{active && <><div className="rail-step"><span>01</span><strong>{t(statusFor(active, model?.runtime.value?.data_status).label)}</strong><p>{t(statusFor(active, model?.runtime.value?.data_status).detail)}</p></div><DetailTime title={t("\u8D26\u6237\u68C0\u67E5")} value={active.runtime?.target?.deployment?.observed_at}/></>}<p className="warning-note">{t("\u505C\u7528\u65B0\u89E6\u53D1\u4E0D\u7B49\u4E8E\u64A4\u5355\u3001\u5E73\u4ED3\u6216\u6E05\u9664\u5728\u9014\u8BF7\u6C42\u3002")}</p>{mode === "professional" && <details><summary>{t("\u8FD0\u884C\u68C0\u67E5\u8BE6\u60C5\uFF08\u4E13\u4E1A\u4FE1\u606F\uFF09")}</summary>{(model?.runtime.value?.targets || []).filter((item: any) => item.target?.target?.platform === active?.platform).map((item: any) => <pre key={item.target.target_id}>{JSON.stringify(item, null, 2)}</pre>)}</details>}</aside></div>
   </>;
-    const renderReports = () => <><div className="page-title-row"><div><h1>{t("\u62A5\u544A")}</h1><p>{t("\u4EC5\u663E\u793A\u73B0\u6709\u5FEB\u7167\u3001\u4EFB\u52A1\u4E0E\u6765\u6E90\u65F6\u95F4\uFF0C\u4E0D\u751F\u6210\u7F3A\u5931\u7684\u8D26\u6237\u6536\u76CA\u62A5\u544A\u3002")}</p></div><button className="button button-secondary" type="button" onClick={() => void refresh()} disabled={refreshing}>{t("\u5237\u65B0\u8D44\u6599")}</button></div>
+    const renderReports = () => {
+      const reportSources: Array<[string, Source<any> | undefined, Page]> = [["账户运行检查", model?.runtime, "accounts"], ["策略健康快照", model?.health, "reports"], ["历史研究结果", model?.research, "strategy"], ["控制平面与待办", model?.control, "overview"], ["执行与成交证据", model?.evidence, "reports"], ["自动化研究任务", model?.tasks, "reports"], ["外部市场研究", model?.market, "reports"], ["系统建议", model?.adaptive, "reports"]];
+      const needsReview = reportSources.filter(([, source]) => valueStatus(source) !== "可供核对");
+      return <><div className="page-title-row"><div><h1>{t("\u62A5\u544A")}</h1><p>{t("\u4EC5\u663E\u793A\u73B0\u6709\u5FEB\u7167\u3001\u4EFB\u52A1\u4E0E\u6765\u6E90\u65F6\u95F4\uFF0C\u4E0D\u751F\u6210\u7F3A\u5931\u7684\u8D26\u6237\u6536\u76CA\u62A5\u544A\u3002")}</p></div><button className="button button-secondary" type="button" onClick={() => void refresh()} disabled={refreshing}>{t("\u5237\u65B0\u8D44\u6599")}</button></div>
     <div className="two-column-layout"><div className="page-main-column">
+      {mode === "simple" ? <section className="content-section"><h2>{t("报告行动摘要")}</h2><p>{t("没有已核实的账户资产表现；请查看账户运行资料。")}</p>{needsReview.length ? <ul className="plain-list">{needsReview.map(([label, source, target]) => <li key={label}><strong>{t(label)}</strong> · {t(valueStatus(source))} <button className="text-link" type="button" onClick={() => setPageAndRoute(target)}>{target === "accounts" ? t("查看账户") : t("查看资料")} →</button></li>)}</ul> : <p className="section-note">{t("现有报告来源可供核对；账户资产表现仍未接入。")}</p>}</section> : <>
       <section className="content-section"><h2>{t("\u6765\u6E90\u72B6\u6001")}</h2><SourceCatalog model={model} onNavigate={setPageAndRoute}/></section>
       <section className="content-section"><h2>{t("\u7B56\u7565\u5065\u5EB7\u5FEB\u7167")}</h2><DetailTime title={t("计算时间")} value={sourceTime(model?.health.value)}/><SourceList source={model?.health} items={(model?.health.value?.strategies || []).map((s: any) => t("{profile} · {status} · {date}", { profile: s.profile || s.strategy_id, status: t(displayStatus(s.status)), date: stamp(s.as_of, language) }))} empty={t("\u6CA1\u6709\u7B56\u7565\u5065\u5EB7\u8BB0\u5F55")}/></section>
       <section className="content-section"><h2>{t("\u6267\u884C\u4E0E\u6210\u4EA4\u8BC1\u636E")}</h2><DetailTime title={t("\u6765\u6E90\u65F6\u95F4")} value={sourceTime(model?.evidence.value)}/><SourceList source={model?.evidence} items={(model?.evidence.value?.deployments || []).map((item: any) => t("{platform} · {strategy} · {status}", { platform: item.platform || t("\u672A\u77E5\u5E73\u53F0"), strategy: item.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230"), status: t(displayStatus(item.status || item.execution_status)) }))} empty={t("\u6CA1\u6709\u53EF\u5C55\u793A\u7684\u6267\u884C\u8BC1\u636E")}/></section>
       <section className="content-section"><h2>{t("\u7814\u7A76\u4EFB\u52A1")}</h2><DetailTime title={t("计算时间")} value={sourceTime(model?.tasks.value)}/><SourceList source={model?.tasks} items={(model?.tasks.value?.tasks || []).map((item: any) => t("{id} · {status} · {date}", { id: item.task_id || item.request_id, status: t(displayStatus(item.status)), date: stamp(item.updated_at, language) }))} empty={t("\u6CA1\u6709\u5DF2\u8BFB\u53D6\u7684\u7814\u7A76\u4EFB\u52A1")}/></section>
       <section className="content-section"><h2>{t("\u5916\u90E8\u7814\u7A76 / \u7CFB\u7EDF\u5EFA\u8BAE")}</h2><SourceList source={model?.market} items={(model?.market.value?.subjects || []).map((item: any) => { const subject = summarizeExternalResearchSubject(item, t("\u672A\u77E5")); return t("{subject} · {status} · {date}", { subject: subject.title, status: t(displayStatus(subject.status)), date: stamp(subject.asOf, language) }); })} empty={t("\u5C1A\u65E0\u53EF\u5C55\u793A\u7684\u5E02\u573A\u7814\u7A76\u8BB0\u5F55")}/><SourceList source={model?.adaptive} items={(model?.adaptive.value?.selections || []).map((item: any) => t("{candidate} · {status}", { candidate: item.candidate_id || item.strategy_profile || t("\u5019\u9009"), status: t(displayStatus(item.status)) }))} empty={t("\u6682\u65E0\u7CFB\u7EDF\u5EFA\u8BAE")}/></section>
       <section className="content-section"><h2>{t("\u6570\u636E\u7F3A\u53E3")}</h2><p className="section-note large-note">{t("\u5B8C\u6574\u8D44\u4EA7\u65E5\u62A5\u3001\u8D26\u6237\u51C0\u503C\u5386\u53F2\u548C\u8D44\u91D1\u6D41\u53E3\u5F84\u5C1A\u672A\u63A5\u5165\u3002\u51C0\u503C\u66F2\u7EBF\u4F1A\u53D7\u5230\u5165\u91D1\u4E0E\u51FA\u91D1\u5F71\u54CD\uFF1B\u8D44\u91D1\u6D41\u7F3A\u5931\u65F6\uFF0C\u4E0D\u8BA1\u7B97\u5E74\u5316\u6536\u76CA\u6216\u6700\u5927\u56DE\u64A4\u3002")}</p></section>
+      </>}
     </div><aside className="editorial-rail"><h2>{t("\u6765\u6E90\u8FB9\u754C")}</h2><div className="rail-step"><span>01</span><strong>{t("\u7814\u7A76\u4E0D\u662F\u4E2A\u4EBA\u6536\u76CA")}</strong><p>{t("\u5386\u53F2\u60C5\u666F\u8BC4\u5206\u4E0D\u4EE3\u8868\u8D26\u6237\u5B9E\u9645\u56DE\u62A5\u3002")}</p></div><div className="rail-step"><span>02</span><strong>{t("\u7F3A\u5931\u4FDD\u6301\u7A7A\u7F3A")}</strong><p>{t("\u6765\u6E90\u5931\u6548\u3001\u8FC7\u671F\u6216\u672A\u63A5\u5165\u65F6\u4E0D\u4F1A\u8865\u9020\u6570\u503C\u3002")}</p></div></aside></div>
   </>;
-    const renderAdmin = () => <AdminPanel model={adminModel} session={model?.session} text={adminText} setText={setAdminText} risk={adminRisk} setRisk={setAdminRisk} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction}/>;
+    };
+    const renderAdmin = () => mode === "professional" ? <AdminPanel model={adminModel} session={model?.session} text={adminText} setText={setAdminText} risk={adminRisk} setRisk={setAdminRisk} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction}/> : <section className="content-section"><h1>{t("管理设置")}</h1><p>{t("管理配置仅在专业模式中显示。")}</p><button className="button button-primary" type="button" onClick={() => void changeDisplayMode("professional")}>{t("切换到专业模式以查看管理配置")}</button></section>;
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")
@@ -751,32 +826,54 @@ function App() {
     return <LocaleContext.Provider value={language}><><div className="app-shell" data-mode={mode} inert={Boolean(confirmDialog)}>
     <header className="topbar"><button className="brand" type="button" onClick={() => setPageAndRoute("overview")} aria-label={t("\u8D44\u4EA7\u603B\u89C8")}><QslIcon /><span><strong>QuantStrategyLab</strong><small>{t("\u6295\u8D44\u7EC4\u5408\u8FD0\u884C\u63A7\u5236\u53F0")}</small></span>{model?.session.synthetic && <span className="synthetic-badge">{t("\u5408\u6210\u6F14\u793A")}</span>}</button>
       <nav className="primary-nav" aria-label={language === "zh" ? t("\u4E3B\u5BFC\u822A") : "Main navigation"}>{NAV.map(item => <button key={item.id} className={!adminPath && page === item.id ? "active" : ""} aria-current={!adminPath && page === item.id ? "page" : undefined} onClick={() => setPageAndRoute(item.id)} type="button">{t(item.label)}</button>)}{model?.session.admin && <button className={adminPath ? "active" : ""} aria-current={adminPath ? "page" : undefined} type="button" onClick={enterAdmin}>{language === "zh" ? t("\u7BA1\u7406\u8BBE\u7F6E") : "Admin"}</button>}</nav>
-      <div className="top-controls"><span className="signed-in">{model?.session.login || (language === "zh" ? t("\u5DF2\u767B\u5F55") : "Signed in")}</span><div className="mode-control" role="group" aria-label={language === "zh" ? t("\u4FE1\u606F\u6A21\u5F0F") : "Information mode"}><button type="button" aria-pressed={mode === "simple"} onClick={() => setMode("simple")}>{language === "zh" ? t("\u7B80\u6613") : "Simple"}</button><button type="button" aria-pressed={mode === "professional"} onClick={() => setMode("professional")}>{language === "zh" ? t("\u4E13\u4E1A") : "Pro"}</button></div><label className="theme-control"><span>{language === "zh" ? t("\u4E3B\u9898") : "Theme"}</span><select aria-label={language === "zh" ? t("\u4E3B\u9898") : "Theme"} value={theme} onChange={e => setTheme(normalizeThemePreference(e.target.value))}><option value="system">{language === "zh" ? t("\u7CFB\u7EDF") : "System"}</option><option value="light">{language === "zh" ? t("\u6D45\u8272") : "Light"}</option><option value="dark">{language === "zh" ? t("\u6DF1\u8272") : "Dark"}</option></select></label><label className="language-control"><span>{language === "zh" ? t("\u8BED\u8A00") : "Language"}</span><select aria-label={language === "zh" ? t("\u8BED\u8A00") : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("\u4E2D\u6587")}</option><option value="en">English</option></select></label><button className="refresh-top" type="button" onClick={() => void refresh()} disabled={refreshing} aria-label={language === "zh" ? t("\u5237\u65B0\u8D44\u6599") : "Refresh data"}>↻</button><button className="button button-secondary" type="button" onClick={() => void logout()}>{language === "zh" ? t("\u9000\u51FA") : "Sign out"}</button></div>
+      <div className="top-controls"><span className="signed-in">{model?.session.login || (language === "zh" ? t("\u5DF2\u767B\u5F55") : "Signed in")}</span><div className="mode-control" role="group" aria-label={language === "zh" ? t("\u4FE1\u606F\u6A21\u5F0F") : "Information mode"}><button type="button" aria-pressed={mode === "simple"} onClick={() => void changeDisplayMode("simple")}>{language === "zh" ? t("\u7B80\u6613") : "Simple"}</button><button type="button" aria-pressed={mode === "professional"} onClick={() => void changeDisplayMode("professional")}>{language === "zh" ? t("\u4E13\u4E1A") : "Pro"}</button></div><label className="theme-control"><span>{language === "zh" ? t("\u4E3B\u9898") : "Theme"}</span><select aria-label={language === "zh" ? t("\u4E3B\u9898") : "Theme"} value={theme} onChange={e => setTheme(normalizeThemePreference(e.target.value))}><option value="system">{language === "zh" ? t("\u7CFB\u7EDF") : "System"}</option><option value="light">{language === "zh" ? t("\u6D45\u8272") : "Light"}</option><option value="dark">{language === "zh" ? t("\u6DF1\u8272") : "Dark"}</option></select></label><label className="language-control"><span>{language === "zh" ? t("\u8BED\u8A00") : "Language"}</span><select aria-label={language === "zh" ? t("\u8BED\u8A00") : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("\u4E2D\u6587")}</option><option value="en">English</option></select></label><button className="refresh-top" type="button" onClick={() => void refresh()} disabled={refreshing} aria-label={language === "zh" ? t("\u5237\u65B0\u8D44\u6599") : "Refresh data"}>↻</button><button className="button button-secondary" type="button" onClick={() => void logout()}>{language === "zh" ? t("\u9000\u51FA") : "Sign out"}</button></div>
     </header>
     {errorMessage && <div className="global-notice" role="status"><span>{renderLocaleMessage(errorMessage,language)}</span><button type="button" onClick={() => setErrorMessage(null)} aria-label={t("\u5173\u95ED\u63D0\u793A")}>{t("\u5173\u95ED")}</button></div>}
     <main className="main-content" key={adminPath ? "admin" : page}>{adminPath ? renderAdmin() : page === "overview" ? renderOverview() : page === "strategy" ? renderStrategy() : page === "accounts" ? renderAccounts() : renderReports()}</main>
     <footer className="page-footer"><span>QuantStrategyLab</span><span>{t("\u53EA\u663E\u793A\u73B0\u6709\u8D44\u6599\uFF1B\u6743\u9650\u7531\u670D\u52A1\u7AEF\u4F1A\u8BDD\u51B3\u5B9A\u3002")}</span><DetailTime title={t("最近刷新")} value={model?.runtime.value?.computed_at}/></footer>
   </div>{confirmDialog && <ConfirmationDialog dialog={confirmDialog} onCancel={() => resolveConfirmation(false)} onConfirm={() => resolveConfirmation(true)}/>}</></LocaleContext.Provider>;
     async function runDiagnosis(row: AccountRow) {
-        if (!model?.session.allowed || !row.account.key || !beginOnce(`diagnosis:${row.id}`))
+        if (!model?.session.allowed || !row.account.key || diagnosis[row.id]?.available !== true || !beginOnce(`diagnosis:${row.id}`))
             return;
         try {
             const platform = row.platform;
             const key = row.account.key;
             const current = await getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(key)}`);
             const existing = current.task || null;
-            setDiagnosis(prev => ({ ...prev, [row.id]: { task: existing } }));
+            setDiagnosis(prev => ({ ...prev, [row.id]: { available: true, loading: false, task: existing } }));
             if (["queued", "running", "unknown"].includes(String(existing?.status || "")) || (existing?.status === "succeeded" && existing?.recheck_status === "sent"))
                 return;
             const trigger = row.runtime?.freshness?.data_status === "ready" && (row.runtime?.execution_observation?.code === "attention" || row.runtime?.target?.monitoring?.runtime_guard === "attention") ? "incident" : "manual_check";
             const result = await postJson<any>("/api/account-diagnosis", { platform, key, trigger });
-            setDiagnosis(prev => ({ ...prev, [row.id]: result }));
+            setDiagnosis(prev => ({ ...prev, [row.id]: { available: true, loading: false, task: result.task || null } }));
         }
         catch (error) {
+            if (error instanceof AccessError)
+                clearPrivateState(false);
+            else
+                setDiagnosis(prev => ({ ...prev, [row.id]: { ...prev[row.id], available: false, loading: false } }));
             setErrorMessage(copy("诊断请求未完成：{error}",{error:copy(requestErrorKey(error))}));
         }
         finally {
             finishOnce(`diagnosis:${row.id}`);
+        }
+    }
+    async function readDiagnosisStatus(row: AccountRow) {
+        if (!model?.session.allowed || !row.account.key || busy[`diagnosis-read:${row.id}`])
+            return;
+        setBusy(prev => ({ ...prev, [`diagnosis-read:${row.id}`]: true }));
+        try {
+            const result = await getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(row.platform)}&key=${encodeURIComponent(row.account.key)}`);
+            setDiagnosis(prev => ({ ...prev, [row.id]: { available: true, loading: false, task: result.task || null } }));
+        }
+        catch (error) {
+            if (error instanceof AccessError)
+                clearPrivateState(false);
+            else
+                setDiagnosis(prev => ({ ...prev, [row.id]: { ...prev[row.id], available: false, loading: false } }));
+        }
+        finally {
+            setBusy(prev => ({ ...prev, [`diagnosis-read:${row.id}`]: false }));
         }
     }
 }
@@ -835,7 +932,7 @@ function AccountTable({ rows, model, mode, selected, onSelect }: {
         return <Empty title={t("\u8D26\u6237\u6E05\u5355\u6682\u4E0D\u53EF\u7528")} detail={t("\u6CA1\u6709\u53EF\u9760\u8D26\u6237\u914D\u7F6E\u8BFB\u56DE\uFF1B\u4E0D\u4F1A\u4EE5\u6837\u4F8B\u6216\u9ED8\u8BA4\u8D26\u6237\u4EE3\u66FF\u3002")}/>;
     if (!rows.length)
         return <Empty title={t("\u6CA1\u6709\u5339\u914D\u8D26\u6237")} detail={t("\u8BF7\u8C03\u6574\u641C\u7D22\u6761\u4EF6\u6216\u7B5B\u9009\u3002")}/>;
-    return <div className="table-scroll"><table className="account-table"><thead><tr><th>{t("\u8D26\u6237")}</th>{mode === "professional" && <th>{t("\u914D\u7F6E")}</th>}<th>{t("\u8FD0\u884C\u72B6\u6001")}</th><th>{t("\u6700\u8FD1\u68C0\u67E5")}</th><th /></tr></thead><tbody>{rows.map(row => { const status = statusFor(row, model?.runtime.value?.data_status); return <tr key={row.id} className={selected === row.id ? "selected-row" : undefined}><td><strong>{row.account.label || row.account.target_name}</strong><small>{row.platformLabel}{row.account.account_selector ? ` · ${row.account.account_selector}` : ""}</small></td>{mode === "professional" && <td>{row.current?.runtime_target_enabled === true ? t("\u5DF2\u914D\u7F6E\u542F\u7528") : row.current?.runtime_target_enabled === false ? t("\u5DF2\u914D\u7F6E\u505C\u7528") : t("\u914D\u7F6E\u672A\u8BFB\u5230")}<small>{row.current?.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230")}</small></td>}<td><span className={`status-text ${status.tone}`}><i aria-hidden="true"/>{t(status.label)}</span><small>{t(status.detail)}</small></td><td>{stamp(row.runtime?.target?.deployment?.observed_at, language)}<small>{t(displayStatus(row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || model?.runtime.value?.data_status))}</small></td><td><button type="button" className="text-link" onClick={() => onSelect(row)}>{t("\u67E5\u770B \u2192")}</button></td></tr>; })}</tbody></table></div>;
+    return <div className="table-scroll"><table className="account-table"><thead><tr><th>{t("\u8D26\u6237")}</th><th>{mode === "professional" ? t("\u914D\u7F6E") : t("当前策略")}</th><th>{t("\u8FD0\u884C\u72B6\u6001")}</th><th>{t("\u6700\u8FD1\u68C0\u67E5")}</th><th /></tr></thead><tbody>{rows.map(row => { const status = statusFor(row, model?.runtime.value?.data_status); return <tr key={row.id} className={selected === row.id ? "selected-row" : undefined}><td><strong>{row.account.label || row.account.target_name}</strong><small>{row.platformLabel}{row.account.account_selector ? ` · ${row.account.account_selector}` : ""}</small></td><td>{mode === "professional" && <>{row.current?.runtime_target_enabled === true ? t("\u5DF2\u914D\u7F6E\u542F\u7528") : row.current?.runtime_target_enabled === false ? t("\u5DF2\u914D\u7F6E\u505C\u7528") : t("\u914D\u7F6E\u672A\u8BFB\u5230")}</>}<small>{row.current?.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230")}</small></td><td><span className={`status-text ${status.tone}`}><i aria-hidden="true"/>{t(status.label)}</span><small>{t(status.detail)}</small></td><td>{stamp(row.runtime?.target?.deployment?.observed_at, language)}<small>{t(displayStatus(row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || model?.runtime.value?.data_status))}</small></td><td><button type="button" className="text-link" onClick={() => onSelect(row)}>{t("\u67E5\u770B \u2192")}</button></td></tr>; })}</tbody></table></div>;
 }
 function AccountFacts({ row, model, mode }: {
     row: AccountRow;
@@ -848,9 +945,9 @@ function AccountFacts({ row, model, mode }: {
     const facts: Array<[
         string,
         string
-    ]> = [[t("券商环境"), brokerEnvironment(row.account.broker_environment, t)], [t("运行状态"), t(status.label)], [t("配置状态"), row.current?.runtime_target_enabled === true ? t("已配置启用") : row.current?.runtime_target_enabled === false ? t("已配置停用") : t("未知")], [t("监测状态"), t(displayStatus(target?.monitoring?.runtime_guard))], [t("执行心跳"), t(displayStatus(target?.monitoring?.execution_heartbeat))]];
+    ]> = [[t("当前策略"), row.current?.strategy_profile || t("未读取")], [t("券商环境"), brokerEnvironment(row.account.broker_environment, t)], [t("运行状态"), t(status.label)], [t("配置状态"), row.current?.runtime_target_enabled === true ? t("已配置启用") : row.current?.runtime_target_enabled === false ? t("已配置停用") : t("未知")], [t("监测状态"), t(displayStatus(target?.monitoring?.runtime_guard))], [t("执行心跳"), t(displayStatus(target?.monitoring?.execution_heartbeat))]];
     if (mode === "professional")
-        facts.push([t("目标编号"), row.account.runtime_status_target_id || t("未绑定")], [t("调度状态"), t(displayStatus(target?.deployment?.scheduler_state))], [t("执行方式"), executionMode(target?.deployment?.execution_mode,t)], [t("当前策略"), row.current?.strategy_profile || t("未读取")]);
+        facts.push([t("目标编号"), row.account.runtime_status_target_id || t("未绑定")], [t("调度状态"), t(displayStatus(target?.deployment?.scheduler_state))], [t("执行方式"), executionMode(target?.deployment?.execution_mode,t)]);
     return <><p className="detail-status"><span className={`status-text ${status.tone}`}>{t(status.label)}</span><span>{t(status.detail)}</span></p><dl className="fact-list">{facts.map(([a, b]) => <div key={a}><dt>{a}</dt><dd>{b}</dd></div>)}</dl><DetailTime title={t("\u8FD0\u884C\u68C0\u67E5\u65F6\u95F4")} value={target?.deployment?.observed_at}/>{row.runtime && <p className="section-note">{t("\u8FD0\u884C\u68C0\u67E5\u4E0D\u5305\u542B\u8BA2\u5355\u6216\u6210\u4EA4\u56DE\u62A5\u3002")}</p>}</>;
 }
 function SourceList({ source, items, empty }: {
