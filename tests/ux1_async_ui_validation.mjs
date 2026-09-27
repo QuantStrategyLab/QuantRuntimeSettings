@@ -2,26 +2,12 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
+import { V2_PAGE_HTML } from "../web/strategy-switch-console/v2_asset_map.js";
 
-const page = await readFile(new URL("../web/strategy-switch-console/index.html", import.meta.url), "utf8");
-assert.match(page, /id="ux1-job-status"/);
-assert.match(page, /id="ux1-preview-button"/);
-assert.equal(page.includes('id="ux1-preview-button" disabled'), false);
-assert.match(page, /no_order/);
-assert.equal(page.includes("fonts.googleapis.com"), false);
-assert.ok(page.indexOf('aria-label="全局显示模式"') < page.indexOf('id="overview-view"'));
-assert.ok(page.indexOf('<section id="research-view"') < page.indexOf('id="ux1-research"'));
-assert.ok(page.indexOf('id="ux1-research"') < page.indexOf('class="research-candidate-content"'));
-assert.ok(page.indexOf('id="ux1-selection"') < page.indexOf('id="ux1-guided"'));
-assert.ok(page.indexOf('id="ux1-selection"') < page.indexOf('id="ux1-advanced"'));
-assert.match(page, /id="ux1-metric-annualized">—<\/strong>/);
-assert.match(page, /id="ux1-metric-drawdown">—<\/strong>/);
-assert.match(page, /id="ux1-metric-risk">待评估<\/strong>/);
-assert.match(page, /id="ux1-automation"/);
-const stylePreview = page.match(/<div class="ux1-style-preview"[\s\S]*?<\/div>/)?.[0] || "";
-assert.ok(stylePreview.includes("保守") && stylePreview.includes("均衡") && stylePreview.includes("增长") && stylePreview.includes("投机"));
-assert.match(page, /id="ux1-guided-heading">了解研究风格<\/h3>/);
-assert.doesNotMatch(stylePreview, /<(?:button|select|input)\b|aria-pressed|selected/);
+assert.match(V2_PAGE_HTML, /<div id="root"><\/div>/, "React console is the served application shell");
+assert.match(V2_PAGE_HTML, /\/v2\/assets\/index-[\w-]+\.js/, "the shell loads the versioned application bundle");
+assert.doesNotMatch(V2_PAGE_HTML, /id="ux1-preview-button"|data-ux1-default-view/, "the shell does not embed legacy UX1 markup");
+assert.equal(V2_PAGE_HTML.includes("fonts.googleapis.com"), false);
 
 const source = await readFile(new URL("../web/strategy-switch-console/app.js", import.meta.url), "utf8");
 const temptingPreview = {
