@@ -16,7 +16,7 @@
       --qmt: #b45309;
       --bn: #f0b90b;
       font-family:
-        "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", ui-sans-serif,
+        "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif,
         system-ui, sans-serif;
     }
 
@@ -3329,12 +3329,12 @@
 .operator-console.console-clarity {
   --ink: #172d35; --muted: #667680; --accent: #10766a; --accent-soft: #e9f4f2; --line: #dfe6ea;
   background: #f6f7f9; color: var(--ink);
-  font-family: "IBM Plex Sans", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
 }
 .operator-console.console-clarity .management-heading h2,
 .operator-console.console-clarity .board-heading h3,
 .operator-console.console-clarity .decision-head h2 {
-  font-family: "Source Serif 4", "Songti SC", "Noto Serif SC", Georgia, serif;
+  font-family: "Songti SC", "Noto Serif SC", Georgia, "Times New Roman", serif;
   font-optical-sizing: auto;
 }
 @media (prefers-reduced-motion: reduce) {

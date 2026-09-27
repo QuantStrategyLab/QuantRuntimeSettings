@@ -8,6 +8,10 @@ export const UX1_DRAFT_SCHEMA = "qsl.ux1.research_draft.v1";
 export const UX1_REQUEST_SCHEMA = "qsl.ux1.preview_request.v1";
 export const UX1_RESULT_SCHEMA = "qsl.ux1.preview_result.v1";
 export const UX1_INTENT_SCHEMA = "qsl.ux1.research_intent.v1";
+export const UX1_EVIDENCE_HASH_KEYS = Object.freeze([
+  "r7_policy_sha256", "r8_policy_sha256", "capital_policy_sha256", "settlement_policy_sha256",
+  "raw_manifest_sha256", "r6_manifest_sha256", "r6_materialized_file_sha256",
+]);
 
 export const UX1_STUDY = Object.freeze({
   research_case_id: "r8_first_dynamic_2023_03_29",
@@ -203,6 +207,10 @@ export function localUx1Preview({ draft, fingerprint, status, reasons }) {
   return {
     schema_version: UX1_RESULT_SCHEMA,
     fingerprint,
+    decision_as_of: UX1_STUDY.decision_close,
+    known_through: null,
+    calculated_at: new Date().toISOString(),
+    historical_execution_date: null,
     status,
     source_class: UX1_STUDY.source_class,
     model_scope: status === "missing_input" ? null : UX1_STUDY.model_scope,
@@ -333,7 +341,7 @@ export function projectUx1CalculatorResult(raw, request, draft, fingerprint) {
       shortages,
       no_action: h.no_action,
     };
-    const hashes = ["r7_policy_sha256", "r8_policy_sha256", "capital_policy_sha256", "settlement_policy_sha256", "raw_manifest_sha256", "r6_manifest_sha256", "r6_materialized_file_sha256"];
+    const hashes = UX1_EVIDENCE_HASH_KEYS;
     for (const key of hashes) if (typeof raw[key] !== "string" || !/^[a-f0-9]{64}$/.test(raw[key])) reject();
     evidence = {
       model_id: safeText(raw.model_id),
@@ -346,6 +354,10 @@ export function projectUx1CalculatorResult(raw, request, draft, fingerprint) {
   return {
     schema_version: UX1_RESULT_SCHEMA,
     fingerprint,
+    decision_as_of: UX1_STUDY.decision_close,
+    known_through: decision?.scenarios_observed_through || null,
+    calculated_at: new Date().toISOString(),
+    historical_execution_date: historical?.trade_date || null,
     status: raw.status === "ok" ? (decision.no_advantage ? "no_advantage" : historical.no_action ? "no_action" : "computed") : raw.status,
     source_class: UX1_STUDY.source_class,
     model_scope: raw.status === "ok" ? evidence.model_id : null,

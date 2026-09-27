@@ -1468,6 +1468,7 @@
         error: "",
         compare: false,
         loaded: false,
+        previewInvalid: false,
       },
       overviewFilter: "all",
       overviewSearch: "",
@@ -7448,6 +7449,7 @@
       state.ux1.busy = false;
       state.ux1.error = "";
       state.ux1.loaded = false;
+      state.ux1.previewInvalid = false;
     }
 
     function setUx1ViewMode(mode) {
@@ -7502,7 +7504,11 @@
         ? `已声明 ${reserve}。该自定义值留在草案中，尚不参与本次 R8 计算，也不关闭原完整 v2。`
         : "未声明。空白不表示原完整 v2 的预留已关闭。";
       el("ux1-custom-notice").hidden = !ux1Custom(draft);
-      el("ux1-stale").hidden = !(state.ux1.dirty && state.ux1.preview);
+      const epochStale = Boolean(state.ux1.preview?.stale) || state.ux1.previewInvalid;
+      el("ux1-stale").hidden = !(epochStale || (state.ux1.dirty && state.ux1.preview));
+      el("ux1-stale").textContent = epochStale
+        ? "上一份方案已过期或计算失败，不能当作当前结果。请重新生成研究方案。"
+        : "业务字段已改，上一份方案已失效。需要重新生成研究方案。";
       el("ux1-form-error").textContent = state.ux1.error || "";
       const reserveError = state.ux1.error.startsWith("预留政策") ? state.ux1.error : "";
       el("ux1-reserve-error").hidden = !reserveError;
@@ -7511,7 +7517,11 @@
         el(id).setAttribute("aria-invalid", reserveError ? "true" : "false");
       }
       const signedIn = Boolean(state.auth.allowed);
-      for (const id of ["ux1-preview-button", "ux1-save-button", "ux1-intent-button"]) el(id).disabled = !signedIn || state.ux1.busy;
+      for (const id of ["ux1-preview-button", "ux1-save-button"]) el(id).disabled = !signedIn || state.ux1.busy;
+      const intentStatuses = new Set(["computed", "unsupported_scope", "no_advantage", "no_action"]);
+      const currentPreview = state.ux1.preview;
+      const canIntent = signedIn && !state.ux1.busy && !state.ux1.dirty && !state.ux1.previewInvalid && currentPreview && !currentPreview.stale && intentStatuses.has(currentPreview.status);
+      el("ux1-intent-button").disabled = !canIntent;
       for (const id of ["ux1-objective", "ux1-research-case", ...ux1AdvancedFields.map((item) => item[1]), ...ux1AmountFields.map((item) => item[1])]) {
         el(id).disabled = !signedIn || state.ux1.busy;
       }
@@ -7520,13 +7530,17 @@
 
     function renderUx1Preview(preview) {
       renderUx1Comparison(preview);
+      const current = preview?.stale ? null : preview;
+      el("ux1-source-time").textContent = current
+        ? `decision_as_of ${current.decision_as_of || "未知"}；known_through ${current.known_through || "未知"}；calculated_at ${current.calculated_at || "未知"}；historical_execution_date ${current.historical_execution_date || "无"}（只用于事后核对）。`
+        : "historical_development，决策收盘 2023-03-29；模拟执行核对日是 2023-03-30。";
       const guidedResult = el("ux1-guided-result");
-      guidedResult.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview;
+      guidedResult.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview || Boolean(preview?.stale);
       guidedResult.textContent = preview?.decision_preview
         ? `当前模型在 ${preview.decision_preview.decision_date} 已知的 ${preview.decision_preview.scenario_count} 个情景中选择 ${preview.decision_preview.selected_action}。${preview.decision_preview.no_advantage ? "相对先前动作没有评分优势。" : "一步评分仅在本次候选与约束内比较。"} ${preview.historical_execution_check?.trade_date || "下一日"} 的历史模拟费用为 ${preview.historical_execution_check?.total_fees_usd ?? "未知"} 美元；这是事后核对，不是下单或未来收益保证。`
         : "";
       const guidedAllocation = el("ux1-guided-allocation");
-      guidedAllocation.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview;
+      guidedAllocation.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview || Boolean(preview?.stale);
       if (preview?.decision_preview) {
         const decision = preview.decision_preview;
         const budgets = Object.entries(decision.member_budgets_usd || {})
@@ -7545,7 +7559,7 @@
         el("ux1-results").after(note);
       }
       note.textContent = state.ux1.intent ? `已保存不可执行意向 ${state.ux1.intent.receipt_id}` : "";
-      fillUx1Facts(el("ux1-decision-body"), preview?.decision_preview, [
+      fillUx1Facts(el("ux1-decision-body"), current?.decision_preview, [
         ["decision_date", "决策时点"],
         ["scenarios_observed_through", "已知情景截止"],
         ["scenario_count", "情景数"],
@@ -7557,7 +7571,7 @@
         ["aggregate_member_cap_usd", "成员上限（美元）"],
         ["outer_cash_target_usd", "外层现金目标（美元）"],
       ]);
-      fillUx1Facts(el("ux1-historical-body"), preview?.historical_execution_check, [
+      fillUx1Facts(el("ux1-historical-body"), current?.historical_execution_check, [
         ["trade_date", "模拟成交时点"],
         ["no_action", "模拟股数为零"],
         ["total_fees_usd", "模拟费用（美元）"],
@@ -7574,6 +7588,7 @@
         return;
       }
       scope.textContent = [
+        preview.stale ? "已过期，需重新计算" : "",
         preview.status,
         preview.model_scope || "",
         preview.optimality_scope || "",
@@ -7610,9 +7625,11 @@
       const body = el("ux1-comparison-body");
       body.replaceChildren();
       if (!state.ux1.compare) return;
-      const decision = state.ux1.dirty ? null : preview?.decision_preview;
+      const decision = state.ux1.dirty || preview?.stale ? null : preview?.decision_preview;
       if (!decision) {
-        body.textContent = state.ux1.dirty
+        body.textContent = preview?.stale
+          ? "上一份方案已过期，重新生成后才能比较当前动作。"
+          : state.ux1.dirty
           ? "业务字段已改，重新生成方案后才能比较当前动作。"
           : "先生成研究方案，再比较 B0–B3 的评分。";
         return;
@@ -7689,6 +7706,7 @@
       state.ux1.dirty = false;
       state.ux1.loaded = true;
       state.ux1.error = "";
+      state.ux1.previewInvalid = false;
       return true;
     }
 
@@ -7794,8 +7812,19 @@
           ux1_advanced_value_invalid: "高级字段格式或范围无效，请检查对应输入。",
           ux1_revision_conflict: "草案已在其他标签页更新，请刷新后再保存。",
           ux1_preview_conflict: "草案已变化，请重新保存后生成方案。",
-          calculator_not_connected: "本地数值计算尚未连接，研究草案仍可保存。",
+          calculator_not_connected: "本地数值计算尚未连接。草案仍在，上一份方案不能当作当前结果。",
+          calculator_failed: "计算失败或超时。草案仍在，上一份方案不能当作当前结果。",
+          calculator_result_rejected: "计算结果未通过校验。草案仍在，上一份方案不能当作当前结果。",
+          calculator_busy: "计算忙，请稍后重试。这次没有生成新方案。",
+          ux1_preview_stale: "方案已过期，请重新生成后再保存意向。",
         };
+        if (["calculator_not_connected", "calculator_failed", "calculator_result_rejected"].includes(error.message)) {
+          state.ux1.preview = null;
+          state.ux1.previewInvalid = true;
+        }
+        if (error.message === "ux1_preview_stale" && state.ux1.preview) {
+          state.ux1.preview = { ...state.ux1.preview, status: "stale", stale: true, actionable: false, recompute_required: true };
+        }
         state.ux1.error = messages[error.message] || error.message || "研究请求失败";
       } finally {
         state.ux1.busy = false;

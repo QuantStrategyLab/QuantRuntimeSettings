@@ -158,6 +158,22 @@ Only a fresh P6 candidate with `owner_decision_required` and an `owner_live_deci
 
 This is not an execution API: every intent is fixed as `no_order=true` and `execution_authority_granted=false`. It does not dispatch a workflow, call a platform or broker, change funds, or enable Live. Only a future independent deterministic execution gateway may consume an intent after it verifies all current P4/P5/P6 conditions.
 
+## UX1 local research
+
+The research draft stays on the existing RuntimeInstances path. Persistent local use reads one private operator config and listens on `127.0.0.1` only:
+
+```bash
+node web/strategy-switch-console/ux1_local_demo.mjs start --config /absolute/path/ux1-local.json
+node web/strategy-switch-console/ux1_local_demo.mjs status --config /absolute/path/ux1-local.json
+node web/strategy-switch-console/ux1_local_demo.mjs stop --config /absolute/path/ux1-local.json
+```
+
+The config names a fixed interpreter, one installed UES program that reads a single JSON request on stdin and writes one JSON result on stdout, approved input roots, a stable `state_root`, a loopback port, and a login. `state_root/durable` is the Miniflare Durable Object directory for the draft, revision, and intent receipt. `state_root/session` is a mode `0600` session token for this process only; restart writes a new token and requires the operator to authenticate again. The token and auth secret are not stored in the durable draft and are not printed. `stop` signals only the pid recorded for this config when its command line is still this demo. `status` prints running or stopped, the listen URL, and the state root.
+
+A failed, timed-out, disconnected, or rejected calculation clears the stored preview so the previous result is not the current one. A preview from an earlier process epoch, including a pre-RC1 preview with no epoch, is returned as stale until recomputed; the draft, revision, and existing intent receipt stay. Decision date `2023-03-29` stays separate from the next-day historical execution check on `2023-03-30`. The calculator child uses `shell: false`, a 30 second timeout, a 65536 byte stdout cap, and one in-flight process (`calculator_busy` when busy). Its environment is limited to `PATH`, `HOME`, `LANG`, `LC_ALL`, `LC_CTYPE`, `TMPDIR`, `TZ`, and the three approved input paths.
+
+The flag form without `start` still creates a temporary state directory and does not survive restart. This local binding is not a production service binding. Do not commit the operator config.
+
 ## Page Asset
 
 `worker.js` serves `web/strategy-switch-console/index.html` through `page_asset.js` and the fallback live-enabled strategy catalog through `strategy_profiles_asset.js`.

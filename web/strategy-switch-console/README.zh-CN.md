@@ -482,4 +482,48 @@ wrangler deploy
 
 运行总览里的研究方案使用同一份 `qsl.ux1.research_draft.v1`。简易模式是默认显示；切到高级模式只写入浏览器偏好 `qsl-ux1-view-mode`，不发请求，也不改 fingerprint。草案存在 RuntimeInstances 绑定里的独立 `ux1_research_slot`，按登录名隔离，并用 revision 做 CAS。它不是 runtime `kind=draft`，也不能提交到 `/api/switch`、runtime-stop 或晋级。
 
-`GET/POST /api/ux1/draft`、`POST /api/ux1/preview` 和 `POST /api/ux1/intent` 都要求 allowlist 会话；写操作还要求同源 Origin。服务端只接受冻结字段，拒绝账户、授权、密钥、URL、路径和未知字段。预览把已保存 revision 的业务字段组装为 UES 原生 `qsl.ux1.preview_request.v1`，送给固定绑定 `UX1_RESEARCH_CALCULATOR`，只接收经白名单核验的 UES `qsl.ux1.preview_result.v1`；草案摘要与 UES request fingerprint 相同。高级金额及比例在请求和摘要中使用规范十进制字符串，避免两端对小浮点数的序列化差异。没有该绑定时返回 `calculator_not_connected`，不给模拟数字。本地演示命令为 `node web/strategy-switch-console/ux1_local_demo.mjs --interpreter <绝对路径> --adapter <绝对路径> --raw-root <绝对路径> --r6-root <绝对路径> --materialized <绝对路径> --session-file <私有绝对路径>`，只监听 `127.0.0.1`；研究依赖由本地受信解释器和固定 `PYTHONPATH` 提供。演示用签名会话只写入新建的 0600 私有文件，不打印到日志。私有输入根在启动时固定，浏览器不能提交命令或路径。意向收据不可执行，重复保存返回同一收据。
+`GET/POST /api/ux1/draft`、`POST /api/ux1/preview` 和 `POST /api/ux1/intent` 都要求 allowlist 会话；写操作还要求同源 Origin。服务端只接受冻结字段，拒绝账户、授权、密钥、URL、路径和未知字段。预览把已保存 revision 的业务字段组装为 UES 原生 `qsl.ux1.preview_request.v1`，送给固定绑定 `UX1_RESEARCH_CALCULATOR`，只接收经白名单核验的 UES `qsl.ux1.preview_result.v1`；草案摘要与 UES request fingerprint 相同。高级金额及比例在请求和摘要中使用规范十进制字符串，避免两端对小浮点数的序列化差异。没有该绑定时返回 `calculator_not_connected`，并清掉已保存预览，不给模拟数字，也不把上一份成功留作当前结果。计算失败、超时、非零退出或结果被拒绝时同样使预览失效；`calculator_busy` 只表示这次没有新计算，可重试。每次本地进程有一个非秘密 `runtime_epoch`。预览带上它，草案、revision 和意向收据不带。重启或缺少该字段的旧预览在 GET 中显示为过期，意向写入返回 `ux1_preview_stale`，已有收据保持不变，直到重新计算。决策日 `2023-03-29` 与次日历史执行核对 `2023-03-30` 仍分开。意向收据不可执行，重复保存返回同一收据。
+
+持久研究使用操作员私有配置，不写入仓库。配置只含固定解释器、已安装的 UES JSON stdin/stdout 程序路径、批准的输入根、七项已核验的输入/政策 SHA-256、稳定 state 根、回环端口和登录名。七项摘要须从同一获准历史案例的原始计算证据取得；计算返回的摘要与配置不一致时拒绝结果并使旧预览失效。浏览器不能提交路径或命令。
+
+```bash
+node web/strategy-switch-console/ux1_local_demo.mjs start --config /绝对路径/ux1-local.json
+node web/strategy-switch-console/ux1_local_demo.mjs status --config /绝对路径/ux1-local.json
+node web/strategy-switch-console/ux1_local_demo.mjs stop --config /绝对路径/ux1-local.json
+```
+
+```json
+{
+  "interpreter": "/绝对路径/python",
+  "executable": "/绝对路径/已安装的UES入口",
+  "input_roots": {
+    "raw": "/绝对路径/raw",
+    "r6": "/绝对路径/r6",
+    "materialized": "/绝对路径/materialized.json"
+  },
+  "expected_hashes": {
+    "r7_policy_sha256": "填写64位小写十六进制摘要",
+    "r8_policy_sha256": "填写64位小写十六进制摘要",
+    "capital_policy_sha256": "填写64位小写十六进制摘要",
+    "settlement_policy_sha256": "填写64位小写十六进制摘要",
+    "raw_manifest_sha256": "填写64位小写十六进制摘要",
+    "r6_manifest_sha256": "填写64位小写十六进制摘要",
+    "r6_materialized_file_sha256": "填写64位小写十六进制摘要"
+  },
+  "state_root": "/绝对路径/稳定状态目录",
+  "port": 8787,
+  "login": "ux1-local-operator"
+}
+```
+
+`start` 只监听 `127.0.0.1`，`state_root` 必须仅限当前用户访问。`state_root/durable` 是 Miniflare Durable Objects 持久目录，保存草案、revision 和意向。`state_root/session` 是本次进程的 0600 会话令牌；重启会换新令牌，需要重新认证，令牌和认证 secret 都不进入 Durable Objects，也不打印到 stdout。`stop` 只向该配置记录的、命令行仍是本入口的进程发信号，不扫描无关 PID。`status` 只打印 running/stopped、监听地址和 state 根。
+
+临时会话仍可用旧参数，每次使用新的临时目录，重启后找不到上次草案：
+
+```bash
+node web/strategy-switch-console/ux1_local_demo.mjs --interpreter <绝对路径> --adapter <绝对路径> --raw-root <绝对路径> --r6-root <绝对路径> --materialized <绝对路径> --session-file <私有绝对路径>
+```
+
+计算子进程 `shell` 为 false，30 秒超时，stdout 超过 65536 字节即失败，同时只允许一个计算，超出返回 `calculator_busy`。子进程只继承 `PATH`、`HOME`、`LANG`、`LC_ALL`、`LC_CTYPE`、`TMPDIR`、`TZ` 以及三个批准输入路径，不继承调用方环境里的券商凭据。这不是生产 service binding。
+
+页面与预览 JSON 分别标出 `decision_as_of`、`known_through`、`calculated_at` 和 `historical_execution_date`。后一天的历史费用只留在执行核对，不作为决策日已知输入。

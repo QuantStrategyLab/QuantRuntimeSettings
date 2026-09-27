@@ -37,6 +37,7 @@ import { APP_CSS } from "./app_css.js";
 import { APP_JS } from "./app_js.js";
 import {
   UX1_DRAFT_SCHEMA,
+  UX1_EVIDENCE_HASH_KEYS,
   UX1_STUDY,
   Ux1InputError,
   assertUx1DraftPost,
@@ -761,6 +762,45 @@ async function runtimeInstanceCommand(env, command) {
   }
 }
 
+let ux1ModuleEpoch = "";
+
+function ux1RuntimeEpoch(env) {
+  const configured = env?.UX1_RUNTIME_EPOCH;
+  if (typeof configured === "string" && /^[a-f0-9]{32}$/.test(configured)) return configured;
+  if (!ux1ModuleEpoch) {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    ux1ModuleEpoch = [...bytes].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+  return ux1ModuleEpoch;
+}
+
+function ux1PreviewMatchesEpoch(preview, env) {
+  return Boolean(preview && preview.runtime_epoch === ux1RuntimeEpoch(env));
+}
+
+function ux1ExpectedEvidenceMatches(preview, env) {
+  if (!preview.evidence) return !["computed", "no_advantage", "no_action"].includes(preview.status);
+  if (!env.UX1_EXPECTED_EVIDENCE_HASHES) return true;
+  let expected;
+  try { expected = JSON.parse(env.UX1_EXPECTED_EVIDENCE_HASHES); } catch { return false; }
+  return expected && typeof expected === "object" && !Array.isArray(expected)
+    && Object.keys(expected).length === UX1_EVIDENCE_HASH_KEYS.length
+    && UX1_EVIDENCE_HASH_KEYS.every((key) => /^[a-f0-9]{64}$/.test(expected[key]) && preview.evidence[key] === expected[key]);
+}
+
+function presentUx1Preview(preview, env) {
+  if (!preview) return null;
+  if (ux1PreviewMatchesEpoch(preview, env)) return preview;
+  return {
+    ...preview,
+    status: "stale",
+    stale: true,
+    actionable: false,
+    recompute_required: true,
+  };
+}
+
 function ux1Flags() {
   return {
     schema_version: UX1_DRAFT_SCHEMA,
@@ -778,7 +818,8 @@ function ux1Flags() {
   };
 }
 
-function ux1StatePayload({ revision, fingerprint, draft, preview, intent, duplicate = false, unchanged = false }) {
+function ux1StatePayload(env, { revision, fingerprint, draft, preview, intent, duplicate = false, unchanged = false }) {
+  const shown = presentUx1Preview(preview, env);
   return {
     ok: true,
     ...ux1Flags(),
@@ -786,7 +827,8 @@ function ux1StatePayload({ revision, fingerprint, draft, preview, intent, duplic
     fingerprint,
     custom_draft: ux1CustomDraft(draft),
     draft,
-    preview,
+    preview: shown,
+    preview_stale: Boolean(shown?.stale),
     intent,
     duplicate,
     unchanged,
@@ -831,9 +873,9 @@ async function ux1DraftGet(request, env) {
   const slot = await ux1ReadSlot(env, session.login);
   if (!slot) {
     const draft = defaultUx1Draft();
-    return json(ux1StatePayload({ revision: 0, fingerprint: await ux1Fingerprint(draft), draft, preview: null, intent: null }));
+    return json(ux1StatePayload(env, { revision: 0, fingerprint: await ux1Fingerprint(draft), draft, preview: null, intent: null }));
   }
-  return json(ux1StatePayload(slot));
+  return json(ux1StatePayload(env, slot));
 }
 
 async function ux1DraftPost(request, env) {
@@ -848,7 +890,15 @@ async function ux1DraftPost(request, env) {
     draft_json: canonicalJson(parsed.draft),
     fingerprint: await ux1Fingerprint(parsed.draft),
   });
-  return json(ux1StatePayload({ ...parseUx1Slot({ ...saved, found: true }), unchanged: Boolean(saved.unchanged) }));
+  return json(ux1StatePayload(env, { ...parseUx1Slot({ ...saved, found: true }), unchanged: Boolean(saved.unchanged) }));
+}
+
+async function ux1ClearStoredPreview(env, login, slot) {
+  await runtimeInstanceCommand(env, {
+    action: "ux1_clear_preview", login,
+    expected_revision: slot.revision,
+    fingerprint: slot.fingerprint,
+  });
 }
 
 async function ux1PreviewPost(request, env) {
@@ -867,10 +917,12 @@ async function ux1PreviewPost(request, env) {
   } else {
     const binding = env.UX1_RESEARCH_CALCULATOR;
     if (!binding || typeof binding.fetch !== "function") {
+      await ux1ClearStoredPreview(env, session.login, slot);
       return json({
         ok: false,
         error: "calculator_not_connected",
         status: "calculator_not_connected",
+        recompute_required: true,
         ...ux1Flags(),
         revision: slot.revision,
         fingerprint,
@@ -890,23 +942,36 @@ async function ux1PreviewPost(request, env) {
         body: canonicalJson(calculatorRequest),
       });
     } catch {
+      await ux1ClearStoredPreview(env, session.login, slot);
       throw new HttpError("calculator_failed", 502);
     }
     const calculatorText = await calculatorResponse.text();
-    if (!calculatorResponse.ok || calculatorText.length > 65536) throw new HttpError("calculator_failed", 502);
+    if (calculatorResponse.status === 429) {
+      let busy = false;
+      try { busy = JSON.parse(calculatorText).error === "calculator_busy"; } catch { busy = false; }
+      if (busy) throw new HttpError("calculator_busy", 429);
+    }
+    if (!calculatorResponse.ok || calculatorText.length > 65536) {
+      await ux1ClearStoredPreview(env, session.login, slot);
+      throw new HttpError("calculator_failed", 502);
+    }
     let raw;
     try {
       raw = JSON.parse(calculatorText);
     } catch {
+      await ux1ClearStoredPreview(env, session.login, slot);
       throw new HttpError("calculator_failed", 502);
     }
     try {
       preview = projectUx1CalculatorResult(raw, calculatorRequest, draft, fingerprint);
+      if (!ux1ExpectedEvidenceMatches(preview, env)) throw new Ux1InputError("calculator_result_rejected", 502);
     } catch (error) {
+      await ux1ClearStoredPreview(env, session.login, slot);
       if (error instanceof Ux1InputError) throw new HttpError(error.message, error.status || 502);
       throw new HttpError("calculator_result_rejected", 502);
     }
   }
+  preview = { ...preview, runtime_epoch: ux1RuntimeEpoch(env) };
   const stored = await runtimeInstanceCommand(env, {
     action: "ux1_store_preview",
     login: session.login,
@@ -914,7 +979,7 @@ async function ux1PreviewPost(request, env) {
     fingerprint,
     preview_json: canonicalJson(preview),
   });
-  return json(ux1StatePayload(parseUx1Slot({ ...stored, found: true })));
+  return json(ux1StatePayload(env, parseUx1Slot({ ...stored, found: true })));
 }
 
 async function ux1IntentPost(request, env) {
@@ -922,7 +987,11 @@ async function ux1IntentPost(request, env) {
   const session = await requireUx1Session(request, env);
   const parsed = assertUx1IntentPost(await readUx1Body(request));
   const slot = await ux1ReadSlot(env, session.login);
-  if (!slot || slot.revision !== parsed.expected_revision || slot.fingerprint !== parsed.fingerprint || !ux1IntentAllowed(slot.preview) || slot.preview.fingerprint !== parsed.fingerprint) {
+  if (!slot || slot.revision !== parsed.expected_revision || slot.fingerprint !== parsed.fingerprint) {
+    throw new HttpError("ux1_intent_conflict", 409);
+  }
+  if (slot.preview && !ux1PreviewMatchesEpoch(slot.preview, env)) throw new HttpError("ux1_preview_stale", 409);
+  if (!ux1IntentAllowed(slot.preview) || slot.preview.fingerprint !== parsed.fingerprint) {
     throw new HttpError("ux1_intent_conflict", 409);
   }
   const intent = ux1IntentRecord({
@@ -938,7 +1007,7 @@ async function ux1IntentPost(request, env) {
     fingerprint: slot.fingerprint,
     intent_json: canonicalJson(intent),
   });
-  return json(ux1StatePayload({ ...parseUx1Slot({ ...stored, found: true }), duplicate: Boolean(stored.duplicate) }));
+  return json(ux1StatePayload(env, { ...parseUx1Slot({ ...stored, found: true }), duplicate: Boolean(stored.duplicate) }));
 }
 
 function runtimeInstanceAccountOptions(instances) {
@@ -1572,6 +1641,12 @@ export class RuntimeInstances {
         if (typeof command.intent_json !== "string" || command.intent_json.length > 4096) throw new HttpError("ux1_invalid_body", 400);
         this.sql.exec("UPDATE ux1_research_slot SET intent_json = ? WHERE login = ? AND revision = ?", command.intent_json, login, Number(row.revision));
         return { ...found, intent_json: command.intent_json, duplicate: false };
+      }
+      if (command.action === "ux1_clear_preview") {
+        if (!row) return found;
+        if (Number(row.revision) !== command.expected_revision || row.fingerprint !== command.fingerprint) return found;
+        this.sql.exec("UPDATE ux1_research_slot SET preview_json = NULL WHERE login = ? AND revision = ? AND fingerprint = ?", login, Number(row.revision), row.fingerprint);
+        return { ...found, preview_json: null };
       }
       throw new HttpError("unsupported_ux1_action", 400);
     });
@@ -10404,6 +10479,8 @@ export const __test = {
   normalizeResearchTaskSourceSnapshot,
   emptyResearchTaskPayload,
   makeSession,
+  presentUx1Preview,
+  ux1RuntimeEpoch,
   supportedDomainsForAccount,
   updateAccountOptionsDefaultStrategy,
   withTimeout,
