@@ -134,7 +134,7 @@
             <div><dt>研究资金</dt><dd>冻结研究账户初始净值 10,000 USD。这不是个人资金，也不是入金计划。</dd></div>
             <div><dt>保留现金</dt><dd id="ux1-reserve-summary">未声明。空白不表示原完整 v2 的预留已关闭。</dd></div>
             <div><dt>成员与候选</dt><dd>候选集 r8_b0_b3，成员类别 outer / TQQQ / SOXL。原完整 v2 尚不参与本次计算。</dd></div>
-            <div><dt>自动化</dt><dd id="ux1-automation">research_only，no_order。保存研究草案只留下不可执行意向。</dd></div>
+            <div><dt>自动化</dt><dd id="ux1-automation">research_only，no_order。保存研究草案只留下不可执行意向。这里不会派出交易 workflow。</dd></div>
           </dl>
           <p id="ux1-custom-notice" hidden>含自定义设置。高级字段仍留在同一份草案里。</p>
         </div>
@@ -176,6 +176,7 @@
           <button class="btn" type="button" id="ux1-intent-button">保存不可执行意向</button>
         </div>
         <p id="ux1-stale" hidden>业务字段已改，上一份方案已失效。需要重新生成研究方案。</p>
+        <p id="ux1-job-status"></p>
         <div class="ux1-results" id="ux1-results">
           <p id="ux1-guided-result" hidden></p>
           <p id="ux1-guided-allocation" hidden></p>

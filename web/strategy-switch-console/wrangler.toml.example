@@ -8,6 +8,7 @@ workers_dev = true
 # - GITHUB_CLIENT_SECRET
 # - SESSION_SECRET
 # - RUNTIME_SETTINGS_DISPATCH_TOKEN
+# - UX1_RESEARCH_JOB_TOKEN  # dedicated UX1 research claim/result bearer; never reuse the dispatch or session token
 # - STRATEGY_SWITCH_SYNC_TOKEN  # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
 # - STRATEGY_HEALTH_SYNC_TOKEN  # dedicated outbound health snapshot token; never reuse dispatch token
 # - CONTROL_PLANE_SYNC_TOKEN    # dedicated global dashboard snapshot token; never reuse dispatch token
@@ -32,6 +33,12 @@ RUNTIME_SETTINGS_WORKFLOW = "manual-strategy-switch.yml"
 RUNTIME_SETTINGS_REF = "main"
 # The current source is a once-per-trading-day research lane.
 CONTROL_PLANE_STALE_TTL_SECONDS = "129600"
+# UX1 async preview stays off unless UX1_PREVIEW_MODE is exactly github_actions.
+# Leave it unset to keep the local UX1_RESEARCH_CALCULATOR binding. Placeholders only:
+# UX1_PREVIEW_MODE = "github_actions"
+# UX1_UES_REVISION = "0123456789abcdef0123456789abcdef01234567"
+# UX1_RUNTIME_EPOCH = "0123456789abcdef0123456789abcdef"
+# UX1_EXPECTED_EVIDENCE_HASHES = "{\"r7_policy_sha256\":\"64-lowercase-hex\",\"r8_policy_sha256\":\"64-lowercase-hex\",\"capital_policy_sha256\":\"64-lowercase-hex\",\"settlement_policy_sha256\":\"64-lowercase-hex\",\"raw_manifest_sha256\":\"64-lowercase-hex\",\"r6_manifest_sha256\":\"64-lowercase-hex\",\"r6_materialized_file_sha256\":\"64-lowercase-hex\"}"
 
 # Forks can replace the platform repository mapping without editing source code.
 # STRATEGY_SWITCH_PLATFORM_REPOSITORIES_JSON = '{"longbridge":"your-org/LongBridgePlatform","ibkr":"your-org/InteractiveBrokersPlatform","schwab":"your-org/CharlesSchwabPlatform","firstrade":"your-org/FirstradePlatform"}'

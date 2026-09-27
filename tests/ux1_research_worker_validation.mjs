@@ -210,6 +210,16 @@ async function call(body, { cookie = readerCookie, origin = "https://console.exa
   return { status: response.status, text, body: text ? JSON.parse(text) : null };
 }
 
+function callWithin(body, options, timeoutMs) {
+  let timer;
+  const pending = call(body, options);
+  pending.catch(() => {});
+  return new Promise((resolve, reject) => {
+    timer = setTimeout(() => reject(new Error("preview_deadline_exceeded")), timeoutMs);
+    pending.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
 try {
   assert.equal((await call(undefined, { cookie: "" })).status, 401);
   assert.equal((await call(undefined, { cookie: outsiderCookie })).status, 403);
@@ -389,6 +399,30 @@ try {
         if (sink.mode === "busy") {
           return new Response(JSON.stringify({ error: "calculator_busy" }), { status: 429, headers: { "content-type": "application/json" } });
         }
+        if (sink.mode === "fat-busy") {
+          return new Response(JSON.stringify({ error: "calculator_busy", pad: "x".repeat(70000) }), { status: 429, headers: { "content-type": "application/json" } });
+        }
+        if (sink.mode === "utf8-busy") {
+          return new Response(JSON.stringify({ error: "calculator_busy", pad: "你".repeat(22000) }), { status: 429, headers: { "content-type": "application/json" } });
+        }
+        if (sink.mode === "stream-hang") {
+          const payload = new TextEncoder().encode(JSON.stringify({ error: "calculator_busy", pad: "x".repeat(70000) }));
+          return new Response(new ReadableStream({
+            start(controller) {
+              controller.enqueue(payload.subarray(0, 40000));
+              controller.enqueue(payload.subarray(40000));
+            },
+            pull() {
+              return new Promise(() => {});
+            },
+          }), { status: 429, headers: { "content-type": "application/json" } });
+        }
+        if (sink.mode === "hold-fail" && !sink.held) {
+          sink.held = true;
+          sink.markEntered();
+          await sink.hold;
+          return new Response(JSON.stringify({ error: "calculator_failed" }), { status: 500, headers: { "content-type": "application/json" } });
+        }
         const requestBody = await request.json();
         sink.calls += 1;
         sink.bodies.push(requestBody);
@@ -418,6 +452,48 @@ try {
   assert.equal(recomputed.body.preview.stale, undefined);
   assert.equal(recomputed.body.revision, 4);
   assert.equal(recomputed.body.intent.receipt_id, intent.body.intent.receipt_id);
+
+  const fatProbe = JSON.stringify({ error: "calculator_busy", pad: "x".repeat(70000) });
+  assert.equal(fatProbe.length > 65536, true);
+  sink.mode = "fat-busy";
+  const fatBusy = await call({ expected_revision: 4 }, { endpoint: "/api/ux1/preview" });
+  assert.equal(fatBusy.status, 502);
+  assert.equal(fatBusy.body.error, "calculator_failed");
+  assert.equal(fatBusy.text.includes("calculator_busy"), false);
+  assert.equal(fatBusy.text.length < 500, true);
+  const afterFat = await call();
+  assert.equal(afterFat.body.preview, null);
+  assert.equal(afterFat.body.revision, 4);
+  assert.equal(afterFat.body.fingerprint, recomputed.body.fingerprint);
+  sink.mode = "ok";
+  assert.equal((await call({ expected_revision: 4 }, { endpoint: "/api/ux1/preview" })).status, 200);
+
+  const utf8Probe = JSON.stringify({ error: "calculator_busy", pad: "你".repeat(22000) });
+  assert.equal(utf8Probe.length <= 65536, true);
+  assert.equal(Buffer.byteLength(utf8Probe) > 65536, true);
+  sink.mode = "utf8-busy";
+  const utf8Busy = await call({ expected_revision: 4 }, { endpoint: "/api/ux1/preview" });
+  assert.equal(utf8Busy.status, 502);
+  assert.equal(utf8Busy.body.error, "calculator_failed");
+  assert.equal(utf8Busy.text.includes("你"), false);
+  const afterUtf8 = await call();
+  assert.equal(afterUtf8.body.preview, null);
+  assert.equal(afterUtf8.body.revision, 4);
+  sink.mode = "ok";
+  assert.equal((await call({ expected_revision: 4 }, { endpoint: "/api/ux1/preview" })).status, 200);
+
+  sink.mode = "stream-hang";
+  const streamed = await callWithin({ expected_revision: 4 }, { endpoint: "/api/ux1/preview" }, 2000);
+  assert.equal(streamed.status, 502);
+  assert.equal(streamed.body.error, "calculator_failed");
+  const afterStream = await call();
+  assert.equal(afterStream.body.preview, null);
+  assert.equal(afterStream.body.revision, 4);
+  sink.mode = "ok";
+  const restoredPreview = await call({ expected_revision: 4 }, { endpoint: "/api/ux1/preview" });
+  assert.equal(restoredPreview.status, 200);
+  assert.equal(restoredPreview.body.preview.decision_preview.decision_date, "2023-03-29");
+  assert.equal(restoredPreview.body.revision, 4);
   await mf.dispose();
   mf = new Miniflare({
     ...baseOptions,
@@ -469,6 +545,228 @@ try {
   assert.match(viewMode, /qsl-ux1-view-mode/);
   assert.match(app, /qsl-ux1-view-mode"\) === "advanced" \? "advanced" : "guided"/);
   assert.match(app, /上一份方案已过期或计算失败/);
+
+  assert.equal(__test.ux1CalculatorDeadlineMs, 30000);
+  assert.equal(__test.ux1CalculatorMaxBytes, 65536);
+  const workerSource = await readFile(new URL("../web/strategy-switch-console/worker.js", import.meta.url), "utf8");
+  const previewFn = workerSource.slice(workerSource.indexOf("async function ux1PreviewPost"), workerSource.indexOf("async function ux1IntentPost"));
+  assert.equal(previewFn.includes("readUx1CalculatorExchange(binding, canonicalJson(calculatorRequest))"), true);
+  assert.equal(previewFn.includes("deadlineMs"), false);
+  assert.equal(previewFn.includes("maxBytes"), false);
+  assert.equal(previewFn.includes("content-length"), false);
+  assert.equal(previewFn.includes("Content-Length"), false);
+  assert.equal(previewFn.includes("calculatorResponse.text()"), false);
+
+  const utf8Body = JSON.stringify({ error: "calculator_busy", pad: "你".repeat(22000) });
+  assert.equal(utf8Body.length <= 65536, true);
+  assert.equal(Buffer.byteLength(utf8Body) > 65536, true);
+  let fetches = 0;
+  await assert.rejects(() => __test.readUx1CalculatorExchange({
+    fetch() {
+      fetches += 1;
+      return new Response(utf8Body, { status: 429, headers: { "content-type": "application/json", "content-length": "8" } });
+    },
+  }, "{}", { deadlineMs: 1000 }));
+  assert.equal(fetches, 1);
+  const exact = "x".repeat(65536);
+  const exactRead = await __test.readUx1CalculatorExchange({
+    fetch(url, init) {
+      assert.equal(url, "https://ux1-research-calculator/preview");
+      assert.equal(init.method, "POST");
+      assert.equal(init.headers["content-type"], "application/json");
+      assert.equal(init.body, "{}");
+      return new Response(exact, { status: 200 });
+    },
+  }, "{}", { deadlineMs: 1000 });
+  assert.equal(exactRead.status, 200);
+  assert.equal(exactRead.text.length, 65536);
+  await assert.rejects(() => __test.readUx1CalculatorExchange({
+    fetch() { return new Response(`${exact}y`, { status: 200 }); },
+  }, "{}", { deadlineMs: 1000 }));
+  const split = await __test.readUx1CalculatorExchange({
+    fetch() {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("a".repeat(30000)));
+          controller.enqueue(new TextEncoder().encode("b".repeat(35536)));
+          controller.close();
+        },
+      }), { status: 200, headers: { "content-length": "1" } });
+    },
+  }, "{}", { deadlineMs: 1000 });
+  assert.equal(split.text.length, 65536);
+  let cancelled = false;
+  let aborted = false;
+  const overStarted = Date.now();
+  await assert.rejects(() => __test.readUx1CalculatorExchange({
+    fetch(_url, init) {
+      init.signal.addEventListener("abort", () => { aborted = true; });
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(40000));
+          controller.enqueue(new Uint8Array(40000));
+        },
+        pull() { return new Promise(() => {}); },
+        cancel() { cancelled = true; },
+      }), { status: 429, headers: { "content-type": "application/json", "content-length": "1" } });
+    },
+  }, "{}", { deadlineMs: 1000 }));
+  assert.equal(cancelled, true);
+  assert.equal(aborted, true);
+  assert.equal(Date.now() - overStarted < 500, true);
+  const legal = await __test.readUx1CalculatorExchange({
+    fetch() {
+      return new Response(JSON.stringify({ error: "calculator_busy" }), {
+        status: 429,
+        headers: { "content-type": "application/json", "content-length": "999999" },
+      });
+    },
+  }, "{}", { deadlineMs: 1000 });
+  assert.equal(legal.status, 429);
+  assert.equal(JSON.parse(legal.text).error, "calculator_busy");
+  fetches = 0;
+  aborted = false;
+  const fetchHangStarted = Date.now();
+  await assert.rejects(() => __test.readUx1CalculatorExchange({
+    fetch(_url, init) {
+      fetches += 1;
+      init.signal.addEventListener("abort", () => { aborted = true; });
+      return new Promise(() => {});
+    },
+  }, "{}", { deadlineMs: 80 }));
+  assert.equal(fetches, 1);
+  assert.equal(aborted, true);
+  assert.equal(Date.now() - fetchHangStarted < 1000, true);
+  cancelled = false;
+  aborted = false;
+  const bodyHangStarted = Date.now();
+  await assert.rejects(() => __test.readUx1CalculatorExchange({
+    fetch(_url, init) {
+      init.signal.addEventListener("abort", () => { aborted = true; });
+      return new Promise((resolve) => {
+        setTimeout(() => resolve(new Response(new ReadableStream({
+          pull() { return new Promise(() => {}); },
+          cancel() { cancelled = true; },
+        }), { status: 429, headers: { "content-length": "16" } })), 200);
+      });
+    },
+  }, "{}", { deadlineMs: 300 }));
+  assert.equal(cancelled, true);
+  assert.equal(aborted, true);
+  const bodyHangElapsed = Date.now() - bodyHangStarted;
+  assert.equal(bodyHangElapsed < 500, true);
+
+  function observeExchange(pending) {
+    let timer;
+    pending.catch(() => {});
+    return new Promise((resolve) => {
+      timer = setTimeout(() => resolve("still_pending_after_200ms"), 200);
+      pending.then(() => resolve("resolved"), () => resolve("rejected")).finally(() => clearTimeout(timer));
+    });
+  }
+  let abortSeen = false;
+  const stuckOverLimit = __test.readUx1CalculatorExchange({
+    fetch(_url, init) {
+      init.signal.addEventListener("abort", () => { abortSeen = true; });
+      return new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new Uint8Array(40)); },
+        cancel() { return new Promise(() => {}); },
+      }));
+    },
+  }, "{}", { maxBytes: 32, deadlineMs: 40 });
+  assert.equal(await observeExchange(stuckOverLimit), "rejected");
+  assert.equal(abortSeen, true);
+  abortSeen = false;
+  const stuckBodyTimeout = __test.readUx1CalculatorExchange({
+    fetch(_url, init) {
+      init.signal.addEventListener("abort", () => { abortSeen = true; });
+      return new Response(new ReadableStream({
+        pull() { return new Promise(() => {}); },
+        cancel() { return new Promise(() => {}); },
+      }));
+    },
+  }, "{}", { maxBytes: 65536, deadlineMs: 40 });
+  assert.equal(await observeExchange(stuckBodyTimeout), "rejected");
+  assert.equal(abortSeen, true);
+  abortSeen = false;
+  let lateCancelStarted = false;
+  let releaseLateFetch;
+  const lateFetchGate = new Promise((resolve) => { releaseLateFetch = resolve; });
+  const ignoredAbort = __test.readUx1CalculatorExchange({
+    fetch(_url, init) {
+      init.signal.addEventListener("abort", () => { abortSeen = true; });
+      return lateFetchGate.then(() => new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new Uint8Array(8)); },
+        cancel() {
+          lateCancelStarted = true;
+          return new Promise(() => {});
+        },
+      }), { status: 200 }));
+    },
+  }, "{}", { maxBytes: 32, deadlineMs: 40 });
+  assert.equal(await observeExchange(ignoredAbort), "rejected");
+  assert.equal(abortSeen, true);
+  assert.equal(lateCancelStarted, false);
+  releaseLateFetch();
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(lateCancelStarted, true);
+  assert.equal(await ignoredAbort.then(() => "resolved", () => "rejected"), "rejected");
+
+  await mf.dispose();
+  sink.mode = "ok";
+  sink.held = false;
+  mf = new Miniflare({
+    ...baseOptions,
+    bindings: { ...bindings, UX1_RUNTIME_EPOCH: "44".repeat(16) },
+    serviceBindings: {
+      UX1_RESEARCH_CALCULATOR: async (request) => {
+        if (sink.mode === "hold-fail" && !sink.held) {
+          sink.held = true;
+          sink.markEntered();
+          await sink.hold;
+          return new Response(JSON.stringify({ error: "calculator_failed" }), { status: 500, headers: { "content-type": "application/json" } });
+        }
+        const requestBody = await request.json();
+        return new Response(JSON.stringify(calculatorResult(requestBody)), { headers: { "content-type": "application/json" } });
+      },
+    },
+  });
+  const beforeLate = await call();
+  const lateRevision = beforeLate.body.revision;
+  sink.mode = "ok";
+  const seeded = await call({ expected_revision: lateRevision }, { endpoint: "/api/ux1/preview" });
+  assert.equal(seeded.status, 200);
+  assert.notEqual(seeded.body.preview, null);
+  let releaseHold;
+  sink.hold = new Promise((resolve) => { releaseHold = resolve; });
+  let markEntered;
+  const entered = new Promise((resolve) => { markEntered = resolve; });
+  sink.markEntered = markEntered;
+  sink.held = false;
+  sink.mode = "hold-fail";
+  const latePreview = call({ expected_revision: lateRevision }, { endpoint: "/api/ux1/preview" });
+  latePreview.catch(() => {});
+  await Promise.race([
+    entered,
+    new Promise((_, reject) => setTimeout(() => reject(new Error("calculator_not_entered")), 2000)),
+  ]);
+  const nextMode = beforeLate.body.draft.advanced_settings.plugin_mode === "current" ? "auto" : "current";
+  const bumped = await call(draftBody(lateRevision, { advanced_settings: { plugin_mode: nextMode } }));
+  assert.equal(bumped.status, 200);
+  assert.equal(bumped.body.revision, lateRevision + 1);
+  sink.mode = "ok";
+  const newerPreview = await call({ expected_revision: lateRevision + 1 }, { endpoint: "/api/ux1/preview" });
+  assert.equal(newerPreview.status, 200);
+  assert.equal(newerPreview.body.preview.status, "unsupported_scope");
+  releaseHold();
+  const failedLate = await latePreview;
+  assert.equal(failedLate.status, 502);
+  assert.equal(failedLate.body.error, "calculator_failed");
+  const afterLate = await call();
+  assert.equal(afterLate.body.revision, lateRevision + 1);
+  assert.equal(afterLate.body.draft.advanced_settings.plugin_mode, nextMode);
+  assert.equal(afterLate.body.preview.status, "unsupported_scope");
+  assert.equal(afterLate.body.fingerprint, newerPreview.body.fingerprint);
 
   const previousSentinel = process.env.BROKER_SECRET_SENTINEL;
   const previousPythonPath = process.env.PYTHONPATH;

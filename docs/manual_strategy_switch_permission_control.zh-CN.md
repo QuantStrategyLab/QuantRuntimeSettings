@@ -2,7 +2,9 @@
 
 [English](manual_strategy_switch_permission_control.md)
 
-这是个人量化系统的简化权限方案。默认目标不是做团队审批，而是让你自己能像让 Codex 切换一样直接操作，同时保留必要的防误触和防泄密边界。
+这是个人量化系统的简化权限方案，保留必要的防误触和防泄密边界。
+
+**当前候选状态（2026-09-27）：策略激活尚未接通。** 网页端在 dispatch 前拒绝切换；workflow 即使通过 Promotion Manifest 校验，也会在写变量及同步步骤前拒绝 `apply=true`。尚缺持久化的一次性授权消费与不可变的跨平台激活绑定，不能通过打开开关、增加 token 权限或省略校验绕过。此处描述本仓候选源码，不代表生产部署状态已读回。
 
 ## 默认方案：个人单人模式
 
@@ -12,7 +14,7 @@
 2. 在 GitHub secret 里配置 `RUNTIME_SETTINGS_GH_TOKEN`。
 3. token 只给目标平台仓库需要的 variables/workflow 权限，不给 `contents: write`。
 4. 第一次运行 workflow 用 `apply=false` 看 preview。
-5. 确认后再运行 `apply=true`，填写 `confirm_apply=APPLY` 或 `APPLY_AND_SYNC`。
+5. 当前停在 preview；确认词和 token 均不能使尚未接通的 `apply=true` 生效。
 6. 不把 broker、email、cloud、API token 等密钥放进 `extra_variables_json`。
 
 这个模式不要求 required reviewers。workflow 绑定了 `runtime-strategy-switch` Environment，但这个 Environment 可以不配置审批人；它主要用于隔离 secret 和保留 Actions 审计。
@@ -55,11 +57,9 @@
 1. 打开 Actions 里的 `Manual Strategy Switch`。
 2. 填 `platform`、`target_name`、`strategy_profile`。
 3. 先保持 `apply=false` 跑一次，检查 preview。
-4. 没问题后再跑一次：
-   - 只写变量：`apply=true`，`confirm_apply=APPLY`
-   - 写变量并同步平台：`apply=true`，`trigger_platform_sync=true`，`confirm_apply=APPLY_AND_SYNC`
+4. 当前仅审阅 preview；不要将它记录为策略已采用或运行配置已更新。
 
-这就是个人模式下的一键切换。不需要找 Codex，也不需要人工审批。
+后续激活接线须消费绑定候选、目标和风险范围的有效人工授权，并通过一次性消费及执行端采用验收。个人单人模式不要求额外团队审批人，但新策略采用、风险提高和大额资金变化仍须由本人决定。
 
 `dry_run` 是所有平台共用的“不下单演练”选项。它不等同于 P4 paper 账户，也不会启用订单或实盘资格；`paper` 仅为旧调用兼容，会按 `dry_run` 处理。每个策略必须保持至少一条按市场域匹配的平台 `dry_run` 路线，健康报告会在配置漂移时失败。
 
@@ -68,7 +68,7 @@
 这些防线不会增加太多操作成本，但能挡住常见误操作：
 
 - `apply=false` 默认只预览，不改远端。
-- `apply=true` 必须写确认词。
+- 当前 `apply=true` 在写入前安全拒绝；确认词只是已有校验之一，不是投资授权或解除拒绝的手段。
 - 没有 `RUNTIME_SETTINGS_GH_TOKEN` 时不能真实写入。
 - 多服务平台按 `service_name` 精确 patch target；`account_scope` 即使重复也不会覆盖其他策略服务。
 - LongBridge 会同时维护环境级运行目标和仓库级多服务清单，避免页面状态与实际部署输入分叉。
@@ -77,27 +77,22 @@
 
 ## 网页端权限模型
 
-网页端按个人模式做成“公开只读，登录可执行”：
+网页端保留登录与 allowlist 边界；当前候选登录后也不能执行策略激活：
 
 - 未登录或不在 allowlist：只能看页面、填参数、复制 preview，不能执行切换。
-- 已登录且 GitHub 用户名在 allowlist：页面启用“一键执行”，由后端触发 GitHub workflow。
+- 已登录且 GitHub 用户名在 allowlist：可使用获准的配置／研究预览；切换请求通过其他校验后仍返回409及 `workflow_dispatched=false`。
 - 前端不保存 GitHub token，不保存 broker secret，不把敏感值写进 localStorage、URL 或日志。
 - 后端只做登录校验、allowlist 校验和 workflow dispatch，不直接写平台仓 variables，也不直接改 Cloud Run 或 Oracle/VPS。
 - 后端使用 `RUNTIME_SETTINGS_DISPATCH_TOKEN` 触发 workflow；GitHub Actions 内部再使用 `RUNTIME_SETTINGS_GH_TOKEN` 写目标平台 variables。
-- 真正跨平台变量写入仍由 `Manual Strategy Switch` workflow 执行，继续复用 preview、确认词和 secret 变量名校验。
+- 跨平台变量写入保留在 `Manual Strategy Switch` workflow 的既有职责中，但当前 `Reject unconnected activation apply and sync` 步骤阻止写入／同步路径到达；不直接调用其后续脚本绕过。
 
-仓库内提供了 Cloudflare Worker 示例：`web/strategy-switch-console/worker.js`。部署后配置 `ALLOWED_GITHUB_LOGINS`，只有白名单里的 GitHub 账号能点击执行。
+仓库内提供了 Cloudflare Worker 示例：`web/strategy-switch-console/worker.js`。`ALLOWED_GITHUB_LOGINS` 限定可访问受保护操作的 GitHub 账号；配置 allowlist 不会解除当前激活阻断。
 
 不建议做一个“网页密码 + 前端 token”或“网页密码 + 后端直接改配置”的方案。它看起来简单，但权限边界更差，也更容易在开源项目里泄漏高权限入口。
 
 ## 回滚
 
-回滚也用同一个 workflow：
-
-1. 选择上一个稳定 `strategy_profile`。
-2. 保持同一个 `platform` 和 `target_name`。
-3. 运行 `apply=true`。
-4. Cloud Run 平台如果之前同步过运行环境，这次也用 `APPLY_AND_SYNC`；Binance 等待外部调度器下一次触发 VPS self-hosted runtime，QMT 当前没有实盘同步步骤。
+当前不能用尚未接通的 `apply=true` 路径执行回滚。已有生产恢复／版本回退须沿目标平台已批准入口，核对当前运行版本、账户身份和未决订单，并遵守相应授权与对账条件。代码回退不等于资金或在途订单回退；本说明不授予恢复执行权限。
 
 ## 可选增强
 

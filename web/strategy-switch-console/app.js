@@ -1395,6 +1395,7 @@
       : ((navigator.language || "").toLowerCase().startsWith("zh") ? "zh" : "en");
     const clone = (value) => JSON.parse(JSON.stringify(value));
     const runtimeStopLock = { pending: false };
+    let ux1JobPoll = 0;
     const binanceResumeLock = { pending: false, messageKey: "" };
     let binancePrivateScopeRequestGeneration = 0;
     const defaultReserveForm = () => ({
@@ -1469,6 +1470,7 @@
         compare: false,
         loaded: false,
         previewInvalid: false,
+        job: null,
       },
       overviewFilter: "all",
       overviewSearch: "",
@@ -7450,6 +7452,8 @@
       state.ux1.error = "";
       state.ux1.loaded = false;
       state.ux1.previewInvalid = false;
+      state.ux1.job = null;
+      syncUx1JobPoll();
     }
 
     function setUx1ViewMode(mode) {
@@ -7517,15 +7521,27 @@
         el(id).setAttribute("aria-invalid", reserveError ? "true" : "false");
       }
       const signedIn = Boolean(state.auth.allowed);
-      for (const id of ["ux1-preview-button", "ux1-save-button"]) el(id).disabled = !signedIn || state.ux1.busy;
+      const jobActive = ["queued", "running", "unknown"].includes(state.ux1.job?.status);
+      const jobLabels = {
+        queued: "研究方案已排队，正在等待计算。",
+        running: "研究方案计算中。",
+        unknown: "研究方案尚未确认。请检查这次作业，不要把它当成当前成功，也不要重复提交。",
+        failed: "研究方案失败。草案仍在，上一份结果不能当作当前成功。",
+        superseded: "上一份研究作业已经不能代表当前草案或当前配置。",
+      };
+      const jobStatus = el("ux1-job-status");
+      if (jobStatus) jobStatus.textContent = jobLabels[state.ux1.job?.status] || "";
+      el("ux1-save-button").disabled = !signedIn || state.ux1.busy;
+      el("ux1-preview-button").disabled = !signedIn || state.ux1.busy || jobActive;
       const intentStatuses = new Set(["computed", "unsupported_scope", "no_advantage", "no_action"]);
-      const currentPreview = state.ux1.preview;
-      const canIntent = signedIn && !state.ux1.busy && !state.ux1.dirty && !state.ux1.previewInvalid && currentPreview && !currentPreview.stale && intentStatuses.has(currentPreview.status);
+      const currentPreview = jobActive ? null : state.ux1.preview;
+      const canIntent = signedIn && !state.ux1.busy && !jobActive && !state.ux1.dirty && !state.ux1.previewInvalid && currentPreview && !currentPreview.stale && intentStatuses.has(currentPreview.status);
       el("ux1-intent-button").disabled = !canIntent;
       for (const id of ["ux1-objective", "ux1-research-case", ...ux1AdvancedFields.map((item) => item[1]), ...ux1AmountFields.map((item) => item[1])]) {
         el(id).disabled = !signedIn || state.ux1.busy;
       }
-      renderUx1Preview(state.ux1.preview);
+      renderUx1Preview(currentPreview);
+      syncUx1JobPoll();
     }
 
     function renderUx1Preview(preview) {
@@ -7689,8 +7705,23 @@
       return payload;
     }
 
+    function ux1JobWaiting(job) {
+      return ["queued", "running", "unknown"].includes(job?.status);
+    }
+
+    function syncUx1JobPoll() {
+      const overview = el("overview-view");
+      const active = Boolean(state.auth.allowed && state.view === "overview" && overview && !overview.hidden && ux1JobWaiting(state.ux1.job) && !state.ux1.busy);
+      if (active && !ux1JobPoll) ux1JobPoll = window.setInterval(() => { void refreshUx1Draft(); }, 5000);
+      else if (!active && ux1JobPoll) {
+        window.clearInterval(ux1JobPoll);
+        ux1JobPoll = 0;
+      }
+    }
+
     function applyUx1Payload(payload, expectedEditEpoch = state.ux1.editEpoch) {
       if (!state.auth.allowed) return false;
+      state.ux1.job = payload.job || null;
       state.ux1.revision = payload.revision;
       state.ux1.fingerprint = payload.fingerprint;
       if (state.ux1.editEpoch !== expectedEditEpoch) {
@@ -7701,8 +7732,8 @@
         return false;
       }
       state.ux1.draft = payload.draft;
-      state.ux1.preview = payload.preview;
-      state.ux1.intent = payload.intent;
+      state.ux1.preview = ux1JobWaiting(payload.job) ? null : payload.preview;
+      state.ux1.intent = ux1JobWaiting(payload.job) ? null : payload.intent;
       state.ux1.dirty = false;
       state.ux1.loaded = true;
       state.ux1.error = "";
@@ -7712,10 +7743,13 @@
 
     async function refreshUx1Draft() {
       if (!state.auth.allowed) return;
+      const editEpoch = state.ux1.editEpoch;
       try {
         const payload = await requestJson("/api/ux1/draft");
-        if (!state.ux1.dirty) applyUx1Payload(payload);
-        else state.ux1.loaded = true;
+        if (state.ux1.dirty || state.ux1.editEpoch !== editEpoch) {
+          state.ux1.job = payload.job || null;
+          state.ux1.loaded = true;
+        } else applyUx1Payload(payload, editEpoch);
       } catch {
         state.ux1.error = "研究草案暂时读不到。";
       }
@@ -7736,6 +7770,7 @@
     }
 
     async function previewUx1() {
+      if (ux1JobWaiting(state.ux1.job)) return;
       if (state.ux1.dirty || state.ux1.revision === 0) await saveUx1Draft();
       if (state.ux1.dirty) throw new Error("草案已改，需要重新生成研究方案");
       const editEpoch = state.ux1.editEpoch;
@@ -7744,6 +7779,7 @@
     }
 
     async function saveUx1Intent() {
+      if (ux1JobWaiting(state.ux1.job)) return;
       if (state.ux1.dirty) throw new Error("草案已改，需要重新生成研究方案");
       const editEpoch = state.ux1.editEpoch;
       const payload = await ux1Send("/api/ux1/intent", {
@@ -7817,8 +7853,11 @@
           calculator_result_rejected: "计算结果未通过校验。草案仍在，上一份方案不能当作当前结果。",
           calculator_busy: "计算忙，请稍后重试。这次没有生成新方案。",
           ux1_preview_stale: "方案已过期，请重新生成后再保存意向。",
+          ux1_async_not_connected: "异步研究计算尚未连接。草案仍在，上一份方案不能当作当前结果。",
+          ux1_job_active: "已有研究作业还在进行，不能重复生成或保存意向。",
+          ux1_preview_mode_rejected: "研究预览模式未识别，没有开始计算。",
         };
-        if (["calculator_not_connected", "calculator_failed", "calculator_result_rejected"].includes(error.message)) {
+        if (["calculator_not_connected", "calculator_failed", "calculator_result_rejected", "ux1_async_not_connected"].includes(error.message)) {
           state.ux1.preview = null;
           state.ux1.previewInvalid = true;
         }
