@@ -7461,6 +7461,7 @@
       syncUx1DraftFromDom();
       state.ux1.viewMode = mode;
       localStorage.setItem("qsl-ux1-view-mode", mode);
+      el("ux1-result-evidence").open = mode === "advanced";
       renderUx1();
     }
 
@@ -7548,12 +7549,12 @@
       renderUx1Comparison(preview);
       const current = preview?.stale ? null : preview;
       el("ux1-source-time").textContent = current
-        ? `decision_as_of ${current.decision_as_of || "未知"}；known_through ${current.known_through || "未知"}；calculated_at ${current.calculated_at || "未知"}；historical_execution_date ${current.historical_execution_date || "无"}（只用于事后核对）。`
-        : "historical_development，决策收盘 2023-03-29；模拟执行核对日是 2023-03-30。";
+        ? `决策日 ${current.decision_as_of || "未知"}；数据观察至 ${current.known_through || "未知"}；计算于 ${current.calculated_at || "未知"}；次日核对 ${current.historical_execution_date || "无"}（事后记录）。`
+        : "冻结历史开发案例 · 决策日 2023-03-29 · 次日历史核对 2023-03-30";
       const guidedResult = el("ux1-guided-result");
       guidedResult.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview || Boolean(preview?.stale);
       guidedResult.textContent = preview?.decision_preview
-        ? `当前模型在 ${preview.decision_preview.decision_date} 已知的 ${preview.decision_preview.scenario_count} 个情景中选择 ${preview.decision_preview.selected_action}。${preview.decision_preview.no_advantage ? "相对先前动作没有评分优势。" : "一步评分仅在本次候选与约束内比较。"} ${preview.historical_execution_check?.trade_date || "下一日"} 的历史模拟费用为 ${preview.historical_execution_check?.total_fees_usd ?? "未知"} 美元；这是事后核对，不是下单或未来收益保证。`
+        ? `在 ${preview.decision_preview.decision_date} 的 ${preview.decision_preview.scenario_count} 个历史情景中，模型选择了 ${preview.decision_preview.selected_action}。${preview.decision_preview.no_advantage ? "它相对先前动作没有评分优势。" : "这是本次候选范围内的一步评分结果。"} ${preview.historical_execution_check?.trade_date || "下一日"} 的费用是事后模拟核对，不是实际成交或未来收益。`
         : "";
       const guidedAllocation = el("ux1-guided-allocation");
       guidedAllocation.hidden = state.ux1.viewMode === "advanced" || !preview?.decision_preview || Boolean(preview?.stale);
@@ -7710,8 +7711,8 @@
     }
 
     function syncUx1JobPoll() {
-      const overview = el("overview-view");
-      const active = Boolean(state.auth.allowed && state.view === "overview" && overview && !overview.hidden && ux1JobWaiting(state.ux1.job) && !state.ux1.busy);
+      const research = el("research-view");
+      const active = Boolean(state.auth.allowed && state.view === "research" && research && !research.hidden && ux1JobWaiting(state.ux1.job) && !state.ux1.busy);
       if (active && !ux1JobPoll) ux1JobPoll = window.setInterval(() => { void refreshUx1Draft(); }, 5000);
       else if (!active && ux1JobPoll) {
         window.clearInterval(ux1JobPoll);
@@ -7793,6 +7794,7 @@
       const objective = el("ux1-objective");
       if (!objective || objective.dataset.bound === "true") return;
       objective.dataset.bound = "true";
+      el("ux1-result-evidence").open = state.ux1.viewMode === "advanced";
       fillUx1Select(objective, [["", "未选择"], ["one_step_net_log_score", "一步净对数评分"], ["global_optimum", "全局最优（尚不参与本次计算）"]]);
       fillUx1Select(el("ux1-research-case"), [["", "未选择"], ["r8_first_dynamic_2023_03_29", "R8 2023-03-29"], ["original_full_v2", "原完整 v2（本次不映射，功能保持原身份）"]]);
       for (const [, id, values] of ux1AdvancedFields) {
@@ -7815,6 +7817,7 @@
         renderUx1();
       });
       el("ux1-evidence-button").addEventListener("click", () => {
+        el("ux1-result-evidence").open = true;
         const evidence = el("ux1-evidence");
         evidence.open = true;
         evidence.focus();
