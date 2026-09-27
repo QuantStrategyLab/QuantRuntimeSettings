@@ -61,6 +61,7 @@ export function knownAccountLabel(options: Record<string, Array<{ key?: unknown;
 }
 
 const ROUTE_ALIASES = new Set(["paper", "sg", "hk", "live", "firstrade", "crypto_combo"]);
+const LEGACY_IBKR_STRATEGY_ALIASES = new Set(["soxl", "tqqq", "global etf", "russell top 50"]);
 
 export type AccountIdentity = {
   kind: "nickname" | "masked" | "alias" | "generic";
@@ -122,7 +123,8 @@ export function accountIdentity(account: { label?: unknown; key?: unknown; accou
   const labelIsNumber = fullAccountNumber(label);
   const tail = selectorTail || (ibkr && !identityText(account.account_selector) && labelIsNumber ? label.slice(-4) : "");
   const base = { text: "", tail: "", alias: "", platform, environment };
-  const occupiedLabel = Boolean(label) && (occupied.has(identityFold(label)) || identityFold(label) === identityFold(platform));
+  const legacyStrategyLabel = Boolean(selectorTail) && LEGACY_IBKR_STRATEGY_ALIASES.has(identityFold(label));
+  const occupiedLabel = Boolean(label) && (occupied.has(identityFold(label)) || identityFold(label) === identityFold(platform) || legacyStrategyLabel);
   if (label && !occupiedLabel && !labelIsNumber && !ROUTE_ALIASES.has(identityFold(label))) return { ...base, kind: "nickname", text: label };
   if (tail && (occupiedLabel || labelIsNumber || !label)) return { ...base, kind: "masked", tail };
   const alias = routeAlias(labelIsNumber ? "" : label, key);
