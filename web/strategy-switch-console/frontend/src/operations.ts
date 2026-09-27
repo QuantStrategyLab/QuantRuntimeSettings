@@ -144,6 +144,30 @@ export function pageFromWorkspace(value: string | null): "overview" | "strategy"
   return "overview";
 }
 
+export function summarizeExternalResearchSubject(value: unknown, unknownLabel: string): {
+  title: string; status: "ready" | "stale" | "unknown"; asOf: string | null;
+} {
+  const item = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : {};
+  const subject = item.subject && typeof item.subject === "object" && !Array.isArray(item.subject)
+    ? item.subject as Record<string, unknown>
+    : {};
+  const identifier = typeof subject.identifier === "string" ? subject.identifier.trim() : "";
+  const fallbackId = typeof item.subject_id === "string" ? item.subject_id.trim() : "";
+  const title = identifier || fallbackId || unknownLabel;
+  const observations = Array.isArray(item.observations)
+    ? item.observations.filter((observation: unknown) => observation && typeof observation === "object" && !Array.isArray(observation)) as Array<Record<string, any>>
+    : [];
+  const latest = observations.reduce<Record<string, any> | null>((current, observation) => {
+    const currentDate = typeof current?.generated_at === "string" ? current.generated_at : typeof current?.as_of === "string" ? current.as_of : "";
+    const observationDate = typeof observation.generated_at === "string" ? observation.generated_at : typeof observation.as_of === "string" ? observation.as_of : "";
+    return observationDate > currentDate ? observation : current;
+  }, null);
+  const status = latest?.freshness?.status === "fresh" ? "ready"
+    : latest?.freshness?.status === "stale" ? "stale" : "unknown";
+  const asOf = typeof latest?.as_of === "string" && latest.as_of.trim() ? latest.as_of : null;
+  return { title, status, asOf };
+}
+
 export function applicationRetryAllowed(application: Record<string, any> | null | undefined): boolean {
   if (!application) return true;
   return application.status === "rejected";
