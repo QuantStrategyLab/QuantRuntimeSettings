@@ -1,0 +1,147 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "qsl.development_research_review.v1",
+  "title": "QSL Development Research Review v1",
+  "description": "A completed development study projected for read-only advisory review. It is not a research task, native P3 evidence, or an authorization.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "evidence_kind", "message_version", "created_at", "identities", "provenance", "upstream_input_index", "source_extension_window", "session_count", "capital_scales_usd", "result", "result_digest", "completion", "research_stage", "source_assurance", "strict_point_in_time_certified", "limitations", "authority", "duplicate_key", "message_sha256"],
+  "properties": {
+    "schema": {"const": "qsl.development_research_review.v1"},
+    "evidence_kind": {"const": "development_research_review"},
+    "message_version": {"const": 1},
+    "created_at": {"$ref": "#/$defs/timestamp"},
+    "identities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["study_id", "candidate_id", "portfolio_id", "strategy_id", "strategy_revision_sha256", "producer_id", "producer_revision_sha256", "runner_id", "policy_id", "policy_sha256", "settlement_policy_id", "settlement_policy_sha256", "cost_id", "cost_bps"],
+      "properties": {
+        "study_id": {"const": "post_r9_capital_study"},
+        "candidate_id": {"const": "r8_finite_action_joint_account_60session_b0_startup_development_v2"},
+        "portfolio_id": {"const": "r8_finite_action_joint_account_60session_b0_startup_development_v2"},
+        "strategy_id": {"const": "r8_finite_action_joint_account_60session_b0_startup_development_v2"},
+        "strategy_revision_sha256": {"const": "9d23d3ccc8e15cbdb0d5e42fdcc2232b76899f9f269ba0442a33120660919599"},
+        "producer_id": {"const": "aiauditbridge"},
+        "producer_revision_sha256": {"$ref": "#/$defs/sha256"},
+        "runner_id": {"const": "0d05facfa7f35b53b95eee1e580204ece00c226c84ea13fa990c9e20a8a818c3"},
+        "policy_id": {"const": "post_r9_active_capital_boundary_v1"},
+        "policy_sha256": {"const": "59a70fefa6c4714206f73945c02bc153c2c1c6d7a52adefaa9574bed30359a01"},
+        "settlement_policy_id": {"const": "post_r9_us_equity_dtc_standard_settlement_v1"},
+        "settlement_policy_sha256": {"const": "c135c023ee7329ad6103021ffbb79d4cdfea01e903ac331865c157a6a1246853"},
+        "cost_id": {"const": "flat_10bps"},
+        "cost_bps": {"const": 10}
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_summary_schema", "source_summary_bytes_sha256", "upstream_input_index_sha256", "normalized_result_sha256"],
+      "properties": {
+        "source_summary_schema": {"const": "qsl.research.post_r9_capital_study.v1"},
+        "source_summary_bytes_sha256": {"const": "7c4a2dcf03c2becb19c012e015f86c5a1f5b6f845afd7d88516a2c515462da91"},
+        "upstream_input_index_sha256": {"const": "c2bf94e786c2674bebcc893e0a054a1f15dd7a40b0749aaf4ca6ca755e3322e4"},
+        "normalized_result_sha256": {"const": "6db9f5fa6faed193b03fd6d053e7ad378754310b4d59e74d68dddd55d8528be2"}
+      }
+    },
+    "upstream_input_index": {
+      "type": "array",
+      "minItems": 25,
+      "maxItems": 25,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "sha256"],
+        "properties": {"name": {"$ref": "#/$defs/identity"}, "sha256": {"$ref": "#/$defs/sha256"}}
+      }
+    },
+    "source_extension_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["first_session", "last_session", "future_session_count"],
+      "properties": {
+        "first_session": {"const": "2025-01-02"},
+        "last_session": {"const": "2026-08-25"},
+        "future_session_count": {"const": 412}
+      }
+    },
+    "session_count": {"const": 856},
+    "capital_scales_usd": {"const": [1000, 10000, 100000]},
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["session_count", "scales_usd", "variants", "paths", "comparisons"],
+      "properties": {
+        "session_count": {"const": 856},
+        "scales_usd": {"const": [1000, 10000, 100000]},
+        "variants": {"const": ["C0", "C1", "C2"]},
+        "paths": {"$ref": "#/$defs/paths"},
+        "comparisons": {"$ref": "#/$defs/comparisons"}
+      }
+    },
+    "result_digest": {"const": "6db9f5fa6faed193b03fd6d053e7ad378754310b4d59e74d68dddd55d8528be2"},
+    "completion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "aggregate_recovery"],
+      "properties": {"status": {"const": "complete"}, "aggregate_recovery": {"const": "matched"}}
+    },
+    "research_stage": {"const": "development"},
+    "source_assurance": {"const": "single_source_structural_only_no_cross_provider_verification"},
+    "strict_point_in_time_certified": {"const": false},
+    "limitations": {
+      "const": [
+        "single_source_structural_only_no_cross_provider_verification",
+        "corporate_action_process_date_is_a_retrospective_proxy",
+        "capital_curve_is_pre_specified_not_optimized",
+        "no_paper_shadow_live_deployment_account_or_trading_authority"
+      ]
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["review_disposition", "mode", "no_order", "adoption", "codegen", "experiment", "notification", "trade"],
+      "properties": {
+        "review_disposition": {"const": "advisory"},
+        "mode": {"const": "read_only"},
+        "no_order": {"const": true},
+        "adoption": {"const": false},
+        "codegen": {"const": false},
+        "experiment": {"const": false},
+        "notification": {"const": false},
+        "trade": {"const": false}
+      }
+    },
+    "duplicate_key": {"$ref": "#/$defs/sha256"},
+    "message_sha256": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "identity": {"type": "string", "pattern": "^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"},
+    "metric": {"type": "number"},
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cagr_252_sessions", "cumulative_return", "max_drawdown", "total_fees_usd"],
+      "properties": {
+        "cagr_252_sessions": {"$ref": "#/$defs/metric"},
+        "cumulative_return": {"$ref": "#/$defs/metric"},
+        "max_drawdown": {"$ref": "#/$defs/metric"},
+        "total_fees_usd": {"$ref": "#/$defs/metric"}
+      }
+    },
+    "paths": {"type": "object", "required": ["1000", "10000", "100000"], "additionalProperties": false, "properties": {
+      "1000": {"$ref": "#/$defs/scalePaths"}, "10000": {"$ref": "#/$defs/scalePaths"}, "100000": {"$ref": "#/$defs/scalePaths"}
+    }},
+    "scalePaths": {"type": "object", "required": ["C0", "C1", "C2"], "additionalProperties": false, "properties": {
+      "C0": {"$ref": "#/$defs/metrics"}, "C1": {"$ref": "#/$defs/metrics"}, "C2": {"$ref": "#/$defs/metrics"}
+    }},
+    "comparisons": {"type": "object", "required": ["1000", "10000", "100000"], "additionalProperties": false, "properties": {
+      "1000": {"$ref": "#/$defs/scaleComparisons"}, "10000": {"$ref": "#/$defs/scaleComparisons"}, "100000": {"$ref": "#/$defs/scaleComparisons"}
+    }},
+    "scaleComparisons": {"type": "object", "required": ["C1_minus_C0", "C2_minus_C1"], "additionalProperties": false, "properties": {
+      "C1_minus_C0": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "number"}},
+      "C2_minus_C1": {"type": "object", "minProperties": 1, "additionalProperties": {"type": "number"}}
+    }}
+  }
+}
