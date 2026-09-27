@@ -3,9 +3,10 @@ import {
   buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
   confirmationAccepted, createRequestLock, pageFromWorkspace,
-  summarizeExternalResearchSubject,
+  summarizeExternalResearchSubject, hasUnsavedModeEdits, shouldBlockModeReload, hasChangedSwitchDraft,
+  diagnosisStatusKey, diagnosisConclusionKey, diagnosisNextStepKey,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
-import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
+import { formatAccountCount, translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
 const account = {
   key: "synthetic-account", target_name: "synthetic-target", broker_environment: "paper",
@@ -66,6 +67,28 @@ assert.equal(requestLock.acquire("stop:account-a"), false, "concurrent duplicate
 assert.equal(requestLock.isLocked("stop:account-a"), true, "an unknown request outcome remains locked");
 requestLock.release("stop:account-a");
 assert.equal(requestLock.isLocked("stop:account-a"), false, "only an explicit readback/known outcome can release a lock");
+assert.equal(requestLock.hasAny(["stop:other", "stop:account-a"]), false);
+requestLock.acquire("apply:ticket-a");
+assert.equal(requestLock.hasAny(["apply:ticket-a"]), true, "a protected request lock prevents a reload from losing its dedupe state");
+assert.equal(requestLock.hasAnyWithPrefixes(["apply:", "switch:"]), true, "retained locks remain detectable even when current API rows are missing");
+assert.equal(hasUnsavedModeEdits({ research: true, account: false, admin: false }), true);
+assert.equal(hasUnsavedModeEdits({ research: false, account: false, admin: false }), false);
+assert.equal(shouldBlockModeReload({ requestBusy: false, protectedLock: true }), true);
+assert.equal(shouldBlockModeReload({ requestBusy: false, protectedLock: false }), false,
+  "server-persisted diagnosis or research states do not prevent a display-only reload");
+assert.equal(hasChangedSwitchDraft({ ...form, strategy: "changed" }, form), true);
+assert.equal(hasChangedSwitchDraft(form, form), false);
+assert.equal(diagnosisStatusKey({ status: "succeeded", recheck_status: "passed" }), "诊断完成，监测复核通过");
+assert.equal(diagnosisConclusionKey({ status: "succeeded", reason_code: "diagnosis_ready" }), "只读诊断已完成，请查看账户运行资料与监测复核结论。");
+assert.equal(diagnosisConclusionKey({ status: "unknown", dispatch_state: "unknown" }), "派发结果需人工核对，暂不重复请求。");
+assert.equal(diagnosisConclusionKey({ status: "failed", reason_code: "capacity_unavailable" }), "诊断服务暂不可用；账户运行资料未被更改。");
+assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "passed" }), "只读复核已完成；查看账户运行资料。此结果不代表已修复。");
+assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "attention" }), "复核发现需要关注；请检查账户运行资料并按既有流程处理。");
+assert.equal(diagnosisNextStepKey({ status: "succeeded", recheck_status: "unavailable" }), "复核资料暂不可用；刷新账户运行状态后再决定。");
+assert.equal(diagnosisNextStepKey({ status: "unknown" }), "派发结果需人工核对，暂不重复请求。");
+assert.equal(formatAccountCount(1, "zh"), "1 个账户");
+assert.equal(formatAccountCount(1, "en"), "1 account");
+assert.equal(formatAccountCount(2, "en"), "2 accounts");
 assert.equal(pageFromWorkspace("reports"), "reports", "report deep links survive initial load and history navigation");
 assert.equal(pageFromWorkspace("research"), "strategy");
 assert.equal(pageFromWorkspace("unknown"), "overview");

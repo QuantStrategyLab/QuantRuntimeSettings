@@ -133,8 +133,65 @@ export function createRequestLock() {
     acquire(key: string): boolean { if (keys.has(key)) return false; keys.add(key); return true; },
     release(key: string): void { keys.delete(key); },
     isLocked(key: string): boolean { return keys.has(key); },
+    hasAny(candidates: string[]): boolean { return candidates.some(key => keys.has(key)); },
+    hasAnyWithPrefixes(prefixes: string[]): boolean { return [...keys].some(key => prefixes.some(prefix => key.startsWith(prefix))); },
     clear(): void { keys.clear(); },
   };
+}
+
+export function hasUnsavedModeEdits(input: { research: boolean; account: boolean; admin: boolean }): boolean {
+  return input.research || input.account || input.admin;
+}
+
+export function hasChangedSwitchDraft(draft: SwitchDraft | undefined, baseline: SwitchDraft): boolean {
+  if (!draft) return false;
+  return (Object.keys(baseline) as Array<keyof SwitchDraft>)
+    .filter(key => key !== "touched")
+    .some(key => draft[key] !== baseline[key])
+    || Object.values(draft.touched).some(Boolean);
+}
+
+export function shouldBlockModeReload(input: {
+  requestBusy: boolean;
+  protectedLock: boolean;
+}): boolean {
+  return input.requestBusy || input.protectedLock;
+}
+
+export function diagnosisStatusKey(task: Record<string, any> | null | undefined): string {
+  if (!task) return "尚无运行诊断记录";
+  if (task.status === "queued") return "诊断排队中";
+  if (task.status === "running") return "诊断处理中";
+  if (task.status === "unknown") return "诊断结果待确认，请先读回状态";
+  if (task.status === "failed") return "诊断未完成";
+  if (task.status === "succeeded" && task.recheck_status === "passed") return "诊断完成，监测复核通过";
+  if (task.status === "succeeded" && task.recheck_status === "attention") return "诊断完成，复核需要关注";
+  if (task.status === "succeeded" && task.recheck_status === "unavailable") return "诊断完成，复核资料不可用";
+  if (task.status === "succeeded" && task.recheck_status === "sent") return "诊断已完成，复核仍在进行";
+  if (task.status === "succeeded") return "诊断完成，复核状态未知";
+  return "诊断状态暂不可用";
+}
+
+export function diagnosisConclusionKey(task: Record<string, any> | null | undefined): string {
+  if (!task) return "尚无运行诊断记录";
+  if (task.status === "unknown" || task.dispatch_state === "unknown") return "派发结果需人工核对，暂不重复请求。";
+  if (task.status === "succeeded" && task.reason_code === "diagnosis_ready") return "只读诊断已完成，请查看账户运行资料与监测复核结论。";
+  if (task.status === "failed" && ["capacity_unavailable", "codex_unavailable"].includes(String(task.reason_code || ""))) return "诊断服务暂不可用；账户运行资料未被更改。";
+  if (task.status === "failed" && task.reason_code === "invalid_response") return "诊断结果未通过校验，需要人工核对账户运行资料。";
+  return diagnosisStatusKey(task);
+}
+
+export function diagnosisNextStepKey(task: Record<string, any> | null | undefined): string {
+  if (!task) return "完成只读诊断后，会在此显示结论和后续核对步骤。";
+  if (["queued", "running"].includes(String(task.status || ""))) return "等待诊断与只读复核完成；请勿重复提交。";
+  if (task.status === "unknown") return "派发结果需人工核对，暂不重复请求。";
+  if (task.status === "failed") return "诊断未完成。核对账户运行资料后，再按需重新请求。";
+  if (task.status === "succeeded" && task.recheck_status === "passed") return "只读复核已完成；查看账户运行资料。此结果不代表已修复。";
+  if (task.status === "succeeded" && task.recheck_status === "attention") return "复核发现需要关注；请检查账户运行资料并按既有流程处理。";
+  if (task.status === "succeeded" && task.recheck_status === "unavailable") return "复核资料暂不可用；刷新账户运行状态后再决定。";
+  if (task.status === "succeeded" && task.recheck_status === "sent") return "只读复核仍在处理；等待状态读回后再操作。";
+  if (task.status === "succeeded") return "复核状态未确认；刷新资料后再决定是否继续。";
+  return "刷新账户运行资料，核对最新状态后再决定。";
 }
 
 export function pageFromWorkspace(value: string | null): "overview" | "strategy" | "accounts" | "reports" {
