@@ -3,7 +3,9 @@ import {
   buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
   confirmationAccepted, createRequestLock, pageFromWorkspace,
+  summarizeExternalResearchSubject,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
+import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
 const account = {
   key: "synthetic-account", target_name: "synthetic-target", broker_environment: "paper",
@@ -67,6 +69,23 @@ assert.equal(requestLock.isLocked("stop:account-a"), false, "only an explicit re
 assert.equal(pageFromWorkspace("reports"), "reports", "report deep links survive initial load and history navigation");
 assert.equal(pageFromWorkspace("research"), "strategy");
 assert.equal(pageFromWorkspace("unknown"), "overview");
+assert.equal(translate("来源状态：{status}", "en", { status: translate("暂不可用", "en") }), "Source status: Currently unavailable",
+  "unavailable report sources use the active locale for both label and status");
+assert.deepEqual(summarizeExternalResearchSubject({
+  subject: { kind: "theme_context", identifier: "semiconductors" },
+  observations: [
+    { as_of: "2026-09-20", generated_at: "2026-09-20T08:00:00Z", freshness: { status: "stale" } },
+    { as_of: "2026-09-26", generated_at: "2026-09-26T08:00:00Z", freshness: { status: "fresh" } },
+  ],
+}, "未知"), { title: "semiconductors", status: "ready", asOf: "2026-09-26" },
+"M0 research subjects render their identifier and newest observation fields");
+assert.deepEqual(summarizeExternalResearchSubject({
+  subject: { kind: "theme_context", identifier: { label: "must not stringify" } },
+  observations: [{ generated_at: "2026-09-26T08:00:00Z", freshness: { status: "unrecognized" } }],
+}, "未知"), { title: "未知", status: "unknown", asOf: null },
+"missing or non-string subject identifiers and unrecognized freshness remain localized unknowns");
+assert.equal(summarizeExternalResearchSubject({ subject_id: "synthetic-fallback" }, "未知").title, "synthetic-fallback",
+  "legacy string subject_id remains a safe title fallback");
 assert.equal(applicationRetryAllowed(null), true);
 assert.equal(applicationRetryAllowed({ status: "rejected", dispatch_state: "sent" }), true,
   "only a persisted explicit rejection may permit application retry");
