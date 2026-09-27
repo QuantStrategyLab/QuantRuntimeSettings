@@ -1,6 +1,10 @@
 import { githubVariableListMock } from './helpers/github_variable_list_mock.mjs';
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -2746,11 +2750,24 @@ const ownerDecisionKv = {
     };
   },
 };
+const requireForHumanDecisions = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
+const { Miniflare: HumanDecisionMiniflare } = requireForHumanDecisions(process.env.QRT_MINIFLARE_MODULE || "miniflare");
+const humanDecisionPersist = await mkdtemp(join(tmpdir(), "qrt-human-decisions-"));
+const humanDecisionMf = new HumanDecisionMiniflare({
+  modules: true,
+  modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+  scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
+  compatibilityDate: "2026-06-08",
+  durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
+  durableObjectsPersist: humanDecisionPersist,
+});
+const humanDecisionNamespace = await humanDecisionMf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
 const ownerDecisionEnv = {
   ...controlEnv,
   STRATEGY_SWITCH_CONFIG: ownerDecisionKv,
   ALLOWED_GITHUB_LOGINS: "owner-admin,owner-reader",
   STRATEGY_SWITCH_ADMIN_LOGINS: "owner-admin",
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: humanDecisionNamespace,
 };
 const ownerAdminCookie = await __test.makeSession("owner-admin", [], ownerDecisionEnv);
 const ownerReaderCookie = await __test.makeSession("owner-reader", [], ownerDecisionEnv);
@@ -2857,6 +2874,7 @@ const recoveryEnv = {
   RECONCILIATION_RECOVERY_SYNC_TOKEN: recoverySyncValue,
   RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: recoveryControllerValue,
   STRATEGY_SWITCH_CONFIG: recoveryKv,
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: humanDecisionNamespace,
 };
 const recoveryAdminCookie = await __test.makeSession("recovery-admin", [], recoveryEnv);
 const recoveryReaderCookie = await __test.makeSession("recovery-reader", [], recoveryEnv);
@@ -3774,6 +3792,7 @@ const researchPromotionEnv = {
   STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(strategyProfiles),
   ALLOWED_GITHUB_LOGINS: "promo-admin",
   STRATEGY_SWITCH_ADMIN_LOGINS: "promo-admin",
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: humanDecisionNamespace,
 };
 const researchPromotionAdminCookie = await __test.makeSession("promo-admin", [], researchPromotionEnv);
 const researchPromotionAdminHeaders = {
@@ -4885,4 +4904,5 @@ const oldControlTokenAccepted = await validationIngress(controlSourcePayload, {
 });
 assert.equal(oldControlTokenAccepted.response.status, 200, "existing control-plane publishers remain supported");
 
+await humanDecisionMf.dispose();
 await import("./binance_private_scope_worker_validation.mjs");

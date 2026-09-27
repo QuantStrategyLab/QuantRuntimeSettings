@@ -99,7 +99,7 @@ export function canResumeBinance(platform: string, account: AccountOption | null
 export function ownerDecisionBinding(candidate: Record<string, any>, decision: string) {
   const evidence = candidate.candidate_evidence_sha256 || candidate.owner_decision?.candidate_evidence_sha256;
   if (!candidate.candidate_id || !/^[a-f0-9]{64}$/.test(String(evidence || ""))) return null;
-  if (!["approve_limited_live_canary", "keep_parked", "retire_candidate"].includes(decision)) return null;
+  if (!["approve_limited_live_canary", "keep_parked"].includes(decision)) return null;
   return { candidate_id: candidate.candidate_id, candidate_evidence_sha256: evidence, decision };
 }
 
@@ -111,6 +111,7 @@ export function recoveryBinding(entry: Record<string, any>) {
     || !/^[a-f0-9]{64}$/.test(String(recovery.candidate_sha256 || ""))
     || recovery.dual_review?.evidence_binding_sha256 !== recovery.candidate_sha256) return null;
   return {
+    decision: "approve",
     recovery_id: recovery.recovery_id,
     candidate_sha256: recovery.candidate_sha256,
     dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,

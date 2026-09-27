@@ -333,6 +333,40 @@ try {
 
   const badToken = await call(`/api/internal/research-promotion-application/${applicationId}`, { cookie: "", origin: "", headers: { Authorization: "Bearer wrong" } });
   assert.equal(badToken.status, 401);
+
+  const bindingTicket = ticket(`rpt_${"8".repeat(64)}`);
+  assert.equal((await syncTicket(bindingTicket)).status, 200);
+  assert.equal((await acceptTicket(bindingTicket.ticket_id)).status, 200);
+  const bindingFetch = await call(`/api/internal/research-promotion-ticket?ticket_id=${bindingTicket.ticket_id}`, {
+    cookie: "", origin: "", headers: { Authorization: "Bearer application-research-sync-token" },
+  });
+  assert.equal(bindingFetch.status, 200);
+  assert.equal(bindingFetch.body.ticket.state, "human_accepted");
+  assert.equal(bindingFetch.body.live_authority_granted, false);
+  const bindingList = await call("/api/research-promotion-tickets");
+  assert.equal(bindingList.body.tickets.some((item) => item.ticket_id === bindingTicket.ticket_id), false);
+  const bindingApplication = bindingList.body.applications.find((item) => item.ticket_id === bindingTicket.ticket_id);
+  assert.equal(bindingApplication.state, "human_accepted");
+  const bindingState = await call("/api/admin/runtime-instances");
+  const bindingWrongAccount = await call("/api/research-promotion-applications", {
+    method: "POST",
+    body: { ...firstApplicationBody, ticket_id: bindingTicket.ticket_id, selected_account: { platform: "longbridge", key: "other" }, expected_revision: bindingState.body.revision },
+  });
+  assert.equal(bindingWrongAccount.status, 409);
+  const bindingWrongRevision = await call("/api/research-promotion-applications", {
+    method: "POST",
+    body: { ...firstApplicationBody, ticket_id: bindingTicket.ticket_id, expected_revision: bindingState.body.revision + 3 },
+  });
+  assert.equal(bindingWrongRevision.status, 409);
+  const bindingChangedParams = await syncTicket({ ...bindingTicket, proposed_params: { ...bindingTicket.proposed_params, mutated: true } });
+  assert.equal(bindingChangedParams.status, 200);
+  const bindingChangedApplication = await call("/api/research-promotion-applications", {
+    method: "POST",
+    body: { ...firstApplicationBody, ticket_id: bindingTicket.ticket_id, expected_revision: bindingState.body.revision },
+  });
+  assert.equal(bindingChangedApplication.status, 409);
+  const bindingRevived = await syncTicket(bindingTicket);
+  assert.equal(bindingRevived.status, 409);
   console.log("research promotion application validation passed");
 } finally {
   await mf.dispose();
