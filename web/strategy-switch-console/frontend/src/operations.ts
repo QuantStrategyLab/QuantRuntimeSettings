@@ -139,23 +139,126 @@ export function createRequestLock() {
   };
 }
 
-export function hasUnsavedModeEdits(input: { research: boolean; account: boolean; admin: boolean }): boolean {
-  return input.research || input.account || input.admin;
+function stableIdentity(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableIdentity).join(",")}]`;
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record).sort().map(key => `${JSON.stringify(key)}:${stableIdentity(record[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
-export function hasChangedSwitchDraft(draft: SwitchDraft | undefined, baseline: SwitchDraft): boolean {
-  if (!draft) return false;
-  return (Object.keys(baseline) as Array<keyof SwitchDraft>)
-    .filter(key => key !== "touched")
-    .some(key => draft[key] !== baseline[key])
-    || Object.values(draft.touched).some(Boolean);
+function candidateIdentity(candidate: Record<string, any>): string | null {
+  if (typeof candidate.candidate_id !== "string" || !candidate.candidate_id) return null;
+  return `${candidate.candidate_id}:${stableIdentity({
+    candidate_kind: candidate.candidate_kind,
+    domain: candidate.domain,
+    lifecycle: candidate.lifecycle,
+    evidence: candidate.evidence,
+    recommendation: { code: candidate.recommendation?.code || "none" },
+  })}`;
 }
 
-export function shouldBlockModeReload(input: {
-  requestBusy: boolean;
-  protectedLock: boolean;
-}): boolean {
-  return input.requestBusy || input.protectedLock;
+type HomeAttentionItem = {
+  identity: string;
+  kind: "owner" | "candidate_review" | "promotion" | "promotion_source" | "recovery" | "recovery_blocked" | "account";
+  title: string;
+  detail: string;
+  source: "control" | "owners" | "promotions" | "recovery" | "runtime";
+  target: "strategy" | "accounts";
+  targetId?: string;
+};
+
+function readySource(source: any): boolean {
+  return Boolean(!source?.error && source?.value && source.value.data_status === "ready");
+}
+
+function sourceIssue(source: any): "读取失败" | "资料已过期" | "暂不可用" | "状态未知" | null {
+  if (source?.error) return "读取失败";
+  if (!source?.value) return "状态未知";
+  const status = source.value.data_status;
+  if (status === "ready") return null;
+  if (status === "stale") return "资料已过期";
+  if (status === "unavailable") return "暂不可用";
+  return "状态未知";
+}
+
+/** Builds a read-only home attention summary. Source errors remain explicit and never become an empty queue. */
+export function buildHomeAttention(input: {
+  control?: any; owners?: any; promotions?: any; recovery?: any; runtime?: any; config?: any;
+  accounts?: Array<{ id: string; title: string; tone: string; label: string; detail: string }>;
+}): { decisions: HomeAttentionItem[]; operations: HomeAttentionItem[]; sourceWarnings: Array<{ source: string; status: string }> } {
+  const decisions: HomeAttentionItem[] = [];
+  const operations: HomeAttentionItem[] = [];
+  const sourceWarnings: Array<{ source: string; status: string }> = [];
+  const sources: Array<[string, any]> = [
+    ["控制平面", input.control], ["所有者决定", input.owners], ["候选晋级", input.promotions],
+    ["恢复确认", input.recovery], ["账户运行", input.runtime],
+  ];
+  for (const [name, source] of sources) {
+    const issue = sourceIssue(source);
+    if (issue) sourceWarnings.push({ source: name, status: issue });
+  }
+  const configIssue = input.config?.error ? "读取失败" : input.config?.value?.accountOptions ? null : "状态未知";
+  if (configIssue) sourceWarnings.push({ source: "账户配置", status: configIssue });
+
+  const ownedCandidates = new Map<string, any>();
+  if (readySource(input.owners)) {
+    for (const entry of input.owners.value.candidates || []) {
+      const candidate = entry?.candidate;
+      const identity = candidate && candidateIdentity(candidate);
+      if (!identity || !candidate) continue;
+      ownedCandidates.set(identity, { entry, digest: entry?.candidate_evidence_sha256 });
+      if (entry.intent) continue;
+      decisions.push({ identity: `owner:${identity}`, kind: "owner", title: "策略去留待决定", detail: String(candidate.candidate_id), source: "owners", target: "strategy", targetId: String(candidate.candidate_id) });
+    }
+  }
+  if (readySource(input.control)) {
+    for (const candidate of input.control.value.candidates || []) {
+      if (candidate?.lifecycle?.stage !== "P6" || candidate?.lifecycle?.status !== "owner_decision_required"
+        || candidate?.recommendation?.code !== "owner_live_decision") continue;
+      const identity = candidateIdentity(candidate);
+      const owner = identity ? ownedCandidates.get(identity) : null;
+      if (!identity || (owner && (!candidate.candidate_evidence_sha256 || !owner.digest || candidate.candidate_evidence_sha256 === owner.digest))) continue;
+      // Control-plane items are review-only: the owner queue carries the current confirmation digest.
+      operations.push({ identity: `candidate-review:${identity}`, kind: "candidate_review", title: "所有者决定资料需核对", detail: String(candidate.candidate_id), source: "control", target: "strategy", targetId: String(candidate.candidate_id) });
+    }
+  }
+
+  if (readySource(input.promotions)) {
+    for (const ticket of input.promotions.value.tickets || []) {
+      if (!ticket?.ticket_id || !["awaiting_human", "ready_for_review"].includes(ticket.state)) continue;
+      if (ticket.source_check_required || ticket.state !== "awaiting_human") {
+        operations.push({ identity: `promotion-source:${ticket.ticket_id}`, kind: "promotion_source", title: "候选来源需核对", detail: String(ticket.ticket_id), source: "promotions", target: "strategy", targetId: String(ticket.ticket_id) });
+      } else {
+        decisions.push({ identity: `promotion:${ticket.ticket_id}`, kind: "promotion", title: "新策略方案待选择", detail: String(ticket.ticket_id), source: "promotions", target: "strategy", targetId: String(ticket.ticket_id) });
+      }
+    }
+  }
+
+  if (readySource(input.recovery)) {
+    for (const entry of input.recovery.value.recoveries || []) {
+      const recovery = entry?.recovery;
+      if (!recovery?.recovery_id) continue;
+      if (entry.freshness?.data_status !== "ready") {
+        operations.push({ identity: `recovery-review:${recovery.recovery_id}:${recovery.candidate_sha256 || "unknown"}`, kind: "recovery_blocked", title: "恢复资料需重新核对", detail: `${recovery.platform || ""} ${recovery.target_name || recovery.recovery_id}`.trim(), source: "recovery", target: "strategy", targetId: String(recovery.recovery_id) });
+        continue;
+      }
+      if (recovery.readiness === "awaiting_human_confirmation" && !entry.confirmation) {
+        decisions.push({ identity: `recovery:${recovery.recovery_id}:${recovery.candidate_sha256 || "unknown"}`, kind: "recovery", title: "恢复账户运行前确认", detail: `${recovery.platform || ""} ${recovery.target_name || recovery.recovery_id}`.trim(), source: "recovery", target: "strategy", targetId: String(recovery.recovery_id) });
+      } else if (recovery.readiness === "blocked" && !entry.confirmation) {
+        operations.push({ identity: `recovery-blocked:${recovery.recovery_id}:${recovery.candidate_sha256 || "unknown"}`, kind: "recovery_blocked", title: "恢复资料存在阻断", detail: `${recovery.platform || ""} ${recovery.target_name || recovery.recovery_id}`.trim(), source: "recovery", target: "strategy", targetId: String(recovery.recovery_id) });
+      }
+    }
+  }
+
+  if (readySource(input.runtime)) {
+    for (const account of input.accounts || []) {
+      if (!["attention", "unknown"].includes(account.tone)) continue;
+      operations.push({ identity: `account:${account.id}`, kind: "account", title: account.tone === "attention" ? "账户需要核对" : "账户状态未核实", detail: account.title, source: "runtime", target: "accounts", targetId: account.id });
+    }
+  }
+  return { decisions, operations, sourceWarnings };
 }
 
 export function diagnosisStatusKey(task: Record<string, any> | null | undefined): string {
@@ -181,6 +284,45 @@ export function diagnosisConclusionKey(task: Record<string, any> | null | undefi
   return diagnosisStatusKey(task);
 }
 
+export function diagnosisUserSummary(input: { available?: boolean; task?: Record<string, any> | null } | null | undefined): {
+  status: string; reason: string; action: "check" | "refresh";
+} {
+  if (!input || input.available === undefined) return { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" };
+  if (input.available === false) return { status: "暂时无法检查", reason: "检查服务暂时不可用；刷新状态后再试。", action: "refresh" };
+  const task = input.task;
+  if (!task) return { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" };
+  if (["queued", "running"].includes(String(task.status || "")) || task.recheck_status === "sent") {
+    return { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" };
+  }
+  if (task.status === "unknown" || task.dispatch_state === "unknown") {
+    return { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" };
+  }
+  if (task.status === "failed") {
+    return { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" };
+  }
+  if (task.status === "succeeded" && task.recheck_status === "attention") {
+    return { status: "需要你处理", reason: "监测复核发现需要关注，请查看账户状态并按既有流程处理。", action: "check" };
+  }
+  if (task.status === "succeeded" && task.recheck_status === "unavailable") {
+    return { status: "暂时无法检查", reason: "监测复核资料暂不可用；刷新状态后再决定。", action: "refresh" };
+  }
+  if (task.status === "succeeded" && task.recheck_status === "passed") {
+    return { status: "检查已完成，未发现监测异常", reason: "仅表示本次监测复核结果，不代表账户、订单或账务已全面核实。", action: "check" };
+  }
+  return { status: "结果暂未确认", reason: "请刷新状态并查看技术详情；暂不重复请求。", action: "refresh" };
+}
+
+export function promotionAiExplanation(ticket: Record<string, any> | null | undefined): { text: string; model: string } | null {
+  const summary = ticket?.research_summary;
+  const identity = summary?.identity;
+  const ai = summary?.ai_explanation;
+  if (!summary || !identity || !ai || ai.status !== "available" || ai.provider !== "codex"
+    || typeof ai.text !== "string" || !ai.text.trim() || typeof ai.model !== "string" || !ai.model.trim()
+    || identity.strategy_profile !== ticket?.strategy_profile || identity.domain !== ticket?.domain
+    || stableIdentity(identity.proposed_params || {}) !== stableIdentity(ticket?.proposed_params || {})) return null;
+  return { text: ai.text.trim(), model: ai.model.trim() };
+}
+
 export function diagnosisNextStepKey(task: Record<string, any> | null | undefined): string {
   if (!task) return "完成只读诊断后，会在此显示结论和后续核对步骤。";
   if (["queued", "running"].includes(String(task.status || ""))) return "等待诊断与只读复核完成；请勿重复提交。";
@@ -194,10 +336,10 @@ export function diagnosisNextStepKey(task: Record<string, any> | null | undefine
   return "刷新账户运行资料，核对最新状态后再决定。";
 }
 
-export function pageFromWorkspace(value: string | null): "overview" | "strategy" | "accounts" | "reports" {
+export function pageFromWorkspace(value: string | null): "overview" | "strategy" | "accounts" {
   if (value === "research" || value === "strategy") return "strategy";
-  if (value === "accounts") return "accounts";
-  if (value === "reports") return "reports";
+  if (value === "accounts" || value === "settings") return "accounts";
+  if (value === "reports") return "overview";
   return "overview";
 }
 

@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import {
   buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
-  confirmationAccepted, createRequestLock, pageFromWorkspace,
-  summarizeExternalResearchSubject, hasUnsavedModeEdits, shouldBlockModeReload, hasChangedSwitchDraft,
+  confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, promotionAiExplanation,
+  summarizeExternalResearchSubject,
   diagnosisStatusKey, diagnosisConclusionKey, diagnosisNextStepKey,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { formatAccountCount, translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
@@ -71,13 +71,6 @@ assert.equal(requestLock.hasAny(["stop:other", "stop:account-a"]), false);
 requestLock.acquire("apply:ticket-a");
 assert.equal(requestLock.hasAny(["apply:ticket-a"]), true, "a protected request lock prevents a reload from losing its dedupe state");
 assert.equal(requestLock.hasAnyWithPrefixes(["apply:", "switch:"]), true, "retained locks remain detectable even when current API rows are missing");
-assert.equal(hasUnsavedModeEdits({ research: true, account: false, admin: false }), true);
-assert.equal(hasUnsavedModeEdits({ research: false, account: false, admin: false }), false);
-assert.equal(shouldBlockModeReload({ requestBusy: false, protectedLock: true }), true);
-assert.equal(shouldBlockModeReload({ requestBusy: false, protectedLock: false }), false,
-  "server-persisted diagnosis or research states do not prevent a display-only reload");
-assert.equal(hasChangedSwitchDraft({ ...form, strategy: "changed" }, form), true);
-assert.equal(hasChangedSwitchDraft(form, form), false);
 assert.equal(diagnosisStatusKey({ status: "succeeded", recheck_status: "passed" }), "诊断完成，监测复核通过");
 assert.equal(diagnosisConclusionKey({ status: "succeeded", reason_code: "diagnosis_ready" }), "只读诊断已完成，请查看账户运行资料与监测复核结论。");
 assert.equal(diagnosisConclusionKey({ status: "unknown", dispatch_state: "unknown" }), "派发结果需人工核对，暂不重复请求。");
@@ -89,9 +82,65 @@ assert.equal(diagnosisNextStepKey({ status: "unknown" }), "派发结果需人工
 assert.equal(formatAccountCount(1, "zh"), "1 个账户");
 assert.equal(formatAccountCount(1, "en"), "1 account");
 assert.equal(formatAccountCount(2, "en"), "2 accounts");
-assert.equal(pageFromWorkspace("reports"), "reports", "report deep links survive initial load and history navigation");
+assert.equal(pageFromWorkspace("reports"), "overview", "legacy report links land on the account overview with report details nested there");
 assert.equal(pageFromWorkspace("research"), "strategy");
 assert.equal(pageFromWorkspace("unknown"), "overview");
+const attention = buildHomeAttention({
+  control: { value: { data_status: "ready", candidates: [{ candidate_id: "candidate-1", candidate_evidence_sha256: digest, lifecycle: { stage: "P6", status: "owner_decision_required" }, recommendation: { code: "owner_live_decision" } }, { candidate_id: "candidate-1", candidate_evidence_sha256: "b".repeat(64), lifecycle: { stage: "P6", status: "owner_decision_required" }, recommendation: { code: "owner_live_decision" } }] } },
+  owners: { value: { data_status: "ready", candidates: [{ candidate: { candidate_id: "candidate-1", candidate_evidence_sha256: digest, lifecycle: { stage: "P6", status: "owner_decision_required" }, recommendation: { code: "owner_live_decision" } }, candidate_evidence_sha256: digest, intent: null }] } },
+  promotions: { value: { data_status: "ready", tickets: [{ ticket_id: "ticket-awaiting", state: "awaiting_human" }, { ticket_id: "ticket-ready", state: "ready_for_review" }, { ticket_id: "ticket-review", state: "awaiting_human", source_check_required: true }] } },
+  recovery: { value: { data_status: "ready", recoveries: [
+    { freshness: { data_status: "ready" }, recovery: { recovery_id: "recovery-awaiting", candidate_sha256: digest, readiness: "awaiting_human_confirmation" } },
+    { freshness: { data_status: "ready" }, recovery: { recovery_id: "recovery-done", candidate_sha256: digest, readiness: "confirmed" }, confirmation: { status: "confirmed" } },
+    { freshness: { data_status: "stale" }, recovery: { recovery_id: "recovery-stale", candidate_sha256: digest, readiness: "awaiting_human_confirmation" } },
+  ] } },
+  runtime: { value: { data_status: "ready" } }, config: { value: { accountOptions: {} } },
+  accounts: [
+    { id: "account-attention", title: "synthetic attention account", tone: "attention" },
+    { id: "account-unknown", title: "synthetic unknown account", tone: "unknown" },
+    { id: "account-paused", title: "synthetic paused account", tone: "paused" },
+  ],
+});
+assert.equal(attention.decisions.filter(item => item.kind === "owner").length, 1,
+  "a candidate in the owner queue is not duplicated from control-plane when evidence digests match");
+assert.equal(attention.operations.filter(item => item.kind === "candidate_review").length, 1,
+  "same candidate with a changed evidence digest remains a separate review item");
+assert.deepEqual(attention.decisions.map(item => item.identity).filter(value => value.startsWith("promotion:")), ["promotion:ticket-awaiting"]);
+assert.equal(attention.operations.some(item => item.identity === "promotion-source:ticket-ready"), true,
+  "ready_for_review is not yet an actionable accept/reject choice");
+assert.equal(attention.operations.some(item => item.identity === "promotion-source:ticket-review"), true,
+  "promotion source checks are review status, not a human decision");
+assert.equal(attention.decisions.some(item => item.identity.startsWith("recovery:recovery-awaiting:")), true);
+assert.equal(attention.decisions.some(item => item.identity.startsWith("recovery:recovery-done:")), false,
+  "completed recovery confirmation is not a pending task");
+assert.equal(attention.operations.some(item => item.identity.startsWith("recovery-review:recovery-stale:")), true,
+  "a stale recovery entry remains visible as information to recheck");
+assert.deepEqual(attention.operations.filter(item => item.kind === "account").map(item => item.targetId), ["account-attention", "account-unknown"]);
+const mixedSources = buildHomeAttention({
+  control: { value: { data_status: "ready", candidates: [{ candidate_id: "candidate-stale-owner", lifecycle: { stage: "P6", status: "owner_decision_required" }, recommendation: { code: "owner_live_decision" } }] } },
+  owners: { value: { data_status: "stale", candidates: [{ candidate: { candidate_id: "candidate-stale-owner" }, candidate_evidence_sha256: digest }] } },
+  promotions: { error: true }, recovery: { value: { data_status: "unavailable" } }, runtime: undefined,
+});
+assert.equal(mixedSources.operations.some(item => item.kind === "candidate_review"), true,
+  "stale owner data cannot suppress an actionable review from a ready source");
+assert.deepEqual(mixedSources.sourceWarnings.map(item => item.source), ["所有者决定", "候选晋级", "恢复确认", "账户运行", "账户配置"]);
+assert.deepEqual(diagnosisUserSummary(undefined), { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" });
+assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "running" } }), { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" });
+assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "unknown" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });
+assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "failed" } }), { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" });
+assert.equal(diagnosisUserSummary({ available: true, task: { status: "succeeded", recheck_status: "passed" } }).status, "检查已完成，未发现监测异常");
+const aiTicket = { ticket_id: "synthetic-ai-ticket", strategy_profile: "synthetic-strategy", domain: "us_equity", proposed_params: { lookback: 20 }, research_summary: {
+  identity: { strategy_profile: "synthetic-strategy", domain: "us_equity", proposed_params: { lookback: 20 } },
+  ai_explanation: { status: "available", provider: "codex", model: "synthetic-model", text: "Synthetic factual explanation only." },
+} };
+assert.deepEqual(promotionAiExplanation(aiTicket), { text: "Synthetic factual explanation only.", model: "synthetic-model" },
+  "a ready AI explanation is shown only when it is bound to the exact ticket identity");
+assert.equal(promotionAiExplanation({ ...aiTicket, research_summary: { ...aiTicket.research_summary, ai_explanation: { status: "unavailable", provider: "", model: "", text: "" } } }), null,
+  "failed/missing AI output remains an empty state, not a fabricated successful recommendation");
+assert.equal(promotionAiExplanation({ ...aiTicket, research_summary: { ...aiTicket.research_summary, identity: { ...aiTicket.research_summary.identity, proposed_params: { lookback: 21 } } } }), null,
+  "an explanation for different proposed parameters is never attached to this ticket");
+assert.equal(translate("AI分析说明", "en"), "AI research explanation");
+assert.equal(translate("尚无与当前候选绑定的AI说明。", "en"), "No AI explanation is available for this candidate yet.");
 assert.equal(translate("来源状态：{status}", "en", { status: translate("暂不可用", "en") }), "Source status: Currently unavailable",
   "unavailable report sources use the active locale for both label and status");
 assert.deepEqual(summarizeExternalResearchSubject({

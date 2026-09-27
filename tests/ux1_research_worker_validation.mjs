@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { normalizeDisplayMode } from "../web/strategy-switch-console/frontend/src/theme.js";
 import {
   UX1_STUDY,
   canonicalJson,
@@ -262,11 +261,14 @@ try {
   assert.doesNotMatch(html, /data-ux1-default-view|id="ux1-preview-button"/, "root no longer serves the legacy UX1 page markup");
   assert.equal(html.includes("fonts.googleapis.com"), false);
   assert.equal(html.includes("fonts.gstatic.com"), false);
-  assert.equal(normalizeDisplayMode(null), "simple", "missing preference defaults to simple information mode");
-  assert.equal(normalizeDisplayMode("invalid"), "simple", "invalid preference fails back to simple information mode");
-  assert.equal(normalizeDisplayMode("professional"), "professional", "professional mode remains an explicit preference");
   const appSource = await readFile(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-  assert.match(appSource, /normalizeDisplayMode\(safeGet\(DISPLAY_STORAGE_KEY\)\)/, "React app initializes its information mode from the defaulting normalizer");
+  assert.doesNotMatch(appSource, /DISPLAY_STORAGE_KEY|normalizeDisplayMode|mode-control/, "served React UI has one information level without a display-mode control");
+  const mainNavigation = appSource.match(/const NAV:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] || "";
+  assert.match(mainNavigation, /label: "账户总览"/, "main navigation exposes account overview");
+  assert.match(mainNavigation, /label: "待办决策"/, "main navigation exposes the human decisions workspace");
+  assert.match(mainNavigation, /label: "账户设置"/, "main navigation exposes account settings");
+  assert.doesNotMatch(mainNavigation, /报告|reports|专业|简易/, "reports are nested and information mode controls are removed from primary navigation");
+  assert.match(appSource, /admin-shortcut/, "administrator entry remains available separately from the three main destinations");
   const csp = page.headers.get("Content-Security-Policy") || "";
   assert.match(csp, /style-src 'self'/);
   assert.equal(csp.includes("fonts.googleapis.com"), false);
