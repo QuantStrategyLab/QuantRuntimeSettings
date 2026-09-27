@@ -1,0 +1,21 @@
+{
+  "name": "qsl-console-v2",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build",
+    "sync:v2-assets": "node scripts/sync-v2-asset-map.mjs",
+    "test:operations": "node --experimental-strip-types ../../../tests/console_v2_operations_validation.mjs"
+  },
+  "dependencies": {
+    "react": "19.1.1",
+    "react-dom": "19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "19.1.10",
+    "@types/react-dom": "19.1.7",
+    "typescript": "5.9.2",
+    "vite": "7.3.6"
+  }
+}

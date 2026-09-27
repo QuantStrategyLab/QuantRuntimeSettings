@@ -92,6 +92,12 @@ jobs:
       - name: Validate strategy switch web assets
         run: |
           set -euo pipefail
+          npm ci --prefix web/strategy-switch-console/frontend
+          npm run build --prefix web/strategy-switch-console/frontend
+          npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
+          npm run test:operations --prefix web/strategy-switch-console/frontend
+          node tests/console_v2_i18n_validation.mjs
+          git diff --exit-code -- web/strategy-switch-console/v2_asset_map.js
           python3 python/scripts/build_config.py --check
           python3 python/scripts/build_config.py
           python3 python/scripts/build_platform_config.py --check
@@ -99,6 +105,7 @@ jobs:
           git diff --exit-code -- web/strategy-switch-console/config.js web/strategy-switch-console/index.html web/strategy-switch-console/page_asset.js web/strategy-switch-console/strategy_profiles_asset.js web/strategy-switch-console/runtime-catalog-projection.json web/strategy-switch-console/app_css.js web/strategy-switch-console/app_js.js
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
+          node tests/console_v2_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs
           node --experimental-default-type=module tests/account_diagnosis_worker_validation.mjs
           node --experimental-default-type=module tests/research_promotion_application_worker_validation.mjs

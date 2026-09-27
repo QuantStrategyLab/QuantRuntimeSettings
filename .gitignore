@@ -8,4 +8,7 @@ local/
 .env.*
 !*.env.example
 web/strategy-switch-console/wrangler.toml
+/web/strategy-switch-console/node_modules/
+/web/strategy-switch-console/frontend/node_modules/
+/web/strategy-switch-console/frontend/dist/
 .worktrees/

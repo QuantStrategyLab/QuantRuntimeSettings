@@ -460,7 +460,7 @@ for (const hidden of ['', 'qmt', 'qmt,binance']) {
 }
 
 
-test('admin page CSP permits only its own inline script and style', async () => {
+test('authorized admin route serves the React shell with self-only CSP', async () => {
   const env = {
     SESSION_SECRET: 'synthetic-admin-session', STRATEGY_SWITCH_ADMIN_LOGINS: 'operator',
     STRATEGY_SWITCH_CONFIG: { get: async () => null, put: async () => {} },
@@ -472,12 +472,11 @@ test('admin page CSP permits only its own inline script and style', async () => 
   assert.equal(response.status, 200);
   const html = await response.text();
   const csp = response.headers.get('Content-Security-Policy');
-  const nonce = html.match(/<script nonce="([a-zA-Z0-9]+)">/)?.[1];
-  assert.ok(nonce);
-  assert.ok(html.includes(`<style nonce="${nonce}">`));
-  assert.ok(csp.includes(`script-src 'self' 'nonce-${nonce}'`));
-  assert.ok(csp.includes(`style-src 'self' 'nonce-${nonce}'`));
-  assert.ok(!csp.includes('unsafe-inline'));
+  assert.match(html, /<div id="root"><\/div>/, 'authorized /admin serves the React application shell');
+  assert.match(html, /\/v2\/assets\/index-[\w-]+\.js/, 'admin shell loads the versioned application bundle');
+  assert.doesNotMatch(html, /<script[^>]*>[^<]/i, 'the shell contains no inline script');
+  assert.equal(csp, "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
+  assert.doesNotMatch(csp, /unsafe-inline|nonce-/);
 });
 
 for (const sample of [

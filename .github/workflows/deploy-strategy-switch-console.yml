@@ -9,6 +9,9 @@ on:
       - "python/scripts/build_config.py"
       - "python/scripts/build_platform_config.py"
       - "python/scripts/sync_strategy_switch_page_asset.py"
+      - "tests/console_v2_operations_validation.mjs"
+      - "tests/console_v2_i18n_validation.mjs"
+      - "tests/console_v2_worker_validation.mjs"
       - "web/strategy-switch-console/**"
   workflow_dispatch:
     inputs:
@@ -66,6 +69,16 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Build new console and embedded assets
+        run: |
+          set -euo pipefail
+          npm ci --prefix web/strategy-switch-console/frontend
+          npm run build --prefix web/strategy-switch-console/frontend
+          npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
+          npm run test:operations --prefix web/strategy-switch-console/frontend
+          node tests/console_v2_i18n_validation.mjs
+          node tests/console_v2_worker_validation.mjs
+
       - name: Build config & assets from platform-config.json
         run: |
           set -euo pipefail
@@ -80,6 +93,7 @@ jobs:
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --check --input-type=module < web/strategy-switch-console/page_asset.js
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
+          node --check --input-type=module < web/strategy-switch-console/v2_asset_map.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
 
       - name: Prepare Wrangler config

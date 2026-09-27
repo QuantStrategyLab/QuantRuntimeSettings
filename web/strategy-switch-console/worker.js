@@ -1,5 +1,5 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
-import { PAGE_HTML } from "./page_asset.js";
+import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 import {
   DCA_SUPPORTED_PLATFORMS,
@@ -570,9 +570,35 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === "/" || url.pathname === "/admin") {
+        if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
+        if (url.pathname === "/admin") {
+          const session = await requireAdminSession(request, env);
+          if (session instanceof Response) {
+            if (request.method === "HEAD") return new Response(null, { status: session.status, headers: session.headers });
+            return session;
+          }
+        }
+        const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        return new Response(request.method === "HEAD" ? null : V2_PAGE_HTML, { status: 200, headers });
+      }
+      if (url.pathname === "/v2" || url.pathname.startsWith("/v2/")) {
+        if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
+        const asset = V2_ASSETS[url.pathname];
+        if (!asset) {
+          if (request.method === "HEAD") return new Response(null, { status: 404, headers: responseHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }) });
+          return json({ ok: false, error: "not_found" }, 404);
+        }
+        const hashedBundle = /^\/v2\/assets\/index-[A-Za-z0-9_-]{8,}\.(?:js|css)$/.test(url.pathname);
+        const headers = responseHeaders({ "Content-Type": asset.contentType, "Cache-Control": hashedBundle ? "public, max-age=31536000, immutable" : "no-cache" });
+        if (request.method === "HEAD") return new Response(null, { status: 200, headers });
+        const binary = atob(asset.base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+        return new Response(bytes, { status: 200, headers });
+      }
       if (url.pathname === "/login") return await startLogin(request, env);
       if (url.pathname === "/callback") return await finishLogin(request, env);
-      if (url.pathname === "/admin") return await adminPage(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
@@ -725,7 +751,7 @@ export default {
       }
       if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store" } });
       if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" } });
-      return html(PAGE_HTML);
+      return json({ ok: false, error: "not_found" }, 404);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
     }
