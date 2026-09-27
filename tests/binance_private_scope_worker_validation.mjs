@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { runInNewContext } from "node:vm";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
@@ -162,104 +161,19 @@ for (const response of ordinaryResponses) {
   assert.equal(text.includes("private_binance_scope_report"), false);
 }
 
-const app = readFileSync(new URL("../web/strategy-switch-console/app.js", import.meta.url), "utf8");
-const html = readFileSync(new URL("../web/strategy-switch-console/index.html", import.meta.url), "utf8");
-assert.ok(html.includes('id="binance-private-scope-board"'));
-assert.ok(html.includes('id="binance-private-scope-list"'));
-assert.match(html, /<section id="research-view"[^>]*>[\s\S]*?<section class="diagnostic-section binance-private-scope" id="binance-private-scope-board"/);
-assert.equal(html.includes("not_available：暂时无法读取私密清单。"), false);
-assert.ok(app.includes('requestJson("/api/binance-private-scope")'));
-assert.equal(app.slice(app.indexOf("function renderBinancePrivateScope"), app.indexOf("function ", app.indexOf("function renderBinancePrivateScope") + 10)).includes("innerHTML"), false);
-const clearStart = app.indexOf("    function clearBinancePrivateScope(");
-const clearEnd = app.indexOf("\n    function ", clearStart + 1);
-assert.ok(clearStart > 0 && clearEnd > clearStart);
-const list = { cleared: false, replaceChildren() { this.cleared = true; } };
-const state = { binancePrivateScope: { status: "available", report: validReport } };
-runInNewContext(`${app.slice(clearStart, clearEnd)}\n clearBinancePrivateScope();`, {
-  state,
-  binancePrivateScopeRequestGeneration: 0,
-  el: (id) => id === "binance-private-scope-list" ? list : null,
-});
-assert.equal(state.binancePrivateScope.status, "not_available");
-assert.equal(state.binancePrivateScope.report, null);
-assert.equal(list.cleared, true);
-const logoutStart = app.indexOf("    async function handleLogout() {");
-const logoutEnd = app.indexOf("\n    function ", logoutStart + 1);
-assert.ok(app.slice(logoutStart, logoutEnd).indexOf("clearBinancePrivateScope()") < app.slice(logoutStart, logoutEnd).indexOf('fetch("/api/logout"'));
+const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+const pages = ["OverviewPage.tsx", "AccountsPage.tsx", "DecisionsPage.tsx"].map((name) => readFileSync(new URL(`../web/strategy-switch-console/frontend/src/${name}`, import.meta.url), "utf8")).join("\n");
+assert.equal(app.includes('id="binance-private-scope-board"'), false);
+assert.equal(pages.includes("binance-private-scope"), false);
+assert.equal(app.includes("/api/binance-private-scope"), false);
+assert.equal(app.includes(".innerHTML"), false);
+assert.equal(JSON.stringify(validReport).includes("0.01000000") ? pages.includes("0.01000000") : false, false);
+const logout = app.slice(app.indexOf("const logout"), app.indexOf("const currentForm"));
+assert.ok(logout.indexOf("clearPrivateState") < logout.indexOf('postJson("/api/logout"'));
+assert.equal(logout.includes("/api/switch"), false);
 
-const scopeVisibilityStart = app.indexOf("    function binancePrivateScopeShouldShow(");
-const scopeVisibilityEnd = app.indexOf("\n    function ", scopeVisibilityStart + 1);
-assert.ok(scopeVisibilityStart > 0 && scopeVisibilityEnd > scopeVisibilityStart);
-const renderStart = app.indexOf("    function renderBinancePrivateScope() {");
-const renderEnd = app.indexOf("\n    function ", renderStart + 1);
-assert.ok(renderStart > 0 && renderEnd > renderStart);
-const renderSource = `${app.slice(scopeVisibilityStart, scopeVisibilityEnd)}\n${app.slice(renderStart, renderEnd)}`;
-for (const auth of [{ allowed: false, admin: true }, { allowed: true, admin: false }]) {
-  const board = { hidden: false };
-  const list = { cleared: false, replaceChildren() { this.cleared = true; } };
-  runInNewContext(`${renderSource}\n renderBinancePrivateScope();`, {
-    state: { auth, selected: "binance", binancePrivateScope: { status: "available", report: validReport } },
-    el: (id) => ({
-      "binance-private-scope-board": board,
-      "binance-private-scope-notice": { textContent: "" },
-      "binance-private-scope-list": list,
-    })[id],
-    document: { createElement() { throw new Error("unauthorized render created private detail DOM"); } },
-    t: (key) => key,
-  });
-  assert.equal(board.hidden, true);
-  assert.equal(list.cleared, true);
-}
-{
-  const board = { hidden: true };
-  const notice = { textContent: "" };
-  runInNewContext(`${renderSource}\n renderBinancePrivateScope();`, {
-    state: { auth: { allowed: true, admin: true }, selected: "binance", binancePrivateScope: { status: "empty", report: null } },
-    el: (id) => ({
-      "binance-private-scope-board": board,
-      "binance-private-scope-notice": notice,
-      "binance-private-scope-list": { replaceChildren() {} },
-    })[id],
-    document: { createElement() { throw new Error("empty render should not create detail DOM"); } },
-    t: (key) => key,
-  });
-  assert.equal(board.hidden, true);
-  assert.equal(notice.textContent, "");
-}
-
-const refreshStart = app.indexOf("    async function refreshBinancePrivateScope() {");
-const refreshEnd = app.indexOf("\n    async function ", refreshStart + 1);
-assert.ok(refreshStart > 0 && refreshEnd > refreshStart);
-let resolveLateRequest;
-const lateRequest = new Promise((resolve) => { resolveLateRequest = resolve; });
-const lateState = { auth: { allowed: true, admin: true }, binancePrivateScope: { status: "not_available", report: null } };
-const lateContext = {
-  state: lateState,
-  binancePrivateScopeRequestGeneration: 0,
-  requestJson: async () => lateRequest,
-  normalizeBinancePrivateScopePayload: (payload) => payload.report,
-  clearBinancePrivateScope: () => {
-    lateContext.binancePrivateScopeRequestGeneration += 1;
-    lateState.binancePrivateScope = { status: "not_available", report: null };
-  },
-  renderBinancePrivateScope: () => {},
-};
-const lateRefresh = runInNewContext(`${app.slice(refreshStart, refreshEnd)}\n refreshBinancePrivateScope();`, lateContext);
-lateState.auth = { allowed: false, admin: false };
-lateContext.clearBinancePrivateScope();
-resolveLateRequest({ ok: true, report: validReport });
-await lateRefresh;
-assert.equal(lateState.binancePrivateScope.status, "not_available");
-assert.equal(lateState.binancePrivateScope.report, null);
-let unauthorizedRequests = 0;
-await runInNewContext(`${app.slice(refreshStart, refreshEnd)}\n refreshBinancePrivateScope();`, {
-  state: { auth: { allowed: false, admin: true }, binancePrivateScope: { status: "available", report: validReport } },
-  binancePrivateScopeRequestGeneration: 0,
-  requestJson: async () => { unauthorizedRequests += 1; return { ok: true, report: validReport }; },
-  normalizeBinancePrivateScopePayload: (payload) => payload.report,
-  clearBinancePrivateScope: () => {},
-  renderBinancePrivateScope: () => {},
-});
-assert.equal(unauthorizedRequests, 0);
+assert.equal(app.includes("refreshBinancePrivateScope"), false);
+assert.equal(pages.includes("0.01000000"), false);
+assert.equal(app.includes("0.01000000"), false);
 
 console.log("Binance private scope: admin-only read, dedicated write, strict payload, TTL/staleness, isolation and UI clearing checks passed");

@@ -180,7 +180,7 @@ hk_equity
 修改策略目录或网页后运行：
 
 ```bash
-python3 scripts/sync_strategy_switch_page_asset.py
+python3 python/scripts/build_platform_config.py
 ```
 
 ## 部署和验证

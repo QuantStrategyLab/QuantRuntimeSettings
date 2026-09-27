@@ -224,6 +224,8 @@ try {
   const dashboard = await call("/api/reconciliation-recovery");
   assert.equal(dashboard.text.includes("OLD_KV_APPROVAL_MARKER"), false);
   assert.equal(dashboard.body.recoveries[0].confirmation, null);
+  assert.equal(dashboard.body.recoveries[0].rejection.decision, "reject");
+  assert.equal(dashboard.body.summary.awaiting_human_confirmation, 0);
 
   const mirrorStore = new Map();
   const mirrorKv = {

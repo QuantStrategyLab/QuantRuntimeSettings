@@ -98,12 +98,13 @@ jobs:
           npm run test:operations --prefix web/strategy-switch-console/frontend
           node tests/console_v2_i18n_validation.mjs
           node tests/console_account_state_validation.mjs
+          node --experimental-strip-types tests/console_presentation_validation.mjs
+          node tests/console_catalog_release_validation.mjs
           git diff --exit-code -- web/strategy-switch-console/v2_asset_map.js
           python3 python/scripts/build_config.py --check
           python3 python/scripts/build_config.py
           python3 python/scripts/build_platform_config.py --check
-          python3 python/scripts/sync_strategy_switch_page_asset.py
-          git diff --exit-code -- web/strategy-switch-console/config.js web/strategy-switch-console/index.html web/strategy-switch-console/page_asset.js web/strategy-switch-console/strategy_profiles_asset.js web/strategy-switch-console/runtime-catalog-projection.json web/strategy-switch-console/app_css.js web/strategy-switch-console/app_js.js
+          git diff --exit-code -- web/strategy-switch-console/config.js web/strategy-switch-console/strategy_profiles_asset.js web/strategy-switch-console/runtime-catalog-projection.json
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
@@ -114,16 +115,12 @@ jobs:
           node tests/human_decisions_worker_validation.mjs
           node tests/account_settings_worker_validation.mjs
           node --experimental-strip-types tests/account_settings_state_validation.mjs
-          node tests/runtime_stop_worker_validation.mjs
+          node --experimental-strip-types tests/runtime_stop_worker_validation.mjs
           node tests/runtime_stop_requests_worker_validation.mjs
           node --experimental-default-type=module tests/binance_resume_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_research_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_async_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_async_ui_validation.mjs
-          node --experimental-default-type=module --test tests/console_runtime_state_validation.mjs
-          sed -n '/<script>/,/<\/script>/p' web/strategy-switch-console/index.html | sed '1d;$d' | node --check --input-type=commonjs
-          node --check --input-type=module < web/strategy-switch-console/page_asset.js
+          node --experimental-strip-types --test tests/console_runtime_state_validation.mjs
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
-          node --check --input-type=module < web/strategy-switch-console/app_css.js
-          node --check --input-type=module < web/strategy-switch-console/app_js.js
           node --check --input-type=module < web/strategy-switch-console/worker.js

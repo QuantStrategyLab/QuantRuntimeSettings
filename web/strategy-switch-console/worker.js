@@ -33,8 +33,6 @@ import {
   normalizeAccountOptionsPayload as normalizeAccountOptionsSchemaPayload,
   parseAccountOptionsJson as parseAccountOptionsSchemaJson,
 } from "./account_options_schema.js";
-import { APP_CSS } from "./app_css.js";
-import { APP_JS } from "./app_js.js";
 import {
   UX1_DRAFT_SCHEMA,
   UX1_EVIDENCE_HASH_KEYS,
@@ -769,8 +767,7 @@ export default {
           },
         });
       }
-      if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store" } });
-      if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" } });
+      if (url.pathname === "/app.css" || url.pathname === "/app.js") return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
       return json({ ok: false, error: "not_found" }, 404);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
@@ -5876,12 +5873,19 @@ async function readReconciliationRecoveryConfirmation(env, recoveryId) {
       return { confirmation: null, error: "reconciliation_recovery_confirmation_invalid" };
     }
   }
-  if (authority.blocked) return { confirmation: null, error: "reconciliation_recovery_legacy_blocked" };
-  if (authority.eligible !== true || authority.decision?.action === "reject") return { confirmation: null, error: null };
-  if (authority.decision?.action === "approve" && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
-    return { confirmation: authority.decision.payload, error: null };
+  if (authority.blocked) return { confirmation: null, rejection: null, error: "reconciliation_recovery_legacy_blocked" };
+  if (authority.eligible !== true) return { confirmation: null, rejection: null, error: null };
+  if (authority.decision?.action === "reject") {
+    const payload = authority.decision.payload;
+    if (payload?.decision === "reject" && payload?.no_order === true && payload?.execution_authority_granted === false) {
+      return { confirmation: null, rejection: payload, error: null };
+    }
+    return { confirmation: null, rejection: null, error: null };
   }
-  return { confirmation: null, error: null };
+  if (authority.decision?.action === "approve" && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
+    return { confirmation: authority.decision.payload, rejection: null, error: null };
+  }
+  return { confirmation: null, rejection: null, error: null };
 }
 
 async function recordReconciliationRecoveryConfirmationResponse(request, env) {
@@ -6039,7 +6043,12 @@ async function aggregateReconciliationRecoverySources(env) {
         && result.confirmation.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
         ? result.confirmation
         : null;
-      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation });
+      const rejection = result.rejection
+        && result.rejection.candidate_sha256 === recovery.candidate_sha256
+        && result.rejection.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
+        ? result.rejection
+        : null;
+      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection });
     }
     errors.push(...source.errors);
   }
@@ -6059,7 +6068,8 @@ async function aggregateReconciliationRecoverySources(env) {
       awaiting_human_confirmation: uniqueRecoveries.filter((entry) =>
         entry.freshness.data_status === "ready" &&
         entry.recovery.readiness === "awaiting_human_confirmation" &&
-        !entry.confirmation,
+        !entry.confirmation &&
+        !entry.rejection,
       ).length,
       blocked: uniqueRecoveries.filter((entry) => entry.recovery.readiness === "blocked").length,
       confirmed: uniqueRecoveries.filter((entry) => Boolean(entry.confirmation)).length,

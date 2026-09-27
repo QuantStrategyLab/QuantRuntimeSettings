@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { runInNewContext } from "node:vm";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
 const account = {
@@ -92,52 +91,34 @@ try {
     assert.ok((await request(body, options)).status >= 400);
     assert.equal(calls.length, before);
   }
-  const app = readFileSync(new URL("../web/strategy-switch-console/app.js", import.meta.url), "utf8");
+  const { beginNonHkStop, confirmationAccepted, createUnknownSubmitLock } = await import("../web/strategy-switch-console/frontend/src/operations.ts");
+  const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+  const stop = app.slice(app.indexOf("const submitAccountPlan"), app.indexOf("const decideOwner"));
   assert.equal(app.includes("runtime-stop-button"), false);
   assert.equal(app.includes("runtimeStopOnly"), false);
-  const start = app.indexOf("    async function dispatchRuntimeStop() {");
-  const end = app.indexOf("    async function dispatchSwitch() {", start);
-  assert.ok(start >= 0 && end > start);
-  const uiSource = `${app.slice(start, end)}\n dispatchRuntimeStop();`;
-  for (const [allowed, confirmed] of [[true, true], [true, false], [false, true]]) {
-    const before = calls.length;
-    const dispatchButton = { disabled: false };
-    const runtimeStopLock = { pending: false };
-    const context = {
-      runtimeStopLock,
-      state: { auth: { allowed }, selected: "ibkr", forms: { ibkr: { strategy: "edited-but-not-applied" } } },
-      selectedAccount: () => account, el: () => dispatchButton, t: (key) => key, showToast: () => {},
-      window: { confirm: () => confirmed, open: () => {} },
-      fetch: async (url, init) => {
-        assert.equal(url, "/api/runtime-stop");
-        assert.deepEqual(JSON.parse(init.body), body);
-        return request(JSON.parse(init.body));
-      },
-    };
-    await runInNewContext(uiSource, context);
-    assert.equal(calls.length, before + (allowed && confirmed ? 1 : 0));
-    assert.equal(runtimeStopLock.pending, allowed && confirmed);
-    assert.equal(dispatchButton.disabled, allowed && confirmed);
-    if (allowed && confirmed) {
-      // The main dispatch control owns stop-only mode and must keep the pending lock.
-      await runInNewContext(uiSource, context);
-      assert.equal(calls.length, before + 1);
-    }
-  }
-  let unknownAttempts = 0;
-  const pendingButton = { disabled: false };
-  const pendingLock = { pending: false };
-  const unknownContext = {
-    runtimeStopLock: pendingLock,
-    state: { auth: { allowed: true }, selected: "ibkr" }, selectedAccount: () => account,
-    el: () => pendingButton, t: (key) => key, showToast: () => {},
-    window: { confirm: () => true, open: () => {} },
-    fetch: async () => { unknownAttempts += 1; throw new Error("synthetic timeout"); },
+  assert.ok(stop.indexOf("confirmAction") < stop.indexOf("beginNonHkStop"));
+  assert.ok(stop.indexOf("beginNonHkStop") < stop.indexOf('postJson<any>("/api/runtime-stop"'));
+  assert.match(stop, /confirm: "STOP_ONLY"/);
+  assert.equal(stop.includes("APPLY_AND_SYNC"), false);
+  assert.equal(stop.slice(stop.indexOf("catch (error)"), stop.indexOf("finally")).includes("switchLocks"), false);
+  const lock = createUnknownSubmitLock();
+  const stopId = "ibkr:synthetic-one";
+  let dispatchAttempts = 0;
+  globalThis.fetch = async () => {
+    dispatchAttempts += 1;
+    throw new Error("timeout");
   };
-  await runInNewContext(uiSource, unknownContext);
-  await runInNewContext(uiSource, unknownContext);
-  assert.equal(unknownAttempts, 1);
-  assert.equal(pendingLock.pending, true);
+  assert.equal(beginNonHkStop(lock, stopId, true, false), false);
+  assert.equal(beginNonHkStop(lock, stopId, false, true), false);
+  assert.equal(dispatchAttempts, 0);
+  assert.equal(lock.blocked(stopId), false);
+  assert.equal(beginNonHkStop(lock, stopId, true, true), true);
+  assert.equal((await request(body)).status, 502);
+  assert.equal(dispatchAttempts, 1);
+  assert.equal(lock.blocked(stopId), true);
+  assert.equal(beginNonHkStop(lock, stopId, true, true), false);
+  assert.equal(dispatchAttempts, 1);
+  assert.equal(confirmationAccepted(true, "stop", "changed"), false);
   globalThis.fetch = async () => new Response("synthetic-sensitive-provider-error", { status: 500 });
   const failure = await request();
   assert.equal(failure.status, 502);

@@ -249,15 +249,16 @@ export function ownerDecisionBinding(candidate: Record<string, any>, decision: s
   return { candidate_id: candidate.candidate_id, candidate_evidence_sha256: evidence, decision };
 }
 
-export function recoveryBinding(entry: Record<string, any>) {
+export function recoveryBinding(entry: Record<string, any>, decision: "approve" | "reject" = "approve") {
   const recovery = entry.recovery || {};
-  if (entry.freshness?.data_status !== "ready" || entry.confirmation
+  if (decision !== "approve" && decision !== "reject") return null;
+  if (entry.freshness?.data_status !== "ready" || entry.confirmation || entry.rejection
     || recovery.readiness !== "awaiting_human_confirmation"
     || !Array.isArray(recovery.blocker_codes) || recovery.blocker_codes.length
     || !/^[a-f0-9]{64}$/.test(String(recovery.candidate_sha256 || ""))
     || recovery.dual_review?.evidence_binding_sha256 !== recovery.candidate_sha256) return null;
   return {
-    decision: "approve",
+    decision,
     recovery_id: recovery.recovery_id,
     candidate_sha256: recovery.candidate_sha256,
     dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
@@ -272,6 +273,27 @@ export function currentResearchPreview(draft: Record<string, any> | null): boole
 
 export function confirmationAccepted(confirmed: boolean, openedSnapshot: string, currentSnapshot: string): boolean {
   return confirmed && openedSnapshot === currentSnapshot;
+}
+
+export type UnknownSubmitLock = {
+  blocked(id: string): boolean;
+  hold(id: string): void;
+  clear(): void;
+};
+
+export function createUnknownSubmitLock(): UnknownSubmitLock {
+  const ids = new Set<string>();
+  return {
+    blocked(id) { return ids.has(id); },
+    hold(id) { ids.add(id); },
+    clear() { ids.clear(); },
+  };
+}
+
+export function beginNonHkStop(lock: UnknownSubmitLock, id: string, allowed: boolean, confirmed: boolean): boolean {
+  if (allowed !== true || confirmed !== true || lock.blocked(id)) return false;
+  lock.hold(id);
+  return true;
 }
 
 export function createRequestLock() {

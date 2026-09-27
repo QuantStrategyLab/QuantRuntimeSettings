@@ -1099,24 +1099,29 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 self.assertEqual(errors, [])
 
     def test_strategy_switch_console_normalizes_dry_run_and_keeps_non_live_profiles_selectable(self):
-        source = (ROOT / "web" / "strategy-switch-console" / "app.js").read_text(encoding="utf-8")
-        normalize = re.search(
-            r"function normalizeExecutionMode\(.*?\n    }",
-            source,
-            re.DOTALL,
-        )
-        eligibility = re.search(
-            r"function strategyAllowedForAccount\(.*?\n    }",
-            source,
-            re.DOTALL,
-        )
-
-        self.assertIsNotNone(normalize)
-        self.assertIsNotNone(eligibility)
-        self.assertIn('mode === "dry_run"', normalize.group(0))
-        self.assertIn('return "dry_run"', normalize.group(0))
-        self.assertNotIn("catalogEntry.runtime_enabled !== true", eligibility.group(0))
-        self.assertIn('if (mode === "live") return strategyCanSwitchLive(catalogEntry);', eligibility.group(0))
+        catalog_source = (ROOT / "web" / "strategy-switch-console" / "strategy_profiles_asset.js").read_text(encoding="utf-8")
+        generated = json.loads(catalog_source[catalog_source.index("[") : catalog_source.rindex("]") + 1])
+        profile = next(item for item in generated if item["profile"] in self.NOT_EVIDENCED_PROFILES)
+        self.assertIn("dry_run", profile["allowed_execution_modes"])
+        self.assertNotIn("live", profile["allowed_execution_modes"])
+        self.assertFalse(profile["can_switch_live"])
+        self.assertFalse(profile["runtime_enabled"])
+        hidden = build_platform_config.build_strategy_profile_entries({
+            "strategies": {
+                "sample_research": {
+                    "label": "样例研究",
+                    "label_zh": "样例研究",
+                    "label_en": "Sample research",
+                    "domain": "us_equity",
+                    "features": {},
+                    "runtime_enabled": False,
+                },
+            },
+        })
+        self.assertEqual(hidden[0]["profile"], "sample_research")
+        self.assertFalse(hidden[0]["can_switch_live"])
+        self.assertIn("dry_run", hidden[0]["allowed_execution_modes"])
+        self.assertNotIn("live", hidden[0]["allowed_execution_modes"])
 
     def test_console_platform_directory_is_generated_from_configuration(self):
         config = json.loads((ROOT / "platform-config.json").read_text())
@@ -1362,7 +1367,8 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertIn("CLOUDFLARE_WRANGLER_CONFIG_TOML", workflow)
         self.assertIn("STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID", workflow)
         self.assertIn("python/scripts/build_platform_config.py", workflow)
-        self.assertIn("python/scripts/sync_strategy_switch_page_asset.py", workflow)
+        self.assertNotIn("python/scripts/sync_strategy_switch_page_asset.py", workflow)
+        self.assertNotIn("python/scripts/inject_platform_config.py", workflow)
         self.assertIn("expected_profiles", workflow)
         self.assertIn("actual_profiles", workflow)
         self.assertIn("actual_profiles != expected_profiles", workflow)

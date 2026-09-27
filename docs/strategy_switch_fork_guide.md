@@ -176,7 +176,7 @@ hk_equity
 After editing the strategy catalog or page:
 
 ```bash
-python3 scripts/sync_strategy_switch_page_asset.py
+python3 python/scripts/build_platform_config.py
 ```
 
 ## Deploy and Verify
