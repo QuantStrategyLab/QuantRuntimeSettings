@@ -57,6 +57,20 @@ assert.equal(formatAccountIdentity(accountIdentity({ label: "SOXL", key: "live" 
 assert.equal(formatAccountIdentity(accountIdentity({ account_selector: "U12345678", label: "soxl" }, "IBKR", "", occupied), english), "Account ••••5678");
 assert.equal(formatAccountIdentity(accountIdentity({ label: "我的港股" }, "Longbridge", "", occupied), english), "我的港股");
 assert.equal(formatAccountIdentity(accountIdentity({ key: "internal-key" }, "Longbridge", "", occupied), english), "Account");
+const catalogWithoutShortNames = strategyOccupiedNames([
+  { profile: "soxl_soxx_trend_income", label: "半导体趋势收益", label_zh: "半导体趋势收益", label_en: "Semiconductor Trend Income" },
+  { profile: "tqqq_growth_income", label: "纳斯达克增长收益", label_zh: "纳斯达克增长收益", label_en: "NASDAQ Growth Income" },
+  { profile: "global_etf_rotation", label: "全球ETF轮动", label_zh: "全球ETF轮动", label_en: "Global ETF Rotation" },
+  { profile: "russell_top_50", label: "罗素前50", label_zh: "罗素前50", label_en: "Russell Leaders" },
+]);
+assert.equal(catalogWithoutShortNames.some(name => ["soxl", "tqqq", "global etf", "russell top 50"].includes(name.toLowerCase())), false);
+for (const label of ["soxl", "tqqq", "Global ETF", "Russell Top 50"]) {
+  assert.equal(accountDisplayTitle({ label, account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames), "账户 ••••5678");
+  assert.equal(accountDisplayTitle({ label, account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames).includes("U12345678"), false);
+}
+assert.equal(accountDisplayTitle({ label: "退休账户", account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames), "退休账户");
+assert.equal(accountDisplayTitle({ label: "Global ETF Rotation", account_selector: "U12345678" }, "IBKR", "", []), "Global ETF Rotation");
+assert.equal(accountDisplayTitle({ label: "soxl" }, "IBKR", "", catalogWithoutShortNames), "soxl");
 assert.equal(accountDisplayTitle({ label: "退休账户", account_selector: "U12345678" }, "IBKR", ""), "退休账户");
 assert.equal(formatAccountIdentity(accountIdentity({ label: "退休账户", account_selector: "U12345678" }, "IBKR", ""), english), "退休账户");
 assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U12345678" }, "Binance", "", occupied), "账户");
