@@ -2,7 +2,7 @@ import {
   DCA_SUPPORTED_PLATFORMS, PLATFORM_CONFIG,
   PLATFORM_MIN_RESERVED_CASH_VARIABLES, PLATFORM_RESERVED_CASH_RATIO_VARIABLES,
 } from "../../config.js";
-import type { AccountOption, AccountStateProjection, CurrentStrategy } from "./api";
+import type { AccountOption, AccountStateProjection, CurrentStrategy, PromotionSuggestion } from "./api";
 
 const platformSettings = PLATFORM_CONFIG as Record<string, any>;
 const minimumVariables = PLATFORM_MIN_RESERVED_CASH_VARIABLES as Record<string, string>;
@@ -497,15 +497,37 @@ export function diagnosisUserSummary(input: { available?: boolean; task?: Record
   return { status: "结果暂未确认", reason: "请刷新状态并查看技术详情；暂不重复请求。", action: "refresh" };
 }
 
-export function promotionAiExplanation(ticket: Record<string, any> | null | undefined): { text: string; model: string } | null {
+const PROMOTION_SUGGESTION_FIELDS = ["question", "basis", "limits", "suggestion"] as const;
+
+export function promotionSuggestion(ticket: Record<string, any> | null | undefined, language: "zh" | "en"): PromotionSuggestion | null {
   const summary = ticket?.research_summary;
-  const identity = summary?.identity;
   const ai = summary?.ai_explanation;
-  if (!summary || !identity || !ai || ai.status !== "available" || ai.provider !== "codex"
-    || typeof ai.text !== "string" || !ai.text.trim() || typeof ai.model !== "string" || !ai.model.trim()
-    || identity.strategy_profile !== ticket?.strategy_profile || identity.domain !== ticket?.domain
-    || stableIdentity(identity.proposed_params || {}) !== stableIdentity(ticket?.proposed_params || {})) return null;
-  return { text: ai.text.trim(), model: ai.model.trim() };
+  const locales = ai?.locales;
+  if (!summary || !ai || ai.status !== "available" || ai.scope !== "candidate") return null;
+  if (ai.provider !== "codex" && ai.provider !== "cursor") return null;
+  if (typeof ai.model !== "string" || !ai.model.trim()) return null;
+  if (!locales || typeof locales !== "object" || !locales["zh-CN"] || !locales.en) return null;
+  const binding = ai.binding;
+  const expected = {
+    ticket_id: ticket?.ticket_id,
+    strategy_profile: ticket?.strategy_profile,
+    domain: ticket?.domain,
+    proposed_params: ticket?.proposed_params || {},
+    comparison: summary.comparison,
+    shadow_evidence_kind: ticket?.shadow_evidence_kind,
+    shadow_passed: ticket?.shadow_passed,
+    notes: ticket?.notes || [],
+  };
+  if (!binding || stableIdentity(binding) !== stableIdentity(expected)) return null;
+  const section = locales[language === "zh" ? "zh-CN" : "en"];
+  if (!section || typeof section !== "object") return null;
+  const fields = {} as Pick<PromotionSuggestion, "question" | "basis" | "limits" | "suggestion">;
+  for (const key of PROMOTION_SUGGESTION_FIELDS) {
+    const value = section[key];
+    if (typeof value !== "string" || !value.trim()) return null;
+    fields[key] = value;
+  }
+  return { ...fields, provider: ai.provider, model: ai.model };
 }
 
 export function diagnosisNextStepKey(task: Record<string, any> | null | undefined): string {

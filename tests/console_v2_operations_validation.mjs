@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   accountSettingDraftBody, buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
-  confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionAiExplanation,
+  confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionSuggestion,
   summarizeExternalResearchSubject,
   diagnosisStatusKey, diagnosisConclusionKey, diagnosisNextStepKey,
   hkStopInitialView, hkStopReadFailed, hkStopSubmitAllowed, createHkStopController,
@@ -155,16 +155,58 @@ assert.equal(accountMatchesStatusFilter("paused", desiredOffStillOn), false);
 assert.equal(accountMatchesStatusFilter("paused", undefined), false);
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "failed" } }), { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" });
 assert.equal(diagnosisUserSummary({ available: true, task: { status: "succeeded", recheck_status: "passed" } }).status, "检查已完成，未发现监测异常");
-const aiTicket = { ticket_id: "synthetic-ai-ticket", strategy_profile: "synthetic-strategy", domain: "us_equity", proposed_params: { lookback: 20 }, research_summary: {
-  identity: { strategy_profile: "synthetic-strategy", domain: "us_equity", proposed_params: { lookback: 20 } },
-  ai_explanation: { status: "available", provider: "codex", model: "synthetic-model", text: "Synthetic factual explanation only." },
-} };
-assert.deepEqual(promotionAiExplanation(aiTicket), { text: "Synthetic factual explanation only.", model: "synthetic-model" },
-  "a ready AI explanation is shown only when it is bound to the exact ticket identity");
-assert.equal(promotionAiExplanation({ ...aiTicket, research_summary: { ...aiTicket.research_summary, ai_explanation: { status: "unavailable", provider: "", model: "", text: "" } } }), null,
-  "failed/missing AI output remains an empty state, not a fabricated successful recommendation");
-assert.equal(promotionAiExplanation({ ...aiTicket, research_summary: { ...aiTicket.research_summary, identity: { ...aiTicket.research_summary.identity, proposed_params: { lookback: 21 } } } }), null,
-  "an explanation for different proposed parameters is never attached to this ticket");
+const suggestionLocales = {
+  "zh-CN": {
+    question: "该候选与基线在固定窗口下是否接近？",
+    basis: "比较来自同一窗口与同一成本条件。",
+    limits: "这只是候选建议，尚未选定账户。",
+    suggestion: "请人工审阅，不构成执行授权。",
+  },
+  en: {
+    question: "Does this candidate stay close to the baseline?",
+    basis: "The comparison uses one fixed window and one cost model.",
+    limits: "This is candidate advice before any account is selected.",
+    suggestion: "Ask a human to review it without execution authority.",
+  },
+};
+const suggestionComparison = {
+  status: "comparable", start_date: "2025-01-01", end_date: "2025-12-31", cost_model: "cost-v1",
+  baseline: { cagr: 0.1, max_drawdown: -0.2 }, candidate: { cagr: 0.1, max_drawdown: -0.2 },
+};
+const suggestionTicket = {
+  ticket_id: "synthetic-ai-ticket", strategy_profile: "demo_strategy", domain: "us_equity",
+  proposed_params: { a: 2 }, shadow_evidence_kind: "paired_shadow", shadow_passed: true, notes: [],
+  research_summary: {
+    comparison: suggestionComparison,
+    ai_explanation: {
+      status: "available", provider: "codex", model: "synthetic-summary-model", scope: "candidate",
+      locales: suggestionLocales,
+      binding: {
+        ticket_id: "synthetic-ai-ticket", strategy_profile: "demo_strategy", domain: "us_equity",
+        proposed_params: { a: 2 }, comparison: suggestionComparison,
+        shadow_evidence_kind: "paired_shadow", shadow_passed: true, notes: [],
+      },
+    },
+  },
+};
+const historicalTicket = {
+  ticket_id: "synthetic-ai-ticket", strategy_profile: "synthetic-strategy", domain: "us_equity",
+  proposed_params: { lookback: 20 },
+  research_summary: {
+    identity: { strategy_profile: "synthetic-strategy", domain: "us_equity", proposed_params: { lookback: 20 } },
+    ai_explanation: { status: "available", provider: "codex", model: "synthetic-model", text: "Synthetic factual explanation only." },
+  },
+};
+assert.equal(promotionSuggestion(historicalTicket, "zh"), null);
+assert.equal(promotionSuggestion(historicalTicket, "en"), null, "saved single-language text is not shown as the bilingual suggestion");
+assert.equal(promotionSuggestion({ ...suggestionTicket, research_summary: { ...suggestionTicket.research_summary, ai_explanation: { status: "unavailable", provider: "", model: "", text: "" } } }, "zh"), null);
+const chineseSuggestion = promotionSuggestion(suggestionTicket, "zh");
+const englishSuggestion = promotionSuggestion(suggestionTicket, "en");
+assert.equal(chineseSuggestion.question, suggestionLocales["zh-CN"].question);
+assert.equal(englishSuggestion.question, suggestionLocales.en.question);
+assert.equal(JSON.stringify(englishSuggestion).includes(suggestionLocales["zh-CN"].question), false, "English does not fall back to the Chinese suggestion");
+assert.equal(promotionSuggestion({ ...suggestionTicket, research_summary: { ...suggestionTicket.research_summary, ai_explanation: { ...suggestionTicket.research_summary.ai_explanation, locales: { "zh-CN": suggestionLocales["zh-CN"] } } } }, "en"), null);
+assert.equal(promotionSuggestion({ ...suggestionTicket, research_summary: { ...suggestionTicket.research_summary, ai_explanation: { ...suggestionTicket.research_summary.ai_explanation, binding: { ...suggestionTicket.research_summary.ai_explanation.binding, proposed_params: { a: 9 } } } } }, "zh"), null);
 assert.equal(translate("AI分析说明", "en"), "AI research explanation");
 assert.equal(translate("尚无与当前候选绑定的AI说明。", "en"), "No AI explanation is available for this candidate yet.");
 assert.equal(translate("来源状态：{status}", "en", { status: translate("暂不可用", "en") }), "Source status: Currently unavailable",

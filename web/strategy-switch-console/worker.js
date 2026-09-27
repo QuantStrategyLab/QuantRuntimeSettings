@@ -7708,10 +7708,105 @@ function assertResearchPromotionExpectedCandidate(ticket, raw, { requireExpected
   }
 }
 
+const RESEARCH_SUMMARY_HAN = /[\u4e00-\u9fff]/;
+const RESEARCH_SUMMARY_LATIN = /[A-Za-z]/;
+const RESEARCH_SUMMARY_DIGIT = /[0-9\uff10-\uff19]/;
+const RESEARCH_SUMMARY_LOCALE_FIELDS = ["question", "basis", "limits", "suggestion"];
+const RESEARCH_SUMMARY_BINDING_FIELDS = [
+  "ticket_id", "strategy_profile", "domain", "proposed_params", "comparison",
+  "shadow_evidence_kind", "shadow_passed", "notes",
+];
+const RESEARCH_SUMMARY_NEW_KEYS = ["status", "provider", "model", "scope", "locales", "binding"];
+const RESEARCH_SUMMARY_OLD_KEYS = ["status", "provider", "model", "text"];
+const RESEARCH_SUMMARY_HIDDEN = { status: "unavailable", text: "", provider: "", model: "" };
+
+function researchSummaryExactKeys(value, keys) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const present = Object.keys(value);
+  return present.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function researchSummaryCodePointLength(text) {
+  return Array.from(text).length;
+}
+
+function researchSummarySegment(text, chinese) {
+  if (typeof text !== "string" || !text.trim() || researchSummaryCodePointLength(text) > 240) return null;
+  if (RESEARCH_SUMMARY_DIGIT.test(text)) return null;
+  const hasHan = RESEARCH_SUMMARY_HAN.test(text);
+  if (chinese) return hasHan ? text : null;
+  if (hasHan || !RESEARCH_SUMMARY_LATIN.test(text)) return null;
+  return text;
+}
+
+function sameResearchSummaryMaterial(left, right) {
+  return canonicalResearchTaskJson(left) === canonicalResearchTaskJson(right);
+}
+
+function readBilingualResearchPromotionExplanation(ai, material) {
+  if (ai.status !== "available" || (ai.provider !== "codex" && ai.provider !== "cursor")) return null;
+  if (typeof ai.model !== "string" || !ai.model.trim() || ai.scope !== "candidate") return null;
+  const locales = ai.locales;
+  if (!researchSummaryExactKeys(locales, ["zh-CN", "en"])) return null;
+  const savedLocales = {};
+  for (const [name, chinese] of [["zh-CN", true], ["en", false]]) {
+    const section = locales[name];
+    if (!researchSummaryExactKeys(section, RESEARCH_SUMMARY_LOCALE_FIELDS)) return null;
+    const saved = {};
+    for (const field of RESEARCH_SUMMARY_LOCALE_FIELDS) {
+      const segment = researchSummarySegment(section[field], chinese);
+      if (segment == null) return null;
+      saved[field] = segment;
+    }
+    savedLocales[name] = saved;
+  }
+  if (!researchSummaryExactKeys(ai.binding, RESEARCH_SUMMARY_BINDING_FIELDS)) return null;
+  if (!sameResearchSummaryMaterial(ai.binding, material)) return null;
+  return {
+    status: "available",
+    provider: ai.provider,
+    model: ai.model,
+    scope: "candidate",
+    locales: savedLocales,
+    binding: JSON.parse(canonicalResearchTaskJson(material)),
+  };
+}
+
+function readLegacyResearchPromotionExplanation(ai) {
+  const status = String(ai.status || "").trim();
+  if (status !== "available" && status !== "unavailable") return null;
+  if (typeof ai.text !== "string" || typeof ai.provider !== "string" || typeof ai.model !== "string") return null;
+  if (ai.text.length > 2000 || ai.model.length > 120) return null;
+  if (status === "available" && (ai.provider !== "codex" || !ai.text.trim())) return null;
+  if (status === "unavailable" && ai.provider !== "") return null;
+  return {
+    status,
+    text: ai.text.trim(),
+    provider: ai.provider,
+    model: ai.model.trim(),
+  };
+}
+
+function normalizeSavedResearchPromotionExplanation(ai, material) {
+  try {
+    if (ai == null) return { ...RESEARCH_SUMMARY_HIDDEN };
+    if (researchSummaryExactKeys(ai, RESEARCH_SUMMARY_NEW_KEYS)) {
+      return readBilingualResearchPromotionExplanation(ai, material) || { ...RESEARCH_SUMMARY_HIDDEN };
+    }
+    if (researchSummaryExactKeys(ai, RESEARCH_SUMMARY_OLD_KEYS)) {
+      return readLegacyResearchPromotionExplanation(ai) || { ...RESEARCH_SUMMARY_HIDDEN };
+    }
+    return { ...RESEARCH_SUMMARY_HIDDEN };
+  } catch {
+    return { ...RESEARCH_SUMMARY_HIDDEN };
+  }
+}
+
 function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_summary") {
   if (raw == null) return null;
   if (!raw || Array.isArray(raw) || typeof raw !== "object") return null;
   try {
+    const comparisonForBinding = raw.comparison;
     const identity = raw.identity;
     if (!identity || Array.isArray(identity) || typeof identity !== "object") return null;
     const identityParams = identity.proposed_params;
@@ -7759,6 +7854,12 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
       if (text.length > 120) throw new Error(`${fieldName}.${name} is too long`);
       return text;
     };
+    const exactCostModel = (value, name) => {
+      if (value == null) return null;
+      if (typeof value !== "string") throw new Error(`${fieldName}.${name} must be text or null`);
+      if (value.length > 120) throw new Error(`${fieldName}.${name} is too long`);
+      return value;
+    };
     const normalizeMetrics = (value, name) => {
       if (!value || Array.isArray(value) || typeof value !== "object") {
         throw new Error(`${fieldName}.${name} must be an object`);
@@ -7776,12 +7877,12 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
       status: comparisonStatus,
       start_date: optionalText(comparison.start_date, "comparison.start_date"),
       end_date: optionalText(comparison.end_date, "comparison.end_date"),
-      cost_model: optionalText(comparison.cost_model, "comparison.cost_model"),
+      cost_model: exactCostModel(comparison.cost_model, "comparison.cost_model"),
       baseline: null,
       candidate: null,
     };
     if (comparisonStatus === "comparable") {
-      if (!normalizedComparison.start_date || !normalizedComparison.end_date || !normalizedComparison.cost_model) return null;
+      if (!normalizedComparison.start_date || !normalizedComparison.end_date || !normalizedComparison.cost_model?.trim()) return null;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.start_date)
         || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.end_date)) return null;
       const startMillis = Date.parse(`${normalizedComparison.start_date}T00:00:00Z`);
@@ -7795,17 +7896,16 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
     }
 
     if (!Array.isArray(raw.limitations) || raw.limitations.length > 8 || raw.limitations.some((item) => typeof item !== "string" || item.length > 300)) return null;
-    const ai = raw.ai_explanation == null
-      ? { status: "unavailable", text: "", provider: "", model: "" }
-      : raw.ai_explanation;
-    if (!ai || Array.isArray(ai) || typeof ai !== "object") return null;
-    const aiStatus = String(ai.status || "").trim();
-    if (aiStatus !== "available" && aiStatus !== "unavailable") return null;
-    if (typeof ai.text !== "string" || typeof ai.provider !== "string" || typeof ai.model !== "string"
-      || ai.text.length > 600 || ai.model.length > 120) return null;
-    if (ai.provider !== "" && ai.provider !== "codex") return null;
-    if (aiStatus === "available" && ai.provider !== "codex") return null;
-    if (aiStatus === "unavailable" && ai.provider !== "") return null;
+    const aiExplanation = normalizeSavedResearchPromotionExplanation(raw.ai_explanation, {
+      ticket_id: ticket.ticket_id,
+      strategy_profile: ticket.strategy_profile,
+      domain: ticket.domain,
+      proposed_params: ticket.proposed_params || {},
+      comparison: comparisonForBinding,
+      shadow_evidence_kind: ticket.shadow_evidence_kind,
+      shadow_passed: ticket.shadow_passed,
+      notes: Array.isArray(ticket.notes) ? ticket.notes : [],
+    });
 
     return {
       identity: {
@@ -7817,12 +7917,7 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
       plugins,
       comparison: normalizedComparison,
       limitations: raw.limitations.map((item) => item.trim()),
-      ai_explanation: {
-        status: aiStatus,
-        text: ai.text.trim(),
-        provider: ai.provider,
-        model: ai.model.trim(),
-      },
+      ai_explanation: aiExplanation,
     };
   } catch {
     return null;

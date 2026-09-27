@@ -39,6 +39,14 @@ export type CurrentStrategy = {
   execution_mode?: string; execution_environment?: string; [key: string]: unknown;
 };
 export type StrategyProfile = { profile: string; label?: string; domain?: string; [key: string]: unknown };
+export type PromotionSuggestion = {
+  question: string;
+  basis: string;
+  limits: string;
+  suggestion: string;
+  provider: "codex" | "cursor";
+  model: string;
+};
 export type ConfigPayload = {
   accountOptions?: Record<string, AccountOption[]> | null;
   platformMeta?: Record<string, { label?: string; console_visible?: boolean; [key: string]: unknown }>;
