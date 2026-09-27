@@ -126,8 +126,8 @@ try {
   const degradedPage = await mf.dispatchFetch("https://console.example/admin", { headers: { Cookie: adminCookie } });
   assert.equal(degradedPage.status, 200);
   const degradedHtml = await degradedPage.text();
-  assert.match(degradedHtml, /策略目录暂不可用/);
-  assert.match(degradedHtml, /id="instance-save"[^>]*disabled/);
+  assert.match(degradedHtml, /<div id="root"><\/div>/, "authorized admin path serves the new shell");
+  assert.match(degradedHtml, /\/v2\/assets\/index-/, "admin shell uses the generated versioned bundle");
   assert.equal((await call({ ...acl, account_options: beforeRestart.account_options }, { endpoint: "/api/admin/config" })).status, 200);
   assert.equal((await call(create({ ...draft, key: "another-draft" }, beforeRestart.revision))).status, 400);
   assert.equal((await call({ action: "edit", expected_revision: beforeRestart.revision, platform: "ibkr", key: draft.key, config: draft })).status, 400);
