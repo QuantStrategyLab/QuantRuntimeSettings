@@ -58,21 +58,15 @@ jobs:
           set -euo pipefail
           python3 python/scripts/build_config.py
           python3 python/scripts/build_platform_config.py --check
-          python3 python/scripts/sync_strategy_switch_page_asset.py
           git diff --exit-code -- \
             web/strategy-switch-console/config.js \
-            web/strategy-switch-console/index.html \
-            web/strategy-switch-console/page_asset.js \
             web/strategy-switch-console/strategy_profiles_asset.js \
-            web/strategy-switch-console/runtime-catalog-projection.json \
-            web/strategy-switch-console/app_css.js \
-            web/strategy-switch-console/app_js.js
+            web/strategy-switch-console/runtime-catalog-projection.json
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
-          node --check --input-type=module < web/strategy-switch-console/page_asset.js
+          node tests/console_presentation_validation.mjs
+          node tests/console_catalog_release_validation.mjs
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
-          node --check --input-type=module < web/strategy-switch-console/app_css.js
-          node --check --input-type=module < web/strategy-switch-console/app_js.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
 
       - name: Summarize platform health

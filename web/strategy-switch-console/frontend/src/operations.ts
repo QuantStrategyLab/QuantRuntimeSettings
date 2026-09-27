@@ -2,7 +2,7 @@ import {
   DCA_SUPPORTED_PLATFORMS, PLATFORM_CONFIG,
   PLATFORM_MIN_RESERVED_CASH_VARIABLES, PLATFORM_RESERVED_CASH_RATIO_VARIABLES,
 } from "../../config.js";
-import type { AccountOption, CurrentStrategy } from "./api";
+import type { AccountOption, AccountStateProjection, CurrentStrategy, PromotionSuggestion } from "./api";
 
 const platformSettings = PLATFORM_CONFIG as Record<string, any>;
 const minimumVariables = PLATFORM_MIN_RESERVED_CASH_VARIABLES as Record<string, string>;
@@ -16,6 +16,152 @@ export type SwitchDraft = {
   cashOnlyMode: "current" | "enabled" | "disabled"; dcaMode: "fixed" | "smart"; dcaBase: string;
   touched: Record<string, boolean>;
 };
+
+export type AccountSettingOverridePatch = {
+  strategy_profile?: string | null;
+  income_layer_enabled?: boolean | null;
+  reserved_cash_floor?: string | null;
+};
+
+export type HkStopPhase = "loading" | "unavailable" | "empty" | "reserved" | "unknown" | "accepted" | "rejected";
+
+export type HkStopView = {
+  phase: HkStopPhase;
+  request_id: string | null;
+  dispatch_result: string | null;
+  request_succeeded: false;
+  platform_applied: false;
+  notice: "none" | "read_failed" | "unknown" | "accepted" | "rejected";
+};
+
+const HK_STOP_LOCKED = new Set<HkStopPhase>(["reserved", "unknown", "accepted"]);
+
+export function hkStopInitialView(): HkStopView {
+  return {
+    phase: "loading", request_id: null, dispatch_result: null,
+    request_succeeded: false, platform_applied: false, notice: "none",
+  };
+}
+
+export function hkStopSubmitAllowed(record: { phase?: string | null } | null | undefined): boolean {
+  return record?.phase === "empty" || record?.phase === "rejected";
+}
+
+export function hkStopLockForSubmit(current: HkStopView | null | undefined, requestId: string): HkStopView {
+  return {
+    ...(current?.phase ? current : hkStopInitialView()),
+    phase: "reserved",
+    request_id: requestId,
+    request_succeeded: false,
+    platform_applied: false,
+    notice: "unknown",
+  };
+}
+
+export function hkStopReadFailed(current: HkStopView | null | undefined): HkStopView {
+  if (current && HK_STOP_LOCKED.has(current.phase)) {
+    return { ...current, request_succeeded: false, platform_applied: false, notice: "read_failed" };
+  }
+  return { ...hkStopInitialView(), phase: "unavailable", notice: "read_failed" };
+}
+
+function hkStopServerView(phase: "rejected" | "accepted" | "unknown" | "reserved", payload: {
+  request_id?: string | null;
+  dispatch_result?: string | null;
+}): HkStopView {
+  return {
+    phase,
+    request_id: payload.request_id ?? null,
+    dispatch_result: payload.dispatch_result ?? null,
+    request_succeeded: false,
+    platform_applied: false,
+    notice: phase === "rejected" ? "rejected" : phase === "accepted" ? "accepted" : "unknown",
+  };
+}
+
+export function hkStopApplyServer(current: HkStopView | null | undefined, payload: {
+  phase?: string | null;
+  request_id?: string | null;
+  dispatch_result?: string | null;
+} | null | undefined): HkStopView {
+  const phase = payload?.phase;
+  const incomingId = payload?.request_id ?? null;
+  const locked = Boolean(current && HK_STOP_LOCKED.has(current.phase));
+  if (locked) {
+    if (!incomingId || incomingId !== current?.request_id) return current?.phase ? current : hkStopInitialView();
+    if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved") {
+      return hkStopServerView(phase, payload || {});
+    }
+    return current?.phase ? current : hkStopInitialView();
+  }
+  if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved") {
+    return hkStopServerView(phase, payload || {});
+  }
+  if (payload && (phase === null || phase === undefined)) {
+    return { ...hkStopInitialView(), phase: "empty" };
+  }
+  return hkStopReadFailed(current);
+}
+
+export function createHkStopController() {
+  let generation = 0;
+  let view = hkStopInitialView();
+  return {
+    snapshot() { return view; },
+    beginRead() {
+      generation += 1;
+      return generation;
+    },
+    beginSubmit() {
+      generation += 1;
+      const requestId = crypto.randomUUID();
+      view = hkStopLockForSubmit(view, requestId);
+      return requestId;
+    },
+    completeRead(token: number, payload: {
+      phase?: string | null;
+      request_id?: string | null;
+      dispatch_result?: string | null;
+    } | null | undefined) {
+      if (token !== generation) return view;
+      view = hkStopApplyServer(view, payload);
+      return view;
+    },
+    failRead(token: number) {
+      if (token !== generation) return view;
+      view = hkStopReadFailed(view);
+      return view;
+    },
+    completePost(payload: {
+      phase?: string | null;
+      request_id?: string | null;
+      dispatch_result?: string | null;
+    } | null | undefined) {
+      if (!payload?.request_id || payload.request_id !== view.request_id) return view;
+      view = hkStopApplyServer(view, payload);
+      return view;
+    },
+  };
+}
+
+export function accountSettingDraftBody(input: {
+  expectedDraftRevision: number;
+  identity: Record<string, unknown>;
+  overrides: AccountSettingOverridePatch;
+  acknowledgeIdentityConflict?: boolean;
+}): Record<string, unknown> {
+  const overrides: Record<string, string | boolean | null> = {};
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "strategy_profile")) overrides.strategy_profile = input.overrides.strategy_profile ?? null;
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "income_layer_enabled")) overrides.income_layer_enabled = input.overrides.income_layer_enabled ?? null;
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "reserved_cash_floor")) overrides.reserved_cash_floor = input.overrides.reserved_cash_floor ?? null;
+  const body: Record<string, unknown> = {
+    expected_draft_revision: input.expectedDraftRevision,
+    identity: input.identity,
+    overrides,
+  };
+  if (input.acknowledgeIdentityConflict) body.acknowledge_identity_conflict = true;
+  return body;
+}
 
 export function defaultSwitchDraft(account: AccountOption, current: CurrentStrategy | null, platform: string): SwitchDraft {
   return {
@@ -99,18 +245,20 @@ export function canResumeBinance(platform: string, account: AccountOption | null
 export function ownerDecisionBinding(candidate: Record<string, any>, decision: string) {
   const evidence = candidate.candidate_evidence_sha256 || candidate.owner_decision?.candidate_evidence_sha256;
   if (!candidate.candidate_id || !/^[a-f0-9]{64}$/.test(String(evidence || ""))) return null;
-  if (!["approve_limited_live_canary", "keep_parked", "retire_candidate"].includes(decision)) return null;
+  if (!["approve_limited_live_canary", "keep_parked"].includes(decision)) return null;
   return { candidate_id: candidate.candidate_id, candidate_evidence_sha256: evidence, decision };
 }
 
-export function recoveryBinding(entry: Record<string, any>) {
+export function recoveryBinding(entry: Record<string, any>, decision: "approve" | "reject" = "approve") {
   const recovery = entry.recovery || {};
-  if (entry.freshness?.data_status !== "ready" || entry.confirmation
+  if (decision !== "approve" && decision !== "reject") return null;
+  if (entry.freshness?.data_status !== "ready" || entry.confirmation || entry.rejection
     || recovery.readiness !== "awaiting_human_confirmation"
     || !Array.isArray(recovery.blocker_codes) || recovery.blocker_codes.length
     || !/^[a-f0-9]{64}$/.test(String(recovery.candidate_sha256 || ""))
     || recovery.dual_review?.evidence_binding_sha256 !== recovery.candidate_sha256) return null;
   return {
+    decision,
     recovery_id: recovery.recovery_id,
     candidate_sha256: recovery.candidate_sha256,
     dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
@@ -125,6 +273,27 @@ export function currentResearchPreview(draft: Record<string, any> | null): boole
 
 export function confirmationAccepted(confirmed: boolean, openedSnapshot: string, currentSnapshot: string): boolean {
   return confirmed && openedSnapshot === currentSnapshot;
+}
+
+export type UnknownSubmitLock = {
+  blocked(id: string): boolean;
+  hold(id: string): void;
+  clear(): void;
+};
+
+export function createUnknownSubmitLock(): UnknownSubmitLock {
+  const ids = new Set<string>();
+  return {
+    blocked(id) { return ids.has(id); },
+    hold(id) { ids.add(id); },
+    clear() { ids.clear(); },
+  };
+}
+
+export function beginNonHkStop(lock: UnknownSubmitLock, id: string, allowed: boolean, confirmed: boolean): boolean {
+  if (allowed !== true || confirmed !== true || lock.blocked(id)) return false;
+  lock.hold(id);
+  return true;
 }
 
 export function createRequestLock() {
@@ -284,6 +453,44 @@ export function diagnosisConclusionKey(task: Record<string, any> | null | undefi
   return diagnosisStatusKey(task);
 }
 
+const ACCOUNT_STATE_DETAILS: Record<string, string> = {
+  "monitoring_agrees:enabled": "运行监测正常，已启用。",
+  "monitoring_agrees:disabled": "运行监测正常，已停用。",
+  retained_attention: "账户运行异常",
+  config_inconsistent: "设置尚未生效",
+  source_not_fresh: "状态暂未更新",
+  deployment_missing: "状态暂未更新",
+  deployment_not_fresh: "状态暂未更新",
+  activation_unconfirmed: "状态暂未更新",
+  check_not_due: "尚未到检查时间",
+  evidence_insufficient: "状态暂未更新",
+};
+
+export function presentAccountState(projection: AccountStateProjection | null | undefined): {
+  label: string; detail: string; tone: "healthy" | "attention" | "unknown";
+} {
+  const unknown = { label: "—", detail: "暂未取得状态", tone: "unknown" as const };
+  if (!projection || projection.scope !== "monitoring_only" || projection.limit !== "not_trading_or_books") return unknown;
+  if (!["normal", "abnormal", "unknown"].includes(projection.health)) return unknown;
+  if (!["enabled", "disabled", "unknown"].includes(projection.activation)) return unknown;
+  const detail = ACCOUNT_STATE_DETAILS[projection.reason === "monitoring_agrees" ? `monitoring_agrees:${projection.activation}` : projection.reason];
+  if (!detail || (projection.health === "normal" && (projection.reason !== "monitoring_agrees" || projection.activation === "unknown"))) return unknown;
+  return {
+    label: projection.health === "normal" ? "正常" : projection.health === "abnormal" ? "异常" : "—",
+    detail,
+    tone: projection.health === "normal" ? "healthy" : projection.health === "abnormal" ? "attention" : "unknown",
+  };
+}
+
+export function accountMatchesStatusFilter(filter: string, projection: AccountStateProjection | null | undefined): boolean {
+  const view = presentAccountState(projection);
+  if (filter === "all") return true;
+  if (filter === "normal") return view.tone === "healthy";
+  if (filter === "paused") return projection?.activation === "disabled";
+  if (filter === "abnormal") return view.tone === "attention" || view.tone === "unknown";
+  return false;
+}
+
 export function diagnosisUserSummary(input: { available?: boolean; task?: Record<string, any> | null } | null | undefined): {
   status: string; reason: string; action: "check" | "refresh";
 } {
@@ -291,11 +498,11 @@ export function diagnosisUserSummary(input: { available?: boolean; task?: Record
   if (input.available === false) return { status: "暂时无法检查", reason: "检查服务暂时不可用；刷新状态后再试。", action: "refresh" };
   const task = input.task;
   if (!task) return { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" };
-  if (["queued", "running"].includes(String(task.status || "")) || task.recheck_status === "sent") {
-    return { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" };
-  }
   if (task.status === "unknown" || task.dispatch_state === "unknown") {
     return { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" };
+  }
+  if (["queued", "running"].includes(String(task.status || "")) || task.recheck_status === "sent") {
+    return { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" };
   }
   if (task.status === "failed") {
     return { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" };
@@ -312,15 +519,37 @@ export function diagnosisUserSummary(input: { available?: boolean; task?: Record
   return { status: "结果暂未确认", reason: "请刷新状态并查看技术详情；暂不重复请求。", action: "refresh" };
 }
 
-export function promotionAiExplanation(ticket: Record<string, any> | null | undefined): { text: string; model: string } | null {
+const PROMOTION_SUGGESTION_FIELDS = ["question", "basis", "limits", "suggestion"] as const;
+
+export function promotionSuggestion(ticket: Record<string, any> | null | undefined, language: "zh" | "en"): PromotionSuggestion | null {
   const summary = ticket?.research_summary;
-  const identity = summary?.identity;
   const ai = summary?.ai_explanation;
-  if (!summary || !identity || !ai || ai.status !== "available" || ai.provider !== "codex"
-    || typeof ai.text !== "string" || !ai.text.trim() || typeof ai.model !== "string" || !ai.model.trim()
-    || identity.strategy_profile !== ticket?.strategy_profile || identity.domain !== ticket?.domain
-    || stableIdentity(identity.proposed_params || {}) !== stableIdentity(ticket?.proposed_params || {})) return null;
-  return { text: ai.text.trim(), model: ai.model.trim() };
+  const locales = ai?.locales;
+  if (!summary || !ai || ai.status !== "available" || ai.scope !== "candidate") return null;
+  if (ai.provider !== "codex" && ai.provider !== "cursor") return null;
+  if (typeof ai.model !== "string" || !ai.model.trim()) return null;
+  if (!locales || typeof locales !== "object" || !locales["zh-CN"] || !locales.en) return null;
+  const binding = ai.binding;
+  const expected = {
+    ticket_id: ticket?.ticket_id,
+    strategy_profile: ticket?.strategy_profile,
+    domain: ticket?.domain,
+    proposed_params: ticket?.proposed_params || {},
+    comparison: summary.comparison,
+    shadow_evidence_kind: ticket?.shadow_evidence_kind,
+    shadow_passed: ticket?.shadow_passed,
+    notes: ticket?.notes || [],
+  };
+  if (!binding || stableIdentity(binding) !== stableIdentity(expected)) return null;
+  const section = locales[language === "zh" ? "zh-CN" : "en"];
+  if (!section || typeof section !== "object") return null;
+  const fields = {} as Pick<PromotionSuggestion, "question" | "basis" | "limits" | "suggestion">;
+  for (const key of PROMOTION_SUGGESTION_FIELDS) {
+    const value = section[key];
+    if (typeof value !== "string" || !value.trim()) return null;
+    fields[key] = value;
+  }
+  return { ...fields, provider: ai.provider, model: ai.model };
 }
 
 export function diagnosisNextStepKey(task: Record<string, any> | null | undefined): string {

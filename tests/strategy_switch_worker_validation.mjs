@@ -1,6 +1,10 @@
 import { githubVariableListMock } from './helpers/github_variable_list_mock.mjs';
 import assert from "node:assert/strict";
+import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -10,10 +14,13 @@ import { DEFAULT_ACCOUNT_OPTIONS, RUNTIME_CATALOG_PROJECTION, PLATFORM_META } fr
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const indexHtml = [
-  readFileSync(resolve(root, "web/strategy-switch-console/index.html"), "utf8"),
-  readFileSync(resolve(root, "web/strategy-switch-console/app.css"), "utf8"),
-  readFileSync(resolve(root, "web/strategy-switch-console/app.js"), "utf8"),
-].join("\n");
+  "web/strategy-switch-console/frontend/src/App.tsx",
+  "web/strategy-switch-console/frontend/src/OverviewPage.tsx",
+  "web/strategy-switch-console/frontend/src/AccountsPage.tsx",
+  "web/strategy-switch-console/frontend/src/DecisionsPage.tsx",
+  "web/strategy-switch-console/frontend/src/presentation.ts",
+  "web/strategy-switch-console/frontend/src/styles.css",
+].map((file) => readFileSync(resolve(root, file), "utf8")).join("\n");
 const bundledStrategyProfiles = JSON.parse(
   readFileSync(resolve(root, "web/strategy-switch-console/strategy-profiles.example.json"), "utf8"),
 );
@@ -67,9 +74,6 @@ assert.ok(__test.currentStrategiesTimeoutMs >= 8000);
 const renderPlatformsBody = indexHtml.match(/function renderPlatforms\(\) \{([\s\S]*?)\n    \}/)?.[1] || "";
 assert.ok(!renderPlatformsBody.includes("syncStrategyForAccount("));
 assert.equal(indexHtml.includes(".innerHTML"), false);
-assert.match(indexHtml, /<body class="app-loading operator-console console-clarity">/);
-assert.ok(indexHtml.includes('id="boot-screen"'));
-assert.ok(indexHtml.includes('id="app-shell"'));
 assert.equal(indexHtml.includes('runtime-authority-status'), false);
 assert.equal(indexHtml.includes('runtime-authority-notice'), false);
 assert.equal(indexHtml.includes('P0–P6'), false);
@@ -78,57 +82,10 @@ assert.equal(indexHtml.includes('Worker 端触发'), false);
 assert.equal(indexHtml.includes('令牌保留在服务端'), false);
 assert.equal(indexHtml.includes('id="control-plane-view-button"'), false);
 assert.equal(indexHtml.includes('id="health-view-button"'), false);
-assert.match(indexHtml, /<section class="health-view advanced-workspace" id="health-view" hidden>/);
-assert.ok(indexHtml.includes('id="control-plane-view"'));
-assert.ok(indexHtml.includes('id="control-plane-list"'));
-assert.ok(indexHtml.includes('id="account-diagnosis-button"'));
-assert.ok(indexHtml.includes('data-account-diagnosis'));
-assert.match(indexHtml, /accountDiagnosisButton/);
-assert.match(indexHtml, /accountDiagnosisQueued/);
-assert.ok(indexHtml.includes('#runtime-target-lifecycle-notice:empty'));
-assert.match(indexHtml, /task\.recheck_status === "passed"/);
-assert.match(indexHtml, /\["ready", "stale"\]\.includes\(record\?\.freshness\?\.data_status\)/);
-assert.ok(indexHtml.includes('保存后，系统会检查是否生效。'));
-assert.ok(indexHtml.includes('function forwardObservationDisplayText('));
-assert.ok(indexHtml.includes('function candidateIsControlPlaneVisible('));
-assert.ok(indexHtml.includes('function renderControlPlaneHeading('));
-assert.ok(indexHtml.includes('观察进度 {completed} / {required} 个交易日'));
-assert.ok(indexHtml.includes('No-order observation progress: {completed} / {required} trading days'));
-assert.ok(indexHtml.includes('自动观察的最新记录，无需操作。'));
-assert.ok(indexHtml.includes('Latest automated observation. No action is needed.'));
-assert.ok(indexHtml.includes('id="m0-research-notice"'));
-assert.ok(indexHtml.includes('id="m0-research-list"'));
-assert.match(indexHtml, /<details class="diagnostic-details"[^>]*>\s*<summary data-i18n="diagnosticDetails">/);
-assert.match(indexHtml, /<div class="diagnostic-section">\s*<h3 data-i18n="m0ResearchBoard">/);
-assert.ok(indexHtml.includes('function renderM0Research()'));
-assert.ok(indexHtml.includes('requestJson("/api/m0-research")'));
-assert.ok(indexHtml.includes('const M0_RESEARCH_DISPLAY_LIMIT = 100;'));
-assert.ok(indexHtml.includes('entries.slice(0, M0_RESEARCH_DISPLAY_LIMIT)'));
-assert.ok(indexHtml.includes('id="adaptive-selection-list"'));
-assert.ok(indexHtml.includes('id="adaptive-selection-notice"'));
-assert.ok(indexHtml.includes('id="account-overview"'));
-assert.ok(indexHtml.includes('["applicationStatus", application]'));
-assert.ok(indexHtml.includes('accountApplicationText(platform, account)'));
 
 assert.equal(indexHtml.includes('id="plan-check-authority"'), false);
-assert.ok(indexHtml.includes('class="diagnostic-details"'));
-assert.ok(indexHtml.includes('id="control-plane-queue"'));
-assert.ok(indexHtml.includes('data-health-filter="attention"'));
-assert.ok(indexHtml.includes('function hasLiveStrategyOption('));
-assert.ok(indexHtml.includes('function supportedExecutionModesForPlatform('));
-assert.ok(indexHtml.includes('option.disabled = option.value === "live" && !liveModeAvailable'));
-assert.ok(indexHtml.includes('id="execution-mode-select"'));
 assert.equal(indexHtml.includes('function renderPlanReadiness()'), false);
-assert.ok(indexHtml.includes('id="execution-evidence-list"'));
-assert.ok(indexHtml.includes('id="execution-evidence-notice"'));
-assert.ok(indexHtml.includes('id="reconciliation-recovery-list"'));
-assert.ok(indexHtml.includes('id="reconciliation-recovery-notice"'));
-assert.ok(indexHtml.includes('requestJson("/api/reconciliation-recovery")'));
-assert.ok(indexHtml.includes('data-reconciliation-recovery-confirm'));
-assert.match(
-  indexHtml,
-  /<section id="research-view"[^>]*>[\s\S]*?<div class="diagnostic-section" id="reconciliation-recovery-board"/,
-);
+assert.equal(indexHtml.includes('id="reconciliation-recovery-board"'), false);
 assert.equal(
   indexHtml.slice(
     indexHtml.indexOf('id="overview-view"'),
@@ -140,8 +97,6 @@ assert.equal(indexHtml.includes('P0_CONTROL_PLANE_NOT_RUNTIME_WIRED'), false);
 assert.equal(indexHtml.includes('window.__QSL_RUNTIME_AUTHORITY_STATUS__'), false);
 assert.equal(indexHtml.includes('execution_metadata_is_runtime_authority'), false);
 assert.equal(indexHtml.includes('P1–P3 non-live 数据获取仍需独立、精确的契约'), false);
-assert.ok(indexHtml.includes('requestJson("/api/execution-evidence")'));
-assert.ok(indexHtml.includes('requestJson("/api/adaptive-selection")'));
 assert.equal(indexHtml.includes('missing_current_promotion_evidence_and_human_acceptance'), false);
 assert.ok(
   JSON.stringify(bundledStrategyProfiles).includes(
@@ -152,91 +107,22 @@ assert.equal(
   indexHtml.includes('missing_current_promotion_evidence_and_preauthorized_autonomy_policy'),
   false,
 );
-assert.ok(indexHtml.includes(".switch-surface.summary-hidden"));
-assert.ok(indexHtml.includes('summaryPanel.hidden = !showSummary'));
-assert.ok(indexHtml.includes('switchSurface.classList.toggle("summary-hidden", !showSummary)'));
-assert.equal(indexHtml.match(/Generated by inject_platform_config\.py/g)?.length, 1);
-assert.ok(indexHtml.includes('<script src="/bootstrap-config.js"></script>'));
-assert.ok(indexHtml.includes('<script src="/boot-recovery.js"></script>'));
-assert.ok(indexHtml.includes('/app.js?v=console-display-modes-v4'));
-assert.ok(indexHtml.includes('/app.css?v=console-display-modes-v4'));
 assert.equal(indexHtml.includes('<script id="platform-config">'), false);
 assert.equal(indexHtml.includes("publicSummary"), false);
-assert.ok(indexHtml.includes("function hasPrivateConfig()"));
-assert.ok(indexHtml.includes('el("quick-form").hidden = !showPrivateControls'));
-assert.ok(indexHtml.includes("loginLink.hidden = signedIn"));
 assert.equal(indexHtml.includes("loginLink.hidden = !state.auth.available || signedIn"), false);
-assert.ok(indexHtml.includes('id="min-reserved-cash-input"'));
-assert.ok(indexHtml.includes('id="reserved-cash-ratio-input"'));
-assert.ok(indexHtml.includes('id="reserve-policy-mode-select"'));
-assert.ok(indexHtml.includes('id="runtime-target-enabled-select"'));
-assert.ok(indexHtml.includes('id="plugin-mode-select"'));
 assert.equal(indexHtml.includes('id="ibit-zscore-exit-mode-select"'), false);
-assert.ok(indexHtml.includes('id="income-layer-start-usd-input"'));
-assert.ok(indexHtml.includes('incomeLayerStartUsd: "收入层起始金额"'));
-assert.ok(indexHtml.includes('incomeLayerStartUsd: "Income layer start amount"'));
-assert.ok(indexHtml.includes('incomeLayerStartUsdVariable = "INCOME_LAYER_START_USD"'));
-assert.ok(indexHtml.includes("fallbackIncomeLayerDefaults"));
-assert.ok(indexHtml.includes("incomeLayerDefaultsFromProfileItem"));
-assert.ok(indexHtml.includes('id="option-overlay-mode-select"'));
-assert.ok(indexHtml.includes('optionOverlayMode: "期权层状态"'));
-assert.ok(indexHtml.includes('optionOverlayMode: "Option layer"'));
-assert.ok(indexHtml.includes("optionOverlayDefaultsFromProfileItem"));
-assert.ok(indexHtml.includes('id="cash-only-execution-mode-select"'));
-assert.ok(indexHtml.includes('class="form-section execution-cash-policy-section"'));
-assert.ok(indexHtml.includes('function reconcileExecutionCashPolicy('));
-assert.ok(indexHtml.includes("window.__PLATFORM_META__"));
 assert.equal(PLATFORM_META.qmt.label, "QMT");
-assert.ok(indexHtml.includes('cn_industry_etf_rotation'));
-assert.ok(indexHtml.includes('id="income-layer-section"'));
-assert.ok(indexHtml.includes('id="option-overlay-section"'));
 assert.equal(indexHtml.includes('id="margin-policy-stack"'), false);
 assert.equal(indexHtml.includes('id="reserve-policy-stack"'), false);
 assert.equal(indexHtml.includes('id="reserve-amounts-row"'), false);
-assert.ok(indexHtml.includes('id="min-reserve-block"'));
-assert.ok(indexHtml.includes('id="reserve-ratio-block"'));
-assert.ok(indexHtml.includes("cash_only_execution_mode: item.cash_only_execution_mode"));
-assert.ok(indexHtml.includes("function incomeLayerFieldsConfigured("));
-assert.ok(indexHtml.includes("function effectiveIncomeLayerForAccount("));
-assert.ok(indexHtml.includes('class="summary-list" id="summary-list" role="list"'));
-assert.ok(indexHtml.includes('labelNode.className = "summary-label"'));
 assert.equal(indexHtml.includes("noChangesNote"), false);
-assert.equal(indexHtml.match(/class="form-section dca-section"/g)?.length, 1);
-assert.ok(indexHtml.includes('qmtDryRunOnlyNote'));
-assert.ok(indexHtml.includes('optionOverlayDefaultSimple: "开启"'));
-assert.ok(indexHtml.includes('cashOnlyExecutionDefault: "仅用现金"'));
-assert.match(indexHtml, /function platformCashOnlyExecutionDefault\(\) \{\s+return true;/);
-assert.ok(indexHtml.includes("function effectiveOptionOverlayForAccount("));
-assert.ok(indexHtml.includes("selectedAccount(platform)?.option_overlay_mode"));
-assert.ok(indexHtml.includes("function effectiveCashOnlyExecutionForAccount("));
-assert.ok(indexHtml.includes('cashOnlyExecutionValueYes: "是"'));
-assert.ok(indexHtml.includes('cashOnlyExecutionMode: "Allow margin"'));
-assert.ok(indexHtml.includes('el("cash-only-execution-mode-select").addEventListener("change"'));
-assert.ok(indexHtml.includes("function pendingCashOnlyExecution("));
-assert.ok(indexHtml.includes('!platformSupportsMarginPolicy(platform) || mode === "current"'));
-assert.ok(indexHtml.includes("function syncCashOnlyExecutionForAccount("));
 assert.equal(indexHtml.includes('id="option-growth-overlay'), false);
 assert.equal(indexHtml.includes('id="option-income-overlay'), false);
-assert.ok(indexHtml.includes('id="dca-mode-select"'));
-assert.ok(indexHtml.includes('id="dca-base-investment-usd-input"'));
-assert.ok(indexHtml.includes('dcaMode: "定投模式"'));
-assert.ok(indexHtml.includes('dcaModeFixed: "定额定投"'));
-assert.ok(indexHtml.includes('dcaModeSmart: "智能定投"'));
-assert.ok(indexHtml.includes('dcaMode: "DCA mode"'));
-assert.ok(indexHtml.includes('dcaProfileDefaults'));
-assert.ok(indexHtml.includes('el("income-layer-mode-select").addEventListener("change"'));
-assert.ok(indexHtml.includes('el("income-layer-start-usd-input").addEventListener("input"'));
-assert.ok(indexHtml.includes('el("income-layer-max-ratio-input").addEventListener("input"'));
-assert.ok(indexHtml.includes('el("dca-mode-select").addEventListener("change"'));
-assert.ok(indexHtml.includes('el("dca-base-investment-usd-input").addEventListener("input"'));
 assert.ok(
   bundledStrategyProfiles.some((profile) =>
     profile.label_zh === "纳指100 / 标普500 定投" || profile.label_zh === "纳指标普定投"
   ),
 );
-assert.ok(indexHtml.includes('class="form-section income-layer-section"'));
-assert.ok(indexHtml.includes('class="form-section dca-section"'));
-assert.ok(indexHtml.includes('class="control-block reserve-policy-block policy-block"'));
 assert.ok(bundledStrategyProfiles.some((profile) => profile.profile === "ibit_smart_dca"));
 for (const profile of bundledStrategyProfiles) {
   assert.equal(typeof profile.profile, "string");
@@ -244,62 +130,13 @@ for (const profile of bundledStrategyProfiles) {
   assert.equal(typeof profile.label_zh, "string");
   assert.ok(profile.profile.length > 0, `catalog missing profile id`);
 }
-assert.ok(indexHtml.includes('localStrategyLabels'));
-assert.ok(indexHtml.includes('function strategyLabelSet('));
-assert.ok(indexHtml.includes('function strategyDisplayMetaText('));
-assert.ok(indexHtml.includes('function strategyChoiceLabel('));
-assert.ok(indexHtml.includes('function strategyCanSwitchLive('));
-assert.ok(indexHtml.includes('id="account-select"'));
-assert.ok(indexHtml.includes("strategy-block"));
-assert.ok(indexHtml.includes("white-space: pre-line"));
-assert.ok(indexHtml.includes(".form-section {"));
-assert.ok(indexHtml.includes(".form-section + .form-section"));
-assert.ok(indexHtml.includes("grid-template-columns: repeat(2, minmax(0, 1fr));"));
-assert.ok(indexHtml.includes("grid-column: 1 / -1;"));
-assert.ok(indexHtml.includes('reservePolicyNone'));
-assert.ok(indexHtml.includes('reservePolicyRatio'));
-assert.ok(indexHtml.includes('reservePolicyFloor'));
-assert.ok(indexHtml.includes('reservePolicyMax'));
-assert.ok(indexHtml.includes('pluginModeNone'));
-assert.ok(indexHtml.includes('const pluginModes = ["none"]'));
-assert.ok(indexHtml.includes('runtimeTargetMode: "平台开关"'));
-assert.ok(indexHtml.includes('runtimeTargetEnabled: "启用"'));
-assert.ok(indexHtml.includes('runtimeTargetDisabled: "禁用"'));
-assert.ok(indexHtml.includes('runtimeTargetMode: "Account status"'));
-assert.ok(indexHtml.includes('runtimeTargetEnabled: "Enabled"'));
-assert.ok(indexHtml.includes('runtimeTargetDisabled: "Disabled"'));
-assert.ok(indexHtml.includes("function runtimeTargetStateForAccount("));
-assert.ok(indexHtml.includes(".summary-status.disabled"));
-assert.ok(indexHtml.includes('pluginMode: "插件状态"'));
-assert.ok(indexHtml.includes('pluginModeNone: "不挂载旧插件"'));
-assert.ok(indexHtml.includes('pluginMode: "Plugin status"'));
 assert.equal(indexHtml.includes('pluginModeAuto'), false);
 assert.equal(indexHtml.includes('id="ibit-zscore-exit-mode-select"'), false);
 assert.equal(indexHtml.includes("ibitZscoreExit"), false);
 assert.equal(indexHtml.includes("ibit_zscore_exit_mode"), false);
-assert.ok(indexHtml.includes('reservedCashDefault'));
-assert.ok(indexHtml.includes('dryRun: "无下单检查"'));
-assert.ok(indexHtml.includes('dryRun: "No-order check"'));
-assert.ok(indexHtml.includes('平台默认：0 {currency} / 0%'));
 assert.equal(indexHtml.includes('比例沿用策略默认，通常 3%'), false);
 assert.equal(indexHtml.includes('平台默认：max(0 {currency}, 3%)'), false);
-assert.ok(indexHtml.includes('function platformReservedCashDefaultText('));
-assert.ok(indexHtml.includes('platformMinReservedCashVariables'));
-assert.ok(indexHtml.includes('platformReservedCashRatioVariables'));
-assert.ok(indexHtml.includes('extra_variables_json'));
-assert.ok(indexHtml.includes('function selectedCashCurrency('));
-assert.ok(indexHtml.includes('function currentReservedCashPolicyText('));
-assert.ok(indexHtml.includes('function hasPendingChanges('));
-assert.ok(indexHtml.includes('function pendingChangeState('));
-assert.ok(indexHtml.includes('reservedCashTouched: false'));
-assert.ok(indexHtml.includes('reserve-ratio-block'));
-assert.ok(indexHtml.includes('.summary-row.pending'));
-assert.ok(indexHtml.includes('function currentEntryHasState('));
-assert.ok(indexHtml.includes('changes.reserveCashChanged'));
-assert.ok(indexHtml.includes('changes.pluginModeChanged'));
-assert.ok(indexHtml.includes('changes.runtimeTargetChanged'));
-assert.ok(indexHtml.includes('!hasPendingChange'));
-assert.ok(indexHtml.includes('hasPendingChange ? t("readyNote") : ""'));
+assert.equal(indexHtml.includes("reservedCashTouched"), false);
 assert.equal(indexHtml.includes('hasPendingChange ? t("readyNote") : t("noChangesNote")'), false);
 assert.equal(
   indexHtml.includes('state.auth.allowed && !loadingConfig && (!hasPrivateAccounts || !hasValidStrategy || !hasPendingChange)'),
@@ -310,7 +147,6 @@ assert.equal(indexHtml.includes('placeholder="0.03"'), false);
 assert.equal(indexHtml.includes("ibkr-primary"), false);
 assert.equal(indexHtml.includes("longbridge-quant-sg-service"), false);
 assert.equal(indexHtml.includes('account_selector: "SG"'), false);
-assert.match(indexHtml, /body\.app-loading \.shell\s*\{\s*display: none;/);
 
 const servedPageResponse = await worker.fetch(new Request("https://switch.example/"), {});
 const servedHtml = await servedPageResponse.text();
@@ -337,21 +173,11 @@ assert.equal(bootstrapConfigJs.includes("longbridge-quant-sg-service"), false);
 assert.equal(bootstrapConfigJs.includes('account_selector: "SG"'), false);
 
 const servedAppResponse = await worker.fetch(new Request("https://switch.example/app.js"), {});
-const servedAppJs = await servedAppResponse.text();
-assert.equal(servedAppResponse.status, 200);
+assert.equal(servedAppResponse.status, 404);
 assert.equal(servedAppResponse.headers.get("Cache-Control"), "no-store");
-assert.ok(servedAppJs.includes("function hasPrivateConfig()"));
-assert.ok(servedAppJs.includes("function forwardObservationDisplayText("));
-assert.ok(servedAppJs.includes("function candidateIsControlPlaneVisible("));
-assert.ok(servedAppJs.includes("function renderControlPlaneHeading("));
-assert.equal(servedAppJs.includes("ibitZscoreExit"), false);
-assert.equal(servedAppJs.includes("ibit_zscore_exit_mode"), false);
-assert.equal(servedAppJs.includes("ibkr-primary"), false);
-assert.equal(servedAppJs.includes("longbridge-quant-sg-service"), false);
-assert.equal(servedAppJs.includes('account_selector: "SG"'), false);
 
 const servedCssResponse = await worker.fetch(new Request("https://switch.example/app.css"), {});
-assert.equal(servedCssResponse.status, 200);
+assert.equal(servedCssResponse.status, 404);
 assert.equal(servedCssResponse.headers.get("Cache-Control"), "no-store");
 
 const bootRecoveryResponse = await worker.fetch(new Request("https://switch.example/boot-recovery.js"), {});
@@ -2229,11 +2055,6 @@ assert.equal(healthReadPayload.strategies[0].review[sensitiveReviewKey], undefin
 assert.match(healthReadPayload.strategies[0].decision.reason, /API key missing/);
 assert.match(healthReadPayload.strategies[0].source_revision, /^https:\/\//);
 assert.deepEqual(healthReadPayload.errors, ["safe_notice"]);
-assert.ok(indexHtml.includes('id="health-count-critical"'));
-assert.ok(indexHtml.includes('data-i18n="healthCritical"'));
-assert.ok(indexHtml.includes('healthAttentionNotice'));
-assert.ok(indexHtml.includes('formatAsOfDate('));
-assert.ok(indexHtml.includes('m0ResearchBoard: "外部研究记录"'));
 
 healthPayload.generated_at = new Date().toISOString();
 healthPayload.computed_at = "2020-01-01T00:00:00.000Z";
@@ -2426,7 +2247,6 @@ assert.deepEqual(controlReadPayload.attention, {
 });
 assert.equal(controlReadPayload.candidates[0].recommendation.reason, "没有可用的机器建议。");
 assert.equal(controlReadPayload.policy.p6_owner_decision_required, true);
-assert.ok(indexHtml.includes('requestJson("/api/control-plane")'));
 
 controlPayload.computed_at = "2020-01-01T00:00:00.000Z";
 await worker.fetch(
@@ -2746,11 +2566,24 @@ const ownerDecisionKv = {
     };
   },
 };
+const requireForHumanDecisions = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
+const { Miniflare: HumanDecisionMiniflare } = requireForHumanDecisions(process.env.QRT_MINIFLARE_MODULE || "miniflare");
+const humanDecisionPersist = await mkdtemp(join(tmpdir(), "qrt-human-decisions-"));
+const humanDecisionMf = new HumanDecisionMiniflare({
+  modules: true,
+  modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+  scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
+  compatibilityDate: "2026-06-08",
+  durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
+  durableObjectsPersist: humanDecisionPersist,
+});
+const humanDecisionNamespace = await humanDecisionMf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
 const ownerDecisionEnv = {
   ...controlEnv,
   STRATEGY_SWITCH_CONFIG: ownerDecisionKv,
   ALLOWED_GITHUB_LOGINS: "owner-admin,owner-reader",
   STRATEGY_SWITCH_ADMIN_LOGINS: "owner-admin",
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: humanDecisionNamespace,
 };
 const ownerAdminCookie = await __test.makeSession("owner-admin", [], ownerDecisionEnv);
 const ownerReaderCookie = await __test.makeSession("owner-reader", [], ownerDecisionEnv);
@@ -2857,6 +2690,7 @@ const recoveryEnv = {
   RECONCILIATION_RECOVERY_SYNC_TOKEN: recoverySyncValue,
   RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: recoveryControllerValue,
   STRATEGY_SWITCH_CONFIG: recoveryKv,
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: humanDecisionNamespace,
 };
 const recoveryAdminCookie = await __test.makeSession("recovery-admin", [], recoveryEnv);
 const recoveryReaderCookie = await __test.makeSession("recovery-reader", [], recoveryEnv);
@@ -3158,8 +2992,9 @@ const initialRiskProfiles = await worker.fetch(
   new Request("https://switch.example/api/risk-profiles", { headers: riskAdminHeaders }),
   riskProfileEnv,
 );
-assert.equal(initialRiskProfiles.status, 200);
-assert.deepEqual((await initialRiskProfiles.json()).bindings, []);
+assert.equal(initialRiskProfiles.status, 503);
+assert.equal((await initialRiskProfiles.json()).reason, "runtime_instances_not_bound");
+assert.equal(riskProfileStore.has("risk_profile_bindings"), false);
 
 const riskProfileWrite = await worker.fetch(
   new Request("https://switch.example/api/risk-profiles", {
@@ -3171,17 +3006,9 @@ const riskProfileWrite = await worker.fetch(
   }),
   riskProfileEnv,
 );
-assert.equal(riskProfileWrite.status, 200);
-const riskProfileWritePayload = await riskProfileWrite.json();
-assert.equal(riskProfileWritePayload.no_order, true);
-assert.equal(riskProfileWritePayload.execution_authority_granted, false);
-assert.equal(riskProfileWritePayload.bindings[0].scope_id, "longbridge--sg");
-assert.equal(riskProfileWritePayload.bindings[0].profile_selection.schema, "qsl.risk_profile_selection.v1");
-assert.equal(riskProfileWritePayload.bindings[0].profile_selection.profile_id, "balanced_compounding_v1");
-assert.equal(riskProfileWritePayload.bindings[0].profile_selection.risk_preference, "BALANCED_COMPOUNDING");
-assert.match(riskProfileWritePayload.bindings[0].profile_selection.selection_sha256, /^[0-9a-f]{64}$/);
-assert.match(riskProfileWritePayload.bindings[0].binding_sha256, /^[0-9a-f]{64}$/);
-assert.equal(riskProfileStore.has("risk_profile_bindings"), true);
+assert.equal(riskProfileWrite.status, 503);
+assert.equal((await riskProfileWrite.json()).error, "runtime_instances_not_bound");
+assert.equal(riskProfileStore.has("risk_profile_bindings"), false);
 assert.equal((await worker.fetch(
   new Request("https://switch.example/api/risk-profiles", { headers: riskReaderHeaders }),
   riskProfileEnv,
@@ -3209,16 +3036,7 @@ const crossOriginRiskProfileWrite = await worker.fetch(
   riskProfileEnv,
 );
 assert.equal(crossOriginRiskProfileWrite.status, 403);
-
-const tamperedRiskRegistry = JSON.parse(riskProfileStore.get("risk_profile_bindings"));
-tamperedRiskRegistry.bindings[0].profile_selection.risk_preference = "GROWTH_COMPOUNDING";
-riskProfileStore.set("risk_profile_bindings", JSON.stringify(tamperedRiskRegistry));
-const tamperedRiskProfileRead = await worker.fetch(
-  new Request("https://switch.example/api/risk-profiles", { headers: riskAdminHeaders }),
-  riskProfileEnv,
-);
-assert.equal(tamperedRiskProfileRead.status, 409);
-assert.equal((await tamperedRiskProfileRead.json()).reason, "risk_profile_bindings_invalid");
+assert.equal(riskProfileStore.has("risk_profile_bindings"), false);
 
 const directRiskProfileBindings = await __test.buildRiskProfileBindings(
   { bindings: [{ platform: "schwab", target_name: "default", risk_preference: "CAPITAL_PRESERVATION" }] },
@@ -3749,7 +3567,6 @@ assert.equal(researchTaskReadPayload.summary.task_count, 1);
 assert.equal(researchTaskReadPayload.tasks[0].task.task_id, researchTask.task_id);
 assert.equal(researchTaskReadPayload.policy.no_order, true);
 
-assert.ok(indexHtml.includes('requestJson("/api/research-tasks")'));
 
 // Research promotion tickets: sync QPK-shaped awaiting_human tickets, prefill
 // suggested_risk_profile on accept, and never grant live authority.
@@ -3774,6 +3591,7 @@ const researchPromotionEnv = {
   STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(strategyProfiles),
   ALLOWED_GITHUB_LOGINS: "promo-admin",
   STRATEGY_SWITCH_ADMIN_LOGINS: "promo-admin",
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: humanDecisionNamespace,
 };
 const researchPromotionAdminCookie = await __test.makeSession("promo-admin", [], researchPromotionEnv);
 const researchPromotionAdminHeaders = {
@@ -4501,30 +4319,10 @@ const promotionFetchMissing = await worker.fetch(
 );
 assert.equal(promotionFetchMissing.status, 404);
 
-assert.ok(indexHtml.includes('id="promotion-ticket-select"'));
 assert.equal(indexHtml.includes('id="promotion-execution-mode-select"'), false);
-assert.ok(indexHtml.includes('id="promotion-execution-mode-readonly"'));
-assert.ok(indexHtml.includes('id="promotion-target-platform-select"'));
-assert.ok(indexHtml.includes('id="promotion-broker-environment-select"'));
-assert.ok(indexHtml.includes('id="promotion-selected-account-select"'));
 assert.equal(indexHtml.includes('id="promotion-application-select"'), false);
 assert.equal(indexHtml.includes('id="promotion-application-account-select"'), false);
-assert.ok(indexHtml.includes('id="promotion-application-status"'));
-assert.ok(indexHtml.includes('function renderPromotionApplicationPreparation()'));
 assert.equal(indexHtml.includes('hint.split(/\\s+/).includes("paper")'), false);
-assert.ok(indexHtml.includes('requestJson("/api/research-promotion-tickets")'));
-assert.ok(indexHtml.includes('function promotionTicketDetailMessage(ticket)'));
-assert.ok(indexHtml.includes('promotionTicketEvidenceKind'));
-assert.ok(indexHtml.includes('promotionTicketParams'));
-assert.ok(indexHtml.includes('promotionTicketNotification'));
-assert.ok(indexHtml.includes('ticket.notification_body'));
-assert.ok(indexHtml.includes('ticket.shadow_evidence_kind'));
-assert.ok(indexHtml.includes('ticket.proposed_params'));
-assert.ok(indexHtml.includes('id="promotion-research-summary"'));
-assert.ok(indexHtml.includes('id="promotion-click-effect"'));
-assert.ok(indexHtml.includes('function promotionResearchSummaryMessage(ticket)'));
-assert.ok(indexHtml.includes('research_summary'));
-assert.ok(indexHtml.includes('textContent = promotionResearchSummaryMessage(ticket)'));
 
 
 // M0 is a closed, read-only research ingress.  These assertions intentionally
@@ -4885,4 +4683,5 @@ const oldControlTokenAccepted = await validationIngress(controlSourcePayload, {
 });
 assert.equal(oldControlTokenAccepted.response.status, 200, "existing control-plane publishers remain supported");
 
+await humanDecisionMf.dispose();
 await import("./binance_private_scope_worker_validation.mjs");

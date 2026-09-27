@@ -42,7 +42,7 @@ platform-config.json  (single source of truth)
   Python scripts      (validation, code generation, deployment tooling)
        |
        v
-  Generated assets    (config.js, page_asset.js, strategy_profiles_asset.js)
+  Generated assets    (config.js, strategy_profiles_asset.js)
        |
        v
   Web application     (Cloudflare Worker + frontend SPA)
@@ -65,9 +65,7 @@ platform-config.json  (single source of truth)
 │   │   ├── build_runtime_switch.py      # Build transient runtime targets
 │   │   ├── runtime_settings.py          # Core validation & assignment engine
 │   │   ├── check_internal_dependency_matrix.py
-│   │   ├── gate_codex_app_review.py     # PR merge gate
-│   │   ├── inject_platform_config.py    # Inject config into index.html
-│   │   └── sync_strategy_switch_page_asset.py
+│   │   └── gate_codex_app_review.py     # PR merge gate
 │   ├── tests/                           # Python unit tests
 │   │   ├── test_runtime_settings.py
 │   │   └── test_internal_dependency_matrix.py
@@ -77,14 +75,10 @@ platform-config.json  (single source of truth)
 ├── web/                                 # JavaScript web application
 │   └── strategy-switch-console/         # Cloudflare Workers app
 │       ├── worker.js                    # Worker backend (OAuth, routing, KV)
-│       ├── index.html                   # SPA shell
-│       ├── app.js                       # Frontend JavaScript
-│       ├── app.css                      # Frontend styles
+│       ├── frontend/                    # React daily pages
+│       ├── v2_asset_map.js              # Versioned frontend bundle map
 │       ├── config.js                    # Generated: Platform config constants
-│       ├── page_asset.js                # Generated: Embedded index.html
 │       ├── strategy_profiles_asset.js   # Generated: Strategy catalog
-│       ├── app_css.js                   # Generated: Embedded styles
-│       ├── app_js.js                    # Generated: Embedded JS
 │       └── wrangler.toml.example        # Cloudflare Workers config template
 │
 ├── schemas/                             # Shared JSON Schema (consumed by both)
@@ -130,12 +124,10 @@ The `python/` directory contains all Python code, organized as a self-contained 
 
 | Script | Purpose |
 |--------|---------|
-| `build_config.py` | Full pipeline: validate config, generate strategy profiles, inject into index.html |
-| `build_platform_config.py` | Generate `config.js` (ES module) from `platform-config.json` |
+| `build_config.py` | Validate config and run the platform catalog generator |
+| `build_platform_config.py` | Generate `config.js` and the strategy catalog from `platform-config.json` |
 | `runtime_settings.py` | Core engine: validate targets, render variables, apply via `gh` CLI |
 | `build_runtime_switch.py` | Build transient runtime targets for manual strategy switch |
-| `inject_platform_config.py` | Inject platform config globals into `index.html` |
-| `sync_strategy_switch_page_asset.py` | Embed HTML/JSON as ES module assets for Worker deployment |
 
 **Dependency boundary:** Python scripts consume `schemas/runtime-target.schema.json`, `platform-config.json`, and write to `web/strategy-switch-console/`. They do **not** depend on the JavaScript code.
 
@@ -143,18 +135,18 @@ The `python/` directory contains all Python code, organized as a self-contained 
 
 ## Tier 3: Web Application (`web/`)
 
-A Cloudflare Workers-based strategy switch console. Built with vanilla JS (no framework) and deployed via Wrangler.
+A Cloudflare Workers-based strategy switch console. The daily pages are the React app in `frontend/`, and the Worker is deployed via Wrangler.
 
 **Key files:**
 
 | File | Role |
 |------|------|
 | `worker.js` | Backend: OAuth, session management, config serving, switch dispatch, KV caching |
-| `index.html` | SPA shell with bilingual (zh/en) UI, platform selection, strategy configuration |
-| `app.js` | Frontend form logic, i18n, summary panel |
-| `config.js` (generated) | Platform config constants consumed by both frontend and worker |
+| `frontend/` | React pages for overview, accounts, and decisions |
+| `v2_asset_map.js` | Versioned CSS and JS bundle served by the Worker |
+| `config.js` (generated) | Platform config constants consumed by the frontend and worker |
 
-**Dependency boundary:** The web app consumes generated assets (`config.js`, `page_asset.js`) and reads `platform-config.json` indirectly via the Worker API. It does **not** depend on Python scripts at runtime.
+**Dependency boundary:** The web app consumes generated assets (`config.js`, `strategy_profiles_asset.js`) and reads `platform-config.json` indirectly via the Worker API. It does **not** depend on Python scripts at runtime.
 
 ---
 

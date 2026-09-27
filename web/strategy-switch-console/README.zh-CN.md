@@ -45,7 +45,7 @@ IBKR Gateway 是独立的连接/会话辅助组件；QMT 是尚未配置券商�
 
 - `platform-config.json` 的 `platforms` 是网站平台目录的来源：名称、标识、颜色、仓库、默认账户与能力在此配置；菜单顺序沿用配置中的平台顺序。
 - 只需隐藏已接入平台时，在部署配置中修改 `STRATEGY_SWITCH_HIDDEN_PLATFORMS`（逗号分隔）；例如 `qmt` 隐藏 QMT，空字符串显示全部。隐藏不是停用交易，不删除账户或适配器。
-- 修改目录后先运行 `python3 python/scripts/build_platform_config.py`（catalog/config 唯一来源），再运行 `python3 python/scripts/sync_strategy_switch_page_asset.py`（仅打包 HTML/CSS/JS），通过测试后部署网站。不要手改生成的 `config.js` / `strategy_profiles_asset.js`。
+- 修改目录后运行 `python3 python/scripts/build_platform_config.py`，通过测试后部署网站。不要手改生成的 `config.js` / `strategy_profiles_asset.js`。控制台页面是 `frontend/` 里的 React 应用。
 - 前后端使用同一发布版本的目录；不再从远端 main 临时拼入平台。全新券商仍须先接入适配器及对应能力，不能只增加菜单就视为可交易。
 
 ## 操作台模型
@@ -211,19 +211,13 @@ validator。来源已标为 stale 的观测不会因读取而被提升为 fresh�
 ## 文件结构
 
 ```text
-index.html
+frontend/
 worker.js
-page_asset.js
+v2_asset_map.js
 wrangler.toml.example
 ```
 
-`worker.js` 会通过 `page_asset.js` 发布 `web/strategy-switch-console/index.html`，并通过 `strategy_profiles_asset.js` 提供兜底 live-enabled 策略目录。改完页面或 `strategy-profiles.example.json` 后运行：
-
-```bash
-python3 scripts/sync_strategy_switch_page_asset.py
-```
-
-这会重新生成 `web/strategy-switch-console/page_asset.js` 和 `web/strategy-switch-console/strategy_profiles_asset.js`。部署 Worker 时需要同时带上 `worker.js`、`page_asset.js` 和 `strategy_profiles_asset.js`。
+`worker.js` 发布 React 控制台（`v2_asset_map.js`），并通过 `strategy_profiles_asset.js` 提供策略目录。目录由 `python3 python/scripts/build_platform_config.py` 生成。
 
 `runtime-catalog-projection.json` 同样由 `platform-config.json` 生成，并用来源 SHA-256
 防止已提交的目录资产陈旧。登录后的 `GET /api/runtime-catalog` 只返回这个**配置门禁**
@@ -383,7 +377,7 @@ Shadow、修改 runtime 或产生订单。
 新增或重命名策略 profile 时，需要同时做这些事：
 
 - 在 `strategy-profiles.example.json` 增加 runtime-enabled profile id 和显示名称。
-- 运行 `python3 python/scripts/build_platform_config.py` 重新生成 `strategy_profiles_asset.js` / `config.js`；`sync_strategy_switch_page_asset.py` 只打包页面资源。
+- 运行 `python3 python/scripts/build_platform_config.py` 重新生成 `strategy_profiles_asset.js` / `config.js`。
 - 给每个策略 profile 设置 `domain`。当前支持 `us_equity`、`hk_equity` 和 `cn_equity`。
 - 在 `account-options.example.json` 和已部署的 KV 账号配置里更新对应账号的 `supported_domains`。策略 profile 通过 GitHub 变量的策略切换工作流进行管理。
 - LongBridge 和 IBKR 账号默认写 `["us_equity", "hk_equity"]`，除非你明确要把某个账号限制成单市场。

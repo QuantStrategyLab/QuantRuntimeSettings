@@ -8,8 +8,7 @@ Usage:
 Adds/modifies:
     web/strategy-switch-console/strategy-profiles.example.json
     web/strategy-switch-console/strategy_profiles_asset.js
-    web/strategy-switch-console/page_asset.js  (via sync script)
-    platforms CSS block for index.html
+    web/strategy-switch-console/config.js
 """
 
 from __future__ import annotations
@@ -1217,21 +1216,11 @@ def inject_into_index_html(config: dict) -> None:
 
 
 def run_sync_script() -> None:
-    """Run the existing sync script to regenerate page_asset.js + strategy_profiles_asset.js."""
+    """Regenerate the platform catalog. Private strategy eligibility stays in that generator."""
     build_platform_config_script = ROOT / "python" / "scripts" / "build_platform_config.py"
     if build_platform_config_script.exists():
         subprocess.run([sys.executable, str(build_platform_config_script)], cwd=ROOT, check=True)
         print("  Ran build_platform_config.py")
-    inject_platform_config_script = ROOT / "python" / "scripts" / "inject_platform_config.py"
-    if inject_platform_config_script.exists():
-        subprocess.run([sys.executable, str(inject_platform_config_script)], cwd=ROOT, check=True)
-        print("  Ran inject_platform_config.py")
-    sync_script = ROOT / "python" / "scripts" / "sync_strategy_switch_page_asset.py"
-    if sync_script.exists():
-        subprocess.run([sys.executable, str(sync_script)], cwd=ROOT, check=True)
-        print("  Ran sync_strategy_switch_page_asset.py")
-    else:
-        print("  WARNING: sync script not found")
 
 
 def main() -> int:
@@ -1286,10 +1275,6 @@ def main() -> int:
     strategies = strategy_to_json_compat(config["strategies"])
     write_strategy_profiles(strategies)
 
-    # Inject into index.html
-    inject_into_index_html(config)
-
-    # Run sync script
     run_sync_script()
 
     print("\nBuild complete. Run `git diff` to review changes.")

@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
-import { runInNewContext } from "node:vm";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
 const account = { key: "synthetic", target_name: "synthetic", label: "Synthetic",
@@ -91,44 +90,21 @@ try {
   assert.equal(result.status, 502);
   assert.equal((await result.text()).includes("synthetic-private-provider-error"), false);
 
-  const app = readFileSync(new URL("../web/strategy-switch-console/app.js", import.meta.url), "utf8");
-  const digestStart = app.indexOf("    function binanceResumeDigest() {");
-  const digestEnd = app.indexOf("\n    function ", digestStart + 1);
-  for (const sample of [
-    { selected: "binance", allowed: true, configSource: "private", enabled: false, expected: digest },
-    { selected: "ibkr", allowed: true, configSource: "private", enabled: false, expected: "" },
-    { selected: "binance", allowed: false, configSource: "private", enabled: false, expected: "" },
-    { selected: "binance", allowed: true, configSource: "loading", enabled: false, expected: "" },
-    { selected: "binance", allowed: true, configSource: "private", enabled: true, expected: "" },
-    { selected: "binance", allowed: true, configSource: "private", expected: "" },
-  ]) {
-    const value = runInNewContext(`${app.slice(digestStart, digestEnd)}\n binanceResumeDigest();`, {
-      state: { selected: sample.selected, auth: { allowed: sample.allowed }, configSource: sample.configSource },
-      currentEntryForAccount: () => ({ runtime_target_enabled: sample.enabled, binance_resume_target_sha256: digest }),
-      selectedAccount: () => account,
-    });
-    assert.equal(value, sample.expected);
-  }
-  const start = app.indexOf("    async function dispatchBinanceResume() {");
-  const end = app.indexOf("\n    async function ", start + 1);
-  assert.ok(start > 0 && end > start);
-  const uiSource = `${app.slice(start, end)}\n dispatchBinanceResume();`;
+  const { canResumeBinance, confirmationAccepted } = await import("../web/strategy-switch-console/frontend/src/operations.ts");
+  const resumeCurrent = { runtime_target_enabled: false, binance_resume_target_sha256: digest };
+  assert.equal(canResumeBinance("binance", account, resumeCurrent), true);
+  assert.equal(canResumeBinance("ibkr", account, resumeCurrent), false);
+  assert.equal(canResumeBinance("binance", account, { ...resumeCurrent, runtime_target_enabled: true }), false);
+  assert.equal(canResumeBinance("binance", account, { binance_resume_target_sha256: digest }), false);
+  assert.equal(canResumeBinance("binance", account, { ...resumeCurrent, binance_resume_target_sha256: "loading" }), false);
+  const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+  const resumeSource = app.slice(app.indexOf("const resumeBinance"), app.indexOf("const decideOwner"));
+  assert.ok(resumeSource.indexOf("confirmAction") < resumeSource.indexOf('postJson<any>("/api/runtime-resume"'));
+  assert.match(resumeSource, /confirm: "RESUME_EXISTING"/);
+  assert.match(resumeSource, /beginOnce\(key\)/);
   for (const [allowed, confirmed] of [[true, true], [true, false], [false, true]]) {
-    let calls = 0;
-    const lock = { pending: false };
-    const context = { state: { auth: { allowed }, selected: "binance", forms: { binance: { strategy: "unsaved-edit" } } },
-      binanceResumeLock: lock, selectedAccount: () => account, binanceResumeDigest: () => digest,
-      render: () => {}, t: (key) => key, showToast: () => {}, window: { confirm: () => confirmed, open: () => {} },
-      fetch: async (url, init) => {
-        calls++;
-        assert.equal(url, "/api/runtime-resume");
-        assert.deepEqual(JSON.parse(init.body), body);
-        throw new Error("synthetic-timeout");
-      } };
-    await runInNewContext(uiSource, context);
-    await runInNewContext(uiSource, context);
-    assert.equal(calls, allowed && confirmed ? 1 : 0);
-    assert.equal(lock.pending, allowed && confirmed);
+    assert.equal(allowed && confirmationAccepted(confirmed, digest, digest), allowed && confirmed);
   }
+  assert.equal(confirmationAccepted(true, digest, "changed"), false);
   console.log("Binance resume: exact identity, source, authentication, configuration-only dispatch and UI no-retry checks passed");
 } finally { globalThis.fetch = originalFetch; }

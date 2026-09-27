@@ -178,16 +178,16 @@ git push main
   │
   └─→ deploy-strategy-switch-console.yml（platform-config.json 变更时触发）
       ├── build_config.py（重新生成）
-      ├── sync_strategy_switch_page_asset.py（同步）
+      ├── build_platform_config.py（生成目录）
       ├── validate（同上）
       └── wrangler deploy（Clouderflare Worker 部署）
 ```
 
 ## 禁止事项
 
-- ❌ **禁止**在 `index.html` 或 `worker.js` 中硬编码平台名称/颜色/仓库
-- ❌ **禁止**在 `index.html` 中硬编码 `defaultAccountOptions`/`defaultRepositories`/`platformMeta`
-- ❌ **禁止**手动编辑 `strategy_profiles_asset.js` 或 `page_asset.js`（由构建脚本生成）
+- ❌ **禁止**在 `frontend/src` 或 `worker.js` 中硬编码平台名称/颜色/仓库
+- ❌ **禁止**在前端源码中硬编码 `defaultAccountOptions`/`defaultRepositories`/`platformMeta`
+- ❌ **禁止**手动编辑 `strategy_profiles_asset.js` 或 `config.js`（由构建脚本生成）
 - ❌ **禁止**跳过 `build_config.py --check` 步骤直接部署
 - ✅ 所有平台/策略/域的新增和修改，必须在 `platform-config.json` 中完成
 

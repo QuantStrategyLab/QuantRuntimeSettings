@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
-import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, Source, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson } from "./api";
+import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, UxDraft } from "./api";
+import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
-import { applicationRetryAllowed, buildConfirmationFingerprint, buildHomeAttention, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisStatusKey, diagnosisUserSummary, ownerDecisionBinding, pageFromWorkspace, promotionAiExplanation, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
-import { DCA_SUPPORTED_PLATFORMS, DOMAIN_LABELS, PLATFORM_CONFIG } from "../../config.js";
-import { formatAccountCount, LocaleContext, renderLocaleMessage, translate, useLocale, useT, type Language, type LocaleMessage } from "./locales";
+import { applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
+import { PLATFORM_CONFIG } from "../../config.js";
+import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
+import { AccountsPage, type AccountListItem } from "./AccountsPage";
+import { DecisionsPage } from "./DecisionsPage";
+import { OverviewPage, type OverviewAccount } from "./OverviewPage";
+import { accountDisplayTitle, accountStatusView, activationFromProjection, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationReady, strategyDisplayName, strategyNote, type DailyDecision } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -24,6 +28,7 @@ type ConfirmDialogState = {
     summary: string;
     consequence: string;
     tone: "normal" | "danger";
+    confirmLabel?: string;
     fingerprint: string;
 };
 const NAV: Array<{
@@ -34,7 +39,6 @@ const NAV: Array<{
     { id: "accounts", label: "账户设置" },
 ];
 const RISK_PROFILES = ["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"];
-const PROMOTION_RISK = ["CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"];
 const platformSettings = PLATFORM_CONFIG as Record<string, any>;
 const ACCOUNT_PLAN_SUBMISSION_AVAILABLE = false;
 const emptyUxDraft = (): UxDraft => ({ draft: { objective: "one_step_net_log_score", research_case_id: "r8_first_dynamic_2023_03_29", advanced_settings: {} }, revision: 0, preview: null, intent: null });
@@ -54,19 +58,6 @@ function safeSet(key: string, value: string): void {
 }
 function copy(key: string, values: Record<string, string | number | LocaleMessage> = {}): LocaleMessage { return {key,values}; }
 function initialLanguage(): Language { const stored = safeGet("qsl-switch-lang"); return stored === "zh" || stored === "en" ? stored : "zh"; }
-function stamp(value: string | null | undefined, language: Language = "zh"): string {
-    if (!value)
-        return translate("未提供", language);
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? translate("时间不可用", language) : new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(d);
-}
-function sourceTime(value: any): string | null { return value?.computed_at || value?.generated_at || value?.viewed_at || null; }
-function valueStatus(source: Source<any> | undefined): string {
-    if (source?.error)
-        return "读取失败";
-    const status = source?.value?.data_status;
-    return ({ ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "状态未知" } as Record<string, string>)[String(status || "")] || "未提供";
-}
 function displayStatus(value: unknown, _translate?: (key: string) => string): string {
     const labels: Record<string, string> = { observed: "已收到心跳", healthy: "运行状态可供核对", live: "执行（live）", ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "结果待确认", active: "运行中", paused: "已暂停", disabled: "已停用", enabled: "已启用", monitoring_only: "仅监测", not_due: "等待检查周期", attention: "需要核对", failed: "未完成", succeeded: "已完成", queued: "排队中", running: "处理中", approved: "请求已批准", rejected: "已明确拒绝", claimed: "已领取处理中", pending: "等待提交", sent: "已提交", fixed: "固定金额", current: "保持现状", none: "不启用", auto: "自动选择", smart: "智能定投", ratio: "比例", floor: "固定金额下限", max: "金额与比例取较大值", paper: "模拟账户环境", dry_run: "禁止下单验证", ready_to_apply: "可供核对" };
     const label = labels[String(value || "")];
@@ -76,16 +67,8 @@ function decisionLabel(value: unknown, t: (key: string) => string): string {
     const labels: Record<string, string> = { approve_limited_live_canary: "有限执行观察", keep_parked: "保持暂停", retire_candidate: "退役候选", accepted: "已接受", rejected: "已明确拒绝", keep: "保持现状" };
     return labels[String(value || "")] ? t(labels[String(value)]) : t("状态未知");
 }
-function riskLabel(value: string, t: (key: string) => string): string {
-    const labels: Record<string, string> = { CAPITAL_PRESERVATION: "保护资本", BALANCED_COMPOUNDING: "均衡复利", GROWTH_COMPOUNDING: "增长复利" };
-    return labels[value] ? t(labels[value]) : t("状态未知");
-}
 function brokerEnvironment(value: unknown, t: (key: string) => string): string {
     return value === "paper" ? t("模拟账户环境") : value === "live" ? t("真实账户环境") : t("状态未知");
-}
-function domainLabel(value: unknown, t: (key: string) => string): string {
-    const label = (DOMAIN_LABELS as Record<string, { zh: string; en: string }>)[String(value || "")];
-    return label ? t(label.zh) : t("状态未知");
 }
 function executionMode(value: unknown, t: (key: string) => string): string {
     return value === "live" ? t("执行（live）") : value === "dry_run" ? t("执行（dry_run）") : value === "paper" ? t("执行（paper）") : t("状态未知");
@@ -111,50 +94,34 @@ function makeRows(model: ReadModel | null): AccountRow[] {
     if (!config?.accountOptions || !config.platformMeta)
         return [];
     const rows: AccountRow[] = [];
+    const monitoringUses = new Map<string, number>();
+    for (const [platform, accounts] of Object.entries(config.accountOptions)) {
+        if (!Array.isArray(accounts))
+            continue;
+        for (const account of accounts) {
+            const reference = typeof account?.runtime_status_target_id === "string" ? account.runtime_status_target_id : "";
+            if (!reference)
+                continue;
+            const link = `${platform}:${reference}`;
+            monitoringUses.set(link, (monitoringUses.get(link) || 0) + 1);
+        }
+    }
     for (const [platform, accounts] of Object.entries(config.accountOptions)) {
         const meta = config.platformMeta[platform];
         if (!meta || meta.console_visible === false || !Array.isArray(accounts))
             continue;
         for (const account of accounts) {
-            const hits = (runtime?.targets || []).filter((record: any) => record?.target?.target_id === account.runtime_status_target_id && record?.target?.target?.platform === platform);
-            rows.push({ id: `${platform}:${account.key}`, platform, platformLabel: meta.label || platform, account, current: currentFor(config, platform, account), runtime: hits.length === 1 ? hits[0] : null });
+            const reference = typeof account?.runtime_status_target_id === "string" ? account.runtime_status_target_id : "";
+            const hits = (runtime?.targets || []).filter((record: any) => record?.target?.target_id === reference && record?.target?.target?.platform === platform);
+            const unique = Boolean(reference) && hits.length === 1 && monitoringUses.get(`${platform}:${reference}`) === 1;
+            rows.push({ id: `${platform}:${account.key}`, platform, platformLabel: meta.label || platform, account, current: currentFor(config, platform, account), runtime: unique ? hits[0] : null });
         }
     }
     return rows;
 }
-function statusFor(row: AccountRow, snapshotStatus?: string) {
-    const freshness = row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || snapshotStatus;
-    if (!row.runtime || freshness !== "ready")
-        return { label: freshness === "stale" ? "读回过期" : "等待运行检查", tone: "unknown", detail: "尚无足够读回确认运行状态。" };
-    const observation = row.runtime.execution_observation?.code;
-    const dep = row.runtime.target.deployment;
-    if (observation === "attention" || row.runtime.target.disposition?.code === "parked")
-        return { label: "需要核对", tone: "attention", detail: "监测记录要求核对。" };
-    if (row.runtime.target.target.configured_state === "disabled" || observation === "not_applicable")
-        return { label: "按配置停用", tone: "paused", detail: "状态来自运行读回；不代表在途订单已处理。" };
-    if (dep?.scheduler_state === "paused" || dep?.scheduler_state === "missing" || observation === "unavailable")
-        return { label: "状态未确认", tone: "unknown", detail: "运行检查不足以确认调度状态。" };
-    if (observation === "monitoring_only" || observation === "not_due")
-        return { label: observation === "not_due" ? "等待检查周期" : "监测可用", tone: "healthy", detail: "监测可用不代表有成交或账务核实。" };
-    return { label: "状态未确认", tone: "unknown", detail: "现有读回不足以确认运行状态。" };
+function Empty({ title, detail }: { title: string; detail: string }) {
+    return <div className="empty-state"><strong>{title}</strong><p>{detail}</p></div>;
 }
-function OptionList({ values, value, onChange, labels = {} }: {
-    values: string[];
-    value: string;
-    onChange: (v: string) => void;
-    labels?: Record<string, string>;
-}) {
-    const t = useT();
-    return <select value={value} onChange={e => onChange(e.target.value)}>{values.map(item => <option key={item} value={item}>{labels[item] || t(displayStatus(item))}</option>)}</select>;
-}
-function Empty({ title, detail }: {
-    title: string;
-    detail: string;
-}) { return <div className="empty-state"><strong>{title}</strong><p>{detail}</p></div>; }
-function DetailTime({ title, value }: {
-    title: string;
-    value?: string | null;
-}) { const language = useLocale(); return <small className="source-time">{title}：{stamp(value, language)}</small>; }
 function QslIcon({ className = "brand-mark" }: {
     className?: string;
 }) { return <img className={className} src="/v2/assets/qsl-brand-icon.png" alt="" aria-hidden="true"/>; }
@@ -169,30 +136,33 @@ function App() {
     const [model, setModel] = useState<ReadModel | null>(null);
     const [adminModel, setAdminModel] = useState<AdminModel | null>(null);
     const [bootState, setBootState] = useState<"loading" | "ready" | "denied" | "error">("loading");
-    const [refreshing, setRefreshing] = useState(false);
+    const [, setRefreshing] = useState(false);
     const [errorMessage, setErrorMessage] = useState<LocaleMessage | null>(null);
     const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
-    const [selectedId, setSelectedId] = useState("");
+    const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get("account") || "");
+    const [accountDetailOpen, setAccountDetailOpen] = useState(() => Boolean(new URLSearchParams(window.location.search).get("account")));
+    const settingsDirty = useRef(false);
+    const [settingsEpoch, setSettingsEpoch] = useState(0);
+    const routeGuard = useRef({ url: `${window.location.pathname}${window.location.search}` });
+    const discardRef = useRef<() => Promise<boolean>>(async () => true);
     const [switchDrafts, setSwitchDrafts] = useState<Record<string, SwitchDraft>>({});
-    const [filter, setFilter] = useState("all");
-    const [search, setSearch] = useState("");
-    const [healthFilter, setHealthFilter] = useState("attention");
     const [uxDraft, setUxDraft] = useState<UxDraft>(emptyUxDraft());
     const [uxDirty, setUxDirty] = useState(false);
-    const [uxBusy, setUxBusy] = useState(false);
-    const [uxError, setUxError] = useState<LocaleMessage | null>(null);
-    const [uxCompare, setUxCompare] = useState(false);
+    const [, setUxBusy] = useState(false);
+    const [, setUxError] = useState<LocaleMessage | null>(null);
     const [busy, setBusy] = useState<Busy>({});
     const [diagnosis, setDiagnosis] = useState<Record<string, any>>({});
+    const [stopRecords, setStopRecords] = useState<Record<string, any>>({});
     const [promotionTicketId, setPromotionTicketId] = useState("");
     const [promotionAccountId, setPromotionAccountId] = useState("");
-    const [promotionRisk, setPromotionRisk] = useState("CAPITAL_PRESERVATION");
+    const [promotionRisk] = useState("CAPITAL_PRESERVATION");
     const [adminRisk, setAdminRisk] = useState<Record<string, string>>({});
     const [adminText, setAdminText] = useState<Record<string, string>>({});
     const [instanceDraft, setInstanceDraft] = useState<Record<string, any>>({});
     const [editingInstance, setEditingInstance] = useState<string | null>(null);
     const gate = useRef(createRequestGate());
-    const switchLocks = useRef(new Set<string>());
+    const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
+    const switchLocks = useRef(createUnknownSubmitLock());
     const onceLocks = useRef(createRequestLock());
     const uxEditEpoch = useRef(0);
     const confirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
@@ -234,6 +204,8 @@ function App() {
         setAdminModel(null);
         setSwitchDrafts({});
         setDiagnosis({});
+        hkStops.current = new Map();
+        setStopRecords({});
         setUxDraft(emptyUxDraft());
         setUxDirty(false);
         setUxBusy(false);
@@ -397,9 +369,59 @@ function App() {
         }, 3000);
         return () => { alive = false; window.clearInterval(timer); };
     }, [model?.session.allowed, page, active?.id, diagnosis[active?.id || ""]?.task?.status, diagnosis[active?.id || ""]?.task?.recheck_status, diagnosis[active?.id || ""]?.available]);
-    const setPageAndRoute = (next: Page) => { setAdminPath(false); setPage(next); const url = next === "overview" ? "/" : `/?workspace=${next === "strategy" ? "research" : next}`; window.history.pushState({ page: next }, "", url); };
-    useEffect(() => { const pop = () => { setAdminPath(window.location.pathname === "/admin"); const w = new URLSearchParams(window.location.search).get("workspace"); setPage(pageFromWorkspace(w)); }; window.addEventListener("popstate", pop); return () => window.removeEventListener("popstate", pop); }, []);
-    const enterAdmin = () => { setAdminPath(true); window.history.pushState({ admin: true }, "", "/admin"); };
+    const setPageAndRoute = (next: Page, accountId?: string) => {
+        setAdminPath(false);
+        setPage(next);
+        if (accountId) {
+            setSelectedId(accountId);
+            setAccountDetailOpen(true);
+        }
+        const params = new URLSearchParams();
+        if (next !== "overview") params.set("workspace", next === "strategy" ? "research" : next);
+        const account = next === "accounts" ? (accountId || selectedId) : "";
+        if (account) params.set("account", account);
+        const query = params.toString();
+        const url = query ? `/?${query}` : "/";
+        window.history.pushState({ page: next, account }, "", url);
+        routeGuard.current.url = url;
+    };
+    const discardUnsaved = async () => {
+        if (!settingsDirty.current) return true;
+        const accepted = await confirmAction({ title: t("放弃未保存的风险偏好？"), target: active?.account.label || t("账户"), summary: t("未保存的风险偏好会丢弃。"), consequence: t("未保存的风险偏好会丢弃。"), tone: "normal" });
+        if (!accepted) return false;
+        settingsDirty.current = false;
+        setSettingsEpoch(value => value + 1);
+        return true;
+    };
+    discardRef.current = discardUnsaved;
+    const applyLocation = () => {
+        setAdminPath(window.location.pathname === "/admin");
+        const params = new URLSearchParams(window.location.search);
+        setPage(pageFromWorkspace(params.get("workspace")));
+        const account = params.get("account") || "";
+        if (account) setSelectedId(account);
+        setAccountDetailOpen(Boolean(account));
+        routeGuard.current.url = `${window.location.pathname}${window.location.search}`;
+    };
+    useEffect(() => {
+        const pop = () => {
+            const nextUrl = `${window.location.pathname}${window.location.search}`;
+            const previousUrl = routeGuard.current.url;
+            if (!settingsDirty.current) {
+                applyLocation();
+                return;
+            }
+            window.history.pushState({ guard: true }, "", previousUrl);
+            void discardRef.current().then(accepted => {
+                if (!accepted) return;
+                window.history.pushState({ guard: true }, "", nextUrl);
+                applyLocation();
+            });
+        };
+        window.addEventListener("popstate", pop);
+        return () => window.removeEventListener("popstate", pop);
+    }, []);
+    const enterAdmin = () => { void (async () => { if (!await discardRef.current()) return; setAdminPath(true); window.history.pushState({ admin: true }, "", "/admin"); routeGuard.current.url = "/admin"; })(); };
     const logout = async () => {
         clearPrivateState();
         try {
@@ -409,7 +431,6 @@ function App() {
         window.location.assign("/login");
     };
     const currentForm = (row: AccountRow | null): SwitchDraft | null => row ? switchDrafts[row.id] || defaultSwitchDraft(row.account, row.current, row.platform) : null;
-    const updateForm = (row: AccountRow, patch: Partial<SwitchDraft>) => setSwitchDrafts(prev => ({ ...prev, [row.id]: { ...currentForm(row)!, ...patch, touched: { ...currentForm(row)!.touched, ...(patch.touched || {}) } } }));
     const beginOnce = (key: string) => {
         if (!onceLocks.current.acquire(key))
             return false;
@@ -421,25 +442,99 @@ function App() {
             onceLocks.current.release(key);
         setBusy(prev => ({ ...prev, [key]: false }));
     };
+    const isHkStop = (row: AccountRow) => row.platform === "longbridge" && (row.account.target_name || row.account.key) === "hk";
+    const hkStopFor = (accountId: string) => {
+        let controller = hkStops.current.get(accountId);
+        if (!controller) {
+            controller = createHkStopController();
+            hkStops.current.set(accountId, controller);
+        }
+        return controller;
+    };
+    const publishHkStop = (accountId: string) => {
+        const controller = hkStops.current.get(accountId);
+        if (!controller) return;
+        setStopRecords(prev => ({ ...prev, [accountId]: controller.snapshot() }));
+    };
+    const refreshStopRecord = useCallback(async (row: AccountRow) => {
+        if (row.platform !== "longbridge" || (row.account.target_name || row.account.key) !== "hk")
+            return;
+        const controller = hkStopFor(row.id);
+        const token = controller.beginRead();
+        try {
+            const payload = await getJson<any>(runtimeStopQuery(row.platform, row.account.target_name || row.account.key));
+            controller.completeRead(token, payload);
+        }
+        catch {
+            controller.failRead(token);
+        }
+        publishHkStop(row.id);
+    }, []);
+    useEffect(() => {
+        if (!active || active.platform !== "longbridge" || (active.account.target_name || active.account.key) !== "hk")
+            return;
+        const accountId = active.id;
+        const controller = hkStopFor(accountId);
+        setStopRecords(prev => prev[accountId] ? prev : { ...prev, [accountId]: controller.snapshot() });
+        const token = controller.beginRead();
+        let cancelled = false;
+        void getJson<any>(runtimeStopQuery(active.platform, active.account.target_name || active.account.key))
+            .then(payload => { if (!cancelled) { controller.completeRead(token, payload); publishHkStop(accountId); } })
+            .catch(() => { if (!cancelled) { controller.failRead(token); publishHkStop(accountId); } });
+        return () => { cancelled = true; };
+    }, [active?.id, active?.platform, active?.account?.target_name, active?.account?.key]);
     const submitAccountPlan = async (row: AccountRow, stopOnly = false) => {
-        if (!model?.session.allowed || switchLocks.current.has(row.id))
+        if (!model?.session.allowed || switchLocks.current.blocked(row.id))
             return;
         const form = currentForm(row);
         if (!form)
             return;
         if (stopOnly || form.runtimeMode === "disabled") {
+            if (isHkStop(row) && !hkStopSubmitAllowed(stopRecords[row.id])) {
+                setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
+                return;
+            }
             if (!await confirmAction({ title: t("确认停用运行目标"), target: `${row.platformLabel} / ${row.account.label || row.account.key} · ${row.account.target_name || row.account.key}`, summary: t("当前策略：{strategy}", { strategy: row.current?.strategy_profile || form.strategy || t("未读取") }), consequence: t("停用只阻止新的触发，不会撤单、平仓或清除在途请求。"), tone: "danger" }))
                 return;
-            switchLocks.current.add(row.id);
+            let hkRequestId = "";
+            if (isHkStop(row)) {
+                hkRequestId = hkStopFor(row.id).beginSubmit();
+                publishHkStop(row.id);
+            }
+            else if (!beginNonHkStop(switchLocks.current, row.id, Boolean(model?.session.allowed), true))
+                return;
             setBusy(prev => ({ ...prev, [`stop:${row.id}`]: true }));
             try {
-                const result = await postJson<any>("/api/runtime-stop", { platform: row.platform, target_name: row.account.target_name || row.account.key, confirm: "STOP_ONLY" });
-                if (result.actions_url)
-                    window.open(result.actions_url, "_blank", "noopener,noreferrer");
-                setErrorMessage(copy("停用请求已提交；请核对现有 workflow 结果后再刷新，避免重复提交。"));
+                const result = await postJson<any>("/api/runtime-stop", {
+                    platform: row.platform,
+                    target_name: row.account.target_name || row.account.key,
+                    confirm: "STOP_ONLY",
+                    ...(hkRequestId ? { request_id: hkRequestId } : {}),
+                });
+                if (isHkStop(row)) {
+                    hkStopFor(row.id).completePost(result);
+                    publishHkStop(row.id);
+                    const phase = hkStopFor(row.id).snapshot().phase;
+                    if (phase === "rejected")
+                        setErrorMessage(copy("停用请求已被明确拒绝。"));
+                    else if (phase === "accepted")
+                        setErrorMessage(copy("工作流已接受，平台是否停用仍未确认。"));
+                    else
+                        setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
+                }
+                else {
+                    if (result.actions_url)
+                        window.open(result.actions_url, "_blank", "noopener,noreferrer");
+                    setErrorMessage(copy("停用请求已提交；请核对现有 workflow 结果后再刷新，避免重复提交。"));
+                }
             }
             catch (error) {
-                setErrorMessage(copy("停用结果未确认。请先检查现有 workflow，不要盲目重试。{detail}", {detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
+                if (isHkStop(row)) {
+                    await refreshStopRecord(row);
+                    setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
+                }
+                else
+                    setErrorMessage(copy("停用结果未确认。请先检查现有 workflow，不要盲目重试。{detail}", {detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
             }
             finally {
                 setBusy(prev => ({ ...prev, [`stop:${row.id}`]: false }));
@@ -457,7 +552,7 @@ function App() {
                 return;
             if (!beginOnce(`switch:${row.id}`))
                 return;
-            switchLocks.current.add(row.id);
+            switchLocks.current.hold(row.id);
             const result = await postJson<any>("/api/switch", body);
             if (result.actions_url)
                 window.open(result.actions_url, "_blank", "noopener,noreferrer");
@@ -492,63 +587,13 @@ function App() {
             finishOnce(key, false);
         }
     };
-    const saveUxDraft = async (expectedEditEpoch = uxEditEpoch.current): Promise<UxDraft> => {
-        const payload = await postJson<UxDraft>("/api/ux1/draft", { expected_revision: uxDraft.revision || 0, objective: uxDraft.draft?.objective, research_case_id: uxDraft.draft?.research_case_id, advanced_settings: uxDraft.draft?.advanced_settings || {} });
-        if (uxEditEpoch.current !== expectedEditEpoch)
-            throw new Error("草案在保存期间发生编辑；保留当前输入，请再次保存。");
-        setUxDraft(payload);
-        setUxDirty(false);
-        return payload;
-    };
-    const runUx = async (kind: "save" | "preview" | "intent") => {
-        if (!model?.session.allowed || uxBusy)
-            return;
-        setUxBusy(true);
-        setUxError(null);
-        const editEpoch = uxEditEpoch.current;
-        try {
-            if (kind === "save") {
-                await saveUxDraft(editEpoch);
-                return;
-            }
-            let current = uxDraft;
-            if (uxDirty || !current.revision)
-                current = await saveUxDraft(editEpoch);
-            if (kind === "preview") {
-                if (["queued", "running", "unknown"].includes(String(current.job?.status || "")))
-                    return;
-                const payload = await postJson<UxDraft>("/api/ux1/preview", { expected_revision: current.revision });
-                if (uxEditEpoch.current === editEpoch)
-                    setUxDraft(payload);
-                else
-                    setUxError(copy("草案已变更，未覆盖当前编辑。"));
-            }
-            else {
-                if (!currentResearchPreview(current as any) || current.preview_stale || !current.fingerprint)
-                    throw new Error("研究结果已失效或尚未就绪，不能保存意向。");
-                await postJson<UxDraft>("/api/ux1/intent", { expected_revision: current.revision, fingerprint: current.fingerprint });
-                const payload = await getJson<UxDraft>("/api/ux1/draft");
-                if (uxEditEpoch.current === editEpoch)
-                    setUxDraft(payload);
-            }
-        }
-        catch (error) {
-            if ((error as any)?.status === 409)
-                setUxError(copy("版本已变化。保留当前编辑；请刷新并核对后再保存。"));
-            else
-                setUxError(copy(requestErrorKey(error)));
-        }
-        finally {
-            setUxBusy(false);
-        }
-    };
     const decideOwner = async (candidate: Record<string, any>, decision: string) => {
         if (!model?.session.admin)
             return;
         const binding = ownerDecisionBinding({ ...candidate.candidate, candidate_evidence_sha256: candidate.candidate_evidence_sha256 }, decision);
         if (!binding)
             return;
-        if (!await confirmAction({ title: t("记录所有者决定"), target: String(candidate.candidate?.candidate_id || t("候选")), summary: t("决定：{decision} · 证据：{digest}", { decision: decisionLabel(decision, t), digest: candidate.candidate_evidence_sha256 }), consequence: t("仅记录人工决定，不会直接启用策略。"), tone: "normal" }))
+        if (!await confirmAction({ title: t("记录所有者决定"), target: String(candidate.candidate?.candidate_id || t("候选")), summary: t("决定：{decision} · 证据：{digest}", { decision: decisionLabel(decision, t), digest: candidate.candidate_evidence_sha256 }), consequence: t("仅记录人工决定，不会直接启用策略。"), tone: "normal", confirmLabel: decision === "keep_parked" ? "确认不采用" : "确认采用" }))
             return;
         const key = `owner:${candidate.candidate?.candidate_id}`;
         if (!beginOnce(key))
@@ -564,14 +609,18 @@ function App() {
             finishOnce(key);
         }
     };
-    const confirmRecovery = async (entry: Record<string, any>) => {
+    const confirmRecovery = async (entry: Record<string, any>, decision: "approve" | "reject" = "approve") => {
         if (!model?.session.admin)
             return;
-        const binding = recoveryBinding(entry);
+        const binding = recoveryBinding(entry, decision);
         if (!binding)
             return;
         const recovery = entry.recovery || {};
-        if (!await confirmAction({ title: t("记录恢复前核对"), target: `${recovery.platform || t("未知平台")} / ${recovery.target_name || t("目标未读到")} · ${binding.recovery_id}`, summary: t("恢复目标摘要：{digest} · 双审摘要：{reviewDigest}", { digest: binding.candidate_sha256, reviewDigest: binding.dual_review_binding_sha256 }), consequence: t("只记录当前双审证据核对，不会重启目标或下单。"), tone: "danger" }))
+        const plan = strategyDisplayName((model?.config.value?.strategyProfiles || []).find((profile: any) => profile?.profile === recovery.strategy_profile), language);
+        const planText = plan === "未命名策略" ? t(plan) : plan;
+        const accountLabel = knownAccountLabel(model?.config.value?.accountOptions, recovery.platform, recovery.target_name);
+        const summary = t(decision === "reject" ? "不采用这份恢复方案，账户不会因此启用" : "采用这份恢复方案只留下核对记录，账户不会因此启用");
+        if (!await confirmAction({ title: t(decision === "reject" ? "确认不采用这项方案？" : "确认采用这项方案？"), target: accountLabel ? `${accountLabel} · ${planText}` : planText, summary, consequence: summary, tone: "danger", confirmLabel: decision === "reject" ? "确认不采用" : "确认采用" }))
             return;
         const key = `recovery:${binding.recovery_id}`;
         if (!beginOnce(key))
@@ -587,148 +636,53 @@ function App() {
             finishOnce(key);
         }
     };
-    const rowsFiltered = rows.filter(row => {
-        const status = statusFor(row, model?.runtime.value?.data_status);
-        const matchesStatus = filter === "all" || (filter === "normal" && status.tone === "healthy") || (filter === "paused" && status.tone === "paused") || (filter === "abnormal" && ["attention", "unknown"].includes(status.tone));
-        const text = `${row.platformLabel} ${row.account.label} ${row.account.key} ${row.current?.strategy_profile || ""}`.toLowerCase();
-        return matchesStatus && text.includes(search.trim().toLowerCase());
-    });
-    const activeForm = currentForm(active);
-    const profileOptions = model?.config.value?.strategyProfiles || [];
-    const allowedProfiles = profileOptions.filter(profile => !profile.domain || (platformSettings[active?.platform || ""]?.supported_domains || []).includes(profile.domain));
-    const promotionRecords = model?.promotions.value?.tickets || [];
-    const tickets = promotionRecords.filter((ticket: any) => ticket.state === "awaiting_human" && !ticket.source_check_required);
-    const promotionNeedsReview = promotionRecords.filter((ticket: any) => ticket.state === "ready_for_review" || ticket.source_check_required);
-    const selectedTicket = tickets.find((ticket: any) => ticket.ticket_id === promotionTicketId) || tickets[0] || null;
-    const apps = model?.promotions.value?.applications || [];
-    const selectedApp = apps.find((application: any) => application.ticket_id === (promotionTicketId || selectedTicket?.ticket_id)) || null;
-    const appAccounts = selectedApp?.application_preparation?.account_options || [];
-    const selectedAppAccount = appAccounts.find((account: any) => `${account.platform}:${account.key}` === promotionAccountId) || null;
-    const pendingRecoveries = model?.recovery.value?.recoveries || [];
-    const homeAttention = buildHomeAttention({
-        control: model?.control, owners: model?.owners, promotions: model?.promotions,
-        recovery: model?.recovery, runtime: model?.runtime, config: model?.config,
-        accounts: rows.map(row => {
-            const status = statusFor(row, model?.runtime.value?.data_status);
-            return { id: row.id, title: `${row.platformLabel} · ${row.account.label || row.account.target_name || row.account.key}`, tone: status.tone, label: status.label, detail: status.detail };
-        }),
-    });
-    const openHomeAttention = (item: (typeof homeAttention.decisions)[number] | (typeof homeAttention.operations)[number]) => {
-        if (item.target === "accounts" && item.targetId) setSelectedId(item.targetId);
-        if (item.kind === "promotion" && item.targetId) setPromotionTicketId(item.targetId);
-        setPageAndRoute(item.target);
-        const focusId = item.kind === "owner" ? `home-owner-${encodeURIComponent(item.targetId || "")}`
-            : item.kind === "promotion" ? "home-promotions"
-            : item.kind === "recovery" || item.kind === "recovery_blocked" ? `home-recovery-${encodeURIComponent(item.targetId || "")}`
-            : item.kind === "account" ? "home-account-details" : null;
-        if (focusId) window.setTimeout(() => document.getElementById(focusId)?.scrollIntoView({ behavior: "smooth", block: "center" }), 80);
-    };
-    const renderOverview = () => <>
-    <div className="page-title-row"><div><h1>{t("账户总览")}</h1><p>{t("账户状态、重要变化与待决定事项。资产估值来源尚未接入。")}</p></div><button className="button button-secondary" onClick={() => void refresh()} disabled={refreshing} type="button">{refreshing ? t("\u8BFB\u53D6\u4E2D\u2026") : t("\u5237\u65B0\u8D44\u6599")}</button></div>
-    <section className="review-banner"><span className="review-mark" aria-hidden="true">!</span><div><h2>{model?.runtime.value?.data_status === "ready" ? t("\u8FD0\u884C\u8D44\u6599\u53EF\u4F9B\u6838\u5BF9") : t("\u8FD0\u884C\u8D44\u6599\u5C1A\u5F85\u6838\u5BF9")}</h2><p>{t("\u914D\u7F6E\u542F\u7528\u4E0D\u4EE3\u8868\u5B9E\u9645\u8FD0\u884C\u6B63\u5E38\uFF1B\u7F3A\u5C11\u8BFB\u56DE\u65F6\u4FDD\u6301\u672A\u77E5\u3002")}</p></div><button className="button button-primary" onClick={() => setPageAndRoute("accounts")} type="button">{t("\u67E5\u770B\u8D26\u6237")}</button></section>
-    <section className="coverage-row"><div><span>{t("\u7EB3\u5165\u8D26\u6237")}</span><strong>{model?.config.value?.accountOptions ? rows.length : "—"}</strong><small>{t("\u5F53\u524D\u914D\u7F6E\u53EF\u89C1\u8D26\u6237")}</small></div><div><span>{t("\u8FD0\u884C\u8D44\u6599")}</span><strong>{t(valueStatus(model?.runtime))}</strong><DetailTime title={t("\u6765\u6E90\u65F6\u95F4")} value={sourceTime(model?.runtime.value)}/></div><div><span>{t("\u8D44\u4EA7\u8868\u73B0")}</span><strong>{t("\u6682\u4E0D\u53EF\u8BC4\u4F30")}</strong><small>{t("\u5B8C\u6574\u4F30\u503C\u4E0E\u8D44\u91D1\u6D41\u8BB0\u5F55\u5C1A\u672A\u63A5\u5165")}</small></div></section>
-    <div className="overview-grid"><section className="primary-column">
-      <section className="performance-empty"><div className="performance-title"><div><h2>{t("\u8D44\u4EA7\u8868\u73B0")}</h2><p>{t("\u51C0\u503C\u5E8F\u5217\u548C\u8D44\u91D1\u6D41\u53E3\u5F84\u5C1A\u672A\u5B8C\u6574\u63A5\u5165\u3002")}</p></div><span className="metric-unavailable">{t("\u6682\u4E0D\u53EF\u8BC4\u4F30")}</span></div><div className="chart-empty"><strong>{t("\u6682\u65E0\u53EF\u9A8C\u8BC1\u7684\u8D44\u4EA7\u4F30\u503C\u5E8F\u5217")}</strong><p>{t("\u8D44\u91D1\u6D41\u7F3A\u5931\u65F6\uFF0C\u4E0D\u4EE5\u8D26\u6237\u8FD0\u884C\u6570\u636E\u4EE3\u66FF\u8D44\u4EA7\u6216\u6536\u76CA\u8868\u73B0\u3002")}</p></div><div className="source-row"><span>{t("\u6700\u8FD1\u4F30\u503C\uFF1A\u672A\u63D0\u4F9B")}</span><span>{t("\u53EF\u7528\u73B0\u91D1\uFF1A\u672A\u63A5\u5165")}</span><span>{t("\u6536\u76CA\u4E0E\u56DE\u64A4\uFF1A\u6682\u4E0D\u53EF\u8BA1\u7B97")}</span></div></section>
-      <div className="section-heading"><h2>{t("\u8D26\u6237\u8FD0\u884C")}</h2><button className="text-link" type="button" onClick={() => setPageAndRoute("accounts")}>{t("\u8D26\u6237\u8BE6\u60C5 \u2192")}</button></div>
-      <div className="overview-toolbar"><div className="overview-filters">{[["all", t("\u5168\u90E8")], ["normal", t("\u6B63\u5E38")], ["paused", t("\u6682\u505C")], ["abnormal", t("\u5F02\u5E38/\u672A\u77E5")]].map(([key, label]) => <button key={key} type="button" aria-pressed={filter === key} onClick={() => setFilter(key)}>{label}</button>)}</div><input aria-label={t("\u641C\u7D22\u8D26\u6237\u6216\u7B56\u7565")} placeholder={t("\u641C\u7D22\u8D26\u6237\u6216\u7B56\u7565")} value={search} onChange={e => setSearch(e.target.value)}/></div>
-      <AccountTable rows={rowsFiltered} model={model} onSelect={row => { setSelectedId(row.id); setPageAndRoute("accounts"); }}/>
-    </section><aside className="decision-rail"><h2>{t("需要决定")}</h2>
-      {homeAttention.decisions.length ? homeAttention.decisions.map(item => <div className="decision-entry" key={item.identity}><strong>{t(item.title)}</strong><p>{item.detail}</p><button type="button" className="text-link" onClick={() => openHomeAttention(item)}>{t("查看决定流程")} →</button></div>) : <p className="section-note">{homeAttention.sourceWarnings.length ? t("部分信息暂未更新；请在待办决策中查看。") : t("当前没有已确认的人工决定待办。")}</p>}
-      {homeAttention.sourceWarnings.length > 0 && <details className="home-source-warning"><summary>{t("部分信息暂未更新")}</summary>{homeAttention.sourceWarnings.map(item => <p key={item.source}><strong>{t(item.source)}</strong> · {t(item.status)}</p>)}</details>}
-    </aside></div>
-    <section className="lower-strip"><div><h2>{t("账户设置")}</h2><p>{t("查看账户环境、当前策略与运行状态。")}</p><button className="button button-dark" type="button" onClick={() => setPageAndRoute("accounts")}>{t("查看账户设置 →")}</button></div><div><h2>{t("重要决定")}</h2><p>{t("候选和恢复确认仅在当前来源与证据有效时显示。")}</p><button className="button button-secondary" type="button" onClick={() => setPageAndRoute("strategy")}>{t("查看待办决策 →")}</button></div></section>
-    {renderReports()}
-  </>;
-    const renderStrategy = () => {
-        const valid = !uxDirty && currentResearchPreview(uxDraft as any);
-        const preview = uxDraft.preview || null;
-        const decision = valid ? preview?.decision_preview : null;
-        const advanced = uxDraft.draft?.advanced_settings || {};
-        const changeDraft = (patch: Partial<UxDraft["draft"]>, advancedPatch?: Record<string, any>) => { uxEditEpoch.current += 1; setUxDraft(prev => ({ ...prev, draft: { ...prev.draft, ...patch, advanced_settings: { ...(prev.draft?.advanced_settings || {}), ...(advancedPatch || {}) } }, preview: prev.preview, preview_stale: true })); setUxDirty(true); };
-        const maybePromise = ["queued", "running", "unknown"].includes(String(uxDraft.job?.status || model?.research.value?.job?.status || ""));
-        const ownerEntries = (model?.owners.value?.candidates || []).filter((entry: any) => !entry.intent);
-        const recoveries = pendingRecoveries.filter((entry: any) => entry.freshness?.data_status === "ready" && entry.recovery?.readiness === "awaiting_human_confirmation" && !entry.confirmation);
-        const staleRecoveries = pendingRecoveries.filter((entry: any) => entry.freshness?.data_status !== "ready" && !entry.confirmation);
-        return <>
-    <div className="page-title-row"><div><h1>{t("待办决策")}</h1><p>{t("查看建议，决定是否采用新策略方案或确认恢复账户。")}</p></div><DetailTime title={t("研究资料更新时间")} value={sourceTime(model?.research.value) || model?.research.value?.job?.updated_at}/></div>
-      <div className="two-column-layout"><div className="page-main-column">
-        <section className="content-section" id="home-promotions"><div className="section-heading"><h2>{t("新策略方案")}</h2><DetailTime title={t("\u961F\u5217\u66F4\u65B0\u65F6\u95F4")} value={sourceTime(model?.promotions.value)}/></div>
-          {model?.promotions.error || model?.promotions.value?.data_status !== "ready" ? <Empty title={t("\u5019\u9009\u961F\u5217\u4E0D\u53EF\u786E\u8BA4")} detail={t("\u5F53\u524D\u65E0\u6CD5\u6838\u5BF9\u5019\u9009\u548C\u5E94\u7528\u72B6\u6001\u3002")}/> : <>
-            {!tickets.length ? <Empty title={t("\u5F53\u524D\u6CA1\u6709\u5F85\u51B3\u5B9A\u5019\u9009")} detail={t("\u5DF2\u8BB0\u5F55\u7684\u5E94\u7528\u72B6\u6001\u4ECD\u4FDD\u7559\u5728\u4E0B\u65B9\u3002")}/> : <>
-            <div className="field-grid"><label>{t("\u5F85\u786E\u8BA4\u5019\u9009")}<select value={selectedTicket?.ticket_id || ""} onChange={e => { setPromotionTicketId(e.target.value); setPromotionAccountId(""); }}><option value="">{t("\u9009\u62E9\u5019\u9009")}</option>{tickets.map((ticket: any) => <option key={ticket.ticket_id} value={ticket.ticket_id}>{ticket.ticket_id} · {ticket.strategy_profile}</option>)}</select></label>
-              <label>{t("选择应用账户")}<select value={promotionAccountId} onChange={e => setPromotionAccountId(e.target.value)}><option value="">{t("\u9009\u62E9\u8D26\u6237")}</option>{appAccounts.map((account: any) => <option key={`${account.platform}:${account.key}`} value={`${account.platform}:${account.key}`}>{account.platform} · {account.label || account.key} · {brokerEnvironment(account.broker_environment, t)}</option>)}</select></label>
-              <label>{t("风险档")}<select value={promotionRisk} onChange={e => setPromotionRisk(e.target.value)}>{PROMOTION_RISK.map(value => <option key={value} value={value}>{t(({ CAPITAL_PRESERVATION: "保守", BALANCED_COMPOUNDING: "均衡", GROWTH_COMPOUNDING: "增长" } as Record<string, string>)[value])}</option>)}</select></label></div>
-            {selectedTicket && <><section className="decision-context"><h3>{t("是否接受该新策略方案？")}</h3><p>{t("策略")}: {selectedTicket.strategy_profile} · {t("研究领域")}: {domainLabel(selectedTicket.domain, t)}</p><h4>{t("影响与风险")}</h4><p>{selectedTicket.evidence_summary || selectedTicket.shadow_evidence_kind || t("候选需要结合研究证据判断。")}</p>{selectedTicket.research_summary?.limitations?.length ? <ul className="plain-list">{selectedTicket.research_summary.limitations.map((item: string, index: number) => <li key={`${index}:${item}`}>{item}</li>)}</ul> : <p>{t("暂无当前候选的额外风险说明。")}</p>}<p>{t("接受只记录意向，不授权实盘。")}</p></section>{(() => { const explanation = promotionAiExplanation(selectedTicket); return <section className="ai-explanation"><h3>{t("AI分析说明")}</h3>{explanation ? <><p>{explanation.text}</p><details><summary>{t("来源与模型")}</summary><p>{t("来源：研究候选说明")}</p><p>{t("模型")}: {explanation.model}</p><p>{t("此说明解释研究资料，不代表AI投资建议或交易授权。")}</p></details></> : <p>{t("尚无与当前候选绑定的AI说明。")}</p>}</section>; })()}</>}
-            <div className="form-actions"><button type="button" className="button button-primary" disabled={!model?.session.admin || !selectedTicket || !selectedAppAccount || busy.promotion} onClick={() => void submitPromotion("accept")}>{t("\u63A5\u53D7\u610F\u5411")}</button><button type="button" className="button button-secondary" disabled={!model?.session.admin || !selectedTicket || busy.promotion} onClick={() => void submitPromotion("reject")}>{t("\u62D2\u7EDD")}</button></div>
-            {!model?.session.admin && <p className="section-note">{t("\u6240\u6709\u8005\u51B3\u5B9A\u4EC5\u7BA1\u7406\u5458\u53EF\u63D0\u4EA4\u3002")}</p>}
-            </>}
-            {promotionNeedsReview.length > 0 && <details><summary>{t("其他候选资料尚在准备，暂不能作出决定")}</summary>{promotionNeedsReview.map((ticket: any) => <p key={ticket.ticket_id}>{ticket.strategy_profile} · {t(ticket.source_check_required ? "需要补充来源资料" : "等待审查")} · {ticket.ticket_id}</p>)}</details>}
-            {apps.filter((item: any) => item.application_preparation).map((application: any) => <ApplicationCard key={application.ticket_id} application={application} selectedAccountId={promotionAccountId} busy={busy[`apply:${application.ticket_id}`] || onceLocks.current.isLocked(`apply:${application.ticket_id}`)} onSelectAccount={setPromotionAccountId} onDeploy={() => void applyPromotion(application)}/>)}
-          </>}
-        </section>
-        <section className="content-section"><div className="section-heading"><h2>{t("策略去留")}</h2><DetailTime title={t("\u6765\u6E90\u65F6\u95F4")} value={sourceTime(model?.owners.value)}/></div>
-          {model?.owners.error || model?.owners.value?.data_status !== "ready" ? <Empty title={t("\u51B3\u5B9A\u961F\u5217\u72B6\u6001\u672A\u77E5")} detail={t("\u5F53\u524D\u65E0\u6CD5\u6838\u5BF9\u6240\u6709\u8005\u51B3\u5B9A\u8D44\u6599\u3002")}/> : !ownerEntries.length ? <Empty title={t("\u6CA1\u6709\u5F85\u786E\u8BA4\u51B3\u5B9A")} detail={t("\u5F53\u524D\u6765\u6E90\u6CA1\u6709\u53EF\u786E\u8BA4\u7684\u6240\u6709\u8005\u51B3\u5B9A\u3002")}/> : ownerEntries.map((entry: any) => { const candidate = entry.candidate; const id = candidate?.candidate_id; return <div className="decision-card" id={`home-owner-${encodeURIComponent(id || "")}`} key={id}><strong>{id}</strong><p>{decisionLabel(candidate?.recommendation?.code || candidate?.lifecycle?.status, t)}</p><p>{t("尚无与当前候选绑定的AI说明。")}</p><div className="form-actions">{[["approve_limited_live_canary", t("\u6709\u9650\u6267\u884C\u89C2\u5BDF")], ["keep_parked", t("\u4FDD\u6301\u6682\u505C")], ["retire_candidate", t("\u9000\u5F79\u5019\u9009")]].map(([value, label]) => <button key={value} className="button button-secondary" disabled={!model?.session.admin || busy[`owner:${id}`]} onClick={() => void decideOwner(entry, value)} type="button">{label}</button>)}</div></div>; })}
-        </section>
-        <section className="content-section"><div className="section-heading"><h2>{t("\u6062\u590D\u524D\u786E\u8BA4")}</h2><DetailTime title={t("\u6765\u6E90\u65F6\u95F4")} value={sourceTime(model?.recovery.value)}/></div>
-          {model?.recovery.error || model?.recovery.value?.data_status !== "ready" ? <Empty title={t("\u6062\u590D\u8D44\u6599\u5C1A\u672A\u6838\u5B9E")} detail={t("状态：{status}", { status: t(valueStatus(model?.recovery)) })}/> : recoveries.length ? recoveries.map((entry: any) => <RecoveryCard key={entry.recovery?.recovery_id} entry={entry} canConfirm={Boolean(model?.session.admin && recoveryBinding(entry))} onConfirm={() => void confirmRecovery(entry)} busy={busy[`recovery:${entry.recovery?.recovery_id}`]}/>) : <Empty title={t(staleRecoveries.length ? "恢复资料暂不可确认" : "当前无待确认恢复事项")} detail={t(staleRecoveries.length ? "部分资料尚未更新；当前不能确认恢复。" : "当前没有需要人工确认的恢复事项。")}/> }
-        </section>
-        <details className="supporting-research"><summary>{t("研究草案与历史结果")}</summary>        <section className="content-section ux-editor"><div className="section-heading"><h2>{t("\u7814\u7A76\u8349\u6848\u4E0E\u5386\u53F2\u7ED3\u679C")}</h2><span>{t("版本 {revision} {dirty}",{revision:uxDraft.revision ?? 0,dirty:uxDirty?t("\u00B7 \u6709\u672A\u4FDD\u5B58\u7F16\u8F91"):""})}</span></div>
-          <div className="research-metrics"><div><span>{t("\u5386\u53F2\u5E74\u5316\u6536\u76CA")}</span><strong>—</strong><small>{t("\u5B8C\u6574\u51C0\u503C\u66F2\u7EBF\u4E0D\u8DB3")}</small></div><div><span>{t("\u6700\u5927\u56DE\u64A4")}</span><strong>—</strong><small>{t("\u65E0\u6CD5\u4ECE\u5355\u6B21\u9884\u89C8\u8BA1\u7B97")}</small></div><div><span>{t("\u98CE\u9669\u5224\u65AD")}</span><strong>{t("\u5F85\u8BC4\u4F30")}</strong><small>{t("\u975E\u8D26\u6237\u5B89\u5168\u5224\u65AD")}</small></div></div>
-          <details className="research-settings"><summary>{t("研究参数与生成操作")}</summary>
-          <div className="field-grid"><label>{t("\u7814\u7A76\u76EE\u6807")}<OptionList values={["one_step_net_log_score", "global_optimum"]} value={uxDraft.draft?.objective || "one_step_net_log_score"} labels={{ one_step_net_log_score: t("\u4E00\u6B65\u51C0\u5BF9\u6570\u8BC4\u5206"), global_optimum: t("\u5168\u5C40\u6700\u4F18\uFF08\u5F53\u524D\u4E0D\u53C2\u4E0E\u8BA1\u7B97\uFF09") }} onChange={value => changeDraft({ objective: value })}/></label>
-            <label>{t("\u5386\u53F2\u6848\u4F8B")}<OptionList values={["r8_first_dynamic_2023_03_29", "original_full_v2"]} value={uxDraft.draft?.research_case_id || "r8_first_dynamic_2023_03_29"} labels={{ r8_first_dynamic_2023_03_29: "R8 · 2023-03-29", original_full_v2: t("\u539F\u5B8C\u6574 v2\uFF08\u672C\u6B21\u672A\u6620\u5C04\uFF09") }} onChange={value => changeDraft({ research_case_id: value })}/></label></div>
-          <p className="section-note">{t("\u751F\u6210\u53EA\u8BFB\u53D6\u51BB\u7ED3\u5386\u53F2\u7814\u7A76\u6848\u4F8B\uFF0C\u4E0D\u4F1A\u4E0B\u5355\u3002\u7814\u7A76\u98CE\u683C\u504F\u597D\u8BA1\u7B97\u5C1A\u672A\u63A5\u5165\uFF0C\u4EE5\u4E0B\u8BBE\u7F6E\u4EC5\u662F\u73B0\u6709\u8349\u6848\u5B57\u6BB5\u3002")}</p>
-          <details className="advanced-form"><summary>{t("\u4E13\u4E1A\u7814\u7A76\u8BBE\u7F6E")}</summary><div className="field-grid">
-            {[["plugin_mode", t("\u63D2\u4EF6\u6A21\u5F0F"), ["none", "auto", "current"]], ["income_layer_mode", t("\u6536\u5165\u5C42"), ["enabled", "disabled", "current"]], ["option_overlay_mode", t("\u671F\u6743\u5C42"), ["current", "enabled", "disabled"]], ["reserve_policy_mode", t("\u73B0\u91D1\u9884\u7559"), ["current", "none", "ratio", "floor", "max"]], ["cash_only_execution_mode", t("\u4EC5\u73B0\u91D1\u6267\u884C"), ["current", "enabled", "disabled"]], ["dca_mode", t("\u5B9A\u6295\u6A21\u5F0F"), ["fixed", "smart"]]].map(([key, label, options]: any) => <label key={key}>{label}<OptionList values={options} value={String(advanced[key] ?? "")} labels={{ "": t("\u672A\u58F0\u660E"), none: t("无插件"), auto: t("自动选择"), current: t("保持当前设置"), enabled: t("启用"), disabled: t("停用"), fixed: t("固定金额"), smart: t("智能定投"), ratio: t("比例"), floor: t("固定金额下限"), max: t("金额与比例取较大值") }} onChange={value => changeDraft({}, { [key]: value })}/></label>)}
-            {[["income_layer_start_usd", t("\u6536\u5165\u5C42\u8D77\u59CB\u91D1\u989D")], ["income_layer_max_ratio", t("\u6536\u5165\u5C42\u6700\u9AD8\u6BD4\u4F8B")], ["min_reserved_cash_usd", t("\u6700\u5C0F\u9884\u7559\u73B0\u91D1")], ["reserved_cash_ratio", t("\u9884\u7559\u73B0\u91D1\u6BD4\u4F8B")], ["dca_base_investment_usd", t("\u5B9A\u6295\u57FA\u51C6\u91D1\u989D")]].map(([key, label]) => <label key={key}>{label}<input value={String(advanced[key] ?? "")} inputMode="decimal" onChange={e => changeDraft({}, { [key]: e.target.value })}/></label>)}
-          </div></details>
-          <div className="form-actions"><button className="button button-secondary" type="button" disabled={uxBusy} onClick={() => void runUx("save")}>{t("\u4FDD\u5B58\u7814\u7A76\u8349\u6848")}</button><button className="button button-primary" type="button" disabled={uxBusy || maybePromise} onClick={() => void runUx("preview")}>{uxBusy ? t("\u5904\u7406\u4E2D\u2026") : maybePromise ? t("\u7814\u7A76\u4EFB\u52A1\u5904\u7406\u4E2D") : t("\u751F\u6210\u7814\u7A76\u65B9\u6848")}</button><button className="button button-secondary" type="button" disabled={uxBusy || !valid || maybePromise} onClick={() => void runUx("intent")}>{t("\u4FDD\u5B58\u4E0D\u53EF\u6267\u884C\u610F\u5411")}</button><button className="button button-secondary" type="button" onClick={() => setUxCompare(value => !value)}>{uxCompare ? t("\u9690\u85CF\u52A8\u4F5C\u5BF9\u7167") : t("\u6BD4\u8F83\u65B9\u6848")}</button></div>
-          </details>
-          {uxError && <p className="inline-error" role="alert">{renderLocaleMessage(uxError,language)}</p>}
-          <p className="section-note">{t("研究状态：{status} · 过期或结果不明时，不会沿用旧预览。", { status: ({ queued: t("\u6392\u961F\u4E2D"), running: t("\u8FD0\u884C\u4E2D"), unknown: t("\u7ED3\u679C\u5F85\u786E\u8BA4"), stale: t("\u5DF2\u8FC7\u671F"), computed: t("\u5DF2\u5B8C\u6210") } as Record<string, string>)[String(uxDraft.job?.status || preview?.status || "")] || t("\u65E0\u5F85\u5904\u7406\u4EFB\u52A1") })}</p>
-          {valid && decision ? <div className="research-result"><h3>{t("\u5F53\u524D\u6709\u6548\u5386\u53F2\u9884\u89C8")}</h3><dl className="fact-list"><div><dt>{t("\u72B6\u6001")}</dt><dd>{t(displayStatus(preview?.status))}</dd></div><div><dt>{t("\u9009\u4E2D\u52A8\u4F5C")}</dt><dd>{decisionLabel(decision.selected_action, t)}</dd></div><div><dt>{t("\u5386\u53F2\u60C5\u666F\u6570")}</dt><dd>{decision.scenario_count ?? "—"}</dd></div><div><dt>{t("\u51B3\u7B56\u65E5\u671F")}</dt><dd>{decision.decision_date || "—"}</dd></div><div><dt>{t("\u6B21\u65E5\u6838\u5BF9")}</dt><dd>{preview?.historical_execution_check?.trade_date || t("\u672A\u63D0\u4F9B")}</dd></div></dl><details><summary>{t("\u6765\u6E90\u4E0E\u9650\u5236")}</summary><pre>{JSON.stringify(preview, null, 2)}</pre></details></div> : <Empty title={maybePromise ? t("研究任务仍在处理") : model?.research.error ? t("\u7814\u7A76\u72B6\u6001\u6682\u4E0D\u53EF\u7528") : t("\u6682\u65E0\u6709\u6548\u9884\u89C8\u7ED3\u679C")} detail={t("\u5F53\u524D\u53EA\u663E\u793A\u4E0E\u672C\u8349\u6848 revision/fingerprint \u7ED1\u5B9A\u7684\u6709\u6548\u7ED3\u679C\u3002\u65E7\u7ED3\u679C\u5931\u6548\u6216\u8BFB\u53D6\u5931\u8D25\u65F6\u4E0D\u4F1A\u6CBF\u7528\u3002")}/>}
-          {uxCompare && valid && <div className="compare-view"><h3>{t("\u52A8\u4F5C\u5BF9\u7167")}</h3><pre>{JSON.stringify(preview?.comparison || preview?.action_comparison || preview?.decision_preview || {}, null, 2)}</pre></div>}
-          <details className="research-evidence"><summary>{t("\u67E5\u770B\u4F9D\u636E\u4E0E\u5B8C\u6574\u7ED3\u679C")}</summary><pre>{JSON.stringify(preview || uxDraft.intent || {}, null, 2)}</pre></details>
-        </section></details>
-      </div><aside className="editorial-rail"><h2>{t("决策边界")}</h2><p>{t("确认前查看说明；接受方案不会直接开启实盘。")}</p><details><summary>{t("查看操作说明")}</summary><p>{t("研究、候选接受、应用部署、运行启停是不同操作；各自按现有权限和版本证据执行。")} </p><div className="rail-step"><span>01</span><strong>{t("\u8BFB\u6765\u6E90\u548C\u72B6\u6001")}</strong><p>{t("\u8FC7\u671F\u6216\u672A\u77E5\u7ED3\u679C\u4E0D\u53EF\u7EE7\u7EED\u786E\u8BA4\u3002")}</p></div><div className="rail-step"><span>02</span><strong>{t("\u663E\u5F0F\u786E\u8BA4")}</strong><p>{t("敏感操作保留原角色校验和二次确认。")}</p></div></details></aside></div>
-    </>;
-    };
-    async function submitPromotion(decision: "accept" | "reject") {
-        if (!model?.session.admin || !selectedTicket || busy.promotion)
-            return;
-        const appAccount = selectedAppAccount;
+    async function submitPromotion(decision: "accept" | "reject", ticket: any, appAccount: any) {
+        if (!model?.session.admin || !ticket || busy.promotion) return;
         const mode = appAccount?.broker_environment;
-        if (decision === "accept" && (!appAccount || !["live", "paper"].includes(mode) || (mode === "paper" && appAccount.platform !== "longbridge")))
-            return;
-        if (!await confirmAction({ title: t(decision === "accept" ? "记录候选采纳意向" : "拒绝研究候选"), target: String(selectedTicket.ticket_id || t("研究候选")), summary: t("决定：{decision} · 当前状态：{status} · 风险偏好：{risk}", { decision: decisionLabel(decision, t), status: displayStatus(selectedTicket.state), risk: decision === "accept" ? riskLabel(promotionRisk, t) : t("不适用") }), consequence: t(decision === "accept" ? "仅记录人工意向，不会启动交易或部署。" : "将记录拒绝决定，之后需重新读取候选状态。"), tone: decision === "accept" ? "normal" : "danger" }))
-            return;
+        if (decision === "accept" && (!appAccount || !["live", "paper"].includes(mode) || (mode === "paper" && appAccount.platform !== "longbridge"))) return;
+        const strategyName = strategyDisplayName((model?.config.value?.strategyProfiles || []).find((profile: any) => profile?.profile === ticket.strategy_profile), language);
+        const accountName = appAccount?.label || (appAccount ? `${appAccount.platform}:${appAccount.key}` : "");
+        const planName = strategyName === "未命名策略" ? t(strategyName) : strategyName;
+        if (!await confirmAction({ title: t(decision === "accept" ? "确认采用这项方案？" : "确认不采用这项方案？"), target: accountName ? `${accountName} · ${planName}` : planName, summary: t(decision === "accept" ? "采用只记录你的意向，账户策略和交易权限保持不变。" : "本次只记录决定，不会提交订单或改变交易权限。"), consequence: t("本次只记录决定，不会提交订单或改变交易权限。"), tone: decision === "accept" ? "normal" : "danger", confirmLabel: decision === "accept" ? "确认采用" : "确认不采用" })) return;
         setBusy(prev => ({ ...prev, promotion: true }));
         try {
-            await postJson("/api/research-promotion-decisions", { ticket_id: selectedTicket.ticket_id, decision, confirmation: decision === "accept" ? { target_platform: appAccount.platform, execution_mode: mode, risk_profile: promotionRisk } : null, ...(decision === "accept" ? { selected_account: { platform: appAccount.platform, key: appAccount.key } } : {}), expected_proposed_params: selectedTicket.proposed_params || {}, expected_strategy_profile: selectedTicket.strategy_profile, expected_domain: selectedTicket.domain });
+            await postJson("/api/research-promotion-decisions", { ticket_id: ticket.ticket_id, decision, confirmation: decision === "accept" ? { target_platform: appAccount.platform, execution_mode: mode, risk_profile: promotionRisk } : null, ...(decision === "accept" ? { selected_account: { platform: appAccount.platform, key: appAccount.key } } : {}), expected_proposed_params: ticket.proposed_params || {}, expected_strategy_profile: ticket.strategy_profile, expected_domain: ticket.domain });
             void refresh();
-        }
-        catch (error) {
-            setErrorMessage(copy("候选决定失败：{error}",{error:copy(requestErrorKey(error))}));
-        }
-        finally {
+        } catch (error) {
+            setErrorMessage(copy("候选决定失败：{error}", { error: copy(requestErrorKey(error)) }));
+        } finally {
             setBusy(prev => ({ ...prev, promotion: false }));
         }
     }
-    async function applyPromotion(application: Record<string, any>) {
-        if (!model?.session.admin)
+    async function decideDaily(item: DailyDecision, action: "adopt" | "reject") {
+        if (item.kind === "promotion") {
+            const ticket = (model?.promotions.value?.tickets || []).find((entry: any) => item.id === `promotion:${entry.ticket_id}`);
+            if (!ticket) return;
+            const choice = item.accountChoices.length === 1 ? item.accountChoices[0].id : promotionAccountId;
+            const application = (model?.promotions.value?.applications || []).find((entry: any) => entry.ticket_id === ticket.ticket_id);
+            const appAccount = (application?.application_preparation?.account_options || []).find((account: any) => `${account.platform}:${account.key}` === choice) || null;
+            await submitPromotion(action === "adopt" ? "accept" : "reject", ticket, action === "adopt" ? appAccount : null);
             return;
-        if (!applicationRetryAllowed(application.application))
+        }
+        if (item.kind === "owner_observation") {
+            const entry = (model?.owners.value?.candidates || []).find((candidate: any) => item.id === `owner:${candidate?.candidate?.candidate_id}`);
+            if (!entry) return;
+            await decideOwner(entry, action === "adopt" ? "approve_limited_live_canary" : "keep_parked");
             return;
-        const selected = (application.application_preparation?.account_options || []).find((a: any) => `${a.platform}:${a.key}` === promotionAccountId);
-        if (!selected || application.application_preparation?.preflight_status !== "ready" || !application.application_preparation?.preview_request)
-            return;
-        if (selected.platform !== "longbridge" || selected.broker_environment !== "paper")
-            return;
-        if (!await confirmAction({ title: t("提交模拟账户应用请求"), target: `${selected.label || selected.key} · ${selected.platform} ${selected.broker_environment}`, summary: t("候选：{ticket} · 预检：{status}", { ticket: application.ticket_id, status: t(displayStatus(application.application_preparation?.preflight_status)) }), consequence: t("只提交模拟账户应用请求，不会自动启用策略或提交订单。"), tone: "normal" }))
-            return;
+        }
+        if (item.kind === "recovery") {
+            const entry = (model?.recovery.value?.recoveries || []).find((candidate: any) => item.id === `recovery:${candidate?.recovery?.recovery_id}`);
+            if (entry) await confirmRecovery(entry, action === "adopt" ? "approve" : "reject");
+        }
+    }
+    async function applyPromotion(application: Record<string, any>, selectedAccountId: string) {
+        if (!model?.session.admin) return;
+        if (!paperApplicationReady(application, selectedAccountId)) return;
+        const selected = (application.application_preparation?.account_options || []).find((account: any) => `${account.platform}:${account.key}` === selectedAccountId);
+        if (!selected) return;
+        if (!await confirmAction({ title: t("提交模拟账户应用请求"), target: `${selected.label || selected.key} · ${selected.platform} ${selected.broker_environment}`, summary: t("候选：{ticket} · 预检：{status}", { ticket: application.ticket_id, status: t(displayStatus(application.application_preparation?.preflight_status)) }), consequence: t("只提交模拟账户应用请求，不会自动启用策略或提交订单。"), tone: "normal", confirmLabel: "确认采用" })) return;
         const key = `apply:${application.ticket_id}`;
-        if (!beginOnce(key))
-            return;
+        if (!beginOnce(key)) return;
         let submitted = false;
         try {
             const instance = await getJson<any>("/api/admin/runtime-instances");
@@ -736,62 +690,76 @@ function App() {
             await postJson("/api/research-promotion-applications", { ticket_id: application.ticket_id, selected_account: { platform: selected.platform, key: selected.key }, expected_revision: Number(instance.revision) });
             void refresh();
             setErrorMessage(copy("应用请求已提交；请核对读回状态后再继续。"));
-        }
-        catch (error) {
-            setErrorMessage(copy("应用请求结果需要读回确认，避免重复提交。{detail}",{detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
-            if (submitted)
-                void refresh();
-        }
-        finally {
+        } catch (error) {
+            setErrorMessage(copy("应用请求结果需要读回确认，避免重复提交。{detail}", { detail: error ? copy(" · {error}", { error: copy(requestErrorKey(error)) }) : "" }));
+            if (submitted) void refresh();
+        } finally {
             finishOnce(key, !submitted);
         }
     }
-    const renderAccounts = () => <>
-    <div className="page-title-row"><div><h1>{t("账户设置")}</h1><p>{t("查看账户环境、当前策略与运行状态。")}</p></div><DetailTime title={t("\u8FD0\u884C\u8D44\u6599\u65F6\u95F4")} value={sourceTime(model?.runtime.value)}/></div>
-    <div className="two-column-layout"><div className="page-main-column">
-      <section className="content-section"><div className="section-heading"><h2>{t("\u8D26\u6237\u6E05\u5355")}</h2><span>{model?.config.error ? t("\u8D26\u6237\u914D\u7F6E\u4E0D\u53EF\u8BFB") : formatAccountCount(rows.length, language)}</span></div>
-        <div className="account-selector-row"><label>{t("\u9009\u62E9\u8D26\u6237")}<select value={active?.id || ""} onChange={e => setSelectedId(e.target.value)}>{rows.map(row => <option key={row.id} value={row.id}>{row.platformLabel} · {row.account.label || row.account.target_name}</option>)}</select></label></div>
-        <AccountTable rows={rows} model={model} selected={active?.id} onSelect={row => setSelectedId(row.id)}/>
-      </section>
-      {active && activeForm ? <section className="content-section account-editor"><div className="section-heading"><h2>{t("{account} · 账户状态", { account: active.account.label || active.account.target_name })}</h2></div>
-        <AccountFacts row={active} model={model}/>
-        {(() => { const view = diagnosisUserSummary(diagnosis[active.id]); const refreshOnly = view.action === "refresh"; return <section className="diagnosis-panel"><h3>{t("账户检查")}</h3><strong>{t(view.status)}</strong><p>{t(view.reason)}</p><button className="button button-secondary" type="button" disabled={!model?.session.allowed || busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading || (!refreshOnly && diagnosis[active.id]?.available !== true)} onClick={() => refreshOnly ? void readDiagnosisStatus(active) : void runDiagnosis(active)}>{busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading ? t("正在检查…") : t(refreshOnly ? "刷新状态" : "检查账户")}</button>{diagnosis[active.id]?.available === true && diagnosis[active.id]?.task && <details><summary>{t("查看技术详情")}</summary><p>{t(diagnosisStatusKey(diagnosis[active.id]?.task))}</p><pre>{JSON.stringify(diagnosis[active.id]?.task, null, 2)}</pre></details>}</section>; })()}
-        <details className="strategy-settings"><summary>{t("\u7B56\u7565\u4E0E\u8FD0\u884C\u8BBE\u7F6E")}</summary>
-          <div className="field-grid"><label>{t("\u8FD0\u884C\u7B56\u7565")}<select value={activeForm.strategy} onChange={e => updateForm(active, { strategy: e.target.value })}><option value="">{t("\u9009\u62E9\u7B56\u7565")}</option>{allowedProfiles.map(profile => <option key={profile.profile} value={profile.profile}>{profile.label || profile.profile}</option>)}</select></label>
-          <label>{t("\u6267\u884C\u65B9\u5F0F")}<OptionList values={(platformSettings[active.platform]?.supported_execution_modes || ["dry_run"]).filter((v: string) => v === "live" || v === "dry_run")} value={activeForm.executionMode} labels={{ live: t("\u6267\u884C\uFF08live\uFF0C\u6309\u8D26\u6237\u73AF\u5883\u8DEF\u7531\uFF09"), dry_run: t("\u7981\u6B62\u4E0B\u5355\u9A8C\u8BC1\uFF08dry_run\uFF09") }} onChange={value => updateForm(active, { executionMode: value })}/></label>
-          <label>{t("\u8D26\u6237\u76EE\u6807\u542F\u505C")}<OptionList values={["current", "enabled", "disabled"]} value={activeForm.runtimeMode} labels={{ current: t("\u4FDD\u6301\u5F53\u524D\u8BBE\u7F6E"), enabled: t("\u542F\u7528\u914D\u7F6E"), disabled: t("\u505C\u7528\u76EE\u6807") }} onChange={value => updateForm(active, { runtimeMode: value as SwitchDraft["runtimeMode"] })}/></label>
-          <label>{t("\u63D2\u4EF6 plugin_mode")}<OptionList values={["current", "none", "auto"]} value={activeForm.pluginMode} labels={{ current: t("保持当前设置"), none: t("无插件"), auto: t("自动选择") }} onChange={value => updateForm(active, { pluginMode: value as SwitchDraft["pluginMode"], touched: { pluginMode: true } })}/></label>
-          {platformSettings[active.platform]?.income_layer && <><label>{t("\u6536\u5165\u5C42\u72B6\u6001")}<OptionList values={["current", "enabled", "disabled"]} value={activeForm.incomeMode} labels={{ current: t("保持当前设置"), enabled: t("启用"), disabled: t("停用") }} onChange={value => updateForm(active, { incomeMode: value as SwitchDraft["incomeMode"], touched: { income: true } })}/></label><label>{t("\u6536\u5165\u5C42\u8D77\u59CB\u91D1\u989D")}<input value={activeForm.incomeStart} inputMode="decimal" onChange={e => updateForm(active, { incomeStart: e.target.value, touched: { income: true } })}/></label><label>{t("\u6536\u5165\u5C42\u6700\u9AD8\u6BD4\u4F8B")}<input value={activeForm.incomeRatio} inputMode="decimal" onChange={e => updateForm(active, { incomeRatio: e.target.value, touched: { income: true } })}/></label></>}
-          {platformSettings[active.platform]?.option_overlay && <label>{t("\u671F\u6743\u5C42")}<OptionList values={["current", "enabled", "disabled"]} value={activeForm.optionMode} labels={{ current: t("保持当前设置"), enabled: t("启用"), disabled: t("停用") }} onChange={value => updateForm(active, { optionMode: value as SwitchDraft["optionMode"], touched: { option: true } })}/></label>}
-          {platformSettings[active.platform]?.margin_policy && <label>{t("\u4EC5\u73B0\u91D1\u4E0B\u5355")}<OptionList values={["current", "enabled", "disabled"]} value={activeForm.cashOnlyMode} labels={{ current: t("\u4FDD\u6301\u5F53\u524D\u8BBE\u7F6E"), enabled: t("\u5F00\u542F\uFF08\u4EC5\u73B0\u91D1\uFF09"), disabled: t("\u5173\u95ED\uFF08\u5141\u8BB8\u878D\u8D44\uFF0C\u53D7\u8D26\u6237\u6743\u9650\u7EA6\u675F\uFF09") }} onChange={value => updateForm(active, { cashOnlyMode: value as SwitchDraft["cashOnlyMode"], touched: { cashOnly: true } })}/></label>}
-          {platformSettings[active.platform]?.reserved_cash && <><label>{t("\u9884\u7559\u73B0\u91D1\u653F\u7B56")}<OptionList values={["current", "none", "ratio", "floor", "max"]} value={activeForm.reserveMode} labels={{ current: t("\u4FDD\u6301\u5F53\u524D\u8BBE\u7F6E"), none: t("\u6E05\u9664\u9884\u7559"), ratio: t("\u6BD4\u4F8B"), floor: t("\u56FA\u5B9A\u91D1\u989D"), max: t("\u91D1\u989D\u4E0E\u6BD4\u4F8B\u53D6\u8F83\u5927\u503C") }} onChange={value => updateForm(active, { reserveMode: value as SwitchDraft["reserveMode"], touched: { reserve: true } })}/></label><label>{t("\u6700\u5C0F\u9884\u7559\u91D1\u989D")}<input value={activeForm.reserveFloor} inputMode="decimal" onChange={e => updateForm(active, { reserveFloor: e.target.value, touched: { reserve: true } })}/></label><label>{t("\u9884\u7559\u6BD4\u4F8B\uFF080\u20131\uFF09")}<input value={activeForm.reserveRatio} inputMode="decimal" onChange={e => updateForm(active, { reserveRatio: e.target.value, touched: { reserve: true } })}/></label></>}
-          {platformSettings[active.platform]?.dca && DCA_SUPPORTED_PLATFORMS.has(active.platform) && <><label>{t("\u5B9A\u6295\u6A21\u5F0F")}<OptionList values={["fixed", "smart"]} value={activeForm.dcaMode} labels={{ fixed: t("固定金额"), smart: t("智能定投") }} onChange={value => updateForm(active, { dcaMode: value as SwitchDraft["dcaMode"], touched: { dca: true } })}/></label><label>{t("\u5B9A\u6295\u57FA\u51C6\u91D1\u989D")}<input value={activeForm.dcaBase} inputMode="decimal" onChange={e => updateForm(active, { dcaBase: e.target.value, touched: { dca: true } })}/></label></>}
-          </div>
-          <p className="section-note">{t("摘要预览：{platform} / {target} · 券商环境 {environment} · {strategy} · 执行（{execution}）· 启停 {runtime}。执行方式不会改变账户环境或权限。", { platform: active.platform, target: active.account.target_name, environment: brokerEnvironment(active.account.broker_environment, t), strategy: activeForm.strategy || t("\u672A\u9009\u62E9\u7B56\u7565"), execution: executionMode(activeForm.executionMode, t), runtime: t(displayStatus(activeForm.runtimeMode)) })}</p>
-          <div className="form-actions"><button className="button button-primary" type="button" disabled={(!ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled") || !model?.session.allowed || switchLocks.current.has(active.id) || busy[`switch:${active.id}`] || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active)}>{switchLocks.current.has(active.id) ? t("\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF0C\u7B49\u5F85\u8BFB\u56DE") : !ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled" ? t("设置保存暂未接通") : activeForm.runtimeMode === "disabled" ? t("\u63D0\u4EA4\u505C\u7528\u8BF7\u6C42") : t("\u63D0\u4EA4\u8BA1\u5212")}</button><button className="button button-secondary" type="button" onClick={() => void navigator.clipboard?.writeText(`${active.platform} ${active.account.label || active.account.key}\n${activeForm.strategy}\n${activeForm.executionMode}`)}>{t("\u590D\u5236\u6458\u8981")}</button></div>
-          <p className="section-note">{t("账户计划提交暂未接通；当前可以查看设置，停用入口仍按原确认流程执行。")}</p>
-        </details>
-        <div className="account-safety-actions"><button className="button button-danger" type="button" disabled={!model?.session.allowed || switchLocks.current.has(active.id) || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active, true)}>{busy[`stop:${active.id}`] ? t("正在提交…") : t("提交停用请求")}</button>{active.platform === "binance" && canResumeBinance(active.platform, active.account, active.current) && <button type="button" className="button button-secondary" disabled={busy[`resume:${active.id}`] || onceLocks.current.isLocked(`resume:${active.id}`)} onClick={() => void resumeBinance(active)}>{t("恢复现有 Binance 目标")}</button>}</div>
-      </section> : <Empty title={t("\u8D26\u6237\u914D\u7F6E\u6682\u4E0D\u53EF\u7528")} detail={t("API \u672A\u8FD4\u56DE\u53EF\u7528\u8D26\u6237\uFF0C\u672A\u4F7F\u7528\u9ED8\u8BA4\u8D26\u6237\u66FF\u4EE3\u3002")}/>}
-      <section className="content-section"><h2>{t("\u7B56\u7565\u5065\u5EB7")}</h2><div className="overview-filters">{[["attention", t("\u9700\u8981\u5173\u6CE8")], ["all", t("\u5168\u90E8\u7B56\u7565")]].map(([key, label]) => <button key={key} aria-pressed={healthFilter === key} onClick={() => setHealthFilter(key)} type="button">{label}</button>)}</div><SourceList source={model?.health} items={(model?.health.value?.strategies || []).filter((entry: any) => healthFilter === "all" || entry.status !== "healthy").map((entry: any) => t("{profile} · {status} · {score} · {date}", { profile: entry.profile || entry.strategy_id, status: t(displayStatus(entry.status)), score: entry.score ?? "—", date: stamp(entry.as_of, language) }))} empty={t("\u6682\u65E0\u7B56\u7565\u5065\u5EB7\u8BB0\u5F55")}/></section>
-      </div><aside className="editorial-rail"><h2>{t("\u8FD0\u884C\u8FB9\u754C")}</h2><p>{t("\u505C\u7528\u65B0\u89E6\u53D1\u4E0D\u7B49\u4E8E\u64A4\u5355\u3001\u5E73\u4ED3\u6216\u6E05\u9664\u5728\u9014\u8BF7\u6C42\u3002")}</p><details><summary>{t("运行检查详情（技术信息）")}</summary>{active && <><p>{t("配置读回、运行监测和成交证据分别核对。")}</p><DetailTime title={t("\u8D26\u6237\u68C0\u67E5")} value={active.runtime?.target?.deployment?.observed_at}/></>}{(model?.runtime.value?.targets || []).filter((item: any) => item.target?.target?.platform === active?.platform).map((item: any) => <pre key={item.target.target_id}>{JSON.stringify(item, null, 2)}</pre>)}</details></aside></div>
-  </>;
-    const renderReports = () => {
-      const reportSources: Array<[string, Source<any> | undefined, Page]> = [["账户运行检查", model?.runtime, "accounts"], ["策略健康快照", model?.health, "strategy"], ["历史研究结果", model?.research, "strategy"], ["控制平面与待办", model?.control, "strategy"], ["执行与成交证据", model?.evidence, "accounts"], ["自动化研究任务", model?.tasks, "strategy"], ["外部市场研究", model?.market, "strategy"], ["系统建议", model?.adaptive, "strategy"]];
-      const needsReview = reportSources.filter(([, source]) => valueStatus(source) !== "可供核对");
-      return <details className="report-details"><summary>{t("查看账户资料与历史来源")}</summary><div className="report-details-body">
-      <section className="content-section"><h2>{t("报告行动摘要")}</h2><p>{t("没有已核实的账户资产表现；请查看账户运行资料。")}</p>{needsReview.length ? <ul className="plain-list">{needsReview.map(([label, source, target]) => <li key={label}><strong>{t(label)}</strong> · {t(valueStatus(source))} <button className="text-link" type="button" onClick={() => setPageAndRoute(target)}>{target === "accounts" ? t("查看账户") : t("查看资料")} →</button></li>)}</ul> : <p className="section-note">{t("现有报告来源可供核对；账户资产表现仍未接入。")}</p>}</section>
-      <details className="report-details"><summary>{t("查看全部报告来源与技术细节")}</summary>
-      <section className="content-section"><h2>{t("\u6765\u6E90\u72B6\u6001")}</h2><SourceCatalog model={model} onNavigate={setPageAndRoute}/></section>
-      <section className="content-section"><h2>{t("\u7B56\u7565\u5065\u5EB7\u5FEB\u7167")}</h2><DetailTime title={t("计算时间")} value={sourceTime(model?.health.value)}/><SourceList source={model?.health} items={(model?.health.value?.strategies || []).map((s: any) => t("{profile} · {status} · {date}", { profile: s.profile || s.strategy_id, status: t(displayStatus(s.status)), date: stamp(s.as_of, language) }))} empty={t("\u6CA1\u6709\u7B56\u7565\u5065\u5EB7\u8BB0\u5F55")}/></section>
-      <section className="content-section"><h2>{t("\u6267\u884C\u4E0E\u6210\u4EA4\u8BC1\u636E")}</h2><DetailTime title={t("\u6765\u6E90\u65F6\u95F4")} value={sourceTime(model?.evidence.value)}/><SourceList source={model?.evidence} items={(model?.evidence.value?.deployments || []).map((item: any) => t("{platform} · {strategy} · {status}", { platform: item.platform || t("\u672A\u77E5\u5E73\u53F0"), strategy: item.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230"), status: t(displayStatus(item.status || item.execution_status)) }))} empty={t("\u6CA1\u6709\u53EF\u5C55\u793A\u7684\u6267\u884C\u8BC1\u636E")}/></section>
-      <section className="content-section"><h2>{t("\u7814\u7A76\u4EFB\u52A1")}</h2><DetailTime title={t("计算时间")} value={sourceTime(model?.tasks.value)}/><SourceList source={model?.tasks} items={(model?.tasks.value?.tasks || []).map((item: any) => t("{id} · {status} · {date}", { id: item.task_id || item.request_id, status: t(displayStatus(item.status)), date: stamp(item.updated_at, language) }))} empty={t("\u6CA1\u6709\u5DF2\u8BFB\u53D6\u7684\u7814\u7A76\u4EFB\u52A1")}/></section>
-      <section className="content-section"><h2>{t("\u5916\u90E8\u7814\u7A76 / \u7CFB\u7EDF\u5EFA\u8BAE")}</h2><SourceList source={model?.market} items={(model?.market.value?.subjects || []).map((item: any) => { const subject = summarizeExternalResearchSubject(item, t("\u672A\u77E5")); return t("{subject} · {status} · {date}", { subject: subject.title, status: t(displayStatus(subject.status)), date: stamp(subject.asOf, language) }); })} empty={t("\u5C1A\u65E0\u53EF\u5C55\u793A\u7684\u5E02\u573A\u7814\u7A76\u8BB0\u5F55")}/><SourceList source={model?.adaptive} items={(model?.adaptive.value?.selections || []).map((item: any) => t("{candidate} · {status}", { candidate: item.candidate_id || item.strategy_profile || t("\u5019\u9009"), status: t(displayStatus(item.status)) }))} empty={t("\u6682\u65E0\u7CFB\u7EDF\u5EFA\u8BAE")}/></section>
-      <section className="content-section"><h2>{t("\u6570\u636E\u7F3A\u53E3")}</h2><p className="section-note large-note">{t("\u5B8C\u6574\u8D44\u4EA7\u65E5\u62A5\u3001\u8D26\u6237\u51C0\u503C\u5386\u53F2\u548C\u8D44\u91D1\u6D41\u53E3\u5F84\u5C1A\u672A\u63A5\u5165\u3002\u51C0\u503C\u66F2\u7EBF\u4F1A\u53D7\u5230\u5165\u91D1\u4E0E\u51FA\u91D1\u5F71\u54CD\uFF1B\u8D44\u91D1\u6D41\u7F3A\u5931\u65F6\uFF0C\u4E0D\u8BA1\u7B97\u5E74\u5316\u6536\u76CA\u6216\u6700\u5927\u56DE\u64A4\u3002")}</p></section>
-      </details>
-      </div></details>;
+    const profileOptions = model?.config.value?.strategyProfiles || [];
+    const namedStrategy = (profileId: unknown) => {
+        const found = profileOptions.find((profile: any) => profile?.profile === profileId);
+        const name = strategyDisplayName(found, language);
+        return name === "未命名策略" ? t(name) : name;
     };
-    const renderAdmin = () => <AdminPanel model={adminModel} session={model?.session} text={adminText} setText={setAdminText} risk={adminRisk} setRisk={setAdminRisk} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction}/>;
+    const overviewAccounts: OverviewAccount[] = rows.map(row => {
+        const status = accountStatusView(row.runtime?.account_state);
+        const preference = row.current?.risk_preference;
+        return {
+            id: row.id,
+            title: accountDisplayTitle(row.account, row.platformLabel, brokerEnvironment(row.account.broker_environment, t)),
+            strategy: namedStrategy(row.current?.strategy_profile),
+            statusLabel: status.label,
+            statusDetail: status.detail,
+            activation: activationFromProjection(row.runtime?.account_state),
+            preference: typeof preference === "string" ? preference : null,
+        };
+    });
+    const accountItems: AccountListItem[] = rows.map(row => {
+        const profile = profileOptions.find((item: any) => item?.profile === row.current?.strategy_profile);
+        return {
+            id: row.id,
+            platform: row.platform,
+            key: row.account.key,
+            title: accountDisplayTitle(row.account, row.platformLabel, brokerEnvironment(row.account.broker_environment, t)),
+            environment: brokerEnvironment(row.account.broker_environment, t),
+            strategy: namedStrategy(row.current?.strategy_profile),
+            strategyNote: strategyNote(profile, language),
+            statusLabel: accountStatusView(row.runtime?.account_state).label,
+            activation: activationFromProjection(row.runtime?.account_state),
+        };
+    });
+    const decisions = listDailyDecisions({
+        language,
+        profiles: profileOptions,
+        promotions: model?.promotions,
+        owners: model?.owners,
+        recovery: model?.recovery,
+        accountsFor: (ticket) => {
+            const application = (model?.promotions.value?.applications || []).find((item: any) => item.ticket_id === ticket?.ticket_id);
+            return (application?.application_preparation?.account_options || []).filter((account: any) => account?.broker_environment === "live" || (account?.broker_environment === "paper" && account?.platform === "longbridge")).map((account: any) => ({
+                platform: String(account.platform || ""),
+                key: String(account.key || ""),
+                label: accountDisplayTitle(account, String(account.platform || ""), brokerEnvironment(account.broker_environment, t)),
+            }));
+        },
+    });
+    const requestPage = async (next: Page, accountId?: string) => {
+        const changingAccount = Boolean(accountId && accountId !== selectedId);
+        const leavingSettings = page === "accounts" && next !== "accounts";
+        if ((changingAccount || leavingSettings) && !await discardUnsaved()) return;
+        setPageAndRoute(next, accountId);
+    };
+    const selectedAccount = accountItems.find(item => item.id === selectedId) || accountItems[0] || null;
+    const selectedRow = rows.find(row => row.id === selectedAccount?.id) || null;
+    const hkStop = Boolean(selectedRow && selectedRow.platform === "longbridge" && (selectedRow.account.target_name || selectedRow.account.key) === "hk");
+    const stopAllowed = Boolean(selectedRow && model?.session.allowed && !switchLocks.current.blocked(selectedRow.id) && !busy[`stop:${selectedRow.id}`] && (!hkStop || hkStopSubmitAllowed(stopRecords[selectedRow.id])));
+    const stopLabel = !selectedRow ? "提交停用请求" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "提交停用请求";
+    const renderOverview = () => <OverviewPage accounts={overviewAccounts} decisions={decisions.items.length} decisionsBlocked={decisions.blocked} onOpenAccount={id => void requestPage("accounts", id)} onOpenDecisions={() => void requestPage("strategy")} />;
+    const renderStrategy = () => <DecisionsPage blocked={decisions.blocked} items={decisions.items} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />;
+    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} admin={Boolean(model?.session.admin)} settingsEpoch={settingsEpoch} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} />;
+    const renderAdmin = () => <AdminPanel model={adminModel} session={model?.session} applications={model?.promotions.value?.applications || []} onApply={(application, accountId) => void applyPromotion(application, accountId)} text={adminText} setText={setAdminText} risk={adminRisk} setRisk={setAdminRisk} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction} />;
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")
@@ -801,58 +769,13 @@ function App() {
     if (adminPath && !model?.session.admin)
         return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u4EC5\u9650\u7BA1\u7406\u5458")}</h1><p>{t("\u6B64\u8D26\u6237\u6CA1\u6709\u7BA1\u7406\u6743\u9650\u3002")}</p><button type="button" className="button button-primary" onClick={() => { setAdminPath(false); setPageAndRoute("overview"); }}>{t("\u8FD4\u56DE\u8D44\u4EA7\u603B\u89C8")}</button></main></LocaleContext.Provider>;
     return <LocaleContext.Provider value={language}><><div className="app-shell" inert={Boolean(confirmDialog)}>
-    <header className="topbar"><button className="brand" type="button" onClick={() => setPageAndRoute("overview")} aria-label={t("\u8D44\u4EA7\u603B\u89C8")}><QslIcon /><span><strong>QuantStrategyLab</strong><small>{t("\u6295\u8D44\u7EC4\u5408\u8FD0\u884C\u63A7\u5236\u53F0")}</small></span>{model?.session.synthetic && <span className="synthetic-badge">{t("\u5408\u6210\u6F14\u793A")}</span>}</button>
-      <nav className="primary-nav" aria-label={language === "zh" ? t("\u4E3B\u5BFC\u822A") : "Main navigation"}>{NAV.map(item => <button key={item.id} className={!adminPath && page === item.id ? "active" : ""} aria-current={!adminPath && page === item.id ? "page" : undefined} onClick={() => setPageAndRoute(item.id)} type="button">{t(item.label)}</button>)}</nav>
-      <div className="top-controls"><span className="signed-in">{model?.session.login || (language === "zh" ? t("\u5DF2\u767B\u5F55") : "Signed in")}</span>{model?.session.admin && <button className={`text-link admin-shortcut ${adminPath ? "active" : ""}`} aria-current={adminPath ? "page" : undefined} type="button" onClick={enterAdmin}>{language === "zh" ? t("\u7BA1\u7406\u8BBE\u7F6E") : "Admin"}</button>}<label className="theme-control"><span>{language === "zh" ? t("\u4E3B\u9898") : "Theme"}</span><select aria-label={language === "zh" ? t("\u4E3B\u9898") : "Theme"} value={theme} onChange={e => setTheme(normalizeThemePreference(e.target.value))}><option value="system">{language === "zh" ? t("\u7CFB\u7EDF") : "System"}</option><option value="light">{language === "zh" ? t("\u6D45\u8272") : "Light"}</option><option value="dark">{language === "zh" ? t("\u6DF1\u8272") : "Dark"}</option></select></label><label className="language-control"><span>{language === "zh" ? t("\u8BED\u8A00") : "Language"}</span><select aria-label={language === "zh" ? t("\u8BED\u8A00") : "Language"} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("\u4E2D\u6587")}</option><option value="en">English</option></select></label><button className="refresh-top" type="button" onClick={() => void refresh()} disabled={refreshing} aria-label={language === "zh" ? t("\u5237\u65B0\u8D44\u6599") : "Refresh data"}>↻</button><button className="button button-secondary" type="button" onClick={() => void logout()}>{language === "zh" ? t("\u9000\u51FA") : "Sign out"}</button></div>
+    <header className="topbar"><button className="brand" type="button" onClick={() => void requestPage("overview")} aria-label={t("账户总览")}><QslIcon /><span><strong>QSL</strong><em>QuantStrategyLab</em></span>{model?.session.synthetic && <span className="synthetic-badge">{t("合成演示")}</span>}</button>
+      <nav className="primary-nav" aria-label={t("主导航")}>{NAV.map(item => <button key={item.id} className={!adminPath && page === item.id ? "active" : ""} aria-current={!adminPath && page === item.id ? "page" : undefined} onClick={() => void requestPage(item.id)} type="button">{t(item.label)}</button>)}</nav>
+      <div className="top-controls"><button className="theme-button" type="button" aria-label={t("主题")} onClick={() => setTheme(theme === "light" ? "dark" : theme === "dark" ? "system" : "light")}>{theme === "dark" ? "☾" : "☀"}</button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu"><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div><span>{model?.session.login || t("已登录")}</span>{model?.session.admin && <button type="button" className="admin-shortcut" onClick={enterAdmin}>{t("管理设置")}</button>}<button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
     </header>
     {errorMessage && <div className="global-notice" role="status"><span>{renderLocaleMessage(errorMessage,language)}</span><button type="button" onClick={() => setErrorMessage(null)} aria-label={t("\u5173\u95ED\u63D0\u793A")}>{t("\u5173\u95ED")}</button></div>}
     <main className="main-content" key={adminPath ? "admin" : page}>{adminPath ? renderAdmin() : page === "overview" ? renderOverview() : page === "strategy" ? renderStrategy() : renderAccounts()}</main>
-    <footer className="page-footer"><span>QuantStrategyLab</span><span>{t("\u53EA\u663E\u793A\u73B0\u6709\u8D44\u6599\uFF1B\u6743\u9650\u7531\u670D\u52A1\u7AEF\u4F1A\u8BDD\u51B3\u5B9A\u3002")}</span><DetailTime title={t("最近刷新")} value={model?.runtime.value?.computed_at}/></footer>
   </div>{confirmDialog && <ConfirmationDialog dialog={confirmDialog} onCancel={() => resolveConfirmation(false)} onConfirm={() => resolveConfirmation(true)}/>}</></LocaleContext.Provider>;
-    async function runDiagnosis(row: AccountRow) {
-        if (!model?.session.allowed || !row.account.key || diagnosis[row.id]?.available !== true || !beginOnce(`diagnosis:${row.id}`))
-            return;
-        try {
-            const platform = row.platform;
-            const key = row.account.key;
-            const current = await getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(key)}`);
-            const existing = current.task || null;
-            setDiagnosis(prev => ({ ...prev, [row.id]: { available: true, loading: false, task: existing } }));
-            if (["queued", "running", "unknown"].includes(String(existing?.status || "")) || (existing?.status === "succeeded" && existing?.recheck_status === "sent"))
-                return;
-            const trigger = row.runtime?.freshness?.data_status === "ready" && (row.runtime?.execution_observation?.code === "attention" || row.runtime?.target?.monitoring?.runtime_guard === "attention") ? "incident" : "manual_check";
-            const result = await postJson<any>("/api/account-diagnosis", { platform, key, trigger });
-            setDiagnosis(prev => ({ ...prev, [row.id]: { available: true, loading: false, task: result.task || null } }));
-        }
-        catch (error) {
-            if (error instanceof AccessError)
-                clearPrivateState(false);
-            else
-                setDiagnosis(prev => ({ ...prev, [row.id]: { ...prev[row.id], available: false, loading: false } }));
-            setErrorMessage(copy("诊断请求未完成：{error}",{error:copy(requestErrorKey(error))}));
-        }
-        finally {
-            finishOnce(`diagnosis:${row.id}`);
-        }
-    }
-    async function readDiagnosisStatus(row: AccountRow) {
-        if (!model?.session.allowed || !row.account.key || busy[`diagnosis-read:${row.id}`])
-            return;
-        setBusy(prev => ({ ...prev, [`diagnosis-read:${row.id}`]: true }));
-        try {
-            const result = await getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(row.platform)}&key=${encodeURIComponent(row.account.key)}`);
-            setDiagnosis(prev => ({ ...prev, [row.id]: { available: true, loading: false, task: result.task || null } }));
-        }
-        catch (error) {
-            if (error instanceof AccessError)
-                clearPrivateState(false);
-            else
-                setDiagnosis(prev => ({ ...prev, [row.id]: { ...prev[row.id], available: false, loading: false } }));
-        }
-        finally {
-            setBusy(prev => ({ ...prev, [`diagnosis-read:${row.id}`]: false }));
-        }
-    }
 }
 function ConfirmationDialog({ dialog, onCancel, onConfirm }: {
     dialog: ConfirmDialogState;
@@ -891,104 +814,42 @@ function ConfirmationDialog({ dialog, onCancel, onConfirm }: {
     <div className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-description" ref={dialogRef} onKeyDown={onKeyDown}>
       <div className="confirm-kicker">{t("\u8BF7\u6838\u5BF9\u540E\u7EE7\u7EED")}</div><h2 id="confirm-title">{dialog.title}</h2>
       <p className="confirm-target">{dialog.target}</p><p id="confirm-description" className="confirm-summary">{dialog.summary}</p>
-      <p className={`confirm-consequence ${dialog.tone}`}>{dialog.consequence}</p>
-      <div className="confirm-actions"><button ref={cancelRef} className="button button-secondary" type="button" onClick={onCancel}>{t("\u53D6\u6D88")}</button><button className={`button ${dialog.tone === "danger" ? "button-danger" : "button-primary"}`} type="button" onClick={onConfirm}>{t("\u786E\u8BA4\u7EE7\u7EED")}</button></div>
+      {dialog.consequence !== dialog.summary && <p className={`confirm-consequence ${dialog.tone}`}>{dialog.consequence}</p>}
+      <div className="confirm-actions"><button ref={cancelRef} className="button button-secondary" type="button" onClick={onCancel}>{t("\u53D6\u6D88")}</button><button className={`button ${dialog.tone === "danger" ? "button-danger" : "button-primary"}`} type="button" onClick={onConfirm}>{t(dialog.confirmLabel || "\u786E\u8BA4\u7EE7\u7EED")}</button></div>
     </div>
   </div>;
 }
-function AccountTable({ rows, model, selected, onSelect }: {
-    rows: AccountRow[];
-    model: ReadModel | null;
-    selected?: string;
-    onSelect: (row: AccountRow) => void;
-}) {
-    const t = useT();
-    const language = useLocale();
-    if (model?.config.error || !model?.config.value?.accountOptions)
-        return <Empty title={t("\u8D26\u6237\u6E05\u5355\u6682\u4E0D\u53EF\u7528")} detail={t("\u6CA1\u6709\u53EF\u9760\u8D26\u6237\u914D\u7F6E\u8BFB\u56DE\uFF1B\u4E0D\u4F1A\u4EE5\u6837\u4F8B\u6216\u9ED8\u8BA4\u8D26\u6237\u4EE3\u66FF\u3002")}/>;
-    if (!rows.length)
-        return <Empty title={t("\u6CA1\u6709\u5339\u914D\u8D26\u6237")} detail={t("\u8BF7\u8C03\u6574\u641C\u7D22\u6761\u4EF6\u6216\u7B5B\u9009\u3002")}/>;
-    return <div className="table-scroll"><table className="account-table"><thead><tr><th>{t("\u8D26\u6237")}</th><th>{t("当前策略")}</th><th>{t("\u8FD0\u884C\u72B6\u6001")}</th><th>{t("\u6700\u8FD1\u68C0\u67E5")}</th><th /></tr></thead><tbody>{rows.map(row => { const status = statusFor(row, model?.runtime.value?.data_status); return <tr key={row.id} className={selected === row.id ? "selected-row" : undefined}><td><strong>{row.account.label || row.account.target_name}</strong><small>{row.platformLabel}{row.account.account_selector ? ` · ${row.account.account_selector}` : ""}</small></td><td><small>{row.current?.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230")}</small></td><td><span className={`status-text ${status.tone}`}><i aria-hidden="true"/>{t(status.label)}</span><small>{t(status.detail)}</small></td><td>{stamp(row.runtime?.target?.deployment?.observed_at, language)}<small>{t(displayStatus(row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || model?.runtime.value?.data_status))}</small></td><td><button type="button" className="text-link" onClick={() => onSelect(row)}>{t("\u67E5\u770B \u2192")}</button></td></tr>; })}</tbody></table></div>;
-}
-function AccountFacts({ row, model }: {
-    row: AccountRow;
-    model: ReadModel | null;
-}) {
-    const t = useT();
-    const status = statusFor(row, model?.runtime.value?.data_status);
-    const target = row.runtime?.target;
-    const facts: Array<[
-        string,
-        string
-    ]> = [[t("当前策略"), row.current?.strategy_profile || t("未读取")], [t("券商环境"), brokerEnvironment(row.account.broker_environment, t)]];
-    return <><p className="detail-status"><span className={`status-text ${status.tone}`}>{t(status.label)}</span><span>{t(status.detail)}</span></p><dl className="fact-list">{facts.map(([a, b]) => <div key={a}><dt>{a}</dt><dd>{b}</dd></div>)}</dl><details><summary>{t("查看运行状态详情")}</summary><dl className="fact-list"><div><dt>{t("配置状态")}</dt><dd>{row.current?.runtime_target_enabled === true ? t("已配置启用") : row.current?.runtime_target_enabled === false ? t("已配置停用") : t("未知")}</dd></div><div><dt>{t("监测状态")}</dt><dd>{t(displayStatus(target?.monitoring?.runtime_guard))}</dd></div><div><dt>{t("执行心跳")}</dt><dd>{t(displayStatus(target?.monitoring?.execution_heartbeat))}</dd></div><div><dt>{t("目标编号")}</dt><dd>{row.account.runtime_status_target_id || t("未绑定")}</dd></div><div><dt>{t("调度状态")}</dt><dd>{t(displayStatus(target?.deployment?.scheduler_state))}</dd></div><div><dt>{t("执行方式")}</dt><dd>{executionMode(target?.deployment?.execution_mode,t)}</dd></div></dl><DetailTime title={t("\u8FD0\u884C\u68C0\u67E5\u65F6\u95F4")} value={target?.deployment?.observed_at}/>{row.runtime && <p className="section-note">{t("\u8FD0\u884C\u68C0\u67E5\u4E0D\u5305\u542B\u8BA2\u5355\u6216\u6210\u4EA4\u56DE\u62A5\u3002")}</p>}</details></>;
-}
-function SourceList({ source, items, empty }: {
-    source?: Source<any>;
-    items: string[];
-    empty: string;
-}) {
-    const t = useT();
-    if (source?.error || !source?.value)
-        return <Empty title={t("\u6765\u6E90\u6682\u4E0D\u53EF\u7528")} detail={source?.error || t("\u6CA1\u6709\u8BFB\u56DE\u6570\u636E\u3002")}/>;
-    if (source.value.data_status && source.value.data_status !== "ready")
-        return <Empty title={t("来源状态：{status}", { status: t(displayStatus(source.value.data_status)) })} detail={t("尚未核实来源时，不能按没有记录处理。")}/>;
-    return items.length ? <ul className="plain-list">{items.map((item, index) => <li key={`${item}-${index}`}>{item}</li>)}</ul> : <p className="section-note">{empty}</p>;
-}
-function SourceCatalog({ model, onNavigate }: {
-    model: ReadModel | null;
-    onNavigate: (page: Page) => void;
-}) {
-    const t = useT();
-    const items: [
-        string,
-        Source<any> | undefined,
-        Page
-    ][] = [["账户运行检查", model?.runtime, "accounts"], ["策略健康快照", model?.health, "strategy"], ["历史研究结果", model?.research, "strategy"], ["控制平面与待办", model?.control, "strategy"], ["执行与成交证据", model?.evidence, "accounts"], ["自动化研究任务", model?.tasks, "strategy"], ["外部市场研究", model?.market, "strategy"], ["系统建议", model?.adaptive, "strategy"]];
-    return <div className="source-list">{items.map(([title, source, page]) => <div className="source-row-item" key={title}><strong>{t(title)}</strong><span className={`source-state ${source?.value?.data_status === "ready" ? "" : "unknown"}`}>{t(valueStatus(source))}</span><DetailTime title={t("\u66F4\u65B0\u65F6\u95F4")} value={sourceTime(source?.value)}/><button className="text-link" type="button" onClick={() => onNavigate(page)}>{page === "accounts" ? t("\u67E5\u770B\u8D26\u6237") : t("\u67E5\u770B\u8D44\u6599")} →</button></div>)}</div>;
-}
-function ApplicationCard({ application, busy, selectedAccountId, onSelectAccount, onDeploy }: {
+
+function ApplicationCard({ application, busy, onDeploy }: {
     application: Record<string, any>;
     busy?: boolean;
-    selectedAccountId: string;
-    onSelectAccount: (value: string) => void;
-    onDeploy: () => void;
+    onDeploy: (accountId: string) => void;
 }) {
     const t = useT();
     const prep = application.application_preparation || {};
     const previous = application.application || null;
     const retryAllowed = applicationRetryAllowed(previous);
-    const accounts = (prep.account_options || []).filter((account: any) => account.platform === "longbridge" && account.broker_environment === "paper");
-    const selected = accounts.find((account: any) => `${account.platform}:${account.key}` === selectedAccountId);
+    const accounts = paperApplicationAccounts(application);
+    const [selectedAccountId, setSelectedAccountId] = useState("");
+    const selected = accounts.some(account => account.id === selectedAccountId) ? selectedAccountId : (accounts.length === 1 ? accounts[0].id : "");
+    const ready = paperApplicationReady({ ...application, application: previous }, selected);
     const status = previous ? `${t(displayStatus(previous.status))} · ${t(displayStatus(previous.dispatch_state))}` : t("尚无应用记录");
     return <article className="application-card"><strong>{t("模拟账户应用 · {ticket}", { ticket: application.ticket_id })}</strong>
         <p>{t("预检：{preflight} · 应用：{status}", { preflight: t(displayStatus(prep.preflight_status)), status })}</p>
         {prep.blocker_codes?.length > 0 && <p>{t("{count} 项需核对", { count: prep.blocker_codes.length })}</p>}
-        <label className="application-account">{t("目标账户")}<select value={selected ? selectedAccountId : ""} onChange={event => onSelectAccount(event.target.value)}>
+        <label className="application-account">{t("目标账户")}<select value={selected} onChange={event => setSelectedAccountId(event.target.value)}>
             <option value="">{t("请明确选择 LongBridge 模拟账户")}</option>
-            {accounts.map((account: any) => <option key={`${account.platform}:${account.key}`} value={`${account.platform}:${account.key}`}>{t("{account} · 券商模拟环境", { account: account.label || account.key })}</option>)}
+            {accounts.map(account => <option key={account.id} value={account.id}>{t("{account} · 券商模拟环境", { account: account.label })}</option>)}
         </select></label>
-        <button className="button button-secondary" type="button" disabled={busy || !retryAllowed || !selected || prep.preflight_status !== "ready" || !prep.preview_request} onClick={onDeploy}>{busy ? t("正在提交…") : retryAllowed ? previous ? t("重试已明确拒绝的请求") : t("提交模拟账户应用请求") : t("已有请求，等待读回确认")}</button>
+        <button className="button button-secondary" type="button" disabled={busy || !ready} onClick={() => onDeploy(selected)}>{busy ? t("正在提交…") : retryAllowed ? previous ? t("重试已明确拒绝的请求") : t("提交模拟账户应用请求") : t("已有请求，等待读回确认")}</button>
         <p className="section-note">{t(retryAllowed ? "仅对明确选择且通过现有预检的 LongBridge 模拟账户开放；应用、启用与下单权限相互独立。" : "服务端已有应用记录；仅明确拒绝后允许重新提交，状态未知或处理中时保持锁定。")}</p>
     </article>;
 }
-function RecoveryCard({ entry, canConfirm, onConfirm, busy }: {
-    entry: Record<string, any>;
-    canConfirm: boolean;
-    onConfirm: () => void;
-    busy?: boolean;
-}) {
-    const t = useT();
-    const r = entry.recovery || {};
-    return <article className="decision-card"><strong>{r.platform || t("未知平台")} · {r.strategy_profile || t("策略未读到")}</strong>
-        <p>{t("确认只表示已检查恢复材料，不会直接启用账户。")}</p>
-        {entry.confirmation ? <span>{t("已记录恢复前确认")}</span> : canConfirm ? <button className="button button-secondary" disabled={busy} type="button" onClick={onConfirm}>{t("确认已核对")}</button> : null}
-        <details><summary>{t("查看恢复检查详情")}</summary><p>{t("准备状态：{readiness} · 对账：{reconciliation}", { readiness: t(displayStatus(r.readiness)), reconciliation: t(displayStatus(r.reconciliation_state)) })}</p><p>{t("阻塞项：{blockers} · 双审：{review}", { blockers: Array.isArray(r.blocker_codes) && r.blocker_codes.length ? t("{count} 项需核对", { count: r.blocker_codes.length }) : t("无"), review: t(displayStatus(r.dual_review?.outcome)) })}</p>{!canConfirm && !entry.confirmation && <p className="section-note">{t("当前资料不满足双审绑定、freshness 或管理员条件，不能确认。")}</p>}<pre>{JSON.stringify({ recovery_id: r.recovery_id, candidate_sha256: r.candidate_sha256, dual_review: r.dual_review, last_observed_at: r.last_observed_at }, null, 2)}</pre></details>
-    </article>;
-}
-function AdminPanel({ model, session, text, setText, risk, setRisk, instanceDraft, setInstanceDraft, editing, setEditing, busy, setBusy, onRefresh, onError, confirmAction }: {
+function AdminPanel({ model, session, applications = [], onApply, text, setText, risk, setRisk, instanceDraft, setInstanceDraft, editing, setEditing, busy, setBusy, onRefresh, onError, confirmAction }: {
     model: AdminModel | null;
     session?: Session;
+    applications?: any[];
+    onApply: (application: Record<string, any>, accountId: string) => void;
     text: Record<string, string>;
     setText: (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => void;
     risk: Record<string, string>;
@@ -1041,10 +902,14 @@ function AdminPanel({ model, session, text, setText, risk, setRisk, instanceDraf
     const saveRisk = async () => {
         if (!session?.admin || busy.riskSave)
             return;
+        if (!Number.isSafeInteger(riskState.revision)) {
+            onError(copy("没有可核对的风险偏好版本，未保存。"));
+            return;
+        }
         const bindings = Array.from(riskState.configured_targets || []).map((target: any) => ({ platform: target.platform, target_name: target.target_name, risk_preference: risk[`${target.platform}:${target.target_name}`] || "" })).filter((entry: any) => entry.risk_preference);
         setBusy(prev => ({ ...prev, riskSave: true }));
         try {
-            await postJson("/api/risk-profiles", { bindings });
+            await postJson("/api/risk-profiles", { bindings, expected_revision: riskState.revision });
             onError(copy("风险偏好已保存为不可执行意向；不改变策略、仓位或实盘权限。"));
             onRefresh();
         }
@@ -1108,7 +973,7 @@ function AdminPanel({ model, session, text, setText, risk, setRisk, instanceDraf
         string,
         number
     ]);
-    return <><div className="page-title-row"><div><h1>{t("\u7BA1\u7406\u8BBE\u7F6E")}</h1><p>{t("\u7BA1\u7406\u8FD0\u884C\u5B9E\u4F8B\u3001\u767B\u5F55\u6743\u9650\u3001\u8D26\u6237\u8DEF\u7531\u4E0E\u98CE\u9669\u504F\u597D\uFF1B\u89D2\u8272\u6743\u9650\u4ECD\u7531 Worker \u6821\u9A8C\u3002")}</p></div><button type="button" className="button button-secondary" onClick={onRefresh}>{t("\u5237\u65B0\u7BA1\u7406\u8D44\u6599")}</button></div>
+    return <>{applications.length > 0 && <details className="supporting-research" open><summary>{t("提交模拟账户应用请求")}</summary>{applications.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => onApply(application, accountId)} />)}</details>}<div className="page-title-row"><div><h1>{t("\u7BA1\u7406\u8BBE\u7F6E")}</h1><p>{t("\u7BA1\u7406\u8FD0\u884C\u5B9E\u4F8B\u3001\u767B\u5F55\u6743\u9650\u3001\u8D26\u6237\u8DEF\u7531\u4E0E\u98CE\u9669\u504F\u597D\uFF1B\u89D2\u8272\u6743\u9650\u4ECD\u7531 Worker \u6821\u9A8C\u3002")}</p></div><button type="button" className="button button-secondary" onClick={onRefresh}>{t("\u5237\u65B0\u7BA1\u7406\u8D44\u6599")}</button></div>
     <div className="two-column-layout"><div className="page-main-column">
       <section className="content-section"><div className="section-heading"><h2>{t("\u8FD0\u884C\u5B9E\u4F8B")}</h2><span>{instanceState.initialized ? `revision ${instanceState.revision ?? 0}` : instanceState.initialized === false ? t("\u5C1A\u672A\u521D\u59CB\u5316") : t("\u4E0D\u53EF\u7528")}</span></div>
         {model?.instances.error ? <Empty title={t("\u5B9E\u4F8B\u5B58\u50A8\u6682\u4E0D\u53EF\u7528")} detail={t("\u65E0\u6CD5\u8BFB\u53D6\u5B9E\u4F8B\u6216\u5176\u7248\u672C\uFF1B\u5199\u64CD\u4F5C\u505C\u6B62\u3002")}/> : !bound ? <Empty title={t("\u5B9E\u4F8B\u7BA1\u7406\u672A\u63A5\u5165")} detail={t("\u5F53\u524D\u6CA1\u6709\u5B9E\u4F8B\u5B58\u50A8\u7ED1\u5B9A\u3002")}/> : null}

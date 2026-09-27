@@ -33,8 +33,6 @@ import {
   normalizeAccountOptionsPayload as normalizeAccountOptionsSchemaPayload,
   parseAccountOptionsJson as parseAccountOptionsSchemaJson,
 } from "./account_options_schema.js";
-import { APP_CSS } from "./app_css.js";
-import { APP_JS } from "./app_js.js";
 import {
   UX1_DRAFT_SCHEMA,
   UX1_EVIDENCE_HASH_KEYS,
@@ -294,6 +292,19 @@ const ACCOUNT_DIAGNOSIS_AUTO_ENABLED_ENV = "ACCOUNT_DIAGNOSIS_AUTO_ENABLED";
 const ACCOUNT_DIAGNOSIS_DO_ACTIONS = new Set([
   "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck",
 ]);
+const HUMAN_DECISION_DO_ACTIONS = new Set([
+  "owner_sync_materials", "recovery_sync_materials", "promotion_sync_materials",
+  "owner_decide", "recovery_decide", "promotion_decide",
+  "owner_read", "recovery_read", "promotion_read",
+]);
+const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
+  "risk_profile_read", "risk_profile_replace", "risk_profile_set",
+  "account_settings_read", "account_settings_save",
+]);
+const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read"]);
+const HK_STOP_TARGET_ID = "longbridge/hk";
+const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor"];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -616,6 +627,12 @@ export default {
       if (url.pathname === "/api/risk-profiles" && request.method === "POST") {
         return await saveRiskProfileBindings(request, env);
       }
+      if (url.pathname === "/api/account-settings" && request.method === "GET") {
+        return await accountSettingsResponse(request, env);
+      }
+      if (url.pathname === "/api/account-settings" && request.method === "POST") {
+        return await saveAccountSettings(request, env);
+      }
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
         return await syncAccountDefaultResponse(request, env);
       }
@@ -727,6 +744,7 @@ export default {
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
+      if (url.pathname === "/api/runtime-stop" && request.method === "GET") return await readRuntimeStop(request, env, url);
       if (url.pathname === "/api/runtime-stop" && request.method === "POST") return await dispatchRuntimeStop(request, env);
       if (url.pathname === "/api/runtime-resume" && request.method === "POST") return await dispatchBinanceResume(request, env);
       if (url.pathname === "/bootstrap-config.js") {
@@ -749,8 +767,7 @@ export default {
           },
         });
       }
-      if (url.pathname === "/app.css") return new Response(APP_CSS, { status: 200, headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "no-store" } });
-      if (url.pathname === "/app.js") return new Response(APP_JS, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "no-store" } });
+      if (url.pathname === "/app.css" || url.pathname === "/app.js") return new Response(null, { status: 404, headers: { "Cache-Control": "no-store" } });
       return json({ ok: false, error: "not_found" }, 404);
     } catch (error) {
       return json({ ok: false, error: error.message || "unexpected error" }, error.status || 500);
@@ -1916,6 +1933,400 @@ export class RuntimeInstances {
     } catch {
       /* already migrated */
     }
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_material (
+      kind TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      material_key TEXT NOT NULL,
+      summary_json TEXT NOT NULL,
+      eligible INTEGER NOT NULL,
+      expires_at_ms INTEGER,
+      legacy_state TEXT NOT NULL,
+      legacy_block TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (kind, subject_id)
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_record (
+      request_key TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      material_key TEXT NOT NULL,
+      action TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      decided_at TEXT NOT NULL,
+      target_json TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS human_decision_record_subject ON human_decision_record (kind, subject_id, material_key)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS human_decision_source_material (
+      kind TEXT NOT NULL,
+      subject_id TEXT NOT NULL,
+      source_id TEXT NOT NULL,
+      material_key TEXT NOT NULL,
+      summary_json TEXT NOT NULL,
+      eligible INTEGER NOT NULL,
+      expires_at_ms INTEGER,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (kind, subject_id, source_id)
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS risk_profile_authority (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      revision INTEGER NOT NULL,
+      imported INTEGER NOT NULL,
+      bindings_json TEXT NOT NULL
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_draft (
+      platform TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      identity_json TEXT NOT NULL,
+      overrides_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (platform, account_key)
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
+      request_id TEXT PRIMARY KEY,
+      target_id TEXT NOT NULL,
+      identity_json TEXT NOT NULL,
+      source_revision INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      requested_at TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      dispatch_result TEXT,
+      workflow_run_id TEXT,
+      workflow_run_attempt TEXT,
+      updated_at TEXT NOT NULL
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS hk_stop_request_target ON hk_stop_request (target_id, requested_at)");
+  }
+
+  accountSettingsCommand(command) {
+    if (!command || typeof command.actor !== "string" || !command.actor) throw new HttpError("runtime_instance_actor_required", 400);
+    if (command.action === "risk_profile_read") return this.readRiskProfileAuthority(command.legacy);
+    if (command.action === "risk_profile_replace") return this.replaceRiskProfileAuthority(command);
+    if (command.action === "risk_profile_set") return this.setRiskProfileAuthority(command);
+    if (command.action === "account_settings_read") return this.readAccountSettings(command);
+    if (command.action === "account_settings_save") return this.saveAccountSettings(command);
+    throw new HttpError("unsupported_account_settings_action", 400);
+  }
+
+  ensureRiskProfileAuthority(legacy) {
+    const row = this.sql.exec("SELECT revision, imported, bindings_json FROM risk_profile_authority WHERE id = 1").toArray()[0];
+    if (row) return row;
+    if (legacy?.state === "blocked") throw new HttpError("risk_profile_bindings_invalid", 409);
+    const bindings = legacy?.state === "valid" && Array.isArray(legacy.bindings) ? legacy.bindings : [];
+    const payload = JSON.stringify(bindings);
+    this.sql.exec("INSERT INTO risk_profile_authority (id, revision, imported, bindings_json) VALUES (1, 0, 1, ?)", payload);
+    return { revision: 0, imported: 1, bindings_json: payload };
+  }
+
+  storedRiskBindings(row) {
+    let bindings;
+    try { bindings = JSON.parse(row.bindings_json); } catch { throw new HttpError("risk_profile_bindings_invalid", 409); }
+    if (!Array.isArray(bindings)) throw new HttpError("risk_profile_bindings_invalid", 409);
+    return bindings;
+  }
+
+  assertStoredRiskBinding(binding, accountOptions) {
+    if (!binding || Array.isArray(binding) || typeof binding !== "object") throw new HttpError("invalid_risk_profile_binding", 400);
+    if (binding.no_order !== true || binding.execution_authority_granted !== false) throw new HttpError("risk_profile_execution_authority_rejected", 400);
+    if (binding.scope_id !== riskProfileScopeId(binding.platform, binding.target_name)) throw new HttpError("invalid_risk_profile_binding", 400);
+    if (!RISK_PROFILE_PREFERENCES.includes(binding.profile_selection?.risk_preference)) throw new HttpError("invalid_risk_profile_binding", 400);
+    if (!riskProfileBindingTargets(accountOptions).some((target) => target.platform === binding.platform && target.target_name === binding.target_name)) {
+      throw new HttpError("risk_profile_binding_target_not_configured", 409);
+    }
+  }
+
+  writeRiskProfileAuthority(row, bindings) {
+    const current = this.storedRiskBindings(row);
+    const same = canonicalResearchTaskJson(current) === canonicalResearchTaskJson(bindings);
+    const revision = same ? Number(row.revision) : Number(row.revision) + 1;
+    if (!same) this.sql.exec("UPDATE risk_profile_authority SET revision = ?, bindings_json = ? WHERE id = 1", revision, JSON.stringify(bindings));
+    const state = this.read();
+    return {
+      ok: true,
+      revision,
+      bindings,
+      account_options: runtimeInstanceAccountOptions(state.instances),
+      instance_revision: state.revision,
+      initialized: state.initialized,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  readRiskProfileAuthority(legacy) {
+    const row = this.ensureRiskProfileAuthority(legacy);
+    const state = this.read();
+    return {
+      ok: true,
+      revision: Number(row.revision),
+      bindings: this.storedRiskBindings(row),
+      account_options: runtimeInstanceAccountOptions(state.instances),
+      instance_revision: state.revision,
+      initialized: state.initialized,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  requireRiskRevision(command, row) {
+    if (!Number.isSafeInteger(command.expected_revision) || command.expected_revision !== Number(row.revision)) {
+      throw new HttpError("risk_profile_revision_conflict", 409);
+    }
+  }
+
+  replaceRiskProfileAuthority(command) {
+    const row = this.ensureRiskProfileAuthority(command.legacy);
+    this.requireRiskRevision(command, row);
+    const options = runtimeInstanceAccountOptions(this.read().instances);
+    if (!Array.isArray(command.bindings)) throw new HttpError("invalid_risk_profile_binding", 400);
+    for (const binding of command.bindings) this.assertStoredRiskBinding(binding, options);
+    const bindings = [...command.bindings].sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+    return this.writeRiskProfileAuthority(row, bindings);
+  }
+
+  setRiskProfileAuthority(command) {
+    const row = this.ensureRiskProfileAuthority(command.legacy);
+    this.requireRiskRevision(command, row);
+    const options = runtimeInstanceAccountOptions(this.read().instances);
+    if (!riskProfileBindingTargets(options).some((target) => target.platform === command.platform && target.target_name === command.target_name)) {
+      throw new HttpError("risk_profile_binding_target_not_configured", 409);
+    }
+    const scopeId = riskProfileScopeId(command.platform, command.target_name);
+    const current = this.storedRiskBindings(row).filter((binding) => binding.scope_id !== scopeId);
+    if (command.risk_change === "clear") return this.writeRiskProfileAuthority(row, current);
+    if (command.risk_change !== "set") throw new HttpError("invalid_risk_profile_change", 400);
+    this.assertStoredRiskBinding(command.binding, options);
+    if (command.binding.scope_id !== scopeId) throw new HttpError("invalid_risk_profile_binding", 400);
+    current.push(command.binding);
+    current.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
+    return this.writeRiskProfileAuthority(row, current);
+  }
+
+  existingAccountInstance(platform, key) {
+    const state = this.read();
+    if (!state.initialized) throw new HttpError("runtime_instances_not_initialized", 409);
+    const item = state.instances.find((candidate) => candidate.kind === "existing" && candidate.platform === platform && candidate.key === key);
+    if (!item) throw new HttpError("account_settings_not_found", 404);
+    return { state, item, identity: accountSettingsIdentity(item) };
+  }
+
+  accountSettingDraftView(item, identity) {
+    const row = this.sql.exec(
+      "SELECT revision, identity_json, overrides_json FROM account_setting_draft WHERE platform = ? AND account_key = ?",
+      item.platform, item.key,
+    ).toArray()[0];
+    if (!row) return { status: "empty", revision: 0, identity: null, current_identity: identity, overrides: {} };
+    let storedIdentity = null;
+    let overrides = {};
+    try {
+      storedIdentity = JSON.parse(row.identity_json);
+      overrides = JSON.parse(row.overrides_json);
+    } catch {
+      throw new HttpError("account_settings_draft_invalid", 409);
+    }
+    const conflict = canonicalResearchTaskJson(storedIdentity) !== canonicalResearchTaskJson(identity);
+    return {
+      status: conflict ? "identity_conflict" : "current",
+      revision: Number(row.revision),
+      identity: storedIdentity,
+      current_identity: identity,
+      overrides: overrides && typeof overrides === "object" && !Array.isArray(overrides) ? overrides : {},
+    };
+  }
+
+  readAccountSettings(command) {
+    const { state, item, identity } = this.existingAccountInstance(command.platform, command.key);
+    const risk = this.readRiskProfileAuthority(command.legacy);
+    const scopeId = riskProfileScopeId(item.platform, identity.target_name);
+    const binding = risk.bindings.find((entry) => entry.scope_id === scopeId) || null;
+    return {
+      ok: true,
+      found: true,
+      platform: item.platform,
+      key: item.key,
+      instance_revision: state.revision,
+      identity,
+      config: item.config,
+      draft: this.accountSettingDraftView(item, identity),
+      risk: {
+        revision: risk.revision,
+        scope_id: scopeId,
+        preference: binding?.profile_selection?.risk_preference || null,
+        binding,
+      },
+      bindings: risk.bindings,
+      account_options: risk.account_options,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  saveAccountSettingDraft(item, identity, command) {
+    if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
+      throw new HttpError("account_settings_identity_required", 400);
+    }
+    if (canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) {
+      throw new HttpError("account_settings_identity_conflict", 409);
+    }
+    if (!Number.isSafeInteger(command.expected_draft_revision) || command.expected_draft_revision < 0) {
+      throw new HttpError("account_settings_draft_revision_conflict", 409);
+    }
+    const row = this.sql.exec(
+      "SELECT revision, identity_json, overrides_json FROM account_setting_draft WHERE platform = ? AND account_key = ?",
+      item.platform, item.key,
+    ).toArray()[0];
+    const now = new Date().toISOString();
+    if (!row) {
+      if (command.expected_draft_revision !== 0) throw new HttpError("account_settings_draft_revision_conflict", 409);
+      const overrides = applyAccountSettingOverrides({}, command.overrides);
+      this.sql.exec(
+        "INSERT INTO account_setting_draft (platform, account_key, revision, identity_json, overrides_json, updated_at) VALUES (?, ?, 1, ?, ?, ?)",
+        item.platform, item.key, JSON.stringify(identity), JSON.stringify(overrides), now,
+      );
+      return;
+    }
+    if (command.expected_draft_revision !== Number(row.revision)) throw new HttpError("account_settings_draft_revision_conflict", 409);
+    const storedIdentity = JSON.parse(row.identity_json);
+    const conflict = canonicalResearchTaskJson(storedIdentity) !== canonicalResearchTaskJson(identity);
+    if (conflict && command.acknowledge_identity_conflict !== true) throw new HttpError("account_settings_identity_conflict", 409);
+    const storedOverrides = JSON.parse(row.overrides_json);
+    const base = conflict ? {} : storedOverrides;
+    const overrides = applyAccountSettingOverrides(base, command.overrides);
+    if (!conflict && canonicalResearchTaskJson(overrides) === canonicalResearchTaskJson(storedOverrides)) return;
+    this.sql.exec(
+      "UPDATE account_setting_draft SET revision = ?, identity_json = ?, overrides_json = ?, updated_at = ? WHERE platform = ? AND account_key = ?",
+      Number(row.revision) + 1, JSON.stringify(identity), JSON.stringify(overrides), now, item.platform, item.key,
+    );
+  }
+
+  saveAccountSettings(command) {
+    const { item, identity } = this.existingAccountInstance(command.platform, command.key);
+    const hasDraft = Object.prototype.hasOwnProperty.call(command, "overrides");
+    const hasRisk = Object.prototype.hasOwnProperty.call(command, "risk_change");
+    if (!hasDraft && !hasRisk) throw new HttpError("account_settings_change_required", 400);
+    if (hasDraft) this.saveAccountSettingDraft(item, identity, command);
+    if (hasRisk) {
+      if (!command.identity || Array.isArray(command.identity) || typeof command.identity !== "object") {
+        throw new HttpError("account_settings_identity_required", 400);
+      }
+      if (canonicalResearchTaskJson(command.identity) !== canonicalResearchTaskJson(identity)) {
+        throw new HttpError("account_settings_identity_conflict", 409);
+      }
+      this.setRiskProfileAuthority({
+        ...command,
+        platform: identity.platform,
+        target_name: identity.target_name,
+        expected_revision: command.expected_risk_revision,
+      });
+    }
+    return { ...this.readAccountSettings(command), adopted: false };
+  }
+
+  hkStopCommand(command) {
+    if (command?.action === "hk_stop_read") return { ok: true, record: this.hkStopOpen() || this.hkStopLatest() };
+    if (command?.action === "hk_stop_claim") return this.hkStopClaim(command);
+    if (command?.action === "hk_stop_record") return this.hkStopRecord(command);
+    throw new HttpError("unsupported_hk_stop_action", 400);
+  }
+
+  hkStopPublic(row) {
+    if (!row) return null;
+    return {
+      target_id: row.target_id,
+      request_id: row.request_id,
+      identity_json: row.identity_json,
+      source_revision: Number(row.source_revision),
+      action: row.action,
+      requested_at: row.requested_at,
+      phase: row.phase,
+      dispatch_result: row.dispatch_result || null,
+      workflow_run_id: row.workflow_run_id || null,
+      workflow_run_attempt: row.workflow_run_attempt || null,
+      updated_at: row.updated_at,
+    };
+  }
+
+  hkStopStored(requestId) {
+    return this.hkStopPublic(this.sql.exec("SELECT * FROM hk_stop_request WHERE request_id = ?", requestId).toArray()[0]);
+  }
+
+  hkStopOpen() {
+    return this.hkStopPublic(this.sql.exec(
+      "SELECT * FROM hk_stop_request WHERE target_id = ? AND phase IN ('reserved', 'unknown', 'accepted') ORDER BY requested_at ASC",
+      HK_STOP_TARGET_ID,
+    ).toArray()[0]);
+  }
+
+  hkStopLatest() {
+    return this.hkStopPublic(this.sql.exec(
+      "SELECT * FROM hk_stop_request WHERE target_id = ? ORDER BY requested_at DESC",
+      HK_STOP_TARGET_ID,
+    ).toArray()[0]);
+  }
+
+  hkStopLiveIdentity(sourceRevision, identity) {
+    let found;
+    try {
+      found = this.existingAccountInstance("longbridge", "hk");
+    } catch {
+      throw new HttpError("hk_stop_source_conflict", 409);
+    }
+    if (found.state.revision !== sourceRevision) throw new HttpError("hk_stop_source_conflict", 409);
+    const live = hkStopSourceIdentity(found.item.config, found.item);
+    if (!hkStopIdentityComplete(live) || canonicalResearchTaskJson(live) !== canonicalResearchTaskJson(identity)) {
+      throw new HttpError("hk_stop_source_conflict", 409);
+    }
+    return live;
+  }
+
+  hkStopClaim(command) {
+    const requestId = String(command.request_id || "").toLowerCase();
+    if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("invalid_hk_stop_request_id", 400);
+    if (command.action_name !== "stop") throw new HttpError("hk_stop_action_conflict", 409);
+    const identity = command.identity;
+    if (!identity || Array.isArray(identity) || typeof identity !== "object") throw new HttpError("hk_stop_identity_incomplete", 400);
+    if (!Number.isSafeInteger(command.source_revision)) throw new HttpError("hk_stop_source_conflict", 409);
+    const storedIdentity = canonicalResearchTaskJson(identity);
+    const existing = this.hkStopStored(requestId);
+    if (existing) {
+      if (existing.action !== "stop" || existing.identity_json !== storedIdentity) {
+        throw new HttpError("hk_stop_identity_conflict", 409);
+      }
+      return { ok: true, state: "replay", record: existing };
+    }
+    const open = this.hkStopOpen();
+    if (open) {
+      if (open.identity_json !== storedIdentity) throw new HttpError("hk_stop_identity_conflict", 409);
+      return { ok: true, state: "blocked", record: open };
+    }
+    this.hkStopLiveIdentity(command.source_revision, identity);
+    const now = new Date().toISOString();
+    this.sql.exec(
+      `INSERT INTO hk_stop_request (
+        request_id, target_id, identity_json, source_revision, action, requested_at, phase, dispatch_result, workflow_run_id, workflow_run_attempt, updated_at
+      ) VALUES (?, ?, ?, ?, 'stop', ?, 'reserved', NULL, NULL, NULL, ?)`,
+      requestId, HK_STOP_TARGET_ID, storedIdentity, command.source_revision, now, now,
+    );
+    return { ok: true, state: "reserved", record: this.hkStopStored(requestId) };
+  }
+
+  hkStopRecord(command) {
+    const requestId = String(command.request_id || "").toLowerCase();
+    const phase = command.phase;
+    if (!HK_STOP_REQUEST_ID.test(requestId) || !["accepted", "rejected", "unknown"].includes(phase)) {
+      throw new HttpError("hk_stop_result_rejected", 400);
+    }
+    const existing = this.hkStopStored(requestId);
+    if (!existing) throw new HttpError("hk_stop_request_conflict", 409);
+    if (existing.phase !== "reserved") return { ok: true, recorded: false, record: existing };
+    const now = new Date().toISOString();
+    this.sql.exec(
+      "UPDATE hk_stop_request SET phase = ?, dispatch_result = ?, updated_at = ? WHERE request_id = ? AND phase = 'reserved'",
+      phase, phase, now, requestId,
+    );
+    return { ok: true, recorded: true, record: this.hkStopStored(requestId) };
   }
 
   read() {
@@ -1940,11 +2351,20 @@ export class RuntimeInstances {
       if (ACCOUNT_DIAGNOSIS_DO_ACTIONS.has(command?.action)) {
         return json(await this.accountDiagnosisCommand(command));
       }
+      if (HUMAN_DECISION_DO_ACTIONS.has(command?.action)) {
+        return json(this.humanDecisionCommand(command));
+      }
       if (V7_PAPER_APPLICATION_DO_ACTIONS.has(command?.action)) {
         return json(await this.applicationCommand(command));
       }
       if (typeof command?.action === "string" && command.action.startsWith("ux1_")) {
         return json(this.ux1ResearchCommand(command));
+      }
+      if (ACCOUNT_SETTINGS_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.accountSettingsCommand(command)));
+      }
+      if (HK_STOP_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.hkStopCommand(command)));
       }
       // No awaits or external I/O inside this SQLite transaction. Every state
       // change, version advance, and history row commits together or rolls back.
@@ -2139,12 +2559,335 @@ export class RuntimeInstances {
     });
   }
 
+  humanDecisionCommand(command) {
+    return this.storage.transactionSync(() => {
+      if (!command || typeof command.actor !== "string" || !command.actor) {
+        throw new HttpError("runtime_instance_actor_required", 400);
+      }
+      if (command.action === "owner_sync_materials") return this.syncHumanDecisionMaterials(command, "owner");
+      if (command.action === "recovery_sync_materials") return this.syncHumanDecisionMaterials(command, "recovery");
+      if (command.action === "promotion_sync_materials") return this.syncHumanDecisionMaterials(command, "promotion");
+      if (command.action === "owner_decide") return this.writeHumanDecision(command, "owner");
+      if (command.action === "recovery_decide") return this.writeHumanDecision(command, "recovery");
+      if (command.action === "promotion_decide") return this.writeHumanDecision(command, "promotion");
+      if (command.action === "owner_read") return this.readHumanDecision(command, "owner");
+      if (command.action === "recovery_read") return this.readHumanDecision(command, "recovery");
+      if (command.action === "promotion_read") return this.readHumanDecision(command, "promotion");
+      throw new HttpError("unsupported_human_decision_action", 400);
+    });
+  }
+
+  humanDecisionMaterialRow(kind, subjectId) {
+    return this.sql.exec(
+      "SELECT * FROM human_decision_material WHERE kind = ? AND subject_id = ?",
+      kind, subjectId,
+    ).toArray()[0] || null;
+  }
+
+  humanDecisionTerminalRow(kind, subjectId, materialKey) {
+    return this.sql.exec(
+      "SELECT * FROM human_decision_record WHERE kind = ? AND subject_id = ? AND material_key = ? ORDER BY decided_at ASC LIMIT 1",
+      kind, subjectId, materialKey,
+    ).toArray()[0] || null;
+  }
+
+  humanDecisionRecordPayload(row) {
+    let payload = {};
+    try {
+      payload = JSON.parse(row.payload_json);
+    } catch {
+      throw new HttpError("human_decision_record_invalid", 409);
+    }
+    return {
+      request_key: row.request_key,
+      kind: row.kind,
+      subject_id: row.subject_id,
+      material_key: row.material_key,
+      action: row.action,
+      actor: row.actor,
+      decided_at: row.decided_at,
+      target_json: row.target_json,
+      payload,
+    };
+  }
+
+  humanDecisionSourceRow(kind, subjectId, sourceId) {
+    return this.sql.exec(
+      "SELECT * FROM human_decision_source_material WHERE kind = ? AND subject_id = ? AND source_id = ?",
+      kind, subjectId, sourceId,
+    ).toArray()[0] || null;
+  }
+
+  upsertHumanDecisionSource(kind, subjectId, sourceId, item, eligible, updatedAt) {
+    if (this.humanDecisionSourceRow(kind, subjectId, sourceId)) {
+      this.sql.exec(
+        `UPDATE human_decision_source_material
+         SET material_key = ?, summary_json = ?, eligible = ?, expires_at_ms = ?, updated_at = ?
+         WHERE kind = ? AND subject_id = ? AND source_id = ?`,
+        item.material_key, item.summary_json || "{}", eligible, item.expires_at_ms ?? null, updatedAt, kind, subjectId, sourceId,
+      );
+      return;
+    }
+    this.sql.exec(
+      `INSERT INTO human_decision_source_material
+       (kind, subject_id, source_id, material_key, summary_json, eligible, expires_at_ms, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      kind, subjectId, sourceId, item.material_key, item.summary_json || "{}", eligible, item.expires_at_ms ?? null, updatedAt,
+    );
+  }
+
+  recomputeHumanDecisionSubject(kind, subjectId, updatedAt) {
+    const sources = this.sql.exec(
+      "SELECT * FROM human_decision_source_material WHERE kind = ? AND subject_id = ?",
+      kind, subjectId,
+    ).toArray();
+    let projection = this.humanDecisionMaterialRow(kind, subjectId);
+    if (!projection && !sources.length) return;
+    if (!projection) {
+      this.insertHumanDecisionMaterial(kind, subjectId, sources[0].source_id, sources[0], 0, { state: "none", block: "" }, updatedAt);
+      projection = this.humanDecisionMaterialRow(kind, subjectId);
+    }
+    if (projection.legacy_state === "blocked") {
+      this.sql.exec(
+        "UPDATE human_decision_material SET eligible = 0, updated_at = ? WHERE kind = ? AND subject_id = ?",
+        updatedAt, kind, subjectId,
+      );
+      return;
+    }
+    if (sources.length !== 1) {
+      const keys = new Set(sources.map((row) => row.material_key));
+      const materialKey = keys.size === 1 ? sources[0].material_key : "";
+      this.sql.exec(
+        "UPDATE human_decision_material SET source_id = ?, material_key = ?, eligible = 0, updated_at = ? WHERE kind = ? AND subject_id = ?",
+        "", materialKey, updatedAt, kind, subjectId,
+      );
+      return;
+    }
+    const only = sources[0];
+    this.sql.exec(
+      `UPDATE human_decision_material
+       SET source_id = ?, material_key = ?, summary_json = ?, eligible = ?, expires_at_ms = ?, updated_at = ?
+       WHERE kind = ? AND subject_id = ?`,
+      only.source_id, only.material_key, only.summary_json, only.eligible, only.expires_at_ms, updatedAt, kind, subjectId,
+    );
+  }
+
+  insertHumanDecisionMaterial(kind, subjectId, sourceId, item, eligible, legacyState, updatedAt) {
+    this.sql.exec(
+      `INSERT INTO human_decision_material
+       (kind, subject_id, source_id, material_key, summary_json, eligible, expires_at_ms, legacy_state, legacy_block, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      kind, subjectId, sourceId, item.material_key, item.summary_json || "{}", eligible,
+      item.expires_at_ms ?? null, legacyState.state, legacyState.block, updatedAt,
+    );
+  }
+
+  insertHumanDecisionRecord(record) {
+    this.sql.exec(
+      `INSERT INTO human_decision_record
+       (request_key, kind, subject_id, material_key, action, actor, decided_at, target_json, payload_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      record.request_key, record.kind, record.subject_id, record.material_key, record.action,
+      record.actor, record.decided_at, record.target_json, record.payload_json,
+    );
+  }
+
+  importHumanDecisionLegacy(kind, subjectId, item) {
+    const legacy = item.legacy;
+    if (!legacy) return { state: "none", block: "" };
+    const record = legacy.record;
+    if (legacy.blocked || !record || record.material_key !== item.material_key || !record.action || !record.actor || !record.decided_at || !record.payload || typeof record.payload !== "object") {
+      return { state: "blocked", block: "unexplained_legacy" };
+    }
+    this.insertHumanDecisionRecord({
+      request_key: `legacy:${kind}:${subjectId}:${item.material_key}`,
+      kind,
+      subject_id: subjectId,
+      material_key: item.material_key,
+      action: record.action,
+      actor: record.actor,
+      decided_at: record.decided_at,
+      target_json: record.target_json || "{}",
+      payload_json: JSON.stringify(record.payload),
+    });
+    return { state: "imported", block: "" };
+  }
+
+  syncHumanDecisionMaterials(command, kind) {
+    const sourceId = String(command.source_id || "");
+    const updatedAt = String(command.updated_at || "");
+    const materials = Array.isArray(command.materials) ? command.materials : [];
+    const seen = new Set();
+    const affected = new Set();
+    let terminal = false;
+    let terminalState = "";
+    let identityConflict = false;
+    let legacyBlocked = false;
+    for (const item of materials) {
+      const subjectId = String(item.subject_id || "");
+      if (!subjectId || seen.has(subjectId)) continue;
+      seen.add(subjectId);
+      const sourceRow = this.humanDecisionSourceRow(kind, subjectId, sourceId);
+      const incomingTerminal = this.humanDecisionTerminalRow(kind, subjectId, item.material_key);
+      if (
+        kind === "promotion" && sourceRow && sourceRow.material_key !== item.material_key && !incomingTerminal
+        && !this.humanDecisionTerminalRow(kind, subjectId, sourceRow.material_key)
+      ) {
+        identityConflict = true;
+        continue;
+      }
+      if (kind === "promotion" && incomingTerminal) {
+        terminal = true;
+        terminalState = incomingTerminal.action === "accept" ? "human_accepted" : "human_rejected";
+      }
+      let projection = this.humanDecisionMaterialRow(kind, subjectId);
+      if (!projection) {
+        const legacyState = this.importHumanDecisionLegacy(kind, subjectId, item);
+        this.insertHumanDecisionMaterial(kind, subjectId, sourceId, item, 0, legacyState, updatedAt);
+        if (legacyState.state === "blocked") legacyBlocked = true;
+        const imported = this.humanDecisionTerminalRow(kind, subjectId, item.material_key);
+        if (imported && kind === "promotion") {
+          terminal = true;
+          terminalState = imported.action === "accept" ? "human_accepted" : "human_rejected";
+        }
+        projection = this.humanDecisionMaterialRow(kind, subjectId);
+      } else if (projection.legacy_state === "blocked") {
+        legacyBlocked = true;
+      }
+      const blocked = projection?.legacy_state === "blocked";
+      this.upsertHumanDecisionSource(kind, subjectId, sourceId, item, blocked ? 0 : (item.eligible ? 1 : 0), updatedAt);
+      affected.add(subjectId);
+    }
+    if (command.replace_source) {
+      const rows = this.sql.exec(
+        "SELECT subject_id FROM human_decision_source_material WHERE kind = ? AND source_id = ?",
+        kind, sourceId,
+      ).toArray();
+      for (const row of rows) {
+        if (seen.has(row.subject_id)) continue;
+        this.sql.exec(
+          "DELETE FROM human_decision_source_material WHERE kind = ? AND subject_id = ? AND source_id = ?",
+          kind, row.subject_id, sourceId,
+        );
+        affected.add(row.subject_id);
+      }
+    }
+    for (const subjectId of command.duplicate_subject_ids || []) {
+      if (typeof subjectId !== "string" || !subjectId) continue;
+      this.sql.exec(
+        "UPDATE human_decision_source_material SET eligible = 0, updated_at = ? WHERE kind = ? AND subject_id = ? AND source_id = ?",
+        updatedAt, kind, subjectId, sourceId,
+      );
+      affected.add(subjectId);
+    }
+    for (const subjectId of affected) this.recomputeHumanDecisionSubject(kind, subjectId, updatedAt);
+    return { ok: true, terminal, terminal_state: terminalState, identity_conflict: identityConflict, legacy_blocked: legacyBlocked };
+  }
+
+  writeHumanDecision(command, kind) {
+    if (kind === "owner" && command.action_name === "retire_candidate") {
+      throw new HttpError("owner_retirement_proposal_required", 409);
+    }
+    const subjectId = String(command.subject_id || "");
+    const materialKey = String(command.material_key || "");
+    const actionName = String(command.action_name || "");
+    const requestKey = String(command.request_key || "");
+    const targetJson = String(command.target_json || "{}");
+    if (!subjectId || !materialKey || !actionName || !requestKey) throw new HttpError("human_decision_request_invalid", 400);
+    let row = this.humanDecisionMaterialRow(kind, subjectId);
+    if (!row && command.legacy) {
+      const legacyState = this.importHumanDecisionLegacy(kind, subjectId, { material_key: materialKey, legacy: command.legacy });
+      this.insertHumanDecisionMaterial(kind, subjectId, String(command.source_id || kind), {
+        material_key: materialKey,
+        summary_json: command.summary_json || "{}",
+        expires_at_ms: command.expires_at_ms ?? null,
+      }, legacyState.state === "blocked" ? 0 : 1, legacyState, String(command.decided_at || ""));
+      row = this.humanDecisionMaterialRow(kind, subjectId);
+    }
+    if (!row) throw new HttpError("human_decision_material_unavailable", 409);
+    if (row.legacy_state === "blocked") throw new HttpError("human_decision_legacy_blocked", 409);
+    if (row.material_key !== materialKey) throw new HttpError("human_decision_material_conflict", 409);
+    if (Number(row.eligible) !== 1) throw new HttpError("human_decision_material_ineligible", 409);
+    if (row.expires_at_ms != null && Number(command.now_ms) > Number(row.expires_at_ms)) {
+      throw new HttpError("human_decision_material_expired", 409);
+    }
+    const byRequest = this.sql.exec("SELECT * FROM human_decision_record WHERE request_key = ?", requestKey).toArray()[0];
+    if (byRequest) {
+      if (byRequest.kind !== kind || byRequest.subject_id !== subjectId || byRequest.material_key !== materialKey || byRequest.action !== actionName || byRequest.target_json !== targetJson) {
+        throw new HttpError("human_decision_conflict", 409);
+      }
+      return { ok: true, replayed: true, record: this.humanDecisionRecordPayload(byRequest) };
+    }
+    const terminal = this.humanDecisionTerminalRow(kind, subjectId, materialKey);
+    if (terminal) {
+      if (terminal.action !== actionName || terminal.target_json !== targetJson) throw new HttpError("human_decision_conflict", 409);
+      return { ok: true, replayed: true, record: this.humanDecisionRecordPayload(terminal) };
+    }
+    const payload = command.payload && typeof command.payload === "object" ? structuredClone(command.payload) : {};
+    if (kind === "promotion" && actionName === "accept") {
+      const instances = this.read();
+      if (instances.initialized) {
+        const preflightRevision = Number(command.preflight_revision);
+        if (!Number.isSafeInteger(preflightRevision) || preflightRevision !== instances.revision) {
+          throw new HttpError("runtime_instance_revision_conflict", 409);
+        }
+        payload.account_revision = instances.revision;
+      } else {
+        payload.account_revision = null;
+      }
+    }
+    const record = {
+      request_key: requestKey,
+      kind,
+      subject_id: subjectId,
+      material_key: materialKey,
+      action: actionName,
+      actor: String(command.actor || ""),
+      decided_at: String(command.decided_at || ""),
+      target_json: targetJson,
+      payload_json: JSON.stringify(payload),
+    };
+    this.insertHumanDecisionRecord(record);
+    return { ok: true, replayed: false, record: this.humanDecisionRecordPayload(record) };
+  }
+
+  readHumanDecision(command, kind) {
+    const subjectId = String(command.subject_id || "");
+    const row = this.humanDecisionMaterialRow(kind, subjectId);
+    if (!row) return { ok: true, migrated: false, blocked: false, eligible: false, material_key: null, decision: null };
+    const terminal = this.humanDecisionTerminalRow(kind, subjectId, row.material_key);
+    return {
+      ok: true,
+      migrated: true,
+      blocked: row.legacy_state === "blocked",
+      eligible: Number(row.eligible) === 1,
+      material_key: row.material_key,
+      decision: terminal ? this.humanDecisionRecordPayload(terminal) : null,
+    };
+  }
+
   applicationCommand(command) {
     return this.storage.transactionSync(() => {
       if (!command || typeof command.actor !== "string" || !command.actor) {
         throw new HttpError("runtime_instance_actor_required", 400);
       }
       if (command.action === "application_create") {
+        const currentMaterial = this.humanDecisionMaterialRow("promotion", command.ticket_id);
+        if (!currentMaterial || currentMaterial.legacy_state === "blocked" || Number(currentMaterial.eligible) !== 1 || currentMaterial.material_key !== command.promotion_material_key) {
+          throw new HttpError("research candidate is not human_accepted", 409);
+        }
+        const decisionRow = this.humanDecisionTerminalRow("promotion", command.ticket_id, currentMaterial.material_key);
+        if (!decisionRow || decisionRow.action !== "accept") throw new HttpError("research candidate is not human_accepted", 409);
+        let decisionPayload = {};
+        try { decisionPayload = JSON.parse(decisionRow.payload_json); } catch { throw new HttpError("research candidate is not human_accepted", 409); }
+        const selected = decisionPayload.selected_account || {};
+        if (selected.platform !== command.platform_id || selected.key !== command.account_key) {
+          throw new HttpError("promotion_account_binding_conflict", 409);
+        }
+        const instances = this.read();
+        if (!instances.initialized || instances.revision !== Number(command.expected_revision) || !Number.isSafeInteger(decisionPayload.account_revision) || decisionPayload.account_revision !== instances.revision) {
+          throw new HttpError("runtime_instance_revision_conflict", 409);
+        }
         const existing = this.sql.exec(
           "SELECT * FROM research_promotion_applications WHERE ticket_id = ? AND platform_id = ? AND account_key = ? AND status <> 'rejected' ORDER BY created_at DESC LIMIT 1",
           command.ticket_id, command.platform_id, command.account_key,
@@ -2508,12 +3251,13 @@ async function riskProfileBindingsResponse(request, env) {
       reason: bindingState.error,
       no_order: true,
       execution_authority_granted: false,
-    }, 409);
+    }, bindingState.status || 409);
   }
   return json({
     ok: true,
+    revision: bindingState.revision,
     bindings: bindingState.bindings,
-    configured_targets: riskProfileBindingTargets((await loadAccountOptionsConfig(env)).options),
+    configured_targets: riskProfileBindingTargets(bindingState.account_options || {}),
     no_order: true,
     execution_authority_granted: false,
   });
@@ -2524,40 +3268,196 @@ async function saveRiskProfileBindings(request, env) {
   const session = await readSession(request, env);
   if (!session) return json({ ok: false, error: "login required" }, 401);
   if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
-  if (!hasConfigStore(env)) {
-    return json({ ok: false, error: "STRATEGY_SWITCH_CONFIG KV binding is required to save risk profiles" }, 400);
-  }
-
   let raw;
   try {
     raw = await request.json();
   } catch {
     return json({ ok: false, error: "request body must be valid JSON" }, 400);
   }
-  const accountConfig = await loadAccountOptionsConfig(env);
+  if (!hasRuntimeInstanceStore(env)) {
+    try {
+      await buildRiskProfileBindings({ bindings: raw?.bindings }, (await loadLegacyAccountOptionsConfig(env)).options || {}, session.login);
+    } catch (error) {
+      return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
+    }
+    return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+  }
+  const legacy = await readRiskProfileLegacy(env);
+  let observed;
+  try {
+    observed = await runtimeInstanceCommand(env, { action: "risk_profile_read", actor: session.login, legacy });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  if (!Number.isSafeInteger(raw?.expected_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
+  if (raw.expected_revision !== observed.revision) return json({ ok: false, error: "risk_profile_revision_conflict" }, 409);
   let bindings;
   try {
-    bindings = await buildRiskProfileBindings(raw, accountConfig.options, session.login);
+    bindings = await buildRiskProfileBindings({ bindings: raw.bindings }, observed.account_options, session.login);
   } catch (error) {
     return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
   }
-  await writeConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
-    schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
-    bindings,
-  });
-  await appendAuditLog(env, {
-    ts: new Date().toISOString(),
-    login: session.login,
-    action: "save_risk_profile_bindings",
-    binding_count: bindings.length,
-  });
+  let saved;
+  try {
+    saved = await runtimeInstanceCommand(env, {
+      action: "risk_profile_replace",
+      actor: session.login,
+      expected_revision: observed.revision,
+      bindings,
+      legacy,
+    });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  if (hasConfigStore(env)) {
+    await mirrorConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
+      schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+      bindings: saved.bindings,
+    });
+  }
+  try {
+    await appendAuditLog(env, {
+      ts: new Date().toISOString(),
+      login: session.login,
+      action: "save_risk_profile_bindings",
+      binding_count: saved.bindings.length,
+    });
+  } catch { /* audit failure does not undo the durable object decision */ }
   return json({
     ok: true,
-    bindings,
-    configured_targets: riskProfileBindingTargets(accountConfig.options),
+    revision: saved.revision,
+    bindings: saved.bindings,
+    configured_targets: riskProfileBindingTargets(saved.account_options || {}),
     no_order: true,
     execution_authority_granted: false,
   });
+}
+
+function accountSettingsOperations(admin) {
+  return {
+    save_draft: Boolean(admin),
+    save_risk_preference: Boolean(admin),
+    apply_strategy: false,
+    activation: false,
+    reason: "strategy_application_not_connected",
+  };
+}
+
+function accountSettingsPayload(observed, effective, admin) {
+  return {
+    ok: true,
+    platform: observed.platform,
+    key: observed.key,
+    instance_revision: observed.instance_revision,
+    identity: observed.identity,
+    effective,
+    draft: observed.draft,
+    risk: {
+      revision: observed.risk.revision,
+      scope_id: observed.risk.scope_id,
+      preference: observed.risk.preference,
+    },
+    operations: accountSettingsOperations(admin),
+    adopted: false,
+    no_order: true,
+    execution_authority_granted: false,
+  };
+}
+
+async function accountSettingsResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  const url = new URL(request.url);
+  const platform = url.searchParams.get("platform") || "";
+  const key = url.searchParams.get("key") || "";
+  if (!SUPPORTED_PLATFORMS.includes(platform) || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+  const legacy = await readRiskProfileLegacy(env);
+  let observed;
+  try {
+    observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform, key, legacy });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  return json(accountSettingsPayload(observed, await effectiveAccountSettings(env, observed), session.admin));
+}
+
+async function saveAccountSettings(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  let raw;
+  try { raw = await request.json(); } catch { return json({ ok: false, error: "request body must be valid JSON" }, 400); }
+  const platform = raw?.platform;
+  const key = raw?.key;
+  if (!SUPPORTED_PLATFORMS.includes(platform) || typeof key !== "string" || !key) return json({ ok: false, error: "account_settings_account_required" }, 400);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound", no_order: true, execution_authority_granted: false }, 503);
+  const legacy = await readRiskProfileLegacy(env);
+  let observed;
+  try {
+    observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform, key, legacy });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  const wantsDraft = Object.prototype.hasOwnProperty.call(raw, "overrides");
+  const wantsRisk = Object.prototype.hasOwnProperty.call(raw, "risk_preference");
+  if ((wantsDraft || wantsRisk) && (!raw.identity || Array.isArray(raw.identity) || typeof raw.identity !== "object")) {
+    return json({ ok: false, error: "account_settings_identity_required" }, 400);
+  }
+  if ((wantsDraft || wantsRisk) && canonicalResearchTaskJson(raw.identity) !== canonicalResearchTaskJson(observed.identity)) {
+    return json({ ok: false, error: "account_settings_identity_conflict" }, 409);
+  }
+  const command = { action: "account_settings_save", actor: session.login, platform, key, legacy };
+  if (wantsDraft || wantsRisk) command.identity = raw.identity;
+  if (wantsDraft) {
+    if (!Number.isSafeInteger(raw.expected_draft_revision)) return json({ ok: false, error: "account_settings_draft_revision_required" }, 400);
+    if (raw.expected_draft_revision !== observed.draft.revision) return json({ ok: false, error: "account_settings_draft_revision_conflict" }, 409);
+    command.overrides = raw.overrides;
+    command.expected_draft_revision = observed.draft.revision;
+    if (raw.acknowledge_identity_conflict === true) command.acknowledge_identity_conflict = true;
+  }
+  if (wantsRisk) {
+    if (!Number.isSafeInteger(raw.expected_risk_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
+    if (raw.expected_risk_revision !== observed.risk.revision) return json({ ok: false, error: "risk_profile_revision_conflict" }, 409);
+    command.expected_risk_revision = observed.risk.revision;
+    if (raw.risk_preference === null) command.risk_change = "clear";
+    else {
+      let built;
+      try {
+        built = await buildRiskProfileBindings(
+          { bindings: [{ platform, target_name: observed.identity.target_name, risk_preference: raw.risk_preference }] },
+          observed.account_options,
+          session.login,
+        );
+      } catch (error) {
+        return json({ ok: false, error: error.message || "risk profile bindings are invalid" }, 400);
+      }
+      command.risk_change = "set";
+      command.binding = built[0];
+    }
+  }
+  if (!Object.prototype.hasOwnProperty.call(command, "overrides") && !Object.prototype.hasOwnProperty.call(command, "risk_change")) {
+    return json({ ok: false, error: "account_settings_change_required" }, 400);
+  }
+  let saved;
+  try {
+    saved = await runtimeInstanceCommand(env, command);
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+  if (command.risk_change && hasConfigStore(env)) {
+    await mirrorConfigJson(env, RISK_PROFILE_BINDINGS_KEY, {
+      schema_version: RISK_PROFILE_BINDING_REGISTRY_SCHEMA_VERSION,
+      bindings: saved.bindings,
+    });
+  }
+  return json(accountSettingsPayload(saved, await effectiveAccountSettings(env, saved), true));
 }
 
 async function requireAdminSession(request, env) {
@@ -2591,8 +3491,9 @@ async function buildAdminState(session, env) {
     accountOptions: accountConfig.options || {},
     accountOptionSource: accountConfig.source,
     riskProfileBindings: riskProfileBindingState.bindings,
+    riskProfileRevision: riskProfileBindingState.revision,
     riskProfileBindingsError: riskProfileBindingState.error,
-    riskProfileBindingTargets: riskProfileBindingTargets(accountConfig.options),
+    riskProfileBindingTargets: riskProfileBindingTargets(riskProfileBindingState.account_options || accountConfig.options || {}),
     auditLog: await loadAuditLog(env),
     runtimeInstances,
     runtimeInstanceStrategies,
@@ -2745,6 +3646,7 @@ function runtimeInstancesAdminScript(state) {
 
 async function renderAdminPage(state, nonce) {
   const disabled = state.kvAvailable ? "" : " disabled";
+  const riskDisabled = Number.isSafeInteger(state.riskProfileRevision) ? "" : " disabled";
   const statusClass = state.kvAvailable ? "ready" : "warn";
   const statusText = state.kvAvailable ? "KV 已连接 / KV connected" : "KV 未绑定，只读 / Read-only";
   const sourceText = state.accountOptionSource === "durable_object" ? "实例配置存储" : state.accountOptionSource === "kv"
@@ -2764,11 +3666,11 @@ async function renderAdminPage(state, nonce) {
     ? state.riskProfileBindingTargets.map((target) => {
       const selected = profileByScope.get(target.scope_id)?.profile_selection?.risk_preference || "";
       const option = (value, label) => `<option value="${escapeHtml(value)}"${selected === value ? " selected" : ""}>${escapeHtml(label)}</option>`;
-      return `<tr><td>${escapeHtml(target.platform)}</td><td>${escapeHtml(target.target_name)}</td><td><select data-risk-profile-platform="${escapeHtml(target.platform)}" data-risk-profile-target="${escapeHtml(target.target_name)}"${disabled}>${option("", "未设置 / Not configured")}${option("CAPITAL_PRESERVATION", "保本优先 / Capital preservation")}${option("BALANCED_COMPOUNDING", "平衡复利 / Balanced compounding")}${option("GROWTH_COMPOUNDING", "增长复利 / Growth compounding")}</select></td></tr>`;
+      return `<tr><td>${escapeHtml(target.platform)}</td><td>${escapeHtml(target.target_name)}</td><td><select data-risk-profile-platform="${escapeHtml(target.platform)}" data-risk-profile-target="${escapeHtml(target.target_name)}"${riskDisabled}>${option("", "未设置 / Not configured")}${option("CAPITAL_PRESERVATION", "保本优先 / Capital preservation")}${option("BALANCED_COMPOUNDING", "平衡复利 / Balanced compounding")}${option("GROWTH_COMPOUNDING", "增长复利 / Growth compounding")}</select></td></tr>`;
     }).join("")
     : `<tr><td colspan="3">暂无已配置目标 / No configured targets</td></tr>`;
   const riskProfileNotice = state.riskProfileBindingsError
-    ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。请先修复 KV 中的记录。`
+    ? `风险偏好记录不可用：${escapeHtml(state.riskProfileBindingsError)}。没有可核对的版本时不能保存。`
     : "只保存组合风险偏好意图；不改策略、仓位、参数，不生成订单，也不授予实盘权限。双口径：Composer 相对无杠杆基准 MDD 天花板为 1.00 / 1.25 / 1.50；晋级仓位缩放为 0.50 / 0.75 / 1.00（仅新晋级/材料变更）。不要把 1.50× 当成仓位×1.5。";
   return `<!doctype html>
 <html lang="zh-CN">
@@ -2926,7 +3828,7 @@ async function renderAdminPage(state, nonce) {
         </table>
       </section>
       <div class="form-actions">
-        <button class="btn primary" id="save-risk-profile-button" type="submit"${disabled}>保存风险偏好</button>
+        <button class="btn primary" id="save-risk-profile-button" type="submit"${riskDisabled}>保存风险偏好</button>
         <span id="risk-profile-status"></span>
       </div>
     </form>
@@ -2948,6 +3850,7 @@ async function renderAdminPage(state, nonce) {
   <script nonce="${nonce}">
     ${runtimeInstancesAdminScript(state)}
     const kvAvailable = ${JSON.stringify(state.kvAvailable)};
+    let riskProfileRevision = ${JSON.stringify(Number.isSafeInteger(state.riskProfileRevision) ? state.riskProfileRevision : null)};
     const statusNode = document.getElementById("status");
     const riskProfileStatusNode = document.getElementById("risk-profile-status");
     const setStatus = (message) => { statusNode.textContent = message; };
@@ -2991,7 +3894,10 @@ async function renderAdminPage(state, nonce) {
 
     document.getElementById("risk-profile-form").addEventListener("submit", async (event) => {
       event.preventDefault();
-      if (!kvAvailable) return;
+      if (!Number.isSafeInteger(riskProfileRevision)) {
+        riskProfileStatusNode.textContent = "没有可核对的版本，未保存 / Revision is unavailable";
+        return;
+      }
       const bindings = [...document.querySelectorAll("[data-risk-profile-platform]")]
         .map((node) => ({
           platform: node.dataset.riskProfilePlatform,
@@ -3004,10 +3910,11 @@ async function renderAdminPage(state, nonce) {
         const response = await fetch("/api/risk-profiles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bindings }),
+          body: JSON.stringify({ bindings, expected_revision: riskProfileRevision }),
         });
         const payload = await response.json();
-        if (!response.ok || !payload.ok) throw new Error(payload.error || "save failed");
+        if (!response.ok || !payload.ok || !Number.isSafeInteger(payload.revision)) throw new Error(payload.error || "save failed");
+        riskProfileRevision = payload.revision;
         riskProfileStatusNode.textContent = "已保存；仅为不可执行的风险偏好意图 / Saved as no-order preference";
       } catch (error) {
         riskProfileStatusNode.textContent = "保存失败 / Save failed: " + error.message;
@@ -3416,19 +4323,187 @@ function logout(request) {
   });
 }
 
+function hkStopSourceIdentity(config, item = {}) {
+  const source = config || {};
+  const selector = source.account_selector;
+  const selectors = Array.isArray(selector)
+    ? selector.map((value) => String(value).trim()).filter(Boolean)
+    : String(selector || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const broker = source.broker_environment;
+  return {
+    key: String(source.key || item.key || ""),
+    target_name: String(source.target_name || ""),
+    platform_id: "longbridge",
+    deployment_selector: String(source.deployment_selector || "").trim(),
+    account_selector: selectors,
+    account_scope: String(source.account_scope || "").trim(),
+    service_name: String(source.service_name || "").trim(),
+    variable_scope: source.variable_scope === "environment" ? "environment" : "",
+    github_environment: String(source.github_environment || "").trim(),
+    broker_environment: broker === "live" || broker === "paper" ? broker : null,
+    runtime_status_target_id: String(source.runtime_status_target_id || "").trim(),
+  };
+}
+
+function hkStopIdentityComplete(identity) {
+  return identity?.key === "hk"
+    && identity.target_name === "hk"
+    && identity.platform_id === "longbridge"
+    && identity.deployment_selector
+    && identity.account_selector?.length
+    && identity.account_scope === "HK"
+    && identity.service_name === "longbridge-quant-hk-service"
+    && identity.variable_scope === "environment"
+    && identity.github_environment === "longbridge-hk";
+}
+
+function presentHkStop(record, observation, repository) {
+  const dispatchResult = record?.dispatch_result || null;
+  return {
+    ok: true,
+    configured: false,
+    platform_applied: false,
+    request_succeeded: false,
+    reused: record?.reused === true,
+    persisted: record?.persisted !== false,
+    request_id: record?.request_id || null,
+    phase: record?.phase || null,
+    dispatch_result: dispatchResult,
+    action: record ? "stop" : null,
+    requested_at: record?.requested_at || null,
+    updated_at: record?.updated_at || null,
+    workflow_run_id: null,
+    workflow_run_attempt: null,
+    actions_url: dispatchResult === "accepted"
+      ? `https://github.com/${repository}/actions/workflows/manual-runtime-stop.yml`
+      : null,
+    runtime_observation: observation || { status: "unknown", request_succeeded: false },
+  };
+}
+
+async function hkStopObservation() {
+  // Lifecycle snapshots identify a target id, not this stop request's account.
+  // A fresh disabled snapshot can belong to an older identity, so it stays unknown.
+  return { status: "unknown", request_succeeded: false };
+}
+
+async function loadHkStopAccount(env) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const loaded = await loadAccountOptionsConfig(env);
+  if (loaded.source !== "durable_object" || !Number.isSafeInteger(loaded.revision)) {
+    throw new HttpError("hk_stop_source_unavailable", 409);
+  }
+  const matches = (loaded.options?.longbridge || []).filter((item) => item.key === "hk" && item.target_name === "hk");
+  if (matches.length !== 1) throw new HttpError("stop requires one configured target", 400);
+  const identity = hkStopSourceIdentity(matches[0], { key: "hk" });
+  if (!hkStopIdentityComplete(identity)) throw new HttpError("hk_stop_identity_incomplete", 400);
+  return { revision: loaded.revision, identity };
+}
+
+async function readRuntimeStop(request, env, url) {
+  requireSameOrigin(request);
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const platform = url.searchParams.get("platform");
+  const targetName = url.searchParams.get("target_name");
+  if (platform !== "longbridge" || targetName !== "hk") {
+    return json({
+      ok: true, configured: false, platform_applied: false, request_succeeded: false,
+      phase: null, runtime_observation: { status: "unknown", request_succeeded: false },
+    });
+  }
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const stored = await runtimeInstanceCommand(env, { action: "hk_stop_read" });
+  const observation = await hkStopObservation(env, stored.record);
+  const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
+  return json(presentHkStop(stored.record, observation, repository));
+}
+
+async function dispatchHkRuntimeStop(env, raw) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const requestId = raw.request_id ? String(raw.request_id).trim().toLowerCase() : crypto.randomUUID();
+  if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("invalid_hk_stop_request_id", 400);
+  const source = await loadHkStopAccount(env);
+  const claimed = await runtimeInstanceCommand(env, {
+    action: "hk_stop_claim",
+    request_id: requestId,
+    action_name: "stop",
+    source_revision: source.revision,
+    identity: source.identity,
+  });
+  const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
+  if (claimed.state !== "reserved") {
+    const observation = await hkStopObservation(env, claimed.record);
+    const body = presentHkStop({ ...claimed.record, reused: true }, observation, repository);
+    if (claimed.state === "blocked") return json({ ...body, ok: false, error: "hk_stop_request_pending" }, 409);
+    return json(body);
+  }
+  const identity = source.identity;
+  const stopRequest = {
+    target_id: HK_STOP_TARGET_ID,
+    github: {
+      repository: "QuantStrategyLab/LongBridgePlatform",
+      variable_scope: "environment",
+      environment: identity.github_environment,
+    },
+    runtime_target: {
+      platform_id: "longbridge",
+      deployment_selector: identity.deployment_selector,
+      account_selector: identity.account_selector,
+      account_scope: identity.account_scope,
+      service_name: identity.service_name,
+    },
+  };
+  let outcome = "unknown";
+  try {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${repository}/actions/workflows/manual-runtime-stop.yml/dispatches`, {
+      method: "POST",
+      headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
+      body: JSON.stringify({
+        ref: env.RUNTIME_SETTINGS_REF || "main",
+        inputs: {
+          stop_request: JSON.stringify(stopRequest),
+          apply: "true",
+          confirm: "STOP_ONLY",
+          apply_hk_stop: "true",
+        },
+      }),
+    });
+    if (response.status === 204) outcome = "accepted";
+    else if (response.status >= 400 && response.status < 500) outcome = "rejected";
+  } catch {
+    outcome = "unknown";
+  }
+  try {
+    const recorded = await runtimeInstanceCommand(env, {
+      action: "hk_stop_record",
+      request_id: claimed.record.request_id,
+      phase: outcome,
+    });
+    const observation = await hkStopObservation(env, recorded.record);
+    return json(presentHkStop(recorded.record, observation, repository));
+  } catch {
+    const observation = { status: "unknown", request_succeeded: false };
+    return json(presentHkStop({ ...claimed.record, phase: "reserved", dispatch_result: null, persisted: false }, observation, repository));
+  }
+}
+
 async function dispatchRuntimeStop(request, env) {
   requireEnv(env, "RUNTIME_SETTINGS_DISPATCH_TOKEN");
   requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   const raw = await request.json();
+  const hkStop = raw && !Array.isArray(raw) && raw.platform === "longbridge" && raw.target_name === "hk";
+  const allowedKeys = hkStop ? ["platform", "target_name", "confirm", "request_id"] : ["platform", "target_name", "confirm"];
   if (!raw || Array.isArray(raw) || typeof raw !== "object"
-    || Object.keys(raw).some((key) => !["platform", "target_name", "confirm"].includes(key))
+    || Object.keys(raw).some((key) => !allowedKeys.includes(key))
     || raw.confirm !== "STOP_ONLY") {
     throw new HttpError("stop accepts only platform, target_name and STOP_ONLY confirmation", 400);
   }
   const platform = cleanChoice(raw.platform, SUPPORTED_PLATFORMS, "platform");
   const targetName = cleanSlug(raw.target_name, "target_name");
+  if (platform === "longbridge" && targetName === "hk") return await dispatchHkRuntimeStop(env, raw);
   const accountConfig = await loadAccountOptionsConfig(env);
   const matches = (accountConfig.options?.[platform] || []).filter((item) => item.target_name === targetName);
   if (matches.length !== 1) throw new HttpError("stop requires one configured target", 400);
@@ -3460,8 +4535,7 @@ async function dispatchRuntimeStop(request, env) {
       headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
       body: JSON.stringify({
         ref: env.RUNTIME_SETTINGS_REF || "main",
-        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY",
-          ...(platform === "longbridge" && targetName === "hk" ? { apply_hk_stop: "true" } : {}) },
+        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY" },
       }),
     });
     if (!response.ok) throw new Error("dispatch failed");
@@ -3796,6 +4870,272 @@ async function strategyHealthResponse(request, env) {
   return json(snapshot);
 }
 
+async function humanDecisionRequestKey({ requestId, kind, actor, subjectId, materialKey, action, target }) {
+  if (requestId !== undefined && requestId !== null && requestId !== "") {
+    const text = String(requestId).trim();
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(text)) throw new HttpError("invalid request_id", 400);
+    return `id:${kind}:${text}`;
+  }
+  const digest = await calculateOwnerDecisionSha256({
+    actor, kind, subject_id: subjectId, material_key: materialKey, action, target: target || null,
+  });
+  return `fp:${digest}`;
+}
+
+async function researchPromotionMaterialKey(ticket) {
+  return calculateOwnerDecisionSha256({
+    ticket_id: ticket.ticket_id,
+    strategy_profile: ticket.strategy_profile,
+    domain: ticket.domain,
+    proposed_params: ticket.proposed_params,
+    shadow_passed: ticket.shadow_passed,
+    shadow_evidence_kind: ticket.shadow_evidence_kind,
+  });
+}
+
+async function recoveryDecisionMaterialKey(recovery) {
+  return calculateOwnerDecisionSha256({
+    recovery_id: recovery.recovery_id,
+    candidate_sha256: recovery.candidate_sha256,
+    dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
+  });
+}
+
+async function mirrorConfigJson(env, key, value) {
+  try {
+    await writeConfigJson(env, key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readLegacyConfig(env, key) {
+  try {
+    return { value: await readConfigJson(env, key), blocked: false, unreadable: false };
+  } catch (error) {
+    if (String(error?.message || "").includes("must be valid JSON")) return { value: null, blocked: true, unreadable: false };
+    return { value: null, blocked: false, unreadable: true };
+  }
+}
+
+function humanDecisionTimestamp(value) {
+  return String(value || new Date().toISOString()).replace(/\.\d{3}Z$/, "Z");
+}
+
+async function publishHumanOwnerMaterials(env, snapshot, sourceId) {
+  const ownerCandidates = (snapshot.candidates || []).filter(isOwnerDecisionCandidate);
+  if (!ownerCandidates.length && !hasRuntimeInstanceStore(env)) return { ok: true, skipped: true };
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const grouped = new Map();
+  for (const candidate of ownerCandidates) {
+    const list = grouped.get(candidate.candidate_id) || [];
+    list.push(candidate);
+    grouped.set(candidate.candidate_id, list);
+  }
+  const materials = [];
+  const duplicateSubjectIds = [];
+  for (const [subjectId, list] of grouped) {
+    if (list.length > 1) duplicateSubjectIds.push(subjectId);
+    const candidate = list[0];
+    const materialKey = await ownerDecisionCandidateEvidenceSha256(candidate);
+    const legacyRead = await readLegacyConfig(env, ownerDecisionCurrentKey(subjectId));
+    if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
+    let legacy = null;
+    if (legacyRead.blocked) legacy = { blocked: true };
+    else if (legacyRead.value) {
+      try {
+        const intent = await normalizeOwnerDecisionIntent(legacyRead.value, ownerDecisionCurrentKey(subjectId));
+        if (intent.candidate_id !== subjectId || intent.candidate_evidence_sha256 !== materialKey) legacy = { blocked: true };
+        else {
+          legacy = {
+            record: {
+              action: intent.decision,
+              actor: intent.decided_by,
+              decided_at: intent.decided_at,
+              material_key: materialKey,
+              target_json: canonicalResearchTaskJson({ decision: intent.decision }),
+              payload: intent,
+            },
+          };
+        }
+      } catch {
+        legacy = { blocked: true };
+      }
+    }
+    materials.push({
+      subject_id: subjectId,
+      material_key: materialKey,
+      summary_json: JSON.stringify({ candidate_id: subjectId }),
+      eligible: list.length === 1 && candidate.freshness?.status === "fresh",
+      expires_at_ms: null,
+      legacy,
+    });
+  }
+  return runtimeInstanceCommand(env, {
+    action: "owner_sync_materials",
+    actor: "control-plane-sync",
+    source_id: sourceId,
+    updated_at: humanDecisionTimestamp(),
+    now_ms: Date.now(),
+    replace_source: true,
+    materials,
+    duplicate_subject_ids: duplicateSubjectIds,
+  });
+}
+
+function recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness) {
+  return sourceFreshness?.data_status === "ready"
+    && evidenceFreshness?.data_status === "ready"
+    && recovery.readiness === "awaiting_human_confirmation"
+    && recovery.reconciliation_state === "RECONCILE_ONLY"
+    && !recovery.blocker_codes.length
+    && recovery.dual_review.evidence_binding_sha256 === recovery.candidate_sha256
+    && recovery.evidence_sample_count >= 1;
+}
+
+async function publishHumanRecoveryMaterials(env, source) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const ttlSeconds = reconciliationRecoveryStaleTtlSeconds(env);
+  const now = Date.now();
+  const sourceFreshness = controlPlaneSnapshotFreshness(source, ttlSeconds, now);
+  const grouped = new Map();
+  for (const recovery of source.recoveries || []) {
+    const list = grouped.get(recovery.recovery_id) || [];
+    list.push(recovery);
+    grouped.set(recovery.recovery_id, list);
+  }
+  const materials = [];
+  const duplicateSubjectIds = [];
+  for (const [subjectId, list] of grouped) {
+    if (list.length > 1) duplicateSubjectIds.push(subjectId);
+    const recovery = list[0];
+    const evidenceFreshness = reconciliationRecoveryEvidenceFreshness(recovery, sourceFreshness, ttlSeconds, now);
+    const materialKey = await recoveryDecisionMaterialKey(recovery);
+    const legacyRead = await readLegacyConfig(env, reconciliationRecoveryConfirmationCurrentKey(subjectId));
+    if (legacyRead.unreadable) throw new HttpError("human_decision_legacy_unreadable", 503);
+    let legacy = null;
+    if (legacyRead.blocked) legacy = { blocked: true };
+    else if (legacyRead.value) {
+      try {
+        const confirmation = await normalizeReconciliationRecoveryConfirmation(legacyRead.value, reconciliationRecoveryConfirmationCurrentKey(subjectId));
+        if (confirmation.recovery_id !== subjectId || confirmation.candidate_sha256 !== recovery.candidate_sha256 || confirmation.dual_review_binding_sha256 !== recovery.dual_review.evidence_binding_sha256) {
+          legacy = { blocked: true };
+        } else {
+          legacy = {
+            record: {
+              action: "approve",
+              actor: confirmation.confirmed_by,
+              decided_at: confirmation.confirmed_at,
+              material_key: materialKey,
+              target_json: canonicalResearchTaskJson({ decision: "approve" }),
+              payload: confirmation,
+            },
+          };
+        }
+      } catch {
+        legacy = { blocked: true };
+      }
+    }
+    materials.push({
+      subject_id: subjectId,
+      material_key: materialKey,
+      summary_json: JSON.stringify({ recovery_id: subjectId }),
+      eligible: list.length === 1 && recoveryMaterialEligible(recovery, sourceFreshness, evidenceFreshness),
+      expires_at_ms: null,
+      legacy,
+    });
+  }
+  return runtimeInstanceCommand(env, {
+    action: "recovery_sync_materials",
+    actor: "reconciliation-recovery-source-sync",
+    source_id: source.source_id,
+    updated_at: humanDecisionTimestamp(),
+    now_ms: Date.now(),
+    replace_source: true,
+    materials,
+    duplicate_subject_ids: duplicateSubjectIds,
+  });
+}
+
+async function publishHumanPromotionMaterial(env, ticket, existing) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const materialKey = await researchPromotionMaterialKey(ticket);
+  let legacy = null;
+  if (existing && (existing.state === "human_accepted" || existing.state === "human_rejected")) {
+    const existingKey = await researchPromotionMaterialKey(existing);
+    const actor = String(existing.human_decision_actor || "").trim();
+    if (!actor || !existing.human_decided_at || existingKey !== materialKey) legacy = { blocked: true };
+    else {
+      legacy = {
+        record: {
+          action: existing.state === "human_accepted" ? "accept" : "reject",
+          actor,
+          decided_at: existing.human_decided_at,
+          material_key: materialKey,
+          target_json: canonicalResearchTaskJson({
+            selected_account: existing.selected_account || null,
+            confirmation: {
+              target_platform: existing.confirmation_target_platform,
+              execution_mode: existing.confirmation_execution_mode,
+              risk_profile: existing.confirmation_risk_profile,
+            },
+          }),
+          payload: { ticket: existing, selected_account: existing.selected_account || null, proposed_params: existing.proposed_params },
+        },
+      };
+    }
+  }
+  return runtimeInstanceCommand(env, {
+    action: "promotion_sync_materials",
+    actor: "research-promotion-ticket-sync",
+    source_id: "research-promotion",
+    updated_at: humanDecisionTimestamp(),
+    now_ms: Date.now(),
+    replace_source: false,
+    materials: [{
+      subject_id: ticket.ticket_id,
+      material_key: materialKey,
+      summary_json: JSON.stringify({
+        ticket_id: ticket.ticket_id,
+        strategy_profile: ticket.strategy_profile,
+        domain: ticket.domain,
+      }),
+      eligible: true,
+      expires_at_ms: null,
+      legacy,
+    }],
+  });
+}
+
+async function readHumanDecisionAuthority(env, kind, subjectId) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  return runtimeInstanceCommand(env, { action: `${kind}_read`, actor: `${kind}-decision-read`, subject_id: subjectId });
+}
+
+function overlayPromotionDecision(ticket, authority) {
+  if (!authority || authority.migrated === false) return ticket;
+  const current = authority.eligible === true && authority.blocked !== true ? authority.decision : null;
+  if (current?.payload?.ticket && (current.action === "accept" || current.action === "reject")) {
+    return normalizeResearchPromotionTicket(current.payload.ticket, "human decision ticket");
+  }
+  if (ticket.state !== "human_accepted" && ticket.state !== "human_rejected") return ticket;
+  return normalizeResearchPromotionTicket({
+    ...ticket,
+    state: "awaiting_human",
+    human_decision: "",
+    human_decided_at: "",
+    confirmation_target_platform: "",
+    confirmation_execution_mode: "",
+    confirmation_risk_profile: "",
+  }, "human decision ticket");
+}
+
+async function promotionTicketWithAuthority(env, ticket) {
+  const authority = await readHumanDecisionAuthority(env, "promotion", ticket.ticket_id);
+  return overlayPromotionDecision(ticket, authority);
+}
+
 async function syncControlPlaneResponse(request, env) {
   requireDedicatedControlPlaneSyncToken(request, env);
   if (!hasConfigStore(env)) {
@@ -3814,6 +5154,11 @@ async function syncControlPlaneResponse(request, env) {
     snapshot = normalizeControlPlaneSnapshot(raw, "control plane snapshot");
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid control plane payload" }, 400);
+  }
+  try {
+    await publishHumanOwnerMaterials(env, snapshot, "control-plane-snapshot");
+  } catch (error) {
+    return json({ ok: false, error: error.message || "owner decision material unavailable" }, error.status || 503);
   }
 
   await writeConfigJson(env, CONTROL_PLANE_SNAPSHOT_KEY, snapshot);
@@ -3869,6 +5214,11 @@ async function syncControlPlaneSourceResponse(request, env) {
     ) {
       return json({ ok: false, error: "validation publisher scope mismatch" }, 403);
     }
+  }
+  try {
+    await publishHumanOwnerMaterials(env, source, source.source_id);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "owner decision material unavailable" }, error.status || 503);
   }
 
   await writeConfigJson(env, controlPlaneSourceKey(source.source_id), source);
@@ -3945,9 +5295,9 @@ function currentOwnerDecisionCandidate(controlPlane, candidateId) {
 }
 
 function normalizeOwnerDecisionRequest(payload) {
-  const value = assertExactFields(payload, [
+  const value = assertRequiredAndOptionalFields(payload, [
     "candidate_id", "decision", "candidate_evidence_sha256",
-  ], "owner decision request");
+  ], ["request_id"], "owner decision request");
   return {
     candidate_id: normalizeControlPlaneIdentifier(value.candidate_id, "owner decision request.candidate_id", false),
     decision: cleanChoice(value.decision, OWNER_DECISION_CHOICES, "owner decision request.decision"),
@@ -3955,6 +5305,7 @@ function normalizeOwnerDecisionRequest(payload) {
       value.candidate_evidence_sha256,
       "owner decision request.candidate_evidence_sha256",
     ),
+    request_id: value.request_id,
   };
 }
 
@@ -4028,14 +5379,29 @@ async function calculateOwnerDecisionSha256(payload) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-async function readOwnerDecisionIntent(env, candidateId) {
+async function readOwnerDecisionIntent(env, candidateId, materialKey) {
+  let authority;
   try {
-    const stored = await readConfigJson(env, ownerDecisionCurrentKey(candidateId));
-    if (!stored) return { intent: null, error: null };
-    return { intent: await normalizeOwnerDecisionIntent(stored, ownerDecisionCurrentKey(candidateId)), error: null };
-  } catch {
-    return { intent: null, error: "owner_decision_intent_invalid" };
+    authority = await readHumanDecisionAuthority(env, "owner", candidateId);
+  } catch (error) {
+    return { intent: null, error: error.message || "runtime_instances_unavailable" };
   }
+  if (authority.blocked) return { intent: null, error: "owner_decision_legacy_blocked" };
+  if (authority.decision && authority.material_key === materialKey && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
+    return { intent: authority.decision.payload, error: null };
+  }
+  if (authority.migrated === false) {
+    try {
+      const stored = await readConfigJson(env, ownerDecisionCurrentKey(candidateId));
+      if (!stored) return { intent: null, error: null };
+      const intent = await normalizeOwnerDecisionIntent(stored, ownerDecisionCurrentKey(candidateId));
+      if (materialKey && intent.candidate_evidence_sha256 !== materialKey) return { intent: null, error: null };
+      return { intent, error: null, read_only: true };
+    } catch {
+      return { intent: null, error: "owner_decision_intent_invalid" };
+    }
+  }
+  return { intent: null, error: null };
 }
 
 function ownerDecisionArchiveKey(candidateId, decisionSha256) {
@@ -4081,7 +5447,7 @@ async function ownerDecisionQueueResponse(request, env) {
   const candidates = [];
   for (const candidate of pending) {
     const candidateEvidenceSha256 = await ownerDecisionCandidateEvidenceSha256(candidate);
-    const stored = await readOwnerDecisionIntent(env, candidate.candidate_id);
+    const stored = await readOwnerDecisionIntent(env, candidate.candidate_id, candidateEvidenceSha256);
     if (stored.error) errors.push(stored.error);
     const intent = stored.intent?.candidate_evidence_sha256 === candidateEvidenceSha256
       ? stored.intent
@@ -4141,33 +5507,68 @@ async function recordOwnerDecisionResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "owner decision is not currently available" }, error.status || 409);
   }
+  if (requested.decision === "retire_candidate") {
+    return json({ ok: false, error: "owner_retirement_proposal_required" }, 409);
+  }
   const candidateEvidenceSha256 = await ownerDecisionCandidateEvidenceSha256(candidate);
   if (requested.candidate_evidence_sha256 !== candidateEvidenceSha256) {
     return json({ ok: false, error: "candidate evidence changed; reload the review before deciding" }, 409);
   }
 
+  const decidedAt = humanDecisionTimestamp();
   const intent = await buildOwnerDecisionIntent({
     candidate,
     decision: requested.decision,
     decidedBy: session.login,
     candidateEvidenceSha256,
-    decidedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
+    decidedAt,
   });
-  // Keep every intent under its immutable digest key; the small current pointer
-  // only makes the active review fast to read. A changed decision never
-  // erases the prior auditable record.
-  await writeConfigJson(env, ownerDecisionArchiveKey(candidate.candidate_id, intent.decision_sha256), intent);
-  await writeConfigJson(env, ownerDecisionCurrentKey(candidate.candidate_id), intent);
+  const targetJson = canonicalResearchTaskJson({ decision: requested.decision });
+  let requestKey;
+  try {
+    requestKey = await humanDecisionRequestKey({
+      requestId: requested.request_id,
+      kind: "owner",
+      actor: session.login,
+      subjectId: candidate.candidate_id,
+      materialKey: candidateEvidenceSha256,
+      action: requested.decision,
+      target: { decision: requested.decision },
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid owner decision request" }, error.status || 400);
+  }
+  let recorded;
+  try {
+    recorded = await runtimeInstanceCommand(env, {
+      action: "owner_decide",
+      actor: session.login,
+      subject_id: candidate.candidate_id,
+      material_key: candidateEvidenceSha256,
+      action_name: requested.decision,
+      request_key: requestKey,
+      target_json: targetJson,
+      decided_at: decidedAt,
+      now_ms: Date.now(),
+      payload: intent,
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "owner decision unavailable" }, error.status || 503);
+  }
+  const recordedIntent = recorded.record?.payload || intent;
+  // The durable object decision stands even if the KV snapshot mirror fails.
+  await mirrorConfigJson(env, ownerDecisionArchiveKey(candidate.candidate_id, recordedIntent.decision_sha256), recordedIntent);
+  await mirrorConfigJson(env, ownerDecisionCurrentKey(candidate.candidate_id), recordedIntent);
   let auditLogged = false;
   try {
     await appendAuditLog(env, {
-      ts: intent.decided_at,
+      ts: recordedIntent.decided_at,
       login: session.login,
       action: "record_owner_decision_intent",
-      candidate_id: intent.candidate_id,
-      decision: intent.decision,
-      candidate_evidence_sha256: intent.candidate_evidence_sha256,
-      decision_sha256: intent.decision_sha256,
+      candidate_id: recordedIntent.candidate_id,
+      decision: recordedIntent.decision,
+      candidate_evidence_sha256: recordedIntent.candidate_evidence_sha256,
+      decision_sha256: recordedIntent.decision_sha256,
       no_order: true,
       execution_authority_granted: false,
     });
@@ -4176,7 +5577,7 @@ async function recordOwnerDecisionResponse(request, env) {
     // The decision remains durable, auditable by its digest, and explicitly
     // non-executable even if the rolling convenience log cannot be updated.
   }
-  return json({ ok: true, intent, audit_logged: auditLogged });
+  return json({ ok: true, intent: recordedIntent, audit_logged: auditLogged, replayed: recorded.replayed === true });
 }
 
 // These recovery snapshots deliberately contain only opaque target IDs,
@@ -4200,6 +5601,11 @@ async function syncReconciliationRecoverySourceResponse(request, env) {
     source = normalizeReconciliationRecoverySourceSnapshot(raw, "reconciliation recovery source snapshot");
   } catch (error) {
     return json({ ok: false, error: error.message || "invalid reconciliation recovery payload" }, 400);
+  }
+  try {
+    await publishHumanRecoveryMaterials(env, source);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "reconciliation recovery material unavailable" }, error.status || 503);
   }
   await writeConfigJson(env, reconciliationRecoverySourceKey(source.source_id), source);
   try {
@@ -4359,9 +5765,13 @@ function currentReconciliationRecoveryRequest(dashboard, recoveryId) {
 }
 
 function normalizeReconciliationRecoveryConfirmationRequest(payload) {
-  const value = assertExactFields(payload, [
+  const value = assertRequiredAndOptionalFields(payload, [
     "recovery_id", "candidate_sha256", "dual_review_binding_sha256",
-  ], "reconciliation recovery confirmation request");
+  ], ["decision", "request_id"], "reconciliation recovery confirmation request");
+  const decision = Object.prototype.hasOwnProperty.call(value, "decision") ? value.decision : "approve";
+  if (decision !== "approve" && decision !== "reject") {
+    throw new Error("reconciliation recovery confirmation request.decision is unsupported");
+  }
   return {
     recovery_id: normalizeControlPlaneIdentifier(value.recovery_id, "reconciliation recovery confirmation request.recovery_id", false),
     candidate_sha256: normalizeResearchTaskDigest(
@@ -4372,6 +5782,8 @@ function normalizeReconciliationRecoveryConfirmationRequest(payload) {
       value.dual_review_binding_sha256,
       "reconciliation recovery confirmation request.dual_review_binding_sha256",
     ),
+    decision,
+    request_id: value.request_id,
   };
 }
 
@@ -4439,19 +5851,41 @@ function reconciliationRecoveryConfirmationCurrentKey(recoveryId) {
 }
 
 async function readReconciliationRecoveryConfirmation(env, recoveryId) {
+  let authority;
   try {
-    const stored = await readConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recoveryId));
-    if (!stored) return { confirmation: null, error: null };
-    return {
-      confirmation: await normalizeReconciliationRecoveryConfirmation(
-        stored,
-        reconciliationRecoveryConfirmationCurrentKey(recoveryId),
-      ),
-      error: null,
-    };
-  } catch {
-    return { confirmation: null, error: "reconciliation_recovery_confirmation_invalid" };
+    authority = await readHumanDecisionAuthority(env, "recovery", recoveryId);
+  } catch (error) {
+    return { confirmation: null, error: error.message || "runtime_instances_unavailable" };
   }
+  if (authority.migrated === false) {
+    try {
+      const stored = await readConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recoveryId));
+      if (!stored) return { confirmation: null, error: null };
+      return {
+        confirmation: await normalizeReconciliationRecoveryConfirmation(
+          stored,
+          reconciliationRecoveryConfirmationCurrentKey(recoveryId),
+        ),
+        error: null,
+        read_only: true,
+      };
+    } catch {
+      return { confirmation: null, error: "reconciliation_recovery_confirmation_invalid" };
+    }
+  }
+  if (authority.blocked) return { confirmation: null, rejection: null, error: "reconciliation_recovery_legacy_blocked" };
+  if (authority.eligible !== true) return { confirmation: null, rejection: null, error: null };
+  if (authority.decision?.action === "reject") {
+    const payload = authority.decision.payload;
+    if (payload?.decision === "reject" && payload?.no_order === true && payload?.execution_authority_granted === false) {
+      return { confirmation: null, rejection: payload, error: null };
+    }
+    return { confirmation: null, rejection: null, error: null };
+  }
+  if (authority.decision?.action === "approve" && authority.decision.payload?.no_order === true && authority.decision.payload?.execution_authority_granted === false) {
+    return { confirmation: authority.decision.payload, rejection: null, error: null };
+  }
+  return { confirmation: null, rejection: null, error: null };
 }
 
 async function recordReconciliationRecoveryConfirmationResponse(request, env) {
@@ -4487,27 +5921,70 @@ async function recordReconciliationRecoveryConfirmationResponse(request, env) {
   ) {
     return json({ ok: false, error: "reconciliation evidence changed; reload the review before confirming" }, 409);
   }
-  const confirmation = await buildReconciliationRecoveryConfirmation({
-    recovery,
-    confirmedBy: session.login,
-    confirmedAt: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
-  });
-  await writeConfigJson(
-    env,
-    reconciliationRecoveryConfirmationArchiveKey(recovery.recovery_id, confirmation.confirmation_sha256),
-    confirmation,
-  );
-  await writeConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recovery.recovery_id), confirmation);
+  const decidedAt = humanDecisionTimestamp();
+  const materialKey = await recoveryDecisionMaterialKey(recovery);
+  const confirmation = requested.decision === "approve"
+    ? await buildReconciliationRecoveryConfirmation({ recovery, confirmedBy: session.login, confirmedAt: decidedAt })
+    : null;
+  const rejection = requested.decision === "reject" ? {
+    schema_version: "qsl_reconciliation_recovery_rejection.v1",
+    recovery_id: recovery.recovery_id,
+    candidate_sha256: recovery.candidate_sha256,
+    dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
+    decision: "reject",
+    decided_at: decidedAt,
+    decided_by: session.login,
+    no_order: true,
+    execution_authority_granted: false,
+  } : null;
+  const target = { decision: requested.decision };
+  let requestKey;
+  try {
+    requestKey = await humanDecisionRequestKey({
+      requestId: requested.request_id,
+      kind: "recovery",
+      actor: session.login,
+      subjectId: recovery.recovery_id,
+      materialKey,
+      action: requested.decision,
+      target,
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid reconciliation recovery confirmation" }, error.status || 400);
+  }
+  let recorded;
+  try {
+    recorded = await runtimeInstanceCommand(env, {
+      action: "recovery_decide",
+      actor: session.login,
+      subject_id: recovery.recovery_id,
+      material_key: materialKey,
+      action_name: requested.decision,
+      request_key: requestKey,
+      target_json: canonicalResearchTaskJson(target),
+      decided_at: decidedAt,
+      now_ms: Date.now(),
+      payload: confirmation || rejection,
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "reconciliation recovery confirmation is unavailable" }, error.status || 503);
+  }
+  const recordedPayload = recorded.record?.payload || confirmation || rejection;
+  if (recorded.record?.action === "approve") {
+    await mirrorConfigJson(env, reconciliationRecoveryConfirmationArchiveKey(recovery.recovery_id, recordedPayload.confirmation_sha256), recordedPayload);
+    await mirrorConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recovery.recovery_id), recordedPayload);
+  }
   let auditLogged = false;
   try {
     await appendAuditLog(env, {
-      ts: confirmation.confirmed_at,
+      ts: recorded.record?.decided_at || decidedAt,
       login: session.login,
       action: "record_reconciliation_recovery_confirmation",
-      recovery_id: confirmation.recovery_id,
-      candidate_sha256: confirmation.candidate_sha256,
-      dual_review_binding_sha256: confirmation.dual_review_binding_sha256,
-      confirmation_sha256: confirmation.confirmation_sha256,
+      recovery_id: recovery.recovery_id,
+      candidate_sha256: recovery.candidate_sha256,
+      dual_review_binding_sha256: recovery.dual_review.evidence_binding_sha256,
+      confirmation_sha256: recordedPayload.confirmation_sha256 || "",
+      decision: recorded.record?.action || requested.decision,
       no_order: true,
       execution_authority_granted: false,
     });
@@ -4516,7 +5993,13 @@ async function recordReconciliationRecoveryConfirmationResponse(request, env) {
     // The immutable confirmation remains available to a future private
     // controller even if the rolling audit log is unavailable.
   }
-  return json({ ok: true, confirmation, audit_logged: auditLogged });
+  return json({
+    ok: true,
+    confirmation: recorded.record?.action === "approve" ? recordedPayload : null,
+    rejection: recorded.record?.action === "reject" ? recordedPayload : null,
+    audit_logged: auditLogged,
+    replayed: recorded.replayed === true,
+  });
 }
 
 async function aggregateReconciliationRecoverySources(env) {
@@ -4560,7 +6043,12 @@ async function aggregateReconciliationRecoverySources(env) {
         && result.confirmation.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
         ? result.confirmation
         : null;
-      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation });
+      const rejection = result.rejection
+        && result.rejection.candidate_sha256 === recovery.candidate_sha256
+        && result.rejection.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
+        ? result.rejection
+        : null;
+      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection });
     }
     errors.push(...source.errors);
   }
@@ -4580,7 +6068,8 @@ async function aggregateReconciliationRecoverySources(env) {
       awaiting_human_confirmation: uniqueRecoveries.filter((entry) =>
         entry.freshness.data_status === "ready" &&
         entry.recovery.readiness === "awaiting_human_confirmation" &&
-        !entry.confirmation,
+        !entry.confirmation &&
+        !entry.rejection,
       ).length,
       blocked: uniqueRecoveries.filter((entry) => entry.recovery.readiness === "blocked").length,
       confirmed: uniqueRecoveries.filter((entry) => Boolean(entry.confirmation)).length,
@@ -5222,6 +6711,49 @@ async function accountDiagnosisInternalResponse(request, env, url) {
   }
 }
 
+function projectRuntimeAccountState(entry) {
+  const base = { scope: "monitoring_only", limit: "not_trading_or_books" };
+  const target = entry?.target || {};
+  const monitoring = target.monitoring || {};
+  const disposition = target.disposition || {};
+  const deployment = target.deployment;
+  const sourceFresh = entry?.freshness?.data_status === "ready";
+  const deploymentFresh = Boolean(deployment?.observed_at) && entry?.deployment_freshness?.data_status === "ready";
+  let activation = "unknown";
+  if (deploymentFresh && deployment.runtime_enabled === true && deployment.scheduler_state === "enabled") activation = "enabled";
+  else if (deploymentFresh && deployment.runtime_enabled === false && deployment.scheduler_state === "paused") activation = "disabled";
+  const configured = target.target?.configured_state;
+  const retainedFault = monitoring.runtime_guard === "attention"
+    || monitoring.execution_heartbeat === "attention"
+    || disposition.code === "parked";
+  if (retainedFault) return { ...base, health: "abnormal", activation, reason: "retained_attention" };
+  if ((configured === "enabled" && activation === "disabled") || (configured === "disabled" && activation === "enabled")) {
+    return { ...base, health: "abnormal", activation, reason: "config_inconsistent" };
+  }
+  if (monitoring.execution_heartbeat === "not_due") {
+    return { ...base, health: "unknown", activation, reason: "check_not_due" };
+  }
+  const enabledAgrees = configured === "enabled"
+    && activation === "enabled"
+    && monitoring.runtime_guard === "pass"
+    && monitoring.execution_heartbeat === "pass"
+    && disposition.code === "continue_enabled_monitoring";
+  const disabledAgrees = configured === "disabled"
+    && activation === "disabled"
+    && monitoring.runtime_guard === "pass"
+    && monitoring.execution_heartbeat === "not_applicable"
+    && disposition.code === "continue_disabled_validation";
+  if (sourceFresh && (enabledAgrees || disabledAgrees)) {
+    return { ...base, health: "normal", activation, reason: "monitoring_agrees" };
+  }
+  let reason = "evidence_insufficient";
+  if (!sourceFresh) reason = "source_not_fresh";
+  else if (!deployment) reason = "deployment_missing";
+  else if (!deploymentFresh) reason = "deployment_not_fresh";
+  else if (activation === "unknown") reason = "activation_unconfirmed";
+  return { ...base, health: "unknown", activation, reason };
+}
+
 async function aggregateRuntimeTargetLifecycleSources(env) {
   const sources = await readRuntimeTargetLifecycleSources(env);
   if (!sources.length) return emptyRuntimeTargetLifecyclePayload("snapshot_unavailable");
@@ -5250,7 +6782,7 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         continue;
       }
       targetIds.add(target.target_id);
-      targets.push({
+      const entry = {
         source_id: source.source_id,
         freshness,
         target,
@@ -5261,7 +6793,9 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         ...(target.deployment ? {deployment_freshness: target.deployment.observed_at
           ? controlPlaneSnapshotFreshness({data_status:"ready", computed_at:target.deployment.observed_at}, ttlSeconds, now)
           : freshness} : {}),
-      });
+      };
+      entry.account_state = projectRuntimeAccountState(entry);
+      targets.push(entry);
     }
     errors.push(...source.errors);
   }
@@ -6184,10 +7718,105 @@ function assertResearchPromotionExpectedCandidate(ticket, raw, { requireExpected
   }
 }
 
+const RESEARCH_SUMMARY_HAN = /[\u4e00-\u9fff]/;
+const RESEARCH_SUMMARY_LATIN = /[A-Za-z]/;
+const RESEARCH_SUMMARY_DIGIT = /[0-9\uff10-\uff19]/;
+const RESEARCH_SUMMARY_LOCALE_FIELDS = ["question", "basis", "limits", "suggestion"];
+const RESEARCH_SUMMARY_BINDING_FIELDS = [
+  "ticket_id", "strategy_profile", "domain", "proposed_params", "comparison",
+  "shadow_evidence_kind", "shadow_passed", "notes",
+];
+const RESEARCH_SUMMARY_NEW_KEYS = ["status", "provider", "model", "scope", "locales", "binding"];
+const RESEARCH_SUMMARY_OLD_KEYS = ["status", "provider", "model", "text"];
+const RESEARCH_SUMMARY_HIDDEN = { status: "unavailable", text: "", provider: "", model: "" };
+
+function researchSummaryExactKeys(value, keys) {
+  if (!value || Array.isArray(value) || typeof value !== "object") return false;
+  const present = Object.keys(value);
+  return present.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function researchSummaryCodePointLength(text) {
+  return Array.from(text).length;
+}
+
+function researchSummarySegment(text, chinese) {
+  if (typeof text !== "string" || !text.trim() || researchSummaryCodePointLength(text) > 240) return null;
+  if (RESEARCH_SUMMARY_DIGIT.test(text)) return null;
+  const hasHan = RESEARCH_SUMMARY_HAN.test(text);
+  if (chinese) return hasHan ? text : null;
+  if (hasHan || !RESEARCH_SUMMARY_LATIN.test(text)) return null;
+  return text;
+}
+
+function sameResearchSummaryMaterial(left, right) {
+  return canonicalResearchTaskJson(left) === canonicalResearchTaskJson(right);
+}
+
+function readBilingualResearchPromotionExplanation(ai, material) {
+  if (ai.status !== "available" || (ai.provider !== "codex" && ai.provider !== "cursor")) return null;
+  if (typeof ai.model !== "string" || !ai.model.trim() || ai.scope !== "candidate") return null;
+  const locales = ai.locales;
+  if (!researchSummaryExactKeys(locales, ["zh-CN", "en"])) return null;
+  const savedLocales = {};
+  for (const [name, chinese] of [["zh-CN", true], ["en", false]]) {
+    const section = locales[name];
+    if (!researchSummaryExactKeys(section, RESEARCH_SUMMARY_LOCALE_FIELDS)) return null;
+    const saved = {};
+    for (const field of RESEARCH_SUMMARY_LOCALE_FIELDS) {
+      const segment = researchSummarySegment(section[field], chinese);
+      if (segment == null) return null;
+      saved[field] = segment;
+    }
+    savedLocales[name] = saved;
+  }
+  if (!researchSummaryExactKeys(ai.binding, RESEARCH_SUMMARY_BINDING_FIELDS)) return null;
+  if (!sameResearchSummaryMaterial(ai.binding, material)) return null;
+  return {
+    status: "available",
+    provider: ai.provider,
+    model: ai.model,
+    scope: "candidate",
+    locales: savedLocales,
+    binding: JSON.parse(canonicalResearchTaskJson(material)),
+  };
+}
+
+function readLegacyResearchPromotionExplanation(ai) {
+  const status = String(ai.status || "").trim();
+  if (status !== "available" && status !== "unavailable") return null;
+  if (typeof ai.text !== "string" || typeof ai.provider !== "string" || typeof ai.model !== "string") return null;
+  if (ai.text.length > 2000 || ai.model.length > 120) return null;
+  if (status === "available" && (ai.provider !== "codex" || !ai.text.trim())) return null;
+  if (status === "unavailable" && ai.provider !== "") return null;
+  return {
+    status,
+    text: ai.text.trim(),
+    provider: ai.provider,
+    model: ai.model.trim(),
+  };
+}
+
+function normalizeSavedResearchPromotionExplanation(ai, material) {
+  try {
+    if (ai == null) return { ...RESEARCH_SUMMARY_HIDDEN };
+    if (researchSummaryExactKeys(ai, RESEARCH_SUMMARY_NEW_KEYS)) {
+      return readBilingualResearchPromotionExplanation(ai, material) || { ...RESEARCH_SUMMARY_HIDDEN };
+    }
+    if (researchSummaryExactKeys(ai, RESEARCH_SUMMARY_OLD_KEYS)) {
+      return readLegacyResearchPromotionExplanation(ai) || { ...RESEARCH_SUMMARY_HIDDEN };
+    }
+    return { ...RESEARCH_SUMMARY_HIDDEN };
+  } catch {
+    return { ...RESEARCH_SUMMARY_HIDDEN };
+  }
+}
+
 function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_summary") {
   if (raw == null) return null;
   if (!raw || Array.isArray(raw) || typeof raw !== "object") return null;
   try {
+    const comparisonForBinding = raw.comparison;
     const identity = raw.identity;
     if (!identity || Array.isArray(identity) || typeof identity !== "object") return null;
     const identityParams = identity.proposed_params;
@@ -6235,6 +7864,12 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
       if (text.length > 120) throw new Error(`${fieldName}.${name} is too long`);
       return text;
     };
+    const exactCostModel = (value, name) => {
+      if (value == null) return null;
+      if (typeof value !== "string") throw new Error(`${fieldName}.${name} must be text or null`);
+      if (value.length > 120) throw new Error(`${fieldName}.${name} is too long`);
+      return value;
+    };
     const normalizeMetrics = (value, name) => {
       if (!value || Array.isArray(value) || typeof value !== "object") {
         throw new Error(`${fieldName}.${name} must be an object`);
@@ -6252,12 +7887,12 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
       status: comparisonStatus,
       start_date: optionalText(comparison.start_date, "comparison.start_date"),
       end_date: optionalText(comparison.end_date, "comparison.end_date"),
-      cost_model: optionalText(comparison.cost_model, "comparison.cost_model"),
+      cost_model: exactCostModel(comparison.cost_model, "comparison.cost_model"),
       baseline: null,
       candidate: null,
     };
     if (comparisonStatus === "comparable") {
-      if (!normalizedComparison.start_date || !normalizedComparison.end_date || !normalizedComparison.cost_model) return null;
+      if (!normalizedComparison.start_date || !normalizedComparison.end_date || !normalizedComparison.cost_model?.trim()) return null;
       if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.start_date)
         || !/^\d{4}-\d{2}-\d{2}$/.test(normalizedComparison.end_date)) return null;
       const startMillis = Date.parse(`${normalizedComparison.start_date}T00:00:00Z`);
@@ -6271,17 +7906,16 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
     }
 
     if (!Array.isArray(raw.limitations) || raw.limitations.length > 8 || raw.limitations.some((item) => typeof item !== "string" || item.length > 300)) return null;
-    const ai = raw.ai_explanation == null
-      ? { status: "unavailable", text: "", provider: "", model: "" }
-      : raw.ai_explanation;
-    if (!ai || Array.isArray(ai) || typeof ai !== "object") return null;
-    const aiStatus = String(ai.status || "").trim();
-    if (aiStatus !== "available" && aiStatus !== "unavailable") return null;
-    if (typeof ai.text !== "string" || typeof ai.provider !== "string" || typeof ai.model !== "string"
-      || ai.text.length > 600 || ai.model.length > 120) return null;
-    if (ai.provider !== "" && ai.provider !== "codex") return null;
-    if (aiStatus === "available" && ai.provider !== "codex") return null;
-    if (aiStatus === "unavailable" && ai.provider !== "") return null;
+    const aiExplanation = normalizeSavedResearchPromotionExplanation(raw.ai_explanation, {
+      ticket_id: ticket.ticket_id,
+      strategy_profile: ticket.strategy_profile,
+      domain: ticket.domain,
+      proposed_params: ticket.proposed_params || {},
+      comparison: comparisonForBinding,
+      shadow_evidence_kind: ticket.shadow_evidence_kind,
+      shadow_passed: ticket.shadow_passed,
+      notes: Array.isArray(ticket.notes) ? ticket.notes : [],
+    });
 
     return {
       identity: {
@@ -6293,12 +7927,7 @@ function normalizeResearchPromotionSummary(raw, ticket, fieldName = "research_su
       plugins,
       comparison: normalizedComparison,
       limitations: raw.limitations.map((item) => item.trim()),
-      ai_explanation: {
-        status: aiStatus,
-        text: ai.text.trim(),
-        provider: ai.provider,
-        model: ai.model.trim(),
-      },
+      ai_explanation: aiExplanation,
     };
   } catch {
     return null;
@@ -6459,8 +8088,8 @@ async function syncResearchPromotionTicketResponse(request, env) {
     );
   }
   const existingRaw = await readConfigJson(env, researchPromotionTicketKey(ticket.ticket_id));
+  let existing = null;
   if (existingRaw) {
-    let existing;
     try {
       existing = normalizeResearchPromotionTicket(existingRaw, "stored research promotion ticket");
     } catch (error) {
@@ -6469,28 +8098,24 @@ async function syncResearchPromotionTicketResponse(request, env) {
         400,
       );
     }
-    if (existing.state === "human_accepted" || existing.state === "human_rejected") {
-      return json(
-        {
-          ok: false,
-          error: `refusing to overwrite terminal research promotion ticket state=${existing.state}`,
-        },
-        409,
-      );
-    }
-    if (
-      existing.state === "awaiting_human"
-      && !researchPromotionCandidatesMatch(existing, ticket)
-    ) {
-      return json(
-        {
-          ok: false,
-          error:
-            "refusing to overwrite awaiting_human research promotion ticket with mismatched candidate identity",
-        },
-        409,
-      );
-    }
+  }
+  let material;
+  try {
+    material = await publishHumanPromotionMaterial(env, ticket, existing);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "research promotion material unavailable" }, error.status || 503);
+  }
+  if (material.identity_conflict) {
+    return json(
+      { ok: false, error: "refusing to overwrite awaiting_human research promotion ticket with mismatched candidate identity" },
+      409,
+    );
+  }
+  if (material.terminal || material.legacy_blocked) {
+    return json(
+      { ok: false, error: `refusing to overwrite terminal research promotion ticket state=${material.terminal_state || existing?.state || "human_accepted"}` },
+      409,
+    );
   }
   await writeConfigJson(env, researchPromotionTicketKey(ticket.ticket_id), ticket);
   try {
@@ -6527,8 +8152,9 @@ async function fetchResearchPromotionTicketResponse(request, env) {
   let ticket;
   try {
     ticket = normalizeResearchPromotionTicket(stored);
+    ticket = await promotionTicketWithAuthority(env, ticket);
   } catch (error) {
-    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, 400);
+    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, error.status || 400);
   }
   if (ticket.live_authority_granted) {
     return json({ ok: false, error: "refusing to expose live_authority_granted=true" }, 500);
@@ -6555,10 +8181,11 @@ async function listResearchPromotionTickets(env) {
     const stored = await readConfigJson(env, key);
     if (!stored) continue;
     try {
-      const ticket = normalizeResearchPromotionTicket(stored, key);
+      const ticket = await promotionTicketWithAuthority(env, normalizeResearchPromotionTicket(stored, key));
       if (ticket.live_authority_granted) continue;
       tickets.push(ticket);
-    } catch {
+    } catch (error) {
+      if (error instanceof HttpError && error.status === 503) throw error;
       // Skip corrupt tickets rather than failing the whole queue.
     }
   }
@@ -6788,22 +8415,54 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   let ticket;
   try {
     ticket = normalizeResearchPromotionTicket(stored);
+    assertResearchPromotionExpectedCandidate(ticket, raw, { requireExpectedParams: decision === "accept" });
   } catch (error) {
-    return json({ ok: false, error: error.message || "invalid stored research promotion ticket" }, 400);
+    return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
+  }
+  const materialKey = await researchPromotionMaterialKey(ticket);
+  const selectedAccount = raw?.selected_account || null;
+  const confirmation = raw?.confirmation || null;
+  const target = { selected_account: selectedAccount, confirmation };
+  const targetJson = canonicalResearchTaskJson(target);
+  let authority;
+  try {
+    authority = await readHumanDecisionAuthority(env, "promotion", ticket.ticket_id);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "research promotion decision unavailable" }, error.status || 503);
+  }
+  if (authority.migrated !== false) {
+    if (authority.blocked) return json({ ok: false, error: "human_decision_legacy_blocked" }, 409);
+    if (authority.eligible !== true || authority.material_key !== materialKey) {
+      return json({ ok: false, error: "human_decision_material_conflict" }, 409);
+    }
+    const existing = authority.decision;
+    if (existing && existing.action === decision && existing.target_json === targetJson && existing.payload?.ticket) {
+      return json({
+        ok: true,
+        ticket: attachRiskEnvelopeView(existing.payload.ticket),
+        live_authority_granted: false,
+        replayed: true,
+        actor: existing.actor,
+      });
+    }
+    if (existing) return json({ ok: false, error: "human_decision_conflict" }, 409);
   }
   const targetPlatform = String(
     raw?.confirmation?.target_platform || ticket.confirmation_target_platform || "",
   ).trim();
   const paperSupported = platformSupportsBrokerPaperMode(targetPlatform);
   const accountConfig = decision === "accept" ? await loadAccountOptionsConfig(env) : null;
+  const serverAccountRevision = accountConfig?.source === "durable_object" && Number.isSafeInteger(accountConfig.revision)
+    ? accountConfig.revision
+    : null;
   const strategyProfiles = decision === "accept" ? await loadStrategyProfilesConfig(env) : null;
   let decided;
   try {
     decided = applyResearchPromotionDecision(ticket, {
       decision,
-      confirmation: raw?.confirmation || null,
+      confirmation,
       paperSupported,
-      selectedAccount: raw?.selected_account || null,
+      selectedAccount,
       accountOptions: accountConfig?.options,
       strategyProfiles,
       decidedAt: new Date().toISOString(),
@@ -6815,18 +8474,62 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   if (decided.live_authority_granted) {
     return json({ ok: false, error: "refusing to persist live_authority_granted=true" }, 500);
   }
-  await writeConfigJson(env, researchPromotionTicketKey(decided.ticket_id), decided);
+  const preflightRevision = decision === "accept" ? serverAccountRevision : null;
+  if (decision === "accept" && Object.prototype.hasOwnProperty.call(raw, "expected_account_revision")
+    && Number(raw.expected_account_revision) !== serverAccountRevision) {
+    return json({ ok: false, error: "runtime_instance_revision_conflict" }, 409);
+  }
+  const decidedAt = decided.human_decided_at || humanDecisionTimestamp();
+  let requestKey;
+  try {
+    requestKey = await humanDecisionRequestKey({
+      requestId: raw?.request_id,
+      kind: "promotion",
+      actor: session.login,
+      subjectId: ticket.ticket_id,
+      materialKey,
+      action: decision,
+      target,
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
+  }
+  let recorded;
+  try {
+    recorded = await runtimeInstanceCommand(env, {
+      action: "promotion_decide",
+      actor: session.login,
+      subject_id: ticket.ticket_id,
+      material_key: materialKey,
+      action_name: decision,
+      request_key: requestKey,
+      target_json: canonicalResearchTaskJson(target),
+      decided_at: decidedAt,
+      now_ms: Date.now(),
+      preflight_revision: preflightRevision,
+      payload: {
+        ticket: decided,
+        selected_account: selectedAccount,
+        confirmation,
+        proposed_params: ticket.proposed_params,
+      },
+    });
+  } catch (error) {
+    return json({ ok: false, error: error.message || "research promotion decision unavailable" }, error.status || 503);
+  }
+  const recordedTicket = recorded.record?.payload?.ticket || decided;
+  await mirrorConfigJson(env, researchPromotionTicketKey(recordedTicket.ticket_id), recordedTicket);
   try {
     await appendAuditLog(env, {
-      ts: decided.updated_at,
+      ts: recordedTicket.updated_at,
       login: session.login,
       action: "research_promotion_decision",
-      ticket_id: decided.ticket_id,
-      decision: decided.human_decision,
-      confirmation_target_platform: decided.confirmation_target_platform,
-      confirmation_execution_mode: decided.confirmation_execution_mode,
-      confirmation_risk_profile: decided.confirmation_risk_profile,
-      suggested_risk_profile: decided.suggested_risk_profile,
+      ticket_id: recordedTicket.ticket_id,
+      decision: recordedTicket.human_decision,
+      confirmation_target_platform: recordedTicket.confirmation_target_platform,
+      confirmation_execution_mode: recordedTicket.confirmation_execution_mode,
+      confirmation_risk_profile: recordedTicket.confirmation_risk_profile,
+      suggested_risk_profile: recordedTicket.suggested_risk_profile,
       live_authority_granted: false,
     });
   } catch {
@@ -6834,8 +8537,9 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   }
   return json({
     ok: true,
-    ticket: attachRiskEnvelopeView(decided),
+    ticket: attachRiskEnvelopeView(recordedTicket),
     live_authority_granted: false,
+    replayed: recorded.replayed === true,
   });
 }
 
@@ -6878,11 +8582,13 @@ async function loadStoredResearchPromotionTicket(env, ticketId) {
   if (!hasConfigStore(env)) throw new HttpError("research promotion KV is not configured", 503);
   const stored = await readConfigJson(env, researchPromotionTicketKey(ticketId));
   if (!stored) throw new HttpError("research promotion ticket not found", 404);
+  let ticket;
   try {
-    return normalizeResearchPromotionTicket(stored, "stored research promotion ticket");
+    ticket = normalizeResearchPromotionTicket(stored, "stored research promotion ticket");
   } catch (error) {
     throw new HttpError(error.message || "invalid stored research promotion ticket", 409);
   }
+  return promotionTicketWithAuthority(env, ticket);
 }
 
 async function qualifyV7PaperApplication(env, { ticketId, selectedAccount, expectedRevision }) {
@@ -6899,6 +8605,15 @@ async function qualifyV7PaperApplication(env, { ticketId, selectedAccount, expec
     throw new HttpError("runtime instance revision is required", 400);
   }
   const ticket = await loadStoredResearchPromotionTicket(env, ticketId);
+  const promotionMaterialKey = await researchPromotionMaterialKey(ticket);
+  const promotionAuthority = await readHumanDecisionAuthority(env, "promotion", ticket.ticket_id);
+  if (promotionAuthority.blocked || promotionAuthority.eligible !== true || promotionAuthority.decision?.action !== "accept" || promotionAuthority.material_key !== promotionMaterialKey) {
+    throw new HttpError("research candidate is not human_accepted", 409);
+  }
+  const boundAccount = promotionAuthority.decision.payload?.selected_account || {};
+  if (boundAccount.platform !== platform || boundAccount.key !== key) {
+    throw new HttpError("promotion_account_binding_conflict", 409);
+  }
   if (ticket.state !== "human_accepted") throw new HttpError("research candidate is not human_accepted", 409);
   if (ticket.live_authority_granted !== false || ticket.shadow_passed !== true || !String(ticket.shadow_evidence_kind || "").trim()) {
     throw new HttpError("research candidate evidence is not qualified", 409);
@@ -6938,6 +8653,7 @@ async function qualifyV7PaperApplication(env, { ticketId, selectedAccount, expec
     ticket,
     strategy,
     candidate,
+    promotionMaterialKey,
     revision: state.revision,
     account: {
       platform_id: platform,
@@ -7007,7 +8723,7 @@ async function researchPromotionApplicationResponse(request, env, url) {
     const createdAt = new Date().toISOString();
     const created = await runtimeInstanceCommand(env, {
       action: "application_create", actor: session.login, application_id: applicationId,
-      ticket_id: qualified.ticket.ticket_id, claim_token: randomToken(), platform_id: qualified.account.platform_id,
+      ticket_id: qualified.ticket.ticket_id, promotion_material_key: qualified.promotionMaterialKey, claim_token: randomToken(), platform_id: qualified.account.platform_id,
       account_key: qualified.account.account_key, account_scope: qualified.account.account_scope,
       account_selector: qualified.account.account_selector, service_name: qualified.account.service_name,
       broker_environment: qualified.account.broker_environment, expected_revision: qualified.revision,
@@ -10692,7 +12408,7 @@ function hasOrgMatch(orgLogins, configuredOrgs) {
 async function loadAccountOptionsConfig(env) {
   if (hasRuntimeInstanceStore(env)) {
     const state = await runtimeInstanceCommand(env);
-    if (state.initialized) return { options: state.account_options, source: "durable_object" };
+    if (state.initialized) return { options: state.account_options, source: "durable_object", revision: state.revision };
     // Existing execution can read the frozen legacy configuration during import;
     // every instance writer rejects this uninitialized state.
   }
@@ -10889,20 +12605,117 @@ async function buildRiskProfileBindings(payload, accountOptions, updatedBy) {
   return bindings.sort((left, right) => left.scope_id.localeCompare(right.scope_id));
 }
 
-async function loadRiskProfileBindings(env) {
-  if (!hasConfigStore(env)) return { bindings: [], error: null };
+function accountSettingsIdentity(instance) {
+  const config = instance?.config || {};
+  const broker = config.broker_environment;
+  return {
+    platform: instance.platform,
+    key: instance.key,
+    target_name: typeof config.target_name === "string" ? config.target_name : "",
+    broker_environment: broker === "live" || broker === "paper" ? broker : null,
+    account_selector: typeof config.account_selector === "string" ? config.account_selector : "",
+    deployment_selector: typeof config.deployment_selector === "string" ? config.deployment_selector : "",
+    account_scope: typeof config.account_scope === "string" ? config.account_scope : "",
+    service_name: typeof config.service_name === "string" ? config.service_name : "",
+  };
+}
+
+function applyAccountSettingOverrides(current, patch) {
+  if (!patch || Array.isArray(patch) || typeof patch !== "object") throw new HttpError("invalid_account_setting_overrides", 400);
+  const next = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
+  for (const key of Object.keys(patch)) {
+    if (!ACCOUNT_SETTING_OVERRIDE_FIELDS.includes(key)) throw new HttpError("invalid_account_setting_overrides", 400);
+    const value = patch[key];
+    if (value === null) {
+      delete next[key];
+      continue;
+    }
+    if (typeof value === "number") throw new HttpError("invalid_account_setting_overrides", 400);
+    if (key === "income_layer_enabled") {
+      if (typeof value !== "boolean") throw new HttpError("invalid_account_setting_overrides", 400);
+      next[key] = value;
+    } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
+      throw new HttpError("invalid_account_setting_overrides", 400);
+    } else {
+      next[key] = value;
+    }
+  }
+  return next;
+}
+
+async function readRiskProfileLegacy(env) {
+  if (!hasConfigStore(env)) return { state: "absent" };
   try {
     const stored = await readConfigJson(env, RISK_PROFILE_BINDINGS_KEY);
-    if (!stored) return { bindings: [], error: null };
-    return {
-      bindings: await normalizeRiskProfileBindingRegistry(stored),
-      error: null,
-    };
+    if (!stored) return { state: "absent" };
+    return { state: "valid", bindings: await normalizeRiskProfileBindingRegistry(stored) };
   } catch {
-    // Do not silently default malformed owner intent.  It has no runtime
-    // authority, but the next control-plane adapter must see the failure.
-    return { bindings: [], error: "risk_profile_bindings_invalid" };
+    return { state: "blocked" };
   }
+}
+
+async function loadRiskProfileBindings(env) {
+  if (!hasRuntimeInstanceStore(env)) {
+    return { bindings: [], revision: null, account_options: null, error: "runtime_instances_not_bound", status: 503 };
+  }
+  const legacy = await readRiskProfileLegacy(env);
+  try {
+    const state = await runtimeInstanceCommand(env, { action: "risk_profile_read", actor: "risk-profile-read", legacy });
+    return { bindings: state.bindings, revision: state.revision, account_options: state.account_options, error: null, status: 200 };
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return {
+      bindings: [],
+      revision: null,
+      account_options: null,
+      error: error instanceof HttpError ? error.message : "runtime_instances_unavailable",
+      status,
+    };
+  }
+}
+
+async function effectiveAccountSettings(env, observed) {
+  const broker = observed.identity?.broker_environment === "live" || observed.identity?.broker_environment === "paper"
+    ? { status: "known", value: observed.identity.broker_environment }
+    : { status: "unknown" };
+  const effective = {
+    strategy_profile: { status: "unknown" },
+    broker_environment: broker,
+    income_layer_enabled: { status: "unknown" },
+    reserved_cash_floor: { status: "unknown" },
+  };
+  const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+  const repository = platformRepositories(env)?.[observed.platform];
+  if (!token || !repository || !observed.config) return effective;
+  const options = Array.isArray(observed.account_options?.[observed.platform]) ? observed.account_options[observed.platform] : [];
+  const variableCache = new Map();
+  const readVariable = async (repo, scope, githubEnvironment, name) => {
+    const cacheKey = [repo, scope, githubEnvironment || ""].join("|");
+    if (!variableCache.has(cacheKey)) variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment));
+    const values = await variableCache.get(cacheKey);
+    return values?.get(name) || "";
+  };
+  let current = null;
+  try {
+    current = await resolveCurrentStrategyForAccount({
+      platform: observed.platform,
+      option: observed.config,
+      optionsCount: options.length || 1,
+      repository,
+      readVariable,
+    });
+  } catch {
+    return effective;
+  }
+  if (!current || typeof current !== "object") return effective;
+  if (typeof current.strategy_profile === "string" && current.strategy_profile) {
+    effective.strategy_profile = { status: "known", value: current.strategy_profile };
+  }
+  if (typeof current.income_layer_enabled === "boolean") effective.income_layer_enabled = { status: "known", value: current.income_layer_enabled };
+  if (typeof current.min_reserved_cash_usd === "string" && current.min_reserved_cash_usd) {
+    effective.reserved_cash_floor = { status: "known", value: current.min_reserved_cash_usd };
+  }
+  return effective;
 }
 
 function hasConfigStore(env) {
@@ -11121,6 +12934,8 @@ export const __test = {
   attachRiskEnvelopeView,
   normalizeResearchPromotionTicket,
   normalizeRuntimeTargetLifecycleTarget,
+  projectRuntimeAccountState,
+  aggregateRuntimeTargetLifecycleSources,
   loadPlatformMeta,
   assertConfiguredAccount,
   validateResearchPromotionSelectedAccount,

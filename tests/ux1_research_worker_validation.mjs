@@ -553,13 +553,10 @@ try {
   assert.notEqual(promotion.status, 404);
   assert.equal(outbound, 0);
 
-  const app = await readFile(new URL("../web/strategy-switch-console/app.js", import.meta.url), "utf8");
-  const viewMode = app.slice(app.indexOf("function setUx1ViewMode"), app.indexOf("function syncUx1DraftFromDom"));
-  assert.equal(viewMode.includes("fetch("), false);
-  assert.equal(viewMode.includes("/api/"), false);
-  assert.match(viewMode, /qsl-ux1-view-mode/);
-  assert.match(app, /qsl-ux1-view-mode"\) === "advanced" \? "advanced" : "guided"/);
-  assert.match(app, /上一份方案已过期或计算失败/);
+  const app = await readFile(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+  assert.equal(app.includes("function setUx1ViewMode"), false);
+  assert.equal(app.includes("qsl-ux1-view-mode"), false);
+  assert.equal(app.includes("上一份方案已过期或计算失败"), false);
 
   assert.equal(__test.ux1CalculatorDeadlineMs, 30000);
   assert.equal(__test.ux1CalculatorMaxBytes, 65536);

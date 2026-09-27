@@ -1477,9 +1477,9 @@ def require_hk_stop_target(request: dict[str, Any]) -> None:
 
 def dispatch_hk_stop(request: dict[str, Any]) -> None:
     require_hk_stop_target(request)
-    # HK identity is in the platform's protected environment, not readable via
-    # the settings variable API. Apply only an already-saved stop; the platform
-    # independently matches that identity before any cloud operation.
+    # The caller has to have saved and read back enabled=false. This check
+    # refuses the platform call when that save is missing. It does not read a
+    # protected secret, and a failed call is not retried here.
     if read_stop_variables(request["github"]).get("RUNTIME_TARGET_ENABLED") != "false":
         raise ValueError("stop_saved_configuration_required")
     payload = {"ref": "main", "inputs": {"stop_request": json.dumps(request), "confirm": "STOP_ONLY"}}
@@ -1508,18 +1508,13 @@ def command_stop(args: argparse.Namespace) -> int:
                 raise ValueError("stop_platform_apply_requires_saved_stop")
             require_hk_stop_target(request)
             require_production_writer_ref()
+            saved = execute_stop(request, apply=True)
             dispatch_hk_stop(request)
             result = {
-                "configured": True,
-                "platform_applied": False,
-                "preview": False,
+                **saved,
                 "platform_apply_requested": True,
-                "resource_key": production_resource_key(
-                    repository=request["github"]["repository"],
-                    variable_scope=request["github"]["variable_scope"],
-                    environment=request["github"].get("environment"),
-                    name="RUNTIME_TARGET_ENABLED",
-                ),
+                "platform_applied": False,
+                "resource_key": saved["resource_write_audit"]["resource_key"],
             }
         else:
             result = execute_stop(request, apply=args.yes)

@@ -1,9 +1,17 @@
 export type Session = { authenticated: boolean; login: string | null; allowed: boolean; admin: boolean; synthetic?: boolean };
 export type Freshness = { data_status: "ready" | "stale" | "unavailable"; age_seconds: number | null };
+export type AccountStateProjection = {
+  scope: "monitoring_only";
+  limit: "not_trading_or_books";
+  health: "normal" | "abnormal" | "unknown";
+  activation: "enabled" | "disabled" | "unknown";
+  reason: string;
+};
 export type LifecycleRecord = {
   source_id: string;
   freshness?: Freshness;
   deployment_freshness?: Freshness;
+  account_state?: AccountStateProjection;
   execution_observation?: { code?: string; order_or_fill_evidence?: string };
   target: {
     target_id: string;
@@ -31,6 +39,14 @@ export type CurrentStrategy = {
   execution_mode?: string; execution_environment?: string; [key: string]: unknown;
 };
 export type StrategyProfile = { profile: string; label?: string; domain?: string; [key: string]: unknown };
+export type PromotionSuggestion = {
+  question: string;
+  basis: string;
+  limits: string;
+  suggestion: string;
+  provider: "codex" | "cursor";
+  model: string;
+};
 export type ConfigPayload = {
   accountOptions?: Record<string, AccountOption[]> | null;
   platformMeta?: Record<string, { label?: string; console_visible?: boolean; [key: string]: unknown }>;
@@ -146,6 +162,18 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
     source(getJson<Record<string, any>>("/api/adaptive-selection")),
   ]);
   return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive };
+}
+
+export function runtimeStopQuery(platform: string, targetName: string): string {
+  return `/api/runtime-stop?platform=${encodeURIComponent(platform)}&target_name=${encodeURIComponent(targetName)}`;
+}
+
+export function accountSettingsPath(platform: string, key: string): string {
+  return `/api/account-settings?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(key)}`;
+}
+
+export async function loadAccountSettings(platform: string, key: string): Promise<Record<string, any>> {
+  return getJson<Record<string, any>>(accountSettingsPath(platform, key));
 }
 
 export async function loadAdminModel(): Promise<AdminModel> {
