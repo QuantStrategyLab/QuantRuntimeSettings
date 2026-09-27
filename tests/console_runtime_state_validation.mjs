@@ -103,7 +103,9 @@ test("frontend account normalization and display preserve broker identity and al
   assert.equal(normalized.ibkr[0].account_selector, "U10000001, U10000002");
   assert.equal(normalized.ibkr[0].broker_environment, "live");
   assert.equal(accountDisplayTitle(normalized.ibkr[0], "IBKR", "实盘"), "主账户");
-  assert.equal(accountDisplayTitle({ key: "internal-key" }, "IBKR", "实盘"), "IBKR · 实盘");
+  assert.equal(accountDisplayTitle({ key: "internal-key" }, "IBKR", "实盘"), "账户");
+  assert.equal(accountDisplayTitle(normalized.ibkr[0], "IBKR", "实盘").includes("0001"), false);
+  assert.equal(accountDisplayTitle({ key: "hk", account_selector: "U10000001, U10000002" }, "IBKR", "实盘"), "账户 · hk");
 });
 
 test("account persistence preserves explicit observation and variable-source bindings", () => {
@@ -804,7 +806,9 @@ test("opening account settings selects the exact account without submitting or e
   assert.equal(controller.selectedId(), "binance:default");
   assert.equal(controller.applyRead(op, settingsPayload({ platform: "binance", key: "default" })), true);
   assert.equal(controller.startSave("draft"), null);
-  assert.match(accountsSource, /readOnly/);
+  assert.match(accountsSource, /readonly-strategy/);
+  assert.match(accountsSource, /暂不能修改/);
+  assert.equal(accountsSource.includes("<input"), false);
 });
 
 test("viewing a prepared application opens its account without replacing the current draft", () => {
@@ -919,7 +923,9 @@ test("viewing an account does not expand editing or change the configured switch
   assert.equal(controller.applyRead(op, settingsPayload({ platform: "binance", key: "default", runtime_target_enabled: true })), true);
   assert.equal(controller.view().draft.strategyTouched, false);
   assert.equal(controller.startSave("draft"), null);
-  assert.match(accountsSource, /readOnly/);
+  assert.match(accountsSource, /readonly-strategy/);
+  assert.match(accountsSource, /暂不能修改/);
+  assert.equal(accountsSource.includes("<input"), false);
 });
 
 test("unverified promotion records are separated by evidence, not by test-like names", () => {

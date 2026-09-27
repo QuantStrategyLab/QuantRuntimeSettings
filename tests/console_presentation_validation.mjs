@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
-import { accountDisplayTitle, accountStatusView, activationFromProjection, chartUnavailable, decisionActionState, knownAccountLabel, listDailyDecisions, overviewFigures, paperApplicationAccounts, paperApplicationReady, preferenceDirty, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
+import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, chartRangeNote, chartUnavailable, decisionActionState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, overviewFigures, paperApplicationAccounts, paperApplicationReady, preferenceDirty, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -34,8 +36,54 @@ assert.equal(overviewFigures(2, ["GROWTH_COMPOUNDING", ""]).riskPreference, null
 assert.equal(chartUnavailable("return"), "收益数据积累中");
 assert.equal(chartUnavailable("assets"), "资产数据暂不可用");
 assert.equal(chartUnavailable("cash"), "资产数据暂不可用");
-assert.equal(accountDisplayTitle({ label: "  ", key: "internal-key" }, "Longbridge", "模拟账户环境"), "Longbridge · 模拟账户环境");
+assert.equal(accountDisplayTitle({ label: "  ", key: "internal-key" }, "Longbridge", "模拟账户环境"), "账户");
 assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模拟账户环境").includes("internal"), false);
+assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模拟账户环境"), "我的港股");
+const occupied = strategyOccupiedNames([{ profile: "soxl", label: "SOXL", label_zh: "SOXL 策略", label_en: "SOXL strategy" }, { profile: "global", label: "GlobalETF", label_zh: "全球ETF", label_en: "Global ETF" }], "tqqq", "TQQQ");
+assert.equal(accountDisplayTitle({ label: "SOXL", key: "live" }, "Binance", "", occupied), "账户 · live");
+assert.equal(accountDisplayTitle({ label: "GlobalETF", key: "paper" }, "IBKR", "", occupied), "账户 · paper");
+assert.equal(accountDisplayTitle({ label: "Binance", key: "default" }, "Binance", "", occupied), "账户");
+assert.equal(accountDisplayTitle({ label: "SG", key: "sg" }, "Longbridge", "", occupied), "账户 · SG");
+assert.equal(accountDisplayTitle({ key: "hk" }, "Longbridge", "", occupied), "账户 · hk");
+assert.equal(accountDisplayTitle({ key: "firstrade" }, "Firstrade", "", occupied), "账户 · firstrade");
+assert.equal(accountDisplayTitle({ key: "crypto_combo" }, "Binance", "", occupied), "账户 · crypto_combo");
+assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U12345678" }, "IBKR", "", occupied), "账户 ••••5678");
+assert.equal(accountDisplayTitle({ label: "soxl", key: "hk", account_selector: "" }, "IBKR", "", occupied), "账户 · hk");
+assert.equal(accountDisplayTitle({ label: "soxl", key: "hk", account_selector: "U12345678, U87654321" }, "IBKR", "", occupied), "账户 · hk");
+assert.equal(accountDisplayTitle({ account_selector: "U12345678, U87654321" }, "IBKR", "").includes("5678"), false);
+assert.equal(accountIdentity({ account_selector: "U12345678, U87654321" }, "IBKR", "").kind, "generic");
+const english = (key, values) => translate(key, "en", values || {});
+assert.equal(formatAccountIdentity(accountIdentity({ label: "SOXL", key: "live" }, "Binance", "", occupied), english), "Account · live");
+assert.equal(formatAccountIdentity(accountIdentity({ account_selector: "U12345678", label: "soxl" }, "IBKR", "", occupied), english), "Account ••••5678");
+assert.equal(formatAccountIdentity(accountIdentity({ label: "我的港股" }, "Longbridge", "", occupied), english), "我的港股");
+assert.equal(formatAccountIdentity(accountIdentity({ key: "internal-key" }, "Longbridge", "", occupied), english), "Account");
+assert.equal(accountDisplayTitle({ label: "退休账户", account_selector: "U12345678" }, "IBKR", ""), "退休账户");
+assert.equal(formatAccountIdentity(accountIdentity({ label: "退休账户", account_selector: "U12345678" }, "IBKR", ""), english), "退休账户");
+assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U12345678" }, "Binance", "", occupied), "账户");
+assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "IBKR", ""), "账户 ••••5678");
+assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "IBKR", "").includes("U12345678"), false);
+assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "Longbridge", ""), "账户");
+assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "Longbridge", "").includes("12345678"), false);
+assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678, U87654321" }, "IBKR", "").includes("5678"), false);
+assert.deepEqual(CHART_RANGE_OPTIONS.map(item => item.id), ["3m", "6m", "1y", "3y", "5y", "10y", "all"]);
+assert.deepEqual(CHART_RANGE_OPTIONS.map(item => item.label), ["3个月", "半年", "1年", "3年", "5年", "10年", "至今"]);
+assert.equal(DEFAULT_CHART_RANGE, "1y");
+assert.equal(chartRangeNote("1y").rangeLabel, "1年");
+assert.equal(chartRangeNote("all").key, "至今从首条有效记录算起，当前没有记录。");
+assert.equal(chartRangeNote("3m").key, "{range}内还没有可绘制的记录。");
+assert.equal(chartRangeNote("6m").rangeLabel, "半年");
+for (const option of CHART_RANGE_OPTIONS) {
+  const note = chartRangeNote(option.id);
+  assert.equal(/\d{4}-\d{2}-\d{2}|series|\[/.test(`${note.key} ${note.rangeLabel}`), false);
+}
+assert.equal(overviewFigures(1, ["BALANCED_COMPOUNDING"]).series, null);
+assert.equal(resolveTheme("system", false), "light");
+assert.equal(resolveTheme("system", true), "dark");
+assert.equal(nextExplicitTheme(resolveTheme("system", false)), "dark");
+assert.equal(nextExplicitTheme(resolveTheme("system", true)), "light");
+assert.equal(nextExplicitTheme("dark"), "light");
+assert.equal(unnamedDecisionOrdinal([{ id: "a", title: "未命名策略" }, { id: "b", title: "未命名策略" }], { id: "b", title: "未命名策略" }), 2);
+assert.equal(unnamedDecisionOrdinal([{ id: "a", title: "未命名策略" }], { id: "a", title: "未命名策略" }), 0);
 
 assert.equal(preferenceDirty(null, ""), false);
 assert.equal(preferenceDirty(false, ""), false);

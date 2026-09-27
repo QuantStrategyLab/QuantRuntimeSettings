@@ -8,3 +8,7 @@ export function resolveTheme(preference, systemPrefersDark) {
   const normalized = normalizeThemePreference(preference);
   return normalized === "system" ? (systemPrefersDark ? "dark" : "light") : normalized;
 }
+
+export function nextExplicitTheme(resolved) {
+  return resolved === "dark" ? "light" : "dark";
+}
