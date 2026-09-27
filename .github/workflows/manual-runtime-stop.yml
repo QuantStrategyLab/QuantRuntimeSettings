@@ -17,7 +17,7 @@ on:
         required: false
         type: string
       apply_hk_stop:
-        description: "Apply only an already-saved LongBridge HK stop. The platform verifies its protected identity and reads back actual controls."
+        description: "Save the LongBridge HK stop, read it back, then request one platform stop. Dispatch does not prove the platform applied it."
         required: false
         type: boolean
         default: false
@@ -70,4 +70,4 @@ jobs:
           fi
       - name: Report the verification boundary
         run: |
-          echo 'Ordinary requests save stop configuration only. An HK apply request requires an already-saved stop and does not write configuration. Dispatch is not application: use the platform run and fresh lifecycle readback. Cancellation, liquidation and completion of in-flight work are never implied.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Ordinary requests save stop configuration only. An HK apply request saves the stop setting, checks the exact readback, then requests one platform stop. Dispatch is not application: use the platform run and fresh lifecycle readback. Cancellation, liquidation and completion of in-flight work are never implied.' >> "$GITHUB_STEP_SUMMARY"

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, Source, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAccountSettings, loadAdminModel, loadReadModel, postJson } from "./api";
+import { AccessError, getJson, invalidatePrivateSession, loadAccountSettings, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { createAccountSettingsController, type AccountSettingsOp } from "./accountSettingsState";
-import { accountMatchesStatusFilter, applicationRetryAllowed, buildConfirmationFingerprint, buildHomeAttention, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisStatusKey, diagnosisUserSummary, ownerDecisionBinding, pageFromWorkspace, presentAccountState, promotionAiExplanation, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
+import { accountMatchesStatusFilter, applicationRetryAllowed, buildConfirmationFingerprint, buildHomeAttention, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisStatusKey, diagnosisUserSummary, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, presentAccountState, promotionAiExplanation, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
 import { DCA_SUPPORTED_PLATFORMS, DOMAIN_LABELS, PLATFORM_CONFIG } from "../../config.js";
 import { formatAccountCount, LocaleContext, renderLocaleMessage, translate, useLocale, useT, type Language, type LocaleMessage } from "./locales";
 type Page = "overview" | "strategy" | "accounts";
@@ -172,6 +172,7 @@ function App() {
     const [uxCompare, setUxCompare] = useState(false);
     const [busy, setBusy] = useState<Busy>({});
     const [diagnosis, setDiagnosis] = useState<Record<string, any>>({});
+    const [stopRecords, setStopRecords] = useState<Record<string, any>>({});
     const [promotionTicketId, setPromotionTicketId] = useState("");
     const [promotionAccountId, setPromotionAccountId] = useState("");
     const [promotionRisk, setPromotionRisk] = useState("CAPITAL_PRESERVATION");
@@ -180,6 +181,7 @@ function App() {
     const [instanceDraft, setInstanceDraft] = useState<Record<string, any>>({});
     const [editingInstance, setEditingInstance] = useState<string | null>(null);
     const gate = useRef(createRequestGate());
+    const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
     const switchLocks = useRef(new Set<string>());
     const onceLocks = useRef(createRequestLock());
     const uxEditEpoch = useRef(0);
@@ -222,6 +224,8 @@ function App() {
         setAdminModel(null);
         setSwitchDrafts({});
         setDiagnosis({});
+        hkStops.current = new Map();
+        setStopRecords({});
         setUxDraft(emptyUxDraft());
         setUxDirty(false);
         setUxBusy(false);
@@ -409,6 +413,47 @@ function App() {
             onceLocks.current.release(key);
         setBusy(prev => ({ ...prev, [key]: false }));
     };
+    const isHkStop = (row: AccountRow) => row.platform === "longbridge" && (row.account.target_name || row.account.key) === "hk";
+    const hkStopFor = (accountId: string) => {
+        let controller = hkStops.current.get(accountId);
+        if (!controller) {
+            controller = createHkStopController();
+            hkStops.current.set(accountId, controller);
+        }
+        return controller;
+    };
+    const publishHkStop = (accountId: string) => {
+        const controller = hkStops.current.get(accountId);
+        if (!controller) return;
+        setStopRecords(prev => ({ ...prev, [accountId]: controller.snapshot() }));
+    };
+    const refreshStopRecord = useCallback(async (row: AccountRow) => {
+        if (row.platform !== "longbridge" || (row.account.target_name || row.account.key) !== "hk")
+            return;
+        const controller = hkStopFor(row.id);
+        const token = controller.beginRead();
+        try {
+            const payload = await getJson<any>(runtimeStopQuery(row.platform, row.account.target_name || row.account.key));
+            controller.completeRead(token, payload);
+        }
+        catch {
+            controller.failRead(token);
+        }
+        publishHkStop(row.id);
+    }, []);
+    useEffect(() => {
+        if (!active || active.platform !== "longbridge" || (active.account.target_name || active.account.key) !== "hk")
+            return;
+        const accountId = active.id;
+        const controller = hkStopFor(accountId);
+        setStopRecords(prev => prev[accountId] ? prev : { ...prev, [accountId]: controller.snapshot() });
+        const token = controller.beginRead();
+        let cancelled = false;
+        void getJson<any>(runtimeStopQuery(active.platform, active.account.target_name || active.account.key))
+            .then(payload => { if (!cancelled) { controller.completeRead(token, payload); publishHkStop(accountId); } })
+            .catch(() => { if (!cancelled) { controller.failRead(token); publishHkStop(accountId); } });
+        return () => { cancelled = true; };
+    }, [active?.id, active?.platform, active?.account?.target_name, active?.account?.key]);
     const submitAccountPlan = async (row: AccountRow, stopOnly = false) => {
         if (!model?.session.allowed || switchLocks.current.has(row.id))
             return;
@@ -416,18 +461,51 @@ function App() {
         if (!form)
             return;
         if (stopOnly || form.runtimeMode === "disabled") {
+            if (isHkStop(row) && !hkStopSubmitAllowed(stopRecords[row.id])) {
+                setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
+                return;
+            }
             if (!await confirmAction({ title: t("确认停用运行目标"), target: `${row.platformLabel} / ${row.account.label || row.account.key} · ${row.account.target_name || row.account.key}`, summary: t("当前策略：{strategy}", { strategy: row.current?.strategy_profile || form.strategy || t("未读取") }), consequence: t("停用只阻止新的触发，不会撤单、平仓或清除在途请求。"), tone: "danger" }))
                 return;
-            switchLocks.current.add(row.id);
+            let hkRequestId = "";
+            if (isHkStop(row)) {
+                hkRequestId = hkStopFor(row.id).beginSubmit();
+                publishHkStop(row.id);
+            }
+            else
+                switchLocks.current.add(row.id);
             setBusy(prev => ({ ...prev, [`stop:${row.id}`]: true }));
             try {
-                const result = await postJson<any>("/api/runtime-stop", { platform: row.platform, target_name: row.account.target_name || row.account.key, confirm: "STOP_ONLY" });
-                if (result.actions_url)
-                    window.open(result.actions_url, "_blank", "noopener,noreferrer");
-                setErrorMessage(copy("停用请求已提交；请核对现有 workflow 结果后再刷新，避免重复提交。"));
+                const result = await postJson<any>("/api/runtime-stop", {
+                    platform: row.platform,
+                    target_name: row.account.target_name || row.account.key,
+                    confirm: "STOP_ONLY",
+                    ...(hkRequestId ? { request_id: hkRequestId } : {}),
+                });
+                if (isHkStop(row)) {
+                    hkStopFor(row.id).completePost(result);
+                    publishHkStop(row.id);
+                    const phase = hkStopFor(row.id).snapshot().phase;
+                    if (phase === "rejected")
+                        setErrorMessage(copy("停用请求已被明确拒绝。"));
+                    else if (phase === "accepted")
+                        setErrorMessage(copy("工作流已接受，平台是否停用仍未确认。"));
+                    else
+                        setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
+                }
+                else {
+                    if (result.actions_url)
+                        window.open(result.actions_url, "_blank", "noopener,noreferrer");
+                    setErrorMessage(copy("停用请求已提交；请核对现有 workflow 结果后再刷新，避免重复提交。"));
+                }
             }
             catch (error) {
-                setErrorMessage(copy("停用结果未确认。请先检查现有 workflow，不要盲目重试。{detail}", {detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
+                if (isHkStop(row)) {
+                    await refreshStopRecord(row);
+                    setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
+                }
+                else
+                    setErrorMessage(copy("停用结果未确认。请先检查现有 workflow，不要盲目重试。{detail}", {detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
             }
             finally {
                 setBusy(prev => ({ ...prev, [`stop:${row.id}`]: false }));
@@ -755,10 +833,14 @@ function App() {
           {platformSettings[active.platform]?.dca && DCA_SUPPORTED_PLATFORMS.has(active.platform) && <><label>{t("\u5B9A\u6295\u6A21\u5F0F")}<OptionList values={["fixed", "smart"]} value={activeForm.dcaMode} labels={{ fixed: t("固定金额"), smart: t("智能定投") }} onChange={value => updateForm(active, { dcaMode: value as SwitchDraft["dcaMode"], touched: { dca: true } })}/></label><label>{t("\u5B9A\u6295\u57FA\u51C6\u91D1\u989D")}<input value={activeForm.dcaBase} inputMode="decimal" onChange={e => updateForm(active, { dcaBase: e.target.value, touched: { dca: true } })}/></label></>}
           </div>
           <p className="section-note">{t("摘要预览：{platform} / {target} · 券商环境 {environment} · {strategy} · 执行（{execution}）· 启停 {runtime}。执行方式不会改变账户环境或权限。", { platform: active.platform, target: active.account.target_name, environment: brokerEnvironment(active.account.broker_environment, t), strategy: activeForm.strategy || t("\u672A\u9009\u62E9\u7B56\u7565"), execution: executionMode(activeForm.executionMode, t), runtime: t(displayStatus(activeForm.runtimeMode)) })}</p>
-          <div className="form-actions"><button className="button button-primary" type="button" disabled={(!ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled") || !model?.session.allowed || switchLocks.current.has(active.id) || busy[`switch:${active.id}`] || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active)}>{switchLocks.current.has(active.id) ? t("\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF0C\u7B49\u5F85\u8BFB\u56DE") : !ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled" ? t("设置保存暂未接通") : activeForm.runtimeMode === "disabled" ? t("\u63D0\u4EA4\u505C\u7528\u8BF7\u6C42") : t("\u63D0\u4EA4\u8BA1\u5212")}</button><button className="button button-secondary" type="button" onClick={() => void navigator.clipboard?.writeText(`${active.platform} ${active.account.label || active.account.key}\n${activeForm.strategy}\n${activeForm.executionMode}`)}>{t("\u590D\u5236\u6458\u8981")}</button></div>
+          <div className="form-actions"><button className="button button-primary" type="button" disabled={(!ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled") || !model?.session.allowed || switchLocks.current.has(active.id) || busy[`switch:${active.id}`] || busy[`stop:${active.id}`] || (active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && activeForm.runtimeMode === "disabled" && !hkStopSubmitAllowed(stopRecords[active.id]))} onClick={() => void submitAccountPlan(active)}>{switchLocks.current.has(active.id) ? t("\u8BF7\u6C42\u5DF2\u63D0\u4EA4\uFF0C\u7B49\u5F85\u8BFB\u56DE") : !ACCOUNT_PLAN_SUBMISSION_AVAILABLE && activeForm.runtimeMode !== "disabled" ? t("设置保存暂未接通") : activeForm.runtimeMode === "disabled" ? t("\u63D0\u4EA4\u505C\u7528\u8BF7\u6C42") : t("\u63D0\u4EA4\u8BA1\u5212")}</button><button className="button button-secondary" type="button" onClick={() => void navigator.clipboard?.writeText(`${active.platform} ${active.account.label || active.account.key}\n${activeForm.strategy}\n${activeForm.executionMode}`)}>{t("\u590D\u5236\u6458\u8981")}</button></div>
           <p className="section-note">{t("账户计划提交暂未接通；当前可以查看设置，停用入口仍按原确认流程执行。")}</p>
         </details>
-        <div className="account-safety-actions"><button className="button button-danger" type="button" disabled={!model?.session.allowed || switchLocks.current.has(active.id) || busy[`stop:${active.id}`]} onClick={() => void submitAccountPlan(active, true)}>{busy[`stop:${active.id}`] ? t("正在提交…") : t("提交停用请求")}</button>{active.platform === "binance" && canResumeBinance(active.platform, active.account, active.current) && <button type="button" className="button button-secondary" disabled={busy[`resume:${active.id}`] || onceLocks.current.isLocked(`resume:${active.id}`)} onClick={() => void resumeBinance(active)}>{t("恢复现有 Binance 目标")}</button>}</div>
+        <div className="account-safety-actions"><button className="button button-danger" type="button" disabled={!model?.session.allowed || switchLocks.current.has(active.id) || busy[`stop:${active.id}`] || (active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && !hkStopSubmitAllowed(stopRecords[active.id]))} onClick={() => void submitAccountPlan(active, true)}>{busy[`stop:${active.id}`] ? t("正在提交…") : active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && !hkStopSubmitAllowed(stopRecords[active.id]) ? t("停用结果未知，不能再次提交") : t("提交停用请求")}</button>{active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && <button className="button button-secondary" type="button" onClick={() => void refreshStopRecord(active)}>{t("刷新停用状态")}</button>}{active.platform === "binance" && canResumeBinance(active.platform, active.account, active.current) && <button type="button" className="button button-secondary" disabled={busy[`resume:${active.id}`] || onceLocks.current.isLocked(`resume:${active.id}`)} onClick={() => void resumeBinance(active)}>{t("恢复现有 Binance 目标")}</button>}</div>
+        {active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && stopRecords[active.id]?.phase === "accepted" && <p className="section-note">{t("工作流已接受，平台是否停用仍未确认。")}</p>}
+        {active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && ["unknown", "reserved", "unavailable", "loading"].includes(stopRecords[active.id]?.phase) && <p className="section-note">{t("停用结果未知，不能再次提交。可以只读刷新。")}</p>}
+        {active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && stopRecords[active.id]?.phase === "rejected" && <p className="section-note">{t("停用请求已被明确拒绝。")}</p>}
+        {active.platform === "longbridge" && (active.account.target_name || active.account.key) === "hk" && stopRecords[active.id]?.runtime_observation?.status === "stopped" && <p className="section-note">{t("运行目标观测为已停用，这不表示该请求已成功。")}</p>}
       </section> : <Empty title={t("\u8D26\u6237\u914D\u7F6E\u6682\u4E0D\u53EF\u7528")} detail={t("API \u672A\u8FD4\u56DE\u53EF\u7528\u8D26\u6237\uFF0C\u672A\u4F7F\u7528\u9ED8\u8BA4\u8D26\u6237\u66FF\u4EE3\u3002")}/>}
       <section className="content-section"><h2>{t("\u7B56\u7565\u5065\u5EB7")}</h2><div className="overview-filters">{[["attention", t("\u9700\u8981\u5173\u6CE8")], ["all", t("\u5168\u90E8\u7B56\u7565")]].map(([key, label]) => <button key={key} aria-pressed={healthFilter === key} onClick={() => setHealthFilter(key)} type="button">{label}</button>)}</div><SourceList source={model?.health} items={(model?.health.value?.strategies || []).filter((entry: any) => healthFilter === "all" || entry.status !== "healthy").map((entry: any) => t("{profile} · {status} · {score} · {date}", { profile: entry.profile || entry.strategy_id, status: t(displayStatus(entry.status)), score: entry.score ?? "—", date: stamp(entry.as_of, language) }))} empty={t("\u6682\u65E0\u7B56\u7565\u5065\u5EB7\u8BB0\u5F55")}/></section>
       </div><aside className="editorial-rail"><h2>{t("\u8FD0\u884C\u8FB9\u754C")}</h2><p>{t("\u505C\u7528\u65B0\u89E6\u53D1\u4E0D\u7B49\u4E8E\u64A4\u5355\u3001\u5E73\u4ED3\u6216\u6E05\u9664\u5728\u9014\u8BF7\u6C42\u3002")}</p><details><summary>{t("运行检查详情（技术信息）")}</summary>{active && <><p>{t("配置读回、运行监测和成交证据分别核对。")}</p><DetailTime title={t("\u8D26\u6237\u68C0\u67E5")} value={active.runtime?.target?.deployment?.observed_at}/></>}{(model?.runtime.value?.targets || []).filter((item: any) => item.target?.target?.platform === active?.platform).map((item: any) => <pre key={item.target.target_id}>{JSON.stringify(item, null, 2)}</pre>)}</details></aside></div>

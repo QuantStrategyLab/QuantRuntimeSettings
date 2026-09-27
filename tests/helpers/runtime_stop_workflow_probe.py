@@ -35,7 +35,16 @@ def main() -> None:
     environment = {"RUNTIME_TARGET_JSON": json.dumps(runtime), "CLOUD_RUN_SERVICE": identity["service_name"]}
     if hk:
         repository = {}
-        environment = {"RUNTIME_TARGET_ENABLED": "false"}
+        environment = {
+            "RUNTIME_TARGET_JSON": json.dumps({
+                "platform_id": identity["platform_id"],
+                "deployment_selector": identity["deployment_selector"],
+                "account_selector": identity["account_selector"],
+                "account_scope": identity["account_scope"],
+                "service_name": identity["service_name"],
+            }),
+            "RUNTIME_TARGET_ENABLED": "true",
+        }
     with tempfile.TemporaryDirectory(prefix="qsl-stop-workflow-") as directory:
         temp = Path(directory)
         state = temp / "state.json"
@@ -118,7 +127,7 @@ def main() -> None:
             inventory["targets"][0]["RUNTIME_TARGET_ENABLED"] = "false"
             assert json.loads(after["repository"]["CLOUD_RUN_SERVICE_TARGETS_JSON"]) == inventory
             assert after["environment"] == environment
-        assert after["writes"] == (0 if hk else 1)
+        assert after["writes"] == 1
         assert after.get("dispatches", 0) == (1 if hk else 0)
     print("Worker -> workflow -> CLI -> synthetic GitHub readback: PASS; " +
           ("one HK stop request, application remains unverified" if hk else "configuration only, no platform dispatch"))

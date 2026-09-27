@@ -303,6 +303,9 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "risk_profile_read", "risk_profile_replace", "risk_profile_set",
   "account_settings_read", "account_settings_save",
 ]);
+const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read"]);
+const HK_STOP_TARGET_ID = "longbridge/hk";
+const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor"];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
@@ -743,6 +746,7 @@ export default {
       }
       if (url.pathname === "/api/logout" && request.method === "POST") return logout(request);
       if (url.pathname === "/api/switch" && request.method === "POST") return await dispatchSwitch(request, env);
+      if (url.pathname === "/api/runtime-stop" && request.method === "GET") return await readRuntimeStop(request, env, url);
       if (url.pathname === "/api/runtime-stop" && request.method === "POST") return await dispatchRuntimeStop(request, env);
       if (url.pathname === "/api/runtime-resume" && request.method === "POST") return await dispatchBinanceResume(request, env);
       if (url.pathname === "/bootstrap-config.js") {
@@ -1983,6 +1987,20 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
+      request_id TEXT PRIMARY KEY,
+      target_id TEXT NOT NULL,
+      identity_json TEXT NOT NULL,
+      source_revision INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      requested_at TEXT NOT NULL,
+      phase TEXT NOT NULL,
+      dispatch_result TEXT,
+      workflow_run_id TEXT,
+      workflow_run_attempt TEXT,
+      updated_at TEXT NOT NULL
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS hk_stop_request_target ON hk_stop_request (target_id, requested_at)");
   }
 
   accountSettingsCommand(command) {
@@ -2209,6 +2227,111 @@ export class RuntimeInstances {
     return { ...this.readAccountSettings(command), adopted: false };
   }
 
+  hkStopCommand(command) {
+    if (command?.action === "hk_stop_read") return { ok: true, record: this.hkStopOpen() || this.hkStopLatest() };
+    if (command?.action === "hk_stop_claim") return this.hkStopClaim(command);
+    if (command?.action === "hk_stop_record") return this.hkStopRecord(command);
+    throw new HttpError("unsupported_hk_stop_action", 400);
+  }
+
+  hkStopPublic(row) {
+    if (!row) return null;
+    return {
+      target_id: row.target_id,
+      request_id: row.request_id,
+      identity_json: row.identity_json,
+      source_revision: Number(row.source_revision),
+      action: row.action,
+      requested_at: row.requested_at,
+      phase: row.phase,
+      dispatch_result: row.dispatch_result || null,
+      workflow_run_id: row.workflow_run_id || null,
+      workflow_run_attempt: row.workflow_run_attempt || null,
+      updated_at: row.updated_at,
+    };
+  }
+
+  hkStopStored(requestId) {
+    return this.hkStopPublic(this.sql.exec("SELECT * FROM hk_stop_request WHERE request_id = ?", requestId).toArray()[0]);
+  }
+
+  hkStopOpen() {
+    return this.hkStopPublic(this.sql.exec(
+      "SELECT * FROM hk_stop_request WHERE target_id = ? AND phase IN ('reserved', 'unknown', 'accepted') ORDER BY requested_at ASC",
+      HK_STOP_TARGET_ID,
+    ).toArray()[0]);
+  }
+
+  hkStopLatest() {
+    return this.hkStopPublic(this.sql.exec(
+      "SELECT * FROM hk_stop_request WHERE target_id = ? ORDER BY requested_at DESC",
+      HK_STOP_TARGET_ID,
+    ).toArray()[0]);
+  }
+
+  hkStopLiveIdentity(sourceRevision, identity) {
+    let found;
+    try {
+      found = this.existingAccountInstance("longbridge", "hk");
+    } catch {
+      throw new HttpError("hk_stop_source_conflict", 409);
+    }
+    if (found.state.revision !== sourceRevision) throw new HttpError("hk_stop_source_conflict", 409);
+    const live = hkStopSourceIdentity(found.item.config, found.item);
+    if (!hkStopIdentityComplete(live) || canonicalResearchTaskJson(live) !== canonicalResearchTaskJson(identity)) {
+      throw new HttpError("hk_stop_source_conflict", 409);
+    }
+    return live;
+  }
+
+  hkStopClaim(command) {
+    const requestId = String(command.request_id || "").toLowerCase();
+    if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("invalid_hk_stop_request_id", 400);
+    if (command.action_name !== "stop") throw new HttpError("hk_stop_action_conflict", 409);
+    const identity = command.identity;
+    if (!identity || Array.isArray(identity) || typeof identity !== "object") throw new HttpError("hk_stop_identity_incomplete", 400);
+    if (!Number.isSafeInteger(command.source_revision)) throw new HttpError("hk_stop_source_conflict", 409);
+    const storedIdentity = canonicalResearchTaskJson(identity);
+    const existing = this.hkStopStored(requestId);
+    if (existing) {
+      if (existing.action !== "stop" || existing.identity_json !== storedIdentity) {
+        throw new HttpError("hk_stop_identity_conflict", 409);
+      }
+      return { ok: true, state: "replay", record: existing };
+    }
+    const open = this.hkStopOpen();
+    if (open) {
+      if (open.identity_json !== storedIdentity) throw new HttpError("hk_stop_identity_conflict", 409);
+      return { ok: true, state: "blocked", record: open };
+    }
+    this.hkStopLiveIdentity(command.source_revision, identity);
+    const now = new Date().toISOString();
+    this.sql.exec(
+      `INSERT INTO hk_stop_request (
+        request_id, target_id, identity_json, source_revision, action, requested_at, phase, dispatch_result, workflow_run_id, workflow_run_attempt, updated_at
+      ) VALUES (?, ?, ?, ?, 'stop', ?, 'reserved', NULL, NULL, NULL, ?)`,
+      requestId, HK_STOP_TARGET_ID, storedIdentity, command.source_revision, now, now,
+    );
+    return { ok: true, state: "reserved", record: this.hkStopStored(requestId) };
+  }
+
+  hkStopRecord(command) {
+    const requestId = String(command.request_id || "").toLowerCase();
+    const phase = command.phase;
+    if (!HK_STOP_REQUEST_ID.test(requestId) || !["accepted", "rejected", "unknown"].includes(phase)) {
+      throw new HttpError("hk_stop_result_rejected", 400);
+    }
+    const existing = this.hkStopStored(requestId);
+    if (!existing) throw new HttpError("hk_stop_request_conflict", 409);
+    if (existing.phase !== "reserved") return { ok: true, recorded: false, record: existing };
+    const now = new Date().toISOString();
+    this.sql.exec(
+      "UPDATE hk_stop_request SET phase = ?, dispatch_result = ?, updated_at = ? WHERE request_id = ? AND phase = 'reserved'",
+      phase, phase, now, requestId,
+    );
+    return { ok: true, recorded: true, record: this.hkStopStored(requestId) };
+  }
+
   read() {
     const row = this.sql.exec("SELECT revision, payload FROM instance_state WHERE id = 1").toArray()[0];
     return row ? { revision: row.revision, instances: JSON.parse(row.payload), initialized: true } : { revision: 0, instances: [], initialized: false };
@@ -2242,6 +2365,9 @@ export class RuntimeInstances {
       }
       if (ACCOUNT_SETTINGS_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.accountSettingsCommand(command)));
+      }
+      if (HK_STOP_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.hkStopCommand(command)));
       }
       // No awaits or external I/O inside this SQLite transaction. Every state
       // change, version advance, and history row commits together or rolls back.
@@ -4200,19 +4326,187 @@ function logout(request) {
   });
 }
 
+function hkStopSourceIdentity(config, item = {}) {
+  const source = config || {};
+  const selector = source.account_selector;
+  const selectors = Array.isArray(selector)
+    ? selector.map((value) => String(value).trim()).filter(Boolean)
+    : String(selector || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const broker = source.broker_environment;
+  return {
+    key: String(source.key || item.key || ""),
+    target_name: String(source.target_name || ""),
+    platform_id: "longbridge",
+    deployment_selector: String(source.deployment_selector || "").trim(),
+    account_selector: selectors,
+    account_scope: String(source.account_scope || "").trim(),
+    service_name: String(source.service_name || "").trim(),
+    variable_scope: source.variable_scope === "environment" ? "environment" : "",
+    github_environment: String(source.github_environment || "").trim(),
+    broker_environment: broker === "live" || broker === "paper" ? broker : null,
+    runtime_status_target_id: String(source.runtime_status_target_id || "").trim(),
+  };
+}
+
+function hkStopIdentityComplete(identity) {
+  return identity?.key === "hk"
+    && identity.target_name === "hk"
+    && identity.platform_id === "longbridge"
+    && identity.deployment_selector
+    && identity.account_selector?.length
+    && identity.account_scope === "HK"
+    && identity.service_name === "longbridge-quant-hk-service"
+    && identity.variable_scope === "environment"
+    && identity.github_environment === "longbridge-hk";
+}
+
+function presentHkStop(record, observation, repository) {
+  const dispatchResult = record?.dispatch_result || null;
+  return {
+    ok: true,
+    configured: false,
+    platform_applied: false,
+    request_succeeded: false,
+    reused: record?.reused === true,
+    persisted: record?.persisted !== false,
+    request_id: record?.request_id || null,
+    phase: record?.phase || null,
+    dispatch_result: dispatchResult,
+    action: record ? "stop" : null,
+    requested_at: record?.requested_at || null,
+    updated_at: record?.updated_at || null,
+    workflow_run_id: null,
+    workflow_run_attempt: null,
+    actions_url: dispatchResult === "accepted"
+      ? `https://github.com/${repository}/actions/workflows/manual-runtime-stop.yml`
+      : null,
+    runtime_observation: observation || { status: "unknown", request_succeeded: false },
+  };
+}
+
+async function hkStopObservation() {
+  // Lifecycle snapshots identify a target id, not this stop request's account.
+  // A fresh disabled snapshot can belong to an older identity, so it stays unknown.
+  return { status: "unknown", request_succeeded: false };
+}
+
+async function loadHkStopAccount(env) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const loaded = await loadAccountOptionsConfig(env);
+  if (loaded.source !== "durable_object" || !Number.isSafeInteger(loaded.revision)) {
+    throw new HttpError("hk_stop_source_unavailable", 409);
+  }
+  const matches = (loaded.options?.longbridge || []).filter((item) => item.key === "hk" && item.target_name === "hk");
+  if (matches.length !== 1) throw new HttpError("stop requires one configured target", 400);
+  const identity = hkStopSourceIdentity(matches[0], { key: "hk" });
+  if (!hkStopIdentityComplete(identity)) throw new HttpError("hk_stop_identity_incomplete", 400);
+  return { revision: loaded.revision, identity };
+}
+
+async function readRuntimeStop(request, env, url) {
+  requireSameOrigin(request);
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const platform = url.searchParams.get("platform");
+  const targetName = url.searchParams.get("target_name");
+  if (platform !== "longbridge" || targetName !== "hk") {
+    return json({
+      ok: true, configured: false, platform_applied: false, request_succeeded: false,
+      phase: null, runtime_observation: { status: "unknown", request_succeeded: false },
+    });
+  }
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const stored = await runtimeInstanceCommand(env, { action: "hk_stop_read" });
+  const observation = await hkStopObservation(env, stored.record);
+  const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
+  return json(presentHkStop(stored.record, observation, repository));
+}
+
+async function dispatchHkRuntimeStop(env, raw) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const requestId = raw.request_id ? String(raw.request_id).trim().toLowerCase() : crypto.randomUUID();
+  if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("invalid_hk_stop_request_id", 400);
+  const source = await loadHkStopAccount(env);
+  const claimed = await runtimeInstanceCommand(env, {
+    action: "hk_stop_claim",
+    request_id: requestId,
+    action_name: "stop",
+    source_revision: source.revision,
+    identity: source.identity,
+  });
+  const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
+  if (claimed.state !== "reserved") {
+    const observation = await hkStopObservation(env, claimed.record);
+    const body = presentHkStop({ ...claimed.record, reused: true }, observation, repository);
+    if (claimed.state === "blocked") return json({ ...body, ok: false, error: "hk_stop_request_pending" }, 409);
+    return json(body);
+  }
+  const identity = source.identity;
+  const stopRequest = {
+    target_id: HK_STOP_TARGET_ID,
+    github: {
+      repository: "QuantStrategyLab/LongBridgePlatform",
+      variable_scope: "environment",
+      environment: identity.github_environment,
+    },
+    runtime_target: {
+      platform_id: "longbridge",
+      deployment_selector: identity.deployment_selector,
+      account_selector: identity.account_selector,
+      account_scope: identity.account_scope,
+      service_name: identity.service_name,
+    },
+  };
+  let outcome = "unknown";
+  try {
+    const response = await fetchWithTimeout(`https://api.github.com/repos/${repository}/actions/workflows/manual-runtime-stop.yml/dispatches`, {
+      method: "POST",
+      headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
+      body: JSON.stringify({
+        ref: env.RUNTIME_SETTINGS_REF || "main",
+        inputs: {
+          stop_request: JSON.stringify(stopRequest),
+          apply: "true",
+          confirm: "STOP_ONLY",
+          apply_hk_stop: "true",
+        },
+      }),
+    });
+    if (response.status === 204) outcome = "accepted";
+    else if (response.status >= 400 && response.status < 500) outcome = "rejected";
+  } catch {
+    outcome = "unknown";
+  }
+  try {
+    const recorded = await runtimeInstanceCommand(env, {
+      action: "hk_stop_record",
+      request_id: claimed.record.request_id,
+      phase: outcome,
+    });
+    const observation = await hkStopObservation(env, recorded.record);
+    return json(presentHkStop(recorded.record, observation, repository));
+  } catch {
+    const observation = { status: "unknown", request_succeeded: false };
+    return json(presentHkStop({ ...claimed.record, phase: "reserved", dispatch_result: null, persisted: false }, observation, repository));
+  }
+}
+
 async function dispatchRuntimeStop(request, env) {
   requireEnv(env, "RUNTIME_SETTINGS_DISPATCH_TOKEN");
   requireSameOrigin(request, { requireOrigin: true });
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   const raw = await request.json();
+  const hkStop = raw && !Array.isArray(raw) && raw.platform === "longbridge" && raw.target_name === "hk";
+  const allowedKeys = hkStop ? ["platform", "target_name", "confirm", "request_id"] : ["platform", "target_name", "confirm"];
   if (!raw || Array.isArray(raw) || typeof raw !== "object"
-    || Object.keys(raw).some((key) => !["platform", "target_name", "confirm"].includes(key))
+    || Object.keys(raw).some((key) => !allowedKeys.includes(key))
     || raw.confirm !== "STOP_ONLY") {
     throw new HttpError("stop accepts only platform, target_name and STOP_ONLY confirmation", 400);
   }
   const platform = cleanChoice(raw.platform, SUPPORTED_PLATFORMS, "platform");
   const targetName = cleanSlug(raw.target_name, "target_name");
+  if (platform === "longbridge" && targetName === "hk") return await dispatchHkRuntimeStop(env, raw);
   const accountConfig = await loadAccountOptionsConfig(env);
   const matches = (accountConfig.options?.[platform] || []).filter((item) => item.target_name === targetName);
   if (matches.length !== 1) throw new HttpError("stop requires one configured target", 400);
@@ -4244,8 +4538,7 @@ async function dispatchRuntimeStop(request, env) {
       headers: githubHeaders(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
       body: JSON.stringify({
         ref: env.RUNTIME_SETTINGS_REF || "main",
-        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY",
-          ...(platform === "longbridge" && targetName === "hk" ? { apply_hk_stop: "true" } : {}) },
+        inputs: { stop_request: JSON.stringify(stopRequest), apply: "true", confirm: "STOP_ONLY" },
       }),
     });
     if (!response.ok) throw new Error("dispatch failed");

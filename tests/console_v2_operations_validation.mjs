@@ -5,6 +5,7 @@ import {
   confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionAiExplanation,
   summarizeExternalResearchSubject,
   diagnosisStatusKey, diagnosisConclusionKey, diagnosisNextStepKey,
+  hkStopInitialView, hkStopReadFailed, hkStopSubmitAllowed, createHkStopController,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { formatAccountCount, translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
@@ -224,4 +225,60 @@ const clearedDraft = accountSettingDraftBody({
 });
 assert.equal(clearedDraft.overrides.reserved_cash_floor, null);
 assert.equal(Object.hasOwn(clearedDraft.overrides, "income_layer_enabled"), false);
+assert.equal(hkStopSubmitAllowed(null), false);
+assert.equal(hkStopSubmitAllowed(undefined), false);
+assert.equal(hkStopSubmitAllowed({ phase: null }), false);
+assert.equal(hkStopSubmitAllowed(hkStopInitialView()), false);
+const initialFailure = createHkStopController();
+const failedRead = initialFailure.beginRead();
+initialFailure.failRead(failedRead);
+assert.equal(initialFailure.snapshot().phase, "unavailable");
+assert.equal(hkStopSubmitAllowed(initialFailure.snapshot()), false);
+
+const hkStop = createHkStopController();
+const opened = hkStop.beginRead();
+hkStop.completeRead(opened, { phase: null });
+assert.equal(hkStop.snapshot().phase, "empty");
+assert.equal(hkStopSubmitAllowed(hkStop.snapshot()), true, "a current read of no request can submit once");
+
+const lateEmpty = hkStop.beginRead();
+const submitted = hkStop.beginSubmit();
+assert.equal(hkStop.snapshot().phase, "reserved");
+assert.equal(hkStop.snapshot().request_id, submitted);
+hkStop.completeRead(lateEmpty, { phase: null });
+assert.equal(hkStop.snapshot().phase, "reserved");
+assert.equal(hkStopSubmitAllowed(hkStop.snapshot()), false, "a late empty read cannot unlock a submit");
+
+const priorRejection = createHkStopController();
+const priorRead = priorRejection.beginRead();
+priorRejection.completeRead(priorRead, { phase: "rejected", request_id: "request-a" });
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), true);
+const staleRejection = priorRejection.beginRead();
+const requestB = priorRejection.beginSubmit();
+priorRejection.completeRead(staleRejection, { phase: "rejected", request_id: "request-a" });
+assert.equal(priorRejection.snapshot().request_id, requestB);
+assert.equal(priorRejection.snapshot().phase, "reserved");
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), false, "an older rejection cannot unlock the new request");
+const currentOldRejection = priorRejection.beginRead();
+priorRejection.completeRead(currentOldRejection, { phase: "rejected", request_id: "request-a" });
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), false);
+
+priorRejection.completePost({ phase: "unknown", request_id: requestB, request_succeeded: true });
+assert.equal(priorRejection.snapshot().phase, "unknown");
+assert.equal(priorRejection.snapshot().request_succeeded, false);
+const emptyWhilePending = priorRejection.beginRead();
+priorRejection.completeRead(emptyWhilePending, { phase: null });
+assert.equal(priorRejection.snapshot().phase, "unknown");
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), false, "an empty read cannot retry while the post may still be unsettled");
+const failedRefresh = priorRejection.beginRead();
+priorRejection.failRead(failedRefresh);
+assert.equal(priorRejection.snapshot().phase, "unknown");
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), false, "a failed refresh keeps the lock");
+priorRejection.completePost({ phase: "rejected", request_id: requestB });
+assert.equal(priorRejection.snapshot().phase, "rejected");
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), true, "rejection of the same request can submit again");
+const accepted = priorRejection.beginSubmit();
+priorRejection.completePost({ phase: "accepted", request_id: accepted });
+assert.equal(priorRejection.snapshot().phase, "accepted");
+assert.equal(hkStopSubmitAllowed(priorRejection.snapshot()), false);
 console.log("console_v2_operations_validation: PASS");

@@ -23,6 +23,127 @@ export type AccountSettingOverridePatch = {
   reserved_cash_floor?: string | null;
 };
 
+export type HkStopPhase = "loading" | "unavailable" | "empty" | "reserved" | "unknown" | "accepted" | "rejected";
+
+export type HkStopView = {
+  phase: HkStopPhase;
+  request_id: string | null;
+  dispatch_result: string | null;
+  request_succeeded: false;
+  platform_applied: false;
+  notice: "none" | "read_failed" | "unknown" | "accepted" | "rejected";
+};
+
+const HK_STOP_LOCKED = new Set<HkStopPhase>(["reserved", "unknown", "accepted"]);
+
+export function hkStopInitialView(): HkStopView {
+  return {
+    phase: "loading", request_id: null, dispatch_result: null,
+    request_succeeded: false, platform_applied: false, notice: "none",
+  };
+}
+
+export function hkStopSubmitAllowed(record: { phase?: string | null } | null | undefined): boolean {
+  return record?.phase === "empty" || record?.phase === "rejected";
+}
+
+export function hkStopLockForSubmit(current: HkStopView | null | undefined, requestId: string): HkStopView {
+  return {
+    ...(current?.phase ? current : hkStopInitialView()),
+    phase: "reserved",
+    request_id: requestId,
+    request_succeeded: false,
+    platform_applied: false,
+    notice: "unknown",
+  };
+}
+
+export function hkStopReadFailed(current: HkStopView | null | undefined): HkStopView {
+  if (current && HK_STOP_LOCKED.has(current.phase)) {
+    return { ...current, request_succeeded: false, platform_applied: false, notice: "read_failed" };
+  }
+  return { ...hkStopInitialView(), phase: "unavailable", notice: "read_failed" };
+}
+
+function hkStopServerView(phase: "rejected" | "accepted" | "unknown" | "reserved", payload: {
+  request_id?: string | null;
+  dispatch_result?: string | null;
+}): HkStopView {
+  return {
+    phase,
+    request_id: payload.request_id ?? null,
+    dispatch_result: payload.dispatch_result ?? null,
+    request_succeeded: false,
+    platform_applied: false,
+    notice: phase === "rejected" ? "rejected" : phase === "accepted" ? "accepted" : "unknown",
+  };
+}
+
+export function hkStopApplyServer(current: HkStopView | null | undefined, payload: {
+  phase?: string | null;
+  request_id?: string | null;
+  dispatch_result?: string | null;
+} | null | undefined): HkStopView {
+  const phase = payload?.phase;
+  const incomingId = payload?.request_id ?? null;
+  const locked = Boolean(current && HK_STOP_LOCKED.has(current.phase));
+  if (locked) {
+    if (!incomingId || incomingId !== current?.request_id) return current?.phase ? current : hkStopInitialView();
+    if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved") {
+      return hkStopServerView(phase, payload || {});
+    }
+    return current?.phase ? current : hkStopInitialView();
+  }
+  if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved") {
+    return hkStopServerView(phase, payload || {});
+  }
+  if (payload && (phase === null || phase === undefined)) {
+    return { ...hkStopInitialView(), phase: "empty" };
+  }
+  return hkStopReadFailed(current);
+}
+
+export function createHkStopController() {
+  let generation = 0;
+  let view = hkStopInitialView();
+  return {
+    snapshot() { return view; },
+    beginRead() {
+      generation += 1;
+      return generation;
+    },
+    beginSubmit() {
+      generation += 1;
+      const requestId = crypto.randomUUID();
+      view = hkStopLockForSubmit(view, requestId);
+      return requestId;
+    },
+    completeRead(token: number, payload: {
+      phase?: string | null;
+      request_id?: string | null;
+      dispatch_result?: string | null;
+    } | null | undefined) {
+      if (token !== generation) return view;
+      view = hkStopApplyServer(view, payload);
+      return view;
+    },
+    failRead(token: number) {
+      if (token !== generation) return view;
+      view = hkStopReadFailed(view);
+      return view;
+    },
+    completePost(payload: {
+      phase?: string | null;
+      request_id?: string | null;
+      dispatch_result?: string | null;
+    } | null | undefined) {
+      if (!payload?.request_id || payload.request_id !== view.request_id) return view;
+      view = hkStopApplyServer(view, payload);
+      return view;
+    },
+  };
+}
+
 export function accountSettingDraftBody(input: {
   expectedDraftRevision: number;
   identity: Record<string, unknown>;

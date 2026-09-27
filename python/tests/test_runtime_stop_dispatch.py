@@ -72,15 +72,27 @@ class RuntimeStopDispatchTests(unittest.TestCase):
                                "account_selector": ["synthetic-account"], "account_scope": "HK",
                                "service_name": "longbridge-quant-hk-service"}}
 
-    def test_hk_stop_dispatch_reads_saved_false_without_writing_or_reading_protected_identity(self):
+    def hk_variables(self, enabled, **extra):
+        environment = {
+            "RUNTIME_TARGET_JSON": json.dumps(self.hk_request()["runtime_target"]),
+            "RUNTIME_TARGET_ENABLED": enabled,
+            **extra,
+        }
+        return [{}, environment]
+
+    def test_hk_stop_saves_false_readback_then_dispatches_once(self):
         self.request = self.hk_request()
         self.args.apply_hk_stop = True
-        order = []
-        def read(*args, **kwargs):
-            order.append("read")
-            return {"RUNTIME_TARGET_ENABLED": "false"}
-        def dispatch(command, **kwargs):
-            order.append("dispatch")
+        reads = self.hk_variables("true") + self.hk_variables("true") + self.hk_variables("false")
+        reads.append(self.hk_variables("false")[1])
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append((command, kwargs.get("input")))
+            if command[:3] == ["gh", "variable", "set"]:
+                self.assertEqual(kwargs.get("input"), "false")
+                self.assertNotIn("--body", command)
+                return subprocess.CompletedProcess(command, 0, "", "")
             self.assertEqual(command, ["gh", "api", "--method", "POST",
                 "repos/QuantStrategyLab/LongBridgePlatform/actions/workflows/stop-hk-runtime.yml/dispatches", "--input", "-"])
             payload = json.loads(kwargs["input"])
@@ -89,13 +101,16 @@ class RuntimeStopDispatchTests(unittest.TestCase):
             self.assertEqual(json.loads(payload["inputs"]["stop_request"]), self.request)
             self.assertNotIn("synthetic-account", " ".join(command))
             return subprocess.CompletedProcess(command, 0, "", "")
-        with patch.object(settings, "execute_stop") as save, patch.object(settings, "read_stop_variables", side_effect=read), patch.object(settings.subprocess, "run", side_effect=dispatch):
+
+        with patch.object(settings, "read_stop_variables", side_effect=reads), \
+                patch.object(settings.subprocess, "run", side_effect=run):
             code, output = self.command()
         self.assertEqual(code, 0)
-        self.assertEqual(order, ["read", "dispatch"])
-        save.assert_not_called()
-        self.assertTrue(json.loads(output)["platform_apply_requested"])
-        self.assertFalse(json.loads(output)["platform_applied"])
+        self.assertEqual([item[0][:3] for item in calls], [["gh", "variable", "set"], ["gh", "api", "--method"]])
+        body = json.loads(output)
+        self.assertTrue(body["configured"])
+        self.assertTrue(body["platform_apply_requested"])
+        self.assertFalse(body["platform_applied"])
 
     def test_hk_scope_rejects_other_target_before_configuration_write(self):
         self.args.apply_hk_stop = True
@@ -106,26 +121,47 @@ class RuntimeStopDispatchTests(unittest.TestCase):
                 save.assert_not_called()
                 external.assert_not_called()
 
-    def test_hk_preview_or_missing_saved_stop_never_dispatches(self):
+    def test_hk_preview_missing_identity_conflict_or_readback_never_dispatch(self):
         self.request = self.hk_request()
         self.args.apply_hk_stop = True
-        for saved in [{}, {"RUNTIME_TARGET_ENABLED": "true"}, {"RUNTIME_TARGET_ENABLED": "unknown"}]:
-            with patch.object(settings, "execute_stop") as save, patch.object(settings, "read_stop_variables", return_value=saved), patch.object(settings.subprocess, "run") as external:
+        secret_only = [{}, {"RUNTIME_TARGET_ENABLED": "false"}]
+        changed = self.hk_variables("true") + [{}, {**self.hk_variables("true")[1], "KEEP": "changed"}]
+        mismatched = self.hk_variables("true") + self.hk_variables("true") + self.hk_variables("false", UNRELATED="changed")
+        for label, reads, writes in [
+            ("identity-missing", secret_only, 0),
+            ("source-changed", changed, 0),
+            ("readback-mismatch", mismatched, 1),
+        ]:
+            with self.subTest(label=label), patch.object(settings, "read_stop_variables", side_effect=reads), \
+                    patch.object(settings.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)) as external:
                 self.assertEqual(self.command()[0], 2)
-                external.assert_not_called()
-                save.assert_not_called()
+                self.assertEqual(external.call_count, writes)
+                for call in external.call_args_list:
+                    self.assertNotEqual(call.args[0][1:3], ["api", "--method"])
         self.args.yes = False
-        with patch.object(settings, "read_stop_variables") as read:
+        with patch.object(settings, "read_stop_variables") as read, patch.object(settings.subprocess, "run") as external:
             self.assertEqual(self.command()[0], 2)
             read.assert_not_called()
+            external.assert_not_called()
 
     def test_hk_unknown_dispatch_is_not_retried_or_reported_applied(self):
         self.request = self.hk_request()
         self.args.apply_hk_stop = True
-        with patch.object(settings, "read_stop_variables", return_value={"RUNTIME_TARGET_ENABLED": "false"}), \
-                patch.object(settings.subprocess, "run", side_effect=subprocess.TimeoutExpired("synthetic", 45)) as external:
+        reads = self.hk_variables("true") + self.hk_variables("true") + self.hk_variables("false")
+        reads.append(self.hk_variables("false")[1])
+        calls = []
+
+        def run(command, **kwargs):
+            calls.append(command)
+            if command[:3] == ["gh", "variable", "set"]:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            raise subprocess.TimeoutExpired(command, 45)
+
+        with patch.object(settings, "read_stop_variables", side_effect=reads), \
+                patch.object(settings.subprocess, "run", side_effect=run):
             self.assertEqual(self.command()[0], 2)
-            self.assertEqual(external.call_count, 1)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1][1:3], ["api", "--method"])
 
     def test_event_file_wins_over_inline_environment_and_invalid_event_never_dispatches(self):
         with tempfile.TemporaryDirectory() as directory:

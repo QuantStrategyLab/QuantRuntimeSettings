@@ -156,6 +156,10 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
   return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive };
 }
 
+export function runtimeStopQuery(platform: string, targetName: string): string {
+  return `/api/runtime-stop?platform=${encodeURIComponent(platform)}&target_name=${encodeURIComponent(targetName)}`;
+}
+
 export function accountSettingsPath(platform: string, key: string): string {
   return `/api/account-settings?platform=${encodeURIComponent(platform)}&key=${encodeURIComponent(key)}`;
 }
