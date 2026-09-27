@@ -37,6 +37,10 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
+      UX1_PREVIEW_MODE: ${{ vars.UX1_PREVIEW_MODE }}
+      UX1_UES_REVISION: ${{ vars.UX1_UES_REVISION }}
+      UX1_RUNTIME_EPOCH: ${{ vars.UX1_RUNTIME_EPOCH }}
+      UX1_EXPECTED_EVIDENCE_HASHES: ${{ vars.UX1_EXPECTED_EVIDENCE_HASHES }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
@@ -79,6 +83,8 @@ jobs:
           node --check --input-type=module < web/strategy-switch-console/worker.js
 
       - name: Prepare Wrangler config
+        env:
+          UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
@@ -123,6 +129,55 @@ jobs:
               text = text.replace(commented_kv, active_kv, 1)
           elif 'binding = "STRATEGY_SWITCH_CONFIG"' not in text:
               text = text.rstrip() + "\n\n" + active_kv
+
+          mode = os.environ.get("UX1_PREVIEW_MODE", "")
+          if mode and mode != "github_actions":
+              raise SystemExit("UX1_PREVIEW_MODE must be empty or github_actions.")
+          if mode == "github_actions":
+              import json
+              import re
+
+              ues = os.environ.get("UX1_UES_REVISION", "").strip()
+              epoch = os.environ.get("UX1_RUNTIME_EPOCH", "").strip()
+              token = os.environ.get("UX1_RESEARCH_JOB_TOKEN", "")
+              hashes_text = os.environ.get("UX1_EXPECTED_EVIDENCE_HASHES", "")
+              if not re.fullmatch(r"[a-f0-9]{40}", ues):
+                  raise SystemExit("UX1_UES_REVISION must be a 40-character lowercase SHA.")
+              if not re.fullmatch(r"[a-f0-9]{32}", epoch):
+                  raise SystemExit("UX1_RUNTIME_EPOCH must be a 32-character lowercase hex value.")
+              if not re.fullmatch(r"[!-~]{16,256}", token):
+                  raise SystemExit("UX1_RESEARCH_JOB_TOKEN must contain 16-256 printable non-space ASCII characters.")
+              expected_keys = {
+                  "r7_policy_sha256",
+                  "r8_policy_sha256",
+                  "capital_policy_sha256",
+                  "settlement_policy_sha256",
+                  "raw_manifest_sha256",
+                  "r6_manifest_sha256",
+                  "r6_materialized_file_sha256",
+              }
+              try:
+                  hashes = json.loads(hashes_text)
+              except (TypeError, json.JSONDecodeError):
+                  raise SystemExit("UX1_EXPECTED_EVIDENCE_HASHES must be a JSON object with all seven evidence hashes.")
+              if (
+                  not isinstance(hashes, dict)
+                  or set(hashes) != expected_keys
+                  or any(not isinstance(value, str) or not re.fullmatch(r"[a-f0-9]{64}", value) for value in hashes.values())
+              ):
+                  raise SystemExit("UX1_EXPECTED_EVIDENCE_HASHES must contain exactly seven lowercase SHA-256 hashes.")
+
+              ux1_vars = {
+                  "UX1_PREVIEW_MODE": mode,
+                  "UX1_UES_REVISION": ues,
+                  "UX1_RUNTIME_EPOCH": epoch,
+                  "UX1_EXPECTED_EVIDENCE_HASHES": hashes_text,
+              }
+              vars_header = "[vars]\n"
+              if vars_header not in text:
+                  raise SystemExit("wrangler.toml.example must contain a [vars] section.")
+              rendered_vars = "".join(f"{key} = {json.dumps(value)}\n" for key, value in ux1_vars.items())
+              text = text.replace(vars_header, vars_header + rendered_vars, 1)
           target.write_text(text, encoding="utf-8")
           PY
 
@@ -142,6 +197,15 @@ jobs:
       - name: Deploy Worker
         working-directory: web/strategy-switch-console
         run: npx wrangler@4.106.0 deploy --config wrangler.toml
+
+      - name: Sync UX1 research job token
+        if: env.UX1_PREVIEW_MODE == 'github_actions'
+        env:
+          UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$UX1_RESEARCH_JOB_TOKEN" | npx wrangler@4.106.0 secret put UX1_RESEARCH_JOB_TOKEN --config wrangler.toml
 
       - name: Sync optional control-plane ingress token
         if: env.CONTROL_PLANE_SYNC_TOKEN != ''
