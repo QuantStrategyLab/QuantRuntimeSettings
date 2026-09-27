@@ -3,14 +3,14 @@ import type { FormEvent, KeyboardEvent } from "react";
 import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, UxDraft } from "./api";
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
-import { normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
+import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { PLATFORM_CONFIG } from "../../config.js";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountDisplayTitle, accountStatusView, activationFromProjection, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationReady, strategyDisplayName, strategyNote, type DailyDecision } from "./presentation";
+import { accountIdentity, accountStatusView, activationFromProjection, formatAccountIdentity, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationReady, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -68,7 +68,7 @@ function decisionLabel(value: unknown, t: (key: string) => string): string {
     return labels[String(value || "")] ? t(labels[String(value)]) : t("状态未知");
 }
 function brokerEnvironment(value: unknown, t: (key: string) => string): string {
-    return value === "paper" ? t("模拟账户环境") : value === "live" ? t("真实账户环境") : t("状态未知");
+    return value === "paper" ? t("模拟账户环境") : value === "live" ? t("真实账户环境") : t("环境未标明");
 }
 function executionMode(value: unknown, t: (key: string) => string): string {
     return value === "live" ? t("执行（live）") : value === "dry_run" ? t("执行（dry_run）") : value === "paper" ? t("执行（paper）") : t("状态未知");
@@ -142,6 +142,7 @@ function App() {
     const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get("account") || "");
     const [accountDetailOpen, setAccountDetailOpen] = useState(() => Boolean(new URLSearchParams(window.location.search).get("account")));
     const settingsDirty = useRef(false);
+    const userMenuRef = useRef<HTMLDetailsElement>(null);
     const [settingsEpoch, setSettingsEpoch] = useState(0);
     const routeGuard = useRef({ url: `${window.location.pathname}${window.location.search}` });
     const discardRef = useRef<() => Promise<boolean>>(async () => true);
@@ -191,6 +192,7 @@ function App() {
     });
     const rows = useMemo(() => makeRows(model), [model]);
     const active = rows.find(row => row.id === selectedId) || rows[0] || null;
+    const accountTitle = (account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, currentProfile?: unknown) => formatAccountIdentity(accountIdentity(account, platformLabel, "", strategyOccupiedNames(model?.config.value?.strategyProfiles || [], currentProfile)), t);
     const resolvedTheme = resolveTheme(theme, systemDark);
     const clearPrivateState = (invalidate = true) => {
         resolveConfirmation(false);
@@ -297,6 +299,23 @@ function App() {
     }, []);
     useEffect(() => { document.documentElement.dataset.theme = resolvedTheme; }, [resolvedTheme]);
     useEffect(() => { safeSet(THEME_STORAGE_KEY, theme); }, [theme]);
+    useEffect(() => { if (userMenuRef.current) userMenuRef.current.open = false; }, [page, adminPath]);
+    useEffect(() => {
+        const closeIfOutside = (event: PointerEvent) => {
+            const menu = userMenuRef.current;
+            if (!menu?.open || menu.contains(event.target as Node)) return;
+            menu.open = false;
+        };
+        const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+            if (event.key === "Escape" && userMenuRef.current) userMenuRef.current.open = false;
+        };
+        document.addEventListener("pointerdown", closeIfOutside);
+        document.addEventListener("keydown", closeOnEscape);
+        return () => {
+            document.removeEventListener("pointerdown", closeIfOutside);
+            document.removeEventListener("keydown", closeOnEscape);
+        };
+    }, []);
     useEffect(() => { safeSet("qsl-switch-lang", language); document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; document.title = adminPath ? `${t("管理设置")} · QuantStrategyLab` : `${t(NAV.find(item => item.id === page)?.label || "资产总览")} · QuantStrategyLab`; }, [language, page, adminPath]);
     useEffect(() => {
         if (adminPath && model?.session.admin)
@@ -387,7 +406,7 @@ function App() {
     };
     const discardUnsaved = async () => {
         if (!settingsDirty.current) return true;
-        const accepted = await confirmAction({ title: t("放弃未保存的风险偏好？"), target: active?.account.label || t("账户"), summary: t("未保存的风险偏好会丢弃。"), consequence: t("未保存的风险偏好会丢弃。"), tone: "normal" });
+        const accepted = await confirmAction({ title: t("放弃未保存的风险偏好？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的风险偏好会丢弃。"), consequence: t("未保存的风险偏好会丢弃。"), tone: "normal" });
         if (!accepted) return false;
         settingsDirty.current = false;
         setSettingsEpoch(value => value + 1);
@@ -494,7 +513,7 @@ function App() {
                 setErrorMessage(copy("停用结果未知，不能再次提交。可以只读刷新。"));
                 return;
             }
-            if (!await confirmAction({ title: t("确认停用运行目标"), target: `${row.platformLabel} / ${row.account.label || row.account.key} · ${row.account.target_name || row.account.key}`, summary: t("当前策略：{strategy}", { strategy: row.current?.strategy_profile || form.strategy || t("未读取") }), consequence: t("停用只阻止新的触发，不会撤单、平仓或清除在途请求。"), tone: "danger" }))
+            if (!await confirmAction({ title: t("确认停用运行目标"), target: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile), summary: t("当前策略：{strategy}", { strategy: row.current?.strategy_profile || form.strategy || t("未读取") }), consequence: t("停用只阻止新的触发，不会撤单、平仓或清除在途请求。"), tone: "danger" }))
                 return;
             let hkRequestId = "";
             if (isHkStop(row)) {
@@ -547,8 +566,8 @@ function App() {
         }
         try {
             const body = buildSwitchInputs(row.platform, row.account, form);
-            const summary = t("账户：{account}\n券商环境：{environment}\n策略：{strategy}\n执行方式：{execution}\n启停：{runtime}\n提交后仍需运行读回确认。", { account: `${row.platformLabel} / ${row.account.label || row.account.key}`, environment: brokerEnvironment(row.account.broker_environment, t), strategy: form.strategy, execution: executionMode(form.executionMode, t), runtime: t(displayStatus(form.runtimeMode)) });
-            if (!await confirmAction({ title: t("核对账户变更计划"), target: `${row.platformLabel} / ${row.account.label || row.account.key}`, summary, consequence: t("将提交配置计划；不代表配置已应用、运行正常或已有成交。"), tone: "normal" }))
+            const summary = t("账户：{account}\n券商环境：{environment}\n策略：{strategy}\n执行方式：{execution}\n启停：{runtime}\n提交后仍需运行读回确认。", { account: accountTitle(row.account, row.platformLabel, form.strategy), environment: brokerEnvironment(row.account.broker_environment, t), strategy: form.strategy, execution: executionMode(form.executionMode, t), runtime: t(displayStatus(form.runtimeMode)) });
+            if (!await confirmAction({ title: t("核对账户变更计划"), target: accountTitle(row.account, row.platformLabel, form.strategy), summary, consequence: t("将提交配置计划；不代表配置已应用、运行正常或已有成交。"), tone: "normal" }))
                 return;
             if (!beginOnce(`switch:${row.id}`))
                 return;
@@ -571,7 +590,7 @@ function App() {
         if (!canResumeBinance(row.platform, row.account, row.current) || typeof digest !== "string")
             return;
         const key = `resume:${row.id}`;
-        if (!await confirmAction({ title: t("确认恢复现有目标"), target: `${row.platformLabel} / ${row.account.label || row.account.key} · ${row.account.target_name}`, summary: t("策略：{strategy}；目标摘要：{digest}", { strategy: row.current?.strategy_profile || t("未读取"), digest }), consequence: t("请先核对现有对账记录。此操作不修改策略或资金参数。"), tone: "danger" }))
+        if (!await confirmAction({ title: t("确认恢复现有目标"), target: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile), summary: t("策略：{strategy}；目标摘要：{digest}", { strategy: row.current?.strategy_profile || t("未读取"), digest }), consequence: t("请先核对现有对账记录。此操作不修改策略或资金参数。"), tone: "danger" }))
             return;
         if (!beginOnce(key))
             return;
@@ -618,7 +637,11 @@ function App() {
         const recovery = entry.recovery || {};
         const plan = strategyDisplayName((model?.config.value?.strategyProfiles || []).find((profile: any) => profile?.profile === recovery.strategy_profile), language);
         const planText = plan === "未命名策略" ? t(plan) : plan;
-        const accountLabel = knownAccountLabel(model?.config.value?.accountOptions, recovery.platform, recovery.target_name);
+        const recoveryOptions = model?.config.value?.accountOptions;
+        const knownRecovery = knownAccountLabel(recoveryOptions, recovery.platform, recovery.target_name);
+        const recoveryAccounts = recoveryOptions && typeof recovery.platform === "string" ? recoveryOptions[recovery.platform] : undefined;
+        const recoveryMatches = Array.isArray(recoveryAccounts) ? recoveryAccounts.filter(account => account && (account.target_name === recovery.target_name || account.key === recovery.target_name)) : [];
+        const accountLabel = knownRecovery && recoveryMatches.length === 1 ? accountTitle(recoveryMatches[0], String(recovery.platform || ""), recovery.strategy_profile) : "";
         const summary = t(decision === "reject" ? "不采用这份恢复方案，账户不会因此启用" : "采用这份恢复方案只留下核对记录，账户不会因此启用");
         if (!await confirmAction({ title: t(decision === "reject" ? "确认不采用这项方案？" : "确认采用这项方案？"), target: accountLabel ? `${accountLabel} · ${planText}` : planText, summary, consequence: summary, tone: "danger", confirmLabel: decision === "reject" ? "确认不采用" : "确认采用" }))
             return;
@@ -680,7 +703,7 @@ function App() {
         if (!paperApplicationReady(application, selectedAccountId)) return;
         const selected = (application.application_preparation?.account_options || []).find((account: any) => `${account.platform}:${account.key}` === selectedAccountId);
         if (!selected) return;
-        if (!await confirmAction({ title: t("提交模拟账户应用请求"), target: `${selected.label || selected.key} · ${selected.platform} ${selected.broker_environment}`, summary: t("候选：{ticket} · 预检：{status}", { ticket: application.ticket_id, status: t(displayStatus(application.application_preparation?.preflight_status)) }), consequence: t("只提交模拟账户应用请求，不会自动启用策略或提交订单。"), tone: "normal", confirmLabel: "确认采用" })) return;
+        if (!await confirmAction({ title: t("提交模拟账户应用请求"), target: accountTitle(selected, String(selected.platform || ""), selected.default_strategy_profile), summary: t("候选：{ticket} · 预检：{status}", { ticket: application.ticket_id, status: t(displayStatus(application.application_preparation?.preflight_status)) }), consequence: t("只提交模拟账户应用请求，不会自动启用策略或提交订单。"), tone: "normal", confirmLabel: "确认采用" })) return;
         const key = `apply:${application.ticket_id}`;
         if (!beginOnce(key)) return;
         let submitted = false;
@@ -708,7 +731,9 @@ function App() {
         const preference = row.current?.risk_preference;
         return {
             id: row.id,
-            title: accountDisplayTitle(row.account, row.platformLabel, brokerEnvironment(row.account.broker_environment, t)),
+            title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
+            platform: row.platformLabel,
+            environment: brokerEnvironment(row.account.broker_environment, t),
             strategy: namedStrategy(row.current?.strategy_profile),
             statusLabel: status.label,
             statusDetail: status.detail,
@@ -722,7 +747,8 @@ function App() {
             id: row.id,
             platform: row.platform,
             key: row.account.key,
-            title: accountDisplayTitle(row.account, row.platformLabel, brokerEnvironment(row.account.broker_environment, t)),
+            title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
+            platformLabel: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
             strategy: namedStrategy(row.current?.strategy_profile),
             strategyNote: strategyNote(profile, language),
@@ -738,11 +764,16 @@ function App() {
         recovery: model?.recovery,
         accountsFor: (ticket) => {
             const application = (model?.promotions.value?.applications || []).find((item: any) => item.ticket_id === ticket?.ticket_id);
-            return (application?.application_preparation?.account_options || []).filter((account: any) => account?.broker_environment === "live" || (account?.broker_environment === "paper" && account?.platform === "longbridge")).map((account: any) => ({
-                platform: String(account.platform || ""),
-                key: String(account.key || ""),
-                label: accountDisplayTitle(account, String(account.platform || ""), brokerEnvironment(account.broker_environment, t)),
-            }));
+            const choices = (application?.application_preparation?.account_options || []).filter((account: any) => account?.broker_environment === "live" || (account?.broker_environment === "paper" && account?.platform === "longbridge")).map((account: any) => {
+                const platform = String(account.platform || "");
+                const platformLabel = String(model?.config.value?.platformMeta?.[platform]?.label || platform);
+                return {
+                    platform,
+                    key: String(account.key || ""),
+                    label: accountTitle(account, platformLabel, account.default_strategy_profile || ticket?.strategy_profile),
+                };
+            });
+            return choices.map((choice: { platform: string; key: string; label: string }) => ({ ...choice, label: choices.filter((item: { label: string }) => item.label === choice.label).length > 1 ? `${choice.label} · ${choice.platform}` : choice.label }));
         },
     });
     const requestPage = async (next: Page, accountId?: string) => {
@@ -771,7 +802,7 @@ function App() {
     return <LocaleContext.Provider value={language}><><div className="app-shell" inert={Boolean(confirmDialog)}>
     <header className="topbar"><button className="brand" type="button" onClick={() => void requestPage("overview")} aria-label={t("账户总览")}><QslIcon /><span><strong>QSL</strong><em>QuantStrategyLab</em></span>{model?.session.synthetic && <span className="synthetic-badge">{t("合成演示")}</span>}</button>
       <nav className="primary-nav" aria-label={t("主导航")}>{NAV.map(item => <button key={item.id} className={!adminPath && page === item.id ? "active" : ""} aria-current={!adminPath && page === item.id ? "page" : undefined} onClick={() => void requestPage(item.id)} type="button">{t(item.label)}</button>)}</nav>
-      <div className="top-controls"><button className="theme-button" type="button" aria-label={t("主题")} onClick={() => setTheme(theme === "light" ? "dark" : theme === "dark" ? "system" : "light")}>{theme === "dark" ? "☾" : "☀"}</button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu"><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div><span>{model?.session.login || t("已登录")}</span>{model?.session.admin && <button type="button" className="admin-shortcut" onClick={enterAdmin}>{t("管理设置")}</button>}<button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
+      <div className="top-controls"><button className="theme-button" type="button" aria-label={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} title={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} onClick={() => setTheme(nextExplicitTheme(resolvedTheme))}>{resolvedTheme === "dark" ? "☾" : "☀"}</button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu" ref={userMenuRef}><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div><span>{model?.session.login || t("已登录")}</span>{model?.session.admin && <button type="button" className="admin-shortcut" onClick={enterAdmin}>{t("管理设置")}</button>}<button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
     </header>
     {errorMessage && <div className="global-notice" role="status"><span>{renderLocaleMessage(errorMessage,language)}</span><button type="button" onClick={() => setErrorMessage(null)} aria-label={t("\u5173\u95ED\u63D0\u793A")}>{t("\u5173\u95ED")}</button></div>}
     <main className="main-content" key={adminPath ? "admin" : page}>{adminPath ? renderAdmin() : page === "overview" ? renderOverview() : page === "strategy" ? renderStrategy() : renderAccounts()}</main>

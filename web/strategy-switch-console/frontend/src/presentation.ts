@@ -31,6 +31,26 @@ export function chartUnavailable(mode: ChartMode): "收益数据积累中" | "�
   return mode === "return" ? "收益数据积累中" : "资产数据暂不可用";
 }
 
+export type ChartRange = "3m" | "6m" | "1y" | "3y" | "5y" | "10y" | "all";
+
+export const CHART_RANGE_OPTIONS: Array<{ id: ChartRange; label: "3个月" | "半年" | "1年" | "3年" | "5年" | "10年" | "至今" }> = [
+  { id: "3m", label: "3个月" },
+  { id: "6m", label: "半年" },
+  { id: "1y", label: "1年" },
+  { id: "3y", label: "3年" },
+  { id: "5y", label: "5年" },
+  { id: "10y", label: "10年" },
+  { id: "all", label: "至今" },
+];
+
+export const DEFAULT_CHART_RANGE: ChartRange = "1y";
+
+export function chartRangeNote(range: ChartRange): { key: "至今从首条有效记录算起，当前没有记录。" | "{range}内还没有可绘制的记录。"; rangeLabel: "3个月" | "半年" | "1年" | "3年" | "5年" | "10年" | "至今" } {
+  const option = CHART_RANGE_OPTIONS.find(item => item.id === range) || CHART_RANGE_OPTIONS[2];
+  if (range === "all") return { key: "至今从首条有效记录算起，当前没有记录。", rangeLabel: option.label };
+  return { key: "{range}内还没有可绘制的记录。", rangeLabel: option.label };
+}
+
 export function knownAccountLabel(options: Record<string, Array<{ key?: unknown; target_name?: unknown; label?: unknown }> | undefined> | null | undefined, platform: unknown, targetName: unknown): string {
   if (!options || typeof platform !== "string" || !platform || typeof targetName !== "string" || !targetName) return "";
   const accounts = options[platform];
@@ -40,10 +60,93 @@ export function knownAccountLabel(options: Record<string, Array<{ key?: unknown;
   return typeof matches[0].label === "string" ? matches[0].label.trim() : "";
 }
 
-export function accountDisplayTitle(account: { label?: unknown; key?: unknown }, platformLabel: string, environmentLabel: string): string {
-  const label = typeof account.label === "string" ? account.label.trim() : "";
-  if (label) return label;
-  return [platformLabel, environmentLabel].filter(Boolean).join(" · ");
+const ROUTE_ALIASES = new Set(["paper", "sg", "hk", "live", "firstrade", "crypto_combo"]);
+
+export type AccountIdentity = {
+  kind: "nickname" | "masked" | "alias" | "generic";
+  text: string;
+  tail: string;
+  alias: string;
+  platform: string;
+  environment: string;
+};
+
+function identityText(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function identityFold(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function singleBrokerTail(selector: unknown): string {
+  const text = identityText(selector);
+  if (!text) return "";
+  const tokens = text.split(/[\s,;]+/).filter(Boolean);
+  if (tokens.length !== 1 || !/^U\d{5,}$/i.test(tokens[0])) return "";
+  return tokens[0].slice(-4);
+}
+
+function fullAccountNumber(value: string): boolean {
+  return /^U\d{5,}$/i.test(value);
+}
+
+function routeAlias(label: string, key: string): string {
+  if (label && ROUTE_ALIASES.has(identityFold(label))) return label;
+  if (key && ROUTE_ALIASES.has(identityFold(key))) return key;
+  return "";
+}
+
+export function strategyOccupiedNames(profiles: Array<Record<string, unknown> | null | undefined>, currentProfile?: unknown, currentName?: unknown): string[] {
+  const names: string[] = [];
+  if (typeof currentProfile === "string" && currentProfile.trim()) names.push(currentProfile.trim());
+  if (typeof currentName === "string" && currentName.trim()) names.push(currentName.trim());
+  for (const profile of profiles) {
+    if (!profile) continue;
+    for (const field of ["profile", "label", "label_zh", "label_en"]) {
+      const value = profile[field];
+      if (typeof value === "string" && value.trim()) names.push(value.trim());
+    }
+  }
+  return names;
+}
+
+export function accountIdentity(account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, environmentLabel: string, occupiedNames: string[] = []): AccountIdentity {
+  const label = identityText(account.label);
+  const key = identityText(account.key);
+  const platform = identityText(platformLabel);
+  const environment = identityText(environmentLabel);
+  const occupied = new Set(occupiedNames.map(identityFold).filter(Boolean));
+  const ibkr = identityFold(platform) === "ibkr";
+  const selectorTail = ibkr ? singleBrokerTail(account.account_selector) : "";
+  const labelIsNumber = fullAccountNumber(label);
+  const tail = selectorTail || (ibkr && !identityText(account.account_selector) && labelIsNumber ? label.slice(-4) : "");
+  const base = { text: "", tail: "", alias: "", platform, environment };
+  const occupiedLabel = Boolean(label) && (occupied.has(identityFold(label)) || identityFold(label) === identityFold(platform));
+  if (label && !occupiedLabel && !labelIsNumber && !ROUTE_ALIASES.has(identityFold(label))) return { ...base, kind: "nickname", text: label };
+  if (tail && (occupiedLabel || labelIsNumber || !label)) return { ...base, kind: "masked", tail };
+  const alias = routeAlias(labelIsNumber ? "" : label, key);
+  if (alias) return { ...base, kind: "alias", alias };
+  return { ...base, kind: "generic" };
+}
+
+export function formatAccountIdentity(identity: AccountIdentity, translate: (key: string, values?: Record<string, string>) => string): string {
+  if (identity.kind === "masked") return translate("账户 ••••{tail}", { tail: identity.tail });
+  if (identity.kind === "alias") return translate("账户 · {alias}", { alias: identity.alias });
+  if (identity.kind === "generic") return translate("账户");
+  return identity.text;
+}
+
+export function accountDisplayTitle(account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, environmentLabel: string, occupiedNames: string[] = []): string {
+  return formatAccountIdentity(accountIdentity(account, platformLabel, environmentLabel, occupiedNames), (key, values = {}) => key.replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (_match, name: string) => values[name] || ""));
+}
+
+export function unnamedDecisionOrdinal(items: Array<{ id: string; title: string }>, item: { id: string; title: string }): number {
+  if (item.title !== "未命名策略") return 0;
+  const same = items.filter(entry => entry.title === "未命名策略");
+  if (same.length < 2) return 0;
+  const index = same.findIndex(entry => entry.id === item.id);
+  return index < 0 ? 0 : index + 1;
 }
 
 function catalogText(profile: object | null | undefined, key: string): string {

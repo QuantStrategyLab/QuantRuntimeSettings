@@ -68,11 +68,9 @@ a { color: inherit; }
 .mode-control button { min-height: 30px; padding: 4px 10px; border: 0; color: #c2c5c0; background: transparent; cursor: pointer; }
 .mode-control button[aria-pressed="true"] { color: #f3d7c7; background: #362720; }
 .theme-control { display: inline-flex; align-items: center; gap: 4px; padding-left: 7px; border-left: 1px solid #454a46; color: #b9bcb6; font-size: 10px; white-space: nowrap; }
-.theme-control select { max-width: 68px; padding: 5px 3px; border: 0; color: #f1f1ed; background: transparent; cursor: pointer; }
-.theme-control option { color: #15202b; }
-.language-control { display: inline-flex; align-items: center; gap: 3px; color: #b9bcb6; font-size: 10px; white-space: nowrap; }
-.language-control select { max-width: 78px; padding: 5px 3px; border: 0; color: #f1f1ed; background: transparent; cursor: pointer; }
-.language-control option { color: #15202b; }
+.theme-control select, .language-control select { max-width: 92px; color: var(--ink); background-color: var(--paper); }
+.theme-control option, .language-control option { color: var(--ink); background: var(--paper); }
+.language-control { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 10px; white-space: nowrap; }
 .refresh-top { width: 34px; height: 34px; border: 1px solid #5c625d; border-radius: 3px; color: #f0efea; background: transparent; font-size: 23px; cursor: pointer; line-height: 1; }
 .refresh-top:disabled { opacity: .5; cursor: wait; }
 .preview-note { padding: 7px 20px; color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line); text-align: center; font-size: 12px; }
@@ -100,8 +98,8 @@ a { color: inherit; }
 .decision-rail { align-self: start; padding: 20px 0 20px 20px; border: 0; border-left: 1px solid var(--line); }
 .daily-table { width: 100%; border-collapse: collapse; }
 .daily-table th, .daily-table td { padding: 14px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
-.daily-table tr.selected { box-shadow: inset 3px 0 0 var(--accent); background: #f8f1ee; }
-:root[data-theme="dark"] .daily-table tr.selected { background: #2a2422; }
+.daily-table tbody tr:hover { background: var(--panel); }
+.daily-table tr.selected { box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
 .table-link { padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .accounts-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: 28px; }
 .account-detail, .decision-detail { padding: 24px; }
@@ -182,11 +180,11 @@ h3 { margin-bottom: 8px; font-size: 16px; font-weight: 600; }
 .performance-title h2 { margin-bottom: 2px; }
 .performance-title p { color: var(--muted); }
 .metric-unavailable { color: var(--subtle); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.chart-empty { min-height: 170px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 22px; border: 1px solid var(--line); background: var(--panel); }
+.chart-empty { min-height: 170px; display: flex; flex-direction: column; justify-content: center; align-items: flex-start; padding: 22px; border: 0; background: transparent; }
 .chart-empty strong { font-family: Georgia, "Songti SC", serif; font-size: 17px; }
 .chart-empty p { max-width: 670px; margin: 6px 0 12px; color: var(--muted); }
 .source-row { display: flex; flex-wrap: wrap; gap: 20px; padding-top: 10px; color: var(--muted); font-size: 11px; }
-.decision-list { display: grid; gap: 0; padding: 0; margin: 17px 0 0; list-style: none; }
+.decision-list { display: grid; gap: 10px; padding: 0; margin: 17px 0 0; list-style: none; }
 .decision-list li { display: grid; grid-template-columns: 42px minmax(0, 1fr); gap: 12px; padding: 15px 0; border-bottom: 1px solid var(--line); }
 .decision-index { color: var(--accent); font-family: Georgia, serif; font-size: 25px; font-variant-numeric: tabular-nums; }
 .decision-list strong { font-family: Georgia, "Songti SC", serif; font-size: 16px; overflow-wrap: anywhere; }
@@ -353,4 +351,26 @@ textarea { width: 100%; resize: vertical; }
   .page-title-row .button { padding: 7px 10px; font-size: 13px; }
   .source-row { gap: 5px 14px; }
   .confirm-dialog { padding: 20px 17px 16px; }
+}
+.account-identity strong, .account-identity small, .decision-list button small, .decision-list button strong, .readonly-strategy span, .readonly-strategy strong { display: block; }
+.account-identity small, .decision-list button small { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.decision-list button small { margin-top: 0; margin-bottom: 4px; }
+.readonly-strategy { display: grid; gap: 4px; margin: 12px 0; }
+.activation-row { display: flex; justify-content: space-between; gap: 16px; margin: 16px 0; }
+.daily-table td, .daily-table th { padding: 16px 12px; }
+.form-actions { gap: 12px; }
+.decision-detail pre { max-width: 100%; overflow: auto; }
+.preference-choices button:hover:not(:disabled), .theme-button:hover, .user-menu summary:hover, .user-menu button:hover, .decision-list button:hover:not(:disabled) { border-color: var(--accent); }
+.preference-choices button:focus-visible, .theme-button:focus-visible, .user-menu summary:focus-visible, .user-menu button:focus-visible, .decision-list button:focus-visible, select:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent); outline-offset: 1px; }
+.preference-choices button:disabled, .decision-list button:disabled, .form-actions button:disabled { opacity: .55; cursor: not-allowed; }
+.account-detail .text-link { margin-left: 12px; }
+.chart-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
+.chart-range { display: flex; flex-wrap: wrap; gap: 4px; }
+.chart-range button { min-height: 32px; padding: 0 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); cursor: pointer; }
+.chart-range button.active { color: #fff; background: var(--accent); border-color: var(--accent); }
+.chart-range button:hover:not(.active) { border-color: var(--accent); }
+.chart-range button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent); outline-offset: 1px; }
+@media (max-width: 800px) {
+  .chart-toolbar { align-items: stretch; }
+  .chart-range { width: 100%; }
 }

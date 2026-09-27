@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useT } from "./locales";
-import { decisionActionState, type DailyDecision } from "./presentation";
+import { decisionActionState, unnamedDecisionOrdinal, type DailyDecision } from "./presentation";
 
 function shown(value: string, t: (key: string) => string): string {
   return value === "未命名策略" || value === "当前策略" || value === "保持暂停" || value === "有限观察" || value === "待确认材料" || value === "确认材料" || value === "有限执行观察" || value === "恢复核对" ? t(value) : value;
@@ -20,15 +20,15 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
   if (!items.length) {
-    return <section className="daily-page"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong>{blocked && <p>{t("来源暂不可用，不能把缺失说成没有待办。")}</p>}</div></section>;
+    return <section className="daily-page"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong>{blocked && <p>{t("部分待办暂时无法读取")}</p>}</div></section>;
   }
   return <section className="daily-page decisions-page">
     <div className="daily-heading"><h1>{t("待办决策")}</h1><span>{items.length}</span></div>
-    {blocked && <p className="section-note">{t("来源暂不可用，不能把缺失说成没有待办。")}</p>}
+    {blocked && <p className="section-note">{t("部分待办暂时无法读取")}</p>}
     <div className="decision-layout">
       <div className="decision-list">
         {items.map(item => <button key={item.id} type="button" className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>
-          <small>{t(item.kicker)}</small><strong>{shown(item.title, t)}</strong>
+          <small>{t(item.kicker)}</small><strong>{shown(item.title, t)}{unnamedDecisionOrdinal(items, item) ? ` ${unnamedDecisionOrdinal(items, item)}` : ""}</strong>
         </button>)}
       </div>
       {selected && <article className="decision-detail">

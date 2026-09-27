@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { loadAccountSettings, postJson } from "./api";
-import { createAccountSettingsController, type AccountSettingsOp } from "./accountSettingsState";
+import { createAccountSettingsController } from "./accountSettingsState";
 import { useT } from "./locales";
 import { preferenceDirty, safeActionVisibility } from "./presentation";
 
@@ -15,6 +15,7 @@ export type AccountListItem = {
   platform: string;
   key: string;
   title: string;
+  platformLabel: string;
   environment: string;
   strategy: string;
   strategyNote: string;
@@ -48,7 +49,7 @@ export function AccountsPage({ rows, selectedId, detailOpen, admin, settingsEpoc
         <table className="daily-table">
           <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("启用策略")}</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selectedId ? "selected" : ""}>
-            <td><button type="button" className="table-link" onClick={() => onSelect(row.id)}>{row.title}</button><small>{row.environment}</small></td>
+            <td className="account-identity"><button type="button" className="table-link" onClick={() => onSelect(row.id)}><strong>{row.title}</strong></button><small>{row.platformLabel}</small><small>{row.environment}</small></td>
             <td>{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</td>
             <td>{row.statusLabel === "—" ? "—" : t(row.statusLabel)}</td>
             <td>{row.activation === "—" ? "—" : t(row.activation)}</td>
@@ -75,29 +76,40 @@ function DailyAccountSettings({ row, admin, stopAllowed, stopLabel, stopRefreshV
 }) {
   const t = useT();
   const controller = useRef(createAccountSettingsController()).current;
-  const pendingRead = useRef<AccountSettingsOp | null>(null);
   const [, setTick] = useState(0);
+  const [readAttempt, setReadAttempt] = useState(0);
+  const [readState, setReadState] = useState<"loading" | "ready" | "failed">("loading");
   const sync = () => setTick(value => value + 1);
-  const selectedId = `${row.platform}:${row.key}`;
-  if (controller.selectedId() !== selectedId) pendingRead.current = controller.select({ platform: row.platform, key: row.key });
   const view = controller.view();
   const settings = view.settings;
   const savedPreference = typeof settings?.risk?.preference === "string" ? settings.risk.preference : "";
   const dirty = preferenceDirty(savedPreference, view.preference);
   useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
   useEffect(() => {
-    const op = pendingRead.current ?? controller.start("read");
-    pendingRead.current = null;
+    const accountId = `${row.platform}:${row.key}`;
+    const previous = controller.view();
+    const previousSaved = typeof previous.settings?.risk?.preference === "string" ? previous.settings.risk.preference : "";
+    const keepPreference = controller.selectedId() === accountId && preferenceDirty(previousSaved, previous.preference) ? previous.preference : "";
+    const op = controller.select({ platform: row.platform, key: row.key });
+    setReadState("loading");
+    let cancelled = false;
     void (async () => {
       try {
         const payload = await loadAccountSettings(row.platform, row.key);
-        if (controller.applyRead(op, payload)) sync();
+        if (cancelled || !controller.applyRead(op, payload)) return;
+        if (keepPreference) controller.edit({ preference: keepPreference });
+        setReadState("ready");
+        sync();
       } catch (error) {
-        if (controller.applyUnavailable(op, error instanceof Error ? error.message : "account_settings_unavailable")) sync();
+        const status = Number((error as { status?: number })?.status || 0);
+        const message = status === 401 || status === 403 ? "没有权限读取这项设置。" : "账户设置暂时读不到。";
+        if (cancelled || !controller.applyUnavailable(op, message)) return;
+        setReadState("failed");
+        sync();
       }
     })();
-    return () => { controller.abandon(op); };
-  }, [row.platform, row.key, controller]);
+    return () => { cancelled = true; controller.abandon(op); };
+  }, [row.platform, row.key, readAttempt, controller]);
   const savePreference = async () => {
     if (!admin || view.saving) return;
     const started = controller.startSave("risk");
@@ -125,24 +137,25 @@ function DailyAccountSettings({ row, admin, stopAllowed, stopLabel, stopRefreshV
       if (controller.finish(started)) sync();
     }
   };
-  const canSaveRisk = Boolean(admin && Number.isSafeInteger(settings?.risk?.revision));
+  const canSaveRisk = readState === "ready" && Boolean(admin && Number.isSafeInteger(settings?.risk?.revision));
   const actions = safeActionVisibility({ settingsUnavailable: Boolean(view.unavailable), activation: row.activation, refreshSupported: stopRefreshVisible, resumeSupported: resumeVisible });
+  const strategyText = row.strategy === "未命名策略" ? t(row.strategy) : row.strategy;
   return <aside className="account-detail">
     <button type="button" className="text-link mobile-back" onClick={onBack}>{t("返回账户列表")}</button>
     <h2>{row.title}</h2>
-    <p>{row.environment}</p>
-    {view.unavailable ? <p>{t("账户设置暂不可用。")}</p> : <>
-      <label>{t("当前策略")}<input readOnly value={row.strategy === "未命名策略" ? t(row.strategy) : row.strategy} /></label>
+    <p className="account-identity"><small>{row.platformLabel}</small><small>{row.environment}</small></p>
+    {readState === "loading" ? <p role="status">{t("正在读取账户设置")}</p> : readState === "failed" ? <p>{t(view.unavailable || "账户设置暂时读不到。")}<button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></p> : <>
+      <div className="readonly-strategy"><span>{t("当前策略")}</span><strong>{strategyText}</strong></div>
       <p className="section-note">{t("暂不能修改")}</p>
       <h3>{t("策略说明")}</h3>
       <p>{row.strategyNote || t("策略说明暂不可用。")}</p>
       <div className="preference-choices" role="group" aria-label={t("风险偏好")}>
         {PREFERENCES.map(([value, label]) => <button key={value} type="button" aria-pressed={view.preference === value} disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: value }); sync(); }}>{t(label)}</button>)}
       </div>
-      <p className="section-note">{t("只保存风险偏好，不会启用策略或提交订单。")}</p>
+      <p className="section-note">{!admin ? t("当前登录不能保存风险偏好。") : canSaveRisk ? t("只保存风险偏好，不会启用策略或提交订单。") : t("这项保存由服务端关闭，页面不能打开。")}</p>
       <div className="form-actions">
         <button type="button" className="button button-primary" disabled={!canSaveRisk || !dirty || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
-        <button type="button" className="button button-secondary" disabled={!dirty} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>
+        <button type="button" className="button button-secondary" disabled={!dirty || !canSaveRisk} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>
       </div>
       {view.notice && <p role="status">{view.notice}</p>}
     </>}
