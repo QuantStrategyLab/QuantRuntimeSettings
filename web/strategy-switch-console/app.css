@@ -3363,6 +3363,11 @@
 .operator-console.console-clarity .shell { display: block; width: calc(100% - 232px); max-width: 1500px; min-height: 100vh; margin: 0 0 0 232px; padding: 36px; background: transparent; border: 0; border-radius: 0; }
 .operator-console.console-clarity .management-heading { display: flex; justify-content: space-between; align-items: flex-start; min-height: 0; gap: 24px; padding: 0; margin: 0 0 26px; background: none; border: 0; }
 .operator-console.console-clarity .management-heading .workspace-heading { display: block; }
+.operator-console.console-clarity .management-actions { display: flex; align-items: flex-start; justify-content: flex-end; gap: 18px; flex: 0 0 auto; }
+.operator-console.console-clarity .display-mode { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.operator-console.console-clarity .display-mode-switch { display: inline-flex; gap: 3px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.operator-console.console-clarity .display-mode-switch .btn { min-height: 38px; padding: 7px 11px; border: 0; background: transparent; color: var(--muted); box-shadow: none; font-size: 12px; }
+.operator-console.console-clarity .display-mode-switch .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 650; }
 .operator-console.console-clarity .management-heading h2 { font-size: 32px; font-weight: 650; line-height: 1.25; letter-spacing: -.7px; }
 .console-clarity .workspace-heading p { margin: 10px 0 0; font-size: 14px; line-height: 1.6; color: var(--muted); }
 .operator-console.console-clarity .management-heading .refresh-control { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
@@ -3399,6 +3404,7 @@
 .console-clarity .account-mark { width: 36px; height: 36px; margin-right: 10px; border-radius: 50%; color: var(--accent); background: var(--accent-soft); text-align: center; font-size: 13px; line-height: 36px; font-weight: 650; }
 .console-clarity .overview-account strong { font-size: 13px; font-weight: 600; }
 .console-clarity .overview-table small { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; line-height: 1.5; font-weight: 400; }
+.console-clarity .overview-business-evidence { color: #586d65; }
 .console-clarity .overview-strategy { max-width: 240px; line-height: 1.6; }
 .console-clarity .runtime-badge { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); line-height: 1.5; }
 .console-clarity .runtime-badge::before { content: ""; width: 6px; height: 6px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
@@ -3432,6 +3438,10 @@
 .console-clarity .account-runtime-details { margin: 0 16px 12px; padding-top: 12px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .console-clarity .account-runtime-details > summary { min-height: 44px; padding: 12px 0; cursor: pointer; }
 .console-clarity .account-runtime-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding: 0; color: var(--ink); }
+body.display-guided.console-clarity .overview-table td { padding-top: 14px; padding-bottom: 14px; }
+body.display-guided.console-clarity .account-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+body.display-guided.console-clarity .account-facts > div { padding: 12px; }
+body.display-professional.console-clarity .overview-business-evidence { color: #344d43; font-size: 12px; }
 .operator-console.console-clarity .strategy-settings { margin-top: 24px; padding-top: 24px; }
 .operator-console.console-clarity .strategy-settings > summary { min-height: 44px; }
 .operator-console.console-clarity .switch-surface { grid-template-columns: minmax(0, 1fr) 280px; gap: 24px; margin-top: 0; }
@@ -3473,6 +3483,7 @@
 .console-clarity button:focus-visible, .console-clarity input:focus-visible, .console-clarity select:focus-visible, .console-clarity summary:focus-visible, .console-clarity a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .console-clarity button, .console-clarity a, .console-clarity input { -webkit-tap-highlight-color: transparent; }
 @media (max-width: 1180px) {
+  .operator-console.console-clarity .management-actions { gap: 10px; }
   .operator-console.console-clarity .shell { padding: 28px; }
   .console-clarity .overview-notice { flex-wrap: wrap; }
   .console-clarity .overview-notice .text-button { margin-left: 38px; }
@@ -3753,6 +3764,8 @@
 }
 
 @media (max-width: 720px) {
+  .operator-console.console-clarity .management-actions { width: 100%; justify-content: space-between; }
+  .operator-console.console-clarity .display-mode-switch .btn { padding: 6px 9px; }
   .ux1-research {
     padding: 14px;
   }

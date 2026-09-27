@@ -6488,6 +6488,7 @@
     }
 
     function renderWorkspace() {
+      renderDisplayMode();
       el("refresh-status-button").disabled = state.refreshing;
       el("refresh-status-button").textContent = t(state.refreshing ? "refreshingStatus" : "refreshStatus");
       const view = ["overview", "accounts", "research"].includes(state.view) ? state.view : "overview";
@@ -6504,6 +6505,24 @@
         if (button.dataset.workspace === view) button.setAttribute("aria-current", "page");
         else button.removeAttribute("aria-current");
       });
+    }
+
+    function renderDisplayMode() {
+      const guided = state.ux1.viewMode !== "advanced";
+      document.body.classList.toggle("display-guided", guided);
+      document.body.classList.toggle("display-professional", !guided);
+      el("ux1-mode-guided").setAttribute("aria-pressed", guided ? "true" : "false");
+      el("ux1-mode-advanced").setAttribute("aria-pressed", guided ? "false" : "true");
+    }
+
+    function applyDisplayModeDisclosures(mode) {
+      const professional = mode === "advanced";
+      for (const id of ["decision-background", "account-runtime-details", "strategy-settings", "ux1-result-evidence"]) {
+        const details = el(id);
+        if (details) details.open = professional;
+      }
+      const planAdvanced = document.querySelector(".plan-advanced");
+      if (planAdvanced) planAdvanced.open = professional;
     }
 
     function renderConsoleView() {
@@ -7458,10 +7477,10 @@
 
     function setUx1ViewMode(mode) {
       if (mode !== "guided" && mode !== "advanced") return;
-      syncUx1DraftFromDom();
       state.ux1.viewMode = mode;
       localStorage.setItem("qsl-ux1-view-mode", mode);
-      el("ux1-result-evidence").open = mode === "advanced";
+      applyDisplayModeDisclosures(mode);
+      renderDisplayMode();
       renderUx1();
     }
 
@@ -7794,7 +7813,7 @@
       const objective = el("ux1-objective");
       if (!objective || objective.dataset.bound === "true") return;
       objective.dataset.bound = "true";
-      el("ux1-result-evidence").open = state.ux1.viewMode === "advanced";
+      applyDisplayModeDisclosures(state.ux1.viewMode);
       fillUx1Select(objective, [["", "未选择"], ["one_step_net_log_score", "一步净对数评分"], ["global_optimum", "全局最优（尚不参与本次计算）"]]);
       fillUx1Select(el("ux1-research-case"), [["", "未选择"], ["r8_first_dynamic_2023_03_29", "R8 2023-03-29"], ["original_full_v2", "原完整 v2（本次不映射，功能保持原身份）"]]);
       for (const [, id, values] of ux1AdvancedFields) {

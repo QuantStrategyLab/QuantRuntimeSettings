@@ -9,6 +9,7 @@ assert.match(page, /id="ux1-preview-button"/);
 assert.equal(page.includes('id="ux1-preview-button" disabled'), false);
 assert.match(page, /no_order/);
 assert.equal(page.includes("fonts.googleapis.com"), false);
+assert.ok(page.indexOf('aria-label="全局显示模式"') < page.indexOf('id="overview-view"'));
 assert.ok(page.indexOf('<section id="research-view"') < page.indexOf('id="ux1-research"'));
 assert.ok(page.indexOf('id="ux1-research"') < page.indexOf('class="research-candidate-content"'));
 assert.ok(page.indexOf('id="ux1-selection"') < page.indexOf('id="ux1-guided"'));
@@ -36,7 +37,7 @@ const temptingPreview = {
   historical_execution_check: { trade_date: "2023-03-30", total_fees_usd: 1.5 },
 };
 
-function bootUi(initialJob) {
+function bootUi(initialJob, initialMode = null) {
   const nodes = new Map();
   const lists = new Map();
   const intervals = [];
@@ -70,6 +71,17 @@ function bootUi(initialJob) {
     execution_authority_granted: false,
   };
   function makeNode(id = "") {
+    const classes = new Set();
+    const classList = {
+      toggle(name, force) {
+        const enabled = force === undefined ? !classes.has(name) : Boolean(force);
+        if (enabled) classes.add(name); else classes.delete(name);
+        return enabled;
+      },
+      add(name) { this.toggle(name, true); },
+      remove(name) { this.toggle(name, false); },
+      contains(name) { return classes.has(name); },
+    };
     const store = {
       id,
       hidden: false,
@@ -87,7 +99,7 @@ function bootUi(initialJob) {
       childNodes: [],
       selectedIndex: 0,
       listeners: {},
-      classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } },
+      classList,
     };
     const node = new Proxy(store, {
       get(target, prop) {
@@ -148,6 +160,7 @@ function bootUi(initialJob) {
     removeEventListener() {},
   };
   const storage = new Map();
+  if (initialMode) storage.set("qsl-ux1-view-mode", initialMode);
   const localStorage = {
     getItem: (key) => storage.has(key) ? storage.get(key) : null,
     setItem: (key, value) => storage.set(key, String(value)),
@@ -239,6 +252,14 @@ async function settle(ui) {
   }
 }
 
+const professionalStartup = bootUi(null, "advanced");
+await settle(professionalStartup);
+assert.equal(professionalStartup.node("decision-background").open, true);
+assert.equal(professionalStartup.node("account-runtime-details").open, true);
+assert.equal(professionalStartup.node("strategy-settings").open, true);
+assert.equal(professionalStartup.document.querySelector(".plan-advanced").open, true);
+assert.equal(professionalStartup.document.body.classList.contains("display-professional"), true);
+
 const queued = bootUi({
   request_id: "11111111-1111-4111-8111-111111111111",
   status: "queued",
@@ -254,6 +275,9 @@ assert.equal(queued.node("ux1-intent-button").disabled, true);
 assert.match(queued.node("ux1-job-status").textContent, /排队/);
 assert.equal(queued.node("ux1-guided-result").textContent, "");
 assert.equal(queued.intervals.filter((item) => item.ms === 5000 && !item.cleared).length, 0);
+assert.equal(queued.node("decision-background").open, false);
+assert.equal(queued.node("strategy-settings").open, false);
+assert.equal(queued.document.querySelector(".plan-advanced").open, false);
 queued.document.querySelectorAll("[data-workspace]")[2].dispatch("click");
 assert.equal(queued.intervals.filter((item) => item.ms === 5000 && !item.cleared).length, 1);
 queued.document.querySelectorAll("[data-workspace]")[0].dispatch("click");
@@ -295,13 +319,43 @@ assert.equal(editing.intervals.filter((item) => item.ms === 5000 && !item.cleare
 editing.node("ux1-result-evidence").open = true;
 editing.node("ux1-income-layer-mode").value = "enabled";
 editing.node("ux1-income-layer-mode").dispatch("input");
+editing.node("income-layer-start-usd-input").value = "12500";
+const fetchCountBeforeModeChanges = editing.fetches.length;
 assert.equal(editing.node("ux1-result-evidence").open, true);
 editing.node("ux1-mode-advanced").click();
 assert.equal(editing.node("ux1-result-evidence").open, true);
+assert.equal(editing.node("account-runtime-details").open, true);
+assert.equal(editing.node("decision-background").open, true);
+assert.equal(editing.node("strategy-settings").open, true);
+assert.equal(editing.document.querySelector(".plan-advanced").open, true);
+assert.equal(editing.document.body.classList.contains("display-professional"), true);
 assert.equal(editing.node("ux1-income-layer-mode").value, "enabled");
+assert.equal(editing.node("income-layer-start-usd-input").value, "12500");
+assert.equal(editing.fetches.length, fetchCountBeforeModeChanges);
+editing.node("decision-background").open = false;
+editing.node("strategy-settings").open = false;
+editing.document.querySelector(".plan-advanced").open = false;
+editing.document.querySelectorAll("[data-workspace]")[1].dispatch("click");
+assert.equal(editing.node("decision-background").open, false);
+assert.equal(editing.node("strategy-settings").open, false);
+assert.equal(editing.document.querySelector(".plan-advanced").open, false);
+editing.document.querySelectorAll("[data-workspace]")[2].dispatch("click");
+assert.equal(editing.intervals.filter((item) => item.ms === 5000 && !item.cleared).length, 1);
+const fetchCountBeforeGuided = editing.fetches.length;
 editing.node("ux1-mode-guided").click();
 assert.equal(editing.node("ux1-result-evidence").open, false);
+assert.equal(editing.node("account-runtime-details").open, false);
+assert.equal(editing.document.body.classList.contains("display-guided"), true);
 assert.equal(editing.node("ux1-income-layer-mode").value, "enabled");
+assert.equal(editing.fetches.length, fetchCountBeforeGuided);
+editing.node("decision-background").open = true;
+editing.node("strategy-settings").open = true;
+editing.document.querySelector(".plan-advanced").open = true;
+editing.document.querySelectorAll("[data-workspace]")[1].dispatch("click");
+editing.document.querySelectorAll("[data-workspace]")[2].dispatch("click");
+assert.equal(editing.node("decision-background").open, true);
+assert.equal(editing.node("strategy-settings").open, true);
+assert.equal(editing.document.querySelector(".plan-advanced").open, true);
 editing.node("ux1-evidence-button").click();
 assert.equal(editing.node("ux1-result-evidence").open, true);
 assert.equal(editing.node("ux1-evidence").open, true);
