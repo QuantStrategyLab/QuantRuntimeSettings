@@ -1527,7 +1527,7 @@ for (const view of ['overview', 'accounts', 'research']) test(`workspace navigat
     removeAttribute(key) { delete this.attributes[key]; },
   }));
   const state = { view, appReady: true, auth: { allowed: true }, refreshing: false };
-  const context = { state, t: key => key, el: id => nodes[id] ??= {},
+  const context = { state, t: key => key, el: id => nodes[id] ??= {}, renderDisplayMode() {},
     document: { querySelector: () => nav, querySelectorAll: () => buttons } };
   const render = frontendFunction('renderWorkspace', context);
   render();
