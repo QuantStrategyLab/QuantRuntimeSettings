@@ -5222,6 +5222,49 @@ async function accountDiagnosisInternalResponse(request, env, url) {
   }
 }
 
+function projectRuntimeAccountState(entry) {
+  const base = { scope: "monitoring_only", limit: "not_trading_or_books" };
+  const target = entry?.target || {};
+  const monitoring = target.monitoring || {};
+  const disposition = target.disposition || {};
+  const deployment = target.deployment;
+  const sourceFresh = entry?.freshness?.data_status === "ready";
+  const deploymentFresh = Boolean(deployment?.observed_at) && entry?.deployment_freshness?.data_status === "ready";
+  let activation = "unknown";
+  if (deploymentFresh && deployment.runtime_enabled === true && deployment.scheduler_state === "enabled") activation = "enabled";
+  else if (deploymentFresh && deployment.runtime_enabled === false && deployment.scheduler_state === "paused") activation = "disabled";
+  const configured = target.target?.configured_state;
+  const retainedFault = monitoring.runtime_guard === "attention"
+    || monitoring.execution_heartbeat === "attention"
+    || disposition.code === "parked";
+  if (retainedFault) return { ...base, health: "abnormal", activation, reason: "retained_attention" };
+  if ((configured === "enabled" && activation === "disabled") || (configured === "disabled" && activation === "enabled")) {
+    return { ...base, health: "abnormal", activation, reason: "config_inconsistent" };
+  }
+  if (monitoring.execution_heartbeat === "not_due") {
+    return { ...base, health: "unknown", activation, reason: "check_not_due" };
+  }
+  const enabledAgrees = configured === "enabled"
+    && activation === "enabled"
+    && monitoring.runtime_guard === "pass"
+    && monitoring.execution_heartbeat === "pass"
+    && disposition.code === "continue_enabled_monitoring";
+  const disabledAgrees = configured === "disabled"
+    && activation === "disabled"
+    && monitoring.runtime_guard === "pass"
+    && monitoring.execution_heartbeat === "not_applicable"
+    && disposition.code === "continue_disabled_validation";
+  if (sourceFresh && (enabledAgrees || disabledAgrees)) {
+    return { ...base, health: "normal", activation, reason: "monitoring_agrees" };
+  }
+  let reason = "evidence_insufficient";
+  if (!sourceFresh) reason = "source_not_fresh";
+  else if (!deployment) reason = "deployment_missing";
+  else if (!deploymentFresh) reason = "deployment_not_fresh";
+  else if (activation === "unknown") reason = "activation_unconfirmed";
+  return { ...base, health: "unknown", activation, reason };
+}
+
 async function aggregateRuntimeTargetLifecycleSources(env) {
   const sources = await readRuntimeTargetLifecycleSources(env);
   if (!sources.length) return emptyRuntimeTargetLifecyclePayload("snapshot_unavailable");
@@ -5250,7 +5293,7 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         continue;
       }
       targetIds.add(target.target_id);
-      targets.push({
+      const entry = {
         source_id: source.source_id,
         freshness,
         target,
@@ -5261,7 +5304,9 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
         ...(target.deployment ? {deployment_freshness: target.deployment.observed_at
           ? controlPlaneSnapshotFreshness({data_status:"ready", computed_at:target.deployment.observed_at}, ttlSeconds, now)
           : freshness} : {}),
-      });
+      };
+      entry.account_state = projectRuntimeAccountState(entry);
+      targets.push(entry);
     }
     errors.push(...source.errors);
   }
@@ -11121,6 +11166,8 @@ export const __test = {
   attachRiskEnvelopeView,
   normalizeResearchPromotionTicket,
   normalizeRuntimeTargetLifecycleTarget,
+  projectRuntimeAccountState,
+  aggregateRuntimeTargetLifecycleSources,
   loadPlatformMeta,
   assertConfiguredAccount,
   validateResearchPromotionSelectedAccount,

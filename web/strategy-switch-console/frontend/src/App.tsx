@@ -4,7 +4,7 @@ import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, Sour
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
-import { applicationRetryAllowed, buildConfirmationFingerprint, buildHomeAttention, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisStatusKey, diagnosisUserSummary, ownerDecisionBinding, pageFromWorkspace, promotionAiExplanation, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
+import { accountMatchesStatusFilter, applicationRetryAllowed, buildConfirmationFingerprint, buildHomeAttention, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, currentResearchPreview, defaultSwitchDraft, diagnosisStatusKey, diagnosisUserSummary, ownerDecisionBinding, pageFromWorkspace, presentAccountState, promotionAiExplanation, recoveryBinding, summarizeExternalResearchSubject, type SwitchDraft } from "./operations";
 import { DCA_SUPPORTED_PLATFORMS, DOMAIN_LABELS, PLATFORM_CONFIG } from "../../config.js";
 import { formatAccountCount, LocaleContext, renderLocaleMessage, translate, useLocale, useT, type Language, type LocaleMessage } from "./locales";
 type Page = "overview" | "strategy" | "accounts";
@@ -122,21 +122,8 @@ function makeRows(model: ReadModel | null): AccountRow[] {
     }
     return rows;
 }
-function statusFor(row: AccountRow, snapshotStatus?: string) {
-    const freshness = row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || snapshotStatus;
-    if (!row.runtime || freshness !== "ready")
-        return { label: freshness === "stale" ? "读回过期" : "等待运行检查", tone: "unknown", detail: "尚无足够读回确认运行状态。" };
-    const observation = row.runtime.execution_observation?.code;
-    const dep = row.runtime.target.deployment;
-    if (observation === "attention" || row.runtime.target.disposition?.code === "parked")
-        return { label: "需要核对", tone: "attention", detail: "监测记录要求核对。" };
-    if (row.runtime.target.target.configured_state === "disabled" || observation === "not_applicable")
-        return { label: "按配置停用", tone: "paused", detail: "状态来自运行读回；不代表在途订单已处理。" };
-    if (dep?.scheduler_state === "paused" || dep?.scheduler_state === "missing" || observation === "unavailable")
-        return { label: "状态未确认", tone: "unknown", detail: "运行检查不足以确认调度状态。" };
-    if (observation === "monitoring_only" || observation === "not_due")
-        return { label: observation === "not_due" ? "等待检查周期" : "监测可用", tone: "healthy", detail: "监测可用不代表有成交或账务核实。" };
-    return { label: "状态未确认", tone: "unknown", detail: "现有读回不足以确认运行状态。" };
+function statusFor(row: AccountRow) {
+    return presentAccountState(row.runtime?.account_state);
 }
 function OptionList({ values, value, onChange, labels = {} }: {
     values: string[];
@@ -588,10 +575,8 @@ function App() {
         }
     };
     const rowsFiltered = rows.filter(row => {
-        const status = statusFor(row, model?.runtime.value?.data_status);
-        const matchesStatus = filter === "all" || (filter === "normal" && status.tone === "healthy") || (filter === "paused" && status.tone === "paused") || (filter === "abnormal" && ["attention", "unknown"].includes(status.tone));
         const text = `${row.platformLabel} ${row.account.label} ${row.account.key} ${row.current?.strategy_profile || ""}`.toLowerCase();
-        return matchesStatus && text.includes(search.trim().toLowerCase());
+        return accountMatchesStatusFilter(filter, row.runtime?.account_state) && text.includes(search.trim().toLowerCase());
     });
     const activeForm = currentForm(active);
     const profileOptions = model?.config.value?.strategyProfiles || [];
@@ -609,7 +594,7 @@ function App() {
         control: model?.control, owners: model?.owners, promotions: model?.promotions,
         recovery: model?.recovery, runtime: model?.runtime, config: model?.config,
         accounts: rows.map(row => {
-            const status = statusFor(row, model?.runtime.value?.data_status);
+            const status = statusFor(row);
             return { id: row.id, title: `${row.platformLabel} · ${row.account.label || row.account.target_name || row.account.key}`, tone: status.tone, label: status.label, detail: status.detail };
         }),
     });
@@ -754,7 +739,7 @@ function App() {
         <AccountTable rows={rows} model={model} selected={active?.id} onSelect={row => setSelectedId(row.id)}/>
       </section>
       {active && activeForm ? <section className="content-section account-editor"><div className="section-heading"><h2>{t("{account} · 账户状态", { account: active.account.label || active.account.target_name })}</h2></div>
-        <AccountFacts row={active} model={model}/>
+        <AccountFacts row={active}/>
         {(() => { const view = diagnosisUserSummary(diagnosis[active.id]); const refreshOnly = view.action === "refresh"; return <section className="diagnosis-panel"><h3>{t("账户检查")}</h3><strong>{t(view.status)}</strong><p>{t(view.reason)}</p><button className="button button-secondary" type="button" disabled={!model?.session.allowed || busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading || (!refreshOnly && diagnosis[active.id]?.available !== true)} onClick={() => refreshOnly ? void readDiagnosisStatus(active) : void runDiagnosis(active)}>{busy[`diagnosis-read:${active.id}`] || busy[`diagnosis:${active.id}`] || diagnosis[active.id]?.loading ? t("正在检查…") : t(refreshOnly ? "刷新状态" : "检查账户")}</button>{diagnosis[active.id]?.available === true && diagnosis[active.id]?.task && <details><summary>{t("查看技术详情")}</summary><p>{t(diagnosisStatusKey(diagnosis[active.id]?.task))}</p><pre>{JSON.stringify(diagnosis[active.id]?.task, null, 2)}</pre></details>}</section>; })()}
         <details className="strategy-settings"><summary>{t("\u7B56\u7565\u4E0E\u8FD0\u884C\u8BBE\u7F6E")}</summary>
           <div className="field-grid"><label>{t("\u8FD0\u884C\u7B56\u7565")}<select value={activeForm.strategy} onChange={e => updateForm(active, { strategy: e.target.value })}><option value="">{t("\u9009\u62E9\u7B56\u7565")}</option>{allowedProfiles.map(profile => <option key={profile.profile} value={profile.profile}>{profile.label || profile.profile}</option>)}</select></label>
@@ -908,14 +893,13 @@ function AccountTable({ rows, model, selected, onSelect }: {
         return <Empty title={t("\u8D26\u6237\u6E05\u5355\u6682\u4E0D\u53EF\u7528")} detail={t("\u6CA1\u6709\u53EF\u9760\u8D26\u6237\u914D\u7F6E\u8BFB\u56DE\uFF1B\u4E0D\u4F1A\u4EE5\u6837\u4F8B\u6216\u9ED8\u8BA4\u8D26\u6237\u4EE3\u66FF\u3002")}/>;
     if (!rows.length)
         return <Empty title={t("\u6CA1\u6709\u5339\u914D\u8D26\u6237")} detail={t("\u8BF7\u8C03\u6574\u641C\u7D22\u6761\u4EF6\u6216\u7B5B\u9009\u3002")}/>;
-    return <div className="table-scroll"><table className="account-table"><thead><tr><th>{t("\u8D26\u6237")}</th><th>{t("当前策略")}</th><th>{t("\u8FD0\u884C\u72B6\u6001")}</th><th>{t("\u6700\u8FD1\u68C0\u67E5")}</th><th /></tr></thead><tbody>{rows.map(row => { const status = statusFor(row, model?.runtime.value?.data_status); return <tr key={row.id} className={selected === row.id ? "selected-row" : undefined}><td><strong>{row.account.label || row.account.target_name}</strong><small>{row.platformLabel}{row.account.account_selector ? ` · ${row.account.account_selector}` : ""}</small></td><td><small>{row.current?.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230")}</small></td><td><span className={`status-text ${status.tone}`}><i aria-hidden="true"/>{t(status.label)}</span><small>{t(status.detail)}</small></td><td>{stamp(row.runtime?.target?.deployment?.observed_at, language)}<small>{t(displayStatus(row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || model?.runtime.value?.data_status))}</small></td><td><button type="button" className="text-link" onClick={() => onSelect(row)}>{t("\u67E5\u770B \u2192")}</button></td></tr>; })}</tbody></table></div>;
+    return <div className="table-scroll"><table className="account-table"><thead><tr><th>{t("\u8D26\u6237")}</th><th>{t("当前策略")}</th><th>{t("\u8FD0\u884C\u72B6\u6001")}</th><th>{t("\u6700\u8FD1\u68C0\u67E5")}</th><th /></tr></thead><tbody>{rows.map(row => { const status = statusFor(row); return <tr key={row.id} className={selected === row.id ? "selected-row" : undefined}><td><strong>{row.account.label || row.account.target_name}</strong><small>{row.platformLabel}{row.account.account_selector ? ` · ${row.account.account_selector}` : ""}</small></td><td><small>{row.current?.strategy_profile || t("\u7B56\u7565\u672A\u8BFB\u5230")}</small></td><td><span className={`status-text ${status.tone}`}><i aria-hidden="true"/>{t(status.label)}</span><small>{t(status.detail)}</small></td><td>{stamp(row.runtime?.target?.deployment?.observed_at, language)}<small>{t(displayStatus(row.runtime?.deployment_freshness?.data_status || row.runtime?.freshness?.data_status || model?.runtime.value?.data_status))}</small></td><td><button type="button" className="text-link" onClick={() => onSelect(row)}>{t("\u67E5\u770B \u2192")}</button></td></tr>; })}</tbody></table></div>;
 }
-function AccountFacts({ row, model }: {
+function AccountFacts({ row }: {
     row: AccountRow;
-    model: ReadModel | null;
 }) {
     const t = useT();
-    const status = statusFor(row, model?.runtime.value?.data_status);
+    const status = statusFor(row);
     const target = row.runtime?.target;
     const facts: Array<[
         string,

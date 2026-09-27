@@ -97,6 +97,7 @@ jobs:
           npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
           npm run test:operations --prefix web/strategy-switch-console/frontend
           node tests/console_v2_i18n_validation.mjs
+          node tests/console_account_state_validation.mjs
           git diff --exit-code -- web/strategy-switch-console/v2_asset_map.js
           python3 python/scripts/build_config.py --check
           python3 python/scripts/build_config.py

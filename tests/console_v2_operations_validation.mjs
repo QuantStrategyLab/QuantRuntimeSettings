@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
-  confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, promotionAiExplanation,
+  confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionAiExplanation,
   summarizeExternalResearchSubject,
   diagnosisStatusKey, diagnosisConclusionKey, diagnosisNextStepKey,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
@@ -127,6 +127,31 @@ assert.deepEqual(mixedSources.sourceWarnings.map(item => item.source), ["所有�
 assert.deepEqual(diagnosisUserSummary(undefined), { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" });
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "running" } }), { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" });
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "unknown" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });
+assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "queued", dispatch_state: "unknown" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });
+assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "running", dispatch_state: "unknown" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });
+assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "unknown", recheck_status: "sent" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });
+assert.equal(presentAccountState(undefined).label, "—");
+assert.equal(presentAccountState(undefined).tone, "unknown");
+assert.notEqual(presentAccountState({ execution_observation: { code: "monitoring_only" } }).label, "监测可用");
+const projectedNormal = presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" });
+assert.equal(projectedNormal.label, "正常");
+assert.equal(projectedNormal.tone, "healthy");
+const savedDisabledStillOn = presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "abnormal", activation: "enabled", reason: "config_inconsistent" });
+assert.equal(savedDisabledStillOn.label, "异常");
+assert.equal(savedDisabledStillOn.detail, "设置尚未生效");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "abnormal", activation: "disabled", reason: "config_inconsistent" }).detail, "设置尚未生效");
+assert.equal(projectedNormal.detail, "运行监测正常，已启用。");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "disabled", reason: "monitoring_agrees" }).detail, "运行监测正常，已停用。");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "abnormal", activation: "disabled", reason: "retained_attention" }).detail, "账户运行异常");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }).detail, "状态暂未更新");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "unknown", reason: "monitoring_agrees" }).label, "—");
+const normalDisabled = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "disabled", reason: "monitoring_agrees" };
+const activationUnknown = { scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_missing" };
+const desiredOffStillOn = { scope: "monitoring_only", limit: "not_trading_or_books", health: "abnormal", activation: "enabled", reason: "config_inconsistent" };
+assert.equal(accountMatchesStatusFilter("paused", normalDisabled), true);
+assert.equal(accountMatchesStatusFilter("paused", activationUnknown), false);
+assert.equal(accountMatchesStatusFilter("paused", desiredOffStillOn), false);
+assert.equal(accountMatchesStatusFilter("paused", undefined), false);
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "failed" } }), { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" });
 assert.equal(diagnosisUserSummary({ available: true, task: { status: "succeeded", recheck_status: "passed" } }).status, "检查已完成，未发现监测异常");
 const aiTicket = { ticket_id: "synthetic-ai-ticket", strategy_profile: "synthetic-strategy", domain: "us_equity", proposed_params: { lookback: 20 }, research_summary: {

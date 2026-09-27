@@ -1,9 +1,17 @@
 export type Session = { authenticated: boolean; login: string | null; allowed: boolean; admin: boolean; synthetic?: boolean };
 export type Freshness = { data_status: "ready" | "stale" | "unavailable"; age_seconds: number | null };
+export type AccountStateProjection = {
+  scope: "monitoring_only";
+  limit: "not_trading_or_books";
+  health: "normal" | "abnormal" | "unknown";
+  activation: "enabled" | "disabled" | "unknown";
+  reason: string;
+};
 export type LifecycleRecord = {
   source_id: string;
   freshness?: Freshness;
   deployment_freshness?: Freshness;
+  account_state?: AccountStateProjection;
   execution_observation?: { code?: string; order_or_fill_evidence?: string };
   target: {
     target_id: string;

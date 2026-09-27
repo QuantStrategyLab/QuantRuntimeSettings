@@ -2,7 +2,7 @@ import {
   DCA_SUPPORTED_PLATFORMS, PLATFORM_CONFIG,
   PLATFORM_MIN_RESERVED_CASH_VARIABLES, PLATFORM_RESERVED_CASH_RATIO_VARIABLES,
 } from "../../config.js";
-import type { AccountOption, CurrentStrategy } from "./api";
+import type { AccountOption, AccountStateProjection, CurrentStrategy } from "./api";
 
 const platformSettings = PLATFORM_CONFIG as Record<string, any>;
 const minimumVariables = PLATFORM_MIN_RESERVED_CASH_VARIABLES as Record<string, string>;
@@ -284,6 +284,44 @@ export function diagnosisConclusionKey(task: Record<string, any> | null | undefi
   return diagnosisStatusKey(task);
 }
 
+const ACCOUNT_STATE_DETAILS: Record<string, string> = {
+  "monitoring_agrees:enabled": "运行监测正常，已启用。",
+  "monitoring_agrees:disabled": "运行监测正常，已停用。",
+  retained_attention: "账户运行异常",
+  config_inconsistent: "设置尚未生效",
+  source_not_fresh: "状态暂未更新",
+  deployment_missing: "状态暂未更新",
+  deployment_not_fresh: "状态暂未更新",
+  activation_unconfirmed: "状态暂未更新",
+  check_not_due: "尚未到检查时间",
+  evidence_insufficient: "状态暂未更新",
+};
+
+export function presentAccountState(projection: AccountStateProjection | null | undefined): {
+  label: string; detail: string; tone: "healthy" | "attention" | "unknown";
+} {
+  const unknown = { label: "—", detail: "暂未取得状态", tone: "unknown" as const };
+  if (!projection || projection.scope !== "monitoring_only" || projection.limit !== "not_trading_or_books") return unknown;
+  if (!["normal", "abnormal", "unknown"].includes(projection.health)) return unknown;
+  if (!["enabled", "disabled", "unknown"].includes(projection.activation)) return unknown;
+  const detail = ACCOUNT_STATE_DETAILS[projection.reason === "monitoring_agrees" ? `monitoring_agrees:${projection.activation}` : projection.reason];
+  if (!detail || (projection.health === "normal" && (projection.reason !== "monitoring_agrees" || projection.activation === "unknown"))) return unknown;
+  return {
+    label: projection.health === "normal" ? "正常" : projection.health === "abnormal" ? "异常" : "—",
+    detail,
+    tone: projection.health === "normal" ? "healthy" : projection.health === "abnormal" ? "attention" : "unknown",
+  };
+}
+
+export function accountMatchesStatusFilter(filter: string, projection: AccountStateProjection | null | undefined): boolean {
+  const view = presentAccountState(projection);
+  if (filter === "all") return true;
+  if (filter === "normal") return view.tone === "healthy";
+  if (filter === "paused") return projection?.activation === "disabled";
+  if (filter === "abnormal") return view.tone === "attention" || view.tone === "unknown";
+  return false;
+}
+
 export function diagnosisUserSummary(input: { available?: boolean; task?: Record<string, any> | null } | null | undefined): {
   status: string; reason: string; action: "check" | "refresh";
 } {
@@ -291,11 +329,11 @@ export function diagnosisUserSummary(input: { available?: boolean; task?: Record
   if (input.available === false) return { status: "暂时无法检查", reason: "检查服务暂时不可用；刷新状态后再试。", action: "refresh" };
   const task = input.task;
   if (!task) return { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" };
-  if (["queued", "running"].includes(String(task.status || "")) || task.recheck_status === "sent") {
-    return { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" };
-  }
   if (task.status === "unknown" || task.dispatch_state === "unknown") {
     return { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" };
+  }
+  if (["queued", "running"].includes(String(task.status || "")) || task.recheck_status === "sent") {
+    return { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" };
   }
   if (task.status === "failed") {
     return { status: "暂时无法检查", reason: "本次检查未完成，可以重新检查。", action: "check" };
