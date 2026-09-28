@@ -13470,6 +13470,13 @@ async function effectiveAccountSettings(env, observed) {
     const ratio = cleanCurrentRatio(current.reserved_cash_ratio);
     if (ratio) effective.reserved_cash_ratio = { status: "known", value: ratio };
   }
+  const profile = effective.strategy_profile.status === "known" ? effective.strategy_profile.value : "";
+  if (isDcaProfile(profile) && DCA_SUPPORTED_PLATFORMS.has(observed.platform)) {
+    const mode = current.dca_mode === "fixed" || current.dca_mode === "smart" ? current.dca_mode : "";
+    const amount = typeof current.dca_base_investment_usd === "string" ? current.dca_base_investment_usd : "";
+    effective.dca_mode = mode ? { status: "known", value: mode } : { status: "unknown" };
+    effective.dca_base_investment_usd = amount ? { status: "known", value: amount } : { status: "unknown" };
+  }
   return effective;
 }
 

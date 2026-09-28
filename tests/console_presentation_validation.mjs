@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -33,6 +33,28 @@ assert.equal(overviewFigures(null, []).accountCount, null);
 assert.equal(overviewFigures(1, ["BALANCED_COMPOUNDING"]).riskPreference, "BALANCED_COMPOUNDING");
 assert.equal(overviewFigures(2, ["CAPITAL_PRESERVATION", null]).riskPreference, null);
 assert.equal(overviewFigures(2, ["GROWTH_COMPOUNDING", ""]).riskPreference, null);
+const accountsPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/AccountsPage.tsx", import.meta.url), "utf8");
+assert.match(accountsPage, /dcaSettingsReadout\(settings\?\.effective\)/);
+assert.equal(accountsPage.includes("保存定投"), false);
+assert.equal(dcaSettingsReadout(null), null);
+assert.equal(dcaSettingsReadout({ strategy_profile: { status: "known", value: "russell_top50_leader_rotation" } }), null);
+assert.equal(dcaSettingsReadout({ strategy_profile: { status: "known", value: "crypto_btc_dca" } }), null);
+assert.deepEqual(dcaSettingsReadout({
+  dca_mode: { status: "known", value: "smart" },
+  dca_base_investment_usd: { status: "known", value: "250" },
+}), { label: "配置读回", mode: "智能定投", amount: "250" });
+assert.deepEqual(dcaSettingsReadout({
+  dca_mode: { status: "known", value: "fixed" },
+  dca_base_investment_usd: { status: "known", value: "80" },
+}), { label: "配置读回", mode: "固定定投", amount: "80" });
+assert.deepEqual(dcaSettingsReadout({
+  dca_mode: { status: "unknown" },
+  dca_base_investment_usd: { status: "unknown", value: "1000" },
+}), { label: "配置读回", mode: "未核实", amount: "未核实" });
+assert.deepEqual(dcaSettingsReadout({
+  dca_mode: { status: "known", value: "weekly" },
+  dca_base_investment_usd: { status: "known", value: "0" },
+}), { label: "配置读回", mode: "未核实", amount: "未核实" });
 assert.equal(chartUnavailable("return"), "尚无可用资产记录");
 assert.equal(chartUnavailable("assets"), "尚无可用资产记录");
 assert.deepEqual([...RETURN_INDEX_LEGEND], ["标普500", "纳斯达克", "道琼斯", "罗素"]);

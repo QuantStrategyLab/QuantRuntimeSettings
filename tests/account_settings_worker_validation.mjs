@@ -1169,6 +1169,17 @@ assert.equal(afterOptionReject.body.draft.overrides.option_overlay_enabled, true
 
 await mf.dispose();
 
+const dcaFetches = [];
+let sgDcaVariables = [
+  { name: "STRATEGY_PROFILE", value: "nasdaq_sp500_smart_dca" },
+  { name: "DCA_MODE", value: "smart" },
+  { name: "DCA_BASE_INVESTMENT_USD", value: "250" },
+];
+let hkDcaVariables = [
+  { name: "STRATEGY_PROFILE", value: "russell_top50_leader_rotation" },
+  { name: "DCA_MODE", value: "fixed" },
+  { name: "DCA_BASE_INVESTMENT_USD", value: "1000" },
+];
 const knownPersist = await mkdtemp(join(tmpdir(), "qrt-account-settings-ratio-"));
 const knownMf = new Miniflare({
   modules: true,
@@ -1179,9 +1190,16 @@ const knownMf = new Miniflare({
   durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
   durableObjectsPersist: knownPersist,
   kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
-  outboundService: () => new Response(JSON.stringify({
-    variables: [{ name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0.25" }],
-  }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  outboundService: (request) => {
+    const url = String(request?.url || "");
+    dcaFetches.push(url);
+    const extra = url.includes("/environments/longbridge-sg/") ? sgDcaVariables
+      : url.includes("/environments/longbridge-hk/") ? hkDcaVariables
+      : [];
+    return new Response(JSON.stringify({
+      variables: [{ name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0.25" }, ...extra],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+  },
 });
 async function knownCall(endpoint, body) {
   const response = await knownMf.dispatchFetch(`https://switch.example${endpoint}`, {
@@ -1196,11 +1214,56 @@ async function knownCall(endpoint, body) {
   return { status: response.status, body: await response.json() };
 }
 assert.equal((await knownCall("/api/admin/runtime-instances", { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" })).status, 200);
+dcaFetches.length = 0;
 const known = await knownCall("/api/account-settings?platform=longbridge&key=sg");
 assert.equal(known.status, 200);
 assert.equal(known.body.effective.reserved_cash_ratio.status, "known");
 assert.equal(known.body.effective.reserved_cash_ratio.value, "0.25");
+assert.equal(known.body.effective.strategy_profile.value, "nasdaq_sp500_smart_dca");
+assert.equal(known.body.effective.dca_mode.status, "known");
+assert.equal(known.body.effective.dca_mode.value, "smart");
+assert.equal(known.body.effective.dca_base_investment_usd.status, "known");
+assert.equal(known.body.effective.dca_base_investment_usd.value, "250");
+assert.equal(known.body.effective.dca_mode.applied, undefined);
+const sgReads = dcaFetches.filter((url) => url.includes("/environments/longbridge-sg/"));
+assert.equal(sgReads.length, 1);
+assert.equal(sgReads.some((url) => url.includes("DCA_MODE")), false);
 const missing = await knownCall("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(missing.body.effective.reserved_cash_ratio.value, "0.25");
+assert.equal(missing.body.effective.strategy_profile.value, "russell_top50_leader_rotation");
+assert.equal(Object.hasOwn(missing.body.effective, "dca_mode"), false);
+assert.equal(Object.hasOwn(missing.body.effective, "dca_base_investment_usd"), false);
+hkDcaVariables = [
+  { name: "STRATEGY_PROFILE", value: "crypto_btc_dca" },
+  { name: "DCA_MODE", value: "smart" },
+  { name: "DCA_BASE_INVESTMENT_USD", value: "400" },
+];
+const namedOnly = await knownCall("/api/account-settings?platform=longbridge&key=hk");
+assert.equal(namedOnly.body.effective.strategy_profile.value, "crypto_btc_dca");
+assert.equal(Object.hasOwn(namedOnly.body.effective, "dca_mode"), false);
+assert.equal(Object.hasOwn(namedOnly.body.effective, "dca_base_investment_usd"), false);
+hkDcaVariables = [
+  { name: "STRATEGY_PROFILE", value: "nasdaq_sp500_smart_dca" },
+  { name: "DCA_MODE", value: "weekly" },
+  { name: "DCA_BASE_INVESTMENT_USD", value: "0" },
+];
+const incomplete = await knownCall("/api/account-settings?platform=longbridge&key=hk");
+assert.equal(incomplete.body.effective.dca_mode.status, "unknown");
+assert.equal(Object.hasOwn(incomplete.body.effective.dca_mode, "value"), false);
+assert.equal(incomplete.body.effective.dca_base_investment_usd.status, "unknown");
+assert.equal(Object.hasOwn(incomplete.body.effective.dca_base_investment_usd, "value"), false);
+assert.equal(JSON.stringify(incomplete.body.effective).includes("1000"), false);
+hkDcaVariables = [
+  { name: "STRATEGY_PROFILE", value: "ibit_smart_dca" },
+  { name: "DCA_MODE", value: "fixed" },
+  { name: "DCA_BASE_INVESTMENT_USD", value: "80" },
+];
+const rebound = await knownCall("/api/account-settings?platform=longbridge&key=hk");
+assert.equal(rebound.body.effective.strategy_profile.value, "ibit_smart_dca");
+assert.equal(rebound.body.effective.dca_mode.value, "fixed");
+assert.equal(rebound.body.effective.dca_base_investment_usd.value, "80");
+const stillSg = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(stillSg.body.effective.dca_mode.value, "smart");
+assert.equal(stillSg.body.effective.dca_base_investment_usd.value, "250");
 await knownMf.dispose();
 console.log("account_settings_worker_validation: PASS");

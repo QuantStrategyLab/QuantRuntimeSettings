@@ -2,7 +2,7 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { loadAccountSettings, postJson } from "./api";
 import { pendingDraftOverrides, createAccountSettingsController } from "./accountSettingsState";
 import { LocaleContext, useT } from "./locales";
-import { cashDraftDirty, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
+import { cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
 
 const PREFERENCES = [
   ["CAPITAL_PRESERVATION", "保守", "优先控制波动和亏损，接受较低的增长潜力。"],
@@ -254,6 +254,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   };
   const actions = safeActionVisibility({ settingsUnavailable: Boolean(view.unavailable), activation: row.activation, refreshSupported: stopRefreshVisible, resumeSupported: resumeVisible });
   const strategy = resolveStrategy(observedProfile(settings));
+  const dca = dcaSettingsReadout(settings?.effective);
   const selectedNote = PREFERENCES.find(([value]) => value === view.preference)?.[2] || "";
   const cashNotice = view.noticeGroup === "cash" && view.notice === "草案已保存";
   const incomeNotice = view.noticeGroup === "income" && view.notice === "草案已保存";
@@ -272,6 +273,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         <h3>{t("当前策略")}</h3>
         <p className="current-strategy"><strong>{strategy.name}</strong></p>
         {strategy.note ? <p>{strategy.note}</p> : null}
+        {dca ? <div className="setting-facts"><p><span>{t("定投计划")}</span><strong>{t(dca.label)}</strong></p><p><span>{t("配置模式")}</span><strong>{t(dca.mode)}</strong></p><p><span>{t("基准金额（美元）")}</span><strong>{dca.amount === "未核实" ? t(dca.amount) : dca.amount}</strong></p></div> : null}
         {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("待应用策略")}</span><strong>{strategyValue === "" ? t("沿用当前") : strategyName(strategyValue)}</strong></p></div>}
         <label className="cash-floor-field">{t("待应用策略")}
           <select value={strategyValue} disabled={!canSaveCash} onChange={event => {

@@ -583,6 +583,27 @@ export function readOnlyLayerState(field: unknown): "on" | "off" | "unknown" {
   return record.value ? "on" : "off";
 }
 
+export function dcaSettingsReadout(effective: unknown): null | { label: "配置读回"; mode: "固定定投" | "智能定投" | "未核实"; amount: string } {
+  if (!effective || typeof effective !== "object" || Array.isArray(effective)) return null;
+  const record = effective as { dca_mode?: unknown; dca_base_investment_usd?: unknown };
+  if (!record.dca_mode && !record.dca_base_investment_usd) return null;
+  const mode = knownText(record.dca_mode);
+  const amount = knownText(record.dca_base_investment_usd);
+  const numeric = Number(amount);
+  return {
+    label: "配置读回",
+    mode: mode === "fixed" ? "固定定投" : mode === "smart" ? "智能定投" : "未核实",
+    amount: amount && Number.isFinite(numeric) && numeric > 0 ? amount : "未核实",
+  };
+}
+
+function knownText(field: unknown): string {
+  if (!field || typeof field !== "object" || Array.isArray(field)) return "";
+  const record = field as { status?: unknown; value?: unknown };
+  if (record.status !== "known" || typeof record.value !== "string") return "";
+  return record.value.trim();
+}
+
 export function reservedCashAmount(field: unknown): string | null {
   if (!field || typeof field !== "object" || Array.isArray(field)) return null;
   const record = field as { status?: unknown; value?: unknown };
