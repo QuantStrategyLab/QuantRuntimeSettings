@@ -25,12 +25,9 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "账户资产" | 
   { id: "cash", label: "现金" },
 ];
 
-export function OverviewPage({ accounts, decisions, decisionsBlocked, onOpenAccount, onOpenDecisions }: {
+export function OverviewPage({ accounts, onOpenAccount }: {
   accounts: OverviewAccount[];
-  decisions: number;
-  decisionsBlocked: boolean;
   onOpenAccount: (id: string) => void;
-  onOpenDecisions: () => void;
 }) {
   const t = useT();
   const [accountId, setAccountId] = useState("all");
@@ -39,9 +36,10 @@ export function OverviewPage({ accounts, decisions, decisionsBlocked, onOpenAcco
   const rangeNote = chartRangeNote(range);
   const visible = accountId === "all" ? accounts : accounts.filter(account => account.id === accountId);
   const figures = overviewFigures(accounts.length ? visible.length : null, visible.map(account => account.preference));
-  const showRail = decisions > 0;
   const optionLabel = (account: OverviewAccount) => accounts.filter(item => item.title === account.title).length > 1 ? `${account.title} · ${account.platform}` : account.title;
-  return <div className={`daily-page${showRail ? " with-rail" : ""}`}>
+  const healthText = (label: string) => label === "正常" || label === "异常" ? label : "待确认";
+  const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
+  return <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
       <h1>{t("账户总览")}</h1>
       <select className="account-filter" aria-label={t("全部账户")} value={accountId} onChange={event => setAccountId(event.target.value)}>
@@ -70,25 +68,16 @@ export function OverviewPage({ accounts, decisions, decisionsBlocked, onOpenAcco
       <div><span>{t("最大回撤")}</span><strong>—</strong></div>
       <div><span>{t("风险偏好")}</span><strong>{preferenceLabel(figures.riskPreference, t)}</strong></div>
     </section>
-    <section className="account-table-wrap overview-table">
+    <aside className="overview-accounts">
       <h2>{t("我的账户")}</h2>
-      <table className="daily-table">
-        <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("启用策略")}</th></tr></thead>
-        <tbody>
-          {visible.map(account => <tr key={account.id}>
-            <td className="account-identity"><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}><strong>{account.title}</strong></button><small>{account.platform}</small><small>{account.environment}</small></td>
-            <td>{account.strategy}</td>
-            <td>{account.statusLabel === "—" ? "—" : t(account.statusLabel)}</td>
-            <td>{account.activation === "—" ? "—" : t(account.activation)}</td>
-          </tr>)}
-        </tbody>
-      </table>
-    </section>
-    {showRail && <aside className="decision-rail">
-      <h2>{t("待办决策")}</h2>
-      <p>{decisions === 1 ? t("一项事项等待你的决定") : t("{count} 项事项等待你的决定", { count: decisions })}</p>
-      {decisionsBlocked && <p>{t("部分待办暂时无法读取")}</p>}
-      <button type="button" className="button button-primary" onClick={onOpenDecisions}>{t("查看建议")}</button>
-    </aside>}
+      <div className="overview-account-list">
+        {visible.map(account => <button key={account.id} type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
+          <strong>{account.platform} · {account.title}</strong>
+          <small>{account.strategy}</small>
+          <span className="overview-figures"><span><em>{t("账户资产")}</em>—</span><span><em>{t("收益率")}</em>—</span></span>
+          <span className="overview-marks"><span><em>{t("健康")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
+        </button>)}
+      </div>
+    </aside>
   </div>;
 }

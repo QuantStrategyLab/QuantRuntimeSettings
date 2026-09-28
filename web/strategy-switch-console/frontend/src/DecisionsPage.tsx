@@ -2,6 +2,12 @@ import { useState } from "react";
 import { useT } from "./locales";
 import { decisionActionState, unnamedDecisionOrdinal, type DailyDecision } from "./presentation";
 
+export function DecisionCount({ count }: { count: number }) {
+  const t = useT();
+  if (!(count > 0)) return null;
+  return <span className="count-badge" aria-label={t("{count} 项待办", { count })}>{count > 99 ? "99+" : String(count)}</span>;
+}
+
 function shown(value: string, t: (key: string) => string): string {
   return value === "未命名策略" || value === "当前策略" || value === "保持暂停" || value === "有限观察" || value === "待确认材料" || value === "确认材料" || value === "有限执行观察" || value === "恢复核对" ? t(value) : value;
 }
@@ -20,11 +26,10 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
   if (!items.length) {
-    return <section className="daily-page"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong>{blocked && <p>{t("部分待办暂时无法读取")}</p>}</div></section>;
+    return <section className="daily-page"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong></div></section>;
   }
   return <section className="daily-page decisions-page">
-    <div className="daily-heading"><h1>{t("待办决策")}</h1><span>{items.length}</span></div>
-    {blocked && <p className="section-note">{t("部分待办暂时无法读取")}</p>}
+    <div className="daily-heading"><h1>{t("待办决策")}</h1><DecisionCount count={items.length} /></div>
     <div className="decision-layout">
       <div className="decision-list">
         {items.map(item => <button key={item.id} type="button" className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>

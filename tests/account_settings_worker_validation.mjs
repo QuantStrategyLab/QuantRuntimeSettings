@@ -26,6 +26,80 @@ assert.deepEqual(__test.accountSettingsAuditChanges(observedAuditFields, savedAu
 assert.deepEqual(__test.accountSettingsAuditChanges(observedAuditFields, { ...savedAuditFields, risk: { preference: null } }, {
   risk_change: "clear",
 }), ["risk_cleared"]);
+assert.deepEqual(__test.accountSettingsAuditChanges({
+  draft: { overrides: { option_overlay_enabled: true, strategy_profile: "a", income_layer_enabled: false } },
+  risk: { preference: null },
+}, {
+  draft: { overrides: { option_overlay_enabled: false, strategy_profile: "b", income_layer_enabled: true } },
+  risk: { preference: null },
+}, { overrides: { option_overlay_enabled: false } }), ["option_draft"], "an option save does not take credit for a concurrent strategy or income change");
+assert.deepEqual(__test.accountSettingsAuditChanges({
+  draft: { overrides: { strategy_profile: "a", reserved_cash_floor: "1" } },
+  risk: { preference: null },
+}, {
+  draft: { overrides: { strategy_profile: "b", reserved_cash_floor: "2" } },
+  risk: { preference: null },
+}, { overrides: { strategy_profile: "b" } }), ["strategy_draft"]);
+const normalizedCatalog = __test.normalizeStrategyProfilesPayload([
+  { profile: "nasdaq_sp500_smart_dca", label: "dca", domain: "cn_equity", allowed_execution_modes: ["paper", "live"] },
+  { profile: "cn_ok", label: "ok", label_zh: "好", label_en: "OK", domain: "cn_equity", allowed_execution_modes: ["paper"], option_overlay_enabled: true },
+  { profile: "dry_only", label: "dry", domain: "cn_equity", allowed_execution_modes: ["dry_run"] },
+  { profile: "frozen_one", label: "frozen", domain: "cn_equity", allowed_execution_modes: ["live"], frozen: true },
+  { profile: "us_only", label: "us", domain: "us_equity", allowed_execution_modes: ["paper", "live"] },
+  { profile: "blank_modes", label: "blank", domain: "cn_equity", allowed_execution_modes: [] },
+  { profile: "missing_domain", label: "missing", allowed_execution_modes: ["paper", "live"] },
+  { profile: "forged_domain", label: "forged", domain_explicit: true, allowed_execution_modes: ["paper", "live"] },
+]);
+assert.equal(normalizedCatalog.find((item) => item.profile === "missing_domain").domain, "us_equity");
+assert.equal(normalizedCatalog.find((item) => item.profile === "missing_domain").domain_explicit, false);
+assert.equal(normalizedCatalog.find((item) => item.profile === "forged_domain").domain_explicit, false);
+assert.equal(Object.prototype.propertyIsEnumerable.call(normalizedCatalog.find((item) => item.profile === "cn_ok"), "domain_explicit"), false);
+assert.equal(normalizedCatalog.find((item) => item.profile === "cn_ok").domain_explicit, true);
+assert.equal(normalizedCatalog.find((item) => item.profile === "frozen_one").frozen, true);
+const draftChoices = __test.accountDraftStrategyChoices("qmt", { supported_domains: ["cn_equity"] }, normalizedCatalog);
+assert.deepEqual(draftChoices.map((item) => item.profile), ["cn_ok"]);
+assert.equal(draftChoices[0].option_overlay_enabled, true);
+assert.equal(Object.hasOwn(draftChoices[0], "allocations"), false);
+const explicitUsChoices = __test.accountDraftStrategyChoices("longbridge", { supported_domains: ["us_equity"] }, normalizedCatalog);
+assert.equal(explicitUsChoices.some((item) => item.profile === "us_only"), true);
+assert.equal(explicitUsChoices.some((item) => item.profile === "missing_domain" || item.profile === "forged_domain" || item.profile === "frozen_one"), false);
+const draftObserved = { platform: "longbridge", config: { supported_domains: ["us_equity"] }, draft: { overrides: {} } };
+const draftProfiles = __test.normalizeStrategyProfilesPayload([
+  { profile: "supported", label: "Supported", domain: "us_equity", allowed_execution_modes: ["paper"], option_overlay_enabled: true },
+  { profile: "plain", label: "Plain", domain: "us_equity", allowed_execution_modes: ["paper"], option_overlay_enabled: false },
+]);
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(draftProfiles, draftObserved, { strategy_profile: "supported" }, ""));
+assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, draftObserved, { strategy_profile: "missing" }, ""), /account_settings_strategy_rejected/);
+assert.throws(() => __test.assertAccountDraftPatch(__test.normalizeStrategyProfilesPayload([{ profile: "hk_paper", label: "HK", domain: "hk_equity", allowed_execution_modes: ["paper", "live"], option_overlay_enabled: true }]), draftObserved, { strategy_profile: "hk_paper" }, ""), /account_settings_strategy_rejected/);
+assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, draftObserved, { option_overlay_enabled: true }, ""), /account_settings_option_rejected/);
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { strategy_profile: "supported" } } }, { option_overlay_enabled: false }, ""));
+assert.throws(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { strategy_profile: "supported", option_overlay_enabled: false } } }, { strategy_profile: "plain" }, ""), /account_settings_option_strategy_conflict/);
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(draftProfiles, { ...draftObserved, draft: { overrides: { option_overlay_enabled: false } } }, { strategy_profile: "plain", option_overlay_enabled: null }, ""));
+const cryptoProfiles = __test.normalizeStrategyProfilesPayload([
+  { profile: "with_options", label: "With", domain: "crypto", allowed_execution_modes: ["paper", "live"], option_overlay_enabled: true },
+]);
+const qmtProfiles = __test.normalizeStrategyProfilesPayload([
+  { profile: "with_options", label: "With", domain: "cn_equity", allowed_execution_modes: ["paper", "live"], option_overlay_enabled: true },
+]);
+for (const [platform, profiles, config] of [
+  ["binance", cryptoProfiles, { supported_domains: ["crypto"] }],
+  ["qmt", qmtProfiles, { supported_domains: ["cn_equity"] }],
+]) {
+  const bound = { platform, config, draft: { status: "current", overrides: { strategy_profile: "with_options" } } };
+  assert.throws(() => __test.assertAccountDraftPatch(profiles, bound, { option_overlay_enabled: true }, ""), /account_settings_option_rejected/, platform);
+  assert.doesNotThrow(() => __test.assertAccountDraftPatch(profiles, { ...bound, draft: { status: "current", overrides: { strategy_profile: "with_options", option_overlay_enabled: true } } }, { option_overlay_enabled: null }, ""));
+}
+const conflictProfiles = __test.normalizeStrategyProfilesPayload([
+  { profile: "with_options", label: "With", domain: "us_equity", allowed_execution_modes: ["paper", "live"], option_overlay_enabled: true },
+  { profile: "plain", label: "Plain", domain: "us_equity", allowed_execution_modes: ["paper"], option_overlay_enabled: false },
+]);
+const conflictObserved = {
+  platform: "longbridge",
+  config: { supported_domains: ["us_equity"] },
+  draft: { status: "identity_conflict", overrides: { strategy_profile: "with_options", option_overlay_enabled: false } },
+};
+assert.throws(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { option_overlay_enabled: true }, "plain", { acknowledgeIdentityConflict: true }), /account_settings_option_rejected/);
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { strategy_profile: "with_options", option_overlay_enabled: true }, "plain", { acknowledgeIdentityConflict: true }));
 
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
@@ -324,10 +398,11 @@ const namedDraft = await call("/api/account-settings", {
     platform: "longbridge", key: "hk",
     expected_draft_revision: hkAfterSg.body.draft.revision,
     identity: hkAfterSg.body.identity,
-    overrides: { strategy_profile: "draft-only-profile" },
+    overrides: { strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve" },
   },
 });
 assert.equal(namedDraft.status, 200);
+assert.equal(namedDraft.body.adopted, false);
 const instanceBeforeIdentity = await call("/api/admin/runtime-instances");
 const identityChange = await call("/api/admin/runtime-instances", {
   method: "POST",
@@ -342,7 +417,7 @@ const identityChange = await call("/api/admin/runtime-instances", {
 assert.equal(identityChange.status, 200);
 const conflicted = await call("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(conflicted.body.draft.status, "identity_conflict");
-assert.equal(conflicted.body.draft.overrides.strategy_profile, "draft-only-profile");
+assert.equal(conflicted.body.draft.overrides.strategy_profile, "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
 assert.equal(conflicted.body.identity.broker_environment, "live");
 const staleIdentity = await call("/api/account-settings", {
   method: "POST",
@@ -357,10 +432,10 @@ assert.equal(staleIdentity.status, 409);
 assert.equal(staleIdentity.body.error, "account_settings_identity_conflict");
 const retained = await call("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(retained.body.draft.status, "identity_conflict");
-assert.equal(retained.body.draft.overrides.strategy_profile, "draft-only-profile");
+assert.equal(retained.body.draft.overrides.strategy_profile, "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
 const hkConfig = (await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "hk").config;
 assert.equal(hkConfig.default_strategy_profile, "russell_top50_leader_rotation");
-assert.equal(JSON.stringify(hkConfig).includes("draft-only-profile"), false);
+assert.equal(JSON.stringify(hkConfig).includes("soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve"), false);
 assert.equal(JSON.stringify(hkConfig).includes("should-not-apply"), false);
 
 const liveNamespace = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
@@ -412,7 +487,7 @@ let draftPending = worker.fetch(new Request("https://switch.example/api/account-
     platform: "longbridge", key: "sg",
     expected_draft_revision: draftRead.body.draft.revision,
     identity: draftRead.body.identity,
-    overrides: { strategy_profile: "raced-draft" },
+    overrides: { strategy_profile: "russell_top50_leader_rotation" },
   }),
 }), draftEnv);
 try {
@@ -440,7 +515,7 @@ try {
 }
 const sgAfterRace = await call("/api/account-settings?platform=longbridge&key=sg");
 assert.equal(sgAfterRace.body.draft.status, "empty");
-assert.equal(JSON.stringify(sgAfterRace.body.draft.overrides).includes("raced-draft"), false);
+assert.equal(sgAfterRace.body.draft.overrides.strategy_profile, undefined);
 
 const failingStore = new Map();
 const failingKv = {
@@ -599,7 +674,7 @@ const optionWrite = await call("/api/account-settings", {
     platform: "longbridge", key: "sg",
     expected_draft_revision: cashAccount.body.draft.revision,
     identity: cashAccount.body.identity,
-    overrides: { option_overlay_enabled: false },
+    overrides: { option_overlay_enabled: "yes" },
   },
 });
 assert.equal(optionWrite.status, 400);
@@ -882,6 +957,215 @@ const missedRead = await call("/api/account-settings?platform=longbridge&key=sg"
 assert.equal(missedRead.body.draft.overrides.income_layer_enabled, false);
 assert.equal(missedRead.body.draft.overrides.reserved_cash_ratio, "0.1");
 assert.equal((await accountAudit()).length, auditCountBeforeMiss);
+
+const catalogIds = missedRead.body.strategy_options.map((item) => item.profile);
+assert.equal(catalogIds.includes("global_etf_rotation"), false);
+assert.equal(catalogIds.some((id) => String(id).startsWith("hk_")), false);
+assert.equal(catalogIds.includes("russell_top50_leader_rotation"), true);
+assert.equal(missedRead.body.strategy_options.find((item) => item.profile === "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve").option_overlay_enabled, false);
+assert.equal(missedRead.body.operations.save_option_draft, false);
+assert.equal(missedRead.body.operations.activation, false);
+assert.equal(missedRead.body.adopted, false);
+const outboundBeforeStrategy = outbound;
+const unknownStrategy = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: missedRead.body.draft.revision,
+    identity: missedRead.body.identity,
+    overrides: { strategy_profile: "not_a_profile" },
+  },
+});
+assert.equal(unknownStrategy.status, 400);
+const crossMarket = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: missedRead.body.draft.revision,
+    identity: missedRead.body.identity,
+    overrides: { strategy_profile: "hk_global_etf_tactical_rotation" },
+  },
+});
+assert.equal(crossMarket.status, 400);
+assert.equal(outbound, outboundBeforeStrategy);
+const plainStrategy = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: missedRead.body.draft.revision,
+    identity: missedRead.body.identity,
+    overrides: { strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve" },
+  },
+});
+assert.equal(plainStrategy.status, 200);
+assert.equal(plainStrategy.body.adopted, false);
+assert.equal(plainStrategy.body.operations.apply_strategy, false);
+assert.equal(plainStrategy.body.operations.save_option_draft, false);
+assert.equal(plainStrategy.body.draft.overrides.strategy_profile, "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
+assert.equal(plainStrategy.body.draft.overrides.income_layer_enabled, false);
+assert.equal(plainStrategy.body.draft.overrides.reserved_cash_ratio, "0.1");
+assert.equal(plainStrategy.body.audit_logged, true);
+assert.deepEqual(plainStrategy.body.changes || (await accountAudit())[0].changes, ["strategy_draft"]);
+const rejectedOption = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: plainStrategy.body.draft.revision,
+    identity: plainStrategy.body.identity,
+    overrides: { option_overlay_enabled: true },
+  },
+});
+assert.equal(rejectedOption.status, 400);
+const supportingStrategy = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: plainStrategy.body.draft.revision,
+    identity: plainStrategy.body.identity,
+    overrides: { strategy_profile: "russell_top50_leader_rotation" },
+  },
+});
+assert.equal(supportingStrategy.status, 200);
+assert.equal(supportingStrategy.body.operations.save_option_draft, true);
+assert.equal(supportingStrategy.body.operations.save_option_draft_reason, "available");
+assert.equal(supportingStrategy.body.adopted, false);
+const optionDraft = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: supportingStrategy.body.draft.revision,
+    identity: supportingStrategy.body.identity,
+    overrides: { option_overlay_enabled: false },
+  },
+});
+assert.equal(optionDraft.status, 200);
+assert.equal(optionDraft.body.adopted, false);
+assert.equal(optionDraft.body.draft.overrides.option_overlay_enabled, false);
+assert.equal(optionDraft.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
+assert.equal(optionDraft.body.effective.option_overlay_enabled.status, "unknown");
+assert.equal(optionDraft.body.audit_logged, true);
+assert.deepEqual((await accountAudit())[0].changes, ["option_draft"]);
+const blockedSwitch = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: optionDraft.body.draft.revision,
+    identity: optionDraft.body.identity,
+    overrides: { strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve" },
+  },
+});
+assert.equal(blockedSwitch.status, 400);
+const stillCombined = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(stillCombined.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
+assert.equal(stillCombined.body.draft.overrides.option_overlay_enabled, false);
+const incomeKeepsOption = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: stillCombined.body.draft.revision,
+    identity: stillCombined.body.identity,
+    overrides: { income_layer_enabled: true },
+  },
+});
+assert.equal(incomeKeepsOption.status, 200);
+assert.equal(incomeKeepsOption.body.draft.overrides.income_layer_enabled, true);
+assert.equal(incomeKeepsOption.body.draft.overrides.option_overlay_enabled, false);
+assert.equal(incomeKeepsOption.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
+assert.deepEqual((await accountAudit())[0].changes, ["income_draft"]);
+const explicitClear = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: incomeKeepsOption.body.draft.revision,
+    identity: incomeKeepsOption.body.identity,
+    overrides: { strategy_profile: "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve", option_overlay_enabled: null },
+  },
+});
+assert.equal(explicitClear.status, 200);
+assert.equal(explicitClear.body.draft.overrides.strategy_profile, "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve");
+assert.equal(Object.hasOwn(explicitClear.body.draft.overrides, "option_overlay_enabled"), false);
+assert.equal(explicitClear.body.draft.overrides.income_layer_enabled, true);
+const staleOption = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: optionDraft.body.draft.revision,
+    identity: explicitClear.body.identity,
+    overrides: { option_overlay_enabled: null },
+  },
+});
+assert.equal(staleOption.status, 409);
+const viewerStrategy = await call("/api/account-settings", {
+  method: "POST",
+  cookie: viewerCookie,
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: explicitClear.body.draft.revision,
+    identity: explicitClear.body.identity,
+    overrides: { strategy_profile: "russell_top50_leader_rotation" },
+  },
+});
+assert.equal(viewerStrategy.status, 403);
+assert.equal(outbound, outboundBeforeStrategy);
+assert.equal((await call("/api/account-settings?platform=longbridge&key=sg")).body.effective.strategy_profile.status, "unknown");
+
+const supportedBeforeConflict = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: explicitClear.body.draft.revision,
+    identity: explicitClear.body.identity,
+    overrides: { strategy_profile: "russell_top50_leader_rotation" },
+  },
+});
+assert.equal(supportedBeforeConflict.status, 200);
+assert.equal(supportedBeforeConflict.body.operations.save_option_draft, true);
+const optionBeforeConflict = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: supportedBeforeConflict.body.draft.revision,
+    identity: supportedBeforeConflict.body.identity,
+    overrides: { option_overlay_enabled: true },
+  },
+});
+assert.equal(optionBeforeConflict.status, 200);
+assert.equal(optionBeforeConflict.body.draft.overrides.option_overlay_enabled, true);
+const instancesBeforeConflict = await call("/api/admin/runtime-instances");
+const flippedEnvironment = optionBeforeConflict.body.identity.broker_environment === "live" ? "paper" : "live";
+const identityFlip = await call("/api/admin/runtime-instances", {
+  method: "POST",
+  body: {
+    action: "set_broker_environment",
+    expected_revision: instancesBeforeConflict.body.revision,
+    platform: "longbridge",
+    key: "sg",
+    broker_environment: flippedEnvironment,
+  },
+});
+assert.equal(identityFlip.status, 200);
+const conflictedSettings = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(conflictedSettings.body.draft.status, "identity_conflict");
+assert.equal(conflictedSettings.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
+assert.equal(conflictedSettings.body.operations.save_option_draft, false);
+assert.equal(conflictedSettings.body.operations.activation, false);
+const optionOnlyAck = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: conflictedSettings.body.draft.revision,
+    identity: conflictedSettings.body.identity,
+    acknowledge_identity_conflict: true,
+    overrides: { option_overlay_enabled: true },
+  },
+});
+assert.equal(optionOnlyAck.status, 400);
+assert.equal(optionOnlyAck.body.error, "account_settings_option_rejected");
+const afterOptionReject = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(afterOptionReject.body.draft.revision, conflictedSettings.body.draft.revision);
+assert.equal(afterOptionReject.body.draft.status, "identity_conflict");
+assert.equal(afterOptionReject.body.draft.overrides.strategy_profile, "russell_top50_leader_rotation");
+assert.equal(afterOptionReject.body.draft.overrides.option_overlay_enabled, true);
 
 await mf.dispose();
 

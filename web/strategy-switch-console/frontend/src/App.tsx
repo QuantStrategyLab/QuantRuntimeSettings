@@ -7,9 +7,9 @@ import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAG
 import { applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
-import { DecisionsPage } from "./DecisionsPage";
+import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountIdentity, accountStatusView, activationFromProjection, brokerAccountType, changeAccountName, formatAccountIdentity, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, recentUserChanges, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision, type UserChange } from "./presentation";
+import { accountIdentity, accountStatusView, activationFromProjection, brokerAccountType, formatAccountIdentity, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -776,7 +776,7 @@ function App() {
     const hkStop = Boolean(selectedRow && selectedRow.platform === "longbridge" && (selectedRow.account.target_name || selectedRow.account.key) === "hk");
     const stopAllowed = Boolean(selectedRow && model?.session.allowed && !switchLocks.current.blocked(selectedRow.id) && !busy[`stop:${selectedRow.id}`] && (!hkStop || hkStopSubmitAllowed(stopRecords[selectedRow.id])));
     const stopLabel = !selectedRow ? "停用" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "停用";
-    const renderOverview = () => <OverviewPage accounts={overviewAccounts} decisions={decisions.items.length} decisionsBlocked={decisions.blocked} onOpenAccount={id => void requestPage("accounts", id)} onOpenDecisions={() => void requestPage("strategy")} />;
+    const renderOverview = () => <OverviewPage accounts={overviewAccounts} onOpenAccount={id => void requestPage("accounts", id)} />;
     const renderStrategy = () => {
         const applications = model?.promotions.value?.applications || [];
         const queue = applications.filter((item: any) => {
@@ -803,20 +803,7 @@ function App() {
         const name = strategyDisplayName(profile, language);
         return { name: name === "未命名策略" ? t(name) : name, note: strategyNote(profile, language) };
     }, [language, model?.config.value?.strategyProfiles]);
-    const refreshChangeLog = useCallback(() => {
-        if (!model?.session.admin) return;
-        void loadAdminModel().then(admin => setAdminModel(admin)).catch(() => { /* the setting stays saved; the change line can load on the next read */ });
-    }, [model?.session.admin]);
-    const recentChanges = recentUserChanges({ history: adminModel?.instances.value?.history, audit: adminModel?.config.value?.auditLog, applications: model?.promotions.value?.applications }, 1).map((item: UserChange) => {
-        if (!item.platform) return item;
-        const accounts = model?.config.value?.accountOptions?.[item.platform];
-        const account = Array.isArray(accounts) ? accounts.find(entry => entry.key === item.accountKey) || null : null;
-        const platformLabel = String(model?.config.value?.platformMeta?.[item.platform]?.label || item.platform);
-        const profile = typeof account?.default_strategy_profile === "string" ? account.default_strategy_profile : undefined;
-        const name = changeAccountName(account, platformLabel, strategyOccupiedNames(model?.config.value?.strategyProfiles || [], profile));
-        return { ...item, target: `${platformLabel} · ${name || t("账户")}` };
-    });
-    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} recentChanges={recentChanges} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onChangeLog={refreshChangeLog} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
+    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")
@@ -825,7 +812,7 @@ function App() {
         return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u63A7\u5236\u53F0")}</h1><p>{t("\u540C\u6E90\u4F1A\u8BDD\u670D\u52A1\u6682\u65F6\u4E0D\u53EF\u7528\u3002")}</p><button className="button button-primary" onClick={() => void refresh()} type="button">{t("\u91CD\u8BD5")}</button></main></LocaleContext.Provider>;
     return <LocaleContext.Provider value={language}><><div className="app-shell" inert={Boolean(confirmDialog)}>
     <header className="topbar"><button className="brand" type="button" onClick={() => void requestPage("overview")} aria-label={t("账户总览")}><QslIcon /><span><strong>QSL</strong><em>QuantStrategyLab</em></span>{model?.session.synthetic && <span className="synthetic-badge">{t("合成演示")}</span>}</button>
-      <nav className="primary-nav" aria-label={t("主导航")}>{NAV.map(item => <button key={item.id} className={page === item.id ? "active" : ""} aria-current={page === item.id ? "page" : undefined} onClick={() => void requestPage(item.id)} type="button">{t(item.label)}</button>)}</nav>
+      <nav className="primary-nav" aria-label={t("主导航")}>{NAV.map(item => <button key={item.id} className={page === item.id ? "active" : ""} aria-current={page === item.id ? "page" : undefined} onClick={() => void requestPage(item.id)} type="button">{t(item.label)}{item.id === "strategy" && <DecisionCount count={decisions.items.length} />}</button>)}</nav>
       <div className="top-controls"><button className="theme-button" type="button" aria-label={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} title={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} onClick={() => setTheme(nextExplicitTheme(resolvedTheme))}>{resolvedTheme === "dark" ? "☾" : "☀"}</button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu" ref={userMenuRef}><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div className="user-menu-panel"><strong className="user-menu-name">{model?.session.login || t("已登录")}</strong><button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
     </header>
     {errorMessage && <div className="global-notice" role="status"><span>{renderLocaleMessage(errorMessage,language)}</span><button type="button" onClick={() => setErrorMessage(null)} aria-label={t("\u5173\u95ED\u63D0\u793A")}>{t("\u5173\u95ED")}</button></div>}

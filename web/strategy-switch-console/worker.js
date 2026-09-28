@@ -304,7 +304,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
 const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor", "reserved_cash_ratio"];
+const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio"];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -3391,13 +3391,15 @@ async function saveRiskProfileBindings(request, env) {
   });
 }
 
-function accountSettingsOperations(admin) {
+function accountSettingsOperations(admin, optionSupported) {
   const allowed = Boolean(admin);
   return {
     save_draft: allowed,
     save_draft_reason: allowed ? "available" : "admin_required",
     save_risk_preference: allowed,
     save_risk_preference_reason: allowed ? "available" : "admin_required",
+    save_option_draft: allowed && optionSupported === true,
+    save_option_draft_reason: !allowed ? "admin_required" : optionSupported === true ? "available" : "option_overlay_not_defined",
     apply_strategy: false,
     activation: false,
     reason: "strategy_application_not_connected",
@@ -3406,7 +3408,8 @@ function accountSettingsOperations(admin) {
   };
 }
 
-function accountSettingsPayload(observed, effective, admin) {
+function accountSettingsPayload(observed, effective, admin, extras = {}) {
+  const optionSupported = extras.pendingStrategy ? extras.pendingOptionSupported === true : extras.currentOptionSupported === true;
   return {
     ok: true,
     platform: observed.platform,
@@ -3415,12 +3418,14 @@ function accountSettingsPayload(observed, effective, admin) {
     identity: observed.identity,
     effective,
     draft: observed.draft,
+    strategy_options: Array.isArray(extras.strategyOptions) ? extras.strategyOptions : [],
+    current_option_supported: extras.currentOptionSupported === true,
     risk: {
       revision: observed.risk.revision,
       scope_id: observed.risk.scope_id,
       preference: observed.risk.preference,
     },
-    operations: accountSettingsOperations(admin),
+    operations: accountSettingsOperations(admin, optionSupported),
     adopted: false,
     no_order: true,
     execution_authority_granted: false,
@@ -3443,7 +3448,99 @@ async function accountSettingsResponse(request, env) {
     const status = error instanceof HttpError ? error.status : 503;
     return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
   }
-  return json(accountSettingsPayload(observed, await effectiveAccountSettings(env, observed), session.admin));
+  return json(await presentAccountSettings(env, observed, session.admin));
+}
+
+async function presentAccountSettings(env, observed, admin) {
+  const effective = await effectiveAccountSettings(env, observed);
+  const profiles = await loadAccountDraftProfiles(env);
+  const strategyOptions = profiles ? accountDraftStrategyChoices(observed.platform, observed.config, profiles) : [];
+  const conflict = observed.draft?.status === "identity_conflict";
+  const pending = !conflict && typeof observed.draft?.overrides?.strategy_profile === "string" ? observed.draft.overrides.strategy_profile : "";
+  const trusted = effective.strategy_profile?.status === "known" && typeof effective.strategy_profile.value === "string" ? effective.strategy_profile.value : "";
+  return accountSettingsPayload(observed, effective, admin, {
+    strategyOptions,
+    pendingStrategy: Boolean(pending),
+    pendingOptionSupported: Boolean(pending) && optionOverlayDraftAllowed(observed.platform, profiles, pending),
+    currentOptionSupported: Boolean(trusted) && optionOverlayDraftAllowed(observed.platform, profiles, trusted),
+  });
+}
+
+async function loadAccountDraftProfiles(env) {
+  try {
+    return await loadStrategyProfilesConfig(env);
+  } catch {
+    return null;
+  }
+}
+
+function profileDefinesOptionOverlay(profiles, profileId) {
+  if (!Array.isArray(profiles) || typeof profileId !== "string" || !profileId) return false;
+  const found = profiles.find((item) => item?.profile === profileId);
+  return found?.option_overlay_enabled === true;
+}
+
+function optionOverlayDraftAllowed(platform, profiles, profileId) {
+  return PLATFORM_CONFIG[platform]?.option_overlay === true && profileDefinesOptionOverlay(profiles, profileId);
+}
+
+function accountDraftStrategyChoices(platform, accountOption, profiles) {
+  if (!Array.isArray(profiles)) return [];
+  let domains = [];
+  try {
+    domains = supportedDomainsForAccount(platform, accountOption || {});
+  } catch {
+    return [];
+  }
+  const choices = [];
+  for (const profile of profiles) {
+    if (!profile || typeof profile.profile !== "string" || !profile.profile) continue;
+    if (profile.domain_explicit !== true || profile.lifecycle_stage === "frozen" || profile.frozen === true) continue;
+    if (!profile.domain || !domains.includes(profile.domain)) continue;
+    const modes = Array.isArray(profile.allowed_execution_modes) ? profile.allowed_execution_modes : [];
+    if (!modes.some((mode) => mode === "paper" || mode === "live")) continue;
+    try {
+      assertDcaPlatform(platform, profile.profile);
+    } catch {
+      continue;
+    }
+    choices.push({
+      profile: profile.profile,
+      label: profile.label || profile.profile,
+      label_zh: profile.label_zh || profile.label || profile.profile,
+      label_en: profile.label_en || profile.label || profile.profile,
+      domain: profile.domain,
+      option_overlay_enabled: profile.option_overlay_enabled === true,
+    });
+  }
+  return choices;
+}
+
+function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, options = {}) {
+  if (!patch || Array.isArray(patch) || typeof patch !== "object") throw new HttpError("invalid_account_setting_overrides", 400);
+  const choices = profiles ? accountDraftStrategyChoices(observed.platform, observed.config, profiles) : [];
+  const rebuilding = observed.draft?.status === "identity_conflict" && options.acknowledgeIdentityConflict === true;
+  const stored = observed.draft?.overrides && typeof observed.draft.overrides === "object" && !Array.isArray(observed.draft.overrides) ? observed.draft.overrides : {};
+  const current = rebuilding ? {} : stored;
+  const touchesStrategy = Object.prototype.hasOwnProperty.call(patch, "strategy_profile");
+  const touchesOption = Object.prototype.hasOwnProperty.call(patch, "option_overlay_enabled");
+  if (touchesStrategy && patch.strategy_profile !== null) {
+    if (typeof patch.strategy_profile !== "string" || !choices.some((item) => item.profile === patch.strategy_profile)) {
+      throw new HttpError("account_settings_strategy_rejected", 400);
+    }
+  }
+  if (!touchesStrategy && !touchesOption) return;
+  const bound = touchesStrategy
+    ? patch.strategy_profile || trustedProfile || ""
+    : (typeof current.strategy_profile === "string" && current.strategy_profile ? current.strategy_profile : trustedProfile || "");
+  const supports = optionOverlayDraftAllowed(observed.platform, profiles, bound);
+  if (touchesOption && patch.option_overlay_enabled !== null && (typeof patch.option_overlay_enabled !== "boolean" || !supports)) {
+    throw new HttpError("account_settings_option_rejected", 400);
+  }
+  const nextOption = touchesOption
+    ? patch.option_overlay_enabled
+    : (Object.prototype.hasOwnProperty.call(current, "option_overlay_enabled") ? current.option_overlay_enabled : undefined);
+  if ((nextOption === true || nextOption === false) && !supports) throw new HttpError("account_settings_option_strategy_conflict", 400);
 }
 
 async function saveAccountSettings(request, env) {
@@ -3481,6 +3578,15 @@ async function saveAccountSettings(request, env) {
     command.overrides = raw.overrides;
     command.expected_draft_revision = observed.draft.revision;
     if (raw.acknowledge_identity_conflict === true) command.acknowledge_identity_conflict = true;
+    const profiles = await loadAccountDraftProfiles(env);
+    const beforeEffective = await effectiveAccountSettings(env, observed);
+    const trusted = beforeEffective.strategy_profile?.status === "known" && typeof beforeEffective.strategy_profile.value === "string" ? beforeEffective.strategy_profile.value : "";
+    try {
+      assertAccountDraftPatch(profiles, observed, raw.overrides, trusted, { acknowledgeIdentityConflict: raw.acknowledge_identity_conflict === true });
+    } catch (error) {
+      const status = error instanceof HttpError ? error.status : 400;
+      return json({ ok: false, error: error instanceof HttpError ? error.message : "invalid_account_setting_overrides", no_order: true, execution_authority_granted: false }, status);
+    }
   }
   if (wantsRisk) {
     if (!Number.isSafeInteger(raw.expected_risk_revision)) return json({ ok: false, error: "risk_profile_revision_required" }, 400);
@@ -3529,14 +3635,16 @@ async function saveAccountSettings(request, env) {
       key,
       changes,
     };
-    if (changes.includes("cash_draft") || changes.includes("income_draft")) entry.draft_revision = saved.draft.revision;
+    if (changes.some((kind) => kind === "cash_draft" || kind === "income_draft" || kind === "option_draft" || kind === "strategy_draft")) entry.draft_revision = saved.draft.revision;
     if (changes.includes("risk_saved") || changes.includes("risk_cleared")) entry.risk_revision = saved.risk.revision;
     try {
       await appendAuditLog(env, entry);
       auditLogged = true;
     } catch { /* the setting is already stored; a missed audit line must not be saved again */ }
   }
-  return json({ ...accountSettingsPayload(saved, await effectiveAccountSettings(env, saved), true), audit_logged: auditLogged });
+  const presented = await presentAccountSettings(env, saved, true);
+  presented.audit_logged = auditLogged;
+  return json(presented);
 }
 
 function accountSettingsAuditChanges(before, after, requested) {
@@ -3548,6 +3656,8 @@ function accountSettingsAuditChanges(before, after, requested) {
   const asked = (name) => Object.prototype.hasOwnProperty.call(patch, name);
   if (["reserved_cash_floor", "reserved_cash_ratio"].some(asked) && ["reserved_cash_floor", "reserved_cash_ratio"].some((name) => stored(left, name) !== stored(right, name))) changes.push("cash_draft");
   if (asked("income_layer_enabled") && stored(left, "income_layer_enabled") !== stored(right, "income_layer_enabled")) changes.push("income_draft");
+  if (asked("option_overlay_enabled") && stored(left, "option_overlay_enabled") !== stored(right, "option_overlay_enabled")) changes.push("option_draft");
+  if (asked("strategy_profile") && stored(left, "strategy_profile") !== stored(right, "strategy_profile")) changes.push("strategy_draft");
   const beforePreference = before?.risk?.preference || null;
   const afterPreference = after?.risk?.preference || null;
   if ((requested?.risk_change === "set" || requested?.risk_change === "clear") && beforePreference !== afterPreference) changes.push(afterPreference ? "risk_saved" : "risk_cleared");
@@ -11511,7 +11621,10 @@ function normalizeStrategyProfilesPayload(payload, fieldName = "strategy profile
       item.label_zh || item.display_name_zh,
       cleanLabel,
     );
-    entry.domain = cleanStrategyDomain(item.domain || "us_equity", `${fieldName}[${index}].domain`);
+    const rawDomain = typeof item.domain === "string" ? item.domain.trim() : "";
+    entry.domain = cleanStrategyDomain(rawDomain || "us_equity", `${fieldName}[${index}].domain`);
+    Object.defineProperty(entry, "domain_explicit", { value: rawDomain !== "", enumerable: false });
+    if (item.frozen === true) entry.frozen = true;
     const sourceLifecycleStage = item.lifecycle_stage || item.lifecycleStage;
     const canSwitchLive = cleanOptionalBoolean(item.can_switch_live);
     if (canSwitchLive !== null) entry.can_switch_live = canSwitchLive;
@@ -12841,7 +12954,7 @@ function applyAccountSettingOverrides(current, patch) {
       continue;
     }
     if (typeof value === "number") throw new HttpError("invalid_account_setting_overrides", 400);
-    if (key === "income_layer_enabled") {
+    if (key === "income_layer_enabled" || key === "option_overlay_enabled") {
       if (typeof value !== "boolean") throw new HttpError("invalid_account_setting_overrides", 400);
       next[key] = value;
     } else if (key === "reserved_cash_floor") {
@@ -13157,6 +13270,8 @@ function escapeHtml(value) {
 
 export const __test = {
   accountSettingsAuditChanges,
+  accountDraftStrategyChoices,
+  assertAccountDraftPatch,
   buildRiskEnvelopeView,
   attachRiskEnvelopeView,
   normalizeResearchPromotionTicket,
