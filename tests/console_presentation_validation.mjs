@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, chartRangeNote, chartUnavailable, decisionActionState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, overviewFigures, paperApplicationAccounts, paperApplicationReady, preferenceDirty, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, overviewFigures, paperApplicationAccounts, paperApplicationReady, preferenceDirty, readOnlyLayerState, reservedCashAmount, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -104,6 +104,17 @@ assert.equal(preferenceDirty(false, ""), false);
 assert.equal(preferenceDirty(0, ""), false);
 assert.equal(preferenceDirty("CAPITAL_PRESERVATION", "CAPITAL_PRESERVATION"), false);
 assert.equal(preferenceDirty("CAPITAL_PRESERVATION", "GROWTH_COMPOUNDING"), true);
+assert.equal(cashDraftDirty({ floorTouched: false, clearFloor: false }), false);
+assert.equal(cashDraftDirty({ floorTouched: true, clearFloor: false }), true);
+assert.equal(cashDraftDirty({ floorTouched: false, clearFloor: true }), true);
+assert.equal(readOnlyLayerState(undefined), "unknown");
+assert.equal(readOnlyLayerState({ status: "unknown" }), "unknown");
+assert.equal(readOnlyLayerState({ status: "known", value: false }), "off");
+assert.equal(readOnlyLayerState({ status: "known", value: true }), "on");
+assert.equal(readOnlyLayerState(false), "unknown");
+assert.equal(reservedCashAmount({ status: "unknown" }), null);
+assert.equal(reservedCashAmount({ status: "known", value: "0" }), "0");
+assert.equal(reservedCashAmount({ status: "known", value: "0.10" }), "0.10");
 
 const ready = (value) => ({ error: null, value: { data_status: "ready", ...value } });
 const blocked = listDailyDecisions({ language: "zh", profiles: [], promotions: { error: new Error("down") }, owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] });

@@ -406,7 +406,7 @@ function App() {
     };
     const discardUnsaved = async () => {
         if (!settingsDirty.current) return true;
-        const accepted = await confirmAction({ title: t("放弃未保存的风险偏好？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的风险偏好会丢弃。"), consequence: t("未保存的风险偏好会丢弃。"), tone: "normal" });
+        const accepted = await confirmAction({ title: t("放弃未保存的修改？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的预留现金和风险偏好会丢弃。"), consequence: t("未保存的预留现金和风险偏好会丢弃。"), tone: "normal" });
         if (!accepted) return false;
         settingsDirty.current = false;
         setSettingsEpoch(value => value + 1);
@@ -788,7 +788,7 @@ function App() {
     const selectedRow = rows.find(row => row.id === selectedAccount?.id) || null;
     const hkStop = Boolean(selectedRow && selectedRow.platform === "longbridge" && (selectedRow.account.target_name || selectedRow.account.key) === "hk");
     const stopAllowed = Boolean(selectedRow && model?.session.allowed && !switchLocks.current.blocked(selectedRow.id) && !busy[`stop:${selectedRow.id}`] && (!hkStop || hkStopSubmitAllowed(stopRecords[selectedRow.id])));
-    const stopLabel = !selectedRow ? "提交停用请求" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "提交停用请求";
+    const stopLabel = !selectedRow ? "停用" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "停用";
     const renderOverview = () => <OverviewPage accounts={overviewAccounts} decisions={decisions.items.length} decisionsBlocked={decisions.blocked} onOpenAccount={id => void requestPage("accounts", id)} onOpenDecisions={() => void requestPage("strategy")} />;
     const renderStrategy = () => <DecisionsPage blocked={decisions.blocked} items={decisions.items} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />;
     const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} admin={Boolean(model?.session.admin)} settingsEpoch={settingsEpoch} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} />;

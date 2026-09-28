@@ -12805,6 +12805,11 @@ function applyAccountSettingOverrides(current, patch) {
     if (key === "income_layer_enabled") {
       if (typeof value !== "boolean") throw new HttpError("invalid_account_setting_overrides", 400);
       next[key] = value;
+    } else if (key === "reserved_cash_floor") {
+      if (typeof value !== "string" || value.length > 32 || !/^\d+(?:\.\d+)?$/.test(value) || !Number.isFinite(Number(value))) {
+        throw new HttpError("invalid_account_setting_overrides", 400);
+      }
+      next[key] = value;
     } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
       throw new HttpError("invalid_account_setting_overrides", 400);
     } else {
@@ -12853,6 +12858,7 @@ async function effectiveAccountSettings(env, observed) {
     strategy_profile: { status: "unknown" },
     broker_environment: broker,
     income_layer_enabled: { status: "unknown" },
+    option_overlay_enabled: { status: "unknown" },
     reserved_cash_floor: { status: "unknown" },
   };
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
@@ -12883,6 +12889,7 @@ async function effectiveAccountSettings(env, observed) {
     effective.strategy_profile = { status: "known", value: current.strategy_profile };
   }
   if (typeof current.income_layer_enabled === "boolean") effective.income_layer_enabled = { status: "known", value: current.income_layer_enabled };
+  if (typeof current.option_overlay_enabled === "boolean") effective.option_overlay_enabled = { status: "known", value: current.option_overlay_enabled };
   if (typeof current.min_reserved_cash_usd === "string" && current.min_reserved_cash_usd) {
     effective.reserved_cash_floor = { status: "known", value: current.min_reserved_cash_usd };
   }
