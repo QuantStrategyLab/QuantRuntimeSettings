@@ -304,7 +304,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
 const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor"];
+const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor", "reserved_cash_ratio"];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -581,15 +581,8 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
-      if (url.pathname === "/" || url.pathname === "/admin") {
+      if (url.pathname === "/") {
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
-        if (url.pathname === "/admin") {
-          const session = await requireAdminSession(request, env);
-          if (session instanceof Response) {
-            if (request.method === "HEAD") return new Response(null, { status: session.status, headers: session.headers });
-            return session;
-          }
-        }
         const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
         return new Response(request.method === "HEAD" ? null : V2_PAGE_HTML, { status: 200, headers });
       }
@@ -3399,12 +3392,17 @@ async function saveRiskProfileBindings(request, env) {
 }
 
 function accountSettingsOperations(admin) {
+  const allowed = Boolean(admin);
   return {
-    save_draft: Boolean(admin),
-    save_risk_preference: Boolean(admin),
+    save_draft: allowed,
+    save_draft_reason: allowed ? "available" : "admin_required",
+    save_risk_preference: allowed,
+    save_risk_preference_reason: allowed ? "available" : "admin_required",
     apply_strategy: false,
     activation: false,
     reason: "strategy_application_not_connected",
+    apply_strategy_reason: "strategy_application_not_connected",
+    activation_reason: "strategy_application_not_connected",
   };
 }
 
@@ -3520,7 +3518,40 @@ async function saveAccountSettings(request, env) {
       bindings: saved.bindings,
     });
   }
-  return json(accountSettingsPayload(saved, await effectiveAccountSettings(env, saved), true));
+  const changes = accountSettingsAuditChanges(observed, saved, command);
+  let auditLogged = false;
+  if (changes.length && hasConfigStore(env)) {
+    const entry = {
+      ts: new Date().toISOString(),
+      login: session.login,
+      action: "save_account_settings",
+      platform,
+      key,
+      changes,
+    };
+    if (changes.includes("cash_draft") || changes.includes("income_draft")) entry.draft_revision = saved.draft.revision;
+    if (changes.includes("risk_saved") || changes.includes("risk_cleared")) entry.risk_revision = saved.risk.revision;
+    try {
+      await appendAuditLog(env, entry);
+      auditLogged = true;
+    } catch { /* the setting is already stored; a missed audit line must not be saved again */ }
+  }
+  return json({ ...accountSettingsPayload(saved, await effectiveAccountSettings(env, saved), true), audit_logged: auditLogged });
+}
+
+function accountSettingsAuditChanges(before, after, requested) {
+  const changes = [];
+  const left = before?.draft?.overrides && typeof before.draft.overrides === "object" && !Array.isArray(before.draft.overrides) ? before.draft.overrides : {};
+  const right = after?.draft?.overrides && typeof after.draft.overrides === "object" && !Array.isArray(after.draft.overrides) ? after.draft.overrides : {};
+  const patch = requested?.overrides && typeof requested.overrides === "object" && !Array.isArray(requested.overrides) ? requested.overrides : {};
+  const stored = (record, name) => Object.prototype.hasOwnProperty.call(record, name) ? record[name] : undefined;
+  const asked = (name) => Object.prototype.hasOwnProperty.call(patch, name);
+  if (["reserved_cash_floor", "reserved_cash_ratio"].some(asked) && ["reserved_cash_floor", "reserved_cash_ratio"].some((name) => stored(left, name) !== stored(right, name))) changes.push("cash_draft");
+  if (asked("income_layer_enabled") && stored(left, "income_layer_enabled") !== stored(right, "income_layer_enabled")) changes.push("income_draft");
+  const beforePreference = before?.risk?.preference || null;
+  const afterPreference = after?.risk?.preference || null;
+  if ((requested?.risk_change === "set" || requested?.risk_change === "clear") && beforePreference !== afterPreference) changes.push(afterPreference ? "risk_saved" : "risk_cleared");
+  return changes;
 }
 
 async function requireAdminSession(request, env) {
@@ -12791,6 +12822,14 @@ function accountSettingsIdentity(instance) {
   };
 }
 
+function accountSettingRatio(value) {
+  if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
+  const [whole, frac = ""] = value.split(".");
+  if (whole === "0") return value;
+  if (whole === "1" && (frac === "" || /^0+$/.test(frac))) return value;
+  return null;
+}
+
 function applyAccountSettingOverrides(current, patch) {
   if (!patch || Array.isArray(patch) || typeof patch !== "object") throw new HttpError("invalid_account_setting_overrides", 400);
   const next = current && typeof current === "object" && !Array.isArray(current) ? { ...current } : {};
@@ -12810,6 +12849,10 @@ function applyAccountSettingOverrides(current, patch) {
         throw new HttpError("invalid_account_setting_overrides", 400);
       }
       next[key] = value;
+    } else if (key === "reserved_cash_ratio") {
+      const ratio = accountSettingRatio(value);
+      if (ratio === null) throw new HttpError("invalid_account_setting_overrides", 400);
+      next[key] = ratio;
     } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
       throw new HttpError("invalid_account_setting_overrides", 400);
     } else {
@@ -12860,6 +12903,7 @@ async function effectiveAccountSettings(env, observed) {
     income_layer_enabled: { status: "unknown" },
     option_overlay_enabled: { status: "unknown" },
     reserved_cash_floor: { status: "unknown" },
+    reserved_cash_ratio: { status: "unknown" },
   };
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
   const repository = platformRepositories(env)?.[observed.platform];
@@ -12892,6 +12936,10 @@ async function effectiveAccountSettings(env, observed) {
   if (typeof current.option_overlay_enabled === "boolean") effective.option_overlay_enabled = { status: "known", value: current.option_overlay_enabled };
   if (typeof current.min_reserved_cash_usd === "string" && current.min_reserved_cash_usd) {
     effective.reserved_cash_floor = { status: "known", value: current.min_reserved_cash_usd };
+  }
+  if (typeof current.reserved_cash_ratio === "string") {
+    const ratio = cleanCurrentRatio(current.reserved_cash_ratio);
+    if (ratio) effective.reserved_cash_ratio = { status: "known", value: ratio };
   }
   return effective;
 }
@@ -13108,6 +13156,7 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  accountSettingsAuditChanges,
   buildRiskEnvelopeView,
   attachRiskEnvelopeView,
   normalizeResearchPromotionTicket,

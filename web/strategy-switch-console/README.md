@@ -121,7 +121,7 @@ The login entrypoint is `/login` on the Worker domain. The page header keeps a s
 }
 ```
 
-`admin=true` means the login or one of its GitHub organizations is listed in `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, or the KV-backed admin config. Open `/admin` to manage allowed GitHub logins, organizations, and account dropdown routes; non-admin users receive 403.
+`admin=true` means the login or one of its GitHub organizations is listed in `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, or the KV-backed admin config. The console has no `/admin` page; that address returns the same 404 as any other unknown page. Login lists, organizations, and account routes stay in those variables and KV.
 
 Account options may include `broker_environment: "live"` or `"paper"`. A missing value remains unknown for backward compatibility and cannot be selected for a new research promotion acceptance. `broker_environment` describes the broker account environment; `default_execution_mode` still describes the adapter mode (`live` or `dry_run`). LongBridge supports an explicit paper broker account with a live adapter, while IBKR is currently live-only. These candidate selections record research intent and do not activate an adapter.
 
@@ -140,11 +140,11 @@ audit_log
 private_binance_scope_report
 ```
 
-Without the KV binding, `/admin` is read-only and the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`.
+Without the KV binding, the Worker falls back to `ALLOWED_GITHUB_LOGINS`, `ALLOWED_GITHUB_ORGS`, `STRATEGY_SWITCH_ADMIN_LOGINS`, `STRATEGY_SWITCH_ADMIN_ORGS`, and `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`. The console does not edit those values.
 
 ## Portfolio Risk Preference (non-executable intent)
 
-Administrators can select Capital Preservation, Balanced Compounding, or Growth Compounding for a configured platform target in `/admin`. Same-origin, admin-only `GET` / `POST /api/risk-profiles` stores a self-validating `qsl.risk_profile_binding.v1` record under `risk_profile_bindings`; its portable selection is exactly `qsl.risk_profile_selection.v1`, the contract used by the core risk composer.
+Administrators select Capital Preservation, Balanced Compounding, or Growth Compounding for a configured platform target on the account settings page. Same-origin, admin-only `GET` / `POST /api/risk-profiles` stores a self-validating `qsl.risk_profile_binding.v1` record under `risk_profile_bindings`; its portable selection is exactly `qsl.risk_profile_selection.v1`, the contract used by the core risk composer.
 
 **Dual-scale clarification**: the same preference name carries two non-interchangeable numbers — Composer unlevered-benchmark MDD ceilings are `CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50; promotion `promotion_sizing` position scales are 0.50 / 0.75 / 1.00 and apply only to new promotions or material changes, never to recompute an existing live book, and never mean “position × 1.5”. This page stores preference intent only; it does not write production policy or weaken RiskEngine.
 
@@ -193,7 +193,7 @@ cd web/strategy-switch-console
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
-After `STRATEGY_SWITCH_CONFIG` is bound, admins can also edit and save the same account JSON from `/admin`. KV takes precedence over the secret; the secret remains a fallback.
+After `STRATEGY_SWITCH_CONFIG` is bound, KV account config takes precedence over the secret; the secret remains a fallback. The console does not edit that JSON.
 
 Each account item supports:
 
@@ -298,7 +298,7 @@ QuantPlatformKit must send the same value as `RESEARCH_PROMOTION_SYNC_TOKEN`, wi
 `RESEARCH_PROMOTION_SYNC_URL` pointing at the sync endpoint (pull URL is derived from it).
 Soft-sync never grants live authority; accept/reject on this console only records operator intent.
 
-Create and bind KV if you want `/admin` to save changes:
+Create and bind KV so account settings and audit records can be stored:
 
 ```bash
 wrangler kv namespace create STRATEGY_SWITCH_CONFIG

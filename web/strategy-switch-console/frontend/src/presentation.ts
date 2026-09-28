@@ -27,8 +27,9 @@ export function overviewFigures(accountCount: number | null, preferences: Array<
   };
 }
 
-export function chartUnavailable(mode: ChartMode): "收益数据积累中" | "资产数据暂不可用" {
-  return mode === "return" ? "收益数据积累中" : "资产数据暂不可用";
+export function chartUnavailable(mode: ChartMode): "尚无可用资产记录" {
+  if (mode !== "return" && mode !== "assets" && mode !== "cash") return "尚无可用资产记录";
+  return "尚无可用资产记录";
 }
 
 export type ChartRange = "3m" | "6m" | "1y" | "3y" | "5y" | "10y" | "all";
@@ -235,6 +236,123 @@ export function environmentEditState(baseline: string, local: string, server: st
   return { value: local, conflict: server !== baseline };
 }
 
+export function brokerAccountType(value: unknown): "模拟交易账户" | "真实交易账户" | "账户类型待确认" {
+  if (value === "paper") return "模拟交易账户";
+  if (value === "live") return "真实交易账户";
+  return "账户类型待确认";
+}
+
+export function adminDirectoryTitle(account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, occupiedNames: string[] = []): string {
+  const identity = accountIdentity(account, platformLabel, "", occupiedNames);
+  const platform = identity.platform;
+  const name = identity.kind === "masked" ? identity.tail : identity.kind === "nickname" ? identity.text : identity.kind === "alias" ? identity.alias : "";
+  if (!name || name === "账户" || name === "Account") return platform;
+  return platform ? `${platform} · ${name}` : name;
+}
+
+export type UserChange = { at: number; actor: string; action: string; actions?: string[]; target: string; platform?: string; accountKey?: string };
+
+const ACCOUNT_SETTING_CHANGE_LABELS: Record<string, string> = {
+  cash_draft: "现金草案已保存",
+  income_draft: "收入层草案已保存",
+  risk_saved: "风险偏好已保存",
+  risk_cleared: "风险偏好已清除",
+};
+
+const USER_CHANGE_ACTIONS: Record<string, string> = {
+  create: "新增了账户资料",
+  edit: "更新了账户资料",
+  request_retirement: "提交了退役申请",
+  set_broker_environment: "更新了账户类型标记",
+  initialize: "导入了账户配置",
+  save_config: "更新了访问设置",
+  save_risk_profile_bindings: "保存了风险偏好",
+};
+
+function changeTimestamp(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function recordTarget(record: Record<string, unknown>): string {
+  const nested = [record.after, record.before].find(item => item && typeof item === "object" && !Array.isArray(item)) as Record<string, unknown> | undefined;
+  const source = nested || record;
+  const platform = typeof source.platform === "string" ? source.platform : "";
+  const key = typeof source.key === "string" ? source.key : "";
+  if (platform && key) return `${platform} · ${key}`;
+  if (typeof record.target === "string" && record.target.trim()) return record.target.trim();
+  return "账户资料";
+}
+
+function savedApplicationChange(item: unknown): UserChange | null {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+  const ticket = item as Record<string, unknown>;
+  const saved = ticket.application;
+  if (!saved || typeof saved !== "object" || Array.isArray(saved)) return null;
+  const application = saved as Record<string, unknown>;
+  const at = changeTimestamp(application.updated_at ?? application.created_at ?? application.ts);
+  if (at === null) return null;
+  const actor = typeof application.login === "string" && application.login.trim() ? application.login : typeof application.actor === "string" && application.actor.trim() ? application.actor : "未知操作者";
+  const ticketId = typeof ticket.ticket_id === "string" && ticket.ticket_id.trim() ? ticket.ticket_id : "申请";
+  return { at, actor, action: "变更记录", target: ticketId };
+}
+
+export function recentUserChanges(sources: { history?: unknown; audit?: unknown; applications?: unknown }, limit = 5): UserChange[] {
+  const rows: UserChange[] = [];
+  const take = (list: unknown, kind: "history" | "audit") => {
+    if (!Array.isArray(list)) return;
+    for (const item of list) {
+      if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+      const record = item as Record<string, unknown>;
+      const action = typeof record.action === "string" ? record.action : "";
+      if (!action || action.startsWith("sync_")) continue;
+      const at = changeTimestamp(record.ts ?? record.updated_at);
+      if (at === null) continue;
+      const actor = typeof record.login === "string" && record.login.trim() ? record.login : "未知操作者";
+      const settingActions = action === "save_account_settings" && Array.isArray(record.changes)
+        ? record.changes.map(item => ACCOUNT_SETTING_CHANGE_LABELS[String(item)]).filter((item): item is string => Boolean(item))
+        : [];
+      rows.push({
+        at,
+        actor,
+        action: settingActions[0] || USER_CHANGE_ACTIONS[action] || "设置已更新",
+        actions: settingActions.length ? settingActions : undefined,
+        target: settingActions.length ? "账户" : kind === "audit" && action === "save_config" ? "访问设置" : recordTarget(record),
+        platform: settingActions.length && typeof record.platform === "string" ? record.platform : undefined,
+        accountKey: settingActions.length && typeof record.key === "string" ? record.key : undefined,
+      });
+    }
+  };
+  take(sources.history, "history");
+  take(sources.audit, "audit");
+  if (Array.isArray(sources.applications)) {
+    for (const item of sources.applications) {
+      const change = savedApplicationChange(item);
+      if (change) rows.push(change);
+    }
+  }
+  return rows.sort((left, right) => right.at - left.at).slice(0, limit);
+}
+
+export function changeAccountName(account: { label?: unknown; key?: unknown; account_selector?: unknown } | null, platformLabel: string, occupiedNames: string[] = []): string {
+  if (!account) return "";
+  const identity = accountIdentity(account, platformLabel, "", occupiedNames);
+  if (identity.kind === "masked") return identity.tail;
+  if (identity.kind === "alias") return identity.alias;
+  if (identity.kind === "nickname") return identity.text;
+  return "";
+}
+
+export function formatLocalChangeTime(epochMs: number, language: "zh" | "en", timeZone?: string): string {
+  const zone = timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const formatted = new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone, timeZoneName: "short",
+  }).format(new Date(epochMs));
+  return formatted.includes(zone) ? formatted : `${formatted} (${zone})`;
+}
+
 export function paperApplicationActionable(application: PaperApplicationItem): boolean {
   return paperApplicationAccounts(application).some(account => paperApplicationReady(application, account.id));
 }
@@ -389,8 +507,71 @@ export function preferenceDirty(saved: unknown, draft: unknown): boolean {
   return left !== right;
 }
 
-export function cashDraftDirty(draft: { floorTouched?: boolean; clearFloor?: boolean } | null | undefined): boolean {
-  return draft?.floorTouched === true || draft?.clearFloor === true;
+export function cashDraftDirty(draft: { floorTouched?: boolean; clearFloor?: boolean; ratioTouched?: boolean; clearRatio?: boolean; cashMode?: string } | null | undefined): boolean {
+  return draft?.floorTouched === true || draft?.clearFloor === true || draft?.ratioTouched === true || draft?.clearRatio === true || (typeof draft?.cashMode === "string" && draft.cashMode !== "");
+}
+
+export function decimalUnitRatio(value: string): string | null {
+  if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
+  const [whole, frac = ""] = value.split(".");
+  if (whole === "0") return value;
+  if (whole === "1" && (frac === "" || /^0+$/.test(frac))) return value;
+  return null;
+}
+
+export function percentTextToRatio(text: string): string | null {
+  const trimmed = text.trim();
+  if (!/^\d+(?:\.\d+)?$/.test(trimmed)) return null;
+  const [whole, frac = ""] = trimmed.split(".");
+  const wholeNorm = whole.replace(/^0+(?=\d)/, "") || "0";
+  if (wholeNorm.length > 3 || (wholeNorm.length === 3 && wholeNorm !== "100")) return null;
+  if (wholeNorm === "100" && /[1-9]/.test(frac)) return null;
+  const digits = `${wholeNorm}${frac}`.replace(/^0+(?=\d)/, "") || "0";
+  const places = frac.length + 2;
+  const padded = digits.padStart(places + 1, "0");
+  const point = padded.length - places;
+  const head = padded.slice(0, point).replace(/^0+(?=\d)/, "") || "0";
+  const tail = padded.slice(point).replace(/0+$/, "");
+  return decimalUnitRatio(tail ? `${head}.${tail}` : head);
+}
+
+export function ratioTextToPercent(ratio: string): string {
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(ratio)) return "";
+  const [whole, frac = ""] = ratio.split(".");
+  const digits = `${whole}${frac}`;
+  const point = whole.length + 2;
+  const padded = digits.padEnd(point, "0");
+  const head = padded.slice(0, point).replace(/^0+(?=\d)/, "") || "0";
+  const tail = padded.slice(point).replace(/0+$/, "");
+  return tail ? `${head}.${tail}` : head;
+}
+
+export type ReservedCashMode = "inherit" | "floor" | "ratio" | "both" | "saved";
+
+export function reservedCashEditor(
+  overrides: Record<string, unknown> | null | undefined,
+  draft: { cashMode?: string; floor?: string; clearFloor?: boolean; percent?: string; ratio?: string },
+): { mode: ReservedCashMode; floor: string; ratio: string; percent: string } {
+  const chosen = draft?.cashMode;
+  if (chosen === "inherit" || chosen === "floor" || chosen === "ratio" || chosen === "both") {
+    return {
+      mode: chosen,
+      floor: draft.clearFloor ? "" : (draft.floor || ""),
+      ratio: draft.ratio || "",
+      percent: draft.percent || ratioTextToPercent(draft.ratio || ""),
+    };
+  }
+  const source = overrides || {};
+  const hasFloor = Object.prototype.hasOwnProperty.call(source, "reserved_cash_floor");
+  const hasRatio = Object.prototype.hasOwnProperty.call(source, "reserved_cash_ratio");
+  const floor = typeof source.reserved_cash_floor === "string" ? source.reserved_cash_floor : "";
+  const ratio = typeof source.reserved_cash_ratio === "string" ? source.reserved_cash_ratio : "";
+  const percent = hasRatio ? ratioTextToPercent(ratio) : "";
+  if (!hasFloor && !hasRatio) return { mode: "inherit", floor: "", ratio: "", percent: "" };
+  if (hasFloor && hasRatio && ratio === "0" && floor !== "0") return { mode: "floor", floor, ratio, percent: "0" };
+  if (hasFloor && hasRatio && floor === "0" && ratio !== "0") return { mode: "ratio", floor, ratio, percent };
+  if (hasFloor && hasRatio && floor !== "0" && ratio !== "0") return { mode: "both", floor, ratio, percent };
+  return { mode: "saved", floor: hasFloor ? floor : "", ratio: hasRatio ? ratio : "", percent };
 }
 
 export function readOnlyLayerState(field: unknown): "on" | "off" | "unknown" {

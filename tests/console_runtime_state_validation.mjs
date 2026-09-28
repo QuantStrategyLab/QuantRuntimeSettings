@@ -320,6 +320,13 @@ test("loading an account never silently prepares an enable override", () => {
     resumeSupported: false,
   }).stop, true);
   assert.equal(accountsSource.includes(">启用<"), false);
+  assert.match(accountsSource, /statusLabel === "—" \? "待确认"/);
+  assert.match(accountsSource, /activation === "—" \? "待确认"/);
+  assert.doesNotMatch(accountsSource, /statusLabel === "—" \? "已启用"|activation === "—" \? "已启用"/);
+  const changeLog = appSource.slice(appSource.indexOf("const refreshChangeLog"), appSource.indexOf("const recentChanges"));
+  assert.match(changeLog, /loadAdminModel\(\)/);
+  assert.doesNotMatch(changeLog, /setSettingsRefresh|loadAccountSettings/);
+  assert.match(accountsSource, /onChangeLog\?\.\(\)/);
 });
 
 for (const sample of [
@@ -359,23 +366,26 @@ for (const hidden of ["", "qmt", "qmt,binance"]) {
   });
 }
 
-test("authorized admin route serves the React shell with self-only CSP", async () => {
+test("root shell keeps its content security policy and /admin is an unknown page", async () => {
   const env = {
     SESSION_SECRET: "synthetic-admin-session", STRATEGY_SWITCH_ADMIN_LOGINS: "operator",
     STRATEGY_SWITCH_CONFIG: { get: async () => null, put: async () => {} },
   };
   const cookie = await __test.makeSession("operator", [], env);
-  const response = await worker.fetch(new Request("https://switch.example/admin", {
-    headers: { Cookie: `qsl_switch_session=${cookie}` },
-  }), env);
+  const response = await worker.fetch(new Request("https://switch.example/"), env);
   assert.equal(response.status, 200);
   const html = await response.text();
   const csp = response.headers.get("Content-Security-Policy");
-  assert.match(html, /<div id="root"><\/div>/, "authorized /admin serves the React application shell");
-  assert.match(html, /\/v2\/assets\/index-[\w-]+\.js/, "admin shell loads the versioned application bundle");
+  assert.match(html, /<div id="root"><\/div>/, "the root page serves the React application shell");
+  assert.match(html, /\/v2\/assets\/index-[\w-]+\.js/, "the root shell loads the versioned application bundle");
   assert.doesNotMatch(html, /<script[^>]*>[^<]/i, "the shell contains no inline script");
   assert.equal(csp, "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
   assert.doesNotMatch(csp, /unsafe-inline|nonce-/);
+  const adminPage = await worker.fetch(new Request("https://switch.example/admin", {
+    headers: { Cookie: `qsl_switch_session=${cookie}` },
+  }), env);
+  assert.equal(adminPage.status, 404);
+  assert.equal((await adminPage.json()).error, "not_found");
 });
 
 test("only current P6 evidence becomes an owner action", () => {

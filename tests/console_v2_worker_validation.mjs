@@ -16,15 +16,16 @@ for (const path of ["/"]) {
   assert.equal((await worker.fetch(request(path, "POST"), {})).status, 405);
 }
 const adminEnv = { SESSION_SECRET: "synthetic-session-only", STRATEGY_SWITCH_ADMIN_LOGINS: "fixture-admin", ALLOWED_GITHUB_LOGINS: "fixture-user" };
-assert.equal((await worker.fetch(request("/admin"), {})).status, 302, "admin route retains its login gate");
 const nonAdminSession = await __test.makeSession("fixture-user", [], adminEnv);
-assert.equal((await worker.fetch(request("/admin", "GET", { Cookie: `qsl_switch_session=${nonAdminSession}` }), adminEnv)).status, 403,
-  "non-admin sessions retain the existing admin denial");
 const adminSession = await __test.makeSession("fixture-admin", [], adminEnv);
-const adminShell = await worker.fetch(request("/admin", "GET", { Cookie: `qsl_switch_session=${adminSession}` }), adminEnv);
-assert.equal(adminShell.status, 200);
-assert.equal(await adminShell.text(), V2_PAGE_HTML, "authorized /admin serves the new shell, not the legacy admin page");
-assert.equal((await worker.fetch(request("/admin", "POST", { Cookie: `qsl_switch_session=${adminSession}` }), adminEnv)).status, 405);
+const missingPage = await (await worker.fetch(request("/missing"), {})).text();
+for (const headers of [{}, { Cookie: `qsl_switch_session=${nonAdminSession}` }, { Cookie: `qsl_switch_session=${adminSession}` }]) {
+  const adminPage = await worker.fetch(request("/admin", "GET", headers), adminEnv);
+  assert.equal(adminPage.status, 404, "/admin is not a page");
+  assert.equal(await adminPage.text(), missingPage, "/admin uses the existing unknown-page response");
+}
+assert.equal((await worker.fetch(request("/admin", "POST", { Cookie: `qsl_switch_session=${adminSession}` }), adminEnv)).status, 404, "/admin POST follows the unknown-route response");
+assert.equal((await worker.fetch(request("/missing", "POST"), {})).status, 404);
 const anonymousSession = await worker.fetch(request("/api/session"), {}).then(response => response.json());
 assert.equal(anonymousSession.allowed, false);
 const anonymousConfig = await worker.fetch(request("/api/config"), {}).then(response => response.json());
