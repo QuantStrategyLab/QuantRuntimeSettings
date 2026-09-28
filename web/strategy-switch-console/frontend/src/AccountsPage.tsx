@@ -51,10 +51,10 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
         <table className="daily-table">
           <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("运行控制")}</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
-            <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><small>{row.platformLabel}</small><small>{row.environment}</small></td>
-            <td>{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</td>
-            <td>{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</td>
-            <td>{t(row.activation === "—" ? "待确认" : row.activation)}</td>
+            <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label">{t("平台")}</span><small className="account-platform">{row.platformLabel}</small><small className="account-environment">{row.environment}</small></td>
+            <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
+            <td><span className="account-field-label">{t("健康")}</span><span className="account-field-value">{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
+            <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value">{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
           </tr>)}</tbody>
         </table>
       </div>
