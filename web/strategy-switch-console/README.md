@@ -325,3 +325,11 @@ For a full fork checklist, see [docs/strategy_switch_fork_guide.md](../../docs/s
 Configure `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` as a secret if it contains real account routes. It is returned only after an allowlisted login. Keep broker, email, cloud, API key, and token values out of this config.
 
 Operator simplification: compatible strategies remain browsable even when live submission is blocked. Existing execution authorization checks are unchanged. Engineering health/research diagnostics have no operator-page entry point; APIs remain available. A configuration/last-check mismatch is not proof of current deployed state.
+
+## Account facts and history (disabled by default)
+
+Account-facts routes require `ACCOUNT_FACTS_READ_MODEL_ENABLED=true`, the existing configuration store and `STRATEGY_SWITCH_RUNTIME_INSTANCES` Durable Object. POST `/api/account-facts/sync` uses the dedicated `ACCOUNT_FACTS_SYNC_TOKEN`; GET `/api/account-facts` and `/api/account-facts/history?platform=longbridge&account_key=…&currency=USD` require the existing authorized session. There is no KV write fallback.
+
+The trusted `account_facts_bindings` configuration uses `qsl_account_facts_bindings.v1`. Each binding includes `platform=longbridge`, `account_key`, `account_scope=paper`, `target_name`, `service_name`, `deployment_selector`, `account_selector`, `target_id`, and `source_binding={kind:deployment_scope_token_version,id:<64 lowercase hex characters>}`. Exact current account-option identity must match. This partial source binding does not establish physical broker-account identity or broker-native paper/live status. Production source activation requires its own applicable authorization.
+
+The receiver accepts the same persisted LongBridge snapshot history body within its original 15-minute observation window; it does not backfill history. Latest and daily observations are transactional, with at most 366 UTC observation days retained. Missing dates/currencies remain gaps. Assets are not returns; missing external cash flows keep returns unavailable and unverified physical identity prevents all-account totals. The existing runtime-daily view separately uses the `America/New_York` business date. The UI uses concise fallback states; implementation details remain in operational evidence.

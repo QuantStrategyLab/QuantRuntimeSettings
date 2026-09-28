@@ -69,8 +69,10 @@ export type UxDraft = {
   draft?: { objective?: string; research_case_id?: string; advanced_settings?: Record<string, unknown> };
   job?: Record<string, any> | null; intent?: unknown;
 };
-export type { AccountFactsSnapshot } from "./types";
-import type { AccountFactsSnapshot } from "./types";
+export type { AccountFactsSnapshot, AccountFactsHistorySnapshot } from "./types";
+import type { AccountFactsSnapshot, AccountFactsHistorySnapshot } from "./types";
+import type { RuntimeDailySnapshot } from "./presentation";
+export type { RuntimeDailySnapshot } from "./presentation";
 export type Source<T> = { value: T | null; error: string | null };
 export type ReadModel = {
   session: Session;
@@ -178,6 +180,22 @@ export function accountSettingsPath(platform: string, key: string): string {
 
 export async function loadAccountSettings(platform: string, key: string): Promise<Record<string, any>> {
   return getJson<Record<string, any>>(accountSettingsPath(platform, key));
+}
+
+export function accountFactsHistoryPath(platform: string, accountKey: string, currency: string): string {
+  return `/api/account-facts/history?platform=${encodeURIComponent(platform)}&account_key=${encodeURIComponent(accountKey)}&currency=${encodeURIComponent(currency)}`;
+}
+
+export async function loadAccountFactsHistory(platform: string, accountKey: string, currency: string): Promise<AccountFactsHistorySnapshot> {
+  return getJson<AccountFactsHistorySnapshot>(accountFactsHistoryPath(platform, accountKey, currency));
+}
+
+export function runtimeDailyPath(date: string): string {
+  return `/api/runtime-daily?date=${encodeURIComponent(date)}`;
+}
+
+export async function loadRuntimeDaily(date: string): Promise<RuntimeDailySnapshot> {
+  return getJson<RuntimeDailySnapshot>(runtimeDailyPath(date));
 }
 
 export async function loadAdminModel(): Promise<AdminModel> {

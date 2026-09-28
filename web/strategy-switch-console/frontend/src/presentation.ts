@@ -29,9 +29,9 @@ export function overviewFigures(accountCount: number | null, preferences: Array<
   };
 }
 
-export function chartUnavailable(mode: ChartMode): "尚无可用资产记录" {
-  if (mode !== "return" && mode !== "assets") return "尚无可用资产记录";
-  return "尚无可用资产记录";
+export function chartUnavailable(mode: ChartMode): "暂无资产记录" | "暂不可用" {
+  if (mode === "return") return "暂不可用";
+  return "暂无资产记录";
 }
 
 export type ChartRange = "3m" | "6m" | "1y" | "3y" | "5y" | "10y" | "all";
@@ -48,10 +48,305 @@ export const CHART_RANGE_OPTIONS: Array<{ id: ChartRange; label: "3个月" | "�
 
 export const DEFAULT_CHART_RANGE: ChartRange = "1y";
 
-export function chartRangeNote(range: ChartRange): { key: "至今从首条有效记录算起，当前没有记录。" | "{range}内还没有可绘制的记录。"; rangeLabel: "3个月" | "半年" | "1年" | "3年" | "5年" | "10年" | "至今" } {
+const CHART_RANGE_DAYS: Record<Exclude<ChartRange, "all">, number> = {
+  "3m": 92,
+  "6m": 183,
+  "1y": 366,
+  "3y": 366 * 3,
+  "5y": 366 * 5,
+  "10y": 366 * 10,
+};
+
+export function chartRangeNote(range: ChartRange): { key: "暂无资产记录" | "{range}内暂无资产记录"; rangeLabel: "3个月" | "半年" | "1年" | "3年" | "5年" | "10年" | "至今" } {
   const option = CHART_RANGE_OPTIONS.find(item => item.id === range) || CHART_RANGE_OPTIONS[2];
-  if (range === "all") return { key: "至今从首条有效记录算起，当前没有记录。", rangeLabel: option.label };
-  return { key: "{range}内还没有可绘制的记录。", rangeLabel: option.label };
+  if (range === "all") return { key: "暂无资产记录", rangeLabel: option.label };
+  return { key: "{range}内暂无资产记录", rangeLabel: option.label };
+}
+
+export function chartRangeEmptyNote(range: ChartRange): { key: "暂无资产记录" | "{range}内暂无资产记录"; rangeLabel: "3个月" | "半年" | "1年" | "3年" | "5年" | "10年" | "至今" } {
+  return chartRangeNote(range);
+}
+
+export const RUNTIME_DAILY_TIMEZONE = "America/New_York";
+
+export function runtimeBusinessDate(now: number | Date = Date.now()): string {
+  const instant = typeof now === "number" ? now : now.getTime();
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: RUNTIME_DAILY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(instant);
+}
+
+export type AssetHistoryPoint = {
+  observation_date: string;
+  observed_finished_at: string;
+  currency: string;
+  net_assets: string;
+  total_cash: string | null;
+};
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MONEY_RE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+const CHART_VALUE_ABS_MAX = 1e12;
+
+function utcDayMs(dateText: string): number | null {
+  if (!DATE_RE.test(dateText)) return null;
+  const ms = Date.parse(`${dateText}T00:00:00Z`);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function addUtcDays(dateText: string, delta: number): string | null {
+  const ms = utcDayMs(dateText);
+  if (ms === null) return null;
+  return new Date(ms + delta * 86400000).toISOString().slice(0, 10);
+}
+
+export function parseMoneyForChart(value: string | null | undefined): number | null {
+  if (typeof value !== "string" || !MONEY_RE.test(value)) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || Math.abs(n) > CHART_VALUE_ABS_MAX) return null;
+  return n;
+}
+
+export function filterAssetHistoryByRange(points: AssetHistoryPoint[], range: ChartRange, now = Date.now()): AssetHistoryPoint[] {
+  if (!Array.isArray(points) || !points.length) return [];
+  const sorted = [...points].filter((item) => item && DATE_RE.test(item.observation_date)).sort((a, b) => a.observation_date.localeCompare(b.observation_date));
+  if (range === "all") return sorted;
+  const days = CHART_RANGE_DAYS[range];
+  const end = new Date(now).toISOString().slice(0, 10);
+  const start = addUtcDays(end, -(days - 1));
+  if (!start) return sorted;
+  return sorted.filter((item) => item.observation_date >= start && item.observation_date <= end);
+}
+
+export type AssetChartGeometry = {
+  width: number;
+  height: number;
+  segments: string[];
+  dots: Array<{ x: number; y: number; date: string; amount: string }>;
+  minLabel: string | null;
+  maxLabel: string | null;
+};
+
+export function buildAssetChartGeometry(points: AssetHistoryPoint[], width = 640, height = 220): AssetChartGeometry {
+  const usable = points
+    .map((point) => {
+      const value = parseMoneyForChart(point.net_assets);
+      const day = utcDayMs(point.observation_date);
+      if (value === null || day === null) return null;
+      return { ...point, value, day };
+    })
+    .filter((item): item is AssetHistoryPoint & { value: number; day: number } => Boolean(item));
+  if (!usable.length) {
+    return { width, height, segments: [], dots: [], minLabel: null, maxLabel: null };
+  }
+  const padX = 16;
+  const padY = 18;
+  const minX = usable[0].day;
+  const maxX = usable[usable.length - 1].day;
+  const values = usable.map((item) => item.value);
+  let minY = Math.min(...values);
+  let maxY = Math.max(...values);
+  if (minY === maxY) {
+    minY -= 1;
+    maxY += 1;
+  }
+  const spanX = Math.max(maxX - minX, 86400000);
+  const spanY = maxY - minY;
+  const xAt = (day: number) => padX + ((day - minX) / spanX) * (width - padX * 2);
+  const yAt = (value: number) => height - padY - ((value - minY) / spanY) * (height - padY * 2);
+  const dots = usable.map((item) => ({
+    x: xAt(item.day),
+    y: yAt(item.value),
+    date: item.observation_date,
+    amount: item.net_assets,
+  }));
+  const segments: string[] = [];
+  let current: string[] = [];
+  for (let index = 0; index < usable.length; index += 1) {
+    const point = usable[index];
+    const command = `${current.length ? "L" : "M"}${xAt(point.day).toFixed(2)} ${yAt(point.value).toFixed(2)}`;
+    if (!current.length) current.push(command);
+    else {
+      const prev = usable[index - 1];
+      const expected = addUtcDays(prev.observation_date, 1);
+      if (expected === point.observation_date) current.push(command);
+      else {
+        if (current.length >= 2) segments.push(current.join(" "));
+        current = [`M${xAt(point.day).toFixed(2)} ${yAt(point.value).toFixed(2)}`];
+      }
+    }
+  }
+  if (current.length >= 2) segments.push(current.join(" "));
+  return {
+    width,
+    height,
+    segments,
+    dots,
+    minLabel: usable.reduce((best, item) => item.value <= (parseMoneyForChart(best) ?? Infinity) ? item.net_assets : best, usable[0].net_assets),
+    maxLabel: usable.reduce((best, item) => item.value >= (parseMoneyForChart(best) ?? -Infinity) ? item.net_assets : best, usable[0].net_assets),
+  };
+}
+
+export type RuntimeDailySnapshot = {
+  ok: true;
+  date: string;
+  timezone: string;
+  account_key: string;
+  data_status: "fresh" | "stale" | "historical" | "unavailable";
+  record: {
+    status: string;
+    kind: string;
+    execution_lane: string;
+    business_date: string;
+    observed_at: string;
+    schedule?: { state?: string; expected_window?: string; reason?: string | null };
+    runs?: Array<{ run_id: string | null; started_at: string | null; finished_at: string | null; activity: string; execution_lane: string }>;
+    conflict_count?: number;
+  } | null;
+  fills: { source: "not_connected"; records: []; count: null } | null;
+};
+
+export type RuntimeDailyPresentation = {
+  available: boolean;
+  accountMatched: boolean;
+  title: string;
+  statusLabel: string;
+  statusDetails: string[];
+  runStartedAt: string | null;
+  runFinishedAt: string | null;
+  dryRun: boolean;
+  fillsLabel: string;
+  dataStatusLabel: string;
+  updatedAt: string | null;
+};
+
+const RUNTIME_DAILY_STATUS_LABELS: Record<string, string> = {
+  no_submission: "无交易",
+  no_signal: "无交易",
+  no_rebalance: "无交易",
+  submitted: "已提交",
+  broker_acknowledged: "券商已确认",
+  partially_filled: "部分成交",
+  filled: "已成交",
+  reconciliation_required: "结果待确认",
+  unknown: "结果待确认",
+  failed: "异常",
+  blocked: "已阻断",
+  dry_run: "只读演练",
+  shadow: "模拟观察",
+  validation: "验证",
+  not_due: "未到期",
+  market_closed: "休市",
+  outside_window: "窗口外",
+  within_grace: "宽限内",
+  missing_report: "暂无数据",
+  read_incomplete: "暂不可用",
+  insufficient: "暂不可用",
+  conflict: "结果待确认",
+};
+
+export const RUNTIME_DAILY_PLATFORM = "longbridge";
+
+export type RuntimeDailySelection = {
+  platform: string | null | undefined;
+  accountKey: string | null | undefined;
+};
+
+export function runtimeDailySelectionEligible(selection: RuntimeDailySelection | null | undefined): boolean {
+  if (!selection) return false;
+  if (typeof selection.platform !== "string" || !selection.platform) return false;
+  if (typeof selection.accountKey !== "string" || !selection.accountKey) return false;
+  return selection.platform === RUNTIME_DAILY_PLATFORM;
+}
+
+export function presentRuntimeDaily(
+  snapshot: RuntimeDailySnapshot | null | undefined,
+  selection: RuntimeDailySelection | null | undefined,
+): RuntimeDailyPresentation {
+  const empty: RuntimeDailyPresentation = {
+    available: false,
+    accountMatched: false,
+    title: "每日运行记录",
+    statusLabel: "—",
+    statusDetails: ["请选择账户"],
+    runStartedAt: null,
+    runFinishedAt: null,
+    dryRun: false,
+    fillsLabel: "—",
+    dataStatusLabel: "—",
+    updatedAt: null,
+  };
+  if (!selection || typeof selection.accountKey !== "string" || !selection.accountKey) return empty;
+  // Connected runtime-daily is LongBridge-only. Missing platform must not default to LongBridge.
+  if (!runtimeDailySelectionEligible(selection)) {
+    return {
+      ...empty,
+      accountMatched: false,
+      statusDetails: [],
+      fillsLabel: "暂无数据",
+      dataStatusLabel: "暂无数据",
+    };
+  }
+  if (!snapshot || snapshot.ok !== true) {
+    return {
+      ...empty,
+      accountMatched: false,
+      statusDetails: [],
+      fillsLabel: "暂无数据",
+      dataStatusLabel: "暂不可用",
+    };
+  }
+  if (snapshot.account_key !== selection.accountKey) {
+    return {
+      ...empty,
+      accountMatched: false,
+      statusDetails: [],
+      fillsLabel: "暂无数据",
+      dataStatusLabel: "暂无数据",
+    };
+  }
+  const observedAt = typeof snapshot.record?.observed_at === "string" ? snapshot.record.observed_at : null;
+  const dataStatusLabel = snapshot.data_status === "stale"
+    ? "数据暂不可用"
+    : snapshot.data_status === "unavailable"
+      ? "暂不可用"
+      : "—";
+  if (!snapshot.record) {
+    return {
+      available: true,
+      accountMatched: true,
+      title: "每日运行记录",
+      statusLabel: "—",
+      statusDetails: [],
+      runStartedAt: null,
+      runFinishedAt: null,
+      dryRun: false,
+      fillsLabel: "暂无数据",
+      dataStatusLabel: snapshot.data_status === "unavailable" ? "暂无数据" : dataStatusLabel,
+      updatedAt: null,
+    };
+  }
+  const record = snapshot.record;
+  const status = typeof record.status === "string" ? record.status : "unknown";
+  const statusLabel = RUNTIME_DAILY_STATUS_LABELS[status] || status;
+  const dryRun = record.execution_lane === "dry_run" || status === "dry_run" || (record.runs || []).some((run) => run.execution_lane === "dry_run");
+  const run = (record.runs || []).find((item) => item.started_at || item.finished_at) || null;
+  return {
+    available: true,
+    accountMatched: true,
+    title: "每日运行记录",
+    statusLabel,
+    statusDetails: [],
+    runStartedAt: typeof run?.started_at === "string" ? run.started_at : null,
+    runFinishedAt: typeof run?.finished_at === "string" ? run.finished_at : null,
+    dryRun,
+    fillsLabel: "暂无数据",
+    dataStatusLabel,
+    updatedAt: snapshot.data_status === "stale" ? observedAt : null,
+  };
 }
 
 export function knownAccountLabel(options: Record<string, Array<{ key?: unknown; target_name?: unknown; label?: unknown }> | undefined> | null | undefined, platform: unknown, targetName: unknown): string {
@@ -353,6 +648,50 @@ export function formatLocalChangeTime(epochMs: number, language: "zh" | "en", ti
     year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone: zone, timeZoneName: "short",
   }).format(new Date(epochMs));
   return formatted.includes(zone) ? formatted : `${formatted} (${zone})`;
+}
+
+export function formatOverviewInstant(value: string | null | undefined, language: "zh" | "en", timeZone = RUNTIME_DAILY_TIMEZONE): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return formatLocalChangeTime(ms, language, timeZone);
+}
+
+/** Overview cards: no native broker account-type proof yet — never show config paper/live as verified. */
+export function overviewAccountTypeLabel(): "账户类型待确认" {
+  return "账户类型待确认";
+}
+
+const OVERVIEW_SUPPRESSED_STATUS_DETAILS = new Set([
+  "账户尚未绑定运行目标",
+  "运行目标映射重复，无法唯一匹配",
+  "运行状态接口读取失败",
+  "运行状态来源已过期",
+  "运行状态来源暂不可用",
+  "未取得对应运行目标记录",
+  "来源包含重复运行目标",
+  "运行状态来源已过期或不可用",
+  "尚未取得该目标的部署读回",
+  "部署状态读回已过期",
+  "运行启用状态尚未确认",
+  "尚未到检查时间",
+  "现有证据不足以确认运行状态",
+  "暂未取得状态",
+  "运行监测正常，已启用。",
+  "运行监测正常，已停用。",
+]);
+
+const OVERVIEW_BUSINESS_STATUS_DETAILS = new Set([
+  "账户运行异常",
+  "设置尚未生效",
+]);
+
+/** Keep brief business exceptions only; mapping/API/source internals stay off the Overview card. */
+export function overviewCardStatusDetail(detail: string | null | undefined): string | null {
+  if (typeof detail !== "string" || !detail) return null;
+  if (OVERVIEW_BUSINESS_STATUS_DETAILS.has(detail)) return detail;
+  if (OVERVIEW_SUPPRESSED_STATUS_DETAILS.has(detail)) return null;
+  return null;
 }
 
 export function paperApplicationActionable(application: PaperApplicationItem): boolean {

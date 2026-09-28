@@ -60,8 +60,8 @@ assert.deepEqual(dcaSettingsReadout({
   dca_mode: { status: "known", value: "weekly" },
   dca_base_investment_usd: { status: "known", value: "0" },
 }), { label: "当前设置", mode: "未核实", amount: "未核实" });
-assert.equal(chartUnavailable("return"), "尚无可用资产记录");
-assert.equal(chartUnavailable("assets"), "尚无可用资产记录");
+assert.equal(chartUnavailable("return"), "暂不可用");
+assert.equal(chartUnavailable("assets"), "暂无资产记录");
 assert.deepEqual([...RETURN_INDEX_LEGEND], ["标普500", "纳斯达克", "道琼斯", "罗素"]);
 const overviewPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
 assert.equal(overviewPage.includes('id: "cash"'), false);
@@ -119,8 +119,8 @@ assert.deepEqual(CHART_RANGE_OPTIONS.map(item => item.id), ["3m", "6m", "1y", "3
 assert.deepEqual(CHART_RANGE_OPTIONS.map(item => item.label), ["3个月", "半年", "1年", "3年", "5年", "10年", "至今"]);
 assert.equal(DEFAULT_CHART_RANGE, "1y");
 assert.equal(chartRangeNote("1y").rangeLabel, "1年");
-assert.equal(chartRangeNote("all").key, "至今从首条有效记录算起，当前没有记录。");
-assert.equal(chartRangeNote("3m").key, "{range}内还没有可绘制的记录。");
+assert.equal(chartRangeNote("all").key, "暂无资产记录");
+assert.equal(chartRangeNote("3m").key, "{range}内暂无资产记录");
 assert.equal(chartRangeNote("6m").rangeLabel, "半年");
 for (const option of CHART_RANGE_OPTIONS) {
   const note = chartRangeNote(option.id);

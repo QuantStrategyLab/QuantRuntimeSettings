@@ -550,7 +550,7 @@ function App() {
             return;
         }
         if (!ACCOUNT_PLAN_SUBMISSION_AVAILABLE) {
-            setErrorMessage(copy("账户计划提交暂未接通；当前可以查看设置，停用入口仍按原确认流程执行。"));
+            setErrorMessage(copy("暂不可用"));
             return;
         }
         try {
@@ -729,6 +729,8 @@ function App() {
         const preference = row.current?.risk_preference;
         return {
             id: row.id,
+            platformKey: row.platform,
+            accountKey: row.account.key,
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),

@@ -54,6 +54,41 @@ export type AccountFactsSnapshot = {
   return: AccountFactsReturn;
 };
 
+export type AccountFactsHistoryPoint = {
+  observation_date: string;
+  observed_finished_at: string;
+  currency: string;
+  net_assets: string;
+  total_cash: string | null;
+};
+
+export type AccountFactsHistorySeries = {
+  ok: true;
+  currency: string | null;
+  points: AccountFactsHistoryPoint[];
+  gap_dates: string[];
+  first_sample_date: string | null;
+  truncated: boolean;
+  retention_days: number;
+  note: string | null;
+};
+
+export type AccountFactsHistorySnapshot = {
+  ok: true;
+  enabled?: boolean;
+  platform: string;
+  account_key: string;
+  binding_status: "bound" | "missing" | "duplicate";
+  identity_status: "partial_identity" | "missing_identity";
+  identity_mismatch?: boolean;
+  target_id: string | null;
+  source_binding_id: string | null;
+  account_scope: string | null;
+  series: AccountFactsHistorySeries;
+  retention_days?: number;
+  return: AccountFactsReturn;
+};
+
 export function formatAccountFactAmounts(
   rows: Array<{ currency?: string; [field: string]: unknown }> | null | undefined,
   field: string,
@@ -80,30 +115,22 @@ export function accountFactsForRow(
 }
 
 export function totalsUnavailableDetail(reason: string | null | undefined): string {
-  if (reason === "physical_identity_unverified") {
-    return "券商身份仅部分核验，不能汇总全部账户总额；请查看单账户分币种事实。";
-  }
-  if (reason === "coverage_incomplete") {
-    return "账户覆盖不全或快照过期，不提供全部账户总额；未知不等于零。";
-  }
-  if (reason === "duplicate_account_mapping") {
-    return "账户映射重复，金额不汇总；未知不等于零。";
-  }
-  return "全部账户总额暂不可用；未知不等于零。";
+  void reason;
+  return "暂不可用";
 }
 
 export function accountFactsDetail(account: AccountFactsAccount | null | undefined): string {
-  if (!account) return "账户资产快照尚未接入；未知不等于零。";
-  if (account.identity_mismatch) return "账户身份配置已变化，旧资产快照不可用；未知不等于零。";
-  if (account.binding_status === "missing") return "缺少可信 target/source-binding 映射；未知不等于零。";
-  if (account.binding_status === "duplicate") return "账户映射重复，金额不汇总；未知不等于零。";
-  if (account.identity_status === "partial_identity" && account.data_status === "unavailable") {
-    return "身份仅部分核验，尚无可信资产快照；未知不等于零。";
+  if (!account) return "暂无数据";
+  if (account.identity_mismatch || account.binding_status === "missing" || account.binding_status === "duplicate") {
+    return "暂不可用";
   }
-  if (account.data_status === "stale") return "账户资产快照已过期；未知不等于当前余额。";
-  if (account.data_status === "unavailable") return "账户资产快照尚未接入；未知不等于零。";
-  if (account.identity_status === "partial_identity") {
-    return "券商身份仅部分核验；金额按绑定来源分币种展示。";
-  }
-  return "账户资产快照可供核对。";
+  if (account.data_status === "stale") return "数据暂不可用";
+  if (account.data_status === "unavailable") return "暂无数据";
+  return "";
+}
+
+export function accountFactsUpdatedAt(account: AccountFactsAccount | null | undefined): string | null {
+  if (!account) return null;
+  if (account.data_status !== "fresh" && account.data_status !== "stale") return null;
+  return typeof account.observed_finished_at === "string" && account.observed_finished_at ? account.observed_finished_at : null;
 }

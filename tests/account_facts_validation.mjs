@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import {
   ACCOUNT_FACTS_BINDINGS_KEY,
+  ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_HISTORY_SCHEMA,
   ACCOUNT_FACTS_OPTION_SCOPE,
   ACCOUNT_FACTS_PAYLOAD_SCOPE,
@@ -18,9 +19,12 @@ import {
   ACCOUNT_FACTS_SOURCE_KIND,
   aggregateAccountFactsTotals,
   buildAccountFactsReadModel,
+  decideAccountFactsDailyUpsert,
   decideAccountFactsPut,
+  historyRetentionCutoff,
   normalizeAccountFactsBindings,
   normalizeAccountFactsHistoryPayload,
+  projectAccountFactsHistorySeries,
   projectStoredAccountFacts,
   totalsUnavailableDetail,
 } from "../web/strategy-switch-console/account_facts.js";
@@ -253,6 +257,16 @@ async function get(headers = {}, envOverride = null) {
     STRATEGY_SWITCH_RUNTIME_INSTANCES: namespace,
   };
   return worker.fetch(new Request("https://switch.example/api/account-facts", { headers }), target);
+}
+
+async function getHistory(platform, accountKey, currency, headers = {}, envOverride = null) {
+  const target = envOverride || {
+    ...bindingsEnv,
+    STRATEGY_SWITCH_CONFIG: kv,
+    STRATEGY_SWITCH_RUNTIME_INSTANCES: namespace,
+  };
+  const url = `https://switch.example/api/account-facts/history?platform=${encodeURIComponent(platform)}&account_key=${encodeURIComponent(accountKey)}&currency=${encodeURIComponent(currency)}`;
+  return worker.fetch(new Request(url, { headers }), target);
 }
 
 await saveAccounts([account, otherAccount]);
@@ -518,17 +532,153 @@ assert.equal(paper.data_status, "fresh");
 assert.equal(paper.identity_status, "partial_identity");
 assert.equal(paper.balances.find((row) => row.currency === "USD").net_assets, "12.5");
 
+const historyGet = await getHistory("longbridge", "lb-paper", "USD", sessionHeaders, env);
+assert.equal(historyGet.status, 200);
+const historyBody = await historyGet.json();
+assert.equal(historyBody.ok, true);
+assert.equal(historyBody.binding_status, "bound");
+assert.equal(historyBody.identity_status, "partial_identity");
+assert.equal(historyBody.series.currency, "USD");
+assert.ok(historyBody.series.points.length >= 1);
+assert.equal(historyBody.series.points.at(-1).net_assets, "12.5");
+assert.equal(historyBody.series.retention_days, ACCOUNT_FACTS_HISTORY_MAX_DAYS);
+assert.equal(historyBody.return.reason, "external_cashflow_required");
+
+// Same-day later observation replaces the daily last sample.
+const sameDayLaterFinished = new Date(Date.now() - 5 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const sameDayLaterStarted = new Date(Date.now() - 40 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const sameDay = await post(historyPayload({
+  observed_started_at: sameDayLaterStarted,
+  observed_finished_at: sameDayLaterFinished,
+  observation_date: observationDateFrom(sameDayLaterStarted),
+  broker_reported_balances: [
+    { currency: "USD", net_assets: "13", total_cash: "1" },
+    { currency: "HKD", net_assets: "3", total_cash: "1" },
+  ],
+  cash: [
+    { currency: "USD", available_cash: "1.3", frozen_cash: "0", settling_cash: "0" },
+    { currency: "HKD", available_cash: "1", frozen_cash: "0", settling_cash: "0" },
+  ],
+}), auth, env);
+assert.equal(sameDay.status, 200);
+const sameDayHistory = await (await getHistory("longbridge", "lb-paper", "USD", sessionHeaders, env)).json();
+const sameDayPoints = sameDayHistory.series.points.filter((row) => row.observation_date === observationDateFrom(sameDayLaterStarted));
+assert.equal(sameDayPoints.length, 1);
+assert.equal(sameDayPoints[0].net_assets, "13");
+
+// Option identity drift must not expose prior daily history.
+await saveAccounts([{
+  ...account,
+  target_name: "paper-replacement",
+  service_name: "different-paper-service",
+  deployment_selector: "paper-replacement",
+  account_selector: "PAPER_NEW",
+}, otherAccount]);
+const remappedHistory = await (await getHistory("longbridge", "lb-paper", "USD", sessionHeaders, env)).json();
+assert.equal(remappedHistory.identity_mismatch, true);
+assert.equal(remappedHistory.series.points.length, 0);
+
+await saveAccounts([account, otherAccount]);
+
+assert.equal(historyRetentionCutoff("2026-09-29", 366), "2025-09-29");
+assert.equal(decideAccountFactsDailyUpsert(null, normalizeAccountFactsHistoryPayload(historyPayload({
+  observed_started_at: isoMinutesAgo(4),
+  observed_finished_at: isoMinutesAgo(3),
+}), { enforceObservationWindow: false })).action, "insert");
+
+const dayA = observationDateFrom(isoMinutesAgo(60 * 24 * 3));
+const dayB = observationDateFrom(isoMinutesAgo(60 * 24 * 2));
+const dayC = observationDateFrom(isoMinutesAgo(60 * 24 * 1));
+function dayPayload(day, amount, patch = {}) {
+  return normalizeAccountFactsHistoryPayload(historyPayload({
+    observed_started_at: `${day}T10:00:00Z`,
+    observed_finished_at: `${day}T10:01:00Z`,
+    observation_date: day,
+    broker_reported_balances: [{ currency: "USD", net_assets: amount, total_cash: "1" }],
+    cash: [{ currency: "USD", available_cash: "1", frozen_cash: "0", settling_cash: "0" }],
+    ...patch,
+  }), { enforceObservationWindow: false, now: Date.parse(`${day}T12:00:00Z`) });
+}
+
+const mappedSeries = projectAccountFactsHistorySeries({
+  binding: trustedBinding(),
+  currency: "USD",
+  days: [
+    {
+      observation_date: dayA,
+      target_id: "paper",
+      source_binding_id: bindingA,
+      account_scope: ACCOUNT_FACTS_OPTION_SCOPE,
+      payload: dayPayload(dayA, "10"),
+    },
+    {
+      observation_date: dayC,
+      target_id: "paper",
+      source_binding_id: bindingA,
+      account_scope: ACCOUNT_FACTS_OPTION_SCOPE,
+      payload: dayPayload(dayC, "11"),
+    },
+    {
+      observation_date: dayB,
+      target_id: "other-target",
+      source_binding_id: bindingB,
+      account_scope: ACCOUNT_FACTS_OPTION_SCOPE,
+      payload: dayPayload(dayB, "99", {
+        target_id: "other-target",
+        source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: bindingB },
+      }),
+    },
+  ],
+});
+assert.deepEqual(mappedSeries.points.map((row) => row.net_assets), ["10", "11"]);
+assert.ok(mappedSeries.gap_dates.includes(dayB));
+assert.equal(mappedSeries.points.some((row) => row.net_assets === "99"), false);
+
+const truncated = projectAccountFactsHistorySeries({
+  binding: trustedBinding(),
+  currency: "USD",
+  maxDays: 2,
+  days: [dayA, dayB, dayC].map((day, index) => ({
+    observation_date: day,
+    target_id: "paper",
+    source_binding_id: bindingA,
+    account_scope: ACCOUNT_FACTS_OPTION_SCOPE,
+    payload: dayPayload(day, String(10 + index)),
+  })),
+});
+assert.equal(truncated.truncated, true);
+assert.deepEqual(truncated.points.map((row) => row.observation_date), [dayB, dayC]);
+
+const currencyGap = projectAccountFactsHistorySeries({
+  binding: trustedBinding(),
+  currency: "JPY",
+  days: [{
+    observation_date: dayC,
+    target_id: "paper",
+    source_binding_id: bindingA,
+    account_scope: ACCOUNT_FACTS_OPTION_SCOPE,
+    payload: dayPayload(dayC, "10"),
+  }],
+});
+assert.equal(currencyGap.points.length, 0);
+assert.ok(currencyGap.gap_dates.includes(dayC));
+
 const overviewPage = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
-assert.match(overviewPage, /全部账户总额|totalsUnavailableDetail/);
+assert.match(overviewPage, /全部账户总额|请选择账户/);
 assert.match(overviewPage, /accountId === "all"/);
+assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
+assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
+assert.doesNotMatch(overviewPage, /source-binding|尚未接通|外部资金流未接入|未知不等于零/);
 assert.equal(overviewPage.includes('totals?.status === "by_currency"'), false);
 assert.equal(overviewPage.includes('id: "cash"'), false);
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
 assert.match(workerSource, /account_facts_put/);
+assert.match(workerSource, /account_facts_history_read|account_facts_daily/);
 assert.match(workerSource, /account_facts_stale_write|decideAccountFactsPut/);
 assert.doesNotMatch(workerSource, /writeConfigJson\(env, accountFactsStorageKey/);
 assert.doesNotMatch(workerSource, /account_facts:\$\{platform\}/);
+assert.match(workerSource, /\/api\/account-facts\/history/);
 
 await mf.dispose();
 console.log("account_facts_validation ok");
