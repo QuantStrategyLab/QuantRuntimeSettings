@@ -99,7 +99,16 @@ a { color: inherit; }
 .daily-table { width: 100%; border-collapse: collapse; }
 .daily-table th, .daily-table td { padding: 14px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .daily-table tbody tr:hover { background: var(--panel); }
+.account-list tbody tr { cursor: pointer; }
+.account-list tbody tr:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .daily-table tr.selected { box-shadow: inset 3px 0 0 var(--accent); background: var(--accent-soft); }
+.preference-choice { display: grid; gap: 4px; min-width: min(100%, 220px); }
+.preference-choice p, .setting-facts p { margin: 0; }
+.setting-facts { display: grid; gap: 8px; margin: 14px 0; }
+.setting-facts span, .cash-floor-field { color: var(--muted); }
+.setting-facts p:has(> span):has(> strong) { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.75em; row-gap: 2px; }
+.cash-floor-field { display: grid; gap: 6px; margin: 12px 0; }
+.cash-floor-field input { width: min(240px, 100%); min-height: 39px; color: var(--ink); }
 .table-link { padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .accounts-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(280px, 2fr); gap: 28px; }
 .account-detail, .decision-detail { padding: 24px; }
@@ -264,6 +273,12 @@ textarea { width: 100%; resize: vertical; }
 .decision-card, .application-card, .instance-row { padding: 15px 0; border-bottom: 1px solid var(--line); }
 .decision-card p, .application-card p, .instance-row p { margin: 5px 0; color: var(--muted); }
 .instance-row, .instance-actions, .diagnosis-row { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; }
+.admin-fold { margin: 8px 0 16px; border-top: 1px solid var(--soft-line); }
+.admin-fold > summary { padding: 12px 2px; cursor: pointer; font-weight: 650; }
+.admin-fold > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.admin-record { display: grid; grid-template-columns: minmax(0, 1.4fr) auto auto auto; gap: 8px 16px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.admin-record .admin-manage { grid-column: 1 / -1; }
+.admin-page h3 { margin: 14px 0 6px; font-size: 15px; }
 .instance-environment { display: flex; gap: 7px; }
 .instance-environment select { max-width: 120px; }
 .risk-table { display: grid; gap: 10px; margin: 14px 0; }
@@ -328,6 +343,8 @@ textarea { width: 100%; resize: vertical; }
   .fact-list { grid-template-columns: 1fr; }
   .plain-list li { align-items: flex-start; flex-direction: column; gap: 4px; }
   .report-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .setting-facts p:has(> span):has(> strong) { flex-direction: column; align-items: flex-start; }
+  .admin-record { grid-template-columns: 1fr; }
   .two-column-layout { grid-template-columns: 1fr; gap: 15px; }
   .editorial-rail { padding: 15px 0 0; border-top: 1px solid var(--line); border-left: 0; }
   .field-grid { grid-template-columns: 1fr; }

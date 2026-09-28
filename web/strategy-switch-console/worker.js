@@ -301,7 +301,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "risk_profile_read", "risk_profile_replace", "risk_profile_set",
   "account_settings_read", "account_settings_save",
 ]);
-const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read"]);
+const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
 const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "reserved_cash_floor"];
@@ -689,6 +689,9 @@ export default {
       }
       if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
         return await binancePrivateScopeResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/runtime-stop-result" && request.method === "POST") {
+        return await acceptHkStopResult(request, env);
       }
       if (url.pathname === "/api/internal/sync-execution-evidence-source" && request.method === "POST") {
         return await syncExecutionEvidenceSourceResponse(request, env);
@@ -1998,6 +2001,9 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL
     )`);
     this.sql.exec("CREATE INDEX IF NOT EXISTS hk_stop_request_target ON hk_stop_request (target_id, requested_at)");
+    for (const column of ["source_identity_sha256", "runtime_identity_sha256", "result_json", "stopped_at"]) {
+      try { this.sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
+    }
   }
 
   accountSettingsCommand(command) {
@@ -2228,6 +2234,7 @@ export class RuntimeInstances {
     if (command?.action === "hk_stop_read") return { ok: true, record: this.hkStopOpen() || this.hkStopLatest() };
     if (command?.action === "hk_stop_claim") return this.hkStopClaim(command);
     if (command?.action === "hk_stop_record") return this.hkStopRecord(command);
+    if (command?.action === "hk_stop_accept_result") return this.hkStopAcceptResult(command);
     throw new HttpError("unsupported_hk_stop_action", 400);
   }
 
@@ -2244,6 +2251,8 @@ export class RuntimeInstances {
       dispatch_result: row.dispatch_result || null,
       workflow_run_id: row.workflow_run_id || null,
       workflow_run_attempt: row.workflow_run_attempt || null,
+      source_identity_sha256: row.source_identity_sha256 || null,
+      runtime_identity_sha256: row.runtime_identity_sha256 || null,
       updated_at: row.updated_at,
     };
   }
@@ -2254,7 +2263,7 @@ export class RuntimeInstances {
 
   hkStopOpen() {
     return this.hkStopPublic(this.sql.exec(
-      "SELECT * FROM hk_stop_request WHERE target_id = ? AND phase IN ('reserved', 'unknown', 'accepted') ORDER BY requested_at ASC",
+      "SELECT * FROM hk_stop_request WHERE target_id = ? AND phase IN ('reserved', 'unknown', 'accepted', 'stopped') ORDER BY requested_at ASC",
       HK_STOP_TARGET_ID,
     ).toArray()[0]);
   }
@@ -2302,12 +2311,15 @@ export class RuntimeInstances {
       return { ok: true, state: "blocked", record: open };
     }
     this.hkStopLiveIdentity(command.source_revision, identity);
+    const sourceHash = hkStopDigestOrEmpty(command.source_identity_sha256);
+    const runtimeHash = hkStopDigestOrEmpty(command.runtime_identity_sha256);
+    if ((sourceHash === "") !== (runtimeHash === "")) throw new HttpError("hk_stop_identity_incomplete", 400);
     const now = new Date().toISOString();
     this.sql.exec(
       `INSERT INTO hk_stop_request (
-        request_id, target_id, identity_json, source_revision, action, requested_at, phase, dispatch_result, workflow_run_id, workflow_run_attempt, updated_at
-      ) VALUES (?, ?, ?, ?, 'stop', ?, 'reserved', NULL, NULL, NULL, ?)`,
-      requestId, HK_STOP_TARGET_ID, storedIdentity, command.source_revision, now, now,
+        request_id, target_id, identity_json, source_revision, action, requested_at, phase, dispatch_result, workflow_run_id, workflow_run_attempt, source_identity_sha256, runtime_identity_sha256, updated_at
+      ) VALUES (?, ?, ?, ?, 'stop', ?, 'reserved', NULL, NULL, NULL, ?, ?, ?)`,
+      requestId, HK_STOP_TARGET_ID, storedIdentity, command.source_revision, now, sourceHash || null, runtimeHash || null, now,
     );
     return { ok: true, state: "reserved", record: this.hkStopStored(requestId) };
   }
@@ -2320,13 +2332,64 @@ export class RuntimeInstances {
     }
     const existing = this.hkStopStored(requestId);
     if (!existing) throw new HttpError("hk_stop_request_conflict", 409);
-    if (existing.phase !== "reserved") return { ok: true, recorded: false, record: existing };
+    if (existing.phase === "stopped" || existing.phase !== "reserved") return { ok: true, recorded: false, record: existing };
     const now = new Date().toISOString();
     this.sql.exec(
       "UPDATE hk_stop_request SET phase = ?, dispatch_result = ?, updated_at = ? WHERE request_id = ? AND phase = 'reserved'",
       phase, phase, now, requestId,
     );
     return { ok: true, recorded: true, record: this.hkStopStored(requestId) };
+  }
+
+  hkStopAcceptResult(command) {
+    const result = command?.result;
+    const now = Date.parse(command?.now);
+    if (!result?.producer || !result.readback) throw new HttpError("hk_stop_result_rejected", 400);
+    const requestId = String(result?.request_id || "").toLowerCase();
+    if (!HK_STOP_REQUEST_ID.test(requestId) || !Number.isFinite(now)) throw new HttpError("hk_stop_result_rejected", 400);
+    const row = this.sql.exec("SELECT * FROM hk_stop_request WHERE request_id = ?", requestId).toArray()[0];
+    if (!row) throw new HttpError("hk_stop_request_conflict", 409);
+    if (!row.source_identity_sha256 || !row.runtime_identity_sha256) {
+      throw new HttpError("hk_stop_result_unlinked", 409);
+    }
+    const requestedAt = Date.parse(row.requested_at);
+    const observedAt = Date.parse(result.observed_at);
+    if (!Number.isFinite(requestedAt) || !Number.isFinite(observedAt)) throw new HttpError("hk_stop_result_rejected", 400);
+    if (result.source_revision !== Number(row.source_revision)
+      || result.source_identity_sha256 !== row.source_identity_sha256
+      || result.runtime_identity_sha256 !== row.runtime_identity_sha256
+      || result.target_id !== row.target_id) {
+      throw new HttpError("hk_stop_identity_conflict", 409);
+    }
+    let live;
+    try {
+      live = this.existingAccountInstance("longbridge", "hk");
+    } catch {
+      throw new HttpError("hk_stop_identity_conflict", 409);
+    }
+    const current = hkStopSourceIdentity(live.item.config, live.item);
+    if (!hkStopIdentityComplete(current) || canonicalResearchTaskJson(current) !== row.identity_json) {
+      throw new HttpError("hk_stop_identity_conflict", 409);
+    }
+    if (observedAt < requestedAt || observedAt > now + 60000) throw new HttpError("hk_stop_result_stale", 409);
+    const canonical = canonicalResearchTaskJson(result);
+    const sameRun = row.workflow_run_id === result.producer.run_id && String(row.workflow_run_attempt) === String(result.producer.run_attempt);
+    if (row.phase === "stopped") {
+      if (row.result_json === canonical && sameRun) return { ok: true, replayed: true, record: this.hkStopStored(requestId) };
+      throw new HttpError("hk_stop_result_conflict", 409);
+    }
+    if (!["reserved", "accepted", "unknown"].includes(row.phase)) throw new HttpError("hk_stop_result_conflict", 409);
+    if (now - requestedAt > 24 * 60 * 60 * 1000) throw new HttpError("hk_stop_result_stale", 409);
+    const stamp = new Date(now).toISOString();
+    this.sql.exec(
+      `UPDATE hk_stop_request
+       SET phase = 'stopped', workflow_run_id = ?, workflow_run_attempt = ?, result_json = ?, stopped_at = ?, updated_at = ?
+       WHERE request_id = ? AND phase IN ('reserved', 'accepted', 'unknown')`,
+      result.producer.run_id, String(result.producer.run_attempt), canonical, stamp, stamp, requestId,
+    );
+    const stored = this.hkStopStored(requestId);
+    if (stored?.phase !== "stopped") throw new HttpError("hk_stop_result_conflict", 409);
+    return { ok: true, replayed: false, record: stored };
   }
 
   read() {
@@ -4345,6 +4408,91 @@ function hkStopSourceIdentity(config, item = {}) {
   };
 }
 
+function hkStopDigestOrEmpty(value) {
+  return typeof value === "string" && /^[0-9a-f]{64}$/.test(value) ? value : "";
+}
+
+function hkStopExactObject(value, keys) {
+  return Boolean(value) && !Array.isArray(value) && typeof value === "object"
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function normalizeHkStopResult(raw) {
+  const top = ["schema_version", "request_id", "source_revision", "source_identity_sha256", "target_id", "runtime_identity_sha256", "producer", "observed_at", "readback", "no_order", "in_flight_state", "retirement_complete"];
+  const producerKeys = ["repository", "workflow_path", "run_id", "run_attempt", "head_sha"];
+  const readbackKeys = ["project", "region", "service", "revision_name", "runtime_enabled", "scheduler_state", "scheduler_count", "scheduler_set_sha256", "complete"];
+  if (!hkStopExactObject(raw, top)
+    || raw.schema_version !== "qsl_hk_stop_result.v1"
+    || !HK_STOP_REQUEST_ID.test(String(raw.request_id || ""))
+    || !Number.isSafeInteger(raw.source_revision) || raw.source_revision < 0
+    || !hkStopDigestOrEmpty(raw.source_identity_sha256) || !hkStopDigestOrEmpty(raw.runtime_identity_sha256)
+    || raw.target_id !== HK_STOP_TARGET_ID
+    || !hkStopExactObject(raw.producer, producerKeys)
+    || raw.producer.repository !== "QuantStrategyLab/LongBridgePlatform"
+    || raw.producer.workflow_path !== ".github/workflows/stop-hk-runtime.yml"
+    || !/^(0|[1-9][0-9]*)$/.test(raw.producer.run_id)
+    || raw.producer.run_attempt !== 1
+    || !/^[0-9a-f]{40}$/.test(raw.producer.head_sha)
+    || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(raw.observed_at)
+    || !hkStopExactObject(raw.readback, readbackKeys)
+    || raw.readback.project !== "longbridgequant"
+    || raw.readback.region !== "asia-east2"
+    || raw.readback.service !== "longbridge-quant-hk-service"
+    || typeof raw.readback.revision_name !== "string"
+    || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(raw.readback.revision_name)
+    || raw.readback.runtime_enabled !== false
+    || raw.readback.scheduler_state !== "paused"
+    || !Number.isSafeInteger(raw.readback.scheduler_count) || raw.readback.scheduler_count < 1
+    || !hkStopDigestOrEmpty(raw.readback.scheduler_set_sha256)
+    || raw.readback.complete !== true
+    || raw.no_order !== true
+    || raw.in_flight_state !== "unknown"
+    || raw.retirement_complete !== false) {
+    throw new HttpError("hk_stop_result_rejected", 400);
+  }
+  return {
+    schema_version: raw.schema_version,
+    request_id: String(raw.request_id).toLowerCase(),
+    source_revision: raw.source_revision,
+    source_identity_sha256: raw.source_identity_sha256,
+    target_id: raw.target_id,
+    runtime_identity_sha256: raw.runtime_identity_sha256,
+    producer: {
+      repository: raw.producer.repository,
+      workflow_path: raw.producer.workflow_path,
+      run_id: raw.producer.run_id,
+      run_attempt: raw.producer.run_attempt,
+      head_sha: raw.producer.head_sha,
+    },
+    observed_at: raw.observed_at,
+    readback: { ...raw.readback },
+    no_order: true,
+    in_flight_state: "unknown",
+    retirement_complete: false,
+  };
+}
+
+async function acceptHkStopResult(request, env) {
+  requireDedicatedExecutionEvidenceSyncToken(request, env);
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+  const result = normalizeHkStopResult(await readBoundedJson(request, 8192));
+  const recorded = await runtimeInstanceCommand(env, {
+    action: "hk_stop_accept_result",
+    result,
+    now: new Date().toISOString(),
+  });
+  return json({
+    ok: true,
+    replayed: recorded.replayed === true,
+    phase: "stopped",
+    stop_confirmed: true,
+    platform_applied: false,
+    request_succeeded: false,
+    in_flight_state: "unknown",
+  });
+}
+
 function hkStopIdentityComplete(identity) {
   return identity?.key === "hk"
     && identity.target_name === "hk"
@@ -4364,6 +4512,8 @@ function presentHkStop(record, observation, repository) {
     configured: false,
     platform_applied: false,
     request_succeeded: false,
+    stop_confirmed: record?.phase === "stopped",
+    in_flight_state: "unknown",
     reused: record?.reused === true,
     persisted: record?.persisted !== false,
     request_id: record?.request_id || null,
@@ -4424,12 +4574,23 @@ async function dispatchHkRuntimeStop(env, raw) {
   const requestId = raw.request_id ? String(raw.request_id).trim().toLowerCase() : crypto.randomUUID();
   if (!HK_STOP_REQUEST_ID.test(requestId)) throw new HttpError("invalid_hk_stop_request_id", 400);
   const source = await loadHkStopAccount(env);
+  const identity = source.identity;
+  const identityJson = canonicalResearchTaskJson(identity);
+  const runtimeJson = canonicalResearchTaskJson({
+    platform_id: identity.platform_id,
+    deployment_selector: identity.deployment_selector,
+    account_selector: identity.account_selector,
+    account_scope: identity.account_scope,
+    service_name: identity.service_name,
+  });
   const claimed = await runtimeInstanceCommand(env, {
     action: "hk_stop_claim",
     request_id: requestId,
     action_name: "stop",
     source_revision: source.revision,
     identity: source.identity,
+    source_identity_sha256: await sha256Hex(identityJson),
+    runtime_identity_sha256: await sha256Hex(runtimeJson),
   });
   const repository = env.RUNTIME_SETTINGS_REPO || DEFAULT_REPOSITORY;
   if (claimed.state !== "reserved") {
@@ -4438,7 +4599,7 @@ async function dispatchHkRuntimeStop(env, raw) {
     if (claimed.state === "blocked") return json({ ...body, ok: false, error: "hk_stop_request_pending" }, 409);
     return json(body);
   }
-  const identity = source.identity;
+  const stored = claimed.record;
   const stopRequest = {
     target_id: HK_STOP_TARGET_ID,
     github: {
@@ -4452,6 +4613,11 @@ async function dispatchHkRuntimeStop(env, raw) {
       account_selector: identity.account_selector,
       account_scope: identity.account_scope,
       service_name: identity.service_name,
+    },
+    correlation: {
+      request_id: stored.request_id,
+      source_revision: stored.source_revision,
+      source_identity_sha256: stored.source_identity_sha256,
     },
   };
   let outcome = "unknown";
@@ -8915,6 +9081,11 @@ function canonicalResearchTaskJson(value) {
   return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonicalResearchTaskJson(value[key])}`).join(",")}}`;
 }
 
+async function sha256Hex(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 async function calculateResearchTaskSha256(payload) {
   const material = { ...payload };
   delete material.task_sha256;
@@ -12634,6 +12805,11 @@ function applyAccountSettingOverrides(current, patch) {
     if (key === "income_layer_enabled") {
       if (typeof value !== "boolean") throw new HttpError("invalid_account_setting_overrides", 400);
       next[key] = value;
+    } else if (key === "reserved_cash_floor") {
+      if (typeof value !== "string" || value.length > 32 || !/^\d+(?:\.\d+)?$/.test(value) || !Number.isFinite(Number(value))) {
+        throw new HttpError("invalid_account_setting_overrides", 400);
+      }
+      next[key] = value;
     } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
       throw new HttpError("invalid_account_setting_overrides", 400);
     } else {
@@ -12682,6 +12858,7 @@ async function effectiveAccountSettings(env, observed) {
     strategy_profile: { status: "unknown" },
     broker_environment: broker,
     income_layer_enabled: { status: "unknown" },
+    option_overlay_enabled: { status: "unknown" },
     reserved_cash_floor: { status: "unknown" },
   };
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
@@ -12712,6 +12889,7 @@ async function effectiveAccountSettings(env, observed) {
     effective.strategy_profile = { status: "known", value: current.strategy_profile };
   }
   if (typeof current.income_layer_enabled === "boolean") effective.income_layer_enabled = { status: "known", value: current.income_layer_enabled };
+  if (typeof current.option_overlay_enabled === "boolean") effective.option_overlay_enabled = { status: "known", value: current.option_overlay_enabled };
   if (typeof current.min_reserved_cash_usd === "string" && current.min_reserved_cash_usd) {
     effective.reserved_cash_floor = { status: "known", value: current.min_reserved_cash_usd };
   }
@@ -12949,6 +13127,8 @@ export const __test = {
   normalizeSwitchInputs,
   normalizeAccountOptionsPayload,
   normalizeStrategyProfilesPayload,
+  canonicalResearchTaskJson,
+  sha256Hex,
   calculateRiskProfileSelectionSha256,
   calculateRiskProfileBindingSha256,
   normalizeRiskProfileBindingRegistry,

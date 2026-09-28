@@ -1237,10 +1237,28 @@ def build_assignments(target: dict[str, Any]) -> list[Assignment]:
     return assignments
 
 
+def _optional_stop_correlation(request: dict[str, Any], target_id: str) -> None:
+    """HK may carry the original request correlation; other targets stay unchanged."""
+    if "correlation" not in request:
+        return
+    error = "stop requires an unambiguous current target with matching identity"
+    correlation = request["correlation"]
+    fields = {"request_id", "source_revision", "source_identity_sha256"}
+    revision = correlation["source_revision"] if isinstance(correlation, dict) else None
+    if (target_id != "longbridge/hk" or not isinstance(correlation, dict) or set(correlation) != fields
+            or not isinstance(correlation["request_id"], str)
+            or re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", correlation["request_id"]) is None
+            or type(revision) is not int or revision < 0 or revision > 9007199254740991
+            or not isinstance(correlation["source_identity_sha256"], str)
+            or re.fullmatch(r"[0-9a-f]{64}", correlation["source_identity_sha256"]) is None):
+        raise ValueError(error)
+
+
 def _stop_request_identity(request: dict[str, Any]) -> tuple[str, dict[str, Any], dict[str, Any]]:
     error = "stop requires an unambiguous current target with matching identity"
     identity_fields = {"platform_id", "deployment_selector", "account_selector", "account_scope", "service_name"}
-    if not isinstance(request, dict) or set(request) != {"target_id", "github", "runtime_target"}:
+    allowed = {"target_id", "github", "runtime_target"}
+    if not isinstance(request, dict) or set(request) not in (allowed, allowed | {"correlation"}):
         raise ValueError(error)
     identity = request["runtime_target"]
     if not isinstance(identity, dict) or set(identity) != identity_fields:
@@ -1264,6 +1282,7 @@ def _stop_request_identity(request: dict[str, Any]) -> tuple[str, dict[str, Any]
     if (errors or set(github) - {"repository", "variable_scope", "environment"}
             or github["repository"] != platform_repository(platform)):
         raise ValueError(error)
+    _optional_stop_correlation(request, target_id)
     return target_id, identity, github
 
 

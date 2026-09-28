@@ -89,22 +89,28 @@ export function createAccountSettingsController() {
     abandon(op: AccountSettingsOp) {
       if (current(op)) gate.invalidate();
     },
-    applyRead(op: AccountSettingsOp, payload: Record<string, any>, options: { preserveNotice?: boolean } = {}) {
+    applyRead(op: AccountSettingsOp, payload: Record<string, any>, options: { preserveNotice?: boolean; keepCash?: boolean; keepPreference?: boolean } = {}) {
       if (!current(op) || payload?.platform !== op.account.platform || payload?.key !== op.account.key) return false;
-      const draft = payload.draft?.status === "current" ? payload.draft.overrides || {} : {};
+      const draft = payload.draft?.overrides || {};
+      const savedPreference = typeof view.settings?.risk?.preference === "string" ? view.settings.risk.preference : "";
+      const keepCash = options.keepCash === true && (view.draft.floorTouched || view.draft.clearFloor);
+      const keepPreference = options.keepPreference === true && (view.preference || "") !== savedPreference;
       view = {
         account: { platform: op.account.platform, key: op.account.key },
         settings: payload,
-        preference: payload.risk?.preference || "",
+        preference: keepPreference ? view.preference : (payload.risk?.preference || ""),
         notice: options.preserveNotice ? view.notice : "",
         unavailable: "",
         saving: "",
         draft: {
           strategy: typeof draft.strategy_profile === "string" ? draft.strategy_profile : "",
-          floor: typeof draft.reserved_cash_floor === "string" ? draft.reserved_cash_floor : "",
+          floor: keepCash ? view.draft.floor : (typeof draft.reserved_cash_floor === "string" ? draft.reserved_cash_floor : ""),
           income: typeof draft.income_layer_enabled === "boolean" ? String(draft.income_layer_enabled) : "",
-          strategyTouched: false, incomeTouched: false, floorTouched: false,
-          clearStrategy: false, clearFloor: false, acknowledge: false,
+          strategyTouched: false, incomeTouched: false,
+          floorTouched: keepCash ? view.draft.floorTouched : false,
+          clearStrategy: false,
+          clearFloor: keepCash ? view.draft.clearFloor : false,
+          acknowledge: false,
         },
       };
       return true;
@@ -140,6 +146,7 @@ export function createAccountSettingsController() {
           risk_preference: view.preference || null,
         };
       } else {
+        if (view.settings.draft?.status === "identity_conflict" && !view.draft.acknowledge) return null;
         const overrides = draftOverrides(view.draft);
         if (!Object.keys(overrides).length || !Number.isSafeInteger(view.settings.draft?.revision)) return null;
         body = {
@@ -167,7 +174,20 @@ export function createAccountSettingsController() {
       return true;
     },
     applySave(op: AccountSettingsOp, payload: Record<string, any>, notice: string) {
-      if (!this.applyRead(op, payload)) return false;
+      const overrides = op.body?.overrides as Record<string, unknown> | undefined;
+      const sentCash = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_floor"));
+      const sentRisk = Boolean(op.body && Object.prototype.hasOwnProperty.call(op.body, "risk_preference"));
+      const cashMoved = view.draft.clearFloor
+        ? !(sentCash && overrides?.reserved_cash_floor === null)
+        : view.draft.floorTouched && !(sentCash && overrides?.reserved_cash_floor === view.draft.floor);
+      const savedPreference = typeof view.settings?.risk?.preference === "string" ? view.settings.risk.preference : "";
+      const preferenceMoved = sentRisk
+        ? (view.preference || "") !== (op.body?.risk_preference || "")
+        : (view.preference || "") !== savedPreference;
+      if (!this.applyRead(op, payload, {
+        keepCash: sentCash ? cashMoved : view.draft.floorTouched || view.draft.clearFloor,
+        keepPreference: preferenceMoved,
+      })) return false;
       view = { ...view, notice, saving: "" };
       return true;
     },
@@ -179,7 +199,7 @@ export function createAccountSettingsController() {
     applyRefresh(op: AccountSettingsOp, payload: Record<string, any>) {
       if (!current(op)) return false;
       const notice = view.notice;
-      if (!this.applyRead(op, payload, { preserveNotice: true })) return false;
+      if (!this.applyRead(op, payload, { preserveNotice: true, keepCash: true, keepPreference: true })) return false;
       view = { ...view, notice, saving: "" };
       return true;
     },

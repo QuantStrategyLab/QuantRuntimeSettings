@@ -806,9 +806,10 @@ test("opening account settings selects the exact account without submitting or e
   assert.equal(controller.selectedId(), "binance:default");
   assert.equal(controller.applyRead(op, settingsPayload({ platform: "binance", key: "default" })), true);
   assert.equal(controller.startSave("draft"), null);
+  assert.equal(controller.view().draft.floorTouched, false);
+  assert.equal(controller.view().draft.clearFloor, false);
   assert.match(accountsSource, /readonly-strategy/);
   assert.match(accountsSource, /暂不能修改/);
-  assert.equal(accountsSource.includes("<input"), false);
 });
 
 test("viewing a prepared application opens its account without replacing the current draft", () => {
@@ -923,9 +924,10 @@ test("viewing an account does not expand editing or change the configured switch
   assert.equal(controller.applyRead(op, settingsPayload({ platform: "binance", key: "default", runtime_target_enabled: true })), true);
   assert.equal(controller.view().draft.strategyTouched, false);
   assert.equal(controller.startSave("draft"), null);
+  assert.equal(controller.view().draft.floorTouched, false);
+  assert.equal(controller.view().draft.clearFloor, false);
   assert.match(accountsSource, /readonly-strategy/);
   assert.match(accountsSource, /暂不能修改/);
-  assert.equal(accountsSource.includes("<input"), false);
 });
 
 test("unverified promotion records are separated by evidence, not by test-like names", () => {

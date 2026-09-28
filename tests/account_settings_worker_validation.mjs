@@ -547,5 +547,61 @@ await raceRiskWrite("sg", {
 assert.equal((await call("/api/account-settings?platform=longbridge&key=hk")).body.risk.preference, "BALANCED_COMPOUNDING");
 assert.equal((await call("/api/account-settings?platform=longbridge&key=sg")).body.risk.preference, "CAPITAL_PRESERVATION");
 
+const cashAccount = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(cashAccount.body.effective.income_layer_enabled.status, "unknown");
+assert.equal(Object.hasOwn(cashAccount.body.effective.income_layer_enabled, "value"), false);
+assert.equal(cashAccount.body.effective.option_overlay_enabled.status, "unknown");
+assert.equal(Object.hasOwn(cashAccount.body.effective.option_overlay_enabled, "value"), false);
+const cashBefore = outbound;
+const configBeforeCash = JSON.stringify((await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "sg").config);
+for (const value of ["-1", "NaN", "Infinity", "1e2", "1.2.3", " 1", "1 ", ""]) {
+  const rejectedAmount = await call("/api/account-settings", {
+    method: "POST",
+    body: {
+      platform: "longbridge", key: "sg",
+      expected_draft_revision: cashAccount.body.draft.revision,
+      identity: cashAccount.body.identity,
+      overrides: { reserved_cash_floor: value },
+    },
+  });
+  assert.equal(rejectedAmount.status, 400, value);
+}
+const optionWrite = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: cashAccount.body.draft.revision,
+    identity: cashAccount.body.identity,
+    overrides: { option_overlay_enabled: false },
+  },
+});
+assert.equal(optionWrite.status, 400);
+assert.equal(outbound, cashBefore, "rejected cash and option writes do not dispatch");
+const exactCash = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: cashAccount.body.draft.revision,
+    identity: cashAccount.body.identity,
+    overrides: { reserved_cash_floor: "0.10" },
+  },
+});
+assert.equal(exactCash.status, 200);
+assert.equal(exactCash.body.draft.overrides.reserved_cash_floor, "0.10");
+assert.equal(exactCash.body.adopted, false);
+const zeroCash = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: exactCash.body.draft.revision,
+    identity: exactCash.body.identity,
+    overrides: { reserved_cash_floor: "0" },
+  },
+});
+assert.equal(zeroCash.status, 200);
+assert.equal(zeroCash.body.draft.overrides.reserved_cash_floor, "0");
+assert.equal(outbound, cashBefore, "accepted cash drafts do not dispatch");
+assert.equal(JSON.stringify((await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "sg").config), configBeforeCash);
+
 await mf.dispose();
 console.log("account_settings_worker_validation: PASS");

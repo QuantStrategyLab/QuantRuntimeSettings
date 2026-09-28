@@ -177,6 +177,34 @@ class RuntimeStopDispatchTests(unittest.TestCase):
             with patch.dict(os.environ, {"GITHUB_EVENT_PATH": str(link)}, clear=True), self.assertRaises(ValueError):
                 settings.load_stop_request()
 
+    def test_hk_correlation_is_forwarded_once_and_invalid_correlation_never_dispatches(self):
+        correlation = {
+            "request_id": "11111111-1111-4111-8111-111111111111",
+            "source_revision": 1,
+            "source_identity_sha256": "ab" * 32,
+        }
+        self.args.apply_hk_stop = True
+        self.request = {**self.hk_request(), "correlation": {**correlation, "source_revision": True}}
+        with patch.object(settings, "execute_stop") as save, patch.object(settings.subprocess, "run") as external:
+            self.assertEqual(self.command()[0], 2)
+            save.assert_not_called()
+            external.assert_not_called()
+        self.request = {**self.hk_request(), "correlation": correlation}
+        reads = self.hk_variables("true") + self.hk_variables("true") + self.hk_variables("false")
+        reads.append(self.hk_variables("false")[1])
+
+        def run(command, **kwargs):
+            if command[:3] == ["gh", "variable", "set"]:
+                return subprocess.CompletedProcess(command, 0, "", "")
+            payload = json.loads(kwargs["input"])
+            self.assertEqual(json.loads(payload["inputs"]["stop_request"]), self.request)
+            return subprocess.CompletedProcess(command, 0, "", "")
+
+        with patch.object(settings, "read_stop_variables", side_effect=reads), \
+                patch.object(settings.subprocess, "run", side_effect=run):
+            code, _output = self.command()
+        self.assertEqual(code, 0)
+
 
 if __name__ == "__main__":
     unittest.main()

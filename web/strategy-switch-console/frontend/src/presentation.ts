@@ -346,6 +346,24 @@ export function preferenceDirty(saved: unknown, draft: unknown): boolean {
   return left !== right;
 }
 
+export function cashDraftDirty(draft: { floorTouched?: boolean; clearFloor?: boolean } | null | undefined): boolean {
+  return draft?.floorTouched === true || draft?.clearFloor === true;
+}
+
+export function readOnlyLayerState(field: unknown): "on" | "off" | "unknown" {
+  if (!field || typeof field !== "object" || Array.isArray(field)) return "unknown";
+  const record = field as { status?: unknown; value?: unknown };
+  if (record.status !== "known" || typeof record.value !== "boolean") return "unknown";
+  return record.value ? "on" : "off";
+}
+
+export function reservedCashAmount(field: unknown): string | null {
+  if (!field || typeof field !== "object" || Array.isArray(field)) return null;
+  const record = field as { status?: unknown; value?: unknown };
+  if (record.status !== "known" || typeof record.value !== "string" || record.value === "") return null;
+  return record.value;
+}
+
 export function accountRouteId(platform: string, key: string): string {
   return `${platform}:${key}`;
 }
