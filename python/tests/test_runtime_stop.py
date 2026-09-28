@@ -344,6 +344,42 @@ class RuntimeStopTests(unittest.TestCase):
         self.assertEqual(audit["writer_sha"], "a" * 40)
         self.assertEqual(audit["writer_workflow"], "Manual Runtime Stop")
 
+    def test_optional_hk_correlation_stays_exact(self):
+        correlation = {
+            "request_id": "11111111-1111-4111-8111-111111111111",
+            "source_revision": 1,
+            "source_identity_sha256": "ab" * 32,
+        }
+        hk = {
+            "target_id": "longbridge/hk",
+            "github": {
+                "repository": "QuantStrategyLab/LongBridgePlatform",
+                "variable_scope": "environment",
+                "environment": "longbridge-hk",
+            },
+            "runtime_target": {
+                "platform_id": "longbridge",
+                "deployment_selector": "synthetic-hk",
+                "account_selector": ["synthetic-account"],
+                "account_scope": "HK",
+                "service_name": "longbridge-quant-hk-service",
+            },
+        }
+        runtime_settings._stop_request_identity(hk)
+        kept = {**hk, "correlation": correlation}
+        runtime_settings._stop_request_identity(kept)
+        self.assertEqual(kept["correlation"], correlation)
+        rejected = [
+            {**self.request, "correlation": correlation},
+            {**hk, "correlation": {**correlation, "request_id": "not-a-uuid"}},
+            {**hk, "correlation": {**correlation, "source_revision": True}},
+            {**hk, "correlation": {**correlation, "source_identity_sha256": "ab"}},
+            {**hk, "correlation": {**correlation, "extra": "no"}},
+        ]
+        for request in rejected:
+            with self.subTest(request=sorted(request.get("correlation", {}))), self.assertRaises(ValueError):
+                runtime_settings._stop_request_identity(request)
+
 
 if __name__ == "__main__":
     unittest.main()

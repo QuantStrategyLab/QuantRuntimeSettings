@@ -23,7 +23,7 @@ export type AccountSettingOverridePatch = {
   reserved_cash_floor?: string | null;
 };
 
-export type HkStopPhase = "loading" | "unavailable" | "empty" | "reserved" | "unknown" | "accepted" | "rejected";
+export type HkStopPhase = "loading" | "unavailable" | "empty" | "reserved" | "unknown" | "accepted" | "rejected" | "stopped";
 
 export type HkStopView = {
   phase: HkStopPhase;
@@ -31,10 +31,10 @@ export type HkStopView = {
   dispatch_result: string | null;
   request_succeeded: false;
   platform_applied: false;
-  notice: "none" | "read_failed" | "unknown" | "accepted" | "rejected";
+  notice: "none" | "read_failed" | "unknown" | "accepted" | "rejected" | "stopped";
 };
 
-const HK_STOP_LOCKED = new Set<HkStopPhase>(["reserved", "unknown", "accepted"]);
+const HK_STOP_LOCKED = new Set<HkStopPhase>(["reserved", "unknown", "accepted", "stopped"]);
 
 export function hkStopInitialView(): HkStopView {
   return {
@@ -65,7 +65,7 @@ export function hkStopReadFailed(current: HkStopView | null | undefined): HkStop
   return { ...hkStopInitialView(), phase: "unavailable", notice: "read_failed" };
 }
 
-function hkStopServerView(phase: "rejected" | "accepted" | "unknown" | "reserved", payload: {
+function hkStopServerView(phase: "rejected" | "accepted" | "unknown" | "reserved" | "stopped", payload: {
   request_id?: string | null;
   dispatch_result?: string | null;
 }): HkStopView {
@@ -75,7 +75,7 @@ function hkStopServerView(phase: "rejected" | "accepted" | "unknown" | "reserved
     dispatch_result: payload.dispatch_result ?? null,
     request_succeeded: false,
     platform_applied: false,
-    notice: phase === "rejected" ? "rejected" : phase === "accepted" ? "accepted" : "unknown",
+    notice: phase === "stopped" ? "stopped" : phase === "rejected" ? "rejected" : phase === "accepted" ? "accepted" : "unknown",
   };
 }
 
@@ -86,15 +86,19 @@ export function hkStopApplyServer(current: HkStopView | null | undefined, payloa
 } | null | undefined): HkStopView {
   const phase = payload?.phase;
   const incomingId = payload?.request_id ?? null;
+  if (current?.phase === "stopped") {
+    if (incomingId === current.request_id && phase === "stopped") return hkStopServerView("stopped", payload || {});
+    return current;
+  }
   const locked = Boolean(current && HK_STOP_LOCKED.has(current.phase));
   if (locked) {
     if (!incomingId || incomingId !== current?.request_id) return current?.phase ? current : hkStopInitialView();
-    if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved") {
+    if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved" || phase === "stopped") {
       return hkStopServerView(phase, payload || {});
     }
     return current?.phase ? current : hkStopInitialView();
   }
-  if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved") {
+  if (phase === "rejected" || phase === "accepted" || phase === "unknown" || phase === "reserved" || phase === "stopped") {
     return hkStopServerView(phase, payload || {});
   }
   if (payload && (phase === null || phase === undefined)) {

@@ -291,6 +291,12 @@ try {
     assert.equal(accepted.body.dispatch_result, "accepted");
     assert.equal(accepted.body.workflow_run_id, null);
     const dispatched = JSON.parse(bodies[0].body);
+    const overlappedRequest = JSON.parse(dispatched.inputs.stop_request);
+    assert.deepEqual(Object.keys(overlappedRequest).sort(), ["correlation", "github", "runtime_target", "target_id"]);
+    assert.equal(overlappedRequest.correlation.request_id, accepted.body.request_id);
+    assert.equal(Number.isSafeInteger(overlappedRequest.correlation.source_revision), true);
+    assert.ok(overlappedRequest.correlation.source_revision >= 1);
+    assert.match(overlappedRequest.correlation.source_identity_sha256, /^[0-9a-f]{64}$/);
     assert.equal(dispatched.inputs.apply_hk_stop, "true");
     assert.equal(dispatched.inputs.confirm, "STOP_ONLY");
     const probe = spawnSync("python3", [probePath], { input: JSON.stringify(dispatched), encoding: "utf8" });
@@ -560,6 +566,384 @@ try {
     }
   } finally {
     await lostRecord.mf.dispose().catch(() => {});
+  }
+
+  const confirmed = await start(account());
+  try {
+    await initialize(confirmed.call);
+    const bodies = [];
+    globalThis.fetch = stopFetch({ outcome: "accept" }, bodies);
+    const env = {
+      ...confirmed.bindings,
+      STRATEGY_SWITCH_RUNTIME_INSTANCES: confirmed.namespace,
+      STRATEGY_SWITCH_CONFIG: confirmed.kv,
+    };
+    const requestId = crypto.randomUUID();
+    const posted = await workerStop(env, confirmed.cookie, { ...stopBody, request_id: requestId });
+    assert.equal(posted.status, 200);
+    assert.equal(posted.body.phase, "accepted");
+    assert.equal(posted.body.stop_confirmed, false);
+    const stopRequest = JSON.parse(JSON.parse(bodies[0].body).inputs.stop_request);
+    const runtimeHash = await __test.sha256Hex(__test.canonicalResearchTaskJson(stopRequest.runtime_target));
+    const resultBody = (patch = {}) => ({
+      schema_version: "qsl_hk_stop_result.v1",
+      request_id: requestId,
+      source_revision: stopRequest.correlation.source_revision,
+      source_identity_sha256: stopRequest.correlation.source_identity_sha256,
+      target_id: "longbridge/hk",
+      runtime_identity_sha256: runtimeHash,
+      producer: {
+        repository: "QuantStrategyLab/LongBridgePlatform",
+        workflow_path: ".github/workflows/stop-hk-runtime.yml",
+        run_id: "101",
+        run_attempt: 1,
+        head_sha: "a".repeat(40),
+      },
+      observed_at: posted.body.requested_at,
+      readback: {
+        project: "longbridgequant",
+        region: "asia-east2",
+        service: "longbridge-quant-hk-service",
+        revision_name: "longbridge-quant-hk-service-00001-abc",
+        runtime_enabled: false,
+        scheduler_state: "paused",
+        scheduler_count: 2,
+        scheduler_set_sha256: "b".repeat(64),
+        complete: true,
+      },
+      no_order: true,
+      in_flight_state: "unknown",
+      retirement_complete: false,
+      ...patch,
+    });
+    async function postResult(body, headers = {}) {
+      const response = await worker.fetch(new Request("https://switch.example/api/internal/runtime-stop-result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      }), env);
+      const text = await response.text();
+      let payload = null;
+      try { payload = text ? JSON.parse(text) : null; } catch { payload = { raw: text }; }
+      return { status: response.status, body: payload };
+    }
+    const withSession = { Cookie: confirmed.cookie, Authorization: "Bearer wrong-token" };
+    assert.equal((await postResult(resultBody(), { Cookie: confirmed.cookie })).status, 401);
+    assert.equal((await postResult(resultBody(), withSession)).status, 401);
+    const missingRequest = await postResult(resultBody({ request_id: crypto.randomUUID() }), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(missingRequest.status, 409);
+    assert.equal(missingRequest.body.error, "hk_stop_request_conflict");
+    const early = await postResult(resultBody({ observed_at: "2020-01-01T00:00:00.000Z" }), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(early.status, 409);
+    assert.equal(early.body.error, "hk_stop_result_stale");
+    const futureObserved = new Date(Date.now() + 120000).toISOString();
+    const future = await postResult(resultBody({ observed_at: futureObserved }), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(future.status, 409);
+    assert.equal(future.body.error, "hk_stop_result_stale");
+    for (const patch of [{ readback: { ...resultBody().readback, complete: false } }, { extra: true }, { readback: { ...resultBody().readback, runtime_enabled: true } }, { readback: { ...resultBody().readback, scheduler_count: 0 } }]) {
+      const partial = await postResult(resultBody(patch), { Authorization: "Bearer synthetic-lifecycle-token" });
+      assert.equal(partial.status, 400);
+      assert.equal(partial.body.error, "hk_stop_result_rejected");
+    }
+    const stillOpen = await workerRead(env, { cookie: confirmed.cookie });
+    assert.equal(stillOpen.body.phase, "accepted");
+    assert.equal(stillOpen.body.stop_confirmed, false);
+    const instances = await confirmed.call("/api/admin/runtime-instances");
+    const retired = await confirmed.call("/api/admin/runtime-instances", {
+      method: "POST",
+      body: {
+        action: "request_retirement",
+        expected_revision: instances.body.revision,
+        platform: "longbridge",
+        key: "hk",
+      },
+    });
+    assert.equal(retired.status, 200);
+    assert.notEqual(retired.body.revision, stopRequest.correlation.source_revision);
+    const wrongRevision = await postResult(resultBody({ source_revision: retired.body.revision }), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(wrongRevision.status, 409);
+    assert.equal(wrongRevision.body.error, "hk_stop_identity_conflict");
+    const RealDate = Date;
+    const shifted = RealDate.now() + 25 * 60 * 60 * 1000;
+    globalThis.Date = class extends RealDate {
+      constructor(...args) { super(...(args.length ? args : [shifted])); }
+      static now() { return shifted; }
+      static parse(value) { return RealDate.parse(value); }
+      static UTC(...args) { return RealDate.UTC(...args); }
+    };
+    let aged;
+    try {
+      aged = await postResult(resultBody({ observed_at: new Date(shifted).toISOString() }), { Authorization: "Bearer synthetic-lifecycle-token" });
+    } finally {
+      globalThis.Date = RealDate;
+    }
+    assert.equal(aged.status, 409);
+    assert.equal(aged.body.error, "hk_stop_result_stale");
+    const acceptedResult = await postResult(resultBody(), { Authorization: "Bearer synthetic-lifecycle-token", Origin: "https://other.example" });
+    assert.equal(acceptedResult.status, 200);
+    assert.equal(acceptedResult.body.replayed, false);
+    assert.equal(acceptedResult.body.phase, "stopped");
+    assert.equal(acceptedResult.body.stop_confirmed, true);
+    assert.equal(acceptedResult.body.platform_applied, false);
+    assert.equal(acceptedResult.body.request_succeeded, false);
+    assert.equal(acceptedResult.body.in_flight_state, "unknown");
+    assert.equal(JSON.stringify(acceptedResult.body).includes(stopRequest.correlation.source_identity_sha256), false);
+    assert.equal(JSON.stringify(acceptedResult.body).includes("revision_name"), false);
+    const visible = await workerRead(env, { cookie: confirmed.cookie });
+    assert.equal(visible.body.phase, "stopped");
+    assert.equal(visible.body.stop_confirmed, true);
+    assert.equal(visible.body.platform_applied, false);
+    assert.equal(visible.body.request_succeeded, false);
+    assert.equal(visible.body.in_flight_state, "unknown");
+    assert.equal(visible.body.workflow_run_id, null);
+    assert.equal(visible.body.runtime_observation.status, "unknown");
+    assert.equal(Object.hasOwn(visible.body, "source_identity_sha256"), false);
+    assert.equal(Object.hasOwn(visible.body, "result_json"), false);
+    const replayed = await postResult(resultBody(), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(replayed.status, 200);
+    assert.equal(replayed.body.replayed, true);
+    const conflict = await postResult(resultBody({ producer: { ...resultBody().producer, run_id: "202" } }), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(conflict.status, 409);
+    assert.equal(conflict.body.error, "hk_stop_result_conflict");
+    const unchanged = await postResult(resultBody(), { Authorization: "Bearer synthetic-lifecycle-token" });
+    assert.equal(unchanged.status, 200);
+    assert.equal(unchanged.body.replayed, true);
+    const another = await workerStop(env, confirmed.cookie, { ...stopBody, request_id: crypto.randomUUID() });
+    assert.equal(another.status, 409);
+    assert.equal(another.body.error, "hk_stop_request_pending");
+    assert.equal(bodies.length, 1);
+    await confirmed.mf.dispose();
+    const restarted = new Miniflare({
+      modules: true,
+      modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+      scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
+      compatibilityDate: "2026-06-08",
+      bindings: confirmed.bindings,
+      durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
+      durableObjectsPersist: confirmed.persist,
+      kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
+      outboundService: () => new Response("offline only", { status: 503 }),
+    });
+    try {
+      const restartedNamespace = await restarted.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+      const restartedEnv = {
+        ...confirmed.bindings,
+        STRATEGY_SWITCH_RUNTIME_INSTANCES: restartedNamespace,
+        STRATEGY_SWITCH_CONFIG: await restarted.getKVNamespace("STRATEGY_SWITCH_CONFIG"),
+      };
+      const afterRestart = await worker.fetch(new Request("https://switch.example/api/internal/runtime-stop-result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer synthetic-lifecycle-token" },
+        body: JSON.stringify(resultBody()),
+      }), restartedEnv);
+      const afterBody = await afterRestart.json();
+      assert.equal(afterRestart.status, 200);
+      assert.equal(afterBody.replayed, true);
+      const readAfterRestart = await workerRead(restartedEnv, { cookie: confirmed.cookie });
+      assert.equal(readAfterRestart.body.phase, "stopped");
+      assert.equal(readAfterRestart.body.stop_confirmed, true);
+    } finally {
+      await restarted.dispose();
+    }
+  } finally {
+    await confirmed.mf.dispose().catch(() => {});
+  }
+
+  const changedIdentity = await start(account());
+  try {
+    await initialize(changedIdentity.call);
+    const bodies = [];
+    globalThis.fetch = stopFetch({ outcome: "accept" }, bodies);
+    const env = {
+      ...changedIdentity.bindings,
+      STRATEGY_SWITCH_RUNTIME_INSTANCES: changedIdentity.namespace,
+      STRATEGY_SWITCH_CONFIG: changedIdentity.kv,
+    };
+    const requestId = crypto.randomUUID();
+    const posted = await workerStop(env, changedIdentity.cookie, { ...stopBody, request_id: requestId });
+    assert.equal(posted.status, 200);
+    const stopRequest = JSON.parse(JSON.parse(bodies[0].body).inputs.stop_request);
+    const instances = await changedIdentity.call("/api/admin/runtime-instances");
+    const changed = await changedIdentity.call("/api/admin/runtime-instances", {
+      method: "POST",
+      body: {
+        action: "set_broker_environment",
+        expected_revision: instances.body.revision,
+        platform: "longbridge",
+        key: "hk",
+        broker_environment: "live",
+      },
+    });
+    assert.equal(changed.status, 200);
+    const runtimeHash = await __test.sha256Hex(__test.canonicalResearchTaskJson(stopRequest.runtime_target));
+    const rejected = await worker.fetch(new Request("https://switch.example/api/internal/runtime-stop-result", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer synthetic-lifecycle-token" },
+      body: JSON.stringify({
+        schema_version: "qsl_hk_stop_result.v1",
+        request_id: requestId,
+        source_revision: stopRequest.correlation.source_revision,
+        source_identity_sha256: stopRequest.correlation.source_identity_sha256,
+        target_id: "longbridge/hk",
+        runtime_identity_sha256: runtimeHash,
+        producer: {
+          repository: "QuantStrategyLab/LongBridgePlatform",
+          workflow_path: ".github/workflows/stop-hk-runtime.yml",
+          run_id: "303",
+          run_attempt: 1,
+          head_sha: "c".repeat(40),
+        },
+        observed_at: posted.body.requested_at,
+        readback: {
+          project: "longbridgequant", region: "asia-east2", service: "longbridge-quant-hk-service",
+          revision_name: "longbridge-quant-hk-service-00002-abc", runtime_enabled: false,
+          scheduler_state: "paused", scheduler_count: 1, scheduler_set_sha256: "d".repeat(64), complete: true,
+        },
+        no_order: true, in_flight_state: "unknown", retirement_complete: false,
+      }),
+    }), env);
+    const rejectedBody = await rejected.json();
+    assert.equal(rejected.status, 409);
+    assert.equal(rejectedBody.error, "hk_stop_identity_conflict");
+    const stillAccepted = await workerRead(env, { cookie: changedIdentity.cookie });
+    assert.equal(stillAccepted.body.phase, "accepted");
+    assert.equal(stillAccepted.body.stop_confirmed, false);
+  } finally {
+    await changedIdentity.mf.dispose().catch(() => {});
+  }
+
+  const earlyResult = await start(account());
+  try {
+    await initialize(earlyResult.call);
+    const bodies = [];
+    const mode = { outcome: "accept", hold: null };
+    let releaseHold = () => {};
+    mode.hold = new Promise((resolve) => { releaseHold = resolve; });
+    globalThis.fetch = stopFetch(mode, bodies);
+    const env = {
+      ...earlyResult.bindings,
+      STRATEGY_SWITCH_RUNTIME_INSTANCES: earlyResult.namespace,
+      STRATEGY_SWITCH_CONFIG: earlyResult.kv,
+    };
+    const requestId = crypto.randomUUID();
+    const pending = workerStop(env, earlyResult.cookie, { ...stopBody, request_id: requestId });
+    await waitFor(new Promise((resolve) => {
+      const timer = setInterval(() => {
+        if (bodies.length >= 1) { clearInterval(timer); resolve(); }
+      }, 20);
+    }), "hk stop result before record");
+    const stopRequest = JSON.parse(JSON.parse(bodies[0].body).inputs.stop_request);
+    const reserved = await workerRead(env, { cookie: earlyResult.cookie });
+    assert.equal(reserved.body.phase, "reserved");
+    const runtimeHash = await __test.sha256Hex(__test.canonicalResearchTaskJson(stopRequest.runtime_target));
+    const during = await worker.fetch(new Request("https://switch.example/api/internal/runtime-stop-result", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer synthetic-lifecycle-token" },
+      body: JSON.stringify({
+        schema_version: "qsl_hk_stop_result.v1",
+        request_id: requestId,
+        source_revision: stopRequest.correlation.source_revision,
+        source_identity_sha256: stopRequest.correlation.source_identity_sha256,
+        target_id: "longbridge/hk",
+        runtime_identity_sha256: runtimeHash,
+        producer: {
+          repository: "QuantStrategyLab/LongBridgePlatform",
+          workflow_path: ".github/workflows/stop-hk-runtime.yml",
+          run_id: "404",
+          run_attempt: 1,
+          head_sha: "e".repeat(40),
+        },
+        observed_at: reserved.body.requested_at,
+        readback: {
+          project: "longbridgequant", region: "asia-east2", service: "longbridge-quant-hk-service",
+          revision_name: "longbridge-quant-hk-service-00003-abc", runtime_enabled: false,
+          scheduler_state: "paused", scheduler_count: 1, scheduler_set_sha256: "f".repeat(64), complete: true,
+        },
+        no_order: true, in_flight_state: "unknown", retirement_complete: false,
+      }),
+    }), env);
+    assert.equal(during.status, 200);
+    releaseHold();
+    const finished = await pending;
+    assert.equal(finished.body.phase, "stopped");
+    assert.equal(finished.body.stop_confirmed, true);
+    assert.equal(finished.body.platform_applied, false);
+    assert.equal(finished.body.request_succeeded, false);
+    assert.equal(bodies.length, 1);
+  } finally {
+    await earlyResult.mf.dispose().catch(() => {});
+  }
+
+  const legacy = await start(account());
+  try {
+    await initialize(legacy.call);
+    const identity = {
+      key: "hk", target_name: "hk", platform_id: "longbridge",
+      deployment_selector: "synthetic-hk", account_selector: ["synthetic-account"],
+      account_scope: "HK", service_name: "longbridge-quant-hk-service",
+      variable_scope: "environment", github_environment: "longbridge-hk",
+      broker_environment: "paper", runtime_status_target_id: "longbridge.hk",
+    };
+    const requestId = crypto.randomUUID();
+    const stub = legacy.namespace.get(legacy.namespace.idFromName("runtime-instances"));
+    const claimed = await stub.fetch("https://runtime-instances/", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "hk_stop_claim", request_id: requestId, action_name: "stop",
+        source_revision: 1, identity,
+      }),
+    });
+    const claimedBody = await claimed.json();
+    assert.equal(claimed.status, 200);
+    assert.equal(claimedBody.record.phase, "reserved");
+    const env = {
+      ...legacy.bindings,
+      STRATEGY_SWITCH_RUNTIME_INSTANCES: legacy.namespace,
+      STRATEGY_SWITCH_CONFIG: legacy.kv,
+    };
+    const runtimeHash = await __test.sha256Hex(__test.canonicalResearchTaskJson({
+      platform_id: "longbridge", deployment_selector: "synthetic-hk",
+      account_selector: ["synthetic-account"], account_scope: "HK",
+      service_name: "longbridge-quant-hk-service",
+    }));
+    const sourceHash = await __test.sha256Hex(__test.canonicalResearchTaskJson(identity));
+    const unlinked = await worker.fetch(new Request("https://switch.example/api/internal/runtime-stop-result", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer synthetic-lifecycle-token" },
+      body: JSON.stringify({
+        schema_version: "qsl_hk_stop_result.v1",
+        request_id: requestId,
+        source_revision: 1,
+        source_identity_sha256: sourceHash,
+        target_id: "longbridge/hk",
+        runtime_identity_sha256: runtimeHash,
+        producer: {
+          repository: "QuantStrategyLab/LongBridgePlatform",
+          workflow_path: ".github/workflows/stop-hk-runtime.yml",
+          run_id: "505", run_attempt: 1, head_sha: "1".repeat(40),
+        },
+        observed_at: new Date().toISOString(),
+        readback: {
+          project: "longbridgequant", region: "asia-east2", service: "longbridge-quant-hk-service",
+          revision_name: "longbridge-quant-hk-service-00004-abc", runtime_enabled: false,
+          scheduler_state: "paused", scheduler_count: 1, scheduler_set_sha256: "2".repeat(64), complete: true,
+        },
+        no_order: true, in_flight_state: "unknown", retirement_complete: false,
+      }),
+    }), env);
+    const unlinkedBody = await unlinked.json();
+    assert.equal(unlinked.status, 409);
+    assert.equal(unlinkedBody.error, "hk_stop_result_unlinked");
+    const locked = await workerRead(env, { cookie: legacy.cookie });
+    assert.equal(locked.body.phase, "reserved");
+    assert.equal(locked.body.stop_confirmed, false);
+    const bodies = [];
+    globalThis.fetch = stopFetch({ outcome: "accept" }, bodies);
+    const blocked = await workerStop(env, legacy.cookie, { ...stopBody, request_id: crypto.randomUUID() });
+    assert.equal(blocked.status, 409);
+    assert.equal(bodies.length, 0);
+  } finally {
+    await legacy.mf.dispose().catch(() => {});
   }
 
   console.log("runtime stop requests: one HK dispatch is claimed before send; unknown, conflict, and failed result writes do not dispatch again");

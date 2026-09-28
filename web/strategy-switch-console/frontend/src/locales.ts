@@ -160,6 +160,8 @@ export const EN_COPY = {
   "停用只阻止新的触发，不会撤单、平仓或清除在途请求。": "Disabling stops new triggers. It does not cancel orders, close positions, or clear pending requests.",
   "停用请求已提交；请核对现有 workflow 结果后再刷新，避免重复提交。": "Disable request submitted. Check the existing workflow result before refreshing to avoid duplicate submissions.",
   "停用结果未知，不能再次提交。可以只读刷新。": "The disable result is unknown. Do not submit it again. A read-only refresh is available.",
+  "这次停用已确认": "This disable is confirmed",
+  "这次停用已确认。这不是当前运行状态，也不说明在途请求已经结束。": "This disable is confirmed. It is not the current runtime status, and it does not show that in-flight work has finished.",
   "停用结果未知，不能再次提交": "Disable result unknown; do not submit again",
   "刷新停用状态": "Refresh disable status",
   "工作流已接受，平台是否停用仍未确认。": "The workflow was accepted. Whether the platform stopped is still unconfirmed.",

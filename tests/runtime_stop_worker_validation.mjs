@@ -46,6 +46,7 @@ try {
   assert.deepEqual(Object.keys(dispatched.inputs).sort(), ["apply", "confirm", "stop_request"]);
   assert.equal(dispatched.inputs.confirm, "STOP_ONLY");
   const target = JSON.parse(dispatched.inputs.stop_request);
+  assert.deepEqual(Object.keys(target).sort(), ["github", "runtime_target", "target_id"]);
   assert.equal(target.github.environment, account.github_environment);
   assert.equal(target.runtime_target.service_name, account.service_name);
   assert.deepEqual(target.runtime_target.account_selector, [account.account_selector]);
