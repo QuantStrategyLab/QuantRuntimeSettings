@@ -108,6 +108,7 @@ jobs:
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           node tests/runtime_daily_worker_validation.mjs
+          node tests/account_facts_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs

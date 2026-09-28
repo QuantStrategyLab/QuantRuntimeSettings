@@ -34,6 +34,23 @@ import {
   parseAccountOptionsJson as parseAccountOptionsSchemaJson,
 } from "./account_options_schema.js";
 import {
+  ACCOUNT_FACTS_BINDINGS_KEY,
+  ACCOUNT_FACTS_MAX_BODY_BYTES,
+  ACCOUNT_FACTS_OPTION_SCOPE,
+  ACCOUNT_FACTS_PAYLOAD_SCOPE,
+  ACCOUNT_FACTS_PLATFORM,
+  ACCOUNT_FACTS_RETURN_UNAVAILABLE,
+  accountFactsOptionMatchesBinding,
+  accountFactsReadModelEnabled,
+  buildAccountFactsReadModel,
+  canonicalizeAccountFactsHistory,
+  decideAccountFactsPut,
+  normalizeAccountFactsBindings,
+  normalizeAccountFactsHistoryPayload,
+  resolveTrustedAccountFactsBinding,
+  AccountFactsError,
+} from "./account_facts.js";
+import {
   UX1_DRAFT_SCHEMA,
   UX1_EVIDENCE_HASH_KEYS,
   UX1_STUDY,
@@ -328,6 +345,9 @@ const HUMAN_DECISION_DO_ACTIONS = new Set([
 const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "risk_profile_read", "risk_profile_replace", "risk_profile_set",
   "account_settings_read", "account_settings_save",
+]);
+const ACCOUNT_FACTS_DO_ACTIONS = new Set([
+  "account_facts_put", "account_facts_read", "account_facts_list",
 ]);
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
@@ -725,6 +745,12 @@ export default {
       }
       if (url.pathname === "/api/runtime-daily" && request.method === "GET") {
         return await runtimeDailyResponse(request, env, url);
+      }
+      if (url.pathname === "/api/account-facts/sync" && request.method === "POST") {
+        return await syncAccountFactsResponse(request, env);
+      }
+      if (url.pathname === "/api/account-facts" && request.method === "GET") {
+        return await accountFactsResponse(request, env);
       }
       if (url.pathname === "/api/internal/sync-runtime-target-lifecycle-source" && request.method === "POST") {
         return await syncRuntimeTargetLifecycleSourceResponse(request, env);
@@ -2014,6 +2040,18 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_observation (
+      platform TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      observed_finished_at TEXT NOT NULL,
+      observation_date TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      source_binding_id TEXT NOT NULL,
+      account_scope TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (platform, account_key)
+    )`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
       request_id TEXT PRIMARY KEY,
       target_id TEXT NOT NULL,
@@ -2031,6 +2069,119 @@ export class RuntimeInstances {
     for (const column of ["source_identity_sha256", "runtime_identity_sha256", "result_json", "stopped_at"]) {
       try { this.sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
     }
+  }
+
+  accountFactsCommand(command) {
+    if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
+    if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
+    if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
+    if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
+    throw new HttpError("unsupported_account_facts_action", 400);
+  }
+
+  readAccountFactsRow(platform, accountKey) {
+    const row = this.sql.exec(
+      "SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope FROM account_facts_observation WHERE platform = ? AND account_key = ?",
+      platform,
+      accountKey,
+    ).toArray()[0];
+    if (!row) return null;
+    let payload;
+    try { payload = JSON.parse(row.payload_json); } catch { throw new HttpError("account_facts_stored_invalid", 409); }
+    return {
+      platform,
+      account_key: accountKey,
+      payload,
+      observed_finished_at: row.observed_finished_at,
+      observation_date: row.observation_date,
+      target_id: row.target_id,
+      source_binding_id: row.source_binding_id,
+      account_scope: row.account_scope,
+    };
+  }
+
+  putAccountFactsObservation(command) {
+    if (command.platform !== ACCOUNT_FACTS_PLATFORM) throw new HttpError("account_facts_platform_unsupported", 400);
+    if (typeof command.account_key !== "string" || !command.account_key) throw new HttpError("invalid_account_facts_account", 400);
+    if (command.account_scope !== ACCOUNT_FACTS_OPTION_SCOPE) throw new HttpError("account_facts_identity_mismatch", 409);
+    if (!command.history || typeof command.history !== "object" || Array.isArray(command.history)) {
+      throw new HttpError("invalid_account_facts_history", 400);
+    }
+    let history;
+    try {
+      history = normalizeAccountFactsHistoryPayload(command.history, { enforceObservationWindow: false });
+    } catch (error) {
+      if (error instanceof AccountFactsError) throw new HttpError(error.code, error.status || 400);
+      throw error;
+    }
+    if (history.account_scope !== ACCOUNT_FACTS_PAYLOAD_SCOPE) throw new HttpError("invalid_account_facts_scope", 400);
+    const existingRow = this.readAccountFactsRow(command.platform, command.account_key);
+    const decision = decideAccountFactsPut(existingRow?.payload || null, history);
+    if (decision.action === "reject") throw new HttpError(decision.reason, decision.status || 409);
+    if (decision.action === "keep") {
+      return {
+        ok: true,
+        stored: true,
+        unchanged: true,
+        platform: command.platform,
+        account_key: command.account_key,
+        observation_date: existingRow.observation_date,
+        observed_finished_at: existingRow.observed_finished_at,
+      };
+    }
+    const updatedAt = new Date().toISOString();
+    const payloadJson = JSON.stringify(history);
+    this.sql.exec(
+      `INSERT INTO account_facts_observation (
+        platform, account_key, payload_json, observed_finished_at, observation_date,
+        target_id, source_binding_id, account_scope, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(platform, account_key) DO UPDATE SET
+        payload_json = excluded.payload_json,
+        observed_finished_at = excluded.observed_finished_at,
+        observation_date = excluded.observation_date,
+        target_id = excluded.target_id,
+        source_binding_id = excluded.source_binding_id,
+        account_scope = excluded.account_scope,
+        updated_at = excluded.updated_at`,
+      command.platform,
+      command.account_key,
+      payloadJson,
+      history.observed_finished_at,
+      history.observation_date,
+      history.target_id,
+      history.source_binding.id,
+      command.account_scope,
+      updatedAt,
+    );
+    return {
+      ok: true,
+      stored: true,
+      unchanged: false,
+      platform: command.platform,
+      account_key: command.account_key,
+      observation_date: history.observation_date,
+      observed_finished_at: history.observed_finished_at,
+    };
+  }
+
+  readAccountFactsObservation(command) {
+    if (typeof command.platform !== "string" || typeof command.account_key !== "string") {
+      throw new HttpError("invalid_account_facts_account", 400);
+    }
+    const row = this.readAccountFactsRow(command.platform, command.account_key);
+    return { ok: true, observation: row };
+  }
+
+  listAccountFactsObservations(command) {
+    const wanted = Array.isArray(command.accounts) ? command.accounts : [];
+    const observations = [];
+    for (const item of wanted) {
+      if (!item || typeof item.platform !== "string" || typeof item.account_key !== "string") continue;
+      const row = this.readAccountFactsRow(item.platform, item.account_key);
+      if (row) observations.push(row);
+    }
+    return { ok: true, observations };
   }
 
   accountSettingsCommand(command) {
@@ -2452,6 +2603,9 @@ export class RuntimeInstances {
       }
       if (ACCOUNT_SETTINGS_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.accountSettingsCommand(command)));
+      }
+      if (ACCOUNT_FACTS_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.accountFactsCommand(command)));
       }
       if (HK_STOP_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.hkStopCommand(command)));
@@ -7862,6 +8016,186 @@ function requireDedicatedExecutionEvidenceSyncToken(request, env) {
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
   if (token !== expected) throw new HttpError("execution evidence sync token is invalid", 401);
+}
+
+function requireDedicatedAccountFactsSyncToken(request, env) {
+  const expected = String(env.ACCOUNT_FACTS_SYNC_TOKEN || "");
+  if (!expected) throw new HttpError("account facts sync token is not configured", 500);
+  const header = request.headers.get("Authorization") || "";
+  const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("account facts sync token is invalid", 401);
+}
+
+function accountFactsDisabledResponse() {
+  return json({ ok: false, error: "account_facts_disabled" }, 404);
+}
+
+function accountFactsErrorResponse(error) {
+  if (error instanceof AccountFactsError) {
+    return json({ ok: false, error: error.code }, error.status || 400);
+  }
+  if (error instanceof HttpError) {
+    return json({ ok: false, error: error.message }, error.status || 400);
+  }
+  return json({ ok: false, error: error?.message || "invalid_account_facts_history" }, error?.status || 400);
+}
+
+async function loadAccountFactsBindings(env) {
+  if (!hasConfigStore(env)) return null;
+  let raw;
+  try {
+    raw = await readConfigJson(env, ACCOUNT_FACTS_BINDINGS_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+  return normalizeAccountFactsBindings(raw);
+}
+
+async function loadStoredAccountFactsMap(env, accountOptions) {
+  if (!hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
+  const accounts = [];
+  for (const [platform, options] of Object.entries(accountOptions || {})) {
+    if (!Array.isArray(options)) continue;
+    for (const option of options) {
+      if (!option || typeof option.key !== "string" || !option.key) continue;
+      accounts.push({ platform, account_key: option.key });
+    }
+  }
+  const listed = await runtimeInstanceCommand(env, {
+    action: "account_facts_list",
+    accounts,
+  });
+  const storedByAccount = new Map();
+  for (const row of listed.observations || []) {
+    if (!row?.platform || !row?.account_key || !row?.payload) continue;
+    storedByAccount.set(`${row.platform}:${row.account_key}`, row.payload);
+  }
+  return storedByAccount;
+}
+
+async function syncAccountFactsResponse(request, env) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  try {
+    requireDedicatedAccountFactsSyncToken(request, env);
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  if (!hasConfigStore(env)) return json({ ok: false, error: "account facts KV is not configured" }, 503);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "account_facts_store_unavailable" }, 503);
+  let bindings;
+  try {
+    bindings = await loadAccountFactsBindings(env);
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  if (!bindings || !bindings.bindings.length) {
+    return json({ ok: false, error: "account_facts_bindings_missing" }, 409);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  // Callers must not declare console identity. Resolve the trusted account only
+  // from server-side bindings matched to payload target_id + source_binding.id.
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    if ("account_key" in raw || "platform" in raw || "console_account" in raw || "identity_status" in raw) {
+      return json({ ok: false, error: "account_facts_caller_identity_forbidden" }, 400);
+    }
+  }
+  let history;
+  try {
+    history = normalizeAccountFactsHistoryPayload(raw);
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  const resolved = resolveTrustedAccountFactsBinding(
+    bindings,
+    history.target_id,
+    history.source_binding.id,
+  );
+  if (!resolved.ok) return json({ ok: false, error: resolved.reason }, 409);
+  if (resolved.binding.platform !== ACCOUNT_FACTS_PLATFORM) {
+    return json({ ok: false, error: "account_facts_platform_unsupported" }, 409);
+  }
+  let accountConfig;
+  try {
+    accountConfig = await loadAccountOptionsConfig(env);
+  } catch {
+    return json({ ok: false, error: "account_facts_account_unattributed" }, 409);
+  }
+  const options = Array.isArray(accountConfig?.options?.[resolved.binding.platform])
+    ? accountConfig.options[resolved.binding.platform]
+    : [];
+  const matches = options.filter((item) => item?.key === resolved.binding.account_key);
+  if (matches.length !== 1) {
+    return json({ ok: false, error: "account_facts_account_unattributed" }, 409);
+  }
+  if (!accountFactsOptionMatchesBinding(matches[0], resolved.binding)) {
+    return json({ ok: false, error: "account_facts_identity_mismatch" }, 409);
+  }
+  let stored;
+  try {
+    stored = await runtimeInstanceCommand(env, {
+      action: "account_facts_put",
+      platform: resolved.binding.platform,
+      account_key: resolved.binding.account_key,
+      account_scope: resolved.binding.account_scope,
+      history,
+    });
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  return json({
+    ok: true,
+    stored: true,
+    unchanged: Boolean(stored.unchanged),
+    platform: resolved.binding.platform,
+    account_key: resolved.binding.account_key,
+    target_id: history.target_id,
+    observation_date: history.observation_date,
+    observed_finished_at: history.observed_finished_at,
+    return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
+  });
+}
+
+async function accountFactsResponse(request, env) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json({ ok: false, error: "account facts KV is not configured" }, 503);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "account_facts_store_unavailable" }, 503);
+  let accountConfig;
+  try {
+    accountConfig = await loadAccountOptionsConfig(env);
+  } catch {
+    accountConfig = { options: {} };
+  }
+  let bindings = null;
+  try {
+    bindings = await loadAccountFactsBindings(env);
+  } catch {
+    bindings = null;
+  }
+  let storedByAccount;
+  try {
+    storedByAccount = await loadStoredAccountFactsMap(env, accountConfig.options || {});
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  const model = buildAccountFactsReadModel({
+    accountOptions: accountConfig.options || {},
+    bindings,
+    storedByAccount,
+    now: Date.now(),
+  });
+  return json({
+    ...model,
+    enabled: true,
+    configured: Boolean(bindings?.bindings?.length),
+  });
 }
 
 function requireDedicatedReconciliationRecoverySyncToken(request, env) {
@@ -13377,6 +13711,13 @@ export const __test = {
   ux1RunMatches,
   ux1RuntimeEpoch,
   readUx1CalculatorExchange,
+  normalizeAccountFactsBindings,
+  normalizeAccountFactsHistoryPayload,
+  buildAccountFactsReadModel,
+  resolveTrustedAccountFactsBinding,
+  decideAccountFactsPut,
+  accountFactsOptionMatchesBinding,
+  canonicalizeAccountFactsHistory,
   ux1JobUnknownAfterMs: UX1_JOB_UNKNOWN_AFTER_MS,
   ux1CalculatorDeadlineMs: UX1_CALCULATOR_DEADLINE_MS,
   ux1CalculatorMaxBytes: UX1_CALCULATOR_MAX_BYTES,
