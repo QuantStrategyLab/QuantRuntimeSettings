@@ -255,9 +255,10 @@ assert.notEqual(buildConfirmationFingerprint({ ...snapshotBase, promotionTickets
 const draftBody = accountSettingDraftBody({
   expectedDraftRevision: 3,
   identity: { platform: "longbridge", key: "hk" },
-  overrides: { income_layer_enabled: false, reserved_cash_floor: "0" },
+  overrides: { income_layer_enabled: false, reserved_cash_floor: "0", option_overlay_enabled: false },
 });
 assert.equal(draftBody.overrides.income_layer_enabled, false);
+assert.equal(draftBody.overrides.option_overlay_enabled, false);
 assert.equal(draftBody.overrides.reserved_cash_floor, "0");
 const ratioDraft = accountSettingDraftBody({
   expectedDraftRevision: 4,

@@ -283,7 +283,8 @@ test("buildInputs keeps untouched policy layers current and serializes only touc
 });
 
 test("account settings copy removes guesswork and prioritizes research candidates", () => {
-  assert.match(accountsSource, /暂不能修改/);
+  assert.match(accountsSource, /保存策略草案/);
+  assert.doesNotMatch(accountsSource, /暂不能修改/);
   assert.equal(pages.includes('id="open-system-status"'), false);
   assert.equal(pages.includes("id=\"health-view\""), false);
 });
@@ -323,10 +324,9 @@ test("loading an account never silently prepares an enable override", () => {
   assert.match(accountsSource, /statusLabel === "—" \? "待确认"/);
   assert.match(accountsSource, /activation === "—" \? "待确认"/);
   assert.doesNotMatch(accountsSource, /statusLabel === "—" \? "已启用"|activation === "—" \? "已启用"/);
-  const changeLog = appSource.slice(appSource.indexOf("const refreshChangeLog"), appSource.indexOf("const recentChanges"));
-  assert.match(changeLog, /loadAdminModel\(\)/);
-  assert.doesNotMatch(changeLog, /setSettingsRefresh|loadAccountSettings/);
-  assert.match(accountsSource, /onChangeLog\?\.\(\)/);
+  assert.match(appSource, /loadAdminModel\(\)/);
+  assert.doesNotMatch(appSource, /refreshChangeLog|onChangeLog/);
+  assert.doesNotMatch(accountsSource, /最近变更/);
 });
 
 for (const sample of [
@@ -823,8 +823,9 @@ test("opening account settings selects the exact account without submitting or e
   assert.equal(controller.startSave("draft"), null);
   assert.equal(controller.view().draft.floorTouched, false);
   assert.equal(controller.view().draft.clearFloor, false);
-  assert.match(accountsSource, /readonly-strategy/);
-  assert.match(accountsSource, /暂不能修改/);
+  assert.match(accountsSource, /current-strategy/);
+  assert.match(accountsSource, /待应用策略/);
+  assert.doesNotMatch(accountsSource, /暂不能修改/);
 });
 
 test("viewing a prepared application opens its account without replacing the current draft", () => {
@@ -941,8 +942,9 @@ test("viewing an account does not expand editing or change the configured switch
   assert.equal(controller.startSave("draft"), null);
   assert.equal(controller.view().draft.floorTouched, false);
   assert.equal(controller.view().draft.clearFloor, false);
-  assert.match(accountsSource, /readonly-strategy/);
-  assert.match(accountsSource, /暂不能修改/);
+  assert.match(accountsSource, /current-strategy/);
+  assert.match(accountsSource, /待应用策略/);
+  assert.doesNotMatch(accountsSource, /暂不能修改/);
 });
 
 test("unverified promotion records are separated by evidence, not by test-like names", () => {
