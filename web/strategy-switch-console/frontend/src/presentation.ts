@@ -622,7 +622,7 @@ export function activationFromProjection(projection: unknown): "已启用" | "�
   return activationLabel(activation);
 }
 
-export function accountStatusView(projection: unknown): { label: string; detail: string } {
-  const view = presentAccountState(projection as any);
+export function accountStatusView(projection: unknown, sourceFreshness?: string | null): { label: string; detail: string } {
+  const view = presentAccountState(projection as any, sourceFreshness);
   return { label: view.label, detail: view.detail };
 }

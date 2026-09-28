@@ -4,12 +4,12 @@ import type { AccountOption, AdminModel, ConfigPayload, ReadModel, UxDraft } fro
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
-import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, presentAccountState, recoveryBinding, type SwitchDraft } from "./operations";
+import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -724,7 +724,7 @@ function App() {
         };
     };
     const overviewAccounts: OverviewAccount[] = rows.map(row => {
-        const status = presentAccountState(row.runtime?.account_state, row.runtime?.freshness?.data_status);
+        const status = accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status);
         const preference = row.current?.risk_preference;
         return {
             id: row.id,
@@ -750,7 +750,7 @@ function App() {
             environment: brokerEnvironment(row.account.broker_environment, t),
             strategy: fields.strategy,
             strategyNote: fields.note,
-            statusLabel: presentAccountState(row.runtime?.account_state, row.runtime?.freshness?.data_status).label,
+            statusLabel: accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status).label,
             activation: activationFromProjection(row.runtime?.account_state),
         };
     });
