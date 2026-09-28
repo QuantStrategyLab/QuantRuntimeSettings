@@ -68,6 +68,10 @@ function observedProfile(settings: Record<string, any> | null): string | null {
   return raw?.status === "known" && typeof raw.value === "string" && raw.value.trim() ? raw.value.trim() : null;
 }
 
+function validDcaAmount(value: string): boolean {
+  return value.length <= 32 && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
 function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
   row: AccountListItem;
   refreshToken: number;
@@ -96,7 +100,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   const cashDirty = cashDraftDirty(view.draft);
   const incomeDirty = view.draft.incomeTouched === true;
   const optionDirty = view.draft.optionTouched === true;
-  const strategyDirty = view.draft.strategyTouched === true;
+  const strategyDirty = view.draft.strategyTouched === true || view.draft.dcaTouched === true || view.draft.clearDca === true;
   const draftDirty = cashDirty || incomeDirty || optionDirty || strategyDirty;
   const riskDirty = controller.riskDirty();
   const dirty = draftDirty || riskDirty;
@@ -224,7 +228,8 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
     const label = language === "en" ? choice.label_en : choice.label_zh;
     return typeof label === "string" && label ? label : choice.profile;
   };
-  const savedBound = savedStrategy || observedProfile(settings) || "";
+  const currentProfile = observedProfile(settings) || "";
+  const savedBound = savedStrategy || currentProfile;
   const localBound = strategyDirty ? (view.draft.clearStrategy ? observedProfile(settings) || "" : view.draft.strategy) : savedBound;
   const strategyPending = strategyDirty && localBound !== savedBound;
   const optionDefined = (profileId: string) => strategyOptions.some((item: { profile?: string; option_overlay_enabled?: boolean }) => item.profile === profileId && item.option_overlay_enabled === true);
@@ -232,7 +237,37 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   const savedOption = settings?.draft?.overrides?.option_overlay_enabled === true ? "true" : settings?.draft?.overrides?.option_overlay_enabled === false ? "false" : "";
   const optionValue = optionDirty ? (view.draft.option === "clear" ? "" : view.draft.option) : savedOption;
   const optionConcrete = optionDirty ? view.draft.option === "true" || view.draft.option === "false" : savedOption === "true" || savedOption === "false";
-  const nextStrategy = strategyValue || observedProfile(settings) || "";
+  const nextStrategy = strategyValue || currentProfile;
+  const dcaChoice = strategyOptions.find((item: { profile?: string }) => item.profile === nextStrategy);
+  const dcaSupported = dcaChoice?.dca_supported === true || (settings?.current_dca_supported === true && nextStrategy === currentProfile);
+  const savedDcaProfile = savedStrategy || (settings?.current_dca_supported === true ? currentProfile : "");
+  const effectiveDcaMode = settings?.effective?.dca_mode?.status === "known" && (settings.effective.dca_mode.value === "fixed" || settings.effective.dca_mode.value === "smart") ? settings.effective.dca_mode.value : "";
+  const effectiveDcaAmount = settings?.effective?.dca_base_investment_usd?.status === "known" && typeof settings.effective.dca_base_investment_usd.value === "string" ? settings.effective.dca_base_investment_usd.value : "";
+  const savedDcaMode = settings?.draft?.overrides?.dca_mode === "fixed" || settings?.draft?.overrides?.dca_mode === "smart" ? settings.draft.overrides.dca_mode : (savedDcaProfile === currentProfile ? effectiveDcaMode : "");
+  const savedDcaAmount = typeof settings?.draft?.overrides?.dca_base_investment_usd === "string" ? settings.draft.overrides.dca_base_investment_usd : (savedDcaProfile === currentProfile ? effectiveDcaAmount : "");
+  const dcaMode = view.draft.dcaTouched && view.draft.dcaProfile === nextStrategy ? view.draft.dcaMode : (savedDcaProfile === nextStrategy ? savedDcaMode : "");
+  const dcaAmount = view.draft.dcaTouched && view.draft.dcaProfile === nextStrategy ? view.draft.dcaAmount : (savedDcaProfile === nextStrategy ? savedDcaAmount : "");
+  const dcaTouched = view.draft.dcaTouched === true;
+  const selectStrategy = (next: string) => {
+    const targetProfile = next || currentProfile;
+    const targetChoice = strategyOptions.find((item: { profile?: string }) => item.profile === targetProfile);
+    const targetDca = targetChoice?.dca_supported === true || (settings?.current_dca_supported === true && targetProfile === currentProfile);
+    const wasDca = strategyOptions.some((item: { profile?: string; dca_supported?: boolean }) => item.profile === nextStrategy && item.dca_supported === true)
+      || (settings?.current_dca_supported === true && nextStrategy === currentProfile);
+    const strategySame = next === savedStrategy;
+    const sameDcaProfile = targetProfile === savedDcaProfile;
+    controller.edit({
+      strategy: next,
+      strategyTouched: !strategySame,
+      clearStrategy: !next && !strategySame,
+      dcaProfile: targetDca ? targetProfile : "",
+      dcaMode: targetDca ? (sameDcaProfile ? savedDcaMode : "") : "",
+      dcaAmount: targetDca ? (sameDcaProfile ? savedDcaAmount : "") : "",
+      dcaTouched: targetDca && !sameDcaProfile,
+      clearDca: Boolean(savedDcaProfile && targetProfile !== savedDcaProfile && (wasDca || savedStrategy === savedDcaProfile)),
+    });
+    sync();
+  };
   const strategyBlocked = strategyDirty && optionConcrete && !optionDefined(nextStrategy) && !(view.draft.optionTouched && view.draft.option === "clear");
   const optionSubmittable = Boolean(optionDirty && optionBody && Object.keys(optionBody).length && (optionBody.option_overlay_enabled === null || boundSupports));
   const strategySubmittable = Boolean(strategyDirty && strategyBody && Object.prototype.hasOwnProperty.call(strategyBody, "strategy_profile") && !strategyBlocked);
@@ -277,14 +312,27 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("待应用策略")}</span><strong>{strategyValue === "" ? t("沿用当前") : strategyName(strategyValue)}</strong></p></div>}
         <label className="cash-floor-field">{t("待应用策略")}
           <select value={strategyValue} disabled={!canSaveCash} onChange={event => {
-            const next = event.target.value;
-            controller.edit(next === savedStrategy ? { strategy: savedStrategy, strategyTouched: false, clearStrategy: false } : next === "" ? { strategy: "", strategyTouched: true, clearStrategy: true } : { strategy: next, strategyTouched: true, clearStrategy: false });
-            sync();
+            selectStrategy(event.target.value);
           }}>
             <option value="">{t("沿用当前")}</option>
             {strategyOptions.map((item: { profile: string }) => <option key={item.profile} value={item.profile}>{strategyName(item.profile)}</option>)}
           </select>
         </label>
+        {dcaSupported && <div className="detail-subgroup">
+          <h4>{t("定投设置")}</h4>
+          <label className="cash-floor-field">{t("定投模式")}
+            <select value={dcaMode} disabled={!canSaveCash} onChange={event => { controller.edit({ dcaMode: event.target.value as "fixed" | "smart", dcaAmount, dcaProfile: nextStrategy, dcaTouched: true, strategyTouched: true, strategy: strategyValue || nextStrategy, clearStrategy: false, clearDca: false }); sync(); }}>
+              <option value="">{t("请选择定投模式")}</option>
+              <option value="fixed">{t("定额定投")}</option>
+              <option value="smart">{t("智能定投")}</option>
+            </select>
+          </label>
+          <label className="cash-floor-field">{t(dcaMode === "smart" ? "基准金额（美元）" : "每期金额（美元）")}
+            <input value={dcaAmount} inputMode="decimal" maxLength={32} disabled={!canSaveCash} onChange={event => { controller.edit({ dcaAmount: event.target.value, dcaMode, dcaProfile: nextStrategy, dcaTouched: true, strategyTouched: true, strategy: strategyValue || nextStrategy, clearStrategy: false, clearDca: false }); sync(); }} />
+          </label>
+          {dcaMode === "smart" && <p className="section-note">{t("智能定投按既定规则调整本期金额。")}</p>}
+          {dcaTouched && dcaAmount !== "" && !validDcaAmount(dcaAmount) && <p className="section-note">{t("定投金额需为正的有限数字，最多 32 个字符。")}</p>}
+        </div>}
         {strategyBlocked && <p className="section-note">{t("请先清除期权层草案，再保存这个策略草案。")}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveCash || !strategySubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("strategy", strategySubmittable)}>{t("保存策略草案")}</button>

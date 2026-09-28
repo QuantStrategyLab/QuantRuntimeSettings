@@ -36,25 +36,29 @@ assert.equal(overviewFigures(2, ["GROWTH_COMPOUNDING", ""]).riskPreference, null
 const accountsPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/AccountsPage.tsx", import.meta.url), "utf8");
 assert.match(accountsPage, /dcaSettingsReadout\(settings\?\.effective\)/);
 assert.equal(accountsPage.includes("保存定投"), false);
+assert.match(accountsPage, /item\.dca_supported === true/);
+assert.match(accountsPage, /t\("定投设置"\)/);
+assert.match(accountsPage, /saveScoped\("strategy"/);
+assert.match(accountsPage, /maxLength=\{32\}/);
 assert.equal(dcaSettingsReadout(null), null);
 assert.equal(dcaSettingsReadout({ strategy_profile: { status: "known", value: "russell_top50_leader_rotation" } }), null);
 assert.equal(dcaSettingsReadout({ strategy_profile: { status: "known", value: "crypto_btc_dca" } }), null);
 assert.deepEqual(dcaSettingsReadout({
   dca_mode: { status: "known", value: "smart" },
   dca_base_investment_usd: { status: "known", value: "250" },
-}), { label: "配置读回", mode: "智能定投", amount: "250" });
+}), { label: "当前设置", mode: "智能定投", amount: "250" });
 assert.deepEqual(dcaSettingsReadout({
   dca_mode: { status: "known", value: "fixed" },
   dca_base_investment_usd: { status: "known", value: "80" },
-}), { label: "配置读回", mode: "固定定投", amount: "80" });
+}), { label: "当前设置", mode: "定额定投", amount: "80" });
 assert.deepEqual(dcaSettingsReadout({
   dca_mode: { status: "unknown" },
   dca_base_investment_usd: { status: "unknown", value: "1000" },
-}), { label: "配置读回", mode: "未核实", amount: "未核实" });
+}), { label: "当前设置", mode: "未核实", amount: "未核实" });
 assert.deepEqual(dcaSettingsReadout({
   dca_mode: { status: "known", value: "weekly" },
   dca_base_investment_usd: { status: "known", value: "0" },
-}), { label: "配置读回", mode: "未核实", amount: "未核实" });
+}), { label: "当前设置", mode: "未核实", amount: "未核实" });
 assert.equal(chartUnavailable("return"), "尚无可用资产记录");
 assert.equal(chartUnavailable("assets"), "尚无可用资产记录");
 assert.deepEqual([...RETURN_INDEX_LEGEND], ["标普500", "纳斯达克", "道琼斯", "罗素"]);

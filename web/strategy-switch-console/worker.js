@@ -332,7 +332,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
 const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio"];
+const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -3463,6 +3463,7 @@ function accountSettingsPayload(observed, effective, admin, extras = {}) {
     adopted: false,
     no_order: true,
     execution_authority_granted: false,
+    current_dca_supported: extras.currentDcaSupported === true,
   };
 }
 
@@ -3497,6 +3498,7 @@ async function presentAccountSettings(env, observed, admin) {
     pendingStrategy: Boolean(pending),
     pendingOptionSupported: Boolean(pending) && optionOverlayDraftAllowed(observed.platform, profiles, pending),
     currentOptionSupported: Boolean(trusted) && optionOverlayDraftAllowed(observed.platform, profiles, trusted),
+    currentDcaSupported: dcaDraftSupported(observed.platform, profiles, trusted),
   });
 }
 
@@ -3516,6 +3518,12 @@ function profileDefinesOptionOverlay(profiles, profileId) {
 
 function optionOverlayDraftAllowed(platform, profiles, profileId) {
   return PLATFORM_CONFIG[platform]?.option_overlay === true && profileDefinesOptionOverlay(profiles, profileId);
+}
+
+function dcaDraftSupported(platform, profiles, profileId) {
+  if (!profileId || !Array.isArray(profiles)) return false;
+  if (!DCA_SUPPORTED_PLATFORMS.has(platform) || !isDcaProfile(profileId)) return false;
+  return profiles.some((item) => item?.profile === profileId);
 }
 
 function accountDraftStrategyChoices(platform, accountOption, profiles) {
@@ -3545,6 +3553,7 @@ function accountDraftStrategyChoices(platform, accountOption, profiles) {
       label_en: profile.label_en || profile.label || profile.profile,
       domain: profile.domain,
       option_overlay_enabled: profile.option_overlay_enabled === true,
+      dca_supported: dcaDraftSupported(platform, profiles, profile.profile),
     });
   }
   return choices;
@@ -3558,12 +3567,27 @@ function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, opti
   const current = rebuilding ? {} : stored;
   const touchesStrategy = Object.prototype.hasOwnProperty.call(patch, "strategy_profile");
   const touchesOption = Object.prototype.hasOwnProperty.call(patch, "option_overlay_enabled");
+  const touchesDcaMode = Object.prototype.hasOwnProperty.call(patch, "dca_mode");
+  const touchesDcaBase = Object.prototype.hasOwnProperty.call(patch, "dca_base_investment_usd");
+  if (touchesDcaMode !== touchesDcaBase) throw new HttpError("account_settings_dca_rejected", 400);
+  if (touchesDcaMode && (patch.dca_mode === null) !== (patch.dca_base_investment_usd === null)) {
+    throw new HttpError("account_settings_dca_rejected", 400);
+  }
+  if (touchesDcaMode && patch.dca_mode !== null && patch.dca_mode !== "fixed" && patch.dca_mode !== "smart") {
+    throw new HttpError("invalid_account_setting_overrides", 400);
+  }
+  if (touchesDcaBase && patch.dca_base_investment_usd !== null && !accountSettingPositiveAmount(patch.dca_base_investment_usd)) {
+    throw new HttpError("invalid_account_setting_overrides", 400);
+  }
+  if (!profiles && (touchesDcaMode || touchesDcaBase)) throw new HttpError("account_settings_dca_rejected", 400);
   if (touchesStrategy && patch.strategy_profile !== null) {
-    if (typeof patch.strategy_profile !== "string" || !choices.some((item) => item.profile === patch.strategy_profile)) {
+    const allowedChoice = choices.some((item) => item.profile === patch.strategy_profile);
+    const currentEditable = patch.strategy_profile === trustedProfile && dcaDraftSupported(observed.platform, profiles, patch.strategy_profile);
+    if (typeof patch.strategy_profile !== "string" || (!allowedChoice && !currentEditable)) {
       throw new HttpError("account_settings_strategy_rejected", 400);
     }
   }
-  if (!touchesStrategy && !touchesOption) return;
+  if (!touchesStrategy && !touchesOption && !touchesDcaMode && !touchesDcaBase) return;
   const bound = touchesStrategy
     ? patch.strategy_profile || trustedProfile || ""
     : (typeof current.strategy_profile === "string" && current.strategy_profile ? current.strategy_profile : trustedProfile || "");
@@ -3575,6 +3599,34 @@ function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, opti
     ? patch.option_overlay_enabled
     : (Object.prototype.hasOwnProperty.call(current, "option_overlay_enabled") ? current.option_overlay_enabled : undefined);
   if ((nextOption === true || nextOption === false) && !supports) throw new HttpError("account_settings_option_strategy_conflict", 400);
+  // Other setting groups can be edited on a DCA account without rebinding its strategy.
+  if (!touchesStrategy && !touchesDcaMode && !touchesDcaBase) return;
+  const previous = typeof current.strategy_profile === "string" && current.strategy_profile ? current.strategy_profile : trustedProfile || "";
+  const next = touchesStrategy
+    ? (patch.strategy_profile === null ? trustedProfile || "" : String(patch.strategy_profile || ""))
+    : previous;
+  const mergedMode = touchesDcaMode ? patch.dca_mode : (Object.prototype.hasOwnProperty.call(current, "dca_mode") ? current.dca_mode : null);
+  const mergedBase = touchesDcaBase ? patch.dca_base_investment_usd : (Object.prototype.hasOwnProperty.call(current, "dca_base_investment_usd") ? current.dca_base_investment_usd : null);
+  const hasMergedDca = (mergedMode !== null && mergedMode !== undefined) || (mergedBase !== null && mergedBase !== undefined);
+  if (!dcaDraftSupported(observed.platform, profiles, next)) {
+    if (hasMergedDca) throw new HttpError("account_settings_dca_rejected", 400);
+    if (previous !== next && dcaDraftSupported(observed.platform, profiles, previous)
+      && (!touchesDcaMode || patch.dca_mode !== null || !touchesDcaBase || patch.dca_base_investment_usd !== null)) {
+      throw new HttpError("account_settings_dca_rejected", 400);
+    }
+    return;
+  }
+  if (touchesDcaMode || touchesDcaBase) {
+    const clearingDca = patch.dca_mode === null && patch.dca_base_investment_usd === null;
+    const boundToProfile = patch.strategy_profile === next;
+    const clearingCurrentBinding = patch.strategy_profile === null && clearingDca;
+    if (!touchesStrategy || (!boundToProfile && !clearingCurrentBinding)) {
+      throw new HttpError("account_settings_dca_rejected", 400);
+    }
+  }
+  if (previous !== next || touchesDcaMode || touchesDcaBase) {
+    if (!touchesDcaMode || !touchesDcaBase) throw new HttpError("account_settings_dca_rejected", 400);
+  }
 }
 
 async function saveAccountSettings(request, env) {
@@ -3691,7 +3743,9 @@ function accountSettingsAuditChanges(before, after, requested) {
   if (["reserved_cash_floor", "reserved_cash_ratio"].some(asked) && ["reserved_cash_floor", "reserved_cash_ratio"].some((name) => stored(left, name) !== stored(right, name))) changes.push("cash_draft");
   if (asked("income_layer_enabled") && stored(left, "income_layer_enabled") !== stored(right, "income_layer_enabled")) changes.push("income_draft");
   if (asked("option_overlay_enabled") && stored(left, "option_overlay_enabled") !== stored(right, "option_overlay_enabled")) changes.push("option_draft");
-  if (asked("strategy_profile") && stored(left, "strategy_profile") !== stored(right, "strategy_profile")) changes.push("strategy_draft");
+  const strategyDraftChanged = (asked("strategy_profile") && stored(left, "strategy_profile") !== stored(right, "strategy_profile"))
+    || ((asked("dca_mode") || asked("dca_base_investment_usd")) && ["dca_mode", "dca_base_investment_usd"].some((name) => stored(left, name) !== stored(right, name)));
+  if (strategyDraftChanged) changes.push("strategy_draft");
   const beforePreference = before?.risk?.preference || null;
   const afterPreference = after?.risk?.preference || null;
   if ((requested?.risk_change === "set" || requested?.risk_change === "clear") && beforePreference !== afterPreference) changes.push(afterPreference ? "risk_saved" : "risk_cleared");
@@ -13351,6 +13405,12 @@ function accountSettingsIdentity(instance) {
   };
 }
 
+function accountSettingPositiveAmount(value) {
+  if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return false;
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0;
+}
+
 function accountSettingRatio(value) {
   if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return null;
   const [whole, frac = ""] = value.split(".");
@@ -13382,6 +13442,12 @@ function applyAccountSettingOverrides(current, patch) {
       const ratio = accountSettingRatio(value);
       if (ratio === null) throw new HttpError("invalid_account_setting_overrides", 400);
       next[key] = ratio;
+    } else if (key === "dca_mode") {
+      if (value !== "fixed" && value !== "smart") throw new HttpError("invalid_account_setting_overrides", 400);
+      next[key] = value;
+    } else if (key === "dca_base_investment_usd") {
+      if (!accountSettingPositiveAmount(value)) throw new HttpError("invalid_account_setting_overrides", 400);
+      next[key] = value;
     } else if (typeof value !== "string" || value.trim() === "" || value !== value.trim()) {
       throw new HttpError("invalid_account_setting_overrides", 400);
     } else {
@@ -13695,6 +13761,7 @@ export const __test = {
   accountSettingsAuditChanges,
   accountDraftStrategyChoices,
   assertAccountDraftPatch,
+  dcaDraftSupported,
   buildRiskEnvelopeView,
   attachRiskEnvelopeView,
   normalizeResearchPromotionTicket,
