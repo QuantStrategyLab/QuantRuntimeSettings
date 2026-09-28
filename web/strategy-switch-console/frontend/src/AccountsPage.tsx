@@ -51,7 +51,7 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
         <table className="daily-table">
           <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("运行控制")}</th></tr></thead>
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
-            <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label">{t("平台")}</span><small className="account-platform">{row.platformLabel}</small><small className="account-environment">{row.environment}</small></td>
+            <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label">{t("账户类型")}</span><small className="account-environment">{row.environment}</small></td>
             <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
             <td><span className="account-field-label">{t("健康")}</span><span className="account-field-value">{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
             <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value">{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
@@ -105,8 +105,9 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
     const accountId = `${row.platform}:${row.key}`;
     const same = controller.selectedId() === accountId;
     if (same && controller.view().saving) return;
+    const kept = same && Boolean(controller.view().settings);
     const op = same ? controller.start("refresh") : controller.select({ platform: row.platform, key: row.key });
-    if (!same) setReadState("loading");
+    if (!kept) setReadState("loading");
     let cancelled = false;
     void (async () => {
       try {
@@ -120,7 +121,12 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
       } catch (error) {
         const status = Number((error as { status?: number })?.status || 0);
         const message = status === 401 || status === 403 ? "没有权限读取这项设置。" : "账户设置暂时读不到。";
-        if (cancelled || !controller.applyUnavailable(op, message)) return;
+        if (cancelled) return;
+        if (kept) {
+          controller.abandon(op);
+          return;
+        }
+        if (!controller.applyUnavailable(op, message)) return;
         onSettingsRead(accountId, null);
         setReadState("failed");
         sync();
@@ -255,11 +261,13 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   const strategyNotice = view.noticeGroup === "strategy" && view.notice === "草案已保存";
   const riskNotice = view.noticeGroup === "risk" && view.notice === "偏好已保存";
   const otherNotice = view.notice && !cashNotice && !incomeNotice && !optionNotice && !strategyNotice && !riskNotice ? view.notice : "";
-  return <aside className="account-detail">
+  const reading = readState === "loading";
+  return <aside className={`account-detail${reading ? " is-loading" : ""}`} aria-busy={reading}>
+    {reading ? <div className="settings-progress" role="progressbar" aria-label={t("正在读取账户设置")}><span className="settings-progress-bar" /><p className="settings-progress-hint" aria-hidden="true">{t("正在读取账户设置")}</p></div> : null}
     <button type="button" className="text-link mobile-back" onClick={onBack}>{t("返回账户列表")}</button>
     <h2>{row.title}</h2>
-    <p className="account-identity"><small>{row.platformLabel}</small><small>{row.environment}</small></p>
-    {readState === "loading" ? <p role="status">{t("正在读取账户设置")}</p> : readState === "failed" ? <p>{t(view.unavailable || "账户设置暂时读不到。")}<button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></p> : <>
+    {reading ? null : <p className="account-identity"><small className="account-environment">{row.environment}</small></p>}
+    {reading ? null : readState === "failed" ? <p>{t(view.unavailable || "账户设置暂时读不到。")}<button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></p> : <fieldset className="settings-fields">
       <section className="detail-group">
         <h3>{t("当前策略")}</h3>
         <p className="current-strategy"><strong>{strategy.name}</strong></p>
@@ -317,9 +325,9 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         {selectMode === "both" && <p className="section-note">{t("按比例预留，且不少于固定金额")}</p>}
         {amountInvalid && <p className="section-note">{t("金额需要是大于或等于 0 的数字。")}</p>}
         {shareInvalid && <p className="section-note">{t("比例需要在 0 到 100 之间。")}</p>}
-        {identityBlocked && <p>{t("请重新读取并确认当前账户来源。")}</p>}
-        {!identityReady && <p>{t("缺少账户来源，不能保存。")}</p>}
-        {!draftOpen && <p className="section-note">{t("暂时无法保存")}</p>}
+        {readState === "ready" && identityBlocked && <p>{t("请重新读取并确认当前账户来源。")}</p>}
+        {readState === "ready" && !identityReady && <p>{t("缺少账户来源，不能保存。")}</p>}
+        {readState === "ready" && !draftOpen && <p className="section-note">{t("暂时无法保存")}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveCash || !cashSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("cash", cashSubmittable)}>{t("保存待应用草案")}</button>
           {cashDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
@@ -335,7 +343,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           {PREFERENCES.map(([value, label, note]) => <button key={value} type="button" className="preference-choice" aria-pressed={view.preference === value} disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: value }); sync(); }}>{t(label)}<span className="preference-hint" role="tooltip">{t(note)}</span></button>)}
         </div>
         {selectedNote ? <p className="preference-selected-note">{t(selectedNote)}</p> : null}
-        {!riskOpen && <p className="section-note">{t("暂时无法保存")}</p>}
+        {readState === "ready" && !riskOpen && <p className="section-note">{t("暂时无法保存")}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveRisk || !riskDirty || view.review.risk || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
           {riskDirty && !view.review.risk && <button type="button" className="button button-secondary" disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>}
@@ -390,14 +398,14 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         {optionNotice && <p role="status">{t(view.notice)}</p>}
         {otherNotice && <p role="status">{t(otherNotice)}</p>}
       </section>
-    </>}
-    <section className="detail-group"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
+    </fieldset>}
+    {readState === "ready" ? <section className="detail-group"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
     <div className="form-actions">
       <button type="button" className="button button-secondary" disabled>{t("启用")}</button>
       {actions.stop && <button type="button" className="button button-secondary" disabled={!stopAllowed} onClick={onStop}>{t(stopLabel)}</button>}
       {actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}
     </div>
     {actions.refresh && <button type="button" className="text-link" onClick={onRefreshStop}>{t("刷新停用状态")}</button>}
-    </section>
+    </section> : null}
   </aside>;
 }

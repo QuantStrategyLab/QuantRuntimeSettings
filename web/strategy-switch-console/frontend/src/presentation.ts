@@ -1,6 +1,8 @@
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
 
-export type ChartMode = "return" | "assets" | "cash";
+export type ChartMode = "return" | "assets";
+
+export const RETURN_INDEX_LEGEND = ["标普500", "纳斯达克", "道琼斯", "罗素"] as const;
 
 export type OverviewFigures = {
   assets: null;
@@ -28,7 +30,7 @@ export function overviewFigures(accountCount: number | null, preferences: Array<
 }
 
 export function chartUnavailable(mode: ChartMode): "尚无可用资产记录" {
-  if (mode !== "return" && mode !== "assets" && mode !== "cash") return "尚无可用资产记录";
+  if (mode !== "return" && mode !== "assets") return "尚无可用资产记录";
   return "尚无可用资产记录";
 }
 
