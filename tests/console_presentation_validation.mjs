@@ -15,6 +15,7 @@ assert.equal(activationFromProjection({ activation: false }), "—");
 assert.equal(activationFromProjection({ activation: 0 }), "—");
 assert.equal(accountStatusView(null).label, "—");
 assert.deepEqual(accountStatusView({ configured_state: "disabled" }), { label: "—", detail: "暂未取得状态" });
+assert.deepEqual(accountStatusView({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), { label: "—", detail: "运行状态来源已过期" });
 assert.notEqual(activationFromProjection(monitored), "—");
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk", label: "港股账户" }] }, "longbridge", "hk"), "港股账户");
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk" }] }, "longbridge", "hk"), "");

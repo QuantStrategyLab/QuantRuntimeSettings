@@ -470,28 +470,57 @@ const ACCOUNT_STATE_DETAILS: Record<string, string> = {
   "monitoring_agrees:disabled": "运行监测正常，已停用。",
   retained_attention: "账户运行异常",
   config_inconsistent: "设置尚未生效",
-  source_not_fresh: "状态暂未更新",
-  deployment_missing: "状态暂未更新",
-  deployment_not_fresh: "状态暂未更新",
-  activation_unconfirmed: "状态暂未更新",
+  source_not_fresh: "运行状态来源已过期或不可用",
+  deployment_missing: "尚未取得该目标的部署读回",
+  deployment_not_fresh: "部署状态读回已过期",
+  activation_unconfirmed: "运行启用状态尚未确认",
   check_not_due: "尚未到检查时间",
-  evidence_insufficient: "状态暂未更新",
+  evidence_insufficient: "现有证据不足以确认运行状态",
 };
 
-export function presentAccountState(projection: AccountStateProjection | null | undefined): {
+export function presentAccountState(projection: AccountStateProjection | null | undefined, sourceFreshness?: string | null): {
   label: string; detail: string; tone: "healthy" | "attention" | "unknown";
 } {
   const unknown = { label: "—", detail: "暂未取得状态", tone: "unknown" as const };
   if (!projection || projection.scope !== "monitoring_only" || projection.limit !== "not_trading_or_books") return unknown;
   if (!["normal", "abnormal", "unknown"].includes(projection.health)) return unknown;
   if (!["enabled", "disabled", "unknown"].includes(projection.activation)) return unknown;
-  const detail = ACCOUNT_STATE_DETAILS[projection.reason === "monitoring_agrees" ? `monitoring_agrees:${projection.activation}` : projection.reason];
+  const detail = projection.reason === "source_not_fresh" && sourceFreshness === "stale"
+    ? "运行状态来源已过期"
+    : projection.reason === "source_not_fresh" && sourceFreshness === "unavailable"
+      ? "运行状态来源暂不可用"
+      : ACCOUNT_STATE_DETAILS[projection.reason === "monitoring_agrees" ? `monitoring_agrees:${projection.activation}` : projection.reason];
   if (!detail || (projection.health === "normal" && (projection.reason !== "monitoring_agrees" || projection.activation === "unknown"))) return unknown;
   return {
     label: projection.health === "normal" ? "正常" : projection.health === "abnormal" ? "异常" : "—",
     detail,
     tone: projection.health === "normal" ? "healthy" : projection.health === "abnormal" ? "attention" : "unknown",
   };
+}
+
+export function accountRuntimeLinkDetail(input: {
+  reference?: string | null;
+  referenceUseCount?: number;
+  runtimeError?: string | null;
+  runtimeDataStatus?: string | null;
+  targetMatchCount?: number;
+}): string | null {
+  if (!input.reference?.trim()) return "账户尚未绑定运行目标";
+  if ((input.referenceUseCount || 0) > 1) return "运行目标映射重复，无法唯一匹配";
+  if (input.runtimeError) return "运行状态接口读取失败";
+  if (input.targetMatchCount === 0) {
+    if (input.runtimeDataStatus === "stale") return "运行状态来源已过期";
+    if (input.runtimeDataStatus === "unavailable") return "运行状态来源暂不可用";
+    return "未取得对应运行目标记录";
+  }
+  if ((input.targetMatchCount || 0) > 1) return "来源包含重复运行目标";
+  return null;
+}
+
+export function accountEnvironmentSourceDetail(value: unknown): string {
+  return value === "paper" || value === "live"
+    ? "账户类型为账户设置标记，未由券商原生核实"
+    : "账户设置未提供类型，券商身份尚未核实";
 }
 
 export function accountMatchesStatusFilter(filter: string, projection: AccountStateProjection | null | undefined): boolean {

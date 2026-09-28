@@ -4,7 +4,7 @@ import type { AccountOption, AdminModel, ConfigPayload, ReadModel, UxDraft } fro
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
-import { applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
+import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
@@ -19,6 +19,7 @@ type AccountRow = {
     account: AccountOption;
     current: Record<string, any> | null;
     runtime: Record<string, any> | null;
+    runtimeDetail: string | null;
 };
 type Busy = Record<string, boolean>;
 type ConfirmDialogState = {
@@ -111,7 +112,14 @@ function makeRows(model: ReadModel | null): AccountRow[] {
             const reference = typeof account?.runtime_status_target_id === "string" ? account.runtime_status_target_id : "";
             const hits = (runtime?.targets || []).filter((record: any) => record?.target?.target_id === reference && record?.target?.target?.platform === platform);
             const unique = Boolean(reference) && hits.length === 1 && monitoringUses.get(`${platform}:${reference}`) === 1;
-            rows.push({ id: `${platform}:${account.key}`, platform, platformLabel: meta.label || platform, account, current: currentFor(config, platform, account), runtime: unique ? hits[0] : null });
+            const runtimeDetail = accountRuntimeLinkDetail({
+                reference,
+                referenceUseCount: reference ? monitoringUses.get(`${platform}:${reference}`) : 0,
+                runtimeError: model?.runtime.error,
+                runtimeDataStatus: runtime?.data_status,
+                targetMatchCount: hits.length,
+            });
+            rows.push({ id: `${platform}:${account.key}`, platform, platformLabel: meta.label || platform, account, current: currentFor(config, platform, account), runtime: unique ? hits[0] : null, runtimeDetail });
         }
     }
     return rows;
@@ -716,16 +724,17 @@ function App() {
         };
     };
     const overviewAccounts: OverviewAccount[] = rows.map(row => {
-        const status = accountStatusView(row.runtime?.account_state);
+        const status = accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status);
         const preference = row.current?.risk_preference;
         return {
             id: row.id,
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
+            environmentSource: accountEnvironmentSourceDetail(row.account.broker_environment),
             strategy: strategyFields(row).strategy,
             statusLabel: status.label === "—" ? "待确认" : status.label,
-            statusDetail: status.detail === "暂未取得状态" ? "待确认" : status.detail,
+            statusDetail: row.runtimeDetail || status.detail,
             activation: activationFromProjection(row.runtime?.account_state) === "—" ? "待确认" : activationFromProjection(row.runtime?.account_state),
             preference: typeof preference === "string" ? preference : null,
         };
@@ -741,7 +750,7 @@ function App() {
             environment: brokerEnvironment(row.account.broker_environment, t),
             strategy: fields.strategy,
             strategyNote: fields.note,
-            statusLabel: accountStatusView(row.runtime?.account_state).label,
+            statusLabel: accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status).label,
             activation: activationFromProjection(row.runtime?.account_state),
         };
     });

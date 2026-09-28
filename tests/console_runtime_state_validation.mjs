@@ -812,7 +812,7 @@ test("account status shows a next step only when observed state needs attention"
   assert.equal(overviewSource.includes("{row.statusDetail}"), false);
   assert.equal(overviewSource.includes("{status.detail}"), false);
   assert.equal(presentAccountState(monitored()).label, "—");
-  assert.equal(presentAccountState(monitored()).detail, "状态暂未更新");
+  assert.equal(presentAccountState(monitored()).detail, "现有证据不足以确认运行状态");
 });
 
 test("opening account settings selects the exact account without submitting or enabling", () => {
