@@ -546,3 +546,13 @@ node web/strategy-switch-console/ux1_local_demo.mjs --interpreter <绝对路径>
 计算子进程 `shell` 为 false，30 秒超时，stdout 超过 65536 字节即失败，同时只允许一个计算，超出返回 `calculator_busy`。子进程只继承 `PATH`、`HOME`、`LANG`、`LC_ALL`、`LC_CTYPE`、`TMPDIR`、`TZ` 以及三个批准输入路径，不继承调用方环境里的券商凭据。这不是生产 service binding。
 
 页面与预览 JSON 分别标出 `decision_as_of`、`known_through`、`calculated_at` 和 `historical_execution_date`。后一天的历史费用只留在执行核对，不作为决策日已知输入。
+
+## 账户事实与资产历史（默认关闭）
+
+`ACCOUNT_FACTS_READ_MODEL_ENABLED=true` 才开放账户事实接口；POST `/api/account-facts/sync` 使用专用 `ACCOUNT_FACTS_SYNC_TOKEN`，GET `/api/account-facts` 和 `/api/account-facts/history?platform=longbridge&account_key=…&currency=USD` 使用既有登录授权。需要现有配置存储和 `STRATEGY_SWITCH_RUNTIME_INSTANCES` Durable Object；缺失时不回退为 KV 写入。此处说明配置契约，不代表已批准启用生产来源。
+
+配置存储中的 `account_facts_bindings` 使用 `qsl_account_facts_bindings.v1`，`bindings` 每项包含 `platform=longbridge`、`account_key`、`account_scope=paper`、`target_name`、`service_name`、`deployment_selector`、`account_selector`、`target_id` 和 `source_binding={kind:deployment_scope_token_version,id:<64位小写hex>}`。这些字段必须来自可信部署/账户材料，目标身份字段需与当前账户选项严格相等；身份改变后旧观察不可使用，不能从浏览器请求或账户名称推导绑定。绑定仍只提供部分来源核验，不证明券商物理账户或原生模拟/实盘身份。
+
+接收 LongBridge 已持久化的 `longbridge_account_snapshot_history.v1`，保留原观察时间和分币种金额；首次接收限定原观察开始后15分钟，不提供历史回填入口。最新观察与每日最后观察在同一事务保存，历史最多保留366个UTC观察日；缺日/缺币种留空，历史曲线不代表收益。完整外部资金流未提供时不计算收益；物理账户未去重时不汇总全部账户金额。
+
+每日运行区域读取既有 `/api/runtime-daily`，业务日期使用 `America/New_York`，与资产历史的UTC观察日分开。数据未取得时页面使用普通缺省显示；具体工程原因保留在接口与运维报告，订单已提交不等于已成交。真实发布、页面采用与自然周期仍须分别核验。

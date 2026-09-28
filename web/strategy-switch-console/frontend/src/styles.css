@@ -89,11 +89,12 @@ a { color: inherit; }
 .chart-switch button.active, .preference-choices button[aria-pressed="true"] { color: #fff; background: var(--accent); border-color: var(--accent); }
 .chart-empty { display: grid; min-height: 180px; place-items: center; color: var(--muted); text-align: center; }
 .chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
-.daily-page.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-rows: min-content min-content min-content 1fr; grid-template-areas: "head accounts" "metrics accounts" "chart accounts" "stats accounts"; gap: 28px; align-items: start; }
+.daily-page.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-rows: min-content min-content min-content min-content min-content 1fr; grid-template-areas: "head accounts" "metrics accounts" "chart accounts" "stats accounts" "runtime accounts" "runtime accounts"; gap: 28px; align-items: start; }
 .daily-page.overview-layout .overview-head { grid-area: head; }
 .daily-page.overview-layout .overview-metrics { grid-area: metrics; }
 .daily-page.overview-layout .overview-chart { grid-area: chart; }
 .daily-page.overview-layout .overview-stats { grid-area: stats; }
+.daily-page.overview-layout .overview-runtime { grid-area: runtime; }
 .overview-accounts { grid-area: accounts; min-width: 0; padding-left: 20px; border-left: 1px solid var(--line); }
 .overview-account-list { display: grid; min-width: 0; }
 .overview-account { display: grid; gap: 4px; width: 100%; min-width: 0; padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; text-align: left; cursor: pointer; }
@@ -415,6 +416,24 @@ textarea { width: 100%; resize: vertical; }
 .chart-range button.active { color: #fff; background: var(--accent); border-color: var(--accent); }
 .chart-range button:hover:not(.active) { border-color: var(--accent); }
 .chart-range button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 22%, transparent); outline-offset: 1px; }
+.chart-currency { display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px 16px; margin: 12px 0 4px; color: var(--muted); font-size: 13px; }
+.chart-currency label { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); }
+.chart-currency select { min-height: 32px; }
+.asset-chart { display: grid; gap: 8px; margin-top: 8px; }
+.asset-chart svg { width: 100%; height: auto; min-height: 180px; }
+.asset-chart-line { stroke: var(--accent); stroke-width: 2; }
+.asset-chart-dot { fill: var(--accent); }
+.asset-chart-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; color: var(--muted); font-size: 12px; }
+.asset-chart p { margin: 0; color: var(--muted); font-size: 13px; }
+.overview-runtime { display: grid; gap: 12px; padding: 16px 0 0; border-top: 1px solid var(--line); }
+.overview-runtime-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: end; }
+.overview-runtime-head h2 { margin: 0; font-size: 18px; font-family: Georgia, "Songti SC", "Noto Serif SC", serif; font-weight: 500; }
+.overview-runtime-head label { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.overview-runtime-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.overview-runtime-grid div { display: grid; gap: 4px; }
+.overview-runtime-grid span { color: var(--muted); font-size: 12px; }
+.overview-runtime-grid strong { font-size: 16px; }
+.overview-runtime-grid small, .overview-runtime p, .overview-runtime-flag { color: var(--muted); font-size: 13px; }
 .account-field-label { display: none; }
 .account-field-value { min-width: 0; overflow-wrap: break-word; }
 @media (max-width: 1099px) {
@@ -425,7 +444,7 @@ textarea { width: 100%; resize: vertical; }
   .brand em { display: none; }
   .primary-nav button { white-space: normal; }
   .accounts-layout, .decision-layout, .daily-page.overview-layout { grid-template-columns: minmax(0, 1fr); }
-  .daily-page.overview-layout { grid-template-rows: none; grid-template-areas: "head" "metrics" "chart" "stats" "accounts"; }
+  .daily-page.overview-layout { grid-template-rows: none; grid-template-areas: "head" "metrics" "chart" "stats" "runtime" "accounts"; }
   .overview-accounts { min-width: 0; padding-left: 0; border-left: 0; border-top: 1px solid var(--line); padding-top: 16px; }
   .accounts-layout, .decision-layout, .account-detail, .decision-detail, .account-list { min-width: 0; max-width: 100%; }
   .accounts-page .account-list .daily-table { display: block; width: 100%; min-width: 0; border-collapse: separate; }
@@ -450,6 +469,7 @@ textarea { width: 100%; resize: vertical; }
   .chart-range { width: 100%; }
   .chart-switch button, .chart-range button, .accounts-page .preference-choice, .form-actions .button, .confirm-actions .button, .daily-heading select { min-height: 44px; }
   .chart-range button { padding: 8px 12px; }
+  .overview-runtime-grid { grid-template-columns: 1fr; }
   .form-actions .button, .confirm-actions .button, .page-title-row .button { height: auto; white-space: normal; text-align: center; }
   .accounts-page .preference-selected-note { display: block; }
   .accounts-page .preference-hint, .accounts-page .preference-choice:last-child .preference-hint { left: 0; right: auto; width: min(100%, 280px); }

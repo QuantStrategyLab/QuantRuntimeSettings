@@ -15,6 +15,7 @@ export const ACCOUNT_FACTS_FUTURE_SKEW_MS = 5 * 60 * 1000;
 export const ACCOUNT_FACTS_OBSERVATION_WINDOW_MS = 15 * 60 * 1000;
 export const ACCOUNT_FACTS_MAX_MONEY_SCALE = 8;
 export const ACCOUNT_FACTS_MAX_MONEY_DIGITS = 15;
+export const ACCOUNT_FACTS_HISTORY_MAX_DAYS = 366;
 export const ACCOUNT_FACTS_RETURN_UNAVAILABLE = Object.freeze({
   status: "unavailable",
   reason: "external_cashflow_required",
@@ -413,4 +414,207 @@ export function totalsUnavailableDetail(reason) {
     return "账户映射重复，金额不汇总；未知不等于零。";
   }
   return "全部账户总额暂不可用；未知不等于零。";
+}
+
+function dayUtcMs(dateText) {
+  const day = calendarDate(dateText);
+  if (!day) return null;
+  return Date.parse(`${day}T00:00:00Z`);
+}
+
+function addUtcDays(dateText, delta) {
+  const ms = dayUtcMs(dateText);
+  if (ms === null) return null;
+  return new Date(ms + delta * 86400000).toISOString().slice(0, 10);
+}
+
+export function accountFactsHistoryIdentityMatches(row, binding) {
+  if (!row || !binding) return false;
+  if (row.target_id !== binding.target_id) return false;
+  if (row.source_binding_id !== binding.source_binding.id) return false;
+  if (row.account_scope !== binding.account_scope) return false;
+  return true;
+}
+
+export function decideAccountFactsDailyUpsert(existingDayPayload, incomingHistory) {
+  const incomingFinished = parseInstant(incomingHistory.observed_finished_at);
+  if (incomingFinished === null) reject("invalid_account_facts_time");
+  if (!existingDayPayload) return { action: "insert", unchanged: false };
+  const existingFinished = parseInstant(existingDayPayload.observed_finished_at);
+  if (existingFinished === null) reject("invalid_account_facts_stored");
+  if (incomingFinished < existingFinished) {
+    return { action: "skip", reason: "account_facts_daily_stale", unchanged: true };
+  }
+  const samePayload = canonicalizeAccountFactsHistory(existingDayPayload)
+    === canonicalizeAccountFactsHistory(incomingHistory);
+  if (incomingFinished === existingFinished) {
+    if (samePayload) return { action: "keep", unchanged: true };
+    return { action: "reject", reason: "account_facts_daily_conflict", status: 409 };
+  }
+  return { action: "replace", unchanged: false };
+}
+
+export function historyRetentionCutoff(latestDate, maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS) {
+  const latest = calendarDate(latestDate);
+  if (!latest) return null;
+  const bounded = Number.isInteger(maxDays) && maxDays > 0 ? Math.min(maxDays, ACCOUNT_FACTS_HISTORY_MAX_DAYS) : ACCOUNT_FACTS_HISTORY_MAX_DAYS;
+  return addUtcDays(latest, -(bounded - 1));
+}
+
+function balanceForCurrency(history, currency) {
+  if (!history || typeof currency !== "string" || !CURRENCY_RE.test(currency)) return null;
+  const row = (history.broker_reported_balances || []).find((item) => item.currency === currency);
+  if (!row || typeof row.net_assets !== "string") return null;
+  return {
+    currency,
+    net_assets: row.net_assets,
+    total_cash: typeof row.total_cash === "string" ? row.total_cash : null,
+  };
+}
+
+export function projectAccountFactsHistorySeries({
+  days = [],
+  binding = null,
+  currency = null,
+  maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+} = {}) {
+  if (!binding || typeof currency !== "string" || !CURRENCY_RE.test(currency)) {
+    return {
+      ok: true,
+      currency: typeof currency === "string" ? currency : null,
+      points: [],
+      gap_dates: [],
+      first_sample_date: null,
+      truncated: false,
+      retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+      note: "identity_or_currency_unavailable",
+    };
+  }
+  const matching = [];
+  for (const day of days) {
+    if (!day || !accountFactsHistoryIdentityMatches(day, binding)) continue;
+    const observationDate = calendarDate(day.observation_date);
+    if (!observationDate) continue;
+    let payload = day.payload;
+    if (!payload) continue;
+    try {
+      payload = normalizeAccountFactsHistoryPayload(payload, {
+        now: parseInstant(payload.observed_finished_at) || Date.now(),
+        expectedTargetId: binding.target_id,
+        expectedBindingId: binding.source_binding.id,
+        enforceObservationWindow: false,
+      });
+    } catch {
+      continue;
+    }
+    if (
+      payload.target_id !== binding.target_id
+      || payload.source_binding.id !== binding.source_binding.id
+      || payload.account_scope !== ACCOUNT_FACTS_PAYLOAD_SCOPE
+    ) continue;
+    const balance = balanceForCurrency(payload, currency);
+    if (!balance) {
+      matching.push({ observation_date: observationDate, gap: true, reason: "currency_missing" });
+      continue;
+    }
+    matching.push({
+      observation_date: observationDate,
+      gap: false,
+      observed_finished_at: payload.observed_finished_at,
+      net_assets: balance.net_assets,
+      total_cash: balance.total_cash,
+    });
+  }
+  matching.sort((left, right) => left.observation_date.localeCompare(right.observation_date));
+  const retentionDays = Number.isInteger(maxDays) && maxDays > 0
+    ? Math.min(maxDays, ACCOUNT_FACTS_HISTORY_MAX_DAYS)
+    : ACCOUNT_FACTS_HISTORY_MAX_DAYS;
+  let truncated = matching.length > retentionDays;
+  const kept = truncated ? matching.slice(matching.length - retentionDays) : matching;
+  const points = [];
+  const gapDates = [];
+  for (const item of kept) {
+    if (item.gap) {
+      gapDates.push(item.observation_date);
+      continue;
+    }
+    points.push({
+      observation_date: item.observation_date,
+      observed_finished_at: item.observed_finished_at,
+      currency,
+      net_assets: item.net_assets,
+      total_cash: item.total_cash,
+    });
+  }
+  // Leave calendar gaps between accepted points; callers must not interpolate.
+  if (points.length >= 2) {
+    for (let index = 1; index < points.length; index += 1) {
+      const prev = points[index - 1].observation_date;
+      const next = points[index].observation_date;
+      const expected = addUtcDays(prev, 1);
+      if (expected && expected !== next) {
+        let cursor = expected;
+        while (cursor && cursor < next) {
+          gapDates.push(cursor);
+          cursor = addUtcDays(cursor, 1);
+        }
+      }
+    }
+  }
+  gapDates.sort();
+  return {
+    ok: true,
+    currency,
+    points,
+    gap_dates: [...new Set(gapDates)],
+    first_sample_date: points[0]?.observation_date || null,
+    truncated,
+    retention_days: retentionDays,
+    note: truncated ? "history_truncated_to_retention" : null,
+  };
+}
+
+export function buildAccountFactsHistoryReadModel({
+  platform,
+  accountKey,
+  currency,
+  option = null,
+  binding = null,
+  days = [],
+  maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+} = {}) {
+  if (platform !== ACCOUNT_FACTS_PLATFORM || typeof accountKey !== "string" || !accountKey) {
+    return {
+      ok: true,
+      platform: platform || null,
+      account_key: accountKey || null,
+      binding_status: "missing",
+      identity_status: "missing_identity",
+      identity_mismatch: false,
+      series: projectAccountFactsHistorySeries({ days: [], binding: null, currency }),
+      return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
+    };
+  }
+  let bindingStatus = "missing";
+  if (binding && accountFactsOptionMatchesBinding(option, binding) && binding.account_key === accountKey) {
+    bindingStatus = "bound";
+  } else if (binding) {
+    bindingStatus = "identity_mismatch";
+  }
+  const series = bindingStatus === "bound"
+    ? projectAccountFactsHistorySeries({ days, binding, currency, maxDays })
+    : projectAccountFactsHistorySeries({ days: [], binding: null, currency });
+  return {
+    ok: true,
+    platform,
+    account_key: accountKey,
+    binding_status: bindingStatus === "identity_mismatch" ? "missing" : bindingStatus,
+    identity_status: bindingStatus === "bound" ? "partial_identity" : "missing_identity",
+    identity_mismatch: bindingStatus === "identity_mismatch",
+    target_id: bindingStatus === "bound" ? binding.target_id : null,
+    source_binding_id: bindingStatus === "bound" ? binding.source_binding.id : null,
+    account_scope: bindingStatus === "bound" ? binding.account_scope : null,
+    series,
+    return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
+  };
 }

@@ -35,6 +35,7 @@ import {
 } from "./account_options_schema.js";
 import {
   ACCOUNT_FACTS_BINDINGS_KEY,
+  ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_MAX_BODY_BYTES,
   ACCOUNT_FACTS_OPTION_SCOPE,
   ACCOUNT_FACTS_PAYLOAD_SCOPE,
@@ -42,9 +43,12 @@ import {
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   accountFactsOptionMatchesBinding,
   accountFactsReadModelEnabled,
+  buildAccountFactsHistoryReadModel,
   buildAccountFactsReadModel,
   canonicalizeAccountFactsHistory,
+  decideAccountFactsDailyUpsert,
   decideAccountFactsPut,
+  historyRetentionCutoff,
   normalizeAccountFactsBindings,
   normalizeAccountFactsHistoryPayload,
   resolveTrustedAccountFactsBinding,
@@ -347,7 +351,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "account_settings_read", "account_settings_save",
 ]);
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
-  "account_facts_put", "account_facts_read", "account_facts_list",
+  "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
 ]);
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
@@ -748,6 +752,9 @@ export default {
       }
       if (url.pathname === "/api/account-facts/sync" && request.method === "POST") {
         return await syncAccountFactsResponse(request, env);
+      }
+      if (url.pathname === "/api/account-facts/history" && request.method === "GET") {
+        return await accountFactsHistoryResponse(request, env, url);
       }
       if (url.pathname === "/api/account-facts" && request.method === "GET") {
         return await accountFactsResponse(request, env);
@@ -2052,6 +2059,19 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_daily (
+      platform TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      observation_date TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      observed_finished_at TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      source_binding_id TEXT NOT NULL,
+      account_scope TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (platform, account_key, observation_date)
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS account_facts_daily_account ON account_facts_daily (platform, account_key, observation_date)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
       request_id TEXT PRIMARY KEY,
       target_id TEXT NOT NULL,
@@ -2076,6 +2096,7 @@ export class RuntimeInstances {
     if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
     if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
     if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
+    if (command.action === "account_facts_history_read") return this.readAccountFactsDailyHistory(command);
     throw new HttpError("unsupported_account_facts_action", 400);
   }
 
@@ -2119,6 +2140,8 @@ export class RuntimeInstances {
     const decision = decideAccountFactsPut(existingRow?.payload || null, history);
     if (decision.action === "reject") throw new HttpError(decision.reason, decision.status || 409);
     if (decision.action === "keep") {
+      // Latest table unchanged; still ensure the accepted day is retained.
+      this.upsertAccountFactsDaily(command.platform, command.account_key, command.account_scope, history);
       return {
         ok: true,
         stored: true,
@@ -2154,6 +2177,7 @@ export class RuntimeInstances {
       command.account_scope,
       updatedAt,
     );
+    this.upsertAccountFactsDaily(command.platform, command.account_key, command.account_scope, history);
     return {
       ok: true,
       stored: true,
@@ -2163,6 +2187,107 @@ export class RuntimeInstances {
       observation_date: history.observation_date,
       observed_finished_at: history.observed_finished_at,
     };
+  }
+
+  readAccountFactsDailyRow(platform, accountKey, observationDate) {
+    const row = this.sql.exec(
+      `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
+       FROM account_facts_daily WHERE platform = ? AND account_key = ? AND observation_date = ?`,
+      platform,
+      accountKey,
+      observationDate,
+    ).toArray()[0];
+    if (!row) return null;
+    let payload;
+    try { payload = JSON.parse(row.payload_json); } catch { throw new HttpError("account_facts_stored_invalid", 409); }
+    return {
+      platform,
+      account_key: accountKey,
+      observation_date: row.observation_date,
+      payload,
+      observed_finished_at: row.observed_finished_at,
+      target_id: row.target_id,
+      source_binding_id: row.source_binding_id,
+      account_scope: row.account_scope,
+    };
+  }
+
+  upsertAccountFactsDaily(platform, accountKey, accountScope, history) {
+    const existing = this.readAccountFactsDailyRow(platform, accountKey, history.observation_date);
+    let decision;
+    try {
+      decision = decideAccountFactsDailyUpsert(existing?.payload || null, history);
+    } catch (error) {
+      if (error instanceof AccountFactsError) throw new HttpError(error.code, error.status || 400);
+      throw error;
+    }
+    if (decision.action === "reject") throw new HttpError(decision.reason, decision.status || 409);
+    if (decision.action === "skip" || decision.action === "keep") {
+      this.pruneAccountFactsDaily(platform, accountKey, history.observation_date);
+      return { unchanged: true };
+    }
+    const updatedAt = new Date().toISOString();
+    this.sql.exec(
+      `INSERT INTO account_facts_daily (
+        platform, account_key, observation_date, payload_json, observed_finished_at,
+        target_id, source_binding_id, account_scope, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(platform, account_key, observation_date) DO UPDATE SET
+        payload_json = excluded.payload_json,
+        observed_finished_at = excluded.observed_finished_at,
+        target_id = excluded.target_id,
+        source_binding_id = excluded.source_binding_id,
+        account_scope = excluded.account_scope,
+        updated_at = excluded.updated_at`,
+      platform,
+      accountKey,
+      history.observation_date,
+      JSON.stringify(history),
+      history.observed_finished_at,
+      history.target_id,
+      history.source_binding.id,
+      accountScope,
+      updatedAt,
+    );
+    this.pruneAccountFactsDaily(platform, accountKey, history.observation_date);
+    return { unchanged: false };
+  }
+
+  pruneAccountFactsDaily(platform, accountKey, latestDate) {
+    const cutoff = historyRetentionCutoff(latestDate, ACCOUNT_FACTS_HISTORY_MAX_DAYS);
+    if (!cutoff) return;
+    this.sql.exec(
+      "DELETE FROM account_facts_daily WHERE platform = ? AND account_key = ? AND observation_date < ?",
+      platform,
+      accountKey,
+      cutoff,
+    );
+  }
+
+  readAccountFactsDailyHistory(command) {
+    if (typeof command.platform !== "string" || typeof command.account_key !== "string") {
+      throw new HttpError("invalid_account_facts_account", 400);
+    }
+    const rows = this.sql.exec(
+      `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
+       FROM account_facts_daily WHERE platform = ? AND account_key = ? ORDER BY observation_date ASC`,
+      command.platform,
+      command.account_key,
+    ).toArray();
+    const days = [];
+    for (const row of rows) {
+      let payload;
+      try { payload = JSON.parse(row.payload_json); } catch { continue; }
+      days.push({
+        observation_date: row.observation_date,
+        payload,
+        observed_finished_at: row.observed_finished_at,
+        target_id: row.target_id,
+        source_binding_id: row.source_binding_id,
+        account_scope: row.account_scope,
+      });
+    }
+    return { ok: true, days };
   }
 
   readAccountFactsObservation(command) {
@@ -8195,6 +8320,61 @@ async function accountFactsResponse(request, env) {
     ...model,
     enabled: true,
     configured: Boolean(bindings?.bindings?.length),
+  });
+}
+
+async function accountFactsHistoryResponse(request, env, url) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json({ ok: false, error: "account facts KV is not configured" }, 503);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "account_facts_store_unavailable" }, 503);
+  const platform = String(url.searchParams.get("platform") || "");
+  const accountKey = String(url.searchParams.get("account_key") || "");
+  const currency = String(url.searchParams.get("currency") || "");
+  if (platform !== ACCOUNT_FACTS_PLATFORM || !accountKey || !/^[A-Z]{3}$/.test(currency)) {
+    return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
+  }
+  let accountConfig;
+  try {
+    accountConfig = await loadAccountOptionsConfig(env);
+  } catch {
+    accountConfig = { options: {} };
+  }
+  const options = Array.isArray(accountConfig?.options?.[platform]) ? accountConfig.options[platform] : [];
+  const matches = options.filter((item) => item?.key === accountKey);
+  const option = matches.length === 1 ? matches[0] : null;
+  let bindings = null;
+  try {
+    bindings = await loadAccountFactsBindings(env);
+  } catch {
+    bindings = null;
+  }
+  const binding = bindings?.bindings?.find((item) => item.platform === platform && item.account_key === accountKey) || null;
+  let days = [];
+  try {
+    const listed = await runtimeInstanceCommand(env, {
+      action: "account_facts_history_read",
+      platform,
+      account_key: accountKey,
+    });
+    days = Array.isArray(listed?.days) ? listed.days : [];
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  const model = buildAccountFactsHistoryReadModel({
+    platform,
+    accountKey,
+    currency,
+    option,
+    binding,
+    days,
+    maxDays: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
+  });
+  return json({
+    ...model,
+    enabled: true,
+    retention_days: ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   });
 }
 
