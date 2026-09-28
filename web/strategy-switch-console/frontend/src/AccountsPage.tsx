@@ -125,10 +125,10 @@ function DailyAccountSettings({ row, admin, stopAllowed, stopLabel, stopRefreshV
       if (!currentBody) return;
       const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
       if (!controller.isCurrent(started)) return;
-      if (controller.applySave(started, saved, t("风险偏好已保存，不改变执行限额或启用状态。"))) sync();
+      if (controller.applySave(started, saved, "风险偏好已保存，不改变执行限额或启用状态。")) sync();
     } catch (error) {
       const status = (error as { status?: number })?.status;
-      if (!controller.fail(started, status === 409 ? t("版本已变化，未覆盖已保存内容。") : t("账户设置暂不可用。"))) return;
+      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
       sync();
       const refresh = controller.start("refresh");
       try {
@@ -152,10 +152,10 @@ function DailyAccountSettings({ row, admin, stopAllowed, stopLabel, stopRefreshV
       if (!currentBody) return;
       const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
       if (!controller.isCurrent(started)) return;
-      if (controller.applySave(started, saved, t("已保存，尚未应用"))) sync();
+      if (controller.applySave(started, saved, "已保存，尚未应用")) sync();
     } catch (error) {
       const status = (error as { status?: number })?.status;
-      if (!controller.fail(started, status === 409 ? t("版本已变化，未覆盖已保存内容。") : t("账户设置暂不可用。"))) return;
+      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
       sync();
       const refresh = controller.start("refresh");
       try {
@@ -193,7 +193,7 @@ function DailyAccountSettings({ row, admin, stopAllowed, stopLabel, stopRefreshV
       <div className="setting-facts">
         <p><span>{t("当前预留现金（美元）")}</span><strong>{currentCash === null ? t("未知") : currentCash}</strong></p>
         <p><span>{t("待应用预留现金")}</span><strong>{pendingCash === "" ? t("沿用当前") : pendingCash}</strong></p>
-        {!cashDirty && savedFloor !== "" && <p role="status">{t("已保存，尚未应用")}</p>}
+        {!cashDirty && savedFloor !== "" && view.notice !== "已保存，尚未应用" && <p role="status">{t("已保存，尚未应用")}</p>}
         <p><span>{t("收入层")}</span><strong>{layerText(settings?.effective?.income_layer_enabled)}</strong></p>
         <p><span>{t("期权层")}</span><strong>{layerText(settings?.effective?.option_overlay_enabled)}</strong></p>
       </div>
@@ -212,12 +212,13 @@ function DailyAccountSettings({ row, admin, stopAllowed, stopLabel, stopRefreshV
         {PREFERENCES.map(([value, label, note]) => <div key={value} className="preference-choice"><button type="button" aria-pressed={view.preference === value} disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: value }); sync(); }}>{t(label)}</button><p>{t(note)}</p></div>)}
       </div>
       <p className="section-note">{t("选择风险偏好不会立即切换策略或提高额度。")}</p>
-      <p className="section-note">{!admin ? t("当前登录不能保存风险偏好。") : canSaveRisk ? t("只保存风险偏好，不会启用策略或提交订单。") : t("这项保存由服务端关闭，页面不能打开。")}</p>
+      {!admin ? <p className="section-note">{t("当前登录不能保存风险偏好。")}</p> : !canSaveRisk ? <p className="section-note">{t("这项保存由服务端关闭，页面不能打开。")}</p> : null}
       <div className="form-actions">
         <button type="button" className="button button-primary" disabled={!canSaveRisk || !riskDirty || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
+        {(savedPreference || view.preference) && <button type="button" className="button button-secondary" disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: "" }); sync(); }}>{t("清除偏好")}</button>}
         <button type="button" className="button button-secondary" disabled={!riskDirty || !canSaveRisk} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>
       </div>
-      {view.notice && <p role="status">{view.notice}</p>}
+      {view.notice && <p role="status">{t(view.notice)}</p>}
     </>}
     <div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "—" ? "—" : t(row.activation)}</strong></div>
     <p className="section-note">{t("暂不支持在此启用")}</p>
