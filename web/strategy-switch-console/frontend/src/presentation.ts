@@ -583,7 +583,7 @@ export function readOnlyLayerState(field: unknown): "on" | "off" | "unknown" {
   return record.value ? "on" : "off";
 }
 
-export function dcaSettingsReadout(effective: unknown): null | { label: "配置读回"; mode: "固定定投" | "智能定投" | "未核实"; amount: string } {
+export function dcaSettingsReadout(effective: unknown): null | { label: "当前设置"; mode: "定额定投" | "智能定投" | "未核实"; amount: string } {
   if (!effective || typeof effective !== "object" || Array.isArray(effective)) return null;
   const record = effective as { dca_mode?: unknown; dca_base_investment_usd?: unknown };
   if (!record.dca_mode && !record.dca_base_investment_usd) return null;
@@ -591,8 +591,8 @@ export function dcaSettingsReadout(effective: unknown): null | { label: "配置�
   const amount = knownText(record.dca_base_investment_usd);
   const numeric = Number(amount);
   return {
-    label: "配置读回",
-    mode: mode === "fixed" ? "固定定投" : mode === "smart" ? "智能定投" : "未核实",
+    label: "当前设置",
+    mode: mode === "fixed" ? "定额定投" : mode === "smart" ? "智能定投" : "未核实",
     amount: amount && Number.isFinite(numeric) && numeric > 0 ? amount : "未核实",
   };
 }

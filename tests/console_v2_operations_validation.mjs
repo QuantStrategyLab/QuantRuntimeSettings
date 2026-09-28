@@ -275,6 +275,18 @@ const clearedDraft = accountSettingDraftBody({
 });
 assert.equal(clearedDraft.overrides.reserved_cash_floor, null);
 assert.equal(Object.hasOwn(clearedDraft.overrides, "income_layer_enabled"), false);
+const dcaDraft = accountSettingDraftBody({
+  expectedDraftRevision: 5,
+  identity: { platform: "longbridge", key: "hk" },
+  overrides: { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "smart", dca_base_investment_usd: "75.25" },
+});
+assert.deepEqual(dcaDraft.overrides, { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "smart", dca_base_investment_usd: "75.25" });
+const clearDcaDraft = accountSettingDraftBody({
+  expectedDraftRevision: 6,
+  identity: { platform: "longbridge", key: "hk" },
+  overrides: { strategy_profile: null, dca_mode: null, dca_base_investment_usd: null },
+});
+assert.deepEqual(clearDcaDraft.overrides, { strategy_profile: null, dca_mode: null, dca_base_investment_usd: null });
 assert.equal(hkStopSubmitAllowed(null), false);
 assert.equal(hkStopSubmitAllowed(undefined), false);
 assert.equal(hkStopSubmitAllowed({ phase: null }), false);

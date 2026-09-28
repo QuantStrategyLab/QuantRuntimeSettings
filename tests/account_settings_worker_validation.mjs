@@ -101,6 +101,63 @@ const conflictObserved = {
 assert.throws(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { option_overlay_enabled: true }, "plain", { acknowledgeIdentityConflict: true }), /account_settings_option_rejected/);
 assert.doesNotThrow(() => __test.assertAccountDraftPatch(conflictProfiles, conflictObserved, { strategy_profile: "with_options", option_overlay_enabled: true }, "plain", { acknowledgeIdentityConflict: true }));
 
+const dcaProfileA = "nasdaq_sp500_smart_dca";
+const dcaProfileB = "ibit_smart_dca";
+const dcaProfiles = __test.normalizeStrategyProfilesPayload([
+  { profile: dcaProfileA, label: "DCA A", domain: "us_equity", allowed_execution_modes: ["paper"] },
+  { profile: dcaProfileB, label: "DCA B", domain: "us_equity", allowed_execution_modes: ["paper"] },
+  { profile: "plain", label: "Plain", domain: "us_equity", allowed_execution_modes: ["paper"] },
+  { profile: dcaProfileA, label: "DCA A", domain: "us_equity", allowed_execution_modes: ["dry_run"] },
+]);
+const dcaObserved = { platform: "longbridge", config: { supported_domains: ["us_equity"] }, draft: { status: "current", overrides: {} } };
+assert.equal(__test.accountDraftStrategyChoices("longbridge", dcaObserved.config, dcaProfiles).find((item) => item.profile === dcaProfileA).dca_supported, true);
+assert.equal(__test.accountDraftStrategyChoices("qmt", { supported_domains: ["us_equity"] }, dcaProfiles).some((item) => item.dca_supported), false,
+  "DCA capability is scoped to supported platforms and does not trust a candidate label");
+const dcaCurrentOnly = __test.normalizeStrategyProfilesPayload([
+  { profile: dcaProfileA, label: "DCA A", domain: "us_equity", allowed_execution_modes: ["dry_run"] },
+]);
+assert.equal(__test.accountDraftStrategyChoices("longbridge", dcaObserved.config, dcaCurrentOnly).length, 0,
+  "a current DCA profile can remain editable without becoming a selectable candidate");
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(dcaCurrentOnly, dcaObserved, {
+  strategy_profile: dcaProfileA, dca_mode: "smart", dca_base_investment_usd: "75.25",
+}, dcaProfileA));
+assert.throws(() => __test.assertAccountDraftPatch(dcaCurrentOnly, dcaObserved, {
+  dca_mode: "smart", dca_base_investment_usd: "75.25",
+}, dcaProfileA), /account_settings_dca_rejected/, "DCA edits must bind a strategy profile explicitly");
+for (const partial of [
+  { strategy_profile: dcaProfileA, dca_mode: null, dca_base_investment_usd: "75" },
+  { strategy_profile: dcaProfileA, dca_mode: "fixed", dca_base_investment_usd: null },
+]) assert.throws(() => __test.assertAccountDraftPatch(dcaCurrentOnly, dcaObserved, partial, dcaProfileA), /account_settings_dca_rejected/,
+  "DCA fields must be both cleared or both set to valid values");
+for (const invalid of ["", "0", "-1", "1e2", "Infinity", "1.2.3", "1".repeat(33)]) {
+  assert.throws(() => __test.assertAccountDraftPatch(dcaCurrentOnly, dcaObserved, {
+    strategy_profile: dcaProfileA, dca_mode: "fixed", dca_base_investment_usd: invalid,
+  }, dcaProfileA), /invalid_account_setting_overrides/);
+}
+for (const invalid of [true, 75, false]) {
+  assert.throws(() => __test.assertAccountDraftPatch(dcaCurrentOnly, dcaObserved, {
+    strategy_profile: dcaProfileA, dca_mode: "fixed", dca_base_investment_usd: invalid,
+  }, dcaProfileA), /invalid_account_setting_overrides/);
+}
+const priorDca = { ...dcaObserved, draft: { status: "current", overrides: { strategy_profile: dcaProfileA, dca_mode: "fixed", dca_base_investment_usd: "50" } } };
+assert.throws(() => __test.assertAccountDraftPatch(dcaProfiles, priorDca, { strategy_profile: "plain" }, dcaProfileA), /account_settings_dca_rejected/,
+  "switching from DCA to a normal strategy must clear saved DCA values in the same patch");
+assert.throws(() => __test.assertAccountDraftPatch(dcaProfiles, dcaObserved, { strategy_profile: "plain" }, dcaProfileA), /account_settings_dca_rejected/,
+  "leaving the current DCA profile also requires an explicit clear even without saved overrides");
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(dcaProfiles, priorDca, {
+  strategy_profile: "plain", dca_mode: null, dca_base_investment_usd: null,
+}, dcaProfileA));
+assert.throws(() => __test.assertAccountDraftPatch(dcaProfiles, priorDca, { strategy_profile: dcaProfileB }, dcaProfileA), /account_settings_dca_rejected/,
+  "switching DCA profiles cannot inherit the former profile's amount");
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(dcaProfiles, priorDca, {
+  strategy_profile: dcaProfileB, dca_mode: "smart", dca_base_investment_usd: "80",
+}, dcaProfileA));
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(dcaProfiles, priorDca, {
+  strategy_profile: null, dca_mode: null, dca_base_investment_usd: null,
+}, dcaProfileA), "clearing a pending DCA strategy and fields returns to the current profile");
+assert.doesNotThrow(() => __test.assertAccountDraftPatch(dcaProfiles, priorDca, { option_overlay_enabled: null }, dcaProfileA),
+  "an independent option clear does not require rebinding an existing DCA strategy");
+
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 
@@ -1228,6 +1285,42 @@ assert.equal(known.body.effective.dca_mode.applied, undefined);
 const sgReads = dcaFetches.filter((url) => url.includes("/environments/longbridge-sg/"));
 assert.equal(sgReads.length, 1);
 assert.equal(sgReads.some((url) => url.includes("DCA_MODE")), false);
+assert.equal(known.body.current_dca_supported, true);
+const savedDcaFixed = await knownCall("/api/account-settings", { platform: "longbridge", key: "sg", identity: known.body.identity,
+  expected_draft_revision: known.body.draft.revision,
+  overrides: { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "fixed", dca_base_investment_usd: "75.25" } });
+assert.equal(savedDcaFixed.status, 200);
+assert.equal(savedDcaFixed.body.no_order, true);
+assert.equal(savedDcaFixed.body.execution_authority_granted, false);
+const fixedReadback = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(fixedReadback.body.draft.overrides.dca_mode, "fixed");
+assert.equal(fixedReadback.body.draft.overrides.dca_base_investment_usd, "75.25");
+const rejectedDcaSwitch = await knownCall("/api/account-settings", { platform: "longbridge", key: "sg", identity: fixedReadback.body.identity,
+  expected_draft_revision: fixedReadback.body.draft.revision, overrides: { strategy_profile: "russell_top50_leader_rotation" } });
+assert.equal(rejectedDcaSwitch.status, 400, "a DCA-to-normal profile change must clear both DCA fields atomically");
+const savedDcaSmart = await knownCall("/api/account-settings", { platform: "longbridge", key: "sg", identity: fixedReadback.body.identity,
+  expected_draft_revision: fixedReadback.body.draft.revision,
+  overrides: { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "smart", dca_base_investment_usd: "90" } });
+assert.equal(savedDcaSmart.status, 200);
+const smartReadback = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(smartReadback.body.draft.overrides.dca_mode, "smart");
+assert.equal(smartReadback.body.draft.overrides.dca_base_investment_usd, "90");
+const invalidDcaAmount = await knownCall("/api/account-settings", { platform: "longbridge", key: "sg", identity: smartReadback.body.identity,
+  expected_draft_revision: smartReadback.body.draft.revision,
+  overrides: { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "fixed", dca_base_investment_usd: "1e2" } });
+assert.equal(invalidDcaAmount.status, 400);
+for (const overrides of [
+  { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: null, dca_base_investment_usd: "75" },
+  { strategy_profile: "nasdaq_sp500_smart_dca", dca_mode: "fixed", dca_base_investment_usd: null },
+]) {
+  const partialDca = await knownCall("/api/account-settings", { platform: "longbridge", key: "sg", identity: smartReadback.body.identity,
+    expected_draft_revision: smartReadback.body.draft.revision, overrides });
+  assert.equal(partialDca.status, 400);
+  const unchangedDca = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+  assert.equal(unchangedDca.body.draft.revision, smartReadback.body.draft.revision, "a rejected partial DCA update does not advance the draft revision");
+  assert.equal(unchangedDca.body.draft.overrides.dca_mode, "smart");
+  assert.equal(unchangedDca.body.draft.overrides.dca_base_investment_usd, "90");
+}
 const missing = await knownCall("/api/account-settings?platform=longbridge&key=hk");
 assert.equal(missing.body.effective.reserved_cash_ratio.value, "0.25");
 assert.equal(missing.body.effective.strategy_profile.value, "russell_top50_leader_rotation");

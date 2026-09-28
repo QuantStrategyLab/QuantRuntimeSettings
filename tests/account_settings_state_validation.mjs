@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createAccountSettingsController } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
+import { createAccountSettingsController, pendingDraftOverrides } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
 
 function settings(key, preference, identity, marker) {
   return {
@@ -371,4 +371,57 @@ optionClosed.edit({ option: "true", optionTouched: true });
 assert.equal(optionClosed.startSave("option"), null, "a new option value stays closed when the bound profile does not define one");
 optionClosed.edit({ option: "clear", optionTouched: true });
 assert.equal(optionClosed.startSave("option").body.overrides.option_overlay_enabled, null);
+
+const baseDcaDraft = {
+  strategy: "ibit_smart_dca", floor: "", ratio: "", percent: "", income: "", option: "",
+  dcaMode: "smart", dcaAmount: "75.25", dcaProfile: "ibit_smart_dca",
+  strategyTouched: true, incomeTouched: false, optionTouched: false, floorTouched: false, ratioTouched: false,
+  dcaTouched: true, clearStrategy: false, clearFloor: false, clearRatio: false, clearDca: false, cashMode: "", acknowledge: false,
+};
+assert.deepEqual(pendingDraftOverrides(baseDcaDraft, "strategy"), {
+  dca_mode: "smart", dca_base_investment_usd: "75.25", strategy_profile: "ibit_smart_dca",
+}, "DCA settings and strategy are submitted as one draft group");
+for (const amount of ["", "0", "-2", "1e2", "Infinity", "1.2.3", "1".repeat(33)]) {
+  assert.equal(pendingDraftOverrides({ ...baseDcaDraft, dcaAmount: amount }, "strategy"), null, `invalid DCA amount ${amount}`);
+}
+assert.deepEqual(pendingDraftOverrides({ ...baseDcaDraft, clearStrategy: true, clearDca: true }, "strategy"), {
+  dca_mode: null, dca_base_investment_usd: null, strategy_profile: null,
+}, "clearing a selected DCA draft clears both its fields and its strategy binding");
+
+const dcaSave = createAccountSettingsController();
+const dcaSettings = settings("hk", "BALANCED_COMPOUNDING", identityA, "dca-before");
+dcaSettings.current_dca_supported = true;
+dcaSettings.effective = {
+  strategy_profile: { status: "known", value: "ibit_smart_dca" },
+  dca_mode: { status: "known", value: "fixed" },
+  dca_base_investment_usd: { status: "known", value: "50" },
+};
+assert.equal(dcaSave.applyRead(dcaSave.select({ platform: "longbridge", key: "hk" }), dcaSettings), true);
+assert.equal(dcaSave.view().draft.dcaAmount, "50", "only the current supported profile is prefilled from current settings");
+assert.equal(dcaSave.edit({ strategy: "ibit_smart_dca", strategyTouched: true, dcaProfile: "ibit_smart_dca", dcaMode: "fixed", dcaAmount: "50", dcaTouched: true }), true);
+const dcaSaveOp = dcaSave.startSave("strategy");
+assert.equal(dcaSave.requestBody(dcaSaveOp).overrides.dca_base_investment_usd, "50");
+assert.equal(dcaSave.edit({ dcaAmount: "75", floor: "20", floorTouched: true, income: "true", incomeTouched: true, option: "false", optionTouched: true }), true);
+const dcaSaved = settings("hk", "BALANCED_COMPOUNDING", identityA, "dca-saved");
+dcaSaved.current_dca_supported = true;
+dcaSaved.draft.revision = 3;
+dcaSaved.draft.overrides = { strategy_profile: "ibit_smart_dca", dca_mode: "fixed", dca_base_investment_usd: "50" };
+dcaSaved.effective = dcaSettings.effective;
+assert.equal(dcaSave.applySave(dcaSaveOp, dcaSaved, "草案已保存"), true);
+assert.equal(dcaSave.view().draft.dcaAmount, "75", "a save response cannot replace a newer DCA amount typed while saving");
+assert.equal(dcaSave.view().draft.floor, "20");
+assert.equal(dcaSave.view().draft.income, "true");
+assert.equal(dcaSave.view().draft.option, "false");
+assert.equal(dcaSave.view().draft.dcaTouched, true);
+
+const switchDcaAccount = createAccountSettingsController();
+const switchDcaRead = switchDcaAccount.select({ platform: "longbridge", key: "hk" });
+assert.equal(switchDcaAccount.applyRead(switchDcaRead, dcaSettings), true);
+switchDcaAccount.edit({ strategy: "ibit_smart_dca", strategyTouched: true, dcaProfile: "ibit_smart_dca", dcaMode: "smart", dcaAmount: "75", dcaTouched: true });
+const lateDcaSave = switchDcaAccount.startSave("strategy");
+const selectOther = switchDcaAccount.select({ platform: "longbridge", key: "sg" });
+assert.equal(switchDcaAccount.applySave(lateDcaSave, dcaSaved, "late"), false, "a late DCA save cannot rebind another account");
+assert.equal(switchDcaAccount.applyRead(selectOther, settings("sg", "BALANCED_COMPOUNDING", identityB, "sg-after-dca")), true);
+assert.equal(switchDcaAccount.view().settings.key, "sg");
+assert.equal(switchDcaAccount.view().draft.dcaAmount, "");
 console.log("account_settings_state_validation: PASS");

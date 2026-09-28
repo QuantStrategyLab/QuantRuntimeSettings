@@ -11,14 +11,19 @@ export type AccountSettingsDraftFields = {
   percent: string;
   income: string;
   option: string;
+  dcaMode: "" | "fixed" | "smart";
+  dcaAmount: string;
+  dcaProfile: string;
   strategyTouched: boolean;
   incomeTouched: boolean;
   optionTouched: boolean;
   floorTouched: boolean;
   ratioTouched: boolean;
+  dcaTouched: boolean;
   clearStrategy: boolean;
   clearFloor: boolean;
   clearRatio: boolean;
+  clearDca: boolean;
   cashMode: CashEditMode;
   acknowledge: boolean;
 };
@@ -44,8 +49,9 @@ export type AccountSettingsOp = {
 function blankDraft(): AccountSettingsDraftFields {
   return {
     strategy: "", floor: "", ratio: "", percent: "", income: "", option: "",
-    strategyTouched: false, incomeTouched: false, optionTouched: false, floorTouched: false, ratioTouched: false,
-    clearStrategy: false, clearFloor: false, clearRatio: false, cashMode: "", acknowledge: false,
+    dcaMode: "", dcaAmount: "", dcaProfile: "",
+    strategyTouched: false, incomeTouched: false, optionTouched: false, floorTouched: false, ratioTouched: false, dcaTouched: false,
+    clearStrategy: false, clearFloor: false, clearRatio: false, clearDca: false, cashMode: "", acknowledge: false,
   };
 }
 
@@ -64,6 +70,11 @@ function incomeDraftValue(overrides: Record<string, any> | undefined): string {
   return layerDraftValue(overrides, "income_layer_enabled");
 }
 
+function effectiveText(settings: Record<string, any> | null, key: string): string {
+  const field = settings?.effective?.[key];
+  return field?.status === "known" && typeof field.value === "string" ? field.value : "";
+}
+
 function sameIdentity(left: unknown, right: unknown): boolean {
   return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
@@ -73,7 +84,7 @@ function savedNoticeGroup(op: AccountSettingsOp): AccountSettingsView["noticeGro
   const overrides = op.body?.overrides;
   if (!overrides || typeof overrides !== "object" || Array.isArray(overrides)) return "";
   const record = overrides as Record<string, unknown>;
-  if (Object.prototype.hasOwnProperty.call(record, "strategy_profile")) return "strategy";
+  if (Object.prototype.hasOwnProperty.call(record, "strategy_profile") || Object.prototype.hasOwnProperty.call(record, "dca_mode") || Object.prototype.hasOwnProperty.call(record, "dca_base_investment_usd")) return "strategy";
   if (Object.prototype.hasOwnProperty.call(record, "option_overlay_enabled")) return "option";
   if (Object.prototype.hasOwnProperty.call(record, "income_layer_enabled")) return "income";
   if (Object.prototype.hasOwnProperty.call(record, "reserved_cash_floor") || Object.prototype.hasOwnProperty.call(record, "reserved_cash_ratio")) return "cash";
@@ -88,6 +99,14 @@ function floorText(value: string): boolean {
   return /^\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value));
 }
 
+function positiveDcaAmount(value: string): boolean {
+  return value.length <= 32 && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value)) && Number(value) > 0;
+}
+
+function strategyGroupDirty(draft: AccountSettingsDraftFields): boolean {
+  return draft.strategyTouched === true || draft.dcaTouched === true || draft.clearDca === true;
+}
+
 function editedRatio(draft: AccountSettingsDraftFields): string | null {
   if (draft.cashMode === "ratio" || draft.cashMode === "both" || draft.percent !== "") return percentTextToRatio(draft.percent);
   return decimalUnitRatio(draft.ratio);
@@ -100,8 +119,18 @@ export function pendingDraftOverrides(draft: AccountSettingsDraftFields, scope: 
   const includeOption = scope === "all" || scope === "option";
   const includeCash = scope === "all" || scope === "cash";
   if (includeStrategy) {
+    if (draft.clearDca) {
+      overrides.dca_mode = null;
+      overrides.dca_base_investment_usd = null;
+    } else if (draft.dcaTouched) {
+      if (draft.dcaMode !== "fixed" && draft.dcaMode !== "smart") return null;
+      if (!positiveDcaAmount(draft.dcaAmount)) return null;
+      overrides.dca_mode = draft.dcaMode;
+      overrides.dca_base_investment_usd = draft.dcaAmount;
+    }
     if (draft.clearStrategy) overrides.strategy_profile = null;
-    else if (draft.strategyTouched) overrides.strategy_profile = draft.strategy;
+    else if (draft.strategyTouched && draft.strategy) overrides.strategy_profile = draft.strategy;
+    else if ((draft.dcaTouched || draft.clearDca) && draft.dcaProfile) overrides.strategy_profile = draft.dcaProfile;
   }
   if (includeIncome) {
     if (draft.incomeTouched && draft.income === "true") overrides.income_layer_enabled = true;
@@ -193,7 +222,7 @@ export function createAccountSettingsController() {
       const keepCash = options.keepCash === true && cashDraftDirty(view.draft);
       const keepPreference = options.keepPreference === true && (view.preference || "") !== savedPreference;
       const keepIncome = options.keepIncome === true && view.draft.incomeTouched === true;
-      const keepStrategy = options.keepStrategy === true && view.draft.strategyTouched === true;
+      const keepStrategy = options.keepStrategy === true && strategyGroupDirty(view.draft);
       const keepOption = options.keepOption === true && view.draft.optionTouched === true;
       lastSettings = payload;
       view = {
@@ -212,12 +241,17 @@ export function createAccountSettingsController() {
           percent: keepCash ? view.draft.percent : "",
           income: keepIncome ? view.draft.income : incomeDraftValue(draft),
           option: keepOption ? view.draft.option : layerDraftValue(draft, "option_overlay_enabled"),
-          strategyTouched: keepStrategy,
+          dcaMode: keepStrategy ? view.draft.dcaMode : (draft.dca_mode === "fixed" || draft.dca_mode === "smart" ? draft.dca_mode : (payload.current_dca_supported === true ? effectiveText(payload, "dca_mode") : "")),
+          dcaAmount: keepStrategy ? view.draft.dcaAmount : (typeof draft.dca_base_investment_usd === "string" ? draft.dca_base_investment_usd : (payload.current_dca_supported === true ? effectiveText(payload, "dca_base_investment_usd") : "")),
+          dcaProfile: keepStrategy ? view.draft.dcaProfile : (typeof draft.strategy_profile === "string" ? draft.strategy_profile : (payload.current_dca_supported === true ? effectiveText(payload, "strategy_profile") : "")),
+          strategyTouched: keepStrategy ? view.draft.strategyTouched : false,
           incomeTouched: keepIncome,
           optionTouched: keepOption,
           floorTouched: keepCash ? view.draft.floorTouched : false,
           ratioTouched: keepCash ? view.draft.ratioTouched : false,
+          dcaTouched: keepStrategy ? view.draft.dcaTouched : false,
           clearStrategy: keepStrategy ? view.draft.clearStrategy : false,
+          clearDca: keepStrategy ? view.draft.clearDca : false,
           clearFloor: keepCash ? view.draft.clearFloor : false,
           clearRatio: keepCash ? view.draft.clearRatio : false,
           cashMode: keepCash ? view.draft.cashMode : "",
@@ -299,6 +333,7 @@ export function createAccountSettingsController() {
       const sentIncome = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, "income_layer_enabled"));
       const sentOption = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, "option_overlay_enabled"));
       const sentStrategy = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, "strategy_profile"));
+      const sentDca = Boolean(overrides && (Object.prototype.hasOwnProperty.call(overrides, "dca_mode") || Object.prototype.hasOwnProperty.call(overrides, "dca_base_investment_usd")));
       const sentRisk = Boolean(op.body && Object.prototype.hasOwnProperty.call(op.body, "risk_preference"));
       const sentIncomeValue = view.draft.income === "true" ? true : view.draft.income === "false" ? false : null;
       const sentOptionValue = view.draft.option === "true" ? true : view.draft.option === "false" ? false : null;
@@ -308,7 +343,11 @@ export function createAccountSettingsController() {
       }));
       const incomeMoved = view.draft.incomeTouched === true && !(sentIncome && overrides?.income_layer_enabled === sentIncomeValue);
       const optionMoved = view.draft.optionTouched === true && !(sentOption && overrides?.option_overlay_enabled === sentOptionValue);
-      const strategyMoved = view.draft.strategyTouched === true && !(sentStrategy && ((view.draft.clearStrategy && overrides?.strategy_profile === null) || (!view.draft.clearStrategy && overrides?.strategy_profile === view.draft.strategy)));
+      const strategyMatches = sentStrategy && ((view.draft.clearStrategy && overrides?.strategy_profile === null) || (view.draft.strategyTouched && overrides?.strategy_profile === view.draft.strategy) || ((view.draft.dcaTouched || view.draft.clearDca) && overrides?.strategy_profile === view.draft.dcaProfile));
+      const strategyMoved = view.draft.strategyTouched === true && !strategyMatches;
+      const dcaMatches = sentDca && ((view.draft.clearDca && overrides?.dca_mode === null && overrides?.dca_base_investment_usd === null) || (!view.draft.clearDca && overrides?.dca_mode === view.draft.dcaMode && overrides?.dca_base_investment_usd === view.draft.dcaAmount));
+      const dcaMoved = (view.draft.dcaTouched === true || view.draft.clearDca === true) && !dcaMatches;
+      const strategyGroupMoved = strategyMoved || dcaMoved;
       const savedPreference = typeof (view.settings || lastSettings)?.risk?.preference === "string" ? (view.settings || lastSettings)!.risk.preference : "";
       const preferenceMoved = sentRisk
         ? (view.preference || "") !== (op.body?.risk_preference || "")
@@ -316,21 +355,21 @@ export function createAccountSettingsController() {
       const review = view.review || emptyReview();
       const beforeSettings = view.settings || lastSettings;
       const identityChanged = !sameIdentity(beforeSettings?.identity, payload?.identity);
-      const draftDirty = cashDraftDirty(view.draft) || view.draft.incomeTouched === true || view.draft.optionTouched === true || view.draft.strategyTouched === true;
-      const draftConflict = !sentCash && !sentIncome && !sentOption && !sentStrategy && draftDirty && (identityChanged || beforeSettings?.draft?.revision !== payload?.draft?.revision);
+      const draftDirty = cashDraftDirty(view.draft) || view.draft.incomeTouched === true || view.draft.optionTouched === true || strategyGroupDirty(view.draft);
+      const draftConflict = !sentCash && !sentIncome && !sentOption && !sentStrategy && !sentDca && draftDirty && (identityChanged || beforeSettings?.draft?.revision !== payload?.draft?.revision);
       const riskConflict = !sentRisk && preferenceMoved && (identityChanged || beforeSettings?.risk?.revision !== payload?.risk?.revision);
       if (!this.applyRead(op, payload, {
         keepCash: sentCash ? cashMoved : cashDraftDirty(view.draft),
         keepIncome: sentIncome ? incomeMoved : view.draft.incomeTouched === true,
         keepOption: sentOption ? optionMoved : view.draft.optionTouched === true,
-        keepStrategy: sentStrategy ? strategyMoved : view.draft.strategyTouched === true,
+        keepStrategy: (sentStrategy || sentDca) ? strategyGroupMoved : strategyGroupDirty(view.draft),
         keepPreference: preferenceMoved,
       })) return false;
-      const sentDraft = sentCash || sentIncome || sentOption || sentStrategy;
-      const otherMoved = (sentCash && (incomeMoved || optionMoved || strategyMoved))
-        || (sentIncome && (cashMoved || optionMoved || strategyMoved))
-        || (sentOption && (cashMoved || incomeMoved || strategyMoved))
-        || (sentStrategy && (cashMoved || incomeMoved || optionMoved));
+      const sentDraft = sentCash || sentIncome || sentOption || sentStrategy || sentDca;
+      const otherMoved = (sentCash && (incomeMoved || optionMoved || strategyGroupMoved))
+        || (sentIncome && (cashMoved || optionMoved || strategyGroupMoved))
+        || (sentOption && (cashMoved || incomeMoved || strategyGroupMoved))
+        || ((sentStrategy || sentDca) && (cashMoved || incomeMoved || optionMoved));
       view = {
         ...view,
         notice,
@@ -356,7 +395,7 @@ export function createAccountSettingsController() {
       const dirtyCash = cashDraftDirty(before.draft);
       const dirtyIncome = before.draft.incomeTouched === true;
       const dirtyOption = before.draft.optionTouched === true;
-      const dirtyStrategy = before.draft.strategyTouched === true;
+      const dirtyStrategy = strategyGroupDirty(before.draft);
       const savedPreference = typeof beforeSettings?.risk?.preference === "string" ? beforeSettings!.risk.preference : "";
       const dirtyRisk = (before.preference || "") !== savedPreference;
       const identityChanged = !sameIdentity(beforeSettings?.identity, payload?.identity);
@@ -388,6 +427,9 @@ export function createAccountSettingsController() {
         draft: {
           ...blankDraft(),
           strategy: typeof overrides.strategy_profile === "string" ? overrides.strategy_profile : "",
+          dcaMode: overrides.dca_mode === "fixed" || overrides.dca_mode === "smart" ? overrides.dca_mode : (view.settings.current_dca_supported === true ? effectiveText(view.settings, "dca_mode") : ""),
+          dcaAmount: typeof overrides.dca_base_investment_usd === "string" ? overrides.dca_base_investment_usd : (view.settings.current_dca_supported === true ? effectiveText(view.settings, "dca_base_investment_usd") : ""),
+          dcaProfile: typeof overrides.strategy_profile === "string" ? overrides.strategy_profile : (view.settings.current_dca_supported === true ? effectiveText(view.settings, "strategy_profile") : ""),
           floor: typeof overrides.reserved_cash_floor === "string" ? overrides.reserved_cash_floor : "",
           ratio: typeof overrides.reserved_cash_ratio === "string" ? overrides.reserved_cash_ratio : "",
           income: incomeDraftValue(overrides),
@@ -399,7 +441,7 @@ export function createAccountSettingsController() {
     revertCash() {
       if (!view.settings) return false;
       const overrides = view.settings.draft?.overrides || {};
-      const incomeStill = view.draft.incomeTouched === true || view.draft.optionTouched === true || view.draft.strategyTouched === true;
+      const incomeStill = view.draft.incomeTouched === true || view.draft.optionTouched === true || strategyGroupDirty(view.draft);
       view = {
         ...view,
         review: { draft: incomeStill ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk) },
@@ -421,14 +463,20 @@ export function createAccountSettingsController() {
       if (!view.settings) return false;
       const overrides = view.settings.draft?.overrides || {};
       const still = cashDraftDirty(view.draft) || view.draft.incomeTouched === true || view.draft.optionTouched === true;
+      const current = view.settings.draft?.overrides || {};
       view = {
         ...view,
         review: { draft: still ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk) },
         draft: {
           ...view.draft,
           strategy: typeof overrides.strategy_profile === "string" ? overrides.strategy_profile : "",
+          dcaMode: current.dca_mode === "fixed" || current.dca_mode === "smart" ? current.dca_mode : (view.settings.current_dca_supported === true ? effectiveText(view.settings, "dca_mode") : ""),
+          dcaAmount: typeof current.dca_base_investment_usd === "string" ? current.dca_base_investment_usd : (view.settings.current_dca_supported === true ? effectiveText(view.settings, "dca_base_investment_usd") : ""),
+          dcaProfile: typeof current.strategy_profile === "string" ? current.strategy_profile : (view.settings.current_dca_supported === true ? effectiveText(view.settings, "strategy_profile") : ""),
           strategyTouched: false,
+          dcaTouched: false,
           clearStrategy: false,
+          clearDca: false,
         },
       };
       return true;
@@ -436,7 +484,7 @@ export function createAccountSettingsController() {
     revertOption() {
       if (!view.settings) return false;
       const overrides = view.settings.draft?.overrides || {};
-      const still = cashDraftDirty(view.draft) || view.draft.incomeTouched === true || view.draft.strategyTouched === true;
+      const still = cashDraftDirty(view.draft) || view.draft.incomeTouched === true || strategyGroupDirty(view.draft);
       view = {
         ...view,
         review: { draft: still ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk) },
