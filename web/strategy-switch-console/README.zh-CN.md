@@ -226,6 +226,27 @@ wrangler.toml.example
 `lifecycle-matrix.json`。其中平台运行状态仅显示已接入来源；没有实际运行入口或未发布快照的平台必须
 保持“待接入”，不能被界面推断为正常或已停用。
 
+## 每日运行读模型
+
+`POST /api/runtime-daily/sync` 与 `GET /api/runtime-daily?date=YYYY-MM-DD` 默认关闭。只有
+`RUNTIME_DAILY_READ_MODEL_ENABLED` 精确等于 `true` 才受理。POST 复用既有
+`EXECUTION_EVIDENCE_SYNC_TOKEN`，普通登录会话不能写入。GET 要求登录会话，并且只读请求的那一天，
+不列出历史索引。
+
+当前只接受 `longbridge-quant-paper-service|russell_top50_leader_rotation|paper` 与
+`America/New_York` 的原日投影。对象按该目标加业务日期写入既有 `STRATEGY_SWITCH_CONFIG`，格式保持
+原投影；这是读模型缓存，不是原子账务，也不保证严格恰好一次。保留期沿用这份 KV 的现有策略，不另建
+无限历史索引。
+
+账户键只在受保护账户配置里 `service_name` 与 `account_scope` 同时明确匹配且唯一时返回。没有映射、
+映射重复，或调用方自己传入账户键，都拒绝，不按策略名或 paper 兜底。缺当日对象是空数据，不是正常
+无成交；成交字段保持未接通，数量保持空。真实生产身份和同步 producer 尚未接线核验。页面暂不读取此接口。
+
+`data_status` 只表示这份缓存的读取新鲜度，不改原 `status` 或 `completeness`。纽约今天且 `observed_at`
+未超过 36 小时为 `fresh`，其中 `unknown` 或 `failed` 仍是 `fresh`。业务日早于纽约今天为 `historical`。
+纽约今天但观察已超过 36 小时为 `stale`。没有对象为 `unavailable`。`schedule.next_due_at` 与
+`grace_ends_at` 可以晚于观察时间；`latest_due_at` 仍是已经到达的到期点。run 与 `observed_at` 仍拒绝未来时间。
+
 ## 账号下拉配置
 
 Worker 页面内置示例 target 作为兜底。登录后如果没有加载账号配置，“一键切换”仍会保持禁用，Worker 后端也会拒绝 dispatch，避免账号不匹配。复制示例文件后填入你的真实 target/account route：

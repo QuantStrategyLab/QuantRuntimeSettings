@@ -88,6 +88,7 @@ a { color: inherit; }
 .chart-switch button, .preference-choices button, .theme-button, .user-menu summary { min-height: 40px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
 .chart-switch button.active, .preference-choices button[aria-pressed="true"] { color: #fff; background: var(--accent); border-color: var(--accent); }
 .chart-empty { display: grid; min-height: 180px; place-items: center; color: var(--muted); text-align: center; }
+.chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
 .daily-page.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-rows: min-content min-content min-content 1fr; grid-template-areas: "head accounts" "metrics accounts" "chart accounts" "stats accounts"; gap: 28px; align-items: start; }
 .daily-page.overview-layout .overview-head { grid-area: head; }
 .daily-page.overview-layout .overview-metrics { grid-area: metrics; }
@@ -134,6 +135,18 @@ a { color: inherit; }
 .table-link { padding: 0; border: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .accounts-layout { display: grid; grid-template-columns: minmax(0, 11fr) minmax(280px, 9fr); gap: 24px; }
 .account-detail, .decision-detail { padding: 24px; }
+.account-detail { position: relative; }
+.account-detail.is-loading { min-height: 280px; }
+.settings-fields { margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.settings-progress { position: absolute; top: 0; right: 0; left: 0; height: 2px; overflow: hidden; background: color-mix(in srgb, var(--accent) 28%, var(--line)); pointer-events: none; }
+.settings-progress-bar { display: block; width: 32%; height: 100%; background: var(--accent); animation: settings-progress-slide 1.15s ease-in-out infinite; }
+.settings-progress-hint { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@keyframes settings-progress-slide { from { transform: translateX(-130%); } to { transform: translateX(380%); } }
+@media (prefers-reduced-motion: reduce) {
+  .settings-progress { position: static; height: auto; margin: 0 0 8px; overflow: visible; background: transparent; }
+  .settings-progress-bar { width: 100%; height: 2px; animation: none; transform: none; background: color-mix(in srgb, var(--accent) 55%, var(--line)); }
+  .settings-progress-hint { position: static; width: auto; height: auto; margin: 4px 0 0; overflow: visible; clip: auto; color: var(--muted); font-size: 12px; white-space: normal; }
+}
 .account-detail input[readonly] { width: 100%; min-height: 40px; border: 1px solid var(--line); background: transparent; color: inherit; }
 .preference-choices, .form-actions, .plan-compare { display: flex; flex-wrap: wrap; gap: 8px; }
 .decision-layout { display: grid; grid-template-columns: minmax(240px, 320px) minmax(0, 1fr); gap: 20px; }
@@ -424,7 +437,6 @@ textarea { width: 100%; resize: vertical; }
   .accounts-page .account-list .account-field-label { display: block; color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.3; }
   .accounts-page .account-list td.account-identity { grid-template-columns: minmax(4.75rem, 34%) minmax(0, 1fr); }
   .accounts-page .account-list td.account-identity .table-link { grid-column: 1 / -1; width: 100%; min-height: 44px; padding: 2px 0; text-align: left; }
-  .accounts-page .account-list td.account-identity .account-platform,
   .accounts-page .account-list td.account-identity .account-environment { grid-column: 2; margin-top: 0; overflow-wrap: break-word; }
   .accounts-page .account-list td.account-identity strong { overflow-wrap: break-word; word-break: normal; }
 }

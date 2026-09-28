@@ -216,6 +216,34 @@ const BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Keeping this contract separate prevents a P1/P3 source from accidentally
 // turning into an execution or P6 authority source.
 const EXECUTION_EVIDENCE_SOURCE_PREFIX = "execution_evidence_source:";
+const RUNTIME_DAILY_SERVICE = "longbridge-quant-paper-service";
+const RUNTIME_DAILY_STRATEGY = "russell_top50_leader_rotation";
+const RUNTIME_DAILY_ACCOUNT_SCOPE = "paper";
+const RUNTIME_DAILY_TIMEZONE = "America/New_York";
+const RUNTIME_DAILY_TARGET_KEY = `${RUNTIME_DAILY_SERVICE}|${RUNTIME_DAILY_STRATEGY}|${RUNTIME_DAILY_ACCOUNT_SCOPE}`;
+const RUNTIME_DAILY_KEY_PREFIX = "runtime_daily:";
+const RUNTIME_DAILY_MAX_BODY_BYTES = 64 * 1024;
+const RUNTIME_DAILY_MAX_RUNS = 20;
+const RUNTIME_DAILY_MAX_LIST = 20;
+const RUNTIME_DAILY_STALE_MS = 36 * 60 * 60 * 1000;
+const RUNTIME_DAILY_FUTURE_SKEW_MS = 5 * 60 * 1000;
+const RUNTIME_DAILY_STATUSES = [
+  "no_submission", "no_signal", "no_rebalance", "submitted", "broker_acknowledged", "partially_filled", "filled",
+  "reconciliation_required", "unknown", "failed", "blocked", "dry_run", "shadow", "validation",
+  "not_due", "market_closed", "outside_window", "within_grace", "missing_report", "read_incomplete", "insufficient", "conflict",
+];
+const RUNTIME_DAILY_SCHEDULE_ONLY = ["not_due", "market_closed", "outside_window", "within_grace"];
+const RUNTIME_DAILY_ANOMALY_STATUSES = [
+  "reconciliation_required", "unknown", "failed", "blocked", "conflict", "missing_report", "read_incomplete", "insufficient",
+  "dry_run", "shadow", "validation",
+];
+const RUNTIME_DAILY_ACTIVITIES = [
+  "no_submission", "no_signal", "no_rebalance", "submitted", "broker_acknowledged", "partially_filled", "filled",
+  "reconciliation_required", "unknown", "failed", "blocked", "previewed", "insufficient",
+];
+const RUNTIME_DAILY_LANES = ["paper", "live", "dry_run", "shadow", "validation", "insufficient"];
+const RUNTIME_DAILY_SCHEDULE_STATES = ["unevaluable", "not_due", "market_closed", "within_grace", "due", "outside_window"];
+const RUNTIME_DAILY_KINDS = ["run", "schedule", "incomplete"];
 const EXECUTION_EVIDENCE_SOURCE_SCHEMA_VERSION = "qsl_execution_evidence_source_snapshot.v1";
 const EXECUTION_EVIDENCE_DASHBOARD_SCHEMA_VERSION = "qsl_execution_evidence_dashboard.v1";
 const EXECUTION_EVIDENCE_MAX_SOURCES = 100;
@@ -691,6 +719,12 @@ export default {
       }
       if (url.pathname === "/api/execution-evidence" && request.method === "GET") {
         return await executionEvidenceResponse(request, env);
+      }
+      if (url.pathname === "/api/runtime-daily/sync" && request.method === "POST") {
+        return await syncRuntimeDailyResponse(request, env);
+      }
+      if (url.pathname === "/api/runtime-daily" && request.method === "GET") {
+        return await runtimeDailyResponse(request, env, url);
       }
       if (url.pathname === "/api/internal/sync-runtime-target-lifecycle-source" && request.method === "POST") {
         return await syncRuntimeTargetLifecycleSourceResponse(request, env);
@@ -6420,6 +6454,388 @@ async function readReconciliationRecoverySources(env) {
 
 function reconciliationRecoverySourceKey(sourceId) {
   return `${RECONCILIATION_RECOVERY_SOURCE_PREFIX}${sourceId}`;
+}
+
+function runtimeDailyReadModelEnabled(env) {
+  return String(env.RUNTIME_DAILY_READ_MODEL_ENABLED || "") === "true";
+}
+
+function runtimeDailyDisabledResponse() {
+  return json({ ok: false, error: "runtime_daily_disabled" }, 404);
+}
+
+function runtimeDailyKey(businessDate) {
+  return `${RUNTIME_DAILY_KEY_PREFIX}${RUNTIME_DAILY_TARGET_KEY}:${businessDate}`;
+}
+
+function runtimeDailyToday(now = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: RUNTIME_DAILY_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+}
+
+function runtimeDailyCalendarDate(value) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [year, month, day] = value.split("-").map(Number);
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) return null;
+  return value;
+}
+
+function runtimeDailyInstant(value) {
+  if (typeof value !== "string") return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(Z|[+-](\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  if (hour > 23 || minute > 59 || second > 59) return null;
+  if (match[7] !== "Z" && (Number(match[8]) > 23 || Number(match[9]) > 59)) return null;
+  const utc = new Date(Date.UTC(year, month - 1, day));
+  if (utc.getUTCFullYear() !== year || utc.getUTCMonth() !== month - 1 || utc.getUTCDate() !== day) return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function runtimeDailyExactKeys(value, keys) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const present = Object.keys(value);
+  return present.length === keys.length && keys.every((key) => Object.prototype.hasOwnProperty.call(value, key));
+}
+
+function runtimeDailyBoundedText(value, max) {
+  if (typeof value !== "string" || !value || value.length > max) return false;
+  if (/[\u0000-\u001f\u007f]/.test(value)) return false;
+  const lowered = value.toLowerCase();
+  return !["secret", "token", "password", "bearer", "traceback", "/users/", "/home/"].some((marker) => lowered.includes(marker));
+}
+
+function runtimeDailyChoice(value, allowed) {
+  return typeof value === "string" && allowed.includes(value);
+}
+
+function runtimeDailyReject(code) {
+  throw new HttpError(code, 400);
+}
+
+function runtimeDailyOptionalInstant(value, observedMs) {
+  if (value === null) return null;
+  const parsed = runtimeDailyInstant(value);
+  if (parsed === null) runtimeDailyReject("invalid_runtime_daily_time");
+  if (parsed > observedMs + RUNTIME_DAILY_FUTURE_SKEW_MS) runtimeDailyReject("runtime_daily_future_observation");
+  return parsed;
+}
+
+function runtimeDailyScheduleInstants(schedule, observedMs) {
+  const latest = schedule.latest_due_at === null ? null : runtimeDailyInstant(schedule.latest_due_at);
+  const next = schedule.next_due_at === null ? null : runtimeDailyInstant(schedule.next_due_at);
+  const grace = schedule.grace_ends_at === null ? null : runtimeDailyInstant(schedule.grace_ends_at);
+  if (schedule.latest_due_at !== null && latest === null) runtimeDailyReject("invalid_runtime_daily_time");
+  if (schedule.next_due_at !== null && next === null) runtimeDailyReject("invalid_runtime_daily_time");
+  if (schedule.grace_ends_at !== null && grace === null) runtimeDailyReject("invalid_runtime_daily_time");
+  // latest_due is the last cron time already reached. next_due and grace_ends are plans.
+  if (latest !== null && latest > observedMs + RUNTIME_DAILY_FUTURE_SKEW_MS) runtimeDailyReject("invalid_runtime_daily_time");
+  if (next !== null && next <= observedMs) runtimeDailyReject("invalid_runtime_daily_time");
+  if (latest !== null && next !== null && next <= latest) runtimeDailyReject("invalid_runtime_daily_time");
+  if (latest !== null && grace !== null && grace < latest) runtimeDailyReject("invalid_runtime_daily_time");
+}
+
+function normalizeRuntimeDailyRun(run, observedMs) {
+  if (!runtimeDailyExactKeys(run, [
+    "run_id", "source_object", "source_objects", "started_at", "finished_at", "object_updated_at",
+    "report_status", "execution_lane", "activity", "run_time_known", "evidence",
+  ])) runtimeDailyReject("invalid_runtime_daily_run");
+  if (run.run_id !== null && !runtimeDailyBoundedText(run.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_run");
+  if (run.source_object !== null && !runtimeDailyBoundedText(run.source_object, 512)) runtimeDailyReject("invalid_runtime_daily_run");
+  if (!Array.isArray(run.source_objects) || run.source_objects.length > 8 || run.source_objects.some((item) => !runtimeDailyBoundedText(item, 512))) {
+    runtimeDailyReject("invalid_runtime_daily_run");
+  }
+  const started = runtimeDailyOptionalInstant(run.started_at, observedMs);
+  const finished = runtimeDailyOptionalInstant(run.finished_at, observedMs);
+  runtimeDailyOptionalInstant(run.object_updated_at, observedMs);
+  if (started !== null && finished !== null && finished < started) runtimeDailyReject("invalid_runtime_daily_time");
+  if (run.report_status !== null && !runtimeDailyBoundedText(run.report_status, 64)) runtimeDailyReject("invalid_runtime_daily_run");
+  if (!runtimeDailyChoice(run.execution_lane, RUNTIME_DAILY_LANES) || !runtimeDailyChoice(run.activity, RUNTIME_DAILY_ACTIVITIES)) {
+    runtimeDailyReject("invalid_runtime_daily_run");
+  }
+  if (typeof run.run_time_known !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
+  if (!runtimeDailyExactKeys(run.evidence, [
+    "execution_status", "broker_submission_done", "action_done", "orders_pending_count", "errors_present",
+    "receipt_outcome", "receipt_broker_confirmation",
+  ])) runtimeDailyReject("invalid_runtime_daily_run");
+  const evidence = run.evidence;
+  if (evidence.execution_status !== null && !runtimeDailyBoundedText(evidence.execution_status, 64)) runtimeDailyReject("invalid_runtime_daily_run");
+  for (const field of ["broker_submission_done", "action_done"]) {
+    if (evidence[field] !== null && typeof evidence[field] !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
+  }
+  if (evidence.orders_pending_count !== null && (!Number.isInteger(evidence.orders_pending_count) || evidence.orders_pending_count < 0 || evidence.orders_pending_count > 100000)) {
+    runtimeDailyReject("invalid_runtime_daily_run");
+  }
+  if (typeof evidence.errors_present !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
+  for (const field of ["receipt_outcome", "receipt_broker_confirmation"]) {
+    if (evidence[field] !== null && !runtimeDailyBoundedText(evidence[field], 64)) runtimeDailyReject("invalid_runtime_daily_run");
+  }
+  return {
+    run_id: run.run_id,
+    source_object: run.source_object,
+    source_objects: [...run.source_objects],
+    started_at: run.started_at,
+    finished_at: run.finished_at,
+    object_updated_at: run.object_updated_at,
+    report_status: run.report_status,
+    execution_lane: run.execution_lane,
+    activity: run.activity,
+    run_time_known: run.run_time_known,
+    evidence: { ...evidence },
+  };
+}
+
+function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
+  if (!runtimeDailyExactKeys(raw, ["platform", "observed_at", "completeness", "read_errors", "records", "unmatched_reports"])) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (raw.platform !== "longbridge" || !runtimeDailyChoice(raw.completeness, ["complete", "incomplete"])) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  const observedMs = runtimeDailyInstant(raw.observed_at);
+  if (observedMs === null) runtimeDailyReject("invalid_runtime_daily_time");
+  if (observedMs > now + RUNTIME_DAILY_FUTURE_SKEW_MS) runtimeDailyReject("runtime_daily_future_observation");
+  if (!Array.isArray(raw.read_errors) || raw.read_errors.length > RUNTIME_DAILY_MAX_LIST || raw.read_errors.some((item) => !runtimeDailyBoundedText(item, 120))) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (!Array.isArray(raw.records) || raw.records.length !== 1) runtimeDailyReject("invalid_runtime_daily_target");
+  if (!Array.isArray(raw.unmatched_reports) || raw.unmatched_reports.length > RUNTIME_DAILY_MAX_LIST) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  const record = raw.records[0];
+  if (!runtimeDailyExactKeys(record, [
+    "platform", "target_key", "target", "business_date", "timezone", "observed_at", "status", "kind",
+    "completeness", "execution_lane", "schedule", "runs", "excluded_reports", "conflicts", "fills",
+  ])) runtimeDailyReject("invalid_runtime_daily_projection");
+  if (record.platform !== "longbridge" || record.target_key !== RUNTIME_DAILY_TARGET_KEY || record.timezone !== RUNTIME_DAILY_TIMEZONE) {
+    runtimeDailyReject(record.timezone === RUNTIME_DAILY_TIMEZONE ? "invalid_runtime_daily_target" : "invalid_runtime_daily_timezone");
+  }
+  if (!runtimeDailyExactKeys(record.target, ["service", "strategy_profile", "account_scope"])) runtimeDailyReject("invalid_runtime_daily_target");
+  if (record.target.service !== RUNTIME_DAILY_SERVICE || record.target.strategy_profile !== RUNTIME_DAILY_STRATEGY || record.target.account_scope !== RUNTIME_DAILY_ACCOUNT_SCOPE) {
+    runtimeDailyReject("invalid_runtime_daily_target");
+  }
+  const businessDate = runtimeDailyCalendarDate(record.business_date);
+  if (!businessDate || businessDate > runtimeDailyToday(now)) runtimeDailyReject("invalid_runtime_daily_date");
+  if (record.observed_at !== raw.observed_at) runtimeDailyReject("invalid_runtime_daily_time");
+  if (!runtimeDailyChoice(record.status, RUNTIME_DAILY_STATUSES) || !runtimeDailyChoice(record.kind, RUNTIME_DAILY_KINDS)) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (!runtimeDailyChoice(record.completeness, ["complete", "incomplete", "insufficient"]) || !runtimeDailyChoice(record.execution_lane, RUNTIME_DAILY_LANES)) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (!runtimeDailyExactKeys(record.schedule, [
+    "state", "business_date", "timezone", "latest_due_at", "next_due_at", "grace_ends_at",
+    "publication_grace_ended", "expected_window", "reason",
+  ])) runtimeDailyReject("invalid_runtime_daily_projection");
+  const schedule = record.schedule;
+  if (!runtimeDailyChoice(schedule.state, RUNTIME_DAILY_SCHEDULE_STATES) || schedule.business_date !== businessDate || schedule.timezone !== RUNTIME_DAILY_TIMEZONE) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  runtimeDailyScheduleInstants(schedule, observedMs);
+  if (schedule.publication_grace_ended !== null && typeof schedule.publication_grace_ended !== "boolean") {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (!runtimeDailyChoice(schedule.expected_window, ["unspecified", "inside", "outside"])) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (schedule.reason !== null && !runtimeDailyBoundedText(schedule.reason, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
+  if (!Array.isArray(record.runs) || record.runs.length > RUNTIME_DAILY_MAX_RUNS) runtimeDailyReject("runtime_daily_run_limit");
+  const runs = record.runs.map((run) => normalizeRuntimeDailyRun(run, observedMs));
+  if (!Array.isArray(record.excluded_reports) || record.excluded_reports.length > RUNTIME_DAILY_MAX_LIST) runtimeDailyReject("invalid_runtime_daily_projection");
+  const excluded = record.excluded_reports.map((item) => {
+    const keys = Object.keys(item || {});
+    const allowed = keys.length === 3 ? ["run_id", "reason", "business_date"] : ["run_id", "reason"];
+    if (!runtimeDailyExactKeys(item, allowed) || !runtimeDailyBoundedText(item.reason, 64)) runtimeDailyReject("invalid_runtime_daily_projection");
+    if (item.run_id !== null && !runtimeDailyBoundedText(item.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
+    if (allowed.length === 3 && runtimeDailyCalendarDate(item.business_date) === null) runtimeDailyReject("invalid_runtime_daily_date");
+    return allowed.length === 3
+      ? { run_id: item.run_id, reason: item.reason, business_date: item.business_date }
+      : { run_id: item.run_id, reason: item.reason };
+  });
+  if (!Array.isArray(record.conflicts) || record.conflicts.length > RUNTIME_DAILY_MAX_LIST || record.conflicts.some((item) => !runtimeDailyBoundedText(item, 160))) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (RUNTIME_DAILY_SCHEDULE_ONLY.includes(record.status) && (record.conflicts.length || runs.some((run) => RUNTIME_DAILY_ANOMALY_STATUSES.includes(run.activity) || run.activity === "previewed"))) {
+    runtimeDailyReject("invalid_runtime_daily_projection");
+  }
+  if (!runtimeDailyExactKeys(record.fills, ["source", "records", "count"]) || record.fills.source !== "not_connected" || record.fills.count !== null || !Array.isArray(record.fills.records) || record.fills.records.length !== 0) {
+    runtimeDailyReject("invalid_runtime_daily_fills");
+  }
+  const unmatched = raw.unmatched_reports.map((item) => {
+    if (!runtimeDailyExactKeys(item, ["run_id", "platform", "service", "strategy_profile", "account_scope", "reason"])) {
+      runtimeDailyReject("invalid_runtime_daily_projection");
+    }
+    for (const field of ["platform", "service", "strategy_profile", "account_scope", "reason"]) {
+      if (item[field] !== null && !runtimeDailyBoundedText(item[field], 120)) runtimeDailyReject("invalid_runtime_daily_projection");
+    }
+    if (item.run_id !== null && !runtimeDailyBoundedText(item.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
+    return { ...item };
+  });
+  return {
+    platform: "longbridge",
+    observed_at: raw.observed_at,
+    completeness: raw.completeness,
+    read_errors: [...raw.read_errors],
+    records: [{
+      platform: "longbridge",
+      target_key: RUNTIME_DAILY_TARGET_KEY,
+      target: { ...record.target },
+      business_date: businessDate,
+      timezone: RUNTIME_DAILY_TIMEZONE,
+      observed_at: raw.observed_at,
+      status: record.status,
+      kind: record.kind,
+      completeness: record.completeness,
+      execution_lane: record.execution_lane,
+      schedule: { ...schedule },
+      runs,
+      excluded_reports: excluded,
+      conflicts: [...record.conflicts],
+      fills: { source: "not_connected", records: [], count: null },
+    }],
+    unmatched_reports: unmatched,
+  };
+}
+
+async function runtimeDailyTrustedAccountKey(env) {
+  let config;
+  try {
+    config = await loadAccountOptionsConfig(env);
+  } catch {
+    return null;
+  }
+  const options = Array.isArray(config?.options?.longbridge) ? config.options.longbridge : [];
+  const matches = options.filter((item) => item?.service_name === RUNTIME_DAILY_SERVICE && item?.account_scope === RUNTIME_DAILY_ACCOUNT_SCOPE);
+  if (matches.length !== 1 || typeof matches[0]?.key !== "string" || !matches[0].key) return null;
+  return matches[0].key;
+}
+
+function runtimeDailyUnattributedResponse() {
+  return json({ ok: false, error: "runtime_daily_account_unattributed" }, 409);
+}
+
+function runtimeDailyPublicRecord(record) {
+  return {
+    target_key: record.target_key,
+    service: record.target.service,
+    strategy_profile: record.target.strategy_profile,
+    account_scope: record.target.account_scope,
+    business_date: record.business_date,
+    timezone: record.timezone,
+    observed_at: record.observed_at,
+    status: record.status,
+    kind: record.kind,
+    completeness: record.completeness,
+    execution_lane: record.execution_lane,
+    schedule: {
+      state: record.schedule.state,
+      business_date: record.schedule.business_date,
+      timezone: record.schedule.timezone,
+      latest_due_at: record.schedule.latest_due_at,
+      next_due_at: record.schedule.next_due_at,
+      grace_ends_at: record.schedule.grace_ends_at,
+      publication_grace_ended: record.schedule.publication_grace_ended,
+      expected_window: record.schedule.expected_window,
+    },
+    runs: record.runs.map((run) => ({
+      run_id: run.run_id,
+      started_at: run.started_at,
+      finished_at: run.finished_at,
+      activity: run.activity,
+      execution_lane: run.execution_lane,
+    })),
+    conflict_count: record.conflicts.length,
+    excluded_count: record.excluded_reports.length,
+  };
+}
+
+function runtimeDailyReadStatus(stored, now) {
+  const record = stored.records[0];
+  const observedMs = runtimeDailyInstant(stored.observed_at);
+  const today = record.business_date === runtimeDailyToday(now);
+  let dataStatus = "historical";
+  if (today) {
+    const fresh = observedMs !== null && observedMs <= now + RUNTIME_DAILY_FUTURE_SKEW_MS && now - observedMs <= RUNTIME_DAILY_STALE_MS;
+    dataStatus = fresh ? "fresh" : "stale";
+  }
+  return {
+    data_status: dataStatus,
+    read_error_count: stored.read_errors.length,
+    unmatched_count: stored.unmatched_reports.length,
+    record: runtimeDailyPublicRecord(record),
+    fills: { source: "not_connected", records: [], count: null },
+  };
+}
+
+async function syncRuntimeDailyResponse(request, env) {
+  if (!runtimeDailyReadModelEnabled(env)) return runtimeDailyDisabledResponse();
+  requireDedicatedExecutionEvidenceSyncToken(request, env);
+  if (!hasConfigStore(env)) return json({ ok: false, error: "runtime daily KV is not configured" }, 503);
+  const accountKey = await runtimeDailyTrustedAccountKey(env);
+  if (!accountKey) return runtimeDailyUnattributedResponse();
+  let raw;
+  try {
+    raw = await readBoundedJson(request, RUNTIME_DAILY_MAX_BODY_BYTES);
+  } catch (error) {
+    return json({ ok: false, error: error.message || "invalid_runtime_daily_projection" }, error.status || 400);
+  }
+  const projection = normalizeRuntimeDailyProjection(raw);
+  const businessDate = projection.records[0].business_date;
+  await writeConfigJson(env, runtimeDailyKey(businessDate), projection);
+  return json({
+    ok: true,
+    stored: true,
+    business_date: businessDate,
+    target_key: RUNTIME_DAILY_TARGET_KEY,
+    account_key: accountKey,
+  });
+}
+
+async function runtimeDailyResponse(request, env, url) {
+  if (!runtimeDailyReadModelEnabled(env)) return runtimeDailyDisabledResponse();
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasConfigStore(env)) return json({ ok: false, error: "runtime daily KV is not configured" }, 503);
+  const businessDate = runtimeDailyCalendarDate(url.searchParams.get("date"));
+  if (!businessDate || businessDate > runtimeDailyToday()) return json({ ok: false, error: "invalid_runtime_daily_date" }, 400);
+  const accountKey = await runtimeDailyTrustedAccountKey(env);
+  if (!accountKey) return runtimeDailyUnattributedResponse();
+  let stored;
+  try {
+    stored = await readConfigJson(env, runtimeDailyKey(businessDate));
+  } catch {
+    stored = null;
+  }
+  const base = {
+    ok: true,
+    date: businessDate,
+    timezone: RUNTIME_DAILY_TIMEZONE,
+    account_key: accountKey,
+  };
+  if (!stored) {
+    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+  }
+  let projection;
+  try {
+    projection = normalizeRuntimeDailyProjection(stored);
+  } catch {
+    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+  }
+  if (projection.records[0].business_date !== businessDate) {
+    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+  }
+  return json({ ...base, ...runtimeDailyReadStatus(projection, Date.now()) });
 }
 
 async function syncExecutionEvidenceSourceResponse(request, env) {

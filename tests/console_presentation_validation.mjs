@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -35,7 +35,12 @@ assert.equal(overviewFigures(2, ["CAPITAL_PRESERVATION", null]).riskPreference, 
 assert.equal(overviewFigures(2, ["GROWTH_COMPOUNDING", ""]).riskPreference, null);
 assert.equal(chartUnavailable("return"), "尚无可用资产记录");
 assert.equal(chartUnavailable("assets"), "尚无可用资产记录");
-assert.equal(chartUnavailable("cash"), "尚无可用资产记录");
+assert.deepEqual([...RETURN_INDEX_LEGEND], ["标普500", "纳斯达克", "道琼斯", "罗素"]);
+const overviewPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
+assert.equal(overviewPage.includes('id: "cash"'), false);
+assert.equal(overviewPage.includes("account.platform} · {account.title}"), false);
+assert.equal(overviewPage.includes("QQQ"), false);
+assert.equal(overviewPage.includes("Top50"), false);
 assert.equal(accountDisplayTitle({ label: "  ", key: "internal-key" }, "Longbridge", "模拟账户环境"), "账户");
 assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模拟账户环境").includes("internal"), false);
 assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模拟账户环境"), "我的港股");
@@ -274,6 +279,8 @@ assert.equal(rejectedRecovery.kind, "recovery");
 
 const decisionsPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");
 const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
+assert.match(app, /const accountTitle = \([\s\S]*?\) => adminDirectoryTitle\(/);
+assert.equal(app.includes("formatAccountIdentity"), false);
 const recoveryFn = app.slice(app.indexOf("const confirmRecovery"), app.indexOf("async function submitPromotion"));
 assert.equal(decisionsPage.split("selected.impact").length - 1, 2);
 assert.equal(decisionsPage.includes("你需要决定"), false);

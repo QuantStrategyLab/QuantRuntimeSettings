@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useT } from "./locales";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, chartRangeNote, chartUnavailable, overviewFigures, type ChartMode, type ChartRange } from "./presentation";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, chartRangeNote, chartUnavailable, overviewFigures, type ChartMode, type ChartRange } from "./presentation";
 
 export type OverviewAccount = {
   id: string;
@@ -19,10 +19,9 @@ function preferenceLabel(value: string | null, t: (key: string) => string): stri
   return value && labels[value] ? t(labels[value]) : "—";
 }
 
-const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "账户资产" | "现金" }> = [
+const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = [
   { id: "return", label: "收益率" },
-  { id: "assets", label: "账户资产" },
-  { id: "cash", label: "现金" },
+  { id: "assets", label: "总资产" },
 ];
 
 export function OverviewPage({ accounts, onOpenAccount }: {
@@ -36,7 +35,11 @@ export function OverviewPage({ accounts, onOpenAccount }: {
   const rangeNote = chartRangeNote(range);
   const visible = accountId === "all" ? accounts : accounts.filter(account => account.id === accountId);
   const figures = overviewFigures(accounts.length ? visible.length : null, visible.map(account => account.preference));
-  const optionLabel = (account: OverviewAccount) => accounts.filter(item => item.title === account.title).length > 1 ? `${account.title} · ${account.platform}` : account.title;
+  const optionLabel = (account: OverviewAccount) => {
+    const duplicates = accounts.filter(item => item.title === account.title);
+    if (duplicates.length < 2 || !account.environment) return account.title;
+    return `${account.title} · ${account.environment}`;
+  };
   const healthText = (label: string) => label === "正常" || label === "异常" ? label : "待确认";
   const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
   return <div className="daily-page overview-layout">
@@ -54,14 +57,18 @@ export function OverviewPage({ accounts, onOpenAccount }: {
     </section>
     <section className="chart-panel overview-chart">
       <div className="chart-toolbar">
-        <div className="chart-switch" role="tablist" aria-label={t("账户资产")}>
+        <div className="chart-switch" role="tablist" aria-label={t("图表")}>
           {CHART_MODES.map(mode => <button key={mode.id} type="button" role="tab" aria-selected={chart === mode.id} className={chart === mode.id ? "active" : ""} onClick={() => setChart(mode.id)}>{t(mode.label)}</button>)}
         </div>
         <div className="chart-range" role="tablist" aria-label={t("图表范围")}>
           {CHART_RANGE_OPTIONS.map(option => <button key={option.id} type="button" role="tab" aria-selected={range === option.id} className={range === option.id ? "active" : ""} onClick={() => setRange(option.id)}>{t(option.label)}</button>)}
         </div>
       </div>
-      <div className="chart-empty"><strong>{t(chartUnavailable(chart))}</strong><p>{t(rangeNote.key, { range: t(rangeNote.rangeLabel) })}</p></div>
+      <div className="chart-empty">
+        {chart === "return" ? <ul className="chart-legend" aria-label={t("指数数据尚未接入")}>{RETURN_INDEX_LEGEND.map(name => <li key={name}>{t(name)}</li>)}</ul> : null}
+        <strong>{t(chartUnavailable(chart))}</strong>
+        <p>{t(rangeNote.key, { range: t(rangeNote.rangeLabel) })}</p>
+      </div>
     </section>
     <section className="metric-row compact overview-stats">
       <div><span>{t("年化收益")}</span><strong>—</strong></div>
@@ -72,7 +79,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
       <h2>{t("我的账户")}</h2>
       <div className="overview-account-list">
         {visible.map(account => <button key={account.id} type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
-          <strong>{account.platform} · {account.title}</strong>
+          <strong>{account.title}</strong>
           <small>{account.strategy}</small>
           <span className="overview-figures"><span><em>{t("账户资产")}</em>—</span><span><em>{t("收益率")}</em>—</span></span>
           <span className="overview-marks"><span><em>{t("健康")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>

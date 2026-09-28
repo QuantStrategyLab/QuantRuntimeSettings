@@ -9,7 +9,7 @@ import { LocaleContext, renderLocaleMessage, translate, useT, type Language, typ
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountIdentity, accountStatusView, activationFromProjection, brokerAccountType, formatAccountIdentity, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -183,7 +183,7 @@ function App() {
     });
     const rows = useMemo(() => makeRows(model), [model]);
     const active = rows.find(row => row.id === selectedId) || rows[0] || null;
-    const accountTitle = (account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, currentProfile?: unknown) => formatAccountIdentity(accountIdentity(account, platformLabel, "", strategyOccupiedNames(model?.config.value?.strategyProfiles || [], currentProfile)), t);
+    const accountTitle = (account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, currentProfile?: unknown) => adminDirectoryTitle(account, platformLabel, strategyOccupiedNames(model?.config.value?.strategyProfiles || [], currentProfile));
     const resolvedTheme = resolveTheme(theme, systemDark);
     const clearPrivateState = (invalidate = true) => {
         resolveConfirmation(false);
