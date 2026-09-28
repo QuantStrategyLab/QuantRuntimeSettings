@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import {
-  accountSettingDraftBody, buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
+  accountEnvironmentSourceDetail, accountRuntimeLinkDetail, accountSettingDraftBody, buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
   applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
   confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionSuggestion,
   summarizeExternalResearchSubject,
@@ -8,6 +8,9 @@ import {
   hkStopInitialView, hkStopReadFailed, hkStopSubmitAllowed, createHkStopController,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { formatAccountCount, translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
+assert.equal(translate("账户资产快照尚未接入；未知不等于零。", "zh"), "账户资产快照尚未接入；未知不等于零。");
+assert.equal(translate("缺少可信账户估值序列和完整资金流，收益率与回撤暂不可计算。", "en").includes("cannot be calculated"), true);
+assert.equal(translate("普通策略应用和启用尚未接通；此处只读展示配置与运行观察。", "en").includes("not connected"), true);
 
 const account = {
   key: "synthetic-account", target_name: "synthetic-target", broker_environment: "paper",
@@ -144,7 +147,22 @@ assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading
 assert.equal(projectedNormal.detail, "运行监测正常，已启用。");
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "disabled", reason: "monitoring_agrees" }).detail, "运行监测正常，已停用。");
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "abnormal", activation: "disabled", reason: "retained_attention" }).detail, "账户运行异常");
-assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }).detail, "状态暂未更新");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }).detail, "运行状态来源已过期或不可用");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale").detail, "运行状态来源已过期");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "unavailable").detail, "运行状态来源暂不可用");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_missing" }).detail, "尚未取得该目标的部署读回");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_not_fresh" }).detail, "部署状态读回已过期");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "activation_unconfirmed" }).detail, "运行启用状态尚未确认");
+assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "evidence_insufficient" }).detail, "现有证据不足以确认运行状态");
+assert.equal(accountRuntimeLinkDetail({}), "账户尚未绑定运行目标");
+assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 2, runtimeError: "request_failed" }), "运行目标映射重复，无法唯一匹配");
+assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeError: "request_failed" }), "运行状态接口读取失败");
+assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "stale", targetMatchCount: 0 }), "运行状态来源已过期");
+assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "ready", targetMatchCount: 0 }), "未取得对应运行目标记录");
+assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "ready", targetMatchCount: 2 }), "来源包含重复运行目标");
+assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "ready", targetMatchCount: 1 }), null);
+assert.equal(accountEnvironmentSourceDetail("paper"), "账户类型为账户设置标记，未由券商原生核实");
+assert.equal(accountEnvironmentSourceDetail(undefined), "账户设置未提供类型，券商身份尚未核实");
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "unknown", reason: "monitoring_agrees" }).label, "—");
 const normalDisabled = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "disabled", reason: "monitoring_agrees" };
 const activationUnknown = { scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_missing" };
