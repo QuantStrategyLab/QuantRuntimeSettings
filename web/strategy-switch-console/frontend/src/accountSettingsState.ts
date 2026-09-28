@@ -1,16 +1,23 @@
 import { accountSettingDraftBody, type AccountSettingOverridePatch } from "./operations.ts";
+import { cashDraftDirty, decimalUnitRatio, percentTextToRatio } from "./presentation.ts";
 import { createRequestGate } from "./requestGate.js";
 
 export type AccountSettingsAccount = { platform: string; key: string };
+export type CashEditMode = "" | "inherit" | "floor" | "ratio" | "both";
 export type AccountSettingsDraftFields = {
   strategy: string;
   floor: string;
+  ratio: string;
+  percent: string;
   income: string;
   strategyTouched: boolean;
   incomeTouched: boolean;
   floorTouched: boolean;
+  ratioTouched: boolean;
   clearStrategy: boolean;
   clearFloor: boolean;
+  clearRatio: boolean;
+  cashMode: CashEditMode;
   acknowledge: boolean;
 };
 export type AccountSettingsReview = { draft: boolean; risk: boolean };
@@ -33,9 +40,9 @@ export type AccountSettingsOp = {
 
 function blankDraft(): AccountSettingsDraftFields {
   return {
-    strategy: "", floor: "", income: "",
-    strategyTouched: false, incomeTouched: false, floorTouched: false,
-    clearStrategy: false, clearFloor: false, acknowledge: false,
+    strategy: "", floor: "", ratio: "", percent: "", income: "",
+    strategyTouched: false, incomeTouched: false, floorTouched: false, ratioTouched: false,
+    clearStrategy: false, clearFloor: false, clearRatio: false, cashMode: "", acknowledge: false,
   };
 }
 
@@ -58,15 +65,52 @@ function emptyView(): AccountSettingsView {
   return { account: null, settings: null, preference: "", notice: "", unavailable: "", saving: "", review: emptyReview(), draft: blankDraft() };
 }
 
-function draftOverrides(draft: AccountSettingsDraftFields): AccountSettingOverridePatch {
+function floorText(value: string): boolean {
+  return /^\d+(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value));
+}
+
+function editedRatio(draft: AccountSettingsDraftFields): string | null {
+  if (draft.cashMode === "ratio" || draft.cashMode === "both" || draft.percent !== "") return percentTextToRatio(draft.percent);
+  return decimalUnitRatio(draft.ratio);
+}
+
+export function pendingDraftOverrides(draft: AccountSettingsDraftFields, scope: "all" | "cash" | "income" = "all"): AccountSettingOverridePatch | null {
   const overrides: AccountSettingOverridePatch = {};
-  if (draft.clearStrategy) overrides.strategy_profile = null;
-  else if (draft.strategyTouched) overrides.strategy_profile = draft.strategy;
-  if (draft.incomeTouched && draft.income === "true") overrides.income_layer_enabled = true;
-  else if (draft.incomeTouched && draft.income === "false") overrides.income_layer_enabled = false;
-  else if (draft.incomeTouched && draft.income === "clear") overrides.income_layer_enabled = null;
-  if (draft.clearFloor) overrides.reserved_cash_floor = null;
-  else if (draft.floorTouched) overrides.reserved_cash_floor = draft.floor;
+  if (scope !== "cash") {
+    if (draft.clearStrategy) overrides.strategy_profile = null;
+    else if (draft.strategyTouched) overrides.strategy_profile = draft.strategy;
+    if (draft.incomeTouched && draft.income === "true") overrides.income_layer_enabled = true;
+    else if (draft.incomeTouched && draft.income === "false") overrides.income_layer_enabled = false;
+    else if (draft.incomeTouched && draft.income === "clear") overrides.income_layer_enabled = null;
+  }
+  if (scope !== "income") {
+    if (draft.cashMode === "inherit") {
+      overrides.reserved_cash_floor = null;
+      overrides.reserved_cash_ratio = null;
+    } else if (draft.cashMode === "floor") {
+      if (!floorText(draft.floor)) return null;
+      overrides.reserved_cash_floor = draft.floor;
+      overrides.reserved_cash_ratio = "0";
+    } else if (draft.cashMode === "ratio" || draft.cashMode === "both") {
+      const ratio = editedRatio(draft);
+      if (!ratio) return null;
+      if (draft.cashMode === "both" && !floorText(draft.floor)) return null;
+      overrides.reserved_cash_floor = draft.cashMode === "ratio" ? "0" : draft.floor;
+      overrides.reserved_cash_ratio = ratio;
+    } else {
+      if (draft.clearFloor) overrides.reserved_cash_floor = null;
+      else if (draft.floorTouched) {
+        if (!floorText(draft.floor)) return null;
+        overrides.reserved_cash_floor = draft.floor;
+      }
+      if (draft.clearRatio) overrides.reserved_cash_ratio = null;
+      else if (draft.ratioTouched) {
+        const ratio = editedRatio(draft);
+        if (!ratio) return null;
+        overrides.reserved_cash_ratio = ratio;
+      }
+    }
+  }
   return overrides;
 }
 
@@ -116,7 +160,7 @@ export function createAccountSettingsController() {
       if (!current(op) || payload?.platform !== op.account.platform || payload?.key !== op.account.key) return false;
       const draft = payload.draft?.overrides || {};
       const savedPreference = typeof (view.settings || lastSettings)?.risk?.preference === "string" ? (view.settings || lastSettings)!.risk.preference : "";
-      const keepCash = options.keepCash === true && (view.draft.floorTouched || view.draft.clearFloor);
+      const keepCash = options.keepCash === true && cashDraftDirty(view.draft);
       const keepPreference = options.keepPreference === true && (view.preference || "") !== savedPreference;
       const keepIncome = options.keepIncome === true && view.draft.incomeTouched === true;
       lastSettings = payload;
@@ -131,12 +175,17 @@ export function createAccountSettingsController() {
         draft: {
           strategy: typeof draft.strategy_profile === "string" ? draft.strategy_profile : "",
           floor: keepCash ? view.draft.floor : (typeof draft.reserved_cash_floor === "string" ? draft.reserved_cash_floor : ""),
+          ratio: keepCash ? view.draft.ratio : (typeof draft.reserved_cash_ratio === "string" ? draft.reserved_cash_ratio : ""),
+          percent: keepCash ? view.draft.percent : "",
           income: keepIncome ? view.draft.income : incomeDraftValue(draft),
           strategyTouched: false,
           incomeTouched: keepIncome,
           floorTouched: keepCash ? view.draft.floorTouched : false,
+          ratioTouched: keepCash ? view.draft.ratioTouched : false,
           clearStrategy: false,
           clearFloor: keepCash ? view.draft.clearFloor : false,
+          clearRatio: keepCash ? view.draft.clearRatio : false,
+          cashMode: keepCash ? view.draft.cashMode : "",
           acknowledge: false,
         },
       };
@@ -157,13 +206,14 @@ export function createAccountSettingsController() {
       };
       return true;
     },
-    startSave(kind: "draft" | "risk") {
+    startSave(kind: "draft" | "risk" | "cash" | "income") {
       if (!selected || !view.settings || !sameAccount(view.account)) return null;
       if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
       if (!view.settings.identity || typeof view.settings.identity !== "object") return null;
       const account = { platform: selected.platform, key: selected.key };
       let body: Record<string, unknown>;
       if (kind === "risk") {
+        if (view.settings.operations?.save_risk_preference !== true) return null;
         if (view.review?.risk) return null;
         if (!Number.isSafeInteger(view.settings.risk?.revision)) return null;
         body = {
@@ -174,10 +224,11 @@ export function createAccountSettingsController() {
           risk_preference: view.preference || null,
         };
       } else {
+        if (view.settings.operations?.save_draft !== true) return null;
         if (view.review?.draft) return null;
         if (view.settings.draft?.status === "identity_conflict" && !view.draft.acknowledge) return null;
-        const overrides = draftOverrides(view.draft);
-        if (!Object.keys(overrides).length || !Number.isSafeInteger(view.settings.draft?.revision)) return null;
+        const overrides = pendingDraftOverrides(view.draft, kind === "income" ? "income" : kind === "cash" ? "cash" : "all");
+        if (!overrides || !Object.keys(overrides).length || !Number.isSafeInteger(view.settings.draft?.revision)) return null;
         body = {
           platform: account.platform,
           key: account.key,
@@ -204,13 +255,15 @@ export function createAccountSettingsController() {
     },
     applySave(op: AccountSettingsOp, payload: Record<string, any>, notice: string) {
       const overrides = op.body?.overrides as Record<string, unknown> | undefined;
-      const sentCash = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_floor"));
+      const intendedCash = pendingDraftOverrides(view.draft, "cash");
+      const sentCash = Boolean(overrides && (Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_floor") || Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_ratio")));
       const sentIncome = Boolean(overrides && Object.prototype.hasOwnProperty.call(overrides, "income_layer_enabled"));
       const sentRisk = Boolean(op.body && Object.prototype.hasOwnProperty.call(op.body, "risk_preference"));
       const sentIncomeValue = view.draft.income === "true" ? true : view.draft.income === "false" ? false : null;
-      const cashMoved = view.draft.clearFloor
-        ? !(sentCash && overrides?.reserved_cash_floor === null)
-        : view.draft.floorTouched && !(sentCash && overrides?.reserved_cash_floor === view.draft.floor);
+      const cashMoved = cashDraftDirty(view.draft) && (intendedCash === null || (["reserved_cash_floor", "reserved_cash_ratio"] as const).some((key) => {
+        if (!Object.prototype.hasOwnProperty.call(intendedCash, key)) return false;
+        return !overrides || !Object.prototype.hasOwnProperty.call(overrides, key) || overrides[key] !== intendedCash[key];
+      }));
       const incomeMoved = view.draft.incomeTouched === true && !(sentIncome && overrides?.income_layer_enabled === sentIncomeValue);
       const savedPreference = typeof (view.settings || lastSettings)?.risk?.preference === "string" ? (view.settings || lastSettings)!.risk.preference : "";
       const preferenceMoved = sentRisk
@@ -219,10 +272,10 @@ export function createAccountSettingsController() {
       const review = view.review || emptyReview();
       const beforeSettings = view.settings || lastSettings;
       const identityChanged = !sameIdentity(beforeSettings?.identity, payload?.identity);
-      const draftConflict = !sentCash && !sentIncome && (view.draft.floorTouched || view.draft.clearFloor || view.draft.incomeTouched) && (identityChanged || beforeSettings?.draft?.revision !== payload?.draft?.revision);
+      const draftConflict = !sentCash && !sentIncome && (cashDraftDirty(view.draft) || view.draft.incomeTouched === true) && (identityChanged || beforeSettings?.draft?.revision !== payload?.draft?.revision);
       const riskConflict = !sentRisk && preferenceMoved && (identityChanged || beforeSettings?.risk?.revision !== payload?.risk?.revision);
       if (!this.applyRead(op, payload, {
-        keepCash: sentCash ? cashMoved : view.draft.floorTouched || view.draft.clearFloor,
+        keepCash: sentCash ? cashMoved : cashDraftDirty(view.draft),
         keepIncome: sentIncome ? incomeMoved : view.draft.incomeTouched === true,
         keepPreference: preferenceMoved,
       })) return false;
@@ -231,7 +284,7 @@ export function createAccountSettingsController() {
         notice,
         saving: "",
         review: {
-          draft: sentCash || sentIncome ? false : review.draft || draftConflict,
+          draft: sentCash || sentIncome ? Boolean(identityChanged && ((sentCash && incomeMoved) || (sentIncome && cashMoved))) : review.draft || draftConflict,
           risk: sentRisk ? false : review.risk || riskConflict,
         },
       };
@@ -247,7 +300,7 @@ export function createAccountSettingsController() {
       const before = view;
       const notice = before.notice;
       const beforeSettings = before.settings || lastSettings;
-      const dirtyCash = before.draft.floorTouched || before.draft.clearFloor;
+      const dirtyCash = cashDraftDirty(before.draft);
       const dirtyIncome = before.draft.incomeTouched === true;
       const savedPreference = typeof beforeSettings?.risk?.preference === "string" ? beforeSettings!.risk.preference : "";
       const dirtyRisk = (before.preference || "") !== savedPreference;
@@ -278,12 +331,32 @@ export function createAccountSettingsController() {
         ...view,
         review: { draft: false, risk: Boolean(view.review?.risk) },
         draft: {
+          ...blankDraft(),
+          strategy: view.draft.strategy,
+          floor: typeof overrides.reserved_cash_floor === "string" ? overrides.reserved_cash_floor : "",
+          ratio: typeof overrides.reserved_cash_ratio === "string" ? overrides.reserved_cash_ratio : "",
+          income: incomeDraftValue(overrides),
+        },
+      };
+      return true;
+    },
+    revertCash() {
+      if (!view.settings) return false;
+      const overrides = view.settings.draft?.overrides || {};
+      const incomeStill = view.draft.incomeTouched === true;
+      view = {
+        ...view,
+        review: { draft: incomeStill ? Boolean(view.review?.draft) : false, risk: Boolean(view.review?.risk) },
+        draft: {
           ...view.draft,
           floor: typeof overrides.reserved_cash_floor === "string" ? overrides.reserved_cash_floor : "",
+          ratio: typeof overrides.reserved_cash_ratio === "string" ? overrides.reserved_cash_ratio : "",
+          percent: "",
           floorTouched: false,
+          ratioTouched: false,
           clearFloor: false,
-          income: incomeDraftValue(overrides),
-          incomeTouched: false,
+          clearRatio: false,
+          cashMode: "",
         },
       };
       return true;

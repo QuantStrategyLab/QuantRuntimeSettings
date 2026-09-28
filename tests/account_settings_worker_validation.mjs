@@ -6,6 +6,27 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
+const observedAuditFields = {
+  draft: { overrides: { reserved_cash_floor: "10", income_layer_enabled: false } },
+  risk: { preference: "BALANCED_COMPOUNDING" },
+};
+const savedAuditFields = {
+  draft: { overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "0.1", income_layer_enabled: true } },
+  risk: { preference: "GROWTH_COMPOUNDING" },
+};
+assert.deepEqual(__test.accountSettingsAuditChanges(observedAuditFields, savedAuditFields, {
+  overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "0.1" },
+}), ["cash_draft"], "a cash save does not take credit for a concurrent risk or income change");
+assert.deepEqual(__test.accountSettingsAuditChanges(observedAuditFields, savedAuditFields, {
+  risk_change: "set",
+}), ["risk_saved"], "a risk save does not take credit for a concurrent cash change");
+assert.deepEqual(__test.accountSettingsAuditChanges(observedAuditFields, savedAuditFields, {
+  overrides: { income_layer_enabled: true },
+}), ["income_draft"]);
+assert.deepEqual(__test.accountSettingsAuditChanges(observedAuditFields, { ...savedAuditFields, risk: { preference: null } }, {
+  risk_change: "clear",
+}), ["risk_cleared"]);
+
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 
@@ -21,11 +42,12 @@ function account(key) {
 const accountOptions = { longbridge: [account("hk"), account("sg")] };
 const bindings = {
   SESSION_SECRET: "account-settings-fixture-session",
-  ALLOWED_GITHUB_LOGINS: "settings-admin",
+  ALLOWED_GITHUB_LOGINS: "settings-admin,settings-viewer",
   STRATEGY_SWITCH_ADMIN_LOGINS: "settings-admin",
   STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify(accountOptions),
 };
 const adminCookie = `qsl_switch_session=${await __test.makeSession("settings-admin", [], bindings)}`;
+const viewerCookie = `qsl_switch_session=${await __test.makeSession("settings-viewer", [], bindings)}`;
 const persist = await mkdtemp(join(tmpdir(), "qrt-account-settings-"));
 let outbound = 0;
 const mf = new Miniflare({
@@ -201,8 +223,13 @@ assert.equal(hkSettings.body.effective.strategy_profile.status, "unknown");
 assert.equal(Object.hasOwn(hkSettings.body.effective.strategy_profile, "value"), false);
 assert.equal(hkSettings.body.effective.broker_environment.status, "known");
 assert.equal(hkSettings.body.effective.broker_environment.value, "paper");
+assert.equal(hkSettings.body.operations.save_draft, true);
+assert.equal(hkSettings.body.operations.save_draft_reason, "available");
 assert.equal(hkSettings.body.operations.apply_strategy, false);
 assert.equal(hkSettings.body.operations.activation, false);
+assert.equal(hkSettings.body.operations.activation_reason, "strategy_application_not_connected");
+assert.equal(hkSettings.body.effective.reserved_cash_ratio.status, "unknown");
+assert.equal(Object.hasOwn(hkSettings.body.effective.reserved_cash_ratio, "value"), false);
 assert.equal(hkSettings.body.adopted, false);
 assert.equal(hkSettings.body.no_order, true);
 assert.equal(hkSettings.body.execution_authority_granted, false);
@@ -603,5 +630,293 @@ assert.equal(zeroCash.body.draft.overrides.reserved_cash_floor, "0");
 assert.equal(outbound, cashBefore, "accepted cash drafts do not dispatch");
 assert.equal(JSON.stringify((await call("/api/admin/runtime-instances")).body.instances.find((item) => item.key === "sg").config), configBeforeCash);
 
+const ratioStart = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(ratioStart.body.effective.reserved_cash_ratio.status, "unknown");
+for (const value of ["-0.1", "NaN", "Infinity", "1.1", "1e-1", " 0.1", "0.1 ", "", ".5", "1.000000000000000000001"]) {
+  const rejectedRatio = await call("/api/account-settings", {
+    method: "POST",
+    body: {
+      platform: "longbridge", key: "sg",
+      expected_draft_revision: ratioStart.body.draft.revision,
+      identity: ratioStart.body.identity,
+      overrides: { reserved_cash_ratio: value },
+    },
+  });
+  assert.equal(rejectedRatio.status, 400, value);
+}
+const ratioBefore = outbound;
+const explicitZero = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: ratioStart.body.draft.revision,
+    identity: ratioStart.body.identity,
+    overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "0" },
+  },
+});
+assert.equal(explicitZero.status, 200);
+assert.equal(explicitZero.body.draft.overrides.reserved_cash_ratio, "0");
+assert.equal(explicitZero.body.draft.overrides.reserved_cash_floor, "0");
+assert.equal(explicitZero.body.effective.reserved_cash_ratio.status, "unknown");
+assert.equal(explicitZero.body.adopted, false);
+const fullShare = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: explicitZero.body.draft.revision,
+    identity: explicitZero.body.identity,
+    overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "1" },
+  },
+});
+assert.equal(fullShare.status, 200);
+assert.equal(fullShare.body.draft.overrides.reserved_cash_ratio, "1");
+assert.equal(fullShare.body.effective.reserved_cash_floor.status, ratioStart.body.effective.reserved_cash_floor.status);
+const paddedOne = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: fullShare.body.draft.revision,
+    identity: fullShare.body.identity,
+    overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "1.000" },
+  },
+});
+assert.equal(paddedOne.status, 200);
+assert.equal(paddedOne.body.draft.overrides.reserved_cash_ratio, "1.000");
+const fraction = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: paddedOne.body.draft.revision,
+    identity: fullShare.body.identity,
+    overrides: { reserved_cash_floor: "15", reserved_cash_ratio: "0.25" },
+  },
+});
+assert.equal(fraction.status, 200);
+assert.equal(fraction.body.draft.overrides.reserved_cash_ratio, "0.25");
+assert.equal(fraction.body.draft.overrides.reserved_cash_floor, "15");
+assert.equal(fraction.body.effective.reserved_cash_ratio.status, "unknown");
+const staleRatio = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: fraction.body.draft.revision - 1,
+    identity: fraction.body.identity,
+    overrides: { reserved_cash_ratio: "0.5" },
+  },
+});
+assert.equal(staleRatio.status, 409);
+const riskKeepsRatio = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    identity: fraction.body.identity,
+    expected_risk_revision: fraction.body.risk.revision,
+    risk_preference: "CAPITAL_PRESERVATION",
+  },
+});
+assert.equal(riskKeepsRatio.status, 200);
+assert.equal(riskKeepsRatio.body.draft.overrides.reserved_cash_ratio, "0.25");
+const clearedRatio = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: riskKeepsRatio.body.draft.revision,
+    identity: riskKeepsRatio.body.identity,
+    overrides: { reserved_cash_ratio: null },
+  },
+});
+assert.equal(clearedRatio.status, 200);
+assert.equal(Object.hasOwn(clearedRatio.body.draft.overrides, "reserved_cash_ratio"), false);
+assert.equal(clearedRatio.body.draft.overrides.reserved_cash_floor, "15");
+assert.equal(outbound, ratioBefore, "ratio drafts do not dispatch");
+const viewerRead = await call("/api/account-settings?platform=longbridge&key=sg", { cookie: viewerCookie });
+assert.equal(viewerRead.status, 200);
+assert.equal(viewerRead.body.operations.save_draft, false);
+assert.equal(viewerRead.body.operations.save_risk_preference, false);
+assert.equal(viewerRead.body.operations.save_draft_reason, "admin_required");
+assert.equal(viewerRead.body.operations.apply_strategy, false);
+assert.equal(viewerRead.body.operations.activation, false);
+const viewerBefore = outbound;
+const viewerWrite = await call("/api/account-settings", {
+  method: "POST",
+  cookie: viewerCookie,
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: viewerRead.body.draft.revision,
+    identity: viewerRead.body.identity,
+    overrides: { reserved_cash_ratio: "0.1" },
+  },
+});
+assert.equal(viewerWrite.status, 403);
+assert.equal(outbound, viewerBefore, "closed operations do not post a draft");
+
+async function accountAudit() {
+  return (await call("/api/admin/config")).body.auditLog.filter((entry) => entry.action === "save_account_settings");
+}
+const auditBefore = await accountAudit();
+const hkAudit = await call("/api/account-settings?platform=longbridge&key=sg");
+const cashAudit = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: hkAudit.body.draft.revision,
+    identity: hkAudit.body.identity,
+    overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "0.1" },
+  },
+});
+assert.equal(cashAudit.status, 200);
+assert.equal(cashAudit.body.adopted, false);
+assert.equal(cashAudit.body.audit_logged, true);
+assert.equal(cashAudit.body.draft.overrides.reserved_cash_ratio, "0.1");
+const incomeAudit = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: cashAudit.body.draft.revision,
+    identity: cashAudit.body.identity,
+    overrides: { income_layer_enabled: true },
+  },
+});
+assert.equal(incomeAudit.status, 200);
+assert.equal(incomeAudit.body.audit_logged, true);
+assert.equal(incomeAudit.body.draft.overrides.income_layer_enabled, true);
+assert.equal(incomeAudit.body.draft.overrides.reserved_cash_ratio, "0.1");
+const riskAudit = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    identity: incomeAudit.body.identity,
+    expected_risk_revision: incomeAudit.body.risk.revision,
+    risk_preference: "GROWTH_COMPOUNDING",
+  },
+});
+assert.equal(riskAudit.status, 200);
+assert.equal(riskAudit.body.audit_logged, true);
+assert.equal(riskAudit.body.adopted, false);
+const clearAudit = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    identity: riskAudit.body.identity,
+    expected_risk_revision: riskAudit.body.risk.revision,
+    risk_preference: null,
+  },
+});
+assert.equal(clearAudit.status, 200);
+assert.equal(clearAudit.body.audit_logged, true);
+assert.equal(clearAudit.body.risk.preference, null);
+const savedAudit = await accountAudit();
+assert.equal(savedAudit.length, auditBefore.length + 4);
+assert.deepEqual(savedAudit[0].changes, ["risk_cleared"]);
+assert.deepEqual(savedAudit[1].changes, ["risk_saved"]);
+assert.deepEqual(savedAudit[2].changes, ["income_draft"]);
+assert.deepEqual(savedAudit[3].changes, ["cash_draft"]);
+assert.equal(savedAudit[0].login, "settings-admin");
+assert.equal(savedAudit[0].platform, "longbridge");
+assert.equal(savedAudit[0].key, "sg");
+assert.equal(savedAudit[0].risk_revision, clearAudit.body.risk.revision);
+assert.equal(savedAudit[3].draft_revision, cashAudit.body.draft.revision);
+assert.equal(JSON.stringify(savedAudit[0]).includes("reserved_cash"), false);
+assert.equal(JSON.stringify(savedAudit[0]).includes("secret"), false);
+const repeatedAudit = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: clearAudit.body.draft.revision,
+    identity: clearAudit.body.identity,
+    overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "0.1" },
+  },
+});
+assert.equal(repeatedAudit.status, 200);
+assert.equal(repeatedAudit.body.audit_logged, false);
+assert.equal((await accountAudit()).length, savedAudit.length);
+const conflictedAudit = await call("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: repeatedAudit.body.draft.revision - 1,
+    identity: repeatedAudit.body.identity,
+    overrides: { reserved_cash_ratio: "0.2" },
+  },
+});
+assert.equal(conflictedAudit.status, 409);
+const deniedAudit = await call("/api/account-settings", {
+  method: "POST",
+  cookie: viewerCookie,
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: repeatedAudit.body.draft.revision,
+    identity: repeatedAudit.body.identity,
+    overrides: { reserved_cash_ratio: "0.2" },
+  },
+});
+assert.equal(deniedAudit.status, 403);
+assert.equal((await accountAudit()).length, savedAudit.length);
+assert.equal((await call("/api/account-settings?platform=longbridge&key=sg")).body.draft.overrides.reserved_cash_ratio, "0.1");
+const auditCountBeforeMiss = (await accountAudit()).length;
+const missedKv = {
+  async get(key) { return liveKv.get(key); },
+  async put(key, value, options) {
+    if (key === "audit_log") throw new Error("audit unavailable");
+    return liveKv.put(key, value, options);
+  },
+};
+const missed = await workerCall({
+  ...bindings,
+  STRATEGY_SWITCH_CONFIG: missedKv,
+  STRATEGY_SWITCH_RUNTIME_INSTANCES: liveNamespace,
+}, "/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    expected_draft_revision: repeatedAudit.body.draft.revision,
+    identity: repeatedAudit.body.identity,
+    overrides: { income_layer_enabled: false },
+  },
+});
+assert.equal(missed.status, 200);
+assert.equal(missed.body.audit_logged, false);
+assert.equal(missed.body.adopted, false);
+assert.equal(missed.body.draft.overrides.income_layer_enabled, false);
+const missedRead = await call("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(missedRead.body.draft.overrides.income_layer_enabled, false);
+assert.equal(missedRead.body.draft.overrides.reserved_cash_ratio, "0.1");
+assert.equal((await accountAudit()).length, auditCountBeforeMiss);
+
 await mf.dispose();
+
+const knownPersist = await mkdtemp(join(tmpdir(), "qrt-account-settings-ratio-"));
+const knownMf = new Miniflare({
+  modules: true,
+  modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+  scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
+  compatibilityDate: "2026-06-08",
+  bindings: { ...bindings, RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-ratio-token" },
+  durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
+  durableObjectsPersist: knownPersist,
+  kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
+  outboundService: () => new Response(JSON.stringify({
+    variables: [{ name: "LONGBRIDGE_RESERVED_CASH_RATIO", value: "0.25" }],
+  }), { status: 200, headers: { "Content-Type": "application/json" } }),
+});
+async function knownCall(endpoint, body) {
+  const response = await knownMf.dispatchFetch(`https://switch.example${endpoint}`, {
+    method: body ? "POST" : "GET",
+    headers: {
+      Cookie: adminCookie,
+      Origin: "https://switch.example",
+      ...(body ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return { status: response.status, body: await response.json() };
+}
+assert.equal((await knownCall("/api/admin/runtime-instances", { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" })).status, 200);
+const known = await knownCall("/api/account-settings?platform=longbridge&key=sg");
+assert.equal(known.status, 200);
+assert.equal(known.body.effective.reserved_cash_ratio.status, "known");
+assert.equal(known.body.effective.reserved_cash_ratio.value, "0.25");
+const missing = await knownCall("/api/account-settings?platform=longbridge&key=hk");
+assert.equal(missing.body.effective.reserved_cash_ratio.value, "0.25");
+await knownMf.dispose();
 console.log("account_settings_worker_validation: PASS");

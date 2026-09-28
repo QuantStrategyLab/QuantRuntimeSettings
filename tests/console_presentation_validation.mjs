@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, environmentEditState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, preferenceDirty, readOnlyLayerState, reservedCashAmount, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -33,9 +33,9 @@ assert.equal(overviewFigures(null, []).accountCount, null);
 assert.equal(overviewFigures(1, ["BALANCED_COMPOUNDING"]).riskPreference, "BALANCED_COMPOUNDING");
 assert.equal(overviewFigures(2, ["CAPITAL_PRESERVATION", null]).riskPreference, null);
 assert.equal(overviewFigures(2, ["GROWTH_COMPOUNDING", ""]).riskPreference, null);
-assert.equal(chartUnavailable("return"), "收益数据积累中");
-assert.equal(chartUnavailable("assets"), "资产数据暂不可用");
-assert.equal(chartUnavailable("cash"), "资产数据暂不可用");
+assert.equal(chartUnavailable("return"), "尚无可用资产记录");
+assert.equal(chartUnavailable("assets"), "尚无可用资产记录");
+assert.equal(chartUnavailable("cash"), "尚无可用资产记录");
 assert.equal(accountDisplayTitle({ label: "  ", key: "internal-key" }, "Longbridge", "模拟账户环境"), "账户");
 assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模拟账户环境").includes("internal"), false);
 assert.equal(accountDisplayTitle({ label: "我的港股" }, "Longbridge", "模拟账户环境"), "我的港股");
@@ -286,8 +286,103 @@ assert.match(app, /pendingApplications > 0 \|\| unresolvedApplications > 0/);
 assert.equal((app.match(/<ApplicationCard/g) || []).length, 1);
 assert.equal(app.includes("applicationRetryAllowed(item?.application"), false);
 assert.equal(app.includes("item.config?.label || item.key"), false);
-assert.match(app, /formatAccountIdentity\(accountIdentity\(\{ \.\.\.item\.config, key: item\.key \}, platformLabel, "", strategyOccupiedNames\(cfg\.strategyProfiles \|\| \[\], item\.config\?\.default_strategy_profile\)\)/);
-assert.match(app, /模拟账户应用记录/);
+assert.equal(app.includes("function AdminPanel"), false);
+assert.equal(app.includes("管理设置"), false);
+assert.equal(app.includes("这些说明根据已保存记录生成，当前没有接入模型。"), false);
+assert.match(app, /paperApplicationActionable\(item\) \|\| paperApplicationUnresolved\(item\)/);
+assert.equal(app.includes("新增账户记录"), false);
+assert.equal(app.includes("EnvironmentControl"), false);
+assert.equal(app.includes("request_retirement"), false);
+assert.equal(app.includes("模拟账户应用记录"), false);
+const directoryOccupied = strategyOccupiedNames([{ profile: "soxl", label: "SOXL" }], "soxl");
+const ibkrNumber = { account_selector: "U12345678", label: "soxl" };
+assert.equal(adminDirectoryTitle(ibkrNumber, "IBKR", directoryOccupied), "IBKR · U12345678");
+assert.equal(adminDirectoryTitle(ibkrNumber, "IBKR", directoryOccupied).includes("账户 ·"), false);
+const severalNumbers = { account_selector: "U12345678, U10000001", label: "主账户" };
+assert.equal(adminDirectoryTitle(severalNumbers, "IBKR", []), "IBKR · 主账户");
+assert.equal(adminDirectoryTitle(severalNumbers, "IBKR", []).includes("U12345678"), false);
+const binance = { key: "crypto_combo", target_name: "crypto_combo" };
+assert.equal(adminDirectoryTitle(binance, "Binance", []), "Binance · live");
+assert.equal(adminDirectoryTitle(binance, "Binance", []).includes("账户 ·"), false);
+assert.equal(binance.key, "crypto_combo");
+assert.equal(adminDirectoryTitle({ key: "internal-key" }, "LongBridge", directoryOccupied).includes("账户"), false);
+assert.equal(brokerAccountType("paper"), "模拟交易账户");
+assert.equal(brokerAccountType("live"), "真实交易账户");
+assert.equal(brokerAccountType(""), "账户类型待确认");
+assert.equal(brokerAccountType("dry_run"), "账户类型待确认");
+assert.equal(brokerAccountType("shadow"), "账户类型待确认");
+const localTime = formatLocalChangeTime(Date.parse("2026-09-28T07:46:00.000Z"), "zh", "Asia/Shanghai");
+const localTimeEn = formatLocalChangeTime(Date.parse("2026-09-28T07:46:00.000Z"), "en", "Asia/Shanghai");
+assert.match(localTime, /2026/);
+assert.match(localTime, /15:46/);
+assert.match(localTime, /Asia\/Shanghai/);
+assert.match(localTimeEn, /Asia\/Shanghai/);
+const changes = recentUserChanges({
+  history: [
+    { ts: "2026-09-28T01:00:00.000Z", login: "ada", action: "sync_defaults" },
+    { ts: "2026-09-28T03:00:00.000Z", login: "ada", action: "edit", after: { platform: "ibkr", key: "a" } },
+    { ts: "2026-09-27T03:00:00.000Z", login: "bea", action: "create", after: { platform: "binance", key: "crypto_combo" } },
+  ],
+  audit: [
+    { ts: "2026-09-28T04:00:00.000Z", login: "ada", action: "sync_strategy_health" },
+    { ts: "2026-09-28T02:00:00.000Z", login: "cy", action: "save_config" },
+    { ts: "2026-09-28T00:00:00.000Z", login: "dee", action: "mystery_action" },
+  ],
+  applications: [
+    { ticket_id: "no-app", application_preparation: { preflight_status: "unknown" } },
+    { ticket_id: "shadow-note", application: { status: "approved", updated_at: "2026-09-28T05:00:00.000Z" }, application_preparation: { account_options: [{ broker_environment: "shadow" }] } },
+    { ticket_id: "paper-note", application: { status: "applied_paused", updated_at: "2026-09-28T00:30:00.000Z", login: "ada" }, application_preparation: { account_options: [{ platform: "longbridge", broker_environment: "paper", key: "hk" }] } },
+  ],
+}, 5);
+assert.deepEqual(changes.map(item => item.at), [...changes.map(item => item.at)].sort((left, right) => right - left));
+assert.equal(changes.some(item => String(item.action).includes("sync_")), false);
+assert.equal(changes.some(item => item.target === "no-app"), false);
+assert.equal(changes[0].target, "shadow-note");
+assert.equal(changes[0].action, "变更记录");
+assert.equal(changes[0].action.includes("已生效"), false);
+assert.equal(changes.some(item => item.target === "paper-note"), true);
+assert.equal(changes.find(item => item.action === "更新了账户资料")?.target, "ibkr · a");
+assert.equal(changes.find(item => item.actor === "dee")?.action, "设置已更新");
+assert.equal(changes.some(item => item.action === "新增了账户资料"), false);
+const latestSave = recentUserChanges({
+  history: [{ ts: "2026-09-28T01:00:00.000Z", login: "ada", action: "sync_defaults", platform: "ibkr", key: "hidden" }],
+  audit: [
+    { ts: "2026-09-28T06:00:00.000Z", login: "ada", action: "save_account_settings", platform: "ibkr", key: "internal-key", changes: ["cash_draft", "income_draft"], draft_revision: 4 },
+    { ts: "2026-09-28T05:30:00.000Z", login: "ada", action: "save_account_settings", platform: "binance", key: "crypto_combo", changes: ["risk_cleared"], risk_revision: 2 },
+  ],
+}, 1);
+assert.equal(latestSave.length, 1);
+assert.deepEqual(latestSave[0].actions, ["现金草案已保存", "收入层草案已保存"]);
+assert.equal(latestSave[0].actor, "ada");
+assert.equal(latestSave[0].platform, "ibkr");
+assert.equal(latestSave[0].accountKey, "internal-key");
+assert.equal(latestSave[0].target, "账户");
+assert.equal(JSON.stringify(latestSave[0]).includes("sync_"), false);
+assert.equal(JSON.stringify(latestSave[0]).includes("已应用"), false);
+const changeOccupied = strategyOccupiedNames([{ profile: "SOXL_TQQQ", label: "SOXL" }], "SOXL_TQQQ");
+assert.equal(changeAccountName({ account_selector: "U12345678", label: "SOXL", key: "ib-key" }, "IBKR", changeOccupied), "U12345678");
+assert.equal(changeAccountName({ key: "crypto_combo", target_name: "crypto_combo" }, "Binance", []), "live");
+assert.equal(changeAccountName({ key: "internal-key" }, "LongBridge", changeOccupied), "");
+assert.equal(changeAccountName(null, "LongBridge", []), "");
+assert.equal(percentTextToRatio("0"), "0");
+assert.equal(percentTextToRatio("100"), "1");
+assert.equal(percentTextToRatio("12.5"), "0.125");
+assert.equal(percentTextToRatio("50"), "0.5");
+assert.equal(percentTextToRatio("100.1"), null);
+assert.equal(percentTextToRatio("1e2"), null);
+assert.equal(percentTextToRatio("100.000"), "1");
+assert.equal(percentTextToRatio("100.0000000000000000001"), null);
+assert.equal(decimalUnitRatio("0"), "0");
+assert.equal(decimalUnitRatio("1"), "1");
+assert.equal(decimalUnitRatio("1.000"), "1.000");
+assert.equal(decimalUnitRatio("1.000000000000000000001"), null);
+assert.equal(ratioTextToPercent("0.1"), "10");
+assert.equal(ratioTextToPercent("0.125"), "12.5");
+assert.equal(ratioTextToPercent("1"), "100");
+assert.equal(reservedCashEditor({ reserved_cash_floor: "10" }, {}).mode, "saved");
+assert.equal(reservedCashEditor({ reserved_cash_floor: "10" }, {}).ratio, "");
+assert.equal(reservedCashEditor({ reserved_cash_floor: "10", reserved_cash_ratio: "0" }, {}).mode, "floor");
+assert.equal(reservedCashEditor({}, { cashMode: "both", floor: "10", percent: "25", ratio: "0.25" }).mode, "both");
 
 console.log("console presentation: PASS");
 assert.deepEqual(environmentEditState("paper", "live", "live"), { value: "live", conflict: false });

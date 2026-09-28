@@ -4614,12 +4614,14 @@ assert.equal((await instanceUnboundRead.json()).error, "runtime_instances_not_bo
 const instanceUnboundAnonymous = await worker.fetch(new Request("https://switch.example/api/admin/runtime-instances"), instanceUnboundEnv);
 assert.equal(instanceUnboundAnonymous.status, 401);
 const instanceUnboundBrokenCatalogEnv = { ...instanceUnboundEnv, STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: "{invalid" };
-for (const endpoint of ["/admin", "/api/admin/config"]) {
-  const response = await worker.fetch(new Request(`https://switch.example${endpoint}`, {
-    headers: { Cookie: `qsl_switch_session=${instanceUnboundCookie}` },
-  }), instanceUnboundBrokenCatalogEnv);
-  assert.equal(response.status, 200, `unbound instance module must not make ${endpoint} depend on the strategy catalog`);
-}
+const removedAdminPage = await worker.fetch(new Request("https://switch.example/admin", {
+  headers: { Cookie: `qsl_switch_session=${instanceUnboundCookie}` },
+}), instanceUnboundBrokenCatalogEnv);
+assert.equal(removedAdminPage.status, 404);
+const adminConfigWithBrokenCatalog = await worker.fetch(new Request("https://switch.example/api/admin/config", {
+  headers: { Cookie: `qsl_switch_session=${instanceUnboundCookie}` },
+}), instanceUnboundBrokenCatalogEnv);
+assert.equal(adminConfigWithBrokenCatalog.status, 200, "unbound instance module must not make /api/admin/config depend on the strategy catalog");
 
 // The AAB result publisher can update one non-actionable source without the
 // shared control-plane credential or access to other research/trading routes.

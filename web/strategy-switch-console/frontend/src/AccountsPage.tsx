@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { loadAccountSettings, postJson } from "./api";
-import { createAccountSettingsController } from "./accountSettingsState";
-import { useT } from "./locales";
-import { cashDraftDirty, readOnlyLayerState, reservedCashAmount, safeActionVisibility } from "./presentation";
+import { pendingDraftOverrides, createAccountSettingsController } from "./accountSettingsState";
+import { LocaleContext, useT } from "./locales";
+import { cashDraftDirty, formatLocalChangeTime, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility, type UserChange } from "./presentation";
 
 const PREFERENCES = [
   ["CAPITAL_PRESERVATION", "保守", "优先控制波动和亏损，接受较低的增长潜力。"],
@@ -23,11 +23,10 @@ export type AccountListItem = {
   activation: string;
 };
 
-export function AccountsPage({ rows, selectedId, detailOpen, admin, settingsEpoch, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onSelect, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, recentChanges = [], onSelect, onBack, onDirty, onStop, onRefreshStop, onResume, onChangeLog, onSettingsRead, resolveStrategy }: {
   rows: AccountListItem[];
   selectedId: string;
   detailOpen: boolean;
-  admin: boolean;
   settingsEpoch: number;
   refreshToken: number;
   stopAllowed: boolean;
@@ -40,10 +39,13 @@ export function AccountsPage({ rows, selectedId, detailOpen, admin, settingsEpoc
   onStop: () => void;
   onRefreshStop: () => void;
   onResume: () => void;
+  onChangeLog?: () => void;
+  recentChanges?: UserChange[];
   onSettingsRead: (id: string, profile: string | null) => void;
   resolveStrategy: (profileId: string | null) => { name: string; note: string };
 }) {
   const t = useT();
+  const language = useContext(LocaleContext);
   const selected = rows.find(row => row.id === selectedId) || null;
   return <section className={`daily-page accounts-page${detailOpen ? " show-detail" : ""}`}>
     <div className="daily-heading"><h1>{t("账户设置")}</h1></div>
@@ -54,13 +56,18 @@ export function AccountsPage({ rows, selectedId, detailOpen, admin, settingsEpoc
           <tbody>{rows.map(row => <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
             <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><small>{row.platformLabel}</small><small>{row.environment}</small></td>
             <td>{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</td>
-            <td>{row.statusLabel === "—" ? "—" : t(row.statusLabel)}</td>
-            <td>{row.activation === "—" ? "—" : t(row.activation)}</td>
+            <td>{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</td>
+            <td>{t(row.activation === "—" ? "待确认" : row.activation)}</td>
           </tr>)}</tbody>
         </table>
       </div>
-      {selected && <DailyAccountSettings key={`${selected.id}:${settingsEpoch}`} row={selected} admin={admin} refreshToken={refreshToken} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={stopRefreshVisible} resumeVisible={resumeVisible} onBack={onBack} onDirty={onDirty} onStop={onStop} onRefreshStop={onRefreshStop} onResume={onResume} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />}
+      {selected && <DailyAccountSettings key={`${selected.id}:${settingsEpoch}`} row={selected} refreshToken={refreshToken} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={stopRefreshVisible} resumeVisible={resumeVisible} onBack={onBack} onDirty={onDirty} onStop={onStop} onRefreshStop={onRefreshStop} onResume={onResume} onChangeLog={onChangeLog} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />}
     </div>
+    {recentChanges.length > 0 && <section className="content-section"><h2>{t("最近变更")}</h2>{recentChanges.slice(0, 1).map(item => {
+      const actions = item.actions?.length ? item.actions : [item.action];
+      const target = item.target === "账户资料" || item.target === "访问设置" || item.target === "账户" ? t(item.target) : item.target;
+      return <p key={`${item.at}:${actions.join(",")}:${item.target}`}>{formatLocalChangeTime(item.at, language)} · {item.actor === "未知操作者" ? t(item.actor) : item.actor} · {actions.map(action => t(action)).join(language === "en" ? ", " : "、")} · {target}</p>;
+    })}</section>}
   </section>;
 }
 
@@ -69,9 +76,8 @@ function observedProfile(settings: Record<string, any> | null): string | null {
   return raw?.status === "known" && typeof raw.value === "string" && raw.value.trim() ? raw.value.trim() : null;
 }
 
-function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onBack, onDirty, onStop, onRefreshStop, onResume, onChangeLog, onSettingsRead, resolveStrategy }: {
   row: AccountListItem;
-  admin: boolean;
   refreshToken: number;
   stopAllowed: boolean;
   stopLabel: string;
@@ -82,6 +88,7 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
   onStop: () => void;
   onRefreshStop: () => void;
   onResume: () => void;
+  onChangeLog?: () => void;
   onSettingsRead: (id: string, profile: string | null) => void;
   resolveStrategy: (profileId: string | null) => { name: string; note: string };
 }) {
@@ -128,7 +135,7 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
     return () => { cancelled = true; controller.abandon(op); };
   }, [row.platform, row.key, readAttempt, refreshToken, controller, onSettingsRead]);
   const savePreference = async () => {
-    if (!admin || view.saving || view.review.risk) return;
+    if (view.saving || view.review.risk || settings?.operations?.save_risk_preference !== true) return;
     const started = controller.startSave("risk");
     const body = controller.requestBody(started);
     if (!started || !body || !controller.markSaving(started, "risk")) return;
@@ -138,7 +145,7 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
       if (!currentBody) return;
       const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
       if (!controller.isCurrent(started)) return;
-      if (controller.applySave(started, saved, "风险偏好已保存，不改变执行限额或启用状态。")) sync();
+      if (controller.applySave(started, saved, "风险偏好已保存，不改变执行限额或启用状态。")) { sync(); onChangeLog?.(); }
     } catch (error) {
       const status = (error as { status?: number })?.status;
       if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
@@ -154,9 +161,9 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
       if (controller.finish(started)) sync();
     }
   };
-  const saveCash = async () => {
-    if (!admin || view.saving || !draftDirty || view.review.draft) return;
-    const started = controller.startSave("draft");
+  const saveScoped = async (kind: "cash" | "income", ready: boolean) => {
+    if (view.saving || !ready || view.review.draft || settings?.operations?.save_draft !== true) return;
+    const started = controller.startSave(kind);
     const body = controller.requestBody(started);
     if (!started || !body || !controller.markSaving(started, "draft")) return;
     sync();
@@ -165,7 +172,7 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
       if (!currentBody) return;
       const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
       if (!controller.isCurrent(started)) return;
-      if (controller.applySave(started, saved, "已保存，尚未应用")) sync();
+      if (controller.applySave(started, saved, "已保存，尚未应用")) { sync(); onChangeLog?.(); }
     } catch (error) {
       const status = (error as { status?: number })?.status;
       if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
@@ -183,13 +190,35 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
   };
   const identityReady = Boolean(settings?.identity && !Array.isArray(settings.identity));
   const identityBlocked = settings?.draft?.status === "identity_conflict";
-  const canSaveRisk = readState === "ready" && Boolean(admin && identityReady && Number.isSafeInteger(settings?.risk?.revision));
-  const canSaveCash = canSaveRisk && !identityBlocked && Number.isSafeInteger(settings?.draft?.revision);
-  const savedFloor = typeof settings?.draft?.overrides?.reserved_cash_floor === "string" ? settings.draft.overrides.reserved_cash_floor : "";
+  const draftOpen = settings?.operations?.save_draft === true;
+  const riskOpen = settings?.operations?.save_risk_preference === true;
+  const canSaveRisk = readState === "ready" && riskOpen && identityReady && Number.isSafeInteger(settings?.risk?.revision);
+  const canSaveCash = readState === "ready" && draftOpen && identityReady && !identityBlocked && Number.isSafeInteger(settings?.draft?.revision);
   const savedIncome = settings?.draft?.overrides?.income_layer_enabled === true ? "true" : settings?.draft?.overrides?.income_layer_enabled === false ? "false" : "";
   const incomeValue = view.draft.incomeTouched ? (view.draft.income === "clear" ? "" : view.draft.income) : savedIncome;
+  const editor = reservedCashEditor(settings?.draft?.overrides, view.draft);
+  const selectMode = view.draft.cashMode || editor.mode;
+  const cashBody = pendingDraftOverrides(view.draft, "cash");
+  const incomeBody = pendingDraftOverrides(view.draft, "income");
+  const cashSubmittable = Boolean(cashDirty && cashBody && Object.keys(cashBody).length);
+  const incomeSubmittable = Boolean(incomeDirty && incomeBody && Object.keys(incomeBody).length);
   const currentCash = reservedCashAmount(settings?.effective?.reserved_cash_floor);
-  const pendingCash = view.draft.clearFloor ? "" : (view.draft.floorTouched ? view.draft.floor : savedFloor);
+  const currentRatio = reservedCashAmount(settings?.effective?.reserved_cash_ratio);
+  const pendingFloor = editor.mode === "inherit" || (editor.mode === "saved" && editor.floor === "") ? "" : editor.mode === "ratio" ? "0" : editor.floor;
+  const pendingRatio = editor.mode === "inherit" || (editor.mode === "saved" && editor.ratio === "") ? "" : editor.mode === "floor" ? "0" : editor.ratio;
+  const savedCash = Boolean(settings?.draft?.overrides && (Object.prototype.hasOwnProperty.call(settings.draft.overrides, "reserved_cash_floor") || Object.prototype.hasOwnProperty.call(settings.draft.overrides, "reserved_cash_ratio")));
+  const chooseMode = (next: "inherit" | "floor" | "ratio" | "both") => {
+    if (!view.draft.cashMode && editor.mode === next) return;
+    if (next === "inherit") controller.edit({ cashMode: "inherit", floor: "", ratio: "", percent: "", floorTouched: true, ratioTouched: true, clearFloor: true, clearRatio: true });
+    else if (next === "floor") controller.edit({ cashMode: "floor", floor: editor.mode === "ratio" ? "" : editor.floor, ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
+    else if (next === "ratio") controller.edit({ cashMode: "ratio", floor: "0", ratio: editor.mode === "floor" ? "" : editor.ratio, percent: editor.mode === "floor" ? "" : (view.draft.percent || editor.percent), floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
+    else controller.edit({ cashMode: "both", floor: editor.mode === "ratio" ? "" : editor.floor, ratio: editor.mode === "floor" ? "" : editor.ratio, percent: editor.mode === "floor" ? "" : (view.draft.percent || editor.percent), floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
+    sync();
+  };
+  const shareText = (value: string) => {
+    const percent = ratioTextToPercent(value);
+    return percent === "" ? t("未知") : `${percent}%`;
+  };
   const layerText = (field: unknown) => {
     const state = readOnlyLayerState(field);
     return state === "on" ? t("开") : state === "off" ? t("关") : t("未知");
@@ -214,20 +243,37 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
       <section className="detail-group">
         <h3>{t("资金预留")}</h3>
         <div className="setting-facts">
-          <p><span>{t("当前预留现金（美元）")}</span><strong>{currentCash === null ? t("未知") : currentCash}</strong></p>
-          <p><span>{t("待应用预留现金")}</span><strong>{pendingCash === "" ? t("沿用当前") : pendingCash}</strong></p>
-          {!cashDirty && savedFloor !== "" && !cashNotice && <p role="status">{t("已保存，尚未应用")}</p>}
+          <p><span>{t("当前预留金额（美元）")}</span><strong>{currentCash === null ? t("未知") : currentCash}</strong></p>
+          <p><span>{t("当前预留比例")}</span><strong>{currentRatio === null ? t("未知") : shareText(currentRatio)}</strong></p>
+          <p><span>{t("待应用预留现金")}</span><strong>{pendingFloor === "" ? t("沿用当前") : pendingFloor}</strong></p>
+          <p><span>{t("待应用比例")}</span><strong>{pendingRatio === "" ? t("沿用当前") : shareText(pendingRatio)}</strong></p>
+          {!cashDirty && savedCash && !cashNotice && <p role="status">{t("已保存，尚未应用")}</p>}
         </div>
-        <label className="cash-floor-field">{t("预留现金金额")}
-          <input value={view.draft.clearFloor ? "" : view.draft.floor} inputMode="decimal" disabled={!canSaveCash} onChange={event => { controller.edit({ floor: event.target.value, floorTouched: true, clearFloor: false }); sync(); }} />
+        <p className="section-note">{t("保存后，当前预留金额和比例不会马上改变。")}</p>
+        <label className="cash-floor-field">{t("资金预留")}
+          <select value={selectMode} disabled={!canSaveCash} onChange={event => { if (event.target.value === "saved") return; chooseMode(event.target.value as "inherit" | "floor" | "ratio" | "both"); }}>
+            {selectMode === "saved" && <option value="saved">{t("已保存的预留覆盖")}</option>}
+            <option value="inherit">{t("沿用当前")}</option>
+            <option value="floor">{t("固定金额")}</option>
+            <option value="ratio">{t("资产比例")}</option>
+            <option value="both">{t("比例与最低金额")}</option>
+          </select>
         </label>
+        {(selectMode === "floor" || selectMode === "both") && <label className="cash-floor-field">{t("预留现金金额")}
+          <input value={view.draft.cashMode ? view.draft.floor : editor.floor} inputMode="decimal" disabled={!canSaveCash} onChange={event => { controller.edit({ cashMode: selectMode === "both" ? "both" : "floor", floor: event.target.value, ratio: selectMode === "floor" ? "0" : (view.draft.ratio || editor.ratio), percent: selectMode === "floor" ? "0" : (view.draft.percent || editor.percent), floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
+        </label>}
+        {(selectMode === "ratio" || selectMode === "both") && <label className="cash-floor-field">{t("比例（%）")}
+          <input value={view.draft.cashMode ? view.draft.percent : editor.percent} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const percent = event.target.value; controller.edit({ cashMode: selectMode === "both" ? "both" : "ratio", percent, ratio: percentTextToRatio(percent) || "", floor: selectMode === "ratio" ? "0" : (view.draft.cashMode ? view.draft.floor : editor.floor), floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
+        </label>}
+        {selectMode === "both" && <p className="section-note">{t("按比例预留，且不少于固定金额")}</p>}
+        {cashDirty && !cashSubmittable && <p className="section-note">{t("比例需要在 0 到 100 之间。")}</p>}
         {identityBlocked && <p>{t("请重新读取并确认当前账户来源。")}</p>}
         {!identityReady && <p>{t("缺少账户来源，不能保存。")}</p>}
+        {!draftOpen && <p className="section-note">{t("暂时无法保存")}</p>}
         <div className="form-actions">
-          <button type="button" className="button button-primary" disabled={!canSaveCash || !draftDirty || view.review.draft || Boolean(view.saving)} onClick={() => void saveCash()}>{t("保存待应用草案")}</button>
-          {pendingCash !== "" && <button type="button" className="button button-secondary" disabled={!canSaveCash} onClick={() => { controller.edit({ floor: "", floorTouched: false, clearFloor: true }); sync(); }}>{t("清除待应用金额")}</button>}
-          {cashDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ floor: savedFloor, floorTouched: false, clearFloor: false }); sync(); }}>{t("取消")}</button>}
-          {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.revertDraft(); sync(); }}>{t("取消")}</button>}
+          <button type="button" className="button button-primary" disabled={!canSaveCash || !cashSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("cash", cashSubmittable)}>{t("保存待应用草案")}</button>
+          {cashDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
+          {view.review.draft && cashDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
           {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("draft"); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.draft && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
@@ -240,7 +286,7 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
         </div>
         {selectedNote ? <p className="preference-selected-note">{t(selectedNote)}</p> : null}
         <p className="section-note">{t("选择风险偏好不会立即切换策略或提高额度。")}</p>
-        {!admin ? <p className="section-note">{t("当前登录不能保存风险偏好。")}</p> : !canSaveRisk ? <p className="section-note">{t("这项保存由服务端关闭，页面不能打开。")}</p> : null}
+        {!riskOpen && <p className="section-note">{t("暂时无法保存")}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveRisk || !riskDirty || view.review.risk || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
           {(savedPreference || view.preference) && <button type="button" className="button button-secondary" disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: "" }); sync(); }}>{t("清除偏好")}</button>}
@@ -269,18 +315,24 @@ function DailyAccountSettings({ row, admin, refreshToken, stopAllowed, stopLabel
           </select>
         </label>
         <p className="section-note">{t("此草案尚未应用。")}</p>
-        {incomeDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
-        <p className="section-note">{t("期权层暂不支持修改。")}</p>
+        <div className="form-actions">
+          <button type="button" className="button button-primary" disabled={!canSaveCash || !incomeSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("income", incomeSubmittable)}>{t("保存收入层草案")}</button>
+          {incomeDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
+          {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
+          {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("draft"); sync(); }}>{t("重新核对")}</button>}
+        </div>
+        {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
+        <p className="section-note">{t("当前策略的期权设置尚未接通")}</p>
         {otherNotice && <p role="status">{t(otherNotice)}</p>}
       </section>
     </>}
-    <section className="detail-group"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("未知")}</strong></div>
+    <section className="detail-group"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
     <div className="form-actions">
       <button type="button" className="button button-secondary" disabled aria-describedby="activation-unavailable">{t("启用")}</button>
       {actions.stop && <button type="button" className="button button-secondary" disabled={!stopAllowed} onClick={onStop}>{t(stopLabel)}</button>}
       {actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}
     </div>
-    <p id="activation-unavailable" className="section-note">{t("暂不支持在此启用账户。")}</p>
+    <p id="activation-unavailable" className="section-note">{t("暂不能启用")}</p>
     {actions.refresh && <button type="button" className="text-link" onClick={onRefreshStop}>{t("刷新停用状态")}</button>}
     </section>
   </aside>;

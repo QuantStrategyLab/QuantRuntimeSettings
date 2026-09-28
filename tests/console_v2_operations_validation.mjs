@@ -259,6 +259,13 @@ const draftBody = accountSettingDraftBody({
 });
 assert.equal(draftBody.overrides.income_layer_enabled, false);
 assert.equal(draftBody.overrides.reserved_cash_floor, "0");
+const ratioDraft = accountSettingDraftBody({
+  expectedDraftRevision: 4,
+  identity: { platform: "longbridge", key: "hk" },
+  overrides: { reserved_cash_floor: "0", reserved_cash_ratio: "0.25" },
+});
+assert.equal(ratioDraft.overrides.reserved_cash_ratio, "0.25");
+assert.equal(ratioDraft.overrides.reserved_cash_floor, "0");
 assert.equal(Object.hasOwn(draftBody.overrides, "strategy_profile"), false, "unedited draft fields stay omitted");
 const clearedDraft = accountSettingDraftBody({
   expectedDraftRevision: 3,

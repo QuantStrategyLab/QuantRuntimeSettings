@@ -118,7 +118,7 @@ STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 }
 ```
 
-`admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS`，或 KV 后台管理员名单/组织中。直接访问 `/admin` 可以管理允许登录的 GitHub 用户、组织和账号下拉路由；非管理员会返回 403。
+`admin=true` 表示该账号在 `STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS`，或 KV 后台管理员名单/组织中。控制台没有 `/admin` 页面，这个地址与其它无效页面一样返回 404。登录名单、组织和账户路由仍由上述环境变量与 KV 决定。
 
 账号配置可增加 `broker_environment: "live"` 或 `"paper"`。缺少该字段的旧配置继续兼容，但在新的研究候选接受中保持未知且不能选择。`broker_environment` 表示券商账户环境，`default_execution_mode` 仍表示 adapter 模式（`live` 或 `dry_run`）。LongBridge 支持明确的 paper 模拟账户配合 live adapter；IBKR 当前只支持 live。候选选择只记录研究意向，不会激活 adapter。
 
@@ -126,7 +126,7 @@ STRATEGY_SWITCH_ADMIN_LOGINS=your-github-login
 
 登录方式使用 GitHub OAuth 2.0，并请求 `read:org` scope 来校验 GitHub 组织成员关系。建议把 `QuantStrategyLab` 放在 `STRATEGY_SWITCH_ADMIN_ORGS`，同时把你自己的 GitHub login 放在 `STRATEGY_SWITCH_ADMIN_LOGINS` 作为兜底管理员。
 
-如果要让 `/admin` 保存修改，需要绑定 Cloudflare KV namespace：`STRATEGY_SWITCH_CONFIG`。Worker 会使用这些 key：
+账户设置、风险偏好和审计仍写入 Cloudflare KV namespace：`STRATEGY_SWITCH_CONFIG`。Worker 会使用这些 key：
 
 ```text
 auth_config
@@ -142,11 +142,11 @@ m0_research_ledger_archive:<ledger_sha256>
 private_binance_scope_report
 ```
 
-没有绑定 KV 时，`/admin` 只读；Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。
+没有绑定 KV 时，Worker 会回退读取 `ALLOWED_GITHUB_LOGINS`、`ALLOWED_GITHUB_ORGS`、`STRATEGY_SWITCH_ADMIN_LOGINS`、`STRATEGY_SWITCH_ADMIN_ORGS` 和 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON`。这些值不在控制台页面里修改。
 
 ## 组合风险偏好（非执行意图）
 
-管理员可在 `/admin` 为已配置的平台目标选择“保本优先 / 平衡复利 / 增长复利”。页面调用受同源校验和管理员权限保护的 `GET` / `POST /api/risk-profiles`，并只向 `risk_profile_bindings` 保存自校验的 `qsl.risk_profile_binding.v1` 记录；其中可移植的选择部分与核心风险合成器的 `qsl.risk_profile_selection.v1` 完全一致。
+管理员可在账户设置里为已配置的平台目标选择“保本优先 / 平衡复利 / 增长复利”。页面调用受同源校验和管理员权限保护的 `GET` / `POST /api/risk-profiles`，并只向 `risk_profile_bindings` 保存自校验的 `qsl.risk_profile_binding.v1` 记录；其中可移植的选择部分与核心风险合成器的 `qsl.risk_profile_selection.v1` 完全一致。
 
 **双口径澄清**：同一偏好名称对应两套数值——Composer 相对无杠杆基准的 MDD 天花板为 `CAPITAL_PRESERVATION` 1.00 / `BALANCED_COMPOUNDING` 1.25 / `GROWTH_COMPOUNDING` 1.50；晋级 `promotion_sizing` 仓位缩放为 0.50 / 0.75 / 1.00，且只用于新晋级或材料变更，不重算旧 live，也不等于把仓位乘以 1.5。本页保存的只是偏好意图，不会自动写生产政策或改 RiskEngine。
 
@@ -241,7 +241,7 @@ cd web/strategy-switch-console
 wrangler secret put STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON < /tmp/strategy-switch-accounts.json
 ```
 
-绑定 `STRATEGY_SWITCH_CONFIG` 后，也可以直接在 `/admin` 编辑并保存同一份账号 JSON。KV 优先级高于 secret；secret 作为兜底配置。
+绑定 `STRATEGY_SWITCH_CONFIG` 后，KV 中的账号配置优先级高于 secret；secret 作为兜底配置。控制台页面不编辑这份 JSON。
 
 每个账号项支持这些字段：
 
@@ -466,7 +466,7 @@ wrangler deploy
 2. 未登录时只能查看公开示例，“一键切换”按钮禁用。
 3. 点击“登录管理”，也可以直接访问 `/login`。
 4. 如果登录账号在 allowlist 用户/组织或管理员用户/组织中，且账号配置已加载，按钮启用。
-5. 顶部只保留“登录管理”入口；如果登录账号是管理员，点击后进入 `/admin` 管理登录权限和账号下拉。
+5. 顶部保留语言和主题；头像菜单只有用户名和退出。登录权限与组织授权仍由环境变量和 KV 决定。
 6. 先查看待确认事项与账户读回；需要修改时点击账户或展开“策略设置”，通过唯一主操作提交启用、切换或停用。
 7. 页面返回 GitHub Actions 链接查看配置任务结果；平台是否实际应用仍以有效读回为准。
 

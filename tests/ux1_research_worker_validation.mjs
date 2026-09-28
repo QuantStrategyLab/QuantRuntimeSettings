@@ -268,7 +268,7 @@ try {
   assert.match(mainNavigation, /label: "待办决策"/, "main navigation exposes the human decisions workspace");
   assert.match(mainNavigation, /label: "账户设置"/, "main navigation exposes account settings");
   assert.doesNotMatch(mainNavigation, /报告|reports|专业|简易/, "reports are nested and information mode controls are removed from primary navigation");
-  assert.match(appSource, /admin-shortcut/, "administrator entry remains available separately from the three main destinations");
+  assert.doesNotMatch(appSource, /function AdminPanel|管理设置|admin-shortcut/, "account settings replace the separate admin page");
   const csp = page.headers.get("Content-Security-Policy") || "";
   assert.match(csp, /style-src 'self'/);
   assert.equal(csp.includes("fonts.googleapis.com"), false);

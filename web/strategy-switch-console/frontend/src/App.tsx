@@ -1,16 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent } from "react";
-import type { AccountOption, AdminModel, ConfigPayload, ReadModel, Session, UxDraft } from "./api";
+import type { KeyboardEvent } from "react";
+import type { AccountOption, AdminModel, ConfigPayload, ReadModel, UxDraft } from "./api";
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
-import { PLATFORM_CONFIG, PLATFORM_META } from "../../config.js";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountIdentity, accountStatusView, activationFromProjection, environmentEditState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, mergeAdminFields, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { accountIdentity, accountStatusView, activationFromProjection, brokerAccountType, changeAccountName, formatAccountIdentity, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, recentUserChanges, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision, type UserChange } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -38,7 +37,6 @@ const NAV: Array<{
     { id: "overview", label: "账户总览" }, { id: "strategy", label: "待办决策" },
     { id: "accounts", label: "账户设置" },
 ];
-const platformSettings = PLATFORM_CONFIG as Record<string, any>;
 const ACCOUNT_PLAN_SUBMISSION_AVAILABLE = false;
 const emptyUxDraft = (): UxDraft => ({ draft: { objective: "one_step_net_log_score", research_case_id: "r8_first_dynamic_2023_03_29", advanced_settings: {} }, revision: 0, preview: null, intent: null });
 function safeGet(key: string): string | null {
@@ -67,7 +65,7 @@ function decisionLabel(value: unknown, t: (key: string) => string): string {
     return labels[String(value || "")] ? t(labels[String(value)]) : t("状态未知");
 }
 function brokerEnvironment(value: unknown, t: (key: string) => string): string {
-    return value === "paper" ? t("模拟账户环境") : value === "live" ? t("真实账户环境") : t("环境未标明");
+    return t(brokerAccountType(value));
 }
 function executionMode(value: unknown, t: (key: string) => string): string {
     return value === "live" ? t("执行（live）") : value === "dry_run" ? t("执行（dry_run）") : value === "paper" ? t("执行（paper）") : t("状态未知");
@@ -118,16 +116,12 @@ function makeRows(model: ReadModel | null): AccountRow[] {
     }
     return rows;
 }
-function Empty({ title, detail }: { title: string; detail: string }) {
-    return <div className="empty-state"><strong>{title}</strong><p>{detail}</p></div>;
-}
 function QslIcon({ className = "brand-mark" }: {
     className?: string;
 }) { return <img className={className} src="/v2/assets/qsl-brand-icon.png" alt="" aria-hidden="true"/>; }
 function App() {
-    const initialPage = new URLSearchParams(window.location.search).get("workspace");
-    const [page, setPage] = useState<Page>(pageFromWorkspace(initialPage));
-    const [adminPath, setAdminPath] = useState(window.location.pathname === "/admin");
+    const [page, setPage] = useState<Page>(() => pageFromWorkspace(new URLSearchParams(window.location.search).get("workspace")));
+    const [applicationFold, setApplicationFold] = useState<boolean | null>(null);
     const [theme, setTheme] = useState<Theme>(() => normalizeThemePreference(safeGet(THEME_STORAGE_KEY)));
     const [language, setLanguage] = useState<Language>(initialLanguage);
     const t = (key: string, values: Record<string, string | number> = {}) => translate(key, language, values);
@@ -158,14 +152,6 @@ function App() {
     const [promotionTicketId, setPromotionTicketId] = useState("");
     const [promotionAccountId, setPromotionAccountId] = useState("");
     const [promotionRisk] = useState("CAPITAL_PRESERVATION");
-    const [adminRisk, setAdminRisk] = useState<Record<string, string>>({});
-    const [adminText, setAdminText] = useState<Record<string, string>>({});
-    const [adminNotice, setAdminNotice] = useState("");
-    const adminDirty = useRef<Record<string, boolean>>({});
-    const adminTextRef = useRef(adminText);
-    adminTextRef.current = adminText;
-    const [instanceDraft, setInstanceDraft] = useState<Record<string, any>>({});
-    const [editingInstance, setEditingInstance] = useState<string | null>(null);
     const gate = useRef(createRequestGate());
     const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
     const switchLocks = useRef(createUnknownSubmitLock());
@@ -173,7 +159,7 @@ function App() {
     const uxEditEpoch = useRef(0);
     const confirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
     const confirmReturnFocus = useRef<HTMLElement | null>(null);
-    const confirmationFingerprint = () => buildConfirmationFingerprint({ session: model?.session, selectedId, selectedAccount: active?.account, currentStrategy: active?.current, runtimeAt: model?.runtime.value?.computed_at, controlAt: model?.control.value?.computed_at, ownerCandidates: model?.owners.value?.candidates, recoveries: model?.recovery.value?.recoveries, promotionTickets: model?.promotions.value?.tickets, promotionApplications: model?.promotions.value?.applications, switchDrafts, uxDraft: { revision: uxDraft.revision, draft: uxDraft.draft, fingerprint: uxDraft.fingerprint, job: uxDraft.job?.status }, uxDirty, promotionTicketId, promotionAccountId, promotionRisk, adminRevision: adminModel?.instances.value?.revision, adminRisk, adminText, instanceDraft, editingInstance });
+    const confirmationFingerprint = () => buildConfirmationFingerprint({ session: model?.session, selectedId, selectedAccount: active?.account, currentStrategy: active?.current, runtimeAt: model?.runtime.value?.computed_at, controlAt: model?.control.value?.computed_at, ownerCandidates: model?.owners.value?.candidates, recoveries: model?.recovery.value?.recoveries, promotionTickets: model?.promotions.value?.tickets, promotionApplications: model?.promotions.value?.applications, switchDrafts, uxDraft: { revision: uxDraft.revision, draft: uxDraft.draft, fingerprint: uxDraft.fingerprint, job: uxDraft.job?.status }, uxDirty, promotionTicketId, promotionAccountId, promotionRisk, adminRevision: adminModel?.instances.value?.revision });
     const resolveConfirmation = (confirmed: boolean) => {
         const resolve = confirmResolver.current;
         const accepted = !confirmed || Boolean(confirmDialog && confirmationAccepted(true, confirmDialog.fingerprint, confirmationFingerprint()));
@@ -217,14 +203,7 @@ function App() {
         setUxDirty(false);
         setUxBusy(false);
         setUxError(null);
-        setAdminRisk({});
-        setAdminText({});
-        adminDirty.current = {};
-        adminTextRef.current = {};
-        setAdminNotice("");
         setObservedStrategy(null);
-        setInstanceDraft({});
-        setEditingInstance(null);
         setPromotionTicketId("");
         setPromotionAccountId("");
         setSelectedId("");
@@ -237,7 +216,7 @@ function App() {
     useEffect(() => {
         if (confirmDialog && confirmDialog.fingerprint !== confirmationFingerprint())
             resolveConfirmation(false);
-    }, [confirmDialog, model, adminModel, selectedId, switchDrafts, uxDraft, uxDirty, diagnosis, promotionTicketId, promotionAccountId, promotionRisk, adminRisk, adminText, instanceDraft, editingInstance]);
+    }, [confirmDialog, model, adminModel, selectedId, switchDrafts, uxDraft, uxDirty, diagnosis, promotionTicketId, promotionAccountId, promotionRisk]);
     const refresh = useCallback(async () => {
         const token = gate.current.begin();
         setRefreshing(true);
@@ -259,32 +238,13 @@ function App() {
             }
             if (!uxDirty && next.research.value)
                 setUxDraft(next.research.value);
-            if (adminPath && next.session.admin) {
+            if (next.session.admin) {
                 const admin = await loadAdminModel();
                 if (!gate.current.isCurrent(token))
                     return;
                 setAdminModel(admin);
-                const cfg = admin.config.value || {};
-                const nextText = {
-                    allowed_logins: (cfg.authConfig?.allowed_logins || []).join("\n"), allowed_orgs: (cfg.authConfig?.allowed_orgs || []).join("\n"),
-                    admin_logins: (cfg.authConfig?.admin_logins || []).join("\n"), admin_orgs: (cfg.authConfig?.admin_orgs || []).join("\n"),
-                    account_options: JSON.stringify(cfg.accountOptions || {}, null, 2),
-                };
-                const merged = mergeAdminFields(adminTextRef.current, nextText, adminDirty.current, admin.instances.value?.initialized ? ["account_options"] : []);
-                for (const key of Object.keys(nextText)) {
-                    if (merged.text[key] === nextText[key as keyof typeof nextText]) delete adminDirty.current[key];
-                }
-                adminTextRef.current = merged.text;
-                setAdminText(merged.text);
-                setAdminNotice(merged.kept ? "部分已编辑内容已保留，未改字段已更新。" : "");
-                const bindings = admin.risk.value?.bindings || [];
-                setAdminRisk(prev => Object.keys(prev).length ? prev : Object.fromEntries(bindings.map((entry: any) => [`${entry.platform}:${entry.target_name}`, entry.profile_selection?.risk_preference || ""])));
             }
-            else if (!next.session.admin) {
-                setAdminModel(null);
-                if (adminPath)
-                    setBootState("denied");
-            }
+            else setAdminModel(null);
             if (gate.current.isCurrent(token))
                 setSettingsRefresh(value => value + 1);
         }
@@ -304,7 +264,7 @@ function App() {
             if (gate.current.isCurrent(token))
                 setRefreshing(false);
         }
-    }, [adminPath, model, selectedId, uxDirty]);
+    }, [model, selectedId, uxDirty]);
     useEffect(() => { void refresh(); }, []);
     useEffect(() => { const invalid = () => clearPrivateState(false); window.addEventListener("qsl-private-session-invalid", invalid); return () => window.removeEventListener("qsl-private-session-invalid", invalid); }, []);
     useEffect(() => {
@@ -317,7 +277,7 @@ function App() {
     }, []);
     useEffect(() => { document.documentElement.dataset.theme = resolvedTheme; }, [resolvedTheme]);
     useEffect(() => { safeSet(THEME_STORAGE_KEY, theme); }, [theme]);
-    useEffect(() => { if (userMenuRef.current) userMenuRef.current.open = false; }, [page, adminPath]);
+    useEffect(() => { if (userMenuRef.current) userMenuRef.current.open = false; }, [page]);
     useEffect(() => {
         const closeIfOutside = (event: PointerEvent) => {
             const menu = userMenuRef.current;
@@ -334,7 +294,7 @@ function App() {
             document.removeEventListener("keydown", closeOnEscape);
         };
     }, []);
-    useEffect(() => { safeSet("qsl-switch-lang", language); document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; document.title = adminPath ? `${t("管理设置")} · QuantStrategyLab` : `${t(NAV.find(item => item.id === page)?.label || "资产总览")} · QuantStrategyLab`; }, [language, page, adminPath]);
+    useEffect(() => { safeSet("qsl-switch-lang", language); document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; document.title = `${t(NAV.find(item => item.id === page)?.label || "资产总览")} · QuantStrategyLab`; }, [language, page]);
     useEffect(() => {
         if (!selectedId) {
             setObservedStrategy(null);
@@ -342,10 +302,6 @@ function App() {
         }
         setObservedStrategy(current => current?.id === selectedId ? current : { id: selectedId, profile: null });
     }, [selectedId]);
-    useEffect(() => {
-        if (adminPath && model?.session.admin)
-            void refresh();
-    }, [adminPath]);
     useEffect(() => {
         if (!model?.session.allowed || page !== "strategy")
             return;
@@ -414,7 +370,6 @@ function App() {
         return () => { alive = false; window.clearInterval(timer); };
     }, [model?.session.allowed, page, active?.id, diagnosis[active?.id || ""]?.task?.status, diagnosis[active?.id || ""]?.task?.recheck_status, diagnosis[active?.id || ""]?.available]);
     const setPageAndRoute = (next: Page, accountId?: string) => {
-        setAdminPath(false);
         setPage(next);
         if (accountId) {
             setSelectedId(accountId);
@@ -439,7 +394,6 @@ function App() {
     };
     discardRef.current = discardUnsaved;
     const applyLocation = () => {
-        setAdminPath(window.location.pathname === "/admin");
         const params = new URLSearchParams(window.location.search);
         setPage(pageFromWorkspace(params.get("workspace")));
         const account = params.get("account") || "";
@@ -465,7 +419,6 @@ function App() {
         window.addEventListener("popstate", pop);
         return () => window.removeEventListener("popstate", pop);
     }, []);
-    const enterAdmin = () => { void (async () => { if (!await discardRef.current()) return; setAdminPath(true); window.history.pushState({ admin: true }, "", "/admin"); routeGuard.current.url = "/admin"; })(); };
     const logout = async () => {
         clearPrivateState();
         try {
@@ -771,9 +724,9 @@ function App() {
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
             strategy: strategyFields(row).strategy,
-            statusLabel: status.label,
-            statusDetail: status.detail,
-            activation: activationFromProjection(row.runtime?.account_state),
+            statusLabel: status.label === "—" ? "待确认" : status.label,
+            statusDetail: status.detail === "暂未取得状态" ? "待确认" : status.detail,
+            activation: activationFromProjection(row.runtime?.account_state) === "—" ? "待确认" : activationFromProjection(row.runtime?.account_state),
             preference: typeof preference === "string" ? preference : null,
         };
     });
@@ -824,16 +777,22 @@ function App() {
     const stopAllowed = Boolean(selectedRow && model?.session.allowed && !switchLocks.current.blocked(selectedRow.id) && !busy[`stop:${selectedRow.id}`] && (!hkStop || hkStopSubmitAllowed(stopRecords[selectedRow.id])));
     const stopLabel = !selectedRow ? "停用" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "停用";
     const renderOverview = () => <OverviewPage accounts={overviewAccounts} decisions={decisions.items.length} decisionsBlocked={decisions.blocked} onOpenAccount={id => void requestPage("accounts", id)} onOpenDecisions={() => void requestPage("strategy")} />;
-    const renderStrategy = () => <DecisionsPage blocked={decisions.blocked} items={decisions.items} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />;
-    const updateAdminText = (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => {
-        setAdminText(prev => {
-            const next = typeof value === "function" ? value(prev) : value;
-            for (const key of Object.keys(next)) {
-                if ((next[key] || "") !== (prev[key] || "")) adminDirty.current[key] = true;
-            }
-            adminTextRef.current = next;
-            return next;
+    const renderStrategy = () => {
+        const applications = model?.promotions.value?.applications || [];
+        const queue = applications.filter((item: any) => {
+            const options = item?.application_preparation?.account_options || [];
+            const humanDecision = options.some((account: any) => account?.broker_environment === "paper" || account?.broker_environment === "live");
+            return humanDecision && (paperApplicationActionable(item) || paperApplicationUnresolved(item));
         });
+        const pendingApplications = queue.filter((item: any) => paperApplicationActionable(item)).length;
+        const unresolvedApplications = queue.filter((item: any) => paperApplicationUnresolved(item)).length;
+        const applicationsOpen = applicationFold === null ? pendingApplications + unresolvedApplications > 0 : applicationFold;
+        return <>
+            {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="decision-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
+                {queue.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => void applyPromotion(application, accountId)} />)}
+            </details>}
+            <DecisionsPage blocked={decisions.blocked} items={decisions.items} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />
+        </>;
     };
     const onSettingsRead = useCallback((id: string, profile: string | null) => {
         setObservedStrategy(current => current?.id === id && current.profile === profile ? current : { id, profile });
@@ -844,23 +803,33 @@ function App() {
         const name = strategyDisplayName(profile, language);
         return { name: name === "未命名策略" ? t(name) : name, note: strategyNote(profile, language) };
     }, [language, model?.config.value?.strategyProfiles]);
-    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} admin={Boolean(model?.session.admin)} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
-    const renderAdmin = () => <AdminPanel model={adminModel} session={model?.session} applications={model?.promotions.value?.applications || []} onApply={(application, accountId) => void applyPromotion(application, accountId)} text={adminText} setText={updateAdminText} notice={adminNotice} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction} />;
+    const refreshChangeLog = useCallback(() => {
+        if (!model?.session.admin) return;
+        void loadAdminModel().then(admin => setAdminModel(admin)).catch(() => { /* the setting stays saved; the change line can load on the next read */ });
+    }, [model?.session.admin]);
+    const recentChanges = recentUserChanges({ history: adminModel?.instances.value?.history, audit: adminModel?.config.value?.auditLog, applications: model?.promotions.value?.applications }, 1).map((item: UserChange) => {
+        if (!item.platform) return item;
+        const accounts = model?.config.value?.accountOptions?.[item.platform];
+        const account = Array.isArray(accounts) ? accounts.find(entry => entry.key === item.accountKey) || null : null;
+        const platformLabel = String(model?.config.value?.platformMeta?.[item.platform]?.label || item.platform);
+        const profile = typeof account?.default_strategy_profile === "string" ? account.default_strategy_profile : undefined;
+        const name = changeAccountName(account, platformLabel, strategyOccupiedNames(model?.config.value?.strategyProfiles || [], profile));
+        return { ...item, target: `${platformLabel} · ${name || t("账户")}` };
+    });
+    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} recentChanges={recentChanges} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onChangeLog={refreshChangeLog} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")
         return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>QuantStrategyLab</h1><a className="button button-primary" href="/login">{t("登录")}</a></main></LocaleContext.Provider>;
     if (bootState === "error" && !model)
         return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u63A7\u5236\u53F0")}</h1><p>{t("\u540C\u6E90\u4F1A\u8BDD\u670D\u52A1\u6682\u65F6\u4E0D\u53EF\u7528\u3002")}</p><button className="button button-primary" onClick={() => void refresh()} type="button">{t("\u91CD\u8BD5")}</button></main></LocaleContext.Provider>;
-    if (adminPath && !model?.session.admin)
-        return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u4EC5\u9650\u7BA1\u7406\u5458")}</h1><p>{t("\u6B64\u8D26\u6237\u6CA1\u6709\u7BA1\u7406\u6743\u9650\u3002")}</p><button type="button" className="button button-primary" onClick={() => { setAdminPath(false); setPageAndRoute("overview"); }}>{t("\u8FD4\u56DE\u8D44\u4EA7\u603B\u89C8")}</button></main></LocaleContext.Provider>;
     return <LocaleContext.Provider value={language}><><div className="app-shell" inert={Boolean(confirmDialog)}>
     <header className="topbar"><button className="brand" type="button" onClick={() => void requestPage("overview")} aria-label={t("账户总览")}><QslIcon /><span><strong>QSL</strong><em>QuantStrategyLab</em></span>{model?.session.synthetic && <span className="synthetic-badge">{t("合成演示")}</span>}</button>
-      <nav className="primary-nav" aria-label={t("主导航")}>{NAV.map(item => <button key={item.id} className={!adminPath && page === item.id ? "active" : ""} aria-current={!adminPath && page === item.id ? "page" : undefined} onClick={() => void requestPage(item.id)} type="button">{t(item.label)}</button>)}</nav>
-      <div className="top-controls"><button className="theme-button" type="button" aria-label={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} title={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} onClick={() => setTheme(nextExplicitTheme(resolvedTheme))}>{resolvedTheme === "dark" ? "☾" : "☀"}</button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu" ref={userMenuRef}><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div><span>{model?.session.login || t("已登录")}</span>{model?.session.admin && <button type="button" className="admin-shortcut" onClick={enterAdmin}>{t("管理设置")}</button>}<button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
+      <nav className="primary-nav" aria-label={t("主导航")}>{NAV.map(item => <button key={item.id} className={page === item.id ? "active" : ""} aria-current={page === item.id ? "page" : undefined} onClick={() => void requestPage(item.id)} type="button">{t(item.label)}</button>)}</nav>
+      <div className="top-controls"><button className="theme-button" type="button" aria-label={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} title={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} onClick={() => setTheme(nextExplicitTheme(resolvedTheme))}>{resolvedTheme === "dark" ? "☾" : "☀"}</button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu" ref={userMenuRef}><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div className="user-menu-panel"><strong className="user-menu-name">{model?.session.login || t("已登录")}</strong><button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
     </header>
     {errorMessage && <div className="global-notice" role="status"><span>{renderLocaleMessage(errorMessage,language)}</span><button type="button" onClick={() => setErrorMessage(null)} aria-label={t("\u5173\u95ED\u63D0\u793A")}>{t("\u5173\u95ED")}</button></div>}
-    <main className="main-content" key={adminPath ? "admin" : page}>{adminPath ? renderAdmin() : page === "overview" ? renderOverview() : page === "strategy" ? renderStrategy() : renderAccounts()}</main>
+    <main className="main-content" key={page}>{page === "overview" ? renderOverview() : page === "strategy" ? renderStrategy() : renderAccounts()}</main>
   </div>{confirmDialog && <ConfirmationDialog dialog={confirmDialog} onCancel={() => resolveConfirmation(false)} onConfirm={() => resolveConfirmation(true)}/>}</></LocaleContext.Provider>;
 }
 function ConfirmationDialog({ dialog, onCancel, onConfirm }: {
@@ -930,164 +899,5 @@ function ApplicationCard({ application, busy, onDeploy }: {
         <button className="button button-secondary" type="button" disabled={busy || !ready} onClick={() => onDeploy(selected)}>{busy ? t("正在提交…") : retryAllowed ? previous ? t("重试已明确拒绝的请求") : t("提交模拟账户应用请求") : t("已有请求，等待读回确认")}</button>
         <p className="section-note">{t(retryAllowed ? "仅对明确选择且通过现有预检的 LongBridge 模拟账户开放；应用、启用与下单权限相互独立。" : "服务端已有应用记录；仅明确拒绝后允许重新提交，状态未知或处理中时保持锁定。")}</p>
     </article>;
-}
-function AdminPanel({ model, session, applications = [], onApply, text, setText, notice, instanceDraft, setInstanceDraft, editing, setEditing, busy, setBusy, onRefresh, onError, confirmAction }: {
-    model: AdminModel | null;
-    session?: Session;
-    applications?: any[];
-    onApply: (application: Record<string, any>, accountId: string) => void;
-    text: Record<string, string>;
-    setText: (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => void;
-    notice: string;
-    instanceDraft: Record<string, any>;
-    setInstanceDraft: (value: Record<string, any> | ((previous: Record<string, any>) => Record<string, any>)) => void;
-    editing: string | null;
-    setEditing: (id: string | null) => void;
-    busy: Busy;
-    setBusy: (value: Busy | ((previous: Busy) => Busy)) => void;
-    onRefresh: () => void;
-    onError: (value: LocaleMessage) => void;
-    confirmAction: (dialog: Omit<ConfirmDialogState, "fingerprint">) => Promise<boolean>;
-}) {
-    const t = useT();
-    const cfg = model?.config.value || {};
-    const instanceState = model?.instances.value || {};
-    const kvAvailable = Boolean(cfg.kvAvailable);
-    const bound = Boolean(instanceState.instances || instanceState.initialized !== undefined);
-    const strategies = cfg.runtimeInstanceStrategies || cfg.strategyProfiles || [];
-    const [recordFormOpen, setRecordFormOpen] = useState(false);
-    const [applicationFold, setApplicationFold] = useState<boolean | null>(null);
-    useEffect(() => { if (editing) setRecordFormOpen(true); }, [editing]);
-    const fieldNames = ["label", "key", "target_name", "account_selector", "deployment_selector", "service_name", "account_scope", "github_environment"];
-    const optionalFields = ["account_scope", "github_environment"];
-    const requiredFields = fieldNames.filter(field => !optionalFields.includes(field));
-    const blankDraft = (): Record<string, any> => ({ platform: "longbridge", label: "", key: "", target_name: "", account_selector: "", deployment_selector: "", service_name: "", account_scope: "", github_environment: "", broker_environment: "", default_strategy_profile: strategies[0]?.profile || "", default_execution_mode: "dry_run" });
-    const updateDraft = (patch: Record<string, any>) => setInstanceDraft(prev => ({ ...prev, ...patch }));
-    const parseLines = (value: string) => value.split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
-    const saveAdmin = async () => {
-        if (!session?.admin || !kvAvailable || busy.adminConfig)
-            return;
-        let accountOptions: unknown;
-        try {
-            accountOptions = JSON.parse(text.account_options || "{}");
-        }
-        catch {
-            onError(copy("账号配置 JSON 无效；输入内容已保留。"));
-            return;
-        }
-        setBusy(prev => ({ ...prev, adminConfig: true }));
-        try {
-            await postJson("/api/admin/config", { allowed_logins: parseLines(text.allowed_logins || ""), allowed_orgs: parseLines(text.allowed_orgs || ""), admin_logins: parseLines(text.admin_logins || ""), admin_orgs: parseLines(text.admin_orgs || ""), account_options: accountOptions });
-            onError(copy("管理配置已保存。当前管理员身份由服务端保护并保留。"));
-            onRefresh();
-        }
-        catch (error) {
-            onError(copy("管理配置保存失败；保留当前编辑。{detail}",{detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
-        }
-        finally {
-            setBusy(prev => ({ ...prev, adminConfig: false }));
-        }
-    };
-    const updateInstance = async (change: Record<string, any>, message: string) => {
-        if (!session?.admin || busy.instanceSave)
-            return;
-        setBusy(prev => ({ ...prev, instanceSave: true }));
-        try {
-            await postJson("/api/admin/runtime-instances", { ...change, expected_revision: Number(instanceState.revision || 0) });
-            onError(copy(message));
-            setEditing(null);
-            setInstanceDraft(blankDraft());
-            setRecordFormOpen(false);
-            onRefresh();
-        }
-        catch (error) {
-            onError(copy("实例操作失败；草稿输入已保留。{detail}",{detail:error?copy(" · {error}",{error:copy(requestErrorKey(error))}):""}));
-            if ((error as any)?.status === 409)
-                onRefresh();
-        }
-        finally {
-            setBusy(prev => ({ ...prev, instanceSave: false }));
-        }
-    };
-    const submitInstance = (event: FormEvent) => {
-        event.preventDefault();
-        if (!instanceState.initialized || !strategies.length)
-            return;
-        const draft = { ...blankDraft(), ...instanceDraft };
-        const editingParts = editing?.split(":") || [];
-        const config = { ...(editing ? instanceState.instances?.find((x: any) => x.platform === editingParts[0] && x.key === editingParts.slice(1).join(":"))?.config || {} : {}) };
-        for (const field of fieldNames) {
-            const value = String(draft[field] || "").trim();
-            if (value)
-                config[field] = value;
-            else
-                delete config[field];
-        }
-        config.broker_environment = draft.broker_environment || undefined;
-        config.default_strategy_profile = draft.default_strategy_profile;
-        config.default_execution_mode = draft.default_execution_mode || "dry_run";
-        const profile = strategies.find((item: any) => item.profile === config.default_strategy_profile);
-        if (profile)
-            config.supported_domains = [profile.domain];
-        const action = editing ? "edit" : "create";
-        void updateInstance({ action, platform: draft.platform, key: editingParts.length > 1 ? editingParts.slice(1).join(":") : undefined, config }, "实例草稿已保存；未部署、未启用或应用。");
-    };
-    const importConfig = () => {
-        void confirmAction({ title: t("导入现有账户配置"), target: t("实例管理初始化"), summary: t("将按当前配置初始化实例记录（版本 {revision}）。", { revision: instanceState.revision ?? 0 }), consequence: t("请先核对当前账户配置并暂停其他配置写入。本操作不改变运行状态。"), tone: "danger" }).then(confirmed => {
-            if (confirmed)
-                void updateInstance({ action: "initialize", confirm: "IMPORT_EXISTING_CONFIG" }, "已导入现有配置；实际运行状态仍须单独读回。");
-        });
-    };
-    const pendingApplications = applications.filter((item: any) => paperApplicationActionable(item)).length;
-    const unresolvedApplications = applications.filter((item: any) => paperApplicationUnresolved(item)).length;
-    const historicalApplications = applications.filter((item: any) => !paperApplicationActionable(item) && !paperApplicationUnresolved(item));
-    const applicationsOpen = applicationFold === null ? pendingApplications + unresolvedApplications > 0 : applicationFold;
-    return <div className="admin-page"><div className="page-title-row"><div><h1>{t("管理设置")}</h1><p>{t("管理账户资料与网站访问权限。")}</p></div><button type="button" className="button button-secondary" onClick={onRefresh}>{t("刷新管理资料")}</button></div>
-      {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="admin-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
-        {applications.filter((item: any) => paperApplicationActionable(item) || paperApplicationUnresolved(item)).map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => onApply(application, accountId)} />)}
-      </details>}
-      <section className="content-section"><div className="section-heading"><h2>{t("账户记录")}</h2>{instanceState.initialized === false && <span>{t("尚未初始化")}</span>}</div>
-        {model?.instances.error ? <Empty title={t("\u5B9E\u4F8B\u5B58\u50A8\u6682\u4E0D\u53EF\u7528")} detail={t("\u65E0\u6CD5\u8BFB\u53D6\u5B9E\u4F8B\u6216\u5176\u7248\u672C\uFF1B\u5199\u64CD\u4F5C\u505C\u6B62\u3002")}/> : !bound ? <Empty title={t("\u5B9E\u4F8B\u7BA1\u7406\u672A\u63A5\u5165")} detail={t("\u5F53\u524D\u6CA1\u6709\u5B9E\u4F8B\u5B58\u50A8\u7ED1\u5B9A\u3002")}/> : null}
-        {!instanceState.initialized && bound && <div className="warning-note"><p>{t("\u521D\u59CB\u5316\u4F1A\u628A\u73B0\u6709\u8D26\u6237\u914D\u7F6E\u5BFC\u5165\u5B9E\u4F8B\u7BA1\u7406\u3002\u8BF7\u6838\u5BF9\u73B0\u6709\u914D\u7F6E\u5E76\u6682\u505C\u5176\u4ED6\u5199\u5165\u540E\u518D\u64CD\u4F5C\u3002")}</p><button className="button button-secondary" type="button" disabled={!session?.admin || busy.instanceSave} onClick={importConfig}>{t("\u5BFC\u5165\u73B0\u6709\u914D\u7F6E")}</button></div>}
-        <div className="instance-list">{(instanceState.instances || []).map((item: any) => {
-          const platformLabel = String(cfg.platformMeta?.[item.platform]?.label || (PLATFORM_META as Record<string, { label?: string }>)[item.platform]?.label || item.platform);
-          const title = formatAccountIdentity(accountIdentity({ ...item.config, key: item.key }, platformLabel, "", strategyOccupiedNames(cfg.strategyProfiles || [], item.config?.default_strategy_profile)), t);
-          return <article className="admin-record" key={`${item.platform}:${item.key}`}><strong>{title}</strong><span>{platformLabel}</span><span>{item.config?.broker_environment ? brokerEnvironment(item.config.broker_environment, t) : t("未设置")}</span><span>{item.kind === "draft" ? t("草稿记录") : t("已有记录")}{item.retirement_status === "requested" ? t(" · 已申请退役") : ""}</span><details className="admin-fold admin-manage"><summary>{t("管理")}</summary><div className="admin-manage-actions">
-          {item.kind === "existing" && <EnvironmentControl item={item} busy={busy} onSave={env => void updateInstance({ action: "set_broker_environment", platform: item.platform, key: item.key, broker_environment: env }, "环境标记已保存；未改变启用、应用或路由状态。")}/>}
-          {item.kind === "draft" && item.retirement_status === "none" && <button className="button button-secondary" type="button" onClick={() => { setEditing(`${item.platform}:${item.key}`); setInstanceDraft({ ...blankDraft(), ...item.config, platform: item.platform }); setRecordFormOpen(true); }}>{t("编辑草稿")}</button>}
-          {item.retirement_status !== "requested" && <button className="button button-secondary" type="button" disabled={!session?.admin || busy.instanceSave} onClick={() => void updateInstance({ action: "request_retirement", platform: item.platform, key: item.key }, "已保存退役申请；账户配置仍保留。")}>{t("申请退役")}</button>}
-        </div></details></article>; })}</div>
-        {instanceState.initialized && <details className="admin-fold" open={recordFormOpen} onToggle={event => setRecordFormOpen(event.currentTarget.open)}><summary>{editing ? t("编辑账户记录") : t("新增账户记录")}</summary><form onSubmit={submitInstance}><div className="field-grid"><label>{t("平台")}<select value={instanceDraft.platform || "longbridge"} disabled={Boolean(editing)} onChange={e => updateDraft({ platform: e.target.value })}>{Object.keys(PLATFORM_CONFIG).filter(platform => !platformSettings[platform].dry_run_only).map(platform => <option key={platform} value={platform}>{platform}</option>)}</select></label>{requiredFields.map(field => <label key={field}>{({ label: t("账户名称"), key: t("账户标识"), target_name: t("运行目标"), account_selector: t("已有账户引用"), deployment_selector: t("已有部署引用"), service_name: t("服务名称") } as Record<string, string>)[field]}<input required readOnly={field === "key" && Boolean(editing)} value={String(instanceDraft[field] || "")} onChange={e => updateDraft({ [field]: e.target.value })}/></label>)}
-          <label>{t("环境标记")}<select value={instanceDraft.broker_environment || ""} onChange={e => updateDraft({ broker_environment: e.target.value })}><option value="">{t("未知 / 未设置")}</option><option value="live">{brokerEnvironment("live", t)}</option><option value="paper">{brokerEnvironment("paper", t)}</option></select></label><label>{t("默认策略")}<select value={instanceDraft.default_strategy_profile || ""} onChange={e => updateDraft({ default_strategy_profile: e.target.value })}>{strategies.map((p: any) => <option key={p.profile} value={p.profile}>{p.label || p.profile}</option>)}</select></label><label>{t("默认执行模式")}<select value={instanceDraft.default_execution_mode || "dry_run"} onChange={e => updateDraft({ default_execution_mode: e.target.value })}><option value="dry_run">{executionMode("dry_run", t)}</option><option value="live">{executionMode("live", t)}</option></select></label></div><details className="admin-fold optional-fields"><summary>{t("选填引用")}</summary><div className="field-grid">{optionalFields.map(field => <label key={field}>{({ account_scope: t("账户组引用（选填）"), github_environment: t("GitHub 环境引用（选填）") } as Record<string, string>)[field]}<input value={String(instanceDraft[field] || "")} onChange={e => updateDraft({ [field]: e.target.value })}/></label>)}</div></details><p className="section-note">{t("只填写配置引用，不填写密钥。创建或编辑保存为草稿，不部署、不启用、不接管账户。")}</p><div className="form-actions"><button className="button button-primary" disabled={!session?.admin || !strategies.length || busy.instanceSave} type="submit">{t("保存草稿")}</button><button className="button button-secondary" type="button" onClick={() => { setEditing(null); setInstanceDraft(blankDraft()); }}>{t("取消编辑")}</button></div></form></details>}
-      </section>
-      <section className="content-section">{notice ? <p className="section-note" role="status">{t(notice)}</p> : null}{model?.config.error ? <Empty title={t("管理配置不可用")} detail={t("没有成功读取管理员配置。")}/> : <>
-        <details className="admin-fold"><summary>{t("访问权限")}</summary><div className="field-grid">{[["allowed_logins", t("获准操作的用户，每行一个")], ["allowed_orgs", t("获准操作的组织，每行一个")], ["admin_logins", t("管理员用户，每行一个")], ["admin_orgs", t("管理员组织，每行一个")]].map(([key, label]) => <label key={key}>{label}<textarea rows={4} value={text[key] || ""} onChange={e => setText(prev => ({ ...prev, [key]: e.target.value }))}/></label>)}</div><div className="form-actions"><button type="button" className="button button-primary" disabled={!kvAvailable || busy.adminConfig || !session?.admin} onClick={() => void saveAdmin()}>{t("保存访问设置")}</button><span>{kvAvailable ? t("保存后写入审计记录") : t("暂时无法保存")}</span></div></details>
-        {!instanceState.initialized && <details className="admin-fold"><summary>{t("账户配置")}</summary><label>{t("账户选项 JSON")}<textarea className="json-textarea" rows={12} readOnly={Boolean(instanceState.initialized)} value={text.account_options || ""} onChange={e => setText(prev => ({ ...prev, account_options: e.target.value }))}/></label></details>}
-      </>}</section>
-      <details className="admin-fold"><summary>{t("变更记录")}</summary><h3>{t("账户记录变更")}</h3>{(instanceState.history || []).length === 0 ? <p>{t("没有账户记录变更")}</p> : (instanceState.history || []).map((item: any, index: number) => <p key={`${item.ts}-${index}`}>{item.ts} · {item.login} · {item.action}</p>)}<h3>{t("访问配置变更")}</h3>{(cfg.auditLog || []).length === 0 ? <p>{t("没有访问配置变更")}</p> : (cfg.auditLog || []).map((entry: any, index: number) => <p key={`${entry.ts}-${index}`}>{entry.ts} · {entry.login} · {entry.action}</p>)}{historicalApplications.length > 0 && <><h3>{t("模拟账户应用记录")}</h3>{historicalApplications.map((application: any) => {
-        const previous = application.application || null;
-        const prep = application.application_preparation || {};
-        const status = previous ? `${t(displayStatus(previous.status))} · ${t(displayStatus(previous.dispatch_state))}` : t("尚无应用记录");
-        return <p key={String(application.ticket_id)}>{t("模拟账户应用 · {ticket}", { ticket: application.ticket_id })} · {t("预检：{preflight} · 应用：{status}", { preflight: t(displayStatus(prep.preflight_status)), status })}</p>;
-      })}</>}</details>
-    </div>;
-}
-function EnvironmentControl({ item, busy, onSave }: {
-    item: Record<string, any>;
-    busy: Busy;
-    onSave: (value: string) => void;
-}) {
-    const t = useT();
-    const serverValue = item.config?.broker_environment || "";
-    const values = Array.isArray(item.supported_broker_environments) ? item.supported_broker_environments : ["live", "paper"];
-    const [baseline, setBaseline] = useState(serverValue);
-    const [environment, setEnvironment] = useState(serverValue);
-    const decision = environmentEditState(baseline, environment, serverValue);
-    useEffect(() => {
-        if ((environment !== baseline && environment !== serverValue) || (environment === serverValue && baseline === serverValue)) return;
-        setEnvironment(serverValue);
-        setBaseline(serverValue);
-    }, [serverValue, environment, baseline]);
-    return <div className="instance-environment"><select aria-label={t("环境标记")} value={decision.value} onChange={event => setEnvironment(event.target.value)}><option value="">{t("未知 / 未设置")}</option>{values.map((value: string) => <option key={value} value={value}>{brokerEnvironment(value, t)}</option>)}</select><button type="button" className="button button-secondary" disabled={!decision.value || decision.conflict || busy.instanceSave} onClick={() => onSave(decision.value)}>{t("保存环境标记")}</button>{decision.conflict && <p className="section-note">{t("环境标记已在服务器更新，请先核对再保存。")}<button type="button" className="text-link" onClick={() => { setEnvironment(serverValue); setBaseline(serverValue); }}>{t("重新读取")}</button></p>}</div>;
 }
 export default App;

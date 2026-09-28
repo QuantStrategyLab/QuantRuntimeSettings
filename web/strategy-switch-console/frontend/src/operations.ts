@@ -21,6 +21,7 @@ export type AccountSettingOverridePatch = {
   strategy_profile?: string | null;
   income_layer_enabled?: boolean | null;
   reserved_cash_floor?: string | null;
+  reserved_cash_ratio?: string | null;
 };
 
 export type HkStopPhase = "loading" | "unavailable" | "empty" | "reserved" | "unknown" | "accepted" | "rejected" | "stopped";
@@ -158,6 +159,7 @@ export function accountSettingDraftBody(input: {
   if (Object.prototype.hasOwnProperty.call(input.overrides, "strategy_profile")) overrides.strategy_profile = input.overrides.strategy_profile ?? null;
   if (Object.prototype.hasOwnProperty.call(input.overrides, "income_layer_enabled")) overrides.income_layer_enabled = input.overrides.income_layer_enabled ?? null;
   if (Object.prototype.hasOwnProperty.call(input.overrides, "reserved_cash_floor")) overrides.reserved_cash_floor = input.overrides.reserved_cash_floor ?? null;
+  if (Object.prototype.hasOwnProperty.call(input.overrides, "reserved_cash_ratio")) overrides.reserved_cash_ratio = input.overrides.reserved_cash_ratio ?? null;
   const body: Record<string, unknown> = {
     expected_draft_revision: input.expectedDraftRevision,
     identity: input.identity,
