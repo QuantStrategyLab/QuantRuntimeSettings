@@ -69,6 +69,8 @@ export type UxDraft = {
   draft?: { objective?: string; research_case_id?: string; advanced_settings?: Record<string, unknown> };
   job?: Record<string, any> | null; intent?: unknown;
 };
+export type { AccountFactsSnapshot } from "./types";
+import type { AccountFactsSnapshot } from "./types";
 export type Source<T> = { value: T | null; error: string | null };
 export type ReadModel = {
   session: Session;
@@ -79,6 +81,7 @@ export type ReadModel = {
   tasks: Source<Record<string, any>>; promotions: Source<Record<string, any>>;
   market: Source<Record<string, any>>; adaptive: Source<Record<string, any>>;
   catalog: Source<Record<string, any>>;
+  accountFacts: Source<AccountFactsSnapshot>;
 };
 export type AdminModel = {
   config: Source<Record<string, any>>; instances: Source<Record<string, any>>;
@@ -145,7 +148,7 @@ async function source<T>(request: Promise<T>): Promise<Source<T>> {
 export async function loadReadModel(): Promise<ReadModel | { session: Session; denied: true }> {
   const session = await getJson<Session>("/api/session");
   if (!session.allowed) return { session, denied: true };
-  const [config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive] = await Promise.all([
+  const [config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts] = await Promise.all([
     source(getJson<ConfigPayload>("/api/config")),
     source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
     source(getJson<ControlPlane>("/api/control-plane")),
@@ -160,8 +163,9 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
     source(getJson<Record<string, any>>("/api/runtime-catalog")),
     source(getJson<Record<string, any>>("/api/m0-research")),
     source(getJson<Record<string, any>>("/api/adaptive-selection")),
+    source(getJson<AccountFactsSnapshot>("/api/account-facts")),
   ]);
-  return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive };
+  return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts };
 }
 
 export function runtimeStopQuery(platform: string, targetName: string): string {
