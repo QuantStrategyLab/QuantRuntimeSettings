@@ -105,7 +105,12 @@ test("frontend account normalization and display preserve broker identity and al
   assert.equal(accountDisplayTitle(normalized.ibkr[0], "IBKR", "实盘"), "主账户");
   assert.equal(accountDisplayTitle({ key: "internal-key" }, "IBKR", "实盘"), "账户");
   assert.equal(accountDisplayTitle(normalized.ibkr[0], "IBKR", "实盘").includes("0001"), false);
+  assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U10000001" }, "IBKR", "实盘"), "U10000001");
   assert.equal(accountDisplayTitle({ key: "hk", account_selector: "U10000001, U10000002" }, "IBKR", "实盘"), "账户 · hk");
+  const binance = { key: "crypto_combo", target_name: "crypto_combo" };
+  assert.equal(accountDisplayTitle(binance, "Binance", ""), "账户 · live");
+  assert.equal(binance.key, "crypto_combo");
+  assert.equal(binance.target_name, "crypto_combo");
 });
 
 test("account persistence preserves explicit observation and variable-source bindings", () => {

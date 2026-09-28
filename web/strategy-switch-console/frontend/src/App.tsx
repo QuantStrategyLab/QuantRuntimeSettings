@@ -5,12 +5,12 @@ import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadRea
 import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
-import { PLATFORM_CONFIG } from "../../config.js";
+import { PLATFORM_CONFIG, PLATFORM_META } from "../../config.js";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountIdentity, accountStatusView, activationFromProjection, formatAccountIdentity, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationReady, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { accountIdentity, accountStatusView, activationFromProjection, environmentEditState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, mergeAdminFields, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -58,7 +58,7 @@ function safeSet(key: string, value: string): void {
 function copy(key: string, values: Record<string, string | number | LocaleMessage> = {}): LocaleMessage { return {key,values}; }
 function initialLanguage(): Language { const stored = safeGet("qsl-switch-lang"); return stored === "zh" || stored === "en" ? stored : "zh"; }
 function displayStatus(value: unknown, _translate?: (key: string) => string): string {
-    const labels: Record<string, string> = { observed: "已收到心跳", healthy: "运行状态可供核对", live: "执行（live）", ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "结果待确认", active: "运行中", paused: "已暂停", disabled: "已停用", enabled: "已启用", monitoring_only: "仅监测", not_due: "等待检查周期", attention: "需要核对", failed: "未完成", succeeded: "已完成", queued: "排队中", running: "处理中", approved: "请求已批准", rejected: "已明确拒绝", claimed: "已领取处理中", pending: "等待提交", sent: "已提交", fixed: "固定金额", current: "保持现状", none: "不启用", auto: "自动选择", smart: "智能定投", ratio: "比例", floor: "固定金额下限", max: "金额与比例取较大值", paper: "模拟账户环境", dry_run: "禁止下单验证", ready_to_apply: "可供核对" };
+    const labels: Record<string, string> = { observed: "已收到心跳", healthy: "运行状态可供核对", live: "执行（live）", ready: "可供核对", stale: "资料已过期", unavailable: "暂不可用", unknown: "结果待确认", active: "运行中", paused: "已暂停", disabled: "已停用", enabled: "已启用", monitoring_only: "仅监测", not_due: "等待检查周期", attention: "需要核对", failed: "未完成", succeeded: "已完成", queued: "排队中", running: "处理中", approved: "请求已批准", rejected: "已明确拒绝", claimed: "已领取处理中", applied_paused: "已完成", pending: "等待提交", sent: "已提交", fixed: "固定金额", current: "保持现状", none: "不启用", auto: "自动选择", smart: "智能定投", ratio: "比例", floor: "固定金额下限", max: "金额与比例取较大值", paper: "模拟账户环境", dry_run: "禁止下单验证", ready_to_apply: "可供核对" };
     const label = labels[String(value || "")];
     return label || "状态未知";
 }
@@ -143,6 +143,8 @@ function App() {
     const settingsDirty = useRef(false);
     const userMenuRef = useRef<HTMLDetailsElement>(null);
     const [settingsEpoch, setSettingsEpoch] = useState(0);
+    const [settingsRefresh, setSettingsRefresh] = useState(0);
+    const [observedStrategy, setObservedStrategy] = useState<{ id: string; profile: string | null } | null>(null);
     const routeGuard = useRef({ url: `${window.location.pathname}${window.location.search}` });
     const discardRef = useRef<() => Promise<boolean>>(async () => true);
     const [switchDrafts, setSwitchDrafts] = useState<Record<string, SwitchDraft>>({});
@@ -158,6 +160,10 @@ function App() {
     const [promotionRisk] = useState("CAPITAL_PRESERVATION");
     const [adminRisk, setAdminRisk] = useState<Record<string, string>>({});
     const [adminText, setAdminText] = useState<Record<string, string>>({});
+    const [adminNotice, setAdminNotice] = useState("");
+    const adminDirty = useRef<Record<string, boolean>>({});
+    const adminTextRef = useRef(adminText);
+    adminTextRef.current = adminText;
     const [instanceDraft, setInstanceDraft] = useState<Record<string, any>>({});
     const [editingInstance, setEditingInstance] = useState<string | null>(null);
     const gate = useRef(createRequestGate());
@@ -213,6 +219,10 @@ function App() {
         setUxError(null);
         setAdminRisk({});
         setAdminText({});
+        adminDirty.current = {};
+        adminTextRef.current = {};
+        setAdminNotice("");
+        setObservedStrategy(null);
         setInstanceDraft({});
         setEditingInstance(null);
         setPromotionTicketId("");
@@ -255,11 +265,18 @@ function App() {
                     return;
                 setAdminModel(admin);
                 const cfg = admin.config.value || {};
-                setAdminText(prev => Object.keys(prev).length ? prev : {
+                const nextText = {
                     allowed_logins: (cfg.authConfig?.allowed_logins || []).join("\n"), allowed_orgs: (cfg.authConfig?.allowed_orgs || []).join("\n"),
                     admin_logins: (cfg.authConfig?.admin_logins || []).join("\n"), admin_orgs: (cfg.authConfig?.admin_orgs || []).join("\n"),
                     account_options: JSON.stringify(cfg.accountOptions || {}, null, 2),
-                });
+                };
+                const merged = mergeAdminFields(adminTextRef.current, nextText, adminDirty.current, admin.instances.value?.initialized ? ["account_options"] : []);
+                for (const key of Object.keys(nextText)) {
+                    if (merged.text[key] === nextText[key as keyof typeof nextText]) delete adminDirty.current[key];
+                }
+                adminTextRef.current = merged.text;
+                setAdminText(merged.text);
+                setAdminNotice(merged.kept ? "部分已编辑内容已保留，未改字段已更新。" : "");
                 const bindings = admin.risk.value?.bindings || [];
                 setAdminRisk(prev => Object.keys(prev).length ? prev : Object.fromEntries(bindings.map((entry: any) => [`${entry.platform}:${entry.target_name}`, entry.profile_selection?.risk_preference || ""])));
             }
@@ -268,6 +285,8 @@ function App() {
                 if (adminPath)
                     setBootState("denied");
             }
+            if (gate.current.isCurrent(token))
+                setSettingsRefresh(value => value + 1);
         }
         catch (error) {
             if (!gate.current.isCurrent(token))
@@ -316,6 +335,13 @@ function App() {
         };
     }, []);
     useEffect(() => { safeSet("qsl-switch-lang", language); document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; document.title = adminPath ? `${t("管理设置")} · QuantStrategyLab` : `${t(NAV.find(item => item.id === page)?.label || "资产总览")} · QuantStrategyLab`; }, [language, page, adminPath]);
+    useEffect(() => {
+        if (!selectedId) {
+            setObservedStrategy(null);
+            return;
+        }
+        setObservedStrategy(current => current?.id === selectedId ? current : { id: selectedId, profile: null });
+    }, [selectedId]);
     useEffect(() => {
         if (adminPath && model?.session.admin)
             void refresh();
@@ -405,7 +431,7 @@ function App() {
     };
     const discardUnsaved = async () => {
         if (!settingsDirty.current) return true;
-        const accepted = await confirmAction({ title: t("放弃未保存的修改？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的预留现金和风险偏好会丢弃。"), consequence: t("未保存的预留现金和风险偏好会丢弃。"), tone: "normal" });
+        const accepted = await confirmAction({ title: t("放弃未保存的修改？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的预留现金、收入层草案和风险偏好会丢弃。"), consequence: t("未保存的预留现金、收入层草案和风险偏好会丢弃。"), tone: "normal" });
         if (!accepted) return false;
         settingsDirty.current = false;
         setSettingsEpoch(value => value + 1);
@@ -727,6 +753,15 @@ function App() {
         const name = strategyDisplayName(found, language);
         return name === "未命名策略" ? t(name) : name;
     };
+    const strategyFields = (row: AccountRow) => {
+        const overlay = observedStrategy?.id === row.id ? observedStrategy : null;
+        const profileId = overlay ? overlay.profile : row.current?.strategy_profile;
+        const profile = profileOptions.find((item: any) => item?.profile === profileId);
+        return {
+            strategy: overlay && !overlay.profile ? t("未知") : namedStrategy(profileId),
+            note: overlay && !overlay.profile ? "" : strategyNote(profile, language),
+        };
+    };
     const overviewAccounts: OverviewAccount[] = rows.map(row => {
         const status = accountStatusView(row.runtime?.account_state);
         const preference = row.current?.risk_preference;
@@ -735,7 +770,7 @@ function App() {
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
-            strategy: namedStrategy(row.current?.strategy_profile),
+            strategy: strategyFields(row).strategy,
             statusLabel: status.label,
             statusDetail: status.detail,
             activation: activationFromProjection(row.runtime?.account_state),
@@ -743,7 +778,7 @@ function App() {
         };
     });
     const accountItems: AccountListItem[] = rows.map(row => {
-        const profile = profileOptions.find((item: any) => item?.profile === row.current?.strategy_profile);
+        const fields = strategyFields(row);
         return {
             id: row.id,
             platform: row.platform,
@@ -751,8 +786,8 @@ function App() {
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platformLabel: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
-            strategy: namedStrategy(row.current?.strategy_profile),
-            strategyNote: strategyNote(profile, language),
+            strategy: fields.strategy,
+            strategyNote: fields.note,
             statusLabel: accountStatusView(row.runtime?.account_state).label,
             activation: activationFromProjection(row.runtime?.account_state),
         };
@@ -790,12 +825,31 @@ function App() {
     const stopLabel = !selectedRow ? "停用" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "停用";
     const renderOverview = () => <OverviewPage accounts={overviewAccounts} decisions={decisions.items.length} decisionsBlocked={decisions.blocked} onOpenAccount={id => void requestPage("accounts", id)} onOpenDecisions={() => void requestPage("strategy")} />;
     const renderStrategy = () => <DecisionsPage blocked={decisions.blocked} items={decisions.items} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />;
-    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} admin={Boolean(model?.session.admin)} settingsEpoch={settingsEpoch} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} />;
-    const renderAdmin = () => <AdminPanel model={adminModel} session={model?.session} applications={model?.promotions.value?.applications || []} onApply={(application, accountId) => void applyPromotion(application, accountId)} onOpenAccounts={() => { void (async () => { if (!await discardUnsaved()) return; setAdminPath(false); setPageAndRoute("accounts"); })(); }} text={adminText} setText={setAdminText} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction} />;
+    const updateAdminText = (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => {
+        setAdminText(prev => {
+            const next = typeof value === "function" ? value(prev) : value;
+            for (const key of Object.keys(next)) {
+                if ((next[key] || "") !== (prev[key] || "")) adminDirty.current[key] = true;
+            }
+            adminTextRef.current = next;
+            return next;
+        });
+    };
+    const onSettingsRead = useCallback((id: string, profile: string | null) => {
+        setObservedStrategy(current => current?.id === id && current.profile === profile ? current : { id, profile });
+    }, []);
+    const resolveStrategy = useCallback((profileId: string | null) => {
+        if (!profileId) return { name: t("未知"), note: "" };
+        const profile = (model?.config.value?.strategyProfiles || []).find((item: any) => item?.profile === profileId);
+        const name = strategyDisplayName(profile, language);
+        return { name: name === "未命名策略" ? t(name) : name, note: strategyNote(profile, language) };
+    }, [language, model?.config.value?.strategyProfiles]);
+    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} admin={Boolean(model?.session.admin)} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
+    const renderAdmin = () => <AdminPanel model={adminModel} session={model?.session} applications={model?.promotions.value?.applications || []} onApply={(application, accountId) => void applyPromotion(application, accountId)} text={adminText} setText={updateAdminText} notice={adminNotice} instanceDraft={instanceDraft} setInstanceDraft={setInstanceDraft} editing={editingInstance} setEditing={setEditingInstance} busy={busy} setBusy={setBusy} onRefresh={() => void refresh()} onError={setErrorMessage} confirmAction={confirmAction} />;
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")
-        return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u9700\u8981\u91CD\u65B0\u9A8C\u8BC1\u8BBF\u95EE")}</h1><p>{t("\u767B\u5F55\u5DF2\u5931\u6548\u6216\u5F53\u524D\u8D26\u53F7\u65E0\u6743\u67E5\u770B\u6B64\u9875\u9762\u3002\u654F\u611F\u8D44\u6599\u5DF2\u6E05\u9664\u3002")}</p><a className="button button-primary" href="/login">{t("\u91CD\u65B0\u767B\u5F55")}</a></main></LocaleContext.Provider>;
+        return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>QuantStrategyLab</h1><a className="button button-primary" href="/login">{t("登录")}</a></main></LocaleContext.Provider>;
     if (bootState === "error" && !model)
         return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u63A7\u5236\u53F0")}</h1><p>{t("\u540C\u6E90\u4F1A\u8BDD\u670D\u52A1\u6682\u65F6\u4E0D\u53EF\u7528\u3002")}</p><button className="button button-primary" onClick={() => void refresh()} type="button">{t("\u91CD\u8BD5")}</button></main></LocaleContext.Provider>;
     if (adminPath && !model?.session.admin)
@@ -877,14 +931,14 @@ function ApplicationCard({ application, busy, onDeploy }: {
         <p className="section-note">{t(retryAllowed ? "仅对明确选择且通过现有预检的 LongBridge 模拟账户开放；应用、启用与下单权限相互独立。" : "服务端已有应用记录；仅明确拒绝后允许重新提交，状态未知或处理中时保持锁定。")}</p>
     </article>;
 }
-function AdminPanel({ model, session, applications = [], onApply, onOpenAccounts, text, setText, instanceDraft, setInstanceDraft, editing, setEditing, busy, setBusy, onRefresh, onError, confirmAction }: {
+function AdminPanel({ model, session, applications = [], onApply, text, setText, notice, instanceDraft, setInstanceDraft, editing, setEditing, busy, setBusy, onRefresh, onError, confirmAction }: {
     model: AdminModel | null;
     session?: Session;
     applications?: any[];
     onApply: (application: Record<string, any>, accountId: string) => void;
-    onOpenAccounts: () => void;
     text: Record<string, string>;
     setText: (value: Record<string, string> | ((previous: Record<string, string>) => Record<string, string>)) => void;
+    notice: string;
     instanceDraft: Record<string, any>;
     setInstanceDraft: (value: Record<string, any> | ((previous: Record<string, any>) => Record<string, any>)) => void;
     editing: string | null;
@@ -905,6 +959,8 @@ function AdminPanel({ model, session, applications = [], onApply, onOpenAccounts
     const [applicationFold, setApplicationFold] = useState<boolean | null>(null);
     useEffect(() => { if (editing) setRecordFormOpen(true); }, [editing]);
     const fieldNames = ["label", "key", "target_name", "account_selector", "deployment_selector", "service_name", "account_scope", "github_environment"];
+    const optionalFields = ["account_scope", "github_environment"];
+    const requiredFields = fieldNames.filter(field => !optionalFields.includes(field));
     const blankDraft = (): Record<string, any> => ({ platform: "longbridge", label: "", key: "", target_name: "", account_selector: "", deployment_selector: "", service_name: "", account_scope: "", github_environment: "", broker_environment: "", default_strategy_profile: strategies[0]?.profile || "", default_execution_mode: "dry_run" });
     const updateDraft = (patch: Record<string, any>) => setInstanceDraft(prev => ({ ...prev, ...patch }));
     const parseLines = (value: string) => value.split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
@@ -982,35 +1038,56 @@ function AdminPanel({ model, session, applications = [], onApply, onOpenAccounts
                 void updateInstance({ action: "initialize", confirm: "IMPORT_EXISTING_CONFIG" }, "已导入现有配置；实际运行状态仍须单独读回。");
         });
     };
-    const pendingApplications = applications.filter((item: any) => applicationRetryAllowed(item?.application || null)).length;
-    const unresolvedApplications = applications.length - pendingApplications;
-    const applicationsOpen = applicationFold === null ? applications.length > 0 : applicationFold;
-    return <div className="admin-page"><div className="page-title-row"><div><h1>{t("管理设置")}</h1><p>{t("管理账户记录、访问权限与风险偏好。")}</p></div><button type="button" className="button button-secondary" onClick={onRefresh}>{t("刷新管理资料")}</button></div>
-      <details className="admin-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
-        {applications.length === 0 ? <p className="section-note">{t("当前没有待处理的模拟账户应用。")}</p> : applications.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => onApply(application, accountId)} />)}
-      </details>
+    const pendingApplications = applications.filter((item: any) => paperApplicationActionable(item)).length;
+    const unresolvedApplications = applications.filter((item: any) => paperApplicationUnresolved(item)).length;
+    const historicalApplications = applications.filter((item: any) => !paperApplicationActionable(item) && !paperApplicationUnresolved(item));
+    const applicationsOpen = applicationFold === null ? pendingApplications + unresolvedApplications > 0 : applicationFold;
+    return <div className="admin-page"><div className="page-title-row"><div><h1>{t("管理设置")}</h1><p>{t("管理账户资料与网站访问权限。")}</p></div><button type="button" className="button button-secondary" onClick={onRefresh}>{t("刷新管理资料")}</button></div>
+      {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="admin-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
+        {applications.filter((item: any) => paperApplicationActionable(item) || paperApplicationUnresolved(item)).map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => onApply(application, accountId)} />)}
+      </details>}
       <section className="content-section"><div className="section-heading"><h2>{t("账户记录")}</h2>{instanceState.initialized === false && <span>{t("尚未初始化")}</span>}</div>
         {model?.instances.error ? <Empty title={t("\u5B9E\u4F8B\u5B58\u50A8\u6682\u4E0D\u53EF\u7528")} detail={t("\u65E0\u6CD5\u8BFB\u53D6\u5B9E\u4F8B\u6216\u5176\u7248\u672C\uFF1B\u5199\u64CD\u4F5C\u505C\u6B62\u3002")}/> : !bound ? <Empty title={t("\u5B9E\u4F8B\u7BA1\u7406\u672A\u63A5\u5165")} detail={t("\u5F53\u524D\u6CA1\u6709\u5B9E\u4F8B\u5B58\u50A8\u7ED1\u5B9A\u3002")}/> : null}
         {!instanceState.initialized && bound && <div className="warning-note"><p>{t("\u521D\u59CB\u5316\u4F1A\u628A\u73B0\u6709\u8D26\u6237\u914D\u7F6E\u5BFC\u5165\u5B9E\u4F8B\u7BA1\u7406\u3002\u8BF7\u6838\u5BF9\u73B0\u6709\u914D\u7F6E\u5E76\u6682\u505C\u5176\u4ED6\u5199\u5165\u540E\u518D\u64CD\u4F5C\u3002")}</p><button className="button button-secondary" type="button" disabled={!session?.admin || busy.instanceSave} onClick={importConfig}>{t("\u5BFC\u5165\u73B0\u6709\u914D\u7F6E")}</button></div>}
-        <div className="instance-list">{(instanceState.instances || []).map((item: any) => <article className="admin-record" key={`${item.platform}:${item.key}`}><strong>{item.config?.label || item.key}</strong><span>{item.platform}</span><span>{item.config?.broker_environment ? brokerEnvironment(item.config.broker_environment, t) : t("未设置")}</span><span>{item.kind === "draft" ? t("草稿记录") : t("已有记录")}{item.retirement_status === "requested" ? t(" · 已申请退役") : ""}</span><details className="admin-fold admin-manage"><summary>{t("管理")}</summary>
+        <div className="instance-list">{(instanceState.instances || []).map((item: any) => {
+          const platformLabel = String(cfg.platformMeta?.[item.platform]?.label || (PLATFORM_META as Record<string, { label?: string }>)[item.platform]?.label || item.platform);
+          const title = formatAccountIdentity(accountIdentity({ ...item.config, key: item.key }, platformLabel, "", strategyOccupiedNames(cfg.strategyProfiles || [], item.config?.default_strategy_profile)), t);
+          return <article className="admin-record" key={`${item.platform}:${item.key}`}><strong>{title}</strong><span>{platformLabel}</span><span>{item.config?.broker_environment ? brokerEnvironment(item.config.broker_environment, t) : t("未设置")}</span><span>{item.kind === "draft" ? t("草稿记录") : t("已有记录")}{item.retirement_status === "requested" ? t(" · 已申请退役") : ""}</span><details className="admin-fold admin-manage"><summary>{t("管理")}</summary><div className="admin-manage-actions">
           {item.kind === "existing" && <EnvironmentControl item={item} busy={busy} onSave={env => void updateInstance({ action: "set_broker_environment", platform: item.platform, key: item.key, broker_environment: env }, "环境标记已保存；未改变启用、应用或路由状态。")}/>}
           {item.kind === "draft" && item.retirement_status === "none" && <button className="button button-secondary" type="button" onClick={() => { setEditing(`${item.platform}:${item.key}`); setInstanceDraft({ ...blankDraft(), ...item.config, platform: item.platform }); setRecordFormOpen(true); }}>{t("编辑草稿")}</button>}
           {item.retirement_status !== "requested" && <button className="button button-secondary" type="button" disabled={!session?.admin || busy.instanceSave} onClick={() => void updateInstance({ action: "request_retirement", platform: item.platform, key: item.key }, "已保存退役申请；账户配置仍保留。")}>{t("申请退役")}</button>}
-        </details></article>)}</div>
-        {instanceState.initialized && <details className="admin-fold" open={recordFormOpen} onToggle={event => setRecordFormOpen(event.currentTarget.open)}><summary>{editing ? t("编辑账户记录") : t("新增账户记录")}</summary><form onSubmit={submitInstance}><div className="field-grid"><label>{t("平台")}<select value={instanceDraft.platform || "longbridge"} disabled={Boolean(editing)} onChange={e => updateDraft({ platform: e.target.value })}>{Object.keys(PLATFORM_CONFIG).filter(platform => !platformSettings[platform].dry_run_only).map(platform => <option key={platform} value={platform}>{platform}</option>)}</select></label>{fieldNames.map(field => <label key={field}>{({ label: t("实例名称"), key: t("实例标识"), target_name: t("运行目标"), account_selector: t("已有账户引用"), deployment_selector: t("已有部署引用"), service_name: t("服务名称"), account_scope: t("账户组引用（选填）"), github_environment: t("GitHub 环境引用（选填）") } as Record<string, string>)[field]}<input required={!['account_scope', 'github_environment'].includes(field)} readOnly={field === "key" && Boolean(editing)} value={String(instanceDraft[field] || "")} onChange={e => updateDraft({ [field]: e.target.value })}/></label>)}
-          <label>{t("环境标记")}<select value={instanceDraft.broker_environment || ""} onChange={e => updateDraft({ broker_environment: e.target.value })}><option value="">{t("未知 / 未设置")}</option><option value="live">{brokerEnvironment("live", t)}</option><option value="paper">{brokerEnvironment("paper", t)}</option></select></label><label>{t("默认策略")}<select value={instanceDraft.default_strategy_profile || ""} onChange={e => updateDraft({ default_strategy_profile: e.target.value })}>{strategies.map((p: any) => <option key={p.profile} value={p.profile}>{p.label || p.profile}</option>)}</select></label><label>{t("默认执行模式")}<select value={instanceDraft.default_execution_mode || "dry_run"} onChange={e => updateDraft({ default_execution_mode: e.target.value })}><option value="dry_run">{executionMode("dry_run", t)}</option><option value="live">{executionMode("live", t)}</option></select></label></div><p className="section-note">{t("只填写配置引用，不填写密钥。创建或编辑保存为草稿，不部署、不启用、不接管账户。")}</p><div className="form-actions"><button className="button button-primary" disabled={!session?.admin || !strategies.length || busy.instanceSave} type="submit">{t("保存草稿")}</button><button className="button button-secondary" type="button" onClick={() => { setEditing(null); setInstanceDraft(blankDraft()); }}>{t("取消编辑")}</button></div></form></details>}
+        </div></details></article>; })}</div>
+        {instanceState.initialized && <details className="admin-fold" open={recordFormOpen} onToggle={event => setRecordFormOpen(event.currentTarget.open)}><summary>{editing ? t("编辑账户记录") : t("新增账户记录")}</summary><form onSubmit={submitInstance}><div className="field-grid"><label>{t("平台")}<select value={instanceDraft.platform || "longbridge"} disabled={Boolean(editing)} onChange={e => updateDraft({ platform: e.target.value })}>{Object.keys(PLATFORM_CONFIG).filter(platform => !platformSettings[platform].dry_run_only).map(platform => <option key={platform} value={platform}>{platform}</option>)}</select></label>{requiredFields.map(field => <label key={field}>{({ label: t("账户名称"), key: t("账户标识"), target_name: t("运行目标"), account_selector: t("已有账户引用"), deployment_selector: t("已有部署引用"), service_name: t("服务名称") } as Record<string, string>)[field]}<input required readOnly={field === "key" && Boolean(editing)} value={String(instanceDraft[field] || "")} onChange={e => updateDraft({ [field]: e.target.value })}/></label>)}
+          <label>{t("环境标记")}<select value={instanceDraft.broker_environment || ""} onChange={e => updateDraft({ broker_environment: e.target.value })}><option value="">{t("未知 / 未设置")}</option><option value="live">{brokerEnvironment("live", t)}</option><option value="paper">{brokerEnvironment("paper", t)}</option></select></label><label>{t("默认策略")}<select value={instanceDraft.default_strategy_profile || ""} onChange={e => updateDraft({ default_strategy_profile: e.target.value })}>{strategies.map((p: any) => <option key={p.profile} value={p.profile}>{p.label || p.profile}</option>)}</select></label><label>{t("默认执行模式")}<select value={instanceDraft.default_execution_mode || "dry_run"} onChange={e => updateDraft({ default_execution_mode: e.target.value })}><option value="dry_run">{executionMode("dry_run", t)}</option><option value="live">{executionMode("live", t)}</option></select></label></div><details className="admin-fold optional-fields"><summary>{t("选填引用")}</summary><div className="field-grid">{optionalFields.map(field => <label key={field}>{({ account_scope: t("账户组引用（选填）"), github_environment: t("GitHub 环境引用（选填）") } as Record<string, string>)[field]}<input value={String(instanceDraft[field] || "")} onChange={e => updateDraft({ [field]: e.target.value })}/></label>)}</div></details><p className="section-note">{t("只填写配置引用，不填写密钥。创建或编辑保存为草稿，不部署、不启用、不接管账户。")}</p><div className="form-actions"><button className="button button-primary" disabled={!session?.admin || !strategies.length || busy.instanceSave} type="submit">{t("保存草稿")}</button><button className="button button-secondary" type="button" onClick={() => { setEditing(null); setInstanceDraft(blankDraft()); }}>{t("取消编辑")}</button></div></form></details>}
       </section>
-      <section className="content-section">{model?.config.error ? <Empty title={t("管理配置不可用")} detail={t("没有成功读取管理员配置。")}/> : <>
-        <details className="admin-fold"><summary>{t("访问权限")}</summary><div className="field-grid">{[["allowed_logins", t("可切换用户，每行一个")], ["allowed_orgs", t("可切换组织，每行一个")], ["admin_logins", t("管理员用户，每行一个")], ["admin_orgs", t("管理员组织，每行一个")]].map(([key, label]) => <label key={key}>{label}<textarea rows={4} value={text[key] || ""} onChange={e => setText(prev => ({ ...prev, [key]: e.target.value }))}/></label>)}</div><div className="form-actions"><button type="button" className="button button-primary" disabled={!kvAvailable || busy.adminConfig || !session?.admin} onClick={() => void saveAdmin()}>{t("保存登录与账户配置")}</button><span>{kvAvailable ? t("保存后写入审计记录") : t("KV 未绑定，只能查看")}</span></div></details>
-        <details className="admin-fold"><summary>{t("技术详情")}</summary><label>{t("账户选项 JSON")}<textarea className="json-textarea" rows={12} readOnly={Boolean(instanceState.initialized)} value={text.account_options || ""} onChange={e => setText(prev => ({ ...prev, account_options: e.target.value }))}/></label></details>
+      <section className="content-section">{notice ? <p className="section-note" role="status">{t(notice)}</p> : null}{model?.config.error ? <Empty title={t("管理配置不可用")} detail={t("没有成功读取管理员配置。")}/> : <>
+        <details className="admin-fold"><summary>{t("访问权限")}</summary><div className="field-grid">{[["allowed_logins", t("获准操作的用户，每行一个")], ["allowed_orgs", t("获准操作的组织，每行一个")], ["admin_logins", t("管理员用户，每行一个")], ["admin_orgs", t("管理员组织，每行一个")]].map(([key, label]) => <label key={key}>{label}<textarea rows={4} value={text[key] || ""} onChange={e => setText(prev => ({ ...prev, [key]: e.target.value }))}/></label>)}</div><div className="form-actions"><button type="button" className="button button-primary" disabled={!kvAvailable || busy.adminConfig || !session?.admin} onClick={() => void saveAdmin()}>{t("保存访问设置")}</button><span>{kvAvailable ? t("保存后写入审计记录") : t("暂时无法保存")}</span></div></details>
+        {!instanceState.initialized && <details className="admin-fold"><summary>{t("账户配置")}</summary><label>{t("账户选项 JSON")}<textarea className="json-textarea" rows={12} readOnly={Boolean(instanceState.initialized)} value={text.account_options || ""} onChange={e => setText(prev => ({ ...prev, account_options: e.target.value }))}/></label></details>}
       </>}</section>
-      <section className="content-section"><h2>{t("风险偏好")}</h2><p className="section-note">{t("单个账户的风险偏好在账户设置中修改。")}</p><button type="button" className="button button-secondary" onClick={onOpenAccounts}>{t("前往账户设置")}</button></section>
-      <details className="admin-fold"><summary>{t("变更记录")}</summary><h3>{t("账户记录变更")}</h3>{(instanceState.history || []).length === 0 ? <p>{t("没有账户记录变更")}</p> : (instanceState.history || []).map((item: any, index: number) => <p key={`${item.ts}-${index}`}>{item.ts} · {item.login} · {item.action}</p>)}<h3>{t("访问配置变更")}</h3>{(cfg.auditLog || []).length === 0 ? <p>{t("没有访问配置变更")}</p> : (cfg.auditLog || []).map((entry: any, index: number) => <p key={`${entry.ts}-${index}`}>{entry.ts} · {entry.login} · {entry.action}</p>)}</details>
+      <details className="admin-fold"><summary>{t("变更记录")}</summary><h3>{t("账户记录变更")}</h3>{(instanceState.history || []).length === 0 ? <p>{t("没有账户记录变更")}</p> : (instanceState.history || []).map((item: any, index: number) => <p key={`${item.ts}-${index}`}>{item.ts} · {item.login} · {item.action}</p>)}<h3>{t("访问配置变更")}</h3>{(cfg.auditLog || []).length === 0 ? <p>{t("没有访问配置变更")}</p> : (cfg.auditLog || []).map((entry: any, index: number) => <p key={`${entry.ts}-${index}`}>{entry.ts} · {entry.login} · {entry.action}</p>)}{historicalApplications.length > 0 && <><h3>{t("模拟账户应用记录")}</h3>{historicalApplications.map((application: any) => {
+        const previous = application.application || null;
+        const prep = application.application_preparation || {};
+        const status = previous ? `${t(displayStatus(previous.status))} · ${t(displayStatus(previous.dispatch_state))}` : t("尚无应用记录");
+        return <p key={String(application.ticket_id)}>{t("模拟账户应用 · {ticket}", { ticket: application.ticket_id })} · {t("预检：{preflight} · 应用：{status}", { preflight: t(displayStatus(prep.preflight_status)), status })}</p>;
+      })}</>}</details>
     </div>;
 }
 function EnvironmentControl({ item, busy, onSave }: {
     item: Record<string, any>;
     busy: Busy;
     onSave: (value: string) => void;
-}) { const t = useT(); const values = Array.isArray(item.supported_broker_environments) ? item.supported_broker_environments : ["live", "paper"]; const [environment, setEnvironment] = useState(item.config?.broker_environment || ""); return <div className="instance-environment"><select aria-label={t("环境标记")} value={environment} onChange={e => setEnvironment(e.target.value)}><option value="">{t("未知 / 未设置")}</option>{values.map((value: string) => <option key={value} value={value}>{brokerEnvironment(value, t)}</option>)}</select><button type="button" className="button button-secondary" disabled={!environment || busy.instanceSave} onClick={() => onSave(environment)}>{t("保存环境标记")}</button></div>; }
+}) {
+    const t = useT();
+    const serverValue = item.config?.broker_environment || "";
+    const values = Array.isArray(item.supported_broker_environments) ? item.supported_broker_environments : ["live", "paper"];
+    const [baseline, setBaseline] = useState(serverValue);
+    const [environment, setEnvironment] = useState(serverValue);
+    const decision = environmentEditState(baseline, environment, serverValue);
+    useEffect(() => {
+        if ((environment !== baseline && environment !== serverValue) || (environment === serverValue && baseline === serverValue)) return;
+        setEnvironment(serverValue);
+        setBaseline(serverValue);
+    }, [serverValue, environment, baseline]);
+    return <div className="instance-environment"><select aria-label={t("环境标记")} value={decision.value} onChange={event => setEnvironment(event.target.value)}><option value="">{t("未知 / 未设置")}</option>{values.map((value: string) => <option key={value} value={value}>{brokerEnvironment(value, t)}</option>)}</select><button type="button" className="button button-secondary" disabled={!decision.value || decision.conflict || busy.instanceSave} onClick={() => onSave(decision.value)}>{t("保存环境标记")}</button>{decision.conflict && <p className="section-note">{t("环境标记已在服务器更新，请先核对再保存。")}<button type="button" className="text-link" onClick={() => { setEnvironment(serverValue); setBaseline(serverValue); }}>{t("重新读取")}</button></p>}</div>;
+}
 export default App;

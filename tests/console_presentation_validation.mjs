@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, overviewFigures, paperApplicationAccounts, paperApplicationReady, preferenceDirty, readOnlyLayerState, reservedCashAmount, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, cashDraftDirty, chartRangeNote, chartUnavailable, decisionActionState, environmentEditState, formatAccountIdentity, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, preferenceDirty, readOnlyLayerState, reservedCashAmount, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -46,15 +46,19 @@ assert.equal(accountDisplayTitle({ label: "Binance", key: "default" }, "Binance"
 assert.equal(accountDisplayTitle({ label: "SG", key: "sg" }, "Longbridge", "", occupied), "账户 · SG");
 assert.equal(accountDisplayTitle({ key: "hk" }, "Longbridge", "", occupied), "账户 · hk");
 assert.equal(accountDisplayTitle({ key: "firstrade" }, "Firstrade", "", occupied), "账户 · firstrade");
-assert.equal(accountDisplayTitle({ key: "crypto_combo" }, "Binance", "", occupied), "账户 · crypto_combo");
-assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U12345678" }, "IBKR", "", occupied), "账户 ••••5678");
+const binanceRoute = { key: "crypto_combo", target_name: "crypto_combo" };
+assert.equal(accountDisplayTitle(binanceRoute, "Binance", "", occupied), "账户 · live");
+assert.equal(binanceRoute.key, "crypto_combo");
+assert.equal(binanceRoute.target_name, "crypto_combo");
+assert.equal(accountDisplayTitle({ key: "crypto_combo" }, "Firstrade", "", occupied), "账户 · crypto_combo");
+assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U12345678" }, "IBKR", "", occupied), "U12345678");
 assert.equal(accountDisplayTitle({ label: "soxl", key: "hk", account_selector: "" }, "IBKR", "", occupied), "账户 · hk");
 assert.equal(accountDisplayTitle({ label: "soxl", key: "hk", account_selector: "U12345678, U87654321" }, "IBKR", "", occupied), "账户 · hk");
 assert.equal(accountDisplayTitle({ account_selector: "U12345678, U87654321" }, "IBKR", "").includes("5678"), false);
 assert.equal(accountIdentity({ account_selector: "U12345678, U87654321" }, "IBKR", "").kind, "generic");
 const english = (key, values) => translate(key, "en", values || {});
 assert.equal(formatAccountIdentity(accountIdentity({ label: "SOXL", key: "live" }, "Binance", "", occupied), english), "Account · live");
-assert.equal(formatAccountIdentity(accountIdentity({ account_selector: "U12345678", label: "soxl" }, "IBKR", "", occupied), english), "Account ••••5678");
+assert.equal(formatAccountIdentity(accountIdentity({ account_selector: "U12345678", label: "soxl" }, "IBKR", "", occupied), english), "U12345678");
 assert.equal(formatAccountIdentity(accountIdentity({ label: "我的港股" }, "Longbridge", "", occupied), english), "我的港股");
 assert.equal(formatAccountIdentity(accountIdentity({ key: "internal-key" }, "Longbridge", "", occupied), english), "Account");
 const catalogWithoutShortNames = strategyOccupiedNames([
@@ -65,8 +69,8 @@ const catalogWithoutShortNames = strategyOccupiedNames([
 ]);
 assert.equal(catalogWithoutShortNames.some(name => ["soxl", "tqqq", "global etf", "russell top 50"].includes(name.toLowerCase())), false);
 for (const label of ["soxl", "tqqq", "Global ETF", "Russell Top 50"]) {
-  assert.equal(accountDisplayTitle({ label, account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames), "账户 ••••5678");
-  assert.equal(accountDisplayTitle({ label, account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames).includes("U12345678"), false);
+  assert.equal(accountDisplayTitle({ label, account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames), "U12345678");
+  assert.equal(accountDisplayTitle({ label, account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames).includes("U12345678"), true);
 }
 assert.equal(accountDisplayTitle({ label: "退休账户", account_selector: "U12345678" }, "IBKR", "", catalogWithoutShortNames), "退休账户");
 assert.equal(accountDisplayTitle({ label: "Global ETF Rotation", account_selector: "U12345678" }, "IBKR", "", []), "Global ETF Rotation");
@@ -74,8 +78,8 @@ assert.equal(accountDisplayTitle({ label: "soxl" }, "IBKR", "", catalogWithoutSh
 assert.equal(accountDisplayTitle({ label: "退休账户", account_selector: "U12345678" }, "IBKR", ""), "退休账户");
 assert.equal(formatAccountIdentity(accountIdentity({ label: "退休账户", account_selector: "U12345678" }, "IBKR", ""), english), "退休账户");
 assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U12345678" }, "Binance", "", occupied), "账户");
-assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "IBKR", ""), "账户 ••••5678");
-assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "IBKR", "").includes("U12345678"), false);
+assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "IBKR", ""), "U12345678");
+assert.equal(accountDisplayTitle({ label: "U12345678" }, "IBKR", "").includes("U12345678"), false);
 assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "Longbridge", ""), "账户");
 assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678" }, "Longbridge", "").includes("12345678"), false);
 assert.equal(accountDisplayTitle({ label: "U12345678", account_selector: "U12345678, U87654321" }, "IBKR", "").includes("5678"), false);
@@ -215,6 +219,57 @@ assert.equal(paperApplicationReady(application, ""), false);
 assert.equal(paperApplicationReady(application, "longbridge:paper-a"), true);
 assert.equal(paperApplicationReady({ ...application, application: { status: "submitted" } }, "longbridge:paper-a"), false);
 assert.equal(paperApplicationReady({ ...application, application: { status: "rejected" } }, "longbridge:paper-a"), true);
+assert.equal(paperApplicationReady({ ...application, application_preparation: { ...application.application_preparation, blocker_codes: ["account_not_ready"] } }, "longbridge:paper-a"), false);
+assert.equal(paperApplicationReady({ ...application, application_preparation: { ...application.application_preparation, blocker_codes: [] } }, "longbridge:paper-a"), true);
+const paperOption = application.application_preparation.account_options[0];
+const readyPrep = application.application_preparation;
+const blockedQueue = [
+  { ticket_id: "blocked-unknown", application: null, application_preparation: { preflight_status: "unknown", account_options: [paperOption] } },
+  { ticket_id: "blocked-code", application: null, application_preparation: { preflight_status: "unknown", blocker_codes: ["missing_account"], account_options: [paperOption] } },
+  { ticket_id: "blocked-ready-code", application: null, application_preparation: { ...readyPrep, blocker_codes: ["preview_blocked"] } },
+  { ticket_id: "blocked-not-ready", application: null, application_preparation: { preflight_status: "unknown", blocker_codes: [], preview_request: { ok: true }, account_options: [paperOption] } },
+];
+assert.equal(blockedQueue.filter(paperApplicationActionable).length, 0);
+assert.equal(blockedQueue.filter(paperApplicationUnresolved).length, 0);
+assert.equal(paperApplicationActionable(application), true);
+assert.equal(paperApplicationUnresolved(application), false);
+for (const status of ["approved", "claimed", "uncertain", "unknown", "submitted"]) {
+  const submitted = { ...application, application: { status } };
+  assert.equal(paperApplicationActionable(submitted), false, status);
+  assert.equal(paperApplicationUnresolved(submitted), true, status);
+  assert.equal(paperApplicationReady(submitted, "longbridge:paper-a"), false, status);
+}
+const completed = { ...application, application: { status: "applied_paused" } };
+assert.equal(paperApplicationActionable(completed), false);
+assert.equal(paperApplicationUnresolved(completed), false);
+const rejectedNotReady = { ...application, application: { status: "rejected" }, application_preparation: { ...readyPrep, preflight_status: "unknown" } };
+assert.equal(paperApplicationActionable(rejectedNotReady), false);
+assert.equal(paperApplicationUnresolved(rejectedNotReady), false);
+const rejectedReady = { ...application, application: { status: "rejected" } };
+assert.equal(paperApplicationActionable(rejectedReady), true);
+assert.equal(paperApplicationUnresolved(rejectedReady), false);
+const adminProfiles = [{ profile: "soxl_trend", label: "SOXL趋势", label_zh: "SOXL趋势", label_en: "SOXL Trend" }];
+const adminOccupied = strategyOccupiedNames(adminProfiles, "soxl_trend");
+const maskedAdmin = formatAccountIdentity(accountIdentity({ label: "SOXL趋势", key: "internal-key", account_selector: "U12345678" }, "IBKR", "", adminOccupied), english);
+assert.equal(maskedAdmin, "U12345678");
+assert.equal(maskedAdmin.includes("internal-key"), false);
+assert.deepEqual(environmentEditState("paper", "paper", "live"), { value: "live", conflict: false });
+assert.deepEqual(environmentEditState("paper", "live", "paper"), { value: "live", conflict: false });
+assert.deepEqual(environmentEditState("paper", "live", ""), { value: "live", conflict: true });
+const merged = mergeAdminFields(
+  { allowed_logins: "edited", account_options: "old-json" },
+  { allowed_logins: "server", account_options: "new-json" },
+  { allowed_logins: true, account_options: true },
+  ["account_options"],
+);
+assert.equal(merged.kept, true);
+assert.equal(merged.text.allowed_logins, "edited");
+assert.equal(merged.text.account_options, "new-json");
+const genericAdmin = formatAccountIdentity(accountIdentity({ label: "SOXL趋势", key: "internal-key" }, "LongBridge", "", adminOccupied), english);
+assert.equal(genericAdmin, "Account");
+assert.equal(genericAdmin.includes("internal-key"), false);
+assert.equal(genericAdmin.includes("SOXL"), false);
+assert.equal(formatAccountIdentity(accountIdentity({ label: "我的模拟", key: "internal-key" }, "LongBridge", "", adminOccupied), english), "我的模拟");
 assert.equal(rejectedRecovery.kind, "recovery");
 
 const decisionsPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");
@@ -227,5 +282,13 @@ assert.equal(recoveryFn.includes("dual_review_binding_sha256"), false);
 assert.match(recoveryFn, /不采用这份恢复方案，账户不会因此启用/);
 assert.match(recoveryFn, /knownAccountLabel/);
 assert.match(app, /dialog\.consequence !== dialog\.summary/);
+assert.match(app, /pendingApplications > 0 \|\| unresolvedApplications > 0/);
+assert.equal((app.match(/<ApplicationCard/g) || []).length, 1);
+assert.equal(app.includes("applicationRetryAllowed(item?.application"), false);
+assert.equal(app.includes("item.config?.label || item.key"), false);
+assert.match(app, /formatAccountIdentity\(accountIdentity\(\{ \.\.\.item\.config, key: item\.key \}, platformLabel, "", strategyOccupiedNames\(cfg\.strategyProfiles \|\| \[\], item\.config\?\.default_strategy_profile\)\)/);
+assert.match(app, /模拟账户应用记录/);
 
 console.log("console presentation: PASS");
+assert.deepEqual(environmentEditState("paper", "live", "live"), { value: "live", conflict: false });
+assert.deepEqual(environmentEditState("paper", "", "live"), { value: "", conflict: true });

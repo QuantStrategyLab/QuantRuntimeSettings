@@ -80,12 +80,12 @@ function identityFold(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function singleBrokerTail(selector: unknown): string {
+function singleBrokerNumber(selector: unknown): string {
   const text = identityText(selector);
   if (!text) return "";
   const tokens = text.split(/[\s,;]+/).filter(Boolean);
   if (tokens.length !== 1 || !/^U\d{5,}$/i.test(tokens[0])) return "";
-  return tokens[0].slice(-4);
+  return tokens[0];
 }
 
 function fullAccountNumber(value: string): boolean {
@@ -119,21 +119,20 @@ export function accountIdentity(account: { label?: unknown; key?: unknown; accou
   const environment = identityText(environmentLabel);
   const occupied = new Set(occupiedNames.map(identityFold).filter(Boolean));
   const ibkr = identityFold(platform) === "ibkr";
-  const selectorTail = ibkr ? singleBrokerTail(account.account_selector) : "";
+  const accountNumber = ibkr ? singleBrokerNumber(account.account_selector) : "";
   const labelIsNumber = fullAccountNumber(label);
-  const tail = selectorTail || (ibkr && !identityText(account.account_selector) && labelIsNumber ? label.slice(-4) : "");
   const base = { text: "", tail: "", alias: "", platform, environment };
-  const legacyStrategyLabel = Boolean(selectorTail) && LEGACY_IBKR_STRATEGY_ALIASES.has(identityFold(label));
+  const legacyStrategyLabel = Boolean(accountNumber) && LEGACY_IBKR_STRATEGY_ALIASES.has(identityFold(label));
   const occupiedLabel = Boolean(label) && (occupied.has(identityFold(label)) || identityFold(label) === identityFold(platform) || legacyStrategyLabel);
   if (label && !occupiedLabel && !labelIsNumber && !ROUTE_ALIASES.has(identityFold(label))) return { ...base, kind: "nickname", text: label };
-  if (tail && (occupiedLabel || labelIsNumber || !label)) return { ...base, kind: "masked", tail };
+  if (accountNumber && (occupiedLabel || labelIsNumber || !label)) return { ...base, kind: "masked", tail: accountNumber };
   const alias = routeAlias(labelIsNumber ? "" : label, key);
-  if (alias) return { ...base, kind: "alias", alias };
+  if (alias) return { ...base, kind: "alias", alias: identityFold(platform) === "binance" && identityFold(alias) === "crypto_combo" ? "live" : alias };
   return { ...base, kind: "generic" };
 }
 
 export function formatAccountIdentity(identity: AccountIdentity, translate: (key: string, values?: Record<string, string>) => string): string {
-  if (identity.kind === "masked") return translate("账户 ••••{tail}", { tail: identity.tail });
+  if (identity.kind === "masked") return identity.tail;
   if (identity.kind === "alias") return translate("账户 · {alias}", { alias: identity.alias });
   if (identity.kind === "generic") return translate("账户");
   return identity.text;
@@ -196,11 +195,55 @@ export function paperApplicationAccounts(application: { application_preparation?
     }));
 }
 
-export function paperApplicationReady(application: { application?: Record<string, any> | null; application_preparation?: { preflight_status?: unknown; preview_request?: unknown; account_options?: Array<Record<string, unknown>> } } | null | undefined, selectedAccountId: string): boolean {
+type PaperApplicationItem = {
+  application?: Record<string, any> | null;
+  application_preparation?: {
+    preflight_status?: unknown;
+    preview_request?: unknown;
+    blocker_codes?: unknown;
+    account_options?: Array<Record<string, unknown>>;
+  };
+} | null | undefined;
+
+function paperApplicationBlocked(application: PaperApplicationItem): boolean {
+  const blockers = application?.application_preparation?.blocker_codes;
+  return Array.isArray(blockers) && blockers.length > 0;
+}
+
+export function paperApplicationReady(application: PaperApplicationItem, selectedAccountId: string): boolean {
   if (!application || !applicationRetryAllowed(application.application)) return false;
   const prep = application.application_preparation || {};
-  if (prep.preflight_status !== "ready" || !prep.preview_request) return false;
+  if (paperApplicationBlocked(application) || prep.preflight_status !== "ready" || !prep.preview_request) return false;
   return paperApplicationAccounts(application).some(account => account.id === selectedAccountId);
+}
+
+export function mergeAdminFields(previous: Record<string, string>, next: Record<string, string>, dirty: Record<string, boolean>, readonlyKeys: string[] = []): { text: Record<string, string>; kept: boolean } {
+  if (!Object.keys(previous).length) return { text: { ...next }, kept: false };
+  const text = { ...next };
+  let kept = false;
+  for (const key of Object.keys(next)) {
+    if (readonlyKeys.includes(key)) continue;
+    if (!dirty[key]) continue;
+    if ((previous[key] || "") !== (next[key] || "")) kept = true;
+    text[key] = previous[key] || "";
+  }
+  return { text, kept };
+}
+
+export function environmentEditState(baseline: string, local: string, server: string): { value: string; conflict: boolean } {
+  if (local === baseline || local === server) return { value: server, conflict: false };
+  return { value: local, conflict: server !== baseline };
+}
+
+export function paperApplicationActionable(application: PaperApplicationItem): boolean {
+  return paperApplicationAccounts(application).some(account => paperApplicationReady(application, account.id));
+}
+
+export function paperApplicationUnresolved(application: PaperApplicationItem): boolean {
+  const record = application?.application;
+  if (!record || typeof record !== "object" || paperApplicationActionable(application)) return false;
+  const status = typeof record.status === "string" ? record.status : "";
+  return status !== "applied_paused" && status !== "rejected";
 }
 
 export function activationLabel(activation: unknown): "已启用" | "已停用" | "—" {
