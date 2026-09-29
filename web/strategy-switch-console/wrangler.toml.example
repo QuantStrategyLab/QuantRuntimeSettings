@@ -23,8 +23,11 @@ workers_dev = true
 # - STRATEGY_SWITCH_ADMIN_ORGS
 # - STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON
 #
-# Optional non-secret variables can be placed here or in the Cloudflare dashboard:
+# Optional non-secret variables can be placed here or in the Cloudflare dashboard.
 [vars]
+# The deploy workflow renders this from the runtime-strategy-switch Environment value.
+# Keep the checked-in default closed; use the Environment value as the deployment source of truth.
+ACCOUNT_FACTS_READ_MODEL_ENABLED = "false"
 # Website visibility only; does not disable trading or remove platform support.
 # Comma-separated platform IDs. Set to an empty string to show all platforms.
 STRATEGY_SWITCH_HIDDEN_PLATFORMS = "qmt"

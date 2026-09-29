@@ -349,6 +349,8 @@ const HUMAN_DECISION_DO_ACTIONS = new Set([
 const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "risk_profile_read", "risk_profile_replace", "risk_profile_set",
   "account_settings_read", "account_settings_save",
+  "account_settings_profile_application_lookup", "account_settings_profile_application_approve",
+  "account_settings_profile_application_claim",
 ]);
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
@@ -357,6 +359,7 @@ const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_
 const HK_STOP_TARGET_ID = "longbridge/hk";
 const HK_STOP_REQUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const ACCOUNT_SETTING_OVERRIDE_FIELDS = ["strategy_profile", "income_layer_enabled", "option_overlay_enabled", "reserved_cash_floor", "reserved_cash_ratio", "dca_mode", "dca_base_investment_usd"];
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 // Research tasks are a separate, immutable and no-order index.  They do not
 // share storage or a sync credential with candidate lifecycle snapshots.
 const RESEARCH_TASK_SOURCE_PREFIX = "research_task_source:";
@@ -677,6 +680,9 @@ export default {
       }
       if (url.pathname === "/api/account-settings" && request.method === "POST") {
         return await saveAccountSettings(request, env);
+      }
+      if (url.pathname === "/api/account-settings/profile-application/approve" && request.method === "POST") {
+        return await approveAccountSettingsProfileApplication(request, env);
       }
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
         return await syncAccountDefaultResponse(request, env);
@@ -2047,6 +2053,23 @@ export class RuntimeInstances {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (platform, account_key)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_setting_profile_application (
+      request_key TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      account_key TEXT NOT NULL,
+      identity_json TEXT NOT NULL,
+      instance_revision INTEGER NOT NULL,
+      draft_revision INTEGER NOT NULL,
+      old_profile TEXT NOT NULL,
+      new_profile TEXT NOT NULL,
+      approved_by TEXT NOT NULL,
+      approved_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      workflow_run_id TEXT,
+      workflow_run_attempt TEXT,
+      claimed_at TEXT
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS account_setting_profile_application_target ON account_setting_profile_application (platform, account_key, status)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_facts_observation (
       platform TEXT NOT NULL,
       account_key TEXT NOT NULL,
@@ -2316,6 +2339,9 @@ export class RuntimeInstances {
     if (command.action === "risk_profile_set") return this.setRiskProfileAuthority(command);
     if (command.action === "account_settings_read") return this.readAccountSettings(command);
     if (command.action === "account_settings_save") return this.saveAccountSettings(command);
+    if (command.action === "account_settings_profile_application_lookup") return this.readAccountSettingsProfileApplication(command);
+    if (command.action === "account_settings_profile_application_approve") return this.approveAccountSettingsProfileApplication(command);
+    if (command.action === "account_settings_profile_application_claim") return this.claimAccountSettingsProfileApplication(command);
     throw new HttpError("unsupported_account_settings_action", 400);
   }
 
@@ -2531,6 +2557,186 @@ export class RuntimeInstances {
       });
     }
     return { ...this.readAccountSettings(command), adopted: false };
+  }
+
+  accountSettingsProfileApplicationFromRow(row) {
+    if (!row) return null;
+    let identity;
+    try { identity = JSON.parse(row.identity_json); } catch { throw new HttpError("account_settings_profile_application_invalid", 409); }
+    return {
+      request_key: row.request_key,
+      platform: row.platform,
+      key: row.account_key,
+      identity,
+      instance_revision: Number(row.instance_revision),
+      draft_revision: Number(row.draft_revision),
+      old_profile: row.old_profile,
+      new_profile: row.new_profile,
+      approved_by: row.approved_by,
+      approved_at: row.approved_at,
+      status: row.status,
+      workflow_run_id: row.workflow_run_id || null,
+      workflow_run_attempt: row.workflow_run_attempt || null,
+      claimed_at: row.claimed_at || null,
+      runtime_applied: false,
+      variables_updated: false,
+      no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
+  readAccountSettingsProfileApplication(command) {
+    const requestKey = String(command.request_key || "");
+    if (!ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(requestKey)) {
+      throw new HttpError("account_settings_profile_application_request_invalid", 400);
+    }
+    const row = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
+    return { ok: true, application: this.accountSettingsProfileApplicationFromRow(row) };
+  }
+
+  approveAccountSettingsProfileApplication(command) {
+    const requestKey = String(command.request_key || "");
+    if (!ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(requestKey)) {
+      throw new HttpError("account_settings_profile_application_request_invalid", 400);
+    }
+    if (!SUPPORTED_PLATFORMS.includes(command.platform) || typeof command.key !== "string" || !command.key) {
+      throw new HttpError("account_settings_account_required", 400);
+    }
+    if (!Number.isSafeInteger(command.expected_instance_revision) || command.expected_instance_revision < 0
+      || !Number.isSafeInteger(command.expected_draft_revision) || command.expected_draft_revision < 0) {
+      throw new HttpError("account_settings_profile_application_revision_invalid", 400);
+    }
+    const identity = command.identity;
+    if (!accountSettingsIdentityIsComplete(identity)) throw new HttpError("account_settings_identity_required", 400);
+    const identityJson = canonicalResearchTaskJson(identity);
+    const oldProfile = accountSettingsProfileName(command.old_profile);
+    const newProfile = accountSettingsProfileName(command.new_profile);
+    if (!oldProfile || !newProfile || oldProfile === newProfile) throw new HttpError("account_settings_profile_application_profile_invalid", 400);
+
+    const existing = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
+    if (existing) {
+      const sameRequest = existing.platform === command.platform
+        && existing.account_key === command.key
+        && existing.identity_json === identityJson
+        && Number(existing.instance_revision) === command.expected_instance_revision
+        && Number(existing.draft_revision) === command.expected_draft_revision
+        && existing.old_profile === oldProfile
+        && existing.new_profile === newProfile
+        && existing.approved_by === command.actor;
+      if (!sameRequest) throw new HttpError("account_settings_profile_application_conflict", 409);
+      return { ok: true, replayed: true, application: this.accountSettingsProfileApplicationFromRow(existing) };
+    }
+
+    if (command.current_profile !== oldProfile || command.runtime_target_enabled !== false) {
+      throw new HttpError("account_settings_profile_application_runtime_conflict", 409);
+    }
+    const { state, item, identity: currentIdentity } = this.existingAccountInstance(command.platform, command.key);
+    if (state.revision !== command.expected_instance_revision || identityJson !== canonicalResearchTaskJson(currentIdentity)) {
+      throw new HttpError("account_settings_profile_application_identity_conflict", 409);
+    }
+    const draft = this.accountSettingDraftView(item, currentIdentity);
+    if (draft.status !== "current" || draft.revision !== command.expected_draft_revision
+      || canonicalResearchTaskJson(draft.identity) !== identityJson
+      || Object.keys(draft.overrides).length !== 1
+      || draft.overrides.strategy_profile !== newProfile) {
+      throw new HttpError("account_settings_profile_application_draft_conflict", 409);
+    }
+    if (isDcaProfile(oldProfile) || isDcaProfile(newProfile)) {
+      throw new HttpError("account_settings_profile_application_profile_only_required", 409);
+    }
+
+    const priorApprovals = this.sql.exec(
+      "SELECT request_key, identity_json, instance_revision, draft_revision, old_profile, new_profile FROM account_setting_profile_application WHERE platform = ? AND account_key = ? AND status = 'approved'",
+      command.platform, command.key,
+    ).toArray();
+    for (const prior of priorApprovals) {
+      const stale = prior.identity_json !== identityJson
+        || Number(prior.instance_revision) !== state.revision
+        || Number(prior.draft_revision) !== draft.revision
+        || prior.old_profile !== oldProfile
+        || prior.new_profile !== newProfile;
+      if (stale) {
+        this.sql.exec(
+          "UPDATE account_setting_profile_application SET status = 'invalidated' WHERE request_key = ? AND status = 'approved'",
+          prior.request_key,
+        );
+      }
+    }
+    const active = this.sql.exec(
+      "SELECT request_key FROM account_setting_profile_application WHERE platform = ? AND account_key = ? AND status IN ('approved', 'claimed') LIMIT 1",
+      command.platform, command.key,
+    ).toArray()[0];
+    if (active) throw new HttpError("account_settings_profile_application_pending", 409);
+
+    const approvedAt = new Date().toISOString();
+    this.sql.exec(
+      `INSERT INTO account_setting_profile_application
+       (request_key, platform, account_key, identity_json, instance_revision, draft_revision,
+        old_profile, new_profile, approved_by, approved_at, status, workflow_run_id,
+        workflow_run_attempt, claimed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', NULL, NULL, NULL)`,
+      requestKey, command.platform, command.key, identityJson, command.expected_instance_revision,
+      command.expected_draft_revision, oldProfile, newProfile, command.actor, approvedAt,
+    );
+    const row = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
+    return { ok: true, replayed: false, application: this.accountSettingsProfileApplicationFromRow(row) };
+  }
+
+  claimAccountSettingsProfileApplication(command) {
+    const requestKey = String(command.request_key || "");
+    if (!ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(requestKey)) {
+      throw new HttpError("account_settings_profile_application_request_invalid", 400);
+    }
+    const row = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
+    if (!row) throw new HttpError("account_settings_profile_application_not_found", 404);
+    const workflowRunId = String(command.workflow_run_id || "");
+    const workflowRunAttempt = String(command.workflow_run_attempt || "");
+    if (!/^\d{1,20}$/.test(workflowRunId) || !/^[1-9]\d{0,5}$/.test(workflowRunAttempt)) {
+      throw new HttpError("account_settings_profile_application_run_invalid", 400);
+    }
+    const identityJson = accountSettingsIdentityIsComplete(command.identity)
+      ? canonicalResearchTaskJson(command.identity)
+      : "";
+    const safeResult = { no_order: true, execution_authority_granted: false, runtime_applied: false, variables_updated: false };
+    const boundRequest = identityJson === row.identity_json
+      && Number(command.expected_instance_revision) === Number(row.instance_revision)
+      && Number(command.expected_draft_revision) === Number(row.draft_revision)
+      && command.old_profile === row.old_profile
+      && command.new_profile === row.new_profile
+      && command.current_profile === row.old_profile
+      && command.runtime_target_enabled === false;
+    if (!boundRequest) throw new HttpError("account_settings_profile_application_conflict", 409);
+    if (row.status === "claimed") {
+      if (row.workflow_run_id !== workflowRunId || row.workflow_run_attempt !== workflowRunAttempt) {
+        throw new HttpError("account_settings_profile_application_already_claimed", 409);
+      }
+      return { ok: true, claimed: false, replayed: true, application: this.accountSettingsProfileApplicationFromRow(row), ...safeResult };
+    }
+    if (row.status !== "approved") throw new HttpError("account_settings_profile_application_conflict", 409);
+    if (!Number.isSafeInteger(command.expected_instance_revision) || !Number.isSafeInteger(command.expected_draft_revision)) {
+      throw new HttpError("account_settings_profile_application_revision_invalid", 409);
+    }
+    const { state, item, identity: currentIdentity } = this.existingAccountInstance(row.platform, row.account_key);
+    if (state.revision !== Number(row.instance_revision)
+      || canonicalResearchTaskJson(currentIdentity) !== row.identity_json) {
+      throw new HttpError("account_settings_profile_application_identity_conflict", 409);
+    }
+    const draft = this.accountSettingDraftView(item, currentIdentity);
+    if (draft.status !== "current" || draft.revision !== Number(row.draft_revision)
+      || canonicalResearchTaskJson(draft.identity) !== row.identity_json
+      || Object.keys(draft.overrides).length !== 1
+      || draft.overrides.strategy_profile !== row.new_profile) {
+      throw new HttpError("account_settings_profile_application_draft_conflict", 409);
+    }
+    const claimedAt = new Date().toISOString();
+    this.sql.exec(
+      `UPDATE account_setting_profile_application
+       SET status = 'claimed', workflow_run_id = ?, workflow_run_attempt = ?, claimed_at = ?
+       WHERE request_key = ? AND status = 'approved'`,
+      workflowRunId, workflowRunAttempt, claimedAt, requestKey,
+    );
+    const claimedRow = this.sql.exec("SELECT * FROM account_setting_profile_application WHERE request_key = ?", requestKey).toArray()[0];
+    return { ok: true, claimed: true, replayed: false, application: this.accountSettingsProfileApplicationFromRow(claimedRow), ...safeResult };
   }
 
   hkStopCommand(command) {
@@ -3998,6 +4204,134 @@ async function saveAccountSettings(request, env) {
   const presented = await presentAccountSettings(env, saved, true);
   presented.audit_logged = auditLogged;
   return json(presented);
+}
+
+async function approveAccountSettingsProfileApplication(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  let raw;
+  try { raw = await request.json(); } catch { return json({ ok: false, error: "request body must be valid JSON" }, 400); }
+  const allowedFields = new Set([
+    "platform", "key", "request_key", "identity", "expected_instance_revision",
+    "expected_draft_revision", "old_profile", "new_profile",
+  ]);
+  if (!raw || Array.isArray(raw) || typeof raw !== "object" || Object.keys(raw).some((key) => !allowedFields.has(key))) {
+    return json({ ok: false, error: "account_settings_profile_application_request_invalid" }, 400);
+  }
+  if (!SUPPORTED_PLATFORMS.includes(raw.platform) || typeof raw.key !== "string" || !raw.key) {
+    return json({ ok: false, error: "account_settings_account_required" }, 400);
+  }
+  if (!ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(String(raw.request_key || ""))
+    || !Number.isSafeInteger(raw.expected_instance_revision) || raw.expected_instance_revision < 0
+    || !Number.isSafeInteger(raw.expected_draft_revision) || raw.expected_draft_revision < 0
+    || !accountSettingsIdentityIsComplete(raw.identity)) {
+    return json({ ok: false, error: "account_settings_profile_application_request_invalid" }, 400);
+  }
+  const oldProfile = accountSettingsProfileName(raw.old_profile);
+  const newProfile = accountSettingsProfileName(raw.new_profile);
+  if (!oldProfile || !newProfile || oldProfile === newProfile) {
+    return json({ ok: false, error: "account_settings_profile_application_profile_invalid" }, 400);
+  }
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "runtime_instances_not_bound" }, 503);
+
+  const command = {
+    action: "account_settings_profile_application_approve",
+    actor: session.login,
+    platform: raw.platform,
+    key: raw.key,
+    request_key: raw.request_key,
+    identity: raw.identity,
+    expected_instance_revision: raw.expected_instance_revision,
+    expected_draft_revision: raw.expected_draft_revision,
+    old_profile: oldProfile,
+    new_profile: newProfile,
+  };
+  try {
+    const prior = await runtimeInstanceCommand(env, {
+      action: "account_settings_profile_application_lookup",
+      actor: session.login,
+      request_key: raw.request_key,
+    });
+    if (prior.application) {
+      const replay = await runtimeInstanceCommand(env, command);
+      return json({
+        ok: true,
+        replayed: true,
+        application: replay.application,
+        runtime_applied: false,
+        variables_updated: false,
+        no_order: true,
+        execution_authority_granted: false,
+      });
+    }
+
+    const observed = await runtimeInstanceCommand(env, {
+      action: "account_settings_read", actor: session.login, platform: raw.platform, key: raw.key,
+    });
+    if (observed.instance_revision !== raw.expected_instance_revision
+      || canonicalResearchTaskJson(observed.identity) !== canonicalResearchTaskJson(raw.identity)) {
+      return json({ ok: false, error: "account_settings_profile_application_identity_conflict" }, 409);
+    }
+    const draft = observed.draft;
+    if (draft?.status !== "current" || draft.revision !== raw.expected_draft_revision
+      || canonicalResearchTaskJson(draft.identity) !== canonicalResearchTaskJson(observed.identity)
+      || Object.keys(draft.overrides || {}).length !== 1
+      || draft.overrides?.strategy_profile !== newProfile) {
+      return json({ ok: false, error: "account_settings_profile_application_draft_conflict" }, 409);
+    }
+    if (isDcaProfile(oldProfile) || isDcaProfile(newProfile)) {
+      return json({ ok: false, error: "account_settings_profile_application_profile_only_required" }, 409);
+    }
+    const profiles = await loadAccountDraftProfiles(env);
+    const selectable = accountDraftStrategyChoices(raw.platform, observed.config, profiles);
+    if (!selectable.some((profile) => profile.profile === newProfile && profile.dca_supported !== true)) {
+      return json({ ok: false, error: "account_settings_profile_application_profile_not_selectable" }, 409);
+    }
+    const readback = await accountSettingsProfileRuntimeReadback(env, observed);
+    if (!readback) return json({ ok: false, error: "account_settings_runtime_readback_unavailable" }, 503);
+    if (readback.runtime_target_enabled !== "false") {
+      return json({ ok: false, error: "account_settings_runtime_target_not_disabled" }, 409);
+    }
+    if (readback.strategy_profile !== oldProfile) {
+      return json({ ok: false, error: "account_settings_profile_application_current_profile_conflict" }, 409);
+    }
+    command.current_profile = readback.strategy_profile;
+    command.runtime_target_enabled = false;
+    const approved = await runtimeInstanceCommand(env, command);
+    let auditLogged = false;
+    if (!approved.replayed && hasConfigStore(env)) {
+      try {
+        await appendAuditLog(env, {
+          ts: approved.application.approved_at,
+          login: session.login,
+          action: "approve_account_settings_profile_application",
+          platform: raw.platform,
+          key: raw.key,
+          request_key: raw.request_key,
+          instance_revision: raw.expected_instance_revision,
+          draft_revision: raw.expected_draft_revision,
+          old_profile: oldProfile,
+          new_profile: newProfile,
+        });
+        auditLogged = true;
+      } catch { /* the durable approval is authoritative if its audit mirror is unavailable */ }
+    }
+    return json({
+      ok: true,
+      replayed: approved.replayed === true,
+      application: approved.application,
+      audit_logged: auditLogged,
+      runtime_applied: false,
+      variables_updated: false,
+      no_order: true,
+      execution_authority_granted: false,
+    });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
 }
 
 function accountSettingsAuditChanges(before, after, requested) {
@@ -13473,6 +13807,20 @@ function accountSettingsIdentity(instance) {
   };
 }
 
+function accountSettingsIdentityIsComplete(identity) {
+  if (!identity || Array.isArray(identity) || typeof identity !== "object"
+    || !SUPPORTED_PLATFORMS.includes(identity.platform)
+    || (identity.broker_environment !== "paper" && identity.broker_environment !== "live")) return false;
+  return ["key", "target_name", "account_selector", "deployment_selector", "account_scope", "service_name"]
+    .every((field) => typeof identity[field] === "string" && identity[field].trim() !== "");
+}
+
+function accountSettingsProfileName(value) {
+  if (typeof value !== "string" || value.length > 128 || value !== value.trim()
+    || !/^[a-z0-9][a-z0-9._-]*$/.test(value)) return "";
+  return value;
+}
+
 function accountSettingPositiveAmount(value) {
   if (typeof value !== "string" || value.length > 32 || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value)) return false;
   const numeric = Number(value);
@@ -13612,6 +13960,41 @@ async function effectiveAccountSettings(env, observed) {
     effective.dca_base_investment_usd = amount ? { status: "known", value: amount } : { status: "unknown" };
   }
   return effective;
+}
+
+async function accountSettingsProfileRuntimeReadback(env, observed) {
+  const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
+  const repository = platformRepositories(env)?.[observed.platform];
+  if (!token || !repository || !observed.config) return null;
+  const options = Array.isArray(observed.account_options?.[observed.platform])
+    ? observed.account_options[observed.platform] : [];
+  const variableCache = new Map();
+  const readVariable = async (repo, scope, githubEnvironment, name) => {
+    const cacheKey = [repo, scope, githubEnvironment || ""].join("|");
+    if (!variableCache.has(cacheKey)) {
+      variableCache.set(cacheKey, fetchGithubVariables(token, repo, scope, githubEnvironment));
+    }
+    return (await variableCache.get(cacheKey)).get(name) || "";
+  };
+  try {
+    const current = await resolveCurrentStrategyForAccount({
+      platform: observed.platform,
+      option: observed.config,
+      optionsCount: options.length || 1,
+      repository,
+      readVariable,
+    });
+    if (!current) return null;
+    const variableScope = resolveVariableScope(observed.platform, observed.config);
+    const githubEnvironment = resolveGithubEnvironment(observed.platform, observed.config, variableScope);
+    const variables = await variableCache.get([repository, variableScope, githubEnvironment || ""].join("|"));
+    return {
+      strategy_profile: current.strategy_profile || null,
+      runtime_target_enabled: variables?.get(RUNTIME_TARGET_ENABLED_VARIABLE) || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function hasConfigStore(env) {

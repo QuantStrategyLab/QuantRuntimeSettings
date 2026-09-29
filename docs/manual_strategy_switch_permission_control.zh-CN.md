@@ -4,7 +4,13 @@
 
 这是个人量化系统的简化权限方案，保留必要的防误触和防泄密边界。
 
-**当前候选状态（2026-09-27）：策略激活尚未接通。** 网页端在 dispatch 前拒绝切换；workflow 即使通过 Promotion Manifest 校验，也会在写变量及同步步骤前拒绝 `apply=true`。尚缺持久化的一次性授权消费与不可变的跨平台激活绑定，不能通过打开开关、增加 token 权限或省略校验绕过。此处描述本仓候选源码，不代表生产部署状态已读回。
+**当前候选状态（2026-09-29）：策略激活尚未接通。** 网页端在 dispatch 前拒绝切换；workflow 即使通过 Promotion Manifest 校验，也会在写变量及同步步骤前拒绝 `apply=true`。现有账户设置后端已能记录经 admin OAuth 批准的单目标 `strategy_profile` 变更，并在 Durable Object 内单次 claim；claim 没有公网路由或 workflow consumer，记录本身不会写平台变量，也不能证明部署已停用。token、确认词或 allowlist 均不能解除切换阻断。此处描述本仓候选源码，不代表生产部署状态已读回。
+
+批准记录绑定完整账户身份、instance/draft revision、可信当前策略和草案中已保存且对该账户可选的新策略；批准前要求当前 `RUNTIME_TARGET_ENABLED` 变量原值严格等于字符串 `false`。这只证明变量层，不证明 Cloud Run 或调度器已停用。内部 DO claim 再检查身份和两个 revision，并绑定调用方提供的 workflow run ID/attempt；这些字段仅用于记录关联，不能证明 GitHub run 身份。同一 run 的重放只读回原记录，其他 run 不能重复领取。后续 consumer 仍须认证实际 run，并独立读回真实部署状态后才能应用设置。
+
+未领取批准若身份、instance 或 draft revision 已漂移，后续有效批准事务会先将旧记录标为 `invalidated` 再批准新请求；已领取记录始终锁定，不会因漂移释放。
+
+`runtime_settings.py` 中另有仅供后续受控 consumer 使用的变量层原语：它只接受完整身份不变、唯一目标且 `RUNTIME_TARGET_ENABLED` 原值严格等于字符串 `false` 的单目标 `strategy_profile` 变更；批准及 claim 记录尚未接到该原语，它不做平台同步，也不证明部署已停用。当前 console/workflow 未调用该原语，`apply=true` 仍按上述规则拒绝。
 
 ## 默认方案：个人单人模式
 

@@ -48,7 +48,7 @@ class Ux1DeployWorkflowTests(unittest.TestCase):
         worker_dir = temp_root / "worker"
         worker_dir.mkdir()
         (worker_dir / "wrangler.toml.example").write_text(
-            '[vars]\nEXISTING = "retained"\n\n'
+            '[vars]\nEXISTING = "retained"\nACCOUNT_FACTS_READ_MODEL_ENABLED = "false"\n\n'
             '# [[kv_namespaces]]\n'
             '# binding = "STRATEGY_SWITCH_CONFIG"\n'
             '# id = "replace-with-cloudflare-kv-namespace-id"\n\n',
@@ -91,6 +91,7 @@ class Ux1DeployWorkflowTests(unittest.TestCase):
         config = tomllib.loads(config_text)
         variables = config["vars"]
         self.assertEqual(variables["EXISTING"], "retained")
+        self.assertEqual(variables["ACCOUNT_FACTS_READ_MODEL_ENABLED"], "false")
         self.assertEqual(variables["UX1_PREVIEW_MODE"], "github_actions")
         self.assertEqual(variables["UX1_UES_REVISION"], "a" * 40)
         self.assertEqual(variables["UX1_RUNTIME_EPOCH"], "b" * 32)
@@ -109,6 +110,7 @@ class Ux1DeployWorkflowTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         config = tomllib.loads(config_path.read_text(encoding="utf-8"))
         self.assertEqual(config["vars"]["EXISTING"], "retained")
+        self.assertEqual(config["vars"]["ACCOUNT_FACTS_READ_MODEL_ENABLED"], "false")
         self.assertFalse(any(key.startswith("UX1_") for key in config["vars"]))
 
     def test_invalid_or_incomplete_enabled_config_fails(self):

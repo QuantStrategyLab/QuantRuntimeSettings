@@ -1390,6 +1390,220 @@ def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
         raise ValueError("stop_source_unavailable") from None
 
 
+def read_disabled_profile_apply_variables(github: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Read repository and target variables for the disabled profile writer."""
+    repository_scope = {"repository": github["repository"], "variable_scope": "repository"}
+    try:
+        repository = read_stop_variables(repository_scope)
+        if github["variable_scope"] == "environment":
+            target = read_stop_variables(github)
+        else:
+            target = dict(repository)
+    except ValueError:
+        raise ValueError("target_source_unavailable") from None
+    return {"repository": repository, "target": target}
+
+
+def write_disabled_profile_assignment(assignment: Assignment) -> subprocess.CompletedProcess[str]:
+    """Write exactly one variable; caller owns all compare and readback checks."""
+    command = [
+        "gh", "variable", "set", assignment.name, "--repo", assignment.repository,
+        "--body", assignment.value,
+    ]
+    if assignment.variable_scope == "environment":
+        command.extend(["--env", assignment.environment or ""])
+    return subprocess.run(command, text=True, capture_output=True, timeout=60, check=False)
+
+
+def _disabled_profile_target_pair(
+    old_targets: list[dict[str, Any]], new_targets: list[dict[str, Any]],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    if not isinstance(old_targets, list) or not isinstance(new_targets, list) \
+            or len(old_targets) != 1 or len(new_targets) != 1:
+        raise ValueError("single_target_required")
+    old_target, new_target = old_targets[0], new_targets[0]
+    for target in (old_target, new_target):
+        if not isinstance(target, dict):
+            raise ValueError("invalid_target")
+        runtime_target = target.get("runtime_target")
+        identity_fields = {"platform_id", "deployment_selector", "account_selector", "account_scope", "service_name"}
+        if not isinstance(runtime_target, dict):
+            raise ValueError("invalid_target")
+        identity = {field: runtime_target.get(field) for field in identity_fields}
+        try:
+            _stop_request_identity({
+                "target_id": target.get("target_id"),
+                "github": target.get("github"),
+                "runtime_target": identity,
+            })
+        except ValueError:
+            raise ValueError("invalid_target_identity") from None
+        errors = validate_target(target)
+        if errors:
+            raise ValueError("invalid_target")
+        if "enabled" in runtime_target:
+            raise ValueError("invalid_target")
+
+    old_runtime = old_target["runtime_target"]
+    new_runtime = new_target["runtime_target"]
+    if old_target["target_id"] != new_target["target_id"]:
+        raise ValueError("target_identity_changed")
+    old_without_profile = dict(old_target)
+    new_without_profile = dict(new_target)
+    old_without_profile["runtime_target"] = dict(old_runtime)
+    new_without_profile["runtime_target"] = dict(new_runtime)
+    old_without_profile["runtime_target"].pop("strategy_profile", None)
+    new_without_profile["runtime_target"].pop("strategy_profile", None)
+    if old_without_profile != new_without_profile:
+        raise ValueError("target_identity_changed")
+    old_profile = old_runtime.get("strategy_profile")
+    new_profile = new_runtime.get("strategy_profile")
+    if not isinstance(old_profile, str) or not old_profile or not isinstance(new_profile, str) or not new_profile:
+        raise ValueError("invalid_strategy_profile")
+    if old_profile == new_profile:
+        raise ValueError("profile_change_required")
+
+    old_assignment_list = build_assignments(old_target)
+    new_assignment_list = build_assignments(new_target)
+    old_assignments = {assignment.name: assignment for assignment in old_assignment_list}
+    new_assignments = {assignment.name: assignment for assignment in new_assignment_list}
+    if len(old_assignments) != len(old_assignment_list) or len(new_assignments) != len(new_assignment_list):
+        raise ValueError("duplicate_assignment")
+    if old_assignments.keys() != new_assignments.keys():
+        raise ValueError("assignment_set_changed")
+    changed = {
+        name for name in old_assignments
+        if old_assignments[name].value != new_assignments[name].value
+    }
+    if changed != {"RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"}:
+        raise ValueError("assignment_scope_changed")
+    for name in old_assignments:
+        left, right = old_assignments[name], new_assignments[name]
+        if (left.target_id, left.repository, left.variable_scope, left.environment) != (
+            right.target_id, right.repository, right.variable_scope, right.environment,
+        ):
+            raise ValueError("assignment_identity_changed")
+    return old_target, new_target
+
+
+def _disabled_profile_expected_variables(
+    snapshot: dict[str, dict[str, str]], target: dict[str, Any],
+) -> dict[str, dict[str, str]]:
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("repository"), dict) \
+            or not isinstance(snapshot.get("target"), dict):
+        raise ValueError("target_source_unavailable")
+    repository = snapshot["repository"]
+    scoped = snapshot["target"]
+    if any(not isinstance(values, dict) for values in (repository, scoped)):
+        raise ValueError("target_source_unavailable")
+    enabled = scoped.get("RUNTIME_TARGET_ENABLED", repository.get("RUNTIME_TARGET_ENABLED"))
+    if enabled != "false":
+        raise ValueError("target_not_disabled")
+
+    assignments = {assignment.name: assignment for assignment in build_assignments(target)}
+    current_scope = repository if target["github"]["variable_scope"] == "repository" else scoped
+    observed_json = current_scope.get("RUNTIME_TARGET_JSON")
+    observed_profile = current_scope.get("STRATEGY_PROFILE")
+    if not isinstance(observed_json, str) or not isinstance(observed_profile, str):
+        raise ValueError("target_source_unavailable")
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError
+            result[key] = value
+        return result
+
+    try:
+        parsed = json.loads(observed_json, object_pairs_hook=unique_object)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        raise ValueError("target_source_unavailable") from None
+    if (not isinstance(parsed, dict) or parsed != target["runtime_target"]
+            or observed_json != assignments["RUNTIME_TARGET_JSON"].value):
+        raise ValueError("target_source_changed")
+    if observed_profile != target["runtime_target"]["strategy_profile"]:
+        raise ValueError("target_source_changed")
+    expected = {"repository": dict(repository), "target": dict(scoped)}
+    for name in ("RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"):
+        expected_scope = "repository" if target["github"]["variable_scope"] == "repository" else "target"
+        expected[expected_scope][name] = assignments[name].value
+    if target["github"]["variable_scope"] == "repository":
+        expected["target"] = dict(expected["repository"])
+    return expected
+
+
+def apply_disabled_strategy_profile_change(
+    old_targets: list[dict[str, Any]], new_targets: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Update only a single disabled target's profile variables, never the runtime.
+
+    This is a variable-layer primitive for a future claimed consumer, not an
+    approval or activation path. It is not a cross-workflow CAS or platform
+    sync; a consumer must hold its durable claim and separately verify the
+    deployed target remains disabled. A write result that cannot be fully read
+    back is reported as unknown and is never retried or rolled back.
+    """
+    old_target, new_target = _disabled_profile_target_pair(old_targets, new_targets)
+    github = old_target["github"]
+    old_snapshot = read_disabled_profile_apply_variables(github)
+    enabled = old_snapshot["target"].get(
+        "RUNTIME_TARGET_ENABLED", old_snapshot["repository"].get("RUNTIME_TARGET_ENABLED"),
+    )
+    if enabled != "false":
+        raise ValueError("target_not_disabled")
+    try:
+        current_new = _disabled_profile_expected_variables(old_snapshot, new_target)
+    except ValueError as exc:
+        if str(exc) != "target_source_changed":
+            raise
+    else:
+        if current_new == old_snapshot:
+            return {"outcome": "variables_updated", "variables_updated": False, "runtime_applied": False}
+    expected_old = _disabled_profile_expected_variables(old_snapshot, old_target)
+    old_assignments = {item.name: item for item in build_assignments(old_target)}
+    new_assignments = {item.name: item for item in build_assignments(new_target)}
+    writes = [new_assignments[name] for name in ("RUNTIME_TARGET_JSON", "STRATEGY_PROFILE")]
+    expected_new = {"repository": dict(expected_old["repository"]), "target": dict(expected_old["target"])}
+    for assignment in writes:
+        expected_scope = "repository" if assignment.variable_scope == "repository" else "target"
+        expected_new[expected_scope][assignment.name] = assignment.value
+    if github["variable_scope"] == "repository":
+        expected_new["target"] = dict(expected_new["repository"])
+    if all(
+        (expected_old["repository"] if item.variable_scope == "repository" else expected_old["target"])
+        .get(item.name) == item.value
+        for item in writes
+    ):
+        return {"outcome": "variables_updated", "variables_updated": False, "runtime_applied": False}
+
+    for item in writes:
+        observed = (expected_old["repository"] if item.variable_scope == "repository" else expected_old["target"])
+        if observed.get(item.name) != old_assignments[item.name].value:
+            raise ValueError("target_source_changed")
+    require_production_writer_ref()
+    if read_disabled_profile_apply_variables(github) != old_snapshot:
+        raise ValueError("target_source_changed")
+
+    write_failed = False
+    for assignment in writes:
+        try:
+            result = write_disabled_profile_assignment(assignment)
+            if result.returncode != 0:
+                write_failed = True
+                break
+        except (OSError, subprocess.SubprocessError):
+            write_failed = True
+            break
+
+    try:
+        readback = read_disabled_profile_apply_variables(github)
+    except ValueError:
+        readback = None
+    if write_failed or readback != expected_new:
+        return {"outcome": "unknown", "variables_updated": None, "runtime_applied": False}
+    return {"outcome": "variables_updated", "variables_updated": True, "runtime_applied": False}
+
+
 def execute_stop(request: dict[str, Any], *, apply: bool = False) -> dict[str, Any]:
     """Save a stop under the single configuration writer; no platform sync.
 

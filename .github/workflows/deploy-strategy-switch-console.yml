@@ -43,6 +43,7 @@ jobs:
       UX1_UES_REVISION: ${{ vars.UX1_UES_REVISION }}
       UX1_RUNTIME_EPOCH: ${{ vars.UX1_RUNTIME_EPOCH }}
       UX1_EXPECTED_EVIDENCE_HASHES: ${{ vars.UX1_EXPECTED_EVIDENCE_HASHES }}
+      ACCOUNT_FACTS_READ_MODEL_ENABLED: ${{ vars.ACCOUNT_FACTS_READ_MODEL_ENABLED }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
@@ -78,6 +79,7 @@ jobs:
           npm run test:operations --prefix web/strategy-switch-console/frontend
           node tests/console_v2_i18n_validation.mjs
           node tests/console_v2_worker_validation.mjs
+          node tests/console_catalog_release_validation.mjs
 
       - name: Build config & assets from platform-config.json
         run: |
@@ -118,6 +120,21 @@ jobs:
           root = Path(os.environ["WORKER_DIR"])
           source = root / "wrangler.toml.example"
           target = root / "wrangler.toml"
+          account_facts_flag = os.environ.get("ACCOUNT_FACTS_READ_MODEL_ENABLED", "")
+          if account_facts_flag not in ("", "true", "false"):
+              raise SystemExit("ACCOUNT_FACTS_READ_MODEL_ENABLED must be empty, true, or false.")
+          account_facts_token = os.environ.get("ACCOUNT_FACTS_SYNC_TOKEN", "")
+          account_facts_token_has_http_controls = any(
+              ord(character) < 0x20 or ord(character) == 0x7f
+              for character in account_facts_token
+          )
+          if account_facts_flag == "true" and (
+              not account_facts_token
+              or account_facts_token != account_facts_token.strip()
+              or account_facts_token_has_http_controls
+          ):
+              raise SystemExit("ACCOUNT_FACTS_SYNC_TOKEN must be non-empty without surrounding whitespace or HTTP control characters when account facts are enabled.")
+          account_facts_value = "true" if account_facts_flag == "true" else "false"
           text = source.read_text(encoding="utf-8")
           account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
           if account_id and "\naccount_id" not in text:
@@ -140,6 +157,11 @@ jobs:
               text = text.replace(commented_kv, active_kv, 1)
           elif 'binding = "STRATEGY_SWITCH_CONFIG"' not in text:
               text = text.rstrip() + "\n\n" + active_kv
+
+          account_facts_placeholder = 'ACCOUNT_FACTS_READ_MODEL_ENABLED = "false"'
+          if text.count(account_facts_placeholder) != 1 or "[vars]\n" not in text:
+              raise SystemExit("wrangler.toml.example must define ACCOUNT_FACTS_READ_MODEL_ENABLED once under [vars].")
+          text = text.replace(account_facts_placeholder, f'ACCOUNT_FACTS_READ_MODEL_ENABLED = "{account_facts_value}"', 1)
 
           mode = os.environ.get("UX1_PREVIEW_MODE", "")
           if mode and mode != "github_actions":
