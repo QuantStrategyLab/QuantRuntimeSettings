@@ -37,12 +37,12 @@ import {
   ACCOUNT_FACTS_BINDINGS_KEY,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_MAX_BODY_BYTES,
-  ACCOUNT_FACTS_OPTION_SCOPE,
-  ACCOUNT_FACTS_PAYLOAD_SCOPE,
+  ACCOUNT_FACTS_OPTION_SCOPES,
   ACCOUNT_FACTS_PLATFORM,
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   accountFactsOptionMatchesBinding,
   accountFactsReadModelEnabled,
+  accountFactsScopesMatch,
   buildAccountFactsHistoryReadModel,
   buildAccountFactsReadModel,
   canonicalizeAccountFactsHistory,
@@ -2162,18 +2162,25 @@ export class RuntimeInstances {
   putAccountFactsObservation(command) {
     if (command.platform !== ACCOUNT_FACTS_PLATFORM) throw new HttpError("account_facts_platform_unsupported", 400);
     if (typeof command.account_key !== "string" || !command.account_key) throw new HttpError("invalid_account_facts_account", 400);
-    if (command.account_scope !== ACCOUNT_FACTS_OPTION_SCOPE) throw new HttpError("account_facts_identity_mismatch", 409);
+    if (typeof command.account_scope !== "string" || !ACCOUNT_FACTS_OPTION_SCOPES.includes(command.account_scope)) {
+      throw new HttpError("account_facts_identity_mismatch", 409);
+    }
     if (!command.history || typeof command.history !== "object" || Array.isArray(command.history)) {
       throw new HttpError("invalid_account_facts_history", 400);
     }
     let history;
     try {
-      history = normalizeAccountFactsHistoryPayload(command.history, { enforceObservationWindow: false });
+      history = normalizeAccountFactsHistoryPayload(command.history, {
+        enforceObservationWindow: false,
+        expectedOptionScope: command.account_scope,
+      });
     } catch (error) {
       if (error instanceof AccountFactsError) throw new HttpError(error.code, error.status || 400);
       throw error;
     }
-    if (history.account_scope !== ACCOUNT_FACTS_PAYLOAD_SCOPE) throw new HttpError("invalid_account_facts_scope", 400);
+    if (!accountFactsScopesMatch(command.account_scope, history.account_scope)) {
+      throw new HttpError("account_facts_identity_mismatch", 409);
+    }
     const existingRow = this.readAccountFactsRow(command.platform, command.account_key);
     const decision = decideAccountFactsPut(existingRow?.payload || null, history);
     if (decision.action === "reject") throw new HttpError(decision.reason, decision.status || 409);
@@ -8821,6 +8828,9 @@ async function syncAccountFactsResponse(request, env) {
   if (!resolved.ok) return json({ ok: false, error: resolved.reason }, 409);
   if (resolved.binding.platform !== ACCOUNT_FACTS_PLATFORM) {
     return json({ ok: false, error: "account_facts_platform_unsupported" }, 409);
+  }
+  if (!accountFactsScopesMatch(resolved.binding.account_scope, history.account_scope)) {
+    return json({ ok: false, error: "account_facts_identity_mismatch" }, 409);
   }
   let accountConfig;
   try {

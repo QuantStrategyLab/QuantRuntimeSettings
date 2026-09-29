@@ -7,8 +7,22 @@ export const ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "longbridge_account_snapshot.v1";
 export const ACCOUNT_FACTS_SOURCE_KIND = "deployment_scope_token_version";
 export const ACCOUNT_FACTS_BINDINGS_KEY = "account_facts_bindings";
 export const ACCOUNT_FACTS_PLATFORM = "longbridge";
-export const ACCOUNT_FACTS_PAYLOAD_SCOPE = "PAPER";
+// Exact LongBridge option↔payload pairs only. Not interchangeable sets.
+export const ACCOUNT_FACTS_SCOPE_PAIRS = Object.freeze([
+  Object.freeze({ option_scope: "paper", payload_scope: "PAPER" }),
+  Object.freeze({ option_scope: "hk", payload_scope: "HK" }),
+  Object.freeze({ option_scope: "sg", payload_scope: "SG" }),
+]);
+export const ACCOUNT_FACTS_OPTION_SCOPES = Object.freeze(
+  ACCOUNT_FACTS_SCOPE_PAIRS.map((pair) => pair.option_scope),
+);
+export const ACCOUNT_FACTS_PAYLOAD_SCOPES = Object.freeze(
+  ACCOUNT_FACTS_SCOPE_PAIRS.map((pair) => pair.payload_scope),
+);
+/** @deprecated Prefer ACCOUNT_FACTS_OPTION_SCOPES; kept as the paper pair default. */
 export const ACCOUNT_FACTS_OPTION_SCOPE = "paper";
+/** @deprecated Prefer ACCOUNT_FACTS_PAYLOAD_SCOPES; kept as the paper pair default. */
+export const ACCOUNT_FACTS_PAYLOAD_SCOPE = "PAPER";
 export const ACCOUNT_FACTS_MAX_BODY_BYTES = 64 * 1024;
 export const ACCOUNT_FACTS_STALE_MS = 36 * 60 * 60 * 1000;
 export const ACCOUNT_FACTS_FUTURE_SKEW_MS = 5 * 60 * 1000;
@@ -104,6 +118,20 @@ export function accountFactsReadModelEnabled(env) {
   return String(env?.ACCOUNT_FACTS_READ_MODEL_ENABLED || "") === "true";
 }
 
+export function accountFactsPayloadScopeForOption(optionScope) {
+  const pair = ACCOUNT_FACTS_SCOPE_PAIRS.find((item) => item.option_scope === optionScope);
+  return pair ? pair.payload_scope : null;
+}
+
+export function accountFactsOptionScopeForPayload(payloadScope) {
+  const pair = ACCOUNT_FACTS_SCOPE_PAIRS.find((item) => item.payload_scope === payloadScope);
+  return pair ? pair.option_scope : null;
+}
+
+export function accountFactsScopesMatch(optionScope, payloadScope) {
+  return accountFactsPayloadScopeForOption(optionScope) === payloadScope;
+}
+
 export function canonicalizeAccountFactsHistory(history) {
   return JSON.stringify(history);
 }
@@ -134,8 +162,8 @@ export function normalizeAccountFactsBindings(raw) {
     if (typeof item.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(item.account_scope)) {
       reject("invalid_account_facts_bindings");
     }
-    // This LongBridge history entry only accepts the configured PAPER option scope.
-    if (item.account_scope !== ACCOUNT_FACTS_OPTION_SCOPE) reject("invalid_account_facts_bindings");
+    // Exact LongBridge option scopes only: paper, hk, sg (each pairs to one payload scope).
+    if (!ACCOUNT_FACTS_OPTION_SCOPES.includes(item.account_scope)) reject("invalid_account_facts_bindings");
     if (typeof item.target_id !== "string" || !TARGET_ID_RE.test(item.target_id)) reject("invalid_account_facts_bindings");
     if (!exactKeys(item.source_binding, ["kind", "id"])) reject("invalid_account_facts_bindings");
     if (item.source_binding.kind !== ACCOUNT_FACTS_SOURCE_KIND) reject("invalid_account_facts_bindings");
@@ -188,7 +216,7 @@ export function accountFactsOptionMatchesBinding(option, binding) {
   if (binding.platform !== ACCOUNT_FACTS_PLATFORM) return false;
   if (option.key !== binding.account_key) return false;
   if (typeof option.account_scope !== "string" || option.account_scope !== binding.account_scope) return false;
-  if (binding.account_scope !== ACCOUNT_FACTS_OPTION_SCOPE) return false;
+  if (!ACCOUNT_FACTS_OPTION_SCOPES.includes(binding.account_scope)) return false;
   for (const field of OPTION_IDENTITY_FIELDS) {
     if (typeof option[field] !== "string" || option[field] !== binding[field]) return false;
   }
@@ -199,6 +227,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   now = Date.now(),
   expectedTargetId,
   expectedBindingId,
+  expectedOptionScope = null,
   enforceObservationWindow = true,
 } = {}) {
   if (!exactKeys(raw, [
@@ -208,7 +237,12 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   ])) reject("invalid_account_facts_history");
   if (raw.schema_version !== ACCOUNT_FACTS_HISTORY_SCHEMA) reject("invalid_account_facts_history");
   if (raw.snapshot_schema_version !== ACCOUNT_FACTS_SNAPSHOT_SCHEMA) reject("invalid_account_facts_history");
-  if (raw.account_scope !== ACCOUNT_FACTS_PAYLOAD_SCOPE) reject("invalid_account_facts_scope");
+  if (typeof raw.account_scope !== "string" || !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope)) {
+    reject("invalid_account_facts_scope");
+  }
+  if (expectedOptionScope != null && !accountFactsScopesMatch(expectedOptionScope, raw.account_scope)) {
+    reject("account_facts_identity_mismatch", 409);
+  }
   if (typeof raw.target_id !== "string" || !TARGET_ID_RE.test(raw.target_id)) reject("invalid_account_facts_target");
   if (expectedTargetId && raw.target_id !== expectedTargetId) reject("account_facts_target_mismatch");
   if (!exactKeys(raw.source_binding, ["kind", "status", "id"])) reject("invalid_account_facts_source_binding");
@@ -237,7 +271,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   return {
     schema_version: ACCOUNT_FACTS_HISTORY_SCHEMA,
     snapshot_schema_version: ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
-    account_scope: ACCOUNT_FACTS_PAYLOAD_SCOPE,
+    account_scope: raw.account_scope,
     target_id: raw.target_id,
     source_binding: {
       kind: ACCOUNT_FACTS_SOURCE_KIND,
@@ -272,11 +306,12 @@ export function decideAccountFactsPut(existing, incomingHistory) {
   return { action: "replace", unchanged: false };
 }
 
-export function projectStoredAccountFacts(stored, { now = Date.now() } = {}) {
+export function projectStoredAccountFacts(stored, { now = Date.now(), expectedOptionScope = null } = {}) {
   const history = normalizeAccountFactsHistoryPayload(stored, {
     now,
     expectedTargetId: stored?.target_id,
     expectedBindingId: stored?.source_binding?.id,
+    expectedOptionScope,
     enforceObservationWindow: false,
   });
   const finishedMs = parseInstant(history.observed_finished_at);
@@ -338,11 +373,11 @@ export function buildAccountFactsReadModel({
       let projected = null;
       if (stored && bindingStatus === "bound") {
         try {
-          projected = projectStoredAccountFacts(stored, { now });
+          projected = projectStoredAccountFacts(stored, { now, expectedOptionScope: binding.account_scope });
           if (
             projected.target_id !== binding.target_id
             || projected.source_binding.id !== binding.source_binding.id
-            || projected.account_scope !== ACCOUNT_FACTS_PAYLOAD_SCOPE
+            || !accountFactsScopesMatch(binding.account_scope, projected.account_scope)
             || binding.account_scope !== option.account_scope
           ) {
             projected = null;
@@ -502,6 +537,7 @@ export function projectAccountFactsHistorySeries({
         now: parseInstant(payload.observed_finished_at) || Date.now(),
         expectedTargetId: binding.target_id,
         expectedBindingId: binding.source_binding.id,
+        expectedOptionScope: binding.account_scope,
         enforceObservationWindow: false,
       });
     } catch {
@@ -510,7 +546,7 @@ export function projectAccountFactsHistorySeries({
     if (
       payload.target_id !== binding.target_id
       || payload.source_binding.id !== binding.source_binding.id
-      || payload.account_scope !== ACCOUNT_FACTS_PAYLOAD_SCOPE
+      || !accountFactsScopesMatch(binding.account_scope, payload.account_scope)
     ) continue;
     const balance = balanceForCurrency(payload, currency);
     if (!balance) {
