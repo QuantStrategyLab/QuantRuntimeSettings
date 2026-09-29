@@ -28,6 +28,9 @@ workers_dev = true
 # The deploy workflow renders this from the runtime-strategy-switch Environment value.
 # Keep the checked-in default closed; use the Environment value as the deployment source of truth.
 ACCOUNT_FACTS_READ_MODEL_ENABLED = "false"
+# The deploy workflow renders this from the runtime-strategy-switch Environment value.
+# Keep daily runtime read access disabled unless explicitly enabled for deployment.
+RUNTIME_DAILY_READ_MODEL_ENABLED = "false"
 # Website visibility only; does not disable trading or remove platform support.
 # Comma-separated platform IDs. Set to an empty string to show all platforms.
 STRATEGY_SWITCH_HIDDEN_PLATFORMS = "qmt"
