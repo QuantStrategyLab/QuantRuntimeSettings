@@ -305,11 +305,7 @@ function App() {
     }, []);
     useEffect(() => { safeSet("qsl-switch-lang", language); document.documentElement.lang = language === "zh" ? "zh-CN" : "en"; document.title = `${t(NAV.find(item => item.id === page)?.label || "资产总览")} · QuantStrategyLab`; }, [language, page]);
     useEffect(() => {
-        if (!selectedId) {
-            setObservedStrategy(null);
-            return;
-        }
-        setObservedStrategy(current => current?.id === selectedId ? current : { id: selectedId, profile: null });
+        setObservedStrategy(current => current?.id === selectedId ? current : null);
     }, [selectedId]);
     useEffect(() => {
         if (!model?.session.allowed || page !== "strategy")

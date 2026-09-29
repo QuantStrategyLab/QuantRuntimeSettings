@@ -135,6 +135,13 @@ test("account schema preserves an explicit broker environment without inferring 
   }), /broker_environment/);
 });
 
+test("strategy display distinguishes an unread account from an explicit unknown readback", () => {
+  assert.match(appSource, /useEffect\(\(\) => \{\s*setObservedStrategy\(current => current\?\.id === selectedId \? current : null\);\s*\}, \[selectedId\]\);/);
+  assert.match(appSource, /const overlay = observedStrategy\?\.id === row\.id \? observedStrategy : null;\s*const profileId = overlay \? overlay\.profile : row\.current\?\.strategy_profile;/);
+  assert.match(appSource, /strategy: overlay && !overlay\.profile \? t\("未知"\) : namedStrategy\(profileId\)/);
+  assert.match(appSource, /setObservedStrategy\(current => current\?\.id === id && current\.profile === profile \? current : \{ id, profile \}\)/);
+});
+
 for (const [mode, expected] of [["current", false], ["none", true], ["floor", true]]) {
   test(`cash preview preserves current policy unless explicitly overridden: ${mode}`, () => {
     const account = { key: "example", target_name: "example" };
