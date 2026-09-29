@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { webcrypto } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -1375,8 +1376,51 @@ const profileApplicationProfiles = [
   { profile: "synthetic_next_profile", label: "Next", domain: "us_equity", allowed_execution_modes: ["paper"] },
   { profile: "synthetic_other_profile", label: "Other", domain: "us_equity", allowed_execution_modes: ["paper"] },
 ];
+const profileApplicationOidcKeyPair = await webcrypto.subtle.generateKey(
+  { name: "RSASSA-PKCS1-v1_5", modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: "SHA-256" },
+  true,
+  ["sign", "verify"],
+);
+const profileApplicationOidcJwk = {
+  ...await webcrypto.subtle.exportKey("jwk", profileApplicationOidcKeyPair.publicKey),
+  kid: "synthetic-github-oidc-key",
+  use: "sig",
+  alg: "RS256",
+};
+const profileApplicationWorkflowSha = "a".repeat(40);
+const profileApplicationWorkflowRef = "QuantStrategyLab/QuantRuntimeSettings/.github/workflows/apply-approved-hk-profile.yml@refs/heads/main";
+let profileApplicationJwksMode = "ok";
+let profileApplicationRedirectFollowed = false;
+function profileApplicationBase64Url(value) {
+  return Buffer.from(value).toString("base64url");
+}
+async function profileApplicationOidcToken(claimOverrides = {}, headerOverrides = {}) {
+  const now = Math.floor(Date.now() / 1000);
+  const header = { alg: "RS256", typ: "JWT", kid: profileApplicationOidcJwk.kid, ...headerOverrides };
+  const claims = {
+    iss: "https://token.actions.githubusercontent.com",
+    aud: "qrs-profile-application",
+    repository: "QuantStrategyLab/QuantRuntimeSettings",
+    ref: "refs/heads/main",
+    workflow_ref: profileApplicationWorkflowRef,
+    workflow_sha: profileApplicationWorkflowSha,
+    run_id: "36550000001",
+    run_attempt: "1",
+    event_name: "workflow_dispatch",
+    iat: now,
+    nbf: now,
+    exp: now + 300,
+    ...claimOverrides,
+  };
+  const signingInput = `${profileApplicationBase64Url(JSON.stringify(header))}.${profileApplicationBase64Url(JSON.stringify(claims))}`;
+  const signature = await webcrypto.subtle.sign(
+    "RSASSA-PKCS1-v1_5", profileApplicationOidcKeyPair.privateKey, new TextEncoder().encode(signingInput),
+  );
+  return `${signingInput}.${profileApplicationBase64Url(signature)}`;
+}
 const profileApplicationBindings = {
   ...bindings,
+  ACCOUNT_SETTINGS_PROFILE_APPLICATION_WORKFLOW_SHA: profileApplicationWorkflowSha,
   RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-profile-application-token",
   STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(profileApplicationProfiles),
   STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [
@@ -1397,6 +1441,14 @@ const profileApplicationMf = new Miniflare({
   kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
   outboundService: (request) => {
     const url = String(request?.url || "");
+    if (url === "https://token.actions.githubusercontent.com/.well-known/jwks") {
+      if (profileApplicationJwksMode === "redirect") return new Response(null, { status: 302, headers: { Location: "https://attacker.example/jwks" } });
+      if (profileApplicationJwksMode === "failure") return new Response("unavailable", { status: 503 });
+      if (profileApplicationJwksMode === "oversized") return new Response("x".repeat(40 * 1024), { status: 200 });
+      if (profileApplicationJwksMode === "wrong-key") return new Response(JSON.stringify({ keys: [{ ...profileApplicationOidcJwk, n: "AQAB" }] }), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ keys: [profileApplicationOidcJwk] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    if (url.includes("attacker.example")) profileApplicationRedirectFollowed = true;
     profileApplicationVariableReads += 1;
     const values = url.includes("/environments/longbridge-sg/")
       ? profileApplicationVariables.sg
@@ -1416,6 +1468,52 @@ async function profileApplicationCall(endpoint, { method = "GET", body, cookie =
   });
   return { status: response.status, body: await response.json() };
 }
+async function profileApplicationOidcCall(token, body) {
+  const response = await profileApplicationMf.dispatchFetch("https://switch.example/api/internal/account-settings/profile-application/claim", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return { status: response.status, body: await response.json() };
+}
+async function profileApplicationOidcStreamCall(token, stream, { workflowSha = profileApplicationWorkflowSha, namespace } = {}) {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (resource) => {
+    if (String(resource) === "https://token.actions.githubusercontent.com/.well-known/jwks") {
+      return new Response(JSON.stringify({ keys: [profileApplicationOidcJwk] }), { status: 200, headers: { "Content-Type": "application/json" } });
+    }
+    throw new Error("unexpected outbound request in streamed-body test");
+  };
+  try {
+    const headers = new Headers({ "Content-Type": "application/json" });
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    const request = new Request("https://switch.example/api/internal/account-settings/profile-application/claim", {
+      method: "POST", headers, body: stream, duplex: "half",
+    });
+    const response = await worker.fetch(request, {
+      ...profileApplicationBindings,
+      ACCOUNT_SETTINGS_PROFILE_APPLICATION_WORKFLOW_SHA: workflowSha,
+      STRATEGY_SWITCH_RUNTIME_INSTANCES: namespace || { idFromName() { return "unused"; }, get() { throw new Error("DO should not be reached"); } },
+    }, { waitUntil() {} });
+    return { status: response.status, body: await response.json() };
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+}
+let unauthenticatedBodyPulls = 0;
+const unauthenticatedBody = new ReadableStream({
+  pull(controller) { unauthenticatedBodyPulls += 1; controller.enqueue(new Uint8Array([123])); },
+}, { highWaterMark: 0 });
+assert.equal((await profileApplicationOidcStreamCall("", unauthenticatedBody)).status, 401,
+  "missing authorization is rejected before reading the request body");
+assert.equal(unauthenticatedBodyPulls, 0, "unauthenticated chunked bodies are not consumed");
+let missingPinBodyPulls = 0;
+const missingPinBody = new ReadableStream({
+  pull(controller) { missingPinBodyPulls += 1; controller.enqueue(new Uint8Array([123])); },
+}, { highWaterMark: 0 });
+assert.equal((await profileApplicationOidcStreamCall(await profileApplicationOidcToken(), missingPinBody, { workflowSha: "" })).status, 503,
+  "without a trusted workflow SHA, the endpoint is closed");
+assert.equal(missingPinBodyPulls, 0, "missing trusted configuration is rejected before reading the request body");
 const profileApplicationNamespace = await profileApplicationMf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
 async function profileApplicationDo(action, fields = {}) {
   const stub = profileApplicationNamespace.get(profileApplicationNamespace.idFromName("runtime-instances"));
@@ -1544,6 +1642,121 @@ const hkClaim = {
   workflow_run_id: "36550000001",
   workflow_run_attempt: "1",
 };
+const claimBody = { request_key: hkClaim.request_key };
+const approvedOidcRecord = await profileApplicationDo("account_settings_profile_application_lookup", {
+  request_key: hkClaim.request_key,
+});
+assert.equal(approvedOidcRecord.body.application.status, "approved");
+const approvedOidcAccount = await profileApplicationDo("account_settings_read", {
+  platform: "longbridge", key: "hk",
+});
+assert.equal(approvedOidcAccount.body.identity.target_name, "hk");
+for (const [label, config] of [
+  ["repository-scoped variables", { ...approvedOidcAccount.body.config, variable_scope: "repository" }],
+  ["wrong GitHub environment", { ...approvedOidcAccount.body.config, github_environment: "longbridge-sg" }],
+]) {
+  const commands = [];
+  const scopeMismatchNamespace = {
+    idFromName() { return "runtime-instances"; },
+    get() {
+      return { async fetch(_url, init = {}) {
+        const command = JSON.parse(init.body || "{}");
+        commands.push(command.action);
+        if (command.action === "account_settings_profile_application_lookup") {
+          return new Response(JSON.stringify(approvedOidcRecord.body), { status: 200 });
+        }
+        if (command.action === "account_settings_read") {
+          return new Response(JSON.stringify({ ...approvedOidcAccount.body, config }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ ok: false, error: "unexpected_action" }), { status: 400 });
+      } };
+    },
+  };
+  const body = new ReadableStream({
+    start(controller) { controller.enqueue(new TextEncoder().encode(JSON.stringify(claimBody))); controller.close(); },
+  });
+  const rejected = await profileApplicationOidcStreamCall(await profileApplicationOidcToken(), body, { namespace: scopeMismatchNamespace });
+  assert.equal(rejected.status, 409, `${label} must reject before claim`);
+  assert.equal(rejected.body.error, "account_settings_profile_application_target_conflict");
+  assert.deepEqual(commands, ["account_settings_profile_application_lookup", "account_settings_read"],
+    `${label} must not invoke the DO claim action`);
+  const stillApproved = await profileApplicationDo("account_settings_profile_application_lookup", {
+    request_key: hkClaim.request_key,
+  });
+  assert.equal(stillApproved.body.application.status, "approved", `${label} leaves the approval unclaimed`);
+}
+let oversizeBytesPulled = 0;
+let oversizeBodyCanceled = false;
+const oversizeBody = new ReadableStream({
+  pull(controller) {
+    const chunk = new Uint8Array(64 * 1024);
+    oversizeBytesPulled += chunk.byteLength;
+    controller.enqueue(chunk);
+    if (oversizeBytesPulled >= 2 * 1024 * 1024) controller.close();
+  },
+  cancel() { oversizeBodyCanceled = true; },
+}, { highWaterMark: 0 });
+assert.equal((await profileApplicationOidcStreamCall(await profileApplicationOidcToken(), oversizeBody)).status, 413,
+  "chunked request bodies without Content-Length are limited while streaming");
+assert.ok(oversizeBytesPulled < 2 * 1024 * 1024, "the oversize producer is stopped before its full 2 MiB body is emitted");
+assert.equal(oversizeBodyCanceled, true, "an oversized request stream is canceled");
+let stalledBodyCanceled = false;
+const stalledBody = new ReadableStream({
+  pull() {},
+  cancel() { stalledBodyCanceled = true; },
+}, { highWaterMark: 0 });
+const stalledBodyStartedAt = Date.now();
+assert.equal((await profileApplicationOidcStreamCall(await profileApplicationOidcToken(), stalledBody)).status, 408,
+  "an authenticated stalled body times out");
+assert.ok(Date.now() - stalledBodyStartedAt < 3000, "the request-body timeout is finite");
+assert.equal(stalledBodyCanceled, true, "a stalled request stream is canceled on timeout");
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken(), {
+  ...claimBody, workflow_run_id: "36559999999",
+})).status, 400, "the request body cannot supply run identity or other fields");
+assert.equal((await profileApplicationOidcCall("not-a-jwt", claimBody)).status, 401);
+const invalidOidcClaimCases = [
+  { iss: "https://attacker.example" },
+  { aud: "https://switch.example" },
+  { repository: "attacker/QuantRuntimeSettings" },
+  { ref: "refs/heads/feature" },
+  { workflow_ref: "QuantStrategyLab/QuantRuntimeSettings/.github/workflows/other.yml@refs/heads/main" },
+  { job_workflow_ref: "QuantStrategyLab/QuantRuntimeSettings/.github/workflows/reusable.yml@refs/heads/main" },
+  { workflow_sha: "b".repeat(40) },
+  { event_name: "pull_request" },
+  { run_id: 36550000001 },
+  { run_attempt: "0" },
+  { iat: Math.floor(Date.now() / 1000) + 600 },
+  { nbf: Math.floor(Date.now() / 1000) + 600 },
+  { exp: Math.floor(Date.now() / 1000) - 60 },
+];
+for (const invalidClaims of invalidOidcClaimCases) {
+  assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken(invalidClaims), claimBody)).status, 401,
+    `invalid GitHub OIDC claim rejected: ${Object.keys(invalidClaims).join(",")}`);
+}
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken({}, { alg: "HS256" }), claimBody)).status, 401,
+  "only RS256 signatures are accepted");
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken({}, { kid: "unknown-key" }), claimBody)).status, 401,
+  "unknown signing keys are rejected");
+assert.equal((await profileApplicationOidcCall("x".repeat(8193), claimBody)).status, 401,
+  "oversized JWTs are rejected");
+const badSignatureToken = await profileApplicationOidcToken();
+const badSignatureParts = badSignatureToken.split(".");
+badSignatureParts[2] = `${badSignatureParts[2].startsWith("A") ? "B" : "A"}${badSignatureParts[2].slice(1)}`;
+assert.equal((await profileApplicationOidcCall(badSignatureParts.join("."), claimBody)).status, 401,
+  "an invalid RS256 signature is rejected");
+for (const jwksMode of ["redirect", "failure", "oversized"]) {
+  profileApplicationJwksMode = jwksMode;
+  const jwksFailure = await profileApplicationOidcCall(await profileApplicationOidcToken(), claimBody);
+  assert.equal(jwksFailure.status, 503, `JWKS ${jwksMode} fails closed: ${JSON.stringify(jwksFailure.body)}`);
+  if (jwksMode === "redirect") assert.equal(profileApplicationRedirectFollowed, false, "JWKS redirects are never followed");
+}
+profileApplicationJwksMode = "wrong-key";
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken(), claimBody)).status, 401,
+  "a different JWK under the expected kid cannot validate the signature");
+profileApplicationJwksMode = "ok";
+assert.equal((await profileApplicationDo("account_settings_profile_application_lookup", {
+  request_key: hkClaim.request_key,
+})).body.application.status, "approved", "failed authentication never consumes the approval");
 const invalidDisabledClaim = await profileApplicationDo("account_settings_profile_application_claim", {
   ...hkClaim, runtime_target_enabled: true,
 });
@@ -1552,23 +1765,29 @@ const invalidIdentityClaim = await profileApplicationDo("account_settings_profil
   ...hkClaim, identity: { ...hkClaim.identity, service_name: "other-service" }, workflow_run_id: "36550000002",
 });
 assert.equal(invalidIdentityClaim.status, 409);
+profileApplicationVariables.hk[1].value = "true";
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken(), claimBody)).status, 409,
+  "the OIDC route refuses to consume when the target is not exactly disabled");
+profileApplicationVariables.hk[1].value = "false";
+profileApplicationVariables.hk[0].value = "synthetic_drifted_profile";
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken(), claimBody)).status, 409,
+  "the OIDC route refuses to consume after current-profile drift");
+profileApplicationVariables.hk[0].value = "synthetic_current_profile";
+const oidcToken = await profileApplicationOidcToken();
 const competingClaims = await Promise.all([
-  profileApplicationDo("account_settings_profile_application_claim", hkClaim),
-  profileApplicationDo("account_settings_profile_application_claim", { ...hkClaim, workflow_run_id: "36550000002" }),
+  profileApplicationOidcCall(oidcToken, claimBody),
+  profileApplicationOidcCall(oidcToken, claimBody),
 ]);
-const successfulClaim = competingClaims.find((result) => result.status === 200);
-const rejectedCompetingClaim = competingClaims.find((result) => result.status === 409);
-assert.ok(successfulClaim, "exactly one concurrent run must acquire the claim");
-assert.ok(rejectedCompetingClaim, "the competing run must be rejected inside the DO transaction");
-assert.equal(successfulClaim.status, 200);
-assert.equal(successfulClaim.body.claimed, true);
+const successfulClaim = competingClaims.find((result) => result.status === 200 && result.body.claimed === true);
+const replayedConcurrentClaim = competingClaims.find((result) => result.status === 200 && result.body.claimed === false);
+assert.ok(successfulClaim, "exactly one concurrent OIDC request must acquire the claim");
+assert.ok(replayedConcurrentClaim?.body.replayed, "a concurrent same-run replay reads but does not reacquire the claim");
 assert.equal(successfulClaim.body.application.status, "claimed");
-assert.ok(["36550000001", "36550000002"].includes(successfulClaim.body.application.workflow_run_id));
+assert.equal(successfulClaim.body.application.workflow_run_id, "36550000001");
 assert.equal(successfulClaim.body.application.runtime_applied, false);
 assert.equal(successfulClaim.body.no_order, true);
 assert.equal(successfulClaim.body.execution_authority_granted, false);
-const winningClaimRequest = successfulClaim.body.application.workflow_run_id === hkClaim.workflow_run_id
-  ? hkClaim : { ...hkClaim, workflow_run_id: "36550000002" };
+const winningClaimRequest = hkClaim;
 const replayedClaim = await profileApplicationDo("account_settings_profile_application_claim", winningClaimRequest);
 assert.equal(replayedClaim.status, 200);
 assert.equal(replayedClaim.body.claimed, false, "same-run replay only reads the existing claim record");
@@ -1580,6 +1799,8 @@ const secondRunClaim = await profileApplicationDo("account_settings_profile_appl
   ...winningClaimRequest, workflow_run_id: "36550000003",
 });
 assert.equal(secondRunClaim.status, 409, "a claimed application cannot be claimed by a second run");
+assert.equal((await profileApplicationOidcCall(await profileApplicationOidcToken({ run_attempt: "2" }), claimBody)).status, 409,
+  "a GitHub rerun with a different attempt cannot replay the original claim");
 const changedHkAfterClaim = await profileApplicationCall("/api/account-settings", {
   method: "POST",
   body: {
@@ -1628,6 +1849,11 @@ const sgProfileRequest = {
 assert.equal((await profileApplicationCall("/api/account-settings/profile-application/approve", {
   method: "POST", body: sgProfileRequest,
 })).status, 200);
+const foreignTargetOidcClaim = await profileApplicationOidcCall(oidcToken, { request_key: sgProfileRequest.request_key });
+assert.equal(foreignTargetOidcClaim.status, 409, "the fixed HK endpoint refuses an approved non-HK target before claim");
+assert.equal((await profileApplicationDo("account_settings_profile_application_lookup", {
+  request_key: sgProfileRequest.request_key,
+})).body.application.status, "approved", "foreign-target rejection leaves the approval unclaimed");
 const changedSgDraft = await profileApplicationCall("/api/account-settings", {
   method: "POST",
   body: {
