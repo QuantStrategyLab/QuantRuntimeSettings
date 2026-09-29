@@ -44,6 +44,7 @@ jobs:
       UX1_RUNTIME_EPOCH: ${{ vars.UX1_RUNTIME_EPOCH }}
       UX1_EXPECTED_EVIDENCE_HASHES: ${{ vars.UX1_EXPECTED_EVIDENCE_HASHES }}
       ACCOUNT_FACTS_READ_MODEL_ENABLED: ${{ vars.ACCOUNT_FACTS_READ_MODEL_ENABLED }}
+      RUNTIME_DAILY_READ_MODEL_ENABLED: ${{ vars.RUNTIME_DAILY_READ_MODEL_ENABLED }}
       STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_GH_TOKEN }}
       STRATEGY_HEALTH_SYNC_TOKEN: ${{ secrets.STRATEGY_HEALTH_SYNC_TOKEN }}
       CONTROL_PLANE_SYNC_TOKEN: ${{ secrets.CONTROL_PLANE_SYNC_TOKEN }}
@@ -135,6 +136,21 @@ jobs:
           ):
               raise SystemExit("ACCOUNT_FACTS_SYNC_TOKEN must be non-empty without surrounding whitespace or HTTP control characters when account facts are enabled.")
           account_facts_value = "true" if account_facts_flag == "true" else "false"
+          runtime_daily_flag = os.environ.get("RUNTIME_DAILY_READ_MODEL_ENABLED", "")
+          if runtime_daily_flag not in ("", "true", "false"):
+              raise SystemExit("RUNTIME_DAILY_READ_MODEL_ENABLED must be empty, true, or false.")
+          execution_evidence_token = os.environ.get("EXECUTION_EVIDENCE_SYNC_TOKEN", "")
+          execution_evidence_token_has_http_controls = any(
+              ord(character) < 0x20 or ord(character) == 0x7f
+              for character in execution_evidence_token
+          )
+          if runtime_daily_flag == "true" and (
+              not execution_evidence_token
+              or execution_evidence_token != execution_evidence_token.strip()
+              or execution_evidence_token_has_http_controls
+          ):
+              raise SystemExit("EXECUTION_EVIDENCE_SYNC_TOKEN must be non-empty without surrounding whitespace or HTTP control characters when runtime daily is enabled.")
+          runtime_daily_value = "true" if runtime_daily_flag == "true" else "false"
           text = source.read_text(encoding="utf-8")
           account_id = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "").strip()
           if account_id and "\naccount_id" not in text:
@@ -162,6 +178,11 @@ jobs:
           if text.count(account_facts_placeholder) != 1 or "[vars]\n" not in text:
               raise SystemExit("wrangler.toml.example must define ACCOUNT_FACTS_READ_MODEL_ENABLED once under [vars].")
           text = text.replace(account_facts_placeholder, f'ACCOUNT_FACTS_READ_MODEL_ENABLED = "{account_facts_value}"', 1)
+
+          runtime_daily_placeholder = 'RUNTIME_DAILY_READ_MODEL_ENABLED = "false"'
+          if text.count(runtime_daily_placeholder) != 1 or "[vars]\n" not in text:
+              raise SystemExit("wrangler.toml.example must define RUNTIME_DAILY_READ_MODEL_ENABLED once under [vars].")
+          text = text.replace(runtime_daily_placeholder, f'RUNTIME_DAILY_READ_MODEL_ENABLED = "{runtime_daily_value}"', 1)
 
           mode = os.environ.get("UX1_PREVIEW_MODE", "")
           if mode and mode != "github_actions":
