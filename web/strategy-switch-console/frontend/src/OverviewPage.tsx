@@ -205,17 +205,18 @@ export function OverviewPage({ accounts, onOpenAccount }: {
   };
   const runtimeRunTime = [formatInstant(runtimeView.runStartedAt), formatInstant(runtimeView.runFinishedAt)].filter(Boolean).join(" → ") || "—";
   const runtimeUpdated = formatInstant(runtimeView.updatedAt);
+  const selectedUpdatedTime = formatInstant(selectedUpdatedAt);
   return <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
-      <h1>{t("账户总览")}</h1>
+      <div><h1>{t("账户总览")}</h1>{selectedUpdatedTime ? <small className="overview-updated">{t("上次更新")} {selectedUpdatedTime}</small> : null}</div>
       <select className="account-filter" aria-label={t("全部账户")} value={accountId} onChange={event => setAccountId(event.target.value)}>
         <option value="all">{t("全部账户")}</option>
         {accounts.map(account => <option key={account.id} value={account.id}>{optionLabel(account)}</option>)}
       </select>
     </div>
     <section className="metric-row overview-metrics" aria-label={t("账户总览")}>
-      <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, selectedUpdatedAt) ? <small>{detailLine(assetsDetail, selectedUpdatedAt)}</small> : null}</div>
-      <div><span>{t("可用现金")}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, selectedUpdatedAt) ? <small>{detailLine(cashDetail, selectedUpdatedAt)}</small> : null}</div>
+      <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
+      <div><span>{t("可用现金")}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
     </section>
     <section className="chart-panel overview-chart">
       <div className="chart-toolbar">
@@ -270,7 +271,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
       {!selectedAccount ? <p>{t("请选择账户")}</p> : (runtimeLoading ? <p>{t("加载中…")}</p> : <>
         <div className="overview-runtime-grid">
           <div><span>{t("运行状态")}</span><strong>{t(runtimeView.statusLabel)}</strong>{runtimeView.statusDetails.length ? <small>{runtimeView.statusDetails.map((item) => t(item)).join(" ")}</small> : null}</div>
-          <div><span>{t("运行时间")}</span><strong>{runtimeRunTime}</strong>{runtimeView.dataStatusLabel !== "—" ? <small>{runtimeUpdated ? `${t(runtimeView.dataStatusLabel)} · ${t("上次更新")} ${runtimeUpdated}` : t(runtimeView.dataStatusLabel)}</small> : null}</div>
+          <div><span>{t("运行时间")}</span><strong>{runtimeRunTime}</strong>{runtimeView.dataStatusLabel !== "—" ? <small>{runtimeUpdated && runtimeUpdated !== selectedUpdatedTime ? `${t(runtimeView.dataStatusLabel)} · ${t("上次更新")} ${runtimeUpdated}` : t(runtimeView.dataStatusLabel)}</small> : null}</div>
           <div><span>{t("成交明细")}</span><strong>{t(runtimeView.fillsLabel)}</strong></div>
         </div>
         {runtimeView.dryRun ? <p className="overview-runtime-flag">{t("只读演练")}</p> : null}
@@ -286,6 +287,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
+          const cardDetail = detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
           const paperConfigured = account.brokerEnvironment === "paper";
           return <button key={account.id} type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
             <strong>{account.title}</strong>
@@ -294,7 +296,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
             <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t("可用现金")}</em>{amountOrDash(cash)}</span></span>
             <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             {statusNote ? <small>{t(statusNote)}</small> : null}
-            {detailLine(factDetail, updatedAt) ? <small>{detailLine(factDetail, updatedAt)}</small> : null}
+            {cardDetail ? <small>{cardDetail}</small> : null}
           </button>;
         })}
       </div>
