@@ -1,4 +1,4 @@
-"""Read an explicitly bound GCP deployment; emit only four allowlisted fields.
+"""Read an explicitly bound GCP deployment; emit only allowlisted fields.
 
 This concrete workflow adapter never changes resources or invokes the service.
 Provider responses and errors remain in memory, not logs or artifacts.
@@ -7,10 +7,11 @@ import json
 import os
 import re
 import subprocess
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 
-def observe(project, region, service, scheduler_location=None, *, run=subprocess.run):
+def observe(project, region, service, scheduler_location=None, *, run=subprocess.run, clock=None):
     result = {'runtime_enabled': None, 'scheduler_state': 'unknown',
               'strategy_profile': None, 'execution_mode': None}
     if not all(isinstance(v, str) and re.fullmatch(r'[a-zA-Z0-9][a-zA-Z0-9._-]*', v)
@@ -71,6 +72,8 @@ def observe(project, region, service, scheduler_location=None, *, run=subprocess
             result['scheduler_state'] = 'mixed'
         else:
             result['scheduler_state'] = states[0].lower()
+        observed = clock() if clock is not None else datetime.now(timezone.utc)
+        result['observed_at'] = observed.astimezone(timezone.utc).isoformat(timespec='seconds').replace('+00:00', 'Z')
     except (ValueError, TypeError, KeyError, AttributeError, OSError, subprocess.SubprocessError):
         # Keep independently successful fields; never invent disabled on read failure.
         pass

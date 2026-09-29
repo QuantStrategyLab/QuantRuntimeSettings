@@ -184,6 +184,51 @@ assert.equal([...store.keys()].some((key) => key.startsWith("runtime_daily:")), 
 const withAccountKey = projection();
 withAccountKey.account_key = "lb-paper";
 assert.equal((await post(withAccountKey, { Authorization: `Bearer ${token}` })).status, 400);
+const orderedDate = "2020-01-10";
+const orderedKey = "runtime_daily:" + account.service_name + "|russell_top50_leader_rotation|paper:" + orderedDate;
+const auth = { Authorization: "Bearer " + token };
+store.delete(orderedKey);
+const firstObservation = projection({}, { business_date: orderedDate, observed_at: "2020-01-10T21:00:00Z" });
+const writesBeforeFirstObservation = puts.length;
+assert.equal((await post(firstObservation, auth)).status, 200);
+assert.equal(puts.length, writesBeforeFirstObservation + 1);
+
+// Simulate an equivalent stored object with a different JSON key order.
+const firstStored = JSON.parse(store.get(orderedKey));
+store.set(orderedKey, JSON.stringify(Object.fromEntries(Object.entries(firstStored).reverse())));
+const writesBeforeIdempotentObservation = puts.length;
+assert.equal((await post(firstObservation, auth)).status, 200);
+assert.equal(puts.length, writesBeforeIdempotentObservation);
+
+const olderObservation = projection({}, { business_date: orderedDate, observed_at: "2020-01-10T20:59:00Z" });
+const olderResponse = await post(olderObservation, auth);
+assert.equal(olderResponse.status, 409);
+assert.equal((await olderResponse.json()).error, "runtime_daily_stale_observation");
+assert.equal(puts.length, writesBeforeIdempotentObservation);
+
+const sameTimeConflict = projection({}, { business_date: orderedDate, observed_at: firstObservation.observed_at, status: "failed", activity: "failed" });
+const conflictingResponse = await post(sameTimeConflict, auth);
+assert.equal(conflictingResponse.status, 409);
+assert.equal((await conflictingResponse.json()).error, "runtime_daily_observation_conflict");
+assert.equal(puts.length, writesBeforeIdempotentObservation);
+
+const newerObservation = projection({}, { business_date: orderedDate, observed_at: "2020-01-10T21:01:00Z", status: "failed", activity: "failed" });
+assert.equal((await post(newerObservation, auth)).status, 200);
+assert.equal(puts.length, writesBeforeIdempotentObservation + 1);
+assert.equal(JSON.parse(store.get(orderedKey)).observed_at, newerObservation.observed_at);
+
+const mismatchedStored = projection({}, { business_date: "2020-01-11", observed_at: "2020-01-10T21:02:00Z" });
+store.set(orderedKey, JSON.stringify(mismatchedStored));
+const writesBeforeDateMismatch = puts.length;
+const dateMismatchResponse = await post(
+  projection({}, { business_date: orderedDate, observed_at: "2020-01-10T21:03:00Z" }),
+  auth,
+);
+assert.equal(dateMismatchResponse.status, 409);
+assert.equal((await dateMismatchResponse.json()).error, "runtime_daily_existing_record_invalid");
+assert.equal(puts.length, writesBeforeDateMismatch);
+store.delete(orderedKey);
+
 const zeroFills = projection();
 zeroFills.records[0].fills = { source: "not_connected", records: [], count: 0 };
 assert.equal((await post(zeroFills, { Authorization: `Bearer ${token}` })).status, 400);
@@ -224,12 +269,14 @@ assert.equal(submittedRead.record.status, "submitted");
 assert.notEqual(submittedRead.record.status, "filled");
 assert.equal(submittedRead.data_status, "historical");
 
+store.delete(`runtime_daily:longbridge-quant-paper-service|russell_top50_leader_rotation|paper:${today}`);
 const freshUnknown = await post(projection({}, { status: "unknown", activity: "unknown" }), { Authorization: `Bearer ${token}` });
 assert.equal(freshUnknown.status, 200);
 const freshUnknownRead = await (await get(today, sessionHeaders)).json();
 assert.equal(freshUnknownRead.record.status, "unknown");
 assert.equal(freshUnknownRead.record.completeness, "complete");
 assert.equal(freshUnknownRead.data_status, "fresh");
+store.delete(`runtime_daily:longbridge-quant-paper-service|russell_top50_leader_rotation|paper:${today}`);
 const freshFailed = await post(projection({}, { status: "failed", activity: "failed" }), { Authorization: `Bearer ${token}` });
 assert.equal(freshFailed.status, 200);
 const freshFailedRead = await (await get(today, sessionHeaders)).json();
@@ -238,6 +285,7 @@ assert.equal(freshFailedRead.data_status, "fresh");
 
 const nextDue = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
 const graceEnds = new Date(Date.now() + 30 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+store.delete(`runtime_daily:longbridge-quant-paper-service|russell_top50_leader_rotation|paper:${today}`);
 const planned = await post(projection({}, { schedule: { latest_due_at: observedAt, next_due_at: nextDue, grace_ends_at: graceEnds } }), { Authorization: `Bearer ${token}` });
 assert.equal(planned.status, 200);
 const plannedRead = await (await get(today, sessionHeaders)).json();
@@ -253,6 +301,7 @@ assert.equal((await post(projection({}, { schedule: { next_due_at: "2026-02-30T1
 assert.equal((await post(projection({}, { schedule: { grace_ends_at: "2026-04-31T15:04:05-04:00" } }), { Authorization: `Bearer ${token}` })).status, 400);
 
 const expiredAt = new Date(Date.now() - 37 * 60 * 60 * 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+store.delete(`runtime_daily:longbridge-quant-paper-service|russell_top50_leader_rotation|paper:${today}`);
 const expired = await post(projection({}, { observed_at: expiredAt, status: "failed", activity: "failed" }), { Authorization: `Bearer ${token}` });
 assert.equal(expired.status, 200);
 const expiredRead = await (await get(today, sessionHeaders)).json();
@@ -374,6 +423,9 @@ const producerCases = [
 ];
 for (const item of producerCases) {
   const schedule = item.body.records[0].schedule;
+  // These producer fixtures are independent examples sharing a KV date key.
+  // Clear prior fixture state so equal observed_at values do not model a conflict.
+  store.delete(`runtime_daily:${item.body.records[0].target_key}:${item.body.records[0].business_date}`);
   assert.equal(typeof schedule.expected_window, "string");
   assert.notEqual(typeof schedule.expected_window, "boolean");
   const posted = await post(item.body, { Authorization: `Bearer ${token}` });

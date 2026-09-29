@@ -327,13 +327,15 @@ export function projectStoredAccountFacts(stored, { now = Date.now(), expectedOp
 }
 
 export function aggregateAccountFactsTotals(accountRows) {
-  void accountRows;
+  const nonPaperAccounts = Array.isArray(accountRows)
+    ? accountRows.filter((row) => row?.broker_environment !== "paper" && row?.account_scope !== "paper")
+    : [];
   // LongBridge evidence is BROKER_API_PARTIAL only. Partial identity cannot
   // prove distinct physical accounts, so all-account totals stay unavailable.
   // Single-account currency facts remain on each account row.
   return {
     status: "unavailable",
-    reason: "physical_identity_unverified",
+    reason: nonPaperAccounts.length ? "physical_identity_unverified" : "no_non_paper_accounts",
     by_currency: [],
   };
 }
@@ -394,6 +396,7 @@ export function buildAccountFactsReadModel({
         identity_status: bindingStatus === "bound" ? "partial_identity" : "missing_identity",
         identity_mismatch: bindingStatus === "identity_mismatch",
         data_status: projected ? projected.data_status : "unavailable",
+        broker_environment: typeof option.broker_environment === "string" ? option.broker_environment : null,
         target_id: bindingStatus === "bound" ? binding.target_id : null,
         source_binding_id: bindingStatus === "bound" ? binding.source_binding.id : null,
         account_scope: typeof option.account_scope === "string" ? option.account_scope : null,
@@ -412,10 +415,11 @@ export function buildAccountFactsReadModel({
     return platformCmp !== 0 ? platformCmp : left.account_key.localeCompare(right.account_key);
   });
 
-  const incomplete = accounts.some((row) => row.binding_status !== "bound" || row.data_status !== "fresh");
+  const nonPaperAccounts = accounts.filter((row) => row.broker_environment !== "paper" && row.account_scope !== "paper");
+  const incomplete = nonPaperAccounts.some((row) => row.binding_status !== "bound" || row.data_status !== "fresh");
   const totals = incomplete
     ? { status: "unavailable", reason: "coverage_incomplete", by_currency: [] }
-    : aggregateAccountFactsTotals(accounts);
+    : aggregateAccountFactsTotals(nonPaperAccounts);
 
   return {
     ok: true,

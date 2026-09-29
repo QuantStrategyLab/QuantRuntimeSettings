@@ -7263,7 +7263,43 @@ async function syncRuntimeDailyResponse(request, env) {
   }
   const projection = normalizeRuntimeDailyProjection(raw);
   const businessDate = projection.records[0].business_date;
-  await writeConfigJson(env, runtimeDailyKey(businessDate), projection);
+  const store = configStore(env);
+  const key = runtimeDailyKey(businessDate);
+  const storedText = await store.get(key);
+  if (storedText !== null && storedText !== undefined) {
+    let storedRaw;
+    let storedProjection;
+    try {
+      storedRaw = JSON.parse(storedText);
+      storedProjection = normalizeRuntimeDailyProjection(storedRaw);
+    } catch {
+      return json({ ok: false, error: "runtime_daily_existing_record_invalid" }, 409);
+    }
+    if (storedProjection.records[0].business_date !== businessDate) {
+      return json({ ok: false, error: "runtime_daily_existing_record_invalid" }, 409);
+    }
+    const storedObservedAt = runtimeDailyInstant(storedProjection.observed_at);
+    const incomingObservedAt = runtimeDailyInstant(projection.observed_at);
+    if (storedObservedAt === null || incomingObservedAt === null) {
+      return json({ ok: false, error: "runtime_daily_existing_record_invalid" }, 409);
+    }
+    if (incomingObservedAt < storedObservedAt) {
+      return json({ ok: false, error: "runtime_daily_stale_observation" }, 409);
+    }
+    if (incomingObservedAt === storedObservedAt) {
+      if (canonicalResearchTaskJson(projection) === canonicalResearchTaskJson(storedProjection)) {
+        return json({
+          ok: true,
+          stored: true,
+          business_date: businessDate,
+          target_key: RUNTIME_DAILY_TARGET_KEY,
+          account_key: accountKey,
+        });
+      }
+      return json({ ok: false, error: "runtime_daily_observation_conflict" }, 409);
+    }
+  }
+  await writeConfigJson(env, key, projection);
   return json({
     ok: true,
     stored: true,

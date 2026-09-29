@@ -734,6 +734,7 @@ function App() {
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
+            brokerEnvironment: typeof row.account.broker_environment === "string" ? row.account.broker_environment : null,
             environmentSource: accountEnvironmentSourceDetail(row.account.broker_environment),
             strategy: strategyFields(row).strategy,
             statusLabel: status.label === "—" ? "待确认" : status.label,

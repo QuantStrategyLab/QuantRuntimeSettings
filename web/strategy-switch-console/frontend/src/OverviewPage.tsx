@@ -36,6 +36,7 @@ export type OverviewAccount = {
   title: string;
   platform: string;
   environment: string;
+  brokerEnvironment: string | null;
   environmentSource: string;
   strategy: string;
   statusLabel: string;
@@ -215,7 +216,6 @@ export function OverviewPage({ accounts, onOpenAccount }: {
     <section className="metric-row overview-metrics" aria-label={t("账户总览")}>
       <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, selectedUpdatedAt) ? <small>{detailLine(assetsDetail, selectedUpdatedAt)}</small> : null}</div>
       <div><span>{t("可用现金")}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, selectedUpdatedAt) ? <small>{detailLine(cashDetail, selectedUpdatedAt)}</small> : null}</div>
-      <div><span>{t("账户配置")}</span><strong>{figures.accountCount ?? "—"}</strong></div>
     </section>
     <section className="chart-panel overview-chart">
       <div className="chart-toolbar">
@@ -282,15 +282,17 @@ export function OverviewPage({ accounts, onOpenAccount }: {
       <div className="overview-account-list">
         {visible.map(account => {
           const assets = formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
+          const cash = formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.cash : null, "available_cash");
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
+          const paperConfigured = account.brokerEnvironment === "paper";
           return <button key={account.id} type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
             <strong>{account.title}</strong>
-            <small>{t(overviewAccountTypeLabel())}</small>
+            <small>{paperConfigured ? t("模拟账户") : t(overviewAccountTypeLabel())}</small>
             <small>{account.strategy}</small>
-            <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t("收益率")}</em>—</span></span>
-            <span className="overview-marks"><span><em>{t("健康")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
+            <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t("可用现金")}</em>{amountOrDash(cash)}</span></span>
+            <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             {statusNote ? <small>{t(statusNote)}</small> : null}
             {detailLine(factDetail, updatedAt) ? <small>{detailLine(factDetail, updatedAt)}</small> : null}
           </button>;

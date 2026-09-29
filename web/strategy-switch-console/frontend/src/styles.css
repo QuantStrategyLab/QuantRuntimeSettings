@@ -91,7 +91,7 @@ a { color: inherit; }
 .chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
 .daily-page.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-rows: min-content min-content min-content min-content min-content 1fr; grid-template-areas: "head accounts" "metrics accounts" "chart accounts" "stats accounts" "runtime accounts" "runtime accounts"; gap: 28px; align-items: start; }
 .daily-page.overview-layout .overview-head { grid-area: head; }
-.daily-page.overview-layout .overview-metrics { grid-area: metrics; }
+.daily-page.overview-layout .overview-metrics { grid-area: metrics; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .daily-page.overview-layout .overview-chart { grid-area: chart; }
 .daily-page.overview-layout .overview-stats { grid-area: stats; }
 .daily-page.overview-layout .overview-runtime { grid-area: runtime; }

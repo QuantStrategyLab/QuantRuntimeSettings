@@ -17,7 +17,7 @@ import {
   runtimeBusinessDate,
   runtimeDailySelectionEligible,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
-import { accountFactsDetail, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
+import { accountFactsDetail, formatAccountFactAmounts, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -55,6 +55,23 @@ assert.equal(runtimeBusinessDate(Date.parse("2026-09-29T01:00:00Z")), "2026-09-2
 assert.equal(runtimeBusinessDate(Date.parse("2026-09-29T12:00:00Z")), "2026-09-29");
 
 assert.equal(totalsUnavailableDetail("physical_identity_unverified"), "暂不可用");
+assert.equal(formatAccountFactAmounts([
+  { currency: "USD", net_assets: "0", available_cash: "-0.000" },
+  { currency: "HKD", net_assets: "-0.00000001", available_cash: "0" },
+  { currency: "JPY", net_assets: "0.00000001", available_cash: "0.00000001" },
+  { currency: "EUR", net_assets: "0.00000000", available_cash: "12.5" },
+], "net_assets"), "HKD -0.00000001 · JPY 0.00000001");
+assert.equal(formatAccountFactAmounts([
+  { currency: "USD", available_cash: "-0.00000001" },
+  { currency: "HKD", available_cash: "0" },
+  { currency: "JPY", available_cash: "0.00000001" },
+  { currency: "EUR", available_cash: "12.5" },
+], "available_cash"), "USD -0.00000001 · JPY 0.00000001 · EUR 12.5");
+assert.equal(formatAccountFactAmounts([
+  { currency: "USD", net_assets: "0" },
+  { currency: "HKD", net_assets: "-0.000" },
+], "net_assets"), "0");
+assert.equal(formatAccountFactAmounts([], "net_assets"), null);
 assert.equal(accountFactsDetail(null), "暂无数据");
 assert.equal(accountFactsDetail({
   platform: "longbridge",
