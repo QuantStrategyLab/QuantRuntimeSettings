@@ -3696,6 +3696,318 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
         self.assertEqual(len(patched["targets"]), 1)
         self.assertEqual(patched["targets"][0]["runtime_target"]["account_scope"], "new-account")
 
+    def disabled_profile_target_pair(self, variable_scope="environment"):
+        args = build_runtime_switch.build_parser().parse_args(
+            [
+                "--platform", "longbridge",
+                "--target-name", "paper",
+                "--strategy-profile", "tqqq_growth_income",
+                "--execution-mode", "live",
+                "--variable-scope", variable_scope,
+                "--deployment-selector", "paper",
+                "--account-selector", "PAPER",
+                "--account-scope", "PAPER",
+                "--service-name", "longbridge-quant-paper-service",
+            ] + (["--github-environment", "longbridge-paper"] if variable_scope == "environment" else [])
+        )
+        old_target = build_runtime_switch.build_switch_target(args)
+        new_target = copy.deepcopy(old_target)
+        new_target["runtime_target"]["strategy_profile"] = "soxl_soxx_trend_income"
+        return [old_target], [new_target]
+
+    @staticmethod
+    def disabled_profile_variables(target, *, enabled="false"):
+        return {
+            "repository": {"REPOSITORY_ONLY": "untouched"},
+            "target": {
+                "RUNTIME_TARGET_ENABLED": enabled,
+                "RUNTIME_TARGET_JSON": runtime_settings.compact_json(target["runtime_target"]),
+                "STRATEGY_PROFILE": target["runtime_target"]["strategy_profile"],
+                "UNRELATED_SETTING": "untouched",
+            },
+        }
+
+    def test_disabled_strategy_profile_apply_rejects_identity_enable_and_multitarget_changes_before_reads(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        cases = []
+
+        changed_identity = copy.deepcopy(new_targets)
+        changed_identity[0]["runtime_target"]["service_name"] = "another-service"
+        cases.append(("identity", old_targets, changed_identity))
+
+        changed_mode = copy.deepcopy(new_targets)
+        changed_mode[0]["runtime_target"]["execution_mode"] = "dry_run"
+        cases.append(("execution mode", old_targets, changed_mode))
+
+        changed_enabled = copy.deepcopy(new_targets)
+        changed_enabled[0]["runtime_target"]["enabled"] = False
+        cases.append(("schema enabled field", old_targets, changed_enabled))
+
+        cases.append(("multiple targets", old_targets + old_targets, new_targets))
+        cases.append(("missing target", [], new_targets))
+
+        for label, before, after in cases:
+            with self.subTest(label=label):
+                with patch.object(runtime_settings, "read_disabled_profile_apply_variables") as read, \
+                        patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+                    with self.assertRaises(ValueError):
+                        runtime_settings.apply_disabled_strategy_profile_change(before, after)
+                    read.assert_not_called()
+                    write.assert_not_called()
+
+    def test_disabled_strategy_profile_apply_requires_stop_request_identity_before_reads(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        invalid_cases = []
+
+        for label, field, value in (
+            ("null deployment selector", "deployment_selector", None),
+            ("empty account scope", "account_scope", ""),
+            ("null service name", "service_name", None),
+            ("duplicate selectors", "account_selector", ["PAPER", "PAPER"]),
+        ):
+            for side in ("old", "new"):
+                before = copy.deepcopy(old_targets)
+                after = copy.deepcopy(new_targets)
+                selected = before if side == "old" else after
+                selected[0]["runtime_target"][field] = value
+                invalid_cases.append((f"{label} in {side}", before, after))
+
+        wrong_platform_target = copy.deepcopy(new_targets)
+        wrong_platform_target[0]["target_id"] = "schwab/paper"
+        invalid_cases.append(("target id platform mismatch", old_targets, wrong_platform_target))
+
+        wrong_identity_platform = copy.deepcopy(new_targets)
+        wrong_identity_platform[0]["runtime_target"]["platform_id"] = "schwab"
+        invalid_cases.append(("runtime platform mismatch", old_targets, wrong_identity_platform))
+
+        for label, before, after in invalid_cases:
+            with self.subTest(label=label):
+                with patch.object(runtime_settings, "read_disabled_profile_apply_variables") as read, \
+                        patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+                    with self.assertRaises(ValueError):
+                        runtime_settings.apply_disabled_strategy_profile_change(before, after)
+                    read.assert_not_called()
+                    write.assert_not_called()
+
+    def test_disabled_strategy_profile_apply_rejects_invalid_identity_in_observed_target_json(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        observed = self.disabled_profile_variables(old_targets[0])
+        current_target = copy.deepcopy(old_targets[0]["runtime_target"])
+        current_target["deployment_selector"] = None
+        observed["target"]["RUNTIME_TARGET_JSON"] = runtime_settings.compact_json(current_target)
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", return_value=observed), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+            with self.assertRaisesRegex(ValueError, "target_source_changed"):
+                runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+        write.assert_not_called()
+
+    def test_disabled_strategy_profile_apply_prechecks_all_values_before_two_writes_and_reads_back(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        old_target, new_target = old_targets[0], new_targets[0]
+        initial = self.disabled_profile_variables(old_target)
+        desired = self.disabled_profile_variables(new_target)
+        snapshots = [copy.deepcopy(initial), copy.deepcopy(initial), copy.deepcopy(desired)]
+        calls = []
+
+        def read(_github):
+            calls.append("read")
+            return snapshots.pop(0)
+
+        def write(assignment):
+            calls.append(f"write:{assignment.name}")
+            return subprocess.CompletedProcess(args=["gh"], returncode=0)
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", side_effect=read), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment", side_effect=write), \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+
+        self.assertEqual(calls, [
+            "read", "read", "write:RUNTIME_TARGET_JSON", "write:STRATEGY_PROFILE", "read",
+        ])
+        self.assertEqual(result["outcome"], "variables_updated")
+        self.assertTrue(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_repository_scope_readback_keeps_aliases_consistent(self):
+        old_targets, new_targets = self.disabled_profile_target_pair("repository")
+        old_target, new_target = old_targets[0], new_targets[0]
+        current = {
+            "RUNTIME_TARGET_ENABLED": "false",
+            "RUNTIME_TARGET_JSON": runtime_settings.compact_json(old_target["runtime_target"]),
+            "STRATEGY_PROFILE": old_target["runtime_target"]["strategy_profile"],
+            "UNRELATED_SETTING": "preserved",
+        }
+        desired = dict(current)
+        desired["RUNTIME_TARGET_JSON"] = runtime_settings.compact_json(new_target["runtime_target"])
+        desired["STRATEGY_PROFILE"] = new_target["runtime_target"]["strategy_profile"]
+        snapshots = [
+            {"repository": dict(current), "target": dict(current)},
+            {"repository": dict(current), "target": dict(current)},
+            {"repository": dict(desired), "target": dict(desired)},
+        ]
+        writes = []
+
+        def read(_github):
+            return snapshots.pop(0)
+
+        def write(assignment):
+            writes.append(assignment.name)
+            return subprocess.CompletedProcess(args=["gh"], returncode=0)
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", side_effect=read), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment", side_effect=write), \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+
+        self.assertEqual(writes, ["RUNTIME_TARGET_JSON", "STRATEGY_PROFILE"])
+        self.assertEqual(result["outcome"], "variables_updated")
+        self.assertTrue(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_rejects_old_value_drift_before_writes(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        observed = self.disabled_profile_variables(old_targets[0])
+        observed["target"]["STRATEGY_PROFILE"] = "unexpected-profile"
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", return_value=observed), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+            with self.assertRaisesRegex(ValueError, "source_changed"):
+                runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+        write.assert_not_called()
+
+    def test_disabled_strategy_profile_apply_rechecks_all_scopes_before_first_write(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        initial = self.disabled_profile_variables(old_targets[0])
+        drifted = copy.deepcopy(initial)
+        drifted["repository"]["REPOSITORY_ONLY"] = "changed"
+        with patch.object(
+            runtime_settings,
+            "read_disabled_profile_apply_variables",
+            side_effect=[initial, drifted],
+        ), patch.object(runtime_settings, "write_disabled_profile_assignment") as write, \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            with self.assertRaisesRegex(ValueError, "source_changed"):
+                runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+        write.assert_not_called()
+
+    def test_disabled_strategy_profile_apply_duplicate_result_is_read_only(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        desired = self.disabled_profile_variables(new_targets[0])
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", return_value=desired) as read, \
+                patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+        read.assert_called_once()
+        write.assert_not_called()
+        self.assertEqual(result["outcome"], "variables_updated")
+        self.assertFalse(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_first_write_timeout_is_unknown_without_retry(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        initial = self.disabled_profile_variables(old_targets[0])
+        calls = []
+
+        def read(_github):
+            calls.append("read")
+            return copy.deepcopy(initial)
+
+        def write(assignment):
+            calls.append(f"write:{assignment.name}")
+            raise subprocess.TimeoutExpired("gh variable set", 60)
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", side_effect=read), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment", side_effect=write), \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+
+        self.assertEqual(calls, ["read", "read", "write:RUNTIME_TARGET_JSON", "read"])
+        self.assertEqual(result["outcome"], "unknown")
+        self.assertIsNone(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_first_write_failure_stops_before_second_write(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        initial = self.disabled_profile_variables(old_targets[0])
+        calls = []
+
+        def read(_github):
+            calls.append("read")
+            return copy.deepcopy(initial)
+
+        def write(assignment):
+            calls.append(f"write:{assignment.name}")
+            return subprocess.CompletedProcess(args=["gh"], returncode=1)
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", side_effect=read), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment", side_effect=write), \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+
+        self.assertEqual(calls, ["read", "read", "write:RUNTIME_TARGET_JSON", "read"])
+        self.assertEqual(result["outcome"], "unknown")
+        self.assertIsNone(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_second_write_failure_reports_partial_state_unknown(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        current = self.disabled_profile_variables(old_targets[0])
+        calls = []
+
+        def read(_github):
+            calls.append("read")
+            return copy.deepcopy(current)
+
+        def write(assignment):
+            calls.append(f"write:{assignment.name}")
+            if assignment.name == "RUNTIME_TARGET_JSON":
+                current["target"][assignment.name] = assignment.value
+                return subprocess.CompletedProcess(args=["gh"], returncode=0)
+            return subprocess.CompletedProcess(args=["gh"], returncode=1)
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", side_effect=read), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment", side_effect=write), \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+
+        self.assertEqual(calls, [
+            "read", "read", "write:RUNTIME_TARGET_JSON", "write:STRATEGY_PROFILE", "read",
+        ])
+        self.assertEqual(result["outcome"], "unknown")
+        self.assertIsNone(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_readback_mismatch_is_unknown(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        initial = self.disabled_profile_variables(old_targets[0])
+        desired = self.disabled_profile_variables(new_targets[0])
+        snapshots = [copy.deepcopy(initial), copy.deepcopy(initial), copy.deepcopy(desired)]
+        snapshots[-1]["target"]["UNRELATED_SETTING"] = "unexpected"
+
+        with patch.object(runtime_settings, "read_disabled_profile_apply_variables", side_effect=snapshots), \
+                patch.object(runtime_settings, "write_disabled_profile_assignment", return_value=subprocess.CompletedProcess(args=["gh"], returncode=0)), \
+                patch.object(runtime_settings, "require_production_writer_ref", return_value="refs/heads/main"):
+            result = runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+
+        self.assertEqual(result["outcome"], "unknown")
+        self.assertIsNone(result["variables_updated"])
+        self.assertFalse(result["runtime_applied"])
+
+    def test_disabled_strategy_profile_apply_requires_explicit_disabled_variable(self):
+        old_targets, new_targets = self.disabled_profile_target_pair()
+        for enabled in (None, "true", "unknown"):
+            with self.subTest(enabled=enabled):
+                observed = self.disabled_profile_variables(old_targets[0])
+                if enabled is None:
+                    del observed["target"]["RUNTIME_TARGET_ENABLED"]
+                else:
+                    observed["target"]["RUNTIME_TARGET_ENABLED"] = enabled
+                with patch.object(runtime_settings, "read_disabled_profile_apply_variables", return_value=observed), \
+                        patch.object(runtime_settings, "write_disabled_profile_assignment") as write:
+                    with self.assertRaisesRegex(ValueError, "target_not_disabled"):
+                        runtime_settings.apply_disabled_strategy_profile_change(old_targets, new_targets)
+                write.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1359,4 +1359,361 @@ const stillSg = await knownCall("/api/account-settings?platform=longbridge&key=s
 assert.equal(stillSg.body.effective.dca_mode.value, "smart");
 assert.equal(stillSg.body.effective.dca_base_investment_usd.value, "250");
 await knownMf.dispose();
+
+const profileApplicationVariables = {
+  hk: [
+    { name: "STRATEGY_PROFILE", value: "synthetic_current_profile" },
+    { name: "RUNTIME_TARGET_ENABLED", value: "false" },
+  ],
+  sg: [
+    { name: "STRATEGY_PROFILE", value: "synthetic_current_profile" },
+    { name: "RUNTIME_TARGET_ENABLED", value: "false" },
+  ],
+};
+const profileApplicationProfiles = [
+  { profile: "synthetic_current_profile", label: "Current", domain: "us_equity", allowed_execution_modes: ["paper"] },
+  { profile: "synthetic_next_profile", label: "Next", domain: "us_equity", allowed_execution_modes: ["paper"] },
+  { profile: "synthetic_other_profile", label: "Other", domain: "us_equity", allowed_execution_modes: ["paper"] },
+];
+const profileApplicationBindings = {
+  ...bindings,
+  RUNTIME_SETTINGS_DISPATCH_TOKEN: "synthetic-profile-application-token",
+  STRATEGY_SWITCH_STRATEGY_PROFILES_JSON: JSON.stringify(profileApplicationProfiles),
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [
+    { ...account("hk"), variable_scope: "environment", github_environment: "longbridge-hk" },
+    { ...account("sg"), variable_scope: "environment", github_environment: "longbridge-sg" },
+  ] }),
+};
+const profileApplicationPersist = await mkdtemp(join(tmpdir(), "qrt-profile-application-"));
+let profileApplicationVariableReads = 0;
+const profileApplicationMf = new Miniflare({
+  modules: true,
+  modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
+  scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
+  compatibilityDate: "2026-06-08",
+  bindings: profileApplicationBindings,
+  durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "RuntimeInstances", useSQLite: true } },
+  durableObjectsPersist: profileApplicationPersist,
+  kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
+  outboundService: (request) => {
+    const url = String(request?.url || "");
+    profileApplicationVariableReads += 1;
+    const values = url.includes("/environments/longbridge-sg/")
+      ? profileApplicationVariables.sg
+      : profileApplicationVariables.hk;
+    return new Response(JSON.stringify({ variables: values }), { status: 200, headers: { "Content-Type": "application/json" } });
+  },
+});
+async function profileApplicationCall(endpoint, { method = "GET", body, cookie = adminCookie, origin = "https://switch.example" } = {}) {
+  const response = await profileApplicationMf.dispatchFetch(`https://switch.example${endpoint}`, {
+    method,
+    headers: {
+      ...(cookie ? { Cookie: cookie } : {}),
+      ...(origin ? { Origin: origin } : {}),
+      ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+    },
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
+  return { status: response.status, body: await response.json() };
+}
+const profileApplicationNamespace = await profileApplicationMf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+async function profileApplicationDo(action, fields = {}) {
+  const stub = profileApplicationNamespace.get(profileApplicationNamespace.idFromName("runtime-instances"));
+  const response = await stub.fetch("https://runtime-instances/", {
+    method: "POST",
+    body: JSON.stringify({ action, actor: "settings-admin", ...fields }),
+  });
+  return { status: response.status, body: await response.json() };
+}
+assert.equal((await profileApplicationCall("/api/admin/runtime-instances", {
+  method: "POST", body: { action: "initialize", expected_revision: 0, confirm: "IMPORT_EXISTING_CONFIG" },
+})).status, 200);
+assert.equal((await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", cookie: null, body: {},
+})).status, 401);
+assert.equal((await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", cookie: viewerCookie, body: {},
+})).status, 403);
+assert.equal((await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", origin: "https://attacker.example", body: {},
+})).status, 403);
+assert.equal((await profileApplicationCall("/api/account-settings/profile-application/claim", {
+  method: "POST", body: {},
+})).status, 404, "claim remains an internal DO action, with no public route");
+assert.equal((await profileApplicationCall("/api/admin/runtime-instances", {
+  method: "POST", body: { action: "account_settings_profile_application_claim" },
+})).status, 400, "the public runtime-instance API must not forward internal profile-application actions");
+const profileApplicationInitial = await profileApplicationCall("/api/account-settings?platform=longbridge&key=hk");
+assert.equal(profileApplicationInitial.status, 200);
+assert.equal(profileApplicationInitial.body.effective.strategy_profile.value, "synthetic_current_profile");
+const profileApplicationDraft = await profileApplicationCall("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "hk",
+    identity: profileApplicationInitial.body.identity,
+    expected_draft_revision: profileApplicationInitial.body.draft.revision,
+    overrides: { strategy_profile: "synthetic_next_profile", income_layer_enabled: false },
+  },
+});
+assert.equal(profileApplicationDraft.status, 200);
+const profileApplicationRequest = {
+  platform: "longbridge",
+  key: "hk",
+  request_key: "00000000-0000-4000-8000-000000000041",
+  identity: profileApplicationDraft.body.identity,
+  expected_instance_revision: profileApplicationDraft.body.instance_revision,
+  expected_draft_revision: profileApplicationDraft.body.draft.revision,
+  old_profile: "synthetic_current_profile",
+  new_profile: "synthetic_next_profile",
+};
+profileApplicationVariables.hk[1].value = "true";
+const enabledProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: profileApplicationRequest,
+});
+assert.equal(enabledProfileApproval.status, 409, "a true runtime target flag must reject approval");
+profileApplicationVariables.hk[1].value = "false";
+const wrongCurrentProfile = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: { ...profileApplicationRequest, old_profile: "synthetic_other_profile" },
+});
+assert.equal(wrongCurrentProfile.status, 409, "approval must bind the trusted current profile");
+const unselectableProfile = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: { ...profileApplicationRequest, new_profile: "invented_profile" },
+});
+assert.equal(unselectableProfile.status, 409, "approval cannot expand beyond the account's selectable catalog");
+const incompleteIdentityProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: { ...profileApplicationRequest, identity: { ...profileApplicationRequest.identity, service_name: "" } },
+});
+assert.equal(incompleteIdentityProfileApproval.status, 400);
+const staleInstanceProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: { ...profileApplicationRequest, expected_instance_revision: profileApplicationRequest.expected_instance_revision - 1 },
+});
+assert.equal(staleInstanceProfileApproval.status, 409);
+const mixedFieldProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: profileApplicationRequest,
+});
+assert.equal(mixedFieldProfileApproval.status, 409, "approval must reject a draft with fields beyond strategy_profile");
+const profileOnlyDraft = await profileApplicationCall("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "hk",
+    identity: profileApplicationDraft.body.identity,
+    expected_draft_revision: profileApplicationDraft.body.draft.revision,
+    overrides: { income_layer_enabled: null },
+  },
+});
+assert.equal(profileOnlyDraft.status, 200);
+profileApplicationRequest.expected_draft_revision = profileOnlyDraft.body.draft.revision;
+profileApplicationVariables.hk[1].value = "0";
+const nonLiteralFalseApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: profileApplicationRequest,
+});
+assert.equal(nonLiteralFalseApproval.status, 409, "only the exact GitHub variable value 'false' may pass the disabled check");
+profileApplicationVariables.hk[1].value = "false";
+const approvedProfileApplication = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: profileApplicationRequest,
+});
+assert.equal(approvedProfileApplication.status, 200, JSON.stringify(approvedProfileApplication.body));
+assert.equal(approvedProfileApplication.body.application.status, "approved");
+assert.equal(approvedProfileApplication.body.application.old_profile, "synthetic_current_profile");
+assert.equal(approvedProfileApplication.body.application.new_profile, "synthetic_next_profile");
+assert.equal(approvedProfileApplication.body.application.runtime_applied, false);
+assert.equal(approvedProfileApplication.body.no_order, true);
+assert.equal(approvedProfileApplication.body.execution_authority_granted, false);
+const readsAtApproval = profileApplicationVariableReads;
+const replayedProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: profileApplicationRequest,
+});
+assert.equal(replayedProfileApproval.status, 200);
+assert.equal(replayedProfileApproval.body.replayed, true);
+assert.equal(profileApplicationVariableReads, readsAtApproval, "same request key replay must not need another external read");
+const conflictingProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: { ...profileApplicationRequest, new_profile: "synthetic_other_profile" },
+});
+assert.equal(conflictingProfileApproval.status, 409, "same request key with different contents must conflict");
+assert.equal((await profileApplicationCall("/api/account-settings?platform=longbridge&key=hk")).body.operations.apply_strategy, false);
+
+const hkClaim = {
+  request_key: profileApplicationRequest.request_key,
+  identity: profileApplicationRequest.identity,
+  expected_instance_revision: profileApplicationRequest.expected_instance_revision,
+  expected_draft_revision: profileApplicationRequest.expected_draft_revision,
+  old_profile: profileApplicationRequest.old_profile,
+  new_profile: profileApplicationRequest.new_profile,
+  current_profile: "synthetic_current_profile",
+  runtime_target_enabled: false,
+  workflow_run_id: "36550000001",
+  workflow_run_attempt: "1",
+};
+const invalidDisabledClaim = await profileApplicationDo("account_settings_profile_application_claim", {
+  ...hkClaim, runtime_target_enabled: true,
+});
+assert.equal(invalidDisabledClaim.status, 409);
+const invalidIdentityClaim = await profileApplicationDo("account_settings_profile_application_claim", {
+  ...hkClaim, identity: { ...hkClaim.identity, service_name: "other-service" }, workflow_run_id: "36550000002",
+});
+assert.equal(invalidIdentityClaim.status, 409);
+const competingClaims = await Promise.all([
+  profileApplicationDo("account_settings_profile_application_claim", hkClaim),
+  profileApplicationDo("account_settings_profile_application_claim", { ...hkClaim, workflow_run_id: "36550000002" }),
+]);
+const successfulClaim = competingClaims.find((result) => result.status === 200);
+const rejectedCompetingClaim = competingClaims.find((result) => result.status === 409);
+assert.ok(successfulClaim, "exactly one concurrent run must acquire the claim");
+assert.ok(rejectedCompetingClaim, "the competing run must be rejected inside the DO transaction");
+assert.equal(successfulClaim.status, 200);
+assert.equal(successfulClaim.body.claimed, true);
+assert.equal(successfulClaim.body.application.status, "claimed");
+assert.ok(["36550000001", "36550000002"].includes(successfulClaim.body.application.workflow_run_id));
+assert.equal(successfulClaim.body.application.runtime_applied, false);
+assert.equal(successfulClaim.body.no_order, true);
+assert.equal(successfulClaim.body.execution_authority_granted, false);
+const winningClaimRequest = successfulClaim.body.application.workflow_run_id === hkClaim.workflow_run_id
+  ? hkClaim : { ...hkClaim, workflow_run_id: "36550000002" };
+const replayedClaim = await profileApplicationDo("account_settings_profile_application_claim", winningClaimRequest);
+assert.equal(replayedClaim.status, 200);
+assert.equal(replayedClaim.body.claimed, false, "same-run replay only reads the existing claim record");
+assert.equal(replayedClaim.body.replayed, true);
+assert.equal((await profileApplicationDo("account_settings_profile_application_claim", {
+  ...winningClaimRequest, workflow_run_attempt: "2",
+})).status, 409, "a new attempt cannot replay a previous claim as fresh authorization");
+const secondRunClaim = await profileApplicationDo("account_settings_profile_application_claim", {
+  ...winningClaimRequest, workflow_run_id: "36550000003",
+});
+assert.equal(secondRunClaim.status, 409, "a claimed application cannot be claimed by a second run");
+const changedHkAfterClaim = await profileApplicationCall("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "hk",
+    identity: profileOnlyDraft.body.identity,
+    expected_draft_revision: profileOnlyDraft.body.draft.revision,
+    overrides: { strategy_profile: "synthetic_other_profile" },
+  },
+});
+assert.equal(changedHkAfterClaim.status, 200);
+const blockedByClaimedHk = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST",
+  body: {
+    ...profileApplicationRequest,
+    request_key: "00000000-0000-4000-8000-000000000045",
+    expected_draft_revision: changedHkAfterClaim.body.draft.revision,
+    new_profile: "synthetic_other_profile",
+  },
+});
+assert.equal(blockedByClaimedHk.status, 409, "draft drift must never release a claimed application");
+const claimedHkRecord = await profileApplicationDo("account_settings_profile_application_lookup", {
+  request_key: profileApplicationRequest.request_key,
+});
+assert.equal(claimedHkRecord.body.application.status, "claimed");
+
+const sgProfileSettings = await profileApplicationCall("/api/account-settings?platform=longbridge&key=sg");
+const sgProfileDraft = await profileApplicationCall("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    identity: sgProfileSettings.body.identity,
+    expected_draft_revision: sgProfileSettings.body.draft.revision,
+    overrides: { strategy_profile: "synthetic_next_profile" },
+  },
+});
+assert.equal(sgProfileDraft.status, 200);
+const sgProfileRequest = {
+  platform: "longbridge", key: "sg",
+  request_key: "00000000-0000-4000-8000-000000000042",
+  identity: sgProfileDraft.body.identity,
+  expected_instance_revision: sgProfileDraft.body.instance_revision,
+  expected_draft_revision: sgProfileDraft.body.draft.revision,
+  old_profile: "synthetic_current_profile",
+  new_profile: "synthetic_next_profile",
+};
+assert.equal((await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: sgProfileRequest,
+})).status, 200);
+const changedSgDraft = await profileApplicationCall("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    identity: sgProfileDraft.body.identity,
+    expected_draft_revision: sgProfileDraft.body.draft.revision,
+    overrides: { strategy_profile: "synthetic_other_profile" },
+  },
+});
+assert.equal(changedSgDraft.status, 200);
+const sgClaim = {
+  request_key: sgProfileRequest.request_key,
+  identity: sgProfileRequest.identity,
+  expected_instance_revision: sgProfileRequest.expected_instance_revision,
+  expected_draft_revision: sgProfileRequest.expected_draft_revision,
+  old_profile: sgProfileRequest.old_profile,
+  new_profile: sgProfileRequest.new_profile,
+  current_profile: "synthetic_current_profile",
+  runtime_target_enabled: false,
+  workflow_run_id: "36550000004",
+  workflow_run_attempt: "1",
+};
+const driftedDraftClaim = await profileApplicationDo("account_settings_profile_application_claim", sgClaim);
+assert.equal(driftedDraftClaim.status, 409, "draft revision drift must reject the atomic claim");
+const rebasedSgRequest = {
+  ...sgProfileRequest,
+  request_key: "00000000-0000-4000-8000-000000000043",
+  expected_draft_revision: changedSgDraft.body.draft.revision,
+  new_profile: "synthetic_other_profile",
+};
+const rebasedSgApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST", body: rebasedSgRequest,
+});
+assert.equal(rebasedSgApproval.status, 200, "a valid new draft may be approved after the old approval is invalidated");
+assert.equal(rebasedSgApproval.body.application.status, "approved");
+const invalidatedSgApproval = await profileApplicationDo("account_settings_profile_application_lookup", {
+  request_key: sgProfileRequest.request_key,
+});
+assert.equal(invalidatedSgApproval.status, 200);
+assert.equal(invalidatedSgApproval.body.application.status, "invalidated", "a stale unclaimed approval must be retained in a terminal state");
+assert.equal((await profileApplicationDo("account_settings_profile_application_claim", sgClaim)).status, 409,
+  "an invalidated approval can never be claimed");
+const liveInstances = await profileApplicationCall("/api/admin/runtime-instances");
+const changedInstance = await profileApplicationCall("/api/admin/runtime-instances", {
+  method: "POST",
+  body: {
+    action: "set_broker_environment",
+    expected_revision: liveInstances.body.revision,
+    platform: "longbridge", key: "sg", broker_environment: "live",
+  },
+});
+assert.equal(changedInstance.status, 200);
+const reboundSgSettings = await profileApplicationCall("/api/account-settings?platform=longbridge&key=sg");
+const reboundSgDraft = await profileApplicationCall("/api/account-settings", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    identity: reboundSgSettings.body.identity,
+    expected_draft_revision: reboundSgSettings.body.draft.revision,
+    acknowledge_identity_conflict: true,
+    overrides: { strategy_profile: "synthetic_other_profile" },
+  },
+});
+assert.equal(reboundSgDraft.status, 200);
+const identityReboundApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
+  method: "POST",
+  body: {
+    platform: "longbridge", key: "sg",
+    request_key: "00000000-0000-4000-8000-000000000044",
+    identity: reboundSgDraft.body.identity,
+    expected_instance_revision: reboundSgDraft.body.instance_revision,
+    expected_draft_revision: reboundSgDraft.body.draft.revision,
+    old_profile: "synthetic_current_profile", new_profile: "synthetic_other_profile",
+  },
+});
+assert.equal(identityReboundApproval.status, 200, "identity/revision drift also releases only a stale unclaimed approval");
+const invalidatedByIdentityDrift = await profileApplicationDo("account_settings_profile_application_lookup", {
+  request_key: rebasedSgRequest.request_key,
+});
+assert.equal(invalidatedByIdentityDrift.body.application.status, "invalidated");
+const driftedInstanceClaim = await profileApplicationDo("account_settings_profile_application_claim", {
+  ...sgClaim,
+  request_key: rebasedSgRequest.request_key,
+  new_profile: rebasedSgRequest.new_profile,
+  expected_draft_revision: rebasedSgRequest.expected_draft_revision,
+});
+assert.equal(driftedInstanceClaim.status, 409, "instance revision and account identity drift must reject the claim");
+await profileApplicationMf.dispose();
 console.log("account_settings_worker_validation: PASS");

@@ -549,7 +549,7 @@ node web/strategy-switch-console/ux1_local_demo.mjs --interpreter <绝对路径>
 
 ## 账户事实与资产历史（默认关闭）
 
-`ACCOUNT_FACTS_READ_MODEL_ENABLED=true` 才开放账户事实接口；POST `/api/account-facts/sync` 使用专用 `ACCOUNT_FACTS_SYNC_TOKEN`，GET `/api/account-facts` 和 `/api/account-facts/history?platform=longbridge&account_key=…&currency=USD` 使用既有登录授权。需要现有配置存储和 `STRATEGY_SWITCH_RUNTIME_INSTANCES` Durable Object；缺失时不回退为 KV 写入。可选专用 GitHub Environment secret `ACCOUNT_FACTS_SYNC_TOKEN` 仅在非空时由既有部署同步到 Worker；缺少时不覆盖既有 Worker secret。配置该 secret 或本文说明均不代表读模型已启用，也不代表已批准生产来源。
+`ACCOUNT_FACTS_READ_MODEL_ENABLED=true` 才开放账户事实接口；现有 `runtime-strategy-switch` GitHub Environment 的同名非 secret variable 会被部署工作流写入 Wrangler 配置，空值按 `false` 处理，其他值在部署前拒绝。设置为 `true` 时还要求专用 `ACCOUNT_FACTS_SYNC_TOKEN` secret 非空、无首尾空白且不含 HTTP 控制字符，否则部署前拒绝。POST `/api/account-facts/sync` 使用该专用 token，GET `/api/account-facts` 和 `/api/account-facts/history?platform=longbridge&account_key=…&currency=USD` 使用既有登录授权。需要现有配置存储和 `STRATEGY_SWITCH_RUNTIME_INSTANCES` Durable Object；缺失时不回退为 KV 写入。token 仅用于部署前检查和既有 Worker secret 同步，不写入 Wrangler TOML。启用开关或配置 token 均不代表读模型已获准生产来源。
 
 配置存储中的 `account_facts_bindings` 使用 `qsl_account_facts_bindings.v1`，`bindings` 每项包含 `platform=longbridge`、`account_key`、`account_scope=paper`、`target_name`、`service_name`、`deployment_selector`、`account_selector`、`target_id` 和 `source_binding={kind:deployment_scope_token_version,id:<64位小写hex>}`。这些字段必须来自可信部署/账户材料，目标身份字段需与当前账户选项严格相等；身份改变后旧观察不可使用，不能从浏览器请求或账户名称推导绑定。绑定仍只提供部分来源核验，不证明券商物理账户或原生模拟/实盘身份。
 
