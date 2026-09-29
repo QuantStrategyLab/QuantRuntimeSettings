@@ -43,13 +43,14 @@ const bindingB = "b".repeat(64);
 const bindingHk = "c".repeat(64);
 const bindingSg = "d".repeat(64);
 
-assert.deepEqual([...ACCOUNT_FACTS_OPTION_SCOPES], ["paper", "hk", "sg"]);
+assert.deepEqual([...ACCOUNT_FACTS_OPTION_SCOPES], ["paper", "HK", "sg"]);
 assert.deepEqual([...ACCOUNT_FACTS_PAYLOAD_SCOPES], ["PAPER", "HK", "SG"]);
 assert.equal(accountFactsScopesMatch("paper", "PAPER"), true);
-assert.equal(accountFactsScopesMatch("hk", "HK"), true);
+assert.equal(accountFactsScopesMatch("HK", "HK"), true);
 assert.equal(accountFactsScopesMatch("sg", "SG"), true);
 assert.equal(accountFactsScopesMatch("paper", "HK"), false);
-assert.equal(accountFactsScopesMatch("hk", "PAPER"), false);
+assert.equal(accountFactsScopesMatch("hk", "HK"), false);
+assert.equal(accountFactsScopesMatch("HK", "PAPER"), false);
 assert.equal(accountFactsScopesMatch("sg", "HK"), false);
 
 const account = {
@@ -67,9 +68,10 @@ const hkAccount = {
   label: "LB hk",
   target_name: "hk",
   service_name: "longbridge-quant-hk-service",
-  account_scope: "hk",
+  account_scope: "HK",
   account_selector: "HK",
-  deployment_selector: "lb-hk",
+  deployment_selector: "HK",
+  runtime_status_target_id: "longbridge.hk",
   supported_domains: ["us_equity", "hk_equity"],
 };
 const sgAccount = {
@@ -704,7 +706,7 @@ await saveBindings([
   {
     platform: ACCOUNT_FACTS_PLATFORM,
     account_key: "hk",
-    account_scope: "hk",
+    account_scope: "HK",
     target_name: hkAccount.target_name,
     service_name: hkAccount.service_name,
     deployment_selector: hkAccount.deployment_selector,
@@ -768,7 +770,7 @@ const paperRow = threeScopeRead.accounts.find((item) => item.account_key === "lb
 assert.equal(hkRow.binding_status, "bound");
 assert.equal(hkRow.data_status, "fresh");
 assert.equal(hkRow.identity_status, "partial_identity");
-assert.equal(hkRow.account_scope, "hk");
+assert.equal(hkRow.account_scope, "HK");
 assert.equal(hkRow.balances.find((row) => row.currency === "HKD").net_assets, "100");
 assert.equal(sgRow.binding_status, "bound");
 assert.equal(sgRow.data_status, "fresh");
@@ -820,13 +822,21 @@ assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
   account_scope: "LIVE",
 }), { enforceObservationWindow: false }), /invalid_account_facts_scope/);
 assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  account_scope: "hk",
+}), { enforceObservationWindow: false }), /invalid_account_facts_scope/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
   account_scope: "HK",
 }), { enforceObservationWindow: false, expectedOptionScope: "paper" }), /account_facts_identity_mismatch/);
 assert.doesNotThrow(() => normalizeAccountFactsHistoryPayload(historyPayload({
   account_scope: "HK",
   target_id: "hk",
   source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: bindingHk },
-}), { enforceObservationWindow: false, expectedOptionScope: "hk" }));
+}), { enforceObservationWindow: false, expectedOptionScope: "HK" }));
+assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  account_scope: "HK",
+  target_id: "hk",
+  source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: bindingHk },
+}), { enforceObservationWindow: false, expectedOptionScope: "hk" }), /account_facts_identity_mismatch/);
 
 // Paper regression: prior paper observation remains readable after hk/sg writes.
 assert.equal(paperRow.balances.find((row) => row.currency === "USD").net_assets, "13");

@@ -10,7 +10,7 @@ export const ACCOUNT_FACTS_PLATFORM = "longbridge";
 // Exact LongBridge option↔payload pairs only. Not interchangeable sets.
 export const ACCOUNT_FACTS_SCOPE_PAIRS = Object.freeze([
   Object.freeze({ option_scope: "paper", payload_scope: "PAPER" }),
-  Object.freeze({ option_scope: "hk", payload_scope: "HK" }),
+  Object.freeze({ option_scope: "HK", payload_scope: "HK" }),
   Object.freeze({ option_scope: "sg", payload_scope: "SG" }),
 ]);
 export const ACCOUNT_FACTS_OPTION_SCOPES = Object.freeze(
