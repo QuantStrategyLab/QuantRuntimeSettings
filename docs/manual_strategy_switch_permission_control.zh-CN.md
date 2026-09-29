@@ -4,13 +4,13 @@
 
 这是个人量化系统的简化权限方案，保留必要的防误触和防泄密边界。
 
-**当前候选状态（2026-09-29）：策略激活尚未接通。** 网页端在 dispatch 前拒绝切换；workflow 即使通过 Promotion Manifest 校验，也会在写变量及同步步骤前拒绝 `apply=true`。现有账户设置后端已能记录经 admin OAuth 批准的单目标 `strategy_profile` 变更，并在 Durable Object 内单次 claim；claim 没有公网路由或 workflow consumer，记录本身不会写平台变量，也不能证明部署已停用。token、确认词或 allowlist 均不能解除切换阻断。此处描述本仓候选源码，不代表生产部署状态已读回。
+**当前候选状态（2026-09-29）：平台激活尚未接通。** 网页端在 dispatch 前拒绝普通切换；workflow 即使通过 Promotion Manifest 校验，也会在写变量及同步步骤前拒绝 `apply=true`。账户设置后端可记录经 admin OAuth 批准的单目标 `strategy_profile` 变更，并在 Durable Object 内单次 claim。固定 HK GitHub OIDC 入口 `/api/internal/account-settings/profile-application/claim` 及其固定 LongBridge HK 目标和变量scope守卫已在候选源码实现；未配置准确的 `ACCOUNT_SETTINGS_PROFILE_APPLICATION_WORKFLOW_SHA`（40位 workflow SHA）时，Worker 入口默认关闭。拟议的consumer workflow和Python调用器已移到本机草稿，不属于本仓候选。该草稿只检查GitHub变量，尚无新鲜且绑定完整身份的Cloud Run serving revision与Scheduler读回；在接通此证据前不得发布或启用为变量写入器。这里描述源码候选，不代表生产SHA配置或实际使用已读回。
 
-批准记录绑定完整账户身份、instance/draft revision、可信当前策略和草案中已保存且对该账户可选的新策略；批准前要求当前 `RUNTIME_TARGET_ENABLED` 变量原值严格等于字符串 `false`。这只证明变量层，不证明 Cloud Run 或调度器已停用。内部 DO claim 再检查身份和两个 revision，并绑定调用方提供的 workflow run ID/attempt；这些字段仅用于记录关联，不能证明 GitHub run 身份。同一 run 的重放只读回原记录，其他 run 不能重复领取。后续 consumer 仍须认证实际 run，并独立读回真实部署状态后才能应用设置。
+批准记录绑定完整账户身份、instance/draft revision、可信当前策略和草案中已保存且对该账户可选的新策略；批准前要求当前 `RUNTIME_TARGET_ENABLED` 变量原值严格等于字符串 `false`。这只证明变量层，不证明 Cloud Run 或调度器已停用。领取前，OIDC 路由还会用与变量读回相同的resolver确认仓库、scope和environment精确指向LongBridge HK。路由只接受 `{ "request_key": "…" }`，从 GitHub 固定 JWKS 验证 RS256 token，并严格绑定 audience `qrs-profile-application`、仓库 `QuantStrategyLab/QuantRuntimeSettings`、`refs/heads/main` 和 workflow ref `QuantStrategyLab/QuantRuntimeSettings/.github/workflows/apply-approved-hk-profile.yml@refs/heads/main`；workflow SHA 必须匹配 `ACCOUNT_SETTINGS_PROFILE_APPLICATION_WORKFLOW_SHA`。run ID/attempt 只从签名 claims 读取。路由在领取前拒绝非 LongBridge/HK 批准，并再次核对身份、revision、当前策略和精确停用变量。同 run 重放只返回不授予领取权的既有结果；不同 run attempt 或 run 会被拒绝。源码未配置生产信任SHA，因此生产claim入口仍关闭，直到另行审查并配置准确SHA。
 
 未领取批准若身份、instance 或 draft revision 已漂移，后续有效批准事务会先将旧记录标为 `invalidated` 再批准新请求；已领取记录始终锁定，不会因漂移释放。
 
-`runtime_settings.py` 中另有仅供后续受控 consumer 使用的变量层原语：它只接受完整身份不变、唯一目标且 `RUNTIME_TARGET_ENABLED` 原值严格等于字符串 `false` 的单目标 `strategy_profile` 变更；批准及 claim 记录尚未接到该原语，它不做平台同步，也不证明部署已停用。当前 console/workflow 未调用该原语，`apply=true` 仍按上述规则拒绝。
+`runtime_settings.py` 提供未来受控consumer可用的变量层原语：只接受完整身份不变、唯一目标且 `RUNTIME_TARGET_ENABLED` 原值严格等于字符串 `false` 的单目标 `strategy_profile` 变更。它会比较并读回两个变量，但不做平台同步，也不证明部署已停用。当前没有已发布的consumer调用它；本机草稿不替代所需的部署目标读回。普通console workflow的 `apply=true` 仍按上述规则拒绝。后续consumer必须区分变量读回和平台采用，并在独立核实采用前保持 `runtime_applied=false`。
 
 ## 默认方案：个人单人模式
 
@@ -20,7 +20,7 @@
 2. 在 GitHub secret 里配置 `RUNTIME_SETTINGS_GH_TOKEN`。
 3. token 只给目标平台仓库需要的 variables/workflow 权限，不给 `contents: write`。
 4. 第一次运行 workflow 用 `apply=false` 看 preview。
-5. 当前停在 preview；确认词和 token 均不能使尚未接通的 `apply=true` 生效。
+5. 普通策略切换仍停在 preview；独立 HK consumer 尚未接通，不得发布或启用为变量写入器。确认词和 token 不能解除当前阻断。
 6. 不把 broker、email、cloud、API token 等密钥放进 `extra_variables_json`。
 
 这个模式不要求 required reviewers。workflow 绑定了 `runtime-strategy-switch` Environment，但这个 Environment 可以不配置审批人；它主要用于隔离 secret 和保留 Actions 审计。

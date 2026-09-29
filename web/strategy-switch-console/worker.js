@@ -78,6 +78,17 @@ import {
 
 const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH = "/api/internal/account-settings/profile-application/claim";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE = "qrs-profile-application";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REF = "refs/heads/main";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_WORKFLOW_REF = "QuantStrategyLab/QuantRuntimeSettings/.github/workflows/apply-approved-hk-profile.yml@refs/heads/main";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_JWKS_URL = "https://token.actions.githubusercontent.com/.well-known/jwks";
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_TOKEN_BYTES = 8192;
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES = 32 * 1024;
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS = 5000;
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS = 1000;
+const ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES = 1024;
 const SESSION_COOKIE = "qsl_switch_session";
 const OAUTH_STATE_COOKIE = "qsl_switch_oauth_state";
 const SESSION_TTL_SECONDS = 8 * 60 * 60;
@@ -683,6 +694,10 @@ export default {
       }
       if (url.pathname === "/api/account-settings/profile-application/approve" && request.method === "POST") {
         return await approveAccountSettingsProfileApplication(request, env);
+      }
+      if (url.pathname === ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH) {
+        if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
+        return await claimAccountSettingsProfileApplicationFromGitHub(request, env);
       }
       if (url.pathname === "/api/internal/sync-account-default" && request.method === "POST") {
         return await syncAccountDefaultResponse(request, env);
@@ -4331,6 +4346,234 @@ async function approveAccountSettingsProfileApplication(request, env) {
   } catch (error) {
     const status = error instanceof HttpError ? error.status : 503;
     return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instances_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+}
+
+function decodeProfileApplicationJwtPart(value, maxBytes, parseJson = true) {
+  if (typeof value !== "string" || value.length === 0 || value.length > maxBytes * 2
+    || !/^[A-Za-z0-9_-]+$/.test(value)) throw new HttpError("github_oidc_token_invalid", 401);
+  const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "=".repeat((4 - value.length % 4) % 4);
+  let binary;
+  try { binary = atob(padded); } catch { throw new HttpError("github_oidc_token_invalid", 401); }
+  if (binary.length > maxBytes) throw new HttpError("github_oidc_token_invalid", 401);
+  const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+  if (!parseJson) return { bytes };
+  try { return { bytes, value: JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) }; }
+  catch { throw new HttpError("github_oidc_token_invalid", 401); }
+}
+
+async function readGitHubProfileApplicationJwks() {
+  const controller = new AbortController();
+  let rejectAbort = () => {};
+  const abortPromise = new Promise((_, reject) => { rejectAbort = reject; });
+  abortPromise.catch(() => {});
+  const onAbort = () => rejectAbort(new HttpError("github_oidc_jwks_unavailable", 503));
+  controller.signal.addEventListener("abort", onAbort);
+  const timeout = setTimeout(() => controller.abort(), ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_TIMEOUT_MS);
+  let response;
+  try {
+    response = await Promise.race([
+      fetch(ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_JWKS_URL, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        redirect: "manual",
+        signal: controller.signal,
+      }),
+      abortPromise,
+    ]);
+    if (response.status !== 200 || response.redirected) throw new HttpError("github_oidc_jwks_unavailable", 503);
+    const contentLength = response.headers.get("Content-Length");
+    if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES)) {
+      throw new HttpError("github_oidc_jwks_unavailable", 503);
+    }
+    const contentType = response.headers.get("Content-Type") || "";
+    if (!/^application\/json(?:\s*;|$)/i.test(contentType)) throw new HttpError("github_oidc_jwks_unavailable", 503);
+    const text = await readLimitedUtf8Body(response, ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_JWKS_BYTES, controller, abortPromise);
+    const jwks = JSON.parse(text);
+    if (!jwks || Array.isArray(jwks) || typeof jwks !== "object" || !Array.isArray(jwks.keys) || jwks.keys.length < 1 || jwks.keys.length > 16) {
+      throw new HttpError("github_oidc_jwks_unavailable", 503);
+    }
+    return jwks.keys;
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    throw new HttpError("github_oidc_jwks_unavailable", 503);
+  } finally {
+    clearTimeout(timeout);
+    controller.signal.removeEventListener("abort", onAbort);
+  }
+}
+
+async function verifyGitHubProfileApplicationToken(request, env) {
+  const workflowSha = env.ACCOUNT_SETTINGS_PROFILE_APPLICATION_WORKFLOW_SHA;
+  if (typeof workflowSha !== "string" || !/^[a-f0-9]{40}$/.test(workflowSha)) {
+    throw new HttpError("github_oidc_workflow_sha_not_configured", 503);
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const match = /^Bearer ([A-Za-z0-9._~-]+)$/.exec(authorization);
+  if (!match || match[1].length > ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_MAX_TOKEN_BYTES) {
+    throw new HttpError("github_oidc_token_invalid", 401);
+  }
+  const parts = match[1].split(".");
+  if (parts.length !== 3) throw new HttpError("github_oidc_token_invalid", 401);
+  const header = decodeProfileApplicationJwtPart(parts[0], 2048).value;
+  const claims = decodeProfileApplicationJwtPart(parts[1], 4096).value;
+  const signature = decodeProfileApplicationJwtPart(parts[2], 1024, false).bytes;
+  if (!header || Array.isArray(header) || typeof header !== "object"
+    || header.alg !== "RS256" || header.typ !== "JWT"
+    || typeof header.kid !== "string" || !/^[A-Za-z0-9._-]{1,128}$/.test(header.kid)
+    || Object.hasOwn(header, "jku") || Object.hasOwn(header, "x5u") || Object.hasOwn(header, "crit")) {
+    throw new HttpError("github_oidc_token_invalid", 401);
+  }
+  if (!claims || Array.isArray(claims) || typeof claims !== "object"
+    || claims.iss !== "https://token.actions.githubusercontent.com"
+    || claims.aud !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_AUDIENCE
+    || claims.repository !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REPOSITORY
+    || claims.ref !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_REF
+    || claims.workflow_ref !== ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_WORKFLOW_REF
+    || claims.workflow_sha !== workflowSha
+    || Object.hasOwn(claims, "job_workflow_ref") || Object.hasOwn(claims, "job_workflow_sha")
+    || claims.event_name !== "workflow_dispatch"
+    || typeof claims.run_id !== "string" || !/^[1-9]\d{0,19}$/.test(claims.run_id)
+    || typeof claims.run_attempt !== "string" || !/^[1-9]\d{0,5}$/.test(claims.run_attempt)) {
+    throw new HttpError("github_oidc_token_invalid", 401);
+  }
+  const now = Math.floor(Date.now() / 1000);
+  if (![claims.iat, claims.nbf, claims.exp].every(Number.isSafeInteger)
+    || claims.iat > now + 30 || claims.iat < now - 600
+    || claims.nbf > now + 30 || claims.nbf > claims.exp
+    || claims.exp <= now || claims.exp <= claims.iat || claims.exp - claims.iat > 600) {
+    throw new HttpError("github_oidc_token_invalid", 401);
+  }
+  const keys = await readGitHubProfileApplicationJwks();
+  const matches = keys.filter((key) => key?.kid === header.kid);
+  if (matches.length !== 1) throw new HttpError("github_oidc_token_invalid", 401);
+  const jwk = matches[0];
+  if (jwk.kty !== "RSA" || jwk.use !== "sig" || (jwk.alg && jwk.alg !== "RS256")
+    || (jwk.key_ops !== undefined && (!Array.isArray(jwk.key_ops) || !jwk.key_ops.includes("verify")))
+    || typeof jwk.n !== "string" || typeof jwk.e !== "string") {
+    throw new HttpError("github_oidc_token_invalid", 401);
+  }
+  let valid = false;
+  try {
+    const publicKey = await crypto.subtle.importKey(
+      "jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"],
+    );
+    valid = await crypto.subtle.verify(
+      "RSASSA-PKCS1-v1_5", publicKey, signature, new TextEncoder().encode(`${parts[0]}.${parts[1]}`),
+    );
+  } catch { throw new HttpError("github_oidc_token_invalid", 401); }
+  if (!valid) throw new HttpError("github_oidc_token_invalid", 401);
+  return { runId: claims.run_id, runAttempt: claims.run_attempt };
+}
+
+function accountSettingsProfileApplicationIsFixedHk(application) {
+  const identity = application?.identity;
+  return application?.platform === "longbridge" && application?.key === "hk"
+    && accountSettingsIdentityIsComplete(identity)
+    && identity.platform === "longbridge" && identity.key === "hk";
+}
+
+async function claimAccountSettingsProfileApplicationFromGitHub(request, env) {
+  if (new URL(request.url).search || !hasRuntimeInstanceStore(env)) {
+    return json({ ok: false, error: "account_settings_profile_application_unavailable", no_order: true, execution_authority_granted: false }, 503);
+  }
+  try {
+    const run = await verifyGitHubProfileApplicationToken(request, env);
+    const raw = await readGitHubProfileApplicationRequestBody(request);
+    if (!ux1ExactKeys(raw, ["request_key"]) || !ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_KEY.test(String(raw.request_key || ""))) {
+      return json({ ok: false, error: "account_settings_profile_application_request_invalid", no_order: true, execution_authority_granted: false }, 400);
+    }
+    const actor = "github-oidc-profile-application";
+    const lookup = await runtimeInstanceCommand(env, {
+      action: "account_settings_profile_application_lookup", actor, request_key: raw.request_key,
+    });
+    const application = lookup.application;
+    if (!application) return json({ ok: false, error: "account_settings_profile_application_not_found", no_order: true, execution_authority_granted: false }, 404);
+    if (!accountSettingsProfileApplicationIsFixedHk(application)) {
+      return json({ ok: false, error: "account_settings_profile_application_target_conflict", no_order: true, execution_authority_granted: false }, 409);
+    }
+    const command = {
+      action: "account_settings_profile_application_claim",
+      actor,
+      request_key: application.request_key,
+      identity: application.identity,
+      expected_instance_revision: application.instance_revision,
+      expected_draft_revision: application.draft_revision,
+      old_profile: application.old_profile,
+      new_profile: application.new_profile,
+      current_profile: application.old_profile,
+      runtime_target_enabled: false,
+      workflow_run_id: run.runId,
+      workflow_run_attempt: run.runAttempt,
+    };
+    if (application.status === "claimed") {
+      const replay = await runtimeInstanceCommand(env, command);
+      return json({ ...replay, ok: true });
+    }
+    if (application.status !== "approved") {
+      return json({ ok: false, error: "account_settings_profile_application_conflict", no_order: true, execution_authority_granted: false }, 409);
+    }
+    const observed = await runtimeInstanceCommand(env, {
+      action: "account_settings_read", actor, platform: application.platform, key: application.key,
+    });
+    if (observed.instance_revision !== application.instance_revision
+      || canonicalResearchTaskJson(observed.identity) !== canonicalResearchTaskJson(application.identity)) {
+      return json({ ok: false, error: "account_settings_profile_application_identity_conflict", no_order: true, execution_authority_granted: false }, 409);
+    }
+    const draft = observed.draft;
+    if (draft?.status !== "current" || draft.revision !== application.draft_revision
+      || canonicalResearchTaskJson(draft.identity) !== canonicalResearchTaskJson(application.identity)
+      || Object.keys(draft.overrides || {}).length !== 1
+      || draft.overrides?.strategy_profile !== application.new_profile) {
+      return json({ ok: false, error: "account_settings_profile_application_draft_conflict", no_order: true, execution_authority_granted: false }, 409);
+    }
+    const variableScope = resolveVariableScope(application.platform, observed.config);
+    const githubEnvironment = resolveGithubEnvironment(application.platform, observed.config, variableScope);
+    const repository = platformRepositories(env)?.[application.platform];
+    if (repository !== "QuantStrategyLab/LongBridgePlatform"
+      || variableScope !== "environment"
+      || githubEnvironment !== "longbridge-hk") {
+      return json({ ok: false, error: "account_settings_profile_application_target_conflict", no_order: true, execution_authority_granted: false }, 409);
+    }
+    const readback = await accountSettingsProfileRuntimeReadback(env, observed, {
+      repository, variableScope, githubEnvironment,
+    });
+    if (!readback) return json({ ok: false, error: "account_settings_runtime_readback_unavailable", no_order: true, execution_authority_granted: false }, 503);
+    if (readback.runtime_target_enabled !== "false" || readback.strategy_profile !== application.old_profile) {
+      return json({ ok: false, error: "account_settings_profile_application_runtime_conflict", no_order: true, execution_authority_granted: false }, 409);
+    }
+    const claimed = await runtimeInstanceCommand(env, command);
+    return json({ ...claimed, ok: true });
+  } catch (error) {
+    const status = error instanceof HttpError ? error.status : 503;
+    return json({ ok: false, error: error instanceof HttpError ? error.message : "account_settings_profile_application_unavailable", no_order: true, execution_authority_granted: false }, status);
+  }
+}
+
+async function readGitHubProfileApplicationRequestBody(request) {
+  const contentLength = request.headers.get("Content-Length");
+  if (contentLength && (!/^\d+$/.test(contentLength) || Number(contentLength) > ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES)) {
+    throw new HttpError("account_settings_profile_application_body_too_large", 413);
+  }
+  const controller = new AbortController();
+  let rejectAbort = () => {};
+  const abortPromise = new Promise((_, reject) => { rejectAbort = reject; });
+  abortPromise.catch(() => {});
+  const onAbort = () => rejectAbort(new HttpError("account_settings_profile_application_body_timeout", 408));
+  controller.signal.addEventListener("abort", onAbort);
+  const timeout = setTimeout(() => controller.abort(), ACCOUNT_SETTINGS_PROFILE_APPLICATION_REQUEST_TIMEOUT_MS);
+  try {
+    const text = await readLimitedUtf8Body(request, ACCOUNT_SETTINGS_PROFILE_APPLICATION_MAX_BODY_BYTES, controller, abortPromise);
+    try { return JSON.parse(text); } catch { throw new HttpError("request body must be valid JSON", 400); }
+  } catch (error) {
+    if (error instanceof HttpError) throw error;
+    if (String(error?.message || "") === "ux1_calculator_body_limit") {
+      throw new HttpError("account_settings_profile_application_body_too_large", 413);
+    }
+    throw new HttpError("account_settings_profile_application_body_invalid", 400);
+  } finally {
+    clearTimeout(timeout);
+    controller.signal.removeEventListener("abort", onAbort);
   }
 }
 
@@ -13962,9 +14205,9 @@ async function effectiveAccountSettings(env, observed) {
   return effective;
 }
 
-async function accountSettingsProfileRuntimeReadback(env, observed) {
+async function accountSettingsProfileRuntimeReadback(env, observed, resolved = null) {
   const token = env.RUNTIME_SETTINGS_DISPATCH_TOKEN;
-  const repository = platformRepositories(env)?.[observed.platform];
+  const repository = resolved?.repository ?? platformRepositories(env)?.[observed.platform];
   if (!token || !repository || !observed.config) return null;
   const options = Array.isArray(observed.account_options?.[observed.platform])
     ? observed.account_options[observed.platform] : [];
@@ -13985,8 +14228,8 @@ async function accountSettingsProfileRuntimeReadback(env, observed) {
       readVariable,
     });
     if (!current) return null;
-    const variableScope = resolveVariableScope(observed.platform, observed.config);
-    const githubEnvironment = resolveGithubEnvironment(observed.platform, observed.config, variableScope);
+    const variableScope = resolved?.variableScope ?? resolveVariableScope(observed.platform, observed.config);
+    const githubEnvironment = resolved?.githubEnvironment ?? resolveGithubEnvironment(observed.platform, observed.config, variableScope);
     const variables = await variableCache.get([repository, variableScope, githubEnvironment || ""].join("|"));
     return {
       strategy_profile: current.strategy_profile || null,
