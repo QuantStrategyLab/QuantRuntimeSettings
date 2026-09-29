@@ -520,6 +520,26 @@ assert.equal(model.totals.reason, "coverage_incomplete");
 assert.equal(model.accounts.find((item) => item.account_key === "lb-paper").identity_status, "partial_identity");
 assert.equal(model.accounts.find((item) => item.account_key === "lb-paper").balances[0].net_assets, "20");
 
+const paperOnlyModel = buildAccountFactsReadModel({
+  accountOptions: { longbridge: [{ ...account, label: "Paper broker", broker_environment: "paper" }] },
+  bindings: { schema_version: "qsl_account_facts_bindings.v1", bindings: [trustedBinding()] },
+  storedByAccount: new Map([["longbridge:lb-paper", newer]]),
+});
+assert.equal(paperOnlyModel.totals.status, "unavailable");
+assert.equal(paperOnlyModel.totals.reason, "no_non_paper_accounts");
+assert.equal(paperOnlyModel.accounts[0].data_status, "fresh");
+assert.equal(paperOnlyModel.accounts[0].balances[0].net_assets, "20");
+assert.equal(paperOnlyModel.accounts[0].broker_environment, "paper");
+assert.equal(aggregateAccountFactsTotals([{
+  account_scope: "HK",
+  broker_environment: "paper",
+  label: "Real-looking label",
+  binding_status: "bound",
+  data_status: "fresh",
+  identity_status: "partial_identity",
+  balances: [{ currency: "USD", net_assets: "100", total_cash: "10" }],
+}]).reason, "no_non_paper_accounts");
+
 // 4) Illegal legacy money becomes unavailable, not 500.
 const illegalLegacy = {
   ...newer,
@@ -852,6 +872,12 @@ assert.match(overviewPage, /全部账户总额|请选择账户/);
 assert.match(overviewPage, /accountId === "all"/);
 assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
 assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
+assert.match(overviewPage, /formatAccountFactAmounts\(account\.facts\?\.data_status === "fresh" \? account\.facts\.cash/);
+assert.match(overviewPage, /account\.brokerEnvironment === "paper"/);
+assert.match(overviewPage, /t\("模拟账户"\)/);
+assert.doesNotMatch(overviewPage, /t\("账户配置"\)/);
+const appSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/App.tsx"), "utf8");
+assert.match(appSource, /brokerEnvironment: typeof row\.account\.broker_environment === "string" \? row\.account\.broker_environment : null/);
 assert.doesNotMatch(overviewPage, /source-binding|尚未接通|外部资金流未接入|未知不等于零/);
 assert.equal(overviewPage.includes('totals?.status === "by_currency"'), false);
 assert.equal(overviewPage.includes('id: "cash"'), false);

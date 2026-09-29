@@ -846,6 +846,7 @@ export const EN_COPY = {
   "可用现金": "Available cash",
   "账户数量": "Accounts",
   "账户配置": "Configured accounts",
+  "模拟账户": "Paper account",
   "账户 ••••{tail}": "Account ••••{tail}",
   "账户 · {alias}": "Account · {alias}",
   "环境未标明": "Environment is not specified",

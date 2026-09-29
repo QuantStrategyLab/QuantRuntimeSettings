@@ -23,6 +23,7 @@ export type AccountFactsAccount = {
   identity_status: "partial_identity" | "missing_identity";
   identity_mismatch?: boolean;
   data_status: "fresh" | "stale" | "unavailable";
+  broker_environment?: string | null;
   target_id: string | null;
   source_binding_id: string | null;
   account_scope?: string | null;
@@ -94,15 +95,19 @@ export function formatAccountFactAmounts(
   field: string,
 ): string | null {
   if (!Array.isArray(rows) || rows.length === 0) return null;
-  const parts = rows
+  const validRows = rows.filter((row) => (
+    typeof row?.currency === "string" && typeof row?.[field] === "string"
+  ));
+  if (!validRows.length) return null;
+  const parts = validRows
     .map((row) => {
-      const currency = row?.currency;
-      const amount = row?.[field];
-      if (typeof currency !== "string" || typeof amount !== "string") return null;
-      return `${currency} ${amount}`;
+      const currency = row.currency;
+      const amount = row[field];
+      if (typeof currency !== "string" || typeof amount !== "string" || /^-?0(?:\.0+)?$/.test(amount)) return null;
+      return currency + " " + amount;
     })
     .filter((item): item is string => Boolean(item));
-  return parts.length ? parts.join(" · ") : null;
+  return parts.length ? parts.join(" · ") : "0";
 }
 
 export function accountFactsForRow(
