@@ -55,6 +55,7 @@ jobs:
       RECONCILIATION_RECOVERY_SYNC_TOKEN: ${{ secrets.RECONCILIATION_RECOVERY_SYNC_TOKEN }}
       RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: ${{ secrets.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN }}
       ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.ACCOUNT_FACTS_SYNC_TOKEN }}
+      IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.IBKR_ACCOUNT_FACTS_SYNC_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -125,6 +126,7 @@ jobs:
           if account_facts_flag not in ("", "true", "false"):
               raise SystemExit("ACCOUNT_FACTS_READ_MODEL_ENABLED must be empty, true, or false.")
           account_facts_token = os.environ.get("ACCOUNT_FACTS_SYNC_TOKEN", "")
+          ibkr_account_facts_token = os.environ.get("IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "")
           account_facts_token_has_http_controls = any(
               ord(character) < 0x20 or ord(character) == 0x7f
               for character in account_facts_token
@@ -135,6 +137,17 @@ jobs:
               or account_facts_token_has_http_controls
           ):
               raise SystemExit("ACCOUNT_FACTS_SYNC_TOKEN must be non-empty without surrounding whitespace or HTTP control characters when account facts are enabled.")
+          ibkr_account_facts_token_has_http_controls = any(
+              ord(character) < 0x20 or ord(character) == 0x7f
+              for character in ibkr_account_facts_token
+          )
+          if ibkr_account_facts_token and (
+              ibkr_account_facts_token != ibkr_account_facts_token.strip()
+              or ibkr_account_facts_token_has_http_controls
+          ):
+              raise SystemExit("IBKR_ACCOUNT_FACTS_SYNC_TOKEN must not have surrounding whitespace or HTTP control characters.")
+          if account_facts_token and ibkr_account_facts_token and account_facts_token == ibkr_account_facts_token:
+              raise SystemExit("ACCOUNT_FACTS_SYNC_TOKEN and IBKR_ACCOUNT_FACTS_SYNC_TOKEN must be distinct.")
           account_facts_value = "true" if account_facts_flag == "true" else "false"
           runtime_daily_flag = os.environ.get("RUNTIME_DAILY_READ_MODEL_ENABLED", "")
           if runtime_daily_flag not in ("", "true", "false"):
@@ -323,6 +336,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional IBKR account-facts ingress token
+        if: env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$IBKR_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put IBKR_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync M0 research-ledger ingress token
         env:

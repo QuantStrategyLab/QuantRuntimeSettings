@@ -5,16 +5,24 @@ export type AccountFactsReturn = {
 
 export type AccountFactsBalance = {
   currency: string;
-  net_assets: string;
-  total_cash: string;
+  net_assets: string | null;
+  total_cash?: string | null;
 };
 
-export type AccountFactsCash = {
+export type LongBridgeAccountFactsCash = {
   currency: string;
   available_cash: string;
   frozen_cash: string;
   settling_cash: string;
 };
+
+export type IbkrAccountFactsCash = {
+  currency: string;
+  cash_balance: string;
+  source_tag: "$LEDGER-CashBalance" | "$LEDGER-TotalCashBalance" | "CashBalance" | "TotalCashBalance" | "SettledCash";
+};
+
+export type AccountFactsCash = LongBridgeAccountFactsCash | IbkrAccountFactsCash;
 
 export type AccountFactsAccount = {
   platform: string;

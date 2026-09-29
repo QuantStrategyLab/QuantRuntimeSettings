@@ -94,11 +94,14 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
   const renderer = heredoc[1].split("\n").map((line) => line.replace(/^ {10}/, "")).join("\n");
   assert.match(workflow, /ACCOUNT_FACTS_READ_MODEL_ENABLED: \$\{\{ vars\.ACCOUNT_FACTS_READ_MODEL_ENABLED \}\}/);
   assert.match(workflow, /ACCOUNT_FACTS_SYNC_TOKEN: \$\{\{ secrets\.ACCOUNT_FACTS_SYNC_TOKEN \}\}/);
+  assert.match(workflow, /IBKR_ACCOUNT_FACTS_SYNC_TOKEN: \$\{\{ secrets\.IBKR_ACCOUNT_FACTS_SYNC_TOKEN \}\}/);
+  assert.match(workflow, /Sync optional IBKR account-facts ingress token/);
+  assert.match(workflow, /secret put IBKR_ACCOUNT_FACTS_SYNC_TOKEN/);
   assert.match(workflow, /RUNTIME_DAILY_READ_MODEL_ENABLED: \$\{\{ vars\.RUNTIME_DAILY_READ_MODEL_ENABLED \}\}/);
   assert.match(workflow, /EXECUTION_EVIDENCE_SYNC_TOKEN: \$\{\{ secrets\.EXECUTION_EVIDENCE_SYNC_TOKEN \}\}/);
   assert.match(workflow, /node tests\/console_catalog_release_validation\.mjs/);
 
-  function render({ flag, token, runtimeDailyFlag, executionEvidenceToken } = {}) {
+  function render({ flag, token, ibkrToken, runtimeDailyFlag, executionEvidenceToken } = {}) {
     const directory = mkdtempSync(join(tmpdir(), "qsl-config-render-"));
     try {
       copyFileSync(template, join(directory, "wrangler.toml.example"));
@@ -112,6 +115,8 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
       else env.ACCOUNT_FACTS_READ_MODEL_ENABLED = flag;
       if (token === undefined) delete env.ACCOUNT_FACTS_SYNC_TOKEN;
       else env.ACCOUNT_FACTS_SYNC_TOKEN = token;
+      if (ibkrToken === undefined) delete env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN;
+      else env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN = ibkrToken;
       if (runtimeDailyFlag === undefined) delete env.RUNTIME_DAILY_READ_MODEL_ENABLED;
       else env.RUNTIME_DAILY_READ_MODEL_ENABLED = runtimeDailyFlag;
       if (executionEvidenceToken === undefined) delete env.EXECUTION_EVIDENCE_SYNC_TOKEN;
@@ -164,6 +169,29 @@ test("the deploy renderer pins account-facts and runtime-daily flags and fails c
     assert.equal(toml, "");
     assert.doesNotMatch(result.stdout + result.stderr, /synthetic-token/);
   }
+
+  for (const ibkrToken of [" ", " synthetic-ibkr-token", "synthetic-ibkr-token ", "synthetic\r-token", "synthetic\n-token"]) {
+    const { result, toml, targetExists } = render({ flag: "false", ibkrToken });
+    assert.notEqual(result.status, 0, "accepted malformed optional IBKR token");
+    assert.match(result.stderr, /IBKR_ACCOUNT_FACTS_SYNC_TOKEN/);
+    assert.equal(targetExists, false, "malformed IBKR token must fail before creating deploy config");
+    assert.equal(toml, "");
+    assert.doesNotMatch(result.stdout + result.stderr, /synthetic-ibkr-token/);
+  }
+
+  const equalTokens = render({
+    flag: "true",
+    token: "synthetic-shared-token",
+    ibkrToken: "synthetic-shared-token",
+  });
+  assert.notEqual(equalTokens.result.status, 0, "accepted equal LongBridge and IBKR tokens");
+  assert.match(equalTokens.result.stderr, /must be distinct/);
+  assert.equal(equalTokens.targetExists, false);
+  assert.doesNotMatch(equalTokens.result.stdout + equalTokens.result.stderr, /synthetic-shared-token/);
+
+  const independentIbkrToken = render({ flag: "false", ibkrToken: "synthetic-ibkr-only-token" });
+  assert.equal(independentIbkrToken.result.status, 0, independentIbkrToken.result.stderr);
+  assert.doesNotMatch(independentIbkrToken.toml, /synthetic-ibkr-only-token/);
 
   for (const [flag, expected] of [["true", "true"], ["false", "false"], ["", "false"], [undefined, "false"]]) {
     const executionEvidenceToken = flag === "true" ? "synthetic-execution-evidence-token-sentinel" : undefined;
