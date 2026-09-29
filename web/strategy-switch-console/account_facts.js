@@ -5,8 +5,13 @@ export const ACCOUNT_FACTS_BINDINGS_SCHEMA = "qsl_account_facts_bindings.v1";
 export const ACCOUNT_FACTS_HISTORY_SCHEMA = "longbridge_account_snapshot_history.v1";
 export const ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "longbridge_account_snapshot.v1";
 export const ACCOUNT_FACTS_SOURCE_KIND = "deployment_scope_token_version";
+export const IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA = "ibkr_account_snapshot_history.v1";
+export const IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "ibkr_account_snapshot.v1";
+export const IBKR_ACCOUNT_FACTS_SOURCE_KIND = "deployment_runtime_account";
 export const ACCOUNT_FACTS_BINDINGS_KEY = "account_facts_bindings";
 export const ACCOUNT_FACTS_PLATFORM = "longbridge";
+export const IBKR_ACCOUNT_FACTS_PLATFORM = "ibkr";
+export const ACCOUNT_FACTS_PLATFORMS = Object.freeze([ACCOUNT_FACTS_PLATFORM, IBKR_ACCOUNT_FACTS_PLATFORM]);
 // Exact LongBridge option↔payload pairs only. Not interchangeable sets.
 export const ACCOUNT_FACTS_SCOPE_PAIRS = Object.freeze([
   Object.freeze({ option_scope: "paper", payload_scope: "PAPER" }),
@@ -41,11 +46,17 @@ const ACCOUNT_KEY_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 const ACCOUNT_SCOPE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 const OPTION_IDENTITY_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 const OPTION_IDENTITY_FIELDS = ["target_name", "service_name", "deployment_selector", "account_selector"];
+const IBKR_ACCOUNT_ID_RE = /^(?:U|DU)[0-9]+$/;
+const IBKR_CASH_SOURCE_TAGS = new Set([
+  "$LEDGER-CashBalance", "$LEDGER-TotalCashBalance", "CashBalance", "TotalCashBalance", "SettledCash",
+]);
 const CURRENCY_RE = /^[A-Z]{3}$/;
 const DECIMAL_RE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const BALANCE_FIELDS = ["currency", "net_assets", "total_cash"];
-const CASH_FIELDS = ["currency", "available_cash", "frozen_cash", "settling_cash"];
+const LONG_BRIDGE_BALANCE_FIELDS = ["currency", "net_assets", "total_cash"];
+const LONG_BRIDGE_CASH_FIELDS = ["currency", "available_cash", "frozen_cash", "settling_cash"];
+const IBKR_BALANCE_FIELDS = ["currency", "net_assets"];
+const IBKR_CASH_FIELDS = ["currency", "cash_balance", "source_tag"];
 
 export class AccountFactsError extends Error {
   constructor(code, status = 400) {
@@ -91,7 +102,7 @@ function assertMoneyText(cell, fieldName) {
   if (whole.length > ACCOUNT_FACTS_MAX_MONEY_DIGITS) reject("invalid_account_facts_money_magnitude");
 }
 
-function moneyRows(value, fields, fieldName) {
+function moneyRows(value, fields, fieldName, { nullableFields = [], rejectBase = false, sourceTags = null } = {}) {
   if (!Array.isArray(value) || value.length === 0 || value.length > 32) reject(`invalid_account_facts_${fieldName}`);
   const seen = new Set();
   return value.map((item) => {
@@ -100,11 +111,20 @@ function moneyRows(value, fields, fieldName) {
     for (const field of fields) {
       const cell = item[field];
       if (field === "currency") {
-        if (typeof cell !== "string" || !CURRENCY_RE.test(cell) || seen.has(cell)) {
+        if (typeof cell !== "string" || !CURRENCY_RE.test(cell) || seen.has(cell) || (rejectBase && cell === "BASE")) {
           reject(`invalid_account_facts_${fieldName}`);
         }
         seen.add(cell);
         row.currency = cell;
+        continue;
+      }
+      if (field === "source_tag") {
+        if (typeof cell !== "string" || !sourceTags?.has(cell)) reject(`invalid_account_facts_${fieldName}`);
+        row[field] = cell;
+        continue;
+      }
+      if (nullableFields.includes(field) && cell === null) {
+        row[field] = null;
         continue;
       }
       assertMoneyText(cell, fieldName);
@@ -132,6 +152,27 @@ export function accountFactsScopesMatch(optionScope, payloadScope) {
   return accountFactsPayloadScopeForOption(optionScope) === payloadScope;
 }
 
+export function accountFactsScopesMatchForPlatform(platform, optionScope, payloadScope) {
+  if (platform === ACCOUNT_FACTS_PLATFORM) return accountFactsScopesMatch(optionScope, payloadScope);
+  return platform === IBKR_ACCOUNT_FACTS_PLATFORM
+    && typeof optionScope === "string"
+    && optionScope === payloadScope;
+}
+
+export function accountFactsPlatformForHistory(raw) {
+  if (raw?.schema_version === ACCOUNT_FACTS_HISTORY_SCHEMA
+      && raw?.snapshot_schema_version === ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return ACCOUNT_FACTS_PLATFORM;
+  if (raw?.schema_version === IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA
+      && raw?.snapshot_schema_version === IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return IBKR_ACCOUNT_FACTS_PLATFORM;
+  reject("invalid_account_facts_history");
+}
+
+function sourceKindForPlatform(platform) {
+  if (platform === ACCOUNT_FACTS_PLATFORM) return ACCOUNT_FACTS_SOURCE_KIND;
+  if (platform === IBKR_ACCOUNT_FACTS_PLATFORM) return IBKR_ACCOUNT_FACTS_SOURCE_KIND;
+  return null;
+}
+
 export function canonicalizeAccountFactsHistory(history) {
   return JSON.stringify(history);
 }
@@ -157,16 +198,17 @@ export function normalizeAccountFactsBindings(raw) {
     ])) {
       reject("invalid_account_facts_bindings");
     }
-    if (item.platform !== ACCOUNT_FACTS_PLATFORM) reject("invalid_account_facts_bindings");
+    if (!ACCOUNT_FACTS_PLATFORMS.includes(item.platform)) reject("invalid_account_facts_bindings");
     if (typeof item.account_key !== "string" || !ACCOUNT_KEY_RE.test(item.account_key)) reject("invalid_account_facts_bindings");
     if (typeof item.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(item.account_scope)) {
       reject("invalid_account_facts_bindings");
     }
-    // Exact LongBridge option scopes only: paper, hk, sg (each pairs to one payload scope).
-    if (!ACCOUNT_FACTS_OPTION_SCOPES.includes(item.account_scope)) reject("invalid_account_facts_bindings");
+    if (item.platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_OPTION_SCOPES.includes(item.account_scope)) {
+      reject("invalid_account_facts_bindings");
+    }
     if (typeof item.target_id !== "string" || !TARGET_ID_RE.test(item.target_id)) reject("invalid_account_facts_bindings");
     if (!exactKeys(item.source_binding, ["kind", "id"])) reject("invalid_account_facts_bindings");
-    if (item.source_binding.kind !== ACCOUNT_FACTS_SOURCE_KIND) reject("invalid_account_facts_bindings");
+    if (item.source_binding.kind !== sourceKindForPlatform(item.platform)) reject("invalid_account_facts_bindings");
     if (typeof item.source_binding.id !== "string" || !BINDING_ID_RE.test(item.source_binding.id)) {
       reject("invalid_account_facts_bindings");
     }
@@ -176,19 +218,22 @@ export function normalizeAccountFactsBindings(raw) {
       deployment_selector: requireOptionIdentityField(item.deployment_selector),
       account_selector: requireOptionIdentityField(item.account_selector),
     };
+    if (item.platform === IBKR_ACCOUNT_FACTS_PLATFORM && !IBKR_ACCOUNT_ID_RE.test(identity.account_selector)) {
+      reject("invalid_account_facts_bindings");
+    }
     const accountId = `${item.platform}:${item.account_key}`;
     const sourceId = `${item.target_id}|${item.source_binding.id}`;
     if (byAccount.has(accountId) || bySource.has(sourceId)) reject("duplicate_account_facts_binding");
     byAccount.set(accountId, index);
     bySource.set(sourceId, index);
     return {
-      platform: ACCOUNT_FACTS_PLATFORM,
+      platform: item.platform,
       account_key: item.account_key,
       account_scope: item.account_scope,
       ...identity,
       target_id: item.target_id,
       source_binding: {
-        kind: ACCOUNT_FACTS_SOURCE_KIND,
+        kind: sourceKindForPlatform(item.platform),
         id: item.source_binding.id,
       },
     };
@@ -205,7 +250,7 @@ export function resolveTrustedAccountFactsBinding(bindings, targetId, sourceBind
   );
   if (matches.length === 0) return { ok: false, reason: "account_facts_binding_unmatched" };
   if (matches.length > 1) return { ok: false, reason: "duplicate_account_facts_binding" };
-  if (matches[0].platform !== ACCOUNT_FACTS_PLATFORM) {
+  if (!ACCOUNT_FACTS_PLATFORMS.includes(matches[0].platform)) {
     return { ok: false, reason: "account_facts_platform_unsupported" };
   }
   return { ok: true, binding: matches[0] };
@@ -213,10 +258,11 @@ export function resolveTrustedAccountFactsBinding(bindings, targetId, sourceBind
 
 export function accountFactsOptionMatchesBinding(option, binding) {
   if (!option || !binding) return false;
-  if (binding.platform !== ACCOUNT_FACTS_PLATFORM) return false;
+  if (!ACCOUNT_FACTS_PLATFORMS.includes(binding.platform)) return false;
   if (option.key !== binding.account_key) return false;
   if (typeof option.account_scope !== "string" || option.account_scope !== binding.account_scope) return false;
-  if (!ACCOUNT_FACTS_OPTION_SCOPES.includes(binding.account_scope)) return false;
+  if (binding.platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_OPTION_SCOPES.includes(binding.account_scope)) return false;
+  if (binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM && !IBKR_ACCOUNT_ID_RE.test(binding.account_selector)) return false;
   for (const field of OPTION_IDENTITY_FIELDS) {
     if (typeof option[field] !== "string" || option[field] !== binding[field]) return false;
   }
@@ -225,29 +271,45 @@ export function accountFactsOptionMatchesBinding(option, binding) {
 
 export function normalizeAccountFactsHistoryPayload(raw, {
   now = Date.now(),
+  expectedPlatform,
   expectedTargetId,
   expectedBindingId,
   expectedOptionScope = null,
+  expectedAccountSelector = null,
   enforceObservationWindow = true,
 } = {}) {
-  if (!exactKeys(raw, [
+  const platform = accountFactsPlatformForHistory(raw);
+  if (expectedPlatform && platform !== expectedPlatform) reject("account_facts_identity_mismatch", 409);
+  const ibkr = platform === IBKR_ACCOUNT_FACTS_PLATFORM;
+  const expectedKeys = [
     "schema_version", "snapshot_schema_version", "account_scope", "target_id", "source_binding",
     "observed_started_at", "observed_finished_at", "snapshot_atomic", "observation_date",
     "broker_reported_balances", "cash",
-  ])) reject("invalid_account_facts_history");
-  if (raw.schema_version !== ACCOUNT_FACTS_HISTORY_SCHEMA) reject("invalid_account_facts_history");
-  if (raw.snapshot_schema_version !== ACCOUNT_FACTS_SNAPSHOT_SCHEMA) reject("invalid_account_facts_history");
-  if (typeof raw.account_scope !== "string" || !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope)) {
+  ];
+  if (ibkr) expectedKeys.push("account_ids");
+  if (!exactKeys(raw, expectedKeys)) reject("invalid_account_facts_history");
+  if (typeof raw.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(raw.account_scope)
+      || (!ibkr && !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope))) {
     reject("invalid_account_facts_scope");
   }
-  if (expectedOptionScope != null && !accountFactsScopesMatch(expectedOptionScope, raw.account_scope)) {
+  if (expectedOptionScope != null
+      && !accountFactsScopesMatchForPlatform(platform, expectedOptionScope, raw.account_scope)) {
     reject("account_facts_identity_mismatch", 409);
+  }
+  let accountIds;
+  if (ibkr) {
+    if (!Array.isArray(raw.account_ids) || raw.account_ids.length !== 1
+        || typeof raw.account_ids[0] !== "string" || !IBKR_ACCOUNT_ID_RE.test(raw.account_ids[0])
+        || (expectedAccountSelector !== null && raw.account_ids[0] !== expectedAccountSelector)) {
+      reject("account_facts_identity_mismatch", 409);
+    }
+    accountIds = [raw.account_ids[0]];
   }
   if (typeof raw.target_id !== "string" || !TARGET_ID_RE.test(raw.target_id)) reject("invalid_account_facts_target");
   if (expectedTargetId && raw.target_id !== expectedTargetId) reject("account_facts_target_mismatch");
   if (!exactKeys(raw.source_binding, ["kind", "status", "id"])) reject("invalid_account_facts_source_binding");
   if (
-    raw.source_binding.kind !== ACCOUNT_FACTS_SOURCE_KIND
+    raw.source_binding.kind !== sourceKindForPlatform(platform)
     || raw.source_binding.status !== "bound"
     || typeof raw.source_binding.id !== "string"
     || !BINDING_ID_RE.test(raw.source_binding.id)
@@ -266,15 +328,25 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (!observationDate) reject("invalid_account_facts_date");
   const startedDate = new Date(startedMs).toISOString().slice(0, 10);
   if (observationDate !== startedDate) reject("invalid_account_facts_date");
-  const balances = moneyRows(raw.broker_reported_balances, BALANCE_FIELDS, "balances");
-  const cash = moneyRows(raw.cash, CASH_FIELDS, "cash");
-  return {
-    schema_version: ACCOUNT_FACTS_HISTORY_SCHEMA,
-    snapshot_schema_version: ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+  const balances = moneyRows(
+    raw.broker_reported_balances,
+    ibkr ? IBKR_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS,
+    "balances",
+    { nullableFields: ibkr ? ["net_assets"] : [] },
+  );
+  const cash = moneyRows(
+    raw.cash,
+    ibkr ? IBKR_CASH_FIELDS : LONG_BRIDGE_CASH_FIELDS,
+    "cash",
+    ibkr ? { rejectBase: true, sourceTags: IBKR_CASH_SOURCE_TAGS } : {},
+  );
+  const normalized = {
+    schema_version: ibkr ? IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA : ACCOUNT_FACTS_HISTORY_SCHEMA,
+    snapshot_schema_version: ibkr ? IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA : ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
     account_scope: raw.account_scope,
     target_id: raw.target_id,
     source_binding: {
-      kind: ACCOUNT_FACTS_SOURCE_KIND,
+      kind: sourceKindForPlatform(platform),
       status: "bound",
       id: raw.source_binding.id,
     },
@@ -285,6 +357,8 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     broker_reported_balances: balances,
     cash,
   };
+  if (ibkr) normalized.account_ids = accountIds;
+  return normalized;
 }
 
 export function decideAccountFactsPut(existing, incomingHistory) {
@@ -306,12 +380,21 @@ export function decideAccountFactsPut(existing, incomingHistory) {
   return { action: "replace", unchanged: false };
 }
 
-export function projectStoredAccountFacts(stored, { now = Date.now(), expectedOptionScope = null } = {}) {
+export function projectStoredAccountFacts(stored, {
+  now = Date.now(),
+  expectedPlatform,
+  expectedTargetId,
+  expectedBindingId,
+  expectedOptionScope = null,
+  expectedAccountSelector = null,
+} = {}) {
   const history = normalizeAccountFactsHistoryPayload(stored, {
     now,
-    expectedTargetId: stored?.target_id,
-    expectedBindingId: stored?.source_binding?.id,
+    expectedPlatform,
+    expectedTargetId: expectedTargetId || stored?.target_id,
+    expectedBindingId: expectedBindingId || stored?.source_binding?.id,
     expectedOptionScope,
+    expectedAccountSelector,
     enforceObservationWindow: false,
   });
   const finishedMs = parseInstant(history.observed_finished_at);
@@ -375,11 +458,20 @@ export function buildAccountFactsReadModel({
       let projected = null;
       if (stored && bindingStatus === "bound") {
         try {
-          projected = projectStoredAccountFacts(stored, { now, expectedOptionScope: binding.account_scope });
+          projected = projectStoredAccountFacts(stored, {
+            now,
+            expectedPlatform: binding.platform,
+            expectedTargetId: binding.target_id,
+            expectedBindingId: binding.source_binding.id,
+            expectedOptionScope: binding.account_scope,
+            expectedAccountSelector: binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM
+              ? binding.account_selector
+              : null,
+          });
           if (
             projected.target_id !== binding.target_id
             || projected.source_binding.id !== binding.source_binding.id
-            || !accountFactsScopesMatch(binding.account_scope, projected.account_scope)
+            || !accountFactsScopesMatchForPlatform(binding.platform, binding.account_scope, projected.account_scope)
             || binding.account_scope !== option.account_scope
           ) {
             projected = null;
@@ -471,6 +563,8 @@ export function accountFactsHistoryIdentityMatches(row, binding) {
   if (!row || !binding) return false;
   if (row.target_id !== binding.target_id) return false;
   if (row.source_binding_id !== binding.source_binding.id) return false;
+  // Storage metadata keeps the option scope (for LongBridge this is lowercase
+  // `paper`), while the broker payload carries its paired scope (`PAPER`).
   if (row.account_scope !== binding.account_scope) return false;
   return true;
 }
@@ -539,9 +633,13 @@ export function projectAccountFactsHistorySeries({
     try {
       payload = normalizeAccountFactsHistoryPayload(payload, {
         now: parseInstant(payload.observed_finished_at) || Date.now(),
+        expectedPlatform: binding.platform,
         expectedTargetId: binding.target_id,
         expectedBindingId: binding.source_binding.id,
         expectedOptionScope: binding.account_scope,
+        expectedAccountSelector: binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM
+          ? binding.account_selector
+          : null,
         enforceObservationWindow: false,
       });
     } catch {
@@ -550,7 +648,7 @@ export function projectAccountFactsHistorySeries({
     if (
       payload.target_id !== binding.target_id
       || payload.source_binding.id !== binding.source_binding.id
-      || !accountFactsScopesMatch(binding.account_scope, payload.account_scope)
+      || !accountFactsScopesMatchForPlatform(binding.platform, binding.account_scope, payload.account_scope)
     ) continue;
     const balance = balanceForCurrency(payload, currency);
     if (!balance) {
@@ -623,7 +721,7 @@ export function buildAccountFactsHistoryReadModel({
   days = [],
   maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
 } = {}) {
-  if (platform !== ACCOUNT_FACTS_PLATFORM || typeof accountKey !== "string" || !accountKey) {
+  if (!ACCOUNT_FACTS_PLATFORMS.includes(platform) || typeof accountKey !== "string" || !accountKey) {
     return {
       ok: true,
       platform: platform || null,

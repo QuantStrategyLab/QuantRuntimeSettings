@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import {
   ACCOUNT_FACTS_BINDINGS_KEY,
+  ACCOUNT_FACTS_BINDINGS_SCHEMA,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_HISTORY_SCHEMA,
   ACCOUNT_FACTS_OPTION_SCOPE,
@@ -19,7 +20,15 @@ import {
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
   ACCOUNT_FACTS_SOURCE_KIND,
+  ACCOUNT_FACTS_PLATFORMS,
+  IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA,
+  IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+  IBKR_ACCOUNT_FACTS_SOURCE_KIND,
+  IBKR_ACCOUNT_FACTS_PLATFORM,
+  accountFactsOptionMatchesBinding,
+  accountFactsPlatformForHistory,
   accountFactsScopesMatch,
+  accountFactsScopesMatchForPlatform,
   aggregateAccountFactsTotals,
   buildAccountFactsReadModel,
   decideAccountFactsDailyUpsert,
@@ -37,6 +46,7 @@ const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 const token = ["account", "facts", "sync"].join("-");
+const ibkrToken = ["ibkr", "account", "facts", "sync"].join("-");
 const sessionSecret = ["session", "secret"].join("-");
 const bindingA = "a".repeat(64);
 const bindingB = "b".repeat(64);
@@ -52,6 +62,9 @@ assert.equal(accountFactsScopesMatch("paper", "HK"), false);
 assert.equal(accountFactsScopesMatch("hk", "HK"), false);
 assert.equal(accountFactsScopesMatch("HK", "PAPER"), false);
 assert.equal(accountFactsScopesMatch("sg", "HK"), false);
+assert.deepEqual([...ACCOUNT_FACTS_PLATFORMS], ["longbridge", "ibkr"]);
+assert.equal(accountFactsScopesMatchForPlatform("ibkr", "live-u16608560", "live-u16608560"), true);
+assert.equal(accountFactsScopesMatchForPlatform("ibkr", "live-u16608560", "U16608560"), false);
 
 const account = {
   key: "lb-paper",
@@ -202,6 +215,7 @@ const bindingsEnv = {
   SESSION_SECRET: sessionSecret,
   ALLOWED_GITHUB_LOGINS: "facts-reader",
   ACCOUNT_FACTS_SYNC_TOKEN: token,
+  IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ibkrToken,
   ACCOUNT_FACTS_READ_MODEL_ENABLED: "true",
 };
 const mf = new Miniflare({
@@ -228,11 +242,26 @@ async function saveAccounts(items) {
   await kv.put("account_options", JSON.stringify({ longbridge: items }));
 }
 
+async function saveAccountOptions(options) {
+  await kv.put("account_options", JSON.stringify(options));
+}
+
 async function saveBindings(items) {
   await kv.put(ACCOUNT_FACTS_BINDINGS_KEY, JSON.stringify({
     schema_version: "qsl_account_facts_bindings.v1",
     bindings: items,
   }));
+}
+
+async function runtimeCommand(command) {
+  const stub = namespace.get(namespace.idFromName("runtime-instances"));
+  const response = await stub.fetch("https://runtime-instances/", {
+    method: "POST",
+    body: JSON.stringify(command),
+  });
+  const result = await response.json();
+  assert.equal(response.ok, true, JSON.stringify(result));
+  return result;
 }
 
 function wrapNamespace(action, latch) {
@@ -872,7 +901,7 @@ assert.match(overviewPage, /全部账户总额|请选择账户/);
 assert.match(overviewPage, /accountId === "all"/);
 assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
 assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
-assert.match(overviewPage, /formatAccountFactAmounts\(account\.facts\?\.data_status === "fresh" \? account\.facts\.cash/);
+assert.match(overviewPage, /account\.facts\?\.data_status === "fresh" \? account\.facts\.cash : null,[\s\S]*cashFieldForPlatform\(account\.platformKey\)/);
 assert.match(overviewPage, /account\.brokerEnvironment === "paper"/);
 assert.match(overviewPage, /t\("模拟账户"\)/);
 assert.doesNotMatch(overviewPage, /t\("账户配置"\)/);
@@ -881,6 +910,363 @@ assert.match(appSource, /brokerEnvironment: typeof row\.account\.broker_environm
 assert.doesNotMatch(overviewPage, /source-binding|尚未接通|外部资金流未接入|未知不等于零/);
 assert.equal(overviewPage.includes('totals?.status === "by_currency"'), false);
 assert.equal(overviewPage.includes('id: "cash"'), false);
+
+const ibkrAccount = {
+  key: "tqqq",
+  label: "tqqq",
+  target_name: "tqqq",
+  service_name: "interactive-brokers-quant-live-u16608560-service",
+  deployment_selector: "live-u16608560",
+  account_scope: "live-u16608560",
+  account_selector: "U16608560",
+  supported_domains: ["us_equity"],
+};
+const ibkrBinding = {
+  platform: IBKR_ACCOUNT_FACTS_PLATFORM,
+  account_key: ibkrAccount.key,
+  account_scope: ibkrAccount.account_scope,
+  target_name: ibkrAccount.target_name,
+  service_name: ibkrAccount.service_name,
+  deployment_selector: ibkrAccount.deployment_selector,
+  account_selector: ibkrAccount.account_selector,
+  target_id: "ibkr-u16608560",
+  source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, id: "e".repeat(64) },
+};
+function ibkrHistory(patch = {}) {
+  const started = patch.observed_started_at || isoMinutesAgo(2);
+  const finished = patch.observed_finished_at || isoMinutesAgo(1);
+  return {
+    schema_version: IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA,
+    snapshot_schema_version: IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+    account_scope: ibkrAccount.account_scope,
+    account_ids: [ibkrAccount.account_selector],
+    target_id: ibkrBinding.target_id,
+    source_binding: {
+      kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND,
+      status: "bound",
+      id: ibkrBinding.source_binding.id,
+    },
+    observed_started_at: started,
+    observed_finished_at: finished,
+    snapshot_atomic: false,
+    observation_date: observationDateFrom(started),
+    broker_reported_balances: [
+      { currency: "USD", net_assets: null },
+      { currency: "HKD", net_assets: "99.25" },
+    ],
+    cash: [
+      { currency: "USD", cash_balance: "7.50", source_tag: "$LEDGER-CashBalance" },
+      { currency: "HKD", cash_balance: "1.25", source_tag: "SettledCash" },
+    ],
+    ...patch,
+    observed_started_at: started,
+    observed_finished_at: finished,
+    observation_date: patch.observation_date || observationDateFrom(started),
+  };
+}
+
+assert.equal(accountFactsPlatformForHistory(ibkrHistory()), IBKR_ACCOUNT_FACTS_PLATFORM);
+assert.equal(accountFactsOptionMatchesBinding(ibkrAccount, ibkrBinding), true);
+assert.throws(() => normalizeAccountFactsBindings({
+  schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA,
+  bindings: [{ ...ibkrBinding, source_binding: { ...ibkrBinding.source_binding, kind: ACCOUNT_FACTS_SOURCE_KIND } }],
+}), /invalid_account_facts_bindings/);
+assert.throws(() => normalizeAccountFactsHistoryPayload({
+  ...ibkrHistory(),
+  snapshot_schema_version: ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+}), /invalid_account_facts_history/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({ account_ids: ["DU123", "U16608560"] })), /account_facts_identity_mismatch/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({ account_ids: ["DU123"] }), {
+  expectedPlatform: IBKR_ACCOUNT_FACTS_PLATFORM,
+  expectedAccountSelector: ibkrBinding.account_selector,
+}), /account_facts_identity_mismatch/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  broker_reported_balances: [{ currency: "BASE", net_assets: "1" }],
+})), /invalid_account_facts_balances/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  cash: [{ currency: "USD", cash_balance: "1", source_tag: "UnknownCashTag" }],
+})), /invalid_account_facts_cash/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  cash: [{ currency: "BASE", cash_balance: "1", source_tag: "CashBalance" }],
+})), /invalid_account_facts_cash/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  cash: [
+    { currency: "USD", cash_balance: "1", source_tag: "CashBalance" },
+    { currency: "USD", cash_balance: "2", source_tag: "SettledCash" },
+  ],
+})), /invalid_account_facts_cash/);
+const acceptedIbkrHistory = ibkrHistory();
+const normalizedIbkrHistory = normalizeAccountFactsHistoryPayload(acceptedIbkrHistory, {
+  expectedPlatform: IBKR_ACCOUNT_FACTS_PLATFORM,
+  expectedTargetId: ibkrBinding.target_id,
+  expectedBindingId: ibkrBinding.source_binding.id,
+  expectedOptionScope: ibkrBinding.account_scope,
+  expectedAccountSelector: ibkrBinding.account_selector,
+});
+assert.equal(normalizedIbkrHistory.broker_reported_balances[0].net_assets, null);
+assert.deepEqual(normalizedIbkrHistory.account_ids, ["U16608560"]);
+
+await saveAccountOptions({ longbridge: [account, otherAccount], ibkr: [ibkrAccount] });
+await saveBindings([trustedBinding(), ibkrBinding]);
+const ibkrAuth = { Authorization: `Bearer ${ibkrToken}` };
+assert.equal((await post(ibkrHistory(), auth, env)).status, 403, "the LongBridge token cannot write IBKR history");
+assert.equal((await post(historyPayload(), ibkrAuth, env)).status, 403, "the IBKR token cannot write LongBridge history");
+assert.equal((await post(ibkrHistory(), ibkrAuth, {
+  ...env,
+  IBKR_ACCOUNT_FACTS_SYNC_TOKEN: undefined,
+})).status, 401, "IBKR writes fail closed when its dedicated token is absent");
+assert.equal((await post("not-json", ibkrAuth, {
+  ...env,
+  ACCOUNT_FACTS_SYNC_TOKEN: ibkrToken,
+  IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ibkrToken,
+})).status, 503, "equal configured tokens are rejected before reading the body");
+const mixedIbkrSchema = ibkrHistory({ snapshot_schema_version: ACCOUNT_FACTS_SNAPSHOT_SCHEMA });
+assert.equal((await post(mixedIbkrSchema, ibkrAuth, env)).status, 400);
+const wrongIbkrIdentity = await post(ibkrHistory({ account_ids: ["DU123"] }), ibkrAuth, env);
+assert.equal(wrongIbkrIdentity.status, 409);
+const wrongIbkrScope = await post(ibkrHistory({ account_scope: "U16608560" }), ibkrAuth, env);
+assert.equal(wrongIbkrScope.status, 409, "native ID is not an account-scope substitute");
+const ibkrWrite = await post(acceptedIbkrHistory, ibkrAuth, env);
+assert.equal(ibkrWrite.status, 200, await ibkrWrite.clone().text());
+assert.equal((await ibkrWrite.json()).unchanged, false);
+const ibkrIdempotent = await post(acceptedIbkrHistory, ibkrAuth, env);
+assert.equal(ibkrIdempotent.status, 200);
+assert.equal((await ibkrIdempotent.json()).unchanged, true);
+const ibkrStale = await post(ibkrHistory({
+  observed_started_at: isoMinutesAgo(4),
+  observed_finished_at: isoMinutesAgo(3),
+}), ibkrAuth, env);
+assert.equal(ibkrStale.status, 409);
+const ibkrFacts = await (await get(sessionHeaders, env)).json();
+const ibkrRow = ibkrFacts.accounts.find((item) => item.platform === "ibkr" && item.account_key === ibkrAccount.key);
+assert.equal(ibkrRow.binding_status, "bound");
+assert.equal(ibkrRow.data_status, "fresh");
+assert.equal(ibkrRow.balances.find((row) => row.currency === "USD").net_assets, null);
+assert.equal(ibkrRow.cash.find((row) => row.currency === "USD").cash_balance, "7.50");
+assert.equal(ibkrFacts.totals.status, "unavailable");
+const ibkrUsdHistory = await (await getHistory("ibkr", ibkrAccount.key, "USD", sessionHeaders, env)).json();
+assert.equal(ibkrUsdHistory.binding_status, "bound");
+assert.deepEqual(ibkrUsdHistory.series.points, []);
+assert.deepEqual(ibkrUsdHistory.series.gap_dates, [normalizedIbkrHistory.observation_date]);
+const ibkrHkdHistory = await (await getHistory("ibkr", ibkrAccount.key, "HKD", sessionHeaders, env)).json();
+assert.equal(ibkrHkdHistory.series.points[0].net_assets, "99.25");
+assert.equal(ibkrHkdHistory.series.points[0].total_cash, null);
+
+// A server-approved source revision may rotate while the account identity stays fixed.
+// Old data must disappear under the new binding until a new-source observation arrives.
+const rotatedIbkrBinding = {
+  ...ibkrBinding,
+  source_binding: { ...ibkrBinding.source_binding, id: "f".repeat(64) },
+};
+await saveBindings([trustedBinding(), rotatedIbkrBinding]);
+const beforeIbkrRefresh = await (await get(sessionHeaders, env)).json();
+assert.equal(beforeIbkrRefresh.accounts.find((item) => item.platform === "ibkr" && item.account_key === ibkrAccount.key).data_status, "unavailable");
+const ibkrRefreshStarted = new Date(Date.now() - 20_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const ibkrRefreshFinished = new Date(Date.now() - 10_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const refreshedIbkr = await post(ibkrHistory({
+  source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotatedIbkrBinding.source_binding.id },
+  observed_started_at: ibkrRefreshStarted,
+  observed_finished_at: ibkrRefreshFinished,
+  observation_date: observationDateFrom(ibkrRefreshStarted),
+}), ibkrAuth, env);
+assert.equal(refreshedIbkr.status, 200, await refreshedIbkr.clone().text());
+const afterIbkrRefresh = await (await get(sessionHeaders, env)).json();
+assert.equal(afterIbkrRefresh.accounts.find((item) => item.platform === "ibkr" && item.account_key === ibkrAccount.key).data_status, "fresh");
+
+const rotatedLbBinding = trustedBinding({ source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, id: "e".repeat(64) } });
+await saveBindings([rotatedLbBinding, rotatedIbkrBinding]);
+const beforeLbRefresh = await (await get(sessionHeaders, env)).json();
+assert.equal(beforeLbRefresh.accounts.find((item) => item.platform === "longbridge" && item.account_key === account.key).data_status, "unavailable");
+const lbRefreshStarted = new Date(Date.now() - 4_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const lbRefreshFinished = new Date(Date.now() - 2_000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const refreshedLb = await post(historyPayload({
+  source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotatedLbBinding.source_binding.id },
+  observed_started_at: lbRefreshStarted,
+  observed_finished_at: lbRefreshFinished,
+  observation_date: observationDateFrom(lbRefreshStarted),
+}), auth, env);
+assert.equal(refreshedLb.status, 200, await refreshedLb.clone().text());
+const afterLbRefresh = await (await get(sessionHeaders, env)).json();
+assert.equal(afterLbRefresh.accounts.find((item) => item.platform === "longbridge" && item.account_key === account.key).data_status, "fresh");
+
+// Cross-day binding rotation: old daily rows stay stored but are excluded from
+// the current account history for both platforms.
+const previousDayStart = new Date(Date.now() - 86400000);
+previousDayStart.setUTCHours(10, 0, 0, 0);
+const previousDayStartedAt = previousDayStart.toISOString().replace(/\.\d{3}Z$/, "Z");
+const previousDayFinishedAt = new Date(previousDayStart.getTime() + 60000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const rotationLb = {
+  ...account,
+  key: "lb-history-rotation",
+  label: "LB history rotation",
+  target_name: "lb-history-rotation",
+  service_name: "lb-history-rotation-service",
+  deployment_selector: "lb-history-rotation",
+};
+const rotationLbOldId = "1".repeat(64);
+const rotationLbNewId = "2".repeat(64);
+const rotationLbOldBinding = trustedBinding({
+  account_key: rotationLb.key,
+  target_name: rotationLb.target_name,
+  service_name: rotationLb.service_name,
+  deployment_selector: rotationLb.deployment_selector,
+  target_id: "lb-history-rotation",
+  source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, id: rotationLbOldId },
+});
+const rotationLbNewBinding = {
+  ...rotationLbOldBinding,
+  source_binding: { ...rotationLbOldBinding.source_binding, id: rotationLbNewId },
+};
+const rotationLbOldHistory = historyPayload({
+  target_id: rotationLbOldBinding.target_id,
+  source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotationLbOldId },
+  observed_started_at: previousDayStartedAt,
+  observed_finished_at: previousDayFinishedAt,
+  observation_date: observationDateFrom(previousDayStartedAt),
+  broker_reported_balances: [{ currency: "USD", net_assets: "111", total_cash: "1" }],
+  cash: [{ currency: "USD", available_cash: "1", frozen_cash: "0", settling_cash: "0" }],
+});
+await runtimeCommand({
+  action: "account_facts_put",
+  platform: "longbridge",
+  account_key: rotationLb.key,
+  account_scope: rotationLb.account_scope,
+  account_selector: rotationLb.account_selector,
+  target_id: rotationLbOldBinding.target_id,
+  source_binding_id: rotationLbOldId,
+  history: rotationLbOldHistory,
+});
+
+const rotationIbkr = {
+  ...ibkrAccount,
+  key: "ibkr-history-rotation",
+  label: "IBKR history rotation",
+  target_name: "ibkr-history-rotation",
+  service_name: "ibkr-history-rotation-service",
+  deployment_selector: "ibkr-history-rotation",
+  account_scope: "live-u12345",
+  account_selector: "U12345",
+};
+const rotationIbkrOldId = "3".repeat(64);
+const rotationIbkrNewId = "4".repeat(64);
+const rotationIbkrOldBinding = {
+  platform: IBKR_ACCOUNT_FACTS_PLATFORM,
+  account_key: rotationIbkr.key,
+  account_scope: rotationIbkr.account_scope,
+  target_name: rotationIbkr.target_name,
+  service_name: rotationIbkr.service_name,
+  deployment_selector: rotationIbkr.deployment_selector,
+  account_selector: rotationIbkr.account_selector,
+  target_id: "ibkr-history-rotation",
+  source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, id: rotationIbkrOldId },
+};
+const rotationIbkrNewBinding = {
+  ...rotationIbkrOldBinding,
+  source_binding: { ...rotationIbkrOldBinding.source_binding, id: rotationIbkrNewId },
+};
+const rotationIbkrOldHistory = {
+  ...ibkrHistory({ observed_started_at: previousDayStartedAt, observed_finished_at: previousDayFinishedAt }),
+  account_scope: rotationIbkr.account_scope,
+  account_ids: [rotationIbkr.account_selector],
+  target_id: rotationIbkrOldBinding.target_id,
+  source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotationIbkrOldId },
+  observation_date: observationDateFrom(previousDayStartedAt),
+  broker_reported_balances: [{ currency: "USD", net_assets: "222" }],
+  cash: [{ currency: "USD", cash_balance: "2", source_tag: "CashBalance" }],
+};
+await runtimeCommand({
+  action: "account_facts_put",
+  platform: "ibkr",
+  account_key: rotationIbkr.key,
+  account_scope: rotationIbkr.account_scope,
+  account_selector: rotationIbkr.account_selector,
+  target_id: rotationIbkrOldBinding.target_id,
+  source_binding_id: rotationIbkrOldId,
+  history: rotationIbkrOldHistory,
+});
+
+await saveAccountOptions({
+  longbridge: [account, otherAccount, rotationLb],
+  ibkr: [ibkrAccount, rotationIbkr],
+});
+await saveBindings([
+  rotatedLbBinding,
+  rotatedIbkrBinding,
+  rotationLbNewBinding,
+  rotationIbkrNewBinding,
+]);
+const currentDayStartedAt = new Date(Date.now() - 3000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const currentDayFinishedAt = new Date(Date.now() - 1000).toISOString().replace(/\.\d{3}Z$/, "Z");
+const newLbDay = await post(historyPayload({
+  target_id: rotationLbNewBinding.target_id,
+  source_binding: { kind: ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotationLbNewId },
+  observed_started_at: currentDayStartedAt,
+  observed_finished_at: currentDayFinishedAt,
+  observation_date: observationDateFrom(currentDayStartedAt),
+  broker_reported_balances: [{ currency: "USD", net_assets: "333", total_cash: "3" }],
+  cash: [{ currency: "USD", available_cash: "3", frozen_cash: "0", settling_cash: "0" }],
+}), auth, env);
+assert.equal(newLbDay.status, 200, await newLbDay.clone().text());
+const newIbkrDay = await post({
+  ...ibkrHistory({ observed_started_at: currentDayStartedAt, observed_finished_at: currentDayFinishedAt }),
+  account_scope: rotationIbkr.account_scope,
+  account_ids: [rotationIbkr.account_selector],
+  target_id: rotationIbkrNewBinding.target_id,
+  source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotationIbkrNewId },
+  observation_date: observationDateFrom(currentDayStartedAt),
+  broker_reported_balances: [{ currency: "USD", net_assets: "444" }],
+  cash: [{ currency: "USD", cash_balance: "4", source_tag: "CashBalance" }],
+}, ibkrAuth, env);
+assert.equal(newIbkrDay.status, 200, await newIbkrDay.clone().text());
+
+const rotatedLbHistory = await getHistory("longbridge", rotationLb.key, "USD", sessionHeaders, env);
+assert.equal(rotatedLbHistory.status, 200, await rotatedLbHistory.clone().text());
+assert.deepEqual((await rotatedLbHistory.json()).series.points.map((point) => point.net_assets), ["333"]);
+const rotatedIbkrHistory = await getHistory("ibkr", rotationIbkr.key, "USD", sessionHeaders, env);
+assert.equal(rotatedIbkrHistory.status, 200, await rotatedIbkrHistory.clone().text());
+assert.deepEqual((await rotatedIbkrHistory.json()).series.points.map((point) => point.net_assets), ["444"]);
+const wrongCurrentIbkrContext = await namespace.get(namespace.idFromName("runtime-instances")).fetch("https://runtime-instances/", {
+  method: "POST",
+  body: JSON.stringify({
+    action: "account_facts_history_read",
+    platform: "ibkr",
+    account_key: rotationIbkr.key,
+    account_scope: rotationIbkr.account_scope,
+    account_selector: "DU12345",
+    target_id: rotationIbkrNewBinding.target_id,
+    source_binding_id: rotationIbkrNewId,
+  }),
+});
+assert.equal(wrongCurrentIbkrContext.status, 409);
+assert.equal((await wrongCurrentIbkrContext.json()).error, "account_facts_identity_mismatch");
+
+// Query the retained old rows with their former context to prove rotation filtered,
+// rather than deleted, the stored evidence.
+const retainedLbOld = await runtimeCommand({
+  action: "account_facts_history_read",
+  platform: "longbridge",
+  account_key: rotationLb.key,
+  account_scope: rotationLb.account_scope,
+  account_selector: rotationLb.account_selector,
+  target_id: rotationLbOldBinding.target_id,
+  source_binding_id: rotationLbOldId,
+});
+assert.deepEqual(retainedLbOld.days.map((day) => day.payload.broker_reported_balances[0].net_assets), ["111"]);
+const retainedIbkrOld = await runtimeCommand({
+  action: "account_facts_history_read",
+  platform: "ibkr",
+  account_key: rotationIbkr.key,
+  account_scope: rotationIbkr.account_scope,
+  account_selector: rotationIbkr.account_selector,
+  target_id: rotationIbkrOldBinding.target_id,
+  source_binding_id: rotationIbkrOldId,
+});
+assert.deepEqual(retainedIbkrOld.days.map((day) => day.payload.broker_reported_balances[0].net_assets), ["222"]);
+
+assert.match(overviewPage, /selectedCashLabel/);
+assert.match(overviewPage, /function cashFieldForPlatform\(platform: string\)/);
+const locales = readFileSync(join(root, "web/strategy-switch-console/frontend/src/locales.ts"), "utf8");
+assert.match(locales, /"现金余额": "Cash balance"/);
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
 assert.match(workerSource, /account_facts_put/);

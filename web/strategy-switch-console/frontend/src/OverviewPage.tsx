@@ -55,6 +55,14 @@ function amountOrDash(value: string | null | undefined): string {
   return value && value.length ? value : "—";
 }
 
+function cashFieldForPlatform(platform: string): "cash_balance" | "available_cash" {
+  return platform === "ibkr" ? "cash_balance" : "available_cash";
+}
+
+function cashLabelForPlatform(platform: string): "现金余额" | "可用现金" {
+  return platform === "ibkr" ? "现金余额" : "可用现金";
+}
+
 const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = [
   { id: "return", label: "收益率" },
   { id: "assets", label: "总资产" },
@@ -164,7 +172,10 @@ export function OverviewPage({ accounts, onOpenAccount }: {
     : formatAccountFactAmounts(selectedFacts?.data_status === "fresh" ? selectedFacts.balances : null, "net_assets");
   const totalCash = accountId === "all"
     ? null
-    : formatAccountFactAmounts(selectedFacts?.data_status === "fresh" ? selectedFacts.cash : null, "available_cash");
+    : formatAccountFactAmounts(
+      selectedFacts?.data_status === "fresh" ? selectedFacts.cash : null,
+      selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash",
+    );
   const assetsDetail = accountId === "all"
     ? "请选择账户"
     : accountFactsDetail(selectedFacts);
@@ -173,6 +184,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
     : accountFactsDetail(selectedFacts);
   const selectedUpdatedAt = accountId === "all" ? null : accountFactsUpdatedAt(selectedFacts);
   const assetsMetricLabel = accountId === "all" ? "全部账户总额" : "总资产";
+  const selectedCashLabel = selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
   const filteredPoints = filterAssetHistoryByRange(history?.series.points || [], range);
   const geometry = buildAssetChartGeometry(filteredPoints);
   const hasChart = chart === "assets" && Boolean(selectedAccount) && geometry.dots.length > 0;
@@ -216,7 +228,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
     </div>
     <section className="metric-row overview-metrics" aria-label={t("账户总览")}>
       <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
-      <div><span>{t("可用现金")}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
+      <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
     </section>
     <section className="chart-panel overview-chart">
       <div className="chart-toolbar">
@@ -283,7 +295,10 @@ export function OverviewPage({ accounts, onOpenAccount }: {
       <div className="overview-account-list">
         {visible.map(account => {
           const assets = formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
-          const cash = formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.cash : null, "available_cash");
+          const cash = formatAccountFactAmounts(
+            account.facts?.data_status === "fresh" ? account.facts.cash : null,
+            cashFieldForPlatform(account.platformKey),
+          );
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
@@ -293,7 +308,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
             <strong>{account.title}</strong>
             <small>{paperConfigured ? t("模拟账户") : t(overviewAccountTypeLabel())}</small>
             <small>{account.strategy}</small>
-            <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t("可用现金")}</em>{amountOrDash(cash)}</span></span>
+            <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}</span></span>
             <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             {statusNote ? <small>{t(statusNote)}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}

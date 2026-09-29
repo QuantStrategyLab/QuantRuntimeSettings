@@ -37,12 +37,13 @@ import {
   ACCOUNT_FACTS_BINDINGS_KEY,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_MAX_BODY_BYTES,
-  ACCOUNT_FACTS_OPTION_SCOPES,
-  ACCOUNT_FACTS_PLATFORM,
+  ACCOUNT_FACTS_PLATFORMS,
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
+  IBKR_ACCOUNT_FACTS_PLATFORM,
   accountFactsOptionMatchesBinding,
+  accountFactsPlatformForHistory,
   accountFactsReadModelEnabled,
-  accountFactsScopesMatch,
+  accountFactsScopesMatchForPlatform,
   buildAccountFactsHistoryReadModel,
   buildAccountFactsReadModel,
   canonicalizeAccountFactsHistory,
@@ -2138,7 +2139,62 @@ export class RuntimeInstances {
     throw new HttpError("unsupported_account_facts_action", 400);
   }
 
-  readAccountFactsRow(platform, accountKey) {
+  accountFactsStorageContext(command) {
+    if (!ACCOUNT_FACTS_PLATFORMS.includes(command?.platform)
+        || typeof command.account_key !== "string" || !command.account_key
+        || typeof command.account_scope !== "string"
+        || typeof command.account_selector !== "string"
+        || typeof command.target_id !== "string"
+        || typeof command.source_binding_id !== "string") {
+      throw new HttpError("invalid_account_facts_account", 400);
+    }
+    return {
+      platform: command.platform,
+      account_key: command.account_key,
+      account_scope: command.account_scope,
+      account_selector: command.account_selector,
+      target_id: command.target_id,
+      source_binding_id: command.source_binding_id,
+    };
+  }
+
+  validateAccountFactsStoragePayload(payload, context) {
+    try {
+      return normalizeAccountFactsHistoryPayload(payload, {
+        expectedPlatform: context.platform,
+        expectedTargetId: context.target_id,
+        expectedBindingId: context.source_binding_id,
+        expectedOptionScope: context.account_scope,
+        expectedAccountSelector: context.platform === IBKR_ACCOUNT_FACTS_PLATFORM
+          ? context.account_selector
+          : null,
+        enforceObservationWindow: false,
+      });
+    } catch (error) {
+      if (error instanceof AccountFactsError) throw new HttpError(error.code, error.status || 400);
+      throw error;
+    }
+  }
+
+  validatePriorAccountFactsForAccount(row, context) {
+    if (!row) return null;
+    if (row.platform !== context.platform || row.account_key !== context.account_key
+        || row.account_scope !== context.account_scope || row.target_id !== context.target_id) {
+      throw new HttpError("account_facts_identity_mismatch", 409);
+    }
+    const priorBindingId = row.payload?.source_binding?.id;
+    if (typeof priorBindingId !== "string") throw new HttpError("account_facts_stored_invalid", 409);
+    const priorContext = { ...context, source_binding_id: priorBindingId };
+    const payload = this.validateAccountFactsStoragePayload(row.payload, priorContext);
+    if (row.source_binding_id !== priorBindingId
+        || payload.target_id !== row.target_id
+        || payload.source_binding.id !== row.source_binding_id) {
+      throw new HttpError("account_facts_identity_mismatch", 409);
+    }
+    return { ...row, payload };
+  }
+
+  readAccountFactsRow(platform, accountKey, context = null) {
     const row = this.sql.exec(
       "SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope FROM account_facts_observation WHERE platform = ? AND account_key = ?",
       platform,
@@ -2147,6 +2203,15 @@ export class RuntimeInstances {
     if (!row) return null;
     let payload;
     try { payload = JSON.parse(row.payload_json); } catch { throw new HttpError("account_facts_stored_invalid", 409); }
+    if (context) {
+      if (platform !== context.platform || accountKey !== context.account_key
+          || row.target_id !== context.target_id
+          || row.source_binding_id !== context.source_binding_id
+          || row.account_scope !== context.account_scope) {
+        throw new HttpError("account_facts_identity_mismatch", 409);
+      }
+      payload = this.validateAccountFactsStoragePayload(payload, context);
+    }
     return {
       platform,
       account_key: accountKey,
@@ -2160,33 +2225,26 @@ export class RuntimeInstances {
   }
 
   putAccountFactsObservation(command) {
-    if (command.platform !== ACCOUNT_FACTS_PLATFORM) throw new HttpError("account_facts_platform_unsupported", 400);
-    if (typeof command.account_key !== "string" || !command.account_key) throw new HttpError("invalid_account_facts_account", 400);
-    if (typeof command.account_scope !== "string" || !ACCOUNT_FACTS_OPTION_SCOPES.includes(command.account_scope)) {
-      throw new HttpError("account_facts_identity_mismatch", 409);
-    }
+    const context = this.accountFactsStorageContext(command);
     if (!command.history || typeof command.history !== "object" || Array.isArray(command.history)) {
       throw new HttpError("invalid_account_facts_history", 400);
     }
     let history;
     try {
-      history = normalizeAccountFactsHistoryPayload(command.history, {
-        enforceObservationWindow: false,
-        expectedOptionScope: command.account_scope,
-      });
+      history = this.validateAccountFactsStoragePayload(command.history, context);
     } catch (error) {
       if (error instanceof AccountFactsError) throw new HttpError(error.code, error.status || 400);
       throw error;
     }
-    if (!accountFactsScopesMatch(command.account_scope, history.account_scope)) {
-      throw new HttpError("account_facts_identity_mismatch", 409);
-    }
-    const existingRow = this.readAccountFactsRow(command.platform, command.account_key);
+    const existingRow = this.validatePriorAccountFactsForAccount(
+      this.readAccountFactsRow(command.platform, command.account_key),
+      context,
+    );
     const decision = decideAccountFactsPut(existingRow?.payload || null, history);
     if (decision.action === "reject") throw new HttpError(decision.reason, decision.status || 409);
     if (decision.action === "keep") {
       // Latest table unchanged; still ensure the accepted day is retained.
-      this.upsertAccountFactsDaily(command.platform, command.account_key, command.account_scope, history);
+      this.upsertAccountFactsDaily(context, history);
       return {
         ok: true,
         stored: true,
@@ -2222,7 +2280,7 @@ export class RuntimeInstances {
       command.account_scope,
       updatedAt,
     );
-    this.upsertAccountFactsDaily(command.platform, command.account_key, command.account_scope, history);
+    this.upsertAccountFactsDaily(context, history);
     return {
       ok: true,
       stored: true,
@@ -2234,7 +2292,7 @@ export class RuntimeInstances {
     };
   }
 
-  readAccountFactsDailyRow(platform, accountKey, observationDate) {
+  readAccountFactsDailyRow(platform, accountKey, observationDate, context = null) {
     const row = this.sql.exec(
       `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
        FROM account_facts_daily WHERE platform = ? AND account_key = ? AND observation_date = ?`,
@@ -2245,6 +2303,15 @@ export class RuntimeInstances {
     if (!row) return null;
     let payload;
     try { payload = JSON.parse(row.payload_json); } catch { throw new HttpError("account_facts_stored_invalid", 409); }
+    if (context) {
+      if (platform !== context.platform || accountKey !== context.account_key
+          || row.target_id !== context.target_id
+          || row.source_binding_id !== context.source_binding_id
+          || row.account_scope !== context.account_scope) {
+        throw new HttpError("account_facts_identity_mismatch", 409);
+      }
+      payload = this.validateAccountFactsStoragePayload(payload, context);
+    }
     return {
       platform,
       account_key: accountKey,
@@ -2257,8 +2324,12 @@ export class RuntimeInstances {
     };
   }
 
-  upsertAccountFactsDaily(platform, accountKey, accountScope, history) {
-    const existing = this.readAccountFactsDailyRow(platform, accountKey, history.observation_date);
+  upsertAccountFactsDaily(context, history) {
+    const { platform, account_key: accountKey, account_scope: accountScope } = context;
+    const existing = this.validatePriorAccountFactsForAccount(
+      this.readAccountFactsDailyRow(platform, accountKey, history.observation_date),
+      context,
+    );
     let decision;
     try {
       decision = decideAccountFactsDailyUpsert(existing?.payload || null, history);
@@ -2310,19 +2381,25 @@ export class RuntimeInstances {
   }
 
   readAccountFactsDailyHistory(command) {
-    if (typeof command.platform !== "string" || typeof command.account_key !== "string") {
-      throw new HttpError("invalid_account_facts_account", 400);
-    }
+    const context = this.accountFactsStorageContext(command);
+    const { platform, account_key: accountKey } = context;
     const rows = this.sql.exec(
       `SELECT payload_json, observed_finished_at, observation_date, target_id, source_binding_id, account_scope
        FROM account_facts_daily WHERE platform = ? AND account_key = ? ORDER BY observation_date ASC`,
-      command.platform,
-      command.account_key,
+      platform,
+      accountKey,
     ).toArray();
     const days = [];
     for (const row of rows) {
+      // Source bindings can rotate while account identity and scope stay fixed.
+      // Keep prior daily rows in storage, but only project rows whose persisted
+      // identity metadata matches the current trusted binding context.
+      if (row.target_id !== context.target_id
+          || row.source_binding_id !== context.source_binding_id
+          || row.account_scope !== context.account_scope) continue;
       let payload;
-      try { payload = JSON.parse(row.payload_json); } catch { continue; }
+      try { payload = JSON.parse(row.payload_json); } catch { throw new HttpError("account_facts_stored_invalid", 409); }
+      payload = this.validateAccountFactsStoragePayload(payload, context);
       days.push({
         observation_date: row.observation_date,
         payload,
@@ -2336,10 +2413,8 @@ export class RuntimeInstances {
   }
 
   readAccountFactsObservation(command) {
-    if (typeof command.platform !== "string" || typeof command.account_key !== "string") {
-      throw new HttpError("invalid_account_facts_account", 400);
-    }
-    const row = this.readAccountFactsRow(command.platform, command.account_key);
+    const context = this.accountFactsStorageContext(command);
+    const row = this.readAccountFactsRow(context.platform, context.account_key, context);
     return { ok: true, observation: row };
   }
 
@@ -2348,8 +2423,15 @@ export class RuntimeInstances {
     const observations = [];
     for (const item of wanted) {
       if (!item || typeof item.platform !== "string" || typeof item.account_key !== "string") continue;
-      const row = this.readAccountFactsRow(item.platform, item.account_key);
-      if (row) observations.push(row);
+      const context = this.accountFactsStorageContext(item);
+      try {
+        const row = this.readAccountFactsRow(context.platform, context.account_key, context);
+        if (row) observations.push(row);
+      } catch (error) {
+        // A trusted binding rotation makes older rows ineligible for display.
+        // Keep them stored for audit, but treat them as absent until refreshed.
+        if (!(error instanceof HttpError) || error.message !== "account_facts_identity_mismatch") throw error;
+      }
     }
     return { ok: true, observations };
   }
@@ -8764,11 +8846,17 @@ function requireDedicatedExecutionEvidenceSyncToken(request, env) {
 }
 
 function requireDedicatedAccountFactsSyncToken(request, env) {
-  const expected = String(env.ACCOUNT_FACTS_SYNC_TOKEN || "");
-  if (!expected) throw new HttpError("account facts sync token is not configured", 500);
+  const longbridgeExpected = String(env.ACCOUNT_FACTS_SYNC_TOKEN || "");
+  const ibkrExpected = String(env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN || "");
+  if (longbridgeExpected && ibkrExpected && longbridgeExpected === ibkrExpected) {
+    throw new HttpError("account_facts_sync_token_ambiguous", 503);
+  }
+  if (!longbridgeExpected && !ibkrExpected) throw new HttpError("account_facts_sync_token_not_configured", 500);
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  if (token !== expected) throw new HttpError("account facts sync token is invalid", 401);
+  if (ibkrExpected && token === ibkrExpected) return IBKR_ACCOUNT_FACTS_PLATFORM;
+  if (longbridgeExpected && token === longbridgeExpected) return "longbridge";
+  throw new HttpError("account_facts_sync_token_invalid", 401);
 }
 
 function accountFactsDisabledResponse() {
@@ -8797,14 +8885,26 @@ async function loadAccountFactsBindings(env) {
   return normalizeAccountFactsBindings(raw);
 }
 
-async function loadStoredAccountFactsMap(env, accountOptions) {
+async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
   if (!hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
   const accounts = [];
+  const bindingByAccount = new Map(
+    (bindings?.bindings || []).map((item) => [`${item.platform}:${item.account_key}`, item]),
+  );
   for (const [platform, options] of Object.entries(accountOptions || {})) {
     if (!Array.isArray(options)) continue;
     for (const option of options) {
       if (!option || typeof option.key !== "string" || !option.key) continue;
-      accounts.push({ platform, account_key: option.key });
+      const binding = bindingByAccount.get(`${platform}:${option.key}`);
+      if (!binding || !accountFactsOptionMatchesBinding(option, binding)) continue;
+      accounts.push({
+        platform,
+        account_key: option.key,
+        account_scope: binding.account_scope,
+        account_selector: binding.account_selector,
+        target_id: binding.target_id,
+        source_binding_id: binding.source_binding.id,
+      });
     }
   }
   const listed = await runtimeInstanceCommand(env, {
@@ -8821,8 +8921,9 @@ async function loadStoredAccountFactsMap(env, accountOptions) {
 
 async function syncAccountFactsResponse(request, env) {
   if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  let authorizedPlatform;
   try {
-    requireDedicatedAccountFactsSyncToken(request, env);
+    authorizedPlatform = requireDedicatedAccountFactsSyncToken(request, env);
   } catch (error) {
     return accountFactsErrorResponse(error);
   }
@@ -8850,9 +8951,18 @@ async function syncAccountFactsResponse(request, env) {
       return json({ ok: false, error: "account_facts_caller_identity_forbidden" }, 400);
     }
   }
+  let payloadPlatform;
+  try {
+    payloadPlatform = accountFactsPlatformForHistory(raw);
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
+  if (payloadPlatform !== authorizedPlatform) {
+    return json({ ok: false, error: "account_facts_sync_token_platform_mismatch" }, 403);
+  }
   let history;
   try {
-    history = normalizeAccountFactsHistoryPayload(raw);
+    history = normalizeAccountFactsHistoryPayload(raw, { expectedPlatform: authorizedPlatform });
   } catch (error) {
     return accountFactsErrorResponse(error);
   }
@@ -8862,10 +8972,10 @@ async function syncAccountFactsResponse(request, env) {
     history.source_binding.id,
   );
   if (!resolved.ok) return json({ ok: false, error: resolved.reason }, 409);
-  if (resolved.binding.platform !== ACCOUNT_FACTS_PLATFORM) {
-    return json({ ok: false, error: "account_facts_platform_unsupported" }, 409);
+  if (resolved.binding.platform !== authorizedPlatform) {
+    return json({ ok: false, error: "account_facts_identity_mismatch" }, 409);
   }
-  if (!accountFactsScopesMatch(resolved.binding.account_scope, history.account_scope)) {
+  if (!accountFactsScopesMatchForPlatform(authorizedPlatform, resolved.binding.account_scope, history.account_scope)) {
     return json({ ok: false, error: "account_facts_identity_mismatch" }, 409);
   }
   let accountConfig;
@@ -8891,6 +9001,9 @@ async function syncAccountFactsResponse(request, env) {
       platform: resolved.binding.platform,
       account_key: resolved.binding.account_key,
       account_scope: resolved.binding.account_scope,
+      account_selector: resolved.binding.account_selector,
+      target_id: resolved.binding.target_id,
+      source_binding_id: resolved.binding.source_binding.id,
       history,
     });
   } catch (error) {
@@ -8929,7 +9042,7 @@ async function accountFactsResponse(request, env) {
   }
   let storedByAccount;
   try {
-    storedByAccount = await loadStoredAccountFactsMap(env, accountConfig.options || {});
+    storedByAccount = await loadStoredAccountFactsMap(env, accountConfig.options || {}, bindings);
   } catch (error) {
     return accountFactsErrorResponse(error);
   }
@@ -8955,7 +9068,7 @@ async function accountFactsHistoryResponse(request, env, url) {
   const platform = String(url.searchParams.get("platform") || "");
   const accountKey = String(url.searchParams.get("account_key") || "");
   const currency = String(url.searchParams.get("currency") || "");
-  if (platform !== ACCOUNT_FACTS_PLATFORM || !accountKey || !/^[A-Z]{3}$/.test(currency)) {
+  if (!ACCOUNT_FACTS_PLATFORMS.includes(platform) || !accountKey || !/^[A-Z]{3}$/.test(currency)) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
   let accountConfig;
@@ -8975,15 +9088,21 @@ async function accountFactsHistoryResponse(request, env, url) {
   }
   const binding = bindings?.bindings?.find((item) => item.platform === platform && item.account_key === accountKey) || null;
   let days = [];
-  try {
-    const listed = await runtimeInstanceCommand(env, {
-      action: "account_facts_history_read",
-      platform,
-      account_key: accountKey,
-    });
-    days = Array.isArray(listed?.days) ? listed.days : [];
-  } catch (error) {
-    return accountFactsErrorResponse(error);
+  if (option && binding && accountFactsOptionMatchesBinding(option, binding)) {
+    try {
+      const listed = await runtimeInstanceCommand(env, {
+        action: "account_facts_history_read",
+        platform,
+        account_key: accountKey,
+        account_scope: binding.account_scope,
+        account_selector: binding.account_selector,
+        target_id: binding.target_id,
+        source_binding_id: binding.source_binding.id,
+      });
+      days = Array.isArray(listed?.days) ? listed.days : [];
+    } catch (error) {
+      return accountFactsErrorResponse(error);
+    }
   }
   const model = buildAccountFactsHistoryReadModel({
     platform,

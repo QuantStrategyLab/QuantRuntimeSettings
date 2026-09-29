@@ -844,6 +844,7 @@ export const EN_COPY = {
   "我的账户": "My accounts",
   "总资产": "Total assets",
   "可用现金": "Available cash",
+  "现金余额": "Cash balance",
   "账户数量": "Accounts",
   "账户配置": "Configured accounts",
   "模拟账户": "Paper account",
