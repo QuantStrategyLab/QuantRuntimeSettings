@@ -259,8 +259,46 @@ class RuntimeStopTests(unittest.TestCase):
         for output in bad:
             with self.subTest(output=output), patch.object(runtime_settings.subprocess, "run", return_value=
                     subprocess.CompletedProcess([], 0, output, "synthetic-sensitive-error")), \
-                    self.assertRaisesRegex(ValueError, "^stop_source_unavailable$"):
+                    self.assertRaisesRegex(ValueError, "^stop_source_(unavailable|incomplete)$"):
                 runtime_settings.read_stop_variables(self.request["github"])
+
+    def test_variable_reader_reports_only_fixed_failure_categories(self):
+        cases = [
+            ("unknown flag: --slurp", "stop_source_cli_unsupported"),
+            ("private endpoint (HTTP 403)", "stop_source_permission_denied"),
+            ("private endpoint (HTTP 401)", "stop_source_permission_denied"),
+            ("private endpoint (HTTP 404)", "stop_source_not_accessible"),
+            ("private transport details", "stop_source_unavailable"),
+        ]
+        for stderr, reason in cases:
+            with self.subTest(reason=reason), patch.object(runtime_settings.subprocess, "run", return_value=
+                    subprocess.CompletedProcess([], 1, "private body", stderr)), \
+                    self.assertRaisesRegex(ValueError, f"^{reason}$"):
+                runtime_settings.read_stop_variables(self.request["github"])
+        with patch.object(runtime_settings.subprocess, "run", side_effect=subprocess.TimeoutExpired("private", 60)), \
+                self.assertRaisesRegex(ValueError, "^stop_source_timeout$"):
+            runtime_settings.read_stop_variables(self.request["github"])
+
+    def test_cli_failure_is_diagnostic_without_exposing_details_or_retrying(self):
+        for error, reason in [
+            (ValueError("stop_source_permission_denied"), "stop_source_permission_denied"),
+            (ValueError("stop_write_outcome_unverified"), "stop_write_outcome_unverified"),
+            (ValueError("private target and token"), "stop_configuration_unverified"),
+            (ValueError("stop_source_timeout private token"), "stop_configuration_unverified"),
+        ]:
+            with self.subTest(reason=reason), patch.object(runtime_settings, "load_stop_request", return_value=self.request), \
+                    patch.object(runtime_settings, "execute_stop", side_effect=error) as execute, \
+                    contextlib.redirect_stderr(io.StringIO()) as stderr:
+                self.assertEqual(runtime_settings.main(["stop", "--yes", "--confirm", "STOP_ONLY"]), 2)
+            execute.assert_called_once()
+            self.assertEqual(stderr.getvalue(),
+                f"stop_not_verified; stage=configuration; reason={reason}; do not retry or infer platform state\n")
+        with patch.object(runtime_settings, "load_stop_request", side_effect=KeyError("private event")), \
+                patch.object(runtime_settings, "execute_stop") as execute, contextlib.redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(runtime_settings.main(["stop"]), 2)
+        execute.assert_not_called()
+        self.assertIn("stage=event; reason=stop_event_unverified", stderr.getvalue())
+        self.assertNotIn("private", stderr.getvalue())
 
     def test_variable_reader_uses_actions_for_repository_and_encodes_environment(self):
         repository = "QuantStrategyLab/BinancePlatform"
