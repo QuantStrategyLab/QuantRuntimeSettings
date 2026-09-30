@@ -1,7 +1,15 @@
-name: Sync Schwab account-facts binding
+name: Sync account-facts binding
 
 on:
   workflow_dispatch:
+    inputs:
+      platform:
+        description: Protected binding to apply; IBKR only rotates an existing source binding.
+        type: choice
+        default: schwab
+        options:
+          - schwab
+          - ibkr
 
 permissions:
   contents: read
@@ -22,6 +30,8 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON }}
+      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON }}
+      BINDING_PLATFORM: ${{ inputs.platform || 'schwab' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -50,7 +60,7 @@ jobs:
             chmod 600 "$HOME/.config/.wrangler/config/default.toml"
           fi
 
-      - name: Validate and sync exactly one Schwab binding
+      - name: Validate and sync exactly one protected binding
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -60,8 +70,9 @@ jobs:
           cleanup() { rm -rf -- "$temp_dir"; }
           trap cleanup EXIT
 
-          if [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; then
-            echo "status=blocked reason=schwab_binding_secret_missing"
+          if { [ "$BINDING_PLATFORM" = "schwab" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
+            || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
+            echo "status=blocked reason=binding_secret_missing"
             exit 1
           fi
 
@@ -90,11 +101,18 @@ jobs:
             process.exit(1);
           };
           const tempDir = process.argv[2];
+          const platform = process.env.BINDING_PLATFORM;
+          if (!["schwab", "ibkr"].includes(platform)) stop("binding_platform_invalid");
           let proposedRaw;
+          let rotation;
           let optionsRaw;
           let existingRaw;
           try {
-            proposedRaw = JSON.parse(process.env.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || "");
+            if (platform === "ibkr") {
+              rotation = JSON.parse(process.env.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || "");
+            } else {
+              proposedRaw = JSON.parse(process.env.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || "");
+            }
             optionsRaw = JSON.parse(readFileSync(`${tempDir}/account-options.json`, "utf8"));
             existingRaw = JSON.parse(readFileSync(`${tempDir}/account-facts-bindings.json`, "utf8"));
           } catch {
@@ -104,33 +122,62 @@ jobs:
           let proposed;
           let existing;
           try {
-            proposed = normalizeAccountFactsBindings(proposedRaw);
             existing = normalizeAccountFactsBindings(existingRaw);
+            if (platform === "ibkr") {
+              if (!rotation || Array.isArray(rotation)
+                  || Object.keys(rotation).sort().join(",") !== "next_source_binding_id,previous_source_binding_id,target_id"
+                  || !/^[a-f0-9]{64}$/.test(rotation.previous_source_binding_id)
+                  || !/^[a-f0-9]{64}$/.test(rotation.next_source_binding_id)) stop("rotation_config_invalid");
+              const candidates = existing.bindings.filter((item) => item.platform === "ibkr"
+                && item.target_id === rotation.target_id);
+              if (candidates.length !== 1) stop("expected_existing_ibkr_binding");
+              const index = existing.bindings.indexOf(candidates[0]);
+              proposedRaw = {
+                schema_version: existingRaw.schema_version,
+                bindings: [{ ...existingRaw.bindings[index], source_binding: {
+                  ...existingRaw.bindings[index].source_binding, id: rotation.next_source_binding_id,
+                } }],
+              };
+            }
+            proposed = normalizeAccountFactsBindings(proposedRaw);
           } catch {
             stop("binding_validation_failed");
           }
-          if (proposed.bindings.length !== 1 || proposed.bindings[0].platform !== "schwab") {
-            stop("expected_single_schwab_binding");
+          if (proposed.bindings.length !== 1 || proposed.bindings[0].platform !== platform) {
+            stop("expected_single_platform_binding");
           }
           const binding = proposed.bindings[0];
-          if (binding.account_scope !== "live") stop("binding_scope_mismatch");
-          const schwabOptions = Array.isArray(optionsRaw?.schwab) ? optionsRaw.schwab : [];
-          const matches = schwabOptions.filter((option) => option?.key === binding.account_key);
+          if (platform === "schwab" && binding.account_scope !== "live") stop("binding_scope_mismatch");
+          const options = Array.isArray(optionsRaw?.[platform]) ? optionsRaw[platform] : [];
+          const matches = options.filter((option) => option?.key === binding.account_key);
           if (matches.length !== 1 || !accountFactsOptionMatchesBinding(matches[0], binding)) {
             stop("live_account_option_mismatch");
           }
 
           const sameKey = existing.bindings.find((item) =>
-            item.platform === "schwab" && item.account_key === binding.account_key);
-          if (sameKey) {
-            if (JSON.stringify(sameKey) !== JSON.stringify(binding)) stop("existing_schwab_binding_conflict");
+            item.platform === platform && item.account_key === binding.account_key);
+          if (sameKey && JSON.stringify(sameKey) === JSON.stringify(binding)) {
             process.stdout.write("status=unchanged\n");
             process.exit(0);
+          }
+          if (platform === "ibkr") {
+            const previousId = rotation.previous_source_binding_id;
+            if (!/^[a-f0-9]{64}$/.test(previousId) || !sameKey
+                || sameKey.source_binding.id !== previousId) stop("previous_binding_mismatch");
+            const identity = (item) => ({ ...item, source_binding: { kind: item.source_binding.kind } });
+            if (JSON.stringify(identity(sameKey)) !== JSON.stringify(identity(binding))) {
+              stop("binding_identity_change_forbidden");
+            }
+          } else if (sameKey) {
+            stop("existing_schwab_binding_conflict");
           }
 
           const nextRaw = {
             schema_version: existingRaw.schema_version,
-            bindings: [...existingRaw.bindings, proposedRaw.bindings[0]],
+            bindings: platform === "ibkr"
+              ? existingRaw.bindings.map((item) => item.platform === platform
+                && item.account_key === binding.account_key ? proposedRaw.bindings[0] : item)
+              : [...existingRaw.bindings, proposedRaw.bindings[0]],
           };
           try {
             // Revalidate the exact payload that will be written; preserve existing entries.
