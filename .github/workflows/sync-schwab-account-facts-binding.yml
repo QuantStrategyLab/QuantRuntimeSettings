@@ -1,0 +1,179 @@
+name: Sync Schwab account-facts binding
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  sync-binding:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
+      SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Prepare protected Wrangler credentials
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
+            echo "status=blocked reason=cloudflare_credentials_missing"
+            exit 1
+          fi
+          if [ -z "${STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:-}" ]; then
+            echo "status=blocked reason=kv_namespace_missing"
+            exit 1
+          fi
+          if [ -n "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
+            umask 077
+            mkdir -p "$HOME/.config/.wrangler/config"
+            printf '%s' "$CLOUDFLARE_WRANGLER_CONFIG_TOML" > "$HOME/.config/.wrangler/config/default.toml"
+            chmod 600 "$HOME/.config/.wrangler/config/default.toml"
+          fi
+
+      - name: Validate and sync exactly one Schwab binding
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          umask 077
+          temp_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/schwab-binding.XXXXXX")"
+          chmod 700 "$temp_dir"
+          cleanup() { rm -rf -- "$temp_dir"; }
+          trap cleanup EXIT
+
+          if [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; then
+            echo "status=blocked reason=schwab_binding_secret_missing"
+            exit 1
+          fi
+
+          if ! npx --yes wrangler@4.106.0 kv key get account_options \
+            --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+            > "$temp_dir/account-options.json" 2>/dev/null; then
+            echo "status=blocked reason=account_options_read_failed"
+            exit 1
+          fi
+          if ! npx --yes wrangler@4.106.0 kv key get account_facts_bindings \
+            --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+            > "$temp_dir/account-facts-bindings.json" 2>/dev/null; then
+            echo "status=blocked reason=account_facts_bindings_read_failed"
+            exit 1
+          fi
+
+          if ! node --input-type=module - "$temp_dir" <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+          import {
+            accountFactsOptionMatchesBinding,
+            normalizeAccountFactsBindings,
+          } from "./account_facts.js";
+
+          const stop = (reason) => {
+            process.stdout.write(`status=blocked reason=${reason}\n`);
+            process.exit(1);
+          };
+          const tempDir = process.argv[2];
+          let proposedRaw;
+          let optionsRaw;
+          let existingRaw;
+          try {
+            proposedRaw = JSON.parse(process.env.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || "");
+            optionsRaw = JSON.parse(readFileSync(`${tempDir}/account-options.json`, "utf8"));
+            existingRaw = JSON.parse(readFileSync(`${tempDir}/account-facts-bindings.json`, "utf8"));
+          } catch {
+            stop("invalid_or_unavailable_json");
+          }
+
+          let proposed;
+          let existing;
+          try {
+            proposed = normalizeAccountFactsBindings(proposedRaw);
+            existing = normalizeAccountFactsBindings(existingRaw);
+          } catch {
+            stop("binding_validation_failed");
+          }
+          if (proposed.bindings.length !== 1 || proposed.bindings[0].platform !== "schwab") {
+            stop("expected_single_schwab_binding");
+          }
+          const binding = proposed.bindings[0];
+          if (binding.account_scope !== "live") stop("binding_scope_mismatch");
+          const schwabOptions = Array.isArray(optionsRaw?.schwab) ? optionsRaw.schwab : [];
+          const matches = schwabOptions.filter((option) => option?.key === binding.account_key);
+          if (matches.length !== 1 || !accountFactsOptionMatchesBinding(matches[0], binding)) {
+            stop("live_account_option_mismatch");
+          }
+
+          const sameKey = existing.bindings.find((item) =>
+            item.platform === "schwab" && item.account_key === binding.account_key);
+          if (sameKey) {
+            if (JSON.stringify(sameKey) !== JSON.stringify(binding)) stop("existing_schwab_binding_conflict");
+            process.stdout.write("status=unchanged\n");
+            process.exit(0);
+          }
+
+          const nextRaw = {
+            schema_version: existingRaw.schema_version,
+            bindings: [...existingRaw.bindings, proposedRaw.bindings[0]],
+          };
+          try {
+            // Revalidate the exact payload that will be written; preserve existing entries.
+            normalizeAccountFactsBindings(nextRaw);
+            writeFileSync(`${tempDir}/next-bindings.json`, JSON.stringify(nextRaw), { mode: 0o600, flag: "wx" });
+          } catch {
+            stop("updated_bindings_validation_failed");
+          }
+          process.stdout.write("status=prepared\n");
+          NODE
+          then
+            exit 1
+          fi
+
+          if [ ! -f "$temp_dir/next-bindings.json" ]; then
+            echo "status=unchanged"
+            exit 0
+          fi
+          if ! npx --yes wrangler@4.106.0 kv key put account_facts_bindings \
+            --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+            --path "$temp_dir/next-bindings.json" >/dev/null 2>&1; then
+            echo "status=blocked reason=binding_write_failed"
+            exit 1
+          fi
+          if ! npx --yes wrangler@4.106.0 kv key get account_facts_bindings \
+            --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+            > "$temp_dir/readback.json" 2>/dev/null; then
+            echo "status=blocked reason=binding_readback_failed"
+            exit 1
+          fi
+          if ! node --input-type=module - "$temp_dir/next-bindings.json" "$temp_dir/readback.json" <<'NODE'
+          import { readFileSync } from "node:fs";
+          import { isDeepStrictEqual } from "node:util";
+          try {
+            const expected = JSON.parse(readFileSync(process.argv[2], "utf8"));
+            const actual = JSON.parse(readFileSync(process.argv[3], "utf8"));
+            if (!isDeepStrictEqual(actual, expected)) process.exit(1);
+          } catch {
+            process.exit(1);
+          }
+          NODE
+          then
+            echo "status=blocked reason=binding_readback_mismatch"
+            exit 1
+          fi
+          echo "status=applied"
