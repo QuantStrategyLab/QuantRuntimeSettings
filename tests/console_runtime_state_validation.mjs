@@ -76,6 +76,12 @@ function sources(overrides = {}) {
   };
 }
 
+test("pending option layer has one editable label across draft states", () => {
+  assert.equal((accountsSource.match(/t\("待应用期权层"\)/g) || []).length, 1);
+  assert.match(accountsSource, /<label className="cash-floor-field">\{t\("待应用期权层"\)\}\s*<select value=\{optionValue\}/);
+  assert.match(accountsSource, /controller\.revertOption\(\)/);
+});
+
 test("runtime mode normalization keeps paper identity while dispatch stays fail closed", () => {
   const base = { platform: "ibkr", target_name: "example", strategy_profile: "tqqq_growth_income", apply: "false" };
   assert.equal(__test.normalizeSwitchInputs({ ...base, execution_mode: "paper" }).execution_mode, "dry_run");

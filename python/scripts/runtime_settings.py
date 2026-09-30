@@ -1361,12 +1361,20 @@ def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
     else:
         endpoint += "/actions"
     endpoint += "/variables?per_page=100"
+    reason = "stop_source_unavailable"
     try:
         result = subprocess.run(
             ["gh", "api", "--method", "GET", "--paginate", "--slurp", endpoint],
             capture_output=True, text=True, timeout=60, check=False,
         )
         if result.returncode != 0:
+            # Classify the response without ever printing private GH output.
+            if "unknown flag: --slurp" in result.stderr:
+                reason = "stop_source_cli_unsupported"
+            elif "HTTP 401" in result.stderr or "HTTP 403" in result.stderr:
+                reason = "stop_source_permission_denied"
+            elif "HTTP 404" in result.stderr:
+                reason = "stop_source_not_accessible"
             raise ValueError
         pages = json.loads(result.stdout)
         if not isinstance(pages, list) or not pages:
@@ -1384,10 +1392,13 @@ def read_stop_variables(github: dict[str, Any]) -> dict[str, str]:
                     raise ValueError
                 values[name] = value
         if len(values) != total:
+            reason = "stop_source_incomplete"
             raise ValueError
         return values
+    except subprocess.TimeoutExpired:
+        raise ValueError("stop_source_timeout") from None
     except (OSError, subprocess.SubprocessError, ValueError, TypeError, KeyError, IndexError):
-        raise ValueError("stop_source_unavailable") from None
+        raise ValueError(reason) from None
 
 
 def read_disabled_profile_apply_variables(github: dict[str, Any]) -> dict[str, dict[str, str]]:
@@ -1733,8 +1744,10 @@ def command_stop(args: argparse.Namespace) -> int:
     if args.yes and args.confirm != "STOP_ONLY":
         print("stop requires --confirm STOP_ONLY for writes", file=sys.stderr)
         return 2
+    stage = "event"
     try:
         request = load_stop_request()
+        stage = "configuration"
         apply_hk_stop = getattr(args, "apply_hk_stop", False)
         if apply_hk_stop:
             if not args.yes:
@@ -1742,6 +1755,7 @@ def command_stop(args: argparse.Namespace) -> int:
             require_hk_stop_target(request)
             require_production_writer_ref()
             saved = execute_stop(request, apply=True)
+            stage = "platform_dispatch"
             dispatch_hk_stop(request)
             result = {
                 **saved,
@@ -1751,9 +1765,22 @@ def command_stop(args: argparse.Namespace) -> int:
             }
         else:
             result = execute_stop(request, apply=args.yes)
-    except (OSError, ValueError, TypeError, KeyError):
+    except (OSError, ValueError, TypeError, KeyError) as error:
         # Underlying errors and private target/config values stay out of logs.
-        print("stop_not_verified; do not retry or infer platform state", file=sys.stderr)
+        safe_reasons = {
+            "stop_event_unverified", "stop_source_unavailable", "stop_source_cli_unsupported",
+            "stop_source_permission_denied", "stop_source_not_accessible", "stop_source_incomplete",
+            "stop_source_timeout", "stop_source_changed", "stop_write_outcome_unverified",
+            "stop_readback_unverified", "stale_writer_ref_rejected", "stop_platform_target_unsupported",
+            "stop_saved_configuration_required", "stop_platform_dispatch_unverified",
+            "stop_platform_apply_requires_saved_stop",
+        }
+        reason = str(error)
+        if reason == "stop requires an unambiguous current target with matching identity":
+            reason = "stop_identity_mismatch"
+        elif reason not in safe_reasons:
+            reason = "stop_event_unverified" if stage == "event" else "stop_configuration_unverified"
+        print(f"stop_not_verified; stage={stage}; reason={reason}; do not retry or infer platform state", file=sys.stderr)
         return 2
     print(json.dumps(result, sort_keys=True))
     return 0

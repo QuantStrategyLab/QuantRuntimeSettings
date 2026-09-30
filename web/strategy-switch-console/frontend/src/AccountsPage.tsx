@@ -428,7 +428,6 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         </div>
         {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
         {incomeNotice && <p role="status">{t(view.notice)}</p>}
-        {(optionDirty || savedOption) && <div className="setting-facts"><p><span>{t("待应用期权层")}</span><strong>{optionValue === "" ? t("沿用当前") : optionValue === "true" ? t("开") : t("关")}</strong></p></div>}
         <label className="cash-floor-field">{t("待应用期权层")}
           <select value={optionValue} disabled={!canSaveCash} onChange={event => {
             const next = event.target.value;
