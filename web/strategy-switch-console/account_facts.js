@@ -8,10 +8,20 @@ export const ACCOUNT_FACTS_SOURCE_KIND = "deployment_scope_token_version";
 export const IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA = "ibkr_account_snapshot_history.v1";
 export const IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "ibkr_account_snapshot.v1";
 export const IBKR_ACCOUNT_FACTS_SOURCE_KIND = "deployment_runtime_account";
+export const SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA = "schwab_account_snapshot_history.v1";
+export const SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "schwab_account_snapshot.v1";
+export const SCHWAB_ACCOUNT_FACTS_SOURCE_KIND = "deployment_runtime_account";
 export const ACCOUNT_FACTS_BINDINGS_KEY = "account_facts_bindings";
 export const ACCOUNT_FACTS_PLATFORM = "longbridge";
 export const IBKR_ACCOUNT_FACTS_PLATFORM = "ibkr";
+export const SCHWAB_ACCOUNT_FACTS_PLATFORM = "schwab";
+/** @deprecated Use ACCOUNT_FACTS_SUPPORTED_PLATFORMS for current server validation. */
 export const ACCOUNT_FACTS_PLATFORMS = Object.freeze([ACCOUNT_FACTS_PLATFORM, IBKR_ACCOUNT_FACTS_PLATFORM]);
+export const ACCOUNT_FACTS_SUPPORTED_PLATFORMS = Object.freeze([
+  ACCOUNT_FACTS_PLATFORM,
+  IBKR_ACCOUNT_FACTS_PLATFORM,
+  SCHWAB_ACCOUNT_FACTS_PLATFORM,
+]);
 // Exact LongBridge option↔payload pairs only. Not interchangeable sets.
 export const ACCOUNT_FACTS_SCOPE_PAIRS = Object.freeze([
   Object.freeze({ option_scope: "paper", payload_scope: "PAPER" }),
@@ -47,6 +57,7 @@ const ACCOUNT_SCOPE_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 const OPTION_IDENTITY_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 const OPTION_IDENTITY_FIELDS = ["target_name", "service_name", "deployment_selector", "account_selector"];
 const IBKR_ACCOUNT_ID_RE = /^(?:U|DU)[0-9]+$/;
+const SCHWAB_ACCOUNT_HASH_MAX_LENGTH = 256;
 const IBKR_CASH_SOURCE_TAGS = new Set([
   "$LEDGER-CashBalance", "$LEDGER-TotalCashBalance", "CashBalance", "TotalCashBalance", "SettledCash",
 ]);
@@ -57,6 +68,7 @@ const LONG_BRIDGE_BALANCE_FIELDS = ["currency", "net_assets", "total_cash"];
 const LONG_BRIDGE_CASH_FIELDS = ["currency", "available_cash", "frozen_cash", "settling_cash"];
 const IBKR_BALANCE_FIELDS = ["currency", "net_assets"];
 const IBKR_CASH_FIELDS = ["currency", "cash_balance", "source_tag"];
+const SCHWAB_BALANCE_FIELDS = ["currency", "net_assets", "source_tag", "currency_source"];
 
 export class AccountFactsError extends Error {
   constructor(code, status = 400) {
@@ -102,8 +114,18 @@ function assertMoneyText(cell, fieldName) {
   if (whole.length > ACCOUNT_FACTS_MAX_MONEY_DIGITS) reject("invalid_account_facts_money_magnitude");
 }
 
-function moneyRows(value, fields, fieldName, { nullableFields = [], rejectBase = false, sourceTags = null } = {}) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 32) reject(`invalid_account_facts_${fieldName}`);
+function moneyRows(value, fields, fieldName, {
+  nullableFields = [],
+  rejectBase = false,
+  sourceTags = null,
+  fixedFields = null,
+  allowedCurrencies = null,
+  allowEmpty = false,
+  maxRows = 32,
+} = {}) {
+  if (!Array.isArray(value) || (!allowEmpty && value.length === 0) || value.length > maxRows) {
+    reject(`invalid_account_facts_${fieldName}`);
+  }
   const seen = new Set();
   return value.map((item) => {
     if (!exactKeys(item, fields)) reject(`invalid_account_facts_${fieldName}`);
@@ -111,7 +133,9 @@ function moneyRows(value, fields, fieldName, { nullableFields = [], rejectBase =
     for (const field of fields) {
       const cell = item[field];
       if (field === "currency") {
-        if (typeof cell !== "string" || !CURRENCY_RE.test(cell) || seen.has(cell) || (rejectBase && cell === "BASE")) {
+        if (typeof cell !== "string" || !CURRENCY_RE.test(cell) || seen.has(cell)
+            || (rejectBase && cell === "BASE")
+            || (allowedCurrencies && !allowedCurrencies.includes(cell))) {
           reject(`invalid_account_facts_${fieldName}`);
         }
         seen.add(cell);
@@ -120,6 +144,11 @@ function moneyRows(value, fields, fieldName, { nullableFields = [], rejectBase =
       }
       if (field === "source_tag") {
         if (typeof cell !== "string" || !sourceTags?.has(cell)) reject(`invalid_account_facts_${fieldName}`);
+        row[field] = cell;
+        continue;
+      }
+      if (fixedFields && Object.prototype.hasOwnProperty.call(fixedFields, field)) {
+        if (cell !== fixedFields[field]) reject(`invalid_account_facts_${fieldName}`);
         row[field] = cell;
         continue;
       }
@@ -154,7 +183,7 @@ export function accountFactsScopesMatch(optionScope, payloadScope) {
 
 export function accountFactsScopesMatchForPlatform(platform, optionScope, payloadScope) {
   if (platform === ACCOUNT_FACTS_PLATFORM) return accountFactsScopesMatch(optionScope, payloadScope);
-  return platform === IBKR_ACCOUNT_FACTS_PLATFORM
+  return (platform === IBKR_ACCOUNT_FACTS_PLATFORM || platform === SCHWAB_ACCOUNT_FACTS_PLATFORM)
     && typeof optionScope === "string"
     && optionScope === payloadScope;
 }
@@ -164,13 +193,20 @@ export function accountFactsPlatformForHistory(raw) {
       && raw?.snapshot_schema_version === ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return ACCOUNT_FACTS_PLATFORM;
   if (raw?.schema_version === IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA
       && raw?.snapshot_schema_version === IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return IBKR_ACCOUNT_FACTS_PLATFORM;
+  if (raw?.schema_version === SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA
+      && raw?.snapshot_schema_version === SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return SCHWAB_ACCOUNT_FACTS_PLATFORM;
   reject("invalid_account_facts_history");
 }
 
 function sourceKindForPlatform(platform) {
   if (platform === ACCOUNT_FACTS_PLATFORM) return ACCOUNT_FACTS_SOURCE_KIND;
   if (platform === IBKR_ACCOUNT_FACTS_PLATFORM) return IBKR_ACCOUNT_FACTS_SOURCE_KIND;
+  if (platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) return SCHWAB_ACCOUNT_FACTS_SOURCE_KIND;
   return null;
+}
+
+function validSchwabAccountHash(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= SCHWAB_ACCOUNT_HASH_MAX_LENGTH;
 }
 
 export function canonicalizeAccountFactsHistory(history) {
@@ -191,14 +227,16 @@ export function normalizeAccountFactsBindings(raw) {
   const byAccount = new Map();
   const bySource = new Map();
   const bindings = raw.bindings.map((item, index) => {
-    if (!exactKeys(item, [
+    const expectedKeys = [
       "platform", "account_key", "account_scope",
       "target_name", "service_name", "deployment_selector", "account_selector",
       "target_id", "source_binding",
-    ])) {
+    ];
+    if (item?.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_hash");
+    if (!exactKeys(item, expectedKeys)) {
       reject("invalid_account_facts_bindings");
     }
-    if (!ACCOUNT_FACTS_PLATFORMS.includes(item.platform)) reject("invalid_account_facts_bindings");
+    if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(item.platform)) reject("invalid_account_facts_bindings");
     if (typeof item.account_key !== "string" || !ACCOUNT_KEY_RE.test(item.account_key)) reject("invalid_account_facts_bindings");
     if (typeof item.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(item.account_scope)) {
       reject("invalid_account_facts_bindings");
@@ -221,6 +259,9 @@ export function normalizeAccountFactsBindings(raw) {
     if (item.platform === IBKR_ACCOUNT_FACTS_PLATFORM && !IBKR_ACCOUNT_ID_RE.test(identity.account_selector)) {
       reject("invalid_account_facts_bindings");
     }
+    if (item.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && !validSchwabAccountHash(item.broker_account_hash)) {
+      reject("invalid_account_facts_bindings");
+    }
     const accountId = `${item.platform}:${item.account_key}`;
     const sourceId = `${item.target_id}|${item.source_binding.id}`;
     if (byAccount.has(accountId) || bySource.has(sourceId)) reject("duplicate_account_facts_binding");
@@ -232,6 +273,9 @@ export function normalizeAccountFactsBindings(raw) {
       account_scope: item.account_scope,
       ...identity,
       target_id: item.target_id,
+      ...(item.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+        ? { broker_account_hash: item.broker_account_hash }
+        : {}),
       source_binding: {
         kind: sourceKindForPlatform(item.platform),
         id: item.source_binding.id,
@@ -250,7 +294,7 @@ export function resolveTrustedAccountFactsBinding(bindings, targetId, sourceBind
   );
   if (matches.length === 0) return { ok: false, reason: "account_facts_binding_unmatched" };
   if (matches.length > 1) return { ok: false, reason: "duplicate_account_facts_binding" };
-  if (!ACCOUNT_FACTS_PLATFORMS.includes(matches[0].platform)) {
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(matches[0].platform)) {
     return { ok: false, reason: "account_facts_platform_unsupported" };
   }
   return { ok: true, binding: matches[0] };
@@ -258,11 +302,12 @@ export function resolveTrustedAccountFactsBinding(bindings, targetId, sourceBind
 
 export function accountFactsOptionMatchesBinding(option, binding) {
   if (!option || !binding) return false;
-  if (!ACCOUNT_FACTS_PLATFORMS.includes(binding.platform)) return false;
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(binding.platform)) return false;
   if (option.key !== binding.account_key) return false;
   if (typeof option.account_scope !== "string" || option.account_scope !== binding.account_scope) return false;
   if (binding.platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_OPTION_SCOPES.includes(binding.account_scope)) return false;
   if (binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM && !IBKR_ACCOUNT_ID_RE.test(binding.account_selector)) return false;
+  if (binding.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && !validSchwabAccountHash(binding.broker_account_hash)) return false;
   for (const field of OPTION_IDENTITY_FIELDS) {
     if (typeof option[field] !== "string" || option[field] !== binding[field]) return false;
   }
@@ -276,20 +321,23 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   expectedBindingId,
   expectedOptionScope = null,
   expectedAccountSelector = null,
+  expectedBrokerAccountHash = null,
   enforceObservationWindow = true,
 } = {}) {
   const platform = accountFactsPlatformForHistory(raw);
   if (expectedPlatform && platform !== expectedPlatform) reject("account_facts_identity_mismatch", 409);
   const ibkr = platform === IBKR_ACCOUNT_FACTS_PLATFORM;
+  const schwab = platform === SCHWAB_ACCOUNT_FACTS_PLATFORM;
   const expectedKeys = [
     "schema_version", "snapshot_schema_version", "account_scope", "target_id", "source_binding",
     "observed_started_at", "observed_finished_at", "snapshot_atomic", "observation_date",
     "broker_reported_balances", "cash",
   ];
   if (ibkr) expectedKeys.push("account_ids");
+  if (schwab) expectedKeys.push("account_hash");
   if (!exactKeys(raw, expectedKeys)) reject("invalid_account_facts_history");
   if (typeof raw.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(raw.account_scope)
-      || (!ibkr && !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope))) {
+      || (platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope))) {
     reject("invalid_account_facts_scope");
   }
   if (expectedOptionScope != null
@@ -304,6 +352,10 @@ export function normalizeAccountFactsHistoryPayload(raw, {
       reject("account_facts_identity_mismatch", 409);
     }
     accountIds = [raw.account_ids[0]];
+  }
+  if (schwab && (!validSchwabAccountHash(raw.account_hash)
+      || (expectedBrokerAccountHash !== null && raw.account_hash !== expectedBrokerAccountHash))) {
+    reject("account_facts_identity_mismatch", 409);
   }
   if (typeof raw.target_id !== "string" || !TARGET_ID_RE.test(raw.target_id)) reject("invalid_account_facts_target");
   if (expectedTargetId && raw.target_id !== expectedTargetId) reject("account_facts_target_mismatch");
@@ -330,19 +382,32 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (observationDate !== startedDate) reject("invalid_account_facts_date");
   const balances = moneyRows(
     raw.broker_reported_balances,
-    ibkr ? IBKR_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS,
+    ibkr ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS),
     "balances",
-    { nullableFields: ibkr ? ["net_assets"] : [] },
+    schwab
+      ? {
+        maxRows: 1,
+        allowedCurrencies: ["USD"],
+        sourceTags: new Set(["liquidationValue"]),
+        fixedFields: { currency_source: "owner_confirmed" },
+      }
+      : { nullableFields: ibkr ? ["net_assets"] : [] },
   );
   const cash = moneyRows(
     raw.cash,
     ibkr ? IBKR_CASH_FIELDS : LONG_BRIDGE_CASH_FIELDS,
     "cash",
-    ibkr ? { rejectBase: true, sourceTags: IBKR_CASH_SOURCE_TAGS } : {},
+    ibkr
+      ? { rejectBase: true, sourceTags: IBKR_CASH_SOURCE_TAGS }
+      : (schwab ? { allowEmpty: true, maxRows: 0 } : {}),
   );
   const normalized = {
-    schema_version: ibkr ? IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA : ACCOUNT_FACTS_HISTORY_SCHEMA,
-    snapshot_schema_version: ibkr ? IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA : ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+    schema_version: ibkr
+      ? IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA
+      : (schwab ? SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA : ACCOUNT_FACTS_HISTORY_SCHEMA),
+    snapshot_schema_version: ibkr
+      ? IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA
+      : (schwab ? SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA : ACCOUNT_FACTS_SNAPSHOT_SCHEMA),
     account_scope: raw.account_scope,
     target_id: raw.target_id,
     source_binding: {
@@ -358,6 +423,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     cash,
   };
   if (ibkr) normalized.account_ids = accountIds;
+  if (schwab) normalized.account_hash = raw.account_hash;
   return normalized;
 }
 
@@ -387,6 +453,7 @@ export function projectStoredAccountFacts(stored, {
   expectedBindingId,
   expectedOptionScope = null,
   expectedAccountSelector = null,
+  expectedBrokerAccountHash = null,
 } = {}) {
   const history = normalizeAccountFactsHistoryPayload(stored, {
     now,
@@ -395,6 +462,7 @@ export function projectStoredAccountFacts(stored, {
     expectedBindingId: expectedBindingId || stored?.source_binding?.id,
     expectedOptionScope,
     expectedAccountSelector,
+    expectedBrokerAccountHash,
     enforceObservationWindow: false,
   });
   const finishedMs = parseInstant(history.observed_finished_at);
@@ -466,6 +534,9 @@ export function buildAccountFactsReadModel({
             expectedOptionScope: binding.account_scope,
             expectedAccountSelector: binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM
               ? binding.account_selector
+              : null,
+            expectedBrokerAccountHash: binding.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+              ? binding.broker_account_hash
               : null,
           });
           if (
@@ -640,6 +711,9 @@ export function projectAccountFactsHistorySeries({
         expectedAccountSelector: binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM
           ? binding.account_selector
           : null,
+        expectedBrokerAccountHash: binding.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+          ? binding.broker_account_hash
+          : null,
         enforceObservationWindow: false,
       });
     } catch {
@@ -721,7 +795,7 @@ export function buildAccountFactsHistoryReadModel({
   days = [],
   maxDays = ACCOUNT_FACTS_HISTORY_MAX_DAYS,
 } = {}) {
-  if (!ACCOUNT_FACTS_PLATFORMS.includes(platform) || typeof accountKey !== "string" || !accountKey) {
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || typeof accountKey !== "string" || !accountKey) {
     return {
       ok: true,
       platform: platform || null,

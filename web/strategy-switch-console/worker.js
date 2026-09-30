@@ -37,9 +37,10 @@ import {
   ACCOUNT_FACTS_BINDINGS_KEY,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_MAX_BODY_BYTES,
-  ACCOUNT_FACTS_PLATFORMS,
+  ACCOUNT_FACTS_SUPPORTED_PLATFORMS,
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   IBKR_ACCOUNT_FACTS_PLATFORM,
+  SCHWAB_ACCOUNT_FACTS_PLATFORM,
   accountFactsOptionMatchesBinding,
   accountFactsPlatformForHistory,
   accountFactsReadModelEnabled,
@@ -2140,12 +2141,19 @@ export class RuntimeInstances {
   }
 
   accountFactsStorageContext(command) {
-    if (!ACCOUNT_FACTS_PLATFORMS.includes(command?.platform)
+    if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(command?.platform)
         || typeof command.account_key !== "string" || !command.account_key
         || typeof command.account_scope !== "string"
         || typeof command.account_selector !== "string"
         || typeof command.target_id !== "string"
         || typeof command.source_binding_id !== "string") {
+      throw new HttpError("invalid_account_facts_account", 400);
+    }
+    const brokerAccountHash = command.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+      ? command.broker_account_hash
+      : null;
+    if (command.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+        && (typeof brokerAccountHash !== "string" || !brokerAccountHash || brokerAccountHash.length > 256)) {
       throw new HttpError("invalid_account_facts_account", 400);
     }
     return {
@@ -2155,6 +2163,9 @@ export class RuntimeInstances {
       account_selector: command.account_selector,
       target_id: command.target_id,
       source_binding_id: command.source_binding_id,
+      ...(command.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+        ? { broker_account_hash: brokerAccountHash }
+        : {}),
     };
   }
 
@@ -2167,6 +2178,9 @@ export class RuntimeInstances {
         expectedOptionScope: context.account_scope,
         expectedAccountSelector: context.platform === IBKR_ACCOUNT_FACTS_PLATFORM
           ? context.account_selector
+          : null,
+        expectedBrokerAccountHash: context.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+          ? context.broker_account_hash
           : null,
         enforceObservationWindow: false,
       });
@@ -8846,16 +8860,19 @@ function requireDedicatedExecutionEvidenceSyncToken(request, env) {
 }
 
 function requireDedicatedAccountFactsSyncToken(request, env) {
-  const longbridgeExpected = String(env.ACCOUNT_FACTS_SYNC_TOKEN || "");
-  const ibkrExpected = String(env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN || "");
-  if (longbridgeExpected && ibkrExpected && longbridgeExpected === ibkrExpected) {
+  const configured = [
+    ["longbridge", String(env.ACCOUNT_FACTS_SYNC_TOKEN || "")],
+    [IBKR_ACCOUNT_FACTS_PLATFORM, String(env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN || "")],
+    [SCHWAB_ACCOUNT_FACTS_PLATFORM, String(env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN || "")],
+  ].filter(([, token]) => token);
+  if (new Set(configured.map(([, token]) => token)).size !== configured.length) {
     throw new HttpError("account_facts_sync_token_ambiguous", 503);
   }
-  if (!longbridgeExpected && !ibkrExpected) throw new HttpError("account_facts_sync_token_not_configured", 500);
+  if (!configured.length) throw new HttpError("account_facts_sync_token_not_configured", 500);
   const header = request.headers.get("Authorization") || "";
   const token = header.match(/^Bearer\s+(.+)$/i)?.[1] || "";
-  if (ibkrExpected && token === ibkrExpected) return IBKR_ACCOUNT_FACTS_PLATFORM;
-  if (longbridgeExpected && token === longbridgeExpected) return "longbridge";
+  const match = configured.find(([, expected]) => token === expected);
+  if (match) return match[0];
   throw new HttpError("account_facts_sync_token_invalid", 401);
 }
 
@@ -8902,6 +8919,9 @@ async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
         account_key: option.key,
         account_scope: binding.account_scope,
         account_selector: binding.account_selector,
+        ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+          ? { broker_account_hash: binding.broker_account_hash }
+          : {}),
         target_id: binding.target_id,
         source_binding_id: binding.source_binding.id,
       });
@@ -8994,6 +9014,22 @@ async function syncAccountFactsResponse(request, env) {
   if (!accountFactsOptionMatchesBinding(matches[0], resolved.binding)) {
     return json({ ok: false, error: "account_facts_identity_mismatch" }, 409);
   }
+  try {
+    history = normalizeAccountFactsHistoryPayload(raw, {
+      expectedPlatform: authorizedPlatform,
+      expectedTargetId: resolved.binding.target_id,
+      expectedBindingId: resolved.binding.source_binding.id,
+      expectedOptionScope: resolved.binding.account_scope,
+      expectedAccountSelector: authorizedPlatform === IBKR_ACCOUNT_FACTS_PLATFORM
+        ? resolved.binding.account_selector
+        : null,
+      expectedBrokerAccountHash: authorizedPlatform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+        ? resolved.binding.broker_account_hash
+        : null,
+    });
+  } catch (error) {
+    return accountFactsErrorResponse(error);
+  }
   let stored;
   try {
     stored = await runtimeInstanceCommand(env, {
@@ -9002,6 +9038,9 @@ async function syncAccountFactsResponse(request, env) {
       account_key: resolved.binding.account_key,
       account_scope: resolved.binding.account_scope,
       account_selector: resolved.binding.account_selector,
+      ...(authorizedPlatform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+        ? { broker_account_hash: resolved.binding.broker_account_hash }
+        : {}),
       target_id: resolved.binding.target_id,
       source_binding_id: resolved.binding.source_binding.id,
       history,
@@ -9068,7 +9107,7 @@ async function accountFactsHistoryResponse(request, env, url) {
   const platform = String(url.searchParams.get("platform") || "");
   const accountKey = String(url.searchParams.get("account_key") || "");
   const currency = String(url.searchParams.get("currency") || "");
-  if (!ACCOUNT_FACTS_PLATFORMS.includes(platform) || !accountKey || !/^[A-Z]{3}$/.test(currency)) {
+  if (!ACCOUNT_FACTS_SUPPORTED_PLATFORMS.includes(platform) || !accountKey || !/^[A-Z]{3}$/.test(currency)) {
     return json({ ok: false, error: "invalid_account_facts_history_query" }, 400);
   }
   let accountConfig;
@@ -9096,6 +9135,9 @@ async function accountFactsHistoryResponse(request, env, url) {
         account_key: accountKey,
         account_scope: binding.account_scope,
         account_selector: binding.account_selector,
+        ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+          ? { broker_account_hash: binding.broker_account_hash }
+          : {}),
         target_id: binding.target_id,
         source_binding_id: binding.source_binding.id,
       });

@@ -7,6 +7,8 @@ export type AccountFactsBalance = {
   currency: string;
   net_assets: string | null;
   total_cash?: string | null;
+  source_tag?: "liquidationValue";
+  currency_source?: "owner_confirmed";
 };
 
 export type LongBridgeAccountFactsCash = {
