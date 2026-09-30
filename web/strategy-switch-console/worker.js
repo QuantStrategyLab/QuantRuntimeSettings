@@ -3823,8 +3823,29 @@ async function finishLogin(request, env) {
   if (tokenStage.timedOut) return loginTimeoutResponse("token_exchange");
   const tokenResponse = tokenStage.value;
   const tokenPayload = await tokenResponse.json();
-  if (!tokenResponse.ok || !tokenPayload.access_token) {
-    return html(renderMessage("登录失败", "GitHub token exchange 失败。"), 502, clearOAuthCookie());
+  const tokenPayloadIsObject = tokenPayload !== null && typeof tokenPayload === "object";
+  if (!tokenResponse.ok || !tokenPayloadIsObject || !tokenPayload.access_token) {
+    const status = Number.isSafeInteger(tokenResponse?.status) ? tokenResponse.status : null;
+    const allowedOauthErrors = new Set([
+      "incorrect_client_credentials",
+      "redirect_uri_mismatch",
+      "bad_verification_code",
+      "unverified_user_email",
+    ]);
+    const errorCategory = tokenPayloadIsObject && typeof tokenPayload.error === "string"
+      && allowedOauthErrors.has(tokenPayload.error)
+      ? tokenPayload.error
+      : "unknown";
+    console.warn("github_token_exchange_failed", {
+      http_status: status,
+      error_category: errorCategory,
+    });
+    const statusLabel = status === null ? "不可用" : String(status);
+    return html(
+      renderMessage("登录失败", `GitHub 凭证交换未成功（HTTP ${statusLabel}，类别：${errorCategory}）。请从登录入口重新开始。`),
+      502,
+      clearOAuthCookie(),
+    );
   }
 
   const userStage = await runLoginGithubStage("user_lookup", () => fetchWithTimeout("https://api.github.com/user", {
