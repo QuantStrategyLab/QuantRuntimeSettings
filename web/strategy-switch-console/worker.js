@@ -117,6 +117,7 @@ const CURRENT_STRATEGIES_CACHE_KEY = "current_strategies_cache";
 const CURRENT_STRATEGIES_CACHE_TTL_MS = 5_000;       // 5 sec — rapid refresh during active development
 const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
 const GITHUB_API_TIMEOUT_MS = 8000;
+const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
 const UX1_CALCULATOR_MAX_BYTES = 65536;
 const UX1_RESEARCH_REPOSITORY = "QuantStrategyLab/UsEquityStrategies";
@@ -3806,7 +3807,7 @@ async function finishLogin(request, env) {
     return html(renderMessage("登录失败", "OAuth state 校验失败，请重新登录。"), 400, clearOAuthCookie());
   }
 
-  const tokenResponse = await fetchWithTimeout("https://github.com/login/oauth/access_token", {
+  const tokenStage = await runLoginGithubStage("token_exchange", () => fetchWithTimeout("https://github.com/login/oauth/access_token", {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -3818,15 +3819,19 @@ async function finishLogin(request, env) {
       code,
       redirect_uri: `${url.origin}/callback`,
     }),
-  });
+  }, GITHUB_LOGIN_REQUEST_TIMEOUT_MS));
+  if (tokenStage.timedOut) return loginTimeoutResponse("token_exchange");
+  const tokenResponse = tokenStage.value;
   const tokenPayload = await tokenResponse.json();
   if (!tokenResponse.ok || !tokenPayload.access_token) {
     return html(renderMessage("登录失败", "GitHub token exchange 失败。"), 502, clearOAuthCookie());
   }
 
-  const userResponse = await fetchWithTimeout("https://api.github.com/user", {
+  const userStage = await runLoginGithubStage("user_lookup", () => fetchWithTimeout("https://api.github.com/user", {
     headers: githubHeaders(tokenPayload.access_token),
-  });
+  }, GITHUB_LOGIN_REQUEST_TIMEOUT_MS));
+  if (userStage.timedOut) return loginTimeoutResponse("user_lookup");
+  const userResponse = userStage.value;
   const user = await userResponse.json();
   const login = String(user.login || "").toLowerCase();
   if (!userResponse.ok || !login) {
@@ -3834,7 +3839,12 @@ async function finishLogin(request, env) {
   }
 
   const authConfig = await loadAuthConfig(env);
-  const orgLogins = await fetchGithubOrgLogins(tokenPayload.access_token);
+  const orgStage = await runLoginGithubStage("organization_lookup", () => fetchGithubOrgLogins(
+    tokenPayload.access_token,
+    GITHUB_LOGIN_REQUEST_TIMEOUT_MS,
+  ));
+  if (orgStage.timedOut) return loginTimeoutResponse("organization_lookup");
+  const orgLogins = orgStage.value;
   if (!isAllowedPrincipal(login, orgLogins, authConfig)) {
     return html(renderMessage("没有权限", `${login} 不在允许登录名单或组织中。`), 403, clearOAuthCookie());
   }
@@ -3846,6 +3856,35 @@ async function finishLogin(request, env) {
       clearCookie(OAUTH_STATE_COOKIE),
     ],
   });
+}
+
+async function runLoginGithubStage(stage, operation) {
+  const startedAt = Date.now();
+  try {
+    return { timedOut: false, value: await operation() };
+  } catch (error) {
+    if (error?.message !== "GitHub request timed out") throw error;
+    console.warn("github_login_request_timed_out", {
+      stage,
+      timeout_ms: GITHUB_LOGIN_REQUEST_TIMEOUT_MS,
+      elapsed_ms: Math.max(0, Date.now() - startedAt),
+    });
+    return { timedOut: true };
+  }
+}
+
+function loginTimeoutResponse(stage) {
+  const stageLabels = {
+    token_exchange: "登录凭证交换",
+    user_lookup: "读取用户身份",
+    organization_lookup: "核对组织权限",
+  };
+  const stageLabel = stageLabels[stage] || "登录请求处理";
+  return html(
+    renderMessage("登录超时", `${stageLabel}超时，请从登录入口重新开始。此回调链接已失效，请勿复用。`),
+    504,
+    clearOAuthCookie(),
+  );
 }
 
 async function sessionPayload(request, env) {
@@ -13899,12 +13938,12 @@ function githubHeaders(token) {
   };
 }
 
-async function fetchGithubOrgLogins(token) {
+async function fetchGithubOrgLogins(token, timeoutMs = GITHUB_API_TIMEOUT_MS) {
   const orgs = [];
   for (let page = 1; page <= 5; page += 1) {
     const response = await fetchWithTimeout(`https://api.github.com/user/orgs?per_page=100&page=${page}`, {
       headers: githubHeaders(token),
-    });
+    }, timeoutMs);
     if (!response.ok) return orgs;
     const payload = await response.json();
     if (!Array.isArray(payload) || !payload.length) break;
