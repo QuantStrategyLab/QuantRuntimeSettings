@@ -12,6 +12,7 @@ import {
   ACCOUNT_FACTS_BINDINGS_SCHEMA,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_HISTORY_SCHEMA,
+  ACCOUNT_FACTS_OBSERVATION_WINDOW_MS,
   ACCOUNT_FACTS_OPTION_SCOPE,
   ACCOUNT_FACTS_OPTION_SCOPES,
   ACCOUNT_FACTS_PAYLOAD_SCOPE,
@@ -20,6 +21,7 @@ import {
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
   ACCOUNT_FACTS_SOURCE_KIND,
+  ACCOUNT_FACTS_STALE_MS,
   ACCOUNT_FACTS_PLATFORMS,
   IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA,
   IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
@@ -168,6 +170,26 @@ function historyPayload(patch = {}) {
 }
 
 // Pure helpers
+assert.equal(ACCOUNT_FACTS_OBSERVATION_WINDOW_MS, ACCOUNT_FACTS_STALE_MS);
+const freshnessNow = Date.parse("2026-09-30T12:00:00Z");
+const freshnessBoundary = freshnessNow - ACCOUNT_FACTS_STALE_MS;
+const freshnessBoundaryStart = new Date(freshnessBoundary).toISOString();
+const freshnessBoundaryDate = observationDateFrom(freshnessBoundaryStart);
+assert.doesNotThrow(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  observed_started_at: freshnessBoundaryStart,
+  observed_finished_at: freshnessBoundaryStart,
+  observation_date: freshnessBoundaryDate,
+}), { now: freshnessNow }));
+assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  observed_started_at: new Date(freshnessBoundary - 1).toISOString(),
+  observed_finished_at: new Date(freshnessBoundary - 1).toISOString(),
+  observation_date: observationDateFrom(new Date(freshnessBoundary - 1).toISOString()),
+}), { now: freshnessNow }), /account_facts_observation_window/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  observed_started_at: new Date(freshnessNow + 6 * 60 * 1000).toISOString(),
+  observed_finished_at: new Date(freshnessNow + 6 * 60 * 1000).toISOString(),
+  observation_date: observationDateFrom(new Date(freshnessNow + 6 * 60 * 1000).toISOString()),
+}), { now: freshnessNow }), /account_facts_future_observation/);
 assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
   broker_reported_balances: [{ currency: "USD", net_assets: `1.${"0".repeat(101)}`, total_cash: "1" }],
   cash: [{ currency: "USD", available_cash: "1", frozen_cash: "0", settling_cash: "0" }],
@@ -350,6 +372,18 @@ assert.equal((await get(sessionHeaders, { ...env, STRATEGY_SWITCH_RUNTIME_INSTAN
 assert.equal((await (await get(sessionHeaders, { ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: undefined })).json()).error, "account_facts_store_unavailable");
 
 const auth = { Authorization: `Bearer ${token}` };
+
+// A recent completion is accepted even when a snapshot takes over 15 minutes.
+const lbFortyMinuteStarted = new Date(Date.now() - 41 * 60 * 1000).toISOString();
+const lbFortyMinuteFinished = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+const lbFortyMinuteWrite = await post(historyPayload({
+  observed_started_at: lbFortyMinuteStarted,
+  observed_finished_at: lbFortyMinuteFinished,
+  observation_date: observationDateFrom(lbFortyMinuteStarted),
+}), auth, env);
+assert.equal(lbFortyMinuteWrite.status, 200, "LongBridge observations completed 40 minutes ago remain inside the 36-hour receive window");
+const lbFortyMinuteRead = await (await get(sessionHeaders, env)).json();
+assert.equal(lbFortyMinuteRead.accounts.find((item) => item.platform === "longbridge" && item.account_key === account.key).data_status, "fresh");
 
 // 1) Newer then older: GET must keep 20, not fall back to 10.
 const newer = historyPayload({
@@ -1005,6 +1039,25 @@ const normalizedIbkrHistory = normalizeAccountFactsHistoryPayload(acceptedIbkrHi
 });
 assert.equal(normalizedIbkrHistory.broker_reported_balances[0].net_assets, null);
 assert.deepEqual(normalizedIbkrHistory.account_ids, ["U16608560"]);
+assert.doesNotThrow(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  observed_started_at: freshnessBoundaryStart,
+  observed_finished_at: freshnessBoundaryStart,
+  observation_date: freshnessBoundaryDate,
+}), {
+  now: freshnessNow,
+  expectedPlatform: IBKR_ACCOUNT_FACTS_PLATFORM,
+  expectedAccountSelector: ibkrBinding.account_selector,
+}));
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  observed_started_at: new Date(freshnessBoundary - 1).toISOString(),
+  observed_finished_at: new Date(freshnessBoundary - 1).toISOString(),
+  observation_date: observationDateFrom(new Date(freshnessBoundary - 1).toISOString()),
+}), { now: freshnessNow }), /account_facts_observation_window/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  observed_started_at: new Date(freshnessNow + 6 * 60 * 1000).toISOString(),
+  observed_finished_at: new Date(freshnessNow + 6 * 60 * 1000).toISOString(),
+  observation_date: observationDateFrom(new Date(freshnessNow + 6 * 60 * 1000).toISOString()),
+}), { now: freshnessNow }), /account_facts_future_observation/);
 
 await saveAccountOptions({ longbridge: [account, otherAccount], ibkr: [ibkrAccount] });
 await saveBindings([trustedBinding(), ibkrBinding]);
@@ -1026,6 +1079,16 @@ const wrongIbkrIdentity = await post(ibkrHistory({ account_ids: ["DU123"] }), ib
 assert.equal(wrongIbkrIdentity.status, 409);
 const wrongIbkrScope = await post(ibkrHistory({ account_scope: "U16608560" }), ibkrAuth, env);
 assert.equal(wrongIbkrScope.status, 409, "native ID is not an account-scope substitute");
+const ibkrFortyMinuteStarted = new Date(Date.now() - 41 * 60 * 1000).toISOString();
+const ibkrFortyMinuteFinished = new Date(Date.now() - 40 * 60 * 1000).toISOString();
+const ibkrFortyMinuteWrite = await post(ibkrHistory({
+  observed_started_at: ibkrFortyMinuteStarted,
+  observed_finished_at: ibkrFortyMinuteFinished,
+  observation_date: observationDateFrom(ibkrFortyMinuteStarted),
+}), ibkrAuth, env);
+assert.equal(ibkrFortyMinuteWrite.status, 200, "IBKR observations completed 40 minutes ago remain inside the 36-hour receive window");
+const ibkrFortyMinuteRead = await (await get(sessionHeaders, env)).json();
+assert.equal(ibkrFortyMinuteRead.accounts.find((item) => item.platform === "ibkr" && item.account_key === ibkrAccount.key).data_status, "fresh");
 const ibkrWrite = await post(acceptedIbkrHistory, ibkrAuth, env);
 assert.equal(ibkrWrite.status, 200, await ibkrWrite.clone().text());
 assert.equal((await ibkrWrite.json()).unchanged, false);
