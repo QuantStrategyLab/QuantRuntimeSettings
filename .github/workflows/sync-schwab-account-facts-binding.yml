@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: Protected binding to apply; IBKR only rotates an existing source binding.
+        description: Platform whose protected account-facts binding action will run.
         type: choice
         default: schwab
         options:
@@ -12,6 +12,16 @@ on:
           - ibkr
       inspect_ibkr_bindings:
         description: Read and validate existing IBKR account options and facts bindings without writing
+        type: boolean
+        required: true
+        default: false
+      initialize_ibkr_bindings:
+        description: Validate the three protected IBKR binding requests; preview unless apply_initial_ibkr_bindings is true
+        type: boolean
+        required: true
+        default: false
+      apply_initial_ibkr_bindings:
+        description: Write the validated three IBKR bindings once and verify KV readback
         type: boolean
         required: true
         default: false
@@ -34,10 +44,13 @@ jobs:
       CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
-      SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ !inputs.inspect_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
-      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ !inputs.inspect_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
+      SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ !inputs.inspect_ibkr_bindings && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
+      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ !inputs.inspect_ibkr_bindings && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
+      IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
       BINDING_PLATFORM: ${{ inputs.platform || 'schwab' }}
       INSPECT_IBKR_BINDINGS: ${{ inputs.inspect_ibkr_bindings }}
+      INITIALIZE_IBKR_BINDINGS: ${{ inputs.initialize_ibkr_bindings }}
+      APPLY_INITIAL_IBKR_BINDINGS: ${{ inputs.apply_initial_ibkr_bindings }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -54,6 +67,20 @@ jobs:
           if [ "$INSPECT_IBKR_BINDINGS" = "true" ] && [ "$BINDING_PLATFORM" != "ibkr" ]; then
             echo "status=blocked reason=inspection_platform_invalid"
             exit 1
+          fi
+          if [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ]; then
+            echo "status=blocked reason=initialization_mode_required"
+            exit 1
+          fi
+          if [ "$INITIALIZE_IBKR_BINDINGS" = "true" ] || [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ]; then
+            if [ "$BINDING_PLATFORM" != "ibkr" ] || [ "$INSPECT_IBKR_BINDINGS" = "true" ]; then
+              echo "status=blocked reason=initialization_mode_invalid"
+              exit 1
+            fi
+            if [ -z "${IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON:-}" ]; then
+              echo "status=blocked reason=initialization_request_missing"
+              exit 1
+            fi
           fi
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] && [ -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]; then
             echo "status=blocked reason=cloudflare_credentials_missing"
@@ -80,8 +107,8 @@ jobs:
           cleanup() { rm -rf -- "$temp_dir"; }
           trap cleanup EXIT
 
-          if { [ "$BINDING_PLATFORM" = "schwab" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
-            || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
+          if { [ "$BINDING_PLATFORM" = "schwab" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
+            || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
             echo "status=blocked reason=binding_secret_missing"
             exit 1
           fi
@@ -97,6 +124,32 @@ jobs:
             > "$temp_dir/account-facts-bindings.json" 2>/dev/null; then
             echo "status=blocked reason=account_facts_bindings_read_failed"
             exit 1
+          fi
+
+          if [ "$INITIALIZE_IBKR_BINDINGS" = "true" ]; then
+            if ! node ./prepare_ibkr_account_facts_bindings.mjs \
+              "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json" \
+              "$temp_dir/next-bindings.json" "$APPLY_INITIAL_IBKR_BINDINGS"; then
+              exit 1
+            fi
+            if [ "$APPLY_INITIAL_IBKR_BINDINGS" != "true" ]; then
+              exit 0
+            fi
+            if ! npx --yes wrangler@4.106.0 kv key put account_facts_bindings \
+              --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+              --path "$temp_dir/next-bindings.json" >/dev/null 2>&1; then
+              echo "status=blocked reason=binding_write_failed"
+              exit 1
+            fi
+            if ! npx --yes wrangler@4.106.0 kv key get account_facts_bindings \
+              --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+              > "$temp_dir/readback.json" 2>/dev/null; then
+              echo "status=blocked reason=binding_readback_failed"
+              exit 1
+            fi
+            node ./prepare_ibkr_account_facts_bindings.mjs \
+              --verify "$temp_dir/next-bindings.json" "$temp_dir/readback.json"
+            exit $?
           fi
 
           if [ "$INSPECT_IBKR_BINDINGS" = "true" ]; then
