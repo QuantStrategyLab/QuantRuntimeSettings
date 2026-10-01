@@ -1,4 +1,9 @@
 export const EN_COPY = {
+  "Binance非策略现货资产": "Binance non-strategy spot assets",
+  "观察时间": "Observed",
+  "资产": "Asset",
+  "可用数量": "Available quantity",
+  "冻结数量": "Locked quantity",
   "资产总览": "Account overview",
   "账户总览": "Account overview",
   "策略方案": "Pending decisions",

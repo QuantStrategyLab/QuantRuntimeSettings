@@ -126,5 +126,6 @@ jobs:
           node --experimental-default-type=module tests/ux1_async_worker_validation.mjs
           node --experimental-default-type=module tests/ux1_async_ui_validation.mjs
           node --experimental-strip-types --test tests/console_runtime_state_validation.mjs
+          node --experimental-strip-types --test tests/binance_private_scope_worker_validation.mjs
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
           node --check --input-type=module < web/strategy-switch-console/worker.js

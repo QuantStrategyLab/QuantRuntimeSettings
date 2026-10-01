@@ -1,4 +1,74 @@
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
+import type { BinancePrivateScopeAsset, BinancePrivateScopeDisplay } from "./types";
+
+const BINANCE_SCOPE_MAX_ASSETS = 5000;
+const BINANCE_SCOPE_MAX_DECIMAL_LENGTH = 128;
+const BINANCE_SCOPE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const BINANCE_SCOPE_FUTURE_SKEW_MS = 60 * 1000;
+
+function validBinanceScopeInstant(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+  if (!match) return false;
+  const [, yearText, monthText, dayText, hourText, minuteText, secondText, , , offsetHourText, offsetMinuteText] = match;
+  const year = Number(yearText);
+  const month = Number(monthText);
+  const day = Number(dayText);
+  if (year < 1000 || month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate()) return false;
+  if (Number(hourText) > 23 || Number(minuteText) > 59 || Number(secondText) > 59) return false;
+  if (offsetHourText && (Number(offsetHourText) > 23 || Number(offsetMinuteText) > 59)) return false;
+  return Number.isFinite(Date.parse(value));
+}
+
+function isZeroFixedDecimal(value: string): boolean {
+  return /^0+(?:\.0+)?$/.test(value);
+}
+
+function validBinanceScopeAsset(value: unknown): value is BinancePrivateScopeAsset {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const row = value as Record<string, unknown>;
+  if (Object.keys(row).sort().join(",") !== "asset,free,locked") return false;
+  if (typeof row.asset !== "string" || !/^[\p{L}\p{N}]{1,20}$/u.test(row.asset)) return false;
+  for (const field of ["free", "locked"] as const) {
+    const amount = row[field];
+    if (typeof amount !== "string" || amount.length > BINANCE_SCOPE_MAX_DECIMAL_LENGTH || !/^\d+(?:\.\d+)?$/.test(amount)) return false;
+  }
+  return !isZeroFixedDecimal(row.free as string) || !isZeroFixedDecimal(row.locked as string);
+}
+
+export function presentBinancePrivateScope(
+  value: unknown,
+  options: { admin: boolean; allAccounts: boolean; now?: number },
+): BinancePrivateScopeDisplay | null {
+  if (!options.admin || !options.allAccounts || !value || typeof value !== "object" || Array.isArray(value)) return null;
+  const response = value as Record<string, unknown>;
+  if (response.ok !== true || !response.report || typeof response.report !== "object" || Array.isArray(response.report)) return null;
+  const report = response.report as Record<string, unknown>;
+  if (report.platform !== "binance" || report.historical_difference_unresolved !== true || report.no_order !== true || report.execution_authority_granted !== false) return null;
+  if (!validBinanceScopeInstant(report.observed_at) || !Array.isArray(report.assets) || report.assets.length > BINANCE_SCOPE_MAX_ASSETS) return null;
+  const age = (options.now ?? Date.now()) - Date.parse(report.observed_at);
+  if (age > BINANCE_SCOPE_MAX_AGE_MS || age < -BINANCE_SCOPE_FUTURE_SKEW_MS) return null;
+  const seen = new Set<string>();
+  const assets: BinancePrivateScopeAsset[] = [];
+  for (const value of report.assets) {
+    if (!validBinanceScopeAsset(value) || seen.has(value.asset)) return null;
+    seen.add(value.asset);
+    assets.push({ asset: value.asset, free: value.free, locked: value.locked });
+  }
+  return { observed_at: report.observed_at, assets };
+}
+
+export function scheduleBinancePrivateScopeExpiry(
+  observedAt: unknown,
+  onExpiry: () => void,
+  now = Date.now(),
+  timers: Pick<Window, "setTimeout" | "clearTimeout"> = window,
+): () => void {
+  if (!validBinanceScopeInstant(observedAt)) return () => {};
+  const expiresAfter = Date.parse(observedAt) + BINANCE_SCOPE_MAX_AGE_MS + 1;
+  const timer = timers.setTimeout(onExpiry, Math.max(0, expiresAfter - now));
+  return () => timers.clearTimeout(timer);
+}
 
 export type ChartMode = "return" | "assets";
 

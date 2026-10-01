@@ -17,6 +17,8 @@ import {
   runtimeBusinessDate,
   runtimeDailySelectionEligible,
   verifiedSchwabAccountTypeToken,
+  presentBinancePrivateScope,
+  scheduleBinancePrivateScopeExpiry,
   type ChartMode,
   type ChartRange,
   type RuntimeDailySnapshot,
@@ -69,9 +71,11 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = 
   { id: "assets", label: "总资产" },
 ];
 
-export function OverviewPage({ accounts, onOpenAccount }: {
+export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
+  isAdmin?: boolean;
+  privateScope?: { value: Record<string, any> | null; error: string | null } | null;
   onOpenAccount: (id: string) => void;
 }) {
   const t = useT();
@@ -87,6 +91,7 @@ export function OverviewPage({ accounts, onOpenAccount }: {
   const runtimeToday = runtimeBusinessDate();
   const [runtimeDate, setRuntimeDate] = useState(runtimeToday);
   const [runtimeDaily, setRuntimeDaily] = useState<RuntimeDailySnapshot | null>(null);
+  const [privateScopeNow, setPrivateScopeNow] = useState(() => Date.now());
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
   const historyEpoch = useRef(0);
@@ -102,6 +107,25 @@ export function OverviewPage({ accounts, onOpenAccount }: {
   const healthText = (label: string) => label === "正常" || label === "异常" ? label : "待确认";
   const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
+  const privateScopeObservedAt = privateScope?.value?.report?.observed_at;
+  useEffect(() => {
+    setPrivateScopeNow(Date.now());
+    return scheduleBinancePrivateScopeExpiry(
+      privateScopeObservedAt,
+      () => setPrivateScopeNow(Date.now()),
+    );
+  }, [privateScopeObservedAt]);
+  useEffect(() => {
+    const refreshAfterForeground = () => {
+      if (document.visibilityState === "visible") setPrivateScopeNow(Date.now());
+    };
+    document.addEventListener("visibilitychange", refreshAfterForeground);
+    return () => document.removeEventListener("visibilitychange", refreshAfterForeground);
+  }, []);
+  const binancePrivateScope = presentBinancePrivateScope(
+    privateScope?.error ? null : privateScope?.value,
+    { admin: isAdmin === true, allAccounts: accountId === "all", now: privateScopeNow },
+  );
   const selectedFacts = selectedAccount?.facts || null;
   const currencyOptions = Array.from(new Set([
     ...(selectedFacts?.balances || []).map((row) => row.currency).filter(Boolean),
@@ -231,6 +255,18 @@ export function OverviewPage({ accounts, onOpenAccount }: {
       <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
       <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
     </section>
+    {binancePrivateScope?.assets.length ? <section id="binance-private-scope-board" className="overview-private-scope" aria-label={t("Binance非策略现货资产")}>
+      <div className="overview-private-scope-head">
+        <h2>{t("Binance非策略现货资产")}</h2>
+        <small>{t("观察时间")} {formatInstant(binancePrivateScope.observed_at)}</small>
+      </div>
+      <div className="overview-private-scope-list">
+        <div className="overview-private-scope-row overview-private-scope-labels"><span>{t("资产")}</span><span>{t("可用数量")}</span><span>{t("冻结数量")}</span></div>
+        {binancePrivateScope.assets.map((item) => <div className="overview-private-scope-row" key={item.asset}>
+          <strong>{item.asset}</strong><span>{item.free}</span><span>{item.locked}</span>
+        </div>)}
+      </div>
+    </section> : null}
     <section className="chart-panel overview-chart">
       <div className="chart-toolbar">
         <div className="chart-switch" role="tablist" aria-label={t("图表")}>
