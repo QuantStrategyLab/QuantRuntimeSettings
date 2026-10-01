@@ -162,18 +162,27 @@ for (const response of ordinaryResponses) {
 }
 
 const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-const pages = ["OverviewPage.tsx", "AccountsPage.tsx", "DecisionsPage.tsx"].map((name) => readFileSync(new URL(`../web/strategy-switch-console/frontend/src/${name}`, import.meta.url), "utf8")).join("\n");
-assert.equal(app.includes('id="binance-private-scope-board"'), false);
-assert.equal(pages.includes("binance-private-scope"), false);
-assert.equal(app.includes("/api/binance-private-scope"), false);
+const api = readFileSync(new URL("../web/strategy-switch-console/frontend/src/api.ts", import.meta.url), "utf8");
+const overview = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
+assert.match(api, /session\.admin[\s\S]*\/api\/binance-private-scope/);
+assert.match(app, /isAdmin=\{model\?\.session\.admin === true\}[\s\S]*privateScope=\{model\?\.privateScope \|\| null\}/);
+assert.match(overview, /allAccounts: accountId === "all"/);
+assert.match(overview, /binancePrivateScope\?\.assets\.length/);
+assert.match(overview, /item\.asset/);
+assert.match(overview, /item\.free/);
+assert.match(overview, /item\.locked/);
+assert.match(overview, /binancePrivateScope\.observed_at/);
+assert.equal(overview.includes("source_run_id"), false);
+assert.equal(overview.includes("source_sha"), false);
+assert.equal(overview.includes("account_scope_sha256"), false);
+assert.equal(overview.includes(".innerHTML"), false);
 assert.equal(app.includes(".innerHTML"), false);
-assert.equal(JSON.stringify(validReport).includes("0.01000000") ? pages.includes("0.01000000") : false, false);
 const logout = app.slice(app.indexOf("const logout"), app.indexOf("const currentForm"));
 assert.ok(logout.indexOf("clearPrivateState") < logout.indexOf('postJson("/api/logout"'));
 assert.equal(logout.includes("/api/switch"), false);
 
 assert.equal(app.includes("refreshBinancePrivateScope"), false);
-assert.equal(pages.includes("0.01000000"), false);
+assert.equal(overview.includes("0.01000000"), false);
 assert.equal(app.includes("0.01000000"), false);
 
 console.log("Binance private scope: admin-only read, dedicated write, strict payload, TTL/staleness, isolation and UI clearing checks passed");

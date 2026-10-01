@@ -17,12 +17,15 @@ import {
   recoveryBinding,
 } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { createAccountSettingsController } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
+import { AccessError, loadReadModel } from "../web/strategy-switch-console/frontend/src/api.ts";
 import {
   accountDisplayTitle,
   activationFromProjection,
   decisionActionState,
   listDailyDecisions,
   paperApplicationReady,
+  presentBinancePrivateScope,
+  scheduleBinancePrivateScopeExpiry,
   safeActionVisibility,
   strategyDisplayName,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
@@ -779,10 +782,194 @@ test("promotion panel shows actionable candidates only", () => {
   assert.deepEqual(listed.items.filter((item) => item.kind === "promotion").map((item) => item.id), ["promotion:open"]);
 });
 
-test("Binance private scope is shown only with a valid report", () => {
-  assert.equal(pages.includes("/api/binance-private-scope"), false);
-  assert.equal(pages.includes("0.01000000"), false);
-  assert.equal(pages.includes('id="binance-private-scope"'), false);
+function withMockedFetch(handler) {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = globalThis.window;
+  globalThis.fetch = async (path, init) => handler(String(path), init);
+  return {
+    restore() {
+      globalThis.fetch = originalFetch;
+      if (originalWindow === undefined) delete globalThis.window;
+      else globalThis.window = originalWindow;
+    },
+  };
+}
+
+test("non-admin read model never requests admin-only Binance scope and keeps other sources", async () => {
+  const paths = [];
+  const mock = withMockedFetch(async (path) => {
+    paths.push(path);
+    return new Response(JSON.stringify(path === "/api/session"
+      ? { authenticated: true, allowed: true, admin: false, login: "reader" }
+      : {}), { status: 200, headers: { "Content-Type": "application/json" } });
+  });
+  try {
+    const model = await loadReadModel();
+    assert.equal("denied" in model, false);
+    assert.equal(paths.includes("/api/binance-private-scope"), false);
+    assert.equal(model.privateScope.value, null);
+    assert.equal(model.runtime.error, null);
+    assert.equal(paths.includes("/api/runtime-target-lifecycle"), true);
+  } finally { mock.restore(); }
+});
+
+test("admin private-scope 403 keeps the global private-session invalidation behavior", async () => {
+  const paths = [];
+  let invalidations = 0;
+  const mock = withMockedFetch(async (path) => {
+    paths.push(path);
+    return new Response(JSON.stringify(path === "/api/session"
+      ? { authenticated: true, allowed: true, admin: true, login: "admin" }
+      : { error: "access denied" }), {
+      status: path === "/api/binance-private-scope" ? 403 : 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  });
+  globalThis.window = { dispatchEvent(event) { if (event.type === "qsl-private-session-invalid") invalidations += 1; return true; } };
+  try {
+    await assert.rejects(loadReadModel(), (error) => error instanceof AccessError && error.status === 403);
+    assert.equal(paths.includes("/api/binance-private-scope"), true);
+    assert.equal(invalidations, 1);
+    assert.ok(appSource.includes('window.addEventListener("qsl-private-session-invalid", invalid)'));
+    const clearing = appSource.slice(appSource.indexOf("const clearPrivateState"), appSource.indexOf("const refresh ="));
+    assert.match(clearing, /setModel\(null\)/);
+    assert.match(clearing, /setAdminModel\(null\)/);
+  } finally { mock.restore(); }
+});
+
+test("Binance private scope display validates safe non-strategy spot quantities", () => {
+  const now = Date.parse("2026-10-01T12:00:00.000Z");
+  const payload = {
+    ok: true,
+    report: {
+      platform: "binance", observed_at: new Date(now - 30_000).toISOString(),
+      source_run_id: "12345678901234567890", source_sha: "a".repeat(40), account_scope_sha256: "b".repeat(64),
+      historical_difference_unresolved: true, no_order: true, execution_authority_granted: false,
+      assets: [
+        { asset: "USDT", free: "0.123456789012345678901234567890", locked: "0" },
+        { asset: "BTC", free: "0", locked: "1.000000000000000000000000000001" },
+      ],
+    },
+  };
+  const expected = {
+    observed_at: payload.report.observed_at,
+    assets: payload.report.assets,
+  };
+  assert.deepEqual(presentBinancePrivateScope(payload, { admin: true, allAccounts: true, now }), expected);
+  assert.equal(JSON.stringify(expected).includes("source_sha"), false);
+  assert.equal(JSON.stringify(expected).includes("account_scope_sha256"), false);
+  assert.equal(JSON.stringify(expected).includes("source_run_id"), false);
+  assert.equal(presentBinancePrivateScope(payload, { admin: true, allAccounts: false, now }), null);
+  assert.equal(presentBinancePrivateScope(payload, { admin: false, allAccounts: true, now }), null);
+  assert.equal(overviewSource.includes("id=\"binance-private-scope-board\""), true);
+  assert.equal(appSource.includes("privateScope={model?.privateScope || null}"), true);
+});
+
+test("Binance private scope rejects stale, malformed, duplicated, zero, or unsafe reports", () => {
+  const now = Date.parse("2026-10-01T12:00:00.000Z");
+  const base = {
+    ok: true,
+    report: {
+      platform: "binance", observed_at: new Date(now).toISOString(),
+      historical_difference_unresolved: true, no_order: true, execution_authority_granted: false,
+      assets: [{ asset: "USDT", free: "1", locked: "0" }],
+    },
+  };
+  const rejected = [
+    { ...base, ok: false },
+    { ...base, report: { ...base.report, platform: "other" } },
+    { ...base, report: { ...base.report, historical_difference_unresolved: false } },
+    { ...base, report: { ...base.report, no_order: false } },
+    { ...base, report: { ...base.report, execution_authority_granted: true } },
+    { ...base, report: { ...base.report, observed_at: new Date(now - 24 * 60 * 60_000 - 1).toISOString() } },
+    { ...base, report: { ...base.report, observed_at: new Date(now + 60_001).toISOString() } },
+    { ...base, report: { ...base.report, observed_at: "2026-02-30T12:00:00Z" } },
+    { ...base, report: { ...base.report, observed_at: "2026-10-01T12:00:00" } },
+    { ...base, report: { ...base.report, assets: [base.report.assets[0], base.report.assets[0]] } },
+    { ...base, report: { ...base.report, assets: [{ asset: "USDT", free: "0", locked: "0.000" }] } },
+    { ...base, report: { ...base.report, assets: [{ asset: "USDT", free: -1, locked: "0" }] } },
+    { ...base, report: { ...base.report, assets: [{ asset: "USDT", free: "-1", locked: "0" }] } },
+    { ...base, report: { ...base.report, assets: [{ asset: "USDT", free: "1e3", locked: "0" }] } },
+    { ...base, report: { ...base.report, assets: [{ asset: "<img>", free: "1", locked: "0" }] } },
+    { ...base, report: { ...base.report, assets: [{ asset: "USDT", free: "1".repeat(129), locked: "0" }] } },
+    { ...base, report: { ...base.report, assets: Array.from({ length: 5001 }, (_, i) => ({ asset: `A${i}`, free: "1", locked: "0" })) } },
+  ];
+  for (const candidate of rejected) assert.equal(presentBinancePrivateScope(candidate, { admin: true, allAccounts: true, now }), null);
+  assert.equal(presentBinancePrivateScope({ value: null, error: "unavailable" }, { admin: true, allAccounts: true, now }), null);
+  assert.equal(overviewSource.includes("source_run_id"), false);
+  assert.equal(overviewSource.includes("account_scope_sha256"), false);
+  assert.equal(overviewSource.includes(".innerHTML"), false);
+});
+
+test("Binance private scope expires without interaction and cancels timers on replacement or logout", () => {
+  const baseNow = Date.parse("2026-10-01T12:00:00.000Z");
+  const reportFor = (observedAt) => ({
+    ok: true,
+    report: {
+      platform: "binance", observed_at: new Date(observedAt).toISOString(),
+      historical_difference_unresolved: true, no_order: true, execution_authority_granted: false,
+      assets: [{ asset: "USDT", free: "1", locked: "0" }],
+    },
+  });
+  const timers = new Map();
+  let nextTimerId = 0;
+  const fakeTimers = {
+    setTimeout(callback, delay) {
+      const id = ++nextTimerId;
+      timers.set(id, { callback, delay });
+      return id;
+    },
+    clearTimeout(id) { timers.delete(id); },
+    advance(milliseconds) {
+      for (const [id, timer] of [...timers]) {
+        if (timer.delay <= milliseconds) {
+          timers.delete(id);
+          timer.callback();
+        } else timers.set(id, { ...timer, delay: timer.delay - milliseconds });
+      }
+    },
+  };
+
+  const nearExpiry = reportFor(baseNow - 24 * 60 * 60_000 + 5_000);
+  let visibleAt = baseNow;
+  const reportIsVisible = () => presentBinancePrivateScope(nearExpiry, {
+    admin: true, allAccounts: true, now: visibleAt,
+  });
+  const cancelNearExpiry = scheduleBinancePrivateScopeExpiry(
+    nearExpiry.report.observed_at,
+    () => { visibleAt = baseNow + 6_000; },
+    baseNow,
+    fakeTimers,
+  );
+  assert.ok(reportIsVisible());
+  fakeTimers.advance(6_000);
+  assert.equal(reportIsVisible(), null);
+  cancelNearExpiry();
+
+  let replacedTimerFired = false;
+  const cancelReplacedReport = scheduleBinancePrivateScopeExpiry(
+    nearExpiry.report.observed_at, () => { replacedTimerFired = true; }, baseNow, fakeTimers,
+  );
+  cancelReplacedReport();
+  scheduleBinancePrivateScopeExpiry(
+    reportFor(baseNow).report.observed_at, () => { replacedTimerFired = true; }, baseNow, fakeTimers,
+  );
+  fakeTimers.advance(6_000);
+  assert.equal(replacedTimerFired, false);
+  for (const id of timers.keys()) fakeTimers.clearTimeout(id);
+
+  let afterLogoutTimerFired = false;
+  const cancelOnLogout = scheduleBinancePrivateScopeExpiry(
+    nearExpiry.report.observed_at, () => { afterLogoutTimerFired = true; }, baseNow, fakeTimers,
+  );
+  cancelOnLogout();
+  fakeTimers.advance(24 * 60 * 60_000);
+  assert.equal(afterLogoutTimerFired, false);
+  assert.match(overviewSource, /return scheduleBinancePrivateScopeExpiry\(/);
+  assert.match(overviewSource, /document\.addEventListener\("visibilitychange"/);
+  assert.match(overviewSource, /document\.visibilityState === "visible"/);
+  const clearing = appSource.slice(appSource.indexOf("const clearPrivateState"), appSource.indexOf("const refresh ="));
+  assert.match(clearing, /setModel\(null\)/);
 });
 
 test("only reviewable promotion tickets create a dashboard research entry", () => {

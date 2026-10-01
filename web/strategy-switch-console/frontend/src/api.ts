@@ -150,6 +150,9 @@ async function source<T>(request: Promise<T>): Promise<Source<T>> {
 export async function loadReadModel(): Promise<ReadModel | { session: Session; denied: true }> {
   const session = await getJson<Session>("/api/session");
   if (!session.allowed) return { session, denied: true };
+  const privateScopeRequest = session.admin
+    ? source(getJson<Record<string, any>>("/api/binance-private-scope"))
+    : Promise.resolve<Source<Record<string, any>>>({ value: null, error: null });
   const [config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts] = await Promise.all([
     source(getJson<ConfigPayload>("/api/config")),
     source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
@@ -158,7 +161,7 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
     source(getJson<UxDraft>("/api/ux1/draft")),
     source(getJson<Record<string, any>>("/api/owner-decisions")),
     source(getJson<Record<string, any>>("/api/reconciliation-recovery")),
-    source(getJson<Record<string, any>>("/api/binance-private-scope")),
+    privateScopeRequest,
     source(getJson<Record<string, any>>("/api/execution-evidence")),
     source(getJson<Record<string, any>>("/api/research-tasks")),
     source(getJson<Record<string, any>>("/api/research-promotion-tickets")),

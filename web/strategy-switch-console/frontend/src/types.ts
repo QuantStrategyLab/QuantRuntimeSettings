@@ -78,6 +78,17 @@ export type AccountFactsSnapshot = {
   return: AccountFactsReturn;
 };
 
+export type BinancePrivateScopeAsset = {
+  asset: string;
+  free: string;
+  locked: string;
+};
+
+export type BinancePrivateScopeDisplay = {
+  observed_at: string;
+  assets: BinancePrivateScopeAsset[];
+};
+
 export type AccountFactsHistoryPoint = {
   observation_date: string;
   observed_finished_at: string;
