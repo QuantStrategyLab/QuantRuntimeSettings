@@ -16,6 +16,7 @@ import {
   presentRuntimeDaily,
   runtimeBusinessDate,
   runtimeDailySelectionEligible,
+  verifiedSchwabAccountTypeToken,
   type ChartMode,
   type ChartRange,
   type RuntimeDailySnapshot,
@@ -56,11 +57,11 @@ function amountOrDash(value: string | null | undefined): string {
 }
 
 function cashFieldForPlatform(platform: string): "cash_balance" | "available_cash" {
-  return platform === "ibkr" ? "cash_balance" : "available_cash";
+  return platform === "ibkr" || platform === "schwab" ? "cash_balance" : "available_cash";
 }
 
 function cashLabelForPlatform(platform: string): "现金余额" | "可用现金" {
-  return platform === "ibkr" ? "现金余额" : "可用现金";
+  return platform === "ibkr" || platform === "schwab" ? "现金余额" : "可用现金";
 }
 
 const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = [
@@ -304,9 +305,19 @@ export function OverviewPage({ accounts, onOpenAccount }: {
           const statusNote = overviewCardStatusDetail(account.statusDetail);
           const cardDetail = detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
           const paperConfigured = account.brokerEnvironment === "paper";
+          const schwabType = verifiedSchwabAccountTypeToken(
+            account.platformKey,
+            account.facts?.data_status,
+            account.facts?.broker_account_type,
+          );
+          const accountTypeLabel = paperConfigured
+            ? t("模拟账户")
+            : schwabType
+              ? `${t("账户类型")}: ${schwabType}`
+              : t(overviewAccountTypeLabel());
           return <button key={account.id} type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
             <strong>{account.title}</strong>
-            <small>{paperConfigured ? t("模拟账户") : t(overviewAccountTypeLabel())}</small>
+            <small>{accountTypeLabel}</small>
             <small>{account.strategy}</small>
             <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}</span></span>
             <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>

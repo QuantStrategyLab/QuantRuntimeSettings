@@ -58,6 +58,7 @@ const OPTION_IDENTITY_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]*$/;
 const OPTION_IDENTITY_FIELDS = ["target_name", "service_name", "deployment_selector", "account_selector"];
 const IBKR_ACCOUNT_ID_RE = /^(?:U|DU)[0-9]+$/;
 const SCHWAB_ACCOUNT_HASH_MAX_LENGTH = 256;
+const SCHWAB_ACCOUNT_TYPE_SOURCE_TAG = "securitiesAccount.type";
 const IBKR_CASH_SOURCE_TAGS = new Set([
   "$LEDGER-CashBalance", "$LEDGER-TotalCashBalance", "CashBalance", "TotalCashBalance", "SettledCash",
 ]);
@@ -209,6 +210,16 @@ function validSchwabAccountHash(value) {
   return typeof value === "string" && value.length > 0 && value.length <= SCHWAB_ACCOUNT_HASH_MAX_LENGTH;
 }
 
+function validSchwabAccountTypeToken(value) {
+  if (typeof value !== "string" || value.length < 1 || value.length > 32) return false;
+  for (const character of value) {
+    if (!((character >= "A" && character <= "Z")
+        || (character >= "a" && character <= "z")
+        || character === "_")) return false;
+  }
+  return true;
+}
+
 export function canonicalizeAccountFactsHistory(history) {
   return JSON.stringify(history);
 }
@@ -334,7 +345,12 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     "broker_reported_balances", "cash",
   ];
   if (ibkr) expectedKeys.push("account_ids");
-  if (schwab) expectedKeys.push("account_hash");
+  if (schwab) {
+    expectedKeys.push("account_hash");
+    if (Object.prototype.hasOwnProperty.call(raw, "broker_account_type")) {
+      expectedKeys.push("broker_account_type");
+    }
+  }
   if (!exactKeys(raw, expectedKeys)) reject("invalid_account_facts_history");
   if (typeof raw.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(raw.account_scope)
       || (platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope))) {
@@ -356,6 +372,16 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (schwab && (!validSchwabAccountHash(raw.account_hash)
       || (expectedBrokerAccountHash !== null && raw.account_hash !== expectedBrokerAccountHash))) {
     reject("account_facts_identity_mismatch", 409);
+  }
+  let brokerAccountType;
+  if (schwab && Object.prototype.hasOwnProperty.call(raw, "broker_account_type")) {
+    const value = raw.broker_account_type;
+    if (!exactKeys(value, ["value", "source_tag"])
+        || !validSchwabAccountTypeToken(value.value)
+        || value.source_tag !== SCHWAB_ACCOUNT_TYPE_SOURCE_TAG) {
+      reject("invalid_account_facts_account_type");
+    }
+    brokerAccountType = { value: value.value, source_tag: SCHWAB_ACCOUNT_TYPE_SOURCE_TAG };
   }
   if (typeof raw.target_id !== "string" || !TARGET_ID_RE.test(raw.target_id)) reject("invalid_account_facts_target");
   if (expectedTargetId && raw.target_id !== expectedTargetId) reject("account_facts_target_mismatch");
@@ -395,11 +421,19 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   );
   const cash = moneyRows(
     raw.cash,
-    ibkr ? IBKR_CASH_FIELDS : LONG_BRIDGE_CASH_FIELDS,
+    ibkr ? IBKR_CASH_FIELDS : (schwab ? ["currency", "cash_balance", "source_tag", "currency_source"] : LONG_BRIDGE_CASH_FIELDS),
     "cash",
     ibkr
       ? { rejectBase: true, sourceTags: IBKR_CASH_SOURCE_TAGS }
-      : (schwab ? { allowEmpty: true, maxRows: 0 } : {}),
+      : (schwab
+        ? {
+          allowEmpty: true,
+          maxRows: 1,
+          allowedCurrencies: ["USD"],
+          sourceTags: new Set(["cashBalance"]),
+          fixedFields: { currency_source: "owner_confirmed" },
+        }
+        : {}),
   );
   const normalized = {
     schema_version: ibkr
@@ -423,7 +457,10 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     cash,
   };
   if (ibkr) normalized.account_ids = accountIds;
-  if (schwab) normalized.account_hash = raw.account_hash;
+  if (schwab) {
+    normalized.account_hash = raw.account_hash;
+    if (brokerAccountType) normalized.broker_account_type = brokerAccountType;
+  }
   return normalized;
 }
 
@@ -568,6 +605,9 @@ export function buildAccountFactsReadModel({
         observed_finished_at: projected?.observed_finished_at || null,
         balances: projected?.broker_reported_balances || [],
         cash: projected?.cash || [],
+        ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && projected?.broker_account_type
+          ? { broker_account_type: { ...projected.broker_account_type } }
+          : {}),
         return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
       });
     }
