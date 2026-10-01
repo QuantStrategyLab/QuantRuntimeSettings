@@ -27,6 +27,10 @@ import {
   IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
   IBKR_ACCOUNT_FACTS_SOURCE_KIND,
   IBKR_ACCOUNT_FACTS_PLATFORM,
+  SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA,
+  SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+  SCHWAB_ACCOUNT_FACTS_SOURCE_KIND,
+  SCHWAB_ACCOUNT_FACTS_PLATFORM,
   accountFactsOptionMatchesBinding,
   accountFactsPlatformForHistory,
   accountFactsScopesMatch,
@@ -49,6 +53,7 @@ const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 const root = fileURLToPath(new URL("..", import.meta.url));
 const token = ["account", "facts", "sync"].join("-");
 const ibkrToken = ["ibkr", "account", "facts", "sync"].join("-");
+const schwabToken = ["schwab", "account", "facts", "sync"].join("-");
 const sessionSecret = ["session", "secret"].join("-");
 const bindingA = "a".repeat(64);
 const bindingB = "b".repeat(64);
@@ -238,6 +243,7 @@ const bindingsEnv = {
   ALLOWED_GITHUB_LOGINS: "facts-reader",
   ACCOUNT_FACTS_SYNC_TOKEN: token,
   IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ibkrToken,
+  SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: schwabToken,
   ACCOUNT_FACTS_READ_MODEL_ENABLED: "true",
 };
 const mf = new Miniflare({
@@ -936,6 +942,10 @@ assert.match(overviewPage, /accountId === "all"/);
 assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
 assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
 assert.match(overviewPage, /account\.facts\?\.data_status === "fresh" \? account\.facts\.cash : null,[\s\S]*cashFieldForPlatform\(account\.platformKey\)/);
+assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \? "cash_balance"/);
+assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \? "现金余额"/);
+assert.match(overviewPage, /verifiedSchwabAccountTypeToken\(/);
+assert.match(overviewPage, /schwabType\s*\?\s*`\$\{t\("账户类型"\)\}: \$\{schwabType\}`\s*:\s*t\(overviewAccountTypeLabel\(\)\)/);
 assert.match(overviewPage, /account\.brokerEnvironment === "paper"/);
 assert.match(overviewPage, /t\("模拟账户"\)/);
 assert.doesNotMatch(overviewPage, /t\("账户配置"\)/);
@@ -999,6 +1009,149 @@ function ibkrHistory(patch = {}) {
   };
 }
 
+const schwabAccount = {
+  key: "schwab-placeholder",
+  label: "Schwab placeholder",
+  target_name: "schwab-placeholder",
+  service_name: "schwab-placeholder-service",
+  deployment_selector: "schwab-placeholder-deployment",
+  account_selector: "schwab-placeholder-selector",
+  account_scope: "live",
+  broker_environment: "live",
+};
+const schwabAccountHash = "synthetic-schwab-account-hash";
+const schwabBinding = {
+  platform: SCHWAB_ACCOUNT_FACTS_PLATFORM,
+  account_key: schwabAccount.key,
+  account_scope: schwabAccount.account_scope,
+  target_name: schwabAccount.target_name,
+  service_name: schwabAccount.service_name,
+  deployment_selector: schwabAccount.deployment_selector,
+  account_selector: schwabAccount.account_selector,
+  target_id: "schwab-placeholder-target",
+  broker_account_hash: schwabAccountHash,
+  source_binding: {
+    kind: SCHWAB_ACCOUNT_FACTS_SOURCE_KIND,
+    id: "f".repeat(64),
+  },
+};
+function schwabHistory(patch = {}) {
+  const started = patch.observed_started_at || isoMinutesAgo(2);
+  const finished = patch.observed_finished_at || isoMinutesAgo(1);
+  return {
+    schema_version: SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA,
+    snapshot_schema_version: SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+    account_scope: schwabAccount.account_scope,
+    target_id: schwabBinding.target_id,
+    source_binding: {
+      kind: SCHWAB_ACCOUNT_FACTS_SOURCE_KIND,
+      status: "bound",
+      id: schwabBinding.source_binding.id,
+    },
+    observed_started_at: started,
+    observed_finished_at: finished,
+    snapshot_atomic: false,
+    observation_date: observationDateFrom(started),
+    broker_reported_balances: [{
+      currency: "USD",
+      net_assets: "1000.25",
+      source_tag: "liquidationValue",
+      currency_source: "owner_confirmed",
+    }],
+    cash: [{
+      currency: "USD",
+      cash_balance: "250.75",
+      source_tag: "cashBalance",
+      currency_source: "owner_confirmed",
+    }],
+    account_hash: schwabAccountHash,
+    broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" },
+    ...patch,
+    observed_started_at: started,
+    observed_finished_at: finished,
+    observation_date: patch.observation_date || observationDateFrom(started),
+  };
+}
+
+const normalizedSchwabHistory = normalizeAccountFactsHistoryPayload(schwabHistory(), {
+  expectedPlatform: SCHWAB_ACCOUNT_FACTS_PLATFORM,
+  expectedTargetId: schwabBinding.target_id,
+  expectedBindingId: schwabBinding.source_binding.id,
+  expectedOptionScope: schwabBinding.account_scope,
+  expectedBrokerAccountHash: schwabAccountHash,
+});
+assert.deepEqual(normalizedSchwabHistory.broker_account_type, {
+  value: "MARGIN",
+  source_tag: "securitiesAccount.type",
+});
+assert.deepEqual(normalizedSchwabHistory.cash, [{
+  currency: "USD",
+  cash_balance: "250.75",
+  source_tag: "cashBalance",
+  currency_source: "owner_confirmed",
+}]);
+const oldSchwabHistory = schwabHistory({ cash: [] });
+delete oldSchwabHistory.broker_account_type;
+const normalizedOldSchwabHistory = normalizeAccountFactsHistoryPayload(oldSchwabHistory);
+assert.deepEqual(normalizedOldSchwabHistory.cash, []);
+assert.equal(Object.hasOwn(normalizedOldSchwabHistory, "broker_account_type"), false, "older Schwab history without a type stays readable");
+for (const invalidType of [
+  { value: "MARGIN1", source_tag: "securitiesAccount.type" },
+  { value: "MARGIN\n", source_tag: "securitiesAccount.type" },
+  { value: "CASH\r\n", source_tag: "securitiesAccount.type" },
+  { value: "CASH\u2028", source_tag: "securitiesAccount.type" },
+  { value: "CASH\u2029", source_tag: "securitiesAccount.type" },
+  { value: "MARGIN", source_tag: "accountType" },
+  { value: "MARGIN", source_tag: "securitiesAccount.type", account_hash: schwabAccountHash },
+]) {
+  assert.throws(
+    () => normalizeAccountFactsHistoryPayload(schwabHistory({ broker_account_type: invalidType })),
+    /invalid_account_facts_account_type/,
+  );
+}
+for (const invalidCash of [
+  [{ currency: "HKD", cash_balance: "1", source_tag: "cashBalance", currency_source: "owner_confirmed" }],
+  [{ currency: "USD", cash_balance: "1", source_tag: "buyingPower", currency_source: "owner_confirmed" }],
+  [{ currency: "USD", cash_balance: "1", source_tag: "cashBalance", currency_source: "broker" }],
+  [{ currency: "USD", cash_balance: "1", source_tag: "cashBalance", currency_source: "owner_confirmed", available_cash: "1" }],
+  [{ currency: "USD", cash_balance: 1, source_tag: "cashBalance", currency_source: "owner_confirmed" }],
+  [
+    { currency: "USD", cash_balance: "1", source_tag: "cashBalance", currency_source: "owner_confirmed" },
+    { currency: "USD", cash_balance: "2", source_tag: "cashBalance", currency_source: "owner_confirmed" },
+  ],
+]) {
+  assert.throws(
+    () => normalizeAccountFactsHistoryPayload(schwabHistory({ cash: invalidCash })),
+    /invalid_account_facts_cash/,
+  );
+}
+const schwabReadModel = buildAccountFactsReadModel({
+  accountOptions: { schwab: [schwabAccount] },
+  bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [schwabBinding] },
+  storedByAccount: new Map([[`schwab:${schwabAccount.key}`, normalizedSchwabHistory]]),
+  now: Date.now(),
+});
+const schwabReadRow = schwabReadModel.accounts[0];
+assert.equal(schwabReadRow.data_status, "fresh");
+assert.deepEqual(schwabReadRow.broker_account_type, normalizedSchwabHistory.broker_account_type);
+assert.deepEqual(schwabReadRow.cash, normalizedSchwabHistory.cash);
+assert.equal(Object.hasOwn(schwabReadRow, "broker_account_hash"), false);
+assert.equal(JSON.stringify(schwabReadRow).includes(schwabAccountHash), false);
+const oldSchwabReadModel = buildAccountFactsReadModel({
+  accountOptions: { schwab: [schwabAccount] },
+  bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [schwabBinding] },
+  storedByAccount: new Map([[`schwab:${schwabAccount.key}`, normalizedOldSchwabHistory]]),
+  now: Date.now(),
+});
+assert.equal(Object.hasOwn(oldSchwabReadModel.accounts[0], "broker_account_type"), false);
+const staleSchwabReadModel = buildAccountFactsReadModel({
+  accountOptions: { schwab: [schwabAccount] },
+  bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [schwabBinding] },
+  storedByAccount: new Map([[`schwab:${schwabAccount.key}`, normalizedSchwabHistory]]),
+  now: Date.parse(normalizedSchwabHistory.observed_finished_at) + ACCOUNT_FACTS_STALE_MS + 1,
+});
+assert.equal(staleSchwabReadModel.accounts[0].data_status, "stale");
+
 assert.equal(accountFactsPlatformForHistory(ibkrHistory()), IBKR_ACCOUNT_FACTS_PLATFORM);
 assert.equal(accountFactsOptionMatchesBinding(ibkrAccount, ibkrBinding), true);
 assert.throws(() => normalizeAccountFactsBindings({
@@ -1039,6 +1192,9 @@ const normalizedIbkrHistory = normalizeAccountFactsHistoryPayload(acceptedIbkrHi
 });
 assert.equal(normalizedIbkrHistory.broker_reported_balances[0].net_assets, null);
 assert.deepEqual(normalizedIbkrHistory.account_ids, ["U16608560"]);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" },
+})), /invalid_account_facts_history/);
 assert.doesNotThrow(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
   observed_started_at: freshnessBoundaryStart,
   observed_finished_at: freshnessBoundaryStart,
@@ -1330,6 +1486,30 @@ assert.match(overviewPage, /selectedCashLabel/);
 assert.match(overviewPage, /function cashFieldForPlatform\(platform: string\)/);
 const locales = readFileSync(join(root, "web/strategy-switch-console/frontend/src/locales.ts"), "utf8");
 assert.match(locales, /"现金余额": "Cash balance"/);
+
+await saveAccountOptions({ schwab: [schwabAccount] });
+await saveBindings([schwabBinding]);
+const schwabAuth = { Authorization: `Bearer ${schwabToken}` };
+const schwabStored = await post(schwabHistory(), schwabAuth, env);
+assert.equal(schwabStored.status, 200, await schwabStored.clone().text());
+const schwabFacts = await (await get(sessionHeaders, env)).json();
+const schwabOutputRow = schwabFacts.accounts.find((item) => item.platform === "schwab");
+assert.equal(schwabOutputRow.data_status, "fresh");
+assert.deepEqual(schwabOutputRow.broker_account_type, {
+  value: "MARGIN",
+  source_tag: "securitiesAccount.type",
+});
+assert.deepEqual(schwabOutputRow.cash, [{
+  currency: "USD",
+  cash_balance: "250.75",
+  source_tag: "cashBalance",
+  currency_source: "owner_confirmed",
+}]);
+assert.equal(Object.hasOwn(schwabOutputRow, "broker_account_hash"), false);
+assert.equal(JSON.stringify(schwabOutputRow).includes(schwabAccountHash), false);
+const schwabHistoryRead = await getHistory("schwab", schwabAccount.key, "USD", sessionHeaders, env);
+assert.equal(schwabHistoryRead.status, 200, await schwabHistoryRead.clone().text());
+assert.equal(JSON.stringify(await schwabHistoryRead.json()).includes(schwabAccountHash), false);
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
 assert.match(workerSource, /account_facts_put/);

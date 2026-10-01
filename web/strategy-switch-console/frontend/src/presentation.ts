@@ -657,9 +657,33 @@ export function formatOverviewInstant(value: string | null | undefined, language
   return formatLocalChangeTime(ms, language, timeZone);
 }
 
-/** Overview cards: no native broker account-type proof yet — never show config paper/live as verified. */
+/** Fallback for accounts without fresh, validated native broker-type data. */
 export function overviewAccountTypeLabel(): "账户类型待确认" {
   return "账户类型待确认";
+}
+
+export function verifiedSchwabAccountTypeToken(
+  platform: string,
+  dataStatus: string | null | undefined,
+  accountType: unknown,
+): string | null {
+  if (platform !== "schwab" || dataStatus !== "fresh" || !accountType || typeof accountType !== "object") {
+    return null;
+  }
+  const type = accountType as { value?: unknown; source_tag?: unknown };
+  if (Object.keys(type).length !== 2
+      || !Object.prototype.hasOwnProperty.call(type, "value")
+      || !Object.prototype.hasOwnProperty.call(type, "source_tag")) return null;
+  const value = type.value;
+  const sourceTag = type.source_tag;
+  if (sourceTag !== "securitiesAccount.type" || typeof value !== "string"
+      || value.length < 1 || value.length > 32) return null;
+  for (const character of value) {
+    if (!((character >= "A" && character <= "Z")
+        || (character >= "a" && character <= "z")
+        || character === "_")) return null;
+  }
+  return value;
 }
 
 const OVERVIEW_SUPPRESSED_STATUS_DETAILS = new Set([

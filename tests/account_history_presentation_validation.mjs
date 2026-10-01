@@ -16,6 +16,7 @@ import {
   presentRuntimeDaily,
   runtimeBusinessDate,
   runtimeDailySelectionEligible,
+  verifiedSchwabAccountTypeToken,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { accountFactsDetail, formatAccountFactAmounts, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
 
@@ -179,6 +180,19 @@ assert.equal(staleAfterSwitch.statusLabel, "—");
 assert.equal(staleAfterSwitch.runStartedAt, null);
 
 assert.equal(overviewAccountTypeLabel(), "账户类型待确认");
+const schwabNativeType = { value: "MARGIN", source_tag: "securitiesAccount.type" };
+assert.equal(verifiedSchwabAccountTypeToken("schwab", "fresh", schwabNativeType), "MARGIN");
+assert.equal(verifiedSchwabAccountTypeToken("schwab", "stale", schwabNativeType), null);
+assert.equal(verifiedSchwabAccountTypeToken("schwab", "fresh", undefined), null);
+assert.equal(verifiedSchwabAccountTypeToken("ibkr", "fresh", schwabNativeType), null);
+assert.equal(verifiedSchwabAccountTypeToken("schwab", "fresh", { ...schwabNativeType, raw: "extra" }), null);
+for (const invalidToken of ["MARGIN\n", "CASH\r\n", "CASH\u2028", "CASH\u2029"]) {
+  assert.equal(verifiedSchwabAccountTypeToken("schwab", "fresh", {
+    value: invalidToken,
+    source_tag: "securitiesAccount.type",
+  }), null);
+}
+assert.equal(formatAccountFactAmounts([{ currency: "USD", cash_balance: "250.75" }], "cash_balance"), "USD 250.75");
 assert.equal(overviewCardStatusDetail("运行目标映射重复，无法唯一匹配"), null);
 assert.equal(overviewCardStatusDetail("账户类型为账户设置标记，未由券商原生核实"), null);
 assert.equal(overviewCardStatusDetail("账户运行异常"), "账户运行异常");

@@ -24,7 +24,19 @@ export type IbkrAccountFactsCash = {
   source_tag: "$LEDGER-CashBalance" | "$LEDGER-TotalCashBalance" | "CashBalance" | "TotalCashBalance" | "SettledCash";
 };
 
-export type AccountFactsCash = LongBridgeAccountFactsCash | IbkrAccountFactsCash;
+export type SchwabAccountFactsCash = {
+  currency: "USD";
+  cash_balance: string;
+  source_tag: "cashBalance";
+  currency_source: "owner_confirmed";
+};
+
+export type SchwabBrokerAccountType = {
+  value: string;
+  source_tag: "securitiesAccount.type";
+};
+
+export type AccountFactsCash = LongBridgeAccountFactsCash | IbkrAccountFactsCash | SchwabAccountFactsCash;
 
 export type AccountFactsAccount = {
   platform: string;
@@ -42,6 +54,7 @@ export type AccountFactsAccount = {
   observed_finished_at: string | null;
   balances: AccountFactsBalance[];
   cash: AccountFactsCash[];
+  broker_account_type?: SchwabBrokerAccountType;
   return: AccountFactsReturn;
 };
 
