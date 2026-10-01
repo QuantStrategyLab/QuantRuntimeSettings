@@ -40,6 +40,12 @@ const rotation = { target_id: primary.target_id,
 const schwab = { ...primary, platform: "schwab", account_scope: "live",
   account_selector: "schwab-placeholder", target_id: "schwab-primary",
   broker_account_hash: "synthetic-placeholder-hash" };
+const longbridgeSg = { platform: "longbridge", account_key: "sg", account_scope: "sg",
+  target_name: "longbridge-sg-placeholder", service_name: "longbridge-service-placeholder",
+  deployment_selector: "longbridge-sg-placeholder", account_selector: "sg-placeholder",
+  target_id: "sg", source_binding: { kind: "deployment_scope_token_version", id: "1".repeat(64) } };
+const longbridgeRotation = { target_id: "sg", previous_source_binding_id: longbridgeSg.source_binding.id,
+  next_source_binding_id: "2".repeat(64) };
 
 const optionFor = (binding) => ({
   key: binding.account_key,
@@ -203,7 +209,10 @@ const inspectorWorkflowGate = workflow.slice(
   workflow.indexOf("if ! node --input-type=module -", workflow.indexOf("account_facts_bindings_read_failed")),
 );
 assert.match(workflow, /inspect_ibkr_bindings:[\s\S]*?default: false/);
-assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ !inputs\.inspect_ibkr_bindings && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.inspect_ibkr_bindings && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'longbridge' && !inputs\.inspect_ibkr_bindings && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /SCHWAB_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.platform == 'schwab' && !inputs\.inspect_ibkr_bindings/);
+assert.match(workflow, /- longbridge/);
 assert.match(workflow, /inspection_platform_invalid/);
 assert.match(inspectorWorkflowGate, /node \.\/inspect_ibkr_account_facts_configuration\.mjs/);
 assert.match(inspectorWorkflowGate, /exit 0/);
@@ -276,7 +285,7 @@ esac
 
 assert.match(workflow, /initialize_ibkr_bindings:[\s\S]*?default: false/);
 assert.match(workflow, /apply_initial_ibkr_bindings:[\s\S]*?default: false/);
-assert.match(workflow, /IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: \$\{\{ inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON \|\| '' \}\}/);
+assert.match(workflow, /IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: \$\{\{ inputs\.platform == 'ibkr' && inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON \|\| '' \}\}/);
 assert.match(workflow, /initialization_mode_required/);
 assert.match(workflow, /initialization_mode_invalid/);
 assert.ok(workflow.indexOf("node ./prepare_ibkr_account_facts_bindings.mjs")
@@ -471,6 +480,34 @@ const cases = [
   { name: "schwab_unchanged", platform: "schwab", rows: [primary, schwab], proposed: schwab, expected: "unchanged" },
   { name: "schwab_conflict", platform: "schwab", rows: [primary, schwab],
     proposed: { ...schwab, source_binding: { ...schwab.source_binding, id: "b".repeat(64) } }, expected: "blocked" },
+  { name: "longbridge_sg_rotate", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: longbridgeRotation, expected: "prepared" },
+  { name: "longbridge_wrong_scope", platform: "longbridge", rows: [primary,
+    { ...longbridgeSg, account_scope: "SG" }, secondary], proposed: longbridgeSg,
+    rotation: longbridgeRotation, expected: "blocked" },
+  { name: "longbridge_wrong_source_kind", platform: "longbridge", rows: [primary,
+    { ...longbridgeSg, source_binding: { ...longbridgeSg.source_binding, kind: "deployment_runtime_account" } }, secondary],
+    proposed: longbridgeSg, rotation: longbridgeRotation, expected: "blocked" },
+  { name: "longbridge_hk_or_paper_target", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: { ...longbridgeRotation, target_id: "hk" }, expected: "blocked" },
+  { name: "longbridge_wrong_previous", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: { ...longbridgeRotation, previous_source_binding_id: "3".repeat(64) }, expected: "blocked" },
+  { name: "longbridge_stale_after_rotation", platform: "longbridge", rows: [primary,
+    { ...longbridgeSg, source_binding: { ...longbridgeSg.source_binding,
+      id: longbridgeRotation.next_source_binding_id } }, secondary], proposed: longbridgeSg,
+    rotation: longbridgeRotation, expected: "blocked" },
+  { name: "longbridge_same_hash", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: { ...longbridgeRotation,
+      next_source_binding_id: longbridgeRotation.previous_source_binding_id }, expected: "blocked" },
+  { name: "longbridge_extra_rotation_field", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: { ...longbridgeRotation, account_selector: "injected-placeholder" },
+    expected: "blocked" },
+  { name: "longbridge_identity_changed", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: { ...longbridgeSg, service_name: "other-service-placeholder" },
+    rotation: longbridgeRotation, expected: "blocked" },
+  { name: "longbridge_duplicate_binding", platform: "longbridge", rows: [primary, longbridgeSg,
+    { ...longbridgeSg, account_key: "sg-copy" }, secondary], proposed: longbridgeSg,
+    rotation: longbridgeRotation, expected: "blocked" },
 ];
 
 for (const test of cases) {
@@ -484,10 +521,15 @@ for (const test of cases) {
       cwd: join(root, "web/strategy-switch-console"), input: code, encoding: "utf8",
       env: { ...process.env, BINDING_PLATFORM: platform,
         IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(test.rotation || {}),
+        LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(test.rotation || {}),
         SCHWAB_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ schema_version: schema, bindings: [proposed] }) },
     });
     assert.equal(child.status, test.expected === "blocked" ? 1 : 0, test.name);
     assert.match(child.stdout, new RegExp(`status=${test.expected}`), test.name);
+    if (platform === "longbridge") {
+      assert.doesNotMatch(child.stdout + child.stderr,
+        /longbridge-sg-placeholder|longbridge-service-placeholder|1{64}|2{64}/, test.name);
+    }
     const output = join(temp, "next-bindings.json");
     assert.equal(existsSync(output), test.expected === "prepared", test.name);
     if (test.name === "rotate") {
@@ -498,8 +540,15 @@ for (const test of cases) {
     if (test.name === "schwab_append") {
       assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings, [primary, secondary, schwab]);
     }
+    if (test.name === "longbridge_sg_rotate") {
+      const next = JSON.parse(readFileSync(output, "utf8"));
+      assert.deepEqual(next.bindings, [primary,
+        { ...longbridgeSg, source_binding: { ...longbridgeSg.source_binding,
+          id: longbridgeRotation.next_source_binding_id } }, secondary]);
+      assert.deepEqual(next.bindings.filter((item) => item !== next.bindings[1]), [primary, secondary]);
+    }
   } finally {
     rmSync(temp, { recursive: true, force: true });
   }
 }
-console.log(`account-facts binding workflow validation: ${cases.length} legacy cases plus initial-binding preview/apply and rejection matrix passed`);
+console.log(`account-facts binding workflow validation: ${cases.length} rotation cases plus initial-binding preview/apply and rejection matrix passed`);
