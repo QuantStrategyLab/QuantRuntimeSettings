@@ -1,0 +1,72 @@
+name: Bootstrap Binance account-facts binding
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the validated binding and one-purpose token. False runs the read-only preview.
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
+      BINANCE_FACTS_BOOTSTRAP_APPLY: ${{ inputs.apply }}
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Prepare protected Wrangler credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          if [[ "$GITHUB_REPOSITORY" != "QuantStrategyLab/QuantRuntimeSettings" || "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "status=blocked reason=main_branch_required"
+            exit 1
+          fi
+          if [[ -z "${GH_TOKEN:-}" || -z "${STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:-}" ]]; then
+            echo "status=blocked reason=protected_credentials_unavailable"
+            exit 1
+          fi
+          if [[ -z "${CLOUDFLARE_API_TOKEN:-}" && -z "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]]; then
+            echo "status=blocked reason=cloudflare_credentials_missing"
+            exit 1
+          fi
+          if [[ -n "${CLOUDFLARE_WRANGLER_CONFIG_TOML:-}" ]]; then
+            umask 077
+            mkdir -p "$HOME/.config/.wrangler/config"
+            printf '%s' "$CLOUDFLARE_WRANGLER_CONFIG_TOML" > "$HOME/.config/.wrangler/config/default.toml"
+            chmod 600 "$HOME/.config/.wrangler/config/default.toml"
+          fi
+
+      - name: Validate exact target and preview or apply once
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          node scripts/bootstrap_binance_account_facts.mjs
