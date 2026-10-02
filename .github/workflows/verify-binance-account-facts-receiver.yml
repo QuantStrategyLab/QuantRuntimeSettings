@@ -1,0 +1,59 @@
+name: Verify Binance account-facts receiver
+
+on:
+  workflow_dispatch:
+    inputs:
+      verify_receiver:
+        description: "Send one empty request to verify the deployed receiver configuration."
+        required: true
+        type: boolean
+        default: false
+      expected_main_sha:
+        description: "Exact current main commit to verify against this run."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: ${{ inputs.verify_receiver == true }}
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 2
+    env:
+      STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
+      BINANCE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN }}
+    steps:
+      - name: Checkout exact dispatch revision
+        uses: actions/checkout@v6
+
+      - name: Require current fixed main revision and credential
+        env:
+          EXPECTED_MAIN_SHA: ${{ inputs.expected_main_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]] \
+            || [[ ! "$EXPECTED_MAIN_SHA" =~ ^[0-9a-f]{40}$ ]] \
+            || [[ "$EXPECTED_MAIN_SHA" != "$GITHUB_SHA" ]]; then
+            echo "binance_account_facts_receiver=main_revision_mismatch" >&2
+            exit 1
+          fi
+          git fetch --quiet --no-tags origin main
+          current_main_sha="$(git rev-parse FETCH_HEAD)"
+          if [[ "$current_main_sha" != "$EXPECTED_MAIN_SHA" ]]; then
+            echo "binance_account_facts_receiver=main_revision_mismatch" >&2
+            exit 1
+          fi
+          if [[ -z "${BINANCE_ACCOUNT_FACTS_SYNC_TOKEN:-}" ]]; then
+            echo "binance_account_facts_receiver=credential_missing" >&2
+            exit 1
+          fi
+
+      - name: Verify receiver with one empty request
+        run: node scripts/verify_binance_account_facts_receiver.mjs

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
 import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts,
   BINANCE_FACTS_KEY } from '../web/strategy-switch-console/binance_account_facts.js';
+import { verifyBinanceAccountFactsReceiver } from '../scripts/verify_binance_account_facts_receiver.mjs';
 
 const now = Date.now();
 const binding = {
@@ -88,6 +89,22 @@ const receiverAcceptance = await post({});
 assert.equal(receiverAcceptance.status, 400);
 assert.equal((await receiverAcceptance.json()).error, 'invalid_binance_account_facts');
 assert.equal(puts.length, 0, 'empty receiver acceptance request rejects before any facts write');
+const realHandlerFetch = (settings = env) => (url, init) => worker.fetch(new Request(url, init), settings);
+const acceptedReceiverCheck = await verifyBinanceAccountFactsReceiver({
+  consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+  fetchImpl: realHandlerFetch(),
+});
+assert.deepEqual(acceptedReceiverCheck, { status: 'verified', httpStatus: 400 });
+await assert.rejects(verifyBinanceAccountFactsReceiver({
+  consoleUrl: 'https://console.example', token: 'synthetic-wrong-token', fetchImpl: realHandlerFetch(),
+}), error => error.category === 'token_invalid' && error.httpStatus === 401);
+const unmatchedOptionEnv = { ...env, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [{ ...option,
+  account_scope: 'different-scope' }] }) };
+await assert.rejects(verifyBinanceAccountFactsReceiver({
+  consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+  fetchImpl: realHandlerFetch(unmatchedOptionEnv),
+}), error => error.category === 'binding_unmatched' && error.httpStatus === 409);
+assert.equal(puts.length, 0, 'receiver check against the real Worker handler does not write facts');
 const accepted = await post(report);
 assert.equal(accepted.status, 200, JSON.stringify(await accepted.clone().json()));
 assert.equal((await accepted.json()).status, 'published');
