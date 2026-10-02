@@ -11,6 +11,9 @@ assert.match(workflow.slice(verifyIndex, verifyIndex + 320), /if: env\.BINANCE_A
 assert.match(workflow.slice(verifyIndex, verifyIndex + 320), /scripts\/verify_binance_account_facts_receiver\.mjs/);
 assert.match(manualWorkflow, /workflow_dispatch:/);
 assert.match(manualWorkflow, /verify_receiver:[\s\S]{0,180}default: false/);
+assert.match(manualWorkflow, /diagnosis_only:[\s\S]{0,180}default: false/);
+assert.match(manualWorkflow, /inputs\.verify_receiver == true \|\| inputs\.diagnosis_only == true/);
+assert.match(manualWorkflow, /BINANCE_ACCOUNT_FACTS_READINESS_ONLY: \$\{\{ inputs\.diagnosis_only \}\}/);
 assert.doesNotMatch(manualWorkflow, /^\s+(?:push|schedule):/m);
 assert.match(manualWorkflow, /environment: runtime-strategy-switch/);
 assert.match(manualWorkflow, /STRATEGY_SWITCH_CONSOLE_URL: \$\{\{ vars\.STRATEGY_SWITCH_CONSOLE_URL \}\}/);
@@ -47,10 +50,42 @@ assert.equal(calls[0][1].redirect, "manual");
 assert.equal(calls[0][1].headers.Authorization, `Bearer ${token}`);
 assert.equal(calls[0][1].signal.aborted, false);
 
+calls = [];
+const readinessBody = { ok: true, ready: true, binding_valid: true, account_options_readable: true, unique_match: true };
+const diagnosis = await verifyBinanceAccountFactsReceiver({
+  consoleUrl: "https://console.example", token, readinessOnly: true,
+  fetchImpl: async (...args) => {
+    calls.push(args);
+    return new Response(JSON.stringify(readinessBody), { status: 200 });
+  },
+});
+assert.deepEqual(diagnosis, {
+  status: "ready", bindingValid: true, accountOptionsReadable: true, uniqueMatch: true,
+});
+assert.equal(calls.length, 1, "readiness diagnosis makes exactly one request");
+assert.equal(calls[0][1].method, "GET");
+assert.equal(calls[0][1].body, undefined);
+assert.equal(calls[0][1].redirect, "manual");
+assert.equal(calls[0][1].headers.Authorization, `Bearer ${token}`);
+
+calls = [];
+await assert.rejects(verifyBinanceAccountFactsReceiver({
+  consoleUrl: "https://console.example", token, readinessOnly: true,
+  fetchImpl: async (...args) => {
+    calls.push(args);
+    return new Response(JSON.stringify({ ok: false, ready: false, binding_valid: true,
+      account_options_readable: false, unique_match: false,
+      error: "binance_account_facts_account_options_unavailable" }), { status: 503 });
+  },
+}), error => error.category === "account_options_unavailable" && error.httpStatus === 503);
+assert.equal(calls.length, 1, "failed readiness diagnosis is not retried");
+assert.equal(calls[0][1].method, "GET", "failed readiness diagnosis never falls through to POST");
+
 for (const [response, category, status] of [
   [new Response(JSON.stringify({ ok: false, error: "binance_account_facts_token_invalid" }), { status: 401 }), "token_invalid", 401],
   [new Response(JSON.stringify({ ok: false, error: "binance_account_facts_binding_unmatched" }), { status: 409 }), "binding_unmatched", 409],
   [new Response(JSON.stringify({ ok: false, error: "binance_account_facts_binding_missing" }), { status: 503 }), "config_or_binding", 503],
+  [new Response(JSON.stringify({ ok: false, error: "binance_account_facts_account_options_unavailable" }), { status: 503 }), "unknown", 503],
   [new Response(JSON.stringify({ ok: false, error: "binance_account_facts_storage_unavailable" }), { status: 503 }), "unknown", 503],
   [new Response("synthetic private body", { status: 404 }), "route_not_found", 404],
   [new Response(JSON.stringify({ ok: false, error: "invalid_binance_account_facts" }), { status: 302 }), "redirect", 302],
@@ -95,4 +130,4 @@ for (const consoleUrl of ["http://console.example", "https://user:pass@console.e
   );
 }
 
-console.log("Binance receiver deployment acceptance: token-gated, exact empty POST, closed response handling and no retry PASS");
+console.log("Binance receiver deployment acceptance: default one empty POST, optional GET-only readiness, closed responses and no retry PASS");

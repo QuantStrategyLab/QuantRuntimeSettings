@@ -8,6 +8,11 @@ on:
         required: true
         type: boolean
         default: false
+      diagnosis_only:
+        description: "Read receiver readiness metadata once without sending a POST."
+        required: false
+        type: boolean
+        default: false
       expected_main_sha:
         description: "Exact current main commit to verify against this run."
         required: true
@@ -22,7 +27,7 @@ concurrency:
 
 jobs:
   verify:
-    if: ${{ inputs.verify_receiver == true }}
+    if: ${{ inputs.verify_receiver == true || inputs.diagnosis_only == true }}
     runs-on: ubuntu-latest
     environment: runtime-strategy-switch
     timeout-minutes: 2
@@ -55,5 +60,7 @@ jobs:
             exit 1
           fi
 
-      - name: Verify receiver with one empty request
+      - name: Verify receiver or read readiness once
+        env:
+          BINANCE_ACCOUNT_FACTS_READINESS_ONLY: ${{ inputs.diagnosis_only }}
         run: node scripts/verify_binance_account_facts_receiver.mjs

@@ -81,9 +81,9 @@ const distinctNativeSpellings = { ...report, assets: [nativeAssetRow('A'), nativ
 assert.equal(normalizeBinanceAccountFacts(distinctNativeSpellings, binding, { now, ingest: true }), distinctNativeSpellings,
   'asset validation must preserve raw strings without compatibility normalization');
 
-const values = new Map(), puts = [];
+const values = new Map(), puts = [], reads = [];
 const kv = {
-  get: async key => values.get(key) || null,
+  get: async key => { reads.push(key); return values.get(key) || null; },
   put: async (key, value, options) => { values.set(key, value); puts.push({ key, value, options }); },
 };
 const option = { key: binding.account_key, account_scope: binding.account_scope,
@@ -98,12 +98,18 @@ const post = (body, settings = env, token = env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN
   new Request('https://console.example/api/internal/binance-account-facts', {
     method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   }), settings);
+const readiness = (settings = env, token = env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN) => worker.fetch(
+  new Request('https://console.example/api/internal/binance-account-facts', {
+    method: 'GET', headers: { Authorization: `Bearer ${token}` },
+  }), settings);
 const get = (settings = env, authenticated = true) => worker.fetch(new Request('https://console.example/api/binance-account-facts', {
   headers: authenticated ? { Cookie: `qsl_switch_session=${cookie}` } : {},
 }), settings);
 assert.equal((await get(env, false)).status, 401);
 assert.equal((await post({}, env, 'another-purpose-token')).status, 401);
+assert.equal((await readiness(env, 'another-purpose-token')).status, 401);
 assert.equal((await post(report, { ...env, ACCOUNT_FACTS_SYNC_TOKEN: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN })).status, 503);
+assert.equal((await readiness({ ...env, ACCOUNT_FACTS_SYNC_TOKEN: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN })).status, 503);
 assert.equal((await post(report, { ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).status, 503);
 assert.equal((await post(report, { ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ ...binding,
   source_binding: { ...binding.source_binding, id: 'e'.repeat(64) } }) })).status, 503);
@@ -113,17 +119,61 @@ const receiverAcceptance = await post({});
 assert.equal(receiverAcceptance.status, 400);
 assert.equal((await receiverAcceptance.json()).error, 'invalid_binance_account_facts');
 assert.equal(puts.length, 0, 'empty receiver acceptance request rejects before any facts write');
+reads.length = 0;
+const readinessResponse = await readiness();
+assert.equal(readinessResponse.status, 200);
+assert.deepEqual(await readinessResponse.json(), {
+  ok: true, ready: true, binding_valid: true, account_options_readable: true, unique_match: true,
+});
+assert.equal(reads.some(key => key.startsWith(`${BINANCE_FACTS_KEY}:`)), false,
+  'readiness checks do not read the facts storage key');
+assert.equal(puts.length, 0, 'readiness checks do not write facts');
+const unmatchedReadiness = await readiness({ ...env, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [{ ...option,
+  account_scope: 'different-scope' }] }) });
+assert.equal(unmatchedReadiness.status, 409);
+assert.deepEqual(await unmatchedReadiness.json(), {
+  ok: false, ready: false, binding_valid: true, account_options_readable: true,
+  unique_match: false, error: 'binance_account_facts_binding_unmatched',
+});
+assert.equal(puts.length, 0, 'unmatched readiness check does not write facts');
+const configReadFailure = await readiness({ ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
+  idFromName: () => 'synthetic-do-id',
+  get: () => ({ fetch: async () => new Response(JSON.stringify({ error: 'synthetic-sensitive-detail' }), { status: 503 }) }),
+} });
+assert.equal(configReadFailure.status, 503);
+const configFailureBody = await configReadFailure.text();
+assert.deepEqual(JSON.parse(configFailureBody), {
+  ok: false, ready: false, binding_valid: true, account_options_readable: false,
+  unique_match: false, error: 'binance_account_facts_account_options_unavailable',
+});
+assert.equal(configFailureBody.includes('synthetic-sensitive-detail'), false,
+  'readiness hides runtime configuration error details');
+assert.equal(puts.length, 0, 'failed readiness check does not write facts');
 const realHandlerFetch = (settings = env) => (url, init) => worker.fetch(new Request(url, init), settings);
 const acceptedReceiverCheck = await verifyBinanceAccountFactsReceiver({
   consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
   fetchImpl: realHandlerFetch(),
 });
 assert.deepEqual(acceptedReceiverCheck, { status: 'verified', httpStatus: 400 });
+const readinessOnlyCheck = await verifyBinanceAccountFactsReceiver({
+  consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+  readinessOnly: true, fetchImpl: realHandlerFetch(),
+});
+assert.deepEqual(readinessOnlyCheck, {
+  status: 'ready', bindingValid: true, accountOptionsReadable: true, uniqueMatch: true,
+});
 await assert.rejects(verifyBinanceAccountFactsReceiver({
   consoleUrl: 'https://console.example', token: 'synthetic-wrong-token', fetchImpl: realHandlerFetch(),
 }), error => error.category === 'token_invalid' && error.httpStatus === 401);
 const unmatchedOptionEnv = { ...env, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [{ ...option,
   account_scope: 'different-scope' }] }) };
+const readinessCalls = [];
+await assert.rejects(verifyBinanceAccountFactsReceiver({
+  consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+  readinessOnly: true,
+  fetchImpl: (url, init) => { readinessCalls.push(init.method); return realHandlerFetch(unmatchedOptionEnv)(url, init); },
+}), error => error.category === 'binding_unmatched' && error.httpStatus === 409);
+assert.deepEqual(readinessCalls, ['GET'], 'unready worker response stops before any POST');
 await assert.rejects(verifyBinanceAccountFactsReceiver({
   consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
   fetchImpl: realHandlerFetch(unmatchedOptionEnv),
