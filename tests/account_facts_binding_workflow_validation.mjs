@@ -46,6 +46,12 @@ const longbridgeSg = { platform: "longbridge", account_key: "sg", account_scope:
   target_id: "sg", source_binding: { kind: "deployment_scope_token_version", id: "1".repeat(64) } };
 const longbridgeRotation = { target_id: "sg", previous_source_binding_id: longbridgeSg.source_binding.id,
   next_source_binding_id: "2".repeat(64) };
+const longbridgePaper = { platform: "longbridge", account_key: "paper", account_scope: "paper",
+  target_name: "longbridge-paper-placeholder", service_name: "longbridge-paper-service-placeholder",
+  deployment_selector: "longbridge-paper-placeholder", account_selector: "paper-placeholder",
+  target_id: "paper", source_binding: { kind: "deployment_scope_token_version", id: "3".repeat(64) } };
+const longbridgePaperRotation = { target_id: "paper", previous_source_binding_id: longbridgePaper.source_binding.id,
+  next_source_binding_id: "4".repeat(64) };
 
 const optionFor = (binding) => ({
   key: binding.account_key,
@@ -482,14 +488,29 @@ const cases = [
     proposed: { ...schwab, source_binding: { ...schwab.source_binding, id: "b".repeat(64) } }, expected: "blocked" },
   { name: "longbridge_sg_rotate", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
     proposed: longbridgeSg, rotation: longbridgeRotation, expected: "prepared" },
+  { name: "longbridge_paper_rotate", platform: "longbridge", rows: [primary, longbridgeSg, longbridgePaper, secondary],
+    proposed: longbridgePaper, rotation: longbridgePaperRotation, expected: "prepared" },
+  { name: "longbridge_paper_wrong_scope", platform: "longbridge", rows: [primary, longbridgeSg,
+    { ...longbridgePaper, account_scope: "sg" }, secondary], proposed: longbridgePaper,
+    rotation: longbridgePaperRotation, expected: "blocked" },
+  { name: "longbridge_paper_wrong_previous", platform: "longbridge", rows: [primary, longbridgeSg, longbridgePaper, secondary],
+    proposed: longbridgePaper, rotation: { ...longbridgePaperRotation, previous_source_binding_id: "5".repeat(64) }, expected: "blocked" },
+  { name: "longbridge_paper_identity_changed", platform: "longbridge", rows: [primary, longbridgeSg, longbridgePaper, secondary],
+    proposed: { ...longbridgePaper, service_name: "other-paper-service-placeholder" },
+    rotation: longbridgePaperRotation, expected: "blocked" },
+  { name: "longbridge_paper_same_hash", platform: "longbridge", rows: [primary, longbridgeSg, longbridgePaper, secondary],
+    proposed: longbridgePaper, rotation: { ...longbridgePaperRotation,
+      next_source_binding_id: longbridgePaperRotation.previous_source_binding_id }, expected: "blocked" },
   { name: "longbridge_wrong_scope", platform: "longbridge", rows: [primary,
     { ...longbridgeSg, account_scope: "SG" }, secondary], proposed: longbridgeSg,
     rotation: longbridgeRotation, expected: "blocked" },
   { name: "longbridge_wrong_source_kind", platform: "longbridge", rows: [primary,
     { ...longbridgeSg, source_binding: { ...longbridgeSg.source_binding, kind: "deployment_runtime_account" } }, secondary],
     proposed: longbridgeSg, rotation: longbridgeRotation, expected: "blocked" },
-  { name: "longbridge_hk_or_paper_target", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+  { name: "longbridge_hk_target", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
     proposed: longbridgeSg, rotation: { ...longbridgeRotation, target_id: "hk" }, expected: "blocked" },
+  { name: "longbridge_unknown_target", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
+    proposed: longbridgeSg, rotation: { ...longbridgeRotation, target_id: "unexpected" }, expected: "blocked" },
   { name: "longbridge_wrong_previous", platform: "longbridge", rows: [primary, longbridgeSg, secondary],
     proposed: longbridgeSg, rotation: { ...longbridgeRotation, previous_source_binding_id: "3".repeat(64) }, expected: "blocked" },
   { name: "longbridge_stale_after_rotation", platform: "longbridge", rows: [primary,
@@ -528,7 +549,7 @@ for (const test of cases) {
     assert.match(child.stdout, new RegExp(`status=${test.expected}`), test.name);
     if (platform === "longbridge") {
       assert.doesNotMatch(child.stdout + child.stderr,
-        /longbridge-sg-placeholder|longbridge-service-placeholder|1{64}|2{64}/, test.name);
+        /longbridge-(sg|paper)-placeholder|longbridge-(paper-)?service-placeholder|[1-5]{64}/, test.name);
     }
     const output = join(temp, "next-bindings.json");
     assert.equal(existsSync(output), test.expected === "prepared", test.name);
@@ -546,6 +567,13 @@ for (const test of cases) {
         { ...longbridgeSg, source_binding: { ...longbridgeSg.source_binding,
           id: longbridgeRotation.next_source_binding_id } }, secondary]);
       assert.deepEqual(next.bindings.filter((item) => item !== next.bindings[1]), [primary, secondary]);
+    }
+    if (test.name === "longbridge_paper_rotate") {
+      const next = JSON.parse(readFileSync(output, "utf8"));
+      assert.deepEqual(next.bindings, [primary, longbridgeSg,
+        { ...longbridgePaper, source_binding: { ...longbridgePaper.source_binding,
+          id: longbridgePaperRotation.next_source_binding_id } }, secondary]);
+      assert.deepEqual(next.bindings.filter((item) => item !== next.bindings[2]), [primary, longbridgeSg, secondary]);
     }
   } finally {
     rmSync(temp, { recursive: true, force: true });
