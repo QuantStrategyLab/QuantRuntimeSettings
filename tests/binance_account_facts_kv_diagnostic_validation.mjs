@@ -24,16 +24,27 @@ const binding = {
 };
 const accountId = "1".repeat(32);
 const namespaceId = "2".repeat(32);
+const privateMarker = "PRIVATE_NATIVE_ACCOUNT_AND_BALANCE";
 const key = `private_binance_account_facts:${binding.source_binding.id}`;
+const accountsUrl = "https://api.cloudflare.com/client/v4/accounts?per_page=5";
+const namespaceUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}`;
 const kvUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/storage/kv/namespaces/${namespaceId}/values/${encodeURIComponent(key)}`;
 const environment = {
   GITHUB_REPOSITORY: "QuantStrategyLab/QuantRuntimeSettings",
   GITHUB_REF: "refs/heads/main",
   GH_TOKEN: "synthetic-github-token",
   CLOUDFLARE_API_TOKEN: "synthetic-cloudflare-token",
-  CLOUDFLARE_ACCOUNT_ID: accountId,
   STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: namespaceId,
   BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(binding),
+};
+const uniqueAccountPage = {
+  success: true,
+  result: [{ id: accountId, name: "synthetic account name" }],
+  result_info: { count: 1, page: 1, per_page: 5, total_count: 1 },
+};
+const namespaceResponse = {
+  success: true,
+  result: { id: namespaceId, title: "synthetic namespace title", jurisdiction: "eu" },
 };
 const run = {
   path: ".github/workflows/binance-account-facts.yml",
@@ -62,10 +73,25 @@ const jobs = {
   }],
 };
 
-function mockFetch({ runValue = run, jobsValue = jobs, kvStatus = 200, kvBody = JSON.stringify(report) } = {}) {
+function mockFetch({
+  runValue = run,
+  jobsValue = jobs,
+  accountStatus = 200,
+  accountBody = JSON.stringify(uniqueAccountPage),
+  namespaceStatus = 200,
+  namespaceBody = JSON.stringify(namespaceResponse),
+  kvStatus = 200,
+  kvBody = JSON.stringify(report),
+} = {}) {
   const calls = [];
   const fetchImpl = async (url, init) => {
     calls.push({ url: String(url), init });
+    if (String(url) === accountsUrl) {
+      return new Response(accountStatus === 404 ? null : accountBody, { status: accountStatus });
+    }
+    if (String(url).includes("/storage/kv/namespaces/") && !String(url).includes("/values/")) {
+      return new Response(namespaceStatus === 404 ? null : namespaceBody, { status: namespaceStatus });
+    }
     if (String(url) === kvUrl) return new Response(kvStatus === 404 ? null : kvBody, { status: kvStatus });
     if (String(url).endsWith("/jobs?per_page=100")) {
       return new Response(JSON.stringify(jobsValue), { status: 200 });
@@ -88,7 +114,17 @@ assert.deepEqual(validResult, {
   valid: true,
   observed_in_attempt_window: true,
 });
-assert.equal(validFetch.calls.length, 3, "two GitHub metadata reads and one Cloudflare KV read");
+assert.equal(validFetch.calls.length, 5, "GitHub run/jobs, account and namespace checks, one KV read");
+const accountsCall = validFetch.calls.find(call => call.url === accountsUrl);
+assert.ok(accountsCall);
+assert.equal(accountsCall.init.method, "GET");
+assert.equal(accountsCall.init.headers.Authorization, "Bearer synthetic-cloudflare-token");
+assert.equal(accountsCall.init.redirect, "error");
+const namespaceCall = validFetch.calls.find(call => call.url === namespaceUrl);
+assert.ok(namespaceCall);
+assert.equal(namespaceCall.init.method, "GET");
+assert.equal(namespaceCall.init.headers.Authorization, "Bearer synthetic-cloudflare-token");
+assert.equal(namespaceCall.init.redirect, "error");
 const kvCall = validFetch.calls.find(call => call.url === kvUrl);
 assert.ok(kvCall);
 assert.equal(kvCall.init.method, "GET");
@@ -98,6 +134,115 @@ assert.equal(kvCall.init.signal instanceof AbortSignal, true);
 assert.equal(JSON.stringify(validResult).includes("BTC"), false);
 assert.equal(JSON.stringify(validResult).includes("USDT"), false);
 assert.equal(JSON.stringify(validResult).includes("synthetic-account"), false);
+assert.equal(JSON.stringify(validResult).includes("synthetic account name"), false);
+assert.equal(JSON.stringify(validResult).includes("synthetic namespace title"), false);
+
+const configuredAccount = mockFetch();
+assert.deepEqual(await diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: { ...environment, CLOUDFLARE_ACCOUNT_ID: accountId },
+  fetchImpl: configuredAccount.fetchImpl,
+}), {
+  exists: true,
+  valid: true,
+  observed_in_attempt_window: true,
+});
+assert.equal(configuredAccount.calls.some(call => call.url === accountsUrl), false);
+assert.equal(configuredAccount.calls.some(call => call.url === namespaceUrl), true);
+
+for (const namespaceCase of [
+  { namespaceStatus: 404 },
+  { namespaceStatus: 403, namespaceBody: privateMarker },
+  { namespaceBody: "not-json" },
+  { namespaceBody: JSON.stringify({ success: true, result: { id: "3".repeat(32) } }) },
+]) {
+  const rejectedNamespace = mockFetch(namespaceCase);
+  await assert.rejects(diagnoseBinanceAccountFactsKv({
+    runId: "37027311498",
+    expectedReaderRevision: binding.reader_revision,
+    env: environment,
+    fetchImpl: rejectedNamespace.fetchImpl,
+  }), error => error.code === "namespace_target_unqualified");
+  assert.equal(rejectedNamespace.calls.some(call => call.url === kvUrl), false);
+}
+
+const wrongResolvedAccountId = "3".repeat(32);
+const wrongAccountNamespace = mockFetch({
+  accountBody: JSON.stringify({
+    ...uniqueAccountPage,
+    result: [{ id: wrongResolvedAccountId }],
+  }),
+  namespaceStatus: 404,
+});
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: wrongAccountNamespace.fetchImpl,
+}), error => error.code === "namespace_target_unqualified");
+assert.equal(wrongAccountNamespace.calls.some(call => call.url === kvUrl), false);
+assert.equal(wrongAccountNamespace.calls.some(call =>
+  call.url === `https://api.cloudflare.com/client/v4/accounts/${wrongResolvedAccountId}/storage/kv/namespaces/${namespaceId}`), true);
+
+const ambiguousAccounts = mockFetch({
+  accountBody: JSON.stringify({
+    ...uniqueAccountPage,
+    result: [{ id: accountId }, { id: "3".repeat(32) }],
+    result_info: { count: 2, page: 1, per_page: 5, total_count: 2 },
+  }),
+});
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: ambiguousAccounts.fetchImpl,
+}), error => error.code === "account_target_unqualified");
+assert.equal(ambiguousAccounts.calls.some(call => call.url === kvUrl), false);
+
+const emptyAccounts = mockFetch({
+  accountBody: JSON.stringify({
+    ...uniqueAccountPage,
+    result: [],
+    result_info: { count: 0, page: 1, per_page: 5, total_count: 0 },
+  }),
+});
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: emptyAccounts.fetchImpl,
+}), error => error.code === "account_target_unqualified");
+assert.equal(emptyAccounts.calls.some(call => call.url === kvUrl), false);
+
+const incompleteAccounts = mockFetch({
+  accountBody: JSON.stringify({
+    ...uniqueAccountPage,
+    result_info: { count: 2, page: 1, per_page: 5, total_count: 6, total_pages: 2 },
+  }),
+});
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: incompleteAccounts.fetchImpl,
+}), error => error.code === "account_target_unqualified");
+assert.equal(incompleteAccounts.calls.some(call => call.url === kvUrl), false);
+
+for (const accountCase of [
+  { accountStatus: 403, accountBody: privateMarker },
+  { accountBody: "not-json" },
+  { accountBody: JSON.stringify({ ...uniqueAccountPage, result: [{ id: "bad-id" }] }) },
+]) {
+  const rejectedAccounts = mockFetch(accountCase);
+  await assert.rejects(diagnoseBinanceAccountFactsKv({
+    runId: "37027311498",
+    expectedReaderRevision: binding.reader_revision,
+    env: environment,
+    fetchImpl: rejectedAccounts.fetchImpl,
+  }), error => error.code === "account_target_unqualified");
+  assert.equal(rejectedAccounts.calls.some(call => call.url === kvUrl), false);
+}
 
 const notFoundFetch = mockFetch({ kvStatus: 404 });
 assert.deepEqual(await diagnoseBinanceAccountFactsKv({
@@ -112,7 +257,6 @@ assert.deepEqual(await diagnoseBinanceAccountFactsKv({
 });
 assert.equal(notFoundFetch.calls.filter(call => call.url === kvUrl).length, 1);
 
-const privateMarker = "PRIVATE_NATIVE_ACCOUNT_AND_BALANCE";
 const deniedFetch = mockFetch({ kvStatus: 403, kvBody: privateMarker });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
   runId: "37027311498",
@@ -202,6 +346,38 @@ await assert.rejects(diagnoseBinanceAccountFactsKv({
   fetchImpl: oversizedFetch.fetchImpl,
 }), error => error.code === "kv_value_too_large");
 
+const oversizedAccountsStream = new ReadableStream({
+  start(controller) {
+    controller.enqueue(new Uint8Array(64 * 1024));
+    controller.enqueue(new Uint8Array([0]));
+    controller.close();
+  },
+});
+const oversizedAccounts = mockFetch({ accountBody: oversizedAccountsStream });
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: oversizedAccounts.fetchImpl,
+}), error => error.code === "account_target_unqualified");
+assert.equal(oversizedAccounts.calls.some(call => call.url === kvUrl), false);
+
+const oversizedNamespaceStream = new ReadableStream({
+  start(controller) {
+    controller.enqueue(new Uint8Array(64 * 1024));
+    controller.enqueue(new Uint8Array([0]));
+    controller.close();
+  },
+});
+const oversizedNamespace = mockFetch({ namespaceBody: oversizedNamespaceStream });
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: oversizedNamespace.fetchImpl,
+}), error => error.code === "namespace_target_unqualified");
+assert.equal(oversizedNamespace.calls.some(call => call.url === kvUrl), false);
+
 const workflow = readFileSync(
   new URL("../.github/workflows/diagnose-binance-account-facts.yml", import.meta.url), "utf8",
 );
@@ -214,6 +390,7 @@ assert.match(workflow, /environment:\s*runtime-strategy-switch/);
 assert.match(workflow, /ref:\s*\$\{\{ github\.sha \}\}[\s\S]*persist-credentials:\s*false/);
 assert.match(workflow, /GH_TOKEN:\s*\$\{\{ secrets\.RUNTIME_SETTINGS_GH_TOKEN \}\}/);
 assert.match(workflow, /CLOUDFLARE_API_TOKEN:\s*\$\{\{ secrets\.CLOUDFLARE_API_TOKEN \}\}/);
+assert.match(workflow, /CLOUDFLARE_ACCOUNT_ID:\s*\$\{\{ secrets\.CLOUDFLARE_ACCOUNT_ID \|\| vars\.CLOUDFLARE_ACCOUNT_ID \}\}/);
 assert.doesNotMatch(workflow, /WRANGLER|upload-artifact|kv\s+key\s+(?:put|delete)|actions:\s*write/i);
 
 console.log("Binance account-facts KV diagnostic: synthetic read-only checks PASS");
