@@ -1,0 +1,59 @@
+name: Diagnose Binance account-facts KV state
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Failed Binance account-facts reader run ID.
+        required: true
+        type: string
+        default: '37027311498'
+      expected_reader_revision:
+        description: Protected binding reader revision to verify before the KV read.
+        required: true
+        type: string
+        default: ''
+      confirm_read_only:
+        description: Confirm this one bounded read of the existing private KV value.
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  diagnose:
+    if: github.repository == 'QuantStrategyLab/QuantRuntimeSettings' && github.ref == 'refs/heads/main' && inputs.confirm_read_only == true
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 5
+    steps:
+      - name: Checkout trusted main
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: Read and validate the exact failed-run KV value once
+        env:
+          GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF: ${{ github.ref }}
+          BINANCE_ACCOUNT_FACTS_SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+          BINANCE_ACCOUNT_FACTS_EXPECTED_READER_REVISION: ${{ inputs.expected_reader_revision }}
+          BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+          STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +x
+          node scripts/diagnose_binance_account_facts_kv.mjs
