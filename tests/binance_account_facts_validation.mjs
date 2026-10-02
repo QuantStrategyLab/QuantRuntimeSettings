@@ -39,6 +39,52 @@ assert.equal(projection.assets[0].asset, 'USDT');
 for (const text of [binding.account_selector, binding.account_scope_sha256, binding.source_binding.id, binding.reader_revision]) {
   assert.equal(JSON.stringify(projection).includes(text), false);
 }
+assert.equal(Object.hasOwn(projection, 'wallet_valuation'), false, 'legacy reports remain valid without wallet valuation');
+const walletValuation = {
+  status: 'available', amount: '1234.5', currency: 'USDT',
+  source: 'GET /sapi/v1/asset/wallet/balance', scope: 'provider_returned_wallet_rows',
+  observed_at: time(-35_000), wallet_count: 2,
+};
+const walletReport = { ...report, wallet_valuation: walletValuation };
+assert.equal(normalizeBinanceAccountFacts(walletReport, binding, { now, ingest: true }), walletReport);
+assert.deepEqual(projectBinanceAccountFacts(walletReport, binding, { now }).wallet_valuation, walletValuation);
+const walletFailureCodes = [
+  'wallet_read_failed', 'wallet_response_invalid', 'wallet_row_invalid',
+  'wallet_duplicate_name', 'wallet_inactive_nonzero', 'wallet_balance_invalid',
+];
+for (const reason_code of walletFailureCodes) {
+  const unavailable = {
+    status: 'unavailable', amount: null, currency: null,
+    source: walletValuation.source, scope: walletValuation.scope,
+    observed_at: null, wallet_count: null, reason_code,
+  };
+  const unavailableReport = { ...report, wallet_valuation: unavailable };
+  assert.equal(normalizeBinanceAccountFacts(unavailableReport, binding, { now, ingest: true }), unavailableReport);
+  assert.deepEqual(projectBinanceAccountFacts(unavailableReport, binding, { now }).wallet_valuation, unavailable);
+}
+const invalidWalletValuations = [
+  { ...walletValuation, amount: '-1' }, { ...walletValuation, amount: '1e3' },
+  { ...walletValuation, amount: '1\n' }, { ...walletValuation, amount: '1\r' },
+  { ...walletValuation, amount: '1\u2028' }, { ...walletValuation, amount: '1\u2029' },
+  { ...walletValuation, amount: '1234.50' }, { ...walletValuation, amount: '1.0' },
+  { ...walletValuation, amount: '0.0' }, { ...walletValuation, amount: 'NaN' },
+  { ...walletValuation, amount: 'Infinity' },
+  { ...walletValuation, amount: 1 }, { ...walletValuation, currency: 'USD' },
+  { ...walletValuation, source: 'GET /sapi/v1/account/wallet/balance' },
+  { ...walletValuation, scope: 'all_wallets' }, { ...walletValuation, wallet_count: 0 },
+  { ...walletValuation, wallet_count: 33 }, { ...walletValuation, wallet_count: 1.5 },
+  { ...walletValuation, observed_at: time(-45_000) },
+  { ...walletValuation, observed_at: time(-61_000) }, { ...walletValuation, observed_at: time(-29_000) },
+  { ...walletValuation, observed_at: '2026-10-02T10:00:00+00:00' },
+  { ...walletValuation, extra: true },
+  { ...walletValuation, status: 'unavailable', amount: null },
+  { status: 'unavailable', amount: null, currency: null, source: walletValuation.source,
+    scope: walletValuation.scope, observed_at: null, wallet_count: null, reason_code: 'unknown_reason' },
+];
+for (const value of invalidWalletValuations) {
+  assert.throws(() => normalizeBinanceAccountFacts({ ...report, wallet_valuation: value }, binding, { now, ingest: true }),
+    'wallet valuation must match its exact closed contract');
+}
 assert.equal(projectBinanceAccountFacts(report, binding, { now: now + 37 * 3_600_000 }), null);
 const invalid = [
   { ...report, extra: true }, { ...report, platform: 'ibkr' }, { ...report, scope: 'all' },
