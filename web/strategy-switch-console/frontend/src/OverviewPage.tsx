@@ -71,11 +71,12 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = 
   { id: "assets", label: "总资产" },
 ];
 
-export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, readModelRefreshVersion = 0 }: {
+export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0 }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
   isAdmin?: boolean;
   privateScope?: { value: Record<string, any> | null; error: string | null } | null;
+  binanceFacts?: { value: Record<string, any> | null; error: string | null } | null;
   readModelRefreshVersion?: number;
   onOpenAccount: (id: string) => void;
 }) {
@@ -83,6 +84,17 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, r
   const language = useLocale();
   const formatInstant = (value: string | null | undefined) => formatOverviewInstant(value, language);
   const [accountId, setAccountId] = useState("all");
+  const [walletNow, setWalletNow] = useState(() => Date.now());
+  const wallet = binanceFacts?.error ? null : binanceFacts?.value?.report;
+  const walletAccount = wallet ? accounts.find(account => account.platformKey === "binance" && account.accountKey === wallet.account_key) : null;
+  const showWallet = Boolean(walletAccount && (accountId === "all" || accountId === walletAccount.id)
+    && walletNow - Date.parse(wallet.observed_finished_at) <= 36 * 60 * 60 * 1000
+    && walletNow - Date.parse(wallet.observed_finished_at) >= -60_000);
+  useEffect(() => {
+    setWalletNow(Date.now());
+    return scheduleBinancePrivateScopeExpiry(wallet?.observed_finished_at, () => setWalletNow(Date.now()),
+      Date.now(), window, 36 * 60 * 60 * 1000);
+  }, [wallet?.observed_finished_at]);
   const [chart, setChart] = useState<ChartMode>("assets");
   const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
   const [currency, setCurrency] = useState<string>("");
@@ -118,7 +130,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, r
   }, [privateScopeObservedAt]);
   useEffect(() => {
     const refreshAfterForeground = () => {
-      if (document.visibilityState === "visible") setPrivateScopeNow(Date.now());
+      if (document.visibilityState === "visible") {
+        setPrivateScopeNow(Date.now());
+        setWalletNow(Date.now());
+      }
     };
     document.addEventListener("visibilitychange", refreshAfterForeground);
     return () => document.removeEventListener("visibilitychange", refreshAfterForeground);
@@ -256,6 +271,20 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, r
       <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
       <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
     </section>
+    {showWallet ? <section id="binance-account-facts-board" className="overview-private-scope" aria-label={t("现货与活期理财")}>
+      <div className="overview-private-scope-head">
+        <h2>{t("现货与活期理财")}</h2>
+        <small>{t("上次更新")} {formatInstant(wallet.observed_finished_at)}</small>
+      </div>
+      <small>{t("资产按原生数量显示；其他钱包未覆盖")}</small>
+      <div className="overview-wallet-list">
+        <div className="overview-wallet-row overview-private-scope-labels"><span>{t("资产")}</span><span>{t("可用数量")}</span><span>{t("冻结数量")}</span><span>{t("活期理财数量")}</span></div>
+        {wallet.assets.map((item: { asset: string; spot_free: string; spot_locked: string; flexible_earn: string }) => <div className="overview-wallet-row" key={item.asset}>
+          <strong>{item.asset}</strong><span>{item.spot_free}</span><span>{item.spot_locked}</span><span>{item.flexible_earn}</span>
+        </div>)}
+        {!wallet.assets.length ? <small>{t("暂无非零资产")}</small> : null}
+      </div>
+    </section> : null}
     {binancePrivateScope?.assets.length ? <section id="binance-private-scope-board" className="overview-private-scope" aria-label={t("Binance非策略现货资产")}>
       <div className="overview-private-scope-head">
         <h2>{t("Binance非策略现货资产")}</h2>

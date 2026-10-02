@@ -57,6 +57,8 @@ jobs:
       ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.ACCOUNT_FACTS_SYNC_TOKEN }}
       IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.IBKR_ACCOUNT_FACTS_SYNC_TOKEN }}
       SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN }}
+      BINANCE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN }}
+      BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -83,6 +85,7 @@ jobs:
           node tests/console_v2_i18n_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node tests/console_catalog_release_validation.mjs
+          node --experimental-default-type=module tests/binance_account_facts_validation.mjs
 
       - name: Build config & assets from platform-config.json
         run: |
@@ -97,6 +100,17 @@ jobs:
           node --check --input-type=module < web/strategy-switch-console/strategy_profiles_asset.js
           node --check --input-type=module < web/strategy-switch-console/v2_asset_map.js
           node --check --input-type=module < web/strategy-switch-console/worker.js
+
+      - name: Validate optional Binance account-facts binding
+        if: env.BINANCE_ACCOUNT_FACTS_BINDING_JSON != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'JS'
+          import { normalizeBinanceFactsBinding, assertBinanceFactsSourceBinding } from './binance_account_facts.js';
+          try { await assertBinanceFactsSourceBinding(normalizeBinanceFactsBinding(JSON.parse(process.env.BINANCE_ACCOUNT_FACTS_BINDING_JSON))); }
+          catch { console.error('binance_account_facts_binding_invalid'); process.exit(1); }
+          JS
 
       - name: Prepare Wrangler config
         env:
@@ -129,6 +143,15 @@ jobs:
           account_facts_token = os.environ.get("ACCOUNT_FACTS_SYNC_TOKEN", "")
           ibkr_account_facts_token = os.environ.get("IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "")
           schwab_account_facts_token = os.environ.get("SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN", "")
+          binance_account_facts_token = os.environ.get("BINANCE_ACCOUNT_FACTS_SYNC_TOKEN", "")
+          binance_account_facts_binding = os.environ.get("BINANCE_ACCOUNT_FACTS_BINDING_JSON", "")
+          if bool(binance_account_facts_token) != bool(binance_account_facts_binding):
+              raise SystemExit("Binance account-facts token and binding must be configured together.")
+          if binance_account_facts_token and (
+              binance_account_facts_token != binance_account_facts_token.strip()
+              or any(ord(c) < 0x20 or ord(c) == 0x7f for c in binance_account_facts_token)
+          ):
+              raise SystemExit("Binance account-facts token contains invalid whitespace or HTTP controls.")
           account_facts_token_has_http_controls = any(
               ord(character) < 0x20 or ord(character) == 0x7f
               for character in account_facts_token
@@ -162,6 +185,7 @@ jobs:
                   account_facts_token,
                   ibkr_account_facts_token,
                   schwab_account_facts_token,
+                  binance_account_facts_token,
               ) if token
           ]
           if len(set(account_facts_tokens)) != len(account_facts_tokens):
@@ -368,6 +392,14 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional Binance account-facts credentials
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$BINANCE_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
+          printf '%s' "$BINANCE_ACCOUNT_FACTS_BINDING_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_BINDING_JSON --config wrangler.toml
 
       - name: Sync M0 research-ledger ingress token
         env:

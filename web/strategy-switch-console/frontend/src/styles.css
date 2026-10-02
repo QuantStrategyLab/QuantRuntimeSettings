@@ -206,6 +206,9 @@ h3 { margin-bottom: 8px; font-size: 16px; font-weight: 600; }
 .overview-private-scope-list { margin-top: 12px; }
 .overview-private-scope-row { display: grid; grid-template-columns: minmax(90px, 1fr) repeat(2, minmax(100px, 1fr)); gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .overview-private-scope-row > :not(:first-child) { text-align: right; overflow-wrap: anywhere; }
+.overview-wallet-list { overflow-x: auto; }
+.overview-wallet-row { display: grid; grid-template-columns: minmax(80px, 1fr) repeat(3, minmax(90px, 1fr)); gap: 12px; min-width: 420px; padding: 8px 0; border-top: 1px solid var(--line); }
+.overview-wallet-row > :not(:first-child) { text-align: right; overflow-wrap: anywhere; }
 .overview-private-scope-labels { color: var(--muted); font-size: .84rem; }
 .primary-column { min-width: 0; }
 .source-time { display: block; color: var(--subtle); font-size: 11px; font-variant-numeric: tabular-nums; }

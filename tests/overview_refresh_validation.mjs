@@ -22,15 +22,18 @@ const current = {
   research: { value: { draft: "user edit" } },
   runtime: { value: { version: 1 } },
   accountFacts: { value: { version: 1 } },
+  binanceFacts: { value: { report: null } },
 };
 const merged = mergeOverviewReadModels(current, {
   runtime: { value: { version: 2 }, error: null },
   accountFacts: { value: { version: 2 }, error: null },
+  binanceFacts: { value: { report: { assets: [] } }, error: null },
 });
 assert.equal(merged.config, current.config);
 assert.equal(merged.research, current.research);
 assert.deepEqual(merged.runtime.value, { version: 2 });
 assert.deepEqual(merged.accountFacts.value, { version: 2 });
+assert.deepEqual(merged.binanceFacts.value, { report: { assets: [] } });
 assert.equal(mergeOverviewReadModels(null, { runtime: { value: null, error: null }, accountFacts: { value: null, error: null } }), null);
 
 const originalFetch = globalThis.fetch;
@@ -45,6 +48,7 @@ try {
   assert.deepEqual(requestedPaths, [
     ["/api/runtime-target-lifecycle", "GET", "no-store"],
     ["/api/account-facts", "GET", "no-store"],
+    ["/api/binance-account-facts", "GET", "no-store"],
   ]);
   assert.equal(updates.runtime.value.data_status, "ready");
   assert.equal(updates.accountFacts.value.data_status, "fresh");
