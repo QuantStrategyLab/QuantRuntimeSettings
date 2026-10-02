@@ -209,14 +209,16 @@ jobs:
                     && rotation.next_source_binding_id === rotation.previous_source_binding_id)) {
                 stop("rotation_config_invalid");
               }
-              if (platform === "longbridge" && rotation.target_id !== "sg") stop("rotation_config_invalid");
+              if (platform === "longbridge" && !["paper", "sg"].includes(rotation.target_id)) {
+                stop("rotation_config_invalid");
+              }
               const candidates = existing.bindings.filter((item) => item.platform === platform
                 && item.target_id === rotation.target_id);
               if (candidates.length !== 1) stop(platform === "ibkr"
-                ? "expected_existing_ibkr_binding" : "expected_existing_longbridge_sg_binding");
-              if (platform === "longbridge" && (candidates[0].account_scope !== "sg"
+                ? "expected_existing_ibkr_binding" : "expected_existing_longbridge_binding");
+              if (platform === "longbridge" && (candidates[0].account_scope !== rotation.target_id
                   || candidates[0].source_binding.kind !== "deployment_scope_token_version")) {
-                stop("expected_existing_longbridge_sg_binding");
+                stop("expected_existing_longbridge_binding");
               }
               const index = existing.bindings.indexOf(candidates[0]);
               proposedRaw = {
