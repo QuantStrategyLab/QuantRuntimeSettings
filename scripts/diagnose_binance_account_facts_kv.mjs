@@ -10,7 +10,7 @@ const BINANCE_REPOSITORY = "QuantStrategyLab/BinancePlatform";
 const QRS_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const WORKFLOW_PATH = ".github/workflows/binance-account-facts.yml";
 const WORKFLOW_HEAD_SHA = "66d705fd756f5648f603bfd745235b5ef389f668";
-const EXPECTED_RUN_ID = "37027311498";
+const EXPECTED_RUN_ID = "37039707588";
 const JOB_NAME = "read-and-publish";
 const STEP_CONCLUSIONS = [
   ["Read the bound Spot and Flexible Earn account quantities", "success"],
