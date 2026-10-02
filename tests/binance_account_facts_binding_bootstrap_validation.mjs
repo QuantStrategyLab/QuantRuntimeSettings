@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { buildBinanceFactsBinding, runBootstrap } from "../scripts/bootstrap_binance_account_facts.mjs";
 import { assertBinanceFactsSourceBinding, normalizeBinanceFactsBinding } from "../web/strategy-switch-console/binance_account_facts.js";
 
-const reader = "a7bf700c6b85bd20dbc6fb0b2962adc51006c859";
+const reader = "4ca436a8910eecd35335f2d04dc69cfb9be4a327";
 const app = "8cb56617115fa45028e34d788e71884b6a303d77";
 const selector = "synthetic-account-selector";
 const scopeHash = "b".repeat(64);
