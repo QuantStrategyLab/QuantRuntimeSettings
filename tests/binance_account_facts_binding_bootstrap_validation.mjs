@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildBinanceFactsBinding, runBootstrap } from "../scripts/bootstrap_binance_account_facts.mjs";
 import { assertBinanceFactsSourceBinding, normalizeBinanceFactsBinding } from "../web/strategy-switch-console/binance_account_facts.js";
 
@@ -53,6 +54,7 @@ const fixture = {
   GH_TOKEN: "synthetic-github-token",
   STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-namespace",
   CLOUDFLARE_API_TOKEN: "synthetic-cloudflare-token",
+  BINANCE_FACTS_BOOTSTRAP_ROTATE_READER: "false",
   BINANCE_FACTS_BOOTSTRAP_APPLY: "false",
 };
 const accountOptionsText = JSON.stringify({ binance: [accountOption] });
@@ -62,13 +64,19 @@ const secretNames = new Map([
   ["QuantStrategyLab/BinancePlatform", new Set()],
 ]);
 const existingVariables = new Map(Object.entries(variables));
+existingVariables.set("BINANCE_ACCOUNT_FACTS_ENABLED", "false");
+const environmentVariables = new Map();
+const secretUpdatedAt = new Map([
+  ["QuantStrategyLab/QuantRuntimeSettings", new Map()],
+  ["QuantStrategyLab/BinancePlatform", new Map()],
+]);
 const writes = [];
 
 function response(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-function makeFetch({ policy = "runtime-production-only", comparison = "ahead" } = {}) {
+function makeFetch({ policy = "runtime-production-only", comparison = "ahead", untrustedRevision = null } = {}) {
   return async (url, options = {}) => {
     const parsed = new URL(url);
     const pathname = parsed.pathname;
@@ -83,35 +91,53 @@ function makeFetch({ policy = "runtime-production-only", comparison = "ahead" } 
         ? { protected_branches: false, custom_branch_policies: true }
         : { protected_branches: true, custom_branch_policies: false } });
     }
-    if (pathname.endsWith(`/compare/${reader}...main`)) {
+    const comparedRevision = pathname.match(/\/compare\/([a-f0-9]{40})\.\.\.main$/)?.[1];
+    if (comparedRevision) {
+      if (comparedRevision === untrustedRevision) return response({
+        status: "behind", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: "a".repeat(40) },
+        ahead_by: 0, behind_by: 1, total_commits: 1,
+      });
       if (comparison === "identical") return response({
-        status: "identical", base_commit: { sha: reader }, merge_base_commit: { sha: reader },
+        status: "identical", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: comparedRevision },
         ahead_by: 0, behind_by: 0, total_commits: 0,
       });
       if (comparison === "wrong-merge-base") return response({
-        status: "ahead", base_commit: { sha: reader }, merge_base_commit: { sha: "a".repeat(40) },
+        status: "ahead", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: "a".repeat(40) },
         ahead_by: 12, behind_by: 0, total_commits: 12,
       });
       if (comparison === "inconsistent-counts") return response({
-        status: "ahead", base_commit: { sha: reader }, merge_base_commit: { sha: reader },
+        status: "ahead", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: comparedRevision },
         ahead_by: 12, behind_by: 0, total_commits: 11,
       });
       if (comparison === "behind") return response({
-        status: "behind", base_commit: { sha: reader }, merge_base_commit: { sha: "a".repeat(40) },
+        status: "behind", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: "a".repeat(40) },
         ahead_by: 0, behind_by: 1, total_commits: 1,
       });
       return response({
-        status: "ahead", base_commit: { sha: reader }, merge_base_commit: { sha: reader },
+        status: "ahead", base_commit: { sha: comparedRevision }, merge_base_commit: { sha: comparedRevision },
         ahead_by: 12, behind_by: 0, total_commits: 12,
       });
     }
     if (pathname.endsWith("/environments/runtime-strategy-switch/secrets")) {
-      const secrets = [...secretNames.get("QuantStrategyLab/QuantRuntimeSettings")].map(name => ({ name }));
+      const repository = "QuantStrategyLab/QuantRuntimeSettings";
+      const secrets = [...secretNames.get(repository)].map(name => ({
+        name, updated_at: secretUpdatedAt.get(repository).get(name) || "2026-10-01T00:00:00Z",
+      }));
       return response({ secrets, total_count: secrets.length });
     }
     if (pathname.endsWith("/environments/binance-runtime/secrets")) {
-      const secrets = [...secretNames.get("QuantStrategyLab/BinancePlatform")].map(name => ({ name }));
+      const repository = "QuantStrategyLab/BinancePlatform";
+      const secrets = [...secretNames.get(repository)].map(name => ({
+        name, updated_at: secretUpdatedAt.get(repository).get(name) || "2026-10-01T00:00:00Z",
+      }));
       return response({ secrets, total_count: secrets.length });
+    }
+    const binanceEnvironmentVariable = pathname.match(
+      /\/repos\/QuantStrategyLab\/BinancePlatform\/environments\/binance-runtime\/variables\/([^/]+)$/,
+    )?.[1];
+    if (binanceEnvironmentVariable) {
+      if (!environmentVariables.has(binanceEnvironmentVariable)) return response({ message: "Not Found" }, 404);
+      return response({ name: binanceEnvironmentVariable, value: environmentVariables.get(binanceEnvironmentVariable) });
     }
     const variable = pathname.match(/\/repos\/QuantStrategyLab\/BinancePlatform\/actions\/variables\/([^/]+)$/)?.[1];
     if (variable) {
@@ -122,7 +148,7 @@ function makeFetch({ policy = "runtime-production-only", comparison = "ahead" } 
   };
 }
 
-function makeCommand({ failAt = -1 } = {}) {
+function makeCommand({ failAt = -1, modelSecretWrites = false } = {}) {
   return (command, args, options = {}) => {
     writes.push({ command, args, input: options.input, timeout: options.timeout });
     if (writes.length === failAt) {
@@ -131,6 +157,19 @@ function makeCommand({ failAt = -1 } = {}) {
       throw error;
     }
     if (command === "npx") return accountOptionsText;
+    if (modelSecretWrites && command === "gh" && args[0] === "secret" && args[1] === "set") {
+      const name = args[2];
+      const repository = args[args.indexOf("--repo") + 1];
+      secretNames.get(repository).add(name);
+      secretUpdatedAt.get(repository).set(name,
+        new Date(Date.parse("2026-10-02T00:00:00Z") + writes.length * 1000).toISOString());
+    }
+    if (command === "gh" && args[0] === "variable" && args[1] === "set") {
+      const name = args[2];
+      const value = args[args.indexOf("--body") + 1];
+      const repository = args[args.indexOf("--repo") + 1];
+      if (repository === "QuantStrategyLab/BinancePlatform") existingVariables.set(name, value);
+    }
     return "";
   };
 }
@@ -270,5 +309,141 @@ await assert.rejects(runBootstrap({
   randomToken: () => "synthetic-new-one-purpose-sync-token-00000000000000000000",
 }), error => error.code === "account_facts_secret_already_exists");
 assert.equal(writes.length, 0);
+
+const nextReader = "d".repeat(40);
+const rotationFixture = {
+  ...fixture,
+  BINANCE_FACTS_BOOTSTRAP_ROTATE_READER: "true",
+  BINANCE_FACTS_NEXT_READER_REVISION: nextReader,
+  BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(binding),
+};
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
+const bindingSecret = "BINANCE_ACCOUNT_FACTS_BINDING_JSON";
+const syncTokenSecret = "BINANCE_ACCOUNT_FACTS_SYNC_TOKEN";
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretNames.get(repository).add(bindingSecret);
+  secretNames.get(repository).add(syncTokenSecret);
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+  secretUpdatedAt.get(repository).set(syncTokenSecret, "2026-09-30T00:00:00Z");
+}
+
+writes.length = 0;
+const rotationPreview = await runBootstrap({
+  env: rotationFixture,
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+  randomToken: () => { throw new Error("reader rotation must not generate a token"); },
+});
+assert.deepEqual(rotationPreview, { status: "rotation_preview", match_count: 1, writes: 0 });
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+assert.equal(writes.filter(item => item.command === "npx").length, 1);
+assert.ok(githubReads.every(item => item.method === "GET"));
+assert.doesNotMatch(JSON.stringify(rotationPreview), /synthetic-account-selector|synthetic-wallet/);
+
+writes.length = 0;
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true", BINANCE_ACCOUNT_FACTS_BINDING_JSON:
+    JSON.stringify({ ...binding, account_scope: "different-synthetic-scope" }) },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "current_binding_conflict");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+
+writes.length = 0;
+existingVariables.set("BINANCE_ACCOUNT_FACTS_ENABLED", "true");
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "binance_account_facts_repository_gate_not_disabled");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+existingVariables.set("BINANCE_ACCOUNT_FACTS_ENABLED", "false");
+
+environmentVariables.set("BINANCE_ACCOUNT_FACTS_ENABLED", "true");
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "binance_account_facts_environment_gate_enabled");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+environmentVariables.clear();
+
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch({ untrustedRevision: nextReader }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+
+secretNames.get("QuantStrategyLab/BinancePlatform").delete(syncTokenSecret);
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "account_facts_secret_pair_missing");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+secretNames.get("QuantStrategyLab/BinancePlatform").add(syncTokenSecret);
+
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", "c".repeat(40));
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_conflict");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", reader);
+
+writes.length = 0;
+await assert.rejects(runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ failAt: 3, modelSecretWrites: true }),
+}), error => error.code === "protected_command_failed");
+assert.equal(writes.filter(item => item.command === "gh" && item.args[0] === "secret").length, 2);
+assert.equal(writes.filter(item => item.command === "gh" && item.args[0] === "variable").length, 0);
+assert.equal(secretUpdatedAt.get("QuantStrategyLab/QuantRuntimeSettings").get(bindingSecret),
+  "2026-10-02T00:00:02.000Z");
+assert.equal(existingVariables.get("BINANCE_ACCOUNT_FACTS_READER_REVISION"), reader);
+
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+}
+writes.length = 0;
+const rotated = await runBootstrap({
+  env: { ...rotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ modelSecretWrites: true }),
+  randomToken: () => { throw new Error("reader rotation must not generate a token"); },
+});
+assert.deepEqual(rotated, {
+  status: "rotation_applied", binding_secret_write_count: 2, metadata_readback_count: 2,
+  reader_revision_updated: true,
+});
+const rotationWrites = writes.filter(item => item.command === "gh");
+assert.deepEqual(rotationWrites.map(item => item.args[0]), ["secret", "secret", "variable"]);
+assert.deepEqual(rotationWrites.slice(0, 2).map(item => item.args[2]), [bindingSecret, bindingSecret]);
+assert.deepEqual(rotationWrites.slice(0, 2).map(item => item.args[item.args.indexOf("--env") + 1]),
+  ["runtime-strategy-switch", "binance-runtime"]);
+assert.equal(rotationWrites[0].input, rotationWrites[1].input);
+assert.equal(JSON.parse(rotationWrites[0].input).reader_revision, nextReader);
+assert.equal(JSON.parse(rotationWrites[0].input).source_binding.id === binding.source_binding.id, false);
+assert.equal(rotationWrites.at(-1).args[2], "BINANCE_ACCOUNT_FACTS_READER_REVISION");
+assert.equal(rotationWrites.at(-1).args.at(-1), nextReader);
+assert.ok(writes.every(item => item.timeout === 20_000));
+assert.ok(rotationWrites.every(item => !item.args.some(argument => String(argument).includes(selector))));
+assert.doesNotMatch(JSON.stringify(rotated), /synthetic-account-selector|synthetic-wallet|synthetic-scope/);
+assert.equal(existingVariables.get("BINANCE_ACCOUNT_FACTS_READER_REVISION"), nextReader);
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  assert.equal(secretUpdatedAt.get(repository).get(syncTokenSecret), "2026-09-30T00:00:00Z");
+  assert.ok(Date.parse(secretUpdatedAt.get(repository).get(bindingSecret)) > Date.parse("2026-09-30T00:00:00Z"));
+}
+
+const bootstrapWorkflow = readFileSync(new URL("../.github/workflows/bootstrap-binance-account-facts.yml", import.meta.url),
+  "utf8");
+assert.match(bootstrapWorkflow, /rotate_reader:[\s\S]*?default: false/);
+assert.match(bootstrapWorkflow, /BINANCE_FACTS_BOOTSTRAP_ROTATE_READER: \$\{\{ inputs\.rotate_reader \}\}/);
+assert.match(bootstrapWorkflow, /BINANCE_FACTS_NEXT_READER_REVISION: \$\{\{ inputs\.reader_revision \}\}/);
+assert.match(bootstrapWorkflow,
+  /BINANCE_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.rotate_reader && secrets\.BINANCE_ACCOUNT_FACTS_BINDING_JSON \|\| '' \}\}/);
 
 console.log("Binance account-facts bootstrap preview/apply boundaries and synthetic identity checks PASS");

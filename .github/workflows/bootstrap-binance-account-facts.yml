@@ -4,10 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       apply:
-        description: Apply the validated binding and one-purpose token. False runs the read-only preview.
+        description: Apply the selected validated changes. False runs a read-only preview.
         required: true
         type: boolean
         default: false
+      rotate_reader:
+        description: Preview or apply the existing binding's reader-revision rotation. Disabled by default.
+        required: true
+        type: boolean
+        default: false
+      reader_revision:
+        description: Trusted merged Binance reader commit SHA used only when rotate_reader is true.
+        required: false
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -29,6 +39,9 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       BINANCE_FACTS_BOOTSTRAP_APPLY: ${{ inputs.apply }}
+      BINANCE_FACTS_BOOTSTRAP_ROTATE_READER: ${{ inputs.rotate_reader }}
+      BINANCE_FACTS_NEXT_READER_REVISION: ${{ inputs.reader_revision }}
+      BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.rotate_reader && secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON || '' }}
     steps:
       - name: Checkout main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
