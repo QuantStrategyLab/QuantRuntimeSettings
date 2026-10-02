@@ -764,6 +764,9 @@ export default {
       if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
         return await binancePrivateScopeResponse(request, env);
       }
+      if (url.pathname === "/api/internal/binance-account-facts" && request.method === "GET") {
+        return await binanceAccountFactsReadinessResponse(request, env);
+      }
       if (url.pathname === "/api/internal/binance-account-facts" && request.method === "POST") {
         return await syncBinanceAccountFactsResponse(request, env);
       }
@@ -6650,18 +6653,27 @@ async function syncBinancePrivateScopeResponse(request, env) {
   });
 }
 
-async function trustedBinanceFactsBinding(env) {
+async function trustedBinanceFactsBinding(env, readiness = null) {
   const text = String(env.BINANCE_ACCOUNT_FACTS_BINDING_JSON || "");
   if (!text) return null;
   let binding;
   try { binding = normalizeBinanceFactsBinding(JSON.parse(text)); }
   catch { throw new BinanceFactsError("binance_account_facts_binding_invalid", 503); }
   await assertBinanceFactsSourceBinding(binding);
-  const config = await loadAccountOptionsConfig(env);
+  if (readiness) readiness.binding_valid = true;
+  let config;
+  try { config = await loadAccountOptionsConfig(env); }
+  catch (error) {
+    if (!readiness) throw error;
+    throw new BinanceFactsError("binance_account_facts_account_options_unavailable", 503);
+  }
+  if (readiness) readiness.account_options_readable = true;
   const options = config.options?.binance || [];
-  if (options.filter(option => binanceFactsOptionMatches(option, binding)).length !== 1) {
+  const matchCount = options.filter(option => binanceFactsOptionMatches(option, binding)).length;
+  if (matchCount !== 1) {
     throw new BinanceFactsError("binance_account_facts_binding_unmatched", 409);
   }
+  if (readiness) readiness.unique_match = true;
   return binding;
 }
 
@@ -6670,7 +6682,7 @@ function binanceFactsErrorResponse(error) {
     ? error.code : "binance_account_facts_unavailable" }, error instanceof BinanceFactsError ? error.status : 503);
 }
 
-async function syncBinanceAccountFactsResponse(request, env) {
+function binanceFactsSyncAuthorizationResponse(request, env) {
   const token = String(env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN || "");
   const otherTokens = ["ACCOUNT_FACTS_SYNC_TOKEN", "IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN",
     "RECONCILIATION_RECOVERY_SYNC_TOKEN", "RECONCILIATION_RECOVERY_CONTROLLER_TOKEN", "STRATEGY_SWITCH_SYNC_TOKEN"];
@@ -6680,6 +6692,27 @@ async function syncBinanceAccountFactsResponse(request, env) {
   if ((request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] !== token) {
     return json({ ok: false, error: "binance_account_facts_token_invalid" }, 401);
   }
+  return null;
+}
+
+async function binanceAccountFactsReadinessResponse(request, env) {
+  const authError = binanceFactsSyncAuthorizationResponse(request, env);
+  if (authError) return authError;
+  const readiness = { binding_valid: false, account_options_readable: false, unique_match: false };
+  try {
+    const binding = await trustedBinanceFactsBinding(env, readiness);
+    if (!binding) throw new BinanceFactsError("binance_account_facts_binding_missing", 503);
+    return json({ ok: true, ready: true, ...readiness });
+  } catch (error) {
+    return json({ ok: false, ready: false, ...readiness,
+      error: error instanceof BinanceFactsError ? error.code : "binance_account_facts_unavailable" },
+    error instanceof BinanceFactsError ? error.status : 503);
+  }
+}
+
+async function syncBinanceAccountFactsResponse(request, env) {
+  const authError = binanceFactsSyncAuthorizationResponse(request, env);
+  if (authError) return authError;
   try {
     const binding = await trustedBinanceFactsBinding(env);
     if (!binding) throw new BinanceFactsError("binance_account_facts_binding_missing", 503);
