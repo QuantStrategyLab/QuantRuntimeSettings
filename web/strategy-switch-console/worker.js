@@ -1,5 +1,10 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
+import {
+  BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
+  normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
+  normalizeBinanceAccountFacts, projectBinanceAccountFacts,
+} from "./binance_account_facts.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 import {
   DCA_SUPPORTED_PLATFORMS,
@@ -758,6 +763,12 @@ export default {
       }
       if (url.pathname === "/api/binance-private-scope" && request.method === "GET") {
         return await binancePrivateScopeResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/binance-account-facts" && request.method === "POST") {
+        return await syncBinanceAccountFactsResponse(request, env);
+      }
+      if (url.pathname === "/api/binance-account-facts" && request.method === "GET") {
+        return await binanceAccountFactsResponse(request, env);
       }
       if (url.pathname === "/api/internal/runtime-stop-result" && request.method === "POST") {
         return await acceptHkStopResult(request, env);
@@ -6637,6 +6648,75 @@ async function syncBinancePrivateScopeResponse(request, env) {
     source_run_id: report.source_run_id,
     asset_count: report.assets.length,
   });
+}
+
+async function trustedBinanceFactsBinding(env) {
+  const text = String(env.BINANCE_ACCOUNT_FACTS_BINDING_JSON || "");
+  if (!text) return null;
+  let binding;
+  try { binding = normalizeBinanceFactsBinding(JSON.parse(text)); }
+  catch { throw new BinanceFactsError("binance_account_facts_binding_invalid", 503); }
+  await assertBinanceFactsSourceBinding(binding);
+  const config = await loadAccountOptionsConfig(env);
+  const options = config.options?.binance || [];
+  if (options.filter(option => binanceFactsOptionMatches(option, binding)).length !== 1) {
+    throw new BinanceFactsError("binance_account_facts_binding_unmatched", 409);
+  }
+  return binding;
+}
+
+function binanceFactsErrorResponse(error) {
+  return json({ ok: false, error: error instanceof BinanceFactsError
+    ? error.code : "binance_account_facts_unavailable" }, error instanceof BinanceFactsError ? error.status : 503);
+}
+
+async function syncBinanceAccountFactsResponse(request, env) {
+  const token = String(env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN || "");
+  const otherTokens = ["ACCOUNT_FACTS_SYNC_TOKEN", "IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN",
+    "RECONCILIATION_RECOVERY_SYNC_TOKEN", "RECONCILIATION_RECOVERY_CONTROLLER_TOKEN", "STRATEGY_SWITCH_SYNC_TOKEN"];
+  if (!token || otherTokens.some(name => env[name] && env[name] === token)) {
+    return json({ ok: false, error: "binance_account_facts_token_unavailable" }, 503);
+  }
+  if ((request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] !== token) {
+    return json({ ok: false, error: "binance_account_facts_token_invalid" }, 401);
+  }
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding) throw new BinanceFactsError("binance_account_facts_binding_missing", 503);
+    const raw = await readBoundedJson(request, BINANCE_FACTS_MAX_BYTES);
+    const report = normalizeBinanceAccountFacts(raw, binding, { ingest: true });
+    const store = configStore(env);
+    if (!store) throw new BinanceFactsError("binance_account_facts_storage_unavailable", 503);
+    const storageKey = `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`;
+    const previous = await readConfigJson(env, storageKey);
+    if (previous) {
+      const validPrevious = normalizeBinanceAccountFacts(previous, binding);
+      const incomingTime = Date.parse(report.observed_finished_at);
+      const previousTime = Date.parse(validPrevious.observed_finished_at);
+      if (incomingTime < previousTime || (incomingTime === previousTime
+          && canonicalJson(report) !== canonicalJson(validPrevious))) {
+        throw new BinanceFactsError("binance_account_facts_observation_conflict", 409);
+      }
+      if (incomingTime === previousTime) return json({ ok: true, status: "unchanged" });
+    }
+    await store.put(storageKey, JSON.stringify(report), { expirationTtl: 2 * 24 * 60 * 60 });
+    return json({ ok: true, status: "published", observed_finished_at: report.observed_finished_at,
+      asset_count: report.assets.length });
+  } catch (error) {
+    if (error?.status === 413) return json({ ok: false, error: "binance_account_facts_payload_too_large" }, 413);
+    return binanceFactsErrorResponse(error);
+  }
+}
+
+async function binanceAccountFactsResponse(request, env) {
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding) return json({ ok: true, report: null });
+    const raw = await readConfigJson(env, `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
+    return json({ ok: true, report: raw ? projectBinanceAccountFacts(raw, binding) : null });
+  } catch { return json({ ok: true, report: null }); }
 }
 
 async function binancePrivateScopeResponse(request, env) {

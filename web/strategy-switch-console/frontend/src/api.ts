@@ -84,8 +84,9 @@ export type ReadModel = {
   market: Source<Record<string, any>>; adaptive: Source<Record<string, any>>;
   catalog: Source<Record<string, any>>;
   accountFacts: Source<AccountFactsSnapshot>;
+  binanceFacts: Source<Record<string, any>>;
 };
-export type OverviewReadModelUpdates = Pick<ReadModel, "runtime" | "accountFacts">;
+export type OverviewReadModelUpdates = Pick<ReadModel, "runtime" | "accountFacts" | "binanceFacts">;
 export type AdminModel = {
   config: Source<Record<string, any>>; instances: Source<Record<string, any>>;
   risk: Source<Record<string, any>>;
@@ -154,7 +155,7 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
   const privateScopeRequest = session.admin
     ? source(getJson<Record<string, any>>("/api/binance-private-scope"))
     : Promise.resolve<Source<Record<string, any>>>({ value: null, error: null });
-  const [config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts] = await Promise.all([
+  const [config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts, binanceFacts] = await Promise.all([
     source(getJson<ConfigPayload>("/api/config")),
     source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
     source(getJson<ControlPlane>("/api/control-plane")),
@@ -170,16 +171,18 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
     source(getJson<Record<string, any>>("/api/m0-research")),
     source(getJson<Record<string, any>>("/api/adaptive-selection")),
     source(getJson<AccountFactsSnapshot>("/api/account-facts")),
+    source(getJson<Record<string, any>>("/api/binance-account-facts")),
   ]);
-  return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts };
+  return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts, binanceFacts };
 }
 
 export async function loadOverviewReadModels(): Promise<OverviewReadModelUpdates> {
-  const [runtime, accountFacts] = await Promise.all([
+  const [runtime, accountFacts, binanceFacts] = await Promise.all([
     source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
     source(getJson<AccountFactsSnapshot>("/api/account-facts")),
+    source(getJson<Record<string, any>>("/api/binance-account-facts")),
   ]);
-  return { runtime, accountFacts };
+  return { runtime, accountFacts, binanceFacts };
 }
 
 export function mergeOverviewReadModels(

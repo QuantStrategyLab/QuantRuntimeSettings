@@ -946,6 +946,18 @@ test("Binance private scope expires without interaction and cancels timers on re
   assert.equal(reportIsVisible(), null);
   cancelNearExpiry();
 
+  let walletExpired = false;
+  const cancelWallet = scheduleBinancePrivateScopeExpiry(
+    new Date(baseNow - 36 * 60 * 60_000 + 5_000).toISOString(),
+    () => { walletExpired = true; }, baseNow, fakeTimers, 36 * 60 * 60_000,
+  );
+  fakeTimers.advance(5_000);
+  assert.equal(walletExpired, false);
+  fakeTimers.advance(1);
+  assert.equal(walletExpired, true);
+  cancelWallet();
+  assert.match(overviewSource, /scheduleBinancePrivateScopeExpiry\(wallet\?\.observed_finished_at/);
+
   let replacedTimerFired = false;
   const cancelReplacedReport = scheduleBinancePrivateScopeExpiry(
     nearExpiry.report.observed_at, () => { replacedTimerFired = true; }, baseNow, fakeTimers,

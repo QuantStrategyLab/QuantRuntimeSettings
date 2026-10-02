@@ -63,9 +63,10 @@ export function scheduleBinancePrivateScopeExpiry(
   onExpiry: () => void,
   now = Date.now(),
   timers: Pick<Window, "setTimeout" | "clearTimeout"> = window,
+  maxAgeMs = BINANCE_SCOPE_MAX_AGE_MS,
 ): () => void {
   if (!validBinanceScopeInstant(observedAt)) return () => {};
-  const expiresAfter = Date.parse(observedAt) + BINANCE_SCOPE_MAX_AGE_MS + 1;
+  const expiresAfter = Date.parse(observedAt) + maxAgeMs + 1;
   const timer = timers.setTimeout(onExpiry, Math.max(0, expiresAfter - now));
   return () => timers.clearTimeout(timer);
 }
