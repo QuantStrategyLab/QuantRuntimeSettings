@@ -68,7 +68,7 @@ function response(body, status = 200) {
   return { ok: status >= 200 && status < 300, status, json: async () => body };
 }
 
-function makeFetch({ policy = "runtime-production-only", ancestor = true } = {}) {
+function makeFetch({ policy = "runtime-production-only", comparison = "ahead" } = {}) {
   return async (url, options = {}) => {
     const parsed = new URL(url);
     const pathname = parsed.pathname;
@@ -84,10 +84,26 @@ function makeFetch({ policy = "runtime-production-only", ancestor = true } = {})
         : { protected_branches: true, custom_branch_policies: false } });
     }
     if (pathname.endsWith(`/compare/${reader}...main`)) {
-      return response(ancestor ? { status: "ahead", base_commit: { sha: reader },
-        head_commit: { sha: "a".repeat(40) }, ahead_by: 12, behind_by: 0 }
-        : { status: "behind", base_commit: { sha: reader },
-          head_commit: { sha: "a".repeat(40) }, ahead_by: 0, behind_by: 1 });
+      if (comparison === "identical") return response({
+        status: "identical", base_commit: { sha: reader }, merge_base_commit: { sha: reader },
+        ahead_by: 0, behind_by: 0, total_commits: 0,
+      });
+      if (comparison === "wrong-merge-base") return response({
+        status: "ahead", base_commit: { sha: reader }, merge_base_commit: { sha: "a".repeat(40) },
+        ahead_by: 12, behind_by: 0, total_commits: 12,
+      });
+      if (comparison === "inconsistent-counts") return response({
+        status: "ahead", base_commit: { sha: reader }, merge_base_commit: { sha: reader },
+        ahead_by: 12, behind_by: 0, total_commits: 11,
+      });
+      if (comparison === "behind") return response({
+        status: "behind", base_commit: { sha: reader }, merge_base_commit: { sha: "a".repeat(40) },
+        ahead_by: 0, behind_by: 1, total_commits: 1,
+      });
+      return response({
+        status: "ahead", base_commit: { sha: reader }, merge_base_commit: { sha: reader },
+        ahead_by: 12, behind_by: 0, total_commits: 12,
+      });
     }
     if (pathname.endsWith("/environments/runtime-strategy-switch/secrets")) {
       const secrets = [...secretNames.get("QuantStrategyLab/QuantRuntimeSettings")].map(name => ({ name }));
@@ -130,6 +146,14 @@ assert.equal(writes.length, 1);
 assert.equal(writes[0].command, "npx");
 assert.ok(githubReads.every(item => item.method === "GET"));
 assert.doesNotMatch(JSON.stringify(preview), /synthetic-account-selector|synthetic-wallet|synthetic-account-scope/);
+
+const identicalPreview = await runBootstrap({
+  env: fixture,
+  fetchImpl: makeFetch({ comparison: "identical" }),
+  command: makeCommand(),
+  randomToken: () => { throw new Error("preview must not generate a token"); },
+});
+assert.deepEqual(identicalPreview, { status: "preview", match_count: 1, writes: 0 });
 
 writes.length = 0;
 githubReads.length = 0;
@@ -200,11 +224,22 @@ assert.equal(writes.length, 0);
 writes.length = 0;
 await assert.rejects(runBootstrap({
   env: { ...fixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
-  fetchImpl: makeFetch({ ancestor: false }),
+  fetchImpl: makeFetch({ comparison: "behind" }),
   command: makeCommand(),
   randomToken: () => "synthetic-new-one-purpose-sync-token-00000000000000000000",
 }), error => error.code === "reader_revision_not_trusted_main_ancestor");
 assert.equal(writes.length, 0);
+
+for (const comparison of ["wrong-merge-base", "inconsistent-counts"]) {
+  writes.length = 0;
+  await assert.rejects(runBootstrap({
+    env: { ...fixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+    fetchImpl: makeFetch({ comparison }),
+    command: makeCommand(),
+    randomToken: () => "synthetic-new-one-purpose-sync-token-00000000000000000000",
+  }), error => error.code === "reader_revision_not_trusted_main_ancestor");
+  assert.equal(writes.length, 0);
+}
 
 writes.length = 0;
 existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", "c".repeat(40));

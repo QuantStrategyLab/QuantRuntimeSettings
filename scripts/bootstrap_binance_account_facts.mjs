@@ -199,10 +199,17 @@ async function assertReaderRevisionIsTrustedAncestor(context) {
   const compare = await githubJson(
     `/repos/${BINANCE_REPOSITORY}/compare/${BINANCE_ACCOUNT_FACTS_READER_REVISION}...main`, context,
   );
-  if (!compare || !["ahead", "identical"].includes(compare.status)
+  const ahead = compare?.ahead_by;
+  const total = compare?.total_commits;
+  const countsMatch = Number.isSafeInteger(ahead) && ahead >= 0
+    && Number.isSafeInteger(total) && total >= 0 && ahead === total;
+  const relationMatches = compare?.status === "identical"
+    ? ahead === 0 && total === 0
+    : compare?.status === "ahead" && ahead > 0;
+  if (!compare || !relationMatches || !countsMatch
       || compare.base_commit?.sha !== BINANCE_ACCOUNT_FACTS_READER_REVISION
-      || !/^[a-f0-9]{40}$/.test(compare.head_commit?.sha || "")
-      || compare.behind_by !== 0 || !Number.isInteger(compare.ahead_by)) {
+      || compare.merge_base_commit?.sha !== BINANCE_ACCOUNT_FACTS_READER_REVISION
+      || compare.behind_by !== 0) {
     fail("reader_revision_not_trusted_main_ancestor");
   }
 }
