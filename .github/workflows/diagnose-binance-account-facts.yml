@@ -7,7 +7,7 @@ on:
         description: Failed Binance account-facts reader run ID.
         required: true
         type: string
-        default: '37027311498'
+        default: '37039707588'
       expected_reader_revision:
         description: Protected binding reader revision to verify before the KV read.
         required: true

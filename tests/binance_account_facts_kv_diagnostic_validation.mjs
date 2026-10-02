@@ -103,7 +103,7 @@ function mockFetch({
 
 const validFetch = mockFetch();
 const validResult = await diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: validFetch.fetchImpl,
@@ -137,9 +137,18 @@ assert.equal(JSON.stringify(validResult).includes("synthetic-account"), false);
 assert.equal(JSON.stringify(validResult).includes("synthetic account name"), false);
 assert.equal(JSON.stringify(validResult).includes("synthetic namespace title"), false);
 
+const staleRunFetch = mockFetch();
+await assert.rejects(diagnoseBinanceAccountFactsKv({
+  runId: "37027311498",
+  expectedReaderRevision: binding.reader_revision,
+  env: environment,
+  fetchImpl: staleRunFetch.fetchImpl,
+}), error => error.code === "source_run_id_invalid");
+assert.equal(staleRunFetch.calls.length, 0, "the previous failed run is rejected before any remote read");
+
 const configuredAccount = mockFetch();
 assert.deepEqual(await diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: { ...environment, CLOUDFLARE_ACCOUNT_ID: accountId },
   fetchImpl: configuredAccount.fetchImpl,
@@ -159,7 +168,7 @@ for (const namespaceCase of [
 ]) {
   const rejectedNamespace = mockFetch(namespaceCase);
   await assert.rejects(diagnoseBinanceAccountFactsKv({
-    runId: "37027311498",
+    runId: "37039707588",
     expectedReaderRevision: binding.reader_revision,
     env: environment,
     fetchImpl: rejectedNamespace.fetchImpl,
@@ -176,7 +185,7 @@ const wrongAccountNamespace = mockFetch({
   namespaceStatus: 404,
 });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: wrongAccountNamespace.fetchImpl,
@@ -193,7 +202,7 @@ const ambiguousAccounts = mockFetch({
   }),
 });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: ambiguousAccounts.fetchImpl,
@@ -208,7 +217,7 @@ const emptyAccounts = mockFetch({
   }),
 });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: emptyAccounts.fetchImpl,
@@ -222,7 +231,7 @@ const incompleteAccounts = mockFetch({
   }),
 });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: incompleteAccounts.fetchImpl,
@@ -236,7 +245,7 @@ for (const accountCase of [
 ]) {
   const rejectedAccounts = mockFetch(accountCase);
   await assert.rejects(diagnoseBinanceAccountFactsKv({
-    runId: "37027311498",
+    runId: "37039707588",
     expectedReaderRevision: binding.reader_revision,
     env: environment,
     fetchImpl: rejectedAccounts.fetchImpl,
@@ -246,7 +255,7 @@ for (const accountCase of [
 
 const notFoundFetch = mockFetch({ kvStatus: 404 });
 assert.deepEqual(await diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: notFoundFetch.fetchImpl,
@@ -259,7 +268,7 @@ assert.equal(notFoundFetch.calls.filter(call => call.url === kvUrl).length, 1);
 
 const deniedFetch = mockFetch({ kvStatus: 403, kvBody: privateMarker });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: deniedFetch.fetchImpl,
@@ -270,7 +279,7 @@ assert.equal(deniedFetch.calls.filter(call => call.url === kvUrl).length, 1, "no
 
 const expectedRevisionMismatch = mockFetch();
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: "b".repeat(40),
   env: environment,
   fetchImpl: expectedRevisionMismatch.fetchImpl,
@@ -279,7 +288,7 @@ assert.equal(expectedRevisionMismatch.calls.length, 0);
 
 const wrongRun = mockFetch({ runValue: { ...run, head_sha: "f".repeat(40) } });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: wrongRun.fetchImpl,
@@ -290,7 +299,7 @@ const wrongStepJobs = structuredClone(jobs);
 wrongStepJobs.jobs[0].steps[2].conclusion = "success";
 const wrongSteps = mockFetch({ jobsValue: wrongStepJobs });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: wrongSteps.fetchImpl,
@@ -299,7 +308,7 @@ assert.equal(wrongSteps.calls.some(call => call.url === kvUrl), false);
 
 const badPayload = mockFetch({ kvBody: JSON.stringify({ ...report, private_payload: privateMarker }) });
 assert.deepEqual(await diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: badPayload.fetchImpl,
@@ -317,7 +326,7 @@ const oldObservation = {
   observed_finished_at: "2026-10-02T09:59:03Z",
 };
 assert.deepEqual(await diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: mockFetch({ kvBody: JSON.stringify(oldObservation) }).fetchImpl,
@@ -340,7 +349,7 @@ oversizedFetch.fetchImpl = (url, init) => String(url) === kvUrl
   ? Promise.resolve(new Response(oversizedStream, { status: 200 }))
   : originalFetch(url, init);
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: oversizedFetch.fetchImpl,
@@ -355,7 +364,7 @@ const oversizedAccountsStream = new ReadableStream({
 });
 const oversizedAccounts = mockFetch({ accountBody: oversizedAccountsStream });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: oversizedAccounts.fetchImpl,
@@ -371,7 +380,7 @@ const oversizedNamespaceStream = new ReadableStream({
 });
 const oversizedNamespace = mockFetch({ namespaceBody: oversizedNamespaceStream });
 await assert.rejects(diagnoseBinanceAccountFactsKv({
-  runId: "37027311498",
+  runId: "37039707588",
   expectedReaderRevision: binding.reader_revision,
   env: environment,
   fetchImpl: oversizedNamespace.fetchImpl,
@@ -385,6 +394,7 @@ assert.match(workflow, /^on:\s*\n\s+workflow_dispatch:/m);
 assert.doesNotMatch(workflow, /^\s+(?:push|schedule|workflow_run):/m);
 assert.match(workflow, /actions:\s*read\s*\n\s*contents:\s*read/);
 assert.match(workflow, /confirm_read_only:[\s\S]*?default:\s*false/);
+assert.match(workflow, /source_run_id:[\s\S]*?default:\s*'37039707588'/);
 assert.match(workflow, /github\.ref == 'refs\/heads\/main'[\s\S]*inputs\.confirm_read_only == true/);
 assert.match(workflow, /environment:\s*runtime-strategy-switch/);
 assert.match(workflow, /ref:\s*\$\{\{ github\.sha \}\}[\s\S]*persist-credentials:\s*false/);
