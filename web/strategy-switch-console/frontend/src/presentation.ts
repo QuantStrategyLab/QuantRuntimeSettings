@@ -1059,3 +1059,12 @@ export function accountStatusView(projection: unknown, sourceFreshness?: string 
   const view = presentAccountState(projection as any, sourceFreshness);
   return { label: view.label, detail: view.detail };
 }
+
+export function overviewRuntimeStatusLabel(projection: unknown, sourceFreshness?: string | null): "已停用" | "监测正常" | "异常" | "待确认" {
+  const view = presentAccountState(projection as any, sourceFreshness);
+  if (view.label === "—") return "待确认";
+  if (view.label === "异常") return "异常";
+  const activation = projection && typeof projection === "object" ? (projection as { activation?: unknown }).activation : null;
+  if (activation === "disabled") return "已停用";
+  return activation === "enabled" ? "监测正常" : "待确认";
+}

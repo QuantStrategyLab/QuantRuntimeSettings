@@ -85,6 +85,7 @@ export type ReadModel = {
   catalog: Source<Record<string, any>>;
   accountFacts: Source<AccountFactsSnapshot>;
 };
+export type OverviewReadModelUpdates = Pick<ReadModel, "runtime" | "accountFacts">;
 export type AdminModel = {
   config: Source<Record<string, any>>; instances: Source<Record<string, any>>;
   risk: Source<Record<string, any>>;
@@ -171,6 +172,21 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
     source(getJson<AccountFactsSnapshot>("/api/account-facts")),
   ]);
   return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts };
+}
+
+export async function loadOverviewReadModels(): Promise<OverviewReadModelUpdates> {
+  const [runtime, accountFacts] = await Promise.all([
+    source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
+    source(getJson<AccountFactsSnapshot>("/api/account-facts")),
+  ]);
+  return { runtime, accountFacts };
+}
+
+export function mergeOverviewReadModels(
+  current: ReadModel | null,
+  updates: OverviewReadModelUpdates,
+): ReadModel | null {
+  return current ? { ...current, ...updates } : current;
 }
 
 export function runtimeStopQuery(platform: string, targetName: string): string {
