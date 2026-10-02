@@ -57,6 +57,30 @@ const invalid = [
 ];
 for (const value of invalid) assert.throws(() => normalizeBinanceAccountFacts(value, binding, { now, ingest: true }));
 
+const nativeAssetRow = asset => ({ asset, quantity: '1', spot_free: '1', spot_locked: '0', flexible_earn: '0' });
+const validNativeAssets = ['USDT', '币', 'ＡＢＣ', '１２３', '𐐀', 'A'.repeat(128), '𐐀'.repeat(128)];
+for (const asset of validNativeAssets) {
+  const nativeReport = { ...report, assets: [nativeAssetRow(asset)] };
+  assert.equal(normalizeBinanceAccountFacts(nativeReport, binding, { now, ingest: true }), nativeReport);
+  assert.equal(projectBinanceAccountFacts(nativeReport, binding, { now }).assets[0].asset, asset,
+    `native asset spelling must remain unchanged: ${asset}`);
+}
+const invalidNativeAssets = [
+  '', ' BTC', 'BTC ', 'BtC', 'BTC\n', '币\u00a0', '币\u0000', '币\u202e', '币\u2066',
+  '币\u200b', '币\u200d', '币\u0301', 'BTC-USD', 'BTC.ETH', '🚀', '\ud800',
+  '\u115f', '\u1160', '\u3164', '\uffa0',
+  '𐐀'.repeat(129),
+];
+for (const asset of invalidNativeAssets) {
+  assert.throws(() => normalizeBinanceAccountFacts({ ...report, assets: [nativeAssetRow(asset)] }, binding, { now, ingest: true }),
+    `unsafe or invalid native asset spelling must reject: ${asset}`);
+}
+assert.throws(() => normalizeBinanceAccountFacts({ ...report, assets: [nativeAssetRow('币'), nativeAssetRow('币')] }, binding, { now, ingest: true }),
+  'duplicate native strings must reject');
+const distinctNativeSpellings = { ...report, assets: [nativeAssetRow('A'), nativeAssetRow('Ａ')] };
+assert.equal(normalizeBinanceAccountFacts(distinctNativeSpellings, binding, { now, ingest: true }), distinctNativeSpellings,
+  'asset validation must preserve raw strings without compatibility normalization');
+
 const values = new Map(), puts = [];
 const kv = {
   get: async key => values.get(key) || null,
@@ -135,4 +159,23 @@ const freshFixture = { ...fixture, observed_started_at: report.observed_started_
 const fixtureEnv = { ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(fixtureBinding) };
 assert.equal((await post(freshFixture, fixtureEnv)).status, 200);
 assert.deepEqual((await (await get(fixtureEnv)).json()).report.assets, fixture.assets);
-console.log(`Binance account facts: native decimals, ${invalid.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
+
+const projectedNativeAssets = ['币', 'ＡＢＣ', '１２３', '𐐀', '𐐀'.repeat(128)];
+const nativeReport = { ...report,
+  observed_started_at: time(-30_000), spot_observed_at: time(-20_000), earn_observed_at: time(-10_000),
+  observed_finished_at: time(-1_000), assets: projectedNativeAssets.map(nativeAssetRow) };
+assert.equal((await post(nativeReport)).status, 200);
+const nativeReadback = await get();
+assert.equal(nativeReadback.status, 200);
+assert.deepEqual((await nativeReadback.json()).report.assets.map(item => item.asset), projectedNativeAssets,
+  'Worker POST→GET must retain native Unicode asset strings exactly');
+const writesBeforeFillerChecks = puts.length;
+for (const asset of ['\u115f', '\u1160', '\u3164', '\uffa0']) {
+  const response = await post({ ...nativeReport, assets: [nativeAssetRow(asset)] });
+  assert.notEqual(response.status, 200, `Worker POST must reject default-ignorable Hangul filler U+${asset.codePointAt(0).toString(16).toUpperCase()}`);
+}
+assert.equal(puts.length, writesBeforeFillerChecks, 'rejected Hangul fillers must not be persisted');
+const overviewSource = readFileSync(new URL('../web/strategy-switch-console/frontend/src/OverviewPage.tsx', import.meta.url), 'utf8');
+assert.match(overviewSource, /wallet\.assets\.map\([\s\S]*?<strong>\{item\.asset\}<\/strong>/,
+  'overview wallet rows must render the native asset string without filtering');
+console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
