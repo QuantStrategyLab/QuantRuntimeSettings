@@ -4,6 +4,7 @@ import type { BinancePrivateScopeAsset, BinancePrivateScopeDisplay } from "./typ
 const BINANCE_SCOPE_MAX_ASSETS = 5000;
 const BINANCE_SCOPE_MAX_DECIMAL_LENGTH = 128;
 const BINANCE_SCOPE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const BINANCE_WALLET_VALUATION_MAX_AGE_MS = 36 * 60 * 60 * 1000;
 const BINANCE_SCOPE_FUTURE_SKEW_MS = 60 * 1000;
 
 function validBinanceScopeInstant(value: unknown): value is string {
@@ -56,6 +57,35 @@ export function presentBinancePrivateScope(
     assets.push({ asset: value.asset, free: value.free, locked: value.locked });
   }
   return { observed_at: report.observed_at, assets };
+}
+
+export function presentBinanceWalletValuation(report: unknown, now = Date.now()): {
+  amount: string;
+  currency: "USDT";
+  observed_at: string;
+} | null {
+  if (!report || typeof report !== "object" || Array.isArray(report)) return null;
+  const facts = report as Record<string, unknown>;
+  const valuation = facts.wallet_valuation;
+  if (!valuation || typeof valuation !== "object" || Array.isArray(valuation)) return null;
+  const summary = valuation as Record<string, unknown>;
+  if (summary.status !== "available"
+      || summary.currency !== "USDT"
+      || summary.source !== "GET /sapi/v1/asset/wallet/balance"
+      || summary.scope !== "provider_returned_wallet_rows"
+      || typeof summary.amount !== "string"
+      || !/^(?:0|[1-9]\d{0,29})(?:\.\d{0,29}[1-9])?(?![\s\S])/.test(summary.amount)
+      || !Number.isInteger(summary.wallet_count) || (summary.wallet_count as number) < 1
+      || (summary.wallet_count as number) > 32
+      || typeof summary.observed_at !== "string" || !summary.observed_at.endsWith("Z")
+      || !validBinanceScopeInstant(summary.observed_at)
+      || !validBinanceScopeInstant(facts.observed_finished_at)) return null;
+  const observed = Date.parse(summary.observed_at);
+  const reportFinished = Date.parse(facts.observed_finished_at as string);
+  const age = now - observed;
+  if (observed > reportFinished || age > BINANCE_WALLET_VALUATION_MAX_AGE_MS
+      || age < -BINANCE_SCOPE_FUTURE_SKEW_MS) return null;
+  return { amount: summary.amount, currency: "USDT", observed_at: summary.observed_at };
 }
 
 export function scheduleBinancePrivateScopeExpiry(

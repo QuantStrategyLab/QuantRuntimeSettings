@@ -25,6 +25,7 @@ import {
   listDailyDecisions,
   paperApplicationReady,
   presentBinancePrivateScope,
+  presentBinanceWalletValuation,
   scheduleBinancePrivateScopeExpiry,
   safeActionVisibility,
   strategyDisplayName,
@@ -901,6 +902,62 @@ test("Binance private scope rejects stale, malformed, duplicated, zero, or unsaf
   assert.equal(overviewSource.includes(".innerHTML"), false);
 });
 
+test("Binance wallet total presentation accepts only fresh returned-scope USDT valuation and falls back otherwise", () => {
+  const now = Date.parse("2026-10-01T12:00:00.000Z");
+  const valid = {
+    observed_finished_at: new Date(now - 30_000).toISOString(),
+    wallet_valuation: {
+      status: "available", amount: "1234.5", currency: "USDT",
+      source: "GET /sapi/v1/asset/wallet/balance", scope: "provider_returned_wallet_rows",
+      observed_at: new Date(now - 35_000).toISOString(), wallet_count: 2,
+    },
+    assets: [{ asset: "USDT", quantity: "14.5" }],
+  };
+  assert.deepEqual(presentBinanceWalletValuation(valid, now), {
+    amount: "1234.5", currency: "USDT", observed_at: valid.wallet_valuation.observed_at,
+  });
+  const agedWallet = {
+    ...valid,
+    wallet_valuation: {
+      ...valid.wallet_valuation,
+      observed_at: new Date(now - 25 * 60 * 60_000).toISOString(),
+    },
+  };
+  assert.ok(presentBinanceWalletValuation(agedWallet, now), "wallet summary remains fresh through 36 hours");
+  const exactly36h = { ...valid, wallet_valuation: { ...valid.wallet_valuation,
+    observed_at: new Date(now - 36 * 60 * 60_000).toISOString() } };
+  assert.ok(presentBinanceWalletValuation(exactly36h, now), "wallet summary is fresh at the 36-hour boundary");
+  const past36h = { ...valid, wallet_valuation: { ...valid.wallet_valuation,
+    observed_at: new Date(now - 36 * 60 * 60_000 - 1).toISOString() } };
+  assert.equal(presentBinanceWalletValuation(past36h, now), null);
+  const rejected = [
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, status: "unavailable" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, currency: "USD" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, source: "other" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, scope: "all_accounts" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, amount: "1e3" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, amount: "1234.50" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, amount: "1.0" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, amount: "0.0" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, amount: "NaN" } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, amount: "Infinity" } },
+    ...["1\n", "1\r", "1\u2028", "1\u2029"].map(amount => ({
+      ...valid, wallet_valuation: { ...valid.wallet_valuation, amount },
+    })),
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, wallet_count: 0 } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, observed_at: new Date(now + 61_000).toISOString() } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, observed_at: new Date(now - 29_000).toISOString() } },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, observed_at: new Date(now - 37 * 60 * 60_000).toISOString() } },
+    { ...valid, wallet_valuation: undefined },
+    { ...valid, wallet_valuation: { ...valid.wallet_valuation, observed_at: "2026-10-01T12:00:00+00:00" } },
+  ];
+  for (const report of rejected) assert.equal(presentBinanceWalletValuation(report, now), null);
+  assert.match(overviewSource, /presentBinanceWalletValuation\(wallet, walletNow\)/);
+  assert.match(overviewSource, /walletValuation \? <div className="overview-wallet-valuation"/);
+  assert.match(overviewSource, /wallet\.assets\.map/);
+  assert.match(overviewSource, /t\("按 Binance 返回的钱包范围"\)/);
+});
+
 test("Binance private scope expires without interaction and cancels timers on replacement or logout", () => {
   const baseNow = Date.parse("2026-10-01T12:00:00.000Z");
   const reportFor = (observedAt) => ({
@@ -957,6 +1014,32 @@ test("Binance private scope expires without interaction and cancels timers on re
   assert.equal(walletExpired, true);
   cancelWallet();
   assert.match(overviewSource, /scheduleBinancePrivateScopeExpiry\(wallet\?\.observed_finished_at/);
+  assert.match(overviewSource, /scheduleBinancePrivateScopeExpiry\(walletValuation\?\.observed_at/);
+  assert.match(overviewSource, /cancelReportExpiry\(\);\s*cancelValuationExpiry\(\);/);
+  assert.match(overviewSource, /\[wallet\?\.observed_finished_at, walletValuation\?\.observed_at\]/);
+
+  const scheduleWalletTimers = (reportAt, valuationAt, callback) => {
+    const cancelReport = scheduleBinancePrivateScopeExpiry(reportAt, callback, baseNow, fakeTimers, 36 * 60 * 60_000);
+    const cancelValuation = scheduleBinancePrivateScopeExpiry(valuationAt, callback, baseNow, fakeTimers, 36 * 60 * 60_000);
+    return () => { cancelReport(); cancelValuation(); };
+  };
+  let walletExpiryRefreshes = 0;
+  const cancelReplacedWallet = scheduleWalletTimers(
+    new Date(baseNow - 35 * 60 * 60_000).toISOString(),
+    new Date(baseNow - 36 * 60 * 60_000 + 5_000).toISOString(),
+    () => { walletExpiryRefreshes++; },
+  );
+  assert.equal(timers.size, 2);
+  cancelReplacedWallet();
+  assert.equal(timers.size, 0, "replacing wallet facts clears both expiry timers");
+  const cancelLoggedOutWallet = scheduleWalletTimers(
+    new Date(baseNow - 35 * 60 * 60_000).toISOString(),
+    new Date(baseNow - 36 * 60 * 60_000 + 5_000).toISOString(),
+    () => { walletExpiryRefreshes++; },
+  );
+  cancelLoggedOutWallet();
+  fakeTimers.advance(36 * 60 * 60_000);
+  assert.equal(walletExpiryRefreshes, 0, "logout clears both expiry timers without interaction");
 
   let replacedTimerFired = false;
   const cancelReplacedReport = scheduleBinancePrivateScopeExpiry(

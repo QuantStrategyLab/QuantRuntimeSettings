@@ -10,6 +10,13 @@ const IDENTITY = ["target_name", "service_name", "deployment_selector", "account
 const HASH = /^[a-f0-9]{64}$/;
 const SHA = /^[a-f0-9]{40}$/;
 const DECIMAL = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,30})?$/;
+const CANONICAL_DECIMAL = /^(?:0|[1-9]\d{0,29})(?:\.\d{0,29}[1-9])?(?![\s\S])/;
+const WALLET_VALUATION_SOURCE = "GET /sapi/v1/asset/wallet/balance";
+const WALLET_VALUATION_SCOPE = "provider_returned_wallet_rows";
+const WALLET_VALUATION_FAILURES = new Set([
+  "wallet_read_failed", "wallet_response_invalid", "wallet_row_invalid",
+  "wallet_duplicate_name", "wallet_inactive_nonzero", "wallet_balance_invalid",
+]);
 const ASSET_CODE_POINT = /^[\p{L}\p{N}]$/u;
 const ASCII_LOWERCASE = /[a-z]/;
 const DEFAULT_IGNORABLE_LETTERS = new Set(["\u115f", "\u1160", "\u3164", "\uffa0"]);
@@ -88,7 +95,8 @@ export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), i
   exact(raw, ["schema_version", "platform", "target_id", "account_scope_sha256", "source_binding",
     "source_revision", "approved_application_revision", "observed_started_at", "observed_finished_at",
     "spot_observed_at", "earn_observed_at", "snapshot_atomic", "scope", "completeness", "assets",
-    "uncovered_scopes", "no_order", "execution_authority_granted"]);
+    "uncovered_scopes", "no_order", "execution_authority_granted"].concat(
+      Object.hasOwn(raw || {}, "wallet_valuation") ? ["wallet_valuation"] : []));
   if (raw.schema_version !== BINANCE_FACTS_SCHEMA || raw.platform !== "binance"
       || raw.scope !== "spot+flexible_earn" || raw.completeness !== "complete_for_scope"
       || raw.snapshot_atomic !== false || raw.no_order !== true || raw.execution_authority_granted !== false) {
@@ -109,6 +117,31 @@ export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), i
   }
   if (!Array.isArray(raw.uncovered_scopes) || raw.uncovered_scopes.length !== UNCOVERED.length
       || UNCOVERED.some((name, index) => raw.uncovered_scopes[index] !== name)) fail("invalid_binance_account_facts");
+  if (Object.hasOwn(raw, "wallet_valuation")) {
+    const valuation = raw.wallet_valuation;
+    if (!valuation || typeof valuation !== "object" || Array.isArray(valuation)
+        || valuation.source !== WALLET_VALUATION_SOURCE || valuation.scope !== WALLET_VALUATION_SCOPE) {
+      fail("invalid_binance_account_facts_wallet_valuation");
+    }
+    if (valuation.status === "available") {
+      exact(valuation, ["status", "amount", "currency", "source", "scope", "observed_at", "wallet_count"]);
+      const valuationAt = instant(valuation.observed_at);
+      if (typeof valuation.amount !== "string" || !CANONICAL_DECIMAL.test(valuation.amount)
+          || valuation.currency !== "USDT"
+          || !Number.isInteger(valuation.wallet_count) || valuation.wallet_count < 1 || valuation.wallet_count > 32
+          || valuationAt < earn || valuationAt > finish) {
+        fail("invalid_binance_account_facts_wallet_valuation");
+      }
+    } else if (valuation.status === "unavailable") {
+      exact(valuation, ["status", "amount", "currency", "source", "scope", "observed_at", "wallet_count", "reason_code"]);
+      if (valuation.amount !== null || valuation.currency !== null || valuation.observed_at !== null
+          || valuation.wallet_count !== null || !WALLET_VALUATION_FAILURES.has(valuation.reason_code)) {
+        fail("invalid_binance_account_facts_wallet_valuation");
+      }
+    } else {
+      fail("invalid_binance_account_facts_wallet_valuation");
+    }
+  }
   if (!Array.isArray(raw.assets) || raw.assets.length > 5000) fail("invalid_binance_account_facts_assets");
   const seen = new Set();
   for (const asset of raw.assets) {
@@ -132,5 +165,8 @@ export function projectBinanceAccountFacts(raw, binding, { now = Date.now() } = 
     platform: "binance", account_key: binding.account_key, scope: report.scope,
     observed_finished_at: report.observed_finished_at, snapshot_atomic: false,
     assets: report.assets.map(row => ({ ...row })), uncovered_scopes: [...UNCOVERED],
+    ...(Object.hasOwn(report, "wallet_valuation")
+      ? { wallet_valuation: { ...report.wallet_valuation } }
+      : {}),
   };
 }
