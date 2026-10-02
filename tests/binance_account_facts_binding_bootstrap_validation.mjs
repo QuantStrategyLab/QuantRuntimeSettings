@@ -438,6 +438,71 @@ for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrateg
   assert.ok(Date.parse(secretUpdatedAt.get(repository).get(bindingSecret)) > Date.parse("2026-09-30T00:00:00Z"));
 }
 
+const adoptedReader = "2e709fa75ffa2095d3e29873fe2460b003fc6838";
+const subsequentReader = "e".repeat(40);
+const adoptedBinding = buildBinanceFactsBinding({
+  variables,
+  accountOptions: { binance: [accountOption] },
+  readerRevision: adoptedReader,
+});
+const adoptedRotationFixture = {
+  ...rotationFixture,
+  BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(adoptedBinding),
+  BINANCE_FACTS_NEXT_READER_REVISION: subsequentReader,
+};
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", adoptedReader);
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+  secretUpdatedAt.get(repository).set(syncTokenSecret, "2026-09-30T00:00:00Z");
+}
+writes.length = 0;
+const adoptedPreview = await runBootstrap({
+  env: adoptedRotationFixture,
+  fetchImpl: makeFetch(),
+  command: makeCommand(),
+});
+assert.deepEqual(adoptedPreview, { status: "rotation_preview", match_count: 1, writes: 0 });
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+assert.ok(githubReads.some(item => item.pathname.includes(`/compare/${adoptedReader}...main`)));
+
+writes.length = 0;
+await assert.rejects(runBootstrap({
+  env: { ...adoptedRotationFixture, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({
+    ...adoptedBinding, reader_revision: "f".repeat(40),
+  }) },
+  fetchImpl: makeFetch({ untrustedRevision: "f".repeat(40) }),
+  command: makeCommand(),
+}), error => error.code === "reader_revision_not_trusted_main_ancestor");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+
+writes.length = 0;
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", "c".repeat(40));
+await assert.rejects(runBootstrap({
+  env: { ...adoptedRotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ modelSecretWrites: true }),
+}), error => error.code === "reader_revision_conflict");
+assert.equal(writes.filter(item => item.command === "gh").length, 0);
+existingVariables.set("BINANCE_ACCOUNT_FACTS_READER_REVISION", adoptedReader);
+
+for (const repository of ["QuantStrategyLab/QuantRuntimeSettings", "QuantStrategyLab/BinancePlatform"]) {
+  secretUpdatedAt.get(repository).set(bindingSecret, "2026-09-30T00:00:00Z");
+}
+writes.length = 0;
+const adoptedRotation = await runBootstrap({
+  env: { ...adoptedRotationFixture, BINANCE_FACTS_BOOTSTRAP_APPLY: "true" },
+  fetchImpl: makeFetch(),
+  command: makeCommand({ modelSecretWrites: true }),
+  randomToken: () => { throw new Error("reader rotation must not generate a token"); },
+});
+assert.deepEqual(adoptedRotation, {
+  status: "rotation_applied", binding_secret_write_count: 2, metadata_readback_count: 2,
+  reader_revision_updated: true,
+});
+assert.equal(JSON.parse(writes.filter(item => item.command === "gh" && item.args[0] === "secret")[0].input)
+  .reader_revision, subsequentReader);
+assert.equal(existingVariables.get("BINANCE_ACCOUNT_FACTS_READER_REVISION"), subsequentReader);
+
 const bootstrapWorkflow = readFileSync(new URL("../.github/workflows/bootstrap-binance-account-facts.yml", import.meta.url),
   "utf8");
 assert.match(bootstrapWorkflow, /rotate_reader:[\s\S]*?default: false/);

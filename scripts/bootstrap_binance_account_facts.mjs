@@ -309,16 +309,21 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   }
   if (env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "true"
       && env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "false") fail("apply_mode_invalid");
+  const oldBindingJson = requiredString(
+    env.BINANCE_ACCOUNT_FACTS_BINDING_JSON, "current_binding_missing",
+  );
+  const oldBinding = parseJson(oldBindingJson, "current_binding_invalid");
+  const oldReaderRevision = oldBinding.reader_revision;
+  if (typeof oldReaderRevision !== "string" || !/^[a-f0-9]{40}$/.test(oldReaderRevision)) {
+    fail("reader_revision_invalid");
+  }
   const nextReaderRevision = requiredString(
     env.BINANCE_FACTS_NEXT_READER_REVISION, "reader_revision_missing",
   );
   if (!/^[a-f0-9]{40}$/.test(nextReaderRevision)
-      || nextReaderRevision === BINANCE_ACCOUNT_FACTS_READER_REVISION) {
+      || nextReaderRevision === oldReaderRevision) {
     fail("reader_revision_invalid");
   }
-  const oldBindingJson = requiredString(
-    env.BINANCE_ACCOUNT_FACTS_BINDING_JSON, "current_binding_missing",
-  );
   const ghToken = requiredString(env.GH_TOKEN, "github_token_unavailable");
   const namespaceId = requiredString(env.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID, "kv_namespace_missing");
   if (!env.CLOUDFLARE_API_TOKEN && !env.CLOUDFLARE_WRANGLER_CONFIG_TOML) {
@@ -327,7 +332,7 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   const context = { token: ghToken, fetchImpl };
 
   await assertRuntimeProductionOnlyEnvironment(context);
-  await assertReaderRevisionIsTrustedAncestor(context, BINANCE_ACCOUNT_FACTS_READER_REVISION);
+  await assertReaderRevisionIsTrustedAncestor(context, oldReaderRevision);
   await assertReaderRevisionIsTrustedAncestor(context, nextReaderRevision);
   await assertBinanceFactsReaderDisabled(context);
 
@@ -341,10 +346,9 @@ async function runReaderRotation({ env, fetchImpl, command }) {
     "BINANCE_ACCOUNT_FACTS_READER_REVISION",
     context,
   );
-  if (currentReaderRevision !== BINANCE_ACCOUNT_FACTS_READER_REVISION) {
+  if (currentReaderRevision !== oldReaderRevision) {
     fail("reader_revision_conflict");
   }
-  const oldBinding = parseJson(oldBindingJson, "current_binding_invalid");
   const accountOptions = parseJson(command("npx", ["--yes", "wrangler@4.106.0", "kv", "key", "get", "account_options",
     "--namespace-id", namespaceId, "--remote"], {
     cwd: "web/strategy-switch-console", env, timeout: COMMAND_TIMEOUT_MS,
@@ -352,7 +356,7 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   const oldExpected = buildBinanceFactsBinding({
     variables,
     accountOptions,
-    readerRevision: BINANCE_ACCOUNT_FACTS_READER_REVISION,
+    readerRevision: oldReaderRevision,
   });
   if (!isDeepStrictEqual(oldBinding, oldExpected)) fail("current_binding_conflict");
   const nextBinding = buildBinanceFactsBinding({
