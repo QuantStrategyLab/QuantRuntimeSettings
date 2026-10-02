@@ -86,6 +86,7 @@ jobs:
           node tests/console_v2_worker_validation.mjs
           node tests/console_catalog_release_validation.mjs
           node --experimental-default-type=module tests/binance_account_facts_validation.mjs
+          node tests/binance_receiver_deploy_acceptance_validation.mjs
 
       - name: Build config & assets from platform-config.json
         run: |
@@ -400,6 +401,10 @@ jobs:
           set -euo pipefail
           printf '%s' "$BINANCE_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
           printf '%s' "$BINANCE_ACCOUNT_FACTS_BINDING_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_BINDING_JSON --config wrangler.toml
+
+      - name: Verify optional Binance account-facts receiver credentials
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        run: node scripts/verify_binance_account_facts_receiver.mjs
 
       - name: Sync M0 research-ledger ingress token
         env:

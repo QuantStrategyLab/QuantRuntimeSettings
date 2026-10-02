@@ -77,13 +77,17 @@ const get = (settings = env, authenticated = true) => worker.fetch(new Request('
   headers: authenticated ? { Cookie: `qsl_switch_session=${cookie}` } : {},
 }), settings);
 assert.equal((await get(env, false)).status, 401);
-assert.equal((await post(report, env, 'another-purpose-token')).status, 401);
+assert.equal((await post({}, env, 'another-purpose-token')).status, 401);
 assert.equal((await post(report, { ...env, ACCOUNT_FACTS_SYNC_TOKEN: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN })).status, 503);
 assert.equal((await post(report, { ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).status, 503);
 assert.equal((await post(report, { ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ ...binding,
   source_binding: { ...binding.source_binding, id: 'e'.repeat(64) } }) })).status, 503);
-assert.equal((await post(report, { ...env, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [{ ...option,
+assert.equal((await post({}, { ...env, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [{ ...option,
   account_scope: 'different-scope' }] }) })).status, 409);
+const receiverAcceptance = await post({});
+assert.equal(receiverAcceptance.status, 400);
+assert.equal((await receiverAcceptance.json()).error, 'invalid_binance_account_facts');
+assert.equal(puts.length, 0, 'empty receiver acceptance request rejects before any facts write');
 const accepted = await post(report);
 assert.equal(accepted.status, 200, JSON.stringify(await accepted.clone().json()));
 assert.equal((await accepted.json()).status, 'published');
