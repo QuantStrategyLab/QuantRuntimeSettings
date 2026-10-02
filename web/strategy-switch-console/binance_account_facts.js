@@ -10,6 +10,9 @@ const IDENTITY = ["target_name", "service_name", "deployment_selector", "account
 const HASH = /^[a-f0-9]{64}$/;
 const SHA = /^[a-f0-9]{40}$/;
 const DECIMAL = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,30})?$/;
+const ASSET_CODE_POINT = /^[\p{L}\p{N}]$/u;
+const ASCII_LOWERCASE = /[a-z]/;
+const DEFAULT_IGNORABLE_LETTERS = new Set(["\u115f", "\u1160", "\u3164", "\uffa0"]);
 
 export class BinanceFactsError extends Error {
   constructor(code, status = 400) { super(code); this.code = code; this.status = status; }
@@ -34,6 +37,14 @@ function units(text) {
   if (typeof text !== "string" || !DECIMAL.test(text)) fail("invalid_binance_account_facts_quantity");
   const [whole, fraction = ""] = text.split(".");
   return BigInt(whole + fraction.padEnd(30, "0"));
+}
+
+function validNativeAsset(value) {
+  if (typeof value !== "string") return false;
+  const codePoints = Array.from(value);
+  return codePoints.length >= 1 && codePoints.length <= 128
+    && codePoints.every(codePoint => ASSET_CODE_POINT.test(codePoint)
+      && !ASCII_LOWERCASE.test(codePoint) && !DEFAULT_IGNORABLE_LETTERS.has(codePoint));
 }
 
 export function normalizeBinanceFactsBinding(raw) {
@@ -102,7 +113,7 @@ export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), i
   const seen = new Set();
   for (const asset of raw.assets) {
     exact(asset, ["asset", "quantity", "spot_free", "spot_locked", "flexible_earn"]);
-    if (typeof asset.asset !== "string" || !/^[A-Z0-9]{1,128}$/.test(asset.asset) || seen.has(asset.asset)) {
+    if (!validNativeAsset(asset.asset) || seen.has(asset.asset)) {
       fail("invalid_binance_account_facts_assets");
     }
     seen.add(asset.asset);
