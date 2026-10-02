@@ -71,11 +71,12 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = 
   { id: "assets", label: "总资产" },
 ];
 
-export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope }: {
+export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, readModelRefreshVersion = 0 }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
   isAdmin?: boolean;
   privateScope?: { value: Record<string, any> | null; error: string | null } | null;
+  readModelRefreshVersion?: number;
   onOpenAccount: (id: string) => void;
 }) {
   const t = useT();
@@ -104,7 +105,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope }:
     if (duplicates.length < 2 || !account.environment) return account.title;
     return `${account.title} · ${account.environment}`;
   };
-  const healthText = (label: string) => label === "正常" || label === "异常" ? label : "待确认";
+  const healthText = (label: string) => label === "已停用" || label === "监测正常" || label === "异常" ? label : "待确认";
   const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
   const privateScopeObservedAt = privateScope?.value?.report?.observed_at;
@@ -162,7 +163,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope }:
         setHistoryError(error instanceof Error ? error.message : "request_failed");
         setHistoryLoading(false);
       });
-  }, [selectedAccount?.id, selectedAccount?.platformKey, selectedAccount?.accountKey, currency, chart]);
+  }, [selectedAccount?.id, selectedAccount?.platformKey, selectedAccount?.accountKey, selectedFacts?.observed_finished_at, currency, chart]);
   useEffect(() => {
     const epoch = ++runtimeEpoch.current;
     const selection = selectedAccount
@@ -189,7 +190,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope }:
         setRuntimeError(error instanceof Error ? error.message : "request_failed");
         setRuntimeLoading(false);
       });
-  }, [selectedAccount?.id, selectedAccount?.platformKey, selectedAccount?.accountKey, runtimeDate]);
+  }, [selectedAccount?.id, selectedAccount?.platformKey, selectedAccount?.accountKey, runtimeDate, runtimeDate === runtimeToday ? readModelRefreshVersion : 0]);
   // All-account totals stay unavailable under partial broker identity. Only a
   // single selected account may show its own per-currency facts.
   const totalAssets = accountId === "all"

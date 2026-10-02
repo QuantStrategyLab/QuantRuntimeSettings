@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { AccountOption, AdminModel, ConfigPayload, ReadModel, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
-import { createRequestGate } from "./requestGate.js";
+import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadOverviewReadModels, loadReadModel, mergeOverviewReadModels, postJson, runtimeStopQuery } from "./api";
+import { createRequestGate, startVisibleRefreshLoop } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 import { accountFactsForRow } from "./types";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
@@ -136,6 +136,7 @@ function App() {
     const t = (key: string, values: Record<string, string | number> = {}) => translate(key, language, values);
     const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
     const [model, setModel] = useState<ReadModel | null>(null);
+    const [overviewReadModelRefreshVersion, setOverviewReadModelRefreshVersion] = useState(0);
     const [adminModel, setAdminModel] = useState<AdminModel | null>(null);
     const [bootState, setBootState] = useState<"loading" | "ready" | "denied" | "error">("loading");
     const [, setRefreshing] = useState(false);
@@ -162,6 +163,8 @@ function App() {
     const [promotionAccountId, setPromotionAccountId] = useState("");
     const [promotionRisk] = useState("CAPITAL_PRESERVATION");
     const gate = useRef(createRequestGate());
+    const fullReadModelRefreshInFlight = useRef(false);
+    const overviewReadModelEpoch = useRef(0);
     const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
     const switchLocks = useRef(createUnknownSubmitLock());
     const onceLocks = useRef(createRequestLock());
@@ -227,7 +230,9 @@ function App() {
             resolveConfirmation(false);
     }, [confirmDialog, model, adminModel, selectedId, switchDrafts, uxDraft, uxDirty, diagnosis, promotionTicketId, promotionAccountId, promotionRisk]);
     const refresh = useCallback(async () => {
+        overviewReadModelEpoch.current += 1;
         const token = gate.current.begin();
+        fullReadModelRefreshInFlight.current = true;
         setRefreshing(true);
         setErrorMessage(null);
         try {
@@ -270,10 +275,31 @@ function App() {
             }
         }
         finally {
-            if (gate.current.isCurrent(token))
+            if (gate.current.isCurrent(token)) {
+                fullReadModelRefreshInFlight.current = false;
                 setRefreshing(false);
+            }
         }
     }, [model, selectedId, uxDirty]);
+    const refreshOverviewReadModels = useCallback(async () => {
+        if (fullReadModelRefreshInFlight.current)
+            return;
+        const epoch = overviewReadModelEpoch.current;
+        const updates = await loadOverviewReadModels();
+        if (epoch !== overviewReadModelEpoch.current || document.visibilityState !== "visible")
+            return;
+        setModel(current => mergeOverviewReadModels(current, updates));
+        setOverviewReadModelRefreshVersion(value => value + 1);
+    }, []);
+    useEffect(() => {
+        if (model?.session.allowed !== true)
+            return;
+        const stop = startVisibleRefreshLoop(refreshOverviewReadModels, { intervalMs: 300_000 });
+        return () => {
+            overviewReadModelEpoch.current += 1;
+            stop();
+        };
+    }, [model?.session.allowed, refreshOverviewReadModels]);
     useEffect(() => { void refresh(); }, []);
     useEffect(() => { const invalid = () => clearPrivateState(false); window.addEventListener("qsl-private-session-invalid", invalid); return () => window.removeEventListener("qsl-private-session-invalid", invalid); }, []);
     useEffect(() => {
@@ -733,7 +759,7 @@ function App() {
             brokerEnvironment: typeof row.account.broker_environment === "string" ? row.account.broker_environment : null,
             environmentSource: accountEnvironmentSourceDetail(row.account.broker_environment),
             strategy: strategyFields(row).strategy,
-            statusLabel: status.label === "—" ? "待确认" : status.label,
+            statusLabel: overviewRuntimeStatusLabel(row.runtime?.account_state, row.runtime?.freshness?.data_status),
             statusDetail: row.runtimeDetail || status.detail,
             activation: activationFromProjection(row.runtime?.account_state) === "—" ? "待确认" : activationFromProjection(row.runtime?.account_state),
             preference: typeof preference === "string" ? preference : null,
@@ -786,7 +812,7 @@ function App() {
     const hkStop = Boolean(selectedRow && selectedRow.platform === "longbridge" && (selectedRow.account.target_name || selectedRow.account.key) === "hk");
     const stopAllowed = Boolean(selectedRow && model?.session.allowed && !switchLocks.current.blocked(selectedRow.id) && !busy[`stop:${selectedRow.id}`] && (!hkStop || hkStopSubmitAllowed(stopRecords[selectedRow.id])));
     const stopLabel = !selectedRow ? "停用" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "停用";
-    const renderOverview = () => <OverviewPage accounts={overviewAccounts} accountFacts={model?.accountFacts.value || null} isAdmin={model?.session.admin === true} privateScope={model?.privateScope || null} onOpenAccount={id => void requestPage("accounts", id)} />;
+    const renderOverview = () => <OverviewPage accounts={overviewAccounts} accountFacts={model?.accountFacts.value || null} isAdmin={model?.session.admin === true} privateScope={model?.privateScope || null} readModelRefreshVersion={overviewReadModelRefreshVersion} onOpenAccount={id => void requestPage("accounts", id)} />;
     const renderStrategy = () => {
         const applications = model?.promotions.value?.applications || [];
         const queue = applications.filter((item: any) => {

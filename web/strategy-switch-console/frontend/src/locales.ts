@@ -250,6 +250,7 @@ export const EN_COPY = {
   "运行资料尚待核对": "Operational information needs review",
   "全部": "All",
   "正常": "Normal",
+  "监测正常": "Monitoring normal",
   "暂停": "Paused",
   "异常/未知": "Attention / unknown",
   "搜索账户或策略": "Search accounts or strategies",
