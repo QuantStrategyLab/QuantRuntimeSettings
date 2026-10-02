@@ -21,6 +21,8 @@ const STEP_CONCLUSIONS = [
 const GITHUB_API = "https://api.github.com";
 const CLOUDFLARE_API = "https://api.cloudflare.com/client/v4";
 const API_TIMEOUT_MS = 15_000;
+const ACCOUNT_LIST_PAGE_SIZE = 5;
+const ACCOUNT_LIST_MAX_BYTES = 64 * 1024;
 const SOURCE_REVISION = /^[a-f0-9]{40}$/;
 const RUN_ID = /^[1-9][0-9]{0,19}$/;
 
@@ -134,9 +136,18 @@ async function readKvValue({ key, accountId, namespaceId, token, fetchImpl }) {
     await response.body?.cancel().catch(() => {});
     fail("kv_read_failed");
   }
-  if (!response.body) fail("kv_value_invalid");
+  const bytes = await readResponseBytes(response.body, BINANCE_FACTS_MAX_BYTES, signal,
+    "kv_value_too_large", "kv_read_failed", "kv_read_timeout");
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    fail("kv_value_invalid");
+  }
+}
 
-  const reader = response.body.getReader();
+async function readResponseBytes(body, maxBytes, signal, tooLargeCode, readFailedCode, timeoutCode) {
+  if (!body) fail(readFailedCode);
+  const reader = body.getReader();
   const chunks = [];
   let bytes = 0;
   let tooLarge = false;
@@ -145,7 +156,7 @@ async function readKvValue({ key, accountId, namespaceId, token, fetchImpl }) {
       const { done, value } = await reader.read();
       if (done) break;
       bytes += value.byteLength;
-      if (bytes > BINANCE_FACTS_MAX_BYTES) {
+      if (bytes > maxBytes) {
         tooLarge = true;
         await reader.cancel().catch(() => {});
         break;
@@ -153,15 +164,82 @@ async function readKvValue({ key, accountId, namespaceId, token, fetchImpl }) {
       chunks.push(Buffer.from(value));
     }
   } catch {
-    fail(signal.aborted ? "kv_read_timeout" : "kv_read_failed");
+    fail(signal.aborted ? timeoutCode : readFailedCode);
   } finally {
     reader.releaseLock();
   }
-  if (tooLarge) fail("kv_value_too_large");
+  if (tooLarge) fail(tooLargeCode);
+  return Buffer.concat(chunks, bytes);
+}
+
+async function readUniqueCloudflareAccount({ token, fetchImpl }) {
+  const signal = AbortSignal.timeout(API_TIMEOUT_MS);
+  let response;
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(Buffer.concat(chunks, bytes));
+    response = await fetchImpl(`${CLOUDFLARE_API}/accounts?per_page=${ACCOUNT_LIST_PAGE_SIZE}`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      redirect: "error",
+      signal,
+    });
   } catch {
-    fail("kv_value_invalid");
+    fail(signal.aborted ? "account_discovery_timeout" : "account_target_unqualified");
+  }
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
+    fail("account_target_unqualified");
+  }
+  let payload;
+  try {
+    const bytes = await readResponseBytes(response.body, ACCOUNT_LIST_MAX_BYTES, signal,
+      "account_discovery_too_large", "account_target_unqualified", "account_discovery_timeout");
+    payload = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    fail("account_target_unqualified");
+  }
+
+  const info = payload?.result_info;
+  const accounts = payload?.result;
+  const oneCompletePage = info?.count === 1 && info.page === 1
+    && info.per_page === ACCOUNT_LIST_PAGE_SIZE && info.total_count === 1
+    && (info.total_pages === undefined || info.total_pages === 1);
+  if (payload?.success !== true || !oneCompletePage || !Array.isArray(accounts)
+      || accounts.length !== 1 || !/^[a-f0-9]{32}$/i.test(accounts[0]?.id || "")) {
+    fail("account_target_unqualified");
+  }
+  return accounts[0].id;
+}
+
+async function verifyCloudflareNamespace({ accountId, namespaceId, token, fetchImpl }) {
+  const signal = AbortSignal.timeout(API_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetchImpl(
+      `${CLOUDFLARE_API}/accounts/${accountId}/storage/kv/namespaces/${namespaceId}`,
+      {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+        redirect: "error",
+        signal,
+      },
+    );
+  } catch {
+    fail("namespace_target_unqualified");
+  }
+  if (response.status !== 200) {
+    await response.body?.cancel().catch(() => {});
+    fail("namespace_target_unqualified");
+  }
+  let value;
+  try {
+    const bytes = await readResponseBytes(response.body, ACCOUNT_LIST_MAX_BYTES, signal,
+      "namespace_target_unqualified", "namespace_target_unqualified", "namespace_target_unqualified");
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    fail("namespace_target_unqualified");
+  }
+  if (value?.success !== true || value.result?.id !== namespaceId) {
+    fail("namespace_target_unqualified");
   }
 }
 
@@ -204,7 +282,7 @@ export async function diagnoseBinanceAccountFactsKv({
   if (!SOURCE_REVISION.test(expectedReaderRevision || "")) fail("source_revision_invalid");
   if (!env.GH_TOKEN) fail("github_read_token_missing");
   if (!env.CLOUDFLARE_API_TOKEN) fail("cloudflare_api_token_missing");
-  if (!/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID || "")
+  if ((env.CLOUDFLARE_ACCOUNT_ID && !/^[a-f0-9]{32}$/i.test(env.CLOUDFLARE_ACCOUNT_ID))
       || !/^[a-f0-9]{32}$/i.test(env.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || "")) {
     fail("cloudflare_target_invalid");
   }
@@ -227,10 +305,20 @@ export async function diagnoseBinanceAccountFactsKv({
     { token: env.GH_TOKEN, fetchImpl },
   );
   const window = validateRun(run, jobs, expectedReaderRevision);
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID || await readUniqueCloudflareAccount({
+    token: env.CLOUDFLARE_API_TOKEN,
+    fetchImpl,
+  });
+  await verifyCloudflareNamespace({
+    accountId,
+    namespaceId: env.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID,
+    token: env.CLOUDFLARE_API_TOKEN,
+    fetchImpl,
+  });
   const key = `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`;
   const storedValue = await readKvValue({
     key,
-    accountId: env.CLOUDFLARE_ACCOUNT_ID,
+    accountId,
     namespaceId: env.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID,
     token: env.CLOUDFLARE_API_TOKEN,
     fetchImpl,
