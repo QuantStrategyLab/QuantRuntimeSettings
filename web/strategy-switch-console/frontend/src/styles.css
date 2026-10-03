@@ -93,12 +93,15 @@ a { color: inherit; }
 .daily-page.overview-layout .overview-head { grid-area: head; }
 .overview-updated { display: block; margin-top: 8px; color: var(--muted); }
 .daily-page.overview-layout .overview-metrics { grid-area: metrics; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.daily-page.overview-layout .overview-metrics-wallet { grid-template-columns: minmax(0, 1fr); }
 .daily-page.overview-layout .overview-chart { grid-area: chart; }
 .daily-page.overview-layout .overview-stats { grid-area: stats; }
 .daily-page.overview-layout .overview-runtime { grid-area: runtime; }
 .overview-accounts { grid-area: accounts; min-width: 0; padding-left: 20px; border-left: 1px solid var(--line); }
 .overview-account-list { display: grid; min-width: 0; }
+.overview-account-entry { min-width: 0; padding: 12px 0; border-bottom: 1px solid var(--line); }
 .overview-account { display: grid; gap: 4px; width: 100%; min-width: 0; padding: 12px 0; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.overview-account-entry > .overview-account { padding: 0; border-bottom: 0; }
 .overview-account strong, .overview-account small { display: block; min-width: 0; overflow-wrap: anywhere; }
 .overview-account small { color: var(--muted); }
 .overview-figures, .overview-marks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
@@ -109,6 +112,18 @@ a { color: inherit; }
 .wallet-card-valuation strong { white-space: nowrap; overflow-wrap: normal; font-size: clamp(.7rem, 1vw, .85rem); font-variant-numeric: tabular-nums; }
 .wallet-card-valuation small, .negative-cash-note { color: var(--muted); font-size: 11px; }
 .wallet-amount-display { white-space: nowrap; font-size: clamp(.85rem, 3.5vw, 1.5rem); font-variant-numeric: tabular-nums; }
+.overview-wallet-details { min-width: 0; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.overview-wallet-details > summary { width: fit-content; min-height: 32px; padding: 5px 0; cursor: pointer; }
+.overview-wallet-details > summary:focus-visible, .overview-wallet-quantity > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.overview-wallet-details dl { display: grid; gap: 6px; margin: 4px 0 0; }
+.overview-wallet-details dl > div { display: grid; grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); gap: 8px; }
+.overview-wallet-details dt { color: var(--muted); }
+.overview-wallet-details dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.overview-wallet-details code { display: block; font: inherit; overflow-wrap: anywhere; }
+.overview-wallet-quantity { display: grid; justify-items: end; min-width: 0; }
+.overview-wallet-quantity > summary { min-height: 30px; padding: 4px 0 4px 12px; cursor: pointer; font-variant-numeric: tabular-nums; }
+.overview-wallet-quantity > span { max-width: 100%; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+.overview-wallet-quantity em { margin-right: 4px; font-style: normal; }
 .chart-empty { border: 0; box-shadow: none; }
 .daily-table { width: 100%; border-collapse: collapse; }
 .daily-table th, .daily-table td { padding: 14px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }

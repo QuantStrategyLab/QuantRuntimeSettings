@@ -14,6 +14,7 @@ import {
   formatBinanceWalletAmount,
   formatLocalChangeTime,
   formatOverviewInstant,
+  formatOverviewShortInstant,
   overviewAccountTypeLabel,
   overviewCardStatusDetail,
   parseMoneyForChart,
@@ -259,6 +260,11 @@ assert.equal(overviewCardStatusDetail("账户类型为账户设置标记，未�
 assert.equal(overviewCardStatusDetail("账户运行异常"), "账户运行异常");
 assert.equal(formatOverviewInstant("2026-09-29T01:00:00.123Z", "zh", "America/New_York"), formatLocalChangeTime(Date.parse("2026-09-29T01:00:00.123Z"), "zh", "America/New_York"));
 assert.doesNotMatch(formatOverviewInstant("2026-09-29T01:00:00.123Z", "zh", "America/New_York") || "", /\.\d{3}Z/);
+const shortObserved = formatOverviewShortInstant("2026-09-29T01:00:00Z", "en", "America/New_York");
+assert.match(shortObserved || "", /09\/28/);
+assert.match(shortObserved || "", /21:00/);
+assert.doesNotMatch(shortObserved || "", /2026|America\/New_York/,
+  "compact time uses the existing timezone without leaving the long IANA name on the card");
 
 const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
 const apiSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/api.ts"), "utf8");
@@ -274,6 +280,8 @@ assert.match(overview, /loadBinanceWalletHistory\(chartAccount\.accountKey\)/);
 assert.match(overview, /buildBinanceWalletHistoryChartGeometry/);
 assert.match(overview, /钱包总资产变化（USDT）/);
 assert.match(overview, /按 Binance 返回的钱包范围/);
+assert.match(overview, /walletChartSelected\s*\? <details className="overview-wallet-details"><summary>\{t\("数据范围"\)\}/,
+  "wallet chart scope is accessible in a disclosure instead of repeating permanent copy");
 assert.match(overview, /binanceFacts\?\.value\?\.report\?\.observed_finished_at/);
 const walletHistoryLoadStart = overview.indexOf("setHistory(null);\n    setWalletHistory(null);\n    setHistoryError(null);\n    setHistoryLoading(true);");
 const walletHistoryRequest = overview.indexOf("loadBinanceWalletHistory(chartAccount.accountKey)");
@@ -283,10 +291,23 @@ assert.match(apiSource, /\/api\/binance-account-facts\/history\?account_key=/);
 assert.doesNotMatch(overview, /walletHistory\.points[\s\S]{0,160}net_assets/,
   "Binance wallet amounts stay separate from the account NAV field");
 assert.match(overview, /formatBinanceWalletAmount\(walletCardValuation\.amount\)/);
+assert.match(overview, /selectedWalletValuation\s*\?\s*formatBinanceWalletAmount\(selectedWalletValuation\.amount\)/,
+  "a qualified selected Binance wallet valuation supplies the main asset metric");
+assert.match(overview, /showSelectedCashMetric = !selectedWalletValuation \|\| totalCash !== null/,
+  "the Binance cash metric stays visible only when an actual cash value exists");
+assert.match(overview, /showWallet && !walletValuation[\s\S]{0,140}id="binance-account-facts-board"/,
+  "the native-quantity panel remains only when the wallet valuation is unavailable");
+const walletCardSource = overview.slice(overview.indexOf("visible.map(account => {"));
+assert.match(walletCardSource, /<\/button>\s*\{walletCardValuation \? <BinanceWalletDetails/,
+  "keyboard-operable details stay outside the account navigation button");
+assert.match(walletCardSource, /amount=\{walletCardValuation\.amount\}[\s\S]{0,220}observedAt=\{walletCardValuation\.observed_at\}/,
+  "full source amount and observation timestamp remain available in details");
+assert.match(overview, /function BinanceQuantity[\s\S]{0,260}<summary title=\{amount\}[\s\S]{0,120}\{display\}[\s\S]{0,100}<span><em>\{originalLabel\}<\/em>\{amount\}/,
+  "native quantity details expose both the compact value and the original precision");
 assert.match(overview, /overview-figures-wallet/);
 assert.match(overview, /!walletCardValuation \? <span>[\s\S]{0,180}negativeCash/,
   "negative-cash note only appears on a real cash field and never infers financing from wallet valuation");
-assert.match(overview, /title=\{item\.spot_free\} aria-label=\{item\.spot_free\}/);
+assert.match(overview, /<BinanceQuantity amount=\{item\.spot_free\} originalLabel=\{t\("原始值"\)\}/);
 assert.match(overview, /selectedFacts\.binding_status === "bound" && selectedFacts\.identity_mismatch !== true/,
   "top-level financing note requires a fresh, uniquely bound identity");
 assert.match(overview, /const verifiedFreshCashRows = account\.facts\?\.data_status === "fresh"[\s\S]{0,150}identity_mismatch !== true/);
