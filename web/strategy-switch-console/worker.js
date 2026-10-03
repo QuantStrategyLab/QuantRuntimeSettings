@@ -607,6 +607,7 @@ const SECURITY_HEADERS = {
     "base-uri 'none'",
     "object-src 'none'",
     "frame-ancestors 'none'",
+    "frame-src https://fred.stlouisfed.org/graph/graph-landing.php",
     "form-action 'self'",
     "img-src 'self' data:",
     "connect-src 'self'",
