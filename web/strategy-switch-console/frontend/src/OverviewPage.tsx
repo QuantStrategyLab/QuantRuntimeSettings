@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { loadAccountFactsHistory, loadRuntimeDaily } from "./api";
+import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily } from "./api";
 import { useT, useLocale } from "./locales";
 import {
   CHART_RANGE_OPTIONS,
   DEFAULT_CHART_RANGE,
   RETURN_INDEX_LEGEND,
   buildAssetChartGeometry,
+  buildBinanceWalletHistoryChartGeometry,
+  formatBinanceNativeQuantity,
+  formatBinanceWalletAmount,
   chartRangeEmptyNote,
   chartUnavailable,
   defaultOverviewChartAccountId,
@@ -31,9 +34,11 @@ import {
   accountFactsDetail,
   accountFactsUpdatedAt,
   formatAccountFactAmounts,
+  hasNonzeroNegativeAccountFactAmount,
   type AccountFactsAccount,
   type AccountFactsHistorySnapshot,
   type AccountFactsSnapshot,
+  type BinanceWalletHistorySnapshot,
 } from "./types";
 
 export type OverviewAccount = {
@@ -68,6 +73,12 @@ function cashFieldForPlatform(platform: string): "cash_balance" | "available_cas
 
 function cashLabelForPlatform(platform: string): "现金余额" | "可用现金" {
   return platform === "ibkr" || platform === "schwab" ? "现金余额" : "可用现金";
+}
+
+function negativeCashStatusForPlatform(platform: string): "现金余额为负，融资状态待确认" | "可用现金为负，融资状态待确认" {
+  return platform === "ibkr" || platform === "schwab"
+    ? "现金余额为负，融资状态待确认"
+    : "可用现金为负，融资状态待确认";
 }
 
 const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = [
@@ -113,6 +124,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
   const [currency, setCurrency] = useState<string>("");
   const [history, setHistory] = useState<AccountFactsHistorySnapshot | null>(null);
+  const [walletHistory, setWalletHistory] = useState<BinanceWalletHistorySnapshot | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const runtimeToday = runtimeBusinessDate();
@@ -164,29 +176,53 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   );
   const selectedFacts = selectedAccount?.facts || null;
   const chartFacts = chartAccount?.facts || null;
-  const currencyOptions = Array.from(new Set([
+  const walletChartSelected = chartAccount?.platformKey === "binance";
+  const currencyOptions = walletChartSelected ? ["USDT"] : Array.from(new Set([
     ...(chartFacts?.balances || []).map((row) => row.currency).filter(Boolean),
     ...(history?.series.points || []).map((row) => row.currency).filter(Boolean),
   ]));
   useEffect(() => {
+    if (walletChartSelected) {
+      if (currency !== "USDT") setCurrency("USDT");
+      return;
+    }
     if (!chartFacts) {
       setCurrency("");
       return;
     }
     const next = currencyOptions.includes(currency) ? currency : (currencyOptions[0] || "");
     if (next !== currency) setCurrency(next);
-  }, [chartAccount?.id, chartFacts?.data_status, currencyOptions.join("|")]);
+  }, [chartAccount?.id, walletChartSelected, chartFacts?.data_status, currencyOptions.join("|")]);
   useEffect(() => {
     const epoch = ++historyEpoch.current;
-    if (!chartAccount || chart !== "assets" || !currency) {
+    if (!chartAccount || chart !== "assets" || !currency || (walletChartSelected && currency !== "USDT")) {
       setHistory(null);
+      setWalletHistory(null);
       setHistoryError(null);
       setHistoryLoading(false);
       return;
     }
     setHistory(null);
+    setWalletHistory(null);
     setHistoryError(null);
     setHistoryLoading(true);
+    if (walletChartSelected) {
+      setHistory(null);
+      void loadBinanceWalletHistory(chartAccount.accountKey)
+        .then((payload) => {
+          if (historyEpoch.current !== epoch) return;
+          setWalletHistory(payload);
+          setHistoryLoading(false);
+        })
+        .catch((error) => {
+          if (historyEpoch.current !== epoch) return;
+          setWalletHistory(null);
+          setHistoryError(error instanceof Error ? error.message : "request_failed");
+          setHistoryLoading(false);
+        });
+      return;
+    }
+    setWalletHistory(null);
     void loadAccountFactsHistory(chartAccount.platformKey, chartAccount.accountKey, currency)
       .then((payload) => {
         if (historyEpoch.current !== epoch) return;
@@ -199,7 +235,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         setHistoryError(error instanceof Error ? error.message : "request_failed");
         setHistoryLoading(false);
       });
-  }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at, currency, chart]);
+  }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at,
+    binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart]);
   useEffect(() => {
     const epoch = ++runtimeEpoch.current;
     const selection = selectedAccount
@@ -238,6 +275,11 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       selectedFacts?.data_status === "fresh" ? selectedFacts.cash : null,
       selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash",
     );
+  const selectedCashField = selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash";
+  const selectedCashRows = selectedFacts?.data_status === "fresh"
+    && selectedFacts.binding_status === "bound" && selectedFacts.identity_mismatch !== true
+    ? selectedFacts.cash : null;
+  const selectedNegativeCash = hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
   const assetsDetail = accountId === "all"
     ? "请选择账户"
     : accountFactsDetail(selectedFacts);
@@ -247,8 +289,13 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const selectedUpdatedAt = accountId === "all" ? null : accountFactsUpdatedAt(selectedFacts);
   const assetsMetricLabel = accountId === "all" ? "全部账户总额" : "总资产";
   const selectedCashLabel = selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
-  const filteredPoints = filterAssetHistoryByRange(history?.series.points || [], range);
-  const geometry = buildAssetChartGeometry(filteredPoints);
+  const filteredWalletPoints = walletChartSelected
+    ? filterAssetHistoryByRange(walletHistory?.points || [], range) : [];
+  const filteredAccountPoints = walletChartSelected
+    ? [] : filterAssetHistoryByRange(history?.series.points || [], range);
+  const geometry = walletChartSelected
+    ? buildBinanceWalletHistoryChartGeometry(filteredWalletPoints)
+    : buildAssetChartGeometry(filteredAccountPoints);
   const hasChart = chart === "assets" && Boolean(chartAccount) && geometry.dots.length > 0;
   const runtimeView = presentRuntimeDaily(
     runtimeError ? null : runtimeDaily,
@@ -288,7 +335,9 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     </div>
     <section className="metric-row overview-metrics" aria-label={t("账户总览")}>
       <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>{detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
-      <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>{detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
+      <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>
+        {selectedNegativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(selectedAccount!.platformKey))}</small> : null}
+        {detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div>
     </section>
     {showWallet ? <section id="binance-account-facts-board" className="overview-private-scope" aria-label={t(walletValuation ? "钱包总资产" : "现货与活期理财")}>
       <div className="overview-private-scope-head">
@@ -296,14 +345,19 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         <small>{t(walletValuation ? "读取时间" : "上次更新")} {formatInstant(walletValuation?.observed_at || wallet.observed_finished_at)}</small>
       </div>
       {walletValuation ? <div className="overview-wallet-valuation">
-        <strong>{walletValuation.amount}</strong><span>{walletValuation.currency}</span>
+        <strong className="wallet-amount-display" title={walletValuation.amount} aria-label={`${walletValuation.amount} ${walletValuation.currency}`}>
+          {formatBinanceWalletAmount(walletValuation.amount)}
+        </strong><span>{walletValuation.currency}</span>
         <small>{t("按 Binance 返回的钱包范围")}</small>
       </div> : <>
         <small>{t("资产按原生数量显示；其他钱包未覆盖")}</small>
         <div className="overview-wallet-list">
           <div className="overview-wallet-row overview-private-scope-labels"><span>{t("资产")}</span><span>{t("可用数量")}</span><span>{t("冻结数量")}</span><span>{t("活期理财数量")}</span></div>
           {wallet.assets.map((item: { asset: string; spot_free: string; spot_locked: string; flexible_earn: string }) => <div className="overview-wallet-row" key={item.asset}>
-            <strong>{item.asset}</strong><span>{item.spot_free}</span><span>{item.spot_locked}</span><span>{item.flexible_earn}</span>
+            <strong>{item.asset}</strong>
+            <span title={item.spot_free} aria-label={item.spot_free}>{formatBinanceNativeQuantity(item.spot_free)}</span>
+            <span title={item.spot_locked} aria-label={item.spot_locked}>{formatBinanceNativeQuantity(item.spot_locked)}</span>
+            <span title={item.flexible_earn} aria-label={item.flexible_earn}>{formatBinanceNativeQuantity(item.flexible_earn)}</span>
           </div>)}
           {!wallet.assets.length ? <small>{t("暂无非零资产")}</small> : null}
         </div>
@@ -317,11 +371,14 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       <div className="overview-private-scope-list">
         <div className="overview-private-scope-row overview-private-scope-labels"><span>{t("资产")}</span><span>{t("可用数量")}</span><span>{t("冻结数量")}</span></div>
         {binancePrivateScope.assets.map((item) => <div className="overview-private-scope-row" key={item.asset}>
-          <strong>{item.asset}</strong><span>{item.free}</span><span>{item.locked}</span>
+          <strong>{item.asset}</strong>
+          <span title={item.free} aria-label={item.free}>{formatBinanceNativeQuantity(item.free)}</span>
+          <span title={item.locked} aria-label={item.locked}>{formatBinanceNativeQuantity(item.locked)}</span>
         </div>)}
       </div>
     </section> : null}
     <section className="chart-panel overview-chart">
+      {walletChartSelected && chart === "assets" ? <h2>{t("钱包总资产变化（USDT）")}</h2> : null}
       <div className="chart-toolbar">
         <div className="chart-switch" role="tablist" aria-label={t("图表")}>
           {CHART_MODES.map(mode => <button key={mode.id} type="button" role="tab" aria-selected={chart === mode.id} className={chart === mode.id ? "active" : ""} onClick={() => setChart(mode.id)}>{t(mode.label)}</button>)}
@@ -345,10 +402,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
           </select>
         </label> : null}
-        {chartAccount ? <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
+        {chartAccount ? <small>{t(walletChartSelected ? "按 Binance 返回的钱包范围" : "仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
       </div> : null}
       {hasChart ? <div className="asset-chart">
-        <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t("资产变化")}>
+        <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t(walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>
           {geometry.segments.map((path, index) => <path key={index} d={path} className="asset-chart-line" fill="none" />)}
           {geometry.dots.map((dot) => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={geometry.dots.length === 1 ? 4 : 2.5} className="asset-chart-dot">
             <title>{`${dot.date} · ${currency} ${dot.amount}`}</title>
@@ -400,12 +457,18 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             walletNow,
           );
           const assets = walletCardValuation
-            ? `${walletCardValuation.currency} ${walletCardValuation.amount}`
+            ? formatBinanceWalletAmount(walletCardValuation.amount)
             : formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
+          const freshCashRows = account.facts?.data_status === "fresh" ? account.facts.cash : null;
+          const cashField = cashFieldForPlatform(account.platformKey);
           const cash = formatAccountFactAmounts(
-            account.facts?.data_status === "fresh" ? account.facts.cash : null,
-            cashFieldForPlatform(account.platformKey),
+            freshCashRows,
+            cashField,
           );
+          const verifiedFreshCashRows = account.facts?.data_status === "fresh"
+            && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true
+            ? freshCashRows : null;
+          const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
@@ -427,7 +490,21 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             <strong>{account.title}</strong>
             <small>{accountTypeLabel}</small>
             <small>{account.strategy}</small>
-            <span className="overview-figures"><span><em>{t(walletCardValuation ? "钱包总资产" : "账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}</span></span>
+            <span className={`overview-figures${walletCardValuation ? " overview-figures-wallet" : ""}`}>
+              {walletCardValuation
+                ? <span className="wallet-card-valuation">
+                  <em>{t("钱包总资产")}</em>
+                  <strong title={walletCardValuation.amount} aria-label={`${walletCardValuation.amount} ${walletCardValuation.currency}`}>
+                    {amountOrDash(assets)}
+                  </strong>
+                  <small>{walletCardValuation.currency}</small>
+                </span>
+                : <span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span>}
+              {!walletCardValuation ? <span>
+                <em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}
+                {negativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(account.platformKey))}</small> : null}
+              </span> : null}
+            </span>
             <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             {statusNote ? <small>{t(statusNote)}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}

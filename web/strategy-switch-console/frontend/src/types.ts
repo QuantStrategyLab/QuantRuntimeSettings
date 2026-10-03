@@ -124,6 +124,24 @@ export type AccountFactsHistorySnapshot = {
   return: AccountFactsReturn;
 };
 
+export type BinanceWalletHistoryPoint = {
+  observation_date: string;
+  observed_at: string;
+  amount: string;
+};
+
+export type BinanceWalletHistorySnapshot = {
+  ok: true;
+  metric: "wallet_valuation";
+  currency: "USDT";
+  scope: "provider_returned_wallet_rows";
+  points: BinanceWalletHistoryPoint[];
+  gap_dates: string[];
+  first_sample_date: string | null;
+  retention_days: number;
+  return: AccountFactsReturn;
+};
+
 export function formatAccountFactAmounts(
   rows: Array<{ currency?: string; [field: string]: unknown }> | null | undefined,
   field: string,
@@ -142,6 +160,16 @@ export function formatAccountFactAmounts(
     })
     .filter((item): item is string => Boolean(item));
   return parts.length ? parts.join(" · ") : "0";
+}
+
+export function hasNonzeroNegativeAccountFactAmount(
+  rows: Array<{ [field: string]: unknown }> | null | undefined,
+  field: string,
+): boolean {
+  return Array.isArray(rows) && rows.some((row) => {
+    const amount = row?.[field];
+    return typeof amount === "string" && /^-\d+(?:\.\d+)?$/.test(amount) && /[1-9]/.test(amount);
+  });
 }
 
 export function accountFactsForRow(

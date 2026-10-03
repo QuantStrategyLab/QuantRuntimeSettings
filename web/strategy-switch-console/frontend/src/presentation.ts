@@ -1,5 +1,5 @@
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
-import type { BinancePrivateScopeAsset, BinancePrivateScopeDisplay } from "./types";
+import type { BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 
 const BINANCE_SCOPE_MAX_ASSETS = 5000;
 const BINANCE_SCOPE_MAX_DECIMAL_LENGTH = 128;
@@ -96,6 +96,45 @@ export function presentBinanceWalletValuationForAccount(
 ): { amount: string; currency: "USDT"; observed_at: string } | null {
   if (!walletAccountId || accountId !== walletAccountId) return null;
   return presentBinanceWalletValuation(report, now);
+}
+
+function roundedDecimalString(value: string, places: number): { display: string; nonzero: boolean } | null {
+  const match = /^(-?)(0|[1-9]\d*)(?:\.(\d+))?$/.exec(value);
+  if (!match) return null;
+  const [, sign, integer, fraction = ""] = match;
+  const nonzero = /[1-9]/.test(integer + fraction);
+  const kept = fraction.padEnd(places, "0").slice(0, places);
+  const shouldRoundUp = fraction.length > places && fraction[places] >= "5";
+  const digits = `${integer}${kept}`.split("").map(Number);
+  if (shouldRoundUp) {
+    for (let index = digits.length - 1; index >= 0; index -= 1) {
+      digits[index] += 1;
+      if (digits[index] < 10) break;
+      digits[index] = 0;
+      if (index === 0) digits.unshift(1);
+    }
+  }
+  const padded = digits.join("").padStart(places + 1, "0");
+  const whole = padded.slice(0, -places);
+  const decimal = places ? `.${padded.slice(-places)}` : "";
+  const roundedToZero = !/[1-9]/.test(whole + decimal);
+  return { display: `${sign === "-" && nonzero ? "-" : ""}${whole}${decimal}`, nonzero: nonzero && !roundedToZero };
+}
+
+export function formatBinanceWalletAmount(value: string): string {
+  const rounded = roundedDecimalString(value, 2);
+  if (!rounded) return value;
+  if (rounded.nonzero) return rounded.display;
+  if (/^-?0(?:\.0*)?$/.test(value)) return rounded.display;
+  return value.startsWith("-") ? ">-0.01" : "<0.01";
+}
+
+export function formatBinanceNativeQuantity(value: string): string {
+  const rounded = roundedDecimalString(value, 8);
+  if (!rounded) return value;
+  if (rounded.nonzero) return rounded.display.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  if (/^-?0(?:\.0*)?$/.test(value)) return rounded.display.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
+  return value.startsWith("-") ? ">-0.00000001" : "<0.00000001";
 }
 
 export function scheduleBinancePrivateScopeExpiry(
@@ -254,7 +293,7 @@ export function parseMoneyForChart(value: string | null | undefined): number | n
   return n;
 }
 
-export function filterAssetHistoryByRange(points: AssetHistoryPoint[], range: ChartRange, now = Date.now()): AssetHistoryPoint[] {
+export function filterAssetHistoryByRange<T extends { observation_date: string }>(points: T[], range: ChartRange, now = Date.now()): T[] {
   if (!Array.isArray(points) || !points.length) return [];
   const sorted = [...points].filter((item) => item && DATE_RE.test(item.observation_date)).sort((a, b) => a.observation_date.localeCompare(b.observation_date));
   if (range === "all") return sorted;
@@ -274,15 +313,13 @@ export type AssetChartGeometry = {
   maxLabel: string | null;
 };
 
-export function buildAssetChartGeometry(points: AssetHistoryPoint[], width = 640, height = 220): AssetChartGeometry {
-  const usable = points
-    .map((point) => {
-      const value = parseMoneyForChart(point.net_assets);
-      const day = utcDayMs(point.observation_date);
-      if (value === null || day === null) return null;
-      return { ...point, value, day };
-    })
-    .filter((item): item is AssetHistoryPoint & { value: number; day: number } => Boolean(item));
+function buildChartValueGeometry(points: Array<{ observation_date: string; amount: string }>, width = 640, height = 220): AssetChartGeometry {
+  const usable: Array<{ observation_date: string; amount: string; value: number; day: number }> = [];
+  for (const point of points) {
+    const value = parseMoneyForChart(point.amount);
+    const day = utcDayMs(point.observation_date);
+    if (value !== null && day !== null) usable.push({ ...point, value, day });
+  }
   if (!usable.length) {
     return { width, height, segments: [], dots: [], minLabel: null, maxLabel: null };
   }
@@ -305,7 +342,7 @@ export function buildAssetChartGeometry(points: AssetHistoryPoint[], width = 640
     x: xAt(item.day),
     y: yAt(item.value),
     date: item.observation_date,
-    amount: item.net_assets,
+    amount: item.amount,
   }));
   const segments: string[] = [];
   let current: string[] = [];
@@ -329,9 +366,22 @@ export function buildAssetChartGeometry(points: AssetHistoryPoint[], width = 640
     height,
     segments,
     dots,
-    minLabel: usable.reduce((best, item) => item.value <= (parseMoneyForChart(best) ?? Infinity) ? item.net_assets : best, usable[0].net_assets),
-    maxLabel: usable.reduce((best, item) => item.value >= (parseMoneyForChart(best) ?? -Infinity) ? item.net_assets : best, usable[0].net_assets),
+    minLabel: usable.reduce((best, item) => item.value <= (parseMoneyForChart(best) ?? Infinity) ? item.amount : best, usable[0].amount),
+    maxLabel: usable.reduce((best, item) => item.value >= (parseMoneyForChart(best) ?? -Infinity) ? item.amount : best, usable[0].amount),
   };
+}
+
+export function buildAssetChartGeometry(points: AssetHistoryPoint[], width = 640, height = 220): AssetChartGeometry {
+  return buildChartValueGeometry(points.map((point) => ({
+    observation_date: point.observation_date,
+    amount: point.net_assets,
+  })), width, height);
+}
+
+export function buildBinanceWalletHistoryChartGeometry(
+  points: BinanceWalletHistoryPoint[], width = 640, height = 220,
+): AssetChartGeometry {
+  return buildChartValueGeometry(points, width, height);
 }
 
 export type RuntimeDailySnapshot = {

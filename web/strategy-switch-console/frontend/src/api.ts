@@ -70,7 +70,7 @@ export type UxDraft = {
   job?: Record<string, any> | null; intent?: unknown;
 };
 export type { AccountFactsSnapshot, AccountFactsHistorySnapshot } from "./types";
-import type { AccountFactsSnapshot, AccountFactsHistorySnapshot } from "./types";
+import type { AccountFactsSnapshot, AccountFactsHistorySnapshot, BinanceWalletHistorySnapshot } from "./types";
 import type { RuntimeDailySnapshot } from "./presentation";
 export type { RuntimeDailySnapshot } from "./presentation";
 export type Source<T> = { value: T | null; error: string | null };
@@ -210,6 +210,10 @@ export function accountFactsHistoryPath(platform: string, accountKey: string, cu
 
 export async function loadAccountFactsHistory(platform: string, accountKey: string, currency: string): Promise<AccountFactsHistorySnapshot> {
   return getJson<AccountFactsHistorySnapshot>(accountFactsHistoryPath(platform, accountKey, currency));
+}
+
+export async function loadBinanceWalletHistory(accountKey: string): Promise<BinanceWalletHistorySnapshot> {
+  return getJson<BinanceWalletHistorySnapshot>(`/api/binance-account-facts/history?account_key=${encodeURIComponent(accountKey)}`);
 }
 
 export function runtimeDailyPath(date: string): string {

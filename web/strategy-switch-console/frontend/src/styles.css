@@ -104,6 +104,11 @@ a { color: inherit; }
 .overview-figures, .overview-marks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
 .overview-figures span, .overview-marks span { min-width: 0; overflow-wrap: anywhere; }
 .overview-figures em, .overview-marks em { display: block; color: var(--muted); font-style: normal; font-size: 11px; }
+.overview-figures-wallet { grid-template-columns: minmax(0, 1fr); }
+.wallet-card-valuation { display: grid; grid-template-columns: minmax(0, 1fr); gap: 2px; }
+.wallet-card-valuation strong { white-space: nowrap; overflow-wrap: normal; font-size: clamp(.7rem, 1vw, .85rem); font-variant-numeric: tabular-nums; }
+.wallet-card-valuation small, .negative-cash-note { color: var(--muted); font-size: 11px; }
+.wallet-amount-display { white-space: nowrap; font-size: clamp(.85rem, 3.5vw, 1.5rem); font-variant-numeric: tabular-nums; }
 .chart-empty { border: 0; box-shadow: none; }
 .daily-table { width: 100%; border-collapse: collapse; }
 .daily-table th, .daily-table td { padding: 14px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
@@ -212,6 +217,7 @@ h3 { margin-bottom: 8px; font-size: 16px; font-weight: 600; }
 .overview-private-scope-labels { color: var(--muted); font-size: .84rem; }
 .overview-wallet-valuation { display: grid; grid-template-columns: auto 1fr; align-items: baseline; gap: 4px 8px; padding: 18px 0 4px; font-variant-numeric: tabular-nums; }
 .overview-wallet-valuation strong { font-size: 1.5rem; overflow-wrap: anywhere; }
+.overview-wallet-valuation strong.wallet-amount-display { white-space: nowrap; font-size: clamp(.85rem, 3.5vw, 1.5rem); overflow-wrap: normal; }
 .overview-wallet-valuation span { color: var(--muted); }
 .overview-wallet-valuation small { grid-column: 1 / -1; color: var(--muted); }
 .primary-column { min-width: 0; }

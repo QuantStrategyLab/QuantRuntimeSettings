@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
 import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts,
-  BINANCE_FACTS_KEY } from '../web/strategy-switch-console/binance_account_facts.js';
+  BINANCE_FACTS_KEY, binanceWalletHistoryEntry, binanceWalletHistoryStorageKey } from '../web/strategy-switch-console/binance_account_facts.js';
 import { verifyBinanceAccountFactsReceiver } from '../scripts/verify_binance_account_facts_receiver.mjs';
+
+const require = createRequire(new URL('../web/strategy-switch-console/package.json', import.meta.url));
+const { Miniflare } = require('miniflare');
 
 const now = Date.now();
 const binding = {
@@ -130,13 +137,28 @@ assert.equal(normalizeBinanceAccountFacts(distinctNativeSpellings, binding, { no
 const values = new Map(), puts = [], reads = [];
 const kv = {
   get: async key => { reads.push(key); return values.get(key) || null; },
-  put: async (key, value, options) => { values.set(key, value); puts.push({ key, value, options }); },
+  failNextPut: false,
+  put: async (key, value, options) => {
+    if (kv.failNextPut) { kv.failNextPut = false; throw new Error('synthetic KV write failure'); }
+    values.set(key, value); puts.push({ key, value, options });
+  },
 };
 const option = { key: binding.account_key, account_scope: binding.account_scope,
   target_name: binding.target_name, service_name: '', deployment_selector: binding.deployment_selector,
   account_selector: binding.account_selector, label: 'Synthetic wallet', default_strategy_profile: 'crypto_live_pool_rotation' };
+const persist = mkdtempSync(join(tmpdir(), 'binance-wallet-history-'));
+const mf = new Miniflare({
+  modules: true,
+  modulesRules: [{ type: 'ESModule', include: ['**/*.js'] }],
+  scriptPath: fileURLToPath(new URL('../web/strategy-switch-console/worker.js', import.meta.url)),
+  compatibilityDate: '2026-06-08',
+  durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: 'RuntimeInstances', useSQLite: true } },
+  durableObjectsPersist: persist,
+});
+const runtimeInstances = await mf.getDurableObjectNamespace('STRATEGY_SWITCH_RUNTIME_INSTANCES');
 const env = { SESSION_SECRET: 'synthetic-session-secret', ALLOWED_GITHUB_LOGINS: 'synthetic-reader',
   STRATEGY_SWITCH_ADMIN_LOGINS: 'different-admin', STRATEGY_SWITCH_CONFIG: kv,
+  ACCOUNT_FACTS_READ_MODEL_ENABLED: 'true', STRATEGY_SWITCH_RUNTIME_INSTANCES: runtimeInstances,
   BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(binding), BINANCE_ACCOUNT_FACTS_SYNC_TOKEN: 'synthetic-binance-facts',
   STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [option] }) };
 const cookie = await __test.makeSession('synthetic-reader', [], env);
@@ -151,6 +173,26 @@ const readiness = (settings = env, token = env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN)
 const get = (settings = env, authenticated = true) => worker.fetch(new Request('https://console.example/api/binance-account-facts', {
   headers: authenticated ? { Cookie: `qsl_switch_session=${cookie}` } : {},
 }), settings);
+const getWalletHistory = (settings = env, authenticated = true, accountKey = binding.account_key) => worker.fetch(new Request(
+  `https://console.example/api/binance-account-facts/history?account_key=${encodeURIComponent(accountKey)}`,
+  { headers: authenticated ? { Cookie: `qsl_switch_session=${cookie}` } : {} },
+), settings);
+const runtimeStub = runtimeInstances.get(runtimeInstances.idFromName('runtime-instances'));
+async function putHistoryEntry(history, entryBinding = binding) {
+  const response = await runtimeStub.fetch('https://runtime-instances/', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'binance_wallet_history_put',
+      account_key: entryBinding.account_key,
+      storage_account_key: binanceWalletHistoryStorageKey(entryBinding),
+      target_id: entryBinding.target_id,
+      account_scope: entryBinding.account_scope,
+      source_binding_id: entryBinding.source_binding.id,
+      history,
+    }),
+  });
+  return { status: response.status, body: await response.json() };
+}
 assert.equal((await get(env, false)).status, 401);
 assert.equal((await post({}, env, 'another-purpose-token')).status, 401);
 assert.equal((await readiness(env, 'another-purpose-token')).status, 401);
@@ -235,11 +277,122 @@ assert.equal(puts.length, 1);
 const read = await get();
 assert.equal(read.status, 200);
 assert.deepEqual((await read.json()).report, projection);
+assert.equal((await getWalletHistory(env, false)).status, 401, 'wallet history requires the existing authenticated session');
+const unavailableWalletHistory = await (await getWalletHistory()).json();
+assert.deepEqual(unavailableWalletHistory, {
+  ok: true, metric: 'wallet_valuation', currency: 'USDT', scope: 'provider_returned_wallet_rows',
+  points: [], gap_dates: [new Date(Date.parse(report.observed_finished_at)).toISOString().slice(0, 10)],
+  first_sample_date: null, retention_days: 366,
+  return: { status: 'unavailable', reason: 'external_cashflow_required' },
+}, 'missing wallet valuation records a gap and never fabricates zero');
+for (const privateValue of [binding.account_key, binding.account_scope_sha256, binding.source_binding.id,
+  binding.reader_revision, binding.account_selector]) {
+  assert.equal(JSON.stringify(unavailableWalletHistory).includes(privateValue), false,
+    'public wallet history must omit native binding and account identifiers');
+}
+const freshWalletReport = {
+  ...report,
+  observed_started_at: time(-20_000), spot_observed_at: time(-15_000),
+  earn_observed_at: time(-10_000), observed_finished_at: time(-2_000),
+  wallet_valuation: { ...walletValuation, observed_at: time(-8_000) },
+};
+assert.equal((await post(freshWalletReport)).status, 200);
+assert.equal((await (await post(freshWalletReport)).json()).status, 'unchanged',
+  'same report retries preserve the existing idempotent receiver result after history save');
+const walletHistory = await (await getWalletHistory()).json();
+assert.deepEqual(walletHistory.points, [{
+  observation_date: new Date(Date.parse(freshWalletReport.wallet_valuation.observed_at)).toISOString().slice(0, 10),
+  observed_at: freshWalletReport.wallet_valuation.observed_at,
+  amount: freshWalletReport.wallet_valuation.amount,
+}],
+'wallet history retains the valuation amount and its original UTC observation time');
+assert.deepEqual(walletHistory.gap_dates, [], 'a stored wallet observation does not generate a missing day');
+assert.equal(walletHistory.currency, 'USDT');
+assert.equal(JSON.stringify(walletHistory).includes(binding.source_binding.id), false);
+const dailyEntry = (date, amount = null, reportMinute = '10:01:00', entryBinding = binding) => binanceWalletHistoryEntry({
+  observed_finished_at: `${date}T${reportMinute}Z`,
+  wallet_valuation: amount === null ? undefined : {
+    status: 'available', amount, currency: 'USDT',
+    source: 'GET /sapi/v1/asset/wallet/balance', scope: 'provider_returned_wallet_rows',
+    observed_at: `${date}T10:00:00Z`, wallet_count: 2,
+  },
+}, entryBinding);
+const dayOne = dailyEntry('2026-09-28', '100');
+const dayGap = dailyEntry('2026-09-29');
+const dayThree = dailyEntry('2026-09-30', '125');
+assert.deepEqual((await putHistoryEntry(dayOne)).body, { ok: true, unchanged: false });
+assert.deepEqual((await putHistoryEntry(dayOne)).body, { ok: true, unchanged: true }, 'same-time history report is idempotent');
+assert.equal((await putHistoryEntry({ ...dayOne, amount: '101' })).status, 409,
+  'same-time different daily content conflicts');
+assert.deepEqual((await putHistoryEntry({ ...dayOne, amount: '99', report_observed_finished_at: '2026-09-28T10:00:00Z' })).body,
+  { ok: true, unchanged: true }, 'older daily history cannot overwrite a newer observation');
+assert.deepEqual((await putHistoryEntry(dayGap)).body, { ok: true, unchanged: false });
+assert.deepEqual((await putHistoryEntry(dayThree)).body, { ok: true, unchanged: false });
+const chartDays = await (await getWalletHistory()).json();
+assert.ok(chartDays.points.some((point) => point.observation_date === '2026-09-28' && point.amount === '100'));
+assert.ok(chartDays.points.some((point) => point.observation_date === '2026-09-30' && point.amount === '125'));
+assert.ok(!chartDays.points.some((point) => point.observation_date === '2026-09-29'), 'missing valuation never becomes a zero point');
+assert.ok(chartDays.gap_dates.includes('2026-09-29'), 'explicit missing report is represented as a gap');
+assert.ok(chartDays.gap_dates.includes('2026-10-01'), 'unreported UTC calendar days remain gaps');
+const rotatedBinding = structuredClone(binding);
+rotatedBinding.reader_revision = 'f'.repeat(40);
+rotatedBinding.source_binding.id = createHash('sha256').update(JSON.stringify({
+  account_scope_sha256: rotatedBinding.account_scope_sha256,
+  approved_application_revision: rotatedBinding.approved_application_revision,
+  reader_public_revision: rotatedBinding.reader_revision,
+  scope: 'spot+flexible_earn',
+})).digest('hex');
+const rotatedView = await getWalletHistory({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding) });
+assert.deepEqual((await rotatedView.json()).points, [], 'current source version does not join prior-version observations');
+await putHistoryEntry(dailyEntry('2026-10-01', '140', '10:01:00', rotatedBinding), rotatedBinding);
+const rotatedHistory = await (await getWalletHistory({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding) })).json();
+assert.deepEqual(rotatedHistory.points.map((point) => point.observation_date), ['2026-10-01']);
+assert.ok((await (await getWalletHistory()).json()).points.some((point) => point.observation_date === '2026-09-30'),
+  'prior source history remains stored and readable only with its original binding');
+const mismatchedOption = { ...option, account_selector: 'synthetic-other-selector' };
+const rotatedMismatch = await getWalletHistory({
+  ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding),
+  STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [mismatchedOption] }),
+});
+assert.equal(rotatedMismatch.status, 409, 'history read revalidates current unique physical option identity');
+assert.equal((await getWalletHistory(env, true, 'another-configured-account')).status, 409,
+  'wallet observations cannot be shown under a different account selection');
+const failedCrossStoreReport = {
+  ...report,
+  observed_started_at: time(-4_000), spot_observed_at: time(-3_500),
+  earn_observed_at: time(-3_000), observed_finished_at: time(-1_500),
+  wallet_valuation: { ...walletValuation, observed_at: time(-2_000) },
+};
+kv.failNextPut = true;
+assert.equal((await post(failedCrossStoreReport)).status, 503,
+  'history success followed by latest-KV failure is not reported as a full publication');
+assert.equal((await (await get()).json()).report.observed_finished_at, freshWalletReport.observed_finished_at,
+  'failed latest-KV update leaves the old latest report intact');
+assert.ok((await (await getWalletHistory()).json()).points.some((point) => point.amount === failedCrossStoreReport.wallet_valuation.amount),
+  'the separately committed DO history remains available after KV failure');
+const conflictingWalletReport = structuredClone(freshWalletReport);
+conflictingWalletReport.wallet_valuation.amount = '999';
+assert.equal((await post(conflictingWalletReport)).status, 409,
+  'same report timestamp with different content remains a conflict');
+assert.equal((await post(report)).status, 409, 'older report cannot overwrite the newer wallet report');
+assert.equal((await (await get()).json()).report.observed_finished_at, freshWalletReport.observed_finished_at,
+  'legacy latest report remains the latest report');
+const genericWalletHistory = await worker.fetch(new Request(
+  `https://console.example/api/account-facts/history?platform=binance&account_key=${binding.account_key}&currency=USDT`,
+  { headers: { Cookie: `qsl_switch_session=${cookie}` } },
+), env);
+assert.equal(genericWalletHistory.status, 400,
+  'USDT wallet history stays outside the generic three-letter account history contract');
 const conflicting = structuredClone(report); conflicting.assets[0].spot_free = '4.1'; conflicting.assets[0].quantity = '15.5';
 assert.equal((await post(conflicting)).status, 409);
-assert.equal(puts.length, 1);
-for (const bad of invalid) assert.notEqual((await post(bad)).status, 200);
-assert.equal(puts.length, 1);
+assert.equal(puts.length, 2);
+const invalidReceiverCases = invalid.map((item, index) => index === 12
+  ? { ...item, observed_finished_at: new Date(Date.now() + 61_000).toISOString() }
+  : item);
+for (const [index, bad] of invalidReceiverCases.entries()) {
+  assert.notEqual((await post(bad)).status, 200, `invalid report case ${index} must not be accepted`);
+}
+assert.equal(puts.length, 2);
 assert.equal((await get({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).status, 200);
 assert.equal((await (await get({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).json()).report, null);
 // The same bytes are generated and checked by the Python producer tests.
@@ -275,3 +428,5 @@ const overviewSource = readFileSync(new URL('../web/strategy-switch-console/fron
 assert.match(overviewSource, /wallet\.assets\.map\([\s\S]*?<strong>\{item\.asset\}<\/strong>/,
   'overview wallet rows must render the native asset string without filtering');
 console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
+await mf.dispose();
+rmSync(persist, { recursive: true, force: true });
