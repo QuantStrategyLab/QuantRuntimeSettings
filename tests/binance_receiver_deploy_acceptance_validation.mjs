@@ -4,6 +4,10 @@ import { verifyBinanceAccountFactsReceiver } from "../scripts/verify_binance_acc
 
 const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
 const manualWorkflow = readFileSync(new URL("../.github/workflows/verify-binance-account-facts-receiver.yml", import.meta.url), "utf8");
+const runtimeInstallIndex = workflow.indexOf("npm ci --prefix web/strategy-switch-console\n");
+const walletHistoryTestIndex = workflow.indexOf("tests/binance_account_facts_validation.mjs");
+assert.ok(runtimeInstallIndex >= 0 && walletHistoryTestIndex > runtimeInstallIndex,
+  "deployment installs the locked Worker test runtime before running the wallet history test");
 const syncIndex = workflow.indexOf("- name: Sync optional Binance account-facts credentials");
 const verifyIndex = workflow.indexOf("- name: Verify optional Binance account-facts receiver credentials");
 assert.ok(syncIndex >= 0 && verifyIndex > syncIndex);

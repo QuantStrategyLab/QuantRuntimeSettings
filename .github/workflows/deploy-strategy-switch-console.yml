@@ -78,6 +78,7 @@ jobs:
       - name: Build new console and embedded assets
         run: |
           set -euo pipefail
+          npm ci --prefix web/strategy-switch-console
           npm ci --prefix web/strategy-switch-console/frontend
           npm run build --prefix web/strategy-switch-console/frontend
           npm run sync:v2-assets --prefix web/strategy-switch-console/frontend
