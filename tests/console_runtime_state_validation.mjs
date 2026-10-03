@@ -26,6 +26,7 @@ import {
   paperApplicationReady,
   presentBinancePrivateScope,
   presentBinanceWalletValuation,
+  presentBinanceWalletValuationForAccount,
   scheduleBinancePrivateScopeExpiry,
   safeActionVisibility,
   strategyDisplayName,
@@ -916,6 +917,11 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   assert.deepEqual(presentBinanceWalletValuation(valid, now), {
     amount: "1234.5", currency: "USDT", observed_at: valid.wallet_valuation.observed_at,
   });
+  assert.deepEqual(presentBinanceWalletValuationForAccount("binance-main", "binance-main", valid, now), {
+    amount: "1234.5", currency: "USDT", observed_at: valid.wallet_valuation.observed_at,
+  });
+  assert.equal(presentBinanceWalletValuationForAccount("ibkr-main", "binance-main", valid, now), null,
+    "wallet valuation is only available on its matching account card");
   const agedWallet = {
     ...valid,
     wallet_valuation: {
@@ -930,6 +936,8 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   const past36h = { ...valid, wallet_valuation: { ...valid.wallet_valuation,
     observed_at: new Date(now - 36 * 60 * 60_000 - 1).toISOString() } };
   assert.equal(presentBinanceWalletValuation(past36h, now), null);
+  assert.equal(presentBinanceWalletValuationForAccount("binance-main", "binance-main", past36h, now), null,
+    "stale wallet valuation stays unavailable on the card");
   const rejected = [
     { ...valid, wallet_valuation: { ...valid.wallet_valuation, status: "unavailable" } },
     { ...valid, wallet_valuation: { ...valid.wallet_valuation, currency: "USD" } },
@@ -956,6 +964,10 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   assert.match(overviewSource, /walletValuation \? <div className="overview-wallet-valuation"/);
   assert.match(overviewSource, /wallet\.assets\.map/);
   assert.match(overviewSource, /t\("按 Binance 返回的钱包范围"\)/);
+  assert.match(overviewSource, /t\(walletCardValuation \? "钱包总资产" : "账户资产"\)/);
+  assert.match(overviewSource, /cashLabelForPlatform\(account\.platformKey\).*amountOrDash\(cash\)/);
+  assert.match(overviewSource, /formatInstant\(walletCardValuation\.observed_at\)/);
+  assert.match(overviewSource, /formatAccountFactAmounts\(account\.facts\?\.data_status === "fresh" \? account\.facts\.balances : null, "net_assets"\)/);
 });
 
 test("Binance private scope expires without interaction and cancels timers on replacement or logout", () => {

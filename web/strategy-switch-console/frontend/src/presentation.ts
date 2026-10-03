@@ -88,6 +88,16 @@ export function presentBinanceWalletValuation(report: unknown, now = Date.now())
   return { amount: summary.amount, currency: "USDT", observed_at: summary.observed_at };
 }
 
+export function presentBinanceWalletValuationForAccount(
+  accountId: string,
+  walletAccountId: string | null | undefined,
+  report: unknown,
+  now = Date.now(),
+): { amount: string; currency: "USDT"; observed_at: string } | null {
+  if (!walletAccountId || accountId !== walletAccountId) return null;
+  return presentBinanceWalletValuation(report, now);
+}
+
 export function scheduleBinancePrivateScopeExpiry(
   observedAt: unknown,
   onExpiry: () => void,

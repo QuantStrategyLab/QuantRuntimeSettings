@@ -18,6 +18,7 @@ import {
   runtimeDailySelectionEligible,
   verifiedSchwabAccountTypeToken,
   presentBinanceWalletValuation,
+  presentBinanceWalletValuationForAccount,
   presentBinancePrivateScope,
   scheduleBinancePrivateScopeExpiry,
   type ChartMode,
@@ -376,7 +377,15 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       <h2>{t("我的账户")}</h2>
       <div className="overview-account-list">
         {visible.map(account => {
-          const assets = formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
+          const walletCardValuation = presentBinanceWalletValuationForAccount(
+            account.id,
+            walletAccount?.id,
+            showWallet ? wallet : null,
+            walletNow,
+          );
+          const assets = walletCardValuation
+            ? `${walletCardValuation.currency} ${walletCardValuation.amount}`
+            : formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
           const cash = formatAccountFactAmounts(
             account.facts?.data_status === "fresh" ? account.facts.cash : null,
             cashFieldForPlatform(account.platformKey),
@@ -384,7 +393,9 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
-          const cardDetail = detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
+          const cardDetail = walletCardValuation
+            ? `${t("按 Binance 返回的钱包范围")} · ${t("观察时间")} ${formatInstant(walletCardValuation.observed_at) || "—"}`
+            : detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
           const paperConfigured = account.brokerEnvironment === "paper";
           const schwabType = verifiedSchwabAccountTypeToken(
             account.platformKey,
@@ -400,7 +411,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             <strong>{account.title}</strong>
             <small>{accountTypeLabel}</small>
             <small>{account.strategy}</small>
-            <span className="overview-figures"><span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}</span></span>
+            <span className="overview-figures"><span><em>{t(walletCardValuation ? "钱包总资产" : "账户资产")}</em>{amountOrDash(assets)}</span><span><em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}</span></span>
             <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             {statusNote ? <small>{t(statusNote)}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}
