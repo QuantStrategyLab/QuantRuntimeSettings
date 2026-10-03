@@ -113,6 +113,39 @@ export function scheduleBinancePrivateScopeExpiry(
 
 export type ChartMode = "return" | "assets";
 
+export type OverviewChartAccountCandidate = {
+  id: string;
+  brokerEnvironment: string | null;
+  facts: {
+    binding_status: string;
+    identity_mismatch?: boolean;
+    data_status: string;
+    broker_environment?: string | null;
+    account_scope?: string | null;
+    balances: Array<{ currency: string; net_assets?: string | null }>;
+  } | null;
+};
+
+export function defaultOverviewChartAccountId(accounts: OverviewChartAccountCandidate[]): string | null {
+  return accounts.find((account) => {
+    const facts = account.facts;
+    if (account.brokerEnvironment !== "live" || !facts || facts.binding_status !== "bound"
+        || facts.data_status !== "fresh" || facts.identity_mismatch === true
+        || facts.broker_environment === "paper" || facts.account_scope === "paper") return false;
+    return facts.balances.some((balance) => /^[A-Z0-9]{3,10}$/.test(balance.currency)
+      && typeof balance.net_assets === "string" && balance.net_assets.length > 0);
+  })?.id ?? null;
+}
+
+export function resolveOverviewChartAccount<T extends { id: string }>(
+  accounts: T[],
+  primaryAccountId: string,
+  chartAccountId: string | null,
+): T | null {
+  if (primaryAccountId !== "all") return accounts.find((account) => account.id === primaryAccountId) ?? null;
+  return accounts.find((account) => account.id === chartAccountId) ?? null;
+}
+
 export const RETURN_INDEX_LEGEND = ["标普500", "纳斯达克", "道琼斯", "罗素"] as const;
 
 export type OverviewFigures = {
