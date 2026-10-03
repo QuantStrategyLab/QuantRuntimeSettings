@@ -18,6 +18,14 @@ export type LongBridgeAccountFactsCash = {
   settling_cash: string;
 };
 
+export type LongBridgeCashDetail = {
+  currency: string;
+  total_cash?: string;
+  available_cash?: string;
+  frozen_cash?: string;
+  settling_cash?: string;
+};
+
 export type IbkrAccountFactsCash = {
   currency: string;
   cash_balance: string;
@@ -170,6 +178,35 @@ export function hasNonzeroNegativeAccountFactAmount(
     const amount = row?.[field];
     return typeof amount === "string" && /^-\d+(?:\.\d+)?$/.test(amount) && /[1-9]/.test(amount);
   });
+}
+
+export function longBridgeCashDetails(account: AccountFactsAccount | null | undefined): LongBridgeCashDetail[] | null {
+  if (!account || account.platform !== "longbridge" || account.data_status !== "fresh"
+    || account.binding_status !== "bound" || account.identity_mismatch === true
+    || typeof account.observed_finished_at !== "string"
+    || !Number.isFinite(Date.parse(account.observed_finished_at))) return null;
+  const cashRows = account.cash.filter((row): row is LongBridgeAccountFactsCash => (
+    ("available_cash" in row || "frozen_cash" in row || "settling_cash" in row)
+    && typeof row.currency === "string" && row.currency.length > 0
+  ));
+  const balanceRows = account.balances.filter((row) => typeof row.currency === "string" && row.currency.length > 0);
+  const hasDuplicateCurrency = (rows: Array<{ currency: string }>) => (
+    new Set(rows.map((row) => row.currency)).size !== rows.length
+  );
+  if (hasDuplicateCurrency(cashRows) || hasDuplicateCurrency(balanceRows)) return null;
+  const currencies = new Set([...balanceRows.map((row) => row.currency), ...cashRows.map((row) => row.currency)]);
+  const result: LongBridgeCashDetail[] = [];
+  for (const currency of currencies) {
+    const balance = balanceRows.find((row) => row.currency === currency);
+    const cash = cashRows.find((row) => row.currency === currency);
+    const detail: LongBridgeCashDetail = { currency };
+    if (typeof balance?.total_cash === "string") detail.total_cash = balance.total_cash;
+    if (typeof cash?.available_cash === "string") detail.available_cash = cash.available_cash;
+    if (typeof cash?.frozen_cash === "string") detail.frozen_cash = cash.frozen_cash;
+    if (typeof cash?.settling_cash === "string") detail.settling_cash = cash.settling_cash;
+    if (Object.keys(detail).length > 1) result.push(detail);
+  }
+  return result.length ? result : null;
 }
 
 export function accountFactsForRow(

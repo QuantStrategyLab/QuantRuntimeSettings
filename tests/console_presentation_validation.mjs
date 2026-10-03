@@ -2,10 +2,32 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
+import { longBridgeCashDetails } from "../web/strategy-switch-console/frontend/src/types.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
 import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
+const longBridgeFixture = {
+  platform: "longbridge", account_key: "synthetic-account", binding_status: "bound", identity_status: "partial_identity",
+  data_status: "fresh", identity_mismatch: false, observed_finished_at: "2026-10-03T01:02:03Z",
+  balances: [{ currency: "HKD", net_assets: null, total_cash: "100.00000001" }],
+  cash: [{ currency: "HKD", available_cash: "-0.125", frozen_cash: "0.00000003", settling_cash: "2.5" }],
+};
+assert.deepEqual(longBridgeCashDetails(longBridgeFixture), [{ currency: "HKD", total_cash: "100.00000001", available_cash: "-0.125", frozen_cash: "0.00000003", settling_cash: "2.5" }]);
+assert.deepEqual(longBridgeCashDetails({ ...longBridgeFixture, balances: [], cash: [{ currency: "HKD", frozen_cash: "2" }] }), [{ currency: "HKD", frozen_cash: "2" }], "missing cash fields are omitted without hiding present fields");
+assert.deepEqual(longBridgeCashDetails({ ...longBridgeFixture, balances: [{ currency: "HKD", net_assets: null, total_cash: "7.25" }], cash: [] }), [{ currency: "HKD", total_cash: "7.25" }]);
+assert.deepEqual(longBridgeCashDetails({ ...longBridgeFixture, balances: [], cash: [{ currency: "HKD", settling_cash: "3.5" }] }), [{ currency: "HKD", settling_cash: "3.5" }]);
+assert.deepEqual(longBridgeCashDetails({ ...longBridgeFixture, cash: [{ currency: "HKD", available_cash: "-0.00000001" }] }), [{ currency: "HKD", total_cash: "100.00000001", available_cash: "-0.00000001" }]);
+for (const rejected of [
+  { ...longBridgeFixture, data_status: "stale" },
+  { ...longBridgeFixture, binding_status: "missing" },
+  { ...longBridgeFixture, binding_status: "duplicate" },
+  { ...longBridgeFixture, identity_mismatch: true },
+  { ...longBridgeFixture, observed_finished_at: "not-a-date" },
+  { ...longBridgeFixture, platform: "ibkr" },
+  { ...longBridgeFixture, cash: [...longBridgeFixture.cash, ...longBridgeFixture.cash] },
+  { ...longBridgeFixture, balances: [...longBridgeFixture.balances, ...longBridgeFixture.balances] },
+]) assert.equal(longBridgeCashDetails(rejected), null);
 assert.equal(activationFromProjection(monitored), "已启用");
 assert.equal(activationFromProjection({ ...monitored, activation: "disabled" }), "已停用");
 assert.equal(activationFromProjection({ configured_state: "disabled" }), "—");
