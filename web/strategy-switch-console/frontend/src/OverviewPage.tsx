@@ -516,7 +516,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         </details>
         <div className="overview-account-return-empty">
           <strong>{t("暂无账户收益数据")}</strong>
-          <p>{t("完整账户估值和外部资金流未接入，收益不可计算。")}</p>
+          <p>{t("账户收益需要完整估值和资金进出记录。")}</p>
         </div>
       </div> : hasChart ? <div className="asset-chart">
         <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t(walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>

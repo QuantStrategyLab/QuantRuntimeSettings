@@ -112,6 +112,7 @@ assert.doesNotMatch(overviewPage.match(/<iframe[\s\S]*?\/>/)?.[0] || "", /allow-
 assert.match(overviewPage, /<details className="overview-benchmark-source">/);
 assert.match(overviewPage, /S&P 500 \(SP500\)，日收盘价格指数，不含股息/);
 assert.match(overviewPage, /暂无账户收益数据/);
+assert.match(overviewPage, /账户收益需要完整估值和资金进出记录/);
 assert.doesNotMatch(overviewPage, /RETURN_INDEX_LEGEND\.map/);
 assert.match(overviewPage, /chart === "assets" \? <div className="chart-range"/);
 assert.equal(overviewPage.includes('id: "cash"'), false);

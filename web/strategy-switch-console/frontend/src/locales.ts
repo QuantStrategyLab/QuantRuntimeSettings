@@ -55,6 +55,7 @@ export const EN_COPY = {
   "来源": "Source",
   "FRED 官方数据页": "Official FRED data page",
   "暂无账户收益数据": "No account return data yet",
+  "账户收益需要完整估值和资金进出记录。": "Account returns require complete valuations and cash inflow/outflow records.",
   "账户资产快照来源尚未接入；—表示未知，不表示资产为零。": "The account asset snapshot source is not connected; — means unknown, not zero assets.",
   "完整账户估值和外部资金流未接入，收益不可计算。": "Complete account valuations and external cash flows are not connected, so return cannot be calculated.",
   "尚无可信账户估值序列，回撤不可计算。": "There is no trusted account valuation series, so drawdown cannot be calculated.",
