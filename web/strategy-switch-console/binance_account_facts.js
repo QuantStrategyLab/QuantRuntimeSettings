@@ -5,6 +5,10 @@ export const BINANCE_FACTS_KIND = "binance_readonly_scope_revision";
 export const BINANCE_FACTS_KEY = "private_binance_account_facts";
 export const BINANCE_FACTS_MAX_BYTES = 256 * 1024;
 export const BINANCE_FACTS_STALE_MS = 36 * 60 * 60 * 1000;
+export const BINANCE_WALLET_HISTORY_SCHEMA = "binance_wallet_valuation_history.v1";
+export const BINANCE_WALLET_HISTORY_METRIC = "wallet_valuation";
+export const BINANCE_WALLET_HISTORY_SCOPE = "provider_returned_wallet_rows";
+export const BINANCE_WALLET_HISTORY_MAX_DAYS = 366;
 const UNCOVERED = ["funding", "margin", "futures", "locked_earn"];
 const IDENTITY = ["target_name", "service_name", "deployment_selector", "account_selector"];
 const HASH = /^[a-f0-9]{64}$/;
@@ -168,5 +172,98 @@ export function projectBinanceAccountFacts(raw, binding, { now = Date.now() } = 
     ...(Object.hasOwn(report, "wallet_valuation")
       ? { wallet_valuation: { ...report.wallet_valuation } }
       : {}),
+  };
+}
+
+export function binanceWalletHistoryStorageKey(binding) {
+  return `${binding.account_key}:${binding.source_binding.id}`;
+}
+
+export function binanceWalletHistoryEntry(report, binding) {
+  const valuation = report.wallet_valuation;
+  const available = valuation?.status === "available";
+  const reportFinishedAt = report.observed_finished_at;
+  const observedAt = available ? valuation.observed_at : null;
+  return normalizeBinanceWalletHistoryEntry({
+    schema_version: BINANCE_WALLET_HISTORY_SCHEMA,
+    metric: BINANCE_WALLET_HISTORY_METRIC,
+    currency: "USDT",
+    scope: BINANCE_WALLET_HISTORY_SCOPE,
+    status: available ? "available" : "gap",
+    observation_date: new Date(Date.parse(observedAt || reportFinishedAt)).toISOString().slice(0, 10),
+    amount: available ? valuation.amount : null,
+    observed_at: observedAt,
+    report_observed_finished_at: reportFinishedAt,
+    target_id: binding.target_id,
+    account_scope: binding.account_scope,
+    source_binding: binding.source_binding,
+  }, binding);
+}
+
+export function normalizeBinanceWalletHistoryEntry(raw, binding) {
+  const fields = ["schema_version", "metric", "currency", "scope", "status", "observation_date", "amount",
+    "observed_at", "report_observed_finished_at", "target_id", "account_scope", "source_binding"];
+  exact(raw, fields);
+  exact(raw.source_binding, ["kind", "id"]);
+  if (raw.schema_version !== BINANCE_WALLET_HISTORY_SCHEMA || raw.metric !== BINANCE_WALLET_HISTORY_METRIC
+      || raw.currency !== "USDT" || raw.scope !== BINANCE_WALLET_HISTORY_SCOPE
+      || !["available", "gap"].includes(raw.status)
+      || raw.target_id !== binding?.target_id || raw.account_scope !== binding?.account_scope
+      || raw.source_binding?.kind !== binding?.source_binding?.kind
+      || raw.source_binding?.id !== binding?.source_binding?.id) {
+    fail("invalid_binance_wallet_history");
+  }
+  const reportFinished = instant(raw.report_observed_finished_at);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw.observation_date)
+      || !Number.isFinite(Date.parse(`${raw.observation_date}T00:00:00Z`))
+      || new Date(Date.parse(`${raw.observation_date}T00:00:00Z`)).toISOString().slice(0, 10) !== raw.observation_date) {
+    fail("invalid_binance_wallet_history");
+  }
+  if (raw.status === "available") {
+    const observed = instant(raw.observed_at);
+    if (typeof raw.amount !== "string" || !CANONICAL_DECIMAL.test(raw.amount)
+        || raw.observation_date !== new Date(observed).toISOString().slice(0, 10)
+        || observed > reportFinished || reportFinished - observed > 5 * 60 * 1000) {
+      fail("invalid_binance_wallet_history");
+    }
+  } else if (raw.amount !== null || raw.observed_at !== null
+      || raw.observation_date !== new Date(reportFinished).toISOString().slice(0, 10)) {
+    fail("invalid_binance_wallet_history");
+  }
+  return raw;
+}
+
+export function projectBinanceWalletHistory(days, binding) {
+  const normalized = days.map((entry) => normalizeBinanceWalletHistoryEntry(entry, binding))
+    .sort((left, right) => left.observation_date.localeCompare(right.observation_date));
+  const byDate = new Map();
+  for (const entry of normalized) {
+    if (byDate.has(entry.observation_date)) fail("invalid_binance_wallet_history");
+    byDate.set(entry.observation_date, entry);
+  }
+  const dates = [...byDate.keys()];
+  const gapDates = [];
+  if (dates.length) {
+    let cursor = Date.parse(`${dates[0]}T00:00:00Z`);
+    const last = Date.parse(`${dates.at(-1)}T00:00:00Z`);
+    for (; cursor <= last; cursor += 86_400_000) {
+      const date = new Date(cursor).toISOString().slice(0, 10);
+      if (byDate.get(date)?.status !== "available") gapDates.push(date);
+    }
+  }
+  return {
+    ok: true,
+    metric: BINANCE_WALLET_HISTORY_METRIC,
+    currency: "USDT",
+    scope: BINANCE_WALLET_HISTORY_SCOPE,
+    points: normalized.filter((entry) => entry.status === "available").map((entry) => ({
+      observation_date: entry.observation_date,
+      observed_at: entry.observed_at,
+      amount: entry.amount,
+    })),
+    gap_dates: gapDates,
+    first_sample_date: normalized.find((entry) => entry.status === "available")?.observation_date ?? null,
+    retention_days: BINANCE_WALLET_HISTORY_MAX_DAYS,
+    return: { status: "unavailable", reason: "external_cashflow_required" },
   };
 }

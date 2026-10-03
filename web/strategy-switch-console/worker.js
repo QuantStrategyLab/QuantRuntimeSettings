@@ -4,6 +4,8 @@ import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
   normalizeBinanceAccountFacts, projectBinanceAccountFacts,
+  binanceWalletHistoryEntry, binanceWalletHistoryStorageKey, normalizeBinanceWalletHistoryEntry,
+  projectBinanceWalletHistory, BINANCE_WALLET_HISTORY_MAX_DAYS,
 } from "./binance_account_facts.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 import {
@@ -373,6 +375,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
 ]);
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
+  "binance_wallet_history_put", "binance_wallet_history_read",
 ]);
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
@@ -772,6 +775,9 @@ export default {
       }
       if (url.pathname === "/api/binance-account-facts" && request.method === "GET") {
         return await binanceAccountFactsResponse(request, env);
+      }
+      if (url.pathname === "/api/binance-account-facts/history" && request.method === "GET") {
+        return await binanceWalletHistoryResponse(request, env, url);
       }
       if (url.pathname === "/api/internal/runtime-stop-result" && request.method === "POST") {
         return await acceptHkStopResult(request, env);
@@ -2148,11 +2154,123 @@ export class RuntimeInstances {
 
   accountFactsCommand(command) {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
+    if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
+      return this.binanceWalletHistoryCommand(command);
+    }
     if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
     if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
     if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
     if (command.action === "account_facts_history_read") return this.readAccountFactsDailyHistory(command);
     throw new HttpError("unsupported_account_facts_action", 400);
+  }
+
+  binanceWalletHistoryContext(command) {
+    const accountKey = command?.account_key;
+    const sourceBindingId = command?.source_binding_id;
+    if (typeof accountKey !== "string" || !accountKey
+        || typeof sourceBindingId !== "string" || !/^[a-f0-9]{64}$/.test(sourceBindingId)
+        || command.storage_account_key !== `${accountKey}:${sourceBindingId}`
+        || typeof command.target_id !== "string" || !command.target_id
+        || typeof command.account_scope !== "string" || !command.account_scope) {
+      throw new HttpError("invalid_binance_wallet_history_account", 400);
+    }
+    return {
+      account_key: command.storage_account_key,
+      target_id: command.target_id,
+      account_scope: command.account_scope,
+      source_binding_id: sourceBindingId,
+      binding: {
+        target_id: command.target_id,
+        account_scope: command.account_scope,
+        source_binding: { kind: "binance_readonly_scope_revision", id: sourceBindingId },
+      },
+    };
+  }
+
+  binanceWalletHistoryCommand(command) {
+    const context = this.binanceWalletHistoryContext(command);
+    if (command.action === "binance_wallet_history_read") {
+      const rows = this.sql.exec(
+        `SELECT payload_json, target_id, source_binding_id, account_scope FROM account_facts_daily
+         WHERE platform = 'binance' AND account_key = ? ORDER BY observation_date ASC`,
+        context.account_key,
+      ).toArray();
+      const days = [];
+      for (const row of rows) {
+        if (row.target_id !== context.target_id || row.source_binding_id !== context.source_binding_id
+            || row.account_scope !== context.account_scope) {
+          throw new HttpError("binance_wallet_history_identity_mismatch", 409);
+        }
+        let payload;
+        try { payload = JSON.parse(row.payload_json); }
+        catch { throw new HttpError("binance_wallet_history_stored_invalid", 409); }
+        try { days.push(normalizeBinanceWalletHistoryEntry(payload, context.binding)); }
+        catch { throw new HttpError("binance_wallet_history_stored_invalid", 409); }
+      }
+      return { ok: true, days };
+    }
+
+    let history;
+    try { history = normalizeBinanceWalletHistoryEntry(command.history, context.binding); }
+    catch { throw new HttpError("invalid_binance_wallet_history", 400); }
+    const row = this.sql.exec(
+      `SELECT payload_json, target_id, source_binding_id, account_scope FROM account_facts_daily
+       WHERE platform = 'binance' AND account_key = ? AND observation_date = ?`,
+      context.account_key,
+      history.observation_date,
+    ).toArray()[0];
+    let existing = null;
+    if (row) {
+      if (row.target_id !== context.target_id || row.source_binding_id !== context.source_binding_id
+          || row.account_scope !== context.account_scope) {
+        throw new HttpError("binance_wallet_history_identity_mismatch", 409);
+      }
+      try { existing = normalizeBinanceWalletHistoryEntry(JSON.parse(row.payload_json), context.binding); }
+      catch { throw new HttpError("binance_wallet_history_stored_invalid", 409); }
+    }
+    if (existing) {
+      const existingTime = Date.parse(existing.report_observed_finished_at);
+      const incomingTime = Date.parse(history.report_observed_finished_at);
+      if (incomingTime < existingTime) return { ok: true, unchanged: true };
+      if (incomingTime === existingTime) {
+        if (JSON.stringify(existing) !== JSON.stringify(history)) {
+          throw new HttpError("binance_wallet_history_conflict", 409);
+        }
+        return { ok: true, unchanged: true };
+      }
+    }
+    const updatedAt = new Date().toISOString();
+    this.sql.exec(
+      `INSERT INTO account_facts_daily (
+        platform, account_key, observation_date, payload_json, observed_finished_at,
+        target_id, source_binding_id, account_scope, updated_at
+      ) VALUES ('binance', ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(platform, account_key, observation_date) DO UPDATE SET
+        payload_json = excluded.payload_json,
+        observed_finished_at = excluded.observed_finished_at,
+        target_id = excluded.target_id,
+        source_binding_id = excluded.source_binding_id,
+        account_scope = excluded.account_scope,
+        updated_at = excluded.updated_at`,
+      context.account_key,
+      history.observation_date,
+      JSON.stringify(history),
+      history.report_observed_finished_at,
+      context.target_id,
+      context.source_binding_id,
+      context.account_scope,
+      updatedAt,
+    );
+    const latestDate = this.sql.exec(
+      "SELECT MAX(observation_date) AS latest_date FROM account_facts_daily WHERE platform = 'binance' AND account_key = ?",
+      context.account_key,
+    ).toArray()[0]?.latest_date;
+    const cutoff = historyRetentionCutoff(latestDate, BINANCE_WALLET_HISTORY_MAX_DAYS);
+    if (cutoff) {
+      this.sql.exec("DELETE FROM account_facts_daily WHERE platform = 'binance' AND account_key = ? AND observation_date < ?",
+        context.account_key, cutoff);
+    }
+    return { ok: true, unchanged: false };
   }
 
   accountFactsStorageContext(command) {
@@ -6720,8 +6838,10 @@ async function syncBinanceAccountFactsResponse(request, env) {
     const report = normalizeBinanceAccountFacts(raw, binding, { ingest: true });
     const store = configStore(env);
     if (!store) throw new BinanceFactsError("binance_account_facts_storage_unavailable", 503);
+    if (!hasRuntimeInstanceStore(env)) throw new BinanceFactsError("binance_account_facts_history_storage_unavailable", 503);
     const storageKey = `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`;
     const previous = await readConfigJson(env, storageKey);
+    let unchanged = false;
     if (previous) {
       const validPrevious = normalizeBinanceAccountFacts(previous, binding);
       const incomingTime = Date.parse(report.observed_finished_at);
@@ -6730,14 +6850,61 @@ async function syncBinanceAccountFactsResponse(request, env) {
           && canonicalJson(report) !== canonicalJson(validPrevious))) {
         throw new BinanceFactsError("binance_account_facts_observation_conflict", 409);
       }
-      if (incomingTime === previousTime) return json({ ok: true, status: "unchanged" });
+      unchanged = incomingTime === previousTime;
     }
+    try {
+      const history = binanceWalletHistoryEntry(report, binding);
+      await runtimeInstanceCommand(env, {
+        action: "binance_wallet_history_put",
+        account_key: binding.account_key,
+        storage_account_key: binanceWalletHistoryStorageKey(binding),
+        target_id: binding.target_id,
+        account_scope: binding.account_scope,
+        source_binding_id: binding.source_binding.id,
+        history,
+      });
+    } catch {
+      throw new BinanceFactsError("binance_account_facts_history_storage_unavailable", 503);
+    }
+    if (unchanged) return json({ ok: true, status: "unchanged" });
     await store.put(storageKey, JSON.stringify(report), { expirationTtl: 2 * 24 * 60 * 60 });
     return json({ ok: true, status: "published", observed_finished_at: report.observed_finished_at,
       asset_count: report.assets.length });
   } catch (error) {
     if (error?.status === 413) return json({ ok: false, error: "binance_account_facts_payload_too_large" }, 413);
     return binanceFactsErrorResponse(error);
+  }
+}
+
+async function binanceWalletHistoryResponse(request, env, url) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  const session = await readSession(request, env);
+  if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  if (!hasRuntimeInstanceStore(env)) return json({ ok: false, error: "account_facts_store_unavailable" }, 503);
+  try {
+    const binding = await trustedBinanceFactsBinding(env);
+    if (!binding) throw new BinanceFactsError("binance_account_facts_binding_missing", 503);
+    if (url.searchParams.get("account_key") !== binding.account_key) {
+      throw new BinanceFactsError("binance_account_facts_binding_unmatched", 409);
+    }
+    const stored = await runtimeInstanceCommand(env, {
+      action: "binance_wallet_history_read",
+      account_key: binding.account_key,
+      storage_account_key: binanceWalletHistoryStorageKey(binding),
+      target_id: binding.target_id,
+      account_scope: binding.account_scope,
+      source_binding_id: binding.source_binding.id,
+    });
+    return json(projectBinanceWalletHistory(Array.isArray(stored.days) ? stored.days : [], binding));
+  } catch (error) {
+    const allowedErrors = new Set([
+      "binance_account_facts_binding_invalid", "binance_account_facts_account_options_unavailable",
+      "binance_account_facts_binding_unmatched", "binance_account_facts_binding_missing",
+      "binance_wallet_history_identity_mismatch", "binance_wallet_history_stored_invalid",
+    ]);
+    const code = allowedErrors.has(error?.code || error?.message)
+      ? (error.code || error.message) : "binance_wallet_history_unavailable";
+    return json({ ok: false, error: code }, error?.status || 503);
   }
 }
 

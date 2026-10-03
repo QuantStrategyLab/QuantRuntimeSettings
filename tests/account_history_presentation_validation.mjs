@@ -5,10 +5,13 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildAssetChartGeometry,
+  buildBinanceWalletHistoryChartGeometry,
   chartRangeEmptyNote,
   chartUnavailable,
   defaultOverviewChartAccountId,
   filterAssetHistoryByRange,
+  formatBinanceNativeQuantity,
+  formatBinanceWalletAmount,
   formatLocalChangeTime,
   formatOverviewInstant,
   overviewAccountTypeLabel,
@@ -20,7 +23,7 @@ import {
   resolveOverviewChartAccount,
   verifiedSchwabAccountTypeToken,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
-import { accountFactsDetail, formatAccountFactAmounts, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
+import { accountFactsDetail, formatAccountFactAmounts, hasNonzeroNegativeAccountFactAmount, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -28,6 +31,21 @@ assert.equal(parseMoneyForChart("12.5"), 12.5);
 assert.equal(parseMoneyForChart("1e9"), null);
 assert.equal(parseMoneyForChart("not-a-number"), null);
 assert.equal(parseMoneyForChart(`1${"0".repeat(20)}`), null);
+assert.equal(formatBinanceWalletAmount("1234.555"), "1234.56", "wallet valuation rounds decimal strings without binary floating point");
+assert.equal(formatBinanceWalletAmount(`999999999999999999999999999999.995`), `1${"0".repeat(30)}.00`,
+  "large wallet amounts retain exact digits during rounding");
+assert.equal(formatBinanceWalletAmount("0.004"), "<0.01", "small positive amount never appears as zero");
+assert.equal(formatBinanceWalletAmount("-0.004"), ">-0.01", "small negative amount retains the correct inequality direction");
+assert.equal(formatBinanceWalletAmount("-0.005"), "-0.01");
+assert.equal(formatBinanceWalletAmount("0"), "0.00");
+const originalWalletAmount = "1234.555";
+formatBinanceWalletAmount(originalWalletAmount);
+assert.equal(originalWalletAmount, "1234.555", "display formatting does not mutate the source amount");
+assert.equal(formatBinanceNativeQuantity("1.123456789012"), "1.12345679", "native quantities round to at most eight decimals");
+assert.equal(formatBinanceNativeQuantity("12.34000000"), "12.34", "native quantities trim trailing fractional zeroes");
+assert.equal(formatBinanceNativeQuantity("0.000000009"), "0.00000001", "quantity rounding keeps a small nonzero value visible");
+assert.equal(formatBinanceNativeQuantity("0.000000001"), "<0.00000001", "sub-precision positive quantity never appears as zero");
+assert.equal(formatBinanceNativeQuantity("-0.000000001"), ">-0.00000001", "sub-precision negative quantity keeps inequality direction");
 
 const points = [
   { observation_date: "2026-09-01", observed_finished_at: "2026-09-01T10:00:00Z", currency: "USD", net_assets: "10", total_cash: "1" },
@@ -43,6 +61,17 @@ assert.equal(geometry.dots.length, 3);
 assert.equal(geometry.segments.length, 1);
 assert.match(geometry.segments[0], /^M/);
 assert.equal(geometry.segments[0].includes(" L"), true);
+const walletPoints = [
+  { observation_date: "2026-09-28", observed_at: "2026-09-28T10:00:00Z", amount: "100.25" },
+  { observation_date: "2026-09-30", observed_at: "2026-09-30T10:00:00Z", amount: "125.75" },
+];
+const walletSingle = buildBinanceWalletHistoryChartGeometry([walletPoints[0]]);
+assert.equal(walletSingle.dots.length, 1, "one genuine Binance observation renders as one dot");
+assert.equal(walletSingle.segments.length, 0, "one wallet observation does not create a synthetic line");
+const walletGap = buildBinanceWalletHistoryChartGeometry(walletPoints);
+assert.equal(walletGap.dots.length, 2);
+assert.equal(walletGap.segments.length, 0, "missing UTC date keeps wallet observations disconnected");
+assert.deepEqual(filterAssetHistoryByRange(walletPoints, "all", now).map((row) => row.amount), ["100.25", "125.75"]);
 assert.equal(geometry.dots[2].date, "2026-09-04");
 assert.equal(geometry.dots[2].x > geometry.dots[1].x, true);
 assert.equal(geometry.segments[0].includes(geometry.dots[2].x.toFixed(2)), false, "missing history day must remain a line gap");
@@ -97,6 +126,9 @@ assert.equal(formatAccountFactAmounts([
   { currency: "JPY", available_cash: "0.00000001" },
   { currency: "EUR", available_cash: "12.5" },
 ], "available_cash"), "USD -0.00000001 · JPY 0.00000001 · EUR 12.5");
+assert.equal(hasNonzeroNegativeAccountFactAmount([{ available_cash: "-0.00000001" }], "available_cash"), true);
+assert.equal(hasNonzeroNegativeAccountFactAmount([{ available_cash: "-0.000" }], "available_cash"), false);
+assert.equal(hasNonzeroNegativeAccountFactAmount([{ available_cash: "-0.01" }], "cash_balance"), false);
 assert.equal(formatAccountFactAmounts([
   { currency: "USD", net_assets: "0" },
   { currency: "HKD", net_assets: "-0.000" },
@@ -229,6 +261,8 @@ assert.equal(formatOverviewInstant("2026-09-29T01:00:00.123Z", "zh", "America/Ne
 assert.doesNotMatch(formatOverviewInstant("2026-09-29T01:00:00.123Z", "zh", "America/New_York") || "", /\.\d{3}Z/);
 
 const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
+const apiSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/api.ts"), "utf8");
+const overviewStyles = readFileSync(join(root, "web/strategy-switch-console/frontend/src/styles.css"), "utf8");
 assert.match(overview, /historyEpoch/);
 assert.match(overview, /useState\("all"\)/);
 assert.match(overview, /const visible = accountId === "all" \? accounts : accounts\.filter/);
@@ -236,6 +270,30 @@ assert.match(overview, /const totalAssets = accountId === "all"/);
 assert.match(overview, /const totalCash = accountId === "all"/);
 assert.match(overview, /resolveOverviewChartAccount\(accounts, accountId, chartAccountId\)/);
 assert.match(overview, /loadAccountFactsHistory\(chartAccount\.platformKey, chartAccount\.accountKey, currency\)/);
+assert.match(overview, /loadBinanceWalletHistory\(chartAccount\.accountKey\)/);
+assert.match(overview, /buildBinanceWalletHistoryChartGeometry/);
+assert.match(overview, /钱包总资产变化（USDT）/);
+assert.match(overview, /按 Binance 返回的钱包范围/);
+assert.match(overview, /binanceFacts\?\.value\?\.report\?\.observed_finished_at/);
+const walletHistoryLoadStart = overview.indexOf("setHistory(null);\n    setWalletHistory(null);\n    setHistoryError(null);\n    setHistoryLoading(true);");
+const walletHistoryRequest = overview.indexOf("loadBinanceWalletHistory(chartAccount.accountKey)");
+assert.ok(walletHistoryLoadStart >= 0 && walletHistoryLoadStart < walletHistoryRequest,
+  "switching/refetching chart history clears the previous wallet points before awaiting new data");
+assert.match(apiSource, /\/api\/binance-account-facts\/history\?account_key=/);
+assert.doesNotMatch(overview, /walletHistory\.points[\s\S]{0,160}net_assets/,
+  "Binance wallet amounts stay separate from the account NAV field");
+assert.match(overview, /formatBinanceWalletAmount\(walletCardValuation\.amount\)/);
+assert.match(overview, /overview-figures-wallet/);
+assert.match(overview, /!walletCardValuation \? <span>[\s\S]{0,180}negativeCash/,
+  "negative-cash note only appears on a real cash field and never infers financing from wallet valuation");
+assert.match(overview, /title=\{item\.spot_free\} aria-label=\{item\.spot_free\}/);
+assert.match(overview, /selectedFacts\.binding_status === "bound" && selectedFacts\.identity_mismatch !== true/,
+  "top-level financing note requires a fresh, uniquely bound identity");
+assert.match(overview, /const verifiedFreshCashRows = account\.facts\?\.data_status === "fresh"[\s\S]{0,150}identity_mismatch !== true/);
+assert.match(overview, /融资状态待确认/);
+assert.match(overviewStyles, /\.overview-figures-wallet \{ grid-template-columns: minmax\(0, 1fr\); \}/);
+assert.match(overviewStyles, /\.wallet-card-valuation strong \{ white-space: nowrap; overflow-wrap: normal;/,
+  "wallet total gets a full-width non-wrapping amount instead of sharing a narrow cash column");
 assert.match(overview, /runtimeEpoch/);
 assert.match(overview, /runtimeBusinessDate/);
 assert.match(overview, /runtimeDailySelectionEligible/);
