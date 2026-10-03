@@ -92,6 +92,28 @@ export type BinancePrivateScopeAsset = {
   locked: string;
 };
 
+export type BinanceProviderProductType = {
+  value: "SPOT" | "unknown";
+  source: "GET /api/v3/account.accountType";
+  observed_at: string;
+};
+
+export function binanceProviderProductTypeForDisplay(
+  report: { provider_product_type?: BinanceProviderProductType } | null | undefined,
+  eligibleAccountReport: boolean,
+): BinanceProviderProductType | null {
+  const productType = report?.provider_product_type;
+  if (!eligibleAccountReport || productType?.value !== "SPOT"
+      || productType.source !== "GET /api/v3/account.accountType"
+      || typeof productType.observed_at !== "string"
+      || !Number.isFinite(Date.parse(productType.observed_at))) return null;
+  return {
+    value: "SPOT",
+    source: "GET /api/v3/account.accountType",
+    observed_at: productType.observed_at,
+  };
+}
+
 export type BinancePrivateScopeDisplay = {
   observed_at: string;
   assets: BinancePrivateScopeAsset[];

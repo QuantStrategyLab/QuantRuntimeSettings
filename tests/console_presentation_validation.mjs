@@ -29,6 +29,8 @@ for (const rejected of [
   { ...longBridgeFixture, balances: [...longBridgeFixture.balances, ...longBridgeFixture.balances] },
 ]) assert.equal(longBridgeCashDetails(rejected), null);
 assert.equal(activationFromProjection(monitored), "已启用");
+assert.equal(translate("API账户类型：现货", "en"), "API account type: Spot");
+assert.equal(translate("账户类型来源详情", "en"), "Account type source details");
 assert.equal(activationFromProjection({ ...monitored, activation: "disabled" }), "已停用");
 assert.equal(activationFromProjection({ configured_state: "disabled" }), "—");
 assert.equal(activationFromProjection(null), "—");

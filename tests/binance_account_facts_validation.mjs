@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import worker, { __test } from '../web/strategy-switch-console/worker.js';
 import { normalizeBinanceFactsBinding, normalizeBinanceAccountFacts, projectBinanceAccountFacts,
   BINANCE_FACTS_KEY, binanceWalletHistoryEntry, binanceWalletHistoryStorageKey } from '../web/strategy-switch-console/binance_account_facts.js';
+import { binanceProviderProductTypeForDisplay } from '../web/strategy-switch-console/frontend/src/types.ts';
 import { verifyBinanceAccountFactsReceiver } from '../scripts/verify_binance_account_facts_receiver.mjs';
 
 const require = createRequire(new URL('../web/strategy-switch-console/package.json', import.meta.url));
@@ -47,6 +48,35 @@ for (const text of [binding.account_selector, binding.account_scope_sha256, bind
   assert.equal(JSON.stringify(projection).includes(text), false);
 }
 assert.equal(Object.hasOwn(projection, 'wallet_valuation'), false, 'legacy reports remain valid without wallet valuation');
+const productType = {
+  value: 'SPOT', source: 'GET /api/v3/account.accountType', observed_at: report.spot_observed_at,
+};
+const productTypeReport = { ...report, provider_product_type: productType };
+assert.equal(normalizeBinanceAccountFacts(productTypeReport, binding, { now, ingest: true }), productTypeReport);
+assert.deepEqual(projectBinanceAccountFacts(productTypeReport, binding, { now }).provider_product_type, productType,
+  'the native product type is preserved only with its exact source and spot observation timestamp');
+const unknownProductTypeReport = { ...report, provider_product_type: { ...productType, value: 'unknown' } };
+const unknownProductTypeProjection = projectBinanceAccountFacts(unknownProductTypeReport, binding, { now });
+assert.equal(unknownProductTypeProjection.provider_product_type.value, 'unknown');
+assert.equal(binanceProviderProductTypeForDisplay(unknownProductTypeProjection, true), null,
+  'unknown remains unclassified in the UI');
+const invalidProductTypeReports = [
+  { ...productType, value: 'MARGIN' }, { ...productType, value: 'provider raw text' },
+  { ...productType, source: 'GET /api/v3/account' }, { ...productType, observed_at: time(-49_000) },
+  { ...productType, observed_at: '2026-02-30T00:00:00Z' }, { ...productType, extra: 'synthetic-private' },
+];
+for (const invalidProductType of invalidProductTypeReports) {
+  const invalidOptionalReport = { ...report, provider_product_type: invalidProductType };
+  const safelyProjected = projectBinanceAccountFacts(invalidOptionalReport, binding, { now });
+  assert.equal(safelyProjected.assets.length, report.assets.length,
+    'an invalid optional type never hides otherwise valid balances');
+  assert.equal(Object.hasOwn(safelyProjected, 'provider_product_type'), false,
+    'invalid optional type is safely omitted');
+  assert.equal(JSON.stringify(safelyProjected).includes('synthetic-private'), false,
+    'provider details are never copied raw into the public projection');
+}
+assert.equal(projectBinanceAccountFacts({ ...report, provider_product_type: { ...productType, observed_at: time(-61_000) } }, binding, { now }).provider_product_type, undefined,
+  'provider observation outside the validated report window is omitted');
 const walletValuation = {
   status: 'available', amount: '1234.5', currency: 'USDT',
   source: 'GET /sapi/v1/asset/wallet/balance', scope: 'provider_returned_wallet_rows',
@@ -93,6 +123,9 @@ for (const value of invalidWalletValuations) {
     'wallet valuation must match its exact closed contract');
 }
 assert.equal(projectBinanceAccountFacts(report, binding, { now: now + 37 * 3_600_000 }), null);
+assert.equal(binanceProviderProductTypeForDisplay(null, false), null, 'stale report does not display a provider type');
+assert.equal(binanceProviderProductTypeForDisplay(projectBinanceAccountFacts(productTypeReport, binding, { now }), false), null,
+  'an unbound, mismatched, or unmapped account report is hidden by the existing eligibility gate');
 const invalid = [
   { ...report, extra: true }, { ...report, platform: 'ibkr' }, { ...report, scope: 'all' },
   { ...report, snapshot_atomic: true }, { ...report, no_order: false }, { ...report, execution_authority_granted: true },
@@ -449,6 +482,39 @@ const nativeReadback = await get();
 assert.equal(nativeReadback.status, 200);
 assert.deepEqual((await nativeReadback.json()).report.assets.map(item => item.asset), projectedNativeAssets,
   'Worker POST→GET must retain native Unicode asset strings exactly');
+const typedReport = { ...nativeReport,
+  observed_started_at: time(-30_000), spot_observed_at: time(-20_000), earn_observed_at: time(-10_000),
+  observed_finished_at: time(0),
+  wallet_valuation: { ...walletValuation, observed_at: time(-5_000) },
+  provider_product_type: { ...productType, observed_at: time(-20_000) } };
+const typedPost = await post(typedReport);
+assert.equal(typedPost.status, 200, await typedPost.clone().text());
+const typedReadback = await get();
+const typedApiReport = (await typedReadback.json()).report;
+assert.deepEqual(typedApiReport.provider_product_type, typedReport.provider_product_type,
+  'Worker POST→GET retains a valid native product type');
+assert.equal(typedApiReport.wallet_valuation.status, 'available');
+assert.deepEqual(binanceProviderProductTypeForDisplay(typedApiReport, true), typedReport.provider_product_type,
+  'the actual projected API report displays SPOT even with wallet valuation available');
+assert.equal(binanceProviderProductTypeForDisplay(typedApiReport, false), null,
+  'an unmapped account does not display the type');
+const mismatchedOptions = { ...env, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ binance: [{
+  ...option, account_selector: 'synthetic-mismatched-selector',
+}] }) };
+const mismatchApiReport = (await (await get(mismatchedOptions)).json()).report;
+assert.equal(mismatchApiReport, null, 'a source-binding mismatch returns no public report');
+assert.equal(binanceProviderProductTypeForDisplay(mismatchApiReport, false), null,
+  'a mismatched account does not display the type');
+values.set(`${BINANCE_FACTS_KEY}:${binding.source_binding.id}`, JSON.stringify({ ...typedReport,
+  observed_started_at: time(-37 * 3_600_000 - 30_000), spot_observed_at: time(-37 * 3_600_000 - 20_000),
+  earn_observed_at: time(-37 * 3_600_000 - 10_000), observed_finished_at: time(-37 * 3_600_000),
+  provider_product_type: { ...productType, observed_at: time(-37 * 3_600_000 - 20_000) },
+  wallet_valuation: { ...walletValuation, observed_at: time(-37 * 3_600_000 - 5_000) },
+}));
+const staleApiReport = (await (await get()).json()).report;
+assert.equal(staleApiReport, null, 'stale source facts produce no public report');
+assert.equal(binanceProviderProductTypeForDisplay(staleApiReport, false), null,
+  'a stale account does not display the type');
 const writesBeforeFillerChecks = puts.length;
 for (const asset of ['\u115f', '\u1160', '\u3164', '\uffa0']) {
   const response = await post({ ...nativeReport, assets: [nativeAssetRow(asset)] });
@@ -458,6 +524,10 @@ assert.equal(puts.length, writesBeforeFillerChecks, 'rejected Hangul fillers mus
 const overviewSource = readFileSync(new URL('../web/strategy-switch-console/frontend/src/OverviewPage.tsx', import.meta.url), 'utf8');
 assert.match(overviewSource, /wallet\.assets\.map\([\s\S]*?<strong>\{item\.asset\}<\/strong>/,
   'overview wallet rows must render the native asset string without filtering');
+assert.match(overviewSource, /binanceProviderProductTypeForDisplay\([\s\S]*?showWallet && walletAccount\?\.id === account\.id/,
+  'overview product type requires the existing fresh and mapped-account eligibility gate');
+assert.match(overviewSource, /API账户类型：现货/,
+  'overview labels Spot only from the native provider type');
 console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
 await mf.dispose();
 rmSync(persist, { recursive: true, force: true });
