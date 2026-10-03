@@ -17,6 +17,7 @@ const DECIMAL = /^(?:0|[1-9]\d{0,29})(?:\.\d{1,30})?$/;
 const CANONICAL_DECIMAL = /^(?:0|[1-9]\d{0,29})(?:\.\d{0,29}[1-9])?(?![\s\S])/;
 const WALLET_VALUATION_SOURCE = "GET /sapi/v1/asset/wallet/balance";
 const WALLET_VALUATION_SCOPE = "provider_returned_wallet_rows";
+const PROVIDER_PRODUCT_TYPE_SOURCE = "GET /api/v3/account.accountType";
 const WALLET_VALUATION_FAILURES = new Set([
   "wallet_read_failed", "wallet_response_invalid", "wallet_row_invalid",
   "wallet_duplicate_name", "wallet_inactive_nonzero", "wallet_balance_invalid",
@@ -48,6 +49,23 @@ function units(text) {
   if (typeof text !== "string" || !DECIMAL.test(text)) fail("invalid_binance_account_facts_quantity");
   const [whole, fraction = ""] = text.split(".");
   return BigInt(whole + fraction.padEnd(30, "0"));
+}
+
+function safeProviderProductType(report, start, spot, finish) {
+  if (!Object.hasOwn(report, "provider_product_type")) return null;
+  try {
+    const value = report.provider_product_type;
+    exact(value, ["value", "source", "observed_at"]);
+    if (!(["SPOT", "unknown"].includes(value.value))
+        || value.source !== PROVIDER_PRODUCT_TYPE_SOURCE
+        || value.observed_at !== report.spot_observed_at) return null;
+    const observed = instant(value.observed_at);
+    if (observed < start || observed > finish || observed !== spot) return null;
+    return { value: value.value, source: PROVIDER_PRODUCT_TYPE_SOURCE, observed_at: value.observed_at };
+  } catch {
+    // This optional classification must not invalidate otherwise valid balances.
+    return null;
+  }
 }
 
 function validNativeAsset(value) {
@@ -100,7 +118,8 @@ export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), i
     "source_revision", "approved_application_revision", "observed_started_at", "observed_finished_at",
     "spot_observed_at", "earn_observed_at", "snapshot_atomic", "scope", "completeness", "assets",
     "uncovered_scopes", "no_order", "execution_authority_granted"].concat(
-      Object.hasOwn(raw || {}, "wallet_valuation") ? ["wallet_valuation"] : []));
+      Object.hasOwn(raw || {}, "wallet_valuation") ? ["wallet_valuation"] : [],
+      Object.hasOwn(raw || {}, "provider_product_type") ? ["provider_product_type"] : []));
   if (raw.schema_version !== BINANCE_FACTS_SCHEMA || raw.platform !== "binance"
       || raw.scope !== "spot+flexible_earn" || raw.completeness !== "complete_for_scope"
       || raw.snapshot_atomic !== false || raw.no_order !== true || raw.execution_authority_granted !== false) {
@@ -119,6 +138,7 @@ export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), i
       || finish > now + 60 * 1000 || (ingest && now - finish > 10 * 60 * 1000)) {
     fail("binance_account_facts_observation_invalid", 409);
   }
+  safeProviderProductType(raw, start, spot, finish);
   if (!Array.isArray(raw.uncovered_scopes) || raw.uncovered_scopes.length !== UNCOVERED.length
       || UNCOVERED.some((name, index) => raw.uncovered_scopes[index] !== name)) fail("invalid_binance_account_facts");
   if (Object.hasOwn(raw, "wallet_valuation")) {
@@ -165,10 +185,17 @@ export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), i
 export function projectBinanceAccountFacts(raw, binding, { now = Date.now() } = {}) {
   const report = normalizeBinanceAccountFacts(raw, binding, { now });
   if (now - instant(report.observed_finished_at) > BINANCE_FACTS_STALE_MS) return null;
+  const providerProductType = safeProviderProductType(
+    report,
+    instant(report.observed_started_at),
+    instant(report.spot_observed_at),
+    instant(report.observed_finished_at),
+  );
   return {
     platform: "binance", account_key: binding.account_key, scope: report.scope,
     observed_finished_at: report.observed_finished_at, snapshot_atomic: false,
     assets: report.assets.map(row => ({ ...row })), uncovered_scopes: [...UNCOVERED],
+    ...(providerProductType ? { provider_product_type: providerProductType } : {}),
     ...(Object.hasOwn(report, "wallet_valuation")
       ? { wallet_valuation: { ...report.wallet_valuation } }
       : {}),

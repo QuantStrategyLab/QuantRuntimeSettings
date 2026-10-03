@@ -33,6 +33,7 @@ import {
 import {
   accountFactsDetail,
   accountFactsUpdatedAt,
+  binanceProviderProductTypeForDisplay,
   formatAccountFactAmounts,
   hasNonzeroNegativeAccountFactAmount,
   longBridgeCashDetails,
@@ -569,6 +570,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             showWallet ? wallet : null,
             walletNow,
           );
+          const providerProductType = binanceProviderProductTypeForDisplay(
+            wallet,
+            showWallet && walletAccount?.id === account.id,
+          );
           const assets = walletCardValuation
             ? formatBinanceWalletAmount(walletCardValuation.amount)
             : formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
@@ -597,13 +602,16 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           );
           const accountTypeLabel = paperConfigured
             ? t("模拟账户")
-            : schwabType
+            : providerProductType
+              ? t("API账户类型：现货")
+              : schwabType
               ? `${t("账户类型")}: ${schwabType}`
               : t(overviewAccountTypeLabel());
           return <div key={account.id} className="overview-account-entry">
             <button type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
             <strong>{account.title}</strong>
             <small>{accountTypeLabel}</small>
+            {paperConfigured && providerProductType ? <small>{t("API账户类型：现货")}</small> : null}
             <small>{account.strategy}</small>
             {!walletCardValuation || accountId === "all" ? <span className={`overview-figures${walletCardValuation ? " overview-figures-wallet" : ""}`}>
               {walletCardValuation
@@ -635,6 +643,13 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
               valueLabel={t("原始估值")}
               timeLabel={t("完整观察时间")}
             /> : null}
+            {providerProductType ? <details className="overview-wallet-details">
+              <summary>{t("账户类型来源详情")}</summary>
+              <dl>
+                <div><dt>{t("原始接口")}</dt><dd>{providerProductType.source}</dd></div>
+                <div><dt>{t("完整观察时间")}</dt><dd><time dateTime={providerProductType.observed_at}>{formatInstant(providerProductType.observed_at) || providerProductType.observed_at}</time></dd></div>
+              </dl>
+            </details> : null}
             {longBridgeCash ? <details className="overview-wallet-details overview-cash-details">
               <summary>{t("现金详情")}</summary>
               <p>{t("完整观察时间")} <time dateTime={account.facts!.observed_finished_at!} title={account.facts!.observed_finished_at!}>{formatInstant(account.facts!.observed_finished_at!) || account.facts!.observed_finished_at}</time></p>
