@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 assert.equal(activationFromProjection(monitored), "已启用");
@@ -17,6 +17,19 @@ assert.equal(accountStatusView(null).label, "—");
 assert.deepEqual(accountStatusView({ configured_state: "disabled" }), { label: "—", detail: "暂未取得状态" });
 assert.deepEqual(accountStatusView({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), { label: "—", detail: "运行状态来源已过期" });
 assert.notEqual(activationFromProjection(monitored), "—");
+const waitingCycle = { ...monitored, health: "unknown", reason: "check_not_due" };
+assert.equal(overviewRuntimeStatusLabel(waitingCycle, "ready"), "等待周期");
+assert.equal(accountStatusView(waitingCycle, "ready").label, "—", "the label does not promote unknown health to normal");
+for (const freshness of [undefined, null, "stale", "unavailable"]) {
+  assert.equal(overviewRuntimeStatusLabel(waitingCycle, freshness), "待确认");
+}
+for (const override of [{ activation: "unknown" }, { activation: "disabled" }, { reason: "evidence_insufficient" }, { scope: "invalid" }, { limit: "invalid" }]) {
+  assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, ...override }, "ready"), "待确认");
+}
+assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, health: "abnormal", reason: "retained_attention" }, "ready"), "异常");
+assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "监测正常");
+assert.equal(overviewRuntimeStatusLabel({ ...monitored, activation: "disabled" }, "ready"), "已停用");
+
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk", label: "港股账户" }] }, "longbridge", "hk"), "港股账户");
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk" }] }, "longbridge", "hk"), "");
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", label: "甲" }, { key: "other", target_name: "hk", label: "乙" }] }, "longbridge", "hk"), "");
