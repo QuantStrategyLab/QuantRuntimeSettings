@@ -964,7 +964,8 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   assert.match(overviewSource, /walletValuation \? <div className="overview-wallet-valuation"/);
   assert.match(overviewSource, /wallet\.assets\.map/);
   assert.match(overviewSource, /t\("按 Binance 返回的钱包范围"\)/);
-  assert.match(overviewSource, /t\(walletCardValuation \? "钱包总资产" : "账户资产"\)/);
+  assert.match(overviewSource, /walletCardValuation\s*\?\s*<span className="wallet-card-valuation">\s*<em>\{t\("钱包总资产"\)\}/);
+  assert.match(overviewSource, /:\s*<span><em>\{t\("账户资产"\)\}<\/em>\{amountOrDash\(assets\)\}/);
   assert.match(overviewSource, /cashLabelForPlatform\(account\.platformKey\).*amountOrDash\(cash\)/);
   assert.match(overviewSource, /formatInstant\(walletCardValuation\.observed_at\)/);
   assert.match(overviewSource, /formatAccountFactAmounts\(account\.facts\?\.data_status === "fresh" \? account\.facts\.balances : null, "net_assets"\)/);
