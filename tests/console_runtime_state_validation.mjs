@@ -27,6 +27,7 @@ import {
   presentBinancePrivateScope,
   presentBinanceWalletValuation,
   presentBinanceWalletValuationForAccount,
+  formatOverviewShortInstant,
   scheduleBinancePrivateScopeExpiry,
   safeActionVisibility,
   strategyDisplayName,
@@ -961,13 +962,22 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   ];
   for (const report of rejected) assert.equal(presentBinanceWalletValuation(report, now), null);
   assert.match(overviewSource, /presentBinanceWalletValuation\(wallet, walletNow\)/);
-  assert.match(overviewSource, /walletValuation \? <div className="overview-wallet-valuation"/);
+  assert.match(overviewSource, /showWallet && !walletValuation \? <section id="binance-account-facts-board"/,
+    "the native-quantity facts board remains available when no qualified wallet valuation exists");
+  assert.match(overviewSource, /const selectedWalletValuation = selectedAccount\?\.platformKey === "binance"/);
+  assert.match(overviewSource, /showSelectedCashMetric = !selectedWalletValuation \|\| totalCash !== null/);
+  assert.match(overviewSource, /selectedWalletValuation\s*\?\s*formatBinanceWalletAmount\(selectedWalletValuation\.amount\)/);
+  assert.match(overviewSource, /<\/button>\s*\{walletCardValuation \? <BinanceWalletDetails/,
+    "wallet detail controls are outside the account-selection button");
+  assert.match(overviewSource, /formatShortInstant\(walletCardValuation\.observed_at\)/);
+  assert.match(overviewSource, /walletCardValuation\.amount[\s\S]{0,300}observedAt=\{walletCardValuation\.observed_at\}/);
+  assert.match(overviewSource, /function BinanceQuantity[\s\S]{0,500}aria-label=\{`\$\{display\}; \$\{originalLabel\} \$\{amount\}`\}/);
   assert.match(overviewSource, /wallet\.assets\.map/);
   assert.match(overviewSource, /t\("按 Binance 返回的钱包范围"\)/);
   assert.match(overviewSource, /walletCardValuation\s*\?\s*<span className="wallet-card-valuation">\s*<em>\{t\("钱包总资产"\)\}/);
   assert.match(overviewSource, /:\s*<span><em>\{t\("账户资产"\)\}<\/em>\{amountOrDash\(assets\)\}/);
   assert.match(overviewSource, /cashLabelForPlatform\(account\.platformKey\).*amountOrDash\(cash\)/);
-  assert.match(overviewSource, /formatInstant\(walletCardValuation\.observed_at\)/);
+  assert.match(overviewSource, /formatOverviewShortInstant/);
   assert.match(overviewSource, /formatAccountFactAmounts\(account\.facts\?\.data_status === "fresh" \? account\.facts\.balances : null, "net_assets"\)/);
 });
 
@@ -1030,6 +1040,10 @@ test("Binance private scope expires without interaction and cancels timers on re
   assert.match(overviewSource, /scheduleBinancePrivateScopeExpiry\(walletValuation\?\.observed_at/);
   assert.match(overviewSource, /cancelReportExpiry\(\);\s*cancelValuationExpiry\(\);/);
   assert.match(overviewSource, /\[wallet\?\.observed_finished_at, walletValuation\?\.observed_at\]/);
+  const shortTime = formatOverviewShortInstant("2026-09-29T01:00:00Z", "en", "America/New_York");
+  assert.match(shortTime || "", /09\/28/);
+  assert.match(shortTime || "", /21:00/);
+  assert.doesNotMatch(shortTime || "", /2026|America\/New_York/);
 
   const scheduleWalletTimers = (reportAt, valuationAt, callback) => {
     const cancelReport = scheduleBinancePrivateScopeExpiry(reportAt, callback, baseNow, fakeTimers, 36 * 60 * 60_000);

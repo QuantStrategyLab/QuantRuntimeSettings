@@ -851,6 +851,16 @@ export function formatOverviewInstant(value: string | null | undefined, language
   return formatLocalChangeTime(ms, language, timeZone);
 }
 
+export function formatOverviewShortInstant(value: string | null | undefined, language: "zh" | "en", timeZone = RUNTIME_DAILY_TIMEZONE): string | null {
+  if (typeof value !== "string" || !value) return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Intl.DateTimeFormat(language === "zh" ? "zh-CN" : "en-US", {
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+    timeZone, timeZoneName: "short",
+  }).format(new Date(ms));
+}
+
 /** Fallback for accounts without fresh, validated native broker-type data. */
 export function overviewAccountTypeLabel(): "账户类型待确认" {
   return "账户类型待确认";
