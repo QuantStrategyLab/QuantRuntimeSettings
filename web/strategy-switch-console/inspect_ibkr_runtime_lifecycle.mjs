@@ -166,14 +166,16 @@ async function readLimited(response, limitBytes) {
 
 export async function readRemoteLifecycleData(env, fetchImpl = fetch, now = Date.now) {
   const token = String(env.CLOUDFLARE_API_TOKEN || "");
-  const accountId = String(env.CLOUDFLARE_ACCOUNT_ID || "");
+  const explicitAccountId = String(env.CLOUDFLARE_ACCOUNT_ID || "");
   const namespaceId = String(env.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || "");
-  if (!token || !accountId || !namespaceId) throw new LifecycleReadError("credentials_missing");
-  const root = `${API_ORIGIN}/accounts/${encodeURIComponent(accountId)}`
-    + `/storage/kv/namespaces/${encodeURIComponent(namespaceId)}`;
+  if (!token || !namespaceId) throw new LifecycleReadError("credentials_missing");
   const headers = { Authorization: `Bearer ${token}` };
   const deadline = now() + TOTAL_TIMEOUT_MS;
   const get = async (url, maxBytes) => {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.origin !== "https://api.cloudflare.com" || !parsedUrl.pathname.startsWith("/client/v4/")) {
+      throw new LifecycleReadError("read_failed");
+    }
     const remaining = deadline - now();
     if (remaining <= 0) throw new LifecycleReadError("timeout");
     const signal = AbortSignal.timeout(Math.min(TIMEOUT_MS, remaining));
@@ -190,6 +192,23 @@ export async function readRemoteLifecycleData(env, fetchImpl = fetch, now = Date
   const parseJson = (text, code) => {
     try { return JSON.parse(text); } catch { throw new LifecycleReadError(code); }
   };
+  let accountId = explicitAccountId;
+  if (accountId) {
+    if (!/^[a-f0-9]{32}$/i.test(accountId)) throw new LifecycleReadError("configuration_invalid");
+  } else {
+    const listing = parseJson(await get(`${API_ORIGIN}/accounts?page=1&per_page=5`, MAX_LIST_BYTES), "account_context_unavailable");
+    const info = listing?.result_info;
+    const resolved = listing?.result?.[0]?.id;
+    if (listing?.success !== true || !Array.isArray(listing.result) || listing.result.length !== 1
+        || info?.page !== 1 || info?.count !== 1 || info?.total_count !== 1
+        || typeof info?.per_page !== "number" || info.per_page < 1
+        || typeof resolved !== "string" || !/^[a-f0-9]{32}$/i.test(resolved)) {
+      throw new LifecycleReadError("account_context_unavailable");
+    }
+    accountId = resolved;
+  }
+  const root = `${API_ORIGIN}/accounts/${encodeURIComponent(accountId)}`
+    + `/storage/kv/namespaces/${encodeURIComponent(namespaceId)}`;
   const getConfig = async (key) => parseJson(
     await get(`${root}/values/${encodeURIComponent(key)}`, MAX_CONFIG_BYTES),
     "configuration_invalid",
@@ -232,7 +251,7 @@ export async function main(argv, {
     write(summaryLine(result));
     return result.ok ? 0 : 1;
   } catch (error) {
-    const reason = ["credentials_missing", "configuration_invalid", "timeout"].includes(error?.code)
+    const reason = ["credentials_missing", "configuration_invalid", "account_context_unavailable", "timeout"].includes(error?.code)
       ? error.code : "read_failed";
     write(`status=blocked reason=${reason} ttl_source=default_unconfirmed configuration_scope=legacy_kv_unconfirmed freshness_scope=lifecycle\n`);
     return 1;

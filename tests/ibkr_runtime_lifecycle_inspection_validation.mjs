@@ -150,7 +150,7 @@ assert.match(readFileSync(`${root}/web/strategy-switch-console/inspect_ibkr_runt
 
 const env = {
   CLOUDFLARE_API_TOKEN: "synthetic-token",
-  CLOUDFLARE_ACCOUNT_ID: "synthetic-account",
+  CLOUDFLARE_ACCOUNT_ID: "a".repeat(32),
   STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-namespace",
 };
 const optionsBody = JSON.stringify(options());
@@ -174,6 +174,63 @@ assert.equal(urlCalls.length, 4);
 assert.deepEqual(remoteData.options, options());
 assert.deepEqual(remoteData.bindings, bindingPayload());
 assert.deepEqual(remoteData.sources, [{ key: sourceKey, value: sourceBody }]);
+assert.ok(urlCalls.every((url) => !url.includes("/accounts?page=")));
+
+const discoveredAccountId = "b".repeat(32);
+const accountListing = (overrides = {}) => JSON.stringify({
+  success: true,
+  result: [{ id: discoveredAccountId, name: "synthetic-account-name" }],
+  result_info: { page: 1, per_page: 5, count: 1, total_count: 1 },
+  ...overrides,
+});
+const noAccountIdEnv = { ...env };
+delete noAccountIdEnv.CLOUDFLARE_ACCOUNT_ID;
+const discoveryCalls = [];
+const discoveredData = await readRemoteLifecycleData(noAccountIdEnv, async (url, init) => {
+  discoveryCalls.push(String(url));
+  assert.equal(init.method, "GET");
+  assert.equal(init.redirect, "error");
+  if (String(url).endsWith("/accounts?page=1&per_page=5")) return new Response(accountListing(), { status: 200 });
+  if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
+  if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
+  if (String(url).includes("/keys?")) return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  return new Response(sourceBody, { status: 200 });
+});
+assert.equal(discoveryCalls.length, 5);
+assert.match(discoveryCalls[0], /\/accounts\?page=1&per_page=5$/);
+assert.ok(discoveryCalls[1].includes(`/accounts/${discoveredAccountId}/`));
+assert.deepEqual(discoveredData.sources, [{ key: sourceKey, value: sourceBody }]);
+
+for (const malformedListing of [
+  { success: true, result: [], result_info: { page: 1, per_page: 5, count: 0, total_count: 0 } },
+  { success: true, result: [{ id: discoveredAccountId }, { id: "c".repeat(32) }], result_info: { page: 1, per_page: 5, count: 2, total_count: 2 } },
+  { success: true, result: [{ id: discoveredAccountId }], result_info: { page: "1", per_page: 5, count: 1, total_count: 1 } },
+  { success: true, result: [{ id: discoveredAccountId }], result_info: { page: 1, per_page: 5, count: "1", total_count: 1 } },
+  { success: true, result: [{ id: discoveredAccountId }], result_info: { page: 1, per_page: 5, count: 1, total_count: "1" } },
+  { success: true, result: [{ id: discoveredAccountId }], result_info: { per_page: 5, count: 1, total_count: 1 } },
+  { success: true, result: [{ id: "invalid-id" }], result_info: { page: 1, per_page: 5, count: 1, total_count: 1 } },
+]) {
+  let calls = 0;
+  await assert.rejects(() => readRemoteLifecycleData(noAccountIdEnv, async () => {
+    calls += 1;
+    return new Response(accountListing(malformedListing), { status: 200 });
+  }), (error) => error.code === "account_context_unavailable");
+  assert.equal(calls, 1);
+}
+let deniedAccountListCalls = 0;
+await assert.rejects(() => readRemoteLifecycleData(noAccountIdEnv, async () => {
+  deniedAccountListCalls += 1;
+  return new Response("private account list response", { status: 403 });
+}), (error) => error.code === "read_failed");
+assert.equal(deniedAccountListCalls, 1);
+for (const invalidId of ["synthetic-account", ` ${"d".repeat(32)}`, `${"e".repeat(32)} `]) {
+  let calls = 0;
+  await assert.rejects(() => readRemoteLifecycleData({ ...env, CLOUDFLARE_ACCOUNT_ID: invalidId }, async () => {
+    calls += 1;
+    throw new Error("invalid explicit account id must not discover");
+  }), (error) => error.code === "configuration_invalid");
+  assert.equal(calls, 0);
+}
 
 await assert.rejects(() => readRemoteLifecycleData(env, async () => { throw new Error("private URL and token"); }));
 await assert.rejects(() => readRemoteLifecycleData(env, async () => new Response("private response body", { status: 403 })));
@@ -230,9 +287,9 @@ await assert.rejects(() => readRemoteLifecycleData({ ...env, CLOUDFLARE_API_TOKE
   throw new Error("must not call fetch");
 }));
 
-async function runMain(fetchImpl, nowFn = Date.now, argv = []) {
+async function runMain(fetchImpl, nowFn = Date.now, argv = [], envOverride = env) {
   let output = "";
-  const status = await main(argv, { env, fetchImpl, now: nowFn, write: (text) => { output += text; } });
+  const status = await main(argv, { env: envOverride, fetchImpl, now: nowFn, write: (text) => { output += text; } });
   return { status, output };
 }
 let failureReads = 0;
@@ -258,6 +315,22 @@ const successOutput = await runMain(async (url, init) => {
 });
 assert.equal(successOutput.status, 0);
 assert.equal(successOutput.output, "status=ok mapping=unique aggregate_target_matches=1 raw_source_target_matches=1 source_freshness=ready deployment_present=true deployment_observed_at_present=true deployment_freshness=ready account_state_reason=monitoring_agrees ttl_source=default_unconfirmed configuration_scope=legacy_kv_unconfirmed freshness_scope=lifecycle\n");
+const discoveryFailureOutput = await runMain(async () => new Response(
+  "private-account-name private-account-id private response", { status: 403 },
+), Date.now, [], noAccountIdEnv);
+assert.equal(discoveryFailureOutput.status, 1);
+assert.equal(discoveryFailureOutput.output, "status=blocked reason=read_failed ttl_source=default_unconfirmed configuration_scope=legacy_kv_unconfirmed freshness_scope=lifecycle\n");
+assert.doesNotMatch(discoveryFailureOutput.output, /private-account|synthetic-account|Bearer|token/i);
+const discoverySuccessOutput = await runMain(async (url) => {
+  if (String(url).endsWith("/accounts?page=1&per_page=5")) return new Response(accountListing(), { status: 200 });
+  if (String(url).endsWith("/values/account_options")) return new Response(optionsBody, { status: 200 });
+  if (String(url).endsWith("/values/account_facts_bindings")) return new Response(bindingsBody, { status: 200 });
+  if (String(url).includes("/keys?")) return new Response(JSON.stringify({ success: true, result: [{ name: sourceKey }] }), { status: 200 });
+  return new Response(sourceBody, { status: 200 });
+}, Date.now, [], noAccountIdEnv);
+assert.equal(discoverySuccessOutput.status, 0);
+assert.equal(discoverySuccessOutput.output, successOutput.output);
+assert.doesNotMatch(discoverySuccessOutput.output, new RegExp(`${discoveredAccountId}|synthetic-account-name`));
 const invalidArgOutput = await runMain(async () => { throw new Error("network must not be called"); }, Date.now, ["private-argument"]);
 assert.equal(invalidArgOutput.status, 1);
 assert.equal(invalidArgOutput.output, "status=blocked reason=configuration_invalid ttl_source=default_unconfirmed configuration_scope=legacy_kv_unconfirmed freshness_scope=lifecycle\n");
@@ -339,7 +412,7 @@ printf '%s\\n' 'status=ok mapping=unique aggregate_target_matches=1 raw_source_t
     ...process.env, PATH: `${bin}:${process.env.PATH}`, HOME: home,
     RUNNER_TEMP: work, BINDING_PLATFORM: "ibkr", INSPECT_IBKR_BINDINGS: "false",
     INSPECT_IBKR_LIFECYCLE: "true", INITIALIZE_IBKR_BINDINGS: "false", APPLY_INITIAL_IBKR_BINDINGS: "false",
-    CLOUDFLARE_API_TOKEN: "synthetic-token", CLOUDFLARE_ACCOUNT_ID: "synthetic-account",
+    CLOUDFLARE_API_TOKEN: "synthetic-token", CLOUDFLARE_ACCOUNT_ID: "",
     STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-namespace",
     CLOUDFLARE_WRANGLER_CONFIG_TOML: "private-wrangler-config-marker", MOCK_TRACE: tracePath,
   };
