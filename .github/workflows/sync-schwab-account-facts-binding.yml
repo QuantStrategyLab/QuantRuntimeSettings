@@ -16,6 +16,11 @@ on:
         type: boolean
         required: true
         default: false
+      inspect_ibkr_lifecycle:
+        description: Read a bounded lifecycle status projection for the fixed IBKR logic target without writing
+        type: boolean
+        required: true
+        default: false
       initialize_ibkr_bindings:
         description: Validate the three protected IBKR binding requests; preview unless apply_initial_ibkr_bindings is true
         type: boolean
@@ -42,15 +47,16 @@ jobs:
     timeout-minutes: 10
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML }}
+      CLOUDFLARE_WRANGLER_CONFIG_TOML: ${{ !inputs.inspect_ibkr_lifecycle && secrets.CLOUDFLARE_WRANGLER_CONFIG_TOML || '' }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
-      SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'schwab' && !inputs.inspect_ibkr_bindings && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
-      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.inspect_ibkr_bindings && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
-      LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'longbridge' && !inputs.inspect_ibkr_bindings && !inputs.initialize_ibkr_bindings && secrets.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
-      IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.platform == 'ibkr' && inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
+      SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'schwab' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
+      IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
+      LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'longbridge' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
+      IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.platform == 'ibkr' && inputs.initialize_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
       BINDING_PLATFORM: ${{ inputs.platform || 'schwab' }}
       INSPECT_IBKR_BINDINGS: ${{ inputs.inspect_ibkr_bindings }}
+      INSPECT_IBKR_LIFECYCLE: ${{ inputs.inspect_ibkr_lifecycle }}
       INITIALIZE_IBKR_BINDINGS: ${{ inputs.initialize_ibkr_bindings }}
       APPLY_INITIAL_IBKR_BINDINGS: ${{ inputs.apply_initial_ibkr_bindings }}
     steps:
@@ -66,6 +72,17 @@ jobs:
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
+          if [ "$INSPECT_IBKR_LIFECYCLE" = "true" ]; then
+            if [ "$BINDING_PLATFORM" != "ibkr" ] || [ "$INSPECT_IBKR_BINDINGS" = "true" ] || [ "$INITIALIZE_IBKR_BINDINGS" = "true" ] || [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ]; then
+              echo "status=blocked reason=inspection_mode_invalid"
+              exit 1
+            fi
+            if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ] || [ -z "${STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:-}" ]; then
+              echo "status=blocked reason=cloudflare_credentials_missing"
+              exit 1
+            fi
+            exit 0
+          fi
           if [ "$INSPECT_IBKR_BINDINGS" = "true" ] && [ "$BINDING_PLATFORM" != "ibkr" ]; then
             echo "status=blocked reason=inspection_platform_invalid"
             exit 1
@@ -103,15 +120,19 @@ jobs:
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
+          if [ "$INSPECT_IBKR_LIFECYCLE" = "true" ]; then
+            node ./inspect_ibkr_runtime_lifecycle.mjs
+            exit $?
+          fi
           umask 077
           temp_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/schwab-binding.XXXXXX")"
           chmod 700 "$temp_dir"
           cleanup() { rm -rf -- "$temp_dir"; }
           trap cleanup EXIT
 
-          if { [ "$BINDING_PLATFORM" = "schwab" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
-            || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; } \
-            || { [ "$BINDING_PLATFORM" = "longbridge" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
+          if { [ "$BINDING_PLATFORM" = "schwab" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
+            || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; } \
+            || { [ "$BINDING_PLATFORM" = "longbridge" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
             echo "status=blocked reason=binding_secret_missing"
             exit 1
           fi

@@ -215,8 +215,8 @@ const inspectorWorkflowGate = workflow.slice(
   workflow.indexOf("if ! node --input-type=module -", workflow.indexOf("account_facts_bindings_read_failed")),
 );
 assert.match(workflow, /inspect_ibkr_bindings:[\s\S]*?default: false/);
-assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.inspect_ibkr_bindings && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
-assert.match(workflow, /LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'longbridge' && !inputs\.inspect_ibkr_bindings && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'longbridge' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /SCHWAB_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.platform == 'schwab' && !inputs\.inspect_ibkr_bindings/);
 assert.match(workflow, /- longbridge/);
 assert.match(workflow, /inspection_platform_invalid/);
@@ -268,6 +268,7 @@ esac
       RUNNER_TEMP: syncTemp,
       BINDING_PLATFORM: "ibkr",
       INSPECT_IBKR_BINDINGS: "true",
+      INSPECT_IBKR_LIFECYCLE: "false",
       INITIALIZE_IBKR_BINDINGS: "false",
       APPLY_INITIAL_IBKR_BINDINGS: "false",
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-namespace",
@@ -291,7 +292,7 @@ esac
 
 assert.match(workflow, /initialize_ibkr_bindings:[\s\S]*?default: false/);
 assert.match(workflow, /apply_initial_ibkr_bindings:[\s\S]*?default: false/);
-assert.match(workflow, /IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: \$\{\{ inputs\.platform == 'ibkr' && inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON \|\| '' \}\}/);
+assert.match(workflow, /IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: \$\{\{ inputs\.platform == 'ibkr' && inputs\.initialize_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && secrets\.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON \|\| '' \}\}/);
 assert.match(workflow, /initialization_mode_required/);
 assert.match(workflow, /initialization_mode_invalid/);
 assert.ok(workflow.indexOf("node ./prepare_ibkr_account_facts_bindings.mjs")
@@ -308,6 +309,7 @@ for (const invalidMode of [
     env: {
       ...process.env,
       INSPECT_IBKR_BINDINGS: invalidMode.inspect,
+      INSPECT_IBKR_LIFECYCLE: "false",
       INITIALIZE_IBKR_BINDINGS: invalidMode.initialize,
       APPLY_INITIAL_IBKR_BINDINGS: invalidMode.apply,
       BINDING_PLATFORM: invalidMode.platform,
@@ -365,6 +367,7 @@ esac
         RUNNER_TEMP: temp,
         BINDING_PLATFORM: "ibkr",
         INSPECT_IBKR_BINDINGS: "false",
+        INSPECT_IBKR_LIFECYCLE: "false",
         INITIALIZE_IBKR_BINDINGS: "true",
         APPLY_INITIAL_IBKR_BINDINGS: String(apply),
         IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: JSON.stringify(requests),
