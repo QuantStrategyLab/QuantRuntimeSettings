@@ -11,6 +11,9 @@ assert.ok(runtimeInstallIndex >= 0 && walletHistoryTestIndex > runtimeInstallInd
 const syncIndex = workflow.indexOf("- name: Sync optional Binance account-facts credentials");
 const verifyIndex = workflow.indexOf("- name: Verify optional Binance account-facts receiver credentials");
 assert.ok(syncIndex >= 0 && verifyIndex > syncIndex);
+assert.match(workflow, /BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: \$\{\{ secrets\.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON \|\| '\[\]' \}\}/);
+assert.match(workflow.slice(syncIndex, syncIndex + 900), /secret put BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON/);
+assert.match(workflow, /assertBinanceFactsHistoryBindings/);
 assert.match(workflow.slice(verifyIndex, verifyIndex + 320), /if: env\.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''/);
 assert.match(workflow.slice(verifyIndex, verifyIndex + 320), /scripts\/verify_binance_account_facts_receiver\.mjs/);
 assert.match(manualWorkflow, /workflow_dispatch:/);

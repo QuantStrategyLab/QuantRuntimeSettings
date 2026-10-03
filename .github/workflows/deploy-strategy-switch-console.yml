@@ -59,6 +59,7 @@ jobs:
       SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN }}
       BINANCE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN }}
       BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON }}
+      BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || '[]' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -109,8 +110,13 @@ jobs:
         run: |
           set -euo pipefail
           node --input-type=module <<'JS'
-          import { normalizeBinanceFactsBinding, assertBinanceFactsSourceBinding } from './binance_account_facts.js';
-          try { await assertBinanceFactsSourceBinding(normalizeBinanceFactsBinding(JSON.parse(process.env.BINANCE_ACCOUNT_FACTS_BINDING_JSON))); }
+          import { normalizeBinanceFactsBinding, assertBinanceFactsSourceBinding, assertBinanceFactsHistoryBindings } from './binance_account_facts.js';
+          try {
+            const binding = normalizeBinanceFactsBinding(JSON.parse(process.env.BINANCE_ACCOUNT_FACTS_BINDING_JSON));
+            await assertBinanceFactsSourceBinding(binding);
+            const history = process.env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || '[]';
+            await assertBinanceFactsHistoryBindings(JSON.parse(history), binding);
+          }
           catch { console.error('binance_account_facts_binding_invalid'); process.exit(1); }
           JS
 
@@ -147,8 +153,11 @@ jobs:
           schwab_account_facts_token = os.environ.get("SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN", "")
           binance_account_facts_token = os.environ.get("BINANCE_ACCOUNT_FACTS_SYNC_TOKEN", "")
           binance_account_facts_binding = os.environ.get("BINANCE_ACCOUNT_FACTS_BINDING_JSON", "")
+          binance_account_facts_history = os.environ.get("BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", "") or "[]"
           if bool(binance_account_facts_token) != bool(binance_account_facts_binding):
               raise SystemExit("Binance account-facts token and binding must be configured together.")
+          if binance_account_facts_history != "[]" and not binance_account_facts_binding:
+              raise SystemExit("Binance account-facts history bindings require a current binding.")
           if binance_account_facts_token and (
               binance_account_facts_token != binance_account_facts_token.strip()
               or any(ord(c) < 0x20 or ord(c) == 0x7f for c in binance_account_facts_token)
@@ -402,6 +411,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$BINANCE_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
           printf '%s' "$BINANCE_ACCOUNT_FACTS_BINDING_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_BINDING_JSON --config wrangler.toml
+          printf '%s' "$BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON --config wrangler.toml
 
       - name: Verify optional Binance account-facts receiver credentials
         if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''

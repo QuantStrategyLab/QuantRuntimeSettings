@@ -226,6 +226,21 @@ async function putHistoryEntry(history, entryBinding = binding) {
   });
   return { status: response.status, body: await response.json() };
 }
+async function readRawHistoryBucket(entryBinding) {
+  const response = await runtimeStub.fetch('https://runtime-instances/', {
+    method: 'POST',
+    body: JSON.stringify({
+      action: 'binance_wallet_history_read',
+      account_key: entryBinding.account_key,
+      storage_account_key: binanceWalletHistoryStorageKey(entryBinding),
+      target_id: entryBinding.target_id,
+      account_scope: entryBinding.account_scope,
+      source_binding_id: entryBinding.source_binding.id,
+    }),
+  });
+  assert.equal(response.status, 200);
+  return (await response.json()).days;
+}
 assert.equal((await get(env, false)).status, 401);
 assert.equal((await post({}, env, 'another-purpose-token')).status, 401);
 assert.equal((await readiness(env, 'another-purpose-token')).status, 401);
@@ -409,8 +424,47 @@ rotatedBinding.source_binding.id = createHash('sha256').update(JSON.stringify({
 const rotatedView = await getWalletHistory({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding) });
 assert.deepEqual((await rotatedView.json()).points, [], 'current source version does not join prior-version observations');
 await putHistoryEntry(dailyEntry('2026-10-01', '140', '10:01:00', rotatedBinding), rotatedBinding);
+await putHistoryEntry(dailyEntry('2026-09-30', null, '10:02:00', rotatedBinding), rotatedBinding);
+await putHistoryEntry(dailyEntry('2026-09-29', null, '10:01:00', rotatedBinding), rotatedBinding);
+await putHistoryEntry(dailyEntry('2025-09-30', '1', '10:01:00', rotatedBinding), rotatedBinding);
 const rotatedHistory = await (await getWalletHistory({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding) })).json();
 assert.deepEqual(rotatedHistory.points.map((point) => point.observation_date), ['2026-10-01']);
+assert.ok(!rotatedHistory.points.some((point) => point.observation_date === '2025-09-30'),
+  'merged history retains at most the latest 366 calendar days');
+const historyEnabledEnv = {
+  ...env,
+  BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding),
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([binding]),
+};
+const oldBucketBeforeProjection = JSON.stringify(await readRawHistoryBucket(binding));
+const continuousHistory = await (await getWalletHistory(historyEnabledEnv)).json();
+assert.deepEqual(continuousHistory.points.map((point) => point.observation_date),
+  ['2026-09-28', '2026-10-01', new Date(Date.parse(freshWalletReport.wallet_valuation.observed_at)).toISOString().slice(0, 10)]);
+assert.ok(continuousHistory.gap_dates.includes('2026-09-30'),
+  'the newest cross-source daily row wins even when it is an explicit gap');
+assert.ok(continuousHistory.gap_dates.includes('2026-09-29'),
+  'identical observations from two trusted source partitions deduplicate');
+assert.equal(continuousHistory.points[1].break_before, true,
+  'an authorized reader transition is explicit so chart rendering does not connect versions');
+assert.equal(JSON.stringify(continuousHistory).includes(binding.source_binding.id), false,
+  'history source identifiers are never returned publicly');
+assert.equal(JSON.stringify(await readRawHistoryBucket(binding)), oldBucketBeforeProjection,
+  'multi-source projection leaves original stored history rows unchanged');
+assert.equal((await post(report, { ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify(rotatedBinding) })).status, 409,
+  'old reader reports remain invalid for current POST even when history continuity is enabled');
+await putHistoryEntry(dailyEntry('2026-09-28', '101', '10:01:00', rotatedBinding), rotatedBinding);
+assert.equal((await getWalletHistory(historyEnabledEnv)).status, 409,
+  'same-time cross-source rows with different values fail closed');
+const invalidHistoryBinding = { ...binding, account_key: 'another-synthetic-account' };
+assert.equal((await getWalletHistory({ ...historyEnabledEnv,
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([invalidHistoryBinding]) })).status, 503,
+'history whitelist rejects an old source whose account identity differs');
+assert.equal((await getWalletHistory({ ...historyEnabledEnv,
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify(Array(17).fill(binding)) })).status, 503,
+'history whitelist has a fixed source count cap');
+assert.equal((await getWalletHistory({ ...historyEnabledEnv,
+  BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: JSON.stringify([binding, binding]) })).status, 503,
+'history whitelist rejects duplicate source ids');
 assert.ok((await (await getWalletHistory()).json()).points.some((point) => point.observation_date === '2026-09-30'),
   'prior source history remains stored and readable only with its original binding');
 const mismatchedOption = { ...option, account_selector: 'synthetic-other-selector' };

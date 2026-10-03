@@ -313,8 +313,8 @@ export type AssetChartGeometry = {
   maxLabel: string | null;
 };
 
-function buildChartValueGeometry(points: Array<{ observation_date: string; amount: string }>, width = 640, height = 220): AssetChartGeometry {
-  const usable: Array<{ observation_date: string; amount: string; value: number; day: number }> = [];
+function buildChartValueGeometry(points: Array<{ observation_date: string; amount: string; break_before?: boolean }>, width = 640, height = 220): AssetChartGeometry {
+  const usable: Array<{ observation_date: string; amount: string; value: number; day: number; break_before?: boolean }> = [];
   for (const point of points) {
     const value = parseMoneyForChart(point.amount);
     const day = utcDayMs(point.observation_date);
@@ -353,7 +353,7 @@ function buildChartValueGeometry(points: Array<{ observation_date: string; amoun
     else {
       const prev = usable[index - 1];
       const expected = addUtcDays(prev.observation_date, 1);
-      if (expected === point.observation_date) current.push(command);
+      if (expected === point.observation_date && !point.break_before) current.push(command);
       else {
         if (current.length >= 2) segments.push(current.join(" "));
         current = [`M${xAt(point.day).toFixed(2)} ${yAt(point.value).toFixed(2)}`];

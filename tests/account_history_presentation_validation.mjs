@@ -72,6 +72,12 @@ assert.equal(walletSingle.segments.length, 0, "one wallet observation does not c
 const walletGap = buildBinanceWalletHistoryChartGeometry(walletPoints);
 assert.equal(walletGap.dots.length, 2);
 assert.equal(walletGap.segments.length, 0, "missing UTC date keeps wallet observations disconnected");
+const readerTransition = buildBinanceWalletHistoryChartGeometry([
+  { ...walletPoints[0], observation_date: "2026-09-29" },
+  { ...walletPoints[1], observation_date: "2026-09-30", break_before: true },
+]);
+assert.equal(readerTransition.dots.length, 2);
+assert.equal(readerTransition.segments.length, 0, "reader transitions remain disconnected even on consecutive days");
 assert.deepEqual(filterAssetHistoryByRange(walletPoints, "all", now).map((row) => row.amount), ["100.25", "125.75"]);
 assert.equal(geometry.dots[2].date, "2026-09-04");
 assert.equal(geometry.dots[2].x > geometry.dots[1].x, true);

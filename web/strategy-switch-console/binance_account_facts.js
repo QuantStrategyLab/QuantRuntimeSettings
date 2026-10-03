@@ -9,6 +9,7 @@ export const BINANCE_WALLET_HISTORY_SCHEMA = "binance_wallet_valuation_history.v
 export const BINANCE_WALLET_HISTORY_METRIC = "wallet_valuation";
 export const BINANCE_WALLET_HISTORY_SCOPE = "provider_returned_wallet_rows";
 export const BINANCE_WALLET_HISTORY_MAX_DAYS = 366;
+export const BINANCE_FACTS_HISTORY_BINDINGS_MAX = 16;
 const UNCOVERED = ["funding", "margin", "futures", "locked_earn"];
 const IDENTITY = ["target_name", "service_name", "deployment_selector", "account_selector"];
 const HASH = /^[a-f0-9]{64}$/;
@@ -111,6 +112,36 @@ export async function assertBinanceFactsSourceBinding(binding) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(material)));
   const expected = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, "0")).join("");
   if (binding.source_binding.id !== expected) fail("binance_account_facts_binding_invalid", 503);
+}
+
+export function normalizeBinanceFactsHistoryBindings(raw, currentBinding) {
+  if (!Array.isArray(raw) || raw.length > BINANCE_FACTS_HISTORY_BINDINGS_MAX) {
+    fail("binance_account_facts_history_bindings_invalid", 503);
+  }
+  const current = normalizeBinanceFactsBinding(currentBinding);
+  const seen = new Set();
+  const identityFields = ["platform", "account_key", "account_scope", ...IDENTITY, "target_id",
+    "account_scope_sha256", "approved_application_revision"];
+  return raw.map((candidate) => {
+    let binding;
+    try { binding = normalizeBinanceFactsBinding(candidate); }
+    catch { fail("binance_account_facts_history_bindings_invalid", 503); }
+    if (!identityFields.every((field) => binding[field] === current[field])
+        || binding.source_binding.kind !== current.source_binding.kind
+        || binding.reader_revision === current.reader_revision
+        || binding.source_binding.id === current.source_binding.id
+        || seen.has(binding.source_binding.id)) {
+      fail("binance_account_facts_history_bindings_invalid", 503);
+    }
+    seen.add(binding.source_binding.id);
+    return binding;
+  });
+}
+
+export async function assertBinanceFactsHistoryBindings(raw, currentBinding) {
+  const bindings = normalizeBinanceFactsHistoryBindings(raw, currentBinding);
+  for (const binding of bindings) await assertBinanceFactsSourceBinding(binding);
+  return bindings;
 }
 
 export function normalizeBinanceAccountFacts(raw, binding, { now = Date.now(), ingest = false } = {}) {
@@ -290,6 +321,88 @@ export function projectBinanceWalletHistory(days, binding) {
     })),
     gap_dates: gapDates,
     first_sample_date: normalized.find((entry) => entry.status === "available")?.observation_date ?? null,
+    retention_days: BINANCE_WALLET_HISTORY_MAX_DAYS,
+    return: { status: "unavailable", reason: "external_cashflow_required" },
+  };
+}
+
+function sameWalletHistoryObservation(left, right) {
+  return ["schema_version", "metric", "currency", "scope", "status", "observation_date", "amount",
+    "observed_at", "target_id", "account_scope"]
+    .every((field) => left[field] === right[field]);
+}
+
+export function projectBinanceWalletHistoryFromSources(buckets, currentBinding, historyBindings) {
+  const history = normalizeBinanceFactsHistoryBindings(historyBindings, currentBinding);
+  const current = normalizeBinanceFactsBinding(currentBinding);
+  if (!Array.isArray(buckets) || buckets.length !== history.length + 1
+      || buckets[0]?.binding?.source_binding?.id !== current.source_binding.id) {
+    fail("binance_wallet_history_stored_invalid", 409);
+  }
+  const byDate = new Map();
+  for (let index = 0; index < buckets.length; index += 1) {
+    const bucket = buckets[index];
+    const binding = index === 0 ? current : history[index - 1];
+    if (bucket?.binding?.source_binding?.id !== binding.source_binding.id
+        || !Array.isArray(bucket.days) || bucket.days.length > BINANCE_WALLET_HISTORY_MAX_DAYS) {
+      fail("binance_wallet_history_stored_invalid", 409);
+    }
+    const sourceDates = new Set();
+    for (const value of bucket.days) {
+      let entry;
+      try { entry = normalizeBinanceWalletHistoryEntry(value, binding); }
+      catch { fail("binance_wallet_history_stored_invalid", 409); }
+      if (sourceDates.has(entry.observation_date)) fail("binance_wallet_history_stored_invalid", 409);
+      sourceDates.add(entry.observation_date);
+      const existing = byDate.get(entry.observation_date);
+      const finishedAt = Date.parse(entry.report_observed_finished_at);
+      const existingFinishedAt = existing ? Date.parse(existing.entry.report_observed_finished_at) : -Infinity;
+      if (!existing || finishedAt > existingFinishedAt) {
+        byDate.set(entry.observation_date, { entry, binding });
+      } else if (finishedAt === existingFinishedAt
+          && !sameWalletHistoryObservation(entry, existing.entry)) {
+        fail("binance_wallet_history_conflict", 409);
+      }
+    }
+  }
+  const allRows = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right));
+  if (allRows.length) {
+    const latestDay = Date.parse(`${allRows.at(-1)[0]}T00:00:00Z`);
+    const cutoff = new Date(latestDay - (BINANCE_WALLET_HISTORY_MAX_DAYS - 1) * 86_400_000)
+      .toISOString().slice(0, 10);
+    for (const [date] of allRows) if (date < cutoff) byDate.delete(date);
+  }
+  const rows = [...byDate.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const gapDates = [];
+  if (rows.length) {
+    let cursor = Date.parse(`${rows[0][0]}T00:00:00Z`);
+    const last = Date.parse(`${rows.at(-1)[0]}T00:00:00Z`);
+    for (; cursor <= last; cursor += 86_400_000) {
+      const date = new Date(cursor).toISOString().slice(0, 10);
+      if (byDate.get(date)?.entry.status !== "available") gapDates.push(date);
+    }
+  }
+  const points = [];
+  let previousSource = null;
+  for (const [, value] of rows) {
+    if (value.entry.status !== "available") continue;
+    const point = {
+      observation_date: value.entry.observation_date,
+      observed_at: value.entry.observed_at,
+      amount: value.entry.amount,
+      ...(previousSource && previousSource !== value.binding.source_binding.id ? { break_before: true } : {}),
+    };
+    points.push(point);
+    previousSource = value.binding.source_binding.id;
+  }
+  return {
+    ok: true,
+    metric: BINANCE_WALLET_HISTORY_METRIC,
+    currency: "USDT",
+    scope: BINANCE_WALLET_HISTORY_SCOPE,
+    points,
+    gap_dates: gapDates,
+    first_sample_date: points[0]?.observation_date ?? null,
     retention_days: BINANCE_WALLET_HISTORY_MAX_DAYS,
     return: { status: "unavailable", reason: "external_cashflow_required" },
   };

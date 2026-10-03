@@ -5,7 +5,8 @@ import {
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
   normalizeBinanceAccountFacts, projectBinanceAccountFacts,
   binanceWalletHistoryEntry, binanceWalletHistoryStorageKey, normalizeBinanceWalletHistoryEntry,
-  projectBinanceWalletHistory, BINANCE_WALLET_HISTORY_MAX_DAYS,
+  projectBinanceWalletHistoryFromSources,
+  assertBinanceFactsHistoryBindings, BINANCE_WALLET_HISTORY_MAX_DAYS,
 } from "./binance_account_facts.js";
 import { DEFAULT_STRATEGY_PROFILES } from "./strategy_profiles_asset.js";
 import {
@@ -6887,20 +6888,32 @@ async function binanceWalletHistoryResponse(request, env, url) {
     if (url.searchParams.get("account_key") !== binding.account_key) {
       throw new BinanceFactsError("binance_account_facts_binding_unmatched", 409);
     }
-    const stored = await runtimeInstanceCommand(env, {
-      action: "binance_wallet_history_read",
-      account_key: binding.account_key,
-      storage_account_key: binanceWalletHistoryStorageKey(binding),
-      target_id: binding.target_id,
-      account_scope: binding.account_scope,
-      source_binding_id: binding.source_binding.id,
-    });
-    return json(projectBinanceWalletHistory(Array.isArray(stored.days) ? stored.days : [], binding));
+    let historicalBindings;
+    try {
+      const encoded = String(env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || "[]");
+      historicalBindings = await assertBinanceFactsHistoryBindings(JSON.parse(encoded), binding);
+    } catch {
+      throw new BinanceFactsError("binance_account_facts_history_bindings_invalid", 503);
+    }
+    const buckets = [];
+    for (const sourceBinding of [binding, ...historicalBindings]) {
+      const stored = await runtimeInstanceCommand(env, {
+        action: "binance_wallet_history_read",
+        account_key: binding.account_key,
+        storage_account_key: binanceWalletHistoryStorageKey(sourceBinding),
+        target_id: binding.target_id,
+        account_scope: binding.account_scope,
+        source_binding_id: sourceBinding.source_binding.id,
+      });
+      buckets.push({ binding: sourceBinding, days: Array.isArray(stored.days) ? stored.days : [] });
+    }
+    return json(projectBinanceWalletHistoryFromSources(buckets, binding, historicalBindings));
   } catch (error) {
     const allowedErrors = new Set([
       "binance_account_facts_binding_invalid", "binance_account_facts_account_options_unavailable",
       "binance_account_facts_binding_unmatched", "binance_account_facts_binding_missing",
       "binance_wallet_history_identity_mismatch", "binance_wallet_history_stored_invalid",
+      "binance_wallet_history_conflict", "binance_account_facts_history_bindings_invalid",
     ]);
     const code = allowedErrors.has(error?.code || error?.message)
       ? (error.code || error.message) : "binance_wallet_history_unavailable";
