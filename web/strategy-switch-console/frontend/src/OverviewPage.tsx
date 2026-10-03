@@ -179,7 +179,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     if (duplicates.length < 2 || !account.environment) return account.title;
     return `${account.title} · ${account.environment}`;
   };
-  const healthText = (label: string) => label === "已停用" || label === "监测正常" || label === "异常" ? label : "待确认";
+  const healthText = (label: string) => label === "已停用" || label === "监测正常" || label === "异常" || label === "等待周期" ? label : "待确认";
   const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
   const selectedWalletValuation = selectedAccount?.platformKey === "binance"

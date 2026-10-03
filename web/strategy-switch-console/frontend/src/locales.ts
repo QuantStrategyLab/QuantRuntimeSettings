@@ -704,6 +704,7 @@ export const EN_COPY = {
   "账户类型": "Account type",
   "启用状态": "Activation",
   "待确认": "Needs confirmation",
+  "等待周期": "Waiting for scheduled cycle",
   "尚无可用资产记录": "No asset history is available yet",
   "暂无资产记录": "No asset history yet",
   "暂无数据": "No data yet",
