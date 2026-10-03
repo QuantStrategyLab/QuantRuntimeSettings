@@ -141,6 +141,9 @@ export async function verifyBinanceAccountFactsReceiver({
     ].includes(body.error)) {
       closedFailure("config_or_binding", status);
     }
+    if (body?.ok === false && body.error === "binance_account_facts_account_options_unavailable") {
+      closedFailure("account_options_unavailable", status);
+    }
   }
   if (status === 404) closedFailure("route_not_found", status);
   if (status >= 300 && status < 400) closedFailure("redirect", status);

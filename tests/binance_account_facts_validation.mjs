@@ -237,7 +237,38 @@ assert.deepEqual(JSON.parse(configFailureBody), {
 assert.equal(configFailureBody.includes('synthetic-sensitive-detail'), false,
   'readiness hides runtime configuration error details');
 assert.equal(puts.length, 0, 'failed readiness check does not write facts');
+const postConfigReadFailure = await post({}, { ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
+  idFromName: () => 'synthetic-do-id',
+  get: () => ({ fetch: async () => new Response(JSON.stringify({ error: 'synthetic-sensitive-detail' }), { status: 503 }) }),
+} });
+assert.equal(postConfigReadFailure.status, 503);
+const postConfigFailureBody = await postConfigReadFailure.text();
+assert.deepEqual(JSON.parse(postConfigFailureBody), {
+  ok: false, error: 'binance_account_facts_account_options_unavailable',
+});
+assert.equal(postConfigFailureBody.includes('synthetic-sensitive-detail'), false,
+  'POST configuration read failure uses a fixed category and hides DO error text');
+assert.equal(puts.length, 0, 'failed POST configuration read does not write facts');
 const realHandlerFetch = (settings = env) => (url, init) => worker.fetch(new Request(url, init), settings);
+const failedDoCalls = [];
+const failedDoEnv = { ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
+  idFromName: () => 'synthetic-do-id',
+  get: () => ({ fetch: async (...args) => {
+    failedDoCalls.push(args);
+    return new Response(JSON.stringify({ error: 'synthetic-sensitive-detail' }), { status: 503 });
+  } }),
+} };
+const verifierCalls = [];
+await assert.rejects(verifyBinanceAccountFactsReceiver({
+  consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+  fetchImpl: (url, init) => {
+    verifierCalls.push(init.method);
+    return realHandlerFetch(failedDoEnv)(url, init);
+  },
+}), error => error.category === 'account_options_unavailable' && error.httpStatus === 503);
+assert.deepEqual(verifierCalls, ['POST'], 'POST configuration read failure has no readiness fallback or retry');
+assert.equal(failedDoCalls.length, 1, 'POST configuration read failure invokes the DO read once');
+assert.equal(puts.length, 0, 'POST configuration read failure does not write facts');
 const acceptedReceiverCheck = await verifyBinanceAccountFactsReceiver({
   consoleUrl: 'https://console.example', token: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
   fetchImpl: realHandlerFetch(),

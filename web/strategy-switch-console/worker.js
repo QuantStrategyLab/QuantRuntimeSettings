@@ -6781,8 +6781,7 @@ async function trustedBinanceFactsBinding(env, readiness = null) {
   if (readiness) readiness.binding_valid = true;
   let config;
   try { config = await loadAccountOptionsConfig(env); }
-  catch (error) {
-    if (!readiness) throw error;
+  catch {
     throw new BinanceFactsError("binance_account_facts_account_options_unavailable", 503);
   }
   if (readiness) readiness.account_options_readable = true;

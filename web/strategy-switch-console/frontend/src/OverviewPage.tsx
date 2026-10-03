@@ -36,6 +36,7 @@ import {
   accountFactsUpdatedAt,
   formatAccountFactAmounts,
   hasNonzeroNegativeAccountFactAmount,
+  longBridgeCashDetails,
   type AccountFactsAccount,
   type AccountFactsHistorySnapshot,
   type AccountFactsSnapshot,
@@ -527,6 +528,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
+          const longBridgeCash = longBridgeCashDetails(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
           const cardDetail = walletCardValuation
             ? accountId === "all" ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}` : null
@@ -577,6 +579,16 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
               valueLabel={t("原始估值")}
               timeLabel={t("完整观察时间")}
             /> : null}
+            {longBridgeCash ? <details className="overview-wallet-details overview-cash-details">
+              <summary>{t("现金详情")}</summary>
+              <p>{t("完整观察时间")} <time dateTime={account.facts!.observed_finished_at!} title={account.facts!.observed_finished_at!}>{formatInstant(account.facts!.observed_finished_at!) || account.facts!.observed_finished_at}</time></p>
+              {longBridgeCash.map((row) => <dl key={row.currency}>
+                <div><dt>{t("币种")}</dt><dd>{row.currency}</dd></div>
+                {row.total_cash !== undefined ? <div><dt>{t("现金余额")}</dt><dd><code>{row.total_cash} {row.currency}</code></dd></div> : null}
+                {row.available_cash !== undefined ? <div><dt>{t("可用现金")}</dt><dd><code>{row.available_cash} {row.currency}</code></dd></div> : null}
+                {row.frozen_cash !== undefined ? <div><dt>{t("冻结现金")}</dt><dd><code>{row.frozen_cash} {row.currency}</code></dd></div> : null}
+                {row.settling_cash !== undefined ? <div><dt>{t("待结算现金")}</dt><dd><code>{row.settling_cash} {row.currency}</code></dd></div> : null}
+              </dl>)}</details> : null}
           </div>;
         })}
       </div>

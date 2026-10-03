@@ -1,5 +1,8 @@
 export const EN_COPY = {
   "Binance非策略现货资产": "Binance non-strategy spot assets",
+  "现金详情": "Cash details",
+  "冻结现金": "Frozen cash",
+  "待结算现金": "Settling cash",
   "观察时间": "Observed",
   "资产": "Asset",
   "可用数量": "Available quantity",
