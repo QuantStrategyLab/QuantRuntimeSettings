@@ -67,9 +67,13 @@ const chartAccounts = [
   { id: "qualified-later", brokerEnvironment: "live", facts: { binding_status: "bound", data_status: "fresh", balances: [{ currency: "USD", net_assets: "75" }] } },
 ];
 const originalAccountCount = chartAccounts.length;
-assert.equal(defaultOverviewChartAccountId(chartAccounts), "qualified");
+assert.equal(defaultOverviewChartAccountId(chartAccounts), "unknown");
+assert.equal(defaultOverviewChartAccountId([chartAccounts[1]]), "unknown", "fresh bound facts may provide a single-account graph when account mode is unknown");
 assert.equal(chartAccounts.length, originalAccountCount, "chart default must not filter overview cards");
-assert.equal(defaultOverviewChartAccountId(chartAccounts.slice(0, 9)), null, "no candidate qualifies when bindings, identity, environment, scope, or valuation are invalid");
+assert.equal(defaultOverviewChartAccountId(chartAccounts.filter((account) => !["unknown", "qualified", "qualified-later"].includes(account.id))), null, "no candidate qualifies when bindings, identity, paper scope, or valuation are invalid");
+assert.equal(chartAccounts[1].brokerEnvironment, null, "selecting an unknown-environment chart does not classify the account");
+assert.equal(chartAccounts[1].facts.binding_status, "bound");
+assert.equal(chartAccounts[1].facts.data_status, "fresh");
 assert.equal(resolveOverviewChartAccount(chartAccounts, "all", "qualified-later")?.id, "qualified-later", "graph-only user selection remains stable");
 assert.equal(resolveOverviewChartAccount(chartAccounts, "paper", "qualified-later")?.id, "paper", "specific primary filter overrides chart-only selection");
 assert.equal(resolveOverviewChartAccount(chartAccounts, "all", "missing"), null, "no matching graph selection must stay empty until a qualified default is applied");
@@ -229,6 +233,7 @@ assert.match(overview, /historyEpoch/);
 assert.match(overview, /useState\("all"\)/);
 assert.match(overview, /const visible = accountId === "all" \? accounts : accounts\.filter/);
 assert.match(overview, /const totalAssets = accountId === "all"/);
+assert.match(overview, /const totalCash = accountId === "all"/);
 assert.match(overview, /resolveOverviewChartAccount\(accounts, accountId, chartAccountId\)/);
 assert.match(overview, /loadAccountFactsHistory\(chartAccount\.platformKey, chartAccount\.accountKey, currency\)/);
 assert.match(overview, /runtimeEpoch/);

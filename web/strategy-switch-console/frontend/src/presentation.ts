@@ -129,7 +129,7 @@ export type OverviewChartAccountCandidate = {
 export function defaultOverviewChartAccountId(accounts: OverviewChartAccountCandidate[]): string | null {
   return accounts.find((account) => {
     const facts = account.facts;
-    if (account.brokerEnvironment !== "live" || !facts || facts.binding_status !== "bound"
+    if (account.brokerEnvironment === "paper" || !facts || facts.binding_status !== "bound"
         || facts.data_status !== "fresh" || facts.identity_mismatch === true
         || facts.broker_environment === "paper" || facts.account_scope === "paper") return false;
     return facts.balances.some((balance) => /^[A-Z0-9]{3,10}$/.test(balance.currency)
