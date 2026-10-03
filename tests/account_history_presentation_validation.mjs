@@ -7,6 +7,7 @@ import {
   buildAssetChartGeometry,
   chartRangeEmptyNote,
   chartUnavailable,
+  defaultOverviewChartAccountId,
   filterAssetHistoryByRange,
   formatLocalChangeTime,
   formatOverviewInstant,
@@ -16,6 +17,7 @@ import {
   presentRuntimeDaily,
   runtimeBusinessDate,
   runtimeDailySelectionEligible,
+  resolveOverviewChartAccount,
   verifiedSchwabAccountTypeToken,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { accountFactsDetail, formatAccountFactAmounts, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
@@ -42,12 +44,35 @@ assert.equal(geometry.segments.length, 1);
 assert.match(geometry.segments[0], /^M/);
 assert.equal(geometry.segments[0].includes(" L"), true);
 assert.equal(geometry.dots[2].date, "2026-09-04");
+assert.equal(geometry.dots[2].x > geometry.dots[1].x, true);
+assert.equal(geometry.segments[0].includes(geometry.dots[2].x.toFixed(2)), false, "missing history day must remain a line gap");
 assert.equal(geometry.minLabel, "10");
 assert.equal(geometry.maxLabel, "12");
 
 const single = buildAssetChartGeometry([points[0]]);
 assert.equal(single.segments.length, 0);
 assert.equal(single.dots.length, 1);
+
+const chartAccounts = [
+  { id: "paper", brokerEnvironment: "paper", facts: { binding_status: "bound", data_status: "fresh", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "unknown", brokerEnvironment: null, facts: { binding_status: "bound", data_status: "fresh", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "no-currency", brokerEnvironment: "live", facts: { binding_status: "bound", data_status: "fresh", balances: [] } },
+  { id: "stale", brokerEnvironment: "live", facts: { binding_status: "bound", data_status: "stale", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "unbound", brokerEnvironment: "live", facts: { binding_status: "missing", data_status: "fresh", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "identity-mismatch", brokerEnvironment: "live", facts: { binding_status: "bound", identity_mismatch: true, data_status: "fresh", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "facts-paper", brokerEnvironment: "live", facts: { binding_status: "bound", broker_environment: "paper", data_status: "fresh", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "scope-paper", brokerEnvironment: "live", facts: { binding_status: "bound", account_scope: "paper", data_status: "fresh", balances: [{ currency: "USD", net_assets: "50" }] } },
+  { id: "no-net-assets", brokerEnvironment: "live", facts: { binding_status: "bound", data_status: "fresh", balances: [{ currency: "USD", net_assets: null }] } },
+  { id: "qualified", brokerEnvironment: "live", facts: { binding_status: "bound", data_status: "fresh", balances: [{ currency: "USDT", net_assets: "50" }] } },
+  { id: "qualified-later", brokerEnvironment: "live", facts: { binding_status: "bound", data_status: "fresh", balances: [{ currency: "USD", net_assets: "75" }] } },
+];
+const originalAccountCount = chartAccounts.length;
+assert.equal(defaultOverviewChartAccountId(chartAccounts), "qualified");
+assert.equal(chartAccounts.length, originalAccountCount, "chart default must not filter overview cards");
+assert.equal(defaultOverviewChartAccountId(chartAccounts.slice(0, 9)), null, "no candidate qualifies when bindings, identity, environment, scope, or valuation are invalid");
+assert.equal(resolveOverviewChartAccount(chartAccounts, "all", "qualified-later")?.id, "qualified-later", "graph-only user selection remains stable");
+assert.equal(resolveOverviewChartAccount(chartAccounts, "paper", "qualified-later")?.id, "paper", "specific primary filter overrides chart-only selection");
+assert.equal(resolveOverviewChartAccount(chartAccounts, "all", "missing"), null, "no matching graph selection must stay empty until a qualified default is applied");
 
 assert.equal(chartUnavailable("return"), "暂不可用");
 assert.equal(chartUnavailable("assets"), "暂无资产记录");
@@ -201,6 +226,11 @@ assert.doesNotMatch(formatOverviewInstant("2026-09-29T01:00:00.123Z", "zh", "Ame
 
 const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
 assert.match(overview, /historyEpoch/);
+assert.match(overview, /useState\("all"\)/);
+assert.match(overview, /const visible = accountId === "all" \? accounts : accounts\.filter/);
+assert.match(overview, /const totalAssets = accountId === "all"/);
+assert.match(overview, /resolveOverviewChartAccount\(accounts, accountId, chartAccountId\)/);
+assert.match(overview, /loadAccountFactsHistory\(chartAccount\.platformKey, chartAccount\.accountKey, currency\)/);
 assert.match(overview, /runtimeEpoch/);
 assert.match(overview, /runtimeBusinessDate/);
 assert.match(overview, /runtimeDailySelectionEligible/);

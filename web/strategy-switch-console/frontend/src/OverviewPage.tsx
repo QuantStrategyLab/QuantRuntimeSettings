@@ -8,6 +8,7 @@ import {
   buildAssetChartGeometry,
   chartRangeEmptyNote,
   chartUnavailable,
+  defaultOverviewChartAccountId,
   filterAssetHistoryByRange,
   formatOverviewInstant,
   overviewAccountTypeLabel,
@@ -20,6 +21,7 @@ import {
   presentBinanceWalletValuation,
   presentBinanceWalletValuationForAccount,
   presentBinancePrivateScope,
+  resolveOverviewChartAccount,
   scheduleBinancePrivateScopeExpiry,
   type ChartMode,
   type ChartRange,
@@ -107,6 +109,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     };
   }, [wallet?.observed_finished_at, walletValuation?.observed_at]);
   const [chart, setChart] = useState<ChartMode>("assets");
+  const [chartAccountId, setChartAccountId] = useState<string | null>(null);
   const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
   const [currency, setCurrency] = useState<string>("");
   const [history, setHistory] = useState<AccountFactsHistorySnapshot | null>(null);
@@ -131,6 +134,12 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const healthText = (label: string) => label === "已停用" || label === "监测正常" || label === "异常" ? label : "待确认";
   const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
+  useEffect(() => {
+    if (accountId !== "all") return;
+    if (chartAccountId && accounts.some((account) => account.id === chartAccountId)) return;
+    setChartAccountId(defaultOverviewChartAccountId(accounts));
+  }, [accountId, chartAccountId, accounts]);
+  const chartAccount = resolveOverviewChartAccount(accounts, accountId, chartAccountId);
   const privateScopeObservedAt = privateScope?.value?.report?.observed_at;
   useEffect(() => {
     setPrivateScopeNow(Date.now());
@@ -154,21 +163,22 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     { admin: isAdmin === true, allAccounts: accountId === "all", now: privateScopeNow },
   );
   const selectedFacts = selectedAccount?.facts || null;
+  const chartFacts = chartAccount?.facts || null;
   const currencyOptions = Array.from(new Set([
-    ...(selectedFacts?.balances || []).map((row) => row.currency).filter(Boolean),
+    ...(chartFacts?.balances || []).map((row) => row.currency).filter(Boolean),
     ...(history?.series.points || []).map((row) => row.currency).filter(Boolean),
   ]));
   useEffect(() => {
-    if (!selectedFacts) {
+    if (!chartFacts) {
       setCurrency("");
       return;
     }
     const next = currencyOptions.includes(currency) ? currency : (currencyOptions[0] || "");
     if (next !== currency) setCurrency(next);
-  }, [selectedAccount?.id, selectedFacts?.data_status, currencyOptions.join("|")]);
+  }, [chartAccount?.id, chartFacts?.data_status, currencyOptions.join("|")]);
   useEffect(() => {
     const epoch = ++historyEpoch.current;
-    if (!selectedAccount || chart !== "assets" || !currency) {
+    if (!chartAccount || chart !== "assets" || !currency) {
       setHistory(null);
       setHistoryError(null);
       setHistoryLoading(false);
@@ -177,7 +187,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     setHistory(null);
     setHistoryError(null);
     setHistoryLoading(true);
-    void loadAccountFactsHistory(selectedAccount.platformKey, selectedAccount.accountKey, currency)
+    void loadAccountFactsHistory(chartAccount.platformKey, chartAccount.accountKey, currency)
       .then((payload) => {
         if (historyEpoch.current !== epoch) return;
         setHistory(payload);
@@ -189,7 +199,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         setHistoryError(error instanceof Error ? error.message : "request_failed");
         setHistoryLoading(false);
       });
-  }, [selectedAccount?.id, selectedAccount?.platformKey, selectedAccount?.accountKey, selectedFacts?.observed_finished_at, currency, chart]);
+  }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at, currency, chart]);
   useEffect(() => {
     const epoch = ++runtimeEpoch.current;
     const selection = selectedAccount
@@ -239,24 +249,22 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const selectedCashLabel = selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
   const filteredPoints = filterAssetHistoryByRange(history?.series.points || [], range);
   const geometry = buildAssetChartGeometry(filteredPoints);
-  const hasChart = chart === "assets" && Boolean(selectedAccount) && geometry.dots.length > 0;
+  const hasChart = chart === "assets" && Boolean(chartAccount) && geometry.dots.length > 0;
   const runtimeView = presentRuntimeDaily(
     runtimeError ? null : runtimeDaily,
     selectedAccount
       ? { platform: selectedAccount.platformKey, accountKey: selectedAccount.accountKey }
       : null,
   );
-  const chartEmptyTitle = accountId === "all" && chart === "assets"
-    ? "请选择账户"
-    : chartUnavailable(chart);
+  const chartEmptyTitle = chartUnavailable(chart);
   const chartEmptyDetail = chart === "return"
     ? "暂不可用"
-    : accountId === "all"
-      ? "请选择账户"
-      : historyLoading
+    : historyLoading
         ? "加载中…"
         : historyError || history?.identity_mismatch
           ? "暂不可用"
+          : accountId === "all" && !chartAccount
+            ? "请选择图表账户"
           : emptyNote.key === "{range}内暂无资产记录"
             ? emptyNote.key
             : "暂无资产记录";
@@ -322,14 +330,22 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           {CHART_RANGE_OPTIONS.map(option => <button key={option.id} type="button" role="tab" aria-selected={range === option.id} className={range === option.id ? "active" : ""} onClick={() => setRange(option.id)}>{t(option.label)}</button>)}
         </div>
       </div>
-      {chart === "assets" && selectedAccount ? <div className="chart-currency">
-        <label>
+      {chart === "assets" ? <div className="chart-currency">
+        {accountId === "all" ? <label>
+          <span>{t("图表账户")}</span>
+          <select aria-label={t("图表账户")} value={chartAccount?.id || ""} onChange={event => setChartAccountId(event.target.value || null)}>
+            {!chartAccount ? <option value="">{t("请选择图表账户")}</option> : null}
+            {accounts.map((account) => <option key={account.id} value={account.id}>{`${account.title} · ${account.environment} · ${account.platform}`}</option>)}
+          </select>
+        </label> : chartAccount ? <span>{`${chartAccount.title} · ${chartAccount.environment} · ${chartAccount.platform}`}</span> : null}
+        {chartAccount ? <label>
           <span>{t("币种")}</span>
           <select aria-label={t("币种")} value={currency} onChange={event => setCurrency(event.target.value)} disabled={!currencyOptions.length}>
             {!currencyOptions.length ? <option value="">{t("暂无币种")}</option> : null}
             {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
           </select>
-        </label>
+        </label> : null}
+        {chartAccount ? <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
       </div> : null}
       {hasChart ? <div className="asset-chart">
         <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t("资产变化")}>

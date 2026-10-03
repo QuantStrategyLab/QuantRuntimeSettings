@@ -117,7 +117,10 @@ const fullRefresh = app.slice(app.indexOf("const refresh = useCallback"), app.in
 assert.match(fullRefresh, /overviewReadModelEpoch\.current\s*\+=\s*1[\s\S]*?fullReadModelRefreshInFlight\.current\s*=\s*true[\s\S]*?loadReadModel\(\)/);
 assert.match(fullRefresh, /if \(gate\.current\.isCurrent\(token\)\)\s*\{\s*fullReadModelRefreshInFlight\.current\s*=\s*false/);
 const overview = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
-assert.match(overview, /selectedFacts\?\.observed_finished_at/);
-assert.match(overview, /readModelRefreshVersion/);
+const historyEffect = overview.slice(overview.indexOf("const epoch = ++historyEpoch.current"), overview.indexOf("const epoch = ++runtimeEpoch.current"));
+assert.match(historyEffect, /chartAccount\?\.id[\s\S]*chartFacts\?\.observed_finished_at/);
+assert.doesNotMatch(historyEffect, /selectedFacts\?\.observed_finished_at/);
+const runtimeEffect = overview.slice(overview.indexOf("const epoch = ++runtimeEpoch.current"), overview.indexOf("// All-account totals"));
+assert.match(runtimeEffect, /const selection = selectedAccount[\s\S]*\}, \[selectedAccount\?\.id, selectedAccount\?\.platformKey, selectedAccount\?\.accountKey, runtimeDate, runtimeDate === runtimeToday \? readModelRefreshVersion : 0\]\);/);
 
 console.log("overview refresh validation: PASS");
