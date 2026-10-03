@@ -15,6 +15,8 @@ const SOURCE_BINDING_KIND = "binance_readonly_scope_revision";
 const SOURCE_SCOPE = "spot+flexible_earn";
 const OPTION_IDENTITY_FIELDS = ["service_name", "deployment_selector"];
 const SECRET_NAMES = ["BINANCE_ACCOUNT_FACTS_BINDING_JSON", "BINANCE_ACCOUNT_FACTS_SYNC_TOKEN"];
+const HISTORY_SECRET_NAME = "BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON";
+const HISTORY_BINDINGS_MAX = 16;
 const GITHUB_API = "https://api.github.com";
 const BINANCE_TARGET_ID = "binance-homepage";
 const COMMAND_TIMEOUT_MS = 20_000;
@@ -230,6 +232,19 @@ async function readRequiredSecretMetadata(repository, environment, context) {
   return metadata;
 }
 
+async function readOptionalSecretMetadata(repository, environment, name, context) {
+  const record = await githubJson(
+    `/repos/${repository}/environments/${environment}/secrets?per_page=100`, context,
+  );
+  if (!Array.isArray(record?.secrets) || record.secrets.some((item) => typeof item?.name !== "string")
+      || record.total_count !== record.secrets.length) fail("protected_secret_metadata_invalid");
+  const matches = record.secrets.filter((item) => item.name === name);
+  if (!matches.length) return null;
+  if (matches.length !== 1 || typeof matches[0].updated_at !== "string"
+      || !Number.isFinite(Date.parse(matches[0].updated_at))) fail("protected_secret_metadata_invalid");
+  return matches[0].updated_at;
+}
+
 async function assertRuntimeProductionOnlyEnvironment(context) {
   const environment = await githubJson(
     `/repos/${BINANCE_REPOSITORY}/environments/${BINANCE_ENVIRONMENT}`, context,
@@ -336,9 +351,10 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   await assertReaderRevisionIsTrustedAncestor(context, nextReaderRevision);
   await assertBinanceFactsReaderDisabled(context);
 
-  const [qrsSecretMetadata, binanceSecretMetadata, variables] = await Promise.all([
+  const [qrsSecretMetadata, binanceSecretMetadata, historySecretMetadata, variables] = await Promise.all([
     readRequiredSecretMetadata(QRS_REPOSITORY, QRS_ENVIRONMENT, context),
     readRequiredSecretMetadata(BINANCE_REPOSITORY, BINANCE_ENVIRONMENT, context),
+    readOptionalSecretMetadata(QRS_REPOSITORY, QRS_ENVIRONMENT, HISTORY_SECRET_NAME, context),
     readProtectedVariables(context),
   ]);
   const currentReaderRevision = await readVariable(
@@ -359,11 +375,45 @@ async function runReaderRotation({ env, fetchImpl, command }) {
     readerRevision: oldReaderRevision,
   });
   if (!isDeepStrictEqual(oldBinding, oldExpected)) fail("current_binding_conflict");
+  let historyBindings;
+  try {
+    historyBindings = env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON
+      ? JSON.parse(env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON) : [];
+  } catch { fail("history_bindings_invalid"); }
+  if (!Array.isArray(historyBindings) || historyBindings.length > HISTORY_BINDINGS_MAX
+      || (historySecretMetadata === null && historyBindings.length !== 0)
+      || (historySecretMetadata !== null && !env.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON)) {
+    fail("history_bindings_invalid");
+  }
+  const seenHistory = new Set();
+  for (const historyBinding of historyBindings) {
+    if (!historyBinding || typeof historyBinding !== "object" || Array.isArray(historyBinding)
+        || typeof historyBinding.reader_revision !== "string"
+        || !/^[a-f0-9]{40}$/.test(historyBinding.reader_revision)) fail("history_binding_invalid");
+    await assertReaderRevisionIsTrustedAncestor(context, historyBinding.reader_revision);
+    const expectedHistoryBinding = buildBinanceFactsBinding({
+      variables, accountOptions, readerRevision: historyBinding.reader_revision,
+    });
+    const isCurrentBinding = isDeepStrictEqual(historyBinding, oldBinding);
+    if (!isDeepStrictEqual(historyBinding, expectedHistoryBinding)
+        || ((historyBinding.reader_revision === oldReaderRevision
+          || historyBinding.source_binding?.id === oldBinding.source_binding.id) && !isCurrentBinding)
+        || seenHistory.has(historyBinding.source_binding?.id)) fail("history_binding_invalid");
+    seenHistory.add(historyBinding.source_binding.id);
+  }
+  const oldHistoryEntry = historyBindings.find((item) => item.source_binding.id === oldBinding.source_binding.id);
+  if (oldHistoryEntry && !isDeepStrictEqual(oldHistoryEntry, oldBinding)) fail("history_binding_conflict");
   const nextBinding = buildBinanceFactsBinding({
     variables,
     accountOptions,
     readerRevision: nextReaderRevision,
   });
+  if (historyBindings.some((item) => item.source_binding.id === nextBinding.source_binding.id)) {
+    fail("history_binding_conflict");
+  }
+  const historyChanged = !oldHistoryEntry;
+  if (historyChanged) historyBindings = [...historyBindings, oldBinding];
+  if (historyBindings.length > HISTORY_BINDINGS_MAX) fail("history_binding_limit_exceeded");
   const expectedNextBinding = {
     ...oldBinding,
     reader_revision: nextReaderRevision,
@@ -372,10 +422,23 @@ async function runReaderRotation({ env, fetchImpl, command }) {
   if (!isDeepStrictEqual(nextBinding, expectedNextBinding)) fail("binding_rotation_scope_changed");
 
   if (env.BINANCE_FACTS_BOOTSTRAP_APPLY !== "true") {
-    return { status: "rotation_preview", match_count: 1, writes: 0 };
+    return { status: "rotation_preview", match_count: 1, writes: 0,
+      history_binding_count: historyBindings.length };
   }
 
   const bindingJson = JSON.stringify(nextBinding);
+  const historyJson = JSON.stringify(historyBindings);
+  let historySecretWriteCount = 0;
+  let metadataReadbackCount = 0;
+  if (historyChanged || historySecretMetadata === null) {
+    await applySecret(QRS_REPOSITORY, HISTORY_SECRET_NAME, QRS_ENVIRONMENT, historyJson, { command, env });
+    historySecretWriteCount = 1;
+    const historyReadback = await readOptionalSecretMetadata(QRS_REPOSITORY, QRS_ENVIRONMENT, HISTORY_SECRET_NAME, context);
+    metadataReadbackCount += 1;
+    if (!historyReadback || (historySecretMetadata && Date.parse(historyReadback) <= Date.parse(historySecretMetadata))) {
+      fail("history_secret_metadata_readback_failed");
+    }
+  }
   const targets = [
     {
       repository: QRS_REPOSITORY,
@@ -395,6 +458,7 @@ async function runReaderRotation({ env, fetchImpl, command }) {
     if (Date.parse(metadata[name]) <= Date.parse(target.baseline[name])) {
       fail("binding_secret_metadata_readback_failed");
     }
+    metadataReadbackCount += 1;
     if (metadata[SECRET_NAMES[1]] !== target.baseline[SECRET_NAMES[1]]) {
       fail("sync_token_metadata_changed");
     }
@@ -408,7 +472,10 @@ async function runReaderRotation({ env, fetchImpl, command }) {
     context,
   );
   if (readerRevisionReadback !== nextReaderRevision) fail("reader_revision_readback_failed");
-  return { status: "rotation_applied", binding_secret_write_count: 2, metadata_readback_count: 2, reader_revision_updated: true };
+  return { status: "rotation_applied", history_binding_count: historyBindings.length,
+    history_secret_write_count: historySecretWriteCount, binding_secret_write_count: 2,
+    metadata_readback_count: metadataReadbackCount,
+    reader_revision_updated: true };
 }
 
 export async function runBootstrap({

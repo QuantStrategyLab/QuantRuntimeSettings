@@ -158,6 +158,7 @@ export type BinanceWalletHistoryPoint = {
   observation_date: string;
   observed_at: string;
   amount: string;
+  break_before?: true;
 };
 
 export type BinanceWalletHistorySnapshot = {

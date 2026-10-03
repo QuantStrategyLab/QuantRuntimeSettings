@@ -42,6 +42,7 @@ jobs:
       BINANCE_FACTS_BOOTSTRAP_ROTATE_READER: ${{ inputs.rotate_reader }}
       BINANCE_FACTS_NEXT_READER_REVISION: ${{ inputs.reader_revision }}
       BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.rotate_reader && secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON || '' }}
+      BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: ${{ inputs.rotate_reader && secrets.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || '' }}
     steps:
       - name: Checkout main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
