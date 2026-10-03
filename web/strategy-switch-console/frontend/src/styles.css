@@ -125,6 +125,19 @@ a { color: inherit; }
 .overview-wallet-quantity > span { max-width: 100%; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .overview-wallet-quantity em { margin-right: 4px; font-style: normal; }
 .chart-empty { border: 0; box-shadow: none; }
+.overview-benchmark { display: grid; min-width: 0; gap: 14px; }
+.overview-benchmark-heading h2 { margin-bottom: 4px; }
+.overview-benchmark-heading p, .overview-account-return-empty p { margin: 0; color: var(--muted); }
+.overview-benchmark-frame-container { width: 100%; max-width: 670px; min-width: 0; }
+.overview-benchmark-frame { display: block; width: 100%; max-width: 670px; height: 525px; border: 0; }
+.overview-benchmark-source { min-width: 0; color: var(--muted); font-size: 12px; }
+.overview-benchmark-source > summary { width: fit-content; min-height: 36px; padding: 7px 0; cursor: pointer; }
+.overview-benchmark-source dl { display: grid; gap: 6px; margin: 4px 0 0; }
+.overview-benchmark-source dl > div { display: grid; grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); gap: 8px; }
+.overview-benchmark-source dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
+.overview-benchmark-source a { color: var(--accent); }
+.overview-account-return-empty { padding-top: 12px; border-top: 1px solid var(--line); }
+.overview-account-return-empty strong { display: block; margin-bottom: 4px; color: var(--ink); }
 .daily-table { width: 100%; border-collapse: collapse; }
 .daily-table th, .daily-table td { padding: 14px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
 .daily-table tbody tr:hover { background: var(--panel); }

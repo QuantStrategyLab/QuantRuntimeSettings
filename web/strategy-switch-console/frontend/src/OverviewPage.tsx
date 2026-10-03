@@ -4,7 +4,6 @@ import { useT, useLocale } from "./locales";
 import {
   CHART_RANGE_OPTIONS,
   DEFAULT_CHART_RANGE,
-  RETURN_INDEX_LEGEND,
   buildAssetChartGeometry,
   buildBinanceWalletHistoryChartGeometry,
   formatBinanceNativeQuantity,
@@ -164,6 +163,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const [walletHistory, setWalletHistory] = useState<BinanceWalletHistorySnapshot | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [benchmarkFrameWidth, setBenchmarkFrameWidth] = useState(0);
+  const benchmarkFrameContainer = useRef<HTMLDivElement | null>(null);
   const runtimeToday = runtimeBusinessDate();
   const [runtimeDate, setRuntimeDate] = useState(runtimeToday);
   const [runtimeDaily, setRuntimeDaily] = useState<RuntimeDailySnapshot | null>(null);
@@ -209,6 +210,33 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     document.addEventListener("visibilitychange", refreshAfterForeground);
     return () => document.removeEventListener("visibilitychange", refreshAfterForeground);
   }, []);
+  useEffect(() => {
+    if (chart !== "return") {
+      setBenchmarkFrameWidth(0);
+      return;
+    }
+    const container = benchmarkFrameContainer.current;
+    if (!container) return;
+    let resizeTimer: number | undefined;
+    const measure = () => {
+      const width = Math.min(670, Math.floor(container.getBoundingClientRect().width));
+      if (width > 0) setBenchmarkFrameWidth((current) => current === width ? current : width);
+    };
+    if (typeof ResizeObserver === "undefined") {
+      measure();
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      window.clearTimeout(resizeTimer);
+      resizeTimer = window.setTimeout(measure, 150);
+    });
+    observer.observe(container);
+    measure();
+    return () => {
+      observer.disconnect();
+      window.clearTimeout(resizeTimer);
+    };
+  }, [chart]);
   const binancePrivateScope = presentBinancePrivateScope(
     privateScope?.error ? null : privateScope?.value,
     { admin: isAdmin === true, allAccounts: accountId === "all", now: privateScopeNow },
@@ -438,9 +466,9 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         <div className="chart-switch" role="tablist" aria-label={t("图表")}>
           {CHART_MODES.map(mode => <button key={mode.id} type="button" role="tab" aria-selected={chart === mode.id} className={chart === mode.id ? "active" : ""} onClick={() => setChart(mode.id)}>{t(mode.label)}</button>)}
         </div>
-        <div className="chart-range" role="tablist" aria-label={t("图表范围")}>
+        {chart === "assets" ? <div className="chart-range" role="tablist" aria-label={t("图表范围")}>
           {CHART_RANGE_OPTIONS.map(option => <button key={option.id} type="button" role="tab" aria-selected={range === option.id} className={range === option.id ? "active" : ""} onClick={() => setRange(option.id)}>{t(option.label)}</button>)}
-        </div>
+        </div> : null}
       </div>
       {chart === "assets" ? <div className="chart-currency">
         {accountId === "all" ? <label>
@@ -461,7 +489,36 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           ? <details className="overview-wallet-details"><summary>{t("数据范围")}</summary><small>{t("按 Binance 返回的钱包范围")}</small></details>
           : <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
       </div> : null}
-      {hasChart ? <div className="asset-chart">
+      {chart === "return" ? <div className="overview-benchmark">
+        <div className="overview-benchmark-heading">
+          <h2>{t("标普500价格指数")}</h2>
+          <p>{t("日收盘价，不含股息；市场基准不代表账户收益。")}</p>
+        </div>
+        <div className="overview-benchmark-frame-container" ref={benchmarkFrameContainer}>
+          {benchmarkFrameWidth > 0 ? <iframe
+            className="overview-benchmark-frame"
+            title={t("标普500价格指数图表")}
+            src={`https://fred.stlouisfed.org/graph/graph-landing.php?g=1ZeSU&width=${benchmarkFrameWidth}&height=475`}
+            width={benchmarkFrameWidth}
+            height="525"
+            sandbox="allow-scripts allow-same-origin"
+            referrerPolicy="no-referrer"
+          /> : null}
+        </div>
+        <details className="overview-benchmark-source">
+          <summary>{t("指数来源详情")}</summary>
+          <dl>
+            <div><dt>{t("数据系列")}</dt><dd>{t("S&P 500 (SP500)，日收盘价格指数，不含股息")}</dd></div>
+            <div><dt>{t("时间范围")}</dt><dd>{t("最近5年")}</dd></div>
+            <div><dt>{t("图表署名")}</dt><dd>{t("S&P Dow Jones Indices LLC via FRED")}</dd></div>
+            <div><dt>{t("来源")}</dt><dd><a href="https://fred.stlouisfed.org/series/SP500" rel="noreferrer" referrerPolicy="no-referrer">{t("FRED 官方数据页")}</a></dd></div>
+          </dl>
+        </details>
+        <div className="overview-account-return-empty">
+          <strong>{t("暂无账户收益数据")}</strong>
+          <p>{t("完整账户估值和外部资金流未接入，收益不可计算。")}</p>
+        </div>
+      </div> : hasChart ? <div className="asset-chart">
         <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t(walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>
           {geometry.segments.map((path, index) => <path key={index} d={path} className="asset-chart-line" fill="none" />)}
           {geometry.dots.map((dot) => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={geometry.dots.length === 1 ? 4 : 2.5} className="asset-chart-dot">
@@ -473,7 +530,6 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           <span>{currency} {geometry.minLabel} – {geometry.maxLabel}</span>
         </div>
       </div> : <div className="chart-empty">
-        {chart === "return" ? <ul className="chart-legend" aria-label={t("指数")}>{RETURN_INDEX_LEGEND.map(name => <li key={name}>{t(name)}</li>)}</ul> : null}
         <strong>{t(chartEmptyTitle)}</strong>
         <p>{chartEmptyDetail === "{range}内暂无资产记录"
           ? t(chartEmptyDetail, { range: t(emptyNote.rangeLabel) })

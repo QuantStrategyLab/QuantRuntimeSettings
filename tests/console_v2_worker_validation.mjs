@@ -9,7 +9,7 @@ for (const path of ["/"]) {
   assert.equal(response.status, 200);
   assert.match(response.headers.get("content-type"), /text\/html/);
   assert.equal(response.headers.get("cache-control"), "no-store");
-  assert.equal(response.headers.get("content-security-policy"), "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
+  assert.equal(response.headers.get("content-security-policy"), "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; frame-src https://fred.stlouisfed.org/graph/graph-landing.php; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
   assert.equal(await response.text(), V2_PAGE_HTML);
   assert.equal((await worker.fetch(request(path, "HEAD"), {})).headers.get("content-type"), "text/html; charset=utf-8");
   assert.equal(await (await worker.fetch(request(path, "HEAD"), {})).text(), "");

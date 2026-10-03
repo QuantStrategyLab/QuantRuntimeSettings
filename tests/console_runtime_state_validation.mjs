@@ -398,7 +398,7 @@ test("root shell keeps its content security policy and /admin is an unknown page
   assert.match(html, /<div id="root"><\/div>/, "the root page serves the React application shell");
   assert.match(html, /\/v2\/assets\/index-[\w-]+\.js/, "the root shell loads the versioned application bundle");
   assert.doesNotMatch(html, /<script[^>]*>[^<]/i, "the shell contains no inline script");
-  assert.equal(csp, "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
+  assert.equal(csp, "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; frame-src https://fred.stlouisfed.org/graph/graph-landing.php; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
   assert.doesNotMatch(csp, /unsafe-inline|nonce-/);
   const adminPage = await worker.fetch(new Request("https://switch.example/admin", {
     headers: { Cookie: `qsl_switch_session=${cookie}` },
