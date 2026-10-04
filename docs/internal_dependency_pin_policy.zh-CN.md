@@ -9,7 +9,7 @@ QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 
 | 层 | 位置 | 含义 | 是否强制安装真相 |
 | --- | --- | --- | --- |
 | 安装真相 | 各 consumer 的 `pyproject.toml` / lock / `qsl.toml` | 该仓实际安装与 CI 解析的 ref | 是 |
-| 台账 | [`internal_dependency_matrix.json`](../internal_dependency_matrix.json) | 已合入实 pin 的组织快照 | 台账一致性是；不等于部署 |
+| 已保存快照 | [`internal_dependency_matrix.json`](../internal_dependency_matrix.json) | 生成时所扫描 consumer 文件中的 refs | 仅快照一致性；不证明最新 main 或实际部署 |
 | 候选 | `QuantPlatformKit/QPK_PIN` | 下一轮建议升级目标 | 否；不得单独迫使 live 全员同 SHA |
 
 - **校验** 在 QuantRuntimeSettings CI 中执行：每个 PR 都生成漂移报告；只有修改
@@ -19,17 +19,44 @@ QuantStrategyLab 通过 git URL pin 在平台、策略与 pipeline 之间共享 
 - 交叉说明见 [qsl_compat_upgrade.md](qsl_compat_upgrade.md) 与 QPK ADR 0003 Amendment 2026-09-06。
 
 ```bash
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files
 ```
 
-若本地 consumer 文件与 matrix 漂移，可先从本地消费方依赖文件重建并同步：
+先将选定的本地 cohort 与保存快照对比。只有确认所有 tracked consumer 均存在、实际 HEAD
+与文件摘要已记录、且整组仓库在扫描过程中未漂移，才能重建 matrix。缺少 HEAD 证据的旧
+漂移报告不属于新采样 cohort：
 
 ```bash
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --generate --json > /tmp/internal_dependency_matrix.json
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --sync
+python3 python/scripts/qslctl.py generate-matrix --projects-root .. --check --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --generate --json > /tmp/internal_dependency_matrix.json
+# 审阅完整 cohort 和依赖变更后：
+python3 python/scripts/qslctl.py generate-matrix --projects-root .. --sync
 ```
 
-该脚本会将 matrix 条目与各 consumer 仓库中的 `requirements.txt`、`requirements-lock.txt`、`pyproject.toml` 对比。启用 `--strict` 时，即使本地未 checkout  sibling 仓库，ref 不一致也会导致 CI 失败。
+该脚本会将 matrix 条目与 sibling consumer 仓库中的 `requirements.txt`、`requirements-lock.txt`、
+`pyproject.toml`、`uv.lock` 对比。`--strict` 会因报告中的 issue 非零退出，包括 ref mismatch。
+缺少的 consumer 文件始终列入 `missing_files`，只有 `--require-consumer-files` 才将它们计为
+issue；因此单独 `--strict` 可能在不完整扫描时返回零。快照匹配或 fresh checkout 都不证明
+已部署运行版本，也不证明依赖兼容性。
+
+## Checkout 证据
+
+`bash python/shell/checkout_internal_dependency_consumers.sh --output-root ..` 会 clone 缺少的
+consumer 仓库：优先使用可用的请求分支，否则使用 `main`。已有目录保持原状，不执行 fetch、
+pull、checkout，也不覆盖本地修改；脚本会校验规范 `QuantStrategyLab/<consumer_repo>` origin、
+仓库根目录和 HEAD 连通性。
+需要 `git`、`python3`、`gh`，以及有 tracked 仓库读取权限的 `GH_TOKEN` 或 `GITHUB_TOKEN`。
+
+脚本向 stdout 为每仓输出一条 JSON 记录，包括请求 ref、实际选定分支（detached checkout
+则为完整 HEAD）、完整 `head_sha`、规范 origin、`worktree_dirty`、`matrix_sha256` 和
+manifest/lock 文件的 SHA256 摘要。`sha256` 是工作树实际字节摘要，`head_sha256` 是该 HEAD
+中已提交字节摘要；缺失文件与未提交文件明确标记。不打印原 origin URL、凭据或文件正文。
+依赖文件为 symlink，或该仓扫描过程中发生变化，均会导致证据采集失败。
+
+这些记录只描述实际 checkout，也包括保留的旧版本或 dirty checkout；请求名称 `main` 不证明
+最新 main 或部署状态。生成冻结 cohort 前，仍须确认完整仓库/文件集合，并在整组扫描前后
+复核所有 HEAD 和摘要。
+单仓稳定不等于全批仓库的原子快照。
 
 ## Pin 格式
 
@@ -56,7 +83,7 @@ python3 scripts/check_internal_dependency_matrix.py --projects-root .. --sync
 
 ```bash
 cd QuantRuntimeSettings
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files
 ```
 
 6. 仅在上游 CI 已绿后合并 consumer PR。平台 deploy 与 pipeline publish workflow 已对 `main` 做 CI 门控。
