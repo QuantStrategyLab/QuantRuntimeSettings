@@ -9,7 +9,7 @@ QuantStrategyLab shares Python packages across platforms, strategies, and pipeli
 | Layer | Location | Meaning | Install authority? |
 | --- | --- | --- | --- |
 | Install truth | Each consumer's `pyproject.toml` / lock / `qsl.toml` | Refs that CI and installs actually resolve | Yes |
-| Ledger | [`internal_dependency_matrix.json`](../internal_dependency_matrix.json) | Snapshot of merged actual pins | Ledger consistency only; not deploy proof |
+| Saved snapshot | [`internal_dependency_matrix.json`](../internal_dependency_matrix.json) | Refs from the consumer files scanned when generated | Snapshot consistency only; not proof of latest main or deployment |
 | Candidate | `QuantPlatformKit/QPK_PIN` | Suggested next upgrade target | No; must not force every live consumer onto one SHA |
 
 - **Validation** runs in QuantRuntimeSettings CI: every PR publishes a drift report, while
@@ -19,17 +19,45 @@ QuantStrategyLab shares Python packages across platforms, strategies, and pipeli
 - See also [qsl_compat_upgrade.md](qsl_compat_upgrade.md) and QPK ADR 0003 Amendment 2026-09-06.
 
 ```bash
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files
 ```
 
-When drift is found repeatedly, you can regenerate the matrix from local consumer files in a single step:
+Compare the selected local cohort with the saved snapshot first. Regenerate only after verifying
+that all tracked consumers are present, their actual HEADs and file hashes are recorded, and the
+cohort did not move during the scan. An old drift report without HEAD evidence is not a fresh cohort:
 
 ```bash
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --generate --json > /tmp/internal_dependency_matrix.json
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --sync
+python3 python/scripts/qslctl.py generate-matrix --projects-root .. --check --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --generate --json > /tmp/internal_dependency_matrix.json
+# After reviewing the complete cohort and its dependency changes:
+python3 python/scripts/qslctl.py generate-matrix --projects-root .. --sync
 ```
 
-The checker compares matrix entries against consumer `requirements.txt`, `requirements-lock.txt`, and `pyproject.toml` files in sibling repositories. With `--strict`, ref mismatches fail CI even when sibling repos are not checked out locally.
+The checker compares matrix entries against consumer `requirements.txt`, `requirements-lock.txt`,
+`pyproject.toml`, and `uv.lock` files in sibling repositories. `--strict` fails on reported issues,
+including ref mismatches. Missing consumer files are listed in `missing_files`; they become issues
+only with `--require-consumer-files`. Thus `--strict` alone can return zero for an incomplete scan.
+Neither a matching snapshot nor a fresh checkout proves the deployed runtime or dependency compatibility.
+
+## Checkout evidence
+
+`bash python/shell/checkout_internal_dependency_consumers.sh --output-root ..` clones missing
+consumer repositories using the requested branch when available, otherwise `main`. It preserves
+existing directories without fetch, pull, checkout, or overwriting local edits, and validates the
+canonical `QuantStrategyLab/<consumer_repo>` origin, repository root, and HEAD connectivity.
+It requires `git`, `python3`, `gh`, and `GH_TOKEN` or `GITHUB_TOKEN` with read access to the tracked repositories.
+
+The script emits one JSON record per repository to stdout. Each record contains the requested ref,
+actual selected branch (or full HEAD for a detached checkout), full `head_sha`, canonical origin,
+`worktree_dirty`, `matrix_sha256`, and SHA256 digests for manifest/lock files. `sha256` describes the
+working-tree bytes; `head_sha256` describes the bytes committed at that HEAD. Missing files and
+uncommitted files are explicit. Raw origin URLs, credentials, and file contents are never printed.
+Symlinked dependency files and changes during a repository's scan fail evidence collection.
+
+These records describe the checked-out repositories, including preserved older or dirty checkouts;
+the requested `main` name is not proof of latest main or deployment. Before regenerating a frozen
+cohort, verify the complete repository/file set and recheck all HEADs and hashes across the full scan.
+Per-repository stability is not an atomic snapshot of the whole batch.
 
 ## Pin formats
 
@@ -56,7 +84,7 @@ Strategy packages (`us-equity-strategies`, `hk-equity-strategies`, `crypto-strat
 
 ```bash
 cd QuantRuntimeSettings
-python3 scripts/check_internal_dependency_matrix.py --projects-root .. --strict
+python3 python/scripts/check_internal_dependency_matrix.py --projects-root .. --strict --require-consumer-files
 ```
 
 6. Merge consumer PRs only after upstream CI is green. Platform deploy and pipeline publish workflows are CI-gated on `main`.
