@@ -90,6 +90,9 @@ jobs:
         working-directory: web/strategy-switch-console
         run: npm ci
       - name: Validate strategy switch web assets
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          npm_config_update_notifier: "false"
         run: |
           set -euo pipefail
           npm ci --prefix web/strategy-switch-console/frontend
@@ -110,6 +113,7 @@ jobs:
           node tests/runtime_daily_worker_validation.mjs
           node tests/account_facts_validation.mjs
           node tests/binance_account_facts_validation.mjs
+          node tests/binance_receiver_deploy_acceptance_validation.mjs
           node tests/account_facts_binding_workflow_validation.mjs
           node tests/ibkr_runtime_lifecycle_inspection_validation.mjs
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
