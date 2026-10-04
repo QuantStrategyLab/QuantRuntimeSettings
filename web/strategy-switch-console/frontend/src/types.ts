@@ -26,6 +26,19 @@ export type LongBridgeCashDetail = {
   settling_cash?: string;
 };
 
+export type LongBridgeFinancingRiskLevel = "0" | "1" | "2" | "3";
+
+export type LongBridgeFinancingRow = {
+  currency: string;
+  max_finance_amount?: string;
+  remaining_finance_amount?: string;
+  init_margin?: string;
+  maintenance_margin?: string;
+  margin_call?: string;
+  buy_power?: string;
+  risk_level?: LongBridgeFinancingRiskLevel;
+};
+
 export type IbkrAccountFactsCash = {
   currency: string;
   cash_balance: string;
@@ -62,6 +75,7 @@ export type AccountFactsAccount = {
   observed_finished_at: string | null;
   balances: AccountFactsBalance[];
   cash: AccountFactsCash[];
+  financing?: LongBridgeFinancingRow[];
   broker_account_type?: SchwabBrokerAccountType;
   return: AccountFactsReturn;
 };
@@ -228,6 +242,68 @@ export function longBridgeCashDetails(account: AccountFactsAccount | null | unde
     if (typeof cash?.frozen_cash === "string") detail.frozen_cash = cash.frozen_cash;
     if (typeof cash?.settling_cash === "string") detail.settling_cash = cash.settling_cash;
     if (Object.keys(detail).length > 1) result.push(detail);
+  }
+  return result.length ? result : null;
+}
+
+const LONG_BRIDGE_FINANCING_MONEY_FIELDS = [
+  "max_finance_amount",
+  "remaining_finance_amount",
+  "init_margin",
+  "maintenance_margin",
+  "margin_call",
+  "buy_power",
+] as const;
+
+const LONG_BRIDGE_RISK_LEVEL_WIRE = new Set<LongBridgeFinancingRiskLevel>(["0", "1", "2", "3"]);
+
+export function longBridgeRiskLevelLabel(
+  level: LongBridgeFinancingRiskLevel,
+): "安全" | "中等" | "预警" | "危险" {
+  if (level === "0") return "安全";
+  if (level === "1") return "中等";
+  if (level === "2") return "预警";
+  return "危险";
+}
+
+export function longBridgeFinancingDetails(
+  account: AccountFactsAccount | null | undefined,
+): LongBridgeFinancingRow[] | null {
+  if (!account || account.platform !== "longbridge" || account.data_status !== "fresh"
+    || account.binding_status !== "bound" || account.identity_mismatch === true
+    || typeof account.observed_finished_at !== "string"
+    || !Number.isFinite(Date.parse(account.observed_finished_at))
+    || !Array.isArray(account.financing) || account.financing.length === 0) return null;
+  const balanceCurrencies = new Set(
+    account.balances
+      .map((row) => row.currency)
+      .filter((currency): currency is string => typeof currency === "string" && currency.length > 0),
+  );
+  const seen = new Set<string>();
+  let previousCurrency: string | null = null;
+  const result: LongBridgeFinancingRow[] = [];
+  for (const row of account.financing) {
+    if (!row || typeof row.currency !== "string" || !row.currency
+        || seen.has(row.currency) || !balanceCurrencies.has(row.currency)) return null;
+    if (previousCurrency !== null && row.currency < previousCurrency) return null;
+    seen.add(row.currency);
+    previousCurrency = row.currency;
+    const detail: LongBridgeFinancingRow = { currency: row.currency };
+    let hasNativeField = false;
+    for (const field of LONG_BRIDGE_FINANCING_MONEY_FIELDS) {
+      const value = row[field];
+      if (value === undefined) continue;
+      if (typeof value !== "string") return null;
+      detail[field] = value;
+      hasNativeField = true;
+    }
+    if (row.risk_level !== undefined) {
+      if (!LONG_BRIDGE_RISK_LEVEL_WIRE.has(row.risk_level)) return null;
+      detail.risk_level = row.risk_level;
+      hasNativeField = true;
+    }
+    if (!hasNativeField) return null;
+    result.push(detail);
   }
   return result.length ? result : null;
 }

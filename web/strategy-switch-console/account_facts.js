@@ -44,6 +44,9 @@ export const ACCOUNT_FACTS_FUTURE_SKEW_MS = 5 * 60 * 1000;
 export const ACCOUNT_FACTS_OBSERVATION_WINDOW_MS = ACCOUNT_FACTS_STALE_MS;
 export const ACCOUNT_FACTS_MAX_MONEY_SCALE = 8;
 export const ACCOUNT_FACTS_MAX_MONEY_DIGITS = 15;
+/** Native LongBridge financing detail money bound; does not widen primary 15/8. */
+export const ACCOUNT_FACTS_MAX_NATIVE_MONEY_DIGITS = 30;
+export const ACCOUNT_FACTS_MAX_NATIVE_MONEY_SCALE = 28;
 export const ACCOUNT_FACTS_HISTORY_MAX_DAYS = 366;
 export const ACCOUNT_FACTS_RETURN_UNAVAILABLE = Object.freeze({
   status: "unavailable",
@@ -64,9 +67,24 @@ const IBKR_CASH_SOURCE_TAGS = new Set([
 ]);
 const CURRENCY_RE = /^[A-Z]{3}$/;
 const DECIMAL_RE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+const NATIVE_FINANCING_MONEY_RE = /^-?(?:0|[1-9]\d{0,29})(?:\.\d{1,28})?$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const LONG_BRIDGE_BALANCE_FIELDS = ["currency", "net_assets", "total_cash"];
 const LONG_BRIDGE_CASH_FIELDS = ["currency", "available_cash", "frozen_cash", "settling_cash"];
+const LONG_BRIDGE_FINANCING_MONEY_FIELDS = Object.freeze([
+  "max_finance_amount",
+  "remaining_finance_amount",
+  "init_margin",
+  "maintenance_margin",
+  "margin_call",
+  "buy_power",
+]);
+const LONG_BRIDGE_FINANCING_ALLOWED_FIELDS = Object.freeze([
+  "currency",
+  ...LONG_BRIDGE_FINANCING_MONEY_FIELDS,
+  "risk_level",
+]);
+const LONG_BRIDGE_RISK_LEVEL_WIRE = Object.freeze(["0", "1", "2", "3"]);
 const IBKR_BALANCE_FIELDS = ["currency", "net_assets"];
 const IBKR_CASH_FIELDS = ["currency", "cash_balance", "source_tag"];
 const SCHWAB_BALANCE_FIELDS = ["currency", "net_assets", "source_tag", "currency_source"];
@@ -113,6 +131,69 @@ function assertMoneyText(cell, fieldName) {
   const [whole, fraction = ""] = unsigned.split(".");
   if (fraction.length > ACCOUNT_FACTS_MAX_MONEY_SCALE) reject("invalid_account_facts_money_scale");
   if (whole.length > ACCOUNT_FACTS_MAX_MONEY_DIGITS) reject("invalid_account_facts_money_magnitude");
+}
+
+function assertNativeFinancingMoneyText(cell) {
+  if (typeof cell !== "string" || !NATIVE_FINANCING_MONEY_RE.test(cell)) {
+    reject("invalid_account_facts_financing");
+  }
+}
+
+function normalizeRiskLevelWire(cell) {
+  // Wire enum only. SDK int→string conversion belongs to the Python projector.
+  if (typeof cell === "string" && LONG_BRIDGE_RISK_LEVEL_WIRE.includes(cell)) return cell;
+  reject("invalid_account_facts_financing");
+}
+
+function normalizeLongBridgeFinancing(value, balances) {
+  if (!Array.isArray(value) || value.length === 0 || value.length > 32) {
+    reject("invalid_account_facts_financing");
+  }
+  const allowedCurrencies = new Set(
+    (Array.isArray(balances) ? balances : [])
+      .map((row) => row?.currency)
+      .filter((currency) => typeof currency === "string"),
+  );
+  const seen = new Set();
+  let previousCurrency = null;
+  const rows = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      reject("invalid_account_facts_financing");
+    }
+    const keys = Object.keys(item);
+    if (!keys.length || keys.some((key) => !LONG_BRIDGE_FINANCING_ALLOWED_FIELDS.includes(key))) {
+      reject("invalid_account_facts_financing");
+    }
+    if (!Object.prototype.hasOwnProperty.call(item, "currency")) {
+      reject("invalid_account_facts_financing");
+    }
+    const currency = item.currency;
+    if (typeof currency !== "string" || !CURRENCY_RE.test(currency)
+        || seen.has(currency) || !allowedCurrencies.has(currency)) {
+      reject("invalid_account_facts_financing");
+    }
+    if (previousCurrency !== null && currency < previousCurrency) {
+      reject("invalid_account_facts_financing");
+    }
+    seen.add(currency);
+    previousCurrency = currency;
+    const row = { currency };
+    let hasNativeField = false;
+    for (const field of LONG_BRIDGE_FINANCING_MONEY_FIELDS) {
+      if (!Object.prototype.hasOwnProperty.call(item, field)) continue;
+      assertNativeFinancingMoneyText(item[field]);
+      row[field] = item[field];
+      hasNativeField = true;
+    }
+    if (Object.prototype.hasOwnProperty.call(item, "risk_level")) {
+      row.risk_level = normalizeRiskLevelWire(item.risk_level);
+      hasNativeField = true;
+    }
+    if (!hasNativeField) reject("invalid_account_facts_financing");
+    rows.push(row);
+  }
+  return rows;
 }
 
 function moneyRows(value, fields, fieldName, {
@@ -339,6 +420,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (expectedPlatform && platform !== expectedPlatform) reject("account_facts_identity_mismatch", 409);
   const ibkr = platform === IBKR_ACCOUNT_FACTS_PLATFORM;
   const schwab = platform === SCHWAB_ACCOUNT_FACTS_PLATFORM;
+  const longbridge = platform === ACCOUNT_FACTS_PLATFORM;
   const expectedKeys = [
     "schema_version", "snapshot_schema_version", "account_scope", "target_id", "source_binding",
     "observed_started_at", "observed_finished_at", "snapshot_atomic", "observation_date",
@@ -351,6 +433,8 @@ export function normalizeAccountFactsHistoryPayload(raw, {
       expectedKeys.push("broker_account_type");
     }
   }
+  const hasFinancing = longbridge && Object.prototype.hasOwnProperty.call(raw, "financing");
+  if (hasFinancing) expectedKeys.push("financing");
   if (!exactKeys(raw, expectedKeys)) reject("invalid_account_facts_history");
   if (typeof raw.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(raw.account_scope)
       || (platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope))) {
@@ -435,6 +519,9 @@ export function normalizeAccountFactsHistoryPayload(raw, {
         }
         : {}),
   );
+  const financing = hasFinancing
+    ? normalizeLongBridgeFinancing(raw.financing, balances)
+    : null;
   const normalized = {
     schema_version: ibkr
       ? IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA
@@ -456,6 +543,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     broker_reported_balances: balances,
     cash,
   };
+  if (financing) normalized.financing = financing;
   if (ibkr) normalized.account_ids = accountIds;
   if (schwab) {
     normalized.account_hash = raw.account_hash;
@@ -605,6 +693,11 @@ export function buildAccountFactsReadModel({
         observed_finished_at: projected?.observed_finished_at || null,
         balances: projected?.broker_reported_balances || [],
         cash: projected?.cash || [],
+        ...(platform === ACCOUNT_FACTS_PLATFORM
+          && projected?.data_status === "fresh"
+          && Array.isArray(projected?.financing)
+          ? { financing: projected.financing.map((row) => ({ ...row })) }
+          : {}),
         ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && projected?.broker_account_type
           ? { broker_account_type: { ...projected.broker_account_type } }
           : {}),
