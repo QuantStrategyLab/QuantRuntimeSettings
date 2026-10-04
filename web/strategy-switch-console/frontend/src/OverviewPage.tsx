@@ -168,6 +168,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
   const runtimeBounds = runtimeDateBounds(runtimeNow);
   const runtimeToday = runtimeBounds.max;
+  const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
   const [runtimeDate, setRuntimeDate] = useState(runtimeToday);
   const [runtimeDaily, setRuntimeDaily] = useState<RuntimeDailySnapshot | null>(null);
   const [currentDaily, setCurrentDaily] = useState<RuntimeDailySnapshot | null>(null);
@@ -566,8 +567,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       <div className="overview-runtime-head">
         <h2>{t("每日运行记录")}</h2>
         <label>
-          <span>{t("业务日期")}</span>
-          <input type="date" aria-label={t("业务日期")} value={runtimeDate} min={runtimeBounds.min} max={runtimeToday} onChange={event => setRuntimeDate(event.target.value)} />
+          <span>{t(runtimeDateLabel)}</span>
+          <input type="date" aria-label={t(runtimeDateLabel)} value={runtimeDate} min={runtimeBounds.min} max={runtimeToday} onChange={event => setRuntimeDate(event.target.value)} />
         </label>
       </div>
       {!runtimeDateSelectable(runtimeDate, runtimeNow) ? <p>{t("请选择最近90天内的有效日期")}</p> : visible.map(account => {

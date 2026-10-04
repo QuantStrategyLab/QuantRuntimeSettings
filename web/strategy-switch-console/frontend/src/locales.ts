@@ -820,6 +820,7 @@ export const EN_COPY = {
   "正在读取运行日报…": "Loading runtime daily…",
   "运行日报读取失败；不保留旧结果。": "Runtime daily request failed; previous results are not kept.",
   "业务日期": "Business date",
+  "业务日期（纽约业务日，America/New_York）": "Business date (New York business day, America/New_York)",
   "运行时间": "Run time",
   "数据状态": "Data status",
   "成交明细": "Fills",

@@ -25,6 +25,7 @@ import {
   verifiedSchwabAccountTypeToken,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { accountFactsDetail, formatAccountFactAmounts, hasNonzeroNegativeAccountFactAmount, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
+import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -324,6 +325,12 @@ assert.match(overviewStyles, /\.wallet-card-valuation strong \{ white-space: now
   "wallet total gets a full-width non-wrapping amount instead of sharing a narrow cash column");
 assert.match(overview, /runtimeEpoch/);
 assert.match(overview, /runtimeDateBounds/);
+const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
+assert.equal(translate(runtimeDateLabel, "zh"), runtimeDateLabel);
+assert.equal(translate(runtimeDateLabel, "en"), "Business date (New York business day, America/New_York)");
+assert.match(overview, /const runtimeDateLabel = "业务日期（纽约业务日，America\/New_York）"/);
+assert.match(overview, /<span>\{t\(runtimeDateLabel\)\}<\/span>\s*<input type="date" aria-label=\{t\(runtimeDateLabel\)\}/,
+  "the daily runtime date picker and its accessible name both identify the New York business day");
 assert.match(overview, /runtimeDailySelectionEligible/);
 assert.match(overview, /platform:\s*account\.platformKey/);
 assert.match(overview, /overviewAccountTypeLabel/);
