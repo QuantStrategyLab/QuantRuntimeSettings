@@ -1,5 +1,6 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
+import { RUNTIME_DAILY_TARGET, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
@@ -259,9 +260,9 @@ const BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Keeping this contract separate prevents a P1/P3 source from accidentally
 // turning into an execution or P6 authority source.
 const EXECUTION_EVIDENCE_SOURCE_PREFIX = "execution_evidence_source:";
-const RUNTIME_DAILY_SERVICE = "longbridge-quant-paper-service";
-const RUNTIME_DAILY_STRATEGY = "russell_top50_leader_rotation";
-const RUNTIME_DAILY_ACCOUNT_SCOPE = "paper";
+const RUNTIME_DAILY_SERVICE = RUNTIME_DAILY_TARGET.service;
+const RUNTIME_DAILY_STRATEGY = RUNTIME_DAILY_TARGET.strategy_profile;
+const RUNTIME_DAILY_ACCOUNT_SCOPE = RUNTIME_DAILY_TARGET.account_scope;
 const RUNTIME_DAILY_TIMEZONE = "America/New_York";
 const RUNTIME_DAILY_TARGET_KEY = `${RUNTIME_DAILY_SERVICE}|${RUNTIME_DAILY_STRATEGY}|${RUNTIME_DAILY_ACCOUNT_SCOPE}`;
 const RUNTIME_DAILY_KEY_PREFIX = "runtime_daily:";
@@ -7586,8 +7587,9 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
   if (!Array.isArray(record.conflicts) || record.conflicts.length > RUNTIME_DAILY_MAX_LIST || record.conflicts.some((item) => !runtimeDailyBoundedText(item, 160))) {
     runtimeDailyReject("invalid_runtime_daily_projection");
   }
-  if (RUNTIME_DAILY_SCHEDULE_ONLY.includes(record.status) && (record.conflicts.length || runs.some((run) => RUNTIME_DAILY_ANOMALY_STATUSES.includes(run.activity) || run.activity === "previewed"))) {
-    runtimeDailyReject("invalid_runtime_daily_projection");
+  if (["no_submission", "no_signal", "no_rebalance", "filled", ...RUNTIME_DAILY_SCHEDULE_ONLY].includes(record.status)
+    && (record.conflicts.length || runs.some(run => runtimeDailyRunIssue(run) !== null))) {
+    runtimeDailyReject("runtime_daily_summary_conflict");
   }
   if (!runtimeDailyExactKeys(record.fills, ["source", "records", "count"]) || record.fills.source !== "not_connected" || record.fills.count !== null || !Array.isArray(record.fills.records) || record.fills.records.length !== 0) {
     runtimeDailyReject("invalid_runtime_daily_fills");
@@ -7635,10 +7637,7 @@ async function runtimeDailyTrustedAccountKey(env) {
   } catch {
     return null;
   }
-  const options = Array.isArray(config?.options?.longbridge) ? config.options.longbridge : [];
-  const matches = options.filter((item) => item?.service_name === RUNTIME_DAILY_SERVICE && item?.account_scope === RUNTIME_DAILY_ACCOUNT_SCOPE);
-  if (matches.length !== 1 || typeof matches[0]?.key !== "string" || !matches[0].key) return null;
-  return matches[0].key;
+  return runtimeDailyBoundAccountKey(config?.options);
 }
 
 function runtimeDailyUnattributedResponse() {
@@ -7674,6 +7673,7 @@ function runtimeDailyPublicRecord(record) {
       finished_at: run.finished_at,
       activity: run.activity,
       execution_lane: run.execution_lane,
+      errors_present: run.evidence.errors_present,
     })),
     conflict_count: record.conflicts.length,
     excluded_count: record.excluded_reports.length,
