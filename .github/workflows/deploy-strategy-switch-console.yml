@@ -77,6 +77,9 @@ jobs:
           node-version: "22"
 
       - name: Build new console and embedded assets
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          npm_config_update_notifier: "false"
         run: |
           set -euo pipefail
           npm ci --prefix web/strategy-switch-console
@@ -413,10 +416,6 @@ jobs:
           printf '%s' "$BINANCE_ACCOUNT_FACTS_BINDING_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_BINDING_JSON --config wrangler.toml
           printf '%s' "$BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON --config wrangler.toml
 
-      - name: Verify optional Binance account-facts receiver credentials
-        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
-        run: node scripts/verify_binance_account_facts_receiver.mjs
-
       - name: Sync M0 research-ledger ingress token
         env:
           M0_RESEARCH_SYNC_TOKEN: ${{ secrets.M0_RESEARCH_SYNC_TOKEN }}
@@ -424,6 +423,16 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$M0_RESEARCH_SYNC_TOKEN" | npx wrangler@4.106.0 secret put M0_RESEARCH_SYNC_TOKEN --config wrangler.toml
+
+      - name: Wait for optional Binance account-facts readiness stability
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        env:
+          BINANCE_ACCOUNT_FACTS_DEPLOYMENT_READINESS: "true"
+        run: node scripts/verify_binance_account_facts_receiver.mjs
+
+      - name: Verify optional Binance account-facts receiver credentials
+        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        run: node scripts/verify_binance_account_facts_receiver.mjs
 
       - name: Check whether this release changes the strategy catalog
         id: catalog-change
