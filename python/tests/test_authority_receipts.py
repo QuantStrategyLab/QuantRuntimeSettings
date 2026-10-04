@@ -3,15 +3,22 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import tempfile
 import tomllib
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
 RECEIPT_ROOT = ROOT / "authority" / "receipts"
 EVIDENCE_ROOT = ROOT / "authority" / "evidence"
 FULL_SHA = re.compile(r"^[0-9a-f]{40}$")
+# Raw internal_dependency_matrix.json bytes from QRS commit
+# ed4f70875ec986e69e68ec5354d5db4a918c2651, matching the 2026.09.1
+# promotion evidence. This historical copy grants no new authority; the current
+# ledger remains independently generated and checked against consumer files.
+HISTORICAL_MATRIX_2026_09_1_SHA256 = "fea191e5375232e3741474ae7920627b71df4909ffa21f794b71e15bc03909a2"
 EXPECTED_RECEIPT_SHA256 = {
     "ai-provenance-and-evaluation-v3.json": "5a403948e027db50f0cbf2baa9a9e75abc51198d1475aad38a1c622972b406b1",
     "qsl-dependency-cohort-2026.09.0-canonical-promotion.json": "a71c78aa2a6b7477cd3065f7eabc2a2696fd45ae8e3fc0232b1d1d9a51affe44",
@@ -36,6 +43,13 @@ def _load_receipt(name: str) -> dict[str, object]:
     if path.with_suffix(path.suffix + ".sha256").read_text() != expected_sidecar:
         raise AssertionError(f"receipt digest sidecar mismatch: {path}")
     return payload
+
+
+def _load_2026_09_1_historical_matrix(path: Path) -> bytes:
+    raw = path.read_bytes()
+    if hashlib.sha256(raw).hexdigest() != HISTORICAL_MATRIX_2026_09_1_SHA256:
+        raise AssertionError(f"2026.09.1 historical dependency matrix bytes changed: {path}")
+    return raw
 
 
 class HumanAuthorityReceiptTest(unittest.TestCase):
@@ -472,7 +486,8 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         evidence = json.loads(evidence_raw)
         strict_path = ROOT / evidence["prepared_workspace"]["artifact_path"]
         matrix_evidence_path = ROOT / evidence["dependency_matrix"]["artifact_path"]
-        matrix_path = ROOT / "internal_dependency_matrix.json"
+        matrix_path = EVIDENCE_ROOT / "qsl-dependency-cohort-2026.09.1-matrix.json"
+        matrix_raw = _load_2026_09_1_historical_matrix(matrix_path)
         strict_raw = strict_path.read_bytes()
         matrix_evidence_raw = matrix_evidence_path.read_bytes()
         strict_evidence = json.loads(strict_raw)
@@ -547,7 +562,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertEqual(evidence["prepared_workspace"]["warning_count"], 0)
         self.assertEqual(evidence["prepared_workspace"]["artifact_sha256"], hashlib.sha256(strict_raw).hexdigest())
         self.assertEqual(evidence["dependency_matrix"]["artifact_sha256"], hashlib.sha256(matrix_evidence_raw).hexdigest())
-        self.assertEqual(evidence["dependency_matrix"]["matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertEqual(evidence["dependency_matrix"]["matrix_sha256"], hashlib.sha256(matrix_raw).hexdigest())
         self.assertTrue(all(value is False for value in evidence["safety_boundary"].values()))
         self.assertEqual(evidence["schema_version"], "qsl.consumer-convergence-evidence.v1")
         self.assertEqual(strict_evidence["schema_version"], "qsl.check-all-strict-evidence.v1")
@@ -569,7 +584,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertTrue(all(repo["ok"] and not repo["issues"] and not repo["warnings"] for repo in strict_evidence["repositories"]))
         self.assertEqual(strict_evidence["promotion_inputs"]["candidate_manifest_sha256"], hashlib.sha256(candidate_path.read_bytes()).hexdigest())
         self.assertEqual(strict_evidence["promotion_inputs"]["canonical_bundle_sha256"], hashlib.sha256(canonical_path.read_bytes()).hexdigest())
-        self.assertEqual(strict_evidence["promotion_inputs"]["dependency_matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertEqual(strict_evidence["promotion_inputs"]["dependency_matrix_sha256"], hashlib.sha256(matrix_raw).hexdigest())
         self.assertEqual(strict_evidence["promotion_inputs"]["quant_runtime_settings_qsl_sha256"], hashlib.sha256((ROOT / "qsl.toml").read_bytes()).hexdigest())
         self.assertEqual(matrix_evidence["schema_version"], "qsl.dependency-matrix-strict-evidence.v1")
         self.assertTrue(matrix_evidence["qsl_generate_matrix_check"]["command_contract"]["check"])
@@ -583,7 +598,7 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertEqual(matrix_evidence["dependency_ledger_check"]["missing_file_count"], 0)
 
         strict_revisions = {repo["repository"]: repo["revision"] for repo in strict_evidence["repositories"]}
-        self.assertEqual(matrix_evidence["matrix_sha256"], hashlib.sha256(matrix_path.read_bytes()).hexdigest())
+        self.assertEqual(matrix_evidence["matrix_sha256"], hashlib.sha256(matrix_raw).hexdigest())
         self.assertEqual(matrix_evidence["repository_revisions"], strict_revisions)
         qrs_evidence = next(repo for repo in strict_evidence["repositories"] if repo["repository"] == "QuantRuntimeSettings")
         self.assertEqual(qrs_evidence["source_control_state"], "promotion_worktree_base")
@@ -644,6 +659,35 @@ class HumanAuthorityReceiptTest(unittest.TestCase):
         self.assertFalse(receipt["paper_or_live_authorized"])
         self.assertTrue(receipt["no_live_execution"])
         self.assertIsNone(receipt["signature"])
+
+    def test_2026_09_1_historical_matrix_rejects_byte_tampering(self) -> None:
+        matrix_path = EVIDENCE_ROOT / "qsl-dependency-cohort-2026.09.1-matrix.json"
+        raw = _load_2026_09_1_historical_matrix(matrix_path)
+        with tempfile.TemporaryDirectory() as directory:
+            altered_path = Path(directory) / matrix_path.name
+            altered_path.write_bytes(raw + b" ")
+            with self.assertRaisesRegex(AssertionError, "historical dependency matrix bytes changed"):
+                _load_2026_09_1_historical_matrix(altered_path)
+
+    def test_2026_09_1_current_matrix_update_does_not_extend_historical_authority(self) -> None:
+        current_path = ROOT / "internal_dependency_matrix.json"
+        original_read_bytes = Path.read_bytes
+        updated_matrix = json.loads(current_path.read_bytes())
+        updated_matrix["dependencies"][0]["ref"] = "0" * 40
+        updated_raw = (json.dumps(updated_matrix, indent=2) + "\n").encode()
+
+        def read_with_updated_current_matrix(path: Path) -> bytes:
+            if path == current_path:
+                return updated_raw
+            return original_read_bytes(path)
+
+        with patch.object(Path, "read_bytes", read_with_updated_current_matrix):
+            # A later ledger cannot substitute for the exact approved snapshot.
+            with self.assertRaisesRegex(AssertionError, "historical dependency matrix bytes changed"):
+                _load_2026_09_1_historical_matrix(current_path)
+            # All receipt digests, selected refs, consumer/PR gates and denied
+            # execution rights remain checked against the frozen evidence.
+            self.test_2026_09_1_canonical_promotion_freezes_prepared_main_and_pr_evidence()
 
 
 if __name__ == "__main__":
