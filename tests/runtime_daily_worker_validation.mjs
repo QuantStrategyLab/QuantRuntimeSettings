@@ -456,3 +456,4 @@ for (const invalid of [{ invalid: true }, false, 0]) {
 store.set(historicalKey, preserved);
 assert.equal((await get("2020-01-03", sessionHeaders)).status, 200, "UI's 90-day range does not restrict retained older records");
 console.log("runtime_daily_worker_validation ok");
+await import("./runtime_daily_health_integration_validation.mjs");

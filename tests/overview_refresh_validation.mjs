@@ -126,6 +126,6 @@ assert.match(runtimeEffect, /visible\.some\(account => runtimeDailySelectionElig
 assert.match(runtimeEffect, /runtimeDate === runtimeToday \? readModelRefreshVersion : 0/);
 assert.match(runtimeEffect, /runtimeEpoch\.current !== epoch/);
 assert.match(runtimeEffect, /return cancel/);
-assert.match(runtimeEffect, /\[hasDailyAccount, runtimeToday, readModelRefreshVersion\]/, "today's health refresh remains independent of the selected historical day");
+assert.match(runtimeEffect, /\[hasDailyAccount, dailyAccountId, runtimeToday, readModelRefreshVersion\]/, "today's health refresh follows the exact daily binding independently of the selected historical day");
 
 console.log("overview refresh validation: PASS");

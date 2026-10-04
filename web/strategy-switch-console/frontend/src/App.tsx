@@ -11,6 +11,7 @@ import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
 import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 import { accountFactsForRow } from "./types";
+import { runtimeDailySelectionBinding } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -753,6 +754,7 @@ function App() {
             id: row.id,
             platformKey: row.platform,
             accountKey: row.account.key,
+            runtimeDailyBinding: runtimeDailySelectionBinding(model?.config.value?.accountOptions, row.platform, row.account.key),
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),

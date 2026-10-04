@@ -1,22 +1,29 @@
 import assert from "node:assert/strict";
 import { overviewRuntimeHealth, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
+import { RUNTIME_DAILY_TARGET } from "../web/strategy-switch-console/runtime_daily_contract.js";
 
 const now = Date.parse("2026-10-04T16:00:00Z");
 const instant = offset => new Date(now + offset * 1000).toISOString();
-const selection = { platform: "longbridge", accountKey: "synthetic-paper" };
+const selection = { platform: "longbridge", accountKey: "synthetic-paper", dailyBinding: "bound" };
 const runtime = {
   observed_at: instant(-60), evidence_valid_for_seconds: 300,
   freshness: { data_status: "ready" }, deployment_freshness: { data_status: "ready" },
   account_state: { scope: "monitoring_only", limit: "not_trading_or_books", activation: "enabled", health: "normal" },
-  target: { deployment: { observed_at: instant(-60), runtime_enabled: true, scheduler_state: "enabled" } },
+  target: {
+    target: { configured_state: "enabled" },
+    monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" },
+    disposition: { code: "continue_enabled_monitoring" },
+    deployment: { observed_at: instant(-60), runtime_enabled: true, scheduler_state: "enabled" },
+  },
 };
 const daily = {
   ok: true, account_key: selection.accountKey, date: "2026-10-04", timezone: "America/New_York", data_status: "fresh",
   record: {
+    ...RUNTIME_DAILY_TARGET,
     business_date: "2026-10-04", observed_at: instant(-30), kind: "run", completeness: "complete", status: "no_submission", execution_lane: "paper",
     schedule: { state: "due", latest_due_at: instant(-120), next_due_at: instant(3600), publication_grace_ended: true },
-    runs: [{ started_at: instant(-90), finished_at: instant(-60), activity: "no_submission", execution_lane: "paper" }],
+    runs: [{ started_at: instant(-90), finished_at: instant(-60), activity: "no_submission", execution_lane: "paper", errors_present: false }],
   }, fills: { source: "not_connected", records: [], count: null }, read_error_count: 0, unmatched_count: 0,
 };
 const clone = value => structuredClone(value);
@@ -24,11 +31,41 @@ const health = (r = runtime, d = daily, s = selection, mismatch = false, time = 
 const mixedZones = clone(daily);
 mixedZones.record.schedule.latest_due_at = "2026-10-04T15:20:00Z";
 mixedZones.record.runs = [
-  { started_at: "2026-10-04T14:59:00Z", finished_at: "2026-10-04T15:00:00Z", activity: "no_submission", execution_lane: "paper" },
-  { started_at: "2026-10-04T11:29:00-04:00", finished_at: "2026-10-04T11:30:00-04:00", activity: "no_submission", execution_lane: "paper" },
+  { started_at: "2026-10-04T14:59:00Z", finished_at: "2026-10-04T15:00:00Z", activity: "no_submission", execution_lane: "paper", errors_present: false },
+  { started_at: "2026-10-04T11:29:00-04:00", finished_at: "2026-10-04T11:30:00-04:00", activity: "no_submission", execution_lane: "paper", errors_present: false },
 ];
 assert.equal(health(runtime, mixedZones).label, "健康", "valid timezone offsets are ordered by instant, not text");
 assert.equal(health(runtime, mixedZones).lastSuccessAt, "2026-10-04T11:30:00-04:00");
+const binance = { platform: "binance", accountKey: "synthetic-binance", dailyBinding: "not_applicable" };
+assert.equal(health(runtime, null, binance).label, "健康", "a fresh platform lifecycle result does not require the LongBridge-only daily feed");
+assert.equal(health(runtime, null, binance).detail, "运行监测正常，已启用。");
+const platformNotDue = clone(runtime);
+platformNotDue.account_state.health = "unknown";
+platformNotDue.account_state.reason = "check_not_due";
+platformNotDue.target.monitoring.execution_heartbeat = "not_due";
+assert.equal(health(platformNotDue, null, binance).label, "健康", "fresh explicit platform check_not_due evidence can wait without turning TTL into a schedule");
+assert.equal(health(platformNotDue, null, binance).detail, "尚未到检查时间");
+const stalePlatformNotDue = clone(platformNotDue);
+stalePlatformNotDue.observed_at = instant(-301);
+assert.equal(health(stalePlatformNotDue, null, binance).label, "异常", "a not-due result cannot mask stale monitoring evidence");
+const noDueProof = clone(platformNotDue);
+noDueProof.target.monitoring.runtime_guard = "unavailable";
+assert.equal(health(noDueProof, null, binance).label, "异常", "a not-due heartbeat cannot mask an unavailable runtime guard");
+const wrongDueState = clone(platformNotDue);
+wrongDueState.target.monitoring.execution_heartbeat = "pass";
+assert.equal(health(wrongDueState, null, binance).label, "异常", "check_not_due requires matching source-level heartbeat evidence");
+const disabledRuntime = clone(runtime);
+disabledRuntime.account_state.activation = "disabled";
+disabledRuntime.target.target.configured_state = "disabled";
+disabledRuntime.target.deployment.runtime_enabled = false;
+disabledRuntime.target.deployment.scheduler_state = "paused";
+disabledRuntime.target.monitoring.execution_heartbeat = "not_applicable";
+disabledRuntime.target.disposition.code = "continue_disabled_validation";
+assert.equal(health(disabledRuntime, null, binance).label, "健康", "a correctly configured, freshly validated disabled account is not a runtime failure");
+assert.equal(health(disabledRuntime, null, binance).detail, "运行监测正常，已停用。");
+const unverifiedDisabled = clone(disabledRuntime);
+unverifiedDisabled.target.disposition.code = "parked";
+assert.equal(health(unverifiedDisabled, null, binance).label, "异常", "a disabled target with a parked disposition remains abnormal");
 const noSchedule = clone(daily);
 noSchedule.record.schedule = { state: "unevaluable", latest_due_at: null, next_due_at: null, grace_ends_at: null, publication_grace_ended: null };
 assert.equal(health(runtime, noSchedule).label, "异常", "a complete run cannot fill an unknown scheduling evidence gap");
@@ -56,6 +93,29 @@ for (const [name, mutate] of [
 assert.equal(health(null).label, "异常");
 assert.equal(health(runtime, null).label, "异常", "monitoring green alone cannot prove a cycle");
 assert.equal(health(runtime, daily, selection, true).detail, "账户身份不匹配");
+assert.equal(health(runtime, null, binance, true).label, "异常", "identity mismatches stay abnormal for non-LongBridge platforms");
+const staleBinance = clone(runtime);
+staleBinance.observed_at = instant(-301);
+assert.equal(health(staleBinance, null, binance).label, "异常", "Binance freshness is checked independently of daily cycle data");
+const staleDeploymentReadback = clone(runtime);
+staleDeploymentReadback.deployment_freshness.data_status = "stale";
+assert.equal(health(staleDeploymentReadback, null, binance).label, "异常", "a current monitoring timestamp cannot mask stale deployment evidence");
+const unavailableDeploymentReadback = clone(runtime);
+unavailableDeploymentReadback.deployment_freshness.data_status = "unavailable";
+assert.equal(health(unavailableDeploymentReadback, null, binance).label, "异常", "a current monitoring timestamp cannot mask unavailable deployment evidence");
+const abnormalBinance = clone(runtime);
+abnormalBinance.account_state.health = "abnormal";
+assert.equal(health(abnormalBinance, null, binance).label, "异常", "platform monitoring failure remains abnormal");
+for (const [name, mutate] of [
+  ["configured enabled", r => r.target.target.configured_state = "enabled"],
+  ["runtime switch enabled", r => r.target.deployment.runtime_enabled = true],
+  ["scheduler enabled", r => r.target.deployment.scheduler_state = "enabled"],
+  ["heartbeat applicable", r => r.target.monitoring.execution_heartbeat = "pass"],
+  ["non-disabled disposition", r => r.target.disposition.code = "continue_enabled_monitoring"],
+]) {
+  const r = clone(disabledRuntime); mutate(r);
+  assert.equal(health(r, null, binance).label, "异常", `disabled state evidence mismatch: ${name}`);
+}
 for (const [name, mutate] of [
   ["wrong account", d => d.account_key = "other"],
   ["wrong date", d => d.date = "2026-10-03"],
@@ -82,7 +142,7 @@ for (const [name, mutate] of [
 for (const status of ["failed", "blocked", "unknown", "submitted", "broker_acknowledged", "partially_filled", "dry_run", "shadow", "validation", "missing_report"]) {
   const d = clone(daily); d.record.status = status; assert.equal(health(runtime, d).label, "异常", status);
 }
-assert.equal(health(runtime, daily, { platform: "binance", accountKey: selection.accountKey }).label, "异常");
+assert.equal(health(runtime, daily, { platform: "binance", accountKey: selection.accountKey, dailyBinding: "not_applicable" }).label, "健康", "a non-LongBridge status is sourced from its platform lifecycle, not an unrelated daily snapshot");
 for (const status of ["not_due", "market_closed", "outside_window"]) {
   const d = clone(daily);
   d.record = { ...d.record, kind: "schedule", status, runs: [], schedule: { state: status, next_due_at: instant(60) } };
@@ -96,6 +156,11 @@ for (const status of ["not_due", "market_closed", "outside_window"]) {
   d.record.schedule.next_due_at = null;
   assert.equal(health(runtime, d).label, "异常", `${status} unknown due time`);
 }
+const sundayMarketClosed = clone(daily);
+sundayMarketClosed.date = "2026-10-04";
+sundayMarketClosed.record = { ...sundayMarketClosed.record, business_date: "2026-10-04", kind: "schedule", status: "market_closed", runs: [], schedule: { state: "market_closed", next_due_at: instant(3600) } };
+assert.equal(health(runtime, sundayMarketClosed).label, "健康", "Sunday is healthy only because the upstream LongBridge schedule explicitly reports market_closed with a future next due time");
+assert.equal(health(runtime, sundayMarketClosed, selection, false, now + 3600_000).label, "异常", "the upstream market-closed window does not remain healthy after its next due time");
 const grace = clone(daily);
 grace.record = { ...grace.record, kind: "schedule", status: "within_grace", runs: [], schedule: { state: "within_grace", grace_ends_at: instant(60), publication_grace_ended: false } };
 assert.equal(health(runtime, grace).label, "健康");
@@ -118,7 +183,7 @@ assert.equal(runtimeDateSelectable("2026-02-29", Date.parse("2026-03-01T16:00:00
 assert.equal(runtimeDateSelectable("2024-02-29", Date.parse("2024-03-01T16:00:00Z")), true);
 assert.equal(presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date).statusLabel, "无记录");
 assert.equal(presentRuntimeDaily(daily, selection, "2026-10-03").available, false, "late responses cannot appear under a different selected date");
-assert.equal(presentRuntimeDaily(daily, { platform: "ibkr", accountKey: selection.accountKey }, daily.date).statusLabel, "无记录");
+assert.equal(presentRuntimeDaily(daily, { platform: "ibkr", accountKey: selection.accountKey, dailyBinding: "not_applicable" }, daily.date).statusLabel, "无记录");
 assert.deepEqual(RETURN_INDEX_LEGEND, ["标普500", "纳斯达克", "道琼斯", "罗素"]);
 for (const detail of [health().detail, health(null).detail, health(runtime, null).detail, health(runtime, grace).detail]) assert.notEqual(translate(detail, "en"), detail);
 console.log("overview dashboard validation: PASS (date, identity, freshness, due/grace and cycle evidence)");

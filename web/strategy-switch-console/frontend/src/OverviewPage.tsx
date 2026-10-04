@@ -29,6 +29,7 @@ import {
   type ChartMode,
   type ChartRange,
   type RuntimeDailySnapshot,
+  type RuntimeDailyBinding,
 } from "./presentation";
 import {
   accountFactsDetail,
@@ -49,6 +50,7 @@ export type OverviewAccount = {
   id: string;
   platformKey: string;
   accountKey: string;
+  runtimeDailyBinding: RuntimeDailyBinding;
   title: string;
   platform: string;
   environment: string;
@@ -314,7 +316,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   useEffect(() => {
     const epoch = ++runtimeEpoch.current;
     const cancel = () => { if (runtimeEpoch.current === epoch) runtimeEpoch.current += 1; };
-    if (!runtimeDateSelectable(runtimeDate, runtimeNow) || !visible.some(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey }))) {
+    if (!runtimeDateSelectable(runtimeDate, runtimeNow) || !visible.some(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }))) {
       setRuntimeDaily(null);
       setRuntimeError(null);
       setRuntimeLoading(false);
@@ -336,8 +338,9 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         setRuntimeLoading(false);
       });
     return cancel;
-  }, [accountId, visible.map(account => account.id).join("|"), runtimeDate, runtimeToday, runtimeDate === runtimeToday ? readModelRefreshVersion : 0]);
-  const hasDailyAccount = accounts.some(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey }));
+  }, [accountId, visible.map(account => `${account.id}:${account.runtimeDailyBinding}`).join("|"), runtimeDate, runtimeToday, runtimeDate === runtimeToday ? readModelRefreshVersion : 0]);
+  const dailyAccountId = accounts.find(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }))?.id || "";
+  const hasDailyAccount = Boolean(dailyAccountId);
   useEffect(() => {
     let active = true;
     setCurrentDaily(null);
@@ -345,7 +348,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       if (active && payload.date === runtimeToday) setCurrentDaily(payload);
     }).catch(() => { if (active) setCurrentDaily(null); });
     return () => { active = false; };
-  }, [hasDailyAccount, runtimeToday, readModelRefreshVersion]);
+  }, [hasDailyAccount, dailyAccountId, runtimeToday, readModelRefreshVersion]);
   useEffect(() => {
     const now = Date.now();
     const deadlines = accounts.flatMap(account => {
@@ -572,7 +575,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         </label>
       </div>
       {!runtimeDateSelectable(runtimeDate, runtimeNow) ? <p>{t("请选择最近90天内的有效日期")}</p> : visible.map(account => {
-        const selection = { platform: account.platformKey, accountKey: account.accountKey };
+        const selection = { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding };
         const eligible = runtimeDailySelectionEligible(selection);
         const view = presentRuntimeDaily(runtimeError ? null : runtimeDaily, selection, runtimeDate);
         const runTime = [formatInstant(view.runStartedAt), formatInstant(view.runFinishedAt)].filter(Boolean).join(" → ") || "—";
@@ -622,7 +625,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const longBridgeCash = longBridgeCashDetails(account.facts);
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
           const health = overviewRuntimeHealth(account.runtime, currentDaily,
-            { platform: account.platformKey, accountKey: account.accountKey }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
+            { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const cardDetail = walletCardValuation
             ? accountId === "all" ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}` : null
             : detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);

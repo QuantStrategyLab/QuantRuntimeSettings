@@ -26,6 +26,7 @@ import {
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { accountFactsDetail, formatAccountFactAmounts, hasNonzeroNegativeAccountFactAmount, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
+import { RUNTIME_DAILY_TARGET } from "../web/strategy-switch-console/runtime_daily_contract.js";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
@@ -166,13 +167,14 @@ const longbridgePaperSnapshot = {
   account_key: "paper",
   data_status: "fresh",
   record: {
+    ...RUNTIME_DAILY_TARGET,
     status: "submitted",
     kind: "run",
     execution_lane: "paper",
     business_date: "2026-09-29",
     observed_at: "2026-09-29T10:00:00Z",
     schedule: { state: "due", expected_window: "inside" },
-    runs: [{ run_id: "r1", started_at: "2026-09-29T09:00:00Z", finished_at: "2026-09-29T09:05:00Z", activity: "submitted", execution_lane: "paper" }],
+    runs: [{ run_id: "r1", started_at: "2026-09-29T09:00:00Z", finished_at: "2026-09-29T09:05:00Z", activity: "submitted", execution_lane: "paper", errors_present: false }],
   },
   fills: { source: "not_connected", records: [], count: null },
 };
@@ -180,6 +182,7 @@ const longbridgePaperSnapshot = {
 const unmatched = presentRuntimeDaily(longbridgePaperSnapshot, {
   platform: "longbridge",
   accountKey: "other-account",
+  dailyBinding: "not_applicable",
 });
 assert.equal(unmatched.accountMatched, false);
 assert.equal(unmatched.fillsLabel, "暂无数据");
@@ -189,6 +192,7 @@ assert.doesNotMatch(unmatched.statusDetails.join(" "), /LongBridge|not_connected
 const crossPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
   platform: "binance",
   accountKey: "paper",
+  dailyBinding: "not_applicable",
 });
 assert.equal(runtimeDailySelectionEligible({ platform: "binance", accountKey: "paper" }), false);
 assert.equal(crossPlatform.accountMatched, false);
@@ -201,6 +205,7 @@ assert.equal(crossPlatform.dataStatusLabel, "暂无数据");
 const missingPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
   platform: null,
   accountKey: "paper",
+  dailyBinding: "not_applicable",
 });
 assert.equal(runtimeDailySelectionEligible({ platform: null, accountKey: "paper" }), false);
 assert.equal(missingPlatform.accountMatched, false);
@@ -210,7 +215,7 @@ assert.equal(missingPlatform.fillsLabel, "暂无数据");
 const submitted = presentRuntimeDaily({
   ...longbridgePaperSnapshot,
   account_key: "lb-paper",
-}, { platform: "longbridge", accountKey: "lb-paper" });
+}, { platform: "longbridge", accountKey: "lb-paper", dailyBinding: "bound" });
 assert.equal(submitted.accountMatched, true);
 assert.equal(submitted.statusLabel, "已提交");
 assert.deepEqual(submitted.statusDetails, []);
@@ -224,15 +229,16 @@ const dryRun = presentRuntimeDaily({
   account_key: "lb-paper",
   data_status: "historical",
   record: {
+    ...RUNTIME_DAILY_TARGET,
     status: "dry_run",
     kind: "run",
     execution_lane: "dry_run",
     business_date: "2026-09-29",
     observed_at: "2026-09-29T10:00:00Z",
-    runs: [{ run_id: "r2", started_at: "2026-09-29T09:00:00Z", finished_at: null, activity: "no_action", execution_lane: "dry_run" }],
+    runs: [{ run_id: "r2", started_at: "2026-09-29T09:00:00Z", finished_at: null, activity: "no_action", execution_lane: "dry_run", errors_present: false }],
   },
   fills: { source: "not_connected", records: [], count: null },
-}, { platform: "longbridge", accountKey: "lb-paper" });
+}, { platform: "longbridge", accountKey: "lb-paper", dailyBinding: "bound" });
 assert.equal(dryRun.dryRun, true);
 assert.equal(dryRun.statusLabel, "只读演练");
 assert.deepEqual(dryRun.statusDetails, []);
@@ -243,6 +249,7 @@ assert.equal(dryRun.runFinishedAt, null);
 const staleAfterSwitch = presentRuntimeDaily(longbridgePaperSnapshot, {
   platform: "binance",
   accountKey: "paper",
+  dailyBinding: "not_applicable",
 });
 assert.equal(staleAfterSwitch.accountMatched, false);
 assert.equal(staleAfterSwitch.statusLabel, "无记录");
