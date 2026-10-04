@@ -1,5 +1,6 @@
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
 import type { BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
+import type { LifecycleRecord } from "./api";
 
 const BINANCE_SCOPE_MAX_ASSETS = 5000;
 const BINANCE_SCOPE_MAX_DECIMAL_LENGTH = 128;
@@ -277,13 +278,23 @@ const CHART_VALUE_ABS_MAX = 1e12;
 function utcDayMs(dateText: string): number | null {
   if (!DATE_RE.test(dateText)) return null;
   const ms = Date.parse(`${dateText}T00:00:00Z`);
-  return Number.isFinite(ms) ? ms : null;
+  return Number.isFinite(ms) && new Date(ms).toISOString().slice(0, 10) === dateText ? ms : null;
 }
 
 function addUtcDays(dateText: string, delta: number): string | null {
   const ms = utcDayMs(dateText);
   if (ms === null) return null;
   return new Date(ms + delta * 86400000).toISOString().slice(0, 10);
+}
+
+export function runtimeDateBounds(now: number | Date = Date.now()): { min: string; max: string } {
+  const max = runtimeBusinessDate(now);
+  return { min: addUtcDays(max, -89)!, max };
+}
+
+export function runtimeDateSelectable(date: string, now: number | Date = Date.now()): boolean {
+  const bounds = runtimeDateBounds(now);
+  return utcDayMs(date) !== null && date >= bounds.min && date <= bounds.max;
 }
 
 export function parseMoneyForChart(value: string | null | undefined): number | null {
@@ -396,11 +407,14 @@ export type RuntimeDailySnapshot = {
     execution_lane: string;
     business_date: string;
     observed_at: string;
-    schedule?: { state?: string; expected_window?: string; reason?: string | null };
+    completeness?: string;
+    schedule?: { state?: string; expected_window?: string; reason?: string | null; latest_due_at?: string | null; next_due_at?: string | null; grace_ends_at?: string | null; publication_grace_ended?: boolean };
     runs?: Array<{ run_id: string | null; started_at: string | null; finished_at: string | null; activity: string; execution_lane: string }>;
     conflict_count?: number;
   } | null;
   fills: { source: "not_connected"; records: []; count: null } | null;
+  read_error_count?: number;
+  unmatched_count?: number;
 };
 
 export type RuntimeDailyPresentation = {
@@ -459,6 +473,7 @@ export function runtimeDailySelectionEligible(selection: RuntimeDailySelection |
 export function presentRuntimeDaily(
   snapshot: RuntimeDailySnapshot | null | undefined,
   selection: RuntimeDailySelection | null | undefined,
+  date?: string,
 ): RuntimeDailyPresentation {
   const empty: RuntimeDailyPresentation = {
     available: false,
@@ -479,7 +494,8 @@ export function presentRuntimeDaily(
     return {
       ...empty,
       accountMatched: false,
-      statusDetails: [],
+      statusLabel: "无记录",
+      statusDetails: ["该账户暂无可用运行记录"],
       fillsLabel: "暂无数据",
       dataStatusLabel: "暂无数据",
     };
@@ -493,11 +509,12 @@ export function presentRuntimeDaily(
       dataStatusLabel: "暂不可用",
     };
   }
-  if (snapshot.account_key !== selection.accountKey) {
+  if (snapshot.account_key !== selection.accountKey || (date && (snapshot.date !== date || (snapshot.record && snapshot.record.business_date !== date)))) {
     return {
       ...empty,
       accountMatched: false,
-      statusDetails: [],
+      statusLabel: "无记录",
+      statusDetails: ["该账户暂无可用运行记录"],
       fillsLabel: "暂无数据",
       dataStatusLabel: "暂无数据",
     };
@@ -513,7 +530,7 @@ export function presentRuntimeDaily(
       available: true,
       accountMatched: true,
       title: "每日运行记录",
-      statusLabel: "—",
+      statusLabel: "无记录",
       statusDetails: [],
       runStartedAt: null,
       runFinishedAt: null,
@@ -541,6 +558,76 @@ export function presentRuntimeDaily(
     dataStatusLabel,
     updatedAt: snapshot.data_status === "stale" ? observedAt : null,
   };
+}
+
+/** Monitoring proves freshness and activation; the matched daily record proves a cycle. */
+export function overviewRuntimeHealth(
+  runtime: LifecycleRecord | null | undefined,
+  snapshot: RuntimeDailySnapshot | null | undefined,
+  selection: RuntimeDailySelection,
+  identityMismatch = false,
+  now = Date.now(),
+): { label: "健康" | "异常"; detail: string; observedAt: string | null; nextDueAt: string | null; lastSuccessAt: string | null } {
+  const result = { label: "异常" as "健康" | "异常", detail: "运行证据未取得", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
+  const fail = (detail: string) => ({ ...result, detail });
+  if (identityMismatch) return fail("账户身份不匹配");
+  if (runtime?.account_state?.activation === "disabled") return fail("账户已停用");
+  if (!runtime || runtime.account_state?.activation !== "enabled") return fail("启用状态未确认");
+  const observed = validBinanceScopeInstant(runtime.observed_at) ? Date.parse(runtime.observed_at) : NaN;
+  const ttl = runtime.evidence_valid_for_seconds;
+  if (!Number.isFinite(observed) || typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return fail("运行证据时间未取得");
+  if (observed > now) return fail("运行证据时间异常");
+  if (runtime.freshness?.data_status !== "ready" || now - observed > ttl * 1000) return fail("运行证据已过期");
+  const deployment = runtime.target.deployment;
+  const deployedAt = validBinanceScopeInstant(deployment?.observed_at) ? Date.parse(deployment.observed_at) : NaN;
+  if (!Number.isFinite(deployedAt) || deployedAt > now) return fail("启用证据时间未确认");
+  if (runtime.deployment_freshness?.data_status !== "ready" || now - deployedAt > ttl * 1000) return fail("启用证据已过期");
+  if (deployment?.runtime_enabled !== true || deployment.scheduler_state !== "enabled") return fail("启用状态未确认");
+  if (runtime.account_state?.health === "abnormal") return fail("账户运行异常");
+  if (runtime.account_state?.health !== "normal" && runtime.account_state?.reason !== "check_not_due") return fail("运行监测未确认");
+  if (runtime.account_state?.health === "unknown" && runtime.target.monitoring?.runtime_guard !== "pass") return fail("运行监测未确认");
+  if (!runtimeDailySelectionEligible(selection) || !snapshot || snapshot.ok !== true || snapshot.account_key !== selection.accountKey) return fail("周期记录未取得");
+  const record = snapshot.record;
+  if (snapshot.date !== runtimeBusinessDate(now) || record?.business_date !== snapshot.date || snapshot.timezone !== RUNTIME_DAILY_TIMEZONE) return fail("今日周期记录未取得");
+  if (snapshot.data_status !== "fresh") return fail("周期记录已过期");
+  if (!validBinanceScopeInstant(record.observed_at) || Date.parse(record.observed_at) > now) return fail("周期记录时间异常");
+  if (record.completeness !== "complete" || (snapshot.read_error_count || 0) > 0 || (snapshot.unmatched_count || 0) > 0 || (record.conflict_count || 0) > 0) return fail("周期记录不完整");
+  // The only connected daily source is the bound LongBridge PAPER target.
+  if (record.execution_lane !== "paper" || (record.runs || []).some(run => run.execution_lane !== "paper")) return fail("真实账户周期未确认");
+  const schedule = record.schedule;
+  const nextDue = validBinanceScopeInstant(schedule?.next_due_at) ? Date.parse(schedule.next_due_at) : NaN;
+  const graceEnds = validBinanceScopeInstant(schedule?.grace_ends_at) ? Date.parse(schedule.grace_ends_at) : NaN;
+  result.nextDueAt = Number.isFinite(nextDue) ? schedule!.next_due_at! : null;
+  const healthy = (detail: string) => ({ ...result, label: "健康" as const, detail });
+  if (record.kind === "schedule" && ["not_due", "market_closed", "outside_window"].includes(record.status)) {
+    return Number.isFinite(nextDue) && nextDue > now && schedule?.state === record.status
+      ? healthy("已启用，尚未到运行时间") : fail("运行时间未确认或已到期");
+  }
+  if (record.kind === "schedule" && record.status === "within_grace") {
+    return Number.isFinite(graceEnds) && graceEnds > now && schedule?.state === "within_grace" && schedule.publication_grace_ended === false
+      ? healthy("已启用，仍在允许延迟内") : fail("周期报告已到期");
+  }
+  if (["failed", "blocked"].includes(record.status)) return fail("周期失败或已阻断");
+  if (["unknown", "reconciliation_required", "conflict", "submitted", "broker_acknowledged", "partially_filled"].includes(record.status)) return fail("运行结果待确认");
+  if (!['no_submission', 'no_signal', 'no_rebalance', 'filled'].includes(record.status) || record.kind !== "run") return fail("周期报告未取得");
+  const finished = (record.runs || []).filter(run => validBinanceScopeInstant(run.finished_at) && Date.parse(run.finished_at!) <= now
+    && validBinanceScopeInstant(run.started_at) && Date.parse(run.started_at!) <= Date.parse(run.finished_at!));
+  if (!finished.length) return fail("完整周期时间未取得");
+  const latest = finished.map(run => run.finished_at!).sort((a, b) => Date.parse(a) - Date.parse(b)).at(-1)!;
+  result.lastSuccessAt = latest;
+  const latestDue = validBinanceScopeInstant(schedule?.latest_due_at) ? Date.parse(schedule.latest_due_at) : NaN;
+  if (!["due", "within_grace", "not_due", "market_closed", "outside_window"].includes(schedule?.state || "")
+    || (!Number.isFinite(nextDue) && !Number.isFinite(latestDue))
+    || (Number.isFinite(latestDue) && latestDue > now)) return fail("运行时间未确认或已到期");
+  if (Number.isFinite(nextDue) && nextDue <= now && Date.parse(latest) < nextDue) {
+    return Number.isFinite(graceEnds) && graceEnds > now && graceEnds >= nextDue && schedule?.publication_grace_ended === false
+      ? healthy("已启用，仍在允许延迟内") : fail("周期报告已到期");
+  }
+  if (Number.isFinite(latestDue) && Date.parse(latest) < latestDue) {
+    return Number.isFinite(graceEnds) && graceEnds > now && graceEnds >= latestDue && schedule?.publication_grace_ended === false
+      ? healthy("已启用，仍在允许延迟内") : fail("周期报告已到期");
+  }
+  return healthy("最近完整周期正常");
 }
 
 export function knownAccountLabel(options: Record<string, Array<{ key?: unknown; target_name?: unknown; label?: unknown }> | undefined> | null | undefined, platform: unknown, targetName: unknown): string {

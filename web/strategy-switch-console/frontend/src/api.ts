@@ -9,6 +9,8 @@ export type AccountStateProjection = {
 };
 export type LifecycleRecord = {
   source_id: string;
+  observed_at?: string | null;
+  evidence_valid_for_seconds?: number;
   freshness?: Freshness;
   deployment_freshness?: Freshness;
   account_state?: AccountStateProjection;

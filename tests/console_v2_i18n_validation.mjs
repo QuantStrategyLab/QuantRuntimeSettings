@@ -44,6 +44,8 @@ function visit(node) {
   ts.forEachChild(node, visit);
 }
 visit(app);
+const overviewPath = path.join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx");
+visit(ts.createSourceFile(overviewPath, fs.readFileSync(overviewPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
 assert.deepEqual([...missing], [], `Translation keys are missing from EN_COPY: ${[...missing].join(" | ")}`);
 assert.deepEqual([...unwrapped], [], `Chinese JSX text is not routed through t(): ${[...unwrapped].join(" | ")}`);
 assert.deepEqual([...unmappedStatusLabels], [], `Status labels are missing locale entries: ${[...unmappedStatusLabels].join(" | ")}`);

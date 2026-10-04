@@ -115,6 +115,9 @@ assert.equal(read.status, 200);
 const apiPayload = await read.json();
 const aggregated = await __test.aggregateRuntimeTargetLifecycleSources(env);
 const byId = new Map(apiPayload.targets.map(entry => [entry.target.target_id, entry]));
+assert.equal(byId.get("fixture.normal").observed_at, freshAt, "public evidence uses the original source observation");
+assert.equal(byId.get("fixture.normal").evidence_valid_for_seconds, 300, "validity comes from the existing configured freshness TTL");
+assert.equal(byId.get("fixture.stale-source").observed_at, staleAt, "stale evidence is not restamped when read");
 assert.deepEqual(
   apiPayload.targets.map(entry => [entry.target.target_id, entry.account_state]),
   aggregated.targets.map(entry => [entry.target.target_id, entry.account_state]),

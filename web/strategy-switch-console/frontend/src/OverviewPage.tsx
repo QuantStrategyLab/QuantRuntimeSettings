@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily } from "./api";
+import type { LifecycleRecord } from "./api";
 import { useT, useLocale } from "./locales";
 import {
   CHART_RANGE_OPTIONS,
@@ -10,21 +11,20 @@ import {
   formatBinanceWalletAmount,
   chartRangeEmptyNote,
   chartUnavailable,
-  defaultOverviewChartAccountId,
   filterAssetHistoryByRange,
   formatOverviewInstant,
   formatOverviewShortInstant,
   overviewAccountTypeLabel,
-  overviewCardStatusDetail,
-  overviewFigures,
+  overviewRuntimeHealth,
+  RETURN_INDEX_LEGEND,
   presentRuntimeDaily,
-  runtimeBusinessDate,
   runtimeDailySelectionEligible,
+  runtimeDateBounds,
+  runtimeDateSelectable,
   verifiedSchwabAccountTypeToken,
   presentBinanceWalletValuation,
   presentBinanceWalletValuationForAccount,
   presentBinancePrivateScope,
-  resolveOverviewChartAccount,
   scheduleBinancePrivateScopeExpiry,
   type ChartMode,
   type ChartRange,
@@ -60,12 +60,8 @@ export type OverviewAccount = {
   activation: string;
   preference: string | null;
   facts: AccountFactsAccount | null;
+  runtime?: LifecycleRecord | null;
 };
-
-function preferenceLabel(value: string | null, t: (key: string) => string): string {
-  const labels: Record<string, string> = { CAPITAL_PRESERVATION: "保守", BALANCED_COMPOUNDING: "均衡", GROWTH_COMPOUNDING: "增长" };
-  return value && labels[value] ? t(labels[value]) : "—";
-}
 
 function amountOrDash(value: string | null | undefined): string {
   return value && value.length ? value : "—";
@@ -159,18 +155,22 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     };
   }, [wallet?.observed_finished_at, walletValuation?.observed_at]);
   const [chart, setChart] = useState<ChartMode>("assets");
-  const [chartAccountId, setChartAccountId] = useState<string | null>(null);
   const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
-  const [currency, setCurrency] = useState<string>("");
+  const [currencyChoice, setCurrencyChoice] = useState({ accountId: "", value: "" });
+  const [historyKey, setHistoryKey] = useState("");
   const [history, setHistory] = useState<AccountFactsHistorySnapshot | null>(null);
   const [walletHistory, setWalletHistory] = useState<BinanceWalletHistorySnapshot | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [benchmarkFrameWidth, setBenchmarkFrameWidth] = useState(0);
+  const [benchmarkExpanded, setBenchmarkExpanded] = useState(false);
   const benchmarkFrameContainer = useRef<HTMLDivElement | null>(null);
-  const runtimeToday = runtimeBusinessDate();
+  const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
+  const runtimeBounds = runtimeDateBounds(runtimeNow);
+  const runtimeToday = runtimeBounds.max;
   const [runtimeDate, setRuntimeDate] = useState(runtimeToday);
   const [runtimeDaily, setRuntimeDaily] = useState<RuntimeDailySnapshot | null>(null);
+  const [currentDaily, setCurrentDaily] = useState<RuntimeDailySnapshot | null>(null);
   const [privateScopeNow, setPrivateScopeNow] = useState(() => Date.now());
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [runtimeLoading, setRuntimeLoading] = useState(false);
@@ -178,23 +178,31 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const runtimeEpoch = useRef(0);
   const emptyNote = chartRangeEmptyNote(range);
   const visible = accountId === "all" ? accounts : accounts.filter(account => account.id === accountId);
-  const figures = overviewFigures(accounts.length ? visible.length : null, visible.map(account => account.preference));
   const optionLabel = (account: OverviewAccount) => {
     const duplicates = accounts.filter(item => item.title === account.title);
     if (duplicates.length < 2 || !account.environment) return account.title;
     return `${account.title} · ${account.environment}`;
   };
-  const healthText = (label: string) => label === "已停用" || label === "监测正常" || label === "异常" || label === "等待周期" ? label : "待确认";
   const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
   const selectedWalletValuation = selectedAccount?.platformKey === "binance"
     && selectedAccount.id === walletAccount?.id ? walletValuation : null;
+  const chartAccount = selectedAccount;
   useEffect(() => {
-    if (accountId !== "all") return;
-    if (chartAccountId && accounts.some((account) => account.id === chartAccountId)) return;
-    setChartAccountId(defaultOverviewChartAccountId(accounts));
-  }, [accountId, chartAccountId, accounts]);
-  const chartAccount = resolveOverviewChartAccount(accounts, accountId, chartAccountId);
+    if (accountId !== "all" && !accounts.some(account => account.id === accountId)) setAccountId("all");
+  }, [accountId, accounts]);
+  useEffect(() => {
+    const tick = () => setRuntimeNow(Date.now());
+    const timer = window.setInterval(tick, 30_000);
+    window.addEventListener("focus", tick);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", tick); };
+  }, []);
+  const previousToday = useRef(runtimeToday);
+  useEffect(() => {
+    const previous = previousToday.current;
+    previousToday.current = runtimeToday;
+    setRuntimeDate(date => date === previous ? runtimeToday : date < runtimeBounds.min ? runtimeBounds.min : date);
+  }, [runtimeToday, runtimeBounds.min]);
   const privateScopeObservedAt = privateScope?.value?.report?.observed_at;
   useEffect(() => {
     setPrivateScopeNow(Date.now());
@@ -214,7 +222,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     return () => document.removeEventListener("visibilitychange", refreshAfterForeground);
   }, []);
   useEffect(() => {
-    if (chart !== "return") {
+    if (chart !== "return" || !benchmarkExpanded) {
       setBenchmarkFrameWidth(0);
       return;
     }
@@ -239,7 +247,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       observer.disconnect();
       window.clearTimeout(resizeTimer);
     };
-  }, [chart]);
+  }, [chart, benchmarkExpanded]);
   const binancePrivateScope = presentBinancePrivateScope(
     privateScope?.error ? null : privateScope?.value,
     { admin: isAdmin === true, allAccounts: accountId === "all", now: privateScopeNow },
@@ -247,35 +255,29 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const selectedFacts = selectedAccount?.facts || null;
   const chartFacts = chartAccount?.facts || null;
   const walletChartSelected = chartAccount?.platformKey === "binance";
+  const accountHistory = history?.account_key === chartAccount?.accountKey && history?.platform === chartAccount?.platformKey ? history : null;
   const currencyOptions = walletChartSelected ? ["USDT"] : Array.from(new Set([
     ...(chartFacts?.balances || []).map((row) => row.currency).filter(Boolean),
-    ...(history?.series.points || []).map((row) => row.currency).filter(Boolean),
+    ...(accountHistory?.series.points || []).map((row) => row.currency).filter(Boolean),
   ]));
-  useEffect(() => {
-    if (walletChartSelected) {
-      if (currency !== "USDT") setCurrency("USDT");
-      return;
-    }
-    if (!chartFacts) {
-      setCurrency("");
-      return;
-    }
-    const next = currencyOptions.includes(currency) ? currency : (currencyOptions[0] || "");
-    if (next !== currency) setCurrency(next);
-  }, [chartAccount?.id, walletChartSelected, chartFacts?.data_status, currencyOptions.join("|")]);
+  const currency = currencyChoice.accountId === chartAccount?.id && currencyOptions.includes(currencyChoice.value)
+    ? currencyChoice.value : currencyOptions[0] || "";
+  const requestedHistoryKey = chartAccount ? `${chartAccount.id}:${currency}:${chartFacts?.observed_finished_at || ""}:${walletChartSelected ? wallet?.observed_finished_at || "" : ""}` : "";
   useEffect(() => {
     const epoch = ++historyEpoch.current;
+    const cancel = () => { if (historyEpoch.current === epoch) historyEpoch.current += 1; };
     if (!chartAccount || chart !== "assets" || !currency || (walletChartSelected && currency !== "USDT")) {
       setHistory(null);
       setWalletHistory(null);
       setHistoryError(null);
       setHistoryLoading(false);
-      return;
+      return cancel;
     }
     setHistory(null);
     setWalletHistory(null);
     setHistoryError(null);
     setHistoryLoading(true);
+    setHistoryKey(requestedHistoryKey);
     if (walletChartSelected) {
       setHistory(null);
       void loadBinanceWalletHistory(chartAccount.accountKey)
@@ -290,7 +292,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           setHistoryError(error instanceof Error ? error.message : "request_failed");
           setHistoryLoading(false);
         });
-      return;
+      return cancel;
     }
     setWalletHistory(null);
     void loadAccountFactsHistory(chartAccount.platformKey, chartAccount.accountKey, currency)
@@ -305,18 +307,17 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         setHistoryError(error instanceof Error ? error.message : "request_failed");
         setHistoryLoading(false);
       });
+    return cancel;
   }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at,
     binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart]);
   useEffect(() => {
     const epoch = ++runtimeEpoch.current;
-    const selection = selectedAccount
-      ? { platform: selectedAccount.platformKey, accountKey: selectedAccount.accountKey }
-      : null;
-    if (!selectedAccount || !/^\d{4}-\d{2}-\d{2}$/.test(runtimeDate) || !runtimeDailySelectionEligible(selection)) {
+    const cancel = () => { if (runtimeEpoch.current === epoch) runtimeEpoch.current += 1; };
+    if (!runtimeDateSelectable(runtimeDate, runtimeNow) || !visible.some(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey }))) {
       setRuntimeDaily(null);
       setRuntimeError(null);
       setRuntimeLoading(false);
-      return;
+      return cancel;
     }
     setRuntimeDaily(null);
     setRuntimeError(null);
@@ -324,7 +325,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     void loadRuntimeDaily(runtimeDate)
       .then((payload) => {
         if (runtimeEpoch.current !== epoch) return;
-        setRuntimeDaily(payload);
+        setRuntimeDaily(payload.date === runtimeDate ? payload : null);
         setRuntimeLoading(false);
       })
       .catch((error) => {
@@ -333,7 +334,33 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         setRuntimeError(error instanceof Error ? error.message : "request_failed");
         setRuntimeLoading(false);
       });
-  }, [selectedAccount?.id, selectedAccount?.platformKey, selectedAccount?.accountKey, runtimeDate, runtimeDate === runtimeToday ? readModelRefreshVersion : 0]);
+    return cancel;
+  }, [accountId, visible.map(account => account.id).join("|"), runtimeDate, runtimeToday, runtimeDate === runtimeToday ? readModelRefreshVersion : 0]);
+  const hasDailyAccount = accounts.some(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey }));
+  useEffect(() => {
+    let active = true;
+    setCurrentDaily(null);
+    if (hasDailyAccount) void loadRuntimeDaily(runtimeToday).then(payload => {
+      if (active && payload.date === runtimeToday) setCurrentDaily(payload);
+    }).catch(() => { if (active) setCurrentDaily(null); });
+    return () => { active = false; };
+  }, [hasDailyAccount, runtimeToday, readModelRefreshVersion]);
+  useEffect(() => {
+    const now = Date.now();
+    const deadlines = accounts.flatMap(account => {
+      const runtime = account.runtime;
+      const ttl = runtime?.evidence_valid_for_seconds;
+      return typeof ttl === "number" && Number.isFinite(ttl) && ttl > 0
+        ? [runtime?.observed_at, runtime?.target.deployment?.observed_at].map(at => Date.parse(at || "") + ttl * 1000)
+        : [];
+    });
+    const schedule = currentDaily?.record?.schedule;
+    deadlines.push(Date.parse(schedule?.next_due_at || ""), Date.parse(schedule?.grace_ends_at || ""));
+    const next = Math.min(...deadlines.filter(deadline => Number.isFinite(deadline) && deadline > now));
+    if (!Number.isFinite(next)) return;
+    const timer = window.setTimeout(() => setRuntimeNow(Date.now()), Math.min(next - now + 1, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [accounts, currentDaily, runtimeNow]);
   // All-account totals stay unavailable under partial broker identity. Only a
   // single selected account may show its own per-currency facts.
   const totalAssets = accountId === "all"
@@ -363,19 +390,14 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const assetsMetricLabel = accountId === "all" ? "全部账户总额" : selectedWalletValuation ? "钱包总资产" : "总资产";
   const selectedCashLabel = selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
   const filteredWalletPoints = walletChartSelected
-    ? filterAssetHistoryByRange(walletHistory?.points || [], range) : [];
+    ? filterAssetHistoryByRange(historyKey === requestedHistoryKey ? walletHistory?.points || [] : [], range) : [];
   const filteredAccountPoints = walletChartSelected
-    ? [] : filterAssetHistoryByRange(history?.series.points || [], range);
+    ? [] : filterAssetHistoryByRange(historyKey === requestedHistoryKey && accountHistory?.identity_mismatch !== true && accountHistory?.series.currency === currency
+      ? (accountHistory?.series.points || []).filter(point => point.currency === currency) : [], range);
   const geometry = walletChartSelected
     ? buildBinanceWalletHistoryChartGeometry(filteredWalletPoints)
     : buildAssetChartGeometry(filteredAccountPoints);
   const hasChart = chart === "assets" && Boolean(chartAccount) && geometry.dots.length > 0;
-  const runtimeView = presentRuntimeDaily(
-    runtimeError ? null : runtimeDaily,
-    selectedAccount
-      ? { platform: selectedAccount.platformKey, accountKey: selectedAccount.accountKey }
-      : null,
-  );
   const chartEmptyTitle = chartUnavailable(chart);
   const chartEmptyDetail = chart === "return"
     ? "暂不可用"
@@ -384,7 +406,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         : historyError || history?.identity_mismatch
           ? "暂不可用"
           : accountId === "all" && !chartAccount
-            ? "请选择图表账户"
+            ? "请在顶部选择账户查看资产变化"
           : emptyNote.key === "{range}内暂无资产记录"
             ? emptyNote.key
             : "暂无资产记录";
@@ -395,8 +417,6 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     if (label) return t(label);
     return `${t("上次更新")} ${formatted}`;
   };
-  const runtimeRunTime = [formatInstant(runtimeView.runStartedAt), formatInstant(runtimeView.runFinishedAt)].filter(Boolean).join(" → ") || "—";
-  const runtimeUpdated = formatInstant(runtimeView.updatedAt);
   const selectedUpdatedTime = formatInstant(selectedUpdatedAt);
   return <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
@@ -474,16 +494,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         </div> : null}
       </div>
       {chart === "assets" ? <div className="chart-currency">
-        {accountId === "all" ? <label>
-          <span>{t("图表账户")}</span>
-          <select aria-label={t("图表账户")} value={chartAccount?.id || ""} onChange={event => setChartAccountId(event.target.value || null)}>
-            {!chartAccount ? <option value="">{t("请选择图表账户")}</option> : null}
-            {accounts.map((account) => <option key={account.id} value={account.id}>{`${account.title} · ${account.environment} · ${account.platform}`}</option>)}
-          </select>
-        </label> : chartAccount ? <span>{`${chartAccount.title} · ${chartAccount.environment} · ${chartAccount.platform}`}</span> : null}
+        {chartAccount ? <span>{`${chartAccount.title} · ${chartAccount.environment} · ${chartAccount.platform}`}</span> : null}
         {chartAccount ? <label>
           <span>{t("币种")}</span>
-          <select aria-label={t("币种")} value={currency} onChange={event => setCurrency(event.target.value)} disabled={!currencyOptions.length}>
+          <select aria-label={t("币种")} value={currency} onChange={event => setCurrencyChoice({ accountId: chartAccount.id, value: event.target.value })} disabled={!currencyOptions.length}>
             {!currencyOptions.length ? <option value="">{t("暂无币种")}</option> : null}
             {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
           </select>
@@ -493,9 +507,21 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           : <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
       </div> : null}
       {chart === "return" ? <div className="overview-benchmark">
+        <h2>{t("账户与基准收益率比较")}</h2>
+        <p>{t("暂无可比较收益率；账户需要完整估值、资金进出和费用记录。")}</p>
+        <ul className="overview-return-coverage" aria-label={t("账户收益覆盖")}>
+          {visible.map(account => <li key={account.id}><strong>{optionLabel(account)}</strong><span>{t("收益率暂不可用")}</span><small>{t("缺少完整估值、资金进出和费用记录")}</small></li>)}
+          {!visible.length ? <li>{t("暂无账户")}</li> : null}
+        </ul>
+        <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>
+          {RETURN_INDEX_LEGEND.map(name => <li key={name}><strong>{t(name)}</strong><span>{t("比较序列未取得")}</span><small>{t(name === "标普500" ? "FRED SP500：日收盘价格，不含股息" : "具体指数与数据来源待确认")}</small></li>)}
+        </ul>
+        <details className="overview-benchmark-source"><summary>{t("收益率口径")}</summary><p>{t("比较需完整外部资金流、费用和原币种估值，共同起止区间以可信首点归零；多账户汇总还需可信汇率与加权口径。")}</p></details>
+        <details className="overview-price-reference" onToggle={event => setBenchmarkExpanded(event.currentTarget.open)}>
+        <summary>{t("价格指数参考")}</summary>
         <div className="overview-benchmark-heading">
           <h2>{t("标普500价格指数")}</h2>
-          <p>{t("日收盘价，不含股息；市场基准不代表账户收益。")}</p>
+          <p>{t("日收盘价，不含股息；此参考图与账户收益率不作同轴比较。")}</p>
         </div>
         <div className="overview-benchmark-frame-container" ref={benchmarkFrameContainer}>
           {benchmarkFrameWidth > 0 ? <iframe
@@ -517,10 +543,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             <div><dt>{t("来源")}</dt><dd><a href="https://fred.stlouisfed.org/series/SP500" rel="noreferrer" referrerPolicy="no-referrer">{t("FRED 官方数据页")}</a></dd></div>
           </dl>
         </details>
-        <div className="overview-account-return-empty">
-          <strong>{t("暂无账户收益数据")}</strong>
-          <p>{t("账户收益需要完整估值和资金进出记录。")}</p>
-        </div>
+        </details>
       </div> : hasChart ? <div className="asset-chart">
         <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t(walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>
           {geometry.segments.map((path, index) => <path key={index} d={path} className="asset-chart-line" fill="none" />)}
@@ -539,28 +562,32 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           : t(chartEmptyDetail)}</p>
       </div>}
     </section>
-    <section className="metric-row compact overview-stats">
-      <div><span>{t("年化收益")}</span><strong>—</strong><small>{t("暂不可用")}</small></div>
-      <div><span>{t("最大回撤")}</span><strong>—</strong><small>{t("暂不可用")}</small></div>
-      <div><span>{t("风险偏好")}</span><strong>{preferenceLabel(figures.riskPreference, t)}</strong></div>
-    </section>
     <section className="overview-runtime" aria-label={t("每日运行记录")}>
       <div className="overview-runtime-head">
-        <h2>{t(runtimeView.title)}</h2>
+        <h2>{t("每日运行记录")}</h2>
         <label>
           <span>{t("业务日期")}</span>
-          <input type="date" value={runtimeDate} max={runtimeToday} onChange={event => setRuntimeDate(event.target.value)} disabled={!selectedAccount} />
+          <input type="date" aria-label={t("业务日期")} value={runtimeDate} min={runtimeBounds.min} max={runtimeToday} onChange={event => setRuntimeDate(event.target.value)} />
         </label>
       </div>
-      {!selectedAccount ? <p>{t("请选择账户")}</p> : (runtimeLoading ? <p>{t("加载中…")}</p> : <>
+      {!runtimeDateSelectable(runtimeDate, runtimeNow) ? <p>{t("请选择最近90天内的有效日期")}</p> : visible.map(account => {
+        const selection = { platform: account.platformKey, accountKey: account.accountKey };
+        const eligible = runtimeDailySelectionEligible(selection);
+        const view = presentRuntimeDaily(runtimeError ? null : runtimeDaily, selection, runtimeDate);
+        const runTime = [formatInstant(view.runStartedAt), formatInstant(view.runFinishedAt)].filter(Boolean).join(" → ") || "—";
+        return <article className="overview-runtime-account" key={account.id}>
+        <h3>{optionLabel(account)}</h3>
+        {runtimeLoading && eligible ? <p>{t("加载中…")}</p> : runtimeError && eligible ? <p>{t("运行记录读取失败")}</p> : <>
         <div className="overview-runtime-grid">
-          <div><span>{t("运行状态")}</span><strong>{t(runtimeView.statusLabel)}</strong>{runtimeView.statusDetails.length ? <small>{runtimeView.statusDetails.map((item) => t(item)).join(" ")}</small> : null}</div>
-          <div><span>{t("运行时间")}</span><strong>{runtimeRunTime}</strong>{runtimeView.dataStatusLabel !== "—" ? <small>{runtimeUpdated && runtimeUpdated !== selectedUpdatedTime ? `${t(runtimeView.dataStatusLabel)} · ${t("上次更新")} ${runtimeUpdated}` : t(runtimeView.dataStatusLabel)}</small> : null}</div>
-          <div><span>{t("成交明细")}</span><strong>{t(runtimeView.fillsLabel)}</strong></div>
+          <div><span>{t("运行状态")}</span><strong>{t(view.statusLabel)}</strong>{view.statusDetails.length ? <small>{view.statusDetails.map(item => t(item)).join(" ")}</small> : null}</div>
+          <div><span>{t("运行时间")}</span><strong>{runTime}</strong>{view.dataStatusLabel !== "—" ? <small>{t(view.dataStatusLabel)}</small> : null}</div>
+          <div><span>{t("成交明细")}</span><strong>{t(view.fillsLabel)}</strong></div>
         </div>
-        {runtimeView.dryRun ? <p className="overview-runtime-flag">{t("只读演练")}</p> : null}
-        {runtimeError ? <p>{t("暂不可用")}</p> : null}
-      </>)}
+        {view.dryRun ? <p className="overview-runtime-flag">{t("只读演练")}</p> : null}
+        </>}
+        </article>;
+      })}
+      {!visible.length ? <p>{t("无记录")}</p> : null}
     </section>
     <aside className="overview-accounts">
       <h2>{t("我的账户")}</h2>
@@ -593,7 +620,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const longBridgeCash = longBridgeCashDetails(account.facts);
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
-          const statusNote = overviewCardStatusDetail(account.statusDetail);
+          const health = overviewRuntimeHealth(account.runtime, currentDaily,
+            { platform: account.platformKey, accountKey: account.accountKey }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const cardDetail = walletCardValuation
             ? accountId === "all" ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}` : null
             : detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
@@ -631,10 +659,15 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
                 {negativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(account.platformKey))}</small> : null}
               </span> : null}
             </span> : null}
-            <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(healthText(account.statusLabel))}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
-            {statusNote ? <small>{t(statusNote)}</small> : null}
+            <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(health.label)}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
+            <small>{t(health.detail)}</small>
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
+            <details className="overview-wallet-details"><summary>{t("运行状态依据")}</summary><dl>
+              <div><dt>{t("证据观察时间")}</dt><dd>{formatInstant(health.observedAt) || t("未取得")}</dd></div>
+              <div><dt>{t("下次运行时间")}</dt><dd>{formatInstant(health.nextDueAt) || t("未取得")}</dd></div>
+              <div><dt>{t("最近完整周期")}</dt><dd>{formatInstant(health.lastSuccessAt) || t("未取得")}</dd></div>
+            </dl></details>
             {walletCardValuation ? <BinanceWalletDetails
               summary={t("钱包数据详情")}
               scope={t("按 Binance 返回的钱包范围")}
