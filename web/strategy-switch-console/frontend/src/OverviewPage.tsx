@@ -37,6 +37,8 @@ import {
   formatAccountFactAmounts,
   hasNonzeroNegativeAccountFactAmount,
   longBridgeCashDetails,
+  longBridgeFinancingDetails,
+  longBridgeRiskLevelLabel,
   type AccountFactsAccount,
   type AccountFactsHistorySnapshot,
   type AccountFactsSnapshot,
@@ -590,6 +592,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const factDetail = accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const longBridgeCash = longBridgeCashDetails(account.facts);
+          const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
           const statusNote = overviewCardStatusDetail(account.statusDetail);
           const cardDetail = walletCardValuation
             ? accountId === "all" ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}` : null
@@ -659,6 +662,19 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
                 {row.available_cash !== undefined ? <div><dt>{t("可用现金")}</dt><dd><code>{row.available_cash} {row.currency}</code></dd></div> : null}
                 {row.frozen_cash !== undefined ? <div><dt>{t("冻结现金")}</dt><dd><code>{row.frozen_cash} {row.currency}</code></dd></div> : null}
                 {row.settling_cash !== undefined ? <div><dt>{t("待结算现金")}</dt><dd><code>{row.settling_cash} {row.currency}</code></dd></div> : null}
+              </dl>)}</details> : null}
+            {longBridgeFinancing ? <details className="overview-wallet-details overview-financing-details">
+              <summary>{t("融资详情")}</summary>
+              <p>{t("完整观察时间")} <time dateTime={account.facts!.observed_finished_at!} title={account.facts!.observed_finished_at!}>{formatInstant(account.facts!.observed_finished_at!) || account.facts!.observed_finished_at}</time></p>
+              {longBridgeFinancing.map((row) => <dl key={row.currency}>
+                <div><dt>{t("币种")}</dt><dd>{row.currency}</dd></div>
+                {row.max_finance_amount !== undefined ? <div><dt>{t("最大融资金额")}</dt><dd><code>{row.max_finance_amount} {row.currency}</code></dd></div> : null}
+                {row.remaining_finance_amount !== undefined ? <div><dt>{t("剩余融资金额")}</dt><dd><code>{row.remaining_finance_amount} {row.currency}</code></dd></div> : null}
+                {row.init_margin !== undefined ? <div><dt>{t("初始保证金")}</dt><dd><code>{row.init_margin} {row.currency}</code></dd></div> : null}
+                {row.maintenance_margin !== undefined ? <div><dt>{t("维持保证金")}</dt><dd><code>{row.maintenance_margin} {row.currency}</code></dd></div> : null}
+                {row.margin_call !== undefined ? <div><dt>{t("追缴保证金")}</dt><dd><code>{row.margin_call} {row.currency}</code></dd></div> : null}
+                {row.buy_power !== undefined ? <div><dt>{t("购买力")}</dt><dd><code>{row.buy_power} {row.currency}</code></dd></div> : null}
+                {row.risk_level !== undefined ? <div><dt>{t("风险等级")}</dt><dd>{t(longBridgeRiskLevelLabel(row.risk_level))}</dd></div> : null}
               </dl>)}</details> : null}
           </div>;
         })}

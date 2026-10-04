@@ -203,6 +203,13 @@ assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
   broker_reported_balances: [{ currency: "USD", net_assets: `${"9".repeat(16)}`, total_cash: "1" }],
   cash: [{ currency: "USD", available_cash: "1", frozen_cash: "0", settling_cash: "0" }],
 })), /invalid_account_facts_money_magnitude/);
+assert.equal(Object.hasOwn(normalizeAccountFactsHistoryPayload(historyPayload()), "financing"), false);
+assert.deepEqual(normalizeAccountFactsHistoryPayload(historyPayload({
+  financing: [{ currency: "USD", buy_power: "12.34000000", risk_level: "2" }],
+})).financing, [{ currency: "USD", buy_power: "12.34000000", risk_level: "2" }]);
+assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  financing: [{ currency: "USD", buy_power: "1", unknown_native: "2" }],
+})), /invalid_account_facts_financing/);
 assert.deepEqual(aggregateAccountFactsTotals([{
   binding_status: "bound",
   data_status: "fresh",
@@ -1486,8 +1493,11 @@ assert.deepEqual(retainedIbkrOld.days.map((day) => day.payload.broker_reported_b
 
 assert.match(overviewPage, /selectedCashLabel/);
 assert.match(overviewPage, /function cashFieldForPlatform\(platform: string\)/);
+assert.match(overviewPage, /longBridgeFinancingDetails\(account\.facts\)/);
+assert.match(overviewPage, /overview-financing-details/);
 const locales = readFileSync(join(root, "web/strategy-switch-console/frontend/src/locales.ts"), "utf8");
 assert.match(locales, /"现金余额": "Cash balance"/);
+assert.match(locales, /"融资详情": "Financing details"/);
 
 await saveAccountOptions({ schwab: [schwabAccount] });
 await saveBindings([schwabBinding]);
