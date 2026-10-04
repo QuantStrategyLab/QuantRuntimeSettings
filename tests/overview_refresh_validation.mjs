@@ -121,6 +121,11 @@ const historyEffect = overview.slice(overview.indexOf("const epoch = ++historyEp
 assert.match(historyEffect, /chartAccount\?\.id[\s\S]*chartFacts\?\.observed_finished_at/);
 assert.doesNotMatch(historyEffect, /selectedFacts\?\.observed_finished_at/);
 const runtimeEffect = overview.slice(overview.indexOf("const epoch = ++runtimeEpoch.current"), overview.indexOf("// All-account totals"));
-assert.match(runtimeEffect, /const selection = selectedAccount[\s\S]*\}, \[selectedAccount\?\.id, selectedAccount\?\.platformKey, selectedAccount\?\.accountKey, runtimeDate, runtimeDate === runtimeToday \? readModelRefreshVersion : 0\]\);/);
+assert.match(runtimeEffect, /runtimeDateSelectable\(runtimeDate, runtimeNow\)/);
+assert.match(runtimeEffect, /visible\.some\(account => runtimeDailySelectionEligible/);
+assert.match(runtimeEffect, /runtimeDate === runtimeToday \? readModelRefreshVersion : 0/);
+assert.match(runtimeEffect, /runtimeEpoch\.current !== epoch/);
+assert.match(runtimeEffect, /return cancel/);
+assert.match(runtimeEffect, /\[hasDailyAccount, runtimeToday, readModelRefreshVersion\]/, "today's health refresh remains independent of the selected historical day");
 
 console.log("overview refresh validation: PASS");

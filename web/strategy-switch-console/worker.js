@@ -7771,7 +7771,7 @@ async function runtimeDailyResponse(request, env, url) {
   try {
     stored = await readConfigJson(env, runtimeDailyKey(businessDate));
   } catch {
-    stored = null;
+    return json({ ok: false, error: "runtime_daily_read_failed" }, 503);
   }
   const base = {
     ok: true,
@@ -7779,17 +7779,17 @@ async function runtimeDailyResponse(request, env, url) {
     timezone: RUNTIME_DAILY_TIMEZONE,
     account_key: accountKey,
   };
-  if (!stored) {
+  if (stored === null || stored === undefined) {
     return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
   }
   let projection;
   try {
     projection = normalizeRuntimeDailyProjection(stored);
   } catch {
-    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+    return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
   }
   if (projection.records[0].business_date !== businessDate) {
-    return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
+    return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
   }
   return json({ ...base, ...runtimeDailyReadStatus(projection, Date.now()) });
 }
@@ -8463,6 +8463,8 @@ async function aggregateRuntimeTargetLifecycleSources(env) {
       targetIds.add(target.target_id);
       const entry = {
         source_id: source.source_id,
+        observed_at: earliestControlPlaneTimestamp([source.generated_at, source.computed_at].filter(Boolean)),
+        evidence_valid_for_seconds: ttlSeconds,
         freshness,
         target,
         // A lifecycle source is deliberately no-order.  Keep this derived

@@ -191,7 +191,7 @@ const crossPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
 });
 assert.equal(runtimeDailySelectionEligible({ platform: "binance", accountKey: "paper" }), false);
 assert.equal(crossPlatform.accountMatched, false);
-assert.equal(crossPlatform.statusLabel, "—");
+assert.equal(crossPlatform.statusLabel, "无记录");
 assert.equal(crossPlatform.fillsLabel, "暂无数据");
 assert.equal(crossPlatform.runStartedAt, null);
 assert.equal(crossPlatform.dataStatusLabel, "暂无数据");
@@ -203,7 +203,7 @@ const missingPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
 });
 assert.equal(runtimeDailySelectionEligible({ platform: null, accountKey: "paper" }), false);
 assert.equal(missingPlatform.accountMatched, false);
-assert.equal(missingPlatform.statusLabel, "—");
+assert.equal(missingPlatform.statusLabel, "无记录");
 assert.equal(missingPlatform.fillsLabel, "暂无数据");
 
 const submitted = presentRuntimeDaily({
@@ -244,7 +244,7 @@ const staleAfterSwitch = presentRuntimeDaily(longbridgePaperSnapshot, {
   accountKey: "paper",
 });
 assert.equal(staleAfterSwitch.accountMatched, false);
-assert.equal(staleAfterSwitch.statusLabel, "—");
+assert.equal(staleAfterSwitch.statusLabel, "无记录");
 assert.equal(staleAfterSwitch.runStartedAt, null);
 
 assert.equal(overviewAccountTypeLabel(), "账户类型待确认");
@@ -280,7 +280,8 @@ assert.match(overview, /useState\("all"\)/);
 assert.match(overview, /const visible = accountId === "all" \? accounts : accounts\.filter/);
 assert.match(overview, /const totalAssets = accountId === "all"/);
 assert.match(overview, /const totalCash = accountId === "all"/);
-assert.match(overview, /resolveOverviewChartAccount\(accounts, accountId, chartAccountId\)/);
+assert.doesNotMatch(overview, /chartAccountId|图表账户/);
+assert.match(overview, /const chartAccount = selectedAccount/);
 assert.match(overview, /loadAccountFactsHistory\(chartAccount\.platformKey, chartAccount\.accountKey, currency\)/);
 assert.match(overview, /loadBinanceWalletHistory\(chartAccount\.accountKey\)/);
 assert.match(overview, /buildBinanceWalletHistoryChartGeometry/);
@@ -303,8 +304,8 @@ assert.match(overview, /showSelectedCashMetric = !selectedWalletValuation \|\| t
   "the Binance cash metric stays visible only when an actual cash value exists");
 assert.match(overview, /showWallet && !walletValuation[\s\S]{0,140}id="binance-account-facts-board"/,
   "the native-quantity panel remains only when the wallet valuation is unavailable");
-const walletCardSource = overview.slice(overview.indexOf("visible.map(account => {"));
-assert.match(walletCardSource, /<\/button>\s*\{walletCardValuation \? <BinanceWalletDetails/,
+const walletCardSource = overview.slice(overview.lastIndexOf("visible.map(account => {"));
+assert.match(walletCardSource, /<\/button>[\s\S]*?\{walletCardValuation \? <BinanceWalletDetails/,
   "keyboard-operable details stay outside the account navigation button");
 assert.match(walletCardSource, /amount=\{walletCardValuation\.amount\}[\s\S]{0,220}observedAt=\{walletCardValuation\.observed_at\}/,
   "full source amount and observation timestamp remain available in details");
@@ -322,11 +323,12 @@ assert.match(overviewStyles, /\.overview-figures-wallet \{ grid-template-columns
 assert.match(overviewStyles, /\.wallet-card-valuation strong \{ white-space: nowrap; overflow-wrap: normal;/,
   "wallet total gets a full-width non-wrapping amount instead of sharing a narrow cash column");
 assert.match(overview, /runtimeEpoch/);
-assert.match(overview, /runtimeBusinessDate/);
+assert.match(overview, /runtimeDateBounds/);
 assert.match(overview, /runtimeDailySelectionEligible/);
-assert.match(overview, /platform:\s*selectedAccount\.platformKey/);
+assert.match(overview, /platform:\s*account\.platformKey/);
 assert.match(overview, /overviewAccountTypeLabel/);
-assert.match(overview, /overviewCardStatusDetail/);
+assert.match(overview, /overviewRuntimeHealth/);
+assert.doesNotMatch(walletCardSource.slice(walletCardSource.indexOf("<button"), walletCardSource.indexOf("</button>")), /<details/, "disclosures stay outside the navigation button");
 assert.match(overview, /formatOverviewInstant/);
 assert.match(overview, /setHistory\(null\)/);
 assert.match(overview, /setRuntimeDaily\(null\)/);

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { AccountOption, AdminModel, ConfigPayload, ReadModel, UxDraft } from "./api";
+import type { AccountOption, AdminModel, ConfigPayload, LifecycleRecord, ReadModel, UxDraft } from "./api";
 import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadOverviewReadModels, loadReadModel, mergeOverviewReadModels, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate, startVisibleRefreshLoop } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
@@ -19,7 +19,7 @@ type AccountRow = {
     platformLabel: string;
     account: AccountOption;
     current: Record<string, any> | null;
-    runtime: Record<string, any> | null;
+    runtime: LifecycleRecord | null;
     runtimeDetail: string | null;
 };
 type Busy = Record<string, boolean>;
@@ -764,6 +764,7 @@ function App() {
             activation: activationFromProjection(row.runtime?.account_state) === "—" ? "待确认" : activationFromProjection(row.runtime?.account_state),
             preference: typeof preference === "string" ? preference : null,
             facts: accountFactsForRow(model?.accountFacts.value, row.platform, row.account.key),
+            runtime: row.runtime,
         };
     });
     const accountItems: AccountListItem[] = rows.map(row => {

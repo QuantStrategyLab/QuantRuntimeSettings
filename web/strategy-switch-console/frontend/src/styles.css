@@ -89,13 +89,12 @@ a { color: inherit; }
 .chart-switch button.active, .preference-choices button[aria-pressed="true"] { color: #fff; background: var(--accent); border-color: var(--accent); }
 .chart-empty { display: grid; min-height: 180px; place-items: center; color: var(--muted); text-align: center; }
 .chart-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 18px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
-.daily-page.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-rows: min-content min-content min-content min-content min-content 1fr; grid-template-areas: "head accounts" "metrics accounts" "chart accounts" "stats accounts" "runtime accounts" "runtime accounts"; gap: 28px; align-items: start; }
+.daily-page.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); grid-template-rows: min-content min-content min-content 1fr; grid-template-areas: "head accounts" "metrics accounts" "chart accounts" "runtime accounts"; gap: 28px; align-items: start; }
 .daily-page.overview-layout .overview-head { grid-area: head; }
 .overview-updated { display: block; margin-top: 8px; color: var(--muted); }
 .daily-page.overview-layout .overview-metrics { grid-area: metrics; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .daily-page.overview-layout .overview-metrics-wallet { grid-template-columns: minmax(0, 1fr); }
 .daily-page.overview-layout .overview-chart { grid-area: chart; }
-.daily-page.overview-layout .overview-stats { grid-area: stats; }
 .daily-page.overview-layout .overview-runtime { grid-area: runtime; }
 .overview-accounts { grid-area: accounts; min-width: 0; padding-left: 20px; border-left: 1px solid var(--line); }
 .overview-account-list { display: grid; min-width: 0; }
@@ -136,6 +135,13 @@ a { color: inherit; }
 .overview-benchmark-source dl > div { display: grid; grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr); gap: 8px; }
 .overview-benchmark-source dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .overview-benchmark-source a { color: var(--accent); }
+.overview-return-coverage { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.overview-return-coverage li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.overview-return-coverage small { grid-column: 1 / -1; color: var(--muted); }
+.overview-return-coverage strong, .overview-return-coverage span { min-width: 0; overflow-wrap: anywhere; }
+.overview-price-reference > summary { min-height: 36px; padding: 8px 0; cursor: pointer; }
+.overview-runtime-account { padding: 12px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.overview-runtime-account h3 { margin: 0 0 12px; font-size: 15px; }
 .overview-account-return-empty { padding-top: 12px; border-top: 1px solid var(--line); }
 .overview-account-return-empty strong { display: block; margin-bottom: 4px; color: var(--ink); }
 .daily-table { width: 100%; border-collapse: collapse; }
@@ -494,7 +500,7 @@ textarea { width: 100%; resize: vertical; }
   .brand em { display: none; }
   .primary-nav button { white-space: normal; }
   .accounts-layout, .decision-layout, .daily-page.overview-layout { grid-template-columns: minmax(0, 1fr); }
-  .daily-page.overview-layout { grid-template-rows: none; grid-template-areas: "head" "metrics" "chart" "stats" "runtime" "accounts"; }
+  .daily-page.overview-layout { grid-template-rows: none; grid-template-areas: "head" "metrics" "chart" "runtime" "accounts"; }
   .overview-accounts { min-width: 0; padding-left: 0; border-left: 0; border-top: 1px solid var(--line); padding-top: 16px; }
   .accounts-layout, .decision-layout, .account-detail, .decision-detail, .account-list { min-width: 0; max-width: 100%; }
   .accounts-page .account-list .daily-table { display: block; width: 100%; min-width: 0; border-collapse: separate; }

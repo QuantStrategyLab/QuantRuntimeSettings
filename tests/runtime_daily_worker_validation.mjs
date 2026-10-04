@@ -441,4 +441,18 @@ for (const item of producerCases) {
   assert.equal(read.data_status, "historical");
 }
 
+const historicalKey = "runtime_daily:longbridge-quant-paper-service|russell_top50_leader_rotation|paper:2020-01-03";
+const preserved = store.get(historicalKey);
+const readFailureKv = { ...kv, async get(key) { if (key === historicalKey) throw new Error("synthetic read failure"); return kv.get(key); } };
+const readFailure = await get("2020-01-03", sessionHeaders, { ...env, STRATEGY_SWITCH_CONFIG: readFailureKv });
+assert.equal(readFailure.status, 503);
+assert.equal((await readFailure.json()).error, "runtime_daily_read_failed");
+for (const invalid of [{ invalid: true }, false, 0]) {
+  store.set(historicalKey, JSON.stringify(invalid));
+  const invalidRecord = await get("2020-01-03", sessionHeaders);
+  assert.equal(invalidRecord.status, 503);
+  assert.equal((await invalidRecord.json()).error, "runtime_daily_record_invalid");
+}
+store.set(historicalKey, preserved);
+assert.equal((await get("2020-01-03", sessionHeaders)).status, 200, "UI's 90-day range does not restrict retained older records");
 console.log("runtime_daily_worker_validation ok");

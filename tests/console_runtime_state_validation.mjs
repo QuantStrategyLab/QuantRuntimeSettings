@@ -967,8 +967,12 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   assert.match(overviewSource, /const selectedWalletValuation = selectedAccount\?\.platformKey === "binance"/);
   assert.match(overviewSource, /showSelectedCashMetric = !selectedWalletValuation \|\| totalCash !== null/);
   assert.match(overviewSource, /selectedWalletValuation\s*\?\s*formatBinanceWalletAmount\(selectedWalletValuation\.amount\)/);
-  assert.match(overviewSource, /<\/button>\s*\{walletCardValuation \? <BinanceWalletDetails/,
+  assert.match(overviewSource, /<\/button>\s*(?:<details className="overview-wallet-details">[\s\S]*?<\/details>\s*)?\{walletCardValuation \? <BinanceWalletDetails/,
     "wallet detail controls are outside the account-selection button");
+  const cardSource = overviewSource.slice(overviewSource.lastIndexOf("visible.map(account => {"));
+  const navigationButton = cardSource.match(/<button[\s\S]*?<\/button>/)?.[0];
+  assert.ok(navigationButton, "account navigation button exists");
+  assert.doesNotMatch(navigationButton, /<details|<BinanceWalletDetails/, "disclosures are not nested in account navigation");
   assert.match(overviewSource, /formatShortInstant\(walletCardValuation\.observed_at\)/);
   assert.match(overviewSource, /walletCardValuation\.amount[\s\S]{0,300}observedAt=\{walletCardValuation\.observed_at\}/);
   assert.match(overviewSource, /function BinanceQuantity[\s\S]{0,500}aria-label=\{`\$\{display\}; \$\{originalLabel\} \$\{amount\}`\}/);
