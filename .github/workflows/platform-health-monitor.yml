@@ -56,6 +56,8 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
+          npm ci --prefix web/strategy-switch-console
+          npm ci --prefix web/strategy-switch-console/frontend
           python3 python/scripts/build_config.py
           python3 python/scripts/build_platform_config.py --check
           git diff --exit-code -- \
