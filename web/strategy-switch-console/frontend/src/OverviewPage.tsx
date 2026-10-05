@@ -595,6 +595,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     </section>
     <aside className="overview-accounts">
       <h2>{t("我的账户")}</h2>
+      <p className="section-note">{t("运行监测与资产数据分别核对；运行正常不代表资产资料是最新的。")}</p>
       <div className="overview-account-list">
         {visible.map(account => {
           const walletCardValuation = presentBinanceWalletValuationForAccount(
@@ -663,8 +664,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
                 {negativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(account.platformKey))}</small> : null}
               </span> : null}
             </span> : null}
-            <span className="overview-marks"><span><em>{t("运行状态")}</em>{t(health.label)}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
-            <small>{t(health.detail)}</small>
+            <span className="overview-marks"><span><em>{t("运行监测")}</em>{t(health.label)}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
+            <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
             <details className="overview-wallet-details"><summary>{t("运行状态依据")}</summary><dl>

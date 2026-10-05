@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useT } from "./locales";
 import { decisionActionState, unnamedDecisionOrdinal, type DailyDecision } from "./presentation";
 
@@ -22,6 +22,7 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
   onDecide: (item: DailyDecision, decision: "adopt" | "reject") => void;
 }) {
   const t = useT();
+  const detailId = useId();
   const [selectedId, setSelectedId] = useState(items[0]?.id || "");
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
@@ -30,26 +31,29 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
   }
   return <section className="daily-page decisions-page">
     <div className="daily-heading"><h1>{t("待办决策")}</h1><DecisionCount count={items.length} /></div>
+    {blocked && <p className="workflow-note" role="status"><strong>{t("部分待办暂时无法读取")}</strong> {t("以下仅显示已读取的事项，待办列表可能不完整。")}</p>}
     <div className="decision-layout">
-      <div className="decision-list">
-        {items.map(item => <button key={item.id} type="button" className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>
+      <div className="decision-list" role="group" aria-label={t("待办事项")}>
+        {items.map((item, index) => <button key={item.id} id={`${detailId}-item-${index}`} type="button" aria-pressed={selected?.id === item.id} aria-controls={detailId} className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>
           <small>{t(item.kicker)}</small><strong>{shown(item.title, t)}{unnamedDecisionOrdinal(items, item) ? ` ${unnamedDecisionOrdinal(items, item)}` : ""}</strong>
+          <small className="decision-reference">{t("材料编号")}：{item.reference}</small>
         </button>)}
       </div>
-      {selected && <article className="decision-detail">
+      {selected && <article id={detailId} className="decision-detail" aria-labelledby={`${detailId}-item-${items.indexOf(selected)}`}>
         <p className="kicker">{t(selected.kicker)}</p>
         <h2>{t(selected.question)}</h2>
-        {selected.accountLine && <p>{t(selected.accountLine)}</p>}
+        {selected.accountChoices.length === 1 ? <p>{selected.accountChoices[0].label}</p> : selected.accountLine ? <p>{t(selected.accountLine)}</p> : null}
         {selected.accountChoices.length > 1 && <label>{t("选择应用账户")}<select value={selectedAccountId} onChange={event => onSelectAccount(event.target.value)}><option value="">{t("选择一个账户")}</option>{selected.accountChoices.map(account => <option key={account.id} value={account.id}>{account.label}</option>)}</select></label>}
-        {selected.accountChoices.length === 1 && <p>{selected.accountChoices[0].label}</p>}
         <div className="plan-compare"><div><span>{t("当前方案")}</span><strong>{shown(selected.currentName, t)}</strong></div><div><span>{t("建议方案")}</span><strong>{shown(selected.proposedName, t)}</strong></div></div>
         {selected.explanationKind === "ai" && selected.explanation ? <section className="ai-explanation"><h3>{t("候选说明")}</h3><p>{t("问题")}：{selected.explanation.question}</p><p>{t("依据")}：{selected.explanation.basis}</p><p>{t("限制")}：{selected.explanation.limits}</p><p>{t("建议")}：{selected.explanation.suggestion}</p><details><summary>{t("来源与模型")}</summary><p>{selected.explanation.provider}</p><p>{selected.explanation.model}</p></details></section> : <section><h3>{t("系统摘要")}</h3><p>{t(selected.impact)}</p></section>}
         {selected.explanationKind === "ai" && selected.explanation && <><h3>{t("影响与风险")}</h3><p>{t(selected.impact)}</p></>}
-        <button type="button" className="text-link" aria-expanded={showPlan} onClick={() => setShowPlan(value => !value)}>{t("查看方案")}</button>
-        {showPlan && <pre>{selected.technical}</pre>}
+        {selected.materialNotes.length > 0 && <section className="decision-materials"><h3>{t("审阅材料")}</h3><ul>{selected.materialNotes.map(note => <li key={note}>{t(note)}</li>)}</ul></section>}
+        <button type="button" className="text-link" aria-expanded={showPlan} aria-controls={`${detailId}-plan`} onClick={() => setShowPlan(value => !value)}>{t("查看方案")}</button>
+        {showPlan && <pre id={`${detailId}-plan`}>{selected.technical}</pre>}
+        <p className="section-note" id={`${detailId}-intent`}>{t("以下操作只记录人工意向，不会应用策略、启用账户或提交订单。")}</p>
         <div className="form-actions">
-          {selected.canReject && <button type="button" className="button button-secondary" disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).rejectEnabled} onClick={() => onDecide(selected, "reject")}>{t("不采用")}</button>}
-          {selected.canAdopt && <button type="button" className="button button-primary" disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).adoptEnabled} onClick={() => onDecide(selected, "adopt")}>{t("采用")}</button>}
+          {selected.canReject && <button type="button" className="button button-secondary" aria-describedby={`${detailId}-intent`} disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).rejectEnabled} onClick={() => onDecide(selected, "reject")}>{t("记录不采用意向")}</button>}
+          {selected.canAdopt && <button type="button" className="button button-primary" aria-describedby={`${detailId}-intent`} disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).adoptEnabled} onClick={() => onDecide(selected, "adopt")}>{t("记录采用意向")}</button>}
         </div>
       </article>}
     </div>

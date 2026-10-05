@@ -83,8 +83,8 @@ function sources(overrides = {}) {
 }
 
 test("pending option layer has one editable label across draft states", () => {
-  assert.equal((accountsSource.match(/t\("待应用期权层"\)/g) || []).length, 1);
-  assert.match(accountsSource, /<label className="cash-floor-field">\{t\("待应用期权层"\)\}\s*<select value=\{optionValue\}/);
+  assert.equal((accountsSource.match(/t\("期权层草案"\)/g) || []).length, 1);
+  assert.match(accountsSource, /<label className="cash-floor-field">\{t\("期权层草案"\)\}\s*<select value=\{optionValue\}/);
   assert.match(accountsSource, /controller\.revertOption\(\)/);
 });
 
@@ -1150,7 +1150,7 @@ test("opening account settings selects the exact account without submitting or e
   assert.equal(controller.view().draft.floorTouched, false);
   assert.equal(controller.view().draft.clearFloor, false);
   assert.match(accountsSource, /current-strategy/);
-  assert.match(accountsSource, /待应用策略/);
+  assert.match(accountsSource, /策略草案/);
   assert.doesNotMatch(accountsSource, /暂不能修改/);
 });
 
@@ -1269,7 +1269,7 @@ test("viewing an account does not expand editing or change the configured switch
   assert.equal(controller.view().draft.floorTouched, false);
   assert.equal(controller.view().draft.clearFloor, false);
   assert.match(accountsSource, /current-strategy/);
-  assert.match(accountsSource, /待应用策略/);
+  assert.match(accountsSource, /策略草案/);
   assert.doesNotMatch(accountsSource, /暂不能修改/);
 });
 

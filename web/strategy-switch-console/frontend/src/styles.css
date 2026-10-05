@@ -155,13 +155,13 @@ a { color: inherit; }
 .accounts-page .detail-group:first-of-type { border-top: 0; }
 .accounts-page .preference-choices { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .accounts-page .preference-choice { position: relative; width: 100%; min-width: 0; padding-inline: 4px; font-size: 13px; }
-.accounts-page .preference-hint { pointer-events: none; display: none; position: absolute; z-index: 3; top: calc(100% + 6px); left: 0; width: max(100%, 180px); padding: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font: 12px/1.4 inherit; text-align: left; white-space: normal; }
+.accounts-page .preference-hint { pointer-events: none; display: none; position: static; max-width: 100%; margin-top: 6px; padding: 8px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); font-size: 12px; line-height: 1.4; text-align: left; white-space: normal; overflow-wrap: anywhere; }
 @media (hover: hover) and (pointer: fine) { .accounts-page .preference-choice:hover .preference-hint { display: block; } }
+.accounts-page .preference-choice:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 .accounts-page .preference-choice:focus-visible .preference-hint { display: block; }
-.accounts-page .preference-choice[aria-pressed="true"] { font-weight: 700; background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.accounts-page .preference-choice[aria-pressed="true"] { color: var(--ink); font-weight: 700; background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
 .accounts-page .preference-selected-note { display: none; margin: 8px 0 0; color: var(--muted); }
 @media (hover: none) { .accounts-page .preference-selected-note { display: block; } }
-.accounts-page .preference-choice:last-child .preference-hint { left: auto; right: 0; }
 .accounts-page .account-identity strong { overflow-wrap: anywhere; }
 .preference-choice p, .setting-facts p { margin: 0; }
 .setting-facts { display: grid; gap: 8px; margin: 14px 0; }
@@ -194,6 +194,11 @@ a { color: inherit; }
 .decision-list { display: grid; gap: 10px; align-content: start; }
 .decision-list button { padding: 16px; text-align: left; cursor: pointer; }
 .decision-list button.active { border-color: var(--accent); }
+.workflow-note { margin: 0 0 18px; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--amber); background: var(--paper); line-height: 1.6; }
+.workflow-note p { margin-bottom: 8px; }
+.decision-reference, .decision-materials { overflow-wrap: anywhere; }
+.decision-materials ul { margin: 0 0 16px; padding-left: 20px; color: var(--muted); line-height: 1.6; }
+.decisions-page .form-actions .button { white-space: normal; text-align: center; }
 .user-menu { position: relative; }
 .user-menu summary { display: grid; width: 40px; place-items: center; border-radius: 50%; list-style: none; }
 .user-menu-panel { position: absolute; right: 0; z-index: 2; display: grid; min-width: 220px; padding: 0; overflow: hidden; background: var(--paper); color: var(--ink); border: 1px solid var(--line); box-shadow: 0 10px 28px color-mix(in srgb, var(--ink) 12%, transparent); }
@@ -518,6 +523,8 @@ textarea { width: 100%; resize: vertical; }
 }
 @media (max-width: 800px) {
   .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px; margin: 12px 0 16px; }
+  .overview-runtime-head label { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; min-width: 0; gap: 6px; align-items: stretch; }
+  .overview-runtime-head input[type="date"] { width: 100%; min-width: 0; max-width: 100%; flex-shrink: 0; }
   .metric-row strong { font-size: clamp(22px, 8vw, 32px); line-height: 1.15; overflow-wrap: anywhere; }
   .chart-panel { min-height: 0; }
   .chart-empty { min-height: 180px; }
@@ -529,7 +536,6 @@ textarea { width: 100%; resize: vertical; }
   .overview-runtime-grid { grid-template-columns: 1fr; }
   .form-actions .button, .confirm-actions .button, .page-title-row .button { height: auto; white-space: normal; text-align: center; }
   .accounts-page .preference-selected-note { display: block; }
-  .accounts-page .preference-hint, .accounts-page .preference-choice:last-child .preference-hint { left: 0; right: auto; width: min(100%, 280px); }
   .activation-row { flex-wrap: wrap; align-items: center; }
   .daily-heading { flex-wrap: wrap; align-items: stretch; }
   .daily-heading select { width: 100%; max-width: 100%; }

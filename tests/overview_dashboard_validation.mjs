@@ -183,7 +183,7 @@ assert.equal(runtimeDateSelectable("2026-02-29", Date.parse("2026-03-01T16:00:00
 assert.equal(runtimeDateSelectable("2024-02-29", Date.parse("2024-03-01T16:00:00Z")), true);
 assert.equal(presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date).statusLabel, "无记录");
 assert.equal(presentRuntimeDaily(daily, selection, "2026-10-03").available, false, "late responses cannot appear under a different selected date");
-assert.equal(presentRuntimeDaily(daily, { platform: "ibkr", accountKey: selection.accountKey, dailyBinding: "not_applicable" }, daily.date).statusLabel, "无记录");
+assert.equal(presentRuntimeDaily(daily, { platform: "ibkr", accountKey: selection.accountKey, dailyBinding: "not_applicable" }, daily.date).statusLabel, "未接入");
 assert.deepEqual(RETURN_INDEX_LEGEND, ["标普500", "纳斯达克", "道琼斯", "罗素"]);
 for (const detail of [health().detail, health(null).detail, health(runtime, null).detail, health(runtime, grace).detail]) assert.notEqual(translate(detail, "en"), detail);
 console.log("overview dashboard validation: PASS (date, identity, freshness, due/grace and cycle evidence)");
