@@ -778,6 +778,8 @@ function App() {
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platformLabel: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
+            facts: model?.accountFacts.error ? null : accountFactsForRow(model?.accountFacts.value, row.platform, row.account.key),
+            binanceReport: row.platform === "binance" && !model?.binanceFacts.error ? model?.binanceFacts.value?.report : null,
             strategy: fields.strategy,
             strategyNote: fields.note,
             statusLabel: accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status).label,
