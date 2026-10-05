@@ -41,6 +41,29 @@ export type CurrentStrategy = {
   execution_mode?: string; execution_environment?: string; [key: string]: unknown;
 };
 export type StrategyProfile = { profile: string; label?: string; domain?: string; [key: string]: unknown };
+// Existing normalized catalog declarations, never broker or execution permission.
+// Null means the declaration is unavailable; it does not grant draft/live authority.
+export type AccountDraftStrategyOption = {
+  profile: string; label: string; label_zh: string; label_en: string; domain: string;
+  option_overlay_enabled: boolean; dca_supported: boolean;
+  lifecycle_stage: string | null;
+  allowed_execution_modes: string[] | null;
+  can_switch_live: boolean | null;
+  blocked_live_reason: string | null;
+};
+// Existing authority flags only, not full permission to record a decision (which
+// also validates the ticket binding, actor, action, and selected account).
+// Account application gates remain in application_preparation.
+// This read model grants no live authority and exposes no internal material key.
+export type PromotionDecisionMaterial = {
+  migrated: boolean | null; eligible: boolean | null; blocked: boolean | null;
+  blocker_codes: Array<"human_decision_legacy_blocked" | "human_decision_material_conflict"> | null;
+};
+export type PromotionQueueRecordMetadata = {
+  decision_material: PromotionDecisionMaterial;
+  // Already-read KV ticket record timestamps, not producer time or execution evidence.
+  ticket_record_timestamps: { created_at: string | null; updated_at: string | null };
+};
 export type PromotionSuggestion = {
   question: string;
   basis: string;

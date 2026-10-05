@@ -4338,6 +4338,11 @@ function accountDraftStrategyChoices(platform, accountOption, profiles) {
       label_zh: profile.label_zh || profile.label || profile.profile,
       label_en: profile.label_en || profile.label || profile.profile,
       domain: profile.domain,
+      // Existing catalog declarations only, never broker or execution permission.
+      lifecycle_stage: typeof profile.lifecycle_stage === "string" ? profile.lifecycle_stage : null,
+      allowed_execution_modes: Array.isArray(profile.allowed_execution_modes) && profile.allowed_execution_modes.length ? [...profile.allowed_execution_modes] : null,
+      can_switch_live: typeof profile.can_switch_live === "boolean" ? profile.can_switch_live : null,
+      blocked_live_reason: typeof profile.blocked_live_reason === "string" ? profile.blocked_live_reason : null,
       option_overlay_enabled: profile.option_overlay_enabled === true,
       dca_supported: dcaDraftSupported(platform, profiles, profile.profile),
     });
@@ -10165,7 +10170,9 @@ async function listResearchPromotionTickets(env) {
     const stored = await readConfigJson(env, key);
     if (!stored) continue;
     try {
-      const ticket = await promotionTicketWithAuthority(env, normalizeResearchPromotionTicket(stored, key));
+      const record = normalizeResearchPromotionTicket(stored, key);
+      const authority = await readHumanDecisionAuthority(env, "promotion", record.ticket_id);
+      const ticket = attachPromotionQueueReadMetadata(record, overlayPromotionDecision(record, authority), authority);
       if (ticket.live_authority_granted) continue;
       tickets.push(ticket);
     } catch (error) {
@@ -10175,6 +10182,29 @@ async function listResearchPromotionTickets(env) {
   }
   tickets.sort((left, right) => String(right.updated_at).localeCompare(String(left.updated_at)));
   return tickets.slice(0, RESEARCH_PROMOTION_MAX_TICKETS);
+}
+
+function attachPromotionQueueReadMetadata(record, ticket, authority) {
+  // Reuse the queue's existing material observation. Unknown is not permission;
+  // these fixed reasons describe stored intent material flags, not full decision
+  // permission, ticket-hash validation, or account application gates.
+  const migrated = typeof authority?.migrated === "boolean" ? authority.migrated : null;
+  const eligible = migrated === true && typeof authority?.eligible === "boolean" ? authority.eligible : null;
+  const blocked = migrated === true && typeof authority?.blocked === "boolean" ? authority.blocked : null;
+  const blockerCodes = migrated !== true ? null
+    : blocked === true ? ["human_decision_legacy_blocked"]
+    : eligible === false ? ["human_decision_material_conflict"]
+    : eligible === true && blocked === false ? [] : null;
+  return {
+    ...ticket,
+    decision_material: { migrated, eligible, blocked, blocker_codes: blockerCodes },
+    // Timestamps of the already-read KV ticket record, not producer-observed
+    // time, freshness, a validity window, or evidence of actual execution.
+    ticket_record_timestamps: {
+      created_at: typeof record?.created_at === "string" && record.created_at ? record.created_at : null,
+      updated_at: typeof record?.updated_at === "string" && record.updated_at ? record.updated_at : null,
+    },
+  };
 }
 
 async function researchPromotionTicketsResponse(request, env) {
@@ -15020,6 +15050,7 @@ export const __test = {
   dcaDraftSupported,
   buildRiskEnvelopeView,
   attachRiskEnvelopeView,
+  attachPromotionQueueReadMetadata,
   normalizeResearchPromotionTicket,
   normalizeRuntimeTargetLifecycleTarget,
   projectRuntimeAccountState,
