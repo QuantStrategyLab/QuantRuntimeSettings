@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import ts from "../web/strategy-switch-console/frontend/node_modules/typescript/lib/typescript.js";
+import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
 const root = path.resolve(import.meta.dirname, "..");
 const appPath = path.join(root, "web/strategy-switch-console/frontend/src/App.tsx");
@@ -46,7 +47,15 @@ function visit(node) {
 visit(app);
 const overviewPath = path.join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx");
 visit(ts.createSourceFile(overviewPath, fs.readFileSync(overviewPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
+for (const page of ["AccountsPage.tsx", "DecisionsPage.tsx"]) {
+  const pagePath = path.join(root, "web/strategy-switch-console/frontend/src", page);
+  visit(ts.createSourceFile(pagePath, fs.readFileSync(pagePath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
+}
 assert.deepEqual([...missing], [], `Translation keys are missing from EN_COPY: ${[...missing].join(" | ")}`);
 assert.deepEqual([...unwrapped], [], `Chinese JSX text is not routed through t(): ${[...unwrapped].join(" | ")}`);
 assert.deepEqual([...unmappedStatusLabels], [], `Status labels are missing locale entries: ${[...unmappedStatusLabels].join(" | ")}`);
+for (const label of ["停用", "请求停用", "正在提交…", "这次停用已确认", "停用结果未知，不能再次提交"]) {
+  assert.notEqual(translate(label, "en"), "Information unavailable", `runtime control label requires complete English copy: ${label}`);
+}
+assert.equal(translate("unknown_scope_enum", "en"), "Information unavailable", "unknown enums keep the existing fail-closed translation fallback");
 console.log(`console_v2_i18n_validation: PASS (${keys.size} locale entries)`);

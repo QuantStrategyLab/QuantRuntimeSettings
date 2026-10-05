@@ -126,6 +126,7 @@ jobs:
           node tests/account_settings_worker_validation.mjs
           node --experimental-default-type=module tests/console_evidence_metadata_validation.mjs
           node --experimental-strip-types tests/account_settings_state_validation.mjs
+          node --experimental-strip-types tests/workflow_clarity_validation.mjs
           node --experimental-strip-types tests/runtime_stop_worker_validation.mjs
           node tests/runtime_stop_requests_worker_validation.mjs
           node --experimental-default-type=module tests/binance_resume_worker_validation.mjs

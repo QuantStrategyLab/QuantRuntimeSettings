@@ -2,6 +2,29 @@ import { accountSettingDraftBody, type AccountSettingOverridePatch } from "./ope
 import { cashDraftDirty, decimalUnitRatio, percentTextToRatio } from "./presentation.ts";
 import { createRequestGate } from "./requestGate.js";
 
+export type AccountSettingsReadbackResult = { status: "ready" } | { status: "superseded" } | { status: "failed"; message: string };
+
+export async function refreshAccountSettingsReadback(
+  controller: Pick<ReturnType<typeof createAccountSettingsController>, "isCurrent" | "applyRefresh" | "abandon">,
+  op: AccountSettingsOp,
+  read: () => Promise<Record<string, any>>,
+): Promise<AccountSettingsReadbackResult> {
+  try {
+    const payload = await read();
+    if (!controller.isCurrent(op)) return { status: "superseded" };
+    if (!controller.applyRefresh(op, payload)) {
+      controller.abandon(op);
+      return { status: "failed", message: "设置读回与所选账户不一致，请重新读取。" };
+    }
+    return { status: "ready" };
+  } catch (error) {
+    if (!controller.isCurrent(op)) return { status: "superseded" };
+    controller.abandon(op);
+    const status = Number((error as { status?: number })?.status || 0);
+    return { status: "failed", message: status === 401 || status === 403 ? "没有权限读取这项设置。" : "账户设置暂时读不到。" };
+  }
+}
+
 export type AccountSettingsAccount = { platform: string; key: string };
 export type CashEditMode = "" | "inherit" | "floor" | "ratio" | "both";
 export type AccountSettingsDraftFields = {
@@ -276,6 +299,7 @@ export function createAccountSettingsController() {
       return true;
     },
     startSave(kind: "draft" | "risk" | "cash" | "income" | "option" | "strategy") {
+      if (view.saving) return null;
       if (!selected || !view.settings || !sameAccount(view.account)) return null;
       if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
       if (!view.settings.identity || typeof view.settings.identity !== "object") return null;
@@ -322,7 +346,7 @@ export function createAccountSettingsController() {
       return op.body;
     },
     markSaving(op: AccountSettingsOp, kind: string) {
-      if (!current(op)) return false;
+      if (view.saving || !current(op)) return false;
       view = { ...view, saving: kind, notice: "" };
       return true;
     },

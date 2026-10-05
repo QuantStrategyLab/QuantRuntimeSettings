@@ -424,4 +424,116 @@ assert.equal(switchDcaAccount.applySave(lateDcaSave, dcaSaved, "late"), false, "
 assert.equal(switchDcaAccount.applyRead(selectOther, settings("sg", "BALANCED_COMPOUNDING", identityB, "sg-after-dca")), true);
 assert.equal(switchDcaAccount.view().settings.key, "sg");
 assert.equal(switchDcaAccount.view().draft.dcaAmount, "");
+// Match the page's synchronous startSave -> markSaving -> POST sequence while
+// deliberately retaining a render's old view for consecutive same-turn calls.
+function singleFlightController() {
+  const c = createAccountSettingsController();
+  c.applyRead(c.select({ platform: "longbridge", key: "hk" }), settings("hk", "BALANCED_COMPOUNDING", identityA, "single-flight"));
+  c.edit({ cashMode: "floor", floor: "25", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, preference: "GROWTH_COMPOUNDING" });
+  return c;
+}
+function saveDispatch(c, capturedView, kind, posts) {
+  if (capturedView.saving) return null;
+  const op = c.startSave(kind);
+  const body = c.requestBody(op);
+  if (!op || !body || !c.markSaving(op, kind === "risk" ? "risk" : "draft")) return null;
+  const currentBody = c.requestBody(op);
+  if (!currentBody) return null;
+  posts.push(structuredClone(currentBody));
+  return op;
+}
+const sameTurnResults = [];
+for (const [firstKind, nextKind] of [["cash", "cash"], ["risk", "risk"], ["cash", "risk"], ["risk", "cash"]]) {
+  const c = singleFlightController(); const capturedView = c.view(); const posts = [];
+  const firstOp = saveDispatch(c, capturedView, firstKind, posts);
+  const nextOp = saveDispatch(c, capturedView, nextKind, posts);
+  sameTurnResults.push({ firstKind, nextKind, posts: posts.length, duplicateBlocked: nextOp === null, firstStillCurrent: c.isCurrent(firstOp) });
+  if (posts.length === 1) {
+    assert.equal(c.requestBody(firstOp).identity, identityA);
+    assert.equal(firstKind === "risk" ? posts[0].expected_risk_revision : posts[0].expected_draft_revision, firstKind === "risk" ? 4 : 2);
+    assert.equal(c.view().saving, firstKind === "risk" ? "risk" : "draft");
+  }
+}
+console.log("same-turn save dispatch:", JSON.stringify(sameTurnResults));
+assert.ok(sameTurnResults.every(row => row.posts === 1 && row.duplicateBlocked && row.firstStillCurrent), "consecutive cash/risk and cross-kind calls must dispatch once without invalidating the first operation");
+
+for (const [firstKind, nextKind] of [["cash", "cash"], ["risk", "risk"], ["cash", "risk"], ["risk", "cash"]]) {
+  const c = singleFlightController(); const capturedView = c.view(); const posts = [];
+  let resolveResponse;
+  const response = new Promise(resolve => { resolveResponse = resolve; });
+  const submitPending = async kind => {
+    const op = saveDispatch(c, capturedView, kind, posts);
+    if (!op) return false;
+    try { return c.applySave(op, await response, "synthetic saved"); }
+    finally { c.finish(op); }
+  };
+  const firstPending = submitPending(firstKind);
+  const nextPending = submitPending(nextKind);
+  assert.equal(posts.length, 1, "a pending promise prevents same-turn same-kind or cross-kind POSTs");
+  assert.equal(await nextPending, false);
+  const saved = settings("hk", firstKind === "risk" ? "GROWTH_COMPOUNDING" : "BALANCED_COMPOUNDING", identityA, "pending complete");
+  if (firstKind === "cash") { saved.draft.revision = 3; saved.draft.overrides = { reserved_cash_floor: "25", reserved_cash_ratio: "0" }; }
+  else saved.risk.revision = 5;
+  resolveResponse(saved);
+  assert.equal(await firstPending, true, "the original pending save response remains applicable");
+  assert.equal(c.view().saving, "");
+  assert.equal(c.view().settings.marker, "pending complete");
+}
+
+for (const kind of ["cash", "risk"]) {
+  const c = singleFlightController(); const posts = []; const firstOp = saveDispatch(c, c.view(), kind, posts);
+  const beforeRepeatMark = structuredClone(c.view());
+  assert.equal(c.markSaving(firstOp, kind === "risk" ? "risk" : "draft"), false, "the same operation cannot mark saving twice for another dispatch");
+  assert.deepEqual(c.view(), beforeRepeatMark);
+  assert.equal(c.isCurrent(firstOp), true, "rejecting a duplicate must preserve the first operation token");
+  assert.equal(c.startSave(kind), null, "pending same-account saves are blocked before gate.begin");
+  assert.equal(c.isCurrent(firstOp), true);
+  if (kind === "cash") c.revertCash(); else c.revertRisk();
+  assert.equal(c.startSave(kind), null, "cancelling local edits does not remove an in-flight save lock");
+  assert.equal(c.isCurrent(firstOp), true);
+  assert.equal(c.fail(firstOp, "synthetic failed save"), true);
+  c.edit(kind === "cash" ? { cashMode: "floor", floor: "30", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true } : { preference: "GROWTH_COMPOUNDING" });
+  const retry = saveDispatch(c, c.view(), kind, posts);
+  assert.ok(retry, "a failed save permits a new explicit attempt");
+  const retrying = structuredClone(c.view());
+  assert.equal(c.finish(firstOp), false);
+  assert.equal(c.fail(firstOp, "late failure"), false);
+  assert.equal(c.applySave(firstOp, settings("hk", "BALANCED_COMPOUNDING", identityA, "late response"), "late"), false);
+  assert.deepEqual(c.view(), retrying, "late completion/failure/finally cannot clear the newer lock or replace its edits");
+  assert.equal(posts.length, 2, "only the original and explicitly retried attempts are sent");
+  assert.equal(c.finish(retry), true);
+  assert.equal(c.view().saving, "");
+}
+
+for (const kind of ["cash", "risk"]) {
+  const c = singleFlightController(); const posts = []; const oldOp = saveDispatch(c, c.view(), kind, posts);
+  c.applyRead(c.select({ platform: "longbridge", key: "sg" }), settings("sg", "BALANCED_COMPOUNDING", identityB, "new account"));
+  c.edit({ cashMode: "floor", floor: "35", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, preference: "GROWTH_COMPOUNDING" });
+  const newOp = saveDispatch(c, c.view(), kind, posts); assert.ok(newOp);
+  const newSaving = structuredClone(c.view());
+  assert.equal(c.applySave(oldOp, settings("hk", "GROWTH_COMPOUNDING", identityA, "old account late"), "late"), false);
+  assert.equal(c.fail(oldOp, "old account late failure"), false);
+  assert.equal(c.finish(oldOp), false);
+  c.abandon(oldOp);
+  assert.deepEqual(c.view(), newSaving, "switching and abandoning an old operation cannot clear another account's save lock");
+  assert.equal(c.isCurrent(newOp), true);
+  assert.equal(c.requestBody(newOp).key, "sg");
+  assert.equal(c.requestBody(newOp).identity, identityB);
+}
+const saveKinds = ["draft", "cash", "income", "option", "strategy", "risk"];
+for (const firstKind of saveKinds) for (const nextKind of saveKinds) {
+  const c = createAccountSettingsController();
+  const payload = settings("hk", "BALANCED_COMPOUNDING", identityA, "all-kinds");
+  payload.operations.save_option_draft = true;
+  const read = c.select({ platform: "longbridge", key: "hk" }); c.applyRead(read, payload);
+  c.edit({ strategy: "synthetic-profile", strategyTouched: true, cashMode: "floor", floor: "25", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, income: "true", incomeTouched: true, option: "false", optionTouched: true, preference: "GROWTH_COMPOUNDING" });
+  const firstOp = c.startSave(firstKind); assert.ok(firstOp);
+  assert.equal(c.markSaving(firstOp, firstKind === "risk" ? "risk" : "draft"), true);
+  const locked = structuredClone(c.view()); const body = c.requestBody(firstOp);
+  assert.equal(c.startSave(nextKind), null, `${firstKind} -> ${nextKind} is blocked without beginning a new gate token`);
+  c.abandon(read);
+  assert.equal(c.isCurrent(firstOp), true, "cleanup of the original read cannot abandon a save");
+  assert.equal(c.requestBody(firstOp), body);
+  assert.deepEqual(c.view(), locked);
+}
 console.log("account_settings_state_validation: PASS");

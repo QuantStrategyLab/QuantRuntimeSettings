@@ -501,13 +501,14 @@ export function presentRuntimeDaily(
   if (!selection || typeof selection.accountKey !== "string" || !selection.accountKey) return empty;
   // Eligibility is the unique configured source binding, not a platform or lane guess.
   if (!runtimeDailySelectionEligible(selection)) {
+    const unresolved = selection.dailyBinding !== "not_applicable" || typeof selection.platform !== "string" || !selection.platform;
     return {
       ...empty,
       accountMatched: false,
-      statusLabel: "无记录",
-      statusDetails: [selection.dailyBinding === "unresolved" ? "周期记录目标绑定未确认" : "该账户暂无可用运行记录"],
-      fillsLabel: "暂无数据",
-      dataStatusLabel: "暂无数据",
+      statusLabel: unresolved ? "待确认" : "未接入",
+      statusDetails: [unresolved ? "周期记录目标绑定未确认" : "该账户尚未接入此日报来源"],
+      fillsLabel: unresolved ? "暂无数据" : "未接入",
+      dataStatusLabel: "—",
     };
   }
   if (!snapshot || snapshot.ok !== true) {
@@ -531,6 +532,7 @@ export function presentRuntimeDaily(
     };
   }
   const observedAt = typeof snapshot.record?.observed_at === "string" ? snapshot.record.observed_at : null;
+  const fillsLabel = snapshot.fills?.source === "not_connected" ? "未接入" : "暂无数据";
   const dataStatusLabel = snapshot.data_status === "stale"
     ? "数据暂不可用"
     : snapshot.data_status === "unavailable"
@@ -546,7 +548,7 @@ export function presentRuntimeDaily(
       runStartedAt: null,
       runFinishedAt: null,
       dryRun: false,
-      fillsLabel: "暂无数据",
+      fillsLabel,
       dataStatusLabel: snapshot.data_status === "unavailable" ? "暂无数据" : dataStatusLabel,
       updatedAt: null,
     };
@@ -568,7 +570,7 @@ export function presentRuntimeDaily(
     runStartedAt: typeof run?.started_at === "string" ? run.started_at : null,
     runFinishedAt: typeof run?.finished_at === "string" ? run.finished_at : null,
     dryRun,
-    fillsLabel: "暂无数据",
+    fillsLabel,
     dataStatusLabel,
     updatedAt: snapshot.data_status === "stale" ? observedAt : null,
   };
@@ -813,6 +815,24 @@ export function safeActionVisibility(input: { settingsUnavailable: boolean; acti
     refresh: input.refreshSupported === true,
     resume: input.resumeSupported === true,
   };
+}
+
+export function accountSettingsOperationReason(reason: unknown): string {
+  if (reason === "admin_required") return "当前登录不能保存这项设置。";
+  if (reason === "option_overlay_not_defined") return "该策略尚未定义期权层。";
+  if (reason === "strategy_application_not_connected") return "策略应用与账户启用流程尚未接通。";
+  return "这项操作暂不可用。";
+}
+
+export function accountSettingsSaveBlockReason(settings: Record<string, any> | null | undefined, readState: string, kind: "draft" | "risk"): string | null {
+  if (readState === "refreshing") return "正在重新读取设置，完成后可保存。";
+  if (readState !== "ready") return "请重新读取成功后再保存。";
+  if (!settings?.identity || typeof settings.identity !== "object" || Array.isArray(settings.identity)) return "缺少账户来源，不能保存。";
+  if (kind === "draft" && settings?.draft?.status === "identity_conflict") return "请重新读取并确认当前账户来源。";
+  const operation = kind === "draft" ? "save_draft" : "save_risk_preference";
+  if (settings?.operations?.[operation] !== true) return accountSettingsOperationReason(settings?.operations?.[`${operation}_reason`]);
+  if (!Number.isSafeInteger(settings?.[kind]?.revision)) return "设置版本未确认，请重新读取后再保存。";
+  return null;
 }
 
 export function paperApplicationAccounts(application: { application_preparation?: { account_options?: Array<Record<string, unknown>> } } | null | undefined): Array<{ id: string; label: string }> {
@@ -1123,6 +1143,8 @@ export type DailyDecision = {
   reasons: string[];
   impact: string;
   technical: string;
+  reference: string;
+  materialNotes: string[];
   canAdopt: boolean;
   canReject: boolean;
   adoptDecision: string | null;
@@ -1139,6 +1161,24 @@ function ready(source: SourceState | null | undefined): boolean {
 function profileName(profiles: any[], id: unknown, language: "zh" | "en"): string {
   const found = profiles.find(item => item?.profile === id);
   return strategyDisplayName(found, language);
+}
+
+export function promotionMaterialNotes(summary: Record<string, any> | null | undefined): string[] {
+  const comparison = summary?.comparison;
+  const comparisonNote = comparison == null
+    ? "未提供比较材料，无法核对方案差异。"
+    : comparison?.status === "comparable"
+      ? "比较材料已提供，详情见方案。"
+      : comparison?.status === "unavailable"
+        ? "比较结果暂不可用，无法核对方案差异。"
+        : "比较材料状态未确认。";
+  const limitations = summary?.limitations;
+  const limitationsNote = !Array.isArray(limitations) || limitations.some(item => typeof item !== "string")
+    ? "未提供限制材料，请先核对原始方案。"
+    : limitations.some(item => item.trim())
+      ? "限制材料已提供，详情见方案。"
+      : "材料未列出限制条件，请先核对原始方案。";
+  return [comparisonNote, limitationsNote];
 }
 
 export function listDailyDecisions(input: {
@@ -1172,6 +1212,8 @@ export function listDailyDecisions(input: {
         reasons: [],
         impact: "采用只记录你的意向，账户策略和交易权限保持不变。",
         technical: JSON.stringify({ ticket_id: ticket.ticket_id, proposed_params: ticket.proposed_params ?? null, comparison: summary.comparison ?? null, limitations: summary.limitations ?? null }, null, 2),
+        reference: ticket.ticket_id,
+        materialNotes: promotionMaterialNotes(ticket.research_summary),
         canAdopt: accounts.length > 0,
         canReject: true,
         adoptDecision: "accept",
@@ -1201,6 +1243,8 @@ export function listDailyDecisions(input: {
         reasons: [],
         impact: "有限观察只记录意向，不授予交易权限。不采用会保持暂停，不会退役候选。",
         technical: JSON.stringify({ candidate_id: entry.candidate.candidate_id, recommendation: entry.candidate.recommendation?.code ?? null }, null, 2),
+        reference: entry.candidate.candidate_id,
+        materialNotes: [],
         canAdopt: true,
         canReject: true,
         adoptDecision: "approve_limited_live_canary",
@@ -1229,6 +1273,8 @@ export function listDailyDecisions(input: {
         reasons: [],
         impact: "确认后只留下核对记录，账户不会因此重新启用。",
         technical: JSON.stringify({ recovery_id: recovery.recovery_id, platform: recovery.platform ?? null, candidate_sha256: recovery.candidate_sha256 ?? null, dual_review_binding_sha256: recovery.dual_review?.evidence_binding_sha256 ?? null }, null, 2),
+        reference: recovery.recovery_id,
+        materialNotes: [],
         canAdopt: true,
         canReject: true,
         adoptDecision: "approve",

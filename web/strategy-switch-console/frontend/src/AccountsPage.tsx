@@ -1,9 +1,9 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { loadAccountSettings, postJson } from "./api";
-import { pendingDraftOverrides, createAccountSettingsController } from "./accountSettingsState";
+import { pendingDraftOverrides, createAccountSettingsController, refreshAccountSettingsReadback } from "./accountSettingsState";
 import { LocaleContext, useT } from "./locales";
 import type { AccountFactsAccount } from "./types";
-import { accountNativeReadout, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
+import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
 
 const PREFERENCES = [
   ["CAPITAL_PRESERVATION", "保守", "优先控制波动和亏损，接受较低的增长潜力。"],
@@ -104,7 +104,8 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   const controller = useRef(createAccountSettingsController()).current;
   const [, setTick] = useState(0);
   const [readAttempt, setReadAttempt] = useState(0);
-  const [readState, setReadState] = useState<"loading" | "ready" | "failed">("loading");
+  const [readState, setReadState] = useState<"loading" | "refreshing" | "ready" | "stale" | "failed">("loading");
+  const [readError, setReadError] = useState("");
   const sync = () => setTick(value => value + 1);
   const view = controller.view();
   const settings = view.settings;
@@ -123,23 +124,31 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
     if (same && controller.view().saving) return;
     const kept = same && Boolean(controller.view().settings);
     const op = same ? controller.start("refresh") : controller.select({ platform: row.platform, key: row.key });
-    if (!kept) setReadState("loading");
+    setReadState(kept ? "refreshing" : "loading");
+    setReadError("");
     let cancelled = false;
     void (async () => {
       try {
         const payload = await loadAccountSettings(row.platform, row.key);
         if (cancelled) return;
         const applied = same ? controller.applyRefresh(op, payload) : controller.applyRead(op, payload);
-        if (!applied) return;
+        if (!applied) {
+          if (controller.isCurrent(op)) throw new Error("account_settings_readback_mismatch");
+          return;
+        }
         onSettingsRead(accountId, observedProfile(controller.view().settings));
         setReadState("ready");
         sync();
       } catch (error) {
         const status = Number((error as { status?: number })?.status || 0);
-        const message = status === 401 || status === 403 ? "没有权限读取这项设置。" : "账户设置暂时读不到。";
+        const message = status === 401 || status === 403 ? "没有权限读取这项设置。" : (error as { message?: string })?.message === "account_settings_readback_mismatch" ? "设置读回与所选账户不一致，请重新读取。" : "账户设置暂时读不到。";
         if (cancelled) return;
         if (kept) {
+          if (!controller.isCurrent(op)) return;
           controller.abandon(op);
+          setReadError(message);
+          setReadState("stale");
+          sync();
           return;
         }
         if (!controller.applyUnavailable(op, message)) return;
@@ -151,7 +160,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
     return () => { cancelled = true; controller.abandon(op); };
   }, [row.platform, row.key, readAttempt, refreshToken, controller, onSettingsRead]);
   const savePreference = async () => {
-    if (view.saving || view.review.risk || settings?.operations?.save_risk_preference !== true) return;
+    if (readState !== "ready" || view.saving || view.review.risk || settings?.operations?.save_risk_preference !== true) return;
     const started = controller.startSave("risk");
     const body = controller.requestBody(started);
     if (!started || !body || !controller.markSaving(started, "risk")) return;
@@ -167,18 +176,19 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
       if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
       sync();
       const refresh = controller.start("refresh");
-      try {
-        const payload = await loadAccountSettings(started.account.platform, started.account.key);
-        if (controller.applyRefresh(refresh, payload)) sync();
-      } catch {
-        controller.abandon(refresh);
-      }
+      setReadState("refreshing");
+      setReadError("");
+      const result = await refreshAccountSettingsReadback(controller, refresh, () => loadAccountSettings(started.account.platform, started.account.key));
+      if (result.status === "superseded") return;
+      if (result.status === "ready") setReadState("ready");
+      else { setReadError(result.message); setReadState("stale"); }
+      sync();
     } finally {
       if (controller.finish(started)) sync();
     }
   };
   const saveScoped = async (kind: "cash" | "income" | "option" | "strategy", ready: boolean) => {
-    if (view.saving || !ready || view.review.draft || settings?.operations?.save_draft !== true) return;
+    if (readState !== "ready" || view.saving || !ready || view.review.draft || settings?.operations?.save_draft !== true) return;
     const started = controller.startSave(kind);
     const body = controller.requestBody(started);
     if (!started || !body || !controller.markSaving(started, "draft")) return;
@@ -194,22 +204,21 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
       if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
       sync();
       const refresh = controller.start("refresh");
-      try {
-        const payload = await loadAccountSettings(started.account.platform, started.account.key);
-        if (controller.applyRefresh(refresh, payload)) sync();
-      } catch {
-        controller.abandon(refresh);
-      }
+      setReadState("refreshing");
+      setReadError("");
+      const result = await refreshAccountSettingsReadback(controller, refresh, () => loadAccountSettings(started.account.platform, started.account.key));
+      if (result.status === "superseded") return;
+      if (result.status === "ready") setReadState("ready");
+      else { setReadError(result.message); setReadState("stale"); }
+      sync();
     } finally {
       if (controller.finish(started)) sync();
     }
   };
-  const identityReady = Boolean(settings?.identity && !Array.isArray(settings.identity));
-  const identityBlocked = settings?.draft?.status === "identity_conflict";
-  const draftOpen = settings?.operations?.save_draft === true;
-  const riskOpen = settings?.operations?.save_risk_preference === true;
-  const canSaveRisk = readState === "ready" && riskOpen && identityReady && Number.isSafeInteger(settings?.risk?.revision);
-  const canSaveCash = readState === "ready" && draftOpen && identityReady && !identityBlocked && Number.isSafeInteger(settings?.draft?.revision);
+  const draftSaveReason = accountSettingsSaveBlockReason(settings, readState, "draft");
+  const riskSaveReason = accountSettingsSaveBlockReason(settings, readState, "risk");
+  const canSaveRisk = riskSaveReason === null;
+  const canSaveCash = draftSaveReason === null;
   const savedIncome = settings?.draft?.overrides?.income_layer_enabled === true ? "true" : settings?.draft?.overrides?.income_layer_enabled === false ? "false" : "";
   const incomeValue = view.draft.incomeTouched ? (view.draft.income === "clear" ? "" : view.draft.income) : savedIncome;
   const editor = reservedCashEditor(settings?.draft?.overrides, view.draft);
@@ -315,14 +324,19 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
     <button type="button" className="text-link mobile-back" onClick={onBack}>{t("返回账户列表")}</button>
     <h2>{row.title}</h2>
     {reading ? null : <p className="account-identity"><small className="account-environment">{row.environment}</small></p>}
+    {readState === "refreshing" && <p className="workflow-note" role="status">{t("正在重新读取设置，显示上次读回值；草案会保留。")}</p>}
+    {readState === "stale" && <div className="workflow-note" role="status"><p>{t(readError)} {t("显示上次成功读回的设置，当前状态未重新确认；未保存草案已保留。")}</p><button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></div>}
     {reading ? null : readState === "failed" ? <p>{t(view.unavailable || "账户设置暂时读不到。")}<button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></p> : <fieldset className="settings-fields">
+      <p className="section-note">{t("当前配置来自设置读回；草案与风险偏好分别保存，运行端生效需另行验证。")}</p>
+      {draftSaveReason && <p className="section-note">{t(draftSaveReason)}{readState === "ready" && <button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button>}</p>}
       <section className="detail-group">
-        <h3>{t("当前策略")}</h3>
+        <h3>{t("当前配置策略")}</h3>
         <p className="current-strategy"><strong>{strategy.name}</strong></p>
         {strategy.note ? <p>{strategy.note}</p> : null}
         {dca ? <div className="setting-facts"><p><span>{t("定投计划")}</span><strong>{t(dca.label)}</strong></p><p><span>{t("配置模式")}</span><strong>{t(dca.mode)}</strong></p><p><span>{t("基准金额（美元）")}</span><strong>{dca.amount === "未核实" ? t(dca.amount) : dca.amount}</strong></p></div> : null}
-        {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("待应用策略")}</span><strong>{strategyValue === "" ? t("沿用当前") : strategyName(strategyValue)}</strong></p></div>}
-        <label className="cash-floor-field">{t("待应用策略")}
+        {savedStrategy && <p className="section-note">{t("已保存策略草案")}：{strategyName(savedStrategy)}</p>}
+        {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("策略草案")}</span><strong>{strategyValue === "" ? t("沿用当前") : strategyName(strategyValue)}</strong></p></div>}
+        <label className="cash-floor-field">{t("策略草案")}
           <select value={strategyValue} disabled={!canSaveCash} onChange={event => {
             selectStrategy(event.target.value);
           }}>
@@ -350,16 +364,18 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           <button type="button" className="button button-primary" disabled={!canSaveCash || !strategySubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("strategy", strategySubmittable)}>{t("保存策略草案")}</button>
           {strategyDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertStrategy(); sync(); }}>{t("取消")}</button>}
         </div>
-        {strategyNotice && <p role="status">{t(view.notice)}</p>}
+        {strategyNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
+        {settings?.operations?.apply_strategy !== true && <p className="section-note">{t(accountSettingsOperationReason(settings?.operations?.apply_strategy_reason))}</p>}
       </section>
       <section className="detail-group">
         <h3>{t("资金预留")}</h3>
         <div className="setting-facts">
-          <p><span>{t("当前预留金额（美元）")}</span><strong>{currentCash === null ? t("未知") : currentCash}</strong></p>
-          <p><span>{t("当前预留比例")}</span><strong>{currentRatio === null ? t("未知") : shareText(currentRatio)}</strong></p>
-          {showPendingFloor && <p><span>{t("待应用预留现金")}</span><strong>{pendingFloor}</strong></p>}
-          {showPendingRatio && <p><span>{t("待应用比例")}</span><strong>{shareText(pendingRatio)}</strong></p>}
+          <p><span>{t("配置最低预留额（美元）")}</span><strong>{currentCash === null ? t("未知") : currentCash}</strong></p>
+          <p><span>{t("配置预留比例")}</span><strong>{currentRatio === null ? t("未知") : shareText(currentRatio)}</strong></p>
+          {showPendingFloor && <p><span>{t(cashDirty ? "未保存草案最低预留额" : "已保存草案最低预留额")}</span><strong>{pendingFloor}</strong></p>}
+          {showPendingRatio && <p><span>{t(cashDirty ? "未保存草案预留比例" : "已保存草案预留比例")}</span><strong>{shareText(pendingRatio)}</strong></p>}
         </div>
+        <p className="section-note">{t("这是预留规则的配置值，实际预留现金尚未核实。")}</p>
         <label className="cash-floor-field">{t("资金预留")}
           <select value={selectMode} disabled={!canSaveCash} onChange={event => { if (event.target.value === "saved") return; chooseMode(event.target.value as "inherit" | "floor" | "ratio" | "both"); }}>
             {selectMode === "saved" && <option value="saved">{t("已保存的预留覆盖")}</option>}
@@ -387,17 +403,14 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         {selectMode === "both" && <p className="section-note">{t("按比例预留，且不少于固定金额")}</p>}
         {amountInvalid && <p className="section-note">{t("金额需要是大于或等于 0 的数字。")}</p>}
         {shareInvalid && <p className="section-note">{t("比例需要在 0 到 100 之间。")}</p>}
-        {readState === "ready" && identityBlocked && <p>{t("请重新读取并确认当前账户来源。")}</p>}
-        {readState === "ready" && !identityReady && <p>{t("缺少账户来源，不能保存。")}</p>}
-        {readState === "ready" && !draftOpen && <p className="section-note">{t("暂时无法保存")}</p>}
         <div className="form-actions">
-          <button type="button" className="button button-primary" disabled={!canSaveCash || !cashSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("cash", cashSubmittable)}>{t("保存待应用草案")}</button>
+          <button type="button" className="button button-primary" disabled={!canSaveCash || !cashSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("cash", cashSubmittable)}>{t("保存预留草案")}</button>
           {cashDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
           {view.review.draft && cashDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
           {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("draft"); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.draft && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
-        {cashNotice && <p role="status">{t(view.notice)}</p>}
+        {cashNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
       </section>
       <section className="detail-group">
         <h3>{t("风险偏好")}</h3>
@@ -405,7 +418,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           {PREFERENCES.map(([value, label, note]) => <button key={value} type="button" className="preference-choice" aria-pressed={view.preference === value} disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: value }); sync(); }}>{t(label)}<span className="preference-hint" role="tooltip">{t(note)}</span></button>)}
         </div>
         {selectedNote ? <p className="preference-selected-note">{t(selectedNote)}</p> : null}
-        {readState === "ready" && !riskOpen && <p className="section-note">{t("暂时无法保存")}</p>}
+        {riskSaveReason && <p className="section-note">{t(riskSaveReason)}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveRisk || !riskDirty || view.review.risk || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
           {riskDirty && !view.review.risk && <button type="button" className="button button-secondary" disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>}
@@ -413,7 +426,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           {view.review.risk && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("risk"); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.risk && <p className="section-note" role="status">{t("风险版本或账户来源已变化，请取消或核对后再保存。")}</p>}
-        {riskNotice && <p role="status">{t(view.notice)}</p>}
+        {riskNotice && <p role="status">{t(view.notice)} {t("偏好保存不代表运行端已应用。")}</p>}
       </section>
       <section className="detail-group">
         <h3>{t("附加功能")}</h3>
@@ -421,7 +434,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           <p><span>{t("收入层")}</span><strong>{layerText(settings?.effective?.income_layer_enabled)}</strong></p>
           <p><span>{t("期权层")}</span><strong>{layerText(settings?.effective?.option_overlay_enabled)}</strong></p>
         </div>
-        <label className="cash-floor-field">{t("待应用收入层")}
+        <label className="cash-floor-field">{t("收入层草案")}
           <select value={incomeValue} disabled={!canSaveCash} onChange={event => {
             const next = event.target.value;
             controller.edit(next === savedIncome ? { income: savedIncome, incomeTouched: false } : { income: next === "" ? "clear" : next, incomeTouched: true });
@@ -439,8 +452,8 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("draft"); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
-        {incomeNotice && <p role="status">{t(view.notice)}</p>}
-        <label className="cash-floor-field">{t("待应用期权层")}
+        {incomeNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
+        <label className="cash-floor-field">{t("期权层草案")}
           <select value={optionValue} disabled={!canSaveCash} onChange={event => {
             const next = event.target.value;
             if ((next === "true" || next === "false") && !boundSupports) return;
@@ -452,21 +465,23 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
             <option value="false" disabled={!boundSupports}>{t("关闭期权层")}</option>
           </select>
         </label>
+        {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再核对期权层支持。" : accountSettingsOperationReason(settings?.operations?.save_option_draft_reason))}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveCash || !optionSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("option", optionSubmittable)}>{t("保存期权层草案")}</button>
           {optionDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertOption(); sync(); }}>{t("取消")}</button>}
         </div>
-        {optionNotice && <p role="status">{t(view.notice)}</p>}
+        {optionNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
         {otherNotice && <p role="status">{t(otherNotice)}</p>}
       </section>
     </fieldset>}
-    {readState === "ready" ? <section className="detail-group"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
+    <section className="detail-group runtime-controls"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
     <div className="form-actions">
-      <button type="button" className="button button-secondary" disabled>{t("启用")}</button>
+      {readState === "ready" && <button type="button" className="button button-secondary" aria-describedby="activation-unavailable" disabled>{t("启用")}</button>}
       {actions.stop && <button type="button" className="button button-secondary" disabled={!stopAllowed} onClick={onStop}>{t(stopLabel)}</button>}
-      {actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}
+      {readState === "ready" && actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}
     </div>
+    {readState === "ready" && <p className="section-note" id="activation-unavailable">{t(accountSettingsOperationReason(settings?.operations?.activation_reason))}</p>}
     {actions.refresh && <button type="button" className="text-link" onClick={onRefreshStop}>{t("刷新停用状态")}</button>}
-    </section> : null}
+    </section>
   </aside>;
 }

@@ -185,7 +185,7 @@ const unmatched = presentRuntimeDaily(longbridgePaperSnapshot, {
   dailyBinding: "not_applicable",
 });
 assert.equal(unmatched.accountMatched, false);
-assert.equal(unmatched.fillsLabel, "暂无数据");
+assert.equal(unmatched.fillsLabel, "未接入");
 assert.doesNotMatch(unmatched.statusDetails.join(" "), /LongBridge|not_connected|source-binding/);
 
 // Same key on Binance must not consume LongBridge runtime-daily.
@@ -196,10 +196,10 @@ const crossPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
 });
 assert.equal(runtimeDailySelectionEligible({ platform: "binance", accountKey: "paper" }), false);
 assert.equal(crossPlatform.accountMatched, false);
-assert.equal(crossPlatform.statusLabel, "无记录");
-assert.equal(crossPlatform.fillsLabel, "暂无数据");
+assert.equal(crossPlatform.statusLabel, "未接入");
+assert.equal(crossPlatform.fillsLabel, "未接入");
 assert.equal(crossPlatform.runStartedAt, null);
-assert.equal(crossPlatform.dataStatusLabel, "暂无数据");
+assert.equal(crossPlatform.dataStatusLabel, "—");
 
 // Missing platform must not default to LongBridge and allow the snapshot through.
 const missingPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
@@ -209,7 +209,7 @@ const missingPlatform = presentRuntimeDaily(longbridgePaperSnapshot, {
 });
 assert.equal(runtimeDailySelectionEligible({ platform: null, accountKey: "paper" }), false);
 assert.equal(missingPlatform.accountMatched, false);
-assert.equal(missingPlatform.statusLabel, "无记录");
+assert.equal(missingPlatform.statusLabel, "待确认");
 assert.equal(missingPlatform.fillsLabel, "暂无数据");
 
 const submitted = presentRuntimeDaily({
@@ -220,7 +220,7 @@ assert.equal(submitted.accountMatched, true);
 assert.equal(submitted.statusLabel, "已提交");
 assert.deepEqual(submitted.statusDetails, []);
 assert.equal(submitted.dryRun, false);
-assert.equal(submitted.fillsLabel, "暂无数据");
+assert.equal(submitted.fillsLabel, "未接入");
 
 const dryRun = presentRuntimeDaily({
   ok: true,
@@ -252,7 +252,7 @@ const staleAfterSwitch = presentRuntimeDaily(longbridgePaperSnapshot, {
   dailyBinding: "not_applicable",
 });
 assert.equal(staleAfterSwitch.accountMatched, false);
-assert.equal(staleAfterSwitch.statusLabel, "无记录");
+assert.equal(staleAfterSwitch.statusLabel, "未接入");
 assert.equal(staleAfterSwitch.runStartedAt, null);
 
 assert.equal(overviewAccountTypeLabel(), "账户类型待确认");
