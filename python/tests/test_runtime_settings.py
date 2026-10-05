@@ -1779,6 +1779,32 @@ print('{"candidate_inventory":"must-not-be-forwarded"}')
                 },
             )
 
+    def test_longbridge_entity_scope_does_not_override_strategy_market(self):
+        # Entity labels and currency are not market restrictions or broker permissions.
+        config = build_config.load_config()
+        for platform in ("longbridge", "ibkr"):
+            self.assertTrue({"us_equity", "hk_equity"}.issubset(config["platforms"][platform]["supported_domains"]))
+        account_options = json.loads((ROOT / "web/strategy-switch-console/account-options.example.json").read_text())
+        hk_account = next(row for row in account_options["longbridge"] if row["key"] == "hk")
+        self.assertTrue({"us_equity", "hk_equity"}.issubset(hk_account["supported_domains"]))
+        parser = build_runtime_switch.build_parser()
+        for entity, profile, market, calendar, timezone in (
+            ("hk", "tqqq_growth_income", "US", "NYSE", "America/New_York"),
+            ("hk", "soxl_soxx_trend_income", "US", "NYSE", "America/New_York"),
+            ("sg", "tqqq_growth_income", "US", "NYSE", "America/New_York"),
+            ("hk", "hk_global_etf_tactical_rotation", "HK", "XHKG", "Asia/Hong_Kong"),
+        ):
+            with self.subTest(entity=entity, profile=profile):
+                args = parser.parse_args(["--platform", "longbridge", "--target-name", entity, "--strategy-profile", profile, "--execution-mode", "dry_run"])
+                target = build_runtime_switch.build_switch_target(args)
+                runtime = target["runtime_target"]
+                self.assertEqual(runtime["account_scope"], entity.upper())
+                self.assertEqual(runtime["market"], market)
+                self.assertEqual(runtime["market_calendar"], calendar)
+                self.assertEqual(runtime["market_timezone"], timezone)
+                self.assertEqual(runtime["scheduler"]["timezone"], timezone)
+                self.assertEqual(runtime_settings.validate_target(target), [])
+
     def test_live_us_scheduler_profiles_are_weekday_only(self):
         config = build_runtime_switch._load_platform_config()
 

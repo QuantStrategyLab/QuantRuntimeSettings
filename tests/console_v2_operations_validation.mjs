@@ -161,8 +161,8 @@ assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount
 assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "ready", targetMatchCount: 0 }), "未取得对应运行目标记录");
 assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "ready", targetMatchCount: 2 }), "来源包含重复运行目标");
 assert.equal(accountRuntimeLinkDetail({ reference: "target-a", referenceUseCount: 1, runtimeDataStatus: "ready", targetMatchCount: 1 }), null);
-assert.equal(accountEnvironmentSourceDetail("paper"), "账户类型为账户设置标记，未由券商原生核实");
-assert.equal(accountEnvironmentSourceDetail(undefined), "账户设置未提供类型，券商身份尚未核实");
+assert.equal(accountEnvironmentSourceDetail("paper"), "配置环境来自账户设置，未由券商原生核实");
+assert.equal(accountEnvironmentSourceDetail(undefined), "账户设置未提供配置环境，券商身份尚未核实");
 assert.equal(presentAccountState({ scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "unknown", reason: "monitoring_agrees" }).label, "—");
 const normalDisabled = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "disabled", reason: "monitoring_agrees" };
 const activationUnknown = { scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "deployment_missing" };

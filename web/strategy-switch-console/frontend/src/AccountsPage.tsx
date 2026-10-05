@@ -2,7 +2,8 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { loadAccountSettings, postJson } from "./api";
 import { pendingDraftOverrides, createAccountSettingsController } from "./accountSettingsState";
 import { LocaleContext, useT } from "./locales";
-import { cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
+import type { AccountFactsAccount } from "./types";
+import { accountNativeReadout, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
 
 const PREFERENCES = [
   ["CAPITAL_PRESERVATION", "保守", "优先控制波动和亏损，接受较低的增长潜力。"],
@@ -17,6 +18,8 @@ export type AccountListItem = {
   title: string;
   platformLabel: string;
   environment: string;
+  facts?: AccountFactsAccount | null;
+  binanceReport?: Record<string, any> | null;
   strategy: string;
   strategyNote: string;
   statusLabel: string;
@@ -44,18 +47,27 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
 }) {
   const t = useT();
   const selected = rows.find(row => row.id === selectedId) || null;
+  const [factsNow, setFactsNow] = useState(() => Date.now());
+  useEffect(() => {
+    setFactsNow(Date.now());
+    const cancel = rows.flatMap(row => [row.binanceReport?.observed_finished_at, row.binanceReport?.provider_product_type?.observed_at]
+      .map(at => scheduleBinancePrivateScopeExpiry(at, () => setFactsNow(Date.now()), Date.now(), window, 36 * 60 * 60 * 1000)));
+    return () => cancel.forEach(stop => stop());
+  }, [rows]);
   return <section className={`daily-page accounts-page${detailOpen ? " show-detail" : ""}`}>
     <div className="daily-heading"><h1>{t("账户设置")}</h1></div>
     <div className="accounts-layout">
       <div className="account-list">
         <table className="daily-table">
           <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("运行控制")}</th></tr></thead>
-          <tbody>{rows.map(row => <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
-            <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label">{t("账户类型")}</span><small className="account-environment">{row.environment}</small></td>
+          <tbody>{rows.map(row => {
+            const native = accountNativeReadout(row.platform, row.key, row.facts, row.binanceReport, factsNow);
+            return <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
+            <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label account-fact-label">{t("配置环境")}</span><small className="account-environment">{row.environment}</small><span className="account-field-label account-fact-label">{t("原生类别")}</span><small className="account-native-type">{native.nativeType || t("未核实")}</small><span className="account-field-label account-fact-label">{t("身份可信度")}</span><small className="account-identity-confidence">{t(native.identityLabel)}</small></td>
             <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
             <td><span className="account-field-label">{t("健康")}</span><span className="account-field-value">{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
             <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value">{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
-          </tr>)}</tbody>
+          </tr>; })}</tbody>
         </table>
       </div>
       {selected && <DailyAccountSettings key={`${selected.id}:${settingsEpoch}`} row={selected} refreshToken={refreshToken} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={stopRefreshVisible} resumeVisible={resumeVisible} onBack={onBack} onDirty={onDirty} onStop={onStop} onRefreshStop={onRefreshStop} onResume={onResume} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />}

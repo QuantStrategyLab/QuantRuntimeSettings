@@ -519,8 +519,8 @@ export function accountRuntimeLinkDetail(input: {
 
 export function accountEnvironmentSourceDetail(value: unknown): string {
   return value === "paper" || value === "live"
-    ? "账户类型为账户设置标记，未由券商原生核实"
-    : "账户设置未提供类型，券商身份尚未核实";
+    ? "配置环境来自账户设置，未由券商原生核实"
+    : "账户设置未提供配置环境，券商身份尚未核实";
 }
 
 export function accountMatchesStatusFilter(filter: string, projection: AccountStateProjection | null | undefined): boolean {

@@ -1,5 +1,6 @@
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
-import type { BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
+import { binanceProviderProductTypeForDisplay } from "./types.ts";
+import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 import type { LifecycleRecord } from "./api";
 import { RUNTIME_DAILY_TARGET, runtimeDailyRecordMatchesTarget, runtimeDailyRunIssue } from "../../runtime_daily_contract.js";
 export { runtimeDailySelectionBinding } from "../../runtime_daily_contract.js";
@@ -863,10 +864,43 @@ export function environmentEditState(baseline: string, local: string, server: st
   return { value: local, conflict: server !== baseline };
 }
 
-export function brokerAccountType(value: unknown): "模拟交易账户" | "真实交易账户" | "账户类型待确认" {
-  if (value === "paper") return "模拟交易账户";
-  if (value === "live") return "真实交易账户";
-  return "账户类型待确认";
+/** Configuration labels never establish a native Cash/Margin/SPOT identity. */
+export function brokerAccountType(value: unknown): "配置 paper 环境" | "配置 live 环境" | "配置环境待确认" {
+  if (value === "paper") return "配置 paper 环境";
+  if (value === "live") return "配置 live 环境";
+  return "配置环境待确认";
+}
+
+export function accountNativeReadout(
+  platform: string,
+  accountKey: string,
+  facts: AccountFactsAccount | null | undefined,
+  binanceReport: Record<string, any> | null | undefined,
+  now = Date.now(),
+): { nativeType: string | null; identityLabel: string } {
+  const unknown = { nativeType: null, identityLabel: "身份待确认" };
+  if (platform === "binance") {
+    if (binanceReport?.platform !== platform || binanceReport.account_key !== accountKey
+        || !validBinanceScopeInstant(binanceReport.observed_finished_at)) return unknown;
+    const age = now - Date.parse(binanceReport.observed_finished_at);
+    if (age > BINANCE_WALLET_VALUATION_MAX_AGE_MS) return { nativeType: null, identityLabel: "身份资料已过期" };
+    if (age < -BINANCE_SCOPE_FUTURE_SKEW_MS) return unknown;
+    const product = binanceProviderProductTypeForDisplay(binanceReport, true);
+    const observed = product && validBinanceScopeInstant(product.observed_at) ? Date.parse(product.observed_at) : null;
+    const nativeType = observed !== null && observed <= Date.parse(binanceReport.observed_finished_at)
+      && now - observed <= BINANCE_WALLET_VALUATION_MAX_AGE_MS
+      && now - observed >= -BINANCE_SCOPE_FUTURE_SKEW_MS ? product!.value : null;
+    return { nativeType, identityLabel: "身份部分核验" };
+  }
+  if (!facts || facts.platform !== platform || facts.account_key !== accountKey) return unknown;
+  if (facts.identity_mismatch === true) return { nativeType: null, identityLabel: "账户身份不匹配" };
+  if (facts.binding_status !== "bound" || facts.identity_status !== "partial_identity") return unknown;
+  if (facts.data_status === "stale") return { nativeType: null, identityLabel: "身份资料已过期" };
+  if (facts.data_status !== "fresh") return unknown;
+  return {
+    nativeType: verifiedSchwabAccountTypeToken(platform, facts.data_status, facts.broker_account_type),
+    identityLabel: "身份部分核验",
+  };
 }
 
 export function adminDirectoryTitle(account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, occupiedNames: string[] = []): string {
@@ -890,7 +924,7 @@ const USER_CHANGE_ACTIONS: Record<string, string> = {
   create: "新增了账户资料",
   edit: "更新了账户资料",
   request_retirement: "提交了退役申请",
-  set_broker_environment: "更新了账户类型标记",
+  set_broker_environment: "更新了配置环境标记",
   initialize: "导入了账户配置",
   save_config: "更新了访问设置",
   save_risk_profile_bindings: "保存了风险偏好",
