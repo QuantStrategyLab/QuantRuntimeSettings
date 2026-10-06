@@ -58,7 +58,7 @@
 
 六主线是工作管理分类，**不替代每个冻结候选的 P0–P6 生命周期**。表中“高/中/低”是任务优先级，不是候选阶段。每仓仅一个 writer；独立只读或离线工作可并行，公共契约、共享环境及同账户资金操作串行。
 
-2026-10-06 22:38 UTC 复审：6.2–6.8 保留当日先前快照；当前阶段、依赖与下一步以[6.9 依赖复审](#dependency-review-20261006)为准。旧快照里的“当前 main”“仍缺口”不覆盖后续有日期的更新。原六主线和任务 ID 不变，汇报中的七个工作分组只用于拆分展示，不新增第七主线。
+2026-10-06 22:41 UTC 复审：6.2–6.8 保留当日先前快照；当前阶段、依赖与下一步以[6.9 依赖复审](#dependency-review-20261006)为准。旧快照里的“当前 main”“仍缺口”不覆盖后续有日期的更新。原六主线和任务 ID 不变，汇报中的七个工作分组只用于拆分展示，不新增第七主线。
 
 ### 6.1 使用方法与逐阶段维护
 
@@ -143,13 +143,13 @@ English summary: Six workstreams organize the audit; P0–P6 remains the per-can
 
 <a id="dependency-review-20261006"></a>
 
-### 6.9 2026-10-06 22:38 UTC 当前阶段与依赖复审
+### 6.9 2026-10-06 22:41 UTC 当前阶段与依赖复审
 
 本次增量文档基线是 QRS `31f79e9bf4cb460e7380fdc3ead7d04177222a7e`，不把先前 CI、合并或局部真运行扩大为全线业务通过。**Opus 前端美化已由用户确认完成，保留现有样式、布局及组件结构；后续仅补必要的数据、合同和状态接线。** 本节只更新清单，不执行表中开发、取数、发布、配置或交易动作。
 
 “可现在做”表示有界下一步，并非所有项已经启动。owner 是对应阶段的责任写集边界，不新增权限；每仓仍只有一个 writer。同仓不同子题可以并行只读，但写入、公共合同冻结与合并接续必须由该仓 writer 协调。原 P1–P5 预授权不增加手动 gate，原 P6、真实数据/模型、发布、部署及账户操作边界不变。
 
-看板真实数据总验收关联现有 `UI-01`/`UI-02`/`UI-04`/`DATA-01`/`DATA-02`：同一顶部账户选择须联动总资产、账户类型、健康与每日运行记录、收益率及四基准对比，逐项核真实来源、账户归属和可比口径；日报接线或单项验收完成不关闭 UI/DATA 整线。
+看板真实数据总验收关联现有 `UI-01`/`UI-02`/`UI-04`/`DATA-01`/`DATA-02`：同一顶部账户选择须联动总资产、账户类型、健康与每日运行记录、收益率及四基准对比，逐项核真实来源、账户归属和可比口径；账户设置与待办决策页分别按原 `UI-03`/`AI-01` 一并验收，日报接线或单项验收完成不关闭 UI/DATA 整线。
 
 #### 6.9.1 看板配置体验
 
@@ -163,7 +163,7 @@ UI-04/NOTIFY-02 共用说明：LongBridge lifecycle 心跳与 [execution-report-
 | --- | --- | --- | --- | --- | --- |
 | `UI-01`：QRS #531 命名/分轴展示已发布；#537 后桌面账户/日期切换与空态有限验收，未关闭 | 复核 27 项映射/4 对标签在现有 consumer 的一致展示及缺失值 Unknown；不重做美化 | 线上响应字节/hash、四标签全覆盖、中英切换、手机和真实 V7 场景尚缺验收；旧 JS 直读受阻不绕过；V2 历史研究 UI 仍缺 | 当前展示来源确认 → 可得真实场景只读/定向验收 → 仅修必要数据/状态接线 → 回归 | 四标签/双语/手机/真实 V7 各自有证据；默认折叠可展开、分轴与 Unknown 保持；ID/冻结 hash/权限不变，展示不冒充采用 | QRS 单 writer：现有命名/身份数据与状态消费；保留 Opus 样式/布局 |
 | `UI-02`：实体/市场展示已有；账户权限仍待核 | 复核账户能力来源合同及 unknown 状态 | 各账户真实市场权限、lot/fractional、paper/live 能力证据 | 权限来源核实 → 冻结能力交集 → 绑定现有页面 | 平台×账户×策略域×标的×通道交集可逐项溯源；实体不充当权限 | 平台 writer：能力来源；QRS writer：能力数据绑定，不改布局 |
-| `UI-03`：draft/risk 保存已有；实际应用未验 | 审查既有受限应用合同和合成失败路径 | 原受支持应用入口、当前授权与 runtime 读回 | 草案 → 确认应用 → runtime 读回 → 对应业务周期 | 四步分别有证据；`adopted=false` 不被当成前端故障改掉 | QRS writer：既有受限应用消费路径；平台 writer：原接收端 |
+| `UI-03`：draft/risk 保存已有；账户设置页加载/编辑/保存/刷新与实际应用回执未完整验收 | 核现有设置状态、保存后刷新读回及合成失败/重试路径，复用受限应用合同 | 原受支持应用入口、当前授权、设置来源与 runtime 回执/读回 | 加载 → 编辑/保存草案 → 刷新读回 → 确认应用 → runtime 回执/读回 → 对应业务周期 | 设置值、账户归属与保存/失败状态可核；草案保存、应用 ACK、运行采用分别取证，`adopted=false` 不被当成前端故障改掉 | QRS writer：现有账户设置数据/状态及受限应用消费；平台 writer：原接收端 |
 | `UI-04`：Schwab #470 helper 与 QRS #537 已合，#537 已部署；#538 header 已合/PR 与 main CI 通过并部署；真实 source/header POST 和 caller 未闭合 | 接续 Schwab 五文件本地 caller 接线；每 POST 含新业务日匹配 protected source-binding-ID，可信 receiver ACK 记 stored_acknowledged，不加重复 UI 别名配置 | 真实 Schwab caller 身份、投影前 physical source/账户精确匹配、调度与完整枚举证据；LongBridge 等本次自然周期、来源目标与页面账户归属读回 | receiver/header 源码与部署阶段已闭合；caller 来源/完整性核实 → 可信 receiver ACK → GET/页面归属读回 → 对应自然周期 | 逐目标首末记录、缺口原因、保留期及 no-order/dry-run/real 区分；空态/心跳/CI 不替代真实执行回执；Schwab physical identity 精确核验与页面归属读回分别取证 | Schwab writer：已有纯 projector 的真实 caller 接线；QRS 单 writer：四文件 receiver/header 边界；LongBridge：原 publisher 只读周期核验 |
 | `UI-05`：历史请求刷新修复已发布；真实恢复仍观察 | 补 first_sample/truncated/retention 状态的合同与回归 | 真实历史保留及自然同类故障；手机未验，不等多年历史补齐 | 覆盖元数据 → 现有图表状态 → 自然恢复验证 | 已观察覆盖范围如实显示；366 天上限不冒充 3/5/10 年；失败/切换/晚到结果不串线 | QRS writer：历史数据状态与测试；不补历史、不改样式 |
 
@@ -210,7 +210,7 @@ QAR #79 schedule、RSCP #55 一次 theme/#56 pair gate/#57 身份源代码、PET
 
 | 原任务 / 当前阶段 | 可现在做 | 真正依赖 | 必须串行步骤 | 结束证据 | owner / 写集 |
 | --- | --- | --- | --- | --- | --- |
-| `AI-01`：有界诊断链已有；真实闭环按具体入口验收 | 复用既有 finding/Issue 做输入与故障诊断，不重复开项 | 对应失败入口的原始证据与原调用授权 | 固定输入 → 有界诊断 → 同 Issue 结果；未知结果不盲重调 | 特定入口的诊断来源、模型/结果及原失败面解除证据；诊断不等于实验成功 | AAB 单 writer：既有诊断链与测试；和 DATA-03/AI-03 协调同仓写入 |
+| `AI-01`：有界诊断链已有；待办决策页来源/处理/ACK/重复与失败恢复未完整验收，真实闭环按具体入口核 | 复用既有 finding/Issue 及待办数据/状态，核来源展示、处理结果/ACK、重复处理和失败后刷新/恢复，不重复开项 | 对应入口的原始证据、原调用/处理权限与真实处理回执 | 固定来源/输入 → 有界诊断或原受限处理 → 同 Issue/待办 ACK 与状态读回；重复与失败/未知恢复分别验收，未知不盲重调 | 特定来源、处理/ACK 及失败恢复可追溯；诊断不等于实验成功，待办 ACK 不等于执行/交易授权 | AAB 单 writer：既有诊断链与测试，协调 DATA-03/AI-03；QRS writer：现有待办决策数据与状态接线 |
 | `AI-SOXL-CODEGEN-IDEMPOTENCY`：跨 dispatch 持久落点仍未证明 | 可继续纯 claim/调用/崩溃恢复合同与合成测试 | 受控持久执行落点及既有写权限；原 WIF 只读 P1 不能借来写状态 | 落点与权限明确 → 先 claim 后调用接线 → 合成并发/崩溃验证 → 原授权真实验收 | 跨 dispatch 并发、调用后落盘前崩溃、成功/失败/未知恢复可复核；未知停车 | AAB 单 writer：原 SOXL codegen/gateway 边界，不泛化 CN/GlobalETF、不建新框架 |
 | `AI-LB-FROZEN-REGRESSION`：#313 工程合并已完成；新增真实场景未验 | 核已有冻结 fixture 的边界与缺失场景 | 两阶段真实 Docker 场景及原运行授权；已有 fixture 不替代 | 固定资金/订单/风险/通知基线 → 候选隔离测试 → 新场景演练 → 原采用流程 | 候选不改冻结基线；新增场景与 runtime 采用分别有证据 | AAB 单 writer：既有两阶段冻结回归，维持原两文件/一次授权/不自动 merge 边界 |
 | `AI-02`：联网研究/策略重写设计已接受、实现分阶段；AAB 当前主要为固定 SOXL 模板/公开引文/有界目标，开放检索与任意候选生成未闭环 | 对照原设计核固定入口与开放研究缺口；独立推进 Fetcher/隔离语料/无网络 Planner/Publisher 的纯合同、夹具与有界实现，区分等价重构和新 alpha 候选，不等 QAR 子项目 | 对应任务的合法来源/真实输入、已有工具与模型权限；无输入/权限的真实阶段停车，不能由离线合同推定可上线 | 按既有四边界分批实现 → 来源权利与全 trial 留痕 → 严格 WFA/OOS → paired shadow → 原策略/权限下采纳；P1–P5 不新增手动 gate，P6 原要求不变 | 全 trial/失败 trial、输入/模型/输出来源、WFA/OOS与 paired shadow 有证据；不把固定模板称开放自治，不自动 merge live 可执行变更/加杠杆/换源 | AAB 单 writer：原研究入口与分阶段实现；QPK 仅既有控制面契约的必要兼容，不新建通用框架；QAR/PETR/RSCP 另见下方子项目 |
@@ -238,4 +238,4 @@ Binance 的三文件 deploy-only 锁迁移实验仍为 **NO-GO**，不能从历�
 
 **接续顺序：** 先复审本轮 source/CI 阶段并更新原 ID，接续 Schwab 真实 caller/source/header POST 与页面归属读回、LongBridge 自然周期；原生账本 import/数据接线、准确指数口径映射及 AI 诊断/公司证据仍可按既有边界并行。AAB temporary imports、QSP 合成组合与 UES 合成 journal/session 阶段不重复重建。共享仓写入、合同交接与运行采用串行；Binance 保持禁用至既定采用与恢复前置全部满足。真正等待的是既有管理员安装入口、真实 Schwab 身份/调度/完整枚举证据、历史 R6 准确输入/结果入口，以及各任务的严格 PIT、前向真实样本和来源许可。原 V7 252 XNYS 窗口继续积累；其余独立工程不必等该窗口，不新增无限模块或追 pin 任务。
 
-English update: The same six workstreams and 23 task IDs remain; seven presentation groups do not add a workstream. Preserve Opus styling and layout. Existing UI-01/UI-02/UI-04/DATA-01/DATA-02 acceptance must cover real total assets, account type, health/daily records, returns, four comparable benchmarks and shared top-level account selection; completing daily wiring does not close the overall UI/DATA work. QRS #537 is merged/deployed. The per-POST source-binding fix #538 is merged with passing PR/main CI and successful deployment; the frontend bundle/CSS are unchanged. Real source/header POST remains unverified. A trusted receiver ACK means stored_acknowledged, not independent caller verification of the UI key; do not add duplicate UI-alias configuration. Real Schwab caller/source/schedule/coverage/ACK acceptance is open and bounded caller wiring is local work in progress. AAB temporary imports passed; immutable installation, shell selection, runtime adoption and health recovery remain unproved. QSP #80 and UES #563/#564 are merged research-only implementations; synthetic tests and CI establish no real PIT, profit or production adoption. UES #564 main CI passed with matching source blobs; only its synthetic/source stage is closed. The previous LongBridge publisher ACK covers the previous business date; source-target and UI-account attribution still need GET/page readback. This does not establish a publisher authentication defect or a need for a new native hash. The new natural cycle is not yet accepted. Binance #347/#348 are source-only and Runtime stays disabled pending protected revision, risk authority, no-order verification and the user's final recovery decision. Keep existing P0–P6 boundaries, original pins and V7's observation window; close each bounded stage without rebuilding completed work.
+English update: The same six workstreams and 23 task IDs remain; seven presentation groups do not add a workstream. Preserve Opus styling and layout. Existing UI-01/UI-02/UI-04/DATA-01/DATA-02 acceptance must cover real total assets, account type, health/daily records, returns, four comparable benchmarks and shared top-level account selection; UI-03 also covers settings load/edit/save/refresh and application receipts, while AI-01 covers decision-item source/handling/ACK, duplicate handling and failure recovery. Completing daily wiring does not close the overall UI/DATA work or grant execution authority. QRS #537 is merged/deployed. The per-POST source-binding fix #538 is merged with passing PR/main CI and successful deployment; the frontend bundle/CSS are unchanged. Real source/header POST remains unverified. A trusted receiver ACK means stored_acknowledged, not independent caller verification of the UI key; do not add duplicate UI-alias configuration. Real Schwab caller/source/schedule/coverage/ACK acceptance is open and bounded caller wiring is local work in progress. AAB temporary imports passed; immutable installation, shell selection, runtime adoption and health recovery remain unproved. QSP #80 and UES #563/#564 are merged research-only implementations; synthetic tests and CI establish no real PIT, profit or production adoption. UES #564 main CI passed with matching source blobs; only its synthetic/source stage is closed. The previous LongBridge publisher ACK covers the previous business date; source-target and UI-account attribution still need GET/page readback. This does not establish a publisher authentication defect or a need for a new native hash. The new natural cycle is not yet accepted. Binance #347/#348 are source-only and Runtime stays disabled pending protected revision, risk authority, no-order verification and the user's final recovery decision. Keep existing P0–P6 boundaries, original pins and V7's observation window; close each bounded stage without rebuilding completed work.
