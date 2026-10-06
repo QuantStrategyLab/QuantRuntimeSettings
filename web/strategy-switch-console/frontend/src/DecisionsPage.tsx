@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import { useT } from "./locales";
+import { StrategyIdentity } from "./StrategyIdentity";
 import { decisionActionState, unnamedDecisionOrdinal, type DailyDecision } from "./presentation";
 
 export function DecisionCount({ count }: { count: number }) {
@@ -50,6 +51,7 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
         {selected.materialNotes.length > 0 && <section className="decision-materials"><h3>{t("审阅材料")}</h3><ul>{selected.materialNotes.map(note => <li key={note}>{t(note)}</li>)}</ul></section>}
         <button type="button" className="text-link" aria-expanded={showPlan} aria-controls={`${detailId}-plan`} onClick={() => setShowPlan(value => !value)}>{t("查看方案")}</button>
         {showPlan && <pre id={`${detailId}-plan`}>{selected.technical}</pre>}
+        <StrategyIdentity key={selected.id} value={selected.identity} />
         <p className="section-note" id={`${detailId}-intent`}>{t("以下操作只记录人工意向，不会应用策略、启用账户或提交订单。")}</p>
         <div className="form-actions">
           {selected.canReject && <button type="button" className="button button-secondary" aria-describedby={`${detailId}-intent`} disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).rejectEnabled} onClick={() => onDecide(selected, "reject")}>{t("记录不采用意向")}</button>}

@@ -2,6 +2,7 @@ import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, pro
 import { binanceProviderProductTypeForDisplay } from "./types.ts";
 import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 import type { LifecycleRecord } from "./api";
+import { DEFAULT_STRATEGY_PROFILES } from "../../strategy_profiles_asset.js";
 import { RUNTIME_DAILY_TARGET, runtimeDailyRecordMatchesTarget, runtimeDailyRunIssue } from "../../runtime_daily_contract.js";
 export { runtimeDailySelectionBinding } from "../../runtime_daily_contract.js";
 
@@ -735,6 +736,7 @@ export function strategyOccupiedNames(profiles: Array<Record<string, unknown> | 
   if (typeof currentName === "string" && currentName.trim()) names.push(currentName.trim());
   for (const profile of profiles) {
     if (!profile) continue;
+    if (NORMALIZED_DISPLAY_IDS.has(catalogText(profile, "profile"))) names.push(strategyDisplayName(profile, "zh"), strategyDisplayName(profile, "en"));
     for (const field of ["profile", "label", "label_zh", "label_en"]) {
       const value = profile[field];
       if (typeof value === "string" && value.trim()) names.push(value.trim());
@@ -786,12 +788,112 @@ function catalogText(profile: object | null | undefined, key: string): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+// Label-only releases deliberately do not sync the private catalog. Normalize only
+// these four reviewed display identities from the existing generated label authority.
+// No gate, parameter, source/config identity or observed state is read from this map.
+const NORMALIZED_DISPLAY_IDS = new Set([
+  "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve", "us_equity_combo",
+  "us_equity_combo_core", "crypto_live_pool_rotation",
+]);
+const NORMALIZED_DISPLAY_LABELS = new Map(DEFAULT_STRATEGY_PROFILES
+  .filter(profile => NORMALIZED_DISPLAY_IDS.has(profile.profile))
+  .map(profile => [profile.profile, { label_zh: profile.label_zh, label_en: profile.label_en }]));
+
 export function strategyDisplayName(profile: object | null | undefined, language: "zh" | "en"): string {
-  return catalogText(profile, language === "zh" ? "label_zh" : "label_en") || "未命名策略";
+  const labels = NORMALIZED_DISPLAY_LABELS.get(catalogText(profile, "profile")) || profile;
+  return catalogText(labels, language === "zh" ? "label_zh" : "label_en") || "未命名策略";
 }
 
 export function strategyNote(profile: object | null | undefined, language: "zh" | "en"): string {
   return catalogText(profile, language === "zh" ? "description_zh" : "description_en");
+}
+
+// Exact frozen research identities, not runtime observations. Sources are indexed in
+// docs/console_information_design.zh-CN.md; never derive these axes from ID suffixes.
+const FROZEN_RESEARCH_NAMES: Record<string, { zh: string; en: string; version: string; configHash: string; sourceRevision: string; runtimeRevision: string | null; noteZh: string; noteEn: string }> = {
+  soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve: {
+    zh: "SOXL/SOXX 核心复利（现金保留）", en: "SOXL/SOXX Core Compounding (Cash Reserve)", version: "V7",
+    configHash: "843ab4e93e81985c2b3becc61a2f0b971508ccf25afa59acf402e75f574514d1",
+    sourceRevision: "07b164d95f2ab4d4c54fd993f6f2040bd207d664", runtimeRevision: "f30e7b1910df8da22fdcedc347ab847df5adcd76",
+    noteZh: "冻结候选实际保留 3% 现金，修正现金保留的源码行为，沿用 V6 预注册参数；V7 不表示 AI 优化次数。",
+    noteEn: "Frozen source-correctness candidate with an actual 3% cash reserve and unchanged V6 pre-registered parameters. V7 is not an AI optimization count.",
+  },
+  tqqq_core_only_p2_v5: {
+    zh: "TQQQ 核心趋势", en: "TQQQ Core Trend", version: "V5",
+    configHash: "e6422cf7c3819734ec300a7bfa3d936d5273993c0ce865dfe0218d7b7f8426e2",
+    sourceRevision: "5f0c30cdcaf3ee0f3f1c050acbe172580ea40c81", runtimeRevision: "730ad9f3983bd90cd75adecb67fcf483ffb96736",
+    noteZh: "冻结核心研究候选；版本标识不表示采用、运行通道或 AI 来源。",
+    noteEn: "Frozen core research candidate. Its version does not establish adoption, execution lane or AI provenance.",
+  },
+  tqqq_core_only_p2_v9_benchmark_drawdown_guard: {
+    zh: "TQQQ 基准回撤防护", en: "TQQQ Benchmark Drawdown Guard", version: "V9",
+    configHash: "c2c3d7ce1333f8f1675f40cd4c45ffa89d83f0dcf99b2a475840d0f87ab64dce",
+    sourceRevision: "fe5c0377faa11b0010243e3ef32f8b7256d63992", runtimeRevision: null,
+    noteZh: "独立冻结的 QQQ 基准回撤防护研究候选；不能继承 V5 证据或交易权限。",
+    noteEn: "Separate frozen QQQ benchmark drawdown-guard research candidate. V5 evidence and trading authority do not transfer.",
+  },
+};
+function frozenResearchIdentity(candidateId: unknown) {
+  return typeof candidateId === "string" && Object.prototype.hasOwnProperty.call(FROZEN_RESEARCH_NAMES, candidateId) ? FROZEN_RESEARCH_NAMES[candidateId] : null;
+}
+const SOXL_R6_STUDY = "soxl_v7_twelve_basic_split_close_development_v1";
+
+export function candidateDisplayName(candidateId: unknown, language: "zh" | "en"): string {
+  const known = frozenResearchIdentity(candidateId);
+  return known?.[language] || (language === "zh" ? "未命名策略" : "Unnamed strategy");
+}
+
+export function strategySelectionName(profile: object | null | undefined, profiles: object[], language: "zh" | "en"): string {
+  const name = strategyDisplayName(profile, language);
+  const label = name === "未命名策略" && language === "en" ? "Unnamed strategy" : name;
+  const id = catalogText(profile, "profile");
+  const sameIds = new Set(profiles.filter(item => strategyDisplayName(item, language) === name).map(item => catalogText(item, "profile")).filter(Boolean));
+  return id && sameIds.size > 1 ? `${label} · ${id}` : label;
+}
+
+export type StrategyIdentityRecord = {
+  candidateId?: unknown; configHash?: unknown; sourceRevision?: unknown; studyId?: unknown;
+  role?: unknown; lane?: unknown; evidenceAt?: unknown;
+};
+export type StrategyIdentityView = {
+  basis: "策略目录" | "研究票据" | "候选材料" | "应用记录";
+  profileId: string | null; candidateId: string | null; candidateVersion: string | null;
+  configHash: string | null; sourceRevision: string | null; studyId: string | null; studyLabel: string | null;
+  role: string | null; lane: string | null; evidenceAt: string | null;
+  frozenResearch: { sourceRevision: string; runtimeRevision: string | null; configHash: string; noteZh: string; noteEn: string } | null;
+};
+
+function strategyIdentityText(value: unknown): string | null {
+  return typeof value === "string" && value.trim() && value.length <= 256 ? value : null;
+}
+
+export function strategyIdentityView(input: { profile?: object | null; profileId?: unknown; basis: StrategyIdentityView["basis"]; record?: StrategyIdentityRecord }): StrategyIdentityView {
+  const profile = input.profile as Record<string, any> | null | undefined;
+  const profileId = strategyIdentityText(input.profileId) || strategyIdentityText(profile?.profile);
+  const boundProfile = profile?.profile === profileId ? profile : null;
+  // An explicit record must stand on its own: never repair historical gaps from today's catalog.
+  const record: StrategyIdentityRecord = input.record ?? { candidateId: boundProfile?.research_candidate_identity?.candidate_id, configHash: boundProfile?.research_candidate_identity?.config_sha256 };
+  const candidateId = strategyIdentityText(record.candidateId);
+  const hashText = strategyIdentityText(record.configHash);
+  const configHash = hashText && /^(?:sha256:)?[a-fA-F0-9]{64}$/.test(hashText) ? hashText : null;
+  const frozen = frozenResearchIdentity(candidateId);
+  const boundFrozen = frozen && configHash?.replace(/^sha256:/, "").toLowerCase() === frozen.configHash ? frozen : null;
+  const studyId = strategyIdentityText(record.studyId);
+  const evidenceAt = strategyIdentityText(record.evidenceAt);
+  return {
+    basis: input.basis,
+    profileId,
+    candidateId,
+    candidateVersion: frozen?.version || null,
+    configHash,
+    sourceRevision: strategyIdentityText(record.sourceRevision),
+    studyId,
+    studyLabel: studyId === SOXL_R6_STUDY ? "R6" : null,
+    role: typeof record.role === "string" && ["candidate", "challenger", "champion"].includes(record.role) ? record.role : null,
+    lane: typeof record.lane === "string" && ["research", "shadow", "paper", "live", "dry_run"].includes(record.lane) ? record.lane : null,
+    evidenceAt: evidenceAt && /^\d{4}-\d{2}-\d{2}T/.test(evidenceAt) && Number.isFinite(Date.parse(evidenceAt)) ? evidenceAt : null,
+    frozenResearch: boundFrozen ? { sourceRevision: boundFrozen.sourceRevision, runtimeRevision: boundFrozen.runtimeRevision, configHash: boundFrozen.configHash, noteZh: boundFrozen.noteZh, noteEn: boundFrozen.noteEn } : null,
+  };
 }
 
 export function decisionActionState(item: { canAdopt: boolean; canReject: boolean; accountChoices: Array<{ id: string }> }, input: { admin: boolean; busy: boolean; selectedAccountId: string }): { adoptEnabled: boolean; rejectEnabled: boolean } {
@@ -1145,6 +1247,7 @@ export type DailyDecision = {
   technical: string;
   reference: string;
   materialNotes: string[];
+  identity?: StrategyIdentityView;
   canAdopt: boolean;
   canReject: boolean;
   adoptDecision: string | null;
@@ -1160,7 +1263,7 @@ function ready(source: SourceState | null | undefined): boolean {
 
 function profileName(profiles: any[], id: unknown, language: "zh" | "en"): string {
   const found = profiles.find(item => item?.profile === id);
-  return strategyDisplayName(found, language);
+  return found ? strategySelectionName(found, profiles, language) : candidateDisplayName(id, language);
 }
 
 export function promotionMaterialNotes(summary: Record<string, any> | null | undefined): string[] {
@@ -1214,6 +1317,9 @@ export function listDailyDecisions(input: {
         technical: JSON.stringify({ ticket_id: ticket.ticket_id, proposed_params: ticket.proposed_params ?? null, comparison: summary.comparison ?? null, limitations: summary.limitations ?? null }, null, 2),
         reference: ticket.ticket_id,
         materialNotes: promotionMaterialNotes(ticket.research_summary),
+        identity: strategyIdentityView({ profileId: ticket.strategy_profile, basis: "研究票据", record: {
+          candidateId: ticket.proposed_params?.candidate_id, configHash: ticket.proposed_params?.config_sha256,
+        } }),
         canAdopt: accounts.length > 0,
         canReject: true,
         adoptDecision: "accept",
@@ -1232,7 +1338,7 @@ export function listDailyDecisions(input: {
       items.push({
         id: `owner:${entry.candidate.candidate_id}`,
         kind: "owner_observation",
-        title: "有限执行观察",
+        title: frozenResearchIdentity(entry.candidate.candidate_id) ? candidateDisplayName(entry.candidate.candidate_id, input.language) : "有限执行观察",
         kicker: "有限执行观察",
         question: "是否进行有限执行观察？",
         accountLine: "",
@@ -1244,6 +1350,10 @@ export function listDailyDecisions(input: {
         impact: "有限观察只记录意向，不授予交易权限。不采用会保持暂停，不会退役候选。",
         technical: JSON.stringify({ candidate_id: entry.candidate.candidate_id, recommendation: entry.candidate.recommendation?.code ?? null }, null, 2),
         reference: entry.candidate.candidate_id,
+        identity: strategyIdentityView({ basis: "候选材料", record: {
+          candidateId: entry.candidate.candidate_id, configHash: entry.candidate.evidence?.p2_config_digest,
+          sourceRevision: entry.candidate.evidence?.source_revision,
+        } }),
         materialNotes: [],
         canAdopt: true,
         canReject: true,
