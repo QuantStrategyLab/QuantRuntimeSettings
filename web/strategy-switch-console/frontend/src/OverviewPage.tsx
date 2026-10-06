@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily } from "./api";
 import type { LifecycleRecord } from "./api";
 import { useT, useLocale } from "./locales";
+import { statusTone } from "./statusTone";
 import {
   CHART_RANGE_OPTIONS,
   DEFAULT_CHART_RANGE,
@@ -583,7 +584,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         <h3>{optionLabel(account)}</h3>
         {runtimeLoading && eligible ? <p>{t("加载中…")}</p> : runtimeError && eligible ? <p>{t("运行记录读取失败")}</p> : <>
         <div className="overview-runtime-grid">
-          <div><span>{t("运行状态")}</span><strong>{t(view.statusLabel)}</strong>{view.statusDetails.length ? <small>{view.statusDetails.map(item => t(item)).join(" ")}</small> : null}</div>
+          <div><span>{t("运行状态")}</span><strong data-tone={statusTone(view.statusLabel)}>{t(view.statusLabel)}</strong>{view.statusDetails.length ? <small>{view.statusDetails.map(item => t(item)).join(" ")}</small> : null}</div>
           <div><span>{t("运行时间")}</span><strong>{runTime}</strong>{view.dataStatusLabel !== "—" ? <small>{t(view.dataStatusLabel)}</small> : null}</div>
           <div><span>{t("成交明细")}</span><strong>{t(view.fillsLabel)}</strong></div>
         </div>
@@ -664,7 +665,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
                 {negativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(account.platformKey))}</small> : null}
               </span> : null}
             </span> : null}
-            <span className="overview-marks"><span><em>{t("运行监测")}</em>{t(health.label)}</span><span><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
+            <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
