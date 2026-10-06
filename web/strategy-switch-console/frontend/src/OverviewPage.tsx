@@ -312,7 +312,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       });
     return cancel;
   }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at,
-    binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart]);
+    binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart, readModelRefreshVersion]);
   useEffect(() => {
     const epoch = ++runtimeEpoch.current;
     const cancel = () => { if (runtimeEpoch.current === epoch) runtimeEpoch.current += 1; };
