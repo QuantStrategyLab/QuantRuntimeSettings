@@ -754,7 +754,7 @@ function App() {
             id: row.id,
             platformKey: row.platform,
             accountKey: row.account.key,
-            runtimeDailyBinding: runtimeDailySelectionBinding(model?.config.value?.accountOptions, row.platform, row.account.key),
+            runtimeDailyBinding: runtimeDailySelectionBinding(model?.config.value?.accountOptions, row.platform, row.account.key, model?.config.value?.runtimeDailyBindings),
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),

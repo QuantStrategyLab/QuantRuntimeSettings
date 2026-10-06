@@ -345,7 +345,7 @@ assert.match(overview, /overviewRuntimeHealth/);
 assert.doesNotMatch(walletCardSource.slice(walletCardSource.indexOf("<button"), walletCardSource.indexOf("</button>")), /<details/, "disclosures stay outside the navigation button");
 assert.match(overview, /formatOverviewInstant/);
 assert.match(overview, /setHistory\(null\)/);
-assert.match(overview, /setRuntimeDaily\(null\)/);
+assert.match(overview, /setRuntimeDaily\(\{\}\)/, "invalid or unbound selections clear every account/date slot");
 assert.doesNotMatch(overview, /only_cash|假比较|forged_return/);
 assert.doesNotMatch(overview, /t\(account\.environmentSource\)|account\.environmentSource/);
 assert.doesNotMatch(overview, /t\(account\.environment\)|t\(account\.statusDetail\)/);

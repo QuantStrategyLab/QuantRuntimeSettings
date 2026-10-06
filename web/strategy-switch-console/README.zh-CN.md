@@ -233,14 +233,30 @@ wrangler.toml.example
 `EXECUTION_EVIDENCE_SYNC_TOKEN`，普通登录会话不能写入。GET 要求登录会话，并且只读请求的那一天，
 不列出历史索引。
 
-当前只接受 `longbridge-quant-paper-service|russell_top50_leader_rotation|paper` 与
-`America/New_York` 的原日投影。对象按该目标加业务日期写入既有 `STRATEGY_SWITCH_CONFIG`，格式保持
-原投影；这是读模型缓存，不是原子账务，也不保证严格恰好一次。保留期沿用这份 KV 的现有策略，不另建
-无限历史索引。
+只接受两个固定目标的 `America/New_York` 日投影：
+- `longbridge-quant-paper-service|russell_top50_leader_rotation|paper`
+- `charles-schwab-quant-service|soxl_soxx_trend_income|live`
+
+新 GET 显式传 `date`、`platform`、`account_key`；旧 date-only GET 始终指向 LongBridge PAPER，
+不会选择第一个账户或回退到 Schwab。重复或不完整的选择参数拒绝。对象仍按固定目标和业务日期写入既有
+`STRATEGY_SWITCH_CONFIG`。LongBridge 保持原格式；Schwab 同项附服务端生成的私有绑定指纹，绑定漂移后
+拒绝把历史记录归给新账户。这是读模型缓存，不是原子账务，也不保证严格恰好一次；保留期沿用现有 KV 策略。
 
 账户键只在受保护账户配置里 `service_name` 与 `account_scope` 同时明确匹配且唯一时返回。没有映射、
-映射重复，或调用方自己传入账户键，都拒绝，不按策略名或 paper 兜底。缺当日对象是空数据，不是正常
-无成交；成交字段保持未接通，数量保持空。真实生产身份和同步 producer 尚未接线核验。页面暂不读取此接口。
+映射重复，或 POST 调用方自己传入账户键，都拒绝，不按策略名或执行通道兜底。Schwab 还必须与受保护的
+既有 `account_facts_bindings` 跨全部账户身份字段精确且唯一匹配；缺 scope、身份冲突或无绑定均保持 unresolved。
+登录态 `/api/config` 只返回 `runtimeDailyBindings` 的目标、账户键和绑定状态摘要，不返回券商 hash 或源绑定。
+页面按平台、账户、业务日期隔离日报、加载及错误状态；今日健康证据与所选历史日期分别读取，晚到响应不能串账户。
+
+LongBridge 原7字段 evidence 和 unmatched-report 协议保留。Schwab 严格使用9字段 evidence，增加
+`receipt_state`、`receipt_id`；未匹配报告仅有固定 `reason`。缺失/无效 receipt 不补造，原始 URI、账户身份和
+receipt 内部字段不对 GET 公开，仅保留安全的运行异常分类。64KiB/20 runs/20列表项预算不变，超限拒绝。
+缺当日对象是空数据，不是无交易；`fills` 永远为 `not_connected`、空 records、null count。
+
+本次代码与合成验证不代表真实 Schwab 日报已接通。真实 caller 必须在脱敏前独立核对报告 account hash
+派生的现有 source-binding ID 与受保护 expected binding，核实授权 report prefix、schedule 和未截断覆盖。
+既有最新 execution-evidence 快照不能反推完整日报，最近100报告也不能证明全天完整。随后还须核 POST ACK、
+登录态 GET、对应账户页面和自然周期。无需新增券商查询；代码发布本身不授权新增凭据、IAM、账户绑定或生产开关变更。
 
 `data_status` 只表示这份缓存的读取新鲜度，不改原 `status` 或 `completeness`。纽约今天且 `observed_at`
 未超过 36 小时为 `fresh`，其中 `unknown` 或 `failed` 仍是 `fresh`。业务日早于纽约今天为 `historical`。
