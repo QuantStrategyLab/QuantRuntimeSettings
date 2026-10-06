@@ -102,6 +102,7 @@ jobs:
           node tests/console_v2_i18n_validation.mjs
           node tests/console_account_state_validation.mjs
           node --experimental-strip-types tests/console_presentation_validation.mjs
+          node --experimental-strip-types tests/strategy_display_identity_validation.mjs
           node tests/console_catalog_release_validation.mjs
           git diff --exit-code -- web/strategy-switch-console/v2_asset_map.js
           python3 python/scripts/build_config.py --check

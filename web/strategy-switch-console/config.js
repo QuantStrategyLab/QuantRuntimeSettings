@@ -162,7 +162,7 @@ export const RUNTIME_CATALOG_PROJECTION = {
   "data_status": "catalog_only",
   "source": {
     "path": "platform-config.json",
-    "content_sha256": "sha256:802727c367e14c17db39ff8c7c6ba837c49a9e2bb5b62d65a3f85b023dcd2c03",
+    "content_sha256": "sha256:ed9fd0a4312b6c11a8cfbc5bad942ae671f0fbc6e7dfccc2f469a276dfbc70a2",
     "catalog_as_of": "2026-08-19"
   },
   "policy": {
@@ -230,9 +230,9 @@ export const RUNTIME_CATALOG_PROJECTION = {
     },
     {
       "profile": "soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve",
-      "label": "SOXL/SOXX核心长期复利V7研究预览",
-      "label_en": "SOXL/SOXX Core Long-Term Compounding V7 Research Preview",
-      "label_zh": "SOXL/SOXX核心长期复利V7研究预览",
+      "label": "SOXL/SOXX 核心复利（现金保留）",
+      "label_en": "SOXL/SOXX Core Compounding (Cash Reserve)",
+      "label_zh": "SOXL/SOXX 核心复利（现金保留）",
       "domain": "us_equity",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,
@@ -320,9 +320,9 @@ export const RUNTIME_CATALOG_PROJECTION = {
     },
     {
       "profile": "us_equity_combo",
-      "label": "美股核心组合",
-      "label_en": "US Core Combo",
-      "label_zh": "美股核心组合",
+      "label": "美股核心收益组合",
+      "label_en": "US Core Income Combo",
+      "label_zh": "美股核心收益组合",
       "domain": "us_equity",
       "lifecycle_stage": "shadow_active",
       "runtime_enabled": false,
@@ -335,9 +335,9 @@ export const RUNTIME_CATALOG_PROJECTION = {
     },
     {
       "profile": "us_equity_combo_core",
-      "label": "美股核心组合影子",
-      "label_en": "US Core Combo Shadow",
-      "label_zh": "美股核心组合影子",
+      "label": "美股核心组合",
+      "label_en": "US Core Combo",
+      "label_zh": "美股核心组合",
       "domain": "us_equity",
       "lifecycle_stage": "shadow_active",
       "runtime_enabled": false,
@@ -536,9 +536,9 @@ export const RUNTIME_CATALOG_PROJECTION = {
     },
     {
       "profile": "crypto_live_pool_rotation",
-      "label": "加密实时池轮动",
-      "label_en": "Crypto Live Pool Rotation",
-      "label_zh": "加密实时池轮动",
+      "label": "加密池轮动",
+      "label_en": "Crypto Pool Rotation",
+      "label_zh": "加密池轮动",
       "domain": "crypto",
       "lifecycle_stage": "research_active",
       "runtime_enabled": false,

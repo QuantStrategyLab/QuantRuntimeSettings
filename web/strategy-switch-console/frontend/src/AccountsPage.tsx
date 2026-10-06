@@ -2,8 +2,10 @@ import { useContext, useEffect, useRef, useState } from "react";
 import { loadAccountSettings, postJson } from "./api";
 import { pendingDraftOverrides, createAccountSettingsController, refreshAccountSettingsReadback } from "./accountSettingsState";
 import { LocaleContext, useT } from "./locales";
+import { StrategyIdentity } from "./StrategyIdentity";
+import type { StrategyIdentityView } from "./presentation";
 import type { AccountFactsAccount } from "./types";
-import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility } from "./presentation";
+import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility, strategySelectionName } from "./presentation";
 
 const PREFERENCES = [
   ["CAPITAL_PRESERVATION", "保守", "优先控制波动和亏损，接受较低的增长潜力。"],
@@ -43,7 +45,7 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
   onRefreshStop: () => void;
   onResume: () => void;
   onSettingsRead: (id: string, profile: string | null) => void;
-  resolveStrategy: (profileId: string | null) => { name: string; note: string };
+  resolveStrategy: (profileId: string | null) => { name: string; note: string; identity?: StrategyIdentityView };
 }) {
   const t = useT();
   const selected = rows.find(row => row.id === selectedId) || null;
@@ -97,7 +99,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   onRefreshStop: () => void;
   onResume: () => void;
   onSettingsRead: (id: string, profile: string | null) => void;
-  resolveStrategy: (profileId: string | null) => { name: string; note: string };
+  resolveStrategy: (profileId: string | null) => { name: string; note: string; identity?: StrategyIdentityView };
 }) {
   const t = useT();
   const language = useContext(LocaleContext);
@@ -246,8 +248,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
   const strategyName = (profileId: string) => {
     const choice = strategyOptions.find((item: { profile?: string }) => item.profile === profileId);
     if (!choice) return resolveStrategy(profileId || null).name;
-    const label = language === "en" ? choice.label_en : choice.label_zh;
-    return typeof label === "string" && label ? label : choice.profile;
+    return strategySelectionName(choice, strategyOptions, language);
   };
   const currentProfile = observedProfile(settings) || "";
   const savedBound = savedStrategy || currentProfile;
@@ -333,6 +334,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
         <h3>{t("当前配置策略")}</h3>
         <p className="current-strategy"><strong>{strategy.name}</strong></p>
         {strategy.note ? <p>{strategy.note}</p> : null}
+        <StrategyIdentity value={strategy.identity} />
         {dca ? <div className="setting-facts"><p><span>{t("定投计划")}</span><strong>{t(dca.label)}</strong></p><p><span>{t("配置模式")}</span><strong>{t(dca.mode)}</strong></p><p><span>{t("基准金额（美元）")}</span><strong>{dca.amount === "未核实" ? t(dca.amount) : dca.amount}</strong></p></div> : null}
         {savedStrategy && <p className="section-note">{t("已保存策略草案")}：{strategyName(savedStrategy)}</p>}
         {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("策略草案")}</span><strong>{strategyValue === "" ? t("沿用当前") : strategyName(strategyValue)}</strong></p></div>}
@@ -344,6 +346,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
             {strategyOptions.map((item: { profile: string }) => <option key={item.profile} value={item.profile}>{strategyName(item.profile)}</option>)}
           </select>
         </label>
+        {strategyValue && strategyValue !== currentProfile && <StrategyIdentity key={strategyValue} value={resolveStrategy(strategyValue).identity} />}
         {dcaSupported && <div className="detail-subgroup">
           <h4>{t("定投设置")}</h4>
           <label className="cash-floor-field">{t("定投模式")}

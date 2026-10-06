@@ -9,7 +9,8 @@ import { LocaleContext, renderLocaleMessage, translate, useT, type Language, typ
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
-import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { StrategyIdentity } from "./StrategyIdentity";
+import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, listDailyDecisions, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategySelectionName, strategyIdentityView, candidateDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 import { accountFactsForRow } from "./types";
 import { runtimeDailySelectionBinding } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
@@ -735,8 +736,7 @@ function App() {
     const profileOptions = model?.config.value?.strategyProfiles || [];
     const namedStrategy = (profileId: unknown) => {
         const found = profileOptions.find((profile: any) => profile?.profile === profileId);
-        const name = strategyDisplayName(found, language);
-        return name === "未命名策略" ? t(name) : name;
+        return strategySelectionName(found || { profile: profileId }, profileOptions, language);
     };
     const strategyFields = (row: AccountRow) => {
         const overlay = observedStrategy?.id === row.id ? observedStrategy : null;
@@ -830,7 +830,7 @@ function App() {
         const applicationsOpen = applicationFold === null ? pendingApplications + unresolvedApplications > 0 : applicationFold;
         return <>
             {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="decision-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
-                {queue.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => void applyPromotion(application, accountId)} />)}
+                {queue.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} profiles={profileOptions} language={language} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => void applyPromotion(application, accountId)} />)}
             </details>}
             <DecisionsPage blocked={decisions.blocked} items={decisions.items} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />
         </>;
@@ -839,10 +839,10 @@ function App() {
         setObservedStrategy(current => current?.id === id && current.profile === profile ? current : { id, profile });
     }, []);
     const resolveStrategy = useCallback((profileId: string | null) => {
-        if (!profileId) return { name: t("未知"), note: "" };
-        const profile = (model?.config.value?.strategyProfiles || []).find((item: any) => item?.profile === profileId);
-        const name = strategyDisplayName(profile, language);
-        return { name: name === "未命名策略" ? t(name) : name, note: strategyNote(profile, language) };
+        const profiles = model?.config.value?.strategyProfiles || [];
+        const profile = profiles.find((item: any) => item?.profile === profileId);
+        const name = profileId ? strategySelectionName(profile || { profile: profileId }, profiles, language) : t("未知");
+        return { name, note: strategyNote(profile, language), identity: strategyIdentityView({ profile, profileId, basis: "策略目录" }) };
     }, [language, model?.config.value?.strategyProfiles]);
     const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
     if (bootState === "loading" && !model)
@@ -903,21 +903,33 @@ function ConfirmationDialog({ dialog, onCancel, onConfirm }: {
   </div>;
 }
 
-function ApplicationCard({ application, busy, onDeploy }: {
+function ApplicationCard({ application, profiles, language, busy, onDeploy }: {
     application: Record<string, any>;
+    profiles: object[];
+    language: Language;
     busy?: boolean;
     onDeploy: (accountId: string) => void;
 }) {
     const t = useT();
     const prep = application.application_preparation || {};
     const previous = application.application || null;
+    const profileId = previous ? previous.strategy_profile : application.strategy_profile;
+    const candidateId = previous ? previous.candidate_id : application.proposed_params?.candidate_id;
+    const profile = profiles.find((item: any) => item?.profile === profileId);
+    const strategyName = profile ? strategySelectionName(profile, profiles, language) : candidateDisplayName(candidateId, language);
+    const identity = strategyIdentityView({ profileId, basis: previous ? "应用记录" : "研究票据", record: previous ? {
+        candidateId: previous.candidate_id, configHash: previous.config_sha256,
+        sourceRevision: previous.readback?.ues_revision,
+    } : { candidateId: application.proposed_params?.candidate_id, configHash: application.proposed_params?.config_sha256 } });
     const retryAllowed = applicationRetryAllowed(previous);
     const accounts = paperApplicationAccounts(application);
     const [selectedAccountId, setSelectedAccountId] = useState("");
     const selected = accounts.some(account => account.id === selectedAccountId) ? selectedAccountId : (accounts.length === 1 ? accounts[0].id : "");
     const ready = paperApplicationReady({ ...application, application: previous }, selected);
     const status = previous ? `${t(displayStatus(previous.status))} · ${t(displayStatus(previous.dispatch_state))}` : t("尚无应用记录");
-    return <article className="application-card"><strong>{t("模拟账户应用 · {ticket}", { ticket: application.ticket_id })}</strong>
+    return <article className="application-card"><strong>{strategyName}</strong>
+        <p>{t("模拟账户应用 · {ticket}", { ticket: application.ticket_id })}</p>
+        <StrategyIdentity value={identity} />
         <p>{t("预检：{preflight} · 应用：{status}", { preflight: t(displayStatus(prep.preflight_status)), status })}</p>
         {prep.blocker_codes?.length > 0 && <p>{t("{count} 项需核对", { count: prep.blocker_codes.length })}</p>}
         <label className="application-account">{t("目标账户")}<select value={selected} onChange={event => setSelectedAccountId(event.target.value)}>
