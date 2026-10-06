@@ -38,3 +38,43 @@
 这使状态不变的单次心跳同步从两次 KV 写入降为一次。以十个目标每小时各同步一次估算，这一路径每天从 480 次降为 240 次写入；这不是整个 Cloudflare 账户的实际用量。实际告警类别及总量须查看账户统计，不能从测试计数推断。
 
 免费 KV 每日读取额度为 100,000 次，写入、删除、列表请求各为 1,000 次，北京时间 08:00 重置。优先核对触发类别并消除重复操作；套餐升级不属于代码优化的隐含步骤。参见 [Cloudflare KV 定价与额度](https://developers.cloudflare.com/kv/platform/pricing/)。
+
+## 2026-10-06 补充验收合同
+
+本节是待实施/待验收要求，不声称以下能力已经上线。任务状态和依赖只在[六主线清单](qsl_overnight_open_items.zh-CN.md#six-track-audit-20261006)维护：`UI-01` 至 `UI-05`、`DATA-01` 与 `DATA-02`。每个阶段或审计结束后更新对应任务，避免另起一套完成状态。
+
+### 策略名称与技术身份分开（UI-01）
+
+- 面向人的主名称放现有中英文 label 字段。已有 `strategyDisplayName` 读取 `label_zh` / `label_en`；技术 profile/key、immutable candidate ID、历史对象路径和证据 digest 不作展示改名。
+- 展示名说明标的与方法；候选版本、source revision、参数版本/config hash、角色、运行通道和证据时间分别展示。首层保持简短，详情能定位完整身份。重复展示名必须可区分，旧记录继续可查。
+- `candidate` / `challenger` / `champion` 是研究与采用角色；`research` / `shadow` / `paper` / `live` 是不同证据或执行通道。“可选择”“已保存配置”“实际运行”另有各自事实，不能用名称互相推导。
+- SOXL V7 冻结合同是实际保留 3% 现金的 source-correctness 候选，保留 V6 预注册参数；`v7` 不是 AI 优化七次的证明。代码是否经 AI 起草也不能由版本号或 `ai_extensions=disabled` 判定。没有对应 trial、输入/模型/输出来源证据时，不标“AI 自动生成”。
+- R5 / R6 研究轨道、信号候选、策略源码 revision 与参数 config hash 不混为一个版本。R6 保留 V7 信号但有独立 study/input/evaluation 身份，不能继承原双源 P1/P3 证据。
+
+本节只冻结展示原则，不立即修改策略目录或指定最终展示名称。验收覆盖中英文、研究列表、账户策略选择、详情与历史回执，并证明技术身份和历史绑定未变化。
+
+### 平台能力、账户实体与交易市场（UI-02）
+
+实体/注册地、账户环境、交易市场、币种、交易日历和执行能力独立表达。LongBridge 平台配置与策略 registry 同时支持美股和港股；香港实体不能推导为只支持港股，也不能据平台能力推断某账户已获相同权限。
+
+参数可选项取平台、真实账户权限、策略域、标的和执行通道的已验证交集。逐账户记录能力来源、观察时间及缺失项；权限不明保持待确认。平台的整股/整手、fractional/notional、paper/live 和日历差异须逐项验证，不能用注册地字符串或默认配置补证。
+
+### 配置保存与实际采用（UI-03）
+
+一般账户设置保存当前只生成草案/风险偏好，`apply_strategy=false`、`activation=false`、`adopted=false` 是真实边界。已有单独受限的 profile-only 确认路径不能证明日常设置页已接通。后续按原授权验证保存、确认应用、runtime 读回与实际周期，不以移除安全状态或调用实盘完成 UI 验收。
+
+### 90 天记录与历史覆盖（UI-04、UI-05）
+
+当前日期控件允许美东业务日期的最近 90 个日历日；现有 `runtime_daily_contract.js` 只绑定 LongBridge 的一个 paper/Russell 目标。它不是全部账户的 90 天 producer/留存证明。后续清单须列每个目标的 producer、准确账户绑定、市场时区/日历、首末记录、保留策略、缺口及原因。`not_due`、HTTP 成功、心跳存在和有日期按钮都不能当作真实业务周期完成。
+
+正常无单、dry-run preview、真实提交/待对账/成交和失败分别显示；未知不能刷成绿色。跨目标切换不能复用另一账户的周期记录。美股、港股与 24/7 市场分别使用合适的业务日口径。
+
+账户资产历史当前最多保留 366 天，但图表提供 3/5/10 年范围。必须呈现实际首个样本、截断/保留信息，空窗不补点；短记录不能冒充多年历史。验收包括失败刷新、同时间戳重试、旧请求晚到、卸载、币种/账户切换和缺口提示。QRS #529 已修刷新依赖，不等于线上故障重现与恢复已经验收。
+
+### 真实收益与四条基准（DATA-01、DATA-02）
+
+资产/现金快照不是收益。只在账户、币种、源、期间、方法、费用/外部资金流与覆盖得到资格验证后显示对应收益。券商给出的账户期间 TWR 不自动成为策略收益；月度 TWR 保留为一个期间观察，不拆成日线。缺失值不填零，也不使用研究 CSV 修补实盘来源。
+
+四条图例 S&P 500、Nasdaq、Dow Jones、Russell 不是四条已取得的序列。后续明确各自准确指数/series、价格或总回报方法、来源许可、币种、期间与可比性；独立 FRED 价格 iframe 不等于账户比较。实际收益与基准覆盖不一致时标记缺口，不把价格指数和总回报静默混用。
+
+English summary: These are acceptance requirements, not claims of runtime adoption. Keep display labels separate from immutable strategy/candidate/source/config identities. Account permissions, market coverage, daily-record coverage, qualified account returns and benchmark series require independent evidence.
