@@ -51,9 +51,9 @@
 - SOXL V7 冻结合同是实际保留 3% 现金的 source-correctness 候选，保留 V6 预注册参数；`v7` 不是 AI 优化七次的证明。代码是否经 AI 起草也不能由版本号或 `ai_extensions=disabled` 判定。没有对应 trial、输入/模型/输出来源证据时，不标“AI 自动生成”。
 - R5 / R6 研究轨道、信号候选、策略源码 revision 与参数 config hash 不混为一个版本。R6 保留 V7 信号但有独立 study/input/evaluation 身份，不能继承原双源 P1/P3 证据。
 
-### UI-01 本地展示映射（2026-10-06）
+### UI-01 展示映射与发布阶段（2026-10-06）
 
-以下是基于 QRS `74a9d937c929f1c5bc067cb047d2d413df579a1e` 的本地候选，不表示已合并或部署。`platform-config.json` 仍是目录 label 的唯一来源，沿用现有生成器。只调整 V7、两个美股核心组合与加密池轮动的四对标签，其余 23 对保持不变；没有修改参数、账户、策略 ID 或权限。目录整体 `content_sha256` 随标签重算，它不是冻结策略 config hash。
+以下展示改动基于 QRS `74a9d937c929f1c5bc067cb047d2d413df579a1e` 实施，已由 [QRS #531](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/531) 合并为 `da70d9e827d4b675bde62113b728e9b871301cfc`；主 CI 与原自动部署成功。线上只完成下述有限只读验收，不代表 UI-01 / STRAT-01 已关闭。`platform-config.json` 仍是目录 label 的唯一来源，沿用现有生成器。只调整 V7、两个美股核心组合与加密池轮动的四对标签，其余 23 对保持不变；没有修改参数、账户、策略 ID 或权限。目录整体 `content_sha256` 随标签重算，它不是冻结策略 config hash。
 
 | Stable profile / key（不变） | 中文展示名 | English display name |
 | --- | --- | --- |
@@ -109,14 +109,16 @@ R6 的 study ID 为 `soxl_v7_twelve_basic_split_close_development_v1`，input co
 
 冻结来源（UESP `842ae78eb8f7c9eb1912e44b433cf7e59ba786d1`）：[SOXL V7 config](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/config/soxl_soxx_core_only_p2_v7_longterm_compounding_cash_reserve.json)、[TQQQ V5 config](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/config/tqqq_core_only_p2_v5.json)、[TQQQ V9 config](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/config/tqqq_core_only_p2_v9_benchmark_drawdown_guard.json)、[R6 study 合同](https://github.com/QuantStrategyLab/UsEquitySnapshotPipelines/blob/842ae78eb8f7c9eb1912e44b433cf7e59ba786d1/docs/soxl_v7_r6_twelve_single_source.md)。
 
-#### 本地验收与剩余限制
+#### 发布、有限线上验收与剩余限制
 
-- 已运行：新命名/身份回归（中英、重复名、未知字段、V7/R6 分轴、hash 不匹配、不可变请求 ID、真实 React 组件离线 SSR）；现有账户状态/设置/历史、总览刷新、业务表达等定向回归；TypeScript/Vite 构建和现有资产生成
-- 未运行：浏览器实际点击、桌面/手机截图；隔离 localhost 页面在云端浏览器被 `net::ERR_BLOCKED_BY_CLIENT` 阻止。SSR 不替代交互、布局或真实业务验收
-- 当前 V2 没有已渲染的历史研究折叠区。本补丁不新增历史页面；历史显示仍是 UI-01 的后续验收依赖，保留已有历史 ID、方案字段和绑定，不声称“历史 UI 已验收”
-- 本地候选未合并、未部署；实际账户与线上 source/config/role/lane 取证未完成，UI-01 / STRAT-01 不关闭
+- 本地验证：12 条离线验证命令通过，覆盖中英命名、重复名、旧私有标签、未知/不匹配身份、V7/R6 分轴、不可变请求 ID、真实 React 组件 SSR，以及既有账户状态/设置/历史和总览刷新回归；TypeScript/Vite 构建、原生成器与两次资产生成字节一致。隔离 localhost 浏览器曾被 `net::ERR_BLOCKED_BY_CLIENT` 阻止，SSR 不替代交互或布局验收
+- 工程发布：[QRS #531](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/531) 正常合并为 `da70d9e827d4b675bde62113b728e9b871301cfc`；[main CI 37452298421](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298421) 三个 job 全部通过；[既有自动部署 37452298369](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298369) 成功。合并 tree 与复核候选完全一致，任务分支已清理
+- 有限线上只读验收（2026-10-06）：使用既有云浏览器会话访问[正式控制台](https://qsl-strategy-switch-console.pigbibi.workers.dev/)，无需新登录或读取凭证。页面引用 `/v2/assets/index-MqCG7MXH.js`，与本地候选的资源路径匹配；检查的一条已存在真实决策具有默认折叠、可展开的身份详情，候选版本与 source revision 分列，缺失字段保持“未知 / Unknown”。本次仅导航和展开详情，保存/采用/应用/停用/恢复/交易操作均为 0
+- 线上阻塞与未验：直接打开上述页面已引用的 JS 资源时，浏览器返回 `net::ERR_BLOCKED_BY_CLIENT`，随后停止，未重试或改路绕过。资源文件名匹配不等于响应内容或 SHA-256 已验证；四个改名策略的全部真实页面覆盖、中英切换、手机视口、真实 V7 现金保留记录及其“冻结研究版本”区域均未测试。已检查决策不能冒充真实 V7 记录，也不证明策略实际采用或执行
+- 历史覆盖：当前 V2 没有已渲染的历史研究折叠区，本补丁未新增历史页面；历史显示仍是 UI-01 的后续验收依赖，已有历史 ID、方案字段和绑定保持不变
+- 关闭条件仍未满足：代码已合并、自动部署成功、有限真实页面行为已观察，但完整线上命名/布局/历史覆盖及实际 source/config/role/lane 取证未完成；UI-01 / STRAT-01 继续开放
 
-English summary: Four bilingual catalog labels are refined; 23 remain unchanged. Stable IDs, parameters, permissions and frozen candidate hashes are preserved. Frozen research versions are explicitly separate from observed material fields, and missing fields stay Unknown. Local regression/SSR/build checks do not establish browser, historical-UI, deployment or real-account acceptance.
+English summary: QRS #531 is merged; main CI and the existing automatic deployment passed. An existing authenticated production session confirmed the referenced asset filename and one real decision's collapsed/expandable identity fields, with version/source separation and missing values remaining Unknown. Opening the referenced JavaScript asset was blocked and no alternate route was attempted. Online response bytes/hash, all four labels, language switching, mobile layout, a real V7 record and historical UI remain unverified. Neither task is closed.
 
 ### 平台能力、账户实体与交易市场（UI-02）
 
