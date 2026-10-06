@@ -7761,7 +7761,8 @@ async function runtimeDailyTrustedBinding(env, target, accountOptions = null) {
       && item.service_name === target.service && item.account_scope === target.account_scope);
     const option = config.options.schwab.find(item => item.key === accountKey);
     if (matches.length !== 1 || !accountFactsOptionMatchesBinding(option, matches[0])) return null;
-    return { accountKey, fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, binding: matches[0] })) };
+    return { accountKey, sourceBindingId: matches[0].source_binding.id,
+      fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, binding: matches[0] })) };
   } catch {
     return null;
   }
@@ -7855,6 +7856,17 @@ async function syncRuntimeDailyResponse(request, env) {
   const target = runtimeDailyTarget(projection.platform);
   const binding = await runtimeDailyTrustedBinding(env, target);
   if (!binding) return runtimeDailyUnattributedResponse();
+  if (target.platform === "schwab") {
+    // Reuse the existing protected source_binding.id, not a new identity or a
+    // body-supplied account. This also guards a new day with no cached fingerprint.
+    const sourceBindingId = request.headers.get("X-QSL-Source-Binding-ID");
+    if (typeof sourceBindingId !== "string" || !/^[0-9a-f]{64}$/.test(sourceBindingId)) {
+      return json({ ok: false, error: "runtime_daily_source_binding_invalid" }, 400);
+    }
+    if (sourceBindingId !== binding.sourceBindingId) {
+      return json({ ok: false, error: "runtime_daily_source_binding_mismatch" }, 409);
+    }
+  }
   const accountKey = binding.accountKey;
   const businessDate = projection.records[0].business_date;
   const store = configStore(env);
