@@ -3,6 +3,7 @@ import { loadAccountSettings, postJson } from "./api";
 import { pendingDraftOverrides, createAccountSettingsController, refreshAccountSettingsReadback } from "./accountSettingsState";
 import { LocaleContext, useT } from "./locales";
 import { StrategyIdentity } from "./StrategyIdentity";
+import { statusTone } from "./statusTone";
 import type { StrategyIdentityView } from "./presentation";
 import type { AccountFactsAccount } from "./types";
 import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility, strategySelectionName } from "./presentation";
@@ -67,8 +68,8 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
             return <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
             <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label account-fact-label">{t("配置环境")}</span><small className="account-environment">{row.environment}</small><span className="account-field-label account-fact-label">{t("原生类别")}</span><small className="account-native-type">{native.nativeType || t("未核实")}</small><span className="account-field-label account-fact-label">{t("身份可信度")}</span><small className="account-identity-confidence">{t(native.identityLabel)}</small></td>
             <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
-            <td><span className="account-field-label">{t("健康")}</span><span className="account-field-value">{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
-            <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value">{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
+            <td><span className="account-field-label">{t("健康")}</span><span className="account-field-value" data-tone={statusTone(row.statusLabel)}>{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
+            <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value" data-tone={statusTone(row.activation)}>{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
           </tr>; })}</tbody>
         </table>
       </div>
