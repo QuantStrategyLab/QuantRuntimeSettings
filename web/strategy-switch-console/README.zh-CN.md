@@ -233,6 +233,13 @@ wrangler.toml.example
 `EXECUTION_EVIDENCE_SYNC_TOKEN`，普通登录会话不能写入。GET 要求登录会话，并且只读请求的那一天，
 不列出历史索引。
 
+Schwab POST 另须提供 `X-QSL-Source-Binding-ID`，直接复用受保护 account-facts binding 的
+64位小写十六进制 `source_binding.id`。每次请求均与当前解析的 registry 核对，包括新业务日首次写入和
+幂等请求；缺失/格式错误返回400，不匹配返回409，错误不回显期望或实收ID。重复合并header拒绝；
+body自报字段或旧缓存fingerprint不能替代。LongBridge协议不变。该header是有界publisher声明，
+不是新凭据，也不能单独证明raw report的实体账户；未来caller必须先独立核对configured account与
+每份report，再派生现有ID。已通过的桌面空日报界面验收不等于该来源账户证明已通过。
+
 只接受两个固定目标的 `America/New_York` 日投影：
 - `longbridge-quant-paper-service|russell_top50_leader_rotation|paper`
 - `charles-schwab-quant-service|soxl_soxx_trend_income|live`

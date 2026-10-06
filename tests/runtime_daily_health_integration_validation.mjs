@@ -209,15 +209,17 @@ try {
     ["account_options", JSON.stringify({ longbridge: [paper], schwab: [schwab] })],
     ["account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [protectedBinding] })],
   ]);
+  const localWrites = [];
   const localEnv = { ...env, STRATEGY_SWITCH_CONFIG: {
-    async get(key) { return localStore.get(key) ?? null; }, async put(key, value) { localStore.set(key, value); },
+    async get(key) { return localStore.get(key) ?? null; }, async put(key, value) { localWrites.push(key); localStore.set(key, value); },
   } };
   const sourceBody = fixture.cases[0].projection;
   const sourceKey = `runtime_daily:${sourceBody.records[0].target_key}:2026-10-06`;
   const saveBinding = (bindings = [protectedBinding]) => localStore.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings }));
   const saveOptions = (items = [schwab]) => localStore.set("account_options", JSON.stringify({ longbridge: [paper], schwab: items }));
-  const send = (body, token = "synthetic-daily-sync") => worker.fetch(new Request("https://synthetic.example/api/runtime-daily/sync", {
-    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body),
+  const send = (body, token = "synthetic-daily-sync", sourceBindingId = protectedBinding.source_binding.id) => worker.fetch(new Request("https://synthetic.example/api/runtime-daily/sync", {
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`,
+      ...(sourceBindingId === null ? {} : { "X-QSL-Source-Binding-ID": sourceBindingId }) }, body: JSON.stringify(body),
   }), localEnv);
   const session = await __test.makeSession("synthetic-reader", [], localEnv);
   const readPath = path => worker.fetch(new Request(`https://synthetic.example${path}`, { headers: { Cookie: `qsl_switch_session=${session}` } }), localEnv);
@@ -237,6 +239,25 @@ try {
   let assertions = 0;
   try {
     assert.equal(selection.dailyBinding, "bound");
+    // A fresh business date has no old fingerprint. The current protected source
+    // changed from A to B, but the caller still attests A: reject before KV writes.
+    localStore.delete(sourceKey);
+    saveBinding([{ ...protectedBinding, broker_account_hash: "synthetic-rotated-broker-hash",
+      source_binding: { ...protectedBinding.source_binding, id: "b".repeat(64) } }]);
+    const beforeNewDayWrites = localWrites.length;
+    const newDayDrift = await send(sourceBody);
+    assert.equal(newDayDrift.status, 409, "new-day source drift must be rejected even when no cached fingerprint exists");
+    const driftError = JSON.stringify(await newDayDrift.json());
+    assert.equal(driftError.includes("a".repeat(64)), false);
+    assert.equal(driftError.includes("b".repeat(64)), false);
+    assert.equal(localStore.has(sourceKey), false, "source mismatch must not create a new-day record");
+    assert.equal(localWrites.length, beforeNewDayWrites, "new-day source mismatch makes zero KV put calls");
+    assert.equal((await send(sourceBody, "synthetic-daily-sync", "b".repeat(64))).status, 200,
+      "the exact current source ID permits the same valid new-day projection");
+    assert.equal(localWrites.length, beforeNewDayWrites + 1);
+    localStore.delete(sourceKey);
+    saveBinding();
+
     assert.equal(runtimeDailySelectionBinding({ schwab: [schwab] }, "schwab", schwab.key), "unresolved", "the client cannot infer protected binding from service/scope");
     assert.equal(runtimeDailySelectionBinding({ schwab: [{ ...schwab, account_scope: undefined }] }, "schwab", schwab.key, bindingSummary), "unresolved");
     assert.equal(runtimeDailySelectionBinding({ schwab: [{ ...schwab, account_scope: undefined }] }, "schwab", schwab.key), "unresolved");
@@ -248,6 +269,8 @@ try {
       const ack = await response.json();
       assert.equal(ack.platform, "schwab"); assert.equal(ack.account_key, schwab.key);
       assert.equal(ack.target_key, sourceBody.records[0].target_key);
+      assert.equal(JSON.stringify(ack).includes("sourceBindingId"), false);
+      assert.equal(JSON.stringify(ack).includes(protectedBinding.source_binding.id), false);
       const stored = JSON.parse(localStore.get(sourceKey));
       assert.match(stored.binding_fingerprint, /^[a-f0-9]{64}$/);
       assert.deepEqual(stored.projection, item.projection, "the safe producer evidence is retained without rewriting");
@@ -256,7 +279,7 @@ try {
       assert.equal(snapshot.record.status, item.projection.records[0].status);
       assert.equal(snapshot.unmatched_count, item.projection.unmatched_reports.length);
       assert.deepEqual(snapshot.fills, { source: "not_connected", records: [], count: null });
-      for (const forbidden of ["gs://", "receipt_id", "receipt_state", "broker_account_hash", "binding_fingerprint", "source_binding", "synthetic-broker-hash"]) {
+      for (const forbidden of ["gs://", "receipt_id", "receipt_state", "broker_account_hash", "binding_fingerprint", "source_binding", "sourceBindingId", "a".repeat(64), "synthetic-broker-hash"]) {
         assert.equal(JSON.stringify(snapshot).includes(forbidden), false, `public read cannot expose ${forbidden}`);
       }
       assert.equal(presentRuntimeDaily(snapshot, selection, "2026-10-06").accountMatched, true);
@@ -267,6 +290,32 @@ try {
       assertions++;
     }
     for (const token of ["", "synthetic-account-facts", "synthetic-dispatch"]) assert.equal((await send(sourceBody, token)).status, 401);
+    assert.equal((await send(sourceBody, "wrong-token", null)).status, 401, "authentication precedes source identity validation");
+    localStore.delete(sourceKey);
+    for (const supplied of [null, "", "a".repeat(63), "a".repeat(65), "A".repeat(64), "g".repeat(64), `${"a".repeat(64)}, ${"a".repeat(64)}`, `${"a".repeat(64)}, ${"b".repeat(64)}`]) {
+      const putsBefore = localWrites.length;
+      const response = await send(sourceBody, "synthetic-daily-sync", supplied);
+      assert.equal(response.status, 400, "missing/malformed or combined duplicate source-binding headers are rejected");
+      assert.deepEqual(await response.json(), { ok: false, error: "runtime_daily_source_binding_invalid" });
+      assert.equal(localWrites.length, putsBefore); assert.equal(localStore.has(sourceKey), false);
+    }
+    for (const field of ["source_binding_id", "source_binding", "binding_fingerprint"]) {
+      const forged = structuredClone(sourceBody); forged[field] = "a".repeat(64);
+      const putsBefore = localWrites.length;
+      assert.equal((await send(forged, "synthetic-daily-sync", null)).status, 400, "body self-attribution cannot replace the header");
+      assert.equal(localWrites.length, putsBefore);
+    }
+    assert.equal((await send(sourceBody)).status, 200, "current protected source ID admits a valid projection");
+    const priorProjection = localStore.get(sourceKey);
+    for (const body of [sourceBody, { ...sourceBody, read_errors: ["coverage_unconfirmed"], completeness: "incomplete",
+      records: [{ ...sourceBody.records[0], completeness: "incomplete", status: "read_incomplete", kind: "incomplete" }] }]) {
+      const putsBefore = localWrites.length;
+      const response = await send(body, "synthetic-daily-sync", "b".repeat(64));
+      assert.equal(response.status, 409, "existing/idempotent/update candidates also require the current source ID");
+      assert.deepEqual(await response.json(), { ok: false, error: "runtime_daily_source_binding_mismatch" });
+      assert.equal(localWrites.length, putsBefore); assert.equal(localStore.get(sourceKey), priorProjection);
+    }
+
     for (const query of ["&platform=schwab", "&account_key=synthetic-schwab", "&platform=unknown&account_key=synthetic-schwab", "&platform=schwab&platform=longbridge&account_key=synthetic-schwab", "&platform=schwab&account_key=synthetic-schwab&account_key=other", "&date=2026-10-05&platform=schwab&account_key=synthetic-schwab"]) {
       assert.equal((await readPath(`/api/runtime-daily?date=2026-10-06${query}`)).status, 400, query);
     }
@@ -350,7 +399,9 @@ try {
     ]) {
       const body = structuredClone(sourceBody); mutate(body);
       schwabNow = Date.parse("2026-10-06T21:05:00Z");
+      const putsBefore = localWrites.length;
       const response = await send(body); assert.equal(response.status, 400, name);
+      assert.equal(localWrites.length, putsBefore, `${name}: invalid input makes zero KV put calls`);
       assert.equal(localStore.get(sourceKey), retained, `${name}: invalid input makes no write`);
       assertions++;
     }
@@ -365,6 +416,7 @@ try {
       assert.equal(healthFor(snapshot).label, "异常");
     }
     console.log(`Schwab daily integration: PASS (${assertions} producer/negative cases plus auth, binding, drift, privacy, legacy isolation and public health)`);
+    console.log("Schwab source-binding header: PASS (new-day drift, current-ID positive control, malformed/duplicate/body-only rejection, zero-write and no-ID-echo guards)");
   } finally {
     Date.now = beforeNow;
     globalThis.fetch = beforeFetch;

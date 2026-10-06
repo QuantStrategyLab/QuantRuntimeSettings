@@ -343,6 +343,17 @@ The existing `/api/runtime-daily/sync` receiver supports only LongBridge
 only the existing dedicated `EXECUTION_EVIDENCE_SYNC_TOKEN`; account-facts,
 dispatch and session credentials are not fallbacks. GET requires an allowed login.
 
+Schwab POST additionally requires `X-QSL-Source-Binding-ID`, using the existing
+64-lowercase-hex `source_binding.id` from the protected account-facts binding.
+Each request must match the currently resolved protected registry entry, including
+first writes on a new business day and idempotent requests. Missing/malformed
+values return 400; mismatches return 409 without echoing either ID. Duplicate
+combined headers are invalid. A body field or an old cache fingerprint cannot
+replace this check. LongBridge's protocol is unchanged. This header is a bounded
+publisher assertion, not another credential or standalone proof of a raw report's
+physical account: the future caller must independently verify its configured
+account against each report before deriving the existing ID.
+
 New reads explicitly supply `date`, `platform` and `account_key`. Legacy date-only
 GET always means LongBridge PAPER; it never chooses the first account or falls
 back to Schwab. Repeated or incomplete selectors are rejected. Only protected
