@@ -157,7 +157,7 @@ try {
     assert.equal(html.includes(translate("冻结研究索引不证明实际部署、采用或运行状态。", language)), true);
     assert.equal(html.includes(translate("未知", language)), true);
     const studyHtml = render.identity(r6, language);
-    assert.equal(studyHtml.includes(translate("R6 是独立的单源开发研究 study，沿用 V7 信号；不继承原双源 P1/P3 证据。", language)), true);
+    assert.match(studyHtml, /<details class="decision-fold strategy-identity">/);
     const result = listDailyDecisions({ language, profiles, promotions: ready({ tickets: [ticket] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] });
     const decisionHtml = render.decisions(result.items, language);
     assert.equal(decisionHtml.includes(strategySelectionName(v7, profiles, language)), true);

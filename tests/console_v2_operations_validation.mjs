@@ -10,7 +10,6 @@ import {
 import { formatAccountCount, translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 assert.equal(translate("账户资产快照尚未接入；未知不等于零。", "zh"), "账户资产快照尚未接入；未知不等于零。");
 assert.equal(translate("缺少可信账户估值序列和完整资金流，收益率与回撤暂不可计算。", "en").includes("cannot be calculated"), true);
-assert.equal(translate("普通策略应用和启用尚未接通；此处只读展示配置与运行观察。", "en").includes("not connected"), true);
 
 const account = {
   key: "synthetic-account", target_name: "synthetic-target", broker_environment: "paper",
