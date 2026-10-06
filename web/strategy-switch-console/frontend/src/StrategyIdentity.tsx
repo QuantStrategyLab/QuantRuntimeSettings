@@ -20,7 +20,6 @@ export function StrategyIdentity({ value }: { value: StrategyIdentityView | null
     <summary>{t("策略身份与版本")}</summary>
     <dl>{rows.map(([label, content]) => <div key={label}><dt>{t(label)}</dt><dd style={{ overflowWrap: "anywhere" }}>{content || t("未知")}</dd></div>)}</dl>
     <p className="section-note">{t("名称、目录可选通道与已保存配置不证明实际采用或运行状态。")}</p>
-    {value.studyLabel === "R6" && <p>{t("R6 是独立的单源开发研究 study，沿用 V7 信号；不继承原双源 P1/P3 证据。")}</p>}
     {value.frozenResearch && <section>
       <h4>{t("冻结研究版本")}</h4>
       <p>{language === "en" ? value.frozenResearch.noteEn : value.frozenResearch.noteZh}</p>
