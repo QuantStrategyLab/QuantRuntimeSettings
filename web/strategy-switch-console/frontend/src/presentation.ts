@@ -3,7 +3,7 @@ import { binanceProviderProductTypeForDisplay } from "./types.ts";
 import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 import type { LifecycleRecord } from "./api";
 import { DEFAULT_STRATEGY_PROFILES } from "../../strategy_profiles_asset.js";
-import { RUNTIME_DAILY_TARGET, runtimeDailyRecordMatchesTarget, runtimeDailyRunIssue } from "../../runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, runtimeDailyTarget, runtimeDailyRecordMatchesTarget, runtimeDailyRunIssue } from "../../runtime_daily_contract.js";
 export { runtimeDailySelectionBinding } from "../../runtime_daily_contract.js";
 
 const BINANCE_SCOPE_MAX_ASSETS = 5000;
@@ -401,6 +401,8 @@ export function buildBinanceWalletHistoryChartGeometry(
 
 export type RuntimeDailySnapshot = {
   ok: true;
+  platform?: string;
+  target_key?: string;
   date: string;
   timezone: string;
   account_key: string;
@@ -417,7 +419,7 @@ export type RuntimeDailySnapshot = {
     observed_at: string;
     completeness?: string;
     schedule?: { state?: string; expected_window?: string; reason?: string | null; latest_due_at?: string | null; next_due_at?: string | null; grace_ends_at?: string | null; publication_grace_ended?: boolean };
-    runs?: Array<{ run_id: string | null; started_at: string | null; finished_at: string | null; activity: string; execution_lane: string; errors_present: boolean }>;
+    runs?: Array<{ run_id: string | null; started_at: string | null; finished_at: string | null; activity: string; execution_lane: string; errors_present: boolean; issue?: "failure" | "unconfirmed" | null }>;
     conflict_count?: number;
   } | null;
   fills: { source: "not_connected"; records: []; count: null } | null;
@@ -478,7 +480,22 @@ export function runtimeDailySelectionEligible(selection: RuntimeDailySelection |
   if (!selection) return false;
   if (typeof selection.platform !== "string" || !selection.platform) return false;
   if (typeof selection.accountKey !== "string" || !selection.accountKey) return false;
-  return selection.platform === RUNTIME_DAILY_PLATFORM && selection.dailyBinding === "bound";
+  return Boolean(runtimeDailyTarget(selection.platform)) && selection.dailyBinding === "bound";
+}
+
+export function runtimeDailyAccountDateKey(platform: string, accountKey: string, date: string): string {
+  return JSON.stringify([platform, accountKey, date]);
+}
+
+export function runtimeDailySnapshotMatchesSelection(snapshot: RuntimeDailySnapshot, selection: RuntimeDailySelection, date?: string): boolean {
+  const target = runtimeDailyTarget(selection.platform);
+  if (!target || snapshot.ok !== true || snapshot.account_key !== selection.accountKey) return false;
+  // Old PAPER read fixtures remain compatible; Schwab always requires explicit identity.
+  if ((snapshot.platform !== undefined && snapshot.platform !== target.platform)
+    || (snapshot.target_key !== undefined && snapshot.target_key !== target.target_key)
+    || (target.platform === "schwab" && (snapshot.platform !== "schwab" || snapshot.target_key !== target.target_key))) return false;
+  return (!snapshot.record || runtimeDailyRecordMatchesTarget(snapshot.record, target.platform))
+    && (!date || (snapshot.date === date && (!snapshot.record || snapshot.record.business_date === date)));
 }
 
 export function presentRuntimeDaily(
@@ -521,8 +538,7 @@ export function presentRuntimeDaily(
       dataStatusLabel: "暂不可用",
     };
   }
-  if (snapshot.account_key !== selection.accountKey || (snapshot.record && !runtimeDailyRecordMatchesTarget(snapshot.record))
-    || (date && (snapshot.date !== date || (snapshot.record && snapshot.record.business_date !== date)))) {
+  if (!runtimeDailySnapshotMatchesSelection(snapshot, selection, date)) {
     return {
       ...empty,
       accountMatched: false,
@@ -628,15 +644,16 @@ export function overviewRuntimeHealth(
     && disposition === "continue_enabled_monitoring";
   if (runtime.account_state?.health !== "normal" && !platformCheckNotDue) return fail("运行监测未确认");
   if (runtime.account_state?.health === "normal" && !enabledMonitoringAgrees) return fail("运行监测未确认");
-  if (selection.platform === RUNTIME_DAILY_PLATFORM && selection.dailyBinding !== "bound" && selection.dailyBinding !== "not_applicable") return fail("周期记录目标绑定未确认");
-  // Each platform owns its lifecycle cadence. Do not require the LongBridge-only daily feed
+  const dailyTarget = runtimeDailyTarget(selection.platform);
+  if (dailyTarget && selection.dailyBinding !== "bound" && selection.dailyBinding !== "not_applicable") return fail("周期记录目标绑定未确认");
+  // Each platform owns its lifecycle cadence. Do not require another target's daily feed
   // to assess another platform, and never infer a due time from this evidence's freshness TTL.
   if (!runtimeDailySelectionEligible(selection)) {
     return platformCheckNotDue ? healthy("尚未到检查时间") : healthy("运行监测正常，已启用。");
   }
   if (!snapshot || snapshot.ok !== true || snapshot.account_key !== selection.accountKey) return fail("周期记录未取得");
   const record = snapshot.record;
-  if (record && !runtimeDailyRecordMatchesTarget(record)) return fail("周期记录目标不匹配");
+  if (!runtimeDailySnapshotMatchesSelection(snapshot, selection)) return fail("周期记录目标不匹配");
   if (snapshot.date !== runtimeBusinessDate(now) || record?.business_date !== snapshot.date || snapshot.timezone !== RUNTIME_DAILY_TIMEZONE) return fail("今日周期记录未取得");
   if (snapshot.data_status !== "fresh") return fail("周期记录已过期");
   if (!validBinanceScopeInstant(record.observed_at) || Date.parse(record.observed_at) > now) return fail("周期记录时间异常");
@@ -646,8 +663,9 @@ export function overviewRuntimeHealth(
   // execution lane. This does not turn any observed dry-run/live lane into PAPER.
   const scheduleWithoutRun = record.kind === "schedule" && record.runs.length === 0
     && ["not_due", "market_closed", "outside_window", "within_grace"].includes(record.status);
-  if ((record.execution_lane !== "paper" && !(scheduleWithoutRun && record.execution_lane === "insufficient"))
-    || record.runs.some(run => run.execution_lane !== "paper")) return fail("真实账户周期未确认");
+  const expectedLane = dailyTarget?.platform === "schwab" ? "live" : "paper";
+  if ((record.execution_lane !== expectedLane && !(scheduleWithoutRun && record.execution_lane === "insufficient"))
+    || record.runs.some(run => run.execution_lane !== expectedLane)) return fail("真实账户周期未确认");
   const schedule = record.schedule;
   const nextDue = validBinanceScopeInstant(schedule?.next_due_at) ? Date.parse(schedule.next_due_at) : NaN;
   const graceEnds = validBinanceScopeInstant(schedule?.grace_ends_at) ? Date.parse(schedule.grace_ends_at) : NaN;

@@ -333,3 +333,46 @@ Account-facts routes require `ACCOUNT_FACTS_READ_MODEL_ENABLED=true`, the existi
 The trusted `account_facts_bindings` configuration uses `qsl_account_facts_bindings.v1`. LongBridge bindings retain their `deployment_scope_token_version` source and exact account-option identity. IBKR uses `platform=ibkr`, `source_binding.kind=deployment_runtime_account`, and separately binds the exact option `account_scope` and `account_selector`. Its history contract is `ibkr_account_snapshot_history.v1` / `ibkr_account_snapshot.v1`; the server derives platform from the schema and dedicated token, and callers cannot supply platform or account key. `account_ids` must contain exactly the native account ID selected by the server binding. IBKR balances contain only per-currency `net_assets` (nullable); cash contains per-currency `cash_balance` with an allowed source tag. The receiver never invents total cash, and a null net asset is neither plotted nor treated as zero. Binding does not prove verified physical-account ownership or live authorization; all-account totals remain unavailable.
 
 The receiver accepts the same persisted LongBridge snapshot history body within its original 15-minute observation window; it does not backfill history. Latest and daily observations are transactional, with at most 366 UTC observation days retained. Missing dates/currencies remain gaps. Assets are not returns; missing external cash flows keep returns unavailable and unverified physical identity prevents all-account totals. The existing runtime-daily view separately uses the `America/New_York` business date. The UI uses concise fallback states; implementation details remain in operational evidence.
+
+### Fixed daily-runtime targets
+
+The existing `/api/runtime-daily/sync` receiver supports only LongBridge
+`longbridge-quant-paper-service|russell_top50_leader_rotation|paper` and Schwab
+`charles-schwab-quant-service|soxl_soxx_trend_income|live`. The deployment flag
+`RUNTIME_DAILY_READ_MODEL_ENABLED` must be exactly `true`. POST still requires
+only the existing dedicated `EXECUTION_EVIDENCE_SYNC_TOKEN`; account-facts,
+dispatch and session credentials are not fallbacks. GET requires an allowed login.
+
+New reads explicitly supply `date`, `platform` and `account_key`. Legacy date-only
+GET always means LongBridge PAPER; it never chooses the first account or falls
+back to Schwab. Repeated or incomplete selectors are rejected. Only protected
+server configuration attributes an account. Schwab additionally requires a unique,
+exact match to the existing `account_facts_bindings` across all identity fields.
+Missing scope or an absent/mismatched binding remains unresolved. The existing
+authenticated `/api/config` adds a redacted `runtimeDailyBindings` status summary.
+
+The existing target/day KV key and retention policy are retained. LongBridge keeps
+its original stored projection. Schwab adds a server-generated private binding
+fingerprint in the same stored entry so later account/source changes cannot
+reattribute history. This cache is not an atomic ledger or exactly-once delivery.
+The page keeps daily data, loading and errors separate by platform/account/date;
+today's health reads remain independent of a selected historical day, and stale
+requests cannot update a different selection.
+
+LongBridge's exact seven-field evidence and unmatched-report protocol remain
+unchanged. Schwab uses nine evidence fields, adding `receipt_state` and
+`receipt_id`, and reason-only unmatched records. Missing/invalid receipts are not
+created or promoted. Public reads omit private receipt, URI and account-binding
+details, retaining only safe run-issue classifications. Limits remain 64 KiB,
+20 runs and 20 list entries; oversized input is rejected. Missing data is not a
+no-trade claim. Fills remain `not_connected`, empty records and null count.
+
+Source code and synthetic contract tests do not establish live Schwab connectivity.
+Before cutover, the caller must independently compare the original report's account
+hash and existing derived source-binding ID against protected expected identity,
+verify the authorized report prefix and schedule, and establish complete or explicitly
+incomplete read coverage. The existing lossy latest execution-evidence snapshot cannot
+reconstruct a daily feed; 100 recent reports do not prove complete-day coverage.
+Then verify a real POST ACK, authenticated GET, matching account card and a natural
+cycle. No new broker query is needed. Publication does not authorize new credentials,
+IAM grants, account bindings or production flag changes.

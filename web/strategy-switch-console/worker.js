@@ -1,6 +1,6 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
-import { RUNTIME_DAILY_TARGET, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
@@ -260,11 +260,7 @@ const BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Keeping this contract separate prevents a P1/P3 source from accidentally
 // turning into an execution or P6 authority source.
 const EXECUTION_EVIDENCE_SOURCE_PREFIX = "execution_evidence_source:";
-const RUNTIME_DAILY_SERVICE = RUNTIME_DAILY_TARGET.service;
-const RUNTIME_DAILY_STRATEGY = RUNTIME_DAILY_TARGET.strategy_profile;
-const RUNTIME_DAILY_ACCOUNT_SCOPE = RUNTIME_DAILY_TARGET.account_scope;
 const RUNTIME_DAILY_TIMEZONE = "America/New_York";
-const RUNTIME_DAILY_TARGET_KEY = `${RUNTIME_DAILY_SERVICE}|${RUNTIME_DAILY_STRATEGY}|${RUNTIME_DAILY_ACCOUNT_SCOPE}`;
 const RUNTIME_DAILY_KEY_PREFIX = "runtime_daily:";
 const RUNTIME_DAILY_MAX_BODY_BYTES = 64 * 1024;
 const RUNTIME_DAILY_MAX_RUNS = 20;
@@ -5022,6 +5018,7 @@ async function configPayload(request, env, ctx) {
 
   return {
     accountOptions: accountConfig.options,
+    runtimeDailyBindings: runtimeDailyReadModelEnabled(env) ? await runtimeDailyPublicBindings(env, accountConfig.options) : [],
     platformRepositories: platformRepositories(env),
     platformMeta: meta,
     strategyProfiles,
@@ -7390,8 +7387,8 @@ function runtimeDailyDisabledResponse() {
   return json({ ok: false, error: "runtime_daily_disabled" }, 404);
 }
 
-function runtimeDailyKey(businessDate) {
-  return `${RUNTIME_DAILY_KEY_PREFIX}${RUNTIME_DAILY_TARGET_KEY}:${businessDate}`;
+function runtimeDailyKey(businessDate, target = RUNTIME_DAILY_TARGET) {
+  return `${RUNTIME_DAILY_KEY_PREFIX}${target.target_key}:${businessDate}`;
 }
 
 function runtimeDailyToday(now = Date.now()) {
@@ -7472,7 +7469,97 @@ function runtimeDailyScheduleInstants(schedule, observedMs) {
   if (latest !== null && grace !== null && grace < latest) runtimeDailyReject("invalid_runtime_daily_time");
 }
 
-function normalizeRuntimeDailyRun(run, observedMs) {
+// These additional constraints describe only the merged Schwab projector. The
+// original LongBridge key sets, time tolerance and receipt protocol stay intact.
+function validateSchwabRuntimeDailyRun(run, observedMs, started, finished) {
+  const evidence = run.evidence;
+  const confirmations = {
+    not_due: ["not_applicable"], no_action: ["not_applicable"], no_signal: ["not_applicable"], no_rebalance: ["not_applicable"],
+    risk_blocked: ["not_applicable"], submitted: ["not_observed"], broker_acknowledged: ["acknowledged"],
+    partially_filled: ["partially_filled"], filled: ["filled"], reconciliation_required: ["reconciliation_required"],
+    failed: ["not_applicable", "not_observed", "reconciliation_required"],
+  };
+  if ((run.run_id !== null && !/^run\.[0-9a-f]{32}$/.test(run.run_id))
+    || run.source_object !== null || run.source_objects.length !== 0 || run.object_updated_at !== null
+    || run.execution_lane === "paper" || run.run_time_known !== (started !== null || finished !== null)) runtimeDailyReject("invalid_runtime_daily_run");
+  if ((started !== null && started > observedMs) || (finished !== null && finished > observedMs)) runtimeDailyReject("invalid_runtime_daily_time");
+  if (run.report_status !== null && !["ok", "skipped", "success", "completed", "no_action", "error", "failed", "failure", "cancelled", "canceled", "timed_out"].includes(run.report_status)) runtimeDailyReject("invalid_runtime_daily_run");
+  if (evidence.execution_status !== null && !["no_op", "no_action", "no_signal", "no_rebalance", "skipped", "outside_market_hours", "submitted", "pending_reconciliation", "reconciliation_required", "unknown", "unknown_order", "blocked", "risk_blocked", "error", "failed", "failure", "dry_run", "previewed", "partial", "partially_filled", "filled", "completed"].includes(evidence.execution_status)) runtimeDailyReject("invalid_runtime_daily_run");
+  if (!runtimeDailyChoice(evidence.receipt_state, ["valid", "missing", "invalid"])) runtimeDailyReject("invalid_runtime_daily_run");
+  if (evidence.receipt_state === "valid") {
+    if (typeof evidence.receipt_id !== "string" || !/^execution-receipt\.[0-9a-f]{32}$/.test(evidence.receipt_id)
+      || started === null || finished === null
+      || !Object.prototype.hasOwnProperty.call(confirmations, evidence.receipt_outcome)
+      || !confirmations[evidence.receipt_outcome].includes(evidence.receipt_broker_confirmation)) runtimeDailyReject("invalid_runtime_daily_run");
+  } else if (evidence.receipt_id !== null || evidence.receipt_outcome !== null || evidence.receipt_broker_confirmation !== null) runtimeDailyReject("invalid_runtime_daily_run");
+  const completedReceipt = { no_submission: "no_action", no_signal: "no_signal", no_rebalance: "no_rebalance", filled: "filled" };
+  if (Object.prototype.hasOwnProperty.call(completedReceipt, run.activity)
+    && (evidence.receipt_state !== "valid" || evidence.receipt_outcome !== completedReceipt[run.activity]
+      || !["ok", "skipped", "success", "completed", "no_action"].includes(run.report_status)
+      || run.execution_lane !== "live" || runtimeDailyRunIssue(run) !== null)) runtimeDailyReject("runtime_daily_summary_conflict");
+  if (["no_submission", "no_signal", "no_rebalance"].includes(run.activity)
+    && (evidence.broker_submission_done !== false || evidence.action_done === true || evidence.orders_pending_count !== 0
+      || (evidence.execution_status !== null && !["no_op", "no_action", "no_signal", "no_rebalance", "skipped", "outside_market_hours", "completed"].includes(evidence.execution_status)))) runtimeDailyReject("runtime_daily_summary_conflict");
+}
+
+function validateSchwabRuntimeDailySummary(raw, record, runs, observedMs) {
+  if (raw.completeness !== (record.completeness === "complete" ? "complete" : "incomplete")) runtimeDailyReject("runtime_daily_summary_conflict");
+  const runSignatures = new Map();
+  for (const run of runs) {
+    if (run.run_id === null) continue;
+    const signature = canonicalResearchTaskJson(run);
+    const previous = runSignatures.get(run.run_id);
+    if (previous !== undefined && previous !== signature && !record.conflicts.includes(run.run_id)) runtimeDailyReject("runtime_daily_summary_conflict");
+    runSignatures.set(run.run_id, signature);
+  }
+  const incomplete = raw.read_errors.length > 0 || record.conflicts.length > 0 || record.schedule.state === "unevaluable"
+    || record.excluded_reports.some(item => item.reason !== "other_business_date")
+    || runs.some(run => run.run_id === null || run.evidence.receipt_state !== "valid" || !run.run_time_known);
+  if (record.completeness === "complete" && incomplete) runtimeDailyReject("runtime_daily_summary_conflict");
+  // A run that only finishes after the due time cannot prove that due cycle.
+  // This is a receiver invariant of the existing producer, not a new scheduler.
+  const latest = runtimeDailyInstant(record.schedule.latest_due_at);
+  const covering = latest === null ? [] : runs.filter(run => {
+    const started = runtimeDailyInstant(run.started_at), finished = runtimeDailyInstant(run.finished_at);
+    return started !== null && finished !== null && started >= latest && finished <= observedMs
+      && runtimeDailyToday(started) === record.business_date;
+  });
+  const quiet = ["no_submission", "no_signal", "no_rebalance"];
+  if ([...quiet, "filled", ...RUNTIME_DAILY_SCHEDULE_ONLY].includes(record.status)
+    && record.completeness !== "complete") runtimeDailyReject("runtime_daily_summary_conflict");
+  if ([...quiet, "filled"].includes(record.status)) {
+    if (record.kind !== "run" || covering.length === 0 || covering.some(run => run.execution_lane !== "live")) runtimeDailyReject("runtime_daily_summary_conflict");
+    if (quiet.includes(record.status) && (!['due', 'within_grace'].includes(record.schedule.state)
+      || covering.some(run => run.activity !== record.status))) runtimeDailyReject("runtime_daily_summary_conflict");
+    if (record.status === "filled" && !covering.some(run => run.activity === "filled")) runtimeDailyReject("runtime_daily_summary_conflict");
+  }
+  if (RUNTIME_DAILY_SCHEDULE_ONLY.includes(record.status)
+    && (record.kind !== "schedule" || record.schedule.state !== record.status || covering.length > 0)) runtimeDailyReject("runtime_daily_summary_conflict");
+}
+
+function validateSchwabRuntimeDailySchedule(schedule, observedMs) {
+  const { state, reason, publication_grace_ended: ended, expected_window: window } = schedule;
+  const latest = schedule.latest_due_at === null ? null : runtimeDailyInstant(schedule.latest_due_at);
+  const next = schedule.next_due_at === null ? null : runtimeDailyInstant(schedule.next_due_at);
+  const grace = schedule.grace_ends_at === null ? null : runtimeDailyInstant(schedule.grace_ends_at);
+  const reasons = { due: ["publication_grace_ended"], within_grace: ["publication_grace_open"],
+    not_due: ["before_schedule", "no_cron_on_business_date"], market_closed: ["market_closed"],
+    outside_window: ["outside_expected_window"], unevaluable: ["schedule_missing", "schedule_invalid"] };
+  if (!reasons[state]?.includes(reason)
+    || (latest !== null && (latest > observedMs || runtimeDailyToday(latest) !== schedule.business_date))
+    || (next !== null && (next <= observedMs || runtimeDailyToday(next) !== schedule.business_date))) runtimeDailyReject("invalid_runtime_daily_projection");
+  let valid;
+  if (state === "unevaluable") valid = latest === null && next === null && grace === null && ended === null && window === "unspecified";
+  else if (state === "due" || state === "within_grace") valid = latest !== null && grace !== null && next === null && window !== "outside"
+    && (state === "due" ? ended === true && grace <= observedMs : ended === false && grace > observedMs);
+  else if (state === "not_due") valid = latest === null && grace === null && ended === null && window !== "outside"
+    && ((reason === "before_schedule") === (next !== null));
+  else if (state === "market_closed") valid = latest !== null && grace === null && ended === null;
+  else valid = window === "outside" && ended === null && ((latest === null) === (grace === null)) && !(grace !== null && next !== null);
+  if (!valid) runtimeDailyReject("invalid_runtime_daily_projection");
+}
+
+function normalizeRuntimeDailyRun(run, observedMs, target) {
   if (!runtimeDailyExactKeys(run, [
     "run_id", "source_object", "source_objects", "started_at", "finished_at", "object_updated_at",
     "report_status", "execution_lane", "activity", "run_time_known", "evidence",
@@ -7491,10 +7578,12 @@ function normalizeRuntimeDailyRun(run, observedMs) {
     runtimeDailyReject("invalid_runtime_daily_run");
   }
   if (typeof run.run_time_known !== "boolean") runtimeDailyReject("invalid_runtime_daily_run");
-  if (!runtimeDailyExactKeys(run.evidence, [
+  const evidenceKeys = [
     "execution_status", "broker_submission_done", "action_done", "orders_pending_count", "errors_present",
     "receipt_outcome", "receipt_broker_confirmation",
-  ])) runtimeDailyReject("invalid_runtime_daily_run");
+  ];
+  if (target.platform === "schwab") evidenceKeys.push("receipt_state", "receipt_id");
+  if (!runtimeDailyExactKeys(run.evidence, evidenceKeys)) runtimeDailyReject("invalid_runtime_daily_run");
   const evidence = run.evidence;
   if (evidence.execution_status !== null && !runtimeDailyBoundedText(evidence.execution_status, 64)) runtimeDailyReject("invalid_runtime_daily_run");
   for (const field of ["broker_submission_done", "action_done"]) {
@@ -7507,6 +7596,7 @@ function normalizeRuntimeDailyRun(run, observedMs) {
   for (const field of ["receipt_outcome", "receipt_broker_confirmation"]) {
     if (evidence[field] !== null && !runtimeDailyBoundedText(evidence[field], 64)) runtimeDailyReject("invalid_runtime_daily_run");
   }
+  if (target.platform === "schwab") validateSchwabRuntimeDailyRun(run, observedMs, started, finished);
   return {
     run_id: run.run_id,
     source_object: run.source_object,
@@ -7526,7 +7616,8 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
   if (!runtimeDailyExactKeys(raw, ["platform", "observed_at", "completeness", "read_errors", "records", "unmatched_reports"])) {
     runtimeDailyReject("invalid_runtime_daily_projection");
   }
-  if (raw.platform !== "longbridge" || !runtimeDailyChoice(raw.completeness, ["complete", "incomplete"])) {
+  const target = runtimeDailyTarget(raw.platform);
+  if (!target || !runtimeDailyChoice(raw.completeness, ["complete", "incomplete"])) {
     runtimeDailyReject("invalid_runtime_daily_projection");
   }
   const observedMs = runtimeDailyInstant(raw.observed_at);
@@ -7544,15 +7635,16 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
     "platform", "target_key", "target", "business_date", "timezone", "observed_at", "status", "kind",
     "completeness", "execution_lane", "schedule", "runs", "excluded_reports", "conflicts", "fills",
   ])) runtimeDailyReject("invalid_runtime_daily_projection");
-  if (record.platform !== "longbridge" || record.target_key !== RUNTIME_DAILY_TARGET_KEY || record.timezone !== RUNTIME_DAILY_TIMEZONE) {
+  if (record.platform !== target.platform || record.target_key !== target.target_key || record.timezone !== RUNTIME_DAILY_TIMEZONE) {
     runtimeDailyReject(record.timezone === RUNTIME_DAILY_TIMEZONE ? "invalid_runtime_daily_target" : "invalid_runtime_daily_timezone");
   }
   if (!runtimeDailyExactKeys(record.target, ["service", "strategy_profile", "account_scope"])) runtimeDailyReject("invalid_runtime_daily_target");
-  if (record.target.service !== RUNTIME_DAILY_SERVICE || record.target.strategy_profile !== RUNTIME_DAILY_STRATEGY || record.target.account_scope !== RUNTIME_DAILY_ACCOUNT_SCOPE) {
+  if (record.target.service !== target.service || record.target.strategy_profile !== target.strategy_profile || record.target.account_scope !== target.account_scope) {
     runtimeDailyReject("invalid_runtime_daily_target");
   }
   const businessDate = runtimeDailyCalendarDate(record.business_date);
   if (!businessDate || businessDate > runtimeDailyToday(now)) runtimeDailyReject("invalid_runtime_daily_date");
+  if (target.platform === "schwab" && businessDate > runtimeDailyToday(observedMs)) runtimeDailyReject("invalid_runtime_daily_date");
   if (record.observed_at !== raw.observed_at) runtimeDailyReject("invalid_runtime_daily_time");
   if (!runtimeDailyChoice(record.status, RUNTIME_DAILY_STATUSES) || !runtimeDailyChoice(record.kind, RUNTIME_DAILY_KINDS)) {
     runtimeDailyReject("invalid_runtime_daily_projection");
@@ -7576,8 +7668,9 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
     runtimeDailyReject("invalid_runtime_daily_projection");
   }
   if (schedule.reason !== null && !runtimeDailyBoundedText(schedule.reason, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
+  if (target.platform === "schwab") validateSchwabRuntimeDailySchedule(schedule, observedMs);
   if (!Array.isArray(record.runs) || record.runs.length > RUNTIME_DAILY_MAX_RUNS) runtimeDailyReject("runtime_daily_run_limit");
-  const runs = record.runs.map((run) => normalizeRuntimeDailyRun(run, observedMs));
+  const runs = record.runs.map((run) => normalizeRuntimeDailyRun(run, observedMs, target));
   if (!Array.isArray(record.excluded_reports) || record.excluded_reports.length > RUNTIME_DAILY_MAX_LIST) runtimeDailyReject("invalid_runtime_daily_projection");
   const excluded = record.excluded_reports.map((item) => {
     const keys = Object.keys(item || {});
@@ -7585,6 +7678,9 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
     if (!runtimeDailyExactKeys(item, allowed) || !runtimeDailyBoundedText(item.reason, 64)) runtimeDailyReject("invalid_runtime_daily_projection");
     if (item.run_id !== null && !runtimeDailyBoundedText(item.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
     if (allowed.length === 3 && runtimeDailyCalendarDate(item.business_date) === null) runtimeDailyReject("invalid_runtime_daily_date");
+    if (target.platform === "schwab" && (allowed.length !== 2
+      || !runtimeDailyChoice(item.reason, ["missing_run_time", "invalid_run_time", "inverted_run_time", "future_run_time", "other_business_date"])
+      || (item.run_id !== null && !/^run\.[0-9a-f]{32}$/.test(item.run_id)))) runtimeDailyReject("invalid_runtime_daily_projection");
     return allowed.length === 3
       ? { run_id: item.run_id, reason: item.reason, business_date: item.business_date }
       : { run_id: item.run_id, reason: item.reason };
@@ -7600,6 +7696,10 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
     runtimeDailyReject("invalid_runtime_daily_fills");
   }
   const unmatched = raw.unmatched_reports.map((item) => {
+    if (target.platform === "schwab") {
+      if (!runtimeDailyExactKeys(item, ["reason"]) || !runtimeDailyChoice(item.reason, ["invalid_report", "wrong_platform", "wrong_target", "invalid_source_object"])) runtimeDailyReject("invalid_runtime_daily_projection");
+      return { reason: item.reason };
+    }
     if (!runtimeDailyExactKeys(item, ["run_id", "platform", "service", "strategy_profile", "account_scope", "reason"])) {
       runtimeDailyReject("invalid_runtime_daily_projection");
     }
@@ -7609,14 +7709,22 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
     if (item.run_id !== null && !runtimeDailyBoundedText(item.run_id, 120)) runtimeDailyReject("invalid_runtime_daily_projection");
     return { ...item };
   });
+  if (target.platform === "schwab") {
+    if (raw.read_errors.some(item => !["report_read_error", "coverage_unconfirmed", "report_rejected"].includes(item))
+      || record.conflicts.some(item => !/^run\.[0-9a-f]{32}$/.test(item))
+      || record.execution_lane === "paper") runtimeDailyReject("invalid_runtime_daily_projection");
+    const lanes = new Set(runs.map(run => run.execution_lane));
+    if (record.execution_lane !== (lanes.size === 1 ? runs[0].execution_lane : "insufficient")) runtimeDailyReject("invalid_runtime_daily_projection");
+    validateSchwabRuntimeDailySummary(raw, record, runs, observedMs);
+  }
   return {
-    platform: "longbridge",
+    platform: target.platform,
     observed_at: raw.observed_at,
     completeness: raw.completeness,
     read_errors: [...raw.read_errors],
     records: [{
-      platform: "longbridge",
-      target_key: RUNTIME_DAILY_TARGET_KEY,
+      platform: target.platform,
+      target_key: target.target_key,
       target: { ...record.target },
       business_date: businessDate,
       timezone: RUNTIME_DAILY_TIMEZONE,
@@ -7635,14 +7743,43 @@ function normalizeRuntimeDailyProjection(raw, now = Date.now()) {
   };
 }
 
-async function runtimeDailyTrustedAccountKey(env) {
+async function runtimeDailyTrustedBinding(env, target, accountOptions = null) {
   let config;
   try {
-    config = await loadAccountOptionsConfig(env);
+    config = accountOptions ? { options: accountOptions } : await loadAccountOptionsConfig(env);
   } catch {
     return null;
   }
-  return runtimeDailyBoundAccountKey(config?.options);
+  const accountKey = runtimeDailyBoundAccountKey(config?.options, target.platform);
+  if (!accountKey) return null;
+  if (target.platform === "longbridge") return { accountKey, fingerprint: null };
+  // The payload never supplies this identity. Reuse the protected account-facts
+  // contract rather than inferring a physical account from service/live labels.
+  try {
+    const bindings = await loadAccountFactsBindings(env);
+    const matches = (bindings?.bindings || []).filter(item => item.platform === target.platform
+      && item.service_name === target.service && item.account_scope === target.account_scope);
+    const option = config.options.schwab.find(item => item.key === accountKey);
+    if (matches.length !== 1 || !accountFactsOptionMatchesBinding(option, matches[0])) return null;
+    return { accountKey, fingerprint: await sha256Hex(canonicalResearchTaskJson({ target, binding: matches[0] })) };
+  } catch {
+    return null;
+  }
+}
+
+async function runtimeDailyPublicBindings(env, accountOptions) {
+  return Promise.all(Object.values(RUNTIME_DAILY_TARGETS).map(async target => {
+    const binding = await runtimeDailyTrustedBinding(env, target, accountOptions);
+    return { platform: target.platform, target_key: target.target_key, account_key: binding?.accountKey || null,
+      status: binding ? "bound" : "unresolved" };
+  }));
+}
+
+function runtimeDailyStoredProjection(raw, target, binding) {
+  if (target.platform === "longbridge") return raw;
+  if (!runtimeDailyExactKeys(raw, ["binding_fingerprint", "projection"])) throw new HttpError("runtime_daily_record_invalid", 503);
+  if (raw.binding_fingerprint !== binding.fingerprint) throw new HttpError("runtime_daily_binding_changed", 409);
+  return raw.projection;
 }
 
 function runtimeDailyUnattributedResponse() {
@@ -7679,6 +7816,7 @@ function runtimeDailyPublicRecord(record) {
       activity: run.activity,
       execution_lane: run.execution_lane,
       errors_present: run.evidence.errors_present,
+      ...(record.platform === "schwab" ? { issue: runtimeDailyRunIssue(run) } : {}),
     })),
     conflict_count: record.conflicts.length,
     excluded_count: record.excluded_reports.length,
@@ -7707,8 +7845,6 @@ async function syncRuntimeDailyResponse(request, env) {
   if (!runtimeDailyReadModelEnabled(env)) return runtimeDailyDisabledResponse();
   requireDedicatedExecutionEvidenceSyncToken(request, env);
   if (!hasConfigStore(env)) return json({ ok: false, error: "runtime daily KV is not configured" }, 503);
-  const accountKey = await runtimeDailyTrustedAccountKey(env);
-  if (!accountKey) return runtimeDailyUnattributedResponse();
   let raw;
   try {
     raw = await readBoundedJson(request, RUNTIME_DAILY_MAX_BODY_BYTES);
@@ -7716,20 +7852,26 @@ async function syncRuntimeDailyResponse(request, env) {
     return json({ ok: false, error: error.message || "invalid_runtime_daily_projection" }, error.status || 400);
   }
   const projection = normalizeRuntimeDailyProjection(raw);
+  const target = runtimeDailyTarget(projection.platform);
+  const binding = await runtimeDailyTrustedBinding(env, target);
+  if (!binding) return runtimeDailyUnattributedResponse();
+  const accountKey = binding.accountKey;
   const businessDate = projection.records[0].business_date;
   const store = configStore(env);
-  const key = runtimeDailyKey(businessDate);
+  const key = runtimeDailyKey(businessDate, target);
   const storedText = await store.get(key);
   if (storedText !== null && storedText !== undefined) {
     let storedRaw;
     let storedProjection;
     try {
       storedRaw = JSON.parse(storedText);
-      storedProjection = normalizeRuntimeDailyProjection(storedRaw);
-    } catch {
+      storedProjection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(storedRaw, target, binding));
+    } catch (error) {
+      if (error.message === "runtime_daily_binding_changed") return json({ ok: false, error: error.message }, 409);
       return json({ ok: false, error: "runtime_daily_existing_record_invalid" }, 409);
     }
-    if (storedProjection.records[0].business_date !== businessDate) {
+    if (storedProjection.records[0].business_date !== businessDate || storedProjection.platform !== target.platform
+      || storedProjection.records[0].target_key !== target.target_key) {
       return json({ ok: false, error: "runtime_daily_existing_record_invalid" }, 409);
     }
     const storedObservedAt = runtimeDailyInstant(storedProjection.observed_at);
@@ -7746,19 +7888,22 @@ async function syncRuntimeDailyResponse(request, env) {
           ok: true,
           stored: true,
           business_date: businessDate,
-          target_key: RUNTIME_DAILY_TARGET_KEY,
+          platform: target.platform,
+          target_key: target.target_key,
           account_key: accountKey,
         });
       }
       return json({ ok: false, error: "runtime_daily_observation_conflict" }, 409);
     }
   }
-  await writeConfigJson(env, key, projection);
+  await writeConfigJson(env, key, target.platform === "schwab"
+    ? { binding_fingerprint: binding.fingerprint, projection } : projection);
   return json({
     ok: true,
     stored: true,
     business_date: businessDate,
-    target_key: RUNTIME_DAILY_TARGET_KEY,
+    platform: target.platform,
+    target_key: target.target_key,
     account_key: accountKey,
   });
 }
@@ -7768,13 +7913,21 @@ async function runtimeDailyResponse(request, env, url) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   if (!hasConfigStore(env)) return json({ ok: false, error: "runtime daily KV is not configured" }, 503);
+  const platforms = url.searchParams.getAll("platform");
+  const accounts = url.searchParams.getAll("account_key");
+  if (platforms.length > 1 || accounts.length > 1 || url.searchParams.getAll("date").length !== 1
+    || (platforms.length !== accounts.length)) return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
+  // Legacy date-only reads always mean PAPER, never the first configured target.
+  const target = platforms.length ? runtimeDailyTarget(platforms[0]) : RUNTIME_DAILY_TARGET;
+  if (!target || (accounts.length && !runtimeDailyBoundedText(accounts[0], 120))) return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
   const businessDate = runtimeDailyCalendarDate(url.searchParams.get("date"));
   if (!businessDate || businessDate > runtimeDailyToday()) return json({ ok: false, error: "invalid_runtime_daily_date" }, 400);
-  const accountKey = await runtimeDailyTrustedAccountKey(env);
-  if (!accountKey) return runtimeDailyUnattributedResponse();
+  const binding = await runtimeDailyTrustedBinding(env, target);
+  if (!binding || (accounts.length && accounts[0] !== binding.accountKey)) return runtimeDailyUnattributedResponse();
+  const accountKey = binding.accountKey;
   let stored;
   try {
-    stored = await readConfigJson(env, runtimeDailyKey(businessDate));
+    stored = await readConfigJson(env, runtimeDailyKey(businessDate, target));
   } catch {
     return json({ ok: false, error: "runtime_daily_read_failed" }, 503);
   }
@@ -7783,17 +7936,21 @@ async function runtimeDailyResponse(request, env, url) {
     date: businessDate,
     timezone: RUNTIME_DAILY_TIMEZONE,
     account_key: accountKey,
+    platform: target.platform,
+    target_key: target.target_key,
   };
   if (stored === null || stored === undefined) {
     return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
   }
   let projection;
   try {
-    projection = normalizeRuntimeDailyProjection(stored);
-  } catch {
+    projection = normalizeRuntimeDailyProjection(runtimeDailyStoredProjection(stored, target, binding));
+  } catch (error) {
+    if (error.message === "runtime_daily_binding_changed") return json({ ok: false, error: error.message }, 409);
     return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
   }
-  if (projection.records[0].business_date !== businessDate) {
+  if (projection.records[0].business_date !== businessDate || projection.platform !== target.platform
+    || projection.records[0].target_key !== target.target_key) {
     return json({ ok: false, error: "runtime_daily_record_invalid" }, 503);
   }
   return json({ ...base, ...runtimeDailyReadStatus(projection, Date.now()) });

@@ -74,6 +74,7 @@ export type PromotionSuggestion = {
 };
 export type ConfigPayload = {
   accountOptions?: Record<string, AccountOption[]> | null;
+  runtimeDailyBindings?: Array<{ platform: string; target_key: string; account_key: string | null; status: "bound" | "unresolved" }>;
   platformMeta?: Record<string, { label?: string; console_visible?: boolean; [key: string]: unknown }>;
   currentStrategies?: Record<string, Record<string, CurrentStrategy>>;
   strategyProfiles?: StrategyProfile[];
@@ -241,12 +242,14 @@ export async function loadBinanceWalletHistory(accountKey: string): Promise<Bina
   return getJson<BinanceWalletHistorySnapshot>(`/api/binance-account-facts/history?account_key=${encodeURIComponent(accountKey)}`);
 }
 
-export function runtimeDailyPath(date: string): string {
-  return `/api/runtime-daily?date=${encodeURIComponent(date)}`;
+export function runtimeDailyPath(date: string, platform?: string, accountKey?: string): string {
+  const path = `/api/runtime-daily?date=${encodeURIComponent(date)}`;
+  return platform === undefined && accountKey === undefined ? path
+    : `${path}&platform=${encodeURIComponent(platform || "")}&account_key=${encodeURIComponent(accountKey || "")}`;
 }
 
-export async function loadRuntimeDaily(date: string): Promise<RuntimeDailySnapshot> {
-  return getJson<RuntimeDailySnapshot>(runtimeDailyPath(date));
+export async function loadRuntimeDaily(date: string, platform?: string, accountKey?: string): Promise<RuntimeDailySnapshot> {
+  return getJson<RuntimeDailySnapshot>(runtimeDailyPath(date, platform, accountKey));
 }
 
 export async function loadAdminModel(): Promise<AdminModel> {

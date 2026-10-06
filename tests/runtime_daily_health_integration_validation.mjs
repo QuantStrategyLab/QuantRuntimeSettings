@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 import { overviewRuntimeHealth, presentRuntimeDaily, runtimeBusinessDate, runtimeDailySelectionEligible, runtimeDailySelectionBinding } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { RUNTIME_DAILY_TARGET } from "../web/strategy-switch-console/runtime_daily_contract.js";
@@ -185,4 +186,187 @@ try {
 } finally {
   Date.now = realNow;
   globalThis.fetch = realFetch;
+}
+
+// Exact outputs from the merged pure Schwab producer. These synthetic fixtures
+// establish contract compatibility, never real account or source connectivity.
+{
+  const fixture = JSON.parse(readFileSync(new URL("./fixtures/schwab_runtime_daily.synthetic.json", import.meta.url), "utf8"));
+  assert.equal(fixture.fixture_kind, "synthetic_only");
+  assert.equal(fixture.producer_commit, "c670a4aa748cbd8d8089c2b5b53107fcdf0710f4");
+  const beforeNow = Date.now;
+  const beforeFetch = globalThis.fetch;
+  let schwabNow = Date.parse(fixture.receiver_test_clock);
+  Date.now = () => schwabNow;
+  globalThis.fetch = async () => { throw new Error("External request forbidden in Schwab daily integration"); };
+  const schwab = { key: "synthetic-schwab", label: "Synthetic Schwab", target_name: "synthetic-schwab",
+    service_name: "charles-schwab-quant-service", account_scope: "live", account_selector: "live", deployment_selector: "synthetic-schwab" };
+  const protectedBinding = { platform: "schwab", account_key: schwab.key, account_scope: "live",
+    target_name: schwab.target_name, service_name: schwab.service_name, deployment_selector: schwab.deployment_selector,
+    account_selector: schwab.account_selector, target_id: "synthetic-schwab", broker_account_hash: "synthetic-broker-hash",
+    source_binding: { kind: "deployment_runtime_account", id: "a".repeat(64) } };
+  const localStore = new Map([
+    ["account_options", JSON.stringify({ longbridge: [paper], schwab: [schwab] })],
+    ["account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [protectedBinding] })],
+  ]);
+  const localEnv = { ...env, STRATEGY_SWITCH_CONFIG: {
+    async get(key) { return localStore.get(key) ?? null; }, async put(key, value) { localStore.set(key, value); },
+  } };
+  const sourceBody = fixture.cases[0].projection;
+  const sourceKey = `runtime_daily:${sourceBody.records[0].target_key}:2026-10-06`;
+  const saveBinding = (bindings = [protectedBinding]) => localStore.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings }));
+  const saveOptions = (items = [schwab]) => localStore.set("account_options", JSON.stringify({ longbridge: [paper], schwab: items }));
+  const send = (body, token = "synthetic-daily-sync") => worker.fetch(new Request("https://synthetic.example/api/runtime-daily/sync", {
+    method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify(body),
+  }), localEnv);
+  const session = await __test.makeSession("synthetic-reader", [], localEnv);
+  const readPath = path => worker.fetch(new Request(`https://synthetic.example${path}`, { headers: { Cookie: `qsl_switch_session=${session}` } }), localEnv);
+  const readDaily = (platform = "schwab", accountKey = schwab.key) => readPath(`/api/runtime-daily?date=2026-10-06&platform=${platform}&account_key=${accountKey}`);
+  const bindingSummary = [{ platform: "schwab", target_key: sourceBody.records[0].target_key, account_key: schwab.key, status: "bound" }];
+  const selection = { platform: "schwab", accountKey: schwab.key,
+    dailyBinding: runtimeDailySelectionBinding({ schwab: [schwab] }, "schwab", schwab.key, bindingSummary) };
+  const schwabRuntime = () => ({
+    observed_at: new Date(schwabNow - 1000).toISOString(), evidence_valid_for_seconds: 300,
+    freshness: { data_status: "ready" }, deployment_freshness: { data_status: "ready" },
+    account_state: { activation: "enabled", health: "normal" },
+    target: { target: { platform: "schwab", configured_state: "enabled" },
+      monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" }, disposition: { code: "continue_enabled_monitoring" },
+      deployment: { observed_at: new Date(schwabNow - 1000).toISOString(), runtime_enabled: true, scheduler_state: "enabled" } },
+  });
+  const healthFor = snapshot => overviewRuntimeHealth(schwabRuntime(), snapshot, selection, false, schwabNow);
+  let assertions = 0;
+  try {
+    assert.equal(selection.dailyBinding, "bound");
+    assert.equal(runtimeDailySelectionBinding({ schwab: [schwab] }, "schwab", schwab.key), "unresolved", "the client cannot infer protected binding from service/scope");
+    assert.equal(runtimeDailySelectionBinding({ schwab: [{ ...schwab, account_scope: undefined }] }, "schwab", schwab.key, bindingSummary), "unresolved");
+    assert.equal(runtimeDailySelectionBinding({ schwab: [{ ...schwab, account_scope: undefined }] }, "schwab", schwab.key), "unresolved");
+    assert.equal(overviewRuntimeHealth(schwabRuntime(), null, { ...selection, dailyBinding: "unresolved" }, false, schwabNow).label, "异常");
+    for (const item of fixture.cases) {
+      localStore.delete(sourceKey);
+      const response = await send(item.projection);
+      assert.equal(response.status, 200, `${item.name}: merged producer output must be accepted with protected unique binding`);
+      const ack = await response.json();
+      assert.equal(ack.platform, "schwab"); assert.equal(ack.account_key, schwab.key);
+      assert.equal(ack.target_key, sourceBody.records[0].target_key);
+      const stored = JSON.parse(localStore.get(sourceKey));
+      assert.match(stored.binding_fingerprint, /^[a-f0-9]{64}$/);
+      assert.deepEqual(stored.projection, item.projection, "the safe producer evidence is retained without rewriting");
+      const read = await readDaily(); assert.equal(read.status, 200);
+      const snapshot = await read.json();
+      assert.equal(snapshot.record.status, item.projection.records[0].status);
+      assert.equal(snapshot.unmatched_count, item.projection.unmatched_reports.length);
+      assert.deepEqual(snapshot.fills, { source: "not_connected", records: [], count: null });
+      for (const forbidden of ["gs://", "receipt_id", "receipt_state", "broker_account_hash", "binding_fingerprint", "source_binding", "synthetic-broker-hash"]) {
+        assert.equal(JSON.stringify(snapshot).includes(forbidden), false, `public read cannot expose ${forbidden}`);
+      }
+      assert.equal(presentRuntimeDaily(snapshot, selection, "2026-10-06").accountMatched, true);
+      assert.equal(healthFor(snapshot).label, ["due_no_signal", "not_due"].includes(item.name) ? "健康" : "异常", item.name);
+      if (item.name === "filled_and_submitted") assert.equal(presentRuntimeDaily(snapshot, selection).statusLabel, "已提交");
+      if (item.name === "failed_receipt") assert.equal(presentRuntimeDaily(snapshot, selection).statusLabel, "异常");
+      assert.equal((await send(item.projection)).status, 200, "same observation and exact content is idempotent");
+      assertions++;
+    }
+    for (const token of ["", "synthetic-account-facts", "synthetic-dispatch"]) assert.equal((await send(sourceBody, token)).status, 401);
+    for (const query of ["&platform=schwab", "&account_key=synthetic-schwab", "&platform=unknown&account_key=synthetic-schwab", "&platform=schwab&platform=longbridge&account_key=synthetic-schwab", "&platform=schwab&account_key=synthetic-schwab&account_key=other", "&date=2026-10-05&platform=schwab&account_key=synthetic-schwab"]) {
+      assert.equal((await readPath(`/api/runtime-daily?date=2026-10-06${query}`)).status, 400, query);
+    }
+    assert.equal((await readDaily("schwab", paper.key)).status, 409);
+    assert.equal((await readDaily("longbridge", schwab.key)).status, 409);
+    const legacy = await (await readPath("/api/runtime-daily?date=2026-10-06")).json();
+    assert.equal(legacy.platform, "longbridge"); assert.equal(legacy.account_key, paper.key);
+    assert.equal(legacy.record, null, "legacy date-only lookup never falls back to Schwab");
+    for (const bindings of [[], [{ ...protectedBinding, account_key: "other" }], [protectedBinding, { ...protectedBinding, account_key: "other", target_id: "other", source_binding: { ...protectedBinding.source_binding, id: "b".repeat(64) } }]]) {
+      saveBinding(bindings);
+      assert.equal((await send(sourceBody)).status, 409); assert.equal((await readDaily()).status, 409);
+    }
+    localStore.set("account_facts_bindings", "malformed");
+    assert.equal((await readDaily()).status, 409);
+    const config = await readPath("/api/config"); assert.equal(config.status, 200, "bad daily binding cannot break account/strategy configuration");
+    assert.equal((await config.json()).runtimeDailyBindings.find(item => item.platform === "schwab").status, "unresolved");
+    saveBinding();
+    for (const items of [[{ ...schwab, account_scope: undefined }], [{ ...schwab, account_scope: "LIVE" }], [schwab, { ...schwab, key: "other", target_name: "other", deployment_selector: "other" }]]) {
+      saveOptions(items); assert.equal((await send(sourceBody)).status, 409); assert.equal((await readDaily()).status, 409);
+    }
+    saveOptions();
+    localStore.delete(sourceKey); assert.equal((await send(sourceBody)).status, 200);
+    for (const change of [
+      { broker_account_hash: "another-synthetic-hash" },
+      { source_binding: { ...protectedBinding.source_binding, id: "b".repeat(64) } },
+      { target_id: "another-synthetic-target" },
+    ]) {
+      saveBinding([{ ...protectedBinding, ...change }]);
+      const response = await readDaily(); assert.equal(response.status, 409);
+      assert.equal((await response.json()).error, "runtime_daily_binding_changed");
+      assert.equal((await send(sourceBody)).status, 409, "new binding cannot silently overwrite retained history");
+    }
+    saveBinding();
+    const retained = localStore.get(sourceKey);
+    const altered = structuredClone(sourceBody); altered.records[0].runs[0].run_id = `run.${"c".repeat(32)}`;
+    assert.equal((await send(altered)).status, 409, "equal-time different content conflicts");
+    assert.equal(localStore.get(sourceKey), retained);
+    const clean = await (await readDaily()).json();
+    const otherPlatform = structuredClone(clean); otherPlatform.platform = "longbridge";
+    assert.equal(presentRuntimeDaily(otherPlatform, selection).accountMatched, false);
+    assert.equal(healthFor(otherPlatform).label, "异常");
+    for (const [name, mutate] of [
+      ["caller account key", body => body.account_key = "forged"],
+      ["array platform alias", body => body.platform = ["schwab"]],
+      ["nested array platform alias", body => body.platform = [["schwab"]]],
+      ["object platform", body => body.platform = { platform: "schwab" }],
+      ["quiet broker submission", body => body.records[0].runs[0].evidence.broker_submission_done = true],
+      ["quiet action performed", body => body.records[0].runs[0].evidence.action_done = true],
+      ["quiet unknown pending count", body => body.records[0].runs[0].evidence.orders_pending_count = null],
+      ["quiet unknown report status", body => body.records[0].runs[0].report_status = null],
+      ["quiet execution filled", body => body.records[0].runs[0].evidence.execution_status = "filled"],
+      ["quiet summary with filled run", body => { const run = body.records[0].runs[0]; run.activity = "filled"; run.evidence.receipt_outcome = "filled"; run.evidence.receipt_broker_confirmation = "filled"; }],
+      ["complete missing run identity", body => body.records[0].runs[0].run_id = null],
+      ["complete invalid excluded report", body => body.records[0].excluded_reports = [{ run_id: null, reason: "future_run_time" }]],
+      ["inconsistent completeness", body => body.completeness = "incomplete"],
+      ["unreported duplicate conflict", body => body.records[0].runs.push({ ...structuredClone(body.records[0].runs[0]), finished_at: "2026-10-06T20:03:00Z" })],
+      ["no coverage of latest due", body => body.records[0].runs[0].started_at = "2026-10-06T19:59:00Z"],
+      ["prior-day start cannot cover today", body => body.records[0].runs[0].started_at = "2026-10-05T20:00:00Z"],
+
+      ["unknown evidence key", body => body.records[0].runs[0].evidence.unknown = false],
+      ["missing receipt terminal", body => Object.assign(body.records[0].runs[0].evidence, { receipt_state: "missing", receipt_id: null, receipt_outcome: null, receipt_broker_confirmation: null })],
+      ["invalid receipt terminal", body => Object.assign(body.records[0].runs[0].evidence, { receipt_state: "invalid", receipt_id: null, receipt_outcome: null, receipt_broker_confirmation: null })],
+      ["receipt missing ID", body => body.records[0].runs[0].evidence.receipt_id = null],
+      ["receipt confirmation conflict", body => body.records[0].runs[0].evidence.receipt_broker_confirmation = "reconciliation_required"],
+      ["receipt wrong quiet outcome", body => body.records[0].runs[0].evidence.receipt_outcome = "no_rebalance"],
+      ["pending reconciliation", body => body.records[0].runs[0].evidence.execution_status = "pending_reconciliation"],
+      ["risk blocked", body => body.records[0].runs[0].evidence.execution_status = "risk_blocked"],
+      ["failure alias", body => body.records[0].runs[0].evidence.execution_status = "failure"],
+      ["raw source URI", body => body.records[0].runs[0].source_object = "gs://synthetic/no-source-leak.json"],
+      ["raw run ID", body => body.records[0].runs[0].run_id = "synthetic-raw-id"],
+      ["future relative to observation", body => body.records[0].runs[0].finished_at = "2026-10-06T21:04:00Z"],
+      ["wrong schedule reason", body => body.records[0].schedule.reason = "before_schedule"],
+      ["wrong schedule date", body => body.records[0].schedule.latest_due_at = "2026-10-05T20:00:00Z"],
+      ["future due relative to observation", body => body.records[0].schedule.latest_due_at = "2026-10-06T21:01:00Z"],
+      ["wrong target", body => body.records[0].target.account_scope = "paper"],
+      ["LB unmatched identity", body => body.unmatched_reports = [{ reason: "wrong_target", account_scope: "live" }]],
+      ["raw read error", body => body.read_errors = ["arbitrary error"]],
+      ["fake fill zero", body => body.records[0].fills.count = 0],
+      ["too many runs", body => body.records[0].runs = Array.from({ length: 21 }, () => body.records[0].runs[0])],
+      ["too many unmatched", body => body.unmatched_reports = Array.from({ length: 21 }, () => ({ reason: "wrong_target" }))],
+    ]) {
+      const body = structuredClone(sourceBody); mutate(body);
+      schwabNow = Date.parse("2026-10-06T21:05:00Z");
+      const response = await send(body); assert.equal(response.status, 400, name);
+      assert.equal(localStore.get(sourceKey), retained, `${name}: invalid input makes no write`);
+      assertions++;
+    }
+    schwabNow = Date.parse(fixture.receiver_test_clock);
+    for (const [executionStatus, issue] of [["pending_reconciliation", "unconfirmed"], ["risk_blocked", "failure"], ["failure", "failure"]]) {
+      const body = structuredClone(sourceBody); body.records[0].status = executionStatus === "pending_reconciliation" ? "reconciliation_required" : "failed";
+      body.records[0].runs[0].activity = body.records[0].status;
+      body.records[0].runs[0].evidence.execution_status = executionStatus;
+      localStore.delete(sourceKey); assert.equal((await send(body)).status, 200);
+      const snapshot = await (await readDaily()).json();
+      assert.equal(snapshot.record.runs[0].issue, issue, "safe public issue survives removal of private evidence");
+      assert.equal(healthFor(snapshot).label, "异常");
+    }
+    console.log(`Schwab daily integration: PASS (${assertions} producer/negative cases plus auth, binding, drift, privacy, legacy isolation and public health)`);
+  } finally {
+    Date.now = beforeNow;
+    globalThis.fetch = beforeFetch;
+  }
 }
