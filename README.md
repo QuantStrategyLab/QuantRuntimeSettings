@@ -1,14 +1,5 @@
 # QuantRuntimeSettings
 
-
-## QSL architecture role
-
-- **Layer**: `ops/tooling`.
-- **Responsibility**: central runtime settings and compatibility control plane.
-- **Owns**: platform-config.json, compat bundles, dependency matrix, switch tooling.
-- **Consumes**: all runtime platforms and internal dependency consumers.
-- **Must not**: submit broker orders or replace strategy evidence gates.
-
 [Chinese README](README.zh-CN.md)
 
 > Investing involves risk. This project does not provide investment advice and is for education, research, and engineering review only.
@@ -18,6 +9,14 @@
 QuantRuntimeSettings is a QuantStrategyLab runtime settings package. It defines schemas and tooling for versioned runtime settings shared across QuantStrategyLab platforms.
 
 It supports the system but does not decide which strategy should be live. Strategy eligibility remains in the strategy and snapshot repositories; broker execution remains in the platform repositories.
+
+## QSL architecture role
+
+- **Layer**: `ops/tooling`.
+- **Responsibility**: central runtime settings and compatibility control plane.
+- **Owns**: platform-config.json, compat bundles, dependency matrix, switch tooling.
+- **Consumes**: all runtime platforms and internal dependency consumers.
+- **Must not**: submit broker orders or replace strategy evidence gates.
 
 ## Design boundary
 
