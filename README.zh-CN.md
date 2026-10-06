@@ -1,14 +1,5 @@
 # QuantRuntimeSettings
 
-
-## QSL 架构角色
-
-- **层级**：`运行配置控制面`。
-- **职责**：中央 runtime settings 与兼容性控制面。
-- **事实源/归属**：platform-config.json、compat bundles、dependency matrix、switch tooling。
-- **消费对象**：所有 runtime platforms 和内部依赖消费者。
-- **禁止事项**：提交券商订单或替代策略证据门禁。
-
 [English README](README.md)
 
 > 投资有风险。本项目不构成投资建议，仅用于学习、研究和工程审阅。
@@ -18,6 +9,14 @@
 QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategyLab 平台提供版本化运行配置 schema 和工具。
 
 它支撑系统运行，但不决定哪个策略应该 live。策略资格由策略仓和 snapshot 仓负责；券商执行由平台仓负责。
+
+## QSL 架构角色
+
+- **层级**：`运行配置控制面`。
+- **职责**：中央 runtime settings 与兼容性控制面。
+- **事实源/归属**：platform-config.json、compat bundles、dependency matrix、switch tooling。
+- **消费对象**：所有 runtime platforms 和内部依赖消费者。
+- **禁止事项**：提交券商订单或替代策略证据门禁。
 
 ## 设计边界
 
