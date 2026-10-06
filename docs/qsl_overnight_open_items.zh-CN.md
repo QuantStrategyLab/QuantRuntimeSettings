@@ -72,7 +72,7 @@
 
 | ID / 优先级 / 下一步类型 | 分层事实与剩余项 | 前置与完成证据 |
 | --- | --- | --- |
-| `UI-01` 高；本地候选已验证，待复审/线上与历史UI验收 | 设计：[27项中英映射与分轴](console_information_design.zh-CN.md)已列；本地实现：仅4对标签、统一现有选择/详情名称与折叠身份；定向回归、React SSR及构建通过。合并/部署：尚未；真实采用/业务：未验 | stable profile/candidate、冻结source/config与历史绑定不变；只有派生目录内容摘要随标签重算。缺role/lane/source保持未知。浏览器localhost被ERR_BLOCKED_BY_CLIENT阻止，实际点击/移动布局未验；V2历史研究UI当前缺失，本补丁不新增，保留为后续验收依赖 |
+| `UI-01` 高；已合并/自动部署，有限线上验收，未关闭 | [QRS #531](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/531) merge `da70d9e` 与复核tree一致；[main CI37452298421](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298421)三job及[原自动部署37452298369](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37452298369)成功。27项映射/4对标签与现有consumer统一展示已发布；既有线上会话核到资源文件名匹配、一个真实决策的身份默认折叠可展开、分轴及缺失字段Unknown | 详情见[有限验收记录](console_information_design.zh-CN.md)。JS直读被ERR_BLOCKED_BY_CLIENT后停止，未绕过；线上响应字节/hash、四标签全覆盖、中英切换、手机与真实V7记录未验。V2历史研究UI仍缺失，未新增。ID/冻结hash/权限不变，展示更新不代表实际策略采用 |
 | `UI-02` 高；展示核查可立即实施，真实账户能力等输入 | 设计/实现：QRS 与 LB registry 支持美股和港股；采用/业务：逐账户权限未核。香港实体不等于只能港股 | 可选项取平台×账户权限×策略域×标的×执行通道交集，记录来源/时间；实体、市场、币种、日历各自显示。真实账户权限、fractional/lot、paper/live差异有证据后才关闭 |
 | `UI-03` 中；等受限应用路径输入 | 实现：一般账户设置可保存 draft/risk，`apply_strategy/activation/adopted=false`；独立 profile-only 确认路径不等于本页面已消费。采用/业务：保存到实际应用未验 | 不把安全 false 当 UI bug。按现有授权接消费路径，分别验收草案、确认应用、runtime读回与业务周期；隔离测试不能触发实盘 |
 | `UI-04` 高；producer覆盖审计可立即实施 | 实现：最近90天日期控件；现有daily feed只绑定 LongBridge paper/Russell目标。采用/业务：不支持“全部账户90天已齐”的结论 | 逐目标列producer、账号绑定、市场时区/日历、保留、首末记录、缺口及原因。取得真实周期，区分no-order/dry-run/real；not_due与心跳不算。先补覆盖事实再决定最小consumer改动 |
@@ -90,7 +90,7 @@
 
 | ID / 优先级 / 下一步类型 | 分层事实与剩余项 | 前置与完成证据 |
 | --- | --- | --- |
-| `STRAT-01` 高；冻结索引本地已核，实际source/研究覆盖待验 | V7为actual3%cash-reserve的source-correctness候选，沿用V6预注册参数；本地中英标题区分现金保留、版本另轴。V5/V7/V9精确ID/config索引已列并经合成/SSR验证；R6仍是沿用V7信号的独立study。尚未合并/部署 | 冻结研究版本明确不代表实际部署；UES07b164d、QPKf30e7、config843ab4不变，材料source缺失不从索引补值。当前read model未提供study时保持未知；历史UI待补、真实材料待验。AI标签仍需对应trial/输入/模型/输出来源，版本号及AI扩展关闭均不能证明AI参与情况 |
+| `STRAT-01` 高；冻结索引已随QRS531合并/部署，真实覆盖待验，未关闭 | V7实际3%现金保留的source-correctness语义、V6预注册参数、V5/V7/V9精确ID/config索引与R6独立study分轴已实现并通过本地/SSR回归；工程发布证据同UI-01。线上只观察了一条真实决策的身份分列与Unknown，未验真实V7或其冻结版本区 | 冻结研究索引不代表实际部署source；UES07b164d、QPKf30e7、config843ab4不变，材料缺失不补猜。线上JS响应hash、真实V7/R6材料及历史UI覆盖仍未验；AI标签仍需对应trial/输入/模型/输出来源，版本号和AI扩展关闭都不能证明AI参与情况 |
 | `STRAT-02` 高；离线审查可立即实施，真实重算等合格输入 | 设计/实现：原双源P1/P3、R5与R6存在不同输入/会计边界；R6单源结构覆盖不等于原双源或历史PIT。原8月历史P3结果不能当今日重验 | 分轨核费用/滑点5/10/15bps、next-session成交、现金腿与half-L1换手、股息/FX适用性、已见窗口、锁定OOS、future/late-row不变及全部trial。保留负结果，真实重算需原授权/合格输入，不能移用另轨结论 |
 | `STRAT-03` 中；观察期/生产绑定待核 | 实现：V7 nonlive forward与9月11日252-session后固定金融评价/可选研究票据接线；实际开关、存储/运行身份、完整进度本轮未核 | 核每XNYS有效观察与缺口；252计数完成仍须5/10/15bps金融评价。模拟Paper不是券商paper，nonlive观察不是paired shadow；票据接受只是研究意图，无live权限。未完成窗口正常等待，不重置窗口/自动调参 |
 | `STRAT-04` 中；等共同合法真实输入 | 设计/实现：组合冻结、共同P1 binding与synthetic OOS已有；真实共同root/净成本OOS/组合证据未闭合 | 冻结成分revision、共同cutoff、权重/再平衡、费用、相关性与组合风险；单策略指标不能相加冒充组合。完整真实P3/所需后续证据到位才关闭；不顺带建立共账户allocator |
@@ -110,8 +110,8 @@
 | ID / 优先级 / 下一步类型 | 分层事实与剩余项 | 前置与完成证据 |
 | --- | --- | --- |
 | `AI-01` 中；已有诊断链持续观察 | 实现：AAB watcher有结构化诊断、幂等/额度/时间/Issue回执机制；诊断Issue不代表实验或修复完成。真实模型/部署闭环按现有finding合并，勿重复开项 | 核具体入口→绑定输入→有界模型→同Issue结果的实际证据；参数优化/行为等价重构/新alpha候选分别走原设计。诊断不会直接加风险、改live参或授live |
-| `AI-SOXL-CODEGEN-IDEMPOTENCY` 高；可立即实施最小离线修复 | 实现缺口：SOXL codegen存在跨dispatch/崩溃窗；执行后才保存响应，临时根包含run/attempt且结束清理，gateway dedupe也含run/attempt。不是所有研究入口都没去重；CN/GlobalETF已有独立机制 | 沿现有持久化/claim补稳定请求身份与先claim后调用，明确成功/失败/结果未知恢复；合成测试覆盖并发dispatch、调用后落盘前崩溃与重启，不再发第二次模型/实验。不得为测试真实调用模型；不新增治理框架 |
-| `AI-LB-FROZEN-REGRESSION` 高；可立即实施独立回归基线 | 实现缺口：LongBridge platform_bugfix局部验证复制AI可改测试并仅执行该文件，缺独立冻结安全不变量；尚未证明可绕过全部source CI或merge控制 | 在现有两文件/一次授权/不自动merge边界内，用冻结基线另验资金、订单、风险和通知不变量，保留原source CI。证明“AI把测试改宽”不能被局部验证接受；不把发现扩大成任意自动修复授权 |
+| `AI-SOXL-CODEGEN-IDEMPOTENCY` 高；可继续离线契约/测试，运行接线待持久落点 | 只读复核：SOXL codegen临时根带run/attempt且结束已清理，本地claim不构成跨dispatch持久性；当前没有已配置的持久state入口，WIF仅可读P1，不能借原bucket写状态。gateway禁止跨run读取旧job，结果未知保持停放。原执行后保存与跨dispatch/崩溃窗缺口仍在；CN/GlobalETF已有独立机制，不泛化为全部入口无去重 | 先确定受控持久执行落点及既有权限，再讨论运行接线；不能宣称当前可直接上线闭环。离线固定请求身份、先claim后调用与成功/失败/未知恢复合同，并用合成测试覆盖并发dispatch、调用后落盘前崩溃/重启。不得真实调模型、借权限写bucket或新增治理框架；未知结果不自动重试 |
+| `AI-LB-FROZEN-REGRESSION` 高；已合并/主CI通过，新增真实演练与采用待验 | [AAB #313](https://github.com/QuantStrategyLab/AIAuditBridge/pull/313)离线复核175pass/1skip，[exact PR CI37452976196](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/37452976196)与[main CI37453537171](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/37453537171)均五job全通过；正常合并为 `ddd85c80413ee0c1bd0d663fc80e607692c58ef9`，tree与复核候选一致，任务分支已清理。既有LongBridge历史fixture实际通过；保留原source CI和两文件/一次授权/不自动merge边界 | 新增LongBridge两阶段真实Docker场景与runtime采用仍未证明；既有LongBridge历史fixture及Global/SOXL Docker fixture不替代新增场景演练。冻结基线独立检查资金/订单/风险/通知不变量，AI修改候选测试不修改基线；工程合并与CI通过不表示运行采用或任意自动修复授权 |
 | `AI-02` 中；设计已定，分阶段等输入/授权 | 原ADR定义联网研究/策略重写；当前AAB新研究入口主要是固定SOXL模板、固定公开引文和有界目标，不是开放检索任意发明。重构需区分等价实现与新信号候选 | 按既有Fetcher/隔离语料/无网络Planner/Publisher边界，保留来源权利/全trial与失败trial、严格WFA/OOS、paired shadow及原定策略/权限下的采纳。P1–P5原预授权不新增手动gate，P6等明确授权要求不变。无该任务所需真实输入/权限时停车；不自动merge live可执行变更/加杠杆/换源 |
 | `AI-03` 高；工程阶段已合并/CI通过，部署与自然周期待验 | AAB日报[PR311](https://github.com/QuantStrategyLab/AIAuditBridge/pull/311)已补齐exact helper hash并同步main，新head `3511c39` 的[CI37449922299](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/37449922299)五jobs通过，strict required checks满足；正常合并为 `2369aa3394ebb1c13b61b0bfea0992afd9cb5aa2`，[main CI37450483168](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/37450483168)五jobs全部通过，任务分支已清理。99项离线检查通过。旧head CI失败及10:24 UTC的405 required-check阻塞为已解决历史 | 生产部署采用与日报自然周期尚未验收；与DATA-03协调最终caller。区分成功/无样本/缺profile/失败/投递未知，已有结果不重调模型；合并与CI通过不等于部署或真实周期成功 |
 
