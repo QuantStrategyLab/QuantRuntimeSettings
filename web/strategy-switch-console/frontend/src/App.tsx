@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { AccountOption, AdminModel, ConfigPayload, LifecycleRecord, ReadModel, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadOverviewReadModels, loadReadModel, mergeOverviewReadModels, postJson, runtimeStopQuery } from "./api";
-import { createRequestGate, startVisibleRefreshLoop } from "./requestGate.js";
+import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
+import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
@@ -165,8 +165,6 @@ function App() {
     const [promotionAccountId, setPromotionAccountId] = useState("");
     const [promotionRisk] = useState("CAPITAL_PRESERVATION");
     const gate = useRef(createRequestGate());
-    const fullReadModelRefreshInFlight = useRef(false);
-    const overviewReadModelEpoch = useRef(0);
     const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
     const switchLocks = useRef(createUnknownSubmitLock());
     const onceLocks = useRef(createRequestLock());
@@ -232,9 +230,7 @@ function App() {
             resolveConfirmation(false);
     }, [confirmDialog, model, adminModel, selectedId, switchDrafts, uxDraft, uxDirty, diagnosis, promotionTicketId, promotionAccountId, promotionRisk]);
     const refresh = useCallback(async () => {
-        overviewReadModelEpoch.current += 1;
         const token = gate.current.begin();
-        fullReadModelRefreshInFlight.current = true;
         setRefreshing(true);
         setErrorMessage(null);
         try {
@@ -246,6 +242,7 @@ function App() {
                 return;
             }
             setModel(next);
+            setOverviewReadModelRefreshVersion(value => value + 1);
             setBootState("ready");
             if (!selectedId && next.config.value?.accountOptions) {
                 const first = Object.entries(next.config.value.accountOptions).flatMap(([p, list]) => list.map(a => `${p}:${a.key}`))[0];
@@ -278,30 +275,10 @@ function App() {
         }
         finally {
             if (gate.current.isCurrent(token)) {
-                fullReadModelRefreshInFlight.current = false;
                 setRefreshing(false);
             }
         }
     }, [model, selectedId, uxDirty]);
-    const refreshOverviewReadModels = useCallback(async () => {
-        if (fullReadModelRefreshInFlight.current)
-            return;
-        const epoch = overviewReadModelEpoch.current;
-        const updates = await loadOverviewReadModels();
-        if (epoch !== overviewReadModelEpoch.current || document.visibilityState !== "visible")
-            return;
-        setModel(current => mergeOverviewReadModels(current, updates));
-        setOverviewReadModelRefreshVersion(value => value + 1);
-    }, []);
-    useEffect(() => {
-        if (model?.session.allowed !== true)
-            return;
-        const stop = startVisibleRefreshLoop(refreshOverviewReadModels, { intervalMs: 300_000 });
-        return () => {
-            overviewReadModelEpoch.current += 1;
-            stop();
-        };
-    }, [model?.session.allowed, refreshOverviewReadModels]);
     useEffect(() => { void refresh(); }, []);
     useEffect(() => { const invalid = () => clearPrivateState(false); window.addEventListener("qsl-private-session-invalid", invalid); return () => window.removeEventListener("qsl-private-session-invalid", invalid); }, []);
     useEffect(() => {
@@ -336,26 +313,6 @@ function App() {
         setObservedStrategy(current => current?.id === selectedId ? current : null);
     }, [selectedId]);
     useEffect(() => {
-        if (!model?.session.allowed || page !== "strategy")
-            return;
-        const status = uxDraft.job?.status;
-        if (!["queued", "running", "unknown"].includes(String(status || "")))
-            return;
-        let alive = true;
-        const timer = window.setInterval(async () => {
-            try {
-                const next = await getJson<UxDraft>("/api/ux1/draft");
-                if (alive && !uxDirty)
-                    setUxDraft(next);
-            }
-            catch (error) {
-                if (error instanceof AccessError)
-                    clearPrivateState(false);
-            }
-        }, 3000);
-        return () => { alive = false; window.clearInterval(timer); };
-    }, [model?.session.allowed, page, uxDraft.job?.status, uxDirty]);
-    useEffect(() => {
         if (!model?.session.allowed || !active?.account.key)
             return;
         let alive = true;
@@ -373,35 +330,6 @@ function App() {
         });
         return () => { alive = false; };
     }, [model?.session.allowed, active?.id]);
-    useEffect(() => {
-        const current = active ? diagnosis[active.id] : null;
-        const task = current?.task;
-        if (!model?.session.allowed || page !== "accounts" || !active || current?.available !== true
-            || !["queued", "running"].includes(String(task?.status || "")) && task?.recheck_status !== "sent")
-            return;
-        let alive = true;
-        let attempts = 0;
-        const timer = window.setInterval(async () => {
-            if (document.visibilityState === "hidden" || attempts >= 5) {
-                window.clearInterval(timer);
-                return;
-            }
-            attempts += 1;
-            try {
-                const result = await getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(active.platform)}&key=${encodeURIComponent(active.account.key)}`);
-                if (alive)
-                    setDiagnosis(prev => ({ ...prev, [active.id]: { available: true, loading: false, task: result.task || null } }));
-            }
-            catch (error) {
-                if (error instanceof AccessError)
-                    clearPrivateState(false);
-                else if (alive)
-                    setDiagnosis(prev => ({ ...prev, [active.id]: { ...prev[active.id], available: false, loading: false } }));
-                window.clearInterval(timer);
-            }
-        }, 3000);
-        return () => { alive = false; window.clearInterval(timer); };
-    }, [model?.session.allowed, page, active?.id, diagnosis[active?.id || ""]?.task?.status, diagnosis[active?.id || ""]?.task?.recheck_status, diagnosis[active?.id || ""]?.available]);
     const setPageAndRoute = (next: Page, accountId?: string) => {
         setPage(next);
         if (accountId) {

@@ -117,7 +117,8 @@ assert.match(overviewPage, /S&P 500 \(SP500\)，日收盘价格指数，不含�
 assert.match(overviewPage, /暂无可比较收益率/);
 assert.match(overviewPage, /完整估值、资金进出和费用记录/);
 assert.match(overviewPage, /RETURN_INDEX_LEGEND\.map/);
-assert.match(overviewPage, /数据来源与网站使用权限待核/);
+assert.doesNotMatch(overviewPage, /数据来源与网站使用权限待核/);
+assert.match(overviewPage, /name === "标普500" \? "FRED SP500：日收盘价格，不含股息" : "暂无数据"/);
 assert.match(overviewPage, /overview-price-reference/);
 assert.doesNotMatch(overviewPage, /overview-stats|chartAccountId/);
 assert.match(overviewPage, /chart === "assets" \? <div className="chart-range"/);

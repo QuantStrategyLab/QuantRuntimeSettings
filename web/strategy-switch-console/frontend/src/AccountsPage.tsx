@@ -64,7 +64,7 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
         <table className="daily-table">
           <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("运行控制")}</th></tr></thead>
           <tbody>{rows.map(row => {
-            const native = accountNativeReadout(row.platform, row.key, row.facts, row.binanceReport, factsNow);
+            const native = accountNativeReadout(row.platform, row.key, row.facts, row.binanceReport, Math.max(factsNow, Date.now()));
             return <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
             <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label account-fact-label">{t("配置环境")}</span><small className="account-environment">{row.environment}</small><span className="account-field-label account-fact-label">{t("原生类别")}</span><small className="account-native-type">{native.nativeType || t("未核实")}</small><span className="account-field-label account-fact-label">{t("身份可信度")}</span><small className="account-identity-confidence">{t(native.identityLabel)}</small></td>
             <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
@@ -329,7 +329,6 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
     {readState === "refreshing" && <p className="workflow-note" role="status">{t("正在重新读取设置，显示上次读回值；草案会保留。")}</p>}
     {readState === "stale" && <div className="workflow-note" role="status"><p>{t(readError)} {t("显示上次成功读回的设置，当前状态未重新确认；未保存草案已保留。")}</p><button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></div>}
     {reading ? null : readState === "failed" ? <p>{t(view.unavailable || "账户设置暂时读不到。")}<button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button></p> : <fieldset className="settings-fields">
-      <p className="section-note">{t("当前配置来自设置读回；草案与风险偏好分别保存，运行端生效需另行验证。")}</p>
       {draftSaveReason && <p className="section-note">{t(draftSaveReason)}{readState === "ready" && <button type="button" className="text-link" onClick={() => setReadAttempt(value => value + 1)}>{t("重新读取")}</button>}</p>}
       <section className="detail-group">
         <h3>{t("当前配置策略")}</h3>

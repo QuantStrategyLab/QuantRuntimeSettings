@@ -1,5 +1,5 @@
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
-import { binanceProviderProductTypeForDisplay } from "./types.ts";
+import { accountFactsForDisplay, binanceProviderProductTypeForDisplay } from "./types.ts";
 import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 import type { LifecycleRecord } from "./api";
 import { DEFAULT_STRATEGY_PROFILES } from "../../strategy_profiles_asset.js";
@@ -1045,6 +1045,8 @@ export function accountNativeReadout(
     return { nativeType, identityLabel: "身份部分核验" };
   }
   if (!facts || facts.platform !== platform || facts.account_key !== accountKey) return unknown;
+  facts = accountFactsForDisplay(facts, now);
+  if (!facts) return unknown;
   if (facts.identity_mismatch === true) return { nativeType: null, identityLabel: "账户身份不匹配" };
   if (facts.binding_status !== "bound" || facts.identity_status !== "partial_identity") return unknown;
   if (facts.data_status === "stale") return { nativeType: null, identityLabel: "身份资料已过期" };
