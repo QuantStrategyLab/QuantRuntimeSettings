@@ -85,10 +85,6 @@ export type ControlPlane = {
   summary?: Record<string, unknown>;
   candidates?: Array<Record<string, any>>; policy?: Record<string, unknown>; errors?: string[];
 };
-export type HealthSnapshot = {
-  data_status: string; generated_at?: string | null; computed_at?: string | null;
-  summary?: Record<string, number>; strategies?: Array<Record<string, any>>; errors?: string[];
-};
 export type UxDraft = {
   revision?: number; fingerprint?: string; custom_draft?: boolean;
   preview?: Record<string, any> | null; preview_stale?: boolean;
@@ -103,16 +99,12 @@ export type Source<T> = { value: T | null; error: string | null };
 export type ReadModel = {
   session: Session;
   config: Source<ConfigPayload>; runtime: Source<RuntimeSnapshot>;
-  control: Source<ControlPlane>; health: Source<HealthSnapshot>; research: Source<UxDraft>;
+  control: Source<ControlPlane>; research: Source<UxDraft>;
   owners: Source<Record<string, any>>; recovery: Source<Record<string, any>>;
-  privateScope: Source<Record<string, any>>; evidence: Source<Record<string, any>>;
-  tasks: Source<Record<string, any>>; promotions: Source<Record<string, any>>;
-  market: Source<Record<string, any>>; adaptive: Source<Record<string, any>>;
-  catalog: Source<Record<string, any>>;
+  privateScope: Source<Record<string, any>>; promotions: Source<Record<string, any>>;
   accountFacts: Source<AccountFactsSnapshot>;
   binanceFacts: Source<Record<string, any>>;
 };
-export type OverviewReadModelUpdates = Pick<ReadModel, "runtime" | "accountFacts" | "binanceFacts">;
 export type AdminModel = {
   config: Source<Record<string, any>>; instances: Source<Record<string, any>>;
   risk: Source<Record<string, any>>;
@@ -181,41 +173,19 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
   const privateScopeRequest = session.admin
     ? source(getJson<Record<string, any>>("/api/binance-private-scope"))
     : Promise.resolve<Source<Record<string, any>>>({ value: null, error: null });
-  const [config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts, binanceFacts] = await Promise.all([
+  const [config, runtime, control, research, owners, recovery, privateScope, promotions, accountFacts, binanceFacts] = await Promise.all([
     source(getJson<ConfigPayload>("/api/config")),
     source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
     source(getJson<ControlPlane>("/api/control-plane")),
-    source(getJson<HealthSnapshot>("/api/strategy-health")),
     source(getJson<UxDraft>("/api/ux1/draft")),
     source(getJson<Record<string, any>>("/api/owner-decisions")),
     source(getJson<Record<string, any>>("/api/reconciliation-recovery")),
     privateScopeRequest,
-    source(getJson<Record<string, any>>("/api/execution-evidence")),
-    source(getJson<Record<string, any>>("/api/research-tasks")),
     source(getJson<Record<string, any>>("/api/research-promotion-tickets")),
-    source(getJson<Record<string, any>>("/api/runtime-catalog")),
-    source(getJson<Record<string, any>>("/api/m0-research")),
-    source(getJson<Record<string, any>>("/api/adaptive-selection")),
     source(getJson<AccountFactsSnapshot>("/api/account-facts")),
     source(getJson<Record<string, any>>("/api/binance-account-facts")),
   ]);
-  return { session, config, runtime, control, health, research, owners, recovery, privateScope, evidence, tasks, promotions, catalog, market, adaptive, accountFacts, binanceFacts };
-}
-
-export async function loadOverviewReadModels(): Promise<OverviewReadModelUpdates> {
-  const [runtime, accountFacts, binanceFacts] = await Promise.all([
-    source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
-    source(getJson<AccountFactsSnapshot>("/api/account-facts")),
-    source(getJson<Record<string, any>>("/api/binance-account-facts")),
-  ]);
-  return { runtime, accountFacts, binanceFacts };
-}
-
-export function mergeOverviewReadModels(
-  current: ReadModel | null,
-  updates: OverviewReadModelUpdates,
-): ReadModel | null {
-  return current ? { ...current, ...updates } : current;
+  return { session, config, runtime, control, research, owners, recovery, privateScope, promotions, accountFacts, binanceFacts };
 }
 
 export function runtimeStopQuery(platform: string, targetName: string): string {

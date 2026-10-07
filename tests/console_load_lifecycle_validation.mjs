@@ -107,7 +107,7 @@ const originalWindow = globalThis.window;
 const calls = [];
 const pendingDiagnosis = [];
 const pendingReads = [];
-let denySession = false; let deferDiagnosis = false; let deferRead = false;
+let denySessionStatus = 0; let deferDiagnosis = false; let deferRead = false;
 const fixture = path => {
   if (path === "/api/session") return { authenticated: true, login: "synthetic", allowed: true, admin: false };
   if (path === "/api/config") return { accountOptions: { longbridge: [{ key: "synthetic-a" }, { key: "synthetic-b" }] }, platformMeta: { longbridge: { label: "synthetic" } } };
@@ -120,7 +120,7 @@ globalThis.fetch = async (path, options) => {
   assert.ok(typeof path === "string" && path.startsWith("/api/"), "test permits only internal synthetic reads");
   assert.equal(options.method, "GET"); assert.equal(options.cache, "no-store"); assert.equal(options.credentials, "same-origin");
   calls.push(path);
-  if (path === "/api/session" && denySession) return response({}, 401);
+  if (path === "/api/session" && denySessionStatus) return response({}, denySessionStatus);
   if (path === "/api/session" && deferRead) return new Promise(resolve => pendingReads.push(resolve));
   if (path.startsWith("/api/account-diagnosis?") && deferDiagnosis) return new Promise(resolve => pendingDiagnosis.push({ path, resolve }));
   return response(fixture(path));
@@ -131,6 +131,8 @@ try {
   assert.equal(mounted.current.bootState, "ready");
   assert.equal(calls.filter(path => path === "/api/session").length, 1, "opening loads the read model once");
   for (const path of new Set(calls)) assert.equal(calls.filter(value => value === path).length, 1, `opening reads ${path} only once`);
+  for (const path of ["/api/strategy-health", "/api/execution-evidence", "/api/research-tasks", "/api/runtime-catalog", "/api/m0-research", "/api/adaptive-selection"])
+    assert.equal(calls.includes(path), false, `${path} is not part of the current read model`);
   assert.equal(mounted.current.overviewReadModelRefreshVersion, 1, "successful boot commits one model revision");
   const openingCount = calls.length;
   for (const page of ["strategy", "accounts"]) {
@@ -159,14 +161,17 @@ try {
   deferRead = true;
   const lateRead = mounted.current.refresh();
   assert.equal(pendingReads.length, 1);
-  deferRead = false; denySession = true;
+  deferRead = false; denySessionStatus = 401;
   await mounted.current.refresh(); await mounted.settle();
   assert.equal(mounted.current.model, null); assert.equal(mounted.current.bootState, "denied", "401 clears private state");
   assert.equal(Object.keys(mounted.current.diagnosis).length, 0);
   pendingReads[0](response(fixture("/api/session"))); await lateRead; await mounted.settle();
   assert.equal(mounted.current.model, null, "a late read cannot restore data after private-session invalidation");
+  denySessionStatus = 403;
+  await mounted.current.refresh(); await mounted.settle();
+  assert.equal(mounted.current.model, null); assert.equal(mounted.current.bootState, "denied", "403 also clears private state");
   mounted.unmount();
-  console.log("console load lifecycle: PASS (one boot, no polling/focus GETs, explicit readback, selection races, 401 and late-response isolation)");
+  console.log("console load lifecycle: PASS (one boot, no unused reads or polling/focus GETs, explicit readback, selection races, 401/403 and late-response isolation)");
 } finally {
   globalThis.fetch = originalFetch;
   if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;

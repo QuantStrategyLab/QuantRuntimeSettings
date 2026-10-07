@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
-import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily, loadOverviewReadModels, mergeOverviewReadModels } from "../web/strategy-switch-console/frontend/src/api.ts";
-import { overviewRuntimeStatusLabel, runtimeDailyAccountDateKey, runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { loadAccountFactsHistory, loadBinanceWalletHistory, loadReadModel, loadRuntimeDaily } from "../web/strategy-switch-console/frontend/src/api.ts";
+import { overviewRuntimeStatusLabel, runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = {
   scope: "monitoring_only",
@@ -17,44 +17,29 @@ assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "unknown", activ
 assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "abnormal", activation: "enabled" }, "ready"), "异常");
 assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), "待确认");
 
-const current = {
-  config: { value: { draft: "keep" } },
-  research: { value: { draft: "user edit" } },
-  runtime: { value: { version: 1 } },
-  accountFacts: { value: { version: 1 } },
-  binanceFacts: { value: { report: null } },
-};
-const merged = mergeOverviewReadModels(current, {
-  runtime: { value: { version: 2 }, error: null },
-  accountFacts: { value: { version: 2 }, error: null },
-  binanceFacts: { value: { report: { assets: [] } }, error: null },
-});
-assert.equal(merged.config, current.config);
-assert.equal(merged.research, current.research);
-assert.deepEqual(merged.runtime.value, { version: 2 });
-assert.deepEqual(merged.accountFacts.value, { version: 2 });
-assert.deepEqual(merged.binanceFacts.value, { report: { assets: [] } });
-assert.equal(mergeOverviewReadModels(null, { runtime: { value: null, error: null }, accountFacts: { value: null, error: null } }), null);
-
 const originalFetch = globalThis.fetch;
 const denyNetwork = async () => { throw new Error("external network is forbidden in overview refresh validation"); };
 const requestedPaths = [];
 globalThis.fetch = async (path, options) => {
-  assert.ok(["/api/runtime-target-lifecycle", "/api/account-facts", "/api/binance-account-facts"].includes(path), "only the exact internal overview reads are mocked");
+  const unused = ["/api/strategy-health", "/api/execution-evidence", "/api/research-tasks", "/api/runtime-catalog", "/api/m0-research", "/api/adaptive-selection"];
+  assert.ok(!unused.includes(path), `${path} has no overview consumer and must not delay loading`);
+  assert.ok(["/api/session", "/api/config", "/api/runtime-target-lifecycle", "/api/control-plane", "/api/ux1/draft", "/api/owner-decisions", "/api/reconciliation-recovery", "/api/research-promotion-tickets", "/api/account-facts", "/api/binance-account-facts"].includes(path), "only current read-model sources are mocked");
   assert.equal(options.method, "GET");
   requestedPaths.push([path, options.method, options.cache]);
-  const payload = path === "/api/runtime-target-lifecycle" ? { data_status: "ready" } : { data_status: "fresh" };
+  const payload = path === "/api/session" ? { allowed: true, admin: false } : path === "/api/runtime-target-lifecycle" ? { data_status: "ready" } : { data_status: "fresh" };
   return { status: 200, ok: true, json: async () => payload };
 };
 try {
-  const updates = await loadOverviewReadModels();
-  assert.deepEqual(requestedPaths, [
-    ["/api/runtime-target-lifecycle", "GET", "no-store"],
-    ["/api/account-facts", "GET", "no-store"],
-    ["/api/binance-account-facts", "GET", "no-store"],
-  ]);
-  assert.equal(updates.runtime.value.data_status, "ready");
-  assert.equal(updates.accountFacts.value.data_status, "fresh");
+  const model = await loadReadModel();
+  assert.deepEqual(requestedPaths.map(([path]) => path), ["/api/session", "/api/config", "/api/runtime-target-lifecycle", "/api/control-plane", "/api/ux1/draft", "/api/owner-decisions", "/api/reconciliation-recovery", "/api/research-promotion-tickets", "/api/account-facts", "/api/binance-account-facts"]);
+  assert.equal(model.runtime.value.data_status, "ready");
+  assert.equal(model.accountFacts.value.data_status, "fresh");
+  assert.equal("health" in model, false);
+  assert.equal("evidence" in model, false);
+  assert.equal("tasks" in model, false);
+  assert.equal("catalog" in model, false);
+  assert.equal("market" in model, false);
+  assert.equal("adaptive" in model, false);
 } finally {
   globalThis.fetch = denyNetwork;
 }
@@ -67,17 +52,17 @@ assert.match(fullRefresh, /if \(!gate\.current\.isCurrent\(token\)\)/);
 assert.match(fullRefresh, /setModel\(next\);\s*setOverviewReadModelRefreshVersion/, "explicit readback refreshes overview detail data in the same batch as the model");
 assert.match(app, /useEffect\(\(\) => \{ void refresh\(\); \}, \[\]\)/, "boot load is mount-only");
 const overview = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
-const historyEffect = overview.slice(overview.indexOf("const epoch = ++historyEpoch.current"), overview.indexOf("const epoch = ++runtimeEpoch.current"));
+const historyEffect = overview.slice(overview.indexOf("const epoch = ++historyEpoch.current"), overview.indexOf("const todayAccounts ="));
 assert.match(historyEffect, /chartAccount\?\.id[\s\S]*chartFacts\?\.observed_finished_at/);
 assert.doesNotMatch(historyEffect, /selectedFacts\?\.observed_finished_at/);
-const runtimeEffect = overview.slice(overview.indexOf("const epoch = ++runtimeEpoch.current"), overview.indexOf("// All-account totals"));
+const runtimeEffect = overview.slice(overview.lastIndexOf("  useEffect(() => {", overview.indexOf("const todayAccounts =")), overview.indexOf("  useEffect(() => {", overview.indexOf("const todayAccounts =")));
 assert.match(runtimeEffect, /runtimeDateSelectable\(runtimeDate, runtimeNow\)/);
 assert.match(runtimeEffect, /visible\.filter\(account => runtimeDailySelectionEligible/);
-assert.doesNotMatch(runtimeEffect, /runtimeDate === runtimeToday \? readModelRefreshVersion : 0/, "crossing midnight cannot change a fetch dependency");
+assert.doesNotMatch(runtimeEffect.slice(runtimeEffect.indexOf("}, [")), /runtimeToday/, "crossing midnight alone does not trigger a GET");
 assert.doesNotMatch(overview, /previousToday|setRuntimeDate\(date =>/, "the clock never rewrites the selected day");
-assert.match(runtimeEffect, /runtimeEpoch\.current !== epoch/);
-assert.match(runtimeEffect, /return cancel/);
-assert.match(runtimeEffect, /\[dailyAccountsKey, readModelRefreshVersion\]/, "today health reads only on opening, exact binding changes, or explicit readback");
+assert.match(runtimeEffect, /if \(!active\) return/);
+assert.match(runtimeEffect, /return \(\) => \{ active = false; \}/);
+assert.match(runtimeEffect, /readModelRefreshVersion/);
 
 // Execute the actual history hook and dependency list without a browser or a
 // provider. This is a hook lifecycle harness, not full React rendering evidence.
@@ -193,14 +178,11 @@ try {
 
 console.log("overview refresh validation: PASS");
 
-// Execute both actual daily hooks against deferred synthetic reads. Keys include
-// platform even when account names match; no broker/network service is contacted.
-const runtimeHookStart = overview.lastIndexOf("  useEffect(() => {", overview.indexOf("const epoch = ++runtimeEpoch.current"));
-const runtimeHookEnd = overview.indexOf("  const dailyAccountsKey", runtimeHookStart);
-const runtimeHook = overview.slice(runtimeHookStart, runtimeHookEnd).trim();
-const currentHookStart = overview.indexOf("  useEffect(() => {", runtimeHookEnd);
-const currentHookEnd = overview.indexOf("  useEffect(() => {", currentHookStart + 1);
-const currentHook = overview.slice(currentHookStart, currentHookEnd).trim();
+// Execute the single production daily effect against deferred synthetic reads.
+const runtimeHookStart = overview.lastIndexOf("  useEffect(() => {", overview.indexOf("const todayAccounts ="));
+const runtimeHookEnd = overview.indexOf("  useEffect(() => {", runtimeHookStart + 1);
+const runtimeHook = overview.slice(runtimeHookStart, runtimeHookEnd).trim()
+  .replace("new Map<string, { account: OverviewAccount; date: string }>()", "new Map()");
 const syntheticAccounts = ["longbridge", "schwab"].map(platform => ({ id: `${platform}:synthetic-same`, platformKey: platform, accountKey: "synthetic-same", runtimeDailyBinding: "bound" }));
 const syntheticTargets = {
   longbridge: "longbridge-quant-paper-service|russell_top50_leader_rotation|paper",
@@ -209,7 +191,7 @@ const syntheticTargets = {
 const dailyPending = [];
 globalThis.fetch = (path, options) => {
   assert.equal(options.method, "GET"); assert.equal(options.cache, "no-store");
-  assert.match(path, /^\/api\/runtime-daily\?date=2026-10-0[567]&platform=(longbridge|schwab)&account_key=synthetic-same$/);
+  assert.match(path, /^\/api\/runtime-daily\?date=2026-10-0[4-7]&platform=(longbridge|schwab)&account_key=synthetic-same$/);
   return new Promise((resolve, reject) => dailyPending.push({ path, resolve, reject }));
 };
 function dailyRespond(index, marker = "ok", status = 200, patch = {}) {
@@ -220,15 +202,15 @@ function dailyRespond(index, marker = "ok", status = 200, patch = {}) {
     date: url.searchParams.get("date"), timezone: "America/New_York", data_status: "unavailable", record: null, fills: null, marker, ...patch,
   }) });
 }
-function dailyHarness(today = false) {
+function dailyHarness() {
   let state = {}; let dependencies; let cancel; let mounted = true;
   const update = value => { state = typeof value === "function" ? value(state) : value; };
   const context = createContext({
-    Error, Object, JSON, runtimeEpoch: { current: 0 },
+    Error, Object, JSON, Map,
     runtimeDate: "2026-10-06", runtimeToday: "2026-10-06", runtimeNow: Date.parse("2026-10-06T21:00:00Z"),
     accountId: "all", visible: syntheticAccounts, accounts: syntheticAccounts, readModelRefreshVersion: 0,
-    dailyAccountsKey: "synthetic-two-bound-targets", setRuntimeDaily: update, setCurrentDaily: update,
-    runtimeDailyAccountDateKey, runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable, loadRuntimeDaily,
+    setRuntimeDaily: update, runtimeDailyRequestKey: (platform, account, binding, date) => JSON.stringify([platform, account, binding, date]),
+    runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable, loadRuntimeDaily,
     useEffect(effect, next) {
       if (dependencies && next.length === dependencies.length && next.every((value, index) => Object.is(value, dependencies[index]))) return;
       cancel?.(); dependencies = Array.from(next); cancel = effect();
@@ -236,76 +218,97 @@ function dailyHarness(today = false) {
   });
   return {
     get state() { return state; },
+    context,
     get selectedDate() { return context.runtimeDate; },
-    render(patch = {}) { assert.equal(mounted, true); Object.assign(context, patch); runInContext(today ? currentHook : runtimeHook, context, { timeout: 1000 }); },
+    render(patch = {}) { assert.equal(mounted, true); Object.assign(context, patch); runInContext(runtimeHook, context, { timeout: 1000 }); },
     unmount() { mounted = false; cancel?.(); },
   };
 }
-const lbKey = runtimeDailyAccountDateKey("longbridge", "synthetic-same", "2026-10-06");
-const schwabKey = runtimeDailyAccountDateKey("schwab", "synthetic-same", "2026-10-06");
+const dailyKey = (account, date) => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding, date]);
+const lbTodayKey = dailyKey(syntheticAccounts[0], "2026-10-06");
+const schwabTodayKey = dailyKey(syntheticAccounts[1], "2026-10-06");
+const schwabHistoryKey = dailyKey(syntheticAccounts[1], "2026-10-05");
 try {
   const daily = dailyHarness(); daily.render();
-  assert.equal(dailyPending.length, 2, "all-account view reads both bound targets independently");
-  assert.notEqual(lbKey, schwabKey);
-  dailyRespond(0, "paper-success"); dailyRespond(1, "schwab-error", 503); await flush();
-  assert.equal(daily.state[lbKey].value.marker, "paper-success");
-  assert.equal(daily.state[schwabKey].value, null); assert.ok(daily.state[schwabKey].error);
-  daily.render({ accountId: syntheticAccounts[1].id, visible: [syntheticAccounts[1]] });
-  const oldSchwab = dailyPending.length - 1;
+  assert.equal(dailyPending.length, 2, "when selected date is today, each account has one GET shared by history and health cards");
+  assert.ok(dailyPending.every(item => item.path.includes("date=2026-10-06")));
+  dailyRespond(0, "paper-success"); dailyRespond(1, "schwab-success"); await flush();
+  assert.equal(daily.state[lbTodayKey].value.marker, "paper-success");
+  assert.strictEqual(
+    daily.state[dailyKey(syntheticAccounts[0], daily.context.runtimeDate)],
+    daily.state[dailyKey(syntheticAccounts[0], daily.context.runtimeToday)],
+    "history and the health card consume one state entry when their dates match",
+  );
+  assert.equal(daily.state[schwabTodayKey].value.marker, "schwab-success");
+  const historyStart = dailyPending.length;
+  daily.render({ runtimeDate: "2026-10-05", visible: [syntheticAccounts[1]], accountId: syntheticAccounts[1].id });
+  assert.equal(dailyPending.length - historyStart, 3, "historical selection reads its visible account while today's health reads all accounts");
+  assert.equal(dailyPending.slice(historyStart).filter(item => item.path.includes("date=2026-10-05")).length, 1);
+  assert.equal(dailyPending.slice(historyStart).filter(item => item.path.includes("date=2026-10-06")).length, 2);
+  const oldHistory = historyStart + 2;
   daily.render({ accountId: "all", visible: syntheticAccounts });
-  const currentLb = dailyPending.length - 2; const currentSchwab = dailyPending.length - 1;
-  dailyRespond(currentSchwab, "schwab-success"); await flush();
-  dailyPending[oldSchwab].reject(new Error("late old account failure")); dailyRespond(currentLb, "paper-error", 503); await flush();
-  assert.equal(daily.state[schwabKey].value.marker, "schwab-success", "late failure from the old selection cannot replace the new account result");
-  assert.equal(daily.state[schwabKey].error, null); assert.ok(daily.state[lbKey].error);
+  const freshStart = dailyPending.length - 4;
+  dailyRespond(freshStart, "new-today-paper"); dailyRespond(freshStart + 1, "new-today-schwab");
+  dailyRespond(freshStart + 2, "new-history-paper"); dailyRespond(freshStart + 3, "new-history-schwab");
+  dailyPending[oldHistory].reject(new Error("late old selection")); await flush();
+  assert.ok(daily.state[lbTodayKey]?.value, JSON.stringify(daily.state[lbTodayKey]));
+  assert.equal(daily.state[lbTodayKey].value.marker, "new-today-paper");
+  assert.equal(daily.state[schwabTodayKey].value.marker, "new-today-schwab");
+  assert.equal(daily.state[schwabHistoryKey].value.marker, "new-history-schwab", "old selection response cannot replace current daily data");
+
+  daily.render({ runtimeDate: "2026-10-04" });
+  const oldDateRequest = dailyPending.length - 1;
   daily.render({ runtimeDate: "2026-10-05" });
-  const oldDayLb = dailyPending.length - 2;
-  daily.render({ runtimeDate: "2026-10-06" });
-  const newDayLb = dailyPending.length - 2; const newDaySchwab = dailyPending.length - 1;
-  dailyRespond(newDayLb, "new-day-paper"); dailyRespond(newDaySchwab, "new-day-schwab"); dailyRespond(oldDayLb, "late-old-day"); await flush();
-  assert.equal(daily.state[lbKey].value.marker, "new-day-paper");
+  const newDateStart = dailyPending.length - 4;
+  dailyRespond(newDateStart, "date-paper"); dailyRespond(newDateStart + 1, "date-schwab");
+  dailyRespond(newDateStart + 2, "date-history-paper"); dailyRespond(newDateStart + 3, "date-history");
+  dailyRespond(oldDateRequest, "late-old-date"); await flush();
+  assert.equal(daily.state[schwabHistoryKey].value.marker, "date-history");
+
   daily.render({ readModelRefreshVersion: 1 });
-  const wrongIdentity = dailyPending.length - 1;
+  const staleRefreshStart = dailyPending.length - 4;
+  daily.render({ readModelRefreshVersion: 2 });
+  const freshRefreshStart = dailyPending.length - 4;
+  dailyRespond(freshRefreshStart, "refresh-paper"); dailyRespond(freshRefreshStart + 1, "refresh-schwab");
+  dailyRespond(freshRefreshStart + 2, "refresh-history-paper");
+  const wrongIdentity = freshRefreshStart + 3;
   dailyRespond(wrongIdentity, "wrong-platform", 200, { platform: "longbridge" }); await flush();
-  assert.equal(daily.state[schwabKey].value, null); assert.equal(daily.state[schwabKey].error, "runtime_daily_selection_mismatch");
-  daily.render({ readModelRefreshVersion: 2 }); const afterUnmount = dailyPending.length - 1;
+  assert.equal(daily.state[schwabHistoryKey].value, null);
+  assert.equal(daily.state[schwabHistoryKey].error, "runtime_daily_selection_mismatch");
+  dailyRespond(staleRefreshStart + 3, "late-before-refresh"); await flush();
+  assert.equal(daily.state[schwabHistoryKey].value, null, "a late response from before explicit refresh cannot replace its result");
+
+  const changedBindingAccounts = [syntheticAccounts[0], { ...syntheticAccounts[1], runtimeDailyBinding: "unresolved" }];
+  const beforeBinding = dailyPending.length;
+  const staleBoundSchwab = staleRefreshStart + 1;
+  daily.render({ accounts: changedBindingAccounts, visible: changedBindingAccounts });
+  assert.equal(dailyPending.length, beforeBinding + 2, "an unresolved source binding has no historical or current daily read");
+  assert.equal(daily.state[dailyKey(changedBindingAccounts[1], "2026-10-05")], undefined);
+  dailyRespond(staleBoundSchwab, "late-old-binding"); await flush();
+  assert.equal(daily.state[schwabTodayKey], undefined, "a late result from the old binding cannot restore the old key");
+
+  daily.render({ readModelRefreshVersion: 3 }); const afterUnmount = dailyPending.length - 1;
   daily.unmount(); const stopped = JSON.stringify(daily.state); dailyRespond(afterUnmount, "late-unmount"); await flush();
   assert.equal(JSON.stringify(daily.state), stopped);
 
-  const current = dailyHarness(true); const firstCurrent = dailyPending.length;
-  current.render({ runtimeDate: "2026-10-05", visible: [syntheticAccounts[1]], accountId: syntheticAccounts[1].id });
-  assert.equal(dailyPending.length - firstCurrent, 2, "today health reads both accounts while the selected card shows history");
-  assert.ok(dailyPending.slice(firstCurrent).every(item => item.path.includes("date=2026-10-06")));
-  current.render({ readModelRefreshVersion: 1 }); const freshCurrent = dailyPending.length - 2;
-  dailyRespond(freshCurrent, "today-paper"); dailyRespond(freshCurrent + 1, "today-schwab");
-  dailyRespond(firstCurrent, "old-today-paper", 503); dailyRespond(firstCurrent + 1, "old-today-schwab"); await flush();
-  assert.equal(current.state[lbKey].value.marker, "today-paper"); assert.equal(current.state[schwabKey].value.marker, "today-schwab");
-  const beforeUnresolved = dailyPending.length;
-  current.render({ dailyAccountsKey: "schwab-unresolved", accounts: [syntheticAccounts[0], { ...syntheticAccounts[1], runtimeDailyBinding: "unresolved" }] });
-  assert.equal(dailyPending.length, beforeUnresolved + 1, "unresolved Schwab binding cannot start a daily fetch");
-  assert.equal(current.state[schwabKey], undefined); current.unmount();
   const pinned = dailyHarness(); const opening = dailyPending.length;
-  pinned.render({ runtimeDate: "2026-10-05", readModelRefreshVersion: 4 });
-  assert.equal(dailyPending.length, opening + 2);
+  pinned.render({ runtimeDate: "2026-10-05" });
+  assert.equal(dailyPending.length - opening, 4);
   pinned.render({ runtimeToday: "2026-10-07", runtimeNow: Date.parse("2026-10-07T04:01:00Z") });
   assert.equal(pinned.selectedDate, "2026-10-05", "crossing New York midnight keeps the chosen historical date");
-  assert.equal(dailyPending.length, opening + 2, "local midnight creates no historical-data GET");
-  pinned.render({ readModelRefreshVersion: 5 });
-  assert.equal(dailyPending.length, opening + 4, "explicit readback may refresh the selected historical data");
+  assert.equal(dailyPending.length - opening, 4, "the clock alone does not reload historical or current data");
+  pinned.render({ readModelRefreshVersion: 1 });
+  assert.equal(dailyPending.length - opening, 8, "explicit readback loads selected history and the actual current day");
   pinned.unmount();
-
-  const atMidnight = dailyHarness(true); const atOpening = dailyPending.length;
-  atMidnight.render();
-  assert.equal(dailyPending.length, atOpening + 2);
-  atMidnight.render({ runtimeToday: "2026-10-07", runtimeNow: Date.parse("2026-10-07T04:01:00Z") });
-  assert.equal(atMidnight.selectedDate, "2026-10-06", "the selected date remains the opened date across midnight");
-  assert.equal(dailyPending.length, atOpening + 2, "today-health clock changes do not fetch a new day");
-  assert.equal(atMidnight.state[runtimeDailyAccountDateKey("longbridge", "synthetic-same", "2026-10-07")], undefined, "yesterday's record is not current-day evidence");
-  atMidnight.render({ readModelRefreshVersion: 1 });
-  assert.equal(dailyPending.length, atOpening + 4);
-  assert.ok(dailyPending.slice(atOpening + 2).every(item => item.path.includes("date=2026-10-07")), "explicit readback loads the actual current day");
-  atMidnight.unmount();
-  console.log("daily hook races: PASS (platform/account/date isolation, all accounts, history versus today, refresh, mismatch, late success/failure and unmount)");
+  const future = dailyHarness(); const futureStart = dailyPending.length;
+  future.render({ runtimeDate: "2026-10-07" });
+  assert.equal(dailyPending.length - futureStart, 2, "a future selected date is not requested");
+  future.render({ runtimeToday: "2026-10-07", runtimeNow: Date.parse("2026-10-07T04:01:00Z") });
+  assert.equal(dailyPending.length - futureStart, 2, "a clock tick making a date selectable must not trigger reads");
+  future.render({ readModelRefreshVersion: 1 });
+  assert.equal(dailyPending.length - futureStart, 4, "explicit refresh loads the newly current day once per account");
+  future.unmount();
+  console.log("daily hook races: PASS (dedupe, shared today result, history/current separation, selection and date races, binding, refresh, identity match and midnight)");
 } finally {
   globalThis.fetch = originalFetch;
 }

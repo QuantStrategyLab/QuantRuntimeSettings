@@ -20,7 +20,6 @@ import {
   RETURN_INDEX_LEGEND,
   presentRuntimeDaily,
   runtimeDailySelectionEligible,
-  runtimeDailyAccountDateKey,
   runtimeDailySnapshotMatchesSelection,
   runtimeDateBounds,
   runtimeDateSelectable,
@@ -70,6 +69,10 @@ export type OverviewAccount = {
 };
 
 type RuntimeDailyRequestState = { value: RuntimeDailySnapshot | null; error: string | null; loading: boolean };
+
+function runtimeDailyRequestKey(platform: string, accountKey: string, binding: RuntimeDailyBinding, date: string): string {
+  return JSON.stringify([platform, accountKey, binding, date]);
+}
 
 function amountOrDash(value: string | null | undefined): string {
   return value && value.length ? value : "—";
@@ -181,10 +184,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
   const [runtimeDate, setRuntimeDate] = useState(runtimeToday);
   const [runtimeDaily, setRuntimeDaily] = useState<Record<string, RuntimeDailyRequestState>>({});
-  const [currentDaily, setCurrentDaily] = useState<Record<string, RuntimeDailyRequestState>>({});
   const [privateScopeNow, setPrivateScopeNow] = useState(() => Date.now());
   const historyEpoch = useRef(0);
-  const runtimeEpoch = useRef(0);
   const emptyNote = chartRangeEmptyNote(range);
   const visible = accountId === "all" ? displayAccounts : displayAccounts.filter(account => account.id === accountId);
   const optionLabel = (account: OverviewAccount) => {
@@ -314,50 +315,37 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at,
     binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart, readModelRefreshVersion]);
   useEffect(() => {
-    const epoch = ++runtimeEpoch.current;
-    const cancel = () => { if (runtimeEpoch.current === epoch) runtimeEpoch.current += 1; };
-    const dailyAccounts = visible.filter(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }));
-    if (!runtimeDateSelectable(runtimeDate, runtimeNow) || dailyAccounts.length === 0) {
+    let active = true;
+    const todayAccounts = accounts.filter(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }));
+    const selectedAccounts = runtimeDateSelectable(runtimeDate, runtimeNow) && runtimeDate !== runtimeToday
+      ? visible.filter(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }))
+      : [];
+    const requests = new Map<string, { account: OverviewAccount; date: string }>();
+    for (const account of todayAccounts) requests.set(runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday), { account, date: runtimeToday });
+    for (const account of selectedAccounts) requests.set(runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeDate), { account, date: runtimeDate });
+    if (requests.size === 0) {
       setRuntimeDaily({});
-      return cancel;
+      return () => { active = false; };
     }
-    setRuntimeDaily(Object.fromEntries(dailyAccounts.map(account => [runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeDate), { value: null, error: null, loading: true }])));
-    for (const account of dailyAccounts) {
-      const key = runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeDate);
+    setRuntimeDaily(Object.fromEntries(Array.from(requests.keys(), key => [key, { value: null, error: null, loading: true }])));
+    for (const [key, { account, date }] of requests) {
       const selection = { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding };
-      void loadRuntimeDaily(runtimeDate, account.platformKey, account.accountKey)
+      void loadRuntimeDaily(date, account.platformKey, account.accountKey)
         .then((payload) => {
-          if (runtimeEpoch.current !== epoch) return;
-          const value = runtimeDailySnapshotMatchesSelection(payload, selection, runtimeDate) ? payload : null;
+          if (!active) return;
+          const value = runtimeDailySnapshotMatchesSelection(payload, selection, date) ? payload : null;
           setRuntimeDaily(current => ({ ...current, [key]: { value, error: value ? null : "runtime_daily_selection_mismatch", loading: false } }));
         })
         .catch((error) => {
-          if (runtimeEpoch.current !== epoch) return;
+          if (!active) return;
           setRuntimeDaily(current => ({ ...current, [key]: { value: null, error: error instanceof Error ? error.message : "request_failed", loading: false } }));
         });
     }
-    return cancel;
-    // The local clock may expire evidence, but only explicit selection/readback reloads it.
-  }, [accountId, visible.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|"), runtimeDate, readModelRefreshVersion]);
-  const dailyAccountsKey = accounts.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|");
-  useEffect(() => {
-    let active = true;
-    const dailyAccounts = accounts.filter(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }));
-    setCurrentDaily(Object.fromEntries(dailyAccounts.map(account => [runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeToday), { value: null, error: null, loading: true }])));
-    for (const account of dailyAccounts) {
-      const key = runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeToday);
-      const selection = { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding };
-      void loadRuntimeDaily(runtimeToday, account.platformKey, account.accountKey).then(payload => {
-        if (!active) return;
-        const value = runtimeDailySnapshotMatchesSelection(payload, selection, runtimeToday) ? payload : null;
-        setCurrentDaily(current => ({ ...current, [key]: { value, error: value ? null : "runtime_daily_selection_mismatch", loading: false } }));
-      }).catch(() => {
-        if (active) setCurrentDaily(current => ({ ...current, [key]: { value: null, error: "request_failed", loading: false } }));
-      });
-    }
     return () => { active = false; };
-    // Read the current day on opening or explicit readback, never on a clock tick.
-  }, [dailyAccountsKey, readModelRefreshVersion]);
+    // The clock may change which day is current, but only selection/readback reloads data.
+  }, [accounts.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|"),
+    visible.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|"), runtimeDate,
+    readModelRefreshVersion]);
   useEffect(() => {
     const now = Date.now();
     const deadlines = accounts.flatMap(account => {
@@ -367,15 +355,16 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         ? [runtime?.observed_at, runtime?.target.deployment?.observed_at].map(at => Date.parse(at || "") + ttl * 1000)
         : [];
     });
-    for (const entry of Object.values(currentDaily)) {
-      const schedule = entry.value?.record?.schedule;
+    for (const account of accounts) {
+      const entry = runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)];
+      const schedule = entry?.value?.record?.schedule;
       deadlines.push(Date.parse(schedule?.next_due_at || ""), Date.parse(schedule?.grace_ends_at || ""));
     }
     const next = Math.min(...deadlines.filter(deadline => Number.isFinite(deadline) && deadline > now));
     if (!Number.isFinite(next)) return;
     const timer = window.setTimeout(() => setRuntimeNow(Date.now()), Math.min(next - now + 1, 2_147_483_647));
     return () => window.clearTimeout(timer);
-  }, [accounts, currentDaily, runtimeNow]);
+  }, [accounts, runtimeDaily, runtimeToday, runtimeNow]);
   // All-account totals stay unavailable under partial broker identity. Only a
   // single selected account may show its own per-currency facts.
   const totalAssets = accountId === "all"
@@ -588,7 +577,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       {!runtimeDateSelectable(runtimeDate, runtimeNow) ? <p>{t("请选择最近90天内的有效日期")}</p> : visible.map(account => {
         const selection = { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding };
         const eligible = runtimeDailySelectionEligible(selection);
-        const dailyEntry = runtimeDaily[runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeDate)];
+        const dailyEntry = runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeDate)];
         const runtimeError = dailyEntry?.error;
         const runtimeLoading = dailyEntry?.loading;
         const view = presentRuntimeDaily(runtimeError ? null : dailyEntry?.value, selection, runtimeDate);
@@ -640,7 +629,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const longBridgeCash = longBridgeCashDetails(account.facts);
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
-          const health = overviewRuntimeHealth(account.runtime, currentDaily[runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeToday)]?.value,
+          const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value,
             { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const cardDetail = walletCardValuation
             ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}`
