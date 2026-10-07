@@ -3636,16 +3636,28 @@ export class RuntimeInstances {
     if (row.expires_at_ms != null && Number(command.now_ms) > Number(row.expires_at_ms)) {
       throw new HttpError("human_decision_material_expired", 409);
     }
+    if (kind === "promotion" && command.review_binding !== undefined
+      && !promotionReviewBindingsMatch(command.review_binding, promotionMaterialReviewBinding(row))) {
+      throw new HttpError("human_decision_review_material_conflict", 409);
+    }
+    const assertReview = terminal => {
+      if (kind === "promotion" && command.review_binding !== undefined
+        && !promotionReviewBindingsMatch(command.review_binding, this.humanDecisionRecordPayload(terminal).payload?.review_binding)) {
+        throw new HttpError("human_decision_review_binding_unqualified", 409);
+      }
+    };
     const byRequest = this.sql.exec("SELECT * FROM human_decision_record WHERE request_key = ?", requestKey).toArray()[0];
     if (byRequest) {
       if (byRequest.kind !== kind || byRequest.subject_id !== subjectId || byRequest.material_key !== materialKey || byRequest.action !== actionName || byRequest.target_json !== targetJson) {
         throw new HttpError("human_decision_conflict", 409);
       }
+      assertReview(byRequest);
       return { ok: true, replayed: true, record: this.humanDecisionRecordPayload(byRequest) };
     }
     const terminal = this.humanDecisionTerminalRow(kind, subjectId, materialKey);
     if (terminal) {
       if (terminal.action !== actionName || terminal.target_json !== targetJson) throw new HttpError("human_decision_conflict", 409);
+      assertReview(terminal);
       return { ok: true, replayed: true, record: this.humanDecisionRecordPayload(terminal) };
     }
     const payload = command.payload && typeof command.payload === "object" ? structuredClone(command.payload) : {};
@@ -3673,12 +3685,32 @@ export class RuntimeInstances {
       payload_json: JSON.stringify(payload),
     };
     this.insertHumanDecisionRecord(record);
-    return { ok: true, replayed: false, record: this.humanDecisionRecordPayload(record) };
+    return { ok: true, replayed: false, record: this.humanDecisionRecordPayload(this.humanDecisionTerminalRow(kind, subjectId, materialKey)) };
   }
 
   readHumanDecision(command, kind) {
     const subjectId = String(command.subject_id || "");
     const row = this.humanDecisionMaterialRow(kind, subjectId);
+    // Historical receipt lookup deliberately does not substitute the current material.
+    // It grants no eligibility or authority to act on the current material.
+    if (command.exact_material_key !== undefined) {
+      const materialKey = command.exact_material_key;
+      if (!/^[0-9a-f]{64}$/.test(materialKey) || !subjectId || subjectId.length > 256) {
+        throw new HttpError("human_decision_lookup_invalid", 400);
+      }
+      const terminal = this.humanDecisionTerminalRow(kind, subjectId, materialKey);
+      return {
+        ok: true,
+        exact_material_key: materialKey,
+        decision: terminal ? this.humanDecisionRecordPayload(terminal) : null,
+        current_material: row ? {
+          matches: row.material_key === materialKey,
+          eligible: Number(row.eligible) === 1 && (row.expires_at_ms == null || Number(command.now_ms) <= Number(row.expires_at_ms)),
+          blocked: row.legacy_state === "blocked",
+          ...(kind === "promotion" ? { review_binding: promotionMaterialReviewBinding(row) } : {}),
+        } : null,
+      };
+    }
     if (!row) return { ok: true, migrated: false, blocked: false, eligible: false, material_key: null, decision: null };
     const terminal = this.humanDecisionTerminalRow(kind, subjectId, row.material_key);
     return {
@@ -3687,6 +3719,7 @@ export class RuntimeInstances {
       blocked: row.legacy_state === "blocked",
       eligible: Number(row.eligible) === 1,
       material_key: row.material_key,
+      ...(kind === "promotion" ? { review_binding: promotionMaterialReviewBinding(row) } : {}),
       decision: terminal ? this.humanDecisionRecordPayload(terminal) : null,
     };
   }
@@ -5998,6 +6031,36 @@ async function researchPromotionMaterialKey(ticket) {
   });
 }
 
+// The legacy six-field material key remains the durable terminal index. This
+// independent versioned snapshot binds all saved producer review content without
+// rekeying historical records or hashing post-decision/observation-only fields.
+function researchPromotionReviewMaterial(ticket) {
+  return {
+    schema_version: "qsl_promotion_review_material.v2",
+    ticket_id: ticket.ticket_id, strategy_profile: ticket.strategy_profile, domain: ticket.domain,
+    proposed_params: ticket.proposed_params, shadow_passed: ticket.shadow_passed,
+    shadow_evidence_kind: ticket.shadow_evidence_kind,
+    drift_status: ticket.drift_status, drift_score: ticket.drift_score,
+    budget: ticket.budget, search_iterations: ticket.search_iterations,
+    suggested_risk_profile: ticket.suggested_risk_profile,
+    notification_subject: ticket.notification_subject, notification_body: ticket.notification_body,
+    notes: ticket.notes, research_summary: ticket.research_summary || null,
+  };
+}
+async function researchPromotionReviewBinding(ticket) {
+  return { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await calculateOwnerDecisionSha256(researchPromotionReviewMaterial(ticket)) };
+}
+function promotionReviewBindingsMatch(left, right) {
+  return left?.schema_version === "qsl_promotion_review_binding.v2" && right?.schema_version === left.schema_version
+    && /^[0-9a-f]{64}$/.test(left.review_sha256) && left.review_sha256 === right.review_sha256;
+}
+function promotionMaterialReviewBinding(row) {
+  try {
+    const binding = JSON.parse(row?.summary_json || "{}").review_binding;
+    return promotionReviewBindingsMatch(binding, binding) ? { schema_version: "qsl_promotion_review_binding.v2", review_sha256: binding.review_sha256 } : null;
+  } catch { return null; }
+}
+
 async function recoveryDecisionMaterialKey(recovery) {
   return calculateOwnerDecisionSha256({
     recovery_id: recovery.recovery_id,
@@ -6205,12 +6268,110 @@ async function publishHumanPromotionMaterial(env, ticket, existing) {
         ticket_id: ticket.ticket_id,
         strategy_profile: ticket.strategy_profile,
         domain: ticket.domain,
+        review_binding: await researchPromotionReviewBinding(ticket),
       }),
       eligible: true,
       expires_at_ms: null,
       legacy,
     }],
   });
+}
+
+// A fixed projection of the durable terminal record, never a request echo or KV fallback.
+async function humanDecisionReceipt(record, expected) {
+  const invalid = () => { throw new HttpError("human_decision_receipt_unavailable", 503); };
+  const text = (value, max) => typeof value === "string" && value.length > 0 && value.length <= max && !/[\u0000-\u001f\u007f]/.test(value);
+  const actions = { owner: ["approve_limited_live_canary", "keep_parked"], recovery: ["approve", "reject"], promotion: ["accept", "reject"] };
+  if (!record || !actions[record.kind]?.includes(record.action) || !text(record.subject_id, 256)
+    || !/^[0-9a-f]{64}$/.test(record.material_key) || !text(record.actor, 100)
+    || !text(record.decided_at, 40) || !Number.isFinite(Date.parse(record.decided_at))
+    || record.kind !== expected.kind || record.subject_id !== expected.subject_id || record.material_key !== expected.material_sha256) invalid();
+  let target;
+  try { target = JSON.parse(record.target_json); } catch { invalid(); }
+  let projection;
+  if (record.kind === "promotion") {
+    const account = target?.selected_account;
+    const confirmation = target?.confirmation;
+    if (account != null && (!SUPPORTED_PLATFORMS.includes(account.platform) || !text(account.key, 128))) invalid();
+    if (confirmation != null && (!SUPPORTED_PLATFORMS.includes(confirmation.target_platform)
+      || !["live", "paper", "dry_run"].includes(confirmation.execution_mode)
+      || !RESEARCH_PROMOTION_RISK_PROFILES.includes(confirmation.risk_profile))) invalid();
+    if (record.action === "accept" && (!account || !confirmation || account.platform !== confirmation.target_platform)) invalid();
+    if (record.payload?.ticket?.live_authority_granted !== false || record.payload?.ticket?.human_decision !== record.action
+      || record.payload?.ticket?.ticket_id !== record.subject_id || record.payload.ticket.human_decided_at !== record.decided_at
+      || await researchPromotionMaterialKey(record.payload.ticket) !== record.material_key
+      || canonicalResearchTaskJson(record.payload.selected_account ?? null) !== canonicalResearchTaskJson(account ?? null)
+      || canonicalResearchTaskJson(record.payload.confirmation ?? null) !== canonicalResearchTaskJson(confirmation ?? null)) invalid();
+    projection = {
+      selected_account: account ? { platform: account.platform, key: account.key } : null,
+      confirmation: confirmation ? { target_platform: confirmation.target_platform, execution_mode: confirmation.execution_mode, risk_profile: confirmation.risk_profile } : null,
+    };
+  } else {
+    if (target?.decision !== record.action || record.payload?.no_order !== true || record.payload?.execution_authority_granted !== false) invalid();
+    const payload = record.payload;
+    if (record.kind === "owner") {
+      if (payload.schema_version !== "qsl_owner_decision_intent.v1" || payload.candidate_id !== record.subject_id
+        || payload.candidate_evidence_sha256 !== record.material_key || payload.decision !== record.action
+        || payload.decided_by !== record.actor || payload.decided_at !== record.decided_at
+        || payload.decision_sha256 !== await calculateOwnerDecisionSha256(payload)) invalid();
+    } else {
+      const approval = record.action === "approve";
+      if (payload.schema_version !== (approval ? "qsl_reconciliation_recovery_confirmation.v1" : "qsl_reconciliation_recovery_rejection.v1")
+        || payload.recovery_id !== record.subject_id || (approval ? payload.confirmed_by : payload.decided_by) !== record.actor
+        || (approval ? payload.confirmed_at : payload.decided_at) !== record.decided_at || (!approval && payload.decision !== "reject")
+        || await recoveryDecisionMaterialKey({ recovery_id: payload.recovery_id, candidate_sha256: payload.candidate_sha256, dual_review: { evidence_binding_sha256: payload.dual_review_binding_sha256 } }) !== record.material_key) invalid();
+    }
+    projection = { decision: target.decision };
+  }
+  // Extra stored target fields must not be silently dropped into an apparently matching receipt.
+  if (canonicalResearchTaskJson(target) !== canonicalResearchTaskJson(projection)) invalid();
+  let reviewBinding = null;
+  if (record.kind === "promotion" && record.payload?.review_binding !== undefined) {
+    const material = record.payload.review_material;
+    if (material?.schema_version !== "qsl_promotion_review_material.v2" || material.ticket_id !== record.subject_id
+      || await researchPromotionMaterialKey(material) !== record.material_key
+      || !promotionReviewBindingsMatch(record.payload.review_binding, { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await calculateOwnerDecisionSha256(material) })) invalid();
+    reviewBinding = { schema_version: "qsl_promotion_review_binding.v2", review_sha256: record.payload.review_binding.review_sha256 };
+  }
+  const receipt = {
+    schema_version: reviewBinding ? "qsl_human_decision_receipt.v2" : "qsl_human_decision_receipt.v1",
+    ...(reviewBinding ? { review_binding: reviewBinding } : {}),
+    kind: record.kind, subject_id: record.subject_id, material_sha256: record.material_key,
+    action: record.action, target: projection, decided_at: record.decided_at, decided_by: record.actor,
+    no_order: true, execution_authority_granted: false,
+  };
+  return { ...receipt, receipt_sha256: await calculateOwnerDecisionSha256(receipt) };
+}
+
+async function exactHumanDecisionResponse(request, env, session, kind) {
+  const params = new URL(request.url).searchParams;
+  if (!params.has("decision_subject_id") && !params.has("decision_material_sha256")) return null;
+  requireSameOrigin(request);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  const subjectId = params.get("decision_subject_id");
+  const material = params.get("decision_material_sha256");
+  if (params.getAll("decision_subject_id").length !== 1 || params.getAll("decision_material_sha256").length !== 1
+    || !subjectId || subjectId.length > 256 || /[\u0000-\u001f\u007f]/.test(subjectId) || !/^[0-9a-f]{64}$/.test(material || "")) {
+    return json({ ok: false, error: "human_decision_lookup_invalid" }, 400);
+  }
+  try {
+    if (!hasRuntimeInstanceStore(env)) throw new HttpError("runtime_instances_not_bound", 503);
+    const result = await runtimeInstanceCommand(env, {
+      action: `${kind}_read`, actor: session.login, subject_id: subjectId, exact_material_key: material, now_ms: Date.now(),
+    });
+    if (result.ok !== true || result.exact_material_key !== material || !Object.prototype.hasOwnProperty.call(result, "decision")) {
+      throw new HttpError("human_decision_receipt_unavailable", 503);
+    }
+    const receipt = result.decision === null ? null : await humanDecisionReceipt(result.decision, { kind, subject_id: subjectId, material_sha256: material });
+    return json({ ok: true, decision_readback: {
+      schema_version: "qsl_human_decision_readback.v1", source: "durable_human_decision_record",
+      kind, subject_id: subjectId, requested_material_sha256: material, observed_at: new Date().toISOString(),
+      lookup_status: receipt ? "found" : "not_found", receipt, current_material: result.current_material,
+    } });
+  } catch {
+    // Unreadable authority is never reported as a completed empty lookup.
+    return json({ ok: false, error: "human_decision_receipt_unavailable" }, 503);
+  }
 }
 
 async function readHumanDecisionAuthority(env, kind, subjectId) {
@@ -6537,6 +6698,8 @@ function emptyOwnerDecisionQueue(errorCode, controlPlane = null) {
 async function ownerDecisionQueueResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const exact = await exactHumanDecisionResponse(request, env, session, "owner");
+  if (exact) return exact;
   if (!hasConfigStore(env)) return json(emptyOwnerDecisionQueue("snapshot_unavailable"));
 
   const controlPlane = await currentControlPlanePayload(env);
@@ -6560,6 +6723,7 @@ async function ownerDecisionQueueResponse(request, env) {
     candidates.push({
       candidate,
       candidate_evidence_sha256: candidateEvidenceSha256,
+      decision_binding: { kind: "owner", subject_id: candidate.candidate_id, material_sha256: candidateEvidenceSha256 },
       intent,
     });
   }
@@ -6660,7 +6824,8 @@ async function recordOwnerDecisionResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "owner decision unavailable" }, error.status || 503);
   }
-  const recordedIntent = recorded.record?.payload || intent;
+  const decisionReceipt = await humanDecisionReceipt(recorded.record, { kind: "owner", subject_id: candidate.candidate_id, material_sha256: candidateEvidenceSha256 });
+  const recordedIntent = recorded.record.payload;
   // The durable object decision stands even if the KV snapshot mirror fails.
   await mirrorConfigJson(env, ownerDecisionArchiveKey(candidate.candidate_id, recordedIntent.decision_sha256), recordedIntent);
   await mirrorConfigJson(env, ownerDecisionCurrentKey(candidate.candidate_id), recordedIntent);
@@ -6682,7 +6847,7 @@ async function recordOwnerDecisionResponse(request, env) {
     // The decision remains durable, auditable by its digest, and explicitly
     // non-executable even if the rolling convenience log cannot be updated.
   }
-  return json({ ok: true, intent: recordedIntent, audit_logged: auditLogged, replayed: recorded.replayed === true });
+  return json({ ok: true, intent: recordedIntent, decision_receipt: decisionReceipt, audit_logged: auditLogged, replayed: recorded.replayed === true });
 }
 
 // These recovery snapshots deliberately contain only opaque target IDs,
@@ -6739,6 +6904,8 @@ async function syncReconciliationRecoverySourceResponse(request, env) {
 async function reconciliationRecoveryResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
+  const exact = await exactHumanDecisionResponse(request, env, session, "recovery");
+  if (exact) return exact;
   if (!hasConfigStore(env)) return json(emptyReconciliationRecoveryPayload("snapshot_unavailable"));
   return json(await aggregateReconciliationRecoverySources(env));
 }
@@ -7233,7 +7400,8 @@ async function recordReconciliationRecoveryConfirmationResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "reconciliation recovery confirmation is unavailable" }, error.status || 503);
   }
-  const recordedPayload = recorded.record?.payload || confirmation || rejection;
+  const decisionReceipt = await humanDecisionReceipt(recorded.record, { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: materialKey });
+  const recordedPayload = recorded.record.payload;
   if (recorded.record?.action === "approve") {
     await mirrorConfigJson(env, reconciliationRecoveryConfirmationArchiveKey(recovery.recovery_id, recordedPayload.confirmation_sha256), recordedPayload);
     await mirrorConfigJson(env, reconciliationRecoveryConfirmationCurrentKey(recovery.recovery_id), recordedPayload);
@@ -7261,6 +7429,7 @@ async function recordReconciliationRecoveryConfirmationResponse(request, env) {
     ok: true,
     confirmation: recorded.record?.action === "approve" ? recordedPayload : null,
     rejection: recorded.record?.action === "reject" ? recordedPayload : null,
+    decision_receipt: decisionReceipt,
     audit_logged: auditLogged,
     replayed: recorded.replayed === true,
   });
@@ -7312,7 +7481,9 @@ async function aggregateReconciliationRecoverySources(env) {
         && result.rejection.dual_review_binding_sha256 === recovery.dual_review.evidence_binding_sha256
         ? result.rejection
         : null;
-      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection });
+      recoveries.push({ source_id: source.source_id, freshness, recovery, confirmation, rejection,
+        decision_binding: { kind: "recovery", subject_id: recovery.recovery_id, material_sha256: await recoveryDecisionMaterialKey(recovery) },
+      });
     }
     errors.push(...source.errors);
   }
@@ -10371,6 +10542,7 @@ function attachPromotionQueueReadMetadata(record, ticket, authority) {
   return {
     ...ticket,
     decision_material: { migrated, eligible, blocked, blocker_codes: blockerCodes },
+    decision_review_binding: authority?.review_binding || null,
     // Timestamps of the already-read KV ticket record, not producer-observed
     // time, freshness, a validity window, or evidence of actual execution.
     ticket_record_timestamps: {
@@ -10383,7 +10555,15 @@ function attachPromotionQueueReadMetadata(record, ticket, authority) {
 async function researchPromotionTicketsResponse(request, env) {
   const session = await readSession(request, env);
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
-  const tickets = await listResearchPromotionTickets(env);
+  const exact = await exactHumanDecisionResponse(request, env, session, "promotion");
+  if (exact) return exact;
+  const tickets = await Promise.all((await listResearchPromotionTickets(env)).map(async ticket => {
+    const reviewBinding = await researchPromotionReviewBinding(ticket);
+    return { ...ticket, decision_binding: {
+      kind: "promotion", subject_id: ticket.ticket_id, material_sha256: await researchPromotionMaterialKey(ticket),
+      review_binding: promotionReviewBindingsMatch(reviewBinding, ticket.decision_review_binding) ? reviewBinding : null,
+    } };
+  }));
   const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
   const applicationTickets = tickets.filter((ticket) =>
     ticket.state === "awaiting_human" || ticket.state === "human_accepted");
@@ -10607,6 +10787,12 @@ async function recordResearchPromotionDecisionResponse(request, env) {
     return json({ ok: false, error: error.message || "invalid research promotion decision" }, error.status || 400);
   }
   const materialKey = await researchPromotionMaterialKey(ticket);
+  // Keep the legacy material index stable; the separate review digest binds the complete producer review.
+  if (Object.prototype.hasOwnProperty.call(raw, "expected_material_sha256") && raw.expected_material_sha256 !== materialKey) {
+    return json({ ok: false, error: "human_decision_material_conflict" }, 409);
+  }
+  const reviewMaterial = researchPromotionReviewMaterial(ticket);
+  const reviewBinding = await researchPromotionReviewBinding(ticket);
   const selectedAccount = raw?.selected_account || null;
   const confirmation = raw?.confirmation || null;
   const target = { selected_account: selectedAccount, confirmation };
@@ -10624,15 +10810,24 @@ async function recordResearchPromotionDecisionResponse(request, env) {
     }
     const existing = authority.decision;
     if (existing && existing.action === decision && existing.target_json === targetJson && existing.payload?.ticket) {
+      if (Object.prototype.hasOwnProperty.call(raw, "expected_review_sha256")
+        && (existing.payload.review_binding?.schema_version !== "qsl_promotion_review_binding.v2"
+          || raw.expected_review_sha256 !== existing.payload.review_binding.review_sha256)) {
+        return json({ ok: false, error: "human_decision_review_binding_unqualified" }, 409);
+      }
       return json({
         ok: true,
         ticket: attachRiskEnvelopeView(existing.payload.ticket),
         live_authority_granted: false,
         replayed: true,
         actor: existing.actor,
+        decision_receipt: await humanDecisionReceipt(existing, { kind: "promotion", subject_id: ticket.ticket_id, material_sha256: materialKey }),
       });
     }
     if (existing) return json({ ok: false, error: "human_decision_conflict" }, 409);
+  }
+  if (Object.prototype.hasOwnProperty.call(raw, "expected_review_sha256") && raw.expected_review_sha256 !== reviewBinding.review_sha256) {
+    return json({ ok: false, error: "human_decision_review_material_conflict" }, 409);
   }
   const targetPlatform = String(
     raw?.confirmation?.target_platform || ticket.confirmation_target_platform || "",
@@ -10685,6 +10880,7 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   try {
     recorded = await runtimeInstanceCommand(env, {
       action: "promotion_decide",
+      ...(Object.prototype.hasOwnProperty.call(raw, "expected_review_sha256") ? { review_binding: reviewBinding } : {}),
       actor: session.login,
       subject_id: ticket.ticket_id,
       material_key: materialKey,
@@ -10696,6 +10892,7 @@ async function recordResearchPromotionDecisionResponse(request, env) {
       preflight_revision: preflightRevision,
       payload: {
         ticket: decided,
+        ...(Object.prototype.hasOwnProperty.call(raw, "expected_review_sha256") ? { review_binding: reviewBinding, review_material: reviewMaterial } : {}),
         selected_account: selectedAccount,
         confirmation,
         proposed_params: ticket.proposed_params,
@@ -10704,7 +10901,8 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   } catch (error) {
     return json({ ok: false, error: error.message || "research promotion decision unavailable" }, error.status || 503);
   }
-  const recordedTicket = recorded.record?.payload?.ticket || decided;
+  const decisionReceipt = await humanDecisionReceipt(recorded.record, { kind: "promotion", subject_id: ticket.ticket_id, material_sha256: materialKey });
+  const recordedTicket = recorded.record.payload.ticket;
   await mirrorConfigJson(env, researchPromotionTicketKey(recordedTicket.ticket_id), recordedTicket);
   try {
     await appendAuditLog(env, {
@@ -10725,6 +10923,7 @@ async function recordResearchPromotionDecisionResponse(request, env) {
   return json({
     ok: true,
     ticket: attachRiskEnvelopeView(recordedTicket),
+    decision_receipt: decisionReceipt,
     live_authority_granted: false,
     replayed: recorded.replayed === true,
   });
@@ -15217,6 +15416,10 @@ function escapeHtml(value) {
 }
 
 export const __test = {
+  humanDecisionReceipt,
+  researchPromotionMaterialKey,
+  researchPromotionReviewMaterial,
+  researchPromotionReviewBinding,
   accountSettingsAuditChanges,
   accountDraftStrategyChoices,
   assertAccountDraftPatch,

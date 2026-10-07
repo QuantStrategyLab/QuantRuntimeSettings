@@ -1,3 +1,4 @@
+import { offlineNetwork } from "./human_decisions_offline_harness.mjs";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -22,8 +23,8 @@ const paperAccount = {
 const now = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 const bindings = {
   SESSION_SECRET: "human-decision-fixture-session",
-  ALLOWED_GITHUB_LOGINS: "decision-admin,decision-reader",
-  STRATEGY_SWITCH_ADMIN_LOGINS: "decision-admin",
+  ALLOWED_GITHUB_LOGINS: "decision-admin,decision-reader,decision-admin-two",
+  STRATEGY_SWITCH_ADMIN_LOGINS: "decision-admin,decision-admin-two",
   CONTROL_PLANE_SYNC_TOKEN: "human-decision-control-token",
   RECONCILIATION_RECOVERY_SYNC_TOKEN: "human-decision-recovery-sync",
   RECONCILIATION_RECOVERY_CONTROLLER_TOKEN: "human-decision-recovery-controller",
@@ -33,10 +34,13 @@ const bindings = {
   RUNTIME_SETTINGS_DISPATCH_TOKEN: "human-decision-dispatch-token",
 };
 const adminCookie = `qsl_switch_session=${await __test.makeSession("decision-admin", [], bindings)}`;
+const otherAdminCookie = `qsl_switch_session=${await __test.makeSession("decision-admin-two", [], bindings)}`;
 const readerCookie = `qsl_switch_session=${await __test.makeSession("decision-reader", [], bindings)}`;
 const persist = await mkdtemp(join(tmpdir(), "qrt-human-decisions-"));
 let outbound = 0;
 const options = {
+  // Explicit false uses Miniflare's built-in synthetic Request.cf; no host metadata acquisition.
+  cf: false,
   modules: true,
   modulesRules: [{ type: "ESModule", include: ["**/*.js"] }],
   scriptPath: fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url)),
@@ -62,7 +66,7 @@ async function call(endpoint, { method = "GET", body, cookie = adminCookie, orig
   let payload = null;
   const text = await response.text();
   try { payload = text ? JSON.parse(text) : null; } catch { payload = { raw: text }; }
-  return { status: response.status, body: payload, text };
+  return { status: response.status, body: payload, text, headers: response.headers };
 }
 function ownerSnapshot(candidateId, digest = "1".repeat(64)) {
   return {
@@ -171,6 +175,7 @@ try {
   const queued = await call("/api/owner-decisions");
   assert.equal(queued.body.candidates[0].intent, null);
   const evidence = queued.body.candidates[0].candidate_evidence_sha256;
+  assert.deepEqual(queued.body.candidates[0].decision_binding, { kind: "owner", subject_id: "owner-race", material_sha256: evidence });
   const keep = { candidate_id: "owner-race", decision: "keep_parked", candidate_evidence_sha256: evidence, request_id: "owner-race-1" };
   const approve = { ...keep, decision: "approve_limited_live_canary" };
   const raced = await Promise.all([call("/api/owner-decisions", { method: "POST", body: keep }), call("/api/owner-decisions", { method: "POST", body: approve })]);
@@ -659,7 +664,166 @@ try {
   assert.equal((await syncPromotion({ ...ticket, proposed_params: { ...ticket.proposed_params, mutated: true } })).status, 200);
   assert.equal((await call("/api/research-promotion-applications", { method: "POST", body: { ticket_id: ticket.ticket_id, selected_account: { platform: "longbridge", key: "paper" }, expected_revision: bumped.body.revision } })).status, 409);
   assert.equal(outbound, beforeOutbound);
-  console.log("human decisions validation passed");
-} finally {
+  // All six terminal decisions have the same bounded persisted receipt contract.
   await mf.dispose();
+  const receiptOptions = { ...options, durableObjectsPersist: await mkdtemp(join(tmpdir(), "qrt-human-receipts-")) };
+  mf = new Miniflare(receiptOptions);
+  const paths = { owner: "/api/owner-decisions", recovery: "/api/reconciliation-recovery", promotion: "/api/research-promotion-tickets" };
+  const exactPath = (receipt) => `${paths[receipt.kind]}?${new URLSearchParams({ decision_subject_id: receipt.subject_id, decision_material_sha256: receipt.material_sha256 })}`;
+  const durableReceipts = [];
+  for (const [kind, action] of [["owner", "keep_parked"], ["owner", "approve_limited_live_canary"], ["recovery", "approve"], ["recovery", "reject"], ["promotion", "accept"], ["promotion", "reject"]]) {
+    const id = kind === "promotion" ? `rpt_${(action === "accept" ? "c" : "d").repeat(64)}` : `receipt-${kind}-${action}`;
+    let body, endpoint, material;
+    if (kind === "owner") {
+      assert.equal((await syncControl(ownerSnapshot(id))).status, 200);
+      const entry = (await call(paths.owner)).body.candidates.find(v => v.candidate.candidate_id === id);
+      material = entry.decision_binding;
+      body = { candidate_id: id, decision: action, candidate_evidence_sha256: entry.candidate_evidence_sha256 };
+      endpoint = paths.owner;
+    } else if (kind === "recovery") {
+      assert.equal((await syncRecovery(recoverySource(id))).status, 200);
+      const entry = (await call(paths.recovery)).body.recoveries.find(v => v.recovery.recovery_id === id);
+      material = entry.decision_binding;
+      body = { recovery_id: id, decision: action, candidate_sha256: "a".repeat(64), dual_review_binding_sha256: "a".repeat(64) };
+      endpoint = "/api/reconciliation-recovery-confirmations";
+    } else {
+      const fixture = promotionTicket(id);
+      assert.equal((await syncPromotion(fixture)).status, 200);
+      const entry = (await call(paths.promotion)).body.tickets.find(v => v.ticket_id === id);
+      material = entry.decision_binding;
+      body = { ticket_id: id, decision: action, expected_material_sha256: material.material_sha256, expected_review_sha256: material.review_binding.review_sha256, expected_proposed_params: fixture.proposed_params,
+        confirmation: action === "accept" ? { target_platform: "longbridge", execution_mode: "paper", risk_profile: "CAPITAL_PRESERVATION" } : null,
+        selected_account: action === "accept" ? { platform: "longbridge", key: "paper" } : null };
+      endpoint = "/api/research-promotion-decisions";
+      // The entire material digest, including shadow fields, is checked before writing.
+      const stale = await call(endpoint, { method: "POST", body: { ...body, expected_material_sha256: "0".repeat(64) } });
+      assert.equal(stale.status, 409);
+      assert.equal((await call(exactPath(material))).body.decision_readback.lookup_status, "not_found");
+    }
+    const result = await call(endpoint, { method: "POST", body: { ...body, request_id: `receipt-${kind}-${action}` } });
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    const receipt = result.body.decision_receipt;
+    assert.equal(receipt.schema_version, kind === "promotion" ? "qsl_human_decision_receipt.v2" : "qsl_human_decision_receipt.v1");
+    assert.equal(receipt.kind, kind); assert.equal(receipt.subject_id, id); assert.equal(receipt.material_sha256, material.material_sha256);
+    assert.equal(receipt.action, action); assert.equal(receipt.no_order, true); assert.equal(receipt.execution_authority_granted, false);
+    assert.equal(receipt.decided_by, "decision-admin"); assert.match(receipt.receipt_sha256, /^[0-9a-f]{64}$/);
+    assert.deepEqual(Object.keys(receipt).sort(), ["schema_version", "receipt_sha256", "kind", "subject_id", "material_sha256", "action", "target", "decided_at", "decided_by", "no_order", "execution_authority_granted", ...(kind === "promotion" ? ["review_binding"] : [])].sort());
+    const read = await call(exactPath(receipt), { origin: "" });
+    assert.equal(read.status, 200); assert.equal(read.headers.get("cache-control"), "no-store");
+    assert.deepEqual(read.body.decision_readback.receipt, receipt);
+    assert.equal(read.body.decision_readback.source, "durable_human_decision_record");
+    const replay = await call(endpoint, { method: "POST", body, cookie: otherAdminCookie });
+    assert.equal(replay.body.replayed, true); assert.deepEqual(replay.body.decision_receipt, receipt);
+    durableReceipts.push(receipt);
+    if (kind === "owner") {
+      assert.equal((await syncControl(ownerSnapshot(id, "7".repeat(64)))).status, 200);
+      const historical = (await call(exactPath(receipt))).body.decision_readback;
+      assert.deepEqual(historical.receipt, receipt); assert.equal(historical.current_material.matches, false);
+      assert.equal((await syncControl({ ...ownerSnapshot(id), candidates: [], summary: { candidate_count: 0, deferred: 0, parked: 0, owner_decision_required: 0 } })).status, 200);
+    } else if (kind === "recovery") {
+      const blocked = recoverySource(id); blocked.recoveries[0].readiness = "blocked"; blocked.recoveries[0].blocker_codes = ["account_unavailable"];
+      assert.equal((await syncRecovery(blocked)).status, 200);
+      const historical = (await call(exactPath(receipt))).body.decision_readback;
+      assert.deepEqual(historical.receipt, receipt); assert.equal(historical.current_material.eligible, false);
+    } else {
+      assert.deepEqual(receipt.target.selected_account, body.selected_account);
+      if (action === "reject") {
+        const queue = (await call(paths.promotion)).body;
+        assert.equal(queue.tickets.some(v => v.ticket_id === id), false); assert.equal(queue.applications.some(v => v.ticket_id === id), false);
+      }
+      assert.equal((await syncPromotion({ ...promotionTicket(id), shadow_evidence_kind: "changed-shadow-kind" })).status, 200);
+      const historical = (await call(exactPath(receipt))).body.decision_readback;
+      assert.deepEqual(historical.receipt, receipt); assert.equal(historical.current_material.matches, false);
+      assert.equal((await call(endpoint, { method: "POST", body })).status, 409);
+    }
+  }
+  const receipt = durableReceipts[0];
+  assert.equal((await call(exactPath(receipt), { cookie: "" })).status, 401);
+  assert.equal((await call(exactPath(receipt), { cookie: readerCookie })).status, 403);
+  assert.equal((await call(exactPath(receipt), { origin: "https://elsewhere.example" })).status, 403);
+  assert.equal((await call(`${paths.owner}?decision_subject_id=x`)).status, 400);
+  assert.equal((await call(`${exactPath(receipt)}&decision_material_sha256=${receipt.material_sha256}`)).status, 400);
+  assert.equal((await call(`${paths.owner}?decision_subject_id=${"x".repeat(257)}&decision_material_sha256=${receipt.material_sha256}`)).status, 400);
+  const unreadable = await worker.fetch(new Request(`https://switch.example${exactPath(receipt)}`, { headers: { Cookie: adminCookie } }), { ...bindings, STRATEGY_SWITCH_RUNTIME_INSTANCES: failingNamespace });
+  assert.equal(unreadable.status, 503); assert.equal((await unreadable.json()).decision_readback, undefined);
+  const noStore = await worker.fetch(new Request(`https://switch.example${exactPath(receipt)}`, { headers: { Cookie: adminCookie } }), bindings);
+  assert.equal(noStore.status, 503);
+  const malformedNamespace = { idFromName() { return "invalid"; }, get() { return { async fetch() { return new Response(JSON.stringify({ ok: true, exact_material_key: receipt.material_sha256, decision: { kind: "owner" }, current_material: null }), { headers: { "Content-Type": "application/json" } }); } }; } };
+  const invalidRecord = await worker.fetch(new Request(`https://switch.example${exactPath(receipt)}`, { headers: { Cookie: adminCookie } }), { ...bindings, STRATEGY_SWITCH_RUNTIME_INSTANCES: malformedNamespace });
+  assert.equal(invalidRecord.status, 503);
+  await mf.dispose(); mf = new Miniflare(receiptOptions);
+  for (const receipt of durableReceipts) assert.deepEqual((await call(exactPath(receipt))).body.decision_readback.receipt, receipt, "restart retains exact historical actor, target, time and receipt");
+  assert.equal(outbound, beforeOutbound, "receipt operations never dispatch or call a broker");
+  // Same legacy material key, changed producer review evidence: both preflight and DO transaction reject stale review.
+  const reviewTicket = promotionTicket(`rpt_${"f1".repeat(32)}`);
+  assert.equal((await syncPromotion(reviewTicket)).status, 200);
+  const reviewQueue = async () => (await call(paths.promotion)).body.tickets.find(v => v.ticket_id === reviewTicket.ticket_id).decision_binding;
+  const reviewA = await reviewQueue();
+  const reviewTicketB = { ...reviewTicket, notes: [...reviewTicket.notes, "review-evidence-B"] };
+  assert.equal((await syncPromotion(reviewTicketB)).status, 200);
+  const reviewB = await reviewQueue();
+  assert.equal(reviewA.material_sha256, reviewB.material_sha256);
+  assert.notEqual(reviewA.review_binding.review_sha256, reviewB.review_binding.review_sha256);
+  const reviewBody = binding => ({ ticket_id: reviewTicket.ticket_id, decision: "reject", selected_account: null, confirmation: null, expected_material_sha256: binding.material_sha256, expected_review_sha256: binding.review_binding.review_sha256 });
+  assert.equal((await call("/api/research-promotion-decisions", { method: "POST", body: reviewBody(reviewA) })).status, 409);
+  const reviewNamespace = await mf.getDurableObjectNamespace("STRATEGY_SWITCH_RUNTIME_INSTANCES");
+  const reviewKv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
+  const reviewLatch = openLatch();
+  const reviewPending = worker.fetch(new Request("https://switch.example/api/research-promotion-decisions", { method: "POST", headers: { Cookie: adminCookie, Origin: "https://switch.example", "Content-Type": "application/json" }, body: JSON.stringify(reviewBody(reviewB)) }), { ...bindings, STRATEGY_SWITCH_CONFIG: reviewKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: wrapNamespace(reviewNamespace, "promotion_decide", reviewLatch) });
+  await waitFor(reviewLatch.entered, "full review write latch");
+  const reviewTicketC = { ...reviewTicketB, notification_body: "updated decision-relevant explanation" };
+  assert.equal((await syncPromotion(reviewTicketC)).status, 200);
+  const reviewC = await reviewQueue(); reviewLatch.release();
+  assert.equal((await reviewPending).status, 409, "atomic DO summary binding rejects a same-key review change after HTTP preflight");
+  assert.equal((await call(exactPath(reviewC))).body.decision_readback.lookup_status, "not_found");
+  const finalReview = await call("/api/research-promotion-decisions", { method: "POST", body: reviewBody(reviewC) });
+  assert.equal(finalReview.status, 200); assert.deepEqual(finalReview.body.decision_receipt.review_binding, reviewC.review_binding);
+  const preservedReview = finalReview.body.decision_receipt;
+  assert.equal((await call("/api/research-promotion-decisions", { method: "POST", body: reviewBody(reviewC) })).body.replayed, true);
+  assert.equal((await call("/api/research-promotion-decisions", { method: "POST", body: reviewBody(reviewB) })).status, 409);
+  assert.equal((await syncPromotion({ ...reviewTicketC, notes: [...reviewTicketC.notes, "later review"] })).status, 409);
+  assert.deepEqual((await call(exactPath(reviewC))).body.decision_readback.receipt, preservedReview, "no terminal rewrite or historical rekey");
+  // Staged rollout: receiver-only preserves old-client writes; new client waits for real source qualification.
+  const oldMaterialNamespace = {
+    idFromName: name => reviewNamespace.idFromName(name),
+    get(id) {
+      const stub = reviewNamespace.get(id);
+      return { async fetch(input, init) {
+        const command = JSON.parse(init.body);
+        if (command.action === "promotion_sync_materials") for (const item of command.materials) {
+          const summary = JSON.parse(item.summary_json); delete summary.review_binding; item.summary_json = JSON.stringify(summary);
+        }
+        return stub.fetch(input, { ...init, body: JSON.stringify(command) });
+      } };
+    },
+  };
+  const seedOldMaterial = async ticket => worker.fetch(new Request("https://switch.example/api/internal/sync-research-promotion-ticket", { method: "POST", headers: { Authorization: "Bearer human-decision-promotion-sync", "Content-Type": "application/json" }, body: JSON.stringify(ticket) }), { ...bindings, STRATEGY_SWITCH_CONFIG: reviewKv, STRATEGY_SWITCH_RUNTIME_INSTANCES: oldMaterialNamespace });
+  const oldClientTicket = promotionTicket(`rpt_${"f2".repeat(32)}`);
+  assert.equal((await seedOldMaterial(oldClientTicket)).status, 200);
+  const oldQueued = (await call(paths.promotion)).body.tickets.find(v => v.ticket_id === oldClientTicket.ticket_id);
+  assert.equal(oldQueued.decision_binding.review_binding, null, "new client cannot qualify an old row through GET");
+  const oldClientDecision = await call("/api/research-promotion-decisions", { method: "POST", body: { ticket_id: oldClientTicket.ticket_id, decision: "reject", selected_account: null, confirmation: null } });
+  assert.equal(oldClientDecision.status, 200, "receiver-only keeps the deployed old-client path working");
+  assert.equal(oldClientDecision.body.decision_receipt.schema_version, "qsl_human_decision_receipt.v1");
+  const originalLegacyReceipt = oldClientDecision.body.decision_receipt;
+  const upgradingTicket = promotionTicket(`rpt_${"f3".repeat(32)}`);
+  assert.equal((await seedOldMaterial(upgradingTicket)).status, 200);
+  const upgradeBefore = (await call(paths.promotion)).body.tickets.find(v => v.ticket_id === upgradingTicket.ticket_id);
+  const wantedReview = await __test.researchPromotionReviewBinding(upgradeBefore);
+  const upgradedBody = { ticket_id: upgradingTicket.ticket_id, decision: "reject", selected_account: null, confirmation: null, expected_material_sha256: upgradeBefore.decision_binding.material_sha256, expected_review_sha256: wantedReview.review_sha256 };
+  assert.equal((await call("/api/research-promotion-decisions", { method: "POST", body: upgradedBody })).status, 409);
+  assert.equal((await syncPromotion(upgradingTicket)).status, 200, "normal producer sync supplies current review metadata without rekeying");
+  const upgradeAfter = (await call(paths.promotion)).body.tickets.find(v => v.ticket_id === upgradingTicket.ticket_id);
+  assert.equal(upgradeAfter.decision_binding.material_sha256, upgradeBefore.decision_binding.material_sha256);
+  assert.deepEqual(upgradeAfter.decision_binding.review_binding, wantedReview);
+  assert.equal((await call("/api/research-promotion-decisions", { method: "POST", body: upgradedBody })).body.decision_receipt.schema_version, "qsl_human_decision_receipt.v2");
+  assert.deepEqual((await call(exactPath(originalLegacyReceipt))).body.decision_readback.receipt, originalLegacyReceipt, "receiver/source qualification never upgrades a prior terminal row");
+  assert.equal(offlineNetwork.counters.host_external_attempts, 0, "host-side requests must remain loopback-only");
+  console.log("human decisions validation passed", { ...offlineNetwork.counters, worker_outbound_attempts: outbound });
+} finally {
+  try { await mf.dispose(); }
+  finally {
+    console.log("human decision offline counters", { ...offlineNetwork.counters, worker_outbound_attempts: outbound });
+    await offlineNetwork.close();
+  }
 }

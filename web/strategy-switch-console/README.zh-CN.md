@@ -416,11 +416,27 @@ Shadow、修改 runtime 或产生订单。
 
 ## 网页人工审批（P6 决策意图）
 
-当且仅当候选仍是**新鲜**的 P6 `owner_decision_required`、机器建议仍为 `owner_live_decision` 时，控制台会在“全局概览”显示人工决定区。只有管理员可以选择：批准受限试运行意图、保持暂停或退役候选。
+当且仅当候选仍是**新鲜**的 P6 `owner_decision_required`、机器建议仍为 `owner_live_decision` 时，控制台会在“全局概览”显示人工决定区。只有管理员可以记录受限试运行意图或保持暂停；退役需要其独立提案路径。
 
-提交到 `POST /api/owner-decisions` 的是 `qsl_owner_decision_intent.v1`：它绑定当前候选的 P1/P2/P3/版本证据指纹，按 SHA-256 留存不可变 KV 记录，并维护当前记录索引和审计日志。证据、候选或阶段变化后，旧记录不会匹配新队列，必须重新决定。
+提交到 `POST /api/owner-decisions` 的是 `qsl_owner_decision_intent.v1`：它绑定当前候选的 P1/P2/P3/版本证据指纹，持久权威为既有 RuntimeInstances 的 `human_decision_record`；KV 索引和审计日志只是便利镜像。证据、候选或阶段变化后，旧材料收据不能完成新材料，任何新决定均须重新审阅。
 
 固定边界：该记录始终是 `no_order=true`、`execution_authority_granted=false`。它不会调用 workflow、平台 API、券商、资金或订单，也不会自动启用 Live。未来只有独立的确定性执行网关验证所有当前 P4/P5/P6 条件后，才可能消费这种意图；在那之前它只是网页人工审核记录。
+
+## 人工决定收据与精确读回
+
+Owner、recovery、promotion 三类决定仅从已验证的持久终态记录附加 `decision_receipt`。有界 `qsl_human_decision_receipt.v1`（具备完整 promotion 审阅资格时为 `.v2`）固定返回类型、事项、原材料 SHA-256、动作、原记录者/时间、逻辑目标及稳定收据摘要。Promotion 保留原选择的逻辑账户；拒绝后即使票据退出当前队列，仍能读其历史收据。不返回原 request key、完整 payload、券商原生账户号或凭据；不新增表、执行权限或 workflow。
+
+既有 `/api/owner-decisions`、`/api/reconciliation-recovery`、`/api/research-promotion-tickets` GET 同时提供 `decision_subject_id` 与 `decision_material_sha256` 时，返回单笔 exact-material `qsl_human_decision_readback.v1`。此分支要求 allowed/admin，拒绝显式跨 Origin，允许正常同源 GET 不带 Origin，并保持 `Cache-Control: no-store`。它直接查询既有 DO 索引，不因来源移除、过期、失去资格或材料换版而抹除历史事实。`not_found` 仅描述本次完整查询，不是重新提交许可；DO 缺失/不可读为 unavailable，不从 legacy KV 拼出成功。当前材料诊断标志也不赋予历史收据任何执行权限。
+
+普通队列新增 server 派生的 `decision_binding`。新 UI 确认绑定登录主体、类型、事项、材料索引、完整 promotion 审阅、动作和精确目标；promotion 的采用/不采用均发送 `expected_material_sha256` 与 `expected_review_sha256`，既有候选/账户守卫不变。原六字段 material SHA-256 仅保留为持久终态索引，并非完整审阅摘要。独立的 `qsl_promotion_review_binding.v2` 覆盖不可变的 producer 已保存审阅投影：候选/shadow 字段、notes/证据摘要、research summary/comparison/limitations/AI binding、drift、budget、search iterations、建议风险及静态审阅说明；排除纯观察时间与决定生成的终态字段。原审阅快照/摘要保存在同一 record payload，DO 写事务原子核对当前 material summary 中的审阅摘要，不 rekey 历史索引、不重写终态。旧调用方未发送 review hash 时保留原合同和 v1 收据，不因此取得 v2 资格。
+
+前端分别保留 ACK 与精确读回事实。同步同材料锁覆盖相反动作及 A/B 账户；坏 ACK 不计成功，旧会话响应不能回写，ACK 后读回失败不撤销已记录事实。未知结果只可重新 GET 核对，绝不自动 POST；最后一项退出待办列表后仍展示结果。决定专用传输 15 秒超时，超时不证明请求被拒绝。
+
+POST 前须成功写入并核验有界 sessionStorage 定位符（最多 24 笔 / 48 KiB），只存 origin、派生登录 namespace、精确逻辑绑定/目标、request ID 与开始时间；不存 token、session 对象、完整材料、原生账号或余额。同标签页重载先认证，再仅 GET 恢复；存储失败或损坏会阻止新提交，不静默丢弃未知请求。容量满时只回收已 exact-GET verified 的项，先成功持久化缩短后的 journal，再移除内存锁；unknown/submitting/ACK-only/conflict/legacy 未资格项均保留。全为未决项时暂停新提交，后续一笔读回验证可恢复容量，无需退出登录。退出清除私有状态和定位符；关闭标签页或清浏览器数据不承诺完整恢复。Replay 或他人已有一致记录展示真实原记录者/时间。
+
+分阶段采用：先发布 receiver/test/docs 组并保留当前已部署前端；即使旧行缺审阅 metadata，旧客户端普通决定路径仍兼容。等待既有 producer 正常同步，通过只读 GET 逐个确认当前 pending promotion 的 v2 摘要匹配后，才采用 client/assets 组。GET 不写入或认证旧行；格式完整的既有 v1 收据可观察但不具 v2 资格；缺失或矛盾的原目标仍为 unavailable。本次不扩展 legacy 导入，也不补造缺失的确认/账户资料。准备度缺失时继续部署旧客户端，不强跑来源、不用真实决定制造准备度。
+
+验证命令：`node tests/human_decisions_worker_validation.mjs` 自带 `cf:false`、既有工作流 CF 取数禁用配置、主机侧外部拒绝/仅 loopback guard，以及独立拒绝的 Worker outbound hook，覆盖六种决定及 DO 重启、历史读回/鉴权；`node --experimental-strip-types tests/decision_readback_ui_validation.mjs` 覆盖合成中断传输、身份隔离、重载、并发锁和真实 React 服务端渲染。`node --experimental-strip-types tests/decision_review_material_pure_validation.mjs` 在禁止所有网络的 guard 下验证纯投影/版本，不加载 Miniflare。原独立复审中被拒绝的调用不记 PASS，新隔离离线 harness 另存证据。这些证据不代替浏览器交互、生产部署或真实人工决定验收。
 
 ## 策略 Profile 对齐规范
 
