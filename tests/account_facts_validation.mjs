@@ -944,7 +944,9 @@ await saveAccounts([account, otherAccount]);
 await saveBindings([trustedBinding()]);
 
 const overviewPage = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
-assert.match(overviewPage, /全部账户总额|请选择账户/);
+assert.match(overviewPage, /已取得资产合计（不含已标记模拟账户）/);
+assert.match(overviewPage, /summarizeCurrentAccountFacts/);
+assert.match(overviewPage, /formatCurrentAmounts\(currentFactsSummary\.excludingPaper\.assets\)/);
 assert.match(overviewPage, /accountId === "all"/);
 assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
 assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
@@ -957,7 +959,9 @@ assert.match(overviewPage, /accountNativeReadout\(account\.platformKey, account\
 assert.match(overviewPage, /native\.nativeType\s*\? `\$\{t\("账户类型"\)\}: \$\{native\.nativeType\}`/);
 assert.match(overviewPage, /const paperConfigured = account\.brokerEnvironment === "paper"/);
 assert.match(overviewPage, /t\("模拟账户"\)/);
-assert.doesNotMatch(overviewPage, /已取得资产金额|覆盖按配置条目统计|账户资料依据|历史数据范围/);
+assert.doesNotMatch(overviewPage, /已取得资产金额|覆盖按配置条目统计|账户资料依据/);
+assert.match(overviewPage, /view\.historyDays > 0/);
+assert.match(overviewPage, /t\("历史数据范围"\)/);
 assert.doesNotMatch(overviewPage, /t\("账户配置"\)/);
 const appSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/App.tsx"), "utf8");
 assert.match(appSource, /brokerEnvironment: typeof row\.account\.broker_environment === "string" \? row\.account\.broker_environment : null/);
