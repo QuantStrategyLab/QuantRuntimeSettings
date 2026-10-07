@@ -449,8 +449,11 @@ for (const name of readdirSync(new URL(".", import.meta.url)).filter(name => nam
   const text = readFileSync(new URL(name, import.meta.url), "utf8");
   if (!/new\s+\w*Miniflare\s*\(/.test(text)) continue;
   miniflareTestFiles += 1;
-  assert.doesNotMatch(text, /(?:\bcf|["']cf["'])\s*:|\.cf\s*=|\[\s*["']cf["']\s*\]\s*=/,
-    `${name} must not explicitly override the offline synthetic cf option`);
+  // Literal false is the same built-in offline fallback and cannot re-enable a fetch.
+  // All expressions, objects, paths and assignments remain forbidden overrides.
+  const withoutExplicitOfflineFalse = text.replace(/^\s*cf:\s*false,\s*$/gm, "");
+  assert.doesNotMatch(withoutExplicitOfflineFalse, /(?:\bcf|["']cf["'])\s*:|\.cf\s*=|\[\s*["']cf["']\s*\]\s*=/,
+    `${name} must not override the offline synthetic cf option except with literal false`);
 }
 assert.ok(miniflareTestFiles > 0, "the offline contract covers the existing Miniflare suites");
 assert.equal(createHash("sha256").update(manualWorkflow).digest("hex"),
