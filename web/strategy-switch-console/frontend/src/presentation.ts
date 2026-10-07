@@ -1293,6 +1293,44 @@ function ready(source: SourceState | null | undefined): boolean {
   return Boolean(source && !source.error && source.value && source.value.data_status === "ready");
 }
 
+// This one partial contract isolates invalid review material. It never makes
+// the source ready: listDailyDecisions still shows its existing partial warning.
+function readablePromotionQueue(source: SourceState | null | undefined): boolean {
+  if (ready(source)) return true;
+  const value = source?.value;
+  const code = "research_promotion_review_material_invalid";
+  const onlyCode = (codes: unknown) => Array.isArray(codes) && codes.length === 1 && codes[0] === code;
+  if (source?.error || value?.schema_version !== "qsl.research_promotion_ticket_queue.v1"
+    || value.data_status !== "partial" || !onlyCode(value.errors)) return false;
+  const count = value.summary?.invalid_review_count;
+  const invalid = value.invalid_tickets;
+  const tickets = value.tickets;
+  if (!Number.isSafeInteger(count) || count < 1 || count > 100
+    || !Array.isArray(invalid) || invalid.length !== count
+    || !Array.isArray(tickets) || tickets.length + count > 100
+    || value.summary.ticket_count !== tickets.length) return false;
+  const ids = new Set<string>();
+  for (const ticket of invalid) {
+    if (typeof ticket?.ticket_id !== "string" || !ticket.ticket_id || ids.has(ticket.ticket_id)
+      || ticket.decision_binding !== null || ticket.decision_material?.eligible !== false
+      || ticket.decision_material?.blocked !== true || !onlyCode(ticket.decision_material?.blocker_codes)
+      || ticket.live_authority_granted !== false || ticket.no_order !== true) return false;
+    ids.add(ticket.ticket_id);
+  }
+  for (const ticket of tickets) {
+    const binding = ticket?.decision_binding;
+    const review = binding?.review_binding;
+    if (typeof ticket?.ticket_id !== "string" || !ticket.ticket_id || ids.has(ticket.ticket_id)
+      || ticket.state !== "awaiting_human" || ticket.live_authority_granted !== false
+      || binding?.kind !== "promotion" || binding.subject_id !== ticket.ticket_id
+      || typeof binding.material_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(binding.material_sha256)
+      || (review !== null && (review?.schema_version !== "qsl_promotion_review_binding.v2"
+        || typeof review.review_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(review.review_sha256)))) return false;
+    ids.add(ticket.ticket_id);
+  }
+  return true;
+}
+
 function profileName(profiles: any[], id: unknown, language: "zh" | "en"): string {
   const found = profiles.find(item => item?.profile === id);
   return found ? strategySelectionName(found, profiles, language) : candidateDisplayName(id, language);
@@ -1326,7 +1364,7 @@ export function listDailyDecisions(input: {
 }): { blocked: boolean; items: DailyDecision[] } {
   const blocked = !ready(input.promotions) || !ready(input.owners) || !ready(input.recovery);
   const items: DailyDecision[] = [];
-  if (ready(input.promotions)) {
+  if (readablePromotionQueue(input.promotions)) {
     for (const ticket of input.promotions?.value?.tickets || []) {
       if (!ticket?.ticket_id || ticket.state !== "awaiting_human" || ticket.source_check_required) continue;
       const summary = ticket.research_summary || {};

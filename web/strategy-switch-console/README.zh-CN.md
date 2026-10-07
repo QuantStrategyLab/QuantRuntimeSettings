@@ -603,3 +603,11 @@ node web/strategy-switch-console/ux1_local_demo.mjs --interpreter <绝对路径>
 接收 LongBridge 已持久化的 `longbridge_account_snapshot_history.v1`，保留原观察时间和分币种金额；首次接收限定原观察开始后15分钟，不提供历史回填入口。最新观察与每日最后观察在同一事务保存，历史最多保留366个UTC观察日；缺日/缺币种留空，历史曲线不代表收益。完整外部资金流未提供时不计算收益；物理账户未去重时不汇总全部账户金额。
 
 每日运行区域读取既有 `/api/runtime-daily`，业务日期使用 `America/New_York`，与资产历史的UTC观察日分开。数据未取得时页面使用普通缺省显示；具体工程原因保留在接口与运维报告，订单已提交不等于已成交。真实发布、页面采用与自然周期仍须分别核验。
+
+### 晋级审阅材料逐项隔离（2026-10-07）
+
+普通 promotion GET 仅隔离确定的 canonical 审阅材料验证错误。旧 JSON 数字字符串可通过原 normalizer，却归一成非有限数字，不能因此让正常票据整队列读取失败。响应保持 `data_status: partial`，仅含固定错误 `research_promotion_review_material_invalid`、1–100 的 `summary.invalid_review_count` 及数量一致的 `invalid_tickets`。坏项明确 `decision_material.eligible: false`、`blocked: true`、固定 blocker，且无 `decision_binding`；不把坏数字伪造成0/null。正常票据及应用保留原合同；crypto、DO 权威等基础设施故障不转成该 partial。带或不带 v2 审阅 hash 的坏决定 POST，以及坏来源 sync，仍在任何写入前拒绝。
+
+只有现有 promotion adapter 接受此精确 partial 的有效子集，并核 schema、单一错误、数量上限、诊断旗标、身份唯一性及材料 binding。来源仍非 ready，既有“部分待办暂时无法读取”警告继续出现；未知 partial、多余错误、stale/unavailable 或 transport error 不放行，owner/recovery 消费不变。这只是数据消费修复，不采用旧完整 v2 决定客户端，不改页面文字、布局、样式或刷新行为。部署、正常 producer 准备度和真实业务验收仍须分别证明。
+
+新增 `tests/promotion_queue_partial_validation.mjs` 接入既有 presentation 校验入口，使用可表示 JSON、假 KV/DO 和全部网络拒绝守卫，覆盖混合/全坏队列、诊断上限、v1/v2 坏 POST 与 sync 零写入、基础设施错误、adapter 负例及未改 React 页面的真实 SSR：正常项可见且原警告保留。合成复现不证明生产 partial 警告由该坏数据引起。

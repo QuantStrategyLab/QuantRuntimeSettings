@@ -6047,8 +6047,22 @@ function researchPromotionReviewMaterial(ticket) {
     notes: ticket.notes, research_summary: ticket.research_summary || null,
   };
 }
+const RESEARCH_PROMOTION_REVIEW_INVALID = "research_promotion_review_material_invalid";
+class ResearchPromotionReviewMaterialError extends HttpError {
+  constructor() { super(RESEARCH_PROMOTION_REVIEW_INVALID, 400); }
+}
 async function researchPromotionReviewBinding(ticket) {
-  return { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await calculateOwnerDecisionSha256(researchPromotionReviewMaterial(ticket)) };
+  let canonical;
+  try {
+    canonical = canonicalResearchTaskJson(researchPromotionReviewMaterial(ticket));
+  } catch (error) {
+    // Only canonical data validation is recoverable per ticket. Hash/storage
+    // failures must not be relabelled as invalid material or a healthy queue.
+    if (error?.message === "research task must use finite JSON values"
+      || error?.message === "research task must use JSON values") throw new ResearchPromotionReviewMaterialError();
+    throw error;
+  }
+  return { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await sha256Hex(canonical) };
 }
 function promotionReviewBindingsMatch(left, right) {
   return left?.schema_version === "qsl_promotion_review_binding.v2" && right?.schema_version === left.schema_version
@@ -10557,13 +10571,28 @@ async function researchPromotionTicketsResponse(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   const exact = await exactHumanDecisionResponse(request, env, session, "promotion");
   if (exact) return exact;
-  const tickets = await Promise.all((await listResearchPromotionTickets(env)).map(async ticket => {
-    const reviewBinding = await researchPromotionReviewBinding(ticket);
-    return { ...ticket, decision_binding: {
+  const tickets = [];
+  const invalidTickets = [];
+  for (const ticket of await listResearchPromotionTickets(env)) {
+    let reviewBinding;
+    try {
+      reviewBinding = await researchPromotionReviewBinding(ticket);
+    } catch (error) {
+      if (!(error instanceof ResearchPromotionReviewMaterialError)) throw error;
+      // Keep a bounded, explicit non-actionable diagnosis; never serialize the
+      // invalid numbers as fake zero/null or certify this ticket with a digest.
+      invalidTickets.push({
+        ticket_id: ticket.ticket_id, strategy_profile: ticket.strategy_profile, state: ticket.state,
+        decision_material: { eligible: false, blocked: true, blocker_codes: [RESEARCH_PROMOTION_REVIEW_INVALID] },
+        decision_binding: null, live_authority_granted: false, no_order: true,
+      });
+      continue;
+    }
+    tickets.push({ ...ticket, decision_binding: {
       kind: "promotion", subject_id: ticket.ticket_id, material_sha256: await researchPromotionMaterialKey(ticket),
       review_binding: promotionReviewBindingsMatch(reviewBinding, ticket.decision_review_binding) ? reviewBinding : null,
-    } };
-  }));
+    } });
+  }
   const awaiting = tickets.filter((ticket) => ticket.state === "awaiting_human");
   const applicationTickets = tickets.filter((ticket) =>
     ticket.state === "awaiting_human" || ticket.state === "human_accepted");
@@ -10585,14 +10614,16 @@ async function researchPromotionTicketsResponse(request, env) {
   }
   return json({
     schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
-    data_status: hasConfigStore(env) ? "ready" : "unavailable",
+    data_status: hasConfigStore(env) ? (invalidTickets.length ? "partial" : "ready") : "unavailable",
     computed_at: new Date().toISOString(),
     tickets: awaiting.map(attachRiskEnvelopeView),
     applications,
+    ...(invalidTickets.length ? { invalid_tickets: invalidTickets } : {}),
     summary: {
       ticket_count: awaiting.length,
       awaiting_human: awaiting.length,
       application_count: applications.length,
+      ...(invalidTickets.length ? { invalid_review_count: invalidTickets.length } : {}),
     },
     policy: {
       admin_required_to_decide: true,
@@ -10602,7 +10633,7 @@ async function researchPromotionTicketsResponse(request, env) {
       activation_status: "not_connected",
       notice: "网页只记录晋级人工意图；确认不授予实盘权限，也不下单。",
     },
-    errors: [],
+    errors: invalidTickets.length ? [RESEARCH_PROMOTION_REVIEW_INVALID] : [],
   });
 }
 
