@@ -122,7 +122,9 @@ try {
   assert.doesNotMatch(html, /运行监测与资产数据分别核对|已取得资产金额|覆盖按配置条目统计|实物账户尚未完成去重|账户资料依据|历史数据范围|配置目录不证明券商原生权限/,
     "internal review prose and coverage disclosures are not part of the Opus page");
   assert.match(html, /模拟账户/);
-  assert.match(html, /请选择账户/);
+  assert.match(html, /已取得资产合计（不含已标记模拟账户）/);
+  assert.match(html, /配置为模拟（单列，不计入实盘汇总）/);
+  assert.match(html, /暂无组合历史/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
   assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /USD 101\.25/);
   assert.match(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /账户资产资料已过期/);
