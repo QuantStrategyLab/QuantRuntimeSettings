@@ -194,6 +194,12 @@ textarea { width: 100%; resize: vertical; }
 .overview-aggregate-values > div > strong { font-size: 17px; line-height: 1.25; }
 .overview-aggregate-values > .overview-aggregate-primary { padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--accent-soft); }
 .overview-aggregate-values > .overview-aggregate-primary > strong { font-size: 21px; }
+.overview-aggregate-breakdown { min-width: 0; border-top: 1px solid var(--soft-line); }
+.overview-aggregate-breakdown > summary { width: fit-content; min-height: 32px; padding: 5px 0; color: var(--ink); font-size: 12px; font-weight: 600; cursor: pointer; }
+.overview-aggregate-breakdown[open] { display: grid; gap: 6px; }
+.overview-runtime-state { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; min-width: 0; margin: 0; color: var(--muted); font-size: 12.5px; overflow-wrap: anywhere; }
+.overview-runtime-state strong { color: var(--ink); }
+.overview-runtime-state small { color: var(--muted); }
 .daily-page.overview-layout .overview-metrics-wallet { grid-template-columns: minmax(0, 1fr); }
 .wallet-amount-display { white-space: nowrap; font-size: clamp(.85rem, 3.5vw, 1.5rem); font-variant-numeric: tabular-nums; }
 
@@ -281,6 +287,7 @@ textarea { width: 100%; resize: vertical; }
 .overview-accounts { grid-area: accounts; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--paper); }
 .overview-accounts > h2 { margin: 0; padding: 12px 16px 0; font-size: 14px; }
 .overview-accounts > .section-note { margin: 2px 0 0; padding: 0 16px 12px; border-bottom: 1px solid var(--line); }
+.overview-accounts > .overview-account-coverage { line-height: 1.45; }
 .overview-account-list { display: grid; min-width: 0; }
 .overview-account-entry { min-width: 0; padding: 12px 16px 6px; border-top: 1px solid var(--soft-line); }
 .overview-account-entry:first-child { border-top: 0; }
@@ -482,7 +489,7 @@ textarea { width: 100%; resize: vertical; }
   .accounts-page.show-detail .account-list { display: none; }
   .accounts-page.show-detail .account-detail, .accounts-page.show-detail .mobile-back { display: block; }
   .accounts-layout, .decision-layout, .daily-page.overview-layout { grid-template-columns: minmax(0, 1fr); }
-  .daily-page.overview-layout { grid-template-rows: none; grid-template-areas: "head" "metrics" "accounts" "chart" "runtime"; }
+  .daily-page.overview-layout { grid-template-rows: none; grid-template-areas: "head" "metrics" "chart" "runtime" "accounts"; }
   .daily-page.overview-layout > .overview-private-scope { grid-column: 1; }
   .accounts-layout, .decision-layout, .account-detail, .decision-detail, .account-list { min-width: 0; max-width: 100%; }
   .accounts-page .account-list { overflow: visible; border: 0; background: transparent; }
