@@ -134,11 +134,52 @@ The independent `runtime_cycle_health_source` admission row binds a single
 source ID to the lifecycle target, SHA-256 of the normalized protected binding
 plus lifecycle ID, exact configuration digest, positive authority revision,
 and canonical `required_from` coverage origin. Absence or conflict rejects
-both reads and writes. There is no production admission initializer, setter,
-caller-supplied `verified` flag, or self-registration endpoint in this batch.
-Only test subclasses seed synthetic admission. Provisioning the real serving
-source, configuration, binding and baseline remains a separately authorized
-prerequisite before transport or dashboard adoption.
+both reads and writes. A narrow `POST /api/internal/runtime-cycle-health-admission`
+provisioning operation now uses the existing internal sync credential, and
+rejects it if it aliases an account-facts or execution-evidence source token.
+The operation resolves the requested binding from protected account options
+and account-facts bindings; the source endpoint cannot call it with its own
+account-facts token. It requires an expected authority revision, creates the
+first row at revision 1, treats an exact retry as unchanged, and performs
+updates with a transactionally checked revision. It never accepts an
+`admitted` or `verified` request flag and never marks a source healthy.
+Its response status describes only the provisioning operation (`admission_configured`
+or `admission_unchanged`), not the runtime checkpoint.
+
+The provision request contains exactly `source_id`, `target_id`,
+`configuration_sha256`, `required_from`, and `expected_authority_revision`; the
+binding ID is supplied in the existing `X-QSL-Source-Binding-ID` header and
+must match the protected LongBridge PAPER binding. The operator must obtain
+the source configuration digest and baseline origin from independently
+reviewed, protected serving/job configuration before this privileged call;
+the Worker cannot inspect the LB deployment. A baseline can only stay the
+same or expand earlier after provisioning, never move later to clip old
+history. Binding changes reset only that binding's observation watermark and
+keep the prior checkpoint partition visible with unconfirmed continuity.
+Reusing a previously retained binding partition is rejected until a reviewed
+history migration can safely restore its matching watermark and checkpoint.
+Source IDs remain stable; replacing one is rejected until a reviewed history
+migration exists. The first complete source observation, not provisioning,
+establishes the coverage baseline. These operations remain production-blocked
+until the real source, configuration, binding and baseline are read back and
+independently authorized.
+
+The lifecycle publisher action now has a default-off `publish-cycle-health`
+option for this one prepared transport. It accepts a path to an already
+source-validated six-member package and the exact existing PAPER
+`source_binding.id`, which must come only from protected secret storage or
+private workflow configuration. Never expose it as a `workflow_dispatch`
+input or log value. It does not collect source data, create admission, or
+fall back to the legacy lifecycle endpoint if opted-in publishing fails. The
+opt-in path uses LongBridge `ACCOUNT_FACTS_SYNC_TOKEN`, POSTs to the companion,
+validates the durable ACK against the exact request digest and identity, then
+GETs and checks the returned source, target, digest, observation time, and
+revisions against that ACK. Tokens are carried in a permission-restricted
+temporary header file. The receiver rejects production writes until the
+independent serving source, configuration, binding and baseline are admitted.
+Companion HTTP calls have 10-second connect and 30-second total time limits;
+POST and GET bodies are each capped at 1 MiB before being written to the
+temporary response file.
 
 `computed_at = generated_at = coverage.through` preserves original collection
 time. Canonical UTC instants use seconds or exactly six nonzero microseconds,

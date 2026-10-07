@@ -810,6 +810,9 @@ export default {
       if (url.pathname === "/api/account-facts" && request.method === "GET") {
         return await accountFactsResponse(request, env);
       }
+      if (url.pathname === "/api/internal/runtime-cycle-health-admission" && request.method === "POST") {
+        return runtimeCycleHealthAdmissionResponse(request, env);
+      }
       if (url.pathname === "/api/internal/runtime-cycle-health-source" && ["POST", "GET"].includes(request.method)) {
         return runtimeCycleHealthSourceResponse(request, env);
       }
@@ -2240,6 +2243,80 @@ export class RuntimeInstances {
     return { ...result("stored", checkpoint, revision), schema_version: "qsl_runtime_cycle_health_ack.v1", result: "stored" };
   }
 
+  cycleHealthProvisionCommand(command) {
+    const { source_id: sourceId, target_id: targetId, binding_fingerprint: bindingFingerprint,
+      configuration_sha256: configurationSha, required_from: requiredFrom,
+      expected_authority_revision: expectedRevision } = command || {};
+    if (targetId !== "longbridge.paper" || !/^[a-f0-9]{64}$/.test(bindingFingerprint || "")
+      || !/^[a-f0-9]{64}$/.test(configurationSha || "")
+      || !Number.isSafeInteger(expectedRevision) || expectedRevision < 0) {
+      throw new HttpError("cycle_health_admission_request_invalid", 400);
+    }
+    const normalizedSourceId = normalizeControlPlaneIdentifier(sourceId, "source_id", false);
+    let normalizedRequiredFrom;
+    try { normalizedRequiredFrom = normalizeCycleInstant(requiredFrom); }
+    catch { throw new HttpError("cycle_health_baseline_not_admitted", 400); }
+    const current = [...this.sql.exec("SELECT * FROM runtime_cycle_health_source WHERE target_id = ?", targetId)][0] || null;
+    const sourceOwner = [...this.sql.exec("SELECT * FROM runtime_cycle_health_source WHERE source_id = ?", normalizedSourceId)][0] || null;
+    if (sourceOwner && sourceOwner.target_id !== targetId) throw new HttpError("cycle_health_source_target_conflict", 409);
+    if (current && current.source_id !== normalizedSourceId) throw new HttpError("cycle_health_source_id_change_requires_support", 409);
+    if (current?.binding_fingerprint !== bindingFingerprint
+      && [...this.sql.exec("SELECT 1 AS found FROM runtime_cycle_health_checkpoint WHERE target_id = ? AND binding_fingerprint = ?", targetId, bindingFingerprint)][0]) {
+      throw new HttpError("cycle_health_binding_partition_reuse_requires_support", 409);
+    }
+    const currentRevision = current?.authority_revision || 0;
+    const sameAdmission = current && current.binding_fingerprint === bindingFingerprint
+      && current.configuration_sha256 === configurationSha && current.required_from === normalizedRequiredFrom;
+    if (sameAdmission) {
+      if (expectedRevision > currentRevision || expectedRevision < currentRevision - 1) {
+        throw new HttpError("cycle_health_admission_revision_conflict", 409);
+      }
+      return {
+      ok: true, schema_version: "qsl_runtime_cycle_health_admission.v1", result: "unchanged",
+      source_id: normalizedSourceId, target_id: targetId, authority_revision: currentRevision,
+      configuration_sha256: configurationSha, required_from: normalizedRequiredFrom,
+      status: "admission_unchanged", adopted: false, no_order: true,
+      execution_authority_granted: false,
+      };
+    }
+    if (expectedRevision !== currentRevision) throw new HttpError("cycle_health_admission_revision_conflict", 409);
+    if (current && compareCycleInstants(normalizedRequiredFrom, current.required_from) > 0) {
+      throw new HttpError("cycle_health_baseline_range_shrink_rejected", 409);
+    }
+    const nextRevision = currentRevision + 1;
+    if (!Number.isSafeInteger(nextRevision)) throw new HttpError("cycle_health_admission_revision_exhausted", 409);
+    if (!current) {
+      this.sql.exec(`INSERT INTO runtime_cycle_health_source (
+        source_id, target_id, binding_fingerprint, configuration_sha256,
+        authority_revision, required_from, observed_at, observation_json,
+        observation_sha256, received_at, checkpoint_revision
+      ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)`,
+      normalizedSourceId, targetId, bindingFingerprint, configurationSha, nextRevision, normalizedRequiredFrom);
+    } else {
+      const bindingChanged = current.binding_fingerprint !== bindingFingerprint;
+      this.sql.exec(`UPDATE runtime_cycle_health_source SET binding_fingerprint = ?, configuration_sha256 = ?,
+        authority_revision = ?, required_from = ?, observed_at = ?, observation_json = ?, observation_sha256 = ?,
+        received_at = ?, checkpoint_revision = ? WHERE source_id = ? AND authority_revision = ?`,
+      bindingFingerprint, configurationSha, nextRevision, normalizedRequiredFrom,
+      bindingChanged ? null : current.observed_at,
+      bindingChanged ? null : current.observation_json,
+      bindingChanged ? null : current.observation_sha256,
+      bindingChanged ? null : current.received_at,
+      bindingChanged ? null : current.checkpoint_revision,
+      normalizedSourceId, currentRevision);
+      if (this.sql.exec("SELECT changes() AS changed").toArray()[0]?.changed !== 1) {
+        throw new HttpError("cycle_health_admission_revision_conflict", 409);
+      }
+    }
+    return {
+      ok: true, schema_version: "qsl_runtime_cycle_health_admission.v1", result: "stored",
+      source_id: normalizedSourceId, target_id: targetId, authority_revision: nextRevision,
+      configuration_sha256: configurationSha, required_from: normalizedRequiredFrom,
+      status: "admission_configured", adopted: false, no_order: true,
+      execution_authority_granted: false,
+    };
+  }
+
   accountFactsCommand(command) {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_account_facts_action", 400);
     if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
@@ -3271,7 +3348,10 @@ export class RuntimeInstances {
       if (typeof command?.action === "string" && command.action.startsWith("ux1_")) {
         return json(this.ux1ResearchCommand(command));
       }
-      if (["cycle_health_admission", "cycle_health_put", "cycle_health_read"].includes(command?.action)) {
+      if (["cycle_health_admission", "cycle_health_put", "cycle_health_read", "cycle_health_provision"].includes(command?.action)) {
+        if (command.action === "cycle_health_provision") {
+          return json(this.storage.transactionSync(() => this.cycleHealthProvisionCommand(command)));
+        }
         return json(this.storage.transactionSync(() => this.cycleHealthCommand(command)));
       }
       if (ACCOUNT_SETTINGS_DO_ACTIONS.has(command?.action)) {
@@ -9737,6 +9817,65 @@ function accountFactsErrorResponse(error) {
   return json({ ok: false, error: error?.message || "invalid_account_facts_history" }, error?.status || 400);
 }
 
+function requireCycleHealthProvisionToken(request, env) {
+  const expected = String(env.STRATEGY_SWITCH_SYNC_TOKEN || env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
+  if (!expected) throw new HttpError("cycle_health_provisioner_unavailable", 503);
+  const sourceTokens = [
+    env.ACCOUNT_FACTS_SYNC_TOKEN, env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.EXECUTION_EVIDENCE_SYNC_TOKEN,
+  ].filter(Boolean).map(String);
+  if (sourceTokens.includes(expected)) throw new HttpError("cycle_health_provisioner_token_alias", 503);
+  const token = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (token !== expected) throw new HttpError("cycle_health_provisioner_token_invalid", 401);
+}
+
+async function resolveCycleHealthBindingFingerprint(env, targetId, bindingId) {
+  const config = await loadAccountOptionsConfig(env);
+  const options = Array.isArray(config?.options?.longbridge) ? config.options.longbridge : [];
+  const matches = options.filter(o => o.runtime_status_target_id === targetId);
+  const allMatches = Object.entries(config.options || {}).flatMap(([platform, items]) =>
+    (Array.isArray(items) ? items : []).filter(o => o.runtime_status_target_id === targetId).map(o => ({ platform, key: o.key })));
+  if (matches.length !== 1 || allMatches.length !== 1 || allMatches[0].platform !== "longbridge"
+    || options.filter(o => o.key === matches[0]?.key).length !== 1) throw new HttpError("cycle_health_option_not_unique", 409);
+  const bindings = await loadAccountFactsBindings(env);
+  const bound = bindings?.bindings?.filter(b => b.platform === "longbridge" && b.account_key === matches[0].key) || [];
+  if (bound.length !== 1 || bound[0].account_scope !== "paper" || bound[0].source_binding.id !== bindingId
+    || !accountFactsOptionMatchesBinding(matches[0], bound[0])) throw new HttpError("cycle_health_binding_mismatch", 409);
+  return cycleHealthSha256({ binding: bound[0], runtime_status_target_id: targetId });
+}
+
+async function runtimeCycleHealthAdmissionResponse(request, env) {
+  try {
+    requireCycleHealthProvisionToken(request, env);
+    if (!hasRuntimeInstanceStore(env)) throw new HttpError("cycle_health_store_unavailable", 503);
+    const raw = await readBoundedJson(request, 8192);
+    const fields = ["source_id", "target_id", "configuration_sha256", "required_from", "expected_authority_revision"];
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)
+      || Object.keys(raw).length !== fields.length || fields.some(field => !Object.hasOwn(raw, field))) {
+      throw new HttpError("cycle_health_admission_request_invalid", 400);
+    }
+    const sourceId = normalizeControlPlaneIdentifier(raw.source_id, "source_id", false);
+    const targetId = raw.target_id;
+    if (targetId !== "longbridge.paper" || !/^[a-f0-9]{64}$/.test(raw.configuration_sha256 || "")
+      || !Number.isSafeInteger(raw.expected_authority_revision) || raw.expected_authority_revision < 0) {
+      throw new HttpError("cycle_health_admission_request_invalid", 400);
+    }
+    const requiredFrom = normalizeCycleInstant(raw.required_from);
+    const bindingId = request.headers.get("X-QSL-Source-Binding-ID") || "";
+    if (!/^[a-f0-9]{64}$/.test(bindingId)) throw new HttpError("cycle_health_binding_required", 409);
+    const bindingFingerprint = await resolveCycleHealthBindingFingerprint(env, targetId, bindingId);
+    return json(await runtimeInstanceCommand(env, {
+      action: "cycle_health_provision", source_id: sourceId, target_id: targetId,
+      binding_fingerprint: bindingFingerprint, configuration_sha256: raw.configuration_sha256,
+      required_from: requiredFrom, expected_authority_revision: raw.expected_authority_revision,
+    }));
+  } catch (error) {
+    return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError
+      ? error.message : "cycle_health_admission_unavailable" }, error.status || 400);
+  }
+}
+
 async function runtimeCycleHealthSourceResponse(request, env) {
   try {
     const platform = requireDedicatedAccountFactsSyncToken(request, env);
@@ -9776,18 +9915,7 @@ async function runtimeCycleHealthSourceResponse(request, env) {
       source.targets[0].cycle_health = await normalizeCycleHealth(health, { target_id: targetId, source_binding_id: bindingId, observed_at: source.computed_at });
     }
     if (targetId !== "longbridge.paper" || (source && (source.targets[0].target.platform !== "longbridge" || source.targets[0].target.execution_mode !== "paper"))) throw new HttpError("cycle_health_paper_target_required", 403);
-    const config = await loadAccountOptionsConfig(env);
-    const options = Array.isArray(config?.options?.longbridge) ? config.options.longbridge : [];
-    const matches = options.filter(o => o.runtime_status_target_id === targetId);
-    const allMatches = Object.entries(config.options || {}).flatMap(([p, items]) =>
-      (Array.isArray(items) ? items : []).filter(o => o.runtime_status_target_id === targetId).map(o => ({ platform: p, key: o.key })));
-    if (matches.length !== 1 || allMatches.length !== 1 || allMatches[0].platform !== "longbridge"
-      || options.filter(o => o.key === matches[0]?.key).length !== 1) throw new HttpError("cycle_health_option_not_unique", 409);
-    const bindings = await loadAccountFactsBindings(env);
-    const bound = bindings?.bindings?.filter(b => b.platform === "longbridge" && b.account_key === matches[0].key) || [];
-    if (bound.length !== 1 || bound[0].account_scope !== "paper" || bound[0].source_binding.id !== bindingId
-      || !accountFactsOptionMatchesBinding(matches[0], bound[0])) throw new HttpError("cycle_health_binding_mismatch", 409);
-    const bindingFingerprint = await cycleHealthSha256({ binding: bound[0], runtime_status_target_id: targetId });
+    const bindingFingerprint = await resolveCycleHealthBindingFingerprint(env, targetId, bindingId);
     const identity = { source_id: sourceId, target_id: targetId, binding_fingerprint: bindingFingerprint, source_binding_id: bindingId };
     const admission = await runtimeInstanceCommand(env, { ...identity, action: "cycle_health_admission" });
     if (source && source.targets[0].cycle_health.configuration_sha256 !== admission.configuration_sha256) throw new HttpError("cycle_health_configuration_not_admitted", 409);
