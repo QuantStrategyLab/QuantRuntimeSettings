@@ -250,7 +250,8 @@ try {
     const wanted = await humanDecisionExpectation("promotion", source, body); assert.ok(wanted);
     const raw = { schema_version: `qsl_human_decision_receipt.v${version}`, ...(version === 2 ? { review_binding: source.decision_binding.review_binding } : {}), kind: "promotion", subject_id: source.ticket_id, material_sha256: wanted.material_sha256, action: wanted.action, target: wanted.target, decided_at: "2026-10-07T06:00:00.123456Z", decided_by: "synthetic-original-actor", no_order: true, execution_authority_granted: false };
     const receipt = { ...raw, receipt_sha256: await humanDecisionDigest(raw) };
-    let posts = 0, reads = 0, completePost;
+    let posts = 0, reads = 0, completePost, markPostStarted;
+    const postStarted = new Promise(resolve => { markPostStarted = resolve; });
     globalThis.fetch = async (path, options) => {
       assert.ok(path.startsWith("/api/"));
       if (options.method === "POST") {
@@ -258,7 +259,10 @@ try {
         const request = JSON.parse(options.body); assert.equal(request.expected_material_sha256, wanted.material_sha256);
         assert.equal(request.expected_review_sha256, wanted.review_sha256 || undefined);
         assert.deepEqual(request.selected_account ?? null, wanted.target.selected_account);
-        return new Promise(resolve => { completePost = () => resolve(response({ ok: true, decision_receipt: receipt })); });
+        return new Promise(resolve => {
+          completePost = () => resolve(response({ ok: true, decision_receipt: receipt }));
+          markPostStarted();
+        });
       }
       assert.equal(options.method, "GET");
       if (path.includes("decision_subject_id=")) {
@@ -273,6 +277,18 @@ try {
     };
     const app = harness(); globalThis.window = app.window; app.render(); await app.settle();
     const submitted = app.current.recordHumanDecision("promotion", source, body, "/api/research-promotion-decisions", "promotion");
+    // WebCrypto completion is not bounded by settle()'s event-loop turns.
+    // Wait for the deliberately suspended POST before testing account changes.
+    let postDeadline;
+    try {
+      await Promise.race([
+        postStarted,
+        submitted.then(() => { throw new Error("decision ended before its POST started"); }),
+        new Promise((_, reject) => { postDeadline = setTimeout(() => reject(new Error("decision POST did not start")), 5000); }),
+      ]);
+    } finally {
+      clearTimeout(postDeadline);
+    }
     await app.settle(); assert.equal(posts, 1);
     app.current.setSelectedId("longbridge:synthetic-b"); app.render();
     completePost(); await submitted; await app.settle();
