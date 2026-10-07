@@ -68,6 +68,80 @@ export type AccountSettingsOp = {
   kind: "read" | "save" | "refresh";
   body?: Record<string, unknown>;
 };
+type AccountSettingsSaveSnapshot = {
+  token: number;
+  body: Record<string, any>;
+  draft: { status: string; revision: number; identity: unknown; current_identity: unknown; overrides: Record<string, unknown> };
+  risk: { revision: number; scope_id: string; preference: string | null };
+};
+
+function record(value: unknown): value is Record<string, any> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function copyJson<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function sameSavedValue(left: unknown, right: unknown): boolean {
+  const canonical = (value: unknown): unknown => Array.isArray(value)
+    ? value.map(canonical)
+    : record(value) ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
+}
+
+function matchesSaveAcknowledgement(snapshot: AccountSettingsSaveSnapshot, payload: Record<string, any>): boolean {
+  const body = snapshot.body;
+  if (!record(payload) || payload.ok !== true || payload.platform !== body.platform || payload.key !== body.key
+    || !record(payload.identity) || !sameSavedValue(payload.identity, body.identity)
+    || payload.adopted !== false || payload.no_order !== true || payload.execution_authority_granted !== false) return false;
+  // applyRead refreshes both groups. A partial envelope must not erase the
+  // unsubmitted group's saved baseline even when the submitted values match.
+  if (!record(payload.draft) || !["empty", "current", "identity_conflict"].includes(payload.draft.status)
+    || !Number.isSafeInteger(payload.draft.revision) || payload.draft.revision < 0 || !record(payload.draft.overrides)
+    || !record(payload.draft.current_identity) || !sameSavedValue(payload.draft.current_identity, body.identity)
+    || !record(payload.risk) || !Number.isSafeInteger(payload.risk.revision) || payload.risk.revision < 0
+    || typeof snapshot.risk.scope_id !== "string" || !snapshot.risk.scope_id || payload.risk.scope_id !== snapshot.risk.scope_id
+    || ![null, "CAPITAL_PRESERVATION", "BALANCED_COMPOUNDING", "GROWTH_COMPOUNDING"].includes(payload.risk.preference)) return false;
+  if (!Object.prototype.hasOwnProperty.call(body, "overrides")) {
+    const draft = payload.draft;
+    if (draft.revision < snapshot.draft.revision || (draft.revision === snapshot.draft.revision
+      && !sameSavedValue({ status: draft.status, revision: draft.revision, identity: draft.identity, current_identity: draft.current_identity, overrides: draft.overrides }, snapshot.draft))) return false;
+  }
+  if (!Object.prototype.hasOwnProperty.call(body, "risk_preference")) {
+    const risk = payload.risk;
+    if (risk.revision < snapshot.risk.revision || (risk.revision === snapshot.risk.revision
+      && risk.preference !== snapshot.risk.preference)) return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "overrides")) {
+    const draft = payload.draft;
+    if (!record(draft) || draft.status !== "current" || !record(draft.overrides)
+      || !record(draft.identity) || !sameSavedValue(draft.identity, body.identity)
+      || !record(draft.current_identity) || !sameSavedValue(draft.current_identity, body.identity)) return false;
+    const rebuilding = snapshot.draft.status === "identity_conflict" && body.acknowledge_identity_conflict === true;
+    const expected = rebuilding ? {} : { ...snapshot.draft.overrides };
+    for (const [key, value] of Object.entries(body.overrides)) {
+      if (value === null) delete expected[key]; else expected[key] = value;
+    }
+    const changed = snapshot.draft.status === "empty" || rebuilding || !sameSavedValue(expected, snapshot.draft.overrides);
+    const revision = snapshot.draft.revision + (changed ? 1 : 0);
+    if (!Number.isSafeInteger(revision) || revision < 0 || draft.revision !== revision
+      || !sameSavedValue(draft.overrides, expected)) return false;
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "risk_preference")) {
+    const risk = payload.risk;
+    if (!record(risk) || typeof snapshot.risk.scope_id !== "string" || !snapshot.risk.scope_id
+      || risk.scope_id !== snapshot.risk.scope_id || risk.preference !== body.risk_preference
+      || !Number.isSafeInteger(risk.revision) || risk.revision < 0) return false;
+    const changed = body.risk_preference !== snapshot.risk.preference;
+    const revision = snapshot.risk.revision + (changed ? 1 : 0);
+    // Setting the same preference can still refresh server-owned actor/time
+    // metadata. A cleared, already-absent binding does not have that variation.
+    const metadataOnlyChange = !changed && body.risk_preference !== null && risk.revision === revision + 1;
+    if (!Number.isSafeInteger(revision) || (risk.revision !== revision && !metadataOnlyChange)) return false;
+  }
+  return true;
+}
 
 function blankDraft(): AccountSettingsDraftFields {
   return {
@@ -201,6 +275,7 @@ export function createAccountSettingsController() {
   let selected: AccountSettingsAccount | null = null;
   let view = emptyView();
   let lastSettings: Record<string, any> | null = null;
+  let saveSnapshot: AccountSettingsSaveSnapshot | null = null;
   const sameAccount = (account: AccountSettingsAccount | null) => Boolean(
     selected && account && selected.platform === account.platform && selected.key === account.key,
   );
@@ -225,6 +300,7 @@ export function createAccountSettingsController() {
         gate.invalidate();
         view = { ...emptyView(), account: selected };
         lastSettings = null;
+        saveSnapshot = null;
       }
       return this.start("read");
     },
@@ -338,7 +414,14 @@ export function createAccountSettingsController() {
         };
       }
       if (body.platform !== account.platform || body.key !== account.key) return null;
-      return { token: gate.begin(), account, kind: "save" as const, body };
+      const token = gate.begin();
+      saveSnapshot = {
+        token,
+        body: copyJson(body),
+        draft: copyJson({ status: view.settings.draft.status, revision: view.settings.draft.revision, identity: view.settings.draft.identity, current_identity: view.settings.draft.current_identity, overrides: view.settings.draft.overrides || {} }),
+        risk: copyJson({ revision: view.settings.risk.revision, scope_id: view.settings.risk.scope_id, preference: view.settings.risk.preference || null }),
+      };
+      return { token, account, kind: "save" as const, body: copyJson(body) };
     },
     requestBody(op: AccountSettingsOp | null | undefined) {
       if (!op?.body || !current(op)) return null;
@@ -351,6 +434,13 @@ export function createAccountSettingsController() {
       return true;
     },
     applySave(op: AccountSettingsOp, payload: Record<string, any>, notice: string) {
+      if (!current(op)) return false;
+      if (!saveSnapshot || saveSnapshot.token !== op.token || !sameSavedValue(op.body, saveSnapshot.body)
+        || !matchesSaveAcknowledgement(saveSnapshot, payload)) {
+        const risk = Boolean(saveSnapshot?.token === op.token && Object.prototype.hasOwnProperty.call(saveSnapshot.body, "risk_preference"));
+        view = { ...view, notice: "状态未知", noticeGroup: "", review: { ...view.review, [risk ? "risk" : "draft"]: true } };
+        return false;
+      }
       const overrides = op.body?.overrides as Record<string, unknown> | undefined;
       const intendedCash = pendingDraftOverrides(view.draft, "cash");
       const sentCash = Boolean(overrides && (Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_floor") || Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_ratio")));

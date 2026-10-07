@@ -3,11 +3,12 @@ import { createAccountSettingsController, pendingDraftOverrides } from "../web/s
 
 function settings(key, preference, identity, marker) {
   return {
+    ok: true, adopted: false, no_order: true, execution_authority_granted: false,
     platform: "longbridge",
     key,
     identity,
     marker,
-    draft: { status: "current", revision: 2, overrides: {} },
+    draft: { status: "current", revision: 2, identity, current_identity: identity, overrides: {} },
     risk: { revision: 4, preference, scope_id: `longbridge--${key}` },
     operations: { save_draft: true, save_risk_preference: true, apply_strategy: false },
     effective: { strategy_profile: { status: "unknown" }, broker_environment: { status: "known", value: "paper" } },
@@ -45,7 +46,7 @@ assert.equal(saving.edit({ preference: "GROWTH_COMPOUNDING" }), true);
 const saveA = saving.startSave("risk");
 assert.equal(saveA.body.key, "hk");
 assert.equal(saveA.body.risk_preference, "GROWTH_COMPOUNDING");
-assert.equal(saveA.body.identity, identityA);
+assert.deepEqual(saveA.body.identity, identityA);
 const loadedB = saving.select({ platform: "longbridge", key: "sg" });
 assert.equal(saving.requestBody(saveA), null, "the previous account form cannot be sent after switching");
 assert.equal(saving.applySave(saveA, settings("hk", "GROWTH_COMPOUNDING", identityA, "late-save")), false);
@@ -56,7 +57,7 @@ const saveB = saving.startSave("risk");
 assert.ok(saving.requestBody(saveB));
 assert.equal(saveB.body.key, "sg");
 assert.equal(saveB.body.risk_preference, "BALANCED_COMPOUNDING");
-assert.equal(saveB.body.identity, identityB);
+assert.deepEqual(saveB.body.identity, identityB);
 assert.equal(saveB.body.platform === "longbridge" && saveB.body.key === "sg" && saveB.body.risk_preference !== "GROWTH_COMPOUNDING", true);
 
 const failed = createAccountSettingsController();
@@ -78,7 +79,9 @@ assert.equal(editors.edit({ floor: "12.50", floorTouched: true, preference: "GRO
 const riskSave = editors.startSave("risk");
 assert.equal(Object.hasOwn(riskSave.body, "overrides"), false);
 assert.equal(editors.edit({ floor: "15", floorTouched: true }), true);
-assert.equal(editors.applySave(riskSave, settings("hk", "GROWTH_COMPOUNDING", identityA, "risk-saved"), "risk-saved"), true);
+const riskSaved = settings("hk", "GROWTH_COMPOUNDING", identityA, "risk-saved");
+riskSaved.risk.revision = 5;
+assert.equal(editors.applySave(riskSave, riskSaved, "risk-saved"), true);
 assert.equal(editors.view().preference, "GROWTH_COMPOUNDING");
 assert.equal(editors.view().draft.floor, "15");
 assert.equal(editors.view().draft.floorTouched, true);
@@ -87,6 +90,8 @@ assert.equal(cashSave.body.overrides.reserved_cash_floor, "15");
 assert.equal(Object.hasOwn(cashSave.body, "risk_preference"), false);
 assert.equal(editors.edit({ preference: "CAPITAL_PRESERVATION" }), true);
 const cashPayload = settings("hk", "GROWTH_COMPOUNDING", identityA, "cash-saved");
+cashPayload.draft.revision = 3;
+cashPayload.risk.revision = 5;
 cashPayload.draft.overrides = { reserved_cash_floor: "15" };
 assert.equal(editors.applySave(cashSave, cashPayload, "已保存，尚未应用"), true);
 assert.equal(editors.view().preference, "CAPITAL_PRESERVATION");
@@ -153,6 +158,7 @@ assert.equal(incomeKeep.applyRead(incomeRead, settings("hk", "BALANCED_COMPOUNDI
 assert.equal(incomeKeep.edit({ income: "true", incomeTouched: true, preference: "CAPITAL_PRESERVATION" }), true);
 const incomeRisk = incomeKeep.startSave("risk");
 const incomeRiskPayload = settings("hk", "CAPITAL_PRESERVATION", identityA, "income-saved");
+incomeRiskPayload.risk.revision = 5;
 assert.equal(incomeKeep.applySave(incomeRisk, incomeRiskPayload, "风险偏好已保存，不改变执行限额或启用状态。"), true);
 assert.equal(incomeKeep.view().draft.income, "true");
 assert.equal(incomeKeep.view().draft.incomeTouched, true);
@@ -230,8 +236,9 @@ for (const kind of ["risk", "draft"]) {
   c.edit({ floor: "15", floorTouched: true, preference: "GROWTH_COMPOUNDING" });
   const op = c.startSave(kind);
   const response = settings("hk", kind === "risk" ? "GROWTH_COMPOUNDING" : "BALANCED_COMPOUNDING", identityA, "external-change");
-  response.draft.revision = 33;
-  response.risk.revision = 44;
+  response.draft.revision = kind === "risk" ? 33 : 3;
+  response.risk.revision = kind === "risk" ? 5 : 44;
+  if (kind === "draft") response.draft.overrides = { reserved_cash_floor: "15" };
   c.applySave(op, response, "saved");
   const other = kind === "risk" ? "draft" : "risk";
   assert.equal(c.view().review[other], true);
@@ -262,7 +269,7 @@ const incomeOnly = ratioOnly.startSave("income");
 assert.equal(incomeOnly.body.overrides.income_layer_enabled, false);
 assert.equal(Object.hasOwn(incomeOnly.body.overrides, "reserved_cash_ratio"), false);
 const incomeResponse = settings("hk", "BALANCED_COMPOUNDING", identityA, "income-saved");
-incomeResponse.draft.revision = 8;
+incomeResponse.draft.revision = 3;
 incomeResponse.draft.overrides = { reserved_cash_floor: "10", income_layer_enabled: false };
 assert.equal(ratioOnly.applySave(incomeOnly, incomeResponse, "saved"), true);
 assert.equal(ratioOnly.view().draft.cashMode, "both");
@@ -348,8 +355,8 @@ assert.equal(Object.hasOwn(optionOnly.body.overrides, "strategy_profile"), false
 assert.equal(Object.hasOwn(optionOnly.body.overrides, "reserved_cash_floor"), false);
 const layeredSaved = settings("hk", "BALANCED_COMPOUNDING", identityA, "layered-saved");
 layeredSaved.operations.save_option_draft = true;
-layeredSaved.draft.revision = 6;
-layeredSaved.draft.overrides = { strategy_profile: "russell" };
+layeredSaved.draft.revision = 3;
+layeredSaved.draft.overrides = { option_overlay_enabled: false };
 assert.equal(layered.applySave(optionOnly, layeredSaved, "saved"), true);
 assert.equal(layered.view().draft.strategy, "russell");
 assert.equal(layered.view().draft.strategyTouched, true);
@@ -449,7 +456,7 @@ for (const [firstKind, nextKind] of [["cash", "cash"], ["risk", "risk"], ["cash"
   const nextOp = saveDispatch(c, capturedView, nextKind, posts);
   sameTurnResults.push({ firstKind, nextKind, posts: posts.length, duplicateBlocked: nextOp === null, firstStillCurrent: c.isCurrent(firstOp) });
   if (posts.length === 1) {
-    assert.equal(c.requestBody(firstOp).identity, identityA);
+    assert.deepEqual(c.requestBody(firstOp).identity, identityA);
     assert.equal(firstKind === "risk" ? posts[0].expected_risk_revision : posts[0].expected_draft_revision, firstKind === "risk" ? 4 : 2);
     assert.equal(c.view().saving, firstKind === "risk" ? "risk" : "draft");
   }
@@ -518,7 +525,7 @@ for (const kind of ["cash", "risk"]) {
   assert.deepEqual(c.view(), newSaving, "switching and abandoning an old operation cannot clear another account's save lock");
   assert.equal(c.isCurrent(newOp), true);
   assert.equal(c.requestBody(newOp).key, "sg");
-  assert.equal(c.requestBody(newOp).identity, identityB);
+  assert.deepEqual(c.requestBody(newOp).identity, identityB);
 }
 const saveKinds = ["draft", "cash", "income", "option", "strategy", "risk"];
 for (const firstKind of saveKinds) for (const nextKind of saveKinds) {
@@ -535,5 +542,224 @@ for (const firstKind of saveKinds) for (const nextKind of saveKinds) {
   assert.equal(c.isCurrent(firstOp), true, "cleanup of the original read cannot abandon a save");
   assert.equal(c.requestBody(firstOp), body);
   assert.deepEqual(c.view(), locked);
+}
+
+// A successful HTTP response is not an acknowledgement until it matches the
+// immutable submitted identity, authority revision and requested field group.
+function acknowledgementCase(kind = "cash", base = null, edit = null) {
+  const c = createAccountSettingsController();
+  const initial = base || settings("hk", "BALANCED_COMPOUNDING", structuredClone(identityA), "ack-before");
+  initial.operations.save_option_draft = true;
+  c.applyRead(c.select({ platform: "longbridge", key: "hk" }), initial);
+  c.edit(edit || (kind === "risk" ? { preference: "GROWTH_COMPOUNDING" } : {
+    cashMode: "floor", floor: "42", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true,
+  }));
+  const op = c.startSave(kind); assert.ok(op);
+  assert.equal(c.markSaving(op, kind === "risk" ? "risk" : "draft"), true);
+  const ack = structuredClone(initial);
+  ack.marker = "ack-after";
+  if (kind === "risk") {
+    ack.risk.preference = op.body.risk_preference;
+    ack.risk.revision += 1;
+  } else {
+    const before = JSON.stringify(ack.draft.overrides);
+    if (ack.draft.status === "identity_conflict") ack.draft.overrides = {};
+    for (const [key, value] of Object.entries(op.body.overrides)) {
+      if (value === null) delete ack.draft.overrides[key]; else ack.draft.overrides[key] = value;
+    }
+    if (initial.draft.status !== "current" || before !== JSON.stringify(ack.draft.overrides)) ack.draft.revision += 1;
+    ack.draft.status = "current";
+    ack.draft.identity = structuredClone(op.body.identity);
+    ack.draft.current_identity = structuredClone(op.body.identity);
+  }
+  return { c, op, ack, initial };
+}
+
+const invalidAcknowledgements = [
+  ["old values and revision", ({ ack }) => { ack.draft.revision = 2; ack.draft.overrides = {}; }],
+  ["missing submitted value", ({ ack }) => { delete ack.draft.overrides.reserved_cash_floor; }],
+  ["wrong submitted value", ({ ack }) => { ack.draft.overrides.reserved_cash_floor = "41"; }],
+  ["number instead of decimal string", ({ ack }) => { ack.draft.overrides.reserved_cash_floor = 42; }],
+  ["incomplete cash pair", ({ ack }) => { delete ack.draft.overrides.reserved_cash_ratio; }],
+  ["same key different identity", ({ ack }) => { ack.identity.service_name = "other-service"; }],
+  ["draft identity conflict", ({ ack }) => { ack.draft.identity.account_selector = "OTHER"; }],
+  ["draft current identity conflict", ({ ack }) => { ack.draft.current_identity.account_scope = "OTHER"; }],
+  ["missing identity", ({ ack }) => { delete ack.identity; }],
+  ["missing draft identity", ({ ack }) => { delete ack.draft.identity; }],
+  ["wrong platform", ({ ack }) => { ack.platform = "ibkr"; }],
+  ["wrong key", ({ ack }) => { ack.key = "sg"; }],
+  ["malformed API success", value => { value.ack = {}; }],
+  ["explicitly failed response", ({ ack }) => { ack.ok = false; }],
+  ["missing success flag", ({ ack }) => { delete ack.ok; }],
+  ["unsafe adoption", ({ ack }) => { ack.adopted = true; }],
+  ["unsafe order flag", ({ ack }) => { ack.no_order = false; }],
+  ["unsafe execution flag", ({ ack }) => { ack.execution_authority_granted = true; }],
+  ["missing draft", ({ ack }) => { delete ack.draft; }],
+  ["missing unsubmitted risk baseline", ({ ack }) => { delete ack.risk; }],
+  ["wrong unsubmitted risk scope", ({ ack }) => { ack.risk.scope_id = "longbridge--sg"; }],
+  ["wrong draft status", ({ ack }) => { ack.draft.status = "identity_conflict"; }],
+  ["array overrides", ({ ack }) => { ack.draft.overrides = []; }],
+  ["unchanged revision after mutation", ({ ack }) => { ack.draft.revision = 2; }],
+  ["jumped revision", ({ ack }) => { ack.draft.revision = 4; }],
+  ["negative revision", ({ ack }) => { ack.draft.revision = -1; }],
+  ["string revision", ({ ack }) => { ack.draft.revision = "3"; }],
+  ["non-integer revision", ({ ack }) => { ack.draft.revision = 3.5; }],
+  ["unsafe integer revision", ({ ack }) => { ack.draft.revision = Number.MAX_SAFE_INTEGER + 1; }],
+];
+for (const [label, alter] of invalidAcknowledgements) {
+  const value = acknowledgementCase();
+  value.c.edit({ floor: "43", income: "true", incomeTouched: true, preference: "CAPITAL_PRESERVATION" });
+  const before = structuredClone(value.c.view());
+  const previousSettings = value.c.view().settings;
+  alter(value);
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), false, `${label} cannot acknowledge the save`);
+  assert.equal(value.c.view().settings, previousSettings, `${label} must not replace settings`);
+  assert.deepEqual(value.c.view().draft, before.draft, `${label} must retain every edit`);
+  assert.equal(value.c.view().preference, before.preference);
+  assert.equal(value.c.view().notice, "状态未知");
+  assert.equal(value.c.view().noticeGroup, "");
+  assert.equal(value.c.finish(value.op), true, "the existing page finally path must still synchronize the notice");
+  assert.equal(value.c.view().notice, "状态未知");
+  assert.equal(value.c.view().saving, "");
+}
+
+for (const [label, alter] of [
+  ["old preference", ({ ack }) => { ack.risk.preference = "BALANCED_COMPOUNDING"; }],
+  ["same revision after preference change", ({ ack }) => { ack.risk.revision = 4; }],
+  ["jumped risk revision", ({ ack }) => { ack.risk.revision = 6; }],
+  ["wrong scope", ({ ack }) => { ack.risk.scope_id = "longbridge--sg"; }],
+  ["missing risk", ({ ack }) => { delete ack.risk; }],
+  ["missing unsubmitted draft baseline", ({ ack }) => { delete ack.draft; }],
+]) {
+  const value = acknowledgementCase("risk"); const before = structuredClone(value.c.view()); alter(value);
+  assert.equal(value.c.applySave(value.op, value.ack, "偏好已保存"), false, label);
+  assert.deepEqual(value.c.view().settings, before.settings);
+  assert.equal(value.c.view().preference, "GROWTH_COMPOUNDING");
+  assert.equal(value.c.riskDirty(), true);
+  assert.equal(value.c.view().notice, "状态未知");
+}
+
+for (const field of Object.keys(identityA)) {
+  const value = acknowledgementCase(); value.ack.identity[field] = `different-${field}`;
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), false, `identity field ${field} is bound`);
+}
+
+for (const field of ["income_layer_enabled", "option_overlay_enabled"]) {
+  const kind = field === "income_layer_enabled" ? "income" : "option";
+  const edit = field === "income_layer_enabled" ? { income: "false", incomeTouched: true } : { option: "false", optionTouched: true };
+  const good = acknowledgementCase(kind, null, edit);
+  assert.equal(good.c.applySave(good.op, good.ack, "草案已保存"), true);
+  const bad = acknowledgementCase(kind, null, edit); bad.ack.draft.overrides[field] = "false";
+  assert.equal(bad.c.applySave(bad.op, bad.ack, "草案已保存"), false, "layer values must retain their boolean type");
+}
+for (const clearField of ["reserved_cash_floor", "reserved_cash_ratio", "income_layer_enabled", "option_overlay_enabled", "strategy_profile", "dca_mode", "dca_base_investment_usd"]) {
+  const base = settings("hk", "BALANCED_COMPOUNDING", structuredClone(identityA), "clear-before");
+  base.draft.overrides = { reserved_cash_floor: "7", reserved_cash_ratio: "0.2", income_layer_enabled: true, option_overlay_enabled: true, strategy_profile: "ibit_smart_dca", dca_mode: "fixed", dca_base_investment_usd: "50" };
+  const edit = { cashMode: "inherit", floorTouched: true, ratioTouched: true, income: "clear", incomeTouched: true, option: "clear", optionTouched: true, strategyTouched: true, clearStrategy: true, clearDca: true };
+  const value = acknowledgementCase("draft", base, edit);
+  value.ack.draft.overrides[clearField] = null;
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), false, `${clearField}: null must be deleted in saved overrides`);
+  const good = acknowledgementCase("draft", structuredClone(base), edit);
+  assert.equal(good.c.applySave(good.op, good.ack, "草案已保存"), true, `${clearField}: actual absence acknowledges deletion`);
+}
+for (const [label, base, edit] of [
+  ["current no-op", { status: "current", revision: 2, overrides: { reserved_cash_floor: "42", reserved_cash_ratio: "0" } }, { cashMode: "floor", floor: "42", floorTouched: true, ratioTouched: true }],
+  ["new empty clear still creates revision", { status: "empty", revision: 0, overrides: {}, identity: null }, { cashMode: "inherit", floorTouched: true, ratioTouched: true }],
+  ["explicit identity rebind", { status: "identity_conflict", revision: 2, overrides: { income_layer_enabled: true }, identity: identityB }, { cashMode: "inherit", floorTouched: true, ratioTouched: true, acknowledge: true }],
+]) {
+  const initial = settings("hk", "BALANCED_COMPOUNDING", structuredClone(identityA), label);
+  initial.draft = { ...initial.draft, ...base };
+  const value = acknowledgementCase("cash", initial, edit);
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), true, label);
+}
+for (const increment of [0, 1]) {
+  const value = acknowledgementCase("risk", null, { preference: "BALANCED_COMPOUNDING" });
+  value.ack.risk.revision = 4 + increment;
+  assert.equal(value.c.applySave(value.op, value.ack, "偏好已保存"), true, "same risk enum may refresh server binding metadata");
+}
+for (const preference of ["BALANCED_COMPOUNDING", null]) {
+  const base = settings("hk", preference, structuredClone(identityA), "risk-clear");
+  const value = acknowledgementCase("risk", base, { preference: "" });
+  value.ack.risk.revision = preference ? 5 : 4;
+  assert.equal(value.c.applySave(value.op, value.ack, "偏好已保存"), true, "risk clear must match null and the registry revision rule");
+}
+{
+  const value = acknowledgementCase();
+  assert.notEqual(value.op.body.identity, value.initial.identity, "request identity must be deeply copied");
+  value.initial.identity.service_name = "mutated-after-start";
+  value.initial.draft.revision = 99;
+  value.initial.draft.overrides.reserved_cash_floor = "999";
+  value.c.edit({ floor: "45", income: "true", incomeTouched: true });
+  assert.equal(value.op.body.identity.service_name, identityA.service_name);
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), true, "validation uses the save-start snapshot");
+  assert.equal(value.c.view().draft.floor, "45");
+  assert.equal(value.c.view().draft.floorTouched, true);
+  assert.equal(value.c.view().draft.incomeTouched, true);
+}
+{
+  const value = acknowledgementCase();
+  value.op.body.overrides.reserved_cash_floor = "99";
+  value.ack.draft.overrides.reserved_cash_floor = "99";
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), false, "mutating the exposed request cannot rewrite the private acknowledgement binding");
+}
+{
+  const value = acknowledgementCase();
+  value.ack.identity = Object.fromEntries(Object.entries(value.ack.identity).reverse());
+  value.ack.instance_revision = 91;
+  value.ack.effective = { strategy_profile: { status: "unknown" } };
+  assert.equal(value.c.applySave(value.op, value.ack, "草案已保存"), true, "identity property order, unrelated instance revision and unknown GitHub configuration do not change a valid DO acknowledgement");
+}
+{
+  const value = acknowledgementCase();
+  value.c.abandon(value.op);
+  const newer = value.c.start("refresh");
+  value.c.applyRefresh(newer, settings("hk", "BALANCED_COMPOUNDING", identityA, "new-session-read"));
+  const before = structuredClone(value.c.view());
+  assert.equal(value.c.applySave(value.op, {}, "草案已保存"), false);
+  assert.equal(value.c.finish(value.op), false);
+  assert.deepEqual(value.c.view(), before, "an invalidated operation cannot set unknown in a newer controller epoch");
+}
+{
+  const value = acknowledgementCase();
+  value.c.fail(value.op, "状态未知");
+  value.c.applyRefresh(value.c.start("refresh"), value.ack);
+  assert.equal(value.c.view().settings.draft.overrides.reserved_cash_floor, "42");
+  assert.equal(value.c.view().notice, "状态未知", "matching current saved values do not prove which request wrote them");
+}
+// The full ACK refreshes the other authority too, so it cannot roll that
+// baseline back or change its contents without a revision advance.
+for (const [label, kind, alter] of [
+  ["risk revision rollback", "cash", ({ ack }) => { ack.risk.revision = 0; ack.risk.preference = "CAPITAL_PRESERVATION"; }],
+  ["risk same-revision value change", "cash", ({ ack }) => { ack.risk.preference = "CAPITAL_PRESERVATION"; }],
+  ["draft revision rollback", "risk", ({ ack }) => { ack.draft = { status: "empty", revision: 0, identity: null, current_identity: identityA, overrides: {} }; }],
+  ["draft same-revision value change", "risk", ({ ack }) => { ack.draft.overrides.income_layer_enabled = false; }],
+  ["draft same-revision identity change", "risk", ({ ack }) => { ack.draft.identity = { ...identityA, service_name: "other-service" }; }],
+  ["draft same-revision current identity change", "risk", ({ ack }) => { ack.draft.current_identity = { ...identityA, account_scope: "OTHER" }; }],
+  ["draft same-revision status change", "risk", ({ ack }) => { ack.draft.status = "identity_conflict"; }],
+]) {
+  const value = acknowledgementCase(kind);
+  value.c.edit({ income: "true", incomeTouched: true, preference: "GROWTH_COMPOUNDING" });
+  const before = structuredClone(value.c.view()); alter(value);
+  assert.equal(value.c.applySave(value.op, value.ack, "saved"), false, label);
+  assert.deepEqual(value.c.view().settings, before.settings, `${label} cannot replace the other saved baseline`);
+  assert.deepEqual(value.c.view().draft, before.draft);
+  assert.equal(value.c.view().preference, before.preference);
+  assert.equal(value.c.view().notice, "状态未知");
+}
+for (const kind of ["cash", "risk"]) {
+  const value = acknowledgementCase(kind);
+  value.c.edit({ income: "true", incomeTouched: true, preference: "GROWTH_COMPOUNDING" });
+  if (kind === "cash") {
+    value.ack.risk.revision = 7;
+    value.ack.risk.preference = "CAPITAL_PRESERVATION";
+  } else {
+    value.ack.draft.revision = 5;
+    value.ack.draft.overrides = { reserved_cash_floor: "9" };
+  }
+  assert.equal(value.c.applySave(value.op, value.ack, "saved"), true, "a higher unsubmitted authority revision is a legitimate concurrent observation");
+  assert.equal(value.c.view().review[kind === "cash" ? "risk" : "draft"], true);
+  assert.equal(value.c.view().noticeGroup, kind);
+  assert.equal(value.c.view().draft.incomeTouched, true);
+  assert.equal(value.c.view().preference, "GROWTH_COMPOUNDING");
 }
 console.log("account_settings_state_validation: PASS");

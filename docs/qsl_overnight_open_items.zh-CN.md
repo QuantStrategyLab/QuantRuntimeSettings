@@ -60,6 +60,8 @@
 
 2026-10-06 22:41 UTC 复审：6.2–6.8 保留当日先前快照；当前阶段、依赖与下一步以[6.9 依赖复审](#dependency-review-20261006)为准。旧快照里的“当前 main”“仍缺口”不覆盖后续有日期的更新。原六主线和任务 ID 不变，汇报中的七个工作分组只用于拆分展示，不新增第七主线。
 
+2026-10-07 接续：最新阶段增量与四条交付展示映射见[6.10 逐阶段进度](#four-line-stage-review-20261007)；下文 6.9 及其英文摘要作为 2026-10-06 历史快照保留。四条展示线同样不替代原六主线或新增任务 ID。
+
 ### 6.1 使用方法与逐阶段维护
 
 - 任务 ID 保持稳定。按任务指定前置、边界和完成证据推进；“可立即实施”仅指具备有界离线下一步，不额外授权 Git 发布、真实数据/模型调用、部署、通知、账户或资金动作。
@@ -239,3 +241,90 @@ Binance 的三文件 deploy-only 锁迁移实验仍为 **NO-GO**，不能从历�
 **接续顺序：** 先复审本轮 source/CI 阶段并更新原 ID，接续 Schwab 真实 caller/source/header POST 与页面归属读回、LongBridge 自然周期；原生账本 import/数据接线、准确指数口径映射及 AI 诊断/公司证据仍可按既有边界并行。AAB temporary imports、QSP 合成组合与 UES 合成 journal/session 阶段不重复重建。共享仓写入、合同交接与运行采用串行；Binance 保持禁用至既定采用与恢复前置全部满足。真正等待的是既有管理员安装入口、真实 Schwab 身份/调度/完整枚举证据、历史 R6 准确输入/结果入口，以及各任务的严格 PIT、前向真实样本和来源许可。原 V7 252 XNYS 窗口继续积累；其余独立工程不必等该窗口，不新增无限模块或追 pin 任务。
 
 English update: The same six workstreams and 23 task IDs remain; seven presentation groups do not add a workstream. Preserve Opus styling and layout. Existing UI-01/UI-02/UI-04/DATA-01/DATA-02 acceptance must cover real total assets, account type, health/daily records, returns, four comparable benchmarks and shared top-level account selection; UI-03 also covers settings load/edit/save/refresh and application receipts, while AI-01 covers decision-item source/handling/ACK, duplicate handling and failure recovery. Completing daily wiring does not close the overall UI/DATA work or grant execution authority. QRS #537 is merged/deployed. The per-POST source-binding fix #538 is merged with passing PR/main CI and successful deployment; the frontend bundle/CSS are unchanged. Real source/header POST remains unverified. A trusted receiver ACK means stored_acknowledged, not independent caller verification of the UI key; do not add duplicate UI-alias configuration. Real Schwab caller/source/schedule/coverage/ACK acceptance is open and bounded caller wiring is local work in progress. AAB temporary imports passed; immutable installation, shell selection, runtime adoption and health recovery remain unproved. QSP #80 and UES #563/#564 are merged research-only implementations; synthetic tests and CI establish no real PIT, profit or production adoption. UES #564 main CI passed with matching source blobs; only its synthetic/source stage is closed. The previous LongBridge publisher ACK covers the previous business date; source-target and UI-account attribution still need GET/page readback. This does not establish a publisher authentication defect or a need for a new native hash. The new natural cycle is not yet accepted. Binance #347/#348 are source-only and Runtime stays disabled pending protected revision, risk authority, no-order verification and the user's final recovery decision. Keep existing P0–P6 boundaries, original pins and V7's observation window; close each bounded stage without rebuilding completed work.
+
+<a id="four-line-stage-review-20261007"></a>
+
+### 6.10 2026-10-07 四线展示与逐阶段进度
+
+QRS 健康与账户设置的阶段更新截至 2026-10-07 07:38 UTC；其他项目沿用本节明确标注的 07:20 UTC 及更早证据，不暗示重新验收。QRS 远端 `main` 已只读核为 `fbb384f1357d5e39d2b63cc9583945607e7d5c11`，tree `d798491df545e2afad41f48371ded0be83ae00a9`，已包含健康修复 #540。保留 6.2–6.9 历史快照，当前阶段以本节的有日期增量为准。
+
+健康批次已完成合并、部署及有限页面核验。账户设置 ACK 两文件补丁与本轮阶段文档正在独立 fresh-base 候选中串行集成，提交前仍属本地，不能提前记作 ACK 已合并或部署；不修改旧健康冻结工作区。**源码、本地验证、合并、部署、真实业务验收分别记账。** 每完成一个后续阶段，须更新原任务的结果、日期、证据、剩余依赖和下一步；四线摘要不能省略未关闭项。
+
+#### 6.10.1 四条交付展示线与原任务的对应
+
+“网站与真实数据、策略与金融研究、市场插件与风控、AI 自动化”是进度反馈的四个展示分组，**不替代六条管理主线，不新增或重命名 23 个稳定 ID，不改变 P0–P6 生命周期**。下表只为避免汇报遗漏，每项指定一个主要展示位置；通知仍保留原独立主线，其实际依赖可跨组。
+
+| 展示分组 | 主要展示的原任务 | 本轮结论 |
+| --- | --- | --- |
+| 网站与真实数据 | `UI-01`、`UI-02`、`UI-03`、`UI-04`、`UI-05`、`DATA-01`、`DATA-02`、`NOTIFY-02` | PAPER 一个自然业务日已取得 publisher 与页面有限读回；Schwab source 阶段完成，真实 prepare 为 incomplete；健康 #540 已合并部署并取得有限页面核验；设置 ACK 正在独立本地集成；真实 ROI 和四基准未接通 |
+| 策略与金融研究 | `STRAT-01`、`STRAT-02`、`STRAT-03`、`STRAT-04` | 保留既有 source/synthetic 成果；没有新的真实输入、金融资格或盈利证据；原 V7 观察窗口继续 |
+| 市场插件与风控 | `STRAT-05`、`MARKET-01`、`MARKET-02`、`NOTIFY-01`、`NOTIFY-03` | 来源/PIT、平台 sizing、统一路由与实际采用仍未闭合；Binance 继续暂停，无新采用证据 |
+| AI 自动化 | `DATA-03`、`AI-01`、`AI-SOXL-CODEGEN-IDEMPOTENCY`、`AI-LB-FROZEN-REGRESSION`、`AI-02`、`AI-03` | 固定来源离线 import 与精确隔离导出已通过；安装器退出 0 但权限校验未过，安装验收、服务采用与自然日报未完成；待办决定权威读回仍仅计划 |
+
+#### 6.10.2 网站与真实数据
+
+| 原任务 | 截止本轮的准确阶段 | 剩余依赖与下一步关闭条件 |
+| --- | --- | --- |
+| `UI-01` | #531/#537 既有有限验收保留；closed-session 健康 #540 已于本轮合并为 `fbb384f`，main CI 与部署成功；云端 Chrome 核到新 JS、原 CSS、10 张账户卡及一个全局账户选择器，无溢出 | 健康源码/发布阶段闭合，仍不代表全站真实数据完整；手机、双语、四标签及真实 V7 场景逐项待验；保持 Opus 样式/布局 |
+| `UI-02` | 实体/市场展示已有；本轮未新增逐账户市场权限、lot/fractional 或 paper/live 能力证据 | 复用原能力合同，核真实来源后才接入可选交集；总资产/账户类型与顶部账户联动仍属于总验收，不以一张日报卡代替 |
+| `UI-03` | 账户设置两文件 ACK 修复已完成本地定向验证及 2026-10-07 01:11 UTC 独立复审；现已以含健康修复的 `fbb384f` 为基线完成独立本地集成、build/sync、38 项可执行 JS/config 与 Python 450 tests（10 skipped），尚未发布 | 提交前复核及随后 exact Node22 CI/合并/部署分别留证；本地 Node24 的 CLI 兼容调整、既有 listener 与其他未运行 CI 阶段如实保留。代码发布后仍需真实加载/编辑/保存/刷新验证。配置源读回不等于 runtime 采用，安全 false 不变，完整设置闭环未关闭 |
+| `UI-04` | PAPER 自然周期一个账户/业务日的同步与页面有限读回已核；Schwab #476 合并及 exact PR/main CI 已通过，真实 prepare 成功但内容 incomplete，publish skipped | PAPER 保留当前有限证据，不扩成全部账户/90 天/收益完整；Schwab 先定位原报告来源、读取/资格/业务日排除与覆盖缺口，再按原边界进入 POST、可信 ACK、GET/页面及自然周期 |
+| `UI-05` | 原历史请求刷新修复已发布；本轮没有新的生产同类故障恢复或手机证据 | 保留 first_sample/truncated/retention 与失败/切换/晚到请求验证；366 天上限不冒充 3/5/10 年，不人为制造线上故障 |
+| `DATA-01` | 真实账户 ROI 仍不可用；没有新增获核资格的原生账本/TWR 样本或完整 UI 收益链 | 继续按原 IBKR Activity Flex 字段、账户/期间/币种及出入金/费用/FX 资格接纯文件 import→receiver→页面；净资产涨幅不替代收益，月度值不拆日线 |
+| `DATA-02` | 四条指数名单已确认：S&P 500、Nasdaq-100、DJIA、Russell 2000。最小接入计划与既有来源审计已更新；仍没有新合格生产源、adapter 或网站四线 consumer | 不再等待用户重选指数。先核现有供应商准确 series、网站使用权限及有限真实样本，再扩展现有 adapter；PRICE 是首版建议而非已完成采用，不默换 ETF/Composite/其他 Russell 指数 |
+| `NOTIFY-02` | LongBridge runtime 降噪 source 成果保留；下述 PAPER publisher/页面证据新增，完整通知业务验收仍未关闭 | publisher 成功不证明健康静默、异常/真实订单可达或 Telegram 实际送达；按原分类取得对应自然周期证据，不重改 alerts-only scanner |
+
+**健康修复已完成的发布层级：** [#540](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/540) 已合并为 `fbb384f1357d5e39d2b63cc9583945607e7d5c11`，tree `d798491df545e2afad41f48371ded0be83ae00a9`。[main Validate 37587222565](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37587222565) 和 [Deploy 37587222543](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/37587222543) 均为同 commit 的 push run，已只读核得 success；部署回执 Worker 版本 `bb973a30-45a4-4e41-92be-8a95bcc58eba`。dot 云端 Chrome 本轮有限核验读到新 `index-D2uNyKU-.js`、未变的 `index-CFupHWyt.css`，10 张账户卡、一个全局账户选择器，无页面溢出。此证据取代此前 07:19 UTC 后“尚待 draft PR/合并/部署”的状态；不把十张卡或静态资源一致扩大为完整真实账户/收益验收。原本地记录为 TypeScript/Vite build、asset sync、38 项 JS/config 检查通过及 Python 450 tests/10 skipped；既有本地 listener 缺口如实保留，远端本次 Validate 已成功。
+
+**账户设置的本地边界：** 仅 `accountSettingsState.ts` 与既有 state 测试两文件。修复保存请求快照与 ACK 的账户、authority、revision 绑定，坏 ACK 保留编辑并显示未知；未提交组也不能回退或同版本漂移。最终 Node22 state/operations/workflow-clarity/i18n 与 TypeScript no-emit 检查通过，外部尝试为零。上述是先前两文件定向证据。当前 fresh-base 候选已完成 TypeScript/Vite build 和 asset sync，新 JS 为 `index-BPA8pJd6.js`、CSS 仍为 `index-CFupHWyt.css`；38 项实际执行的 JS/config 检查与 Python 450 tests（10 skipped）通过。当前本地只有 Node24，8 个命令仅去掉已废弃的 `--experimental-default-type=module` CLI 参数后通过，仓库/测试未为此修改；既有 listener 限制未重试，Python packaging/actionlint/外部 consumer checkout 等完整远端阶段未在本地宣称通过，等待 exact Node22 CI。仍无 ACK 发布或真实浏览器保存验收；GET 当前值相同仍不证明原 POST 成功。待办决定的 ACK/权威读回不在此两文件修复范围，归 `AI-01` 的独立计划。
+
+**PAPER 的新增真实有限证据：** LongBridge [自然运行 37558166637](https://github.com/QuantStrategyLab/LongBridgePlatform/actions/runs/37558166637) 为 `schedule`，source `045be05d47d8c3dff58bd2a4925451d9fcc172af`，2026-10-07 01:39–01:40 UTC 完成且 success；PAPER job `112589147810` 的 publisher 成功，安全记录为 `daily runtime projection recorded 2026-10-06; qrs_sync=recorded`。2026-10-07 01:43 UTC，dot 云端 Chrome 的既有认证会话选中 PAPER / 2026-10-06，读到 1 张运行卡与“只读演练”，无 loading/read error/no-record。该结果关闭此前“本次自然周期未核”的一个账户、一个业务日有限层级；不证明其他账户、其他日期、收益完整、实际下单或完整通知行为。
+
+**Schwab 的源码与真实 prepare：** [#476](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/476) 于 2026-10-07 06:50 UTC 合并为 `a188372396c8a14271f7fd925c24f4068ab85c9e`。六文件修复在独立账户身份比较前执行既有非账户资格 gate；合格记录的缺失/非法/不匹配身份仍整批拒绝，不扩大单记录准入。[PR CI 37583582240](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/37583582240) 与 [main CI 37583805130](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/37583805130) 均成功，各含 116 PAPER tests 与 477 项既有选择，fresh frozen 环境关闭了本地 Werkzeug 版本差异；不称全仓或真实业务通过。
+
+同 commit 的 [prepare-only 37584360667](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/37584360667) / job `112671008634` 实际结果为 `status=prepared`、`reason=coverage_unconfirmed`、`completeness=incomplete`、`daily_status=read_incomplete`、`projected_run_count=0`、`source_facts=verified`、`schedule=unevaluable`，publish 步骤 skipped。程序成功完成与日报健康/完整是不同事实：最终投影 0 条不等于 0 个资格合格输入，合格的其他业务日记录也可能在后续以 `other_business_date` 排除；`read_incomplete` 也不能单独断言 GCS 读取失败。`source_facts=verified` 不证明报告 prefix/revision 相符或 scheduler 实际投递；`schedule=unevaluable` 不等于已停用、未到期或已证明漏跑。截至 2026-10-07 07:18 UTC，已启动既有受控环境中的只读入口核验，先确认原授权身份与 producer/consumer prefix 等同性比较是否可得；结果尚未返回，未扫描 GCS。后续只有在原身份与输入确实可用时才可按既有授权做有界诊断，缺上下文则保留 unavailable；不放宽身份、扩大扫描、把 coverage 改 true、反复手动 dispatch 或顺带 publish。
+
+#### 6.10.3 策略与金融研究
+
+本轮没有新真实回测、PIT 或盈利验收；以下沿用 6.9 的已证事实，不把历史精确 commit 称为本轮重查后的 current main。
+
+| 原任务 | 当前保留的阶段 | 剩余依赖与下一步关闭条件 |
+| --- | --- | --- |
+| `STRAT-01` | 冻结索引/命名与版本分轴已发布；真实 V7/R6 身份、部署来源与历史 UI 覆盖仍未齐 | 核原冻结材料与实际 source；展示正确不代表策略已采用，缺材料保留 Unknown |
+| `STRAT-02` | UES #563/#564 的 journal/session source 与 synthetic 阶段已闭合；#564 的历史合并为 `baee946`，不把它当当前分支最新值；R6 原真实 inputs/15 组结果仍未定位 | 分轨取得合法真实输入、完整 session/available_at 及原结果；按 5/10/15bps、next-session、现金腿/half-L1、OOS 和全 trial 验收，保留旧 SOXL v1 FAIL |
+| `STRAT-03` | 原 V7 252 XNYS 有效观察窗口继续等待真实积累；本轮未取得可更新的有效计数 | 核真实观察与缺口，达到窗口后执行固定金融评价；不重置窗口，不用 synthetic 或 nonlive 冒充 broker paper/paired shadow |
+| `STRAT-04` | 组合冻结、账本与合成验证已有；真实组合证据未闭合 | 等共同合法 root、成分资格及净成本 OOS，冻结权重/再平衡并核相关性/风险；不相加单策略指标或建立共账户 allocator |
+
+#### 6.10.4 市场插件与风控
+
+| 原任务 | 当前保留的阶段 | 剩余依赖与下一步关闭条件 |
+| --- | --- | --- |
+| `STRAT-05` | 资金信封/禁新风险及研究 Kelly/状态库已有；`combined_scale` 平台 sizing 与真实风控采用仍未闭合 | 按平台/账户/session 核 consumer、权益/持仓/挂单与锁存/复位；只补必要兼容，旧 W1 部署仍为历史报告，禁新风险不等于已减仓 |
+| `MARKET-01` | QSP #77/#78/#80 的 research-only/synthetic 成果保留；没有新增真实来源/PIT/经济资格或 runtime 采用 | 来源权利、逐行 available/received/revision、真实覆盖与经济消融/OOS 到位后，才按原批准进入消费；QQQ 不充 SOXX，插件/AI 不加仓 |
+| `MARKET-02` | breadth/NDX 历史结构缺口仍是非当前阻塞的有界待定项 | 先确定目标及合法历史 membership/prices；不为填满列表另造代理、补值或扩大取数 |
+| `NOTIFY-01` | 单 bot 目标未取得全部入口的 equality-only 同一性与 dedup 采用验收 | 由原受保护入口提供有时间的有效 bot/chat/topic 等同性；不读取/披露 secret，同 bot 不等于跨服务 exactly-once |
+| `NOTIFY-03` | 各平台 quiet 源码与 Binance #347/#348 source 成果保留；**Binance Runtime 继续禁用，本轮没有新采用** | 仍按受保护 workflow/application revision → risk authority → 无下单验证 → 用户最终恢复决定串行；不以 source/CI、历史 run 或一次无消息恢复执行 |
+
+#### 6.10.5 AI 自动化
+
+| 原任务 | 截止本轮的准确阶段 | 剩余依赖与下一步关闭条件 |
+| --- | --- | --- |
+| `DATA-03` | 固定 AAB `35ac71176127f07e00fe04dbc793777f3c595bc0` / QPK `28675796cabbe137a1fa3970b70d1aa98e952c88` 的 temporary imports-only 已通过；现有 Git 对象完整且精确隔离导出已验证；受支持安装器退出 0，但目标权限 validator 退出 1，安装验收仍未通过 | 保留已通过 import/导出，不重复重建。目标内容 306 文件与 2 个链接匹配；304 文件及 37 目录 mode 不匹配。先只读定位权限差异根因，不追加 chmod；未改服务，不能称运行采用或恢复 |
+| `AI-01` | 既有诊断链保留；待办决定 ACK/权威读回已形成独立只读方案，**仅计划，未实施** | 复用现 DO 持久记录与固定 exact-material 收据，小幅补 server 读模型及前端 ACK/读回状态；健康与账户设置批次后串行实施，真实采用/不采用仍须对具体材料明确决定 |
+| `AI-SOXL-CODEGEN-IDEMPOTENCY` | 先前离线身份/claim/未知恢复合同仍可继续；跨 dispatch 持久执行落点未闭合 | 先取得原受支持持久落点与既有权限，不能借只读 P1 bucket 写状态；调用后结果未知继续停车，不自动重调模型 |
+| `AI-LB-FROZEN-REGRESSION` | #313 source 合并/CI 与既有历史 fixture 证据保留 | 新增 LongBridge 两阶段真实 Docker 场景及运行采用仍待验，不用历史 fixture 或其他平台 Docker 场景替代 |
+| `AI-02` | 既有联网研究/策略重写设计仍是分阶段实施；QAR 诊断、PETR 证据与 RSCP publisher 按 6.9.5 子项目接续，本轮无新的业务关闭证据 | SOXL 有界模板不冒充开放自主发明；保留合法来源、全部 trial、WFA/OOS 与原权限，RSCP source/CI 不替代真实新 data PR、内容许可或 QAR 消费 |
+| `AI-03` | 日报 source 已合，复用 DATA-03 import/精确导出证据；安装器已执行但权限验收未过，shell selection、服务采用、健康恢复与自然日报仍未闭合 | 只读定位安装权限差异 → 受支持安装完整验收/回滚保障 → 服务采用 → 自然日报逐态验收；不重复模型调用，也不将诊断 Issue 或 import 成功记成恢复 |
+
+[imports-only 37536853712](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/37536853712) 于 2026-10-06 21:52 UTC 取得 application import 证明；其 `immutable_release_proof`、`shell_selection_proof`、`runtime_adoption_proof`、`health_recovery_proof` 均仍为 false，安装步骤没有在该 run 执行。该历史 run 的证明范围不变。2026-10-07 07:18 UTC 收到的既有受控环境结果另证：固定 `35ac711` 的 Git 对象完整，隔离导出 342 个对象/306 个文件，clean 状态已核；不是直接采用原 `c3ae8c0` dirty 工作副本。管理员安装器退出 0 且目标存在，306 项内容 hash 与 2 个链接匹配，但 validator 退出 1，304 个文件及 37 个目录 mode 不匹配。因此安装验收仍为 false，没有服务变更；同一环境已进入只读权限根因检查，未追加 chmod。installer exit 0 和内容相同不能代替完整安装验收，也不能覆盖 shell/runtime/health 证明。Binance interval 唯一来源、7 日 sync/10 有效日收益 warmup、跨 sync 保留、幂等/断点和 partial-domain 状态边界保持原样。
+
+待办决定的当前缺口包括：普通 GET 无法完整返回已拒绝 promotion、旧材料收据或精确所选账户；前端不能以 HTTP 200、队列消失或刷新函数返回判定原决定成功。计划中的固定收据只证明人工意向已持久化，不授予策略应用、账户启用、下单或 runtime resume 权限；网络恢复/刷新不得自动 POST。这些计划与合成现状探针不计作实现测试通过。
+
+#### 6.10.6 接续次序与本轮关闭边界
+
+1. 健康 #540 的合并、部署及有限页面核验已完成；本轮只在 fresh base 串行集成已复审账户设置 ACK 窄补丁和最新阶段文档，验证与提交前复核通过前仍属本地候选。待办决定实现和基准 UI 不在此批；各阶段单独留证，不把不同候选合成未经验证的发布 tree
+2. PAPER 当前一个账户/业务日的自然同步和页面有限核验不重复补跑。Schwab 源码/CI 阶段完成，下一步针对 incomplete 的准确原因，仍缺真实 POST/ACK、页面归属及自然完整周期；prepare success 不提前关闭 UI-04
+3. 基准名单决定已结束；下一依赖是合法实际来源、网站使用权限与样本，账户 ROI 独立等原生收益资格。策略/插件的真实输入、PIT 和 V7 观察窗口各守原门槛，不让日报修复代替金融验收
+4. AI import 与精确应用隔离导出阶段已结束；安装器完成不等于验收通过，当前等只读权限根因检查，完整安装、服务采用仍待证。Binance 保持暂停。其余独立只读或有界离线工作可按已有授权并行，共享写集、发布与运行采用继续串行，不新增自动执行权限
+
+English update: The four presentation groups map every one of the original 23 IDs and do not replace the six workstreams or P0–P6. QRS health PR #540 merged as fbb384f (tree d798491d); main Validate 37587222565 and Deploy 37587222543 both succeeded for that exact commit. The deployed Worker receipt is bb973a30-45a4-4e41-92be-8a95bcc58eba. Limited cloud-Chrome verification saw index-D2uNyKU-.js, unchanged index-CFupHWyt.css, ten account cards, one global account selector and no overflow; this does not establish complete real-account or returns coverage. These results supersede the earlier pending health-publication status. The separately reviewed two-file settings ACK patch is now being integrated locally on this fresh base, with build/sync, 38 executable JS/config checks and 450 Python tests (10 skipped) passing. New JavaScript is index-BPA8pJd6.js and CSS remains index-CFupHWyt.css. Local Node24 required removing the obsolete default-type CLI option from eight invocations without changing repository/test source; the existing listener limitation was not retried, and packaging/actionlint/external-consumer stages are not claimed locally. Exact Node22 CI remains a later publication gate; no ACK merge, deployment or actual settings-save validation is claimed. Decision ACK/readback is a plan only. LongBridge scheduled run 37558166637 at 045be05d succeeded, recorded business date 2026-10-06 with qrs_sync=recorded, and one authenticated PAPER/date UI read showed one read-only drill card; this does not cover other accounts, returns or all notifications. Schwab #476 merged as a1883723 and PR/main CI passed 116 plus 477 selected tests. Real prepare 37584360667 completed with coverage_unconfirmed, incomplete, read_incomplete, zero projected runs, source_facts verified and schedule unevaluable; publication was skipped. Zero projected runs does not prove zero qualified inputs because other-business-date exclusion occurs later. A read-only check of the original authorized identity and feasibility of prefix equality comparison has started; no GCS scan was performed and its result is pending. Four benchmark identities are confirmed as S&P 500, Nasdaq-100, DJIA and Russell 2000; source rights, qualified samples, adapters and the real comparison remain open. Research and market-plugin synthetic/source milestones add no real financial qualification. AAB fixed-source offline imports and clean isolated export of 35ac711 passed: 342 objects and 306 files were verified. The supported administrator installer exited 0 and its target exists, with 306 content hashes and two links matching. Its validator nevertheless exited 1 for mode mismatches on 304 files and 37 directories, so installation acceptance is false. Read-only permission root-cause work is pending, without further chmod or service changes; runtime adoption and health recovery remain unproved. Binance stays paused with no new adoption. This stage-document/settings candidate remains local before pre-publication review, and no old frozen implementation worktree was changed. Other project facts retain their explicit earlier observation times.
