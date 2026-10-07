@@ -652,7 +652,7 @@ export function buildConfirmationFingerprint(context: Record<string, any>): stri
     controlAt: context.controlAt,
     ownerCandidates: (context.ownerCandidates || []).map((item: any) => [item.candidate?.candidate_id, item.candidate_evidence_sha256, item.intent?.decision]),
     recoveries: (context.recoveries || []).map((item: any) => [item.recovery?.recovery_id, item.recovery?.candidate_sha256, item.recovery?.readiness, item.recovery?.blocker_codes, item.freshness?.data_status, item.recovery?.dual_review?.evidence_binding_sha256]),
-    promotionTickets: (context.promotionTickets || []).map((item: any) => [item.ticket_id, item.state, item.proposed_params, item.source_check_required, item.source_identity]),
+    promotionTickets: (context.promotionTickets || []).map((item: any) => [item.ticket_id, item.state, item.proposed_params, item.source_check_required, item.source_identity, item.decision_binding]),
     promotionApplications: (context.promotionApplications || []).map((item: any) => [item.ticket_id, item.application_preparation?.preflight_status, item.application_preparation?.blocker_codes, item.application_preparation?.preview_request, item.application?.application_id, item.application?.status, item.application?.dispatch_state, item.application?.expected_revision, item.application?.updated_at]),
     switchDrafts: context.switchDrafts,
     uxDraft: context.uxDraft,
@@ -664,4 +664,141 @@ export function buildConfirmationFingerprint(context: Record<string, any>): stri
     instanceDraft: context.instanceDraft,
     editingInstance: context.editingInstance,
   });
+}
+
+// A decision receipt records intent only. Queue/runtime refresh is a separate fact.
+export type HumanDecisionKind = "owner" | "recovery" | "promotion";
+export type HumanDecisionExpectation = {
+  kind: HumanDecisionKind; subject_id: string; material_sha256: string;
+  review_sha256: string | null; action: string; target: Record<string, unknown>;
+};
+export type HumanDecisionState = {
+  expected: HumanDecisionExpectation; status: "unresolved" | "recorded";
+  receipt: Record<string, any> | null; queueConfirmed: boolean;
+};
+const digestPattern = /^[0-9a-f]{64}$/;
+const decisionRecord = (v: any) => Boolean(v && typeof v === "object" && !Array.isArray(v));
+function decisionCanonical(value: any): string {
+  if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
+  if (typeof value === "number" && Number.isFinite(value)) return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(decisionCanonical).join(",")}]`;
+  if (!decisionRecord(value)) throw new Error("human_decision_material_invalid");
+  return `{${Object.keys(value).sort().map(k => `${JSON.stringify(k)}:${decisionCanonical(value[k])}`).join(",")}}`;
+}
+export async function humanDecisionDigest(value: unknown): Promise<string> {
+  const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(decisionCanonical(value)));
+  return [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+export function promotionDecisionReady(ticket: any): boolean {
+  const b = ticket?.decision_binding;
+  return b?.kind === "promotion" && b.subject_id === ticket.ticket_id && typeof b.material_sha256 === "string"
+    && digestPattern.test(b.material_sha256) && (b.review_binding == null || (b.review_binding.schema_version === "qsl_promotion_review_binding.v2"
+    && typeof b.review_binding.review_sha256 === "string" && digestPattern.test(b.review_binding.review_sha256)));
+}
+export async function humanDecisionExpectation(kind: HumanDecisionKind, source: any, body: any): Promise<HumanDecisionExpectation | null> {
+  try {
+    const b = source?.decision_binding;
+    let subject: string, material: any, target: Record<string, unknown>, review: string | null = null;
+    if (kind === "owner") {
+      subject = body.candidate_id; material = null; target = { decision: body.decision };
+      if (!["approve_limited_live_canary", "keep_parked"].includes(body.decision)
+        || source.candidate?.candidate_id !== subject || source.candidate_evidence_sha256 !== body.candidate_evidence_sha256) return null;
+    } else if (kind === "recovery") {
+      subject = body.recovery_id;
+      if (!["approve", "reject"].includes(body.decision) || source.recovery?.recovery_id !== subject
+        || source.recovery.candidate_sha256 !== body.candidate_sha256 || source.recovery.dual_review?.evidence_binding_sha256 !== body.dual_review_binding_sha256) return null;
+      material = { recovery_id: subject, candidate_sha256: body.candidate_sha256, dual_review_binding_sha256: body.dual_review_binding_sha256 };
+      target = { decision: body.decision };
+    } else {
+      subject = body.ticket_id;
+      if (!promotionDecisionReady(source) || source.ticket_id !== subject || !["accept", "reject"].includes(body.decision)) return null;
+      material = Object.fromEntries(["ticket_id", "strategy_profile", "domain", "proposed_params", "shadow_passed", "shadow_evidence_kind"].map(k => [k, source[k]]));
+      // Null is the existing v1 contract, not proof of v2 readiness. Never
+      // downgrade an advertised v2 binding because its full material mismatches.
+      if (b.review_binding != null) {
+        const full = { schema_version: "qsl_promotion_review_material.v2", ...material,
+          ...Object.fromEntries(["drift_status", "drift_score", "budget", "search_iterations", "suggested_risk_profile", "notification_subject", "notification_body", "notes"].map(k => [k, source[k]])),
+          research_summary: source.research_summary || null };
+        review = await humanDecisionDigest(full);
+        if (review !== b.review_binding.review_sha256) return null;
+      }
+      const a = body.selected_account ?? null, c = body.confirmation ?? null;
+      if (body.decision === "accept" && (!decisionRecord(a) || !decisionRecord(c) || a.platform !== c.target_platform)) return null;
+      target = { selected_account: a, confirmation: c };
+    }
+    const sha = kind === "owner" ? body.candidate_evidence_sha256 : await humanDecisionDigest(material);
+    if (typeof subject !== "string" || !subject || typeof sha !== "string" || !digestPattern.test(sha)
+      || b?.kind !== kind || b.subject_id !== subject || b.material_sha256 !== sha) return null;
+    return JSON.parse(JSON.stringify({ kind, subject_id: subject, material_sha256: sha, review_sha256: review, action: body.decision, target }));
+  } catch { return null; }
+}
+export async function matchingHumanDecisionReceipt(expected: HumanDecisionExpectation, receipt: any): Promise<boolean> {
+  try {
+    if (!decisionRecord(receipt) || !["qsl_human_decision_receipt.v1", "qsl_human_decision_receipt.v2"].includes(receipt.schema_version)
+      || receipt.kind !== expected.kind || receipt.subject_id !== expected.subject_id || receipt.material_sha256 !== expected.material_sha256
+      || receipt.action !== expected.action || decisionCanonical(receipt.target) !== decisionCanonical(expected.target)
+      || receipt.no_order !== true || receipt.execution_authority_granted !== false
+      || typeof receipt.decided_by !== "string" || !receipt.decided_by || receipt.decided_by.length > 100 || /[\u0000-\u001f\u007f]/.test(receipt.decided_by)
+      || typeof receipt.decided_at !== "string" || receipt.decided_at.length > 40 || !Number.isFinite(Date.parse(receipt.decided_at))
+      || /[\u0000-\u001f\u007f]/.test(receipt.decided_at) || typeof receipt.receipt_sha256 !== "string" || !digestPattern.test(receipt.receipt_sha256)) return false;
+    const v2 = receipt.schema_version === "qsl_human_decision_receipt.v2";
+    if (v2 !== Boolean(expected.review_sha256) || (v2 && (expected.kind !== "promotion"
+      || receipt.review_binding?.schema_version !== "qsl_promotion_review_binding.v2" || receipt.review_binding.review_sha256 !== expected.review_sha256))) return false;
+    const projection = { schema_version: receipt.schema_version, ...(v2 ? { review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: expected.review_sha256 } } : {}),
+      kind: expected.kind, subject_id: expected.subject_id, material_sha256: expected.material_sha256, action: expected.action,
+      target: expected.target, decided_at: receipt.decided_at, decided_by: receipt.decided_by, no_order: true, execution_authority_granted: false };
+    return decisionCanonical(receipt) === decisionCanonical({ ...projection, receipt_sha256: await humanDecisionDigest(projection) });
+  } catch { return false; }
+}
+export function createHumanDecisionController() {
+  const states = new Map<string, HumanDecisionState>();
+  const reads = new Map<string, number>();
+  const key = (e: HumanDecisionExpectation) => `${e.kind}:${e.subject_id}:${e.material_sha256}`;
+  let generation = 0;
+  return {
+    epoch() { return generation; },
+    clear() { generation++; states.clear(); reads.clear(); },
+    entries() { return [...states.values()].map(s => JSON.parse(JSON.stringify(s)) as HumanDecisionState); },
+    start(expected: HumanDecisionExpectation) {
+      const id = key(expected);
+      if (states.has(id)) return null;
+      states.set(id, { expected: JSON.parse(JSON.stringify(expected)), status: "unresolved", receipt: null, queueConfirmed: false });
+      return { id, generation };
+    },
+    current(op: { id: string; generation: number; sequence?: number }) { return op.generation === generation && states.has(op.id) && (op.sequence === undefined || reads.get(op.id) === op.sequence); },
+    async receive(op: { id: string; generation: number; sequence?: number }, receipt: any, queueConfirmed?: boolean) {
+      const s = states.get(op.id);
+      if (!s || !this.current(op)) return false;
+      const valid = await matchingHumanDecisionReceipt(s.expected, receipt);
+      if (!this.current(op)) return false;
+      // Keep an already verified receipt and its original time even on a later failure.
+      if (!valid || (s.receipt && s.receipt.receipt_sha256 !== receipt.receipt_sha256)) {
+        s.status = "unresolved"; s.queueConfirmed = false; return false;
+      }
+      s.receipt = JSON.parse(JSON.stringify(receipt)); s.queueConfirmed = queueConfirmed ?? s.queueConfirmed;
+      s.status = s.queueConfirmed ? "recorded" : "unresolved";
+      return true;
+    },
+    beginRead(expected: HumanDecisionExpectation) {
+      const id = key(expected), sequence = (reads.get(id) || 0) + 1;
+      reads.set(id, sequence); return { id, generation, sequence };
+    },
+    async readback(op: { id: string; generation: number; sequence: number }, payload: any, queueConfirmed: boolean) {
+      const s = states.get(op.id), r = payload?.decision_readback;
+      const current = () => this.current(op) && reads.get(op.id) === op.sequence;
+      if (!s || !current()) return false;
+      if (payload?.ok !== true || r?.schema_version !== "qsl_human_decision_readback.v1" || r.source !== "durable_human_decision_record"
+        || r.kind !== s.expected.kind || r.subject_id !== s.expected.subject_id || r.requested_material_sha256 !== s.expected.material_sha256
+        || typeof r.observed_at !== "string" || !Number.isFinite(Date.parse(r.observed_at)) || r.lookup_status !== "found") {
+        s.status = "unresolved"; s.queueConfirmed = false; return false;
+      }
+      const valid = await matchingHumanDecisionReceipt(s.expected, r.receipt);
+      if (!current()) return false;
+      return this.receive(op, valid ? r.receipt : null, queueConfirmed);
+    },
+    readFailed(op: { id: string; generation: number; sequence: number }) {
+      if (!this.current(op) || reads.get(op.id) !== op.sequence) return false;
+      const s = states.get(op.id)!; s.status = "unresolved"; s.queueConfirmed = false; return true;
+    },
+  };
 }

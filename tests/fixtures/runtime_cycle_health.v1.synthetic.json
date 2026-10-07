@@ -1,0 +1,591 @@
+{
+  "cases": [
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 0
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 1,
+          "read_count": 1,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [
+          {
+            "completed_at": "2026-10-05T15:01:00.987654Z",
+            "correlation": "explicit",
+            "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+            "execution_state": "no_submission",
+            "outcome": "no_action",
+            "receipt_ref": "execution-receipt.570ac3fb798a76726aada4702e1ce09a",
+            "scheduled_for": "2026-10-05T15:00:00.000001Z"
+          }
+        ],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "no_cron_on_business_date",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "microsecond_no_action",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [
+          {
+            "active_category": "operational",
+            "category": "operational",
+            "cycle": {
+              "completed_at": "2026-10-05T15:01:00.987654Z",
+              "correlation": "explicit",
+              "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+              "execution_state": "no_submission",
+              "outcome": "failed",
+              "receipt_ref": "execution-receipt.5d8d828905bef51e28772964bd79a090",
+              "scheduled_for": "2026-10-05T15:00:00.000001Z"
+            },
+            "fault_attempts": [
+              {
+                "cycle": {
+                  "completed_at": "2026-10-05T15:01:00.987654Z",
+                  "correlation": "explicit",
+                  "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+                  "execution_state": "no_submission",
+                  "outcome": "failed",
+                  "receipt_ref": "execution-receipt.5d8d828905bef51e28772964bd79a090",
+                  "scheduled_for": "2026-10-05T15:00:00.000001Z"
+                },
+                "resolution_ref": null
+              }
+            ],
+            "latest_fault_at": "2026-10-05T15:01:00.987654Z",
+            "resolution": null,
+            "resolution_history": []
+          }
+        ],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 1
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 1,
+          "read_count": 1,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [
+          {
+            "completed_at": "2026-10-05T15:01:00.987654Z",
+            "correlation": "explicit",
+            "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+            "execution_state": "no_submission",
+            "outcome": "failed",
+            "receipt_ref": "execution-receipt.5d8d828905bef51e28772964bd79a090",
+            "scheduled_for": "2026-10-05T15:00:00.000001Z"
+          }
+        ],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "no_cron_on_business_date",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "operational_fault",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [
+          {
+            "active_category": "execution_uncertainty",
+            "category": "execution_uncertainty",
+            "cycle": {
+              "completed_at": "2026-10-05T15:01:00.987654Z",
+              "correlation": "explicit",
+              "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+              "execution_state": "unresolved",
+              "outcome": "failed",
+              "receipt_ref": "execution-receipt.10889e4ecd56a99a66a8517e32ac32f4",
+              "scheduled_for": "2026-10-05T15:00:00.000001Z"
+            },
+            "fault_attempts": [
+              {
+                "cycle": {
+                  "completed_at": "2026-10-05T15:01:00.987654Z",
+                  "correlation": "explicit",
+                  "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+                  "execution_state": "unresolved",
+                  "outcome": "failed",
+                  "receipt_ref": "execution-receipt.10889e4ecd56a99a66a8517e32ac32f4",
+                  "scheduled_for": "2026-10-05T15:00:00.000001Z"
+                },
+                "resolution_ref": null
+              }
+            ],
+            "latest_fault_at": "2026-10-05T15:01:00.987654Z",
+            "resolution": null,
+            "resolution_history": []
+          }
+        ],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 1
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 1,
+          "read_count": 1,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [
+          {
+            "completed_at": "2026-10-05T15:01:00.987654Z",
+            "correlation": "explicit",
+            "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+            "execution_state": "unresolved",
+            "outcome": "failed",
+            "receipt_ref": "execution-receipt.10889e4ecd56a99a66a8517e32ac32f4",
+            "scheduled_for": "2026-10-05T15:00:00.000001Z"
+          }
+        ],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "no_cron_on_business_date",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "uncertain_fault",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [
+          {
+            "active_category": "execution_uncertainty",
+            "category": "execution_uncertainty",
+            "cycle": {
+              "completed_at": null,
+              "correlation": "unconfirmed",
+              "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+              "execution_state": "unresolved",
+              "outcome": "missing_report",
+              "receipt_ref": null,
+              "scheduled_for": "2026-10-05T15:00:00.000001Z"
+            },
+            "fault_attempts": [
+              {
+                "cycle": {
+                  "completed_at": null,
+                  "correlation": "unconfirmed",
+                  "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+                  "execution_state": "unresolved",
+                  "outcome": "missing_report",
+                  "receipt_ref": null,
+                  "scheduled_for": "2026-10-05T15:00:00.000001Z"
+                },
+                "resolution_ref": null
+              }
+            ],
+            "latest_fault_at": "2026-10-05T15:00:00.000001Z",
+            "resolution": null,
+            "resolution_history": []
+          }
+        ],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 1
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [
+          {
+            "completed_at": null,
+            "correlation": "unconfirmed",
+            "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+            "execution_state": "unresolved",
+            "outcome": "missing_report",
+            "receipt_ref": null,
+            "scheduled_for": "2026-10-05T15:00:00.000001Z"
+          }
+        ],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "publication_grace_ended",
+          "state": "due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "due_missing_report",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 0
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "no_cron_on_business_date",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "weekly_not_due",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 0
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "before_schedule",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "monthly_before_schedule",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 0
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "market_closed",
+          "state": "market_closed",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "closed_session",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 0
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": true,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": false,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "no_cron_on_business_date",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "incomplete",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 0
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": true,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "no_cron_on_business_date",
+          "state": "not_due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "capped",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    },
+    {
+      "expected_state": {
+        "execution_authority_granted": false,
+        "incidents": [
+          {
+            "active_category": "execution_uncertainty",
+            "category": "execution_uncertainty",
+            "cycle": {
+              "completed_at": null,
+              "correlation": "unconfirmed",
+              "cycle_id": "cycle.14aa6b434304861456ed72b205d2631f600f51e0b1f926914d61f13ccea9a15c",
+              "execution_state": "unresolved",
+              "outcome": "missing_report",
+              "receipt_ref": null,
+              "scheduled_for": "2026-10-04T15:00:00Z"
+            },
+            "fault_attempts": [
+              {
+                "cycle": {
+                  "completed_at": null,
+                  "correlation": "unconfirmed",
+                  "cycle_id": "cycle.14aa6b434304861456ed72b205d2631f600f51e0b1f926914d61f13ccea9a15c",
+                  "execution_state": "unresolved",
+                  "outcome": "missing_report",
+                  "receipt_ref": null,
+                  "scheduled_for": "2026-10-04T15:00:00Z"
+                },
+                "resolution_ref": null
+              }
+            ],
+            "latest_fault_at": "2026-10-04T15:00:00Z",
+            "resolution": null,
+            "resolution_history": []
+          },
+          {
+            "active_category": "execution_uncertainty",
+            "category": "execution_uncertainty",
+            "cycle": {
+              "completed_at": null,
+              "correlation": "unconfirmed",
+              "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+              "execution_state": "unresolved",
+              "outcome": "missing_report",
+              "receipt_ref": null,
+              "scheduled_for": "2026-10-05T15:00:00.000001Z"
+            },
+            "fault_attempts": [
+              {
+                "cycle": {
+                  "completed_at": null,
+                  "correlation": "unconfirmed",
+                  "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+                  "execution_state": "unresolved",
+                  "outcome": "missing_report",
+                  "receipt_ref": null,
+                  "scheduled_for": "2026-10-05T15:00:00.000001Z"
+                },
+                "resolution_ref": null
+              }
+            ],
+            "latest_fault_at": "2026-10-05T15:00:00.000001Z",
+            "resolution": null,
+            "resolution_history": []
+          }
+        ],
+        "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+        "target_id": "longbridge.paper",
+        "unresolved_count": 2
+      },
+      "health": {
+        "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "coverage": {
+          "errors_present": false,
+          "from": "2026-10-01T00:00:00Z",
+          "limit_hit": false,
+          "listed_count": 0,
+          "read_count": 0,
+          "terminal_page_seen": true,
+          "through": "2026-10-07T16:00:00.123456Z"
+        },
+        "cycles": [
+          {
+            "completed_at": null,
+            "correlation": "unconfirmed",
+            "cycle_id": "cycle.14aa6b434304861456ed72b205d2631f600f51e0b1f926914d61f13ccea9a15c",
+            "execution_state": "unresolved",
+            "outcome": "missing_report",
+            "receipt_ref": null,
+            "scheduled_for": "2026-10-04T15:00:00Z"
+          },
+          {
+            "completed_at": null,
+            "correlation": "unconfirmed",
+            "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+            "execution_state": "unresolved",
+            "outcome": "missing_report",
+            "receipt_ref": null,
+            "scheduled_for": "2026-10-05T15:00:00.000001Z"
+          }
+        ],
+        "resolutions": [],
+        "schedule": {
+          "deadline_at": "2026-10-05T15:30:00Z",
+          "latest_due_at": "2026-10-05T15:00:00.000001Z",
+          "next_due_at": "2026-10-12T15:00:00Z",
+          "reason": "publication_grace_ended",
+          "state": "due",
+          "timezone": "America/New_York"
+        },
+        "schema_version": "qsl.runtime_cycle_health.v1"
+      },
+      "name": "multiple_missed_slots",
+      "observed_at": "2026-10-07T16:00:00.123456Z"
+    }
+  ],
+  "context": {
+    "configuration_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+    "scheduler_job_name": "projects/synthetic/locations/test/jobs/paper-run",
+    "service": "synthetic-paper-service",
+    "source_binding_id": "1111111111111111111111111111111111111111111111111111111111111111",
+    "strategy_profile": "synthetic_strategy",
+    "strategy_revision": "3333333333333333333333333333333333333333",
+    "target_id": "longbridge.paper"
+  },
+  "parity": [
+    {
+      "cycle_id": "cycle.ac585b8b53d34bf16a5cc4cca125fd0452e5053d4bd1d42b3803f169e8183703",
+      "instant": "2026-10-05T15:00:00Z"
+    },
+    {
+      "cycle_id": "cycle.d64ba94c6f58171a91190721f31941084fecc54d712cb6318ac51d7f5e6b8b72",
+      "instant": "2026-10-05T15:00:00.000001Z"
+    },
+    {
+      "cycle_id": "cycle.215e20d436199700fc71d84293c9cee95729571998437cbc4e4958cc1a5f6cee",
+      "instant": "2026-10-05T15:00:00.999999Z"
+    }
+  ],
+  "provenance": {
+    "freeze_status": "reviewed_and_frozen",
+    "generated_by": "actual build_cycle_health / cycle_id / reduce_incidents; no broker or provider data",
+    "helper_sha256": "e08add1d5741e08ff2e5be9bff83383f575ac1f2a71731d095a62ff1350e82f4",
+    "original_frozen_fixture_unavailable": true,
+    "qpk_revision": "d38627002345fb0e90adc83422c553d3299567d2",
+    "regenerated": true,
+    "source_repository": "QuantStrategyLab/LongBridgePlatform",
+    "source_revision": "3e16a31a6d9f5bab50075aa957ac61bcd3627c41",
+    "synthetic": true
+  }
+}

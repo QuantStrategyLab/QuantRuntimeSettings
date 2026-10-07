@@ -29,7 +29,8 @@ export type AccountListItem = {
   activation: string;
 };
 
-export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onSelect, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, settingsEpoch, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onSelect, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+  unresolvedSaves: Parameters<typeof createAccountSettingsController>[0];
   rows: AccountListItem[];
   selectedId: string;
   detailOpen: boolean;
@@ -73,7 +74,7 @@ export function AccountsPage({ rows, selectedId, detailOpen, settingsEpoch, refr
           </tr>; })}</tbody>
         </table>
       </div>
-      {selected && <DailyAccountSettings key={`${selected.id}:${settingsEpoch}`} row={selected} refreshToken={refreshToken} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={stopRefreshVisible} resumeVisible={resumeVisible} onBack={onBack} onDirty={onDirty} onStop={onStop} onRefreshStop={onRefreshStop} onResume={onResume} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />}
+      {selected && <DailyAccountSettings key={`${selected.id}:${settingsEpoch}`} row={selected} unresolvedSaves={unresolvedSaves} refreshToken={refreshToken} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={stopRefreshVisible} resumeVisible={resumeVisible} onBack={onBack} onDirty={onDirty} onStop={onStop} onRefreshStop={onRefreshStop} onResume={onResume} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />}
     </div>
   </section>;
 }
@@ -87,8 +88,9 @@ function validDcaAmount(value: string): boolean {
   return value.length <= 32 && /^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value) && Number.isFinite(Number(value)) && Number(value) > 0;
 }
 
-function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
   row: AccountListItem;
+  unresolvedSaves: Parameters<typeof createAccountSettingsController>[0];
   refreshToken: number;
   stopAllowed: boolean;
   stopLabel: string;
@@ -104,7 +106,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
 }) {
   const t = useT();
   const language = useContext(LocaleContext);
-  const controller = useRef(createAccountSettingsController()).current;
+  const controller = useRef(createAccountSettingsController(unresolvedSaves)).current;
   const [, setTick] = useState(0);
   const [readAttempt, setReadAttempt] = useState(0);
   const [readState, setReadState] = useState<"loading" | "refreshing" | "ready" | "stale" | "failed">("loading");
@@ -176,7 +178,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
       if (controller.applySave(started, saved, "偏好已保存")) sync();
     } catch (error) {
       const status = (error as { status?: number })?.status;
-      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
+      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。", status !== 409)) return;
       sync();
       const refresh = controller.start("refresh");
       setReadState("refreshing");
@@ -204,7 +206,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
       if (controller.applySave(started, saved, "草案已保存")) sync();
     } catch (error) {
       const status = (error as { status?: number })?.status;
-      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。")) return;
+      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。", status !== 409)) return;
       sync();
       const refresh = controller.start("refresh");
       setReadState("refreshing");
@@ -410,7 +412,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           <button type="button" className="button button-primary" disabled={!canSaveCash || !cashSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("cash", cashSubmittable)}>{t("保存预留草案")}</button>
           {cashDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
           {view.review.draft && cashDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertCash(); sync(); }}>{t("取消")}</button>}
-          {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("draft"); sync(); }}>{t("重新核对")}</button>}
+          {view.review.draft && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("draft")) setReadAttempt(value => value + 1); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.draft && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
         {cashNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
@@ -426,7 +428,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           <button type="button" className="button button-primary" disabled={!canSaveRisk || !riskDirty || view.review.risk || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
           {riskDirty && !view.review.risk && <button type="button" className="button button-secondary" disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>}
           {view.review.risk && <button type="button" className="button button-secondary" onClick={() => { controller.revertRisk(); sync(); }}>{t("取消")}</button>}
-          {view.review.risk && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("risk"); sync(); }}>{t("重新核对")}</button>}
+          {view.review.risk && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("risk")) setReadAttempt(value => value + 1); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.risk && <p className="section-note" role="status">{t("风险版本或账户来源已变化，请取消或核对后再保存。")}</p>}
         {riskNotice && <p role="status">{t(view.notice)} {t("偏好保存不代表运行端已应用。")}</p>}
@@ -452,7 +454,7 @@ function DailyAccountSettings({ row, refreshToken, stopAllowed, stopLabel, stopR
           <button type="button" className="button button-primary" disabled={!canSaveCash || !incomeSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("income", incomeSubmittable)}>{t("保存收入层草案")}</button>
           {incomeDirty && !view.review.draft && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
           {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { controller.edit({ income: savedIncome, incomeTouched: false }); sync(); }}>{t("取消")}</button>}
-          {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { controller.acknowledgeReview("draft"); sync(); }}>{t("重新核对")}</button>}
+          {view.review.draft && incomeDirty && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("draft")) setReadAttempt(value => value + 1); sync(); }}>{t("重新核对")}</button>}
         </div>
         {view.review.draft && incomeDirty && <p className="section-note" role="status">{t("草案版本或账户来源已变化，请取消或核对后再保存。")}</p>}
         {incomeNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}

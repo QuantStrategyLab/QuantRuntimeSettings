@@ -230,3 +230,10 @@ export async function loadAdminModel(): Promise<AdminModel> {
   ]);
   return { config, instances, risk };
 }
+
+// Explicit exact-material lookup also works after a rejected ticket leaves the queue.
+export function loadHumanDecisionReceipt(expected: { kind: "owner" | "recovery" | "promotion"; subject_id: string; material_sha256: string }): Promise<Record<string, any>> {
+  const paths = { owner: "/api/owner-decisions", recovery: "/api/reconciliation-recovery", promotion: "/api/research-promotion-tickets" };
+  const query = new URLSearchParams({ decision_subject_id: expected.subject_id, decision_material_sha256: expected.material_sha256 });
+  return getJson(`${paths[expected.kind]}?${query}`);
+}

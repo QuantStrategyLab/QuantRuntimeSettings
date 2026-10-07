@@ -1,5 +1,6 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
+import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, reduceCycleCheckpoint } from "./runtime_cycle_health.js";
 import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
@@ -46,6 +47,8 @@ import {
   ACCOUNT_FACTS_BINDINGS_KEY,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_MAX_BODY_BYTES,
+  ACCOUNT_FACTS_STALE_MS,
+  ACCOUNT_FACTS_FUTURE_SKEW_MS,
   ACCOUNT_FACTS_SUPPORTED_PLATFORMS,
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   IBKR_ACCOUNT_FACTS_PLATFORM,
@@ -801,6 +804,9 @@ export default {
       }
       if (url.pathname === "/api/account-facts" && request.method === "GET") {
         return await accountFactsResponse(request, env);
+      }
+      if (url.pathname === "/api/internal/runtime-cycle-health-source" && ["POST", "GET"].includes(request.method)) {
+        return runtimeCycleHealthSourceResponse(request, env);
       }
       if (url.pathname === "/api/internal/sync-runtime-target-lifecycle-source" && request.method === "POST") {
         return await syncRuntimeTargetLifecycleSourceResponse(request, env);
@@ -1969,6 +1975,19 @@ export class RuntimeInstances {
   constructor(ctx) {
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
+    // Dormant: only an independent protected provisioning step may seed admission.
+    // There is deliberately no ingress/admin command that writes an admission.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_source (
+      source_id TEXT PRIMARY KEY, target_id TEXT NOT NULL UNIQUE, binding_fingerprint TEXT NOT NULL,
+      configuration_sha256 TEXT NOT NULL, authority_revision INTEGER NOT NULL,
+      required_from TEXT NOT NULL, observed_at TEXT, observation_json TEXT,
+      observation_sha256 TEXT, received_at TEXT, checkpoint_revision INTEGER
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_checkpoint (
+      target_id TEXT NOT NULL, binding_fingerprint TEXT NOT NULL, source_id TEXT NOT NULL,
+      revision INTEGER NOT NULL, payload_json TEXT NOT NULL,
+      PRIMARY KEY (target_id, binding_fingerprint)
+    )`);
     this.sql.exec("CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_diagnosis_tasks (
@@ -2149,6 +2168,71 @@ export class RuntimeInstances {
     for (const column of ["source_identity_sha256", "runtime_identity_sha256", "result_json", "stopped_at"]) {
       try { this.sql.exec(`ALTER TABLE hk_stop_request ADD COLUMN ${column} TEXT`); } catch { /* already present */ }
     }
+  }
+
+  cycleHealthCommand(command) {
+    const rows = [...this.sql.exec("SELECT * FROM runtime_cycle_health_source WHERE source_id = ?", command.source_id)];
+    const a = rows[0];
+    if (!a || a.target_id !== command.target_id || a.binding_fingerprint !== command.binding_fingerprint
+      || !/^[a-f0-9]{64}$/.test(a.configuration_sha256)
+      || !Number.isSafeInteger(a.authority_revision) || a.authority_revision < 1) throw new HttpError("cycle_health_source_not_admitted", 409);
+    try { normalizeCycleInstant(a.required_from); } catch { throw new HttpError("cycle_health_baseline_not_admitted", 409); }
+    if (command.action === "cycle_health_admission") return {
+      authority_revision: a.authority_revision, configuration_sha256: a.configuration_sha256, required_from: a.required_from,
+    };
+    if (command.authority_revision !== a.authority_revision || command.configuration_sha256 !== a.configuration_sha256
+      || command.required_from !== a.required_from) throw new HttpError("cycle_health_admission_changed", 409);
+    const partitions = [...this.sql.exec("SELECT * FROM runtime_cycle_health_checkpoint WHERE target_id = ? AND source_id = ?", a.target_id, a.source_id)];
+    const owner = [...this.sql.exec("SELECT source_id FROM runtime_cycle_health_checkpoint WHERE target_id = ? AND binding_fingerprint = ?", a.target_id, a.binding_fingerprint)][0];
+    if (owner && owner.source_id !== a.source_id) throw new HttpError("cycle_health_source_partition_conflict", 409);
+    const row = partitions.find(p => p.binding_fingerprint === a.binding_fingerprint);
+    const previous = row ? JSON.parse(row.payload_json) : null;
+    const priorPartitions = partitions.filter(p => p.binding_fingerprint !== a.binding_fingerprint).map(p => ({
+      checkpoint_revision: p.revision, checkpoint: JSON.parse(p.payload_json),
+    }));
+    if (row && a.checkpoint_revision !== row.revision) throw new HttpError("cycle_health_checkpoint_revision_conflict", 409);
+    const result = (status, checkpoint = previous, revision = row?.revision || 0) => ({
+      ok: true, schema_version: "qsl_runtime_cycle_health_checkpoint.v1", status,
+      source_id: a.source_id, target_id: a.target_id, authority_revision: a.authority_revision,
+      checkpoint_revision: revision, observed_at: a.observed_at, observation_sha256: a.observation_sha256,
+      received_at: a.received_at, required_from: a.required_from, checkpoint,
+      prior_partitions: priorPartitions, continuity: priorPartitions.length ? "unconfirmed" : "same_binding",
+      adopted: false, no_order: true, execution_authority_granted: false,
+    });
+    if (command.action === "cycle_health_read") {
+      const r = result(!previous ? "uninitialized" : previous.state.unresolved_count || priorPartitions.length ? "blocked" : !previous.baseline_established ? "incomplete" : "complete");
+      if (a.observed_at && (Date.now() - Date.parse(a.observed_at) > ACCOUNT_FACTS_STALE_MS || Date.parse(a.observed_at) - Date.now() > ACCOUNT_FACTS_FUTURE_SKEW_MS)) r.status = "stale";
+      // Admission changes expose retained provenance, never an empty healthy state.
+      if (previous && (previous.configuration_sha256 !== a.configuration_sha256 || previous.required_from !== a.required_from)) r.status = "incomplete";
+      if (priorPartitions.length || previous?.state.unresolved_count) r.status = "blocked";
+      return r;
+    }
+    if (command.action !== "cycle_health_put") throw new HttpError("unsupported_cycle_health_action", 400);
+    const packet = command.observation;
+    if (packet.targets[0].cycle_health.configuration_sha256 !== a.configuration_sha256) throw new HttpError("cycle_health_configuration_not_admitted", 409);
+    const order = a.observed_at ? compareCycleInstants(packet.computed_at, a.observed_at) : 1;
+    if (order < 0) throw new HttpError("cycle_health_stale_observation", 409);
+    if (order === 0) {
+      if (command.observation_json !== a.observation_json || command.observation_sha256 !== a.observation_sha256) throw new HttpError("cycle_health_observation_conflict", 409);
+      return { ...result("unchanged"), schema_version: "qsl_runtime_cycle_health_ack.v1", result: "unchanged" };
+    }
+    const h = packet.targets[0].cycle_health;
+    const transition = previous && (previous.configuration_sha256 !== a.configuration_sha256 || previous.required_from !== a.required_from);
+    const checkpoint = {
+      configuration_sha256: a.configuration_sha256, required_from: a.required_from,
+      baseline_established: !transition && cycleCoverageComplete(h.coverage, { since: a.required_from, through: a.required_from }),
+      state: reduceCycleCheckpoint({ target_id: a.target_id, source_binding_id: command.source_binding_id }, h, previous?.state),
+    };
+    const revision = (row?.revision || 0) + 1;
+    // Observation is written first so the real SQLite abort test proves rollback
+    // across both rows; ACK construction occurs only after transactionSync exits.
+    this.sql.exec("UPDATE runtime_cycle_health_source SET observed_at = ?, observation_json = ?, observation_sha256 = ?, received_at = ?, checkpoint_revision = ? WHERE source_id = ?",
+      packet.computed_at, command.observation_json, command.observation_sha256, command.received_at, revision, a.source_id);
+    this.sql.exec(`INSERT INTO runtime_cycle_health_checkpoint (target_id, binding_fingerprint, source_id, revision, payload_json)
+      VALUES (?, ?, ?, ?, ?) ON CONFLICT(target_id, binding_fingerprint) DO UPDATE SET revision = excluded.revision, payload_json = excluded.payload_json`,
+      a.target_id, a.binding_fingerprint, a.source_id, revision, JSON.stringify(checkpoint));
+    a.observed_at = packet.computed_at; a.observation_sha256 = command.observation_sha256; a.received_at = command.received_at;
+    return { ...result("stored", checkpoint, revision), schema_version: "qsl_runtime_cycle_health_ack.v1", result: "stored" };
   }
 
   accountFactsCommand(command) {
@@ -3182,6 +3266,9 @@ export class RuntimeInstances {
       if (typeof command?.action === "string" && command.action.startsWith("ux1_")) {
         return json(this.ux1ResearchCommand(command));
       }
+      if (["cycle_health_admission", "cycle_health_put", "cycle_health_read"].includes(command?.action)) {
+        return json(this.storage.transactionSync(() => this.cycleHealthCommand(command)));
+      }
       if (ACCOUNT_SETTINGS_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.accountSettingsCommand(command)));
       }
@@ -3276,7 +3363,7 @@ export class RuntimeInstances {
         return this.response(state);
       }));
     } catch (error) {
-      return json({ ok: false, error: error instanceof HttpError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError ? error.status : 409);
+      return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError ? error.status : 409);
     }
   }
 
@@ -9606,6 +9693,73 @@ function accountFactsErrorResponse(error) {
     return json({ ok: false, error: error.message }, error.status || 400);
   }
   return json({ ok: false, error: error?.message || "invalid_account_facts_history" }, error?.status || 400);
+}
+
+async function runtimeCycleHealthSourceResponse(request, env) {
+  try {
+    const platform = requireDedicatedAccountFactsSyncToken(request, env);
+    if (platform !== "longbridge") throw new HttpError("cycle_health_token_platform_mismatch", 403);
+    const dedicated = String(env.ACCOUNT_FACTS_SYNC_TOKEN || "");
+    if ([env.EXECUTION_EVIDENCE_SYNC_TOKEN, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN].some(t => t && String(t) === dedicated)) {
+      throw new HttpError("cycle_health_token_alias", 503);
+    }
+    if (!hasRuntimeInstanceStore(env)) throw new HttpError("cycle_health_store_unavailable", 503);
+    const url = new URL(request.url);
+    let source, targetId, sourceId;
+    const bindingId = request.headers.get("X-QSL-Source-Binding-ID") || "";
+    if (!/^[a-f0-9]{64}$/.test(bindingId)) throw new HttpError("cycle_health_binding_required", 409);
+    if (request.method === "GET") {
+      if ([...url.searchParams.keys()].some(k => !["source_id", "target_id"].includes(k))
+        || url.searchParams.getAll("source_id").length !== 1 || url.searchParams.getAll("target_id").length !== 1) throw new HttpError("cycle_health_invalid_query", 400);
+      sourceId = normalizeControlPlaneIdentifier(url.searchParams.get("source_id"), "source_id", false);
+      targetId = url.searchParams.get("target_id");
+    } else {
+      const raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
+      if (!Array.isArray(raw?.targets) || raw.targets.length !== 1) throw new HttpError("cycle_health_one_target_required", 400);
+      const { cycle_health: health, ...legacyTarget } = raw.targets[0];
+      if (!health) throw new HttpError("cycle_health_extension_required", 400);
+      // Reuse the lifecycle shape with the companion member removed. The legacy
+      // normalizer and legacy POST still reject this extension as before.
+      source = normalizeRuntimeTargetLifecycleSourceSnapshot({ ...raw, targets: [legacyTarget] });
+      normalizeCycleInstant(raw.generated_at); normalizeCycleInstant(raw.computed_at);
+      if (raw.generated_at !== raw.computed_at || source.data_status !== "ready") throw new HttpError("cycle_health_cutoff_mismatch", 400);
+      source.generated_at = raw.generated_at; source.computed_at = raw.computed_at;
+      if (legacyTarget.deployment?.observed_at !== undefined) {
+        source.targets[0].deployment.observed_at = normalizeCycleInstant(legacyTarget.deployment.observed_at);
+        if (compareCycleInstants(legacyTarget.deployment.observed_at, raw.computed_at) > 0) throw new HttpError("cycle_health_deployment_chronology", 400);
+      }
+      const age = Date.now() - Date.parse(source.computed_at);
+      if (age > ACCOUNT_FACTS_STALE_MS || age < -ACCOUNT_FACTS_FUTURE_SKEW_MS) throw new HttpError("cycle_health_observation_age", 409);
+      targetId = source.targets[0].target_id; sourceId = source.source_id;
+      source.targets[0].cycle_health = await normalizeCycleHealth(health, { target_id: targetId, source_binding_id: bindingId, observed_at: source.computed_at });
+    }
+    if (targetId !== "longbridge.paper" || (source && (source.targets[0].target.platform !== "longbridge" || source.targets[0].target.execution_mode !== "paper"))) throw new HttpError("cycle_health_paper_target_required", 403);
+    const config = await loadAccountOptionsConfig(env);
+    const options = Array.isArray(config?.options?.longbridge) ? config.options.longbridge : [];
+    const matches = options.filter(o => o.runtime_status_target_id === targetId);
+    const allMatches = Object.entries(config.options || {}).flatMap(([p, items]) =>
+      (Array.isArray(items) ? items : []).filter(o => o.runtime_status_target_id === targetId).map(o => ({ platform: p, key: o.key })));
+    if (matches.length !== 1 || allMatches.length !== 1 || allMatches[0].platform !== "longbridge"
+      || options.filter(o => o.key === matches[0]?.key).length !== 1) throw new HttpError("cycle_health_option_not_unique", 409);
+    const bindings = await loadAccountFactsBindings(env);
+    const bound = bindings?.bindings?.filter(b => b.platform === "longbridge" && b.account_key === matches[0].key) || [];
+    if (bound.length !== 1 || bound[0].account_scope !== "paper" || bound[0].source_binding.id !== bindingId
+      || !accountFactsOptionMatchesBinding(matches[0], bound[0])) throw new HttpError("cycle_health_binding_mismatch", 409);
+    const bindingFingerprint = await cycleHealthSha256({ binding: bound[0], runtime_status_target_id: targetId });
+    const identity = { source_id: sourceId, target_id: targetId, binding_fingerprint: bindingFingerprint, source_binding_id: bindingId };
+    const admission = await runtimeInstanceCommand(env, { ...identity, action: "cycle_health_admission" });
+    if (source && source.targets[0].cycle_health.configuration_sha256 !== admission.configuration_sha256) throw new HttpError("cycle_health_configuration_not_admitted", 409);
+    const command = { ...identity, ...admission, action: source ? "cycle_health_put" : "cycle_health_read" };
+    if (source) {
+      command.observation = source;
+      command.observation_json = canonicalCycleJson(source);
+      command.observation_sha256 = await cycleHealthSha256(source);
+      command.received_at = new Date().toISOString();
+    }
+    return json(await runtimeInstanceCommand(env, command));
+  } catch (error) {
+    return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError ? error.message : "cycle_health_invalid_source" }, error.status || 400);
+  }
 }
 
 async function loadAccountFactsBindings(env) {

@@ -102,3 +102,97 @@ References: [Cloud Run describe](https://docs.cloud.google.com/sdk/gcloud/refere
 A non-GCP adapter projecting an older execution report must also include optional
 `deployment.observed_at` (UTC). The server computes its freshness independently
 of publication time; a newly published source cannot freshen an old runtime report.
+
+## Dormant PAPER cycle-health companion
+
+`POST` and `GET /api/internal/runtime-cycle-health-source` provide an isolated,
+authenticated compact-evidence checkpoint in the existing `RuntimeInstances`
+SQLite DO. This receiver is preparation only: every response carries
+`adopted=false`, `no_order=true`, and `execution_authority_granted=false`.
+It does not update the dashboard, legacy lifecycle KV, account facts, audit,
+automatic diagnosis, schedules, or orders. Existing lifecycle publishers and
+their endpoint continue to reject the companion member.
+
+POST keeps the lifecycle v1 outer envelope, with exactly one `longbridge.paper`
+target in `paper` mode and one additional `targets[0].cycle_health` object.
+That object has exactly six members: `schema_version`, `configuration_sha256`,
+`schedule`, `coverage`, `cycles`, and `resolutions`. Nonempty `resolutions` are
+rejected, including digest-only reconciliation claims. QRS checks the protected
+source attestation's identity, shape, chronology and completeness; it does not
+collect or verify raw broker pages, evaluate cron, or grant recovery authority.
+
+Authentication uses the existing LongBridge `ACCOUNT_FACTS_SYNC_TOKEN` verifier.
+Tokens shared with another supported platform or the legacy lifecycle token
+are rejected. `X-QSL-Source-Binding-ID` must match the existing protected PAPER
+account-facts binding. The lifecycle ID resolves through exactly one protected
+account option's `runtime_status_target_id`, across all platforms, then joins to
+that option's facts binding. The facts `target_id` is a separate identifier; it
+is never inferred from or equated with `longbridge.paper`. Console account keys
+are resolved from configuration and are never supplied by the caller.
+
+The independent `runtime_cycle_health_source` admission row binds a single
+source ID to the lifecycle target, SHA-256 of the normalized protected binding
+plus lifecycle ID, exact configuration digest, positive authority revision,
+and canonical `required_from` coverage origin. Absence or conflict rejects
+both reads and writes. There is no production admission initializer, setter,
+caller-supplied `verified` flag, or self-registration endpoint in this batch.
+Only test subclasses seed synthetic admission. Provisioning the real serving
+source, configuration, binding and baseline remains a separately authorized
+prerequisite before transport or dashboard adoption.
+
+`computed_at = generated_at = coverage.through` preserves original collection
+time. Canonical UTC instants use seconds or exactly six nonzero microseconds,
+matching Python `datetime.isoformat()` and cycle-ID hashing. Millisecond-only,
+offset, impossible-calendar and rounded representations are rejected. The
+existing 36-hour observation age gate and independent five-minute future-skew
+allowance govern reception/read freshness; they do not define cadence, deadline
+or retention. A fresh observation may report a late-discovered older fault.
+Read completeness requires a terminal page, no cap, no errors, equal bounded
+listed/read counts, and coverage of the independent required origin. A cap
+remains incomplete even if counts happen to match.
+
+Normalization and hashing happen before the synchronous DO transaction. That
+transaction rechecks authority revision, protected fingerprint, configuration
+and coverage origin, then commits the source observation watermark and the
+target/binding checkpoint together. Older observations fail; equal instants
+with different canonical content conflict; equal identical replay returns
+`unchanged` without renewing the original receipt/freshness timestamp. POST's
+`qsl_runtime_cycle_health_ack.v1` response is returned only after commit, with
+`result=stored|unchanged`, source/target, observation digest, original observation
+time, receipt time, and authority/checkpoint revisions. GET requires exactly
+`source_id` and `target_id` query parameters plus the same authentication/binding
+and returns the same durable digest, revisions and checkpoint in
+`qsl_runtime_cycle_health_checkpoint.v1`.
+
+Incomplete scans, closed sessions, no-due/empty packets and later success never
+clear old faults. Each incident retains stable receipt attempts, highest
+severity, independent latest-fault watermark and unresolved status. Exact fault
+replays preserve existing proof associations; newly discovered old faults stay
+unresolved. Same-binding configuration changes keep old attempt provenance and
+leave the first new configuration observation's coverage baseline unestablished.
+Binding changes preserve the exact old partition and expose `prior_partitions`
+with `continuity=unconfirmed` and `status=blocked`, including when the new
+partition is empty. Twenty incidents/attempts are the bounded checkpoint limit;
+overflow rejects the entire transaction and requests history capacity support,
+without eviction. Read status is explicit (`uninitialized`, `incomplete`,
+`complete`, `blocked`, or `stale`); it is never a production health label.
+
+`tests/fixtures/runtime_cycle_health.v1.synthetic.json` is newly regenerated
+synthetic evidence, **not** the unavailable earlier frozen fixture. Its real
+generator was LongBridgePlatform `scripts/runtime_cycle_health.py` at
+`3e16a31a6d9f5bab50075aa957ac61bcd3627c41`, with the locked QPK source
+`d38627002345fb0e90adc83422c553d3299567d2`. Provenance, helper hash, generation
+method and review/freeze state are recorded in the fixture. No real account,
+credentials, broker, cloud metadata or financial data were read. The fixture
+includes actual Python projections, reference reducer results and second/six
+microsecond cycle-ID vectors. The focused validators are imported by the
+existing Worker validation suite; they cover strict negative cases, concurrent
+ordering, receipt replay, commit-only ACK, real SQLite abort/rollback, restart,
+configuration/binding history and capacity. Integration uses the existing
+offline host guard, `cf:false`, disabled metadata fetching and a rejecting Worker
+outbound hook; local workerd loopback is the only allowed network communication.
+
+```sh
+node tests/runtime_cycle_health_validation.mjs
+node tests/runtime_cycle_health_worker_validation.mjs
+```

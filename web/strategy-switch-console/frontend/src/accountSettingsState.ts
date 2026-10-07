@@ -270,7 +270,7 @@ export function pendingDraftOverrides(draft: AccountSettingsDraftFields, scope: 
   return overrides;
 }
 
-export function createAccountSettingsController() {
+export function createAccountSettingsController(unresolvedSaves = new Map<string, AccountSettingsSaveSnapshot>()) {
   const gate = createRequestGate();
   let selected: AccountSettingsAccount | null = null;
   let view = emptyView();
@@ -287,6 +287,8 @@ export function createAccountSettingsController() {
       return selected ? `${selected.platform}:${selected.key}` : "";
     },
     view() {
+      const pending = unresolvedSaves.get(this.selectedId());
+      if (pending) view = { ...view, review: { ...view.review, [Object.prototype.hasOwnProperty.call(pending.body, "risk_preference") ? "risk" : "draft"]: true } };
       return view;
     },
     riskDirty() {
@@ -316,6 +318,9 @@ export function createAccountSettingsController() {
     },
     applyRead(op: AccountSettingsOp, payload: Record<string, any>, options: { preserveNotice?: boolean; keepCash?: boolean; keepPreference?: boolean; keepIncome?: boolean; keepStrategy?: boolean; keepOption?: boolean } = {}) {
       if (!current(op) || payload?.platform !== op.account.platform || payload?.key !== op.account.key) return false;
+      const pending = unresolvedSaves.get(this.selectedId());
+      const resolved = pending && matchesSaveAcknowledgement(pending, payload);
+      if (resolved) unresolvedSaves.delete(this.selectedId());
       const draft = payload.draft?.overrides || {};
       const savedPreference = typeof (view.settings || lastSettings)?.risk?.preference === "string" ? (view.settings || lastSettings)!.risk.preference : "";
       const keepCash = options.keepCash === true && cashDraftDirty(view.draft);
@@ -357,6 +362,12 @@ export function createAccountSettingsController() {
           acknowledge: false,
         },
       };
+      if (pending) {
+        const risk = Object.prototype.hasOwnProperty.call(pending.body, "risk_preference");
+        view = { ...view, notice: resolved ? (risk ? "偏好已保存" : "草案已保存") : "状态未知",
+          noticeGroup: resolved ? savedNoticeGroup({ ...op, body: pending.body }) : "",
+          review: { ...view.review, [risk ? "risk" : "draft"]: !resolved } };
+      }
       return true;
     },
     applyUnavailable(op: AccountSettingsOp, message: string) {
@@ -375,7 +386,7 @@ export function createAccountSettingsController() {
       return true;
     },
     startSave(kind: "draft" | "risk" | "cash" | "income" | "option" | "strategy") {
-      if (view.saving) return null;
+      if (view.saving || unresolvedSaves.has(this.selectedId())) return null;
       if (!selected || !view.settings || !sameAccount(view.account)) return null;
       if (view.settings.platform !== selected.platform || view.settings.key !== selected.key) return null;
       if (!view.settings.identity || typeof view.settings.identity !== "object") return null;
@@ -430,17 +441,22 @@ export function createAccountSettingsController() {
     },
     markSaving(op: AccountSettingsOp, kind: string) {
       if (view.saving || !current(op)) return false;
+      if (saveSnapshot?.token === op.token) unresolvedSaves.set(this.selectedId(), saveSnapshot);
       view = { ...view, saving: kind, notice: "" };
       return true;
     },
     applySave(op: AccountSettingsOp, payload: Record<string, any>, notice: string) {
       if (!current(op)) return false;
+      const pending = unresolvedSaves.get(this.selectedId());
+      if ((pending && pending !== saveSnapshot) || (view.saving && !pending)) return false;
       if (!saveSnapshot || saveSnapshot.token !== op.token || !sameSavedValue(op.body, saveSnapshot.body)
         || !matchesSaveAcknowledgement(saveSnapshot, payload)) {
+        if (saveSnapshot?.token === op.token) unresolvedSaves.set(this.selectedId(), saveSnapshot);
         const risk = Boolean(saveSnapshot?.token === op.token && Object.prototype.hasOwnProperty.call(saveSnapshot.body, "risk_preference"));
         view = { ...view, notice: "状态未知", noticeGroup: "", review: { ...view.review, [risk ? "risk" : "draft"]: true } };
         return false;
       }
+      unresolvedSaves.delete(this.selectedId());
       const overrides = op.body?.overrides as Record<string, unknown> | undefined;
       const intendedCash = pendingDraftOverrides(view.draft, "cash");
       const sentCash = Boolean(overrides && (Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_floor") || Object.prototype.hasOwnProperty.call(overrides, "reserved_cash_ratio")));
@@ -496,15 +512,28 @@ export function createAccountSettingsController() {
       };
       return true;
     },
-    fail(op: AccountSettingsOp, notice: string) {
+    fail(op: AccountSettingsOp, notice: string, unknown = false) {
       if (!current(op)) return false;
-      view = { ...view, notice, noticeGroup: "", saving: "" };
+      const pending = unresolvedSaves.get(this.selectedId());
+      if ((pending && pending !== saveSnapshot) || (unknown && !pending)) return false;
+      if (!unknown) unresolvedSaves.delete(this.selectedId());
+      else if (saveSnapshot?.token === op.token) unresolvedSaves.set(this.selectedId(), saveSnapshot);
+      const risk = Boolean(saveSnapshot && Object.prototype.hasOwnProperty.call(saveSnapshot.body, "risk_preference"));
+      view = { ...view, notice: unknown ? "状态未知" : notice, noticeGroup: "", saving: "",
+        review: unknown ? { ...view.review, [risk ? "risk" : "draft"]: true } : view.review };
       return true;
     },
     applyRefresh(op: AccountSettingsOp, payload: Record<string, any>) {
       if (!current(op)) return false;
       const before = view;
-      const notice = before.notice;
+      const pending = unresolvedSaves.get(this.selectedId());
+      if (pending && matchesSaveAcknowledgement(pending, payload)) {
+        saveSnapshot = { ...pending, token: op.token };
+        unresolvedSaves.set(this.selectedId(), saveSnapshot);
+        return this.applySave({ ...op, body: copyJson(pending.body) }, payload,
+          Object.prototype.hasOwnProperty.call(pending.body, "risk_preference") ? "偏好已保存" : "草案已保存");
+      }
+      const notice = pending ? "状态未知" : before.notice;
       const beforeSettings = before.settings || lastSettings;
       const dirtyCash = cashDraftDirty(before.draft);
       const dirtyIncome = before.draft.incomeTouched === true;
@@ -528,6 +557,8 @@ export function createAccountSettingsController() {
       return true;
     },
     acknowledgeReview(kind: "draft" | "risk") {
+      const pending = unresolvedSaves.get(this.selectedId());
+      if (pending && (Object.prototype.hasOwnProperty.call(pending.body, "risk_preference") ? "risk" : "draft") === kind) return false;
       if (!view.review?.[kind]) return false;
       view = { ...view, review: { ...view.review, [kind]: false } };
       return true;

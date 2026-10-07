@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import {
   accountEnvironmentSourceDetail, accountRuntimeLinkDetail, accountSettingDraftBody, buildSwitchInputs, canResumeBinance, currentResearchPreview, defaultSwitchDraft,
-  applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
+  createHumanDecisionController, humanDecisionDigest, humanDecisionExpectation, matchingHumanDecisionReceipt, promotionDecisionReady, applicationRetryAllowed, buildConfirmationFingerprint, ownerDecisionBinding, recoveryBinding,
   confirmationAccepted, createRequestLock, pageFromWorkspace, buildHomeAttention, diagnosisUserSummary, accountMatchesStatusFilter, presentAccountState, promotionSuggestion,
   summarizeExternalResearchSubject,
   diagnosisStatusKey, diagnosisConclusionKey, diagnosisNextStepKey,
@@ -374,3 +374,96 @@ assert.equal(confirmedStop.snapshot().phase, "stopped", "a later unknown read ca
 confirmedStop.completePost({ phase: "accepted", request_id: "request-stopped" });
 assert.equal(confirmedStop.snapshot().phase, "stopped");
 console.log("console_v2_operations_validation: PASS");
+
+async function receiptFor(expected, changes = {}) {
+  const content = { schema_version: expected.review_sha256 ? "qsl_human_decision_receipt.v2" : "qsl_human_decision_receipt.v1",
+    ...(expected.review_sha256 ? { review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: expected.review_sha256 } } : {}),
+    kind: expected.kind, subject_id: expected.subject_id, material_sha256: expected.material_sha256, action: expected.action, target: expected.target,
+    decided_at: "2026-10-07T06:00:00.123456Z", decided_by: "synthetic-original-actor", no_order: true, execution_authority_granted: false, ...changes };
+  return { ...content, receipt_sha256: await humanDecisionDigest(content) };
+}
+const fullTicket = { ticket_id: "synthetic-promotion", strategy_profile: "demo", domain: "us_equity", proposed_params: { x: 1 }, shadow_passed: true, shadow_evidence_kind: "paired_shadow", drift_status: "stable", drift_score: 0, budget: 2, search_iterations: 1, suggested_risk_profile: "CAPITAL_PRESERVATION", notification_subject: "synthetic", notification_body: "synthetic only", notes: [], research_summary: null };
+const six = Object.fromEntries(["ticket_id", "strategy_profile", "domain", "proposed_params", "shadow_passed", "shadow_evidence_kind"].map(k => [k, fullTicket[k]]));
+const fullMaterial = { schema_version: "qsl_promotion_review_material.v2", ...fullTicket };
+fullTicket.decision_binding = { kind: "promotion", subject_id: fullTicket.ticket_id, material_sha256: await humanDecisionDigest(six), review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await humanDecisionDigest(fullMaterial) } };
+const promotionBody = { ticket_id: fullTicket.ticket_id, decision: "accept", selected_account: { platform: "longbridge", key: "synthetic-paper" }, confirmation: { target_platform: "longbridge", execution_mode: "paper", risk_profile: "CAPITAL_PRESERVATION" } };
+const pExpected = await humanDecisionExpectation("promotion", fullTicket, promotionBody);
+assert.ok(pExpected); assert.equal(promotionDecisionReady(fullTicket), true);
+assert.equal(await humanDecisionExpectation("promotion", { ...fullTicket, notification_body: "changed reviewed content" }, promotionBody), null);
+const v1PromotionExpectation = await humanDecisionExpectation("promotion", { ...fullTicket, decision_binding: { ...fullTicket.decision_binding, review_binding: null } }, promotionBody);
+assert.ok(v1PromotionExpectation); assert.equal(v1PromotionExpectation.review_sha256, null);
+assert.equal(await matchingHumanDecisionReceipt(v1PromotionExpectation, await receiptFor(v1PromotionExpectation)), true);
+assert.equal(await humanDecisionExpectation("promotion", { ...fullTicket, decision_binding: { ...fullTicket.decision_binding, review_binding: {} } }, promotionBody), null);
+const pReceipt = await receiptFor(pExpected);
+assert.equal(await matchingHumanDecisionReceipt(pExpected, pReceipt), true);
+for (const changes of [{ action: "reject" }, { material_sha256: "f".repeat(64) }, { target: { ...pExpected.target, selected_account: { platform: "longbridge", key: "other-account" } } }, { target: { ...pExpected.target, confirmation: { ...promotionBody.confirmation, execution_mode: "live" } } }, { no_order: false }, { execution_authority_granted: true }, { decided_by: "bad\nactor" }, { decided_at: "not-time" }, { extra: true }, { review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: "f".repeat(64) } }]) {
+  assert.equal(await matchingHumanDecisionReceipt(pExpected, await receiptFor(pExpected, changes)), false, JSON.stringify(changes));
+}
+assert.equal(await matchingHumanDecisionReceipt(pExpected, { ...pReceipt, receipt_sha256: "0".repeat(64) }), false);
+const rejectedExpected = await humanDecisionExpectation("promotion", fullTicket, { ticket_id: fullTicket.ticket_id, decision: "reject", confirmation: null });
+assert.ok(rejectedExpected); assert.deepEqual(rejectedExpected.target, { selected_account: null, confirmation: null });
+const rejectedReceipt = await receiptFor(rejectedExpected);
+const ownerSource = { candidate: { candidate_id: "synthetic-owner" }, candidate_evidence_sha256: "a".repeat(64), decision_binding: { kind: "owner", subject_id: "synthetic-owner", material_sha256: "a".repeat(64) } };
+const oExpected = await humanDecisionExpectation("owner", ownerSource, { candidate_id: "synthetic-owner", candidate_evidence_sha256: "a".repeat(64), decision: "keep_parked" });
+const oReceipt = await receiptFor(oExpected);
+assert.equal(await matchingHumanDecisionReceipt(oExpected, oReceipt), true, "legacy v1 owner receipts remain readable");
+const recoveryMaterial = { recovery_id: "synthetic-recovery", candidate_sha256: "b".repeat(64), dual_review_binding_sha256: "b".repeat(64) };
+const rExpected = await humanDecisionExpectation("recovery", { recovery: { ...recoveryMaterial, dual_review: { evidence_binding_sha256: "b".repeat(64) } }, decision_binding: { kind: "recovery", subject_id: recoveryMaterial.recovery_id, material_sha256: await humanDecisionDigest(recoveryMaterial) } }, { ...recoveryMaterial, decision: "reject" });
+assert.ok(rExpected); assert.notEqual(rExpected.material_sha256, recoveryMaterial.candidate_sha256);
+assert.equal(await matchingHumanDecisionReceipt(rExpected, await receiptFor(rExpected)), true);
+const oldPromotion = { ...rejectedExpected, review_sha256: null };
+assert.equal(await matchingHumanDecisionReceipt(oldPromotion, await receiptFor(oldPromotion)), true, "historical v1 promotion receipt supports its original v1 expectation");
+assert.equal(await matchingHumanDecisionReceipt(rejectedExpected, await receiptFor(oldPromotion)), false, "v1 cannot substitute full v2 review binding");
+const decisionController = createHumanDecisionController();
+const submit = decisionController.start(rejectedExpected);
+assert.ok(submit); assert.equal(decisionController.start({ ...rejectedExpected, action: "accept", target: pExpected.target }), null);
+assert.equal(await decisionController.receive(submit, rejectedReceipt), true);
+assert.equal(decisionController.entries()[0].status, "unresolved", "POST receipt and queue refresh are independent facts");
+const readback = receipt => ({ ok: true, decision_readback: { schema_version: "qsl_human_decision_readback.v1", source: "durable_human_decision_record", kind: rejectedExpected.kind, subject_id: rejectedExpected.subject_id, requested_material_sha256: rejectedExpected.material_sha256, observed_at: "2026-10-07T07:00:00Z", lookup_status: "found", receipt, current_material: { status: "not_current" } } });
+let probe = decisionController.beginRead(rejectedExpected);
+assert.equal(await decisionController.readback(probe, readback(rejectedReceipt), true), true);
+assert.equal(decisionController.entries()[0].status, "recorded", "rejected historical receipt does not depend on a current queue item");
+probe = decisionController.beginRead(rejectedExpected); decisionController.readFailed(probe);
+assert.equal(decisionController.entries()[0].status, "unresolved");
+assert.deepEqual(decisionController.entries()[0].receipt, rejectedReceipt, "refresh failure keeps original verified receipt/time");
+assert.equal(decisionController.start(rejectedExpected), null);
+const olderProbe = decisionController.beginRead(rejectedExpected), newProbe = decisionController.beginRead(rejectedExpected);
+assert.equal(await decisionController.readback(olderProbe, readback(await receiptFor(rejectedExpected, { decided_at: "2026-10-07T08:00:00Z" })), true), false);
+assert.equal(await decisionController.readback(newProbe, readback(rejectedReceipt), true), true);
+assert.equal(decisionController.entries()[0].receipt.decided_at, rejectedReceipt.decided_at);
+assert.equal(await decisionController.receive(submit, await receiptFor(rejectedExpected, { decided_at: "2026-10-07T08:00:00Z" }), true), false, "same material conflicting original receipt remains unresolved");
+assert.equal(decisionController.entries()[0].receipt.decided_at, rejectedReceipt.decided_at);
+probe = decisionController.beginRead(rejectedExpected);
+assert.equal(await decisionController.readback(probe, { ...readback(null), decision_readback: { ...readback(null).decision_readback, lookup_status: "not_found" } }, true), false);
+assert.equal(decisionController.entries()[0].receipt.decided_at, rejectedReceipt.decided_at);
+assert.equal(await decisionController.readback(decisionController.beginRead(rejectedExpected), readback(rejectedReceipt), true), true);
+decisionController.clear();
+assert.equal(await decisionController.receive(submit, rejectedReceipt, true), false, "late receipt cannot enter a new private session");
+assert.deepEqual(decisionController.entries(), []);
+assert.notEqual(buildConfirmationFingerprint({ promotionTickets: [fullTicket] }), buildConfirmationFingerprint({ promotionTickets: [{ ...fullTicket, decision_binding: { ...fullTicket.decision_binding, review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: "f".repeat(64) } } }] }));
+assert.equal(translate("决定已记录：{time}。{detail}", "en", { time: rejectedReceipt.decided_at, detail: "readback pending" }).includes(rejectedReceipt.decided_at), true);
+console.log("human decision client receipt validation: PASS");
+
+// Cross-check the real server receipt constructor/canonical hashes, not just a
+// locally generated expected shape. These helpers are pure and use synthetic data.
+const { __test: serverContract } = await import("../web/strategy-switch-console/worker.js");
+assert.equal(await serverContract.researchPromotionMaterialKey(fullTicket), pExpected.material_sha256);
+assert.deepEqual(await serverContract.researchPromotionReviewBinding(fullTicket), fullTicket.decision_binding.review_binding);
+const decided_at = pReceipt.decided_at, actor = pReceipt.decided_by;
+for (const expected of [pExpected, v1PromotionExpectation]) {
+  const payload = { ticket: { ...fullTicket, human_decision: expected.action, human_decided_at: decided_at, live_authority_granted: false },
+    selected_account: expected.target.selected_account, confirmation: expected.target.confirmation,
+    ...(expected.review_sha256 ? { review_binding: fullTicket.decision_binding.review_binding, review_material: serverContract.researchPromotionReviewMaterial(fullTicket) } : {}) };
+  const actual = await serverContract.humanDecisionReceipt({ kind: "promotion", subject_id: expected.subject_id, material_key: expected.material_sha256,
+    action: expected.action, actor, decided_at, target_json: JSON.stringify(expected.target), payload }, expected);
+  assert.equal(await matchingHumanDecisionReceipt(expected, actual), true);
+}
+const ownerPayload = { schema_version: "qsl_owner_decision_intent.v1", candidate_id: oExpected.subject_id, candidate_evidence_sha256: oExpected.material_sha256,
+  decision: oExpected.action, decided_at, decided_by: actor, no_order: true, execution_authority_granted: false };
+ownerPayload.decision_sha256 = await humanDecisionDigest(ownerPayload);
+assert.equal(await matchingHumanDecisionReceipt(oExpected, await serverContract.humanDecisionReceipt({ kind: "owner", subject_id: oExpected.subject_id, material_key: oExpected.material_sha256,
+  action: oExpected.action, actor, decided_at, target_json: JSON.stringify(oExpected.target), payload: ownerPayload }, oExpected)), true);
+const recoveryPayload = { schema_version: "qsl_reconciliation_recovery_rejection.v1", ...recoveryMaterial, decision: "reject", decided_at, decided_by: actor, no_order: true, execution_authority_granted: false };
+assert.equal(await matchingHumanDecisionReceipt(rExpected, await serverContract.humanDecisionReceipt({ kind: "recovery", subject_id: rExpected.subject_id, material_key: rExpected.material_sha256,
+  action: rExpected.action, actor, decided_at, target_json: JSON.stringify(rExpected.target), payload: recoveryPayload }, rExpected)), true);
+console.log("actual server/client receipt parity: PASS (owner, recovery, promotion v1/v2)");
