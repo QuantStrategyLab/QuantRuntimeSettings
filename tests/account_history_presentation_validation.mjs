@@ -331,7 +331,8 @@ assert.match(overview, /融资状态待确认/);
 assert.match(overviewStyles, /\.overview-figures-wallet \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 assert.match(overviewStyles, /\.wallet-card-valuation strong \{ white-space: nowrap; overflow-wrap: normal;/,
   "wallet total gets a full-width non-wrapping amount instead of sharing a narrow cash column");
-assert.match(overview, /runtimeEpoch/);
+// Daily response isolation is exercised by overview_refresh_validation.mjs;
+// presentation checks do not require a particular cancellation implementation.
 assert.match(overview, /runtimeDateBounds/);
 const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
 assert.equal(translate(runtimeDateLabel, "zh"), runtimeDateLabel);
