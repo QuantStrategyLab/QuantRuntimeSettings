@@ -190,7 +190,7 @@ export function resolveOverviewChartAccount<T extends { id: string }>(
   return accounts.find((account) => account.id === chartAccountId) ?? null;
 }
 
-export const RETURN_INDEX_LEGEND = ["标普500", "纳斯达克", "道琼斯", "罗素"] as const;
+export const RETURN_INDEX_LEGEND = ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"] as const;
 
 export type OverviewFigures = {
   assets: null;

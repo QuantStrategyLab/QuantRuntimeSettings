@@ -580,7 +580,7 @@ assert.match(overviewSource, /wallet\.assets\.map\([\s\S]*?<strong>\{item\.asset
   'overview wallet rows must render the native asset string without filtering');
 assert.match(overviewSource, /binanceProviderProductTypeForDisplay\([\s\S]*?showWallet && walletAccount\?\.id === account\.id/,
   'overview product type requires the existing fresh and mapped-account eligibility gate');
-assert.match(overviewSource, /API账户类型：现货/,
+assert.match(overviewSource, /产品类别：\{value\}/,
   'overview labels Spot only from the native provider type');
 console.log(`Binance account facts: native decimals, ${invalid.length + invalidNativeAssets.length} rejection cases, privacy, token isolation, binding and worker tests PASS`);
 await mf.dispose();
