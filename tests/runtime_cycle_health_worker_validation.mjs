@@ -21,8 +21,10 @@ const account = { key: "synthetic-paper", label: "Synthetic PAPER", target_name:
 const bound = { platform: "longbridge", account_key: account.key, account_scope: account.account_scope, target_name: account.target_name, service_name: account.service_name, deployment_selector: account.deployment_selector, account_selector: account.account_selector, target_id: "synthetic-facts-target", source_binding: { kind: "deployment_scope_token_version", id: fixture.context.source_binding_id } };
 const fingerprint = await cycleHealthSha256({ binding: bound, runtime_status_target_id: account.runtime_status_target_id });
 const token = "synthetic-cycle-token";
-const baseEnv = { ACCOUNT_FACTS_SYNC_TOKEN: token, IBKR_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-ibkr-token", SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-schwab-token", EXECUTION_EVIDENCE_SYNC_TOKEN: "synthetic-lifecycle-token", STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [account] }) };
+const adminToken = "synthetic-cycle-admin-token";
+const baseEnv = { ACCOUNT_FACTS_SYNC_TOKEN: token, IBKR_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-ibkr-token", SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-schwab-token", EXECUTION_EVIDENCE_SYNC_TOKEN: "synthetic-lifecycle-token", STRATEGY_SWITCH_SYNC_TOKEN: adminToken, STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON: JSON.stringify({ longbridge: [account] }) };
 const path = "/api/internal/runtime-cycle-health-source";
+const provisionPath = "/api/internal/runtime-cycle-health-admission";
 const query = "?source_id=synthetic.paper&target_id=longbridge.paper";
 const persist = await mkdtemp(join(tmpdir(), "qrs-cycle-health-"));
 const scriptPath = fileURLToPath(new URL("../web/strategy-switch-console/worker.js", import.meta.url));
@@ -77,6 +79,13 @@ async function call(body, { env = {}, authorization = token, binding = bound.sou
   }), { ...baseEnv, STRATEGY_SWITCH_CONFIG: kv, STRATEGY_SWITCH_RUNTIME_INSTANCES: namespace, ...env });
   return { status: response.status, body: await response.json() };
 }
+async function provision(body, { env = {}, authorization = adminToken, binding = bound.source_binding.id } = {}) {
+  const response = await worker.fetch(new Request(`https://console.example${provisionPath}`, {
+    method: "POST", headers: { Authorization: `Bearer ${authorization}`, "X-QSL-Source-Binding-ID": binding, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }), { ...baseEnv, STRATEGY_SWITCH_CONFIG: kv, STRATEGY_SWITCH_RUNTIME_INSTANCES: namespace, ...env });
+  return { status: response.status, body: await response.json() };
+}
 async function command(c) { return (await stub.fetch("https://test-only/", { method: "POST", body: JSON.stringify(c) })).json(); }
 const snapshot = () => command({ action: "fixture_snapshot" });
 const admit = (overrides = {}) => command({ action: "fixture_admit", source_id: "synthetic.paper", target_id: "longbridge.paper", binding_fingerprint: fingerprint, configuration_sha256: fixture.context.configuration_sha256, authority_revision: 1, required_from: "2026-10-01T00:00:00Z", ...overrides });
@@ -93,6 +102,72 @@ function packet(name = "microsecond_no_action", instant = nextInstant()) {
 try {
   await start();
   globalThis.fetch = async () => { directOutbound++; throw new Error("direct Worker outbound forbidden"); };
+  const initialAdmission = {
+    source_id: "synthetic.paper", target_id: "longbridge.paper",
+    configuration_sha256: fixture.context.configuration_sha256,
+    required_from: "2026-10-01T00:00:00Z", expected_authority_revision: 0,
+  };
+  for (const options of [
+    { authorization: token },
+    { authorization: token, env: { STRATEGY_SWITCH_SYNC_TOKEN: token } },
+    { authorization: baseEnv.EXECUTION_EVIDENCE_SYNC_TOKEN, env: { STRATEGY_SWITCH_SYNC_TOKEN: baseEnv.EXECUTION_EVIDENCE_SYNC_TOKEN } },
+    { binding: "0".repeat(64) },
+  ]) assert.ok((await provision(initialAdmission, options)).status >= 400, "source token, aliased admin token, and wrong binding cannot provision");
+  assert.equal((await snapshot()).sources.length, 0, "failed provisioning attempts make no admission row");
+  const admitted = await provision(initialAdmission);
+  assert.equal(admitted.status, 200, JSON.stringify(admitted));
+  assert.equal(admitted.body.status, "admission_configured", "provision response reports administration state, not runtime health");
+  assert.equal(admitted.body.adopted, false);
+  assert.equal("healthy" in admitted.body, false, "admission cannot claim health or establish baseline");
+  assert.equal((await call(undefined)).body.status, "uninitialized", "provisioning alone does not establish a baseline or healthy state");
+  const admissionReplay = await provision(initialAdmission);
+  assert.equal(admissionReplay.body.result, "unchanged");
+  assert.equal(admissionReplay.body.status, "admission_unchanged");
+  assert.equal(admissionReplay.body.authority_revision, 1, "exact admission replay does not advance revision");
+  await admit();
+  const admittedFault = await call(packet("uncertain_fault"));
+  assert.equal(admittedFault.status, 200, JSON.stringify(admittedFault));
+  const beforeProvisionChange = await snapshot();
+  const candidateA = { ...initialAdmission, configuration_sha256: "4".repeat(64), required_from: "2026-09-30T00:00:00Z", expected_authority_revision: 1 };
+  const candidateB = { ...candidateA, configuration_sha256: "5".repeat(64) };
+  const concurrentProvision = await Promise.all([provision(candidateA), provision(candidateB)]);
+  assert.deepEqual(concurrentProvision.map(r => r.status).sort(), [200, 409], "revision CAS allows only one concurrent provisioning update");
+  const winnerRequest = concurrentProvision[0].status === 200 ? candidateA : candidateB;
+  const winner = concurrentProvision.find(r => r.status === 200);
+  assert.equal(winner.body.authority_revision, 2);
+  const afterProvisionChange = await snapshot();
+  assert.deepEqual(afterProvisionChange.checkpoints, beforeProvisionChange.checkpoints, "configuration update retains the exact old checkpoint");
+  assert.equal(afterProvisionChange.sources[0].observed_at, beforeProvisionChange.sources[0].observed_at, "same binding update preserves observation watermark");
+  assert.equal((await provision(winnerRequest)).body.result, "unchanged", "lost-response replay is idempotent at the current revision");
+  const beforeRejectedProvision = await snapshot();
+  assert.equal((await provision({ ...winnerRequest, expected_authority_revision: 1, configuration_sha256: "6".repeat(64) })).status, 409,
+    "stale competing authority revision is rejected");
+  assert.equal((await provision({ ...winnerRequest, expected_authority_revision: 2, required_from: "2026-10-02T00:00:00Z" })).body.error,
+    "cycle_health_baseline_range_shrink_rejected", "a later baseline cannot clip prior covered history");
+  assert.equal((await provision({ ...winnerRequest, source_id: "synthetic.replacement", expected_authority_revision: 2 })).status, 409,
+    "source identity cannot be silently replaced");
+  assert.deepEqual(await snapshot(), beforeRejectedProvision, "stale, shrinking and source-replacement requests make no writes");
+  const nextBound = { ...bound, source_binding: { ...bound.source_binding, id: "6".repeat(64) } };
+  const nextBindingFingerprint = await cycleHealthSha256({ binding: nextBound, runtime_status_target_id: account.runtime_status_target_id });
+  values.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [nextBound] }));
+  const bindingChange = await provision({ ...winnerRequest, expected_authority_revision: 2 }, { binding: nextBound.source_binding.id });
+  assert.equal(bindingChange.status, 200, JSON.stringify(bindingChange));
+  assert.equal(bindingChange.body.authority_revision, 3);
+  const changedBindingRead = await call(undefined, { binding: nextBound.source_binding.id });
+  assert.equal(changedBindingRead.body.status, "blocked");
+  assert.equal(changedBindingRead.body.continuity, "unconfirmed");
+  assert.equal(changedBindingRead.body.prior_partitions.length, 1, "binding change exposes rather than drops old partition");
+  const afterBindingChange = await snapshot();
+  assert.equal(afterBindingChange.sources[0].binding_fingerprint, nextBindingFingerprint);
+  assert.equal(afterBindingChange.sources[0].observed_at, null, "new binding starts a separate observation watermark");
+  assert.deepEqual(afterBindingChange.checkpoints, beforeProvisionChange.checkpoints, "binding transition preserves old checkpoint bytes");
+  values.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [bound] }));
+  assert.equal((await provision({ ...winnerRequest, expected_authority_revision: 3 }, { binding: bound.source_binding.id })).body.error,
+    "cycle_health_binding_partition_reuse_requires_support", "A-to-B-to-A cannot overwrite or strand the retained A checkpoint");
+  assert.deepEqual(await snapshot(), afterBindingChange, "rejected prior-binding reuse preserves the B admission and both checkpoint history and watermarks");
+  values.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [nextBound] }));
+  values.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [bound] }));
+  await mf.dispose(); await rm(persist, { recursive: true, force: true }); options.durableObjectsPersist = persist; await start();
   const missing = packet();
   for (const p of [undefined, missing]) assert.equal((await call(p)).body.error, "cycle_health_source_not_admitted");
   assert.equal((await snapshot()).sources.length, 0, "a body cannot self-enroll");

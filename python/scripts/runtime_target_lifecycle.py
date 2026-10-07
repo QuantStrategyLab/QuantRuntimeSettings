@@ -13,7 +13,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 
 SOURCE_SCHEMA_VERSION = "qsl_runtime_target_lifecycle_source_snapshot.v1"
@@ -33,6 +33,8 @@ REASON_CODES = frozenset(
 )
 _IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._=-]{0,127}$")
 _TIMESTAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")
+_CYCLE_TIMESTAMP = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{6})?Z$")
+_SHA256 = re.compile(r"^[a-f0-9]{64}$")
 
 
 class RuntimeTargetLifecycleError(ValueError):
@@ -53,17 +55,43 @@ def _choice(value: object, choices: frozenset[str], field: str) -> str:
     return text
 
 
-def _timestamp(value: object | None) -> str:
+def _timestamp(value: object | None, *, allow_microseconds: bool = False) -> str:
     if value is None:
         return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
     text = str(value).strip()
-    if not _TIMESTAMP.fullmatch(text):
+    pattern = _CYCLE_TIMESTAMP if allow_microseconds else _TIMESTAMP
+    if not pattern.fullmatch(text) or (allow_microseconds and text.endswith(".000000Z")):
         raise RuntimeTargetLifecycleError("observed_at must be an RFC3339 UTC timestamp")
     try:
-        datetime.strptime(text, "%Y-%m-%dT%H:%M:%SZ")
+        datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%fZ" if "." in text else "%Y-%m-%dT%H:%M:%SZ")
     except ValueError as exc:
         raise RuntimeTargetLifecycleError("observed_at must be a valid calendar timestamp") from exc
     return text
+
+
+def normalize_cycle_health(value: object) -> dict[str, Any]:
+    """Check the bounded transport shape; source and receiver validators own semantics."""
+    fields = {"schema_version", "configuration_sha256", "schedule", "coverage", "cycles", "resolutions"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise RuntimeTargetLifecycleError("cycle_health package must contain exactly six members")
+    if value["schema_version"] != "qsl.runtime_cycle_health.v1" or not isinstance(value["configuration_sha256"], str) or not _SHA256.fullmatch(value["configuration_sha256"]):
+        raise RuntimeTargetLifecycleError("cycle_health identity is invalid")
+    schedule = value["schedule"]
+    if not isinstance(schedule, dict) or set(schedule) != {"state", "reason", "timezone", "latest_due_at", "next_due_at", "deadline_at"}:
+        raise RuntimeTargetLifecycleError("cycle_health schedule shape is invalid")
+    coverage = value["coverage"]
+    if not isinstance(coverage, dict) or set(coverage) != {"from", "through", "listed_count", "read_count", "terminal_page_seen", "limit_hit", "errors_present"}:
+        raise RuntimeTargetLifecycleError("cycle_health coverage shape is invalid")
+    _timestamp(coverage["through"], allow_microseconds=True)
+    _timestamp(coverage["from"], allow_microseconds=True)
+    counts = (coverage["listed_count"], coverage["read_count"])
+    if any(type(n) is not int or n < 0 for n in counts) or counts[0] > 41 or counts[1] > 20 or counts[1] > counts[0]:
+        raise RuntimeTargetLifecycleError("cycle_health coverage exceeds its bounded transport budget")
+    if any(type(coverage[k]) is not bool for k in ("terminal_page_seen", "limit_hit", "errors_present")):
+        raise RuntimeTargetLifecycleError("cycle_health coverage flags are invalid")
+    if not isinstance(value["cycles"], list) or len(value["cycles"]) > 20 or not isinstance(value["resolutions"], list) or value["resolutions"]:
+        raise RuntimeTargetLifecycleError("cycle_health arrays exceed the admitted transport scope")
+    return json.loads(json.dumps(value))
 
 
 def _target_disposition(
@@ -116,6 +144,7 @@ def build_runtime_target_lifecycle_source_snapshot(
     execution_heartbeat: object,
     observed_at: object | None = None,
     deployment: object | None = None,
+    cycle_health: object | None = None,
 ) -> dict[str, Any]:
     """Create one sanitized target state record without execution authority."""
     normalized_source_id = _identifier(source_id, "source_id")
@@ -130,7 +159,16 @@ def build_runtime_target_lifecycle_source_snapshot(
         runtime_guard=normalized_guard,
         execution_heartbeat=normalized_heartbeat,
     )
-    timestamp = _timestamp(observed_at)
+    normalized_cycle_health = normalize_cycle_health(cycle_health) if cycle_health is not None else None
+    if normalized_cycle_health is not None:
+        if normalized_platform != "longbridge" or normalized_target_id != "longbridge.paper" or normalized_mode != "paper":
+            raise RuntimeTargetLifecycleError("cycle_health is limited to the existing LongBridge PAPER target")
+        cycle_timestamp = normalized_cycle_health["coverage"]["through"]
+        if observed_at is not None and _timestamp(observed_at, allow_microseconds=True) != cycle_timestamp:
+            raise RuntimeTargetLifecycleError("observed_at must match cycle_health coverage.through")
+        timestamp = cycle_timestamp
+    else:
+        timestamp = _timestamp(observed_at)
     return {
         "schema_version": SOURCE_SCHEMA_VERSION,
         "source_id": normalized_source_id,
@@ -152,6 +190,7 @@ def build_runtime_target_lifecycle_source_snapshot(
                 "disposition": {"code": disposition, "reason_code": reason_code},
                 "no_order": True,
                 **({"deployment": normalize_deployment(deployment)} if deployment is not None else {}),
+                **({"cycle_health": normalized_cycle_health} if normalized_cycle_health is not None else {}),
             }
         ],
         "errors": [],
@@ -169,6 +208,7 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--execution-heartbeat", required=True, choices=sorted(CHECK_STATUSES))
     parser.add_argument("--observed-at")
     parser.add_argument("--deployment-json")
+    parser.add_argument("--cycle-health-json")
     parser.add_argument("--output", required=True)
     return parser.parse_args(argv)
 
@@ -185,6 +225,7 @@ def main(argv: list[str] | None = None) -> int:
         execution_heartbeat=args.execution_heartbeat,
         observed_at=args.observed_at,
         deployment=json.loads(args.deployment_json) if args.deployment_json else None,
+        cycle_health=json.loads(Path(args.cycle_health_json).read_text(encoding="utf-8")) if args.cycle_health_json else None,
     )
     output = Path(args.output)
     output.parent.mkdir(parents=True, exist_ok=True)

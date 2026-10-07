@@ -46,6 +46,16 @@ inputs:
   deployment-json:
     description: Optional sanitized observation from a non-GCP deployment adapter.
     required: false
+  publish-cycle-health:
+    description: Explicitly opt into the dormant LongBridge PAPER cycle-health companion transport.
+    required: false
+    default: 'false'
+  cycle-health-file:
+    description: Path to the already source-validated six-member cycle-health JSON package.
+    required: false
+  cycle-health-source-binding-id:
+    description: Exact existing LongBridge PAPER source-binding ID injected only from protected secret/private configuration; never a workflow_dispatch input or log value.
+    required: false
 
 runs:
   using: composite
@@ -67,40 +77,144 @@ runs:
         INPUT_CLOUD_RUN_SERVICE: ${{ inputs.cloud-run-service }}
         INPUT_SCHEDULER_LOCATION: ${{ inputs.scheduler-location }}
         INPUT_DEPLOYMENT_JSON: ${{ inputs.deployment-json }}
+        INPUT_PUBLISH_CYCLE_HEALTH: ${{ inputs.publish-cycle-health }}
+        INPUT_CYCLE_HEALTH_FILE: ${{ inputs.cycle-health-file }}
+        INPUT_CYCLE_HEALTH_SOURCE_BINDING_ID: ${{ inputs.cycle-health-source-binding-id }}
       run: |
         set -euo pipefail
-        if [[ -z "${EXECUTION_EVIDENCE_SYNC_TOKEN:-}" ]]; then
-          echo "EXECUTION_EVIDENCE_SYNC_TOKEN is required." >&2
-          exit 2
-        fi
         if [[ ! "$INPUT_SYNC_URL" =~ ^https://[^/?#]+$ ]]; then
           echo "sync-url must be an HTTPS base URL without a path or query." >&2
           exit 2
+        fi
+        if [[ "$INPUT_PUBLISH_CYCLE_HEALTH" != "true" && "$INPUT_PUBLISH_CYCLE_HEALTH" != "false" ]]; then
+          echo "cycle_health_opt_in_invalid" >&2
+          exit 2
+        fi
+        if [[ "$INPUT_PUBLISH_CYCLE_HEALTH" == "true" ]]; then
+          if [[ "$INPUT_PLATFORM" != "longbridge" || "$INPUT_TARGET_ID" != "longbridge.paper" || "$INPUT_EXECUTION_MODE" != "paper" || -z "$INPUT_CYCLE_HEALTH_FILE" || ! -f "$INPUT_CYCLE_HEALTH_FILE" || ! "$INPUT_CYCLE_HEALTH_SOURCE_BINDING_ID" =~ ^[a-f0-9]{64}$ || -z "${ACCOUNT_FACTS_SYNC_TOKEN:-}" ]]; then
+            echo "cycle_health_opt_in_requirements_missing" >&2
+            exit 2
+          fi
+          export QSL_TRANSPORT_TOKEN="$ACCOUNT_FACTS_SYNC_TOKEN"
+          export QSL_SOURCE_BINDING_ID="$INPUT_CYCLE_HEALTH_SOURCE_BINDING_ID"
+        else
+          if [[ -z "${EXECUTION_EVIDENCE_SYNC_TOKEN:-}" ]]; then
+            echo "EXECUTION_EVIDENCE_SYNC_TOKEN is required." >&2
+            exit 2
+          fi
+          export QSL_TRANSPORT_TOKEN="$EXECUTION_EVIDENCE_SYNC_TOKEN"
+          export QSL_SOURCE_BINDING_ID=""
         fi
         work_dir="$(mktemp -d)"
         cleanup() { rm -rf "$work_dir"; }
         trap cleanup EXIT
         snapshot_path="$work_dir/runtime-target-lifecycle.json"
-        observation_args=()
+        headers_path="$work_dir/headers.txt"
         if [[ "$INPUT_OBSERVE_GCP" == "true" ]]; then
           INPUT_DEPLOYMENT_JSON="$(python3 "$GITHUB_ACTION_PATH/gcp_observation.py")"
         fi
-        if [[ -n "$INPUT_DEPLOYMENT_JSON" ]]; then
-          observation_args=(--deployment-json "$INPUT_DEPLOYMENT_JSON")
-        fi
-        python3 "$GITHUB_ACTION_PATH/../../python/scripts/runtime_target_lifecycle.py" \
-          --source-id "$INPUT_SOURCE_ID" \
-          --target-id "$INPUT_TARGET_ID" \
-          --platform "$INPUT_PLATFORM" \
-          --configured-state "$INPUT_CONFIGURED_STATE" \
-          --execution-mode "$INPUT_EXECUTION_MODE" \
-          --runtime-guard "$INPUT_RUNTIME_GUARD" \
-          --execution-heartbeat "$INPUT_EXECUTION_HEARTBEAT" \
-          "${observation_args[@]}" \
+        builder_args=(
+          --source-id "$INPUT_SOURCE_ID"
+          --target-id "$INPUT_TARGET_ID"
+          --platform "$INPUT_PLATFORM"
+          --configured-state "$INPUT_CONFIGURED_STATE"
+          --execution-mode "$INPUT_EXECUTION_MODE"
+          --runtime-guard "$INPUT_RUNTIME_GUARD"
+          --execution-heartbeat "$INPUT_EXECUTION_HEARTBEAT"
           --output "$snapshot_path"
-        curl --fail --silent --show-error \
-          --request POST "${INPUT_SYNC_URL}/api/internal/sync-runtime-target-lifecycle-source" \
-          --header "Authorization: Bearer ${EXECUTION_EVIDENCE_SYNC_TOKEN}" \
-          --header "Content-Type: application/json" \
-          --data-binary "@$snapshot_path" \
-          >/dev/null
+        )
+        if [[ -n "$INPUT_DEPLOYMENT_JSON" ]]; then
+          builder_args+=(--deployment-json "$INPUT_DEPLOYMENT_JSON")
+        fi
+        if [[ "$INPUT_PUBLISH_CYCLE_HEALTH" == "true" ]]; then
+          builder_args+=(--cycle-health-json "$INPUT_CYCLE_HEALTH_FILE")
+        fi
+        if [[ "$INPUT_PUBLISH_CYCLE_HEALTH" == "true" ]]; then
+          if ! python3 "$GITHUB_ACTION_PATH/../../python/scripts/runtime_target_lifecycle.py" "${builder_args[@]}" >/dev/null 2>&1; then
+            echo "cycle_health_source_package_invalid" >&2
+            exit 1
+          fi
+        else
+          python3 "$GITHUB_ACTION_PATH/../../python/scripts/runtime_target_lifecycle.py" "${builder_args[@]}"
+        fi
+        umask 077
+        if ! python3 - "$headers_path" <<'PY' >/dev/null 2>&1
+        import os, pathlib, sys
+        token = os.environ.get("QSL_TRANSPORT_TOKEN", "")
+        binding = os.environ.get("QSL_SOURCE_BINDING_ID", "")
+        if not token or token != token.strip() or any(ord(ch) < 32 or ord(ch) == 127 for ch in token):
+            raise SystemExit(2)
+        headers = f"Authorization: Bearer {token}\nContent-Type: application/json\n"
+        if binding:
+            headers += f"X-QSL-Source-Binding-ID: {binding}\n"
+        pathlib.Path(sys.argv[1]).write_text(headers, encoding="utf-8")
+        PY
+        then
+          echo "lifecycle_transport_credentials_invalid" >&2
+          exit 1
+        fi
+        if [[ "$INPUT_PUBLISH_CYCLE_HEALTH" == "true" ]]; then
+          response_limit_bytes=1048576
+          fetch_companion_response() {
+            local output_path="$1"
+            shift
+            curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+              --max-filesize "$response_limit_bytes" "$@" --output - 2>/dev/null \
+              | python3 -c 'import pathlib,sys; data=sys.stdin.buffer.read(int(sys.argv[2])+1); (sys.exit(1) if len(data)>int(sys.argv[2]) else pathlib.Path(sys.argv[1]).write_bytes(data))' \
+                  "$output_path" "$response_limit_bytes" >/dev/null 2>&1
+          }
+          ack_path="$work_dir/cycle-health-ack.json"
+          readback_path="$work_dir/cycle-health-readback.json"
+          if ! fetch_companion_response "$ack_path" --request POST \
+            "${INPUT_SYNC_URL}/api/internal/runtime-cycle-health-source" \
+            --header "@$headers_path" --data-binary "@$snapshot_path"; then
+            echo "cycle_health_post_failed" >&2
+            exit 1
+          fi
+          if ! node - "$ack_path" "$snapshot_path" <<'NODE' >/dev/null 2>&1
+        const fs = require("node:fs");
+        const [ackPath, packetPath] = process.argv.slice(2);
+        const ack = JSON.parse(fs.readFileSync(ackPath, "utf8"));
+        const packet = JSON.parse(fs.readFileSync(packetPath, "utf8"));
+        function canonical(v) { if (Array.isArray(v)) return `[${v.map(canonical).join(",")}]`; if (v && typeof v === "object") return `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join(",")}}`; return JSON.stringify(v); }
+        const crypto = require("node:crypto");
+        const digest = crypto.createHash("sha256").update(canonical(packet), "utf8").digest("hex");
+        const source = packet.source_id, target = packet.targets?.[0]?.target_id;
+        if (ack.ok !== true || ack.schema_version !== "qsl_runtime_cycle_health_ack.v1" || !["stored", "unchanged"].includes(ack.result)
+          || ack.source_id !== source || ack.target_id !== target || ack.observation_sha256 !== digest
+          || ack.observed_at !== packet.computed_at || !Number.isSafeInteger(ack.authority_revision) || ack.authority_revision < 1
+          || !Number.isSafeInteger(ack.checkpoint_revision) || ack.checkpoint_revision < 1
+          || ack.adopted !== false || ack.no_order !== true || ack.execution_authority_granted !== false) process.exit(1);
+        NODE
+          then
+            echo "cycle_health_ack_invalid" >&2
+            exit 1
+          fi
+          source_id="$INPUT_SOURCE_ID"
+          readback_url="${INPUT_SYNC_URL}/api/internal/runtime-cycle-health-source?source_id=${source_id}&target_id=longbridge.paper"
+          if ! fetch_companion_response "$readback_path" --request GET "$readback_url" \
+            --header "@$headers_path"; then
+            echo "cycle_health_readback_failed" >&2
+            exit 1
+          fi
+          if ! node - "$ack_path" "$readback_path" <<'NODE' >/dev/null 2>&1
+        const fs = require("node:fs");
+        const [ackPath, readPath] = process.argv.slice(2);
+        const ack = JSON.parse(fs.readFileSync(ackPath, "utf8"));
+        const read = JSON.parse(fs.readFileSync(readPath, "utf8"));
+        for (const key of ["source_id", "target_id", "observation_sha256", "observed_at", "authority_revision", "checkpoint_revision", "adopted", "no_order", "execution_authority_granted"])
+          if (read[key] !== ack[key]) process.exit(1);
+        if (read.ok !== true || read.schema_version !== "qsl_runtime_cycle_health_checkpoint.v1"
+          || read.adopted !== false || read.no_order !== true || read.execution_authority_granted !== false) process.exit(1);
+        NODE
+          then
+            echo "cycle_health_readback_mismatch" >&2
+            exit 1
+          fi
+        else
+          curl --fail --silent --show-error \
+            --request POST "${INPUT_SYNC_URL}/api/internal/sync-runtime-target-lifecycle-source" \
+            --header "@$headers_path" \
+            --data-binary "@$snapshot_path" \
+            >/dev/null
+        fi
