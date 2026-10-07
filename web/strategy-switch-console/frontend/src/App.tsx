@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import type { AccountOption, AdminModel, ConfigPayload, LifecycleRecord, ReadModel, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, postJson, runtimeStopQuery } from "./api";
+import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, loadHumanDecisionReceipt, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
-import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
+import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createHumanDecisionController, humanDecisionExpectation, type HumanDecisionKind, type HumanDecisionState, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
 import { LocaleContext, renderLocaleMessage, translate, useT, type Language, type LocaleMessage } from "./locales";
 import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
@@ -168,6 +168,8 @@ function App() {
     const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
     const switchLocks = useRef(createUnknownSubmitLock());
     const onceLocks = useRef(createRequestLock());
+    const humanDecisions = useRef(createHumanDecisionController());
+    const unresolvedSettingsSaves = useRef(new Map());
     const uxEditEpoch = useRef(0);
     const confirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
     const confirmReturnFocus = useRef<HTMLElement | null>(null);
@@ -204,6 +206,8 @@ function App() {
         gate.current.invalidate();
         switchLocks.current.clear();
         onceLocks.current.clear();
+        humanDecisions.current.clear();
+        unresolvedSettingsSaves.current = new Map();
         uxEditEpoch.current += 1;
         setModel(null);
         setAdminModel(null);
@@ -229,6 +233,13 @@ function App() {
         if (confirmDialog && confirmDialog.fingerprint !== confirmationFingerprint())
             resolveConfirmation(false);
     }, [confirmDialog, model, adminModel, selectedId, switchDrafts, uxDraft, uxDirty, diagnosis, promotionTicketId, promotionAccountId, promotionRisk]);
+    const decisionNotice = (states: HumanDecisionState[]) => {
+        const latest = states.filter(s => s.receipt).at(-1);
+        const unresolved = states.some(s => s.status === "unresolved");
+        if (latest) setErrorMessage(copy("决定已记录：{time}。{detail}", { time: latest.receipt!.decided_at,
+            detail: copy(unresolved ? "最新资料未确认；请刷新核对，避免重复提交。" : "本次只记录决定，不会提交订单或改变交易权限。") }));
+        else if (unresolved) setErrorMessage(copy("最新资料未确认；请刷新核对，避免重复提交。"));
+    };
     const refresh = useCallback(async () => {
         const token = gate.current.begin();
         setRefreshing(true);
@@ -260,6 +271,20 @@ function App() {
             else setAdminModel(null);
             if (gate.current.isCurrent(token))
                 setSettingsRefresh(value => value + 1);
+            // Refresh is an explicit read; it never retries a decision POST.
+            await Promise.all(humanDecisions.current.entries().map(async state => {
+                const op = humanDecisions.current.beginRead(state.expected);
+                const source = state.expected.kind === "owner" ? next.owners : state.expected.kind === "recovery" ? next.recovery : next.promotions;
+                try {
+                    const payload = await loadHumanDecisionReceipt(state.expected);
+                    if (!gate.current.isCurrent(token)) return;
+                    await humanDecisions.current.readback(op, payload, !source.error && source.value?.data_status === "ready");
+                } catch (error) {
+                    if (error instanceof AccessError) { clearPrivateState(false); return; }
+                    if (gate.current.isCurrent(token)) humanDecisions.current.readFailed(op);
+                }
+            }));
+            if (gate.current.isCurrent(token)) decisionNotice(humanDecisions.current.entries());
         }
         catch (error) {
             if (!gate.current.isCurrent(token))
@@ -268,7 +293,9 @@ function App() {
                 clearPrivateState(false);
             }
             else {
-                setErrorMessage(copy(requestErrorKey(error)));
+                for (const state of humanDecisions.current.entries()) humanDecisions.current.readFailed(humanDecisions.current.beginRead(state.expected));
+                if (humanDecisions.current.entries().length) decisionNotice(humanDecisions.current.entries());
+                else setErrorMessage(copy(requestErrorKey(error)));
                 if (!model)
                     setBootState("error");
             }
@@ -547,6 +574,31 @@ function App() {
             finishOnce(key, false);
         }
     };
+    const recordHumanDecision = async (kind: HumanDecisionKind, source: any, body: any, path: string, busyKey: string) => {
+        const sessionEpoch = humanDecisions.current.epoch();
+        const expected = await humanDecisionExpectation(kind, source, body);
+        if (sessionEpoch !== humanDecisions.current.epoch()) return;
+        if (!expected) { setErrorMessage(copy("复核状态未确认；刷新资料后再决定是否继续。")); return; }
+        const op = humanDecisions.current.start(expected);
+        if (!op) { decisionNotice(humanDecisions.current.entries()); return; }
+        setBusy(prev => ({ ...prev, [busyKey]: true }));
+        try {
+            const result = await postJson<Record<string, any>>(path, { ...body,
+                expected_material_sha256: expected.material_sha256,
+                ...(expected.review_sha256 ? { expected_review_sha256: expected.review_sha256 } : {}) });
+            if (!humanDecisions.current.current(op)) return;
+            await humanDecisions.current.receive(op, result.decision_receipt);
+        } catch (error) {
+            if (error instanceof AccessError) { clearPrivateState(false); return; }
+            // A failed or missing response cannot establish that the write did not commit.
+        } finally {
+            if (humanDecisions.current.current(op)) {
+                setBusy(prev => ({ ...prev, [busyKey]: false }));
+                await refresh();
+                if (humanDecisions.current.current(op)) decisionNotice(humanDecisions.current.entries());
+            }
+        }
+    };
     const decideOwner = async (candidate: Record<string, any>, decision: string) => {
         if (!model?.session.admin)
             return;
@@ -555,19 +607,7 @@ function App() {
             return;
         if (!await confirmAction({ title: t("记录所有者决定"), target: String(candidate.candidate?.candidate_id || t("候选")), summary: t("决定：{decision} · 证据：{digest}", { decision: decisionLabel(decision, t), digest: candidate.candidate_evidence_sha256 }), consequence: t("仅记录人工决定，不会直接启用策略。"), tone: "normal", confirmLabel: decision === "keep_parked" ? "确认不采用" : "确认采用" }))
             return;
-        const key = `owner:${candidate.candidate?.candidate_id}`;
-        if (!beginOnce(key))
-            return;
-        try {
-            await postJson("/api/owner-decisions", binding);
-            await refresh();
-        }
-        catch (error) {
-            setErrorMessage(copy("所有者决定未确认：{error}",{error:copy(requestErrorKey(error))}));
-        }
-        finally {
-            finishOnce(key);
-        }
+        await recordHumanDecision("owner", candidate, binding, "/api/owner-decisions", `owner:${binding.candidate_id}`);
     };
     const confirmRecovery = async (entry: Record<string, any>, decision: "approve" | "reject" = "approve") => {
         if (!model?.session.admin)
@@ -586,19 +626,7 @@ function App() {
         const summary = t(decision === "reject" ? "不采用这份恢复方案，账户不会因此启用" : "采用这份恢复方案只留下核对记录，账户不会因此启用");
         if (!await confirmAction({ title: t(decision === "reject" ? "确认不采用这项方案？" : "确认采用这项方案？"), target: accountLabel ? `${accountLabel} · ${planText}` : planText, summary, consequence: summary, tone: "danger", confirmLabel: decision === "reject" ? "确认不采用" : "确认采用" }))
             return;
-        const key = `recovery:${binding.recovery_id}`;
-        if (!beginOnce(key))
-            return;
-        try {
-            await postJson("/api/reconciliation-recovery-confirmations", binding);
-            await refresh();
-        }
-        catch (error) {
-            setErrorMessage(copy("恢复确认未完成：{error}",{error:copy(requestErrorKey(error))}));
-        }
-        finally {
-            finishOnce(key);
-        }
+        await recordHumanDecision("recovery", entry, binding, "/api/reconciliation-recovery-confirmations", `recovery:${binding.recovery_id}`);
     };
     async function submitPromotion(decision: "accept" | "reject", ticket: any, appAccount: any) {
         if (!model?.session.admin || !ticket || busy.promotion) return;
@@ -608,15 +636,11 @@ function App() {
         const accountName = appAccount?.label || (appAccount ? `${appAccount.platform}:${appAccount.key}` : "");
         const planName = strategyName === "未命名策略" ? t(strategyName) : strategyName;
         if (!await confirmAction({ title: t(decision === "accept" ? "确认采用这项方案？" : "确认不采用这项方案？"), target: accountName ? `${accountName} · ${planName}` : planName, summary: t(decision === "accept" ? "采用只记录你的意向，账户策略和交易权限保持不变。" : "本次只记录决定，不会提交订单或改变交易权限。"), consequence: t("本次只记录决定，不会提交订单或改变交易权限。"), tone: decision === "accept" ? "normal" : "danger", confirmLabel: decision === "accept" ? "确认采用" : "确认不采用" })) return;
-        setBusy(prev => ({ ...prev, promotion: true }));
-        try {
-            await postJson("/api/research-promotion-decisions", { ticket_id: ticket.ticket_id, decision, confirmation: decision === "accept" ? { target_platform: appAccount.platform, execution_mode: mode, risk_profile: promotionRisk } : null, ...(decision === "accept" ? { selected_account: { platform: appAccount.platform, key: appAccount.key } } : {}), expected_proposed_params: ticket.proposed_params || {}, expected_strategy_profile: ticket.strategy_profile, expected_domain: ticket.domain });
-            void refresh();
-        } catch (error) {
-            setErrorMessage(copy("候选决定失败：{error}", { error: copy(requestErrorKey(error)) }));
-        } finally {
-            setBusy(prev => ({ ...prev, promotion: false }));
-        }
+        await recordHumanDecision("promotion", ticket, { ticket_id: ticket.ticket_id, decision,
+            confirmation: decision === "accept" ? { target_platform: appAccount.platform, execution_mode: mode, risk_profile: promotionRisk } : null,
+            ...(decision === "accept" ? { selected_account: { platform: appAccount.platform, key: appAccount.key } } : {}),
+            expected_proposed_params: ticket.proposed_params || {}, expected_strategy_profile: ticket.strategy_profile, expected_domain: ticket.domain,
+        }, "/api/research-promotion-decisions", "promotion");
     }
     async function decideDaily(item: DailyDecision, action: "adopt" | "reject") {
         if (item.kind === "promotion") {
@@ -720,6 +744,7 @@ function App() {
         promotions: model?.promotions,
         owners: model?.owners,
         recovery: model?.recovery,
+        decisionStates: humanDecisions.current.entries(),
         accountsFor: (ticket) => {
             const application = (model?.promotions.value?.applications || []).find((item: any) => item.ticket_id === ticket?.ticket_id);
             const choices = (application?.application_preparation?.account_options || []).filter((account: any) => account?.broker_environment === "live" || (account?.broker_environment === "paper" && account?.platform === "longbridge")).map((account: any) => {
@@ -772,7 +797,7 @@ function App() {
         const name = profileId ? strategySelectionName(profile || { profile: profileId }, profiles, language) : t("未知");
         return { name, note: strategyNote(profile, language), identity: strategyIdentityView({ profile, profileId, basis: "策略目录" }) };
     }, [language, model?.config.value?.strategyProfiles]);
-    const renderAccounts = () => <AccountsPage rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
+    const renderAccounts = () => <AccountsPage unresolvedSaves={unresolvedSettingsSaves.current} rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")

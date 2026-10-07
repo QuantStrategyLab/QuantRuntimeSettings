@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { buildSync } from "../web/strategy-switch-console/frontend/node_modules/esbuild/lib/main.js";
 import { candidateDisplayName, listDailyDecisions, strategyIdentityView, strategySelectionName } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { __test as serverContract } from "../web/strategy-switch-console/worker.js";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { createAccountSettingsController } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
 
@@ -93,7 +94,12 @@ assert.equal(strategyIdentityView({ basis: "候选材料", record: { candidateId
 assert.equal(strategyIdentityView({ basis: "候选材料", record: { candidateId: v7.profile, configHash: `sha256:${configHash}` } }).configHash, `sha256:${configHash}`, "existing digest text stays intact");
 assert.equal(strategyIdentityView({ basis: "候选材料", record: { sourceRevision: "source-observed", role: "champion", lane: "live" } }).sourceRevision, "source-observed");
 
-const ticket = freeze({ ticket_id: "historical-ticket-id", strategy_profile: v7.profile, state: "awaiting_human", proposed_params: { candidate_id: v7.profile, config_sha256: configHash }, created_at: "2026-09-26T12:00:00Z", research_summary: { comparison: null, limitations: [] } });
+const unboundTicket = freeze({ ticket_id: "historical-ticket-id", strategy_profile: v7.profile, state: "awaiting_human", proposed_params: { candidate_id: v7.profile, config_sha256: configHash }, created_at: "2026-09-26T12:00:00Z", research_summary: { comparison: null, limitations: [] } });
+const normalizedTicket = serverContract.normalizeResearchPromotionTicket({ ...unboundTicket, domain: v7.domain });
+const ticket = freeze({ ...normalizedTicket, decision_binding: {
+  kind: "promotion", subject_id: unboundTicket.ticket_id,
+  material_sha256: await serverContract.researchPromotionMaterialKey(normalizedTicket), review_binding: null,
+} });
 for (const language of ["zh", "en"]) {
   const result = listDailyDecisions({ language, profiles, promotions: ready({ tickets: [ticket] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] });
   const decision = result.items[0];
@@ -107,6 +113,11 @@ for (const language of ["zh", "en"]) {
   assert.deepEqual(JSON.parse(decision.technical).proposed_params, ticket.proposed_params);
   assert.equal(decision.canReject, true);
   assert.equal(decision.canAdopt, false);
+  const unbound = listDailyDecisions({ language, profiles, promotions: ready({ tickets: [unboundTicket] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] }).items[0];
+  assert.deepEqual(unbound.identity, decision.identity, "unbound historical material retains its displayed identity");
+  assert.equal(unbound.title, decision.title);
+  assert.equal(unbound.canReject, false, "missing exact material binding is not actionable");
+  assert.equal(unbound.canAdopt, false);
 }
 const controller = createAccountSettingsController();
 const selection = controller.select({ platform: "longbridge", key: "synthetic" });

@@ -1,4 +1,4 @@
-import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, recoveryBinding } from "./operations.ts";
+import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, promotionDecisionReady, type HumanDecisionState, recoveryBinding } from "./operations.ts";
 import { accountFactsForDisplay, binanceProviderProductTypeForDisplay } from "./types.ts";
 import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 import type { LifecycleRecord } from "./api";
@@ -1361,6 +1361,7 @@ export function listDailyDecisions(input: {
   owners: SourceState | null | undefined;
   recovery: SourceState | null | undefined;
   accountsFor: (ticket: any) => Array<{ platform: string; key: string; label: string }>;
+  decisionStates?: HumanDecisionState[];
 }): { blocked: boolean; items: DailyDecision[] } {
   const blocked = !ready(input.promotions) || !ready(input.owners) || !ready(input.recovery);
   const items: DailyDecision[] = [];
@@ -1390,8 +1391,8 @@ export function listDailyDecisions(input: {
         identity: strategyIdentityView({ profileId: ticket.strategy_profile, basis: "研究票据", record: {
           candidateId: ticket.proposed_params?.candidate_id, configHash: ticket.proposed_params?.config_sha256,
         } }),
-        canAdopt: accounts.length > 0,
-        canReject: true,
+        canAdopt: accounts.length > 0 && promotionDecisionReady(ticket),
+        canReject: promotionDecisionReady(ticket),
         adoptDecision: "accept",
         rejectDecision: "reject",
         accountChoices: accounts.map(account => ({ id: `${account.platform}:${account.key}`, label: account.label })),
@@ -1463,7 +1464,18 @@ export function listDailyDecisions(input: {
       });
     }
   }
-  return { blocked, items };
+  return { blocked, items: items.filter(item => {
+    const kind = item.kind === "owner_observation" ? "owner" : item.kind;
+    const source = kind === "promotion" ? input.promotions?.value?.tickets?.find((t: any) => t.ticket_id === item.reference)
+      : kind === "owner" ? input.owners?.value?.candidates?.find((e: any) => e.candidate?.candidate_id === item.reference)
+      : input.recovery?.value?.recoveries?.find((e: any) => e.recovery?.recovery_id === item.reference);
+    const state = input.decisionStates?.find(s => s.expected.kind === kind && s.expected.subject_id === item.reference
+      && s.expected.material_sha256 === source?.decision_binding?.material_sha256);
+    if (!state) return true;
+    if (state.status === "recorded") return false;
+    item.canAdopt = false; item.canReject = false;
+    return true;
+  }) };
 }
 
 export function preferenceDirty(saved: unknown, draft: unknown): boolean {

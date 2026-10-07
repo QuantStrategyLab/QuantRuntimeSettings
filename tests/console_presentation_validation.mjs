@@ -220,6 +220,7 @@ assert.deepEqual(empty.items, []);
 
 const comparison = { status: "unavailable", start_date: null, end_date: null, cost_model: "", baseline: null, candidate: null };
 const ticket = {
+  decision_binding: { kind: "promotion", subject_id: "promo-1", material_sha256: "a".repeat(64), review_binding: { schema_version: "qsl_promotion_review_binding.v2", review_sha256: "b".repeat(64) } },
   ticket_id: "promo-1", strategy_profile: "demo", domain: "us_equity", state: "awaiting_human",
   proposed_params: { a: 2 }, shadow_evidence_kind: "paired_shadow", shadow_passed: true, notes: [],
   research_summary: {
@@ -483,3 +484,15 @@ await import("./overview_refresh_validation.mjs");
 await import("./overview_dashboard_validation.mjs");
 
 await import("./promotion_queue_partial_validation.mjs");
+
+// v1 remains supported; malformed advertised v2 bindings do not become v1.
+const decisionInput = { language: "en", profiles: [catalogProfile], promotions: ready({ tickets: [ticket] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [{ platform: "longbridge", key: "synthetic-paper", label: "Synthetic account" }] };
+const noReview = listDailyDecisions({ ...decisionInput, promotions: ready({ tickets: [{ ...ticket, decision_binding: { ...ticket.decision_binding, review_binding: null } }] }) }).items[0];
+assert.equal(noReview.canAdopt, true); assert.equal(noReview.canReject, true);
+const badReview = listDailyDecisions({ ...decisionInput, promotions: ready({ tickets: [{ ...ticket, decision_binding: { ...ticket.decision_binding, review_binding: { schema_version: "bad", review_sha256: "b".repeat(64) } } }] }) }).items[0];
+assert.equal(badReview.canAdopt, false); assert.equal(badReview.canReject, false);
+const priorDecision = { expected: { kind: "promotion", subject_id: ticket.ticket_id, material_sha256: "a".repeat(64), action: "reject", target: { selected_account: null, confirmation: null }, review_sha256: "b".repeat(64) }, status: "unresolved", receipt: null, queueConfirmed: false };
+const pendingDecision = listDailyDecisions({ ...decisionInput, decisionStates: [priorDecision] }).items[0];
+assert.equal(pendingDecision.canAdopt, false); assert.equal(pendingDecision.canReject, false);
+assert.equal(listDailyDecisions({ ...decisionInput, decisionStates: [{ ...priorDecision, status: "recorded" }] }).items.length, 0);
+assert.equal(listDailyDecisions({ ...decisionInput, promotions: ready({ tickets: [{ ...ticket, decision_binding: { ...ticket.decision_binding, material_sha256: "c".repeat(64) } }] }), decisionStates: [priorDecision] }).items[0].canAdopt, true, "a different original material is not affected by an unrelated receipt");

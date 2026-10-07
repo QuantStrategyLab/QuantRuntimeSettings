@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { stripTypeScriptTypes } from "node:module";
 import { createContext, runInContext } from "node:vm";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel } from "../web/strategy-switch-console/frontend/src/api.ts";
+import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, loadHumanDecisionReceipt, postJson } from "../web/strategy-switch-console/frontend/src/api.ts";
 import { createRequestGate } from "../web/strategy-switch-console/frontend/src/requestGate.js";
-import { createHkStopController, createRequestLock, createUnknownSubmitLock, pageFromWorkspace } from "../web/strategy-switch-console/frontend/src/operations.ts";
+import { createHumanDecisionController, humanDecisionExpectation, humanDecisionDigest, createHkStopController, createRequestLock, createUnknownSubmitLock, pageFromWorkspace } from "../web/strategy-switch-console/frontend/src/operations.ts";
 
 // Exercise the actual App boot/selection hooks with deterministic React-like
 // lifecycle and timers. This is not DOM rendering or browser evidence.
@@ -13,9 +13,11 @@ const makeRows = app.slice(app.indexOf("function currentFor("), app.indexOf("fun
 const start = app.indexOf("function App() {");
 const stop = app.indexOf("    const setPageAndRoute", start);
 assert.ok(start >= 0 && stop > start);
-const lifecycle = stripTypeScriptTypes(`${makeRows}\n${app.slice(start, stop)}
+const recordStart = app.indexOf("    const recordHumanDecision =", stop);
+const recordStop = app.indexOf("    const decideOwner =", recordStart);
+const lifecycle = stripTypeScriptTypes(`${makeRows}\n${app.slice(start, stop)}\n${app.slice(recordStart, recordStop)}
   return { refresh, model, bootState, diagnosis, overviewReadModelRefreshVersion, selectedId,
-    setSelectedId, setPage, setUxDraft, clearPrivateState };
+    setSelectedId, setPage, setUxDraft, clearPrivateState, humanDecisions, errorMessage, recordHumanDecision };
 }\nApp();`);
 assert.doesNotMatch(app, /startVisibleRefreshLoop|window\.setInterval/, "App must not schedule autonomous network loads");
 
@@ -41,13 +43,13 @@ function harness() {
   let slots = []; let cursor = 0; let dirty = false; let effects = []; let mounted = true; let result;
   const equal = (a, b) => a && b && a.length === b.length && a.every((value, i) => Object.is(value, b[i]));
   const context = createContext({
-    URLSearchParams, Map, Error, Event, AccessError, getJson, invalidatePrivateSession, loadReadModel, loadAdminModel,
-    createRequestGate, createHkStopController, createRequestLock, createUnknownSubmitLock, pageFromWorkspace,
+    URLSearchParams, Map, Error, Event, AccessError, getJson, loadHumanDecisionReceipt, postJson, invalidatePrivateSession, loadReadModel, loadAdminModel,
+    createRequestGate, createHumanDecisionController, humanDecisionExpectation, humanDecisionDigest, createHkStopController, createRequestLock, createUnknownSubmitLock, pageFromWorkspace,
     window: windowTarget, document: documentTarget, requestAnimationFrame: () => 0,
     normalizeThemePreference: () => "system", resolveTheme: () => "light", THEME_STORAGE_KEY: "synthetic-theme",
     safeGet: () => null, safeSet() {}, initialLanguage: () => "en", translate: key => key,
     emptyUxDraft: () => ({ draft: {}, revision: 0, preview: null, intent: null }),
-    accountRuntimeLinkDetail: () => null, copy: key => ({ key }), requestErrorKey: () => "request_failed",
+    accountRuntimeLinkDetail: () => null, copy: (key, values = {}) => ({ key, values }), requestErrorKey: () => "request_failed",
     NAV: [{ id: "overview", label: "overview" }, { id: "accounts", label: "accounts" }, { id: "strategy", label: "strategy" }],
     useState(initial) {
       const index = cursor++;
@@ -171,7 +173,134 @@ try {
   await mounted.current.refresh(); await mounted.settle();
   assert.equal(mounted.current.model, null); assert.equal(mounted.current.bootState, "denied", "403 also clears private state");
   mounted.unmount();
-  console.log("console load lifecycle: PASS (one boot, no unused reads or polling/focus GETs, explicit readback, selection races, 401/403 and late-response isolation)");
+  denySessionStatus = 0; deferDiagnosis = false;
+  const decisionApp = harness(); globalThis.window = decisionApp.window;
+  const owner = { candidate: { candidate_id: "synthetic-history" }, candidate_evidence_sha256: "d".repeat(64), decision_binding: { kind: "owner", subject_id: "synthetic-history", material_sha256: "d".repeat(64) } };
+  const body = { candidate_id: owner.candidate.candidate_id, candidate_evidence_sha256: owner.candidate_evidence_sha256, decision: "keep_parked" };
+  const expected = await humanDecisionExpectation("owner", owner, body);
+  const material = { schema_version: "qsl_human_decision_receipt.v1", kind: "owner", subject_id: expected.subject_id, material_sha256: expected.material_sha256, action: expected.action, target: expected.target, decided_at: "2026-10-07T06:00:00.123456Z", decided_by: "synthetic-original-actor", no_order: true, execution_authority_granted: false };
+  const receipt = { ...material, receipt_sha256: await humanDecisionDigest(material) };
+  let postCount = 0, exactCount = 0, failQueue = true, failRuntime = false, losePost = false, found = true, deferPost = null;
+  globalThis.fetch = async (path, options) => {
+    assert.ok(path.startsWith("/api/"));
+    assert.equal(options.credentials, "same-origin"); assert.equal(options.cache, "no-store");
+    if (options.method === "POST") {
+      assert.equal(path, "/api/owner-decisions"); postCount++;
+      const request = JSON.parse(options.body);
+      assert.equal(request.expected_material_sha256, expected.material_sha256);
+      if (deferPost) return new Promise(resolve => { deferPost.resolve = resolve; });
+      if (losePost) throw new Error("synthetic lost response after durable commit");
+      return response({ ok: true, decision_receipt: receipt });
+    }
+    assert.equal(options.method, "GET");
+    if (path.includes("decision_subject_id=")) {
+      exactCount++;
+      const u = new URL(path, "https://synthetic.invalid");
+      assert.equal(u.pathname, "/api/owner-decisions"); assert.equal(u.searchParams.get("decision_subject_id"), expected.subject_id);
+      assert.equal(u.searchParams.get("decision_material_sha256"), expected.material_sha256);
+      return response({ ok: true, decision_readback: { schema_version: "qsl_human_decision_readback.v1", source: "durable_human_decision_record", kind: expected.kind, subject_id: expected.subject_id, requested_material_sha256: expected.material_sha256, observed_at: "2026-10-07T09:00:00Z", lookup_status: found ? "found" : "not_found", receipt: found ? receipt : null, current_material: { status: "not_current" } } });
+    }
+    if (path === "/api/session") return response({ authenticated: true, login: "synthetic", allowed: true, admin: true });
+    if (path === "/api/runtime-target-lifecycle" && failRuntime) return response({}, 503);
+    if (path === "/api/owner-decisions") return failQueue ? response({}, 503) : response({ data_status: "ready", candidates: [] });
+    return response(fixture(path));
+  };
+  decisionApp.render(); await decisionApp.settle();
+  await decisionApp.current.recordHumanDecision("owner", owner, body, "/api/owner-decisions", "owner:synthetic-history"); await decisionApp.settle();
+  assert.equal(postCount, 1); assert.equal(exactCount, 1);
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].status, "unresolved");
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].receipt.decided_at, receipt.decided_at);
+  assert.equal(decisionApp.current.errorMessage.key, "决定已记录：{time}。{detail}");
+  assert.equal(decisionApp.current.errorMessage.values.detail.key, "最新资料未确认；请刷新核对，避免重复提交。");
+  await decisionApp.current.recordHumanDecision("owner", owner, { ...body, decision: "approve_limited_live_canary" }, "/api/owner-decisions", "owner:synthetic-history");
+  assert.equal(postCount, 1, "unresolved original material blocks a new/conflicting POST");
+  failQueue = false;
+  await decisionApp.current.refresh(); await decisionApp.settle();
+  assert.equal(postCount, 1); assert.equal(exactCount, 2);
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].status, "recorded");
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].receipt.decided_at, receipt.decided_at);
+  assert.equal(decisionApp.current.errorMessage.values.detail.key, "本次只记录决定，不会提交订单或改变交易权限。");
+  failRuntime = true; await decisionApp.current.refresh(); await decisionApp.settle();
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].status, "recorded", "runtime failure is independent of durable intent");
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].receipt.decided_at, receipt.decided_at);
+  assert.equal(decisionApp.current.model.runtime.error, "http_503");
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].receipt.execution_authority_granted, false);
+  failRuntime = false;
+  decisionApp.current.humanDecisions.current.clear(); losePost = true; found = false;
+  await decisionApp.current.recordHumanDecision("owner", owner, body, "/api/owner-decisions", "owner:synthetic-history"); await decisionApp.settle();
+  assert.equal(postCount, 2); assert.equal(decisionApp.current.humanDecisions.current.entries()[0].status, "unresolved");
+  await decisionApp.current.recordHumanDecision("owner", owner, body, "/api/owner-decisions", "owner:synthetic-history");
+  assert.equal(postCount, 2, "lost response and HTTP200/not_found never cause another POST");
+  found = true; await decisionApp.current.refresh(); await decisionApp.settle();
+  assert.equal(postCount, 2); assert.equal(decisionApp.current.humanDecisions.current.entries()[0].status, "recorded");
+  assert.equal(decisionApp.current.humanDecisions.current.entries()[0].receipt.decided_by, "synthetic-original-actor");
+  decisionApp.current.humanDecisions.current.clear(); losePost = false; deferPost = {};
+  const lateDecision = decisionApp.current.recordHumanDecision("owner", owner, body, "/api/owner-decisions", "owner:synthetic-history");
+  await decisionApp.settle(); assert.equal(postCount, 3);
+  decisionApp.current.setSelectedId("longbridge:synthetic-b"); decisionApp.render();
+  decisionApp.current.clearPrivateState(); decisionApp.render();
+  deferPost.resolve(response({ ok: true, decision_receipt: receipt })); await lateDecision; await decisionApp.settle();
+  assert.equal(decisionApp.current.model, null); assert.deepEqual(decisionApp.current.humanDecisions.current.entries(), []);
+  decisionApp.unmount();
+  for (const version of [1, 2]) {
+    const source = { ticket_id: `synthetic-promotion-v${version}`, strategy_profile: "demo", domain: "us_equity", proposed_params: { candidate: "synthetic-only" }, shadow_passed: true, shadow_evidence_kind: "synthetic-shadow", drift_status: "stable", drift_score: 0, budget: {}, search_iterations: 1, suggested_risk_profile: "CAPITAL_PRESERVATION", notification_subject: "Synthetic", notification_body: "Synthetic review only", notes: [], research_summary: null };
+    const legacy = Object.fromEntries(["ticket_id", "strategy_profile", "domain", "proposed_params", "shadow_passed", "shadow_evidence_kind"].map(k => [k, source[k]]));
+    source.decision_binding = { kind: "promotion", subject_id: source.ticket_id, material_sha256: await humanDecisionDigest(legacy), review_binding: version === 2 ? { schema_version: "qsl_promotion_review_binding.v2", review_sha256: await humanDecisionDigest({ schema_version: "qsl_promotion_review_material.v2", ...source }) } : null };
+    const body = { ticket_id: source.ticket_id, decision: version === 2 ? "accept" : "reject", confirmation: version === 2 ? { target_platform: "longbridge", execution_mode: "paper", risk_profile: "CAPITAL_PRESERVATION" } : null, ...(version === 2 ? { selected_account: { platform: "longbridge", key: "synthetic-a" } } : {}) };
+    const wanted = await humanDecisionExpectation("promotion", source, body); assert.ok(wanted);
+    const raw = { schema_version: `qsl_human_decision_receipt.v${version}`, ...(version === 2 ? { review_binding: source.decision_binding.review_binding } : {}), kind: "promotion", subject_id: source.ticket_id, material_sha256: wanted.material_sha256, action: wanted.action, target: wanted.target, decided_at: "2026-10-07T06:00:00.123456Z", decided_by: "synthetic-original-actor", no_order: true, execution_authority_granted: false };
+    const receipt = { ...raw, receipt_sha256: await humanDecisionDigest(raw) };
+    let posts = 0, reads = 0, completePost, markPostStarted;
+    const postStarted = new Promise(resolve => { markPostStarted = resolve; });
+    globalThis.fetch = async (path, options) => {
+      assert.ok(path.startsWith("/api/"));
+      if (options.method === "POST") {
+        posts++; assert.equal(path, "/api/research-promotion-decisions");
+        const request = JSON.parse(options.body); assert.equal(request.expected_material_sha256, wanted.material_sha256);
+        assert.equal(request.expected_review_sha256, wanted.review_sha256 || undefined);
+        assert.deepEqual(request.selected_account ?? null, wanted.target.selected_account);
+        return new Promise(resolve => {
+          completePost = () => resolve(response({ ok: true, decision_receipt: receipt }));
+          markPostStarted();
+        });
+      }
+      assert.equal(options.method, "GET");
+      if (path.includes("decision_subject_id=")) {
+        reads++; const url = new URL(path, "https://synthetic.invalid");
+        assert.equal(url.pathname, "/api/research-promotion-tickets"); assert.equal(url.searchParams.get("decision_subject_id"), source.ticket_id);
+        assert.equal(url.searchParams.get("decision_material_sha256"), wanted.material_sha256);
+        return response({ ok: true, decision_readback: { schema_version: "qsl_human_decision_readback.v1", source: "durable_human_decision_record", kind: "promotion", subject_id: source.ticket_id, requested_material_sha256: wanted.material_sha256, observed_at: "2026-10-07T09:00:00Z", lookup_status: "found", receipt, current_material: { status: "not_current" } } });
+      }
+      if (path === "/api/session") return response({ authenticated: true, login: "synthetic", allowed: true, admin: true });
+      if (path === "/api/research-promotion-tickets") return response({ data_status: "ready", tickets: [] });
+      return response(fixture(path));
+    };
+    const app = harness(); globalThis.window = app.window; app.render(); await app.settle();
+    const submitted = app.current.recordHumanDecision("promotion", source, body, "/api/research-promotion-decisions", "promotion");
+    // WebCrypto completion is not bounded by settle()'s event-loop turns.
+    // Wait for the deliberately suspended POST before testing account changes.
+    let postDeadline;
+    try {
+      await Promise.race([
+        postStarted,
+        submitted.then(() => { throw new Error("decision ended before its POST started"); }),
+        new Promise((_, reject) => { postDeadline = setTimeout(() => reject(new Error("decision POST did not start")), 5000); }),
+      ]);
+    } finally {
+      clearTimeout(postDeadline);
+    }
+    await app.settle(); assert.equal(posts, 1);
+    app.current.setSelectedId("longbridge:synthetic-b"); app.render();
+    completePost(); await submitted; await app.settle();
+    const result = app.current.humanDecisions.current.entries()[0];
+    assert.equal(result.status, "recorded"); assert.equal(reads, 1);
+    assert.deepEqual(result.receipt.target, wanted.target, "late decision remains bound to the original selected account/target");
+    assert.equal(result.receipt.decided_at, raw.decided_at); assert.equal(result.receipt.decided_by, raw.decided_by);
+    app.unmount();
+  }
+  console.log("actual App v1/v2 promotion roundtrips: PASS (original account/target, complete review hash, historical reject and one POST)");
+  console.log("actual App decision readback: PASS (durable receipt/queue failure, one POST, historical GET, lost response, explicit retry and session isolation)");
+console.log("console load lifecycle: PASS (one boot, no unused reads or polling/focus GETs, explicit readback, selection races, 401/403 and late-response isolation)");
 } finally {
   globalThis.fetch = originalFetch;
   if (originalWindow === undefined) delete globalThis.window; else globalThis.window = originalWindow;

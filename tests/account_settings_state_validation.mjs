@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createAccountSettingsController, pendingDraftOverrides } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
+import { createAccountSettingsController, pendingDraftOverrides, refreshAccountSettingsReadback } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
 
 function settings(key, preference, identity, marker) {
   return {
@@ -546,8 +546,8 @@ for (const firstKind of saveKinds) for (const nextKind of saveKinds) {
 
 // A successful HTTP response is not an acknowledgement until it matches the
 // immutable submitted identity, authority revision and requested field group.
-function acknowledgementCase(kind = "cash", base = null, edit = null) {
-  const c = createAccountSettingsController();
+function acknowledgementCase(kind = "cash", base = null, edit = null, unresolvedSaves = new Map()) {
+  const c = createAccountSettingsController(unresolvedSaves);
   const initial = base || settings("hk", "BALANCED_COMPOUNDING", structuredClone(identityA), "ack-before");
   initial.operations.save_option_draft = true;
   c.applyRead(c.select({ platform: "longbridge", key: "hk" }), initial);
@@ -763,3 +763,47 @@ for (const kind of ["cash", "risk"]) {
   assert.equal(value.c.view().preference, "GROWTH_COMPOUNDING");
 }
 console.log("account_settings_state_validation: PASS");
+
+// Lost responses stay bound to the original object across explicit reads/remounts.
+for (const kind of ["cash", "risk"]) {
+  const store = new Map();
+  const value = acknowledgementCase(kind, null, null, store);
+  assert.equal(value.c.fail(value.op, "lost response", true), true);
+  assert.equal(value.c.acknowledgeReview(kind === "risk" ? "risk" : "draft"), false);
+  value.c.revertDraft(); value.c.revertRisk();
+  assert.equal(value.c.startSave(kind), null, "editor reset cannot release an unknown save");
+  const failed = await refreshAccountSettingsReadback(value.c, value.c.start("refresh"), async () => { throw new Error("synthetic offline failure"); });
+  assert.equal(failed.status, "failed"); assert.equal(store.size, 1);
+  value.c.applyRefresh(value.c.start("refresh"), value.initial);
+  assert.equal(value.c.startSave(kind), null, "HTTP200 with old values does not close a pending save");
+  const remounted = createAccountSettingsController(store);
+  const selected = remounted.select({ platform: "longbridge", key: "hk" });
+  remounted.applyRead(selected, value.initial);
+  assert.equal(remounted.view().notice, "状态未知");
+  assert.equal(remounted.startSave(kind), null, "navigation preserves unknown submission state");
+  const impostor = structuredClone(value.ack); impostor.identity.account_scope = "OTHER";
+  remounted.applyRefresh(remounted.start("refresh"), impostor);
+  assert.equal(store.size, 1, "same values from a changed original identity cannot close the request");
+  const trusted = await refreshAccountSettingsReadback(remounted, remounted.start("refresh"), async () => value.ack);
+  assert.equal(trusted.status, "ready"); assert.equal(store.size, 0);
+  assert.equal(remounted.view().notice, kind === "risk" ? "偏好已保存" : "草案已保存");
+  assert.equal(remounted.view().review[kind === "risk" ? "risk" : "draft"], false);
+  assert.equal(remounted.view().settings.adopted, false);
+  assert.equal(remounted.view().settings.execution_authority_granted, false);
+}
+console.log("account settings unknown-save readback: PASS");
+
+{
+  const store = new Map(); const first = acknowledgementCase("cash", null, null, store);
+  const remounted = createAccountSettingsController(store);
+  remounted.applyRead(remounted.select({ platform: "longbridge", key: "hk" }), first.ack);
+  assert.equal(store.size, 0, "trusted read can close a submitted save while its response is still delayed");
+  remounted.edit({ cashMode: "floor", floor: "43", ratio: "0", percent: "0", floorTouched: true, ratioTouched: true });
+  const second = remounted.startSave("cash"); assert.ok(second);
+  remounted.markSaving(second, "draft"); const pending = store.get("longbridge:hk");
+  assert.equal(first.c.applySave(first.op, first.ack, "late first ACK"), false);
+  assert.equal(first.c.fail(first.op, "late first failure", true), false);
+  assert.equal(store.get("longbridge:hk"), pending, "old component's late callback cannot release/replace a newer save");
+  assert.equal(remounted.startSave("cash"), null);
+}
+console.log("account settings remount/late-save ownership: PASS");

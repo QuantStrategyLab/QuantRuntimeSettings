@@ -1176,15 +1176,28 @@ test("decisions and account observations stay outside collapsed strategy setting
   assert.equal(overviewSource.includes("monitoring-diagnostics"), false);
 });
 
-test("promotion rendering preserves candidate identity, target context and admin-only actions", () => {
+test("promotion rendering preserves candidate identity, target context and admin-only actions", async () => {
+  const unboundTicket = { ticket_id: "open", state: "awaiting_human", strategy_profile: "example", domain: "us_equity" };
+  const normalizedTicket = __test.normalizeResearchPromotionTicket(unboundTicket);
+  const ticket = { ...normalizedTicket, decision_binding: {
+    kind: "promotion", subject_id: unboundTicket.ticket_id,
+    material_sha256: await __test.researchPromotionMaterialKey(normalizedTicket), review_binding: null,
+  } };
   const listed = listDailyDecisions(sources({
-    promotions: { value: { data_status: "ready", tickets: [{ ticket_id: "open", state: "awaiting_human", strategy_profile: "example" }] } },
+    promotions: { value: { data_status: "ready", tickets: [ticket] } },
   }));
   const item = listed.items[0];
   assert.equal(item.id, "promotion:open");
   assert.equal(item.reasons.length, 0);
   assert.equal(decisionActionState(item, { admin: false, busy: false, selectedAccountId: "ibkr:example" }).adoptEnabled, false);
   assert.equal(decisionActionState(item, { admin: true, busy: false, selectedAccountId: "ibkr:example" }).adoptEnabled, true);
+  const unbound = listDailyDecisions(sources({
+    promotions: { value: { data_status: "ready", tickets: [unboundTicket] } },
+  })).items[0];
+  assert.equal(unbound.id, item.id);
+  const blocked = decisionActionState(unbound, { admin: true, busy: false, selectedAccountId: "ibkr:example" });
+  assert.equal(blocked.adoptEnabled, false);
+  assert.equal(blocked.rejectEnabled, false);
 });
 
 test("hiding all platforms also hides account observations outside the settings form", () => {

@@ -278,6 +278,8 @@ export const EN_COPY = {
   "资料已过期": "Outdated information",
   "暂不可用": "Currently unavailable",
   "状态未知": "Status unknown",
+  "决定已记录：{time}。{detail}": "Decision recorded at {time}. {detail}",
+  "最新资料未确认；请刷新核对，避免重复提交。": "Latest information is unconfirmed. Refresh and check before continuing; avoid resubmitting.",
   "不启用": "Not enabled",
   "尚无运行诊断记录": "No operational diagnosis yet",
   "诊断排队中": "Diagnosis queued",
