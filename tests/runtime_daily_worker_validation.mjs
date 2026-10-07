@@ -9,6 +9,15 @@ const puts = [];
 const kv = {
   async get(key) { return store.get(key) ?? null; },
   async put(key, value) { puts.push(key); store.set(key, value); },
+  async list(options = {}) {
+    const prefix = typeof options.prefix === "string" ? options.prefix : "";
+    const limit = Number.isInteger(options.limit) ? options.limit : 1000;
+    const names = [...store.keys()].filter((key) => key.startsWith(prefix)).sort();
+    const start = options.cursor ? Number(options.cursor) : 0;
+    const slice = names.slice(start, start + limit);
+    const next = start + slice.length;
+    return { keys: slice.map((name) => ({ name })), cursor: next < names.length ? String(next) : undefined };
+  },
 };
 const env = {
   STRATEGY_SWITCH_CONFIG: kv,
@@ -468,5 +477,22 @@ for (const invalid of [{ invalid: true }, false, 0]) {
 }
 store.set(historicalKey, preserved);
 assert.equal((await get("2020-01-03", sessionHeaders)).status, 200, "UI's 90-day range does not restrict retained older records");
+
+// History coverage reports exactly the stored business dates for the target,
+// scoped by the fixed runtime-daily key prefix.
+for (const key of [...store.keys()]) if (key.startsWith("runtime_daily:")) store.delete(key);
+const coverageDayA = "2026-09-30";
+const coverageDayB = "2026-10-01";
+assert.equal((await post(projection({}, { business_date: coverageDayA, observed_at: `${coverageDayA}T20:00:00Z` }), { Authorization: `Bearer ${token}` })).status, 200);
+assert.equal((await post(projection({}, { business_date: coverageDayB, observed_at: `${coverageDayB}T20:00:00Z` }), { Authorization: `Bearer ${token}` })).status, 200);
+const expectedCoverage = { available_from: coverageDayA, available_through: coverageDayB, stored_days: 2, truncated: false };
+const coverageRead = await (await get(coverageDayB, sessionHeaders)).json();
+assert.deepEqual(coverageRead.history, expectedCoverage);
+const coverageUnavailable = await (await get("2020-01-04", sessionHeaders)).json();
+assert.deepEqual(coverageUnavailable.history, expectedCoverage, "coverage does not depend on the selected date");
+const noListKv = { async get(key) { return store.get(key) ?? null; }, async put(key, value) { store.set(key, value); } };
+const noListRead = await (await get(coverageDayB, sessionHeaders, { ...env, STRATEGY_SWITCH_CONFIG: noListKv })).json();
+assert.deepEqual(noListRead.history, { available_from: null, available_through: null, stored_days: 0, truncated: false });
+
 console.log("runtime_daily_worker_validation ok");
 await import("./runtime_daily_health_integration_validation.mjs");

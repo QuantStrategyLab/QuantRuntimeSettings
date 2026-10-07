@@ -60,16 +60,17 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
   }, [rows]);
   return <section className={`daily-page accounts-page${detailOpen ? " show-detail" : ""}`}>
     <div className="daily-heading"><h1>{t("账户设置")}</h1></div>
+    <p className="section-note">{t("账户列表仅显示平台账户监测状态；当日周期运行记录完整性请在总览核对。")}</p>
     <div className="accounts-layout">
       <div className="account-list">
         <table className="daily-table">
-          <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("状态")}</th><th>{t("运行控制")}</th></tr></thead>
+          <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("平台监测")}</th><th>{t("运行控制")}</th></tr></thead>
           <tbody>{rows.map(row => {
             const native = accountNativeReadout(row.platform, row.key, row.facts, row.binanceReport, Math.max(factsNow, Date.now()));
             return <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
             <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label account-fact-label">{t("配置环境")}</span><small className="account-environment">{row.environment}</small><span className="account-field-label account-fact-label">{t("原生类别")}</span><small className="account-native-type">{native.nativeType || t("未核实")}</small><span className="account-field-label account-fact-label">{t("身份可信度")}</span><small className="account-identity-confidence">{t(native.identityLabel)}</small></td>
             <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
-            <td><span className="account-field-label">{t("健康")}</span><span className="account-field-value" data-tone={statusTone(row.statusLabel)}>{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
+            <td><span className="account-field-label">{t("平台监测")}</span><span className="account-field-value" data-tone={statusTone(row.statusLabel)}>{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
             <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value" data-tone={statusTone(row.activation)}>{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
           </tr>; })}</tbody>
         </table>

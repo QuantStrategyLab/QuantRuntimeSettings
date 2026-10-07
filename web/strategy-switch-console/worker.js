@@ -268,6 +268,11 @@ const RUNTIME_DAILY_KEY_PREFIX = "runtime_daily:";
 const RUNTIME_DAILY_MAX_BODY_BYTES = 64 * 1024;
 const RUNTIME_DAILY_MAX_RUNS = 20;
 const RUNTIME_DAILY_MAX_LIST = 20;
+// History coverage lists the already-stored business dates for one target. It
+// never reads record bodies and stays bounded so a large backlog cannot stall
+// the read model; hitting the page cap only marks the listing as truncated.
+const RUNTIME_DAILY_HISTORY_PAGE = 100;
+const RUNTIME_DAILY_HISTORY_MAX_PAGES = 10;
 const RUNTIME_DAILY_STALE_MS = 36 * 60 * 60 * 1000;
 const RUNTIME_DAILY_FUTURE_SKEW_MS = 5 * 60 * 1000;
 const RUNTIME_DAILY_STATUSES = [
@@ -8100,6 +8105,42 @@ function runtimeDailyPublicRecord(record) {
   };
 }
 
+// Coverage is derived from the stored record keys themselves, never from a
+// producer-declared window, so the page reflects exactly what this console can
+// show. Missing KV list support or a list error degrades to "no coverage".
+async function runtimeDailyHistory(env, target) {
+  const empty = { available_from: null, available_through: null, stored_days: 0, truncated: false };
+  const store = configStore(env);
+  if (!store || typeof store.list !== "function") return empty;
+  const prefix = `${RUNTIME_DAILY_KEY_PREFIX}${target.target_key}:`;
+  const dates = new Set();
+  let cursor = null;
+  let pages = 0;
+  try {
+    do {
+      const listing = await store.list({ prefix, limit: RUNTIME_DAILY_HISTORY_PAGE, ...(cursor ? { cursor } : {}) });
+      const keys = Array.isArray(listing?.keys) ? listing.keys : [];
+      for (const entry of keys) {
+        const name = typeof entry?.name === "string" ? entry.name : "";
+        if (!name.startsWith(prefix)) continue;
+        const date = runtimeDailyCalendarDate(name.slice(prefix.length));
+        if (date) dates.add(date);
+      }
+      cursor = typeof listing?.cursor === "string" && listing.cursor ? listing.cursor : null;
+      pages += 1;
+    } while (cursor && pages < RUNTIME_DAILY_HISTORY_MAX_PAGES);
+  } catch {
+    return empty;
+  }
+  const sorted = [...dates].sort();
+  return {
+    available_from: sorted.length ? sorted[0] : null,
+    available_through: sorted.length ? sorted[sorted.length - 1] : null,
+    stored_days: sorted.length,
+    truncated: Boolean(cursor),
+  };
+}
+
 function runtimeDailyReadStatus(stored, now) {
   const record = stored.records[0];
   const observedMs = runtimeDailyInstant(stored.observed_at);
@@ -8226,6 +8267,7 @@ async function runtimeDailyResponse(request, env, url) {
     account_key: accountKey,
     platform: target.platform,
     target_key: target.target_key,
+    history: await runtimeDailyHistory(env, target),
   };
   if (stored === null || stored === undefined) {
     return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
