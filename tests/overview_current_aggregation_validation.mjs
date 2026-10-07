@@ -51,6 +51,8 @@ assert.equal(result.live.accounts, 5);
 assert.equal(result.live.covered, 3);
 assert.equal(result.live.unbound, 1);
 assert.equal(result.live.missing, 2, "stale and unbound account values are excluded and counted missing");
+assert.equal(result.live.cashUnbound, 1, "unbound cash facts are reported in their own coverage count");
+assert.equal(result.live.cashMissing, 2, "cash coverage gaps include the unbound account as well as stale data");
 assert.deepEqual(result.live.availableCash, [{ currency: "HKD", amount: "10" }, { currency: "USD", amount: "20.1" }]);
 assert.deepEqual(result.live.cashBalance, [{ currency: "USD", amount: "12.25" }]);
 assert.deepEqual(result.paper.availableCash, [{ currency: "USD", amount: "300" }]);

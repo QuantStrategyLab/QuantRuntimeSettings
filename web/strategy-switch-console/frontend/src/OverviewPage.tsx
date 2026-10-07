@@ -17,6 +17,7 @@ import {
   formatOverviewShortInstant,
   accountNativeReadout,
   overviewRuntimeHealth,
+  brokerAccountType,
   RETURN_INDEX_LEGEND,
   presentRuntimeDaily,
   runtimeDailySelectionEligible,
@@ -196,6 +197,13 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const historyEpoch = useRef(0);
   const emptyNote = chartRangeEmptyNote(range);
   const visible = accountId === "all" ? displayAccounts : displayAccounts.filter(account => account.id === accountId);
+  const visibleFactsSummary = summarizeCurrentAccountFacts(visible.map(account => ({
+    id: account.id,
+    platform: account.platformKey,
+    brokerEnvironment: account.brokerEnvironment,
+    facts: account.facts,
+    walletValuation: account.id === walletAccount?.id ? walletValuation : null,
+  })));
   const optionLabel = (account: OverviewAccount) => {
     const duplicates = accounts.filter(item => item.title === account.title);
     if (duplicates.length < 2 || !account.environment) return account.title;
@@ -465,15 +473,24 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             <span>{t("已取得资产合计（不含已标记模拟账户）")}</span>
             <strong>{formatCurrentAmounts(currentFactsSummary.excludingPaper.assets)}</strong>
             <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>
+            <small>{t("估值覆盖 {covered}/{total} 个非模拟配置账户；未绑定 {unbound}，其他缺估值 {missing}。", {
+              covered: currentFactsSummary.excludingPaper.covered,
+              total: currentFactsSummary.excludingPaper.accounts,
+              unbound: currentFactsSummary.excludingPaper.unbound,
+              missing: Math.max(0, currentFactsSummary.excludingPaper.missing - currentFactsSummary.excludingPaper.unbound),
+            })}</small>
           </div>
-          {aggregateAssetGroups.length ? aggregateAssetGroups.map(item => <div key={item.key}>
+          {aggregateAssetGroups.length ? <details className="overview-aggregate-breakdown">
+            <summary>{t("按配置环境查看资产明细")}</summary>
+            {aggregateAssetGroups.map(item => <div key={item.key}>
             <span>{t(item.label)} · {item.group.covered}/{item.group.accounts}</span>
             <strong>{formatCurrentAmounts(item.group.assets)}</strong>
             <small>{t("估值覆盖 {covered}/{total} 个配置账户；未绑定 {unbound}，其他缺估值 {missing}（未知不按零计）。", {
               covered: item.group.covered, total: item.group.accounts, unbound: item.group.unbound,
               missing: Math.max(0, item.group.missing - item.group.unbound),
             })}</small>
-          </div>) : <small>{t("尚无合格账户估值")}</small>}
+            </div>)}
+          </details> : <small>{t("尚无合格账户估值")}</small>}
           <small>{t(assetsDetail)}</small>
         </div> : <>
           <strong>{amountOrDash(totalAssets)}</strong>
@@ -488,15 +505,23 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             <strong>{formatCurrentAmounts(line.values)}</strong>
             <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>
           </div>) : <small>{t("尚无合格现金资料")}</small>}
+          <small>{t("现金资料覆盖 {covered}/{total} 个非模拟且支持现金字段的配置账户；未绑定 {unbound}，其他缺现金资料 {missing}。", {
+            covered: currentFactsSummary.excludingPaper.cashCovered,
+            total: currentFactsSummary.excludingPaper.cashAccounts,
+            unbound: currentFactsSummary.excludingPaper.cashUnbound,
+            missing: Math.max(0, currentFactsSummary.excludingPaper.cashMissing - currentFactsSummary.excludingPaper.cashUnbound),
+          })}</small>
           <small>{t(cashDetail)}</small>
-          <small>{t("以下按环境分类列示明细。")}</small>
-          {aggregateCashLines.length ? aggregateCashLines.map(line => <div key={line.key}>
+          {aggregateCashLines.length || aggregateCashGroups.length ? <details className="overview-aggregate-breakdown">
+            <summary>{t("按配置环境查看现金明细")}</summary>
+            {aggregateCashLines.map(line => <div key={line.key}>
             <span>{t(line.environmentLabel)} · {t(line.label)}</span><strong>{formatCurrentAmounts(line.values)}</strong>
-          </div>) : <small>{t("尚无合格现金资料")}</small>}
-          {aggregateCashGroups.map(item => <small key={`${item.key}:cash-coverage`}>{t("现金资料覆盖 {covered}/{total} 个支持现金字段的配置账户；未绑定 {unbound}，其他缺现金资料 {missing}。", {
+            </div>)}
+            {aggregateCashGroups.map(item => <small key={`${item.key}:cash-coverage`}>{t("现金资料覆盖 {covered}/{total} 个支持现金字段的配置账户；未绑定 {unbound}，其他缺现金资料 {missing}。", {
             covered: item.group.cashCovered, total: item.group.cashAccounts, unbound: item.group.cashUnbound,
             missing: Math.max(0, item.group.cashMissing - item.group.cashUnbound),
-          })}</small>)}
+            })}</small>)}
+          </details> : <small>{t("尚无合格现金资料")}</small>}
         </div> : <>
           <strong>{amountOrDash(totalCash)}</strong>
           {selectedNegativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(selectedAccount!.platformKey))}</small> : null}
@@ -648,24 +673,34 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         const runTime = [formatInstant(view.runStartedAt), formatInstant(view.runFinishedAt)].filter(Boolean).join(" → ") || "—";
         return <article className="overview-runtime-account" key={account.id}>
         <h3>{optionLabel(account)}</h3>
-        {runtimeLoading && eligible ? <p>{t("加载中…")}</p> : runtimeError && eligible ? <p>{t("运行记录读取失败")}</p> : <>
+        {runtimeLoading && eligible ? <p className="overview-runtime-state">{t("正在读取该日记录…")}</p> : runtimeError && eligible ? <p className="overview-runtime-state"><strong>{t("读取失败")}</strong>{t("运行记录读取失败；不能据此判断是否运行。")}</p> : !view.accountMatched || !dailyEntry?.value?.record ? <p className="overview-runtime-state"><strong data-tone={statusTone(view.statusLabel)}>{t(view.statusLabel)}</strong><span>{view.statusDetails.map(item => t(item)).join(" ")}</span>{view.dataStatusLabel !== "—" ? <small>{t(view.dataStatusLabel)}</small> : null}</p> : <>
         <div className="overview-runtime-grid">
           <div><span>{t("运行状态")}</span><strong data-tone={statusTone(view.statusLabel)}>{t(view.statusLabel)}</strong>{view.statusDetails.length ? <small>{view.statusDetails.map(item => t(item)).join(" ")}</small> : null}</div>
           <div><span>{t("运行时间")}</span><strong>{runTime}</strong>{view.dataStatusLabel !== "—" ? <small>{t(view.dataStatusLabel)}</small> : null}</div>
           <div><span>{t("成交明细")}</span><strong>{t(view.fillsLabel)}</strong></div>
         </div>
+        {view.dryRun ? <p className="overview-runtime-flag">{t("只读演练")}</p> : null}
+        </>}
         {view.historyDays > 0 ? <p className="overview-runtime-history">
           {t("历史数据范围")}：{t("{from} 至 {through}", { from: view.historyFrom || "—", through: view.historyThrough || "—" })}（{t("{count} 个记录日", { count: view.historyDays })}）
           {view.historyTruncated || (view.historyFrom !== null && view.historyFrom < runtimeBounds.min) ? <small>{t("当前视图未覆盖全部记录，不代表完整历史")}</small> : null}
         </p> : null}
-        {view.dryRun ? <p className="overview-runtime-flag">{t("只读演练")}</p> : null}
-        </>}
         </article>;
       })}
       {!visible.length ? <p>{t("无记录")}</p> : null}
     </section>
     <aside className="overview-accounts">
       <h2>{t("我的账户")}</h2>
+      <p className="section-note overview-account-coverage">{t("当前列表资料覆盖：估值 {covered}/{total} 项，未绑定 {unbound}，其他缺估值 {missing}；支持现金字段 {cashCovered}/{cashTotal} 项有值，现金资料缺项 {cashMissing}（含未绑定）。", {
+        covered: visibleFactsSummary.excludingPaper.covered + visibleFactsSummary.paper.covered,
+        total: visibleFactsSummary.excludingPaper.accounts + visibleFactsSummary.paper.accounts,
+        unbound: visibleFactsSummary.excludingPaper.unbound + visibleFactsSummary.paper.unbound,
+        missing: Math.max(0, visibleFactsSummary.excludingPaper.missing + visibleFactsSummary.paper.missing
+          - visibleFactsSummary.excludingPaper.unbound - visibleFactsSummary.paper.unbound),
+        cashCovered: visibleFactsSummary.excludingPaper.cashCovered + visibleFactsSummary.paper.cashCovered,
+        cashTotal: visibleFactsSummary.excludingPaper.cashAccounts + visibleFactsSummary.paper.cashAccounts,
+        cashMissing: visibleFactsSummary.excludingPaper.cashMissing + visibleFactsSummary.paper.cashMissing,
+      })}</p>
       <div className="overview-account-list">
         {visible.map(account => {
           const native = accountNativeReadout(account.platformKey, account.accountKey, account.facts,
@@ -713,6 +748,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           return <div key={account.id} className="overview-account-entry">
             <button type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
             <strong>{account.title}</strong>
+            <small>{t(brokerAccountType(account.brokerEnvironment))}</small>
             <small>{accountTypeLabel}</small>
             {paperConfigured && providerProductType ? <small>{t("API账户类型：现货")}</small> : null}
             <small>{account.strategy}</small>

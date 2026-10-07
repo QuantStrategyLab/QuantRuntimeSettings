@@ -578,17 +578,20 @@ export function presentRuntimeDaily(
     historyTruncated: history?.truncated === true,
   };
   if (!snapshot.record) {
+    const unavailable = snapshot.data_status === "unavailable";
     return {
       available: true,
       accountMatched: true,
       title: "每日运行记录",
-      statusLabel: "无记录",
-      statusDetails: [],
+      statusLabel: unavailable ? "未取得" : "无记录",
+      statusDetails: [unavailable
+        ? "未取得该日记录；不能据此判断是否运行。"
+        : "该日没有匹配记录；这不能证明账户未运行。"],
       runStartedAt: null,
       runFinishedAt: null,
       dryRun: false,
       fillsLabel,
-      dataStatusLabel: snapshot.data_status === "unavailable" ? "暂无数据" : dataStatusLabel,
+      dataStatusLabel,
       updatedAt: null,
       ...historyFields,
     };

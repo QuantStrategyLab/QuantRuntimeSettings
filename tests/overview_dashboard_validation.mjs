@@ -11,6 +11,16 @@ assert.equal((overviewSource.match(/amountOrDash\(totalCash\)/g) || []).length, 
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.assets/);
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashBalance/);
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.availableCash/);
+assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashCovered/);
+assert.match(overviewSource, /visibleFactsSummary\.excludingPaper\.covered/);
+assert.match(overviewSource, /按配置环境查看资产明细/);
+assert.match(overviewSource, /overview-runtime-state/);
+assert.match(overviewSource, /brokerAccountType\(account\.brokerEnvironment\)/);
+const overviewStyles = readFileSync(new URL("../web/strategy-switch-console/frontend/src/styles.css", import.meta.url), "utf8");
+assert.match(overviewStyles, /grid-template-areas: "head" "metrics" "chart" "runtime" "accounts"/,
+  "mobile overview brings chart and runtime records before the long account list");
+assert.match(overviewStyles, /overview-aggregate-breakdown/,
+  "environment detail groups are collapsible while aggregate totals remain visible");
 
 const now = Date.parse("2026-10-04T16:00:00Z");
 const instant = offset => new Date(now + offset * 1000).toISOString();
@@ -239,13 +249,19 @@ assert.equal(runtimeDateBounds(boundary - 1).max, "2026-10-04");
 assert.equal(runtimeDateBounds(boundary).max, "2026-10-05");
 assert.equal(runtimeDateSelectable("2026-02-29", Date.parse("2026-03-01T16:00:00Z")), false);
 assert.equal(runtimeDateSelectable("2024-02-29", Date.parse("2024-03-01T16:00:00Z")), true);
-assert.equal(presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date).statusLabel, "无记录");
+const unavailableDay = presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date);
+assert.equal(unavailableDay.statusLabel, "未取得", "an unavailable day is distinct from a successful read with no matching record");
+assert.equal(unavailableDay.dataStatusLabel, "暂不可用");
+assert.match(unavailableDay.statusDetails.join(" "), /不能据此判断是否运行/);
+const noMatchingRecord = presentRuntimeDaily({ ...daily, record: null, data_status: "fresh" }, selection, daily.date);
+assert.equal(noMatchingRecord.statusLabel, "无记录", "a successful read without a record remains distinct from an unavailable read");
+assert.match(noMatchingRecord.statusDetails.join(" "), /不能证明账户未运行/);
 const historyView = presentRuntimeDaily(daily, selection, daily.date);
 assert.equal(historyView.historyFrom, "2026-07-10");
 assert.equal(historyView.historyThrough, "2026-10-04");
 assert.equal(historyView.historyDays, 87);
 assert.equal(historyView.historyTruncated, true);
-assert.equal(presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date).historyDays, 87, "coverage shows even when the selected day has no record");
+assert.equal(unavailableDay.historyDays, 87, "coverage shows even when the selected day record is unavailable");
 const noHistoryView = presentRuntimeDaily({ ...daily, history: undefined }, selection, daily.date);
 assert.deepEqual([noHistoryView.historyFrom, noHistoryView.historyThrough, noHistoryView.historyDays, noHistoryView.historyTruncated], [null, null, 0, false]);
 assert.equal(presentRuntimeDaily(daily, selection, "2026-10-03").available, false, "late responses cannot appear under a different selected date");
