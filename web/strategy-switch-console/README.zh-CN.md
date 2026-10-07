@@ -260,6 +260,14 @@ LongBridge 原7字段 evidence 和 unmatched-report 协议保留。Schwab 严格
 receipt 内部字段不对 GET 公开，仅保留安全的运行异常分类。64KiB/20 runs/20列表项预算不变，超限拒绝。
 缺当日对象是空数据，不是无交易；`fills` 永远为 `not_connected`、空 records、null count。
 
+精确绑定的 Schwab 来源仅公开安全 schedule reason 白名单 `no_cron_on_business_date`、`market_closed`。
+既有身份、lifecycle/部署新鲜度、纽约当前业务日、完整性、运行异常及通道检查全部通过后，当前业务日观察到、
+日期/时区/原因/时间字段一致的明确无当日后续运行或休市记录，可在 `next_due_at: null` 时显示“健康”。
+不会补造未来运行时间，也不声称完成了运行周期；沿用页面时钟和读取刷新，在纽约午夜（含 DST）失效。
+缺失/未知 reason、过期/不完整证据、未来观察、身份冲突、pending 或错误不能使用此例外。
+普通 `before_schedule` 仍要求未来 next due；LongBridge 原公开结构与 future-due 合同不变，任意诊断原因不外泄。
+这只是显示判定，不改变交易授权或风险状态。
+
 本次代码与合成验证不代表真实 Schwab 日报已接通。真实 caller 必须在脱敏前独立核对报告 account hash
 派生的现有 source-binding ID 与受保护 expected binding，核实授权 report prefix、schedule 和未截断覆盖。
 既有最新 execution-evidence 快照不能反推完整日报，最近100报告也不能证明全天完整。随后还须核 POST ACK、

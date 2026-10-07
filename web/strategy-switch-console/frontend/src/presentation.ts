@@ -418,7 +418,7 @@ export type RuntimeDailySnapshot = {
     business_date: string;
     observed_at: string;
     completeness?: string;
-    schedule?: { state?: string; expected_window?: string; reason?: string | null; latest_due_at?: string | null; next_due_at?: string | null; grace_ends_at?: string | null; publication_grace_ended?: boolean };
+    schedule?: { state?: string; business_date?: string; timezone?: string; expected_window?: string; reason?: string | null; latest_due_at?: string | null; next_due_at?: string | null; grace_ends_at?: string | null; publication_grace_ended?: boolean | null };
     runs?: Array<{ run_id: string | null; started_at: string | null; finished_at: string | null; activity: string; execution_lane: string; errors_present: boolean; issue?: "failure" | "unconfirmed" | null }>;
     conflict_count?: number;
   } | null;
@@ -671,6 +671,18 @@ export function overviewRuntimeHealth(
   const graceEnds = validBinanceScopeInstant(schedule?.grace_ends_at) ? Date.parse(schedule.grace_ends_at) : NaN;
   result.nextDueAt = Number.isFinite(nextDue) ? schedule!.next_due_at! : null;
   if (record.kind === "schedule" && ["not_due", "market_closed", "outside_window"].includes(record.status)) {
+    // The validated Schwab producer can explicitly have no further run today.
+    // Keep this source- and date-bound; a weekend or null due time proves nothing.
+    const latestDue = validBinanceScopeInstant(schedule?.latest_due_at) ? Date.parse(schedule.latest_due_at) : NaN;
+    const closedToday = dailyTarget?.platform === "schwab" && schedule?.state === record.status
+      && schedule.business_date === snapshot.date && schedule.timezone === RUNTIME_DAILY_TIMEZONE
+      && runtimeBusinessDate(Date.parse(record.observed_at)) === snapshot.date
+      && schedule.next_due_at === null && schedule.grace_ends_at === null && schedule.publication_grace_ended === null
+      && ((record.status === "not_due" && schedule.reason === "no_cron_on_business_date" && schedule.latest_due_at === null
+          && ["unspecified", "inside"].includes(schedule.expected_window || ""))
+        || (record.status === "market_closed" && schedule.reason === "market_closed" && Number.isFinite(latestDue)
+          && latestDue <= Date.parse(record.observed_at) && runtimeBusinessDate(latestDue) === snapshot.date));
+    if (closedToday) return healthy(RUNTIME_DAILY_STATUS_LABELS[record.status]);
     return Number.isFinite(nextDue) && nextDue > now && schedule?.state === record.status
       ? healthy("已启用，尚未到运行时间") : fail("运行时间未确认或已到期");
   }

@@ -670,5 +670,691 @@
         "unmatched_reports": []
       }
     }
+  ],
+  "closed_session_cases": [
+    {
+      "name": "ordinary_no_cron_on_business_date",
+      "receiver_test_clock": "2026-10-06T21:00:00Z",
+      "next_ny_midnight": "2026-10-07T04:00:00Z",
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "not_due",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "not_due",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": null,
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "no_cron_on_business_date"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "ordinary_market_closed",
+      "receiver_test_clock": "2026-10-06T21:00:00Z",
+      "next_ny_midnight": "2026-10-07T04:00:00Z",
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "market_closed",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "market_closed",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": "2026-10-06T20:59:00Z",
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "market_closed"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "spring_after_jump_no_cron_on_business_date",
+      "receiver_test_clock": "2026-03-08T07:01:00Z",
+      "next_ny_midnight": "2026-03-09T04:00:00Z",
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-03-08T07:01:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-03-08",
+            "timezone": "America/New_York",
+            "observed_at": "2026-03-08T07:01:00Z",
+            "status": "not_due",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "not_due",
+              "business_date": "2026-03-08",
+              "timezone": "America/New_York",
+              "latest_due_at": null,
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "no_cron_on_business_date"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "spring_after_jump_market_closed",
+      "receiver_test_clock": "2026-03-08T07:01:00Z",
+      "next_ny_midnight": "2026-03-09T04:00:00Z",
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-03-08T07:01:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-03-08",
+            "timezone": "America/New_York",
+            "observed_at": "2026-03-08T07:01:00Z",
+            "status": "market_closed",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "market_closed",
+              "business_date": "2026-03-08",
+              "timezone": "America/New_York",
+              "latest_due_at": "2026-03-08T07:00:00Z",
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "market_closed"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "fall_repeated_hour_no_cron_on_business_date",
+      "receiver_test_clock": "2026-11-01T06:01:00Z",
+      "next_ny_midnight": "2026-11-02T05:00:00Z",
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-11-01T06:01:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-11-01",
+            "timezone": "America/New_York",
+            "observed_at": "2026-11-01T06:01:00Z",
+            "status": "not_due",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "not_due",
+              "business_date": "2026-11-01",
+              "timezone": "America/New_York",
+              "latest_due_at": null,
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "no_cron_on_business_date"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "fall_repeated_hour_market_closed",
+      "receiver_test_clock": "2026-11-01T06:01:00Z",
+      "next_ny_midnight": "2026-11-02T05:00:00Z",
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-11-01T06:01:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-11-01",
+            "timezone": "America/New_York",
+            "observed_at": "2026-11-01T06:01:00Z",
+            "status": "market_closed",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "market_closed",
+              "business_date": "2026-11-01",
+              "timezone": "America/New_York",
+              "latest_due_at": "2026-11-01T06:00:00Z",
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "market_closed"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    }
+  ],
+  "closed_session_negative_cases": [
+    {
+      "name": "ordinary_no_cron_on_business_date_incomplete",
+      "expected_receiver_status": 200,
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "incomplete",
+        "read_errors": [
+          "coverage_unconfirmed"
+        ],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "read_incomplete",
+            "kind": "incomplete",
+            "completeness": "incomplete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "not_due",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": null,
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "no_cron_on_business_date"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "ordinary_no_cron_on_business_date_pending",
+      "expected_receiver_status": 400,
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "not_due",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "live",
+            "schedule": {
+              "state": "not_due",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": null,
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "no_cron_on_business_date"
+            },
+            "runs": [
+              {
+                "run_id": "run.326d3be0ce43ed2f895ebe54e37e5caf",
+                "source_object": null,
+                "source_objects": [],
+                "started_at": "2026-10-06T20:01:00Z",
+                "finished_at": "2026-10-06T20:02:00Z",
+                "object_updated_at": null,
+                "report_status": "ok",
+                "execution_lane": "live",
+                "activity": "submitted",
+                "run_time_known": true,
+                "evidence": {
+                  "execution_status": "no_op",
+                  "broker_submission_done": true,
+                  "action_done": null,
+                  "orders_pending_count": 0,
+                  "errors_present": false,
+                  "receipt_outcome": "submitted",
+                  "receipt_broker_confirmation": "not_observed",
+                  "receipt_state": "valid",
+                  "receipt_id": "execution-receipt.3fa1ce6023581ac04ea6d6c01ee58162"
+                }
+              }
+            ],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "ordinary_no_cron_on_business_date_errors",
+      "expected_receiver_status": 200,
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "failed",
+            "kind": "run",
+            "completeness": "complete",
+            "execution_lane": "live",
+            "schedule": {
+              "state": "not_due",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": null,
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "no_cron_on_business_date"
+            },
+            "runs": [
+              {
+                "run_id": "run.326d3be0ce43ed2f895ebe54e37e5caf",
+                "source_object": null,
+                "source_objects": [],
+                "started_at": "2026-10-06T20:01:00Z",
+                "finished_at": "2026-10-06T20:02:00Z",
+                "object_updated_at": null,
+                "report_status": "ok",
+                "execution_lane": "live",
+                "activity": "failed",
+                "run_time_known": true,
+                "evidence": {
+                  "execution_status": "no_op",
+                  "broker_submission_done": false,
+                  "action_done": null,
+                  "orders_pending_count": 0,
+                  "errors_present": true,
+                  "receipt_outcome": "no_signal",
+                  "receipt_broker_confirmation": "not_applicable",
+                  "receipt_state": "valid",
+                  "receipt_id": "execution-receipt.2b1d91415c2ac90287e0df649f4c3406"
+                }
+              }
+            ],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "ordinary_market_closed_incomplete",
+      "expected_receiver_status": 200,
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "incomplete",
+        "read_errors": [
+          "coverage_unconfirmed"
+        ],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "read_incomplete",
+            "kind": "incomplete",
+            "completeness": "incomplete",
+            "execution_lane": "insufficient",
+            "schedule": {
+              "state": "market_closed",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": "2026-10-06T20:59:00Z",
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "market_closed"
+            },
+            "runs": [],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "ordinary_market_closed_pending",
+      "expected_receiver_status": 400,
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "market_closed",
+            "kind": "schedule",
+            "completeness": "complete",
+            "execution_lane": "live",
+            "schedule": {
+              "state": "market_closed",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": "2026-10-06T20:59:00Z",
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "market_closed"
+            },
+            "runs": [
+              {
+                "run_id": "run.326d3be0ce43ed2f895ebe54e37e5caf",
+                "source_object": null,
+                "source_objects": [],
+                "started_at": "2026-10-06T20:01:00Z",
+                "finished_at": "2026-10-06T20:02:00Z",
+                "object_updated_at": null,
+                "report_status": "ok",
+                "execution_lane": "live",
+                "activity": "submitted",
+                "run_time_known": true,
+                "evidence": {
+                  "execution_status": "no_op",
+                  "broker_submission_done": true,
+                  "action_done": null,
+                  "orders_pending_count": 0,
+                  "errors_present": false,
+                  "receipt_outcome": "submitted",
+                  "receipt_broker_confirmation": "not_observed",
+                  "receipt_state": "valid",
+                  "receipt_id": "execution-receipt.3fa1ce6023581ac04ea6d6c01ee58162"
+                }
+              }
+            ],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    },
+    {
+      "name": "ordinary_market_closed_errors",
+      "expected_receiver_status": 200,
+      "projection": {
+        "platform": "schwab",
+        "observed_at": "2026-10-06T21:00:00Z",
+        "completeness": "complete",
+        "read_errors": [],
+        "records": [
+          {
+            "platform": "schwab",
+            "target_key": "charles-schwab-quant-service|soxl_soxx_trend_income|live",
+            "target": {
+              "service": "charles-schwab-quant-service",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "account_scope": "live"
+            },
+            "business_date": "2026-10-06",
+            "timezone": "America/New_York",
+            "observed_at": "2026-10-06T21:00:00Z",
+            "status": "failed",
+            "kind": "run",
+            "completeness": "complete",
+            "execution_lane": "live",
+            "schedule": {
+              "state": "market_closed",
+              "business_date": "2026-10-06",
+              "timezone": "America/New_York",
+              "latest_due_at": "2026-10-06T20:59:00Z",
+              "next_due_at": null,
+              "grace_ends_at": null,
+              "publication_grace_ended": null,
+              "expected_window": "unspecified",
+              "reason": "market_closed"
+            },
+            "runs": [
+              {
+                "run_id": "run.326d3be0ce43ed2f895ebe54e37e5caf",
+                "source_object": null,
+                "source_objects": [],
+                "started_at": "2026-10-06T20:01:00Z",
+                "finished_at": "2026-10-06T20:02:00Z",
+                "object_updated_at": null,
+                "report_status": "ok",
+                "execution_lane": "live",
+                "activity": "failed",
+                "run_time_known": true,
+                "evidence": {
+                  "execution_status": "no_op",
+                  "broker_submission_done": false,
+                  "action_done": null,
+                  "orders_pending_count": 0,
+                  "errors_present": true,
+                  "receipt_outcome": "no_signal",
+                  "receipt_broker_confirmation": "not_applicable",
+                  "receipt_state": "valid",
+                  "receipt_id": "execution-receipt.2b1d91415c2ac90287e0df649f4c3406"
+                }
+              }
+            ],
+            "excluded_reports": [],
+            "conflicts": [],
+            "fills": {
+              "source": "not_connected",
+              "records": [],
+              "count": null
+            }
+          }
+        ],
+        "unmatched_reports": []
+      }
+    }
   ]
 }

@@ -441,6 +441,19 @@ for (const item of producerCases) {
   assert.equal(read.data_status, "historical");
 }
 
+// Legacy LongBridge accepts bounded diagnostics privately; none becomes a public
+// reason or a Schwab closed-session attestation, even if the text matches a code.
+for (const reason of ["private-diagnostic-must-not-leak", "no_cron_on_business_date", "market_closed"]) {
+  const body = structuredClone(producerCases[0].body);
+  body.records[0].schedule.reason = reason;
+  const key = `runtime_daily:${body.records[0].target_key}:${body.records[0].business_date}`;
+  store.delete(key);
+  assert.equal((await post(body, { Authorization: `Bearer ${token}` })).status, 200);
+  const read = await (await get(body.records[0].business_date, sessionHeaders)).json();
+  assert.equal(Object.hasOwn(read.record.schedule, "reason"), false, "LongBridge public schedule shape stays unchanged");
+  assert.equal(JSON.stringify(read).includes("private-diagnostic-must-not-leak"), false);
+}
+
 const historicalKey = "runtime_daily:longbridge-quant-paper-service|russell_top50_leader_rotation|paper:2020-01-03";
 const preserved = store.get(historicalKey);
 const readFailureKv = { ...kv, async get(key) { if (key === historicalKey) throw new Error("synthetic read failure"); return kv.get(key); } };

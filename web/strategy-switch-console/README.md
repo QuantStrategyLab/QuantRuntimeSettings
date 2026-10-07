@@ -378,6 +378,20 @@ details, retaining only safe run-issue classifications. Limits remain 64 KiB,
 20 runs and 20 list entries; oversized input is rejected. Missing data is not a
 no-trade claim. Fills remain `not_connected`, empty records and null count.
 
+For the exact bound Schwab source, public schedules retain only the safe reason
+codes `no_cron_on_business_date` and `market_closed`. After the existing identity,
+lifecycle/deployment freshness, current New York date, completeness, run-issue and
+execution-lane checks pass, an explicitly matching closed-session schedule observed
+on that business date can be healthy with `next_due_at: null`. Its schedule date,
+timezone, reason and time fields must agree; health does not invent a future due
+time or claim a completed run. The current-day check expires the exception at New
+York midnight, including DST, using the existing page clock and read refreshes.
+Missing or unknown reasons, stale/incomplete evidence, future observations,
+identity conflicts, pending runs and errors cannot use this exception. Ordinary
+`before_schedule` still requires a future next due time; LongBridge's original
+public shape and future-due contract are unchanged. Arbitrary diagnostic reasons
+remain private. These display rules never change trading or risk authority.
+
 Source code and synthetic contract tests do not establish live Schwab connectivity.
 Before cutover, the caller must independently compare the original report's account
 hash and existing derived source-binding ID against protected expected identity,
