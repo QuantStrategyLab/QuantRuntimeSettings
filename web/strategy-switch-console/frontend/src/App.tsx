@@ -723,6 +723,7 @@ function App() {
     });
     const accountItems: AccountListItem[] = rows.map(row => {
         const fields = strategyFields(row);
+        const monitoring = accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status);
         return {
             id: row.id,
             platform: row.platform,
@@ -734,7 +735,7 @@ function App() {
             binanceReport: row.platform === "binance" && !model?.binanceFacts.error ? model?.binanceFacts.value?.report : null,
             strategy: fields.strategy,
             strategyNote: fields.note,
-            statusLabel: accountStatusView(row.runtime?.account_state, row.runtime?.freshness?.data_status).label,
+            statusLabel: monitoring.label === "正常" ? "监测正常" : monitoring.label,
             activation: activationFromProjection(row.runtime?.account_state),
         };
     });

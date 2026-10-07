@@ -376,6 +376,144 @@ export function summarizeAccountFactsCoverage(
   return { total: accounts.length, covered, paper, wallet };
 }
 
+export type CurrentAccountFactsRow = {
+  id: string;
+  platform: string;
+  brokerEnvironment: string | null;
+  facts: AccountFactsAccount | null;
+  walletValuation?: { amount: string; currency: string } | null;
+};
+
+export type CurrentAccountFactsGroup = {
+  accounts: number;
+  covered: number;
+  unbound: number;
+  missing: number;
+  assets: Array<{ currency: string; amount: string }>;
+  cashBalance: Array<{ currency: string; amount: string }>;
+  availableCash: Array<{ currency: string; amount: string }>;
+  cashAccounts: number;
+  cashCovered: number;
+  cashUnbound: number;
+  cashMissing: number;
+};
+
+export type CurrentAccountFactsSummary = {
+  live: CurrentAccountFactsGroup;
+  paper: CurrentAccountFactsGroup;
+  unknown: CurrentAccountFactsGroup;
+  excludingPaper: CurrentAccountFactsGroup;
+};
+
+function validCurrentAmount(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 128
+    && /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value);
+}
+
+function sumCurrentAmounts(rows: Array<{ currency: string; amount: string }>): Array<{ currency: string; amount: string }> {
+  const values = new Map<string, string[]>();
+  for (const row of rows) values.set(row.currency, [...(values.get(row.currency) || []), row.amount]);
+  return Array.from(values, ([currency, amounts]) => {
+    let scale = 0;
+    const parsed = amounts.map(amount => {
+      const [integer, fraction = ""] = amount.replace(/^-/, "").split(".");
+      scale = Math.max(scale, fraction.length);
+      return { negative: amount.startsWith("-"), integer, fraction };
+    });
+    const total = parsed.reduce((sum, value) => {
+      const magnitude = BigInt(value.integer + value.fraction.padEnd(scale, "0"));
+      return sum + (value.negative ? -magnitude : magnitude);
+    }, 0n);
+    const negative = total < 0n;
+    const digits = (negative ? -total : total).toString().padStart(scale + 1, "0");
+    const amount = scale
+      ? `${negative ? "-" : ""}${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/, "")
+      : `${negative ? "-" : ""}${digits}`;
+    return { currency, amount: amount === "-" ? "0" : amount };
+  }).sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
+/** Summarize only current, fresh, uniquely bound account facts; currencies and cash meanings stay separate. */
+export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[]): CurrentAccountFactsSummary {
+  const groups = {
+    live: { accounts: 0, covered: 0, unbound: 0, missing: 0, assets: [], cashBalance: [], availableCash: [], cashAccounts: 0, cashCovered: 0, cashUnbound: 0, cashMissing: 0 },
+    paper: { accounts: 0, covered: 0, unbound: 0, missing: 0, assets: [], cashBalance: [], availableCash: [], cashAccounts: 0, cashCovered: 0, cashUnbound: 0, cashMissing: 0 },
+    unknown: { accounts: 0, covered: 0, unbound: 0, missing: 0, assets: [], cashBalance: [], availableCash: [], cashAccounts: 0, cashCovered: 0, cashUnbound: 0, cashMissing: 0 },
+  } as Record<"live" | "paper" | "unknown", {
+    accounts: number; covered: number; unbound: number; missing: number;
+    assets: Array<{ currency: string; amount: string }>;
+    cashBalance: Array<{ currency: string; amount: string }>;
+    availableCash: Array<{ currency: string; amount: string }>;
+    cashAccounts: number; cashCovered: number; cashUnbound: number; cashMissing: number;
+  }>;
+  for (const account of accounts) {
+    const facts = account.facts;
+    const paperEvidence = account.brokerEnvironment === "paper"
+      || facts?.account_scope === "paper" || facts?.broker_environment === "paper";
+    const environmentConflict = (account.brokerEnvironment === "live" && paperEvidence)
+      || (account.brokerEnvironment === "paper" && facts?.broker_environment === "live");
+    const environment = environmentConflict ? "unknown"
+      : paperEvidence ? "paper"
+        : account.brokerEnvironment === "live" ? "live" : "unknown";
+    const group = groups[environment];
+    group.accounts += 1;
+    const bound = facts?.binding_status === "bound";
+    if (facts && !bound) group.unbound += 1;
+    const ready = accountFactsDisplayReady(facts);
+    const wallet = account.walletValuation && /^[A-Z0-9]{3,10}$/.test(account.walletValuation.currency)
+      && validCurrentAmount(account.walletValuation.amount) ? account.walletValuation : null;
+    const assetRows = wallet
+      ? [{ currency: wallet.currency, amount: wallet.amount }]
+      : ready ? facts!.balances.flatMap(row => /^[A-Z0-9]{3,10}$/.test(row.currency) && validCurrentAmount(row.net_assets)
+        ? [{ currency: row.currency, amount: row.net_assets! }] : []) : [];
+    const assetCurrencyCounts = new Map<string, number>();
+    for (const row of assetRows) assetCurrencyCounts.set(row.currency, (assetCurrencyCounts.get(row.currency) || 0) + 1);
+    const uniqueAssets = assetRows.filter(row => assetCurrencyCounts.get(row.currency) === 1);
+    group.assets.push(...uniqueAssets);
+    if (uniqueAssets.length) group.covered += 1;
+    else group.missing += 1;
+
+    if (!["longbridge", "ibkr", "schwab"].includes(account.platform)) continue;
+    group.cashAccounts += 1;
+    const cashReady = ready;
+    const cashRows = cashReady ? facts!.cash : [];
+    const cashField = account.platform === "ibkr" || account.platform === "schwab" ? "cash_balance" : "available_cash";
+    const cashAmounts = cashRows.flatMap(row => {
+      const amount = cashField === "cash_balance" && "cash_balance" in row ? row.cash_balance
+        : cashField === "available_cash" && "available_cash" in row ? row.available_cash : null;
+      return /^[A-Z0-9]{3,10}$/.test(row.currency) && validCurrentAmount(amount)
+        ? [{ currency: row.currency, amount }] : [];
+    });
+    const cashCurrencyCounts = new Map<string, number>();
+    for (const row of cashAmounts) cashCurrencyCounts.set(row.currency, (cashCurrencyCounts.get(row.currency) || 0) + 1);
+    const uniqueCash = cashAmounts.filter(row => cashCurrencyCounts.get(row.currency) === 1);
+    if (cashField === "cash_balance") group.cashBalance.push(...uniqueCash);
+    else group.availableCash.push(...uniqueCash);
+    if (uniqueCash.length) group.cashCovered += 1;
+    else group.cashMissing += 1;
+    if (facts && !bound) group.cashUnbound += 1;
+  }
+  for (const group of Object.values(groups)) {
+    group.assets = sumCurrentAmounts(group.assets);
+    group.cashBalance = sumCurrentAmounts(group.cashBalance);
+    group.availableCash = sumCurrentAmounts(group.availableCash);
+  }
+  const excludingPaper: CurrentAccountFactsGroup = {
+    accounts: groups.live.accounts + groups.unknown.accounts,
+    covered: groups.live.covered + groups.unknown.covered,
+    unbound: groups.live.unbound + groups.unknown.unbound,
+    missing: groups.live.missing + groups.unknown.missing,
+    assets: sumCurrentAmounts([...groups.live.assets, ...groups.unknown.assets]),
+    cashBalance: sumCurrentAmounts([...groups.live.cashBalance, ...groups.unknown.cashBalance]),
+    availableCash: sumCurrentAmounts([...groups.live.availableCash, ...groups.unknown.availableCash]),
+    cashAccounts: groups.live.cashAccounts + groups.unknown.cashAccounts,
+    cashCovered: groups.live.cashCovered + groups.unknown.cashCovered,
+    cashUnbound: groups.live.cashUnbound + groups.unknown.cashUnbound,
+    cashMissing: groups.live.cashMissing + groups.unknown.cashMissing,
+  };
+  return { ...groups, excludingPaper };
+}
+
 export function accountHistoryCoverage(series: {
   first_sample_date?: string | null;
   retention_days?: number;

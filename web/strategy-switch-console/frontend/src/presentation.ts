@@ -425,6 +425,12 @@ export type RuntimeDailySnapshot = {
   fills: { source: "not_connected"; records: []; count: null } | null;
   read_error_count?: number;
   unmatched_count?: number;
+  history?: {
+    available_from: string | null;
+    available_through: string | null;
+    stored_days: number;
+    truncated: boolean;
+  };
 };
 
 export type RuntimeDailyPresentation = {
@@ -439,6 +445,10 @@ export type RuntimeDailyPresentation = {
   fillsLabel: string;
   dataStatusLabel: string;
   updatedAt: string | null;
+  historyFrom: string | null;
+  historyThrough: string | null;
+  historyDays: number;
+  historyTruncated: boolean;
 };
 
 const RUNTIME_DAILY_STATUS_LABELS: Record<string, string> = {
@@ -515,6 +525,10 @@ export function presentRuntimeDaily(
     fillsLabel: "—",
     dataStatusLabel: "—",
     updatedAt: null,
+    historyFrom: null,
+    historyThrough: null,
+    historyDays: 0,
+    historyTruncated: false,
   };
   if (!selection || typeof selection.accountKey !== "string" || !selection.accountKey) return empty;
   // Eligibility is the unique configured source binding, not a platform or lane guess.
@@ -555,6 +569,14 @@ export function presentRuntimeDaily(
     : snapshot.data_status === "unavailable"
       ? "暂不可用"
       : "—";
+  const history = snapshot.history;
+  const historyDays = history && Number.isInteger(history.stored_days) && history.stored_days >= 0 ? history.stored_days : 0;
+  const historyFields = {
+    historyFrom: history && typeof history.available_from === "string" ? history.available_from : null,
+    historyThrough: history && typeof history.available_through === "string" ? history.available_through : null,
+    historyDays,
+    historyTruncated: history?.truncated === true,
+  };
   if (!snapshot.record) {
     return {
       available: true,
@@ -568,6 +590,7 @@ export function presentRuntimeDaily(
       fillsLabel,
       dataStatusLabel: snapshot.data_status === "unavailable" ? "暂无数据" : dataStatusLabel,
       updatedAt: null,
+      ...historyFields,
     };
   }
   const record = snapshot.record;
@@ -590,6 +613,7 @@ export function presentRuntimeDaily(
     fillsLabel,
     dataStatusLabel,
     updatedAt: snapshot.data_status === "stale" ? observedAt : null,
+    ...historyFields,
   };
 }
 

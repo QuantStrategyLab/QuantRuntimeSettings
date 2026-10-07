@@ -43,6 +43,7 @@ import {
   longBridgeCashDetails,
   longBridgeFinancingDetails,
   longBridgeRiskLevelLabel,
+  summarizeCurrentAccountFacts,
   type AccountFactsAccount,
   type AccountFactsHistorySnapshot,
   type AccountFactsSnapshot,
@@ -179,6 +180,13 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
   const factsNow = Math.max(runtimeNow, Date.now());
   const displayAccounts = accounts.map(account => ({ ...account, facts: accountFactsForDisplay(account.facts, factsNow) || null }));
+  const currentFactsSummary = summarizeCurrentAccountFacts(displayAccounts.map(account => ({
+    id: account.id,
+    platform: account.platformKey,
+    brokerEnvironment: account.brokerEnvironment,
+    facts: account.facts,
+    walletValuation: account.id === walletAccount?.id ? walletValuation : null,
+  })));
   const runtimeBounds = runtimeDateBounds(runtimeNow);
   const runtimeToday = runtimeBounds.max;
   const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
@@ -365,8 +373,28 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     const timer = window.setTimeout(() => setRuntimeNow(Date.now()), Math.min(next - now + 1, 2_147_483_647));
     return () => window.clearTimeout(timer);
   }, [accounts, runtimeDaily, runtimeToday, runtimeNow]);
-  // All-account totals stay unavailable under partial broker identity. Only a
-  // single selected account may show its own per-currency facts.
+  const formatCurrentAmounts = (rows: Array<{ currency: string; amount: string }>) => rows.length
+    ? rows.map(row => `${row.currency} ${row.amount}`).join(" · ") : "—";
+  const aggregateAssetGroups = [
+    { key: "live", label: "配置为实盘", group: currentFactsSummary.live },
+    { key: "unknown", label: "环境待确认", group: currentFactsSummary.unknown },
+    { key: "paper", label: "配置为模拟（单列，不计入实盘汇总）", group: currentFactsSummary.paper },
+  ].filter(item => item.group.accounts > 0);
+  const aggregateCashGroups = [
+    { key: "live", label: "配置为实盘", group: currentFactsSummary.live },
+    { key: "unknown", label: "环境待确认", group: currentFactsSummary.unknown },
+    { key: "paper", label: "配置为模拟（单列，不计入实盘汇总）", group: currentFactsSummary.paper },
+  ].filter(item => item.group.cashAccounts > 0);
+  const aggregateCashLines = aggregateCashGroups.flatMap(item => [
+    { key: `${item.key}:balance`, environmentLabel: item.label, label: "现金余额", values: item.group.cashBalance },
+    { key: `${item.key}:available`, environmentLabel: item.label, label: "可用现金", values: item.group.availableCash },
+  ]).filter(line => line.values.length > 0);
+  const aggregateCashTotals = [
+    { key: "balance", label: "现金余额", values: currentFactsSummary.excludingPaper.cashBalance },
+    { key: "available", label: "可用现金", values: currentFactsSummary.excludingPaper.availableCash },
+  ].filter(line => line.values.length > 0);
+  // Single-account metrics use that account's own source semantics; all-account
+  // metrics below summarize only current snapshots and preserve every currency.
   const totalAssets = accountId === "all"
     ? null
     : selectedWalletValuation
@@ -385,14 +413,14 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const selectedNegativeCash = hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
   const showSelectedCashMetric = !selectedWalletValuation || totalCash !== null;
   const assetsDetail = accountId === "all"
-    ? "请选择账户"
+    ? "按配置账户当前快照求和，不代表已核实的物理账户组合资产。"
     : selectedAccount?.platformKey === "binance" ? "钱包估值暂不可用" : accountFactsDetail(selectedFacts);
   const cashDetail = accountId === "all"
-    ? "请选择账户"
+    ? "按配置账户当前快照求和；现金余额与可用现金分开，不代表已核实的物理账户组合现金。"
     : accountFactsDetail(selectedFacts);
   const selectedUpdatedAt = accountId === "all" ? null : accountFactsUpdatedAt(selectedFacts);
-  const assetsMetricLabel = accountId === "all" ? "全部账户总额" : selectedWalletValuation ? "钱包总资产" : "总资产";
-  const selectedCashLabel = selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
+  const assetsMetricLabel = accountId === "all" ? "账户最新估值（按币种）" : selectedWalletValuation ? "钱包总资产" : "总资产";
+  const selectedCashLabel = accountId === "all" ? "账户现金（按来源语义和币种）" : selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
   const filteredWalletPoints = walletChartSelected
     ? filterAssetHistoryByRange(historyKey === requestedHistoryKey ? walletHistory?.points || [] : [], range) : [];
   const filteredAccountPoints = walletChartSelected
@@ -402,7 +430,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     ? buildBinanceWalletHistoryChartGeometry(filteredWalletPoints)
     : buildAssetChartGeometry(filteredAccountPoints);
   const hasChart = chart === "assets" && Boolean(chartAccount) && geometry.dots.length > 0;
-  const chartEmptyTitle = chartUnavailable(chart);
+  const chartEmptyTitle = chart === "assets" && accountId === "all" ? "暂无组合历史" : chartUnavailable(chart);
   const chartEmptyDetail = chart === "return"
     ? "暂不可用"
     : historyLoading
@@ -410,7 +438,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         : historyError || history?.identity_mismatch
           ? "暂不可用"
           : accountId === "all" && !chartAccount
-            ? "请在顶部选择账户查看资产变化"
+            ? "全部账户只显示最新分币种估值；历史变化需选择单个账户。"
           : emptyNote.key === "{range}内暂无资产记录"
             ? emptyNote.key
             : "暂无资产记录";
@@ -430,14 +458,50 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         {accounts.map(account => <option key={account.id} value={account.id}>{optionLabel(account)}</option>)}
       </select>
     </div>
-    <section className={`metric-row overview-metrics${selectedWalletValuation ? " overview-metrics-wallet" : ""}`} aria-label={t("账户总览")}>
-      <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>
-        {selectedWalletValuation
-          ? <small>{selectedWalletValuation.currency} · {t("观察")} {formatShortInstant(selectedWalletValuation.observed_at) || "—"}</small>
-          : detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
-      {showSelectedCashMetric ? <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>
-        {selectedNegativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(selectedAccount!.platformKey))}</small> : null}
-        {detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div> : null}
+    <section className={`metric-row overview-metrics${accountId === "all" ? " overview-metrics-all" : ""}${selectedWalletValuation ? " overview-metrics-wallet" : ""}`} aria-label={t("账户总览")}>
+      <div><span>{t(assetsMetricLabel)}</span>
+        {accountId === "all" ? <div className="overview-aggregate-values">
+          <div className="overview-aggregate-primary">
+            <span>{t("已取得资产合计（不含已标记模拟账户）")}</span>
+            <strong>{formatCurrentAmounts(currentFactsSummary.excludingPaper.assets)}</strong>
+            <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>
+          </div>
+          {aggregateAssetGroups.length ? aggregateAssetGroups.map(item => <div key={item.key}>
+            <span>{t(item.label)} · {item.group.covered}/{item.group.accounts}</span>
+            <strong>{formatCurrentAmounts(item.group.assets)}</strong>
+            <small>{t("估值覆盖 {covered}/{total} 个配置账户；未绑定 {unbound}，其他缺估值 {missing}（未知不按零计）。", {
+              covered: item.group.covered, total: item.group.accounts, unbound: item.group.unbound,
+              missing: Math.max(0, item.group.missing - item.group.unbound),
+            })}</small>
+          </div>) : <small>{t("尚无合格账户估值")}</small>}
+          <small>{t(assetsDetail)}</small>
+        </div> : <>
+          <strong>{amountOrDash(totalAssets)}</strong>
+          {selectedWalletValuation
+            ? <small>{selectedWalletValuation.currency} · {t("观察")} {formatShortInstant(selectedWalletValuation.observed_at) || "—"}</small>
+            : detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}
+        </>}</div>
+      {showSelectedCashMetric ? <div><span>{t(selectedCashLabel)}</span>
+        {accountId === "all" ? <div className="overview-aggregate-values">
+          {aggregateCashTotals.length ? aggregateCashTotals.map(line => <div className="overview-aggregate-primary" key={line.key}>
+            <span>{t("已取得现金合计（不含已标记模拟账户）")} · {t(line.label)}</span>
+            <strong>{formatCurrentAmounts(line.values)}</strong>
+            <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>
+          </div>) : <small>{t("尚无合格现金资料")}</small>}
+          <small>{t(cashDetail)}</small>
+          <small>{t("以下按环境分类列示明细。")}</small>
+          {aggregateCashLines.length ? aggregateCashLines.map(line => <div key={line.key}>
+            <span>{t(line.environmentLabel)} · {t(line.label)}</span><strong>{formatCurrentAmounts(line.values)}</strong>
+          </div>) : <small>{t("尚无合格现金资料")}</small>}
+          {aggregateCashGroups.map(item => <small key={`${item.key}:cash-coverage`}>{t("现金资料覆盖 {covered}/{total} 个支持现金字段的配置账户；未绑定 {unbound}，其他缺现金资料 {missing}。", {
+            covered: item.group.cashCovered, total: item.group.cashAccounts, unbound: item.group.cashUnbound,
+            missing: Math.max(0, item.group.cashMissing - item.group.cashUnbound),
+          })}</small>)}
+        </div> : <>
+          <strong>{amountOrDash(totalCash)}</strong>
+          {selectedNegativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(selectedAccount!.platformKey))}</small> : null}
+          {detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}
+        </>}</div> : null}
     </section>
     {showWallet && !walletValuation ? <section id="binance-account-facts-board" className="overview-private-scope" aria-label={t("现货与活期理财")}>
       <div className="overview-private-scope-head">
@@ -590,6 +654,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           <div><span>{t("运行时间")}</span><strong>{runTime}</strong>{view.dataStatusLabel !== "—" ? <small>{t(view.dataStatusLabel)}</small> : null}</div>
           <div><span>{t("成交明细")}</span><strong>{t(view.fillsLabel)}</strong></div>
         </div>
+        {view.historyDays > 0 ? <p className="overview-runtime-history">
+          {t("历史数据范围")}：{t("{from} 至 {through}", { from: view.historyFrom || "—", through: view.historyThrough || "—" })}（{t("{count} 个记录日", { count: view.historyDays })}）
+          {view.historyTruncated || (view.historyFrom !== null && view.historyFrom < runtimeBounds.min) ? <small>{t("当前视图未覆盖全部记录，不代表完整历史")}</small> : null}
+        </p> : null}
         {view.dryRun ? <p className="overview-runtime-flag">{t("只读演练")}</p> : null}
         </>}
         </article>;

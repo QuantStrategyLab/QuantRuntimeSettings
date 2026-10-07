@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { overviewRuntimeHealth, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { RUNTIME_DAILY_TARGET, runtimeDailyTarget } from "../web/strategy-switch-console/runtime_daily_contract.js";
+import "./overview_current_aggregation_validation.mjs";
+
+const overviewSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
+assert.equal((overviewSource.match(/amountOrDash\(totalCash\)/g) || []).length, 1,
+  "the selected-account cash metric renders its amount exactly once");
+assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.assets/);
+assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashBalance/);
+assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.availableCash/);
 
 const now = Date.parse("2026-10-04T16:00:00Z");
 const instant = offset => new Date(now + offset * 1000).toISOString();
@@ -25,6 +34,7 @@ const daily = {
     schedule: { state: "due", latest_due_at: instant(-120), next_due_at: instant(3600), publication_grace_ended: true },
     runs: [{ started_at: instant(-90), finished_at: instant(-60), activity: "no_submission", execution_lane: "paper", errors_present: false }],
   }, fills: { source: "not_connected", records: [], count: null }, read_error_count: 0, unmatched_count: 0,
+  history: { available_from: "2026-07-10", available_through: "2026-10-04", stored_days: 87, truncated: true },
 };
 const clone = value => structuredClone(value);
 const health = (r = runtime, d = daily, s = selection, mismatch = false, time = now) => overviewRuntimeHealth(r, d, s, mismatch, time);
@@ -230,6 +240,14 @@ assert.equal(runtimeDateBounds(boundary).max, "2026-10-05");
 assert.equal(runtimeDateSelectable("2026-02-29", Date.parse("2026-03-01T16:00:00Z")), false);
 assert.equal(runtimeDateSelectable("2024-02-29", Date.parse("2024-03-01T16:00:00Z")), true);
 assert.equal(presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date).statusLabel, "无记录");
+const historyView = presentRuntimeDaily(daily, selection, daily.date);
+assert.equal(historyView.historyFrom, "2026-07-10");
+assert.equal(historyView.historyThrough, "2026-10-04");
+assert.equal(historyView.historyDays, 87);
+assert.equal(historyView.historyTruncated, true);
+assert.equal(presentRuntimeDaily({ ...daily, record: null, data_status: "unavailable" }, selection, daily.date).historyDays, 87, "coverage shows even when the selected day has no record");
+const noHistoryView = presentRuntimeDaily({ ...daily, history: undefined }, selection, daily.date);
+assert.deepEqual([noHistoryView.historyFrom, noHistoryView.historyThrough, noHistoryView.historyDays, noHistoryView.historyTruncated], [null, null, 0, false]);
 assert.equal(presentRuntimeDaily(daily, selection, "2026-10-03").available, false, "late responses cannot appear under a different selected date");
 assert.equal(presentRuntimeDaily(daily, { platform: "ibkr", accountKey: selection.accountKey, dailyBinding: "not_applicable" }, daily.date).statusLabel, "未接入");
 assert.deepEqual(RETURN_INDEX_LEGEND, ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]);

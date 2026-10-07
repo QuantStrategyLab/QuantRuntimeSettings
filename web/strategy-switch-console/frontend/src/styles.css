@@ -188,6 +188,12 @@ textarea { width: 100%; resize: vertical; }
 .metric-row span { color: var(--muted); font-size: 12px; font-weight: 550; }
 .metric-row strong { display: block; margin: 2px 0; color: var(--ink); font-size: 26px; font-weight: 650; line-height: 1.2; letter-spacing: -.01em; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .metric-row small { color: var(--muted); font-size: 12px; }
+.overview-aggregate-values { display: grid; gap: 8px; min-width: 0; }
+.overview-aggregate-values > div { display: grid; gap: 2px; min-width: 0; padding-top: 6px; border-top: 1px solid var(--soft-line); }
+.overview-aggregate-values > div:first-child { padding-top: 0; border-top: 0; }
+.overview-aggregate-values > div > strong { font-size: 17px; line-height: 1.25; }
+.overview-aggregate-values > .overview-aggregate-primary { padding: 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--accent-soft); }
+.overview-aggregate-values > .overview-aggregate-primary > strong { font-size: 21px; }
 .daily-page.overview-layout .overview-metrics-wallet { grid-template-columns: minmax(0, 1fr); }
 .wallet-amount-display { white-space: nowrap; font-size: clamp(.85rem, 3.5vw, 1.5rem); font-variant-numeric: tabular-nums; }
 
@@ -269,6 +275,7 @@ textarea { width: 100%; resize: vertical; }
 .overview-runtime-grid strong { font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .overview-runtime-grid small, .overview-runtime-flag { color: var(--muted); font-size: 12px; }
 .overview-runtime-flag { justify-self: start; margin: 4px 0 0; padding: 1px 8px; border: 1px solid var(--line); border-radius: var(--r-sm); }
+.overview-runtime-history small { display: block; margin-top: 2px; color: var(--amber); font-size: 12px; }
 
 /* Accounts column on overview */
 .overview-accounts { grid-area: accounts; min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--paper); }
@@ -552,6 +559,12 @@ textarea { width: 100%; resize: vertical; }
   .accounts-page .setting-facts p:has(> span):has(> strong) strong { margin-left: 0; text-align: left; }
   .app-shell { min-height: 100dvh; }
   .confirm-dialog { padding: 18px 16px 16px; }
+}
+
+@media (max-width: 600px) {
+  .overview-metrics-all { grid-template-columns: minmax(0, 1fr); }
+  .overview-metrics-all > div { border-right: 0; }
+  .overview-metrics-all > div + div { border-top: 1px solid var(--soft-line); }
 }
 
 @media (max-width: 390px) {
