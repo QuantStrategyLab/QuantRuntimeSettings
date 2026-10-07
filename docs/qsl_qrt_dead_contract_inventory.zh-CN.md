@@ -92,7 +92,7 @@
 | `reconciliation_record_contract.py` | LIKELY_UNUSED（CI 层面） | import `activation_contract.py`/`deployment_bundle_contract.py`；未见 CI 直接调用；有单测。 |
 | `deterministic_risk_gate.py` | LIKELY_UNUSED（CI 层面） | 被 `paper_risk_admission_receipt.py` import；被 `docs/qsl_deterministic_risk_gate_kernel_v1.zh-CN.md`、`docs/QSL_P0_P6_CURRENT_STATE_AND_DRIVER_POLICY.zh-CN.md` 描述；未见 CI 调用。 |
 | `paper_risk_admission_receipt.py` | LIKELY_UNUSED（CI 层面） | 未见 CI 调用；有单测 `test_paper_risk_admission_receipt.py`。 |
-| `gate_codex_app_review.py` | LIKELY_UNUSED（CI 层面） | 仅出现在 `docs/ARCHITECTURE.md` 目录树注释与单测 `test_gate_codex_app_review.py` 中；未见任何 `.github/workflows/*.yml` 调用。 |
+| `gate_codex_app_review.py` | REMOVED（2026-10-07） | 核对当前 workflow 和调用方后删除旧脚本及专用单测；现有 CI 检查继续保留。 |
 | `run_codex_pr_review.py` | SUPERSEDED（自述） | 文件自身 docstring 明确：`"Deprecated compatibility entrypoint ... This repository now delegates PR review to QuantStrategyLab/AIAuditBridge/.github/workflows/codex_pr_review.yml. The local runner is intentionally kept as a tiny stub"`。**这是有意保留的废弃兼容 stub，不是意外死代码**，无需处理。 |
 | `execution_evidence_projection.py` | ACTIVE（跨仓 Action） | 被 `actions/publish-runtime-execution-evidence/action.yml` 调用；该 Action 未见被本仓库任何 workflow 的 `uses:` 引用，推测为供其他仓库通过可复用 Action 消费，本仓库内无直接调用点。 |
 

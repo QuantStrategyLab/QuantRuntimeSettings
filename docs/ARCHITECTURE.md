@@ -65,7 +65,6 @@ platform-config.json  (single source of truth)
 │   │   ├── build_runtime_switch.py      # Build transient runtime targets
 │   │   ├── runtime_settings.py          # Core validation & assignment engine
 │   │   ├── check_internal_dependency_matrix.py
-│   │   └── gate_codex_app_review.py     # PR merge gate
 │   ├── tests/                           # Python unit tests
 │   │   ├── test_runtime_settings.py
 │   │   └── test_internal_dependency_matrix.py
@@ -98,7 +97,6 @@ platform-config.json  (single source of truth)
     ├── deploy-strategy-switch-console.yml
     ├── manual-strategy-switch.yml
     ├── codex_pr_review.yml             # Reusable caller to AIAuditBridge
-    └── codex_review_gate.yml
 ```
 
 ---
