@@ -52,7 +52,9 @@ export class SyntheticCycleRuntimeInstances extends RuntimeInstances {
   }
 }`;
 let outbound = 0, legacyWrites = 0;
-const options = { cf: false, modules: true, modulesRules: [{ type: "ESModule", include: ["**/*.js"] }], scriptPath, script: source + testClass,
+const options = {
+  cf: false,
+  modules: true, modulesRules: [{ type: "ESModule", include: ["**/*.js"] }], scriptPath, script: source + testClass,
   compatibilityDate: "2026-06-08", bindings: baseEnv,
   durableObjects: { STRATEGY_SWITCH_RUNTIME_INSTANCES: { className: "SyntheticCycleRuntimeInstances", useSQLite: true } },
   durableObjectsPersist: persist, kvNamespaces: ["STRATEGY_SWITCH_CONFIG"],
