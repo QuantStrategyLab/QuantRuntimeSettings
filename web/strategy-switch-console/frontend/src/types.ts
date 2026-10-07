@@ -318,18 +318,72 @@ export function accountFactsForRow(
 }
 
 export function totalsUnavailableDetail(reason: string | null | undefined): string {
-  void reason;
-  return "暂不可用";
+  if (reason === "physical_identity_unverified") return "实物账户尚未完成去重，暂不合计";
+  if (reason === "coverage_incomplete") return "账户资产资料覆盖不全，暂不合计";
+  if (reason === "no_non_paper_accounts") return "暂无可合计的非模拟账户";
+  return "全部账户总额暂不可用";
+}
+
+export function accountFactsDisplayReady(account: AccountFactsAccount | null | undefined): boolean {
+  return Boolean(account && account.binding_status === "bound" && account.identity_status === "partial_identity"
+    && account.identity_mismatch !== true && account.data_status === "fresh");
 }
 
 export function accountFactsDetail(account: AccountFactsAccount | null | undefined): string {
-  if (!account) return "暂无数据";
-  if (account.identity_mismatch || account.binding_status === "missing" || account.binding_status === "duplicate") {
-    return "暂不可用";
+  if (!account) return "尚未取得账户资产资料";
+  if (account.identity_mismatch === true) return "账户身份不匹配";
+  if (account.binding_status === "duplicate") return "账户资料绑定重复";
+  if (account.binding_status === "missing") return "账户资料尚未绑定";
+  if (account.identity_status !== "partial_identity") return "账户身份待核实";
+  if (account.data_status === "stale") return "账户资产资料已过期";
+  if (account.data_status === "unavailable") return "尚未取得账户资产资料";
+  return accountFactsDisplayReady(account) ? "" : "账户资产资料状态未确认";
+}
+
+/** Counts configured rows with a displayed asset value, never physical accounts or totals. */
+export function summarizeAccountFactsCoverage(
+  accounts: Array<{ id: string; brokerEnvironment: string | null; facts: AccountFactsAccount | null }>,
+  eligibleWalletAccountId: string | null = null,
+): { total: number; covered: number; paper: number; wallet: number } {
+  let covered = 0;
+  let paper = 0;
+  let wallet = 0;
+  for (const account of accounts) {
+    if (account.brokerEnvironment === "paper" || account.facts?.account_scope === "paper") paper += 1;
+    if (eligibleWalletAccountId !== null && account.id === eligibleWalletAccountId) {
+      covered += 1;
+      wallet += 1;
+    } else if (accountFactsDisplayReady(account.facts) && account.facts!.balances.some(row => (
+      /^[A-Z]{3}$/.test(row.currency) && typeof row.net_assets === "string"
+      && /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(row.net_assets)
+    ))) covered += 1;
   }
-  if (account.data_status === "stale") return "数据暂不可用";
-  if (account.data_status === "unavailable") return "暂无数据";
-  return "";
+  return { total: accounts.length, covered, paper, wallet };
+}
+
+export function accountHistoryCoverage(series: {
+  first_sample_date?: string | null;
+  retention_days?: number;
+  truncated?: boolean;
+  gap_dates?: string[];
+  points?: Array<{ observation_date: string }>;
+} | null | undefined): {
+  firstSampleDate: string | null; lastSampleDate: string | null;
+  gapCount: number; retentionDays: number | null; truncated: boolean;
+} | null {
+  if (!series) return null;
+  const validDate = (value: unknown): value is string => typeof value === "string"
+    && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(`${value}T00:00:00Z`))
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  const dates = (series.points || []).map(row => row.observation_date).filter(validDate).sort();
+  return {
+    firstSampleDate: validDate(series.first_sample_date) ? series.first_sample_date : null,
+    lastSampleDate: dates.at(-1) || null,
+    gapCount: new Set((series.gap_dates || []).filter(validDate)).size,
+    retentionDays: typeof series.retention_days === "number" && Number.isInteger(series.retention_days)
+      && series.retention_days > 0 ? series.retention_days : null,
+    truncated: series.truncated === true,
+  };
 }
 
 export function accountFactsUpdatedAt(account: AccountFactsAccount | null | undefined): string | null {

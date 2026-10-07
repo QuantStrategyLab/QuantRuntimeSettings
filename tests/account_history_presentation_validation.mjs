@@ -122,7 +122,7 @@ assert.equal(chartRangeEmptyNote("all").key, "暂无资产记录");
 assert.equal(runtimeBusinessDate(Date.parse("2026-09-29T01:00:00Z")), "2026-09-28");
 assert.equal(runtimeBusinessDate(Date.parse("2026-09-29T12:00:00Z")), "2026-09-29");
 
-assert.equal(totalsUnavailableDetail("physical_identity_unverified"), "暂不可用");
+assert.equal(totalsUnavailableDetail("physical_identity_unverified"), "实物账户尚未完成去重，暂不合计");
 assert.equal(formatAccountFactAmounts([
   { currency: "USD", net_assets: "0", available_cash: "-0.000" },
   { currency: "HKD", net_assets: "-0.00000001", available_cash: "0" },
@@ -143,7 +143,7 @@ assert.equal(formatAccountFactAmounts([
   { currency: "HKD", net_assets: "-0.000" },
 ], "net_assets"), "0");
 assert.equal(formatAccountFactAmounts([], "net_assets"), null);
-assert.equal(accountFactsDetail(null), "暂无数据");
+assert.equal(accountFactsDetail(null), "尚未取得账户资产资料");
 assert.equal(accountFactsDetail({
   platform: "longbridge",
   account_key: "lb-paper",
@@ -158,7 +158,7 @@ assert.equal(accountFactsDetail({
   balances: [],
   cash: [],
   return: { status: "unavailable", reason: "external_cashflow_required" },
-}), "数据暂不可用");
+}), "账户资产资料已过期");
 
 const longbridgePaperSnapshot = {
   ok: true,
@@ -340,7 +340,7 @@ assert.match(overview, /<span>\{t\(runtimeDateLabel\)\}<\/span>\s*<input type="d
   "the daily runtime date picker and its accessible name both identify the New York business day");
 assert.match(overview, /runtimeDailySelectionEligible/);
 assert.match(overview, /platform:\s*account\.platformKey/);
-assert.match(overview, /overviewAccountTypeLabel/);
+assert.match(overview, /accountNativeReadout/);
 assert.match(overview, /overviewRuntimeHealth/);
 assert.doesNotMatch(walletCardSource.slice(walletCardSource.indexOf("<button"), walletCardSource.indexOf("</button>")), /<details/, "disclosures stay outside the navigation button");
 assert.match(overview, /formatOverviewInstant/);
@@ -354,3 +354,6 @@ assert.match(overview, /请选择账户/);
 assert.match(overview, /暂无资产记录|chartUnavailable/);
 
 console.log("account_history_presentation_validation ok");
+
+// The same CI entry now checks real React output with the existing source validators.
+await import("./overview_account_metadata_validation.mjs");

@@ -982,7 +982,7 @@ test("Binance wallet total presentation accepts only fresh returned-scope USDT v
   assert.match(overviewSource, /:\s*<span><em>\{t\("账户资产"\)\}<\/em>\{amountOrDash\(assets\)\}/);
   assert.match(overviewSource, /cashLabelForPlatform\(account\.platformKey\).*amountOrDash\(cash\)/);
   assert.match(overviewSource, /formatOverviewShortInstant/);
-  assert.match(overviewSource, /formatAccountFactAmounts\(account\.facts\?\.data_status === "fresh" \? account\.facts\.balances : null, "net_assets"\)/);
+  assert.match(overviewSource, /formatAccountFactAmounts\(accountFactsDisplayReady\(account\.facts\) \? account\.facts!\.balances : null, "net_assets"\)/);
 });
 
 test("Binance private scope expires without interaction and cancels timers on replacement or logout", () => {

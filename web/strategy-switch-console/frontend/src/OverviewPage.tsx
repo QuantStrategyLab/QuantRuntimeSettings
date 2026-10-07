@@ -15,7 +15,8 @@ import {
   filterAssetHistoryByRange,
   formatOverviewInstant,
   formatOverviewShortInstant,
-  overviewAccountTypeLabel,
+  accountNativeReadout,
+  brokerAccountType,
   overviewRuntimeHealth,
   RETURN_INDEX_LEGEND,
   presentRuntimeDaily,
@@ -24,7 +25,6 @@ import {
   runtimeDailySnapshotMatchesSelection,
   runtimeDateBounds,
   runtimeDateSelectable,
-  verifiedSchwabAccountTypeToken,
   presentBinanceWalletValuation,
   presentBinanceWalletValuationForAccount,
   presentBinancePrivateScope,
@@ -36,13 +36,17 @@ import {
 } from "./presentation";
 import {
   accountFactsDetail,
+  accountFactsDisplayReady,
   accountFactsUpdatedAt,
+  accountHistoryCoverage,
   binanceProviderProductTypeForDisplay,
   formatAccountFactAmounts,
   hasNonzeroNegativeAccountFactAmount,
   longBridgeCashDetails,
   longBridgeFinancingDetails,
   longBridgeRiskLevelLabel,
+  summarizeAccountFactsCoverage,
+  totalsUnavailableDetail,
   type AccountFactsAccount,
   type AccountFactsHistorySnapshot,
   type AccountFactsSnapshot,
@@ -127,7 +131,7 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = 
   { id: "assets", label: "总资产" },
 ];
 
-export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0 }: {
+export function OverviewPage({ accounts, accountFacts, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0 }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
   isAdmin?: boolean;
@@ -383,11 +387,11 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     ? null
     : selectedWalletValuation
       ? formatBinanceWalletAmount(selectedWalletValuation.amount)
-      : formatAccountFactAmounts(selectedFacts?.data_status === "fresh" ? selectedFacts.balances : null, "net_assets");
+      : formatAccountFactAmounts(accountFactsDisplayReady(selectedFacts) ? selectedFacts!.balances : null, "net_assets");
   const totalCash = accountId === "all"
     ? null
     : formatAccountFactAmounts(
-      selectedFacts?.data_status === "fresh" ? selectedFacts.cash : null,
+      accountFactsDisplayReady(selectedFacts) ? selectedFacts!.cash : null,
       selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash",
     );
   const selectedCashField = selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash";
@@ -397,10 +401,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const selectedNegativeCash = hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
   const showSelectedCashMetric = !selectedWalletValuation || totalCash !== null;
   const assetsDetail = accountId === "all"
-    ? "请选择账户"
-    : accountFactsDetail(selectedFacts);
+    ? totalsUnavailableDetail(accountFacts?.totals.reason)
+    : selectedAccount?.platformKey === "binance" ? "钱包估值暂不可用" : accountFactsDetail(selectedFacts);
   const cashDetail = accountId === "all"
-    ? "请选择账户"
+    ? totalsUnavailableDetail(accountFacts?.totals.reason)
     : accountFactsDetail(selectedFacts);
   const selectedUpdatedAt = accountId === "all" ? null : accountFactsUpdatedAt(selectedFacts);
   const assetsMetricLabel = accountId === "all" ? "全部账户总额" : selectedWalletValuation ? "钱包总资产" : "总资产";
@@ -434,6 +438,11 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     return `${t("上次更新")} ${formatted}`;
   };
   const selectedUpdatedTime = formatInstant(selectedUpdatedAt);
+  const coverage = summarizeAccountFactsCoverage(visible, walletValuation ? walletAccount?.id || null : null);
+  const historyCoverage = historyKey === requestedHistoryKey && chart === "assets"
+    ? accountHistoryCoverage(walletChartSelected ? walletHistory
+      : accountHistory?.identity_mismatch !== true && accountHistory?.series.currency === currency ? accountHistory.series : null)
+    : null;
   return <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
       <div><h1>{t("账户总览")}</h1>{selectedUpdatedTime ? <small className="overview-updated">{t("上次更新")} {selectedUpdatedTime}</small> : null}</div>
@@ -446,7 +455,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       <div><span>{t(assetsMetricLabel)}</span><strong>{amountOrDash(totalAssets)}</strong>
         {selectedWalletValuation
           ? <small>{selectedWalletValuation.currency} · {t("观察")} {formatShortInstant(selectedWalletValuation.observed_at) || "—"}</small>
-          : detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}</div>
+          : detailLine(assetsDetail, null) ? <small>{detailLine(assetsDetail, null)}</small> : null}
+        {accountId === "all" ? <small>{t("请选择账户查看原币种资产")}</small> : null}</div>
       {showSelectedCashMetric ? <div><span>{t(selectedCashLabel)}</span><strong>{amountOrDash(totalCash)}</strong>
         {selectedNegativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(selectedAccount!.platformKey))}</small> : null}
         {detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}</div> : null}
@@ -522,6 +532,16 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           ? <details className="overview-wallet-details"><summary>{t("数据范围")}</summary><small>{t("按 Binance 返回的钱包范围")}</small></details>
           : <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
       </div> : null}
+      {historyCoverage ? <details className="overview-wallet-details">
+        <summary>{t("历史数据范围")}</summary>
+        <dl>
+          <div><dt>{t("当前返回首点")}</dt><dd>{historyCoverage.firstSampleDate || t("未取得")}</dd></div>
+          <div><dt>{t("当前返回末点")}</dt><dd>{historyCoverage.lastSampleDate || t("未取得")}</dd></div>
+          <div><dt>{t("来源标注缺口")}</dt><dd>{t("{count} 个观察日", { count: historyCoverage.gapCount })}</dd></div>
+          <div><dt>{t("保留上限")}</dt><dd>{historyCoverage.retentionDays === null ? t("未取得") : t("{days} 天", { days: historyCoverage.retentionDays })}</dd></div>
+        </dl>
+        <small>{t(historyCoverage.truncated ? "返回记录已截取；当前区间不代表完整历史" : "当前来源的返回区间与已标注缺口不证明历史完整")}</small>
+      </details> : null}
       {chart === "return" ? <div className="overview-benchmark">
         <h2>{t("账户与基准收益率比较")}</h2>
         <p>{t("暂无可比较收益率；账户需要完整估值、资金进出和费用记录。")}</p>
@@ -530,7 +550,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           {!visible.length ? <li>{t("暂无账户")}</li> : null}
         </ul>
         <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>
-          {RETURN_INDEX_LEGEND.map(name => <li key={name}><strong>{t(name)}</strong><span>{t("比较序列未取得")}</span><small>{t(name === "标普500" ? "FRED SP500：日收盘价格，不含股息" : "具体指数与数据来源待确认")}</small></li>)}
+          {RETURN_INDEX_LEGEND.map(name => <li key={name}><strong>{t(name)}</strong><span>{t("比较序列未取得")}</span><small>{t(name === "标普500" ? "FRED SP500：日收盘价格，不含股息" : "数据来源与网站使用权限待核")}</small></li>)}
         </ul>
         <details className="overview-benchmark-source"><summary>{t("收益率口径")}</summary><p>{t("比较需完整外部资金流、费用和原币种估值，共同起止区间以可信首点归零；多账户汇总还需可信汇率与加权口径。")}</p></details>
         <details className="overview-price-reference" onToggle={event => setBenchmarkExpanded(event.currentTarget.open)}>
@@ -611,8 +631,12 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     <aside className="overview-accounts">
       <h2>{t("我的账户")}</h2>
       <p className="section-note">{t("运行监测与资产数据分别核对；运行正常不代表资产资料是最新的。")}</p>
+      <p className="section-note" aria-label={t("账户资产覆盖")}>{t("已取得资产金额：{covered}/{total} 个配置账户", coverage)} · {t("模拟配置 {paper} 个，钱包估值 {wallet} 个", coverage)}</p>
+      <p className="section-note">{t("覆盖按配置条目统计，不代表独立实物账户；未完成去重和币种资格，不合计金额。")}</p>
       <div className="overview-account-list">
         {visible.map(account => {
+          const native = accountNativeReadout(account.platformKey, account.accountKey, account.facts,
+            walletAccount?.id === account.id ? wallet : null, walletNow);
           const walletCardValuation = presentBinanceWalletValuationForAccount(
             account.id,
             walletAccount?.id,
@@ -621,12 +645,12 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           );
           const providerProductType = binanceProviderProductTypeForDisplay(
             wallet,
-            showWallet && walletAccount?.id === account.id,
+            showWallet && walletAccount?.id === account.id && native.nativeType === "SPOT",
           );
           const assets = walletCardValuation
             ? formatBinanceWalletAmount(walletCardValuation.amount)
-            : formatAccountFactAmounts(account.facts?.data_status === "fresh" ? account.facts.balances : null, "net_assets");
-          const freshCashRows = account.facts?.data_status === "fresh" ? account.facts.cash : null;
+            : formatAccountFactAmounts(accountFactsDisplayReady(account.facts) ? account.facts!.balances : null, "net_assets");
+          const freshCashRows = accountFactsDisplayReady(account.facts) ? account.facts!.cash : null;
           const cashField = cashFieldForPlatform(account.platformKey);
           const cash = formatAccountFactAmounts(
             freshCashRows,
@@ -636,35 +660,25 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true
             ? freshCashRows : null;
           const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
-          const factDetail = accountFactsDetail(account.facts);
+          const factDetail = account.platformKey === "binance" ? "钱包估值暂不可用" : accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const longBridgeCash = longBridgeCashDetails(account.facts);
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
           const health = overviewRuntimeHealth(account.runtime, currentDaily[runtimeDailyAccountDateKey(account.platformKey, account.accountKey, runtimeToday)]?.value,
             { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const cardDetail = walletCardValuation
-            ? accountId === "all" ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}` : null
+            ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}`
             : detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
-          const paperConfigured = account.brokerEnvironment === "paper";
-          const schwabType = verifiedSchwabAccountTypeToken(
-            account.platformKey,
-            account.facts?.data_status,
-            account.facts?.broker_account_type,
-          );
-          const accountTypeLabel = paperConfigured
-            ? t("模拟账户")
-            : providerProductType
-              ? t("API账户类型：现货")
-              : schwabType
-              ? `${t("账户类型")}: ${schwabType}`
-              : t(overviewAccountTypeLabel());
+          const accountTypeLabel = account.platformKey === "binance"
+            ? t("产品类别：{value}", { value: native.nativeType === "SPOT" ? t("现货") : t("未核实") })
+            : t("券商账户类别：{value}", { value: native.nativeType || t("未核实") });
           return <div key={account.id} className="overview-account-entry">
             <button type="button" className="overview-account" onClick={() => onOpenAccount(account.id)}>
             <strong>{account.title}</strong>
+            <small>{t(brokerAccountType(account.brokerEnvironment))}</small>
             <small>{accountTypeLabel}</small>
-            {paperConfigured && providerProductType ? <small>{t("API账户类型：现货")}</small> : null}
             <small>{account.strategy}</small>
-            {!walletCardValuation || accountId === "all" ? <span className={`overview-figures${walletCardValuation ? " overview-figures-wallet" : ""}`}>
+            <span className={`overview-figures${walletCardValuation ? " overview-figures-wallet" : ""}`}>
               {walletCardValuation
                 ? <span className="wallet-card-valuation">
                   <em>{t("钱包总资产")}</em>
@@ -678,11 +692,19 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
                 <em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}
                 {negativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(account.platformKey))}</small> : null}
               </span> : null}
-            </span> : null}
+            </span>
             <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
+            <details className="overview-wallet-details"><summary>{t("账户资料依据")}</summary><dl>
+              <div><dt>{t("配置环境")}</dt><dd>{t(brokerAccountType(account.brokerEnvironment))}</dd></div>
+              <div><dt>{t("身份可信度")}</dt><dd>{t(native.identityLabel)}</dd></div>
+              <div><dt>{t("原生类别来源")}</dt><dd>{native.nativeType ? account.platformKey === "binance" ? "GET /api/v3/account.accountType" : "securitiesAccount.type" : t("未取得")}</dd></div>
+              <div><dt>{t("原生类别观察时间")}</dt><dd>{native.nativeType ? formatInstant(account.platformKey === "binance" ? providerProductType?.observed_at : updatedAt) || t("未取得") : t("未取得")}</dd></div>
+              <div><dt>{t("资产观察时间")}</dt><dd>{formatInstant(account.platformKey === "binance" ? walletAccount?.id === account.id ? wallet?.observed_finished_at : null : updatedAt) || t("未取得")}</dd></div>
+              <div><dt>{t("市场与产品权限")}</dt><dd>{t("配置目录不证明券商原生权限")}</dd></div>
+            </dl></details>
             <details className="overview-wallet-details"><summary>{t("运行状态依据")}</summary><dl>
               <div><dt>{t("证据观察时间")}</dt><dd>{formatInstant(health.observedAt) || t("未取得")}</dd></div>
               <div><dt>{t("下次运行时间")}</dt><dd>{formatInstant(health.nextDueAt) || t("未取得")}</dd></div>

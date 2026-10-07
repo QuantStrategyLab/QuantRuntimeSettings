@@ -100,7 +100,7 @@ assert.deepEqual(dcaSettingsReadout({
 }), { label: "当前设置", mode: "未核实", amount: "未核实" });
 assert.equal(chartUnavailable("return"), "暂不可用");
 assert.equal(chartUnavailable("assets"), "暂无资产记录");
-assert.deepEqual([...RETURN_INDEX_LEGEND], ["标普500", "纳斯达克", "道琼斯", "罗素"]);
+assert.deepEqual([...RETURN_INDEX_LEGEND], ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]);
 const overviewPage = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
 assert.match(overviewPage, /src=\{`https:\/\/fred\.stlouisfed\.org\/graph\/graph-landing\.php\?g=1ZeSU&width=\$\{benchmarkFrameWidth\}&height=475`\}/);
 assert.match(overviewPage, /Math\.min\(670, Math\.floor\(container\.getBoundingClientRect\(\)\.width\)\)/);
@@ -117,7 +117,7 @@ assert.match(overviewPage, /S&P 500 \(SP500\)，日收盘价格指数，不含�
 assert.match(overviewPage, /暂无可比较收益率/);
 assert.match(overviewPage, /完整估值、资金进出和费用记录/);
 assert.match(overviewPage, /RETURN_INDEX_LEGEND\.map/);
-assert.match(overviewPage, /具体指数与数据来源待确认/);
+assert.match(overviewPage, /数据来源与网站使用权限待核/);
 assert.match(overviewPage, /overview-price-reference/);
 assert.doesNotMatch(overviewPage, /overview-stats|chartAccountId/);
 assert.match(overviewPage, /chart === "assets" \? <div className="chart-range"/);
