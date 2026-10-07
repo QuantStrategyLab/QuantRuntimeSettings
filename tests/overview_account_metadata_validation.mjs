@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { buildAccountFactsReadModel, normalizeAccountFactsHistoryPayload, projectAccountFactsHistorySeries } from "../web/strategy-switch-console/account_facts.js";
-import { accountFactsDetail, accountFactsDisplayReady, accountHistoryCoverage, summarizeAccountFactsCoverage, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
+import { accountFactsDetail, accountFactsDisplayReady, accountFactsForDisplay, accountHistoryCoverage, summarizeAccountFactsCoverage, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
 const now = Date.parse("2026-10-07T08:00:00Z");
@@ -21,6 +21,17 @@ const normalized = normalizeAccountFactsHistoryPayload(payload, { now });
 const model = buildAccountFactsReadModel({ accountOptions: { longbridge: [option] }, bindings: { schema_version: "qsl_account_facts_bindings.v1", bindings: [binding] }, storedByAccount: new Map([[`longbridge:${option.key}`, normalized]]), now });
 const fresh = model.accounts[0];
 assert.equal(fresh.data_status, "fresh", "synthetic native-shaped input crosses the actual receiver validator/read-model");
+const expiry = Date.parse(fresh.observed_finished_at) + 36 * 60 * 60 * 1000;
+assert.equal(accountFactsForDisplay(fresh, expiry), fresh, "current evidence is unchanged through the exact cutoff");
+assert.equal(accountFactsForDisplay(fresh, expiry + 1).data_status, "stale");
+assert.equal(fresh.data_status, "fresh", "local expiry must not mutate the loaded model");
+assert.equal(accountFactsForDisplay(fresh, expiry + 1).balances, fresh.balances, "historical/native arrays are preserved");
+for (const timestamp of [null, "", "not-a-time", new Date(now + 5 * 60 * 1000 + 1).toISOString()]) {
+  const projected = accountFactsForDisplay({ ...fresh, observed_finished_at: timestamp }, now);
+  assert.equal(projected.data_status, "unavailable", "missing, invalid and out-of-tolerance future times cannot be current");
+  assert.equal(accountFactsDisplayReady(projected), false);
+}
+assert.equal(accountFactsForDisplay({ ...fresh, observed_finished_at: new Date(now + 5 * 60 * 1000).toISOString() }, now).data_status, "fresh");
 assert.equal(accountFactsDisplayReady(fresh), true);
 assert.equal(accountFactsDetail(fresh), "");
 for (const [patch, expected] of [
@@ -73,7 +84,7 @@ const require = createRequire(join(frontend, "package.json"));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
-const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
+const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { AccountsPage } from "./AccountsPage"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
 let selected = "all";
 let chart = "assets";
 let injectedHistory = null;
@@ -89,7 +100,7 @@ const hookedReact = { ...React, useState(initial) {
 } };
 const component = { exports: {} };
 new Function("require", "module", "exports", bundled)((name) => name === "react" ? hookedReact : require(name), component, component.exports);
-const { OverviewPage, LocaleContext } = component.exports;
+const { OverviewPage, AccountsPage, LocaleContext } = component.exports;
 const baseAccount = { id: "paper", platformKey: "longbridge", accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic paper", platform: "LongBridge", environment: "Paper", brokerEnvironment: "paper", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: fresh, runtime: null };
 const walletReport = { platform: "binance", account_key: "synthetic-wallet", observed_finished_at: "2026-10-07T07:59:00Z", provider_product_type: { value: "SPOT", source: "GET /api/v3/account.accountType", observed_at: "2026-10-07T07:58:00Z" }, assets: [], wallet_valuation: { status: "available", wallet_count: 1, amount: "44.55", currency: "USDT", observed_at: "2026-10-07T07:58:00Z", scope: "provider_returned_wallet_rows", source: "GET /sapi/v1/asset/wallet/balance" } };
 const walletAccount = { ...baseAccount, id: "wallet", platformKey: "binance", accountKey: "synthetic-wallet", title: "Synthetic wallet", brokerEnvironment: "live", environment: "Live", facts: null };
@@ -97,7 +108,8 @@ const originalNow = Date.now;
 const originalFetch = globalThis.fetch;
 export const metadataRenderFixtures = {};
 let externalAttempts = 0;
-Date.now = () => now;
+let browserNow = now;
+Date.now = () => browserNow;
 globalThis.fetch = async () => { externalAttempts += 1; throw new Error("external fetch forbidden"); };
 function render(accounts, props = {}, language = "zh") {
   nullState = 0;
@@ -107,12 +119,10 @@ try {
   const html = render([baseAccount]);
   metadataRenderFixtures.account = html;
   assert.match(html, /USD 101\.25/);
-  assert.match(html, /配置 paper 环境/);
-  assert.match(html, /券商账户类别：未核实/);
-  assert.match(html, /市场与产品权限/);
-  assert.match(html, /配置目录不证明券商原生权限/);
-  assert.match(html, /已取得资产金额：1\/1 个配置账户/);
-  assert.match(html, /实物账户/);
+  assert.doesNotMatch(html, /运行监测与资产数据分别核对|已取得资产金额|覆盖按配置条目统计|实物账户尚未完成去重|账户资料依据|历史数据范围|配置目录不证明券商原生权限/,
+    "internal review prose and coverage disclosures are not part of the Opus page");
+  assert.match(html, /模拟账户/);
+  assert.match(html, /请选择账户/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
   assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /USD 101\.25/);
   assert.match(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /账户资产资料已过期/);
@@ -120,28 +130,41 @@ try {
     assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, ...patch } }]), /USD 101\.25/);
   }
   const zeroHtml = render([{ ...baseAccount, facts: { ...fresh, balances: [{ currency: "USD", net_assets: "0" }] } }]);
-  assert.match(zeroHtml, /已取得资产金额：1\/1 个配置账户/);
+  assert.doesNotMatch(zeroHtml, /已取得资产金额|配置条目统计/);
   assert.match(zeroHtml, /账户资产<\/em>0<\/span>/);
   const missingHtml = render([{ ...baseAccount, facts: { ...fresh, balances: [{ currency: "USD", net_assets: null }] } }]);
-  assert.match(missingHtml, /已取得资产金额：0\/1 个配置账户/);
+  assert.doesNotMatch(missingHtml, /已取得资产金额|配置条目统计/);
   assert.match(missingHtml, /账户资产<\/em>—<\/span>/);
   const schwabAccount = { ...baseAccount, id: "schwab", platformKey: "schwab", accountKey: schwabOption.key, brokerEnvironment: "live", facts: schwabModel.accounts[0] };
   const schwabHtml = render([schwabAccount]);
-  assert.match(schwabHtml, /券商账户类别：CASH/);
+  assert.match(schwabHtml, /账户类型: CASH/);
   assert.match(schwabHtml, /USD 208\.5/);
   assert.match(schwabHtml, /现金余额<\/em>USD -2/);
   assert.doesNotMatch(schwabHtml, /SYNTHETIC_PRIVATE_HASH/);
-  assert.match(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, broker_account_type: { value: "MARGIN", source_tag: "configuration" } } }]), /券商账户类别：未核实/);
-  assert.match(render([{ ...baseAccount, facts: { ...fresh, broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" } } }]), /券商账户类别：未核实/, "Schwab's type is not assigned to other platforms");
+  assert.match(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, broker_account_type: { value: "MARGIN", source_tag: "configuration" } } }]), /账户类型待确认/);
+  assert.match(render([{ ...baseAccount, brokerEnvironment: "live", facts: { ...fresh, broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" } } }]), /账户类型待确认/, "Schwab's type is not assigned to other platforms");
   selected = "paper";
   injectedHistory = historyResponse;
   historyKey = `paper:USD:${fresh.observed_finished_at}:`;
   const historyHtml = render([baseAccount]);
   metadataRenderFixtures.history = historyHtml;
-  assert.match(historyHtml, /历史数据范围/);
-  assert.match(historyHtml, /当前返回首点<\/dt><dd>2026-10-07/);
-  assert.match(historyHtml, /保留上限<\/dt><dd>366 天/);
-  assert.match(historyHtml, /当前来源的返回区间与已标注缺口不证明历史完整/);
+  assert.doesNotMatch(historyHtml, /历史数据范围|当前返回首点|来源标注缺口|当前来源的返回区间/);
+  assert.match(historyHtml, /2026-10-07 · USD 101\.25/, "the real source-qualified history point remains in the original chart");
+  browserNow = expiry;
+  assert.match(render([baseAccount]), /账户资产<\/em>USD 101\.25/);
+  browserNow = expiry + 1;
+  const expiredPage = render([baseAccount]);
+  const expiredCard = expiredPage.slice(expiredPage.indexOf('class="overview-account-entry"'));
+  assert.doesNotMatch(expiredCard, /USD 101\.25|现金详情|融资详情/);
+  assert.match(expiredCard, /账户资产资料已过期/);
+  assert.match(expiredPage, /2026-10-07 · USD 101\.25/, "a past qualified chart observation remains visible after today's snapshot expires");
+  selected = "all";
+  assert.doesNotMatch(render([schwabAccount]), /账户类型: CASH|USD 208\.5/);
+  browserNow = now;
+  for (const timestamp of [null, "not-a-time", new Date(now + 5 * 60 * 1000 + 1).toISOString()]) {
+    assert.doesNotMatch(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, observed_finished_at: timestamp } }]), /账户类型: CASH|USD 208\.5/);
+  }
+  selected = "paper";
   injectedHistory = { ...historyResponse, account_key: "other" };
   assert.doesNotMatch(render([baseAccount]), /历史数据范围/, "another account's late history cannot populate this disclosure");
   injectedHistory = { ...historyResponse, identity_mismatch: true };
@@ -155,22 +178,35 @@ try {
   const accountCard = walletHtml.slice(walletHtml.indexOf('class="overview-account-entry"'));
   assert.match(accountCard, /44\.55/);
   assert.match(accountCard, /USDT/);
-  assert.match(accountCard, /产品类别：现货/);
+  assert.match(accountCard, /API账户类型：现货/);
   assert.doesNotMatch(accountCard, /券商账户类别：SPOT/);
   const wrongWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, account_key: "other" } }, error: null } });
-  assert.doesNotMatch(wrongWallet, /44\.55|产品类别：现货/);
+  assert.doesNotMatch(wrongWallet, /44\.55|API账户类型：现货/);
   const staleWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, observed_finished_at: "2026-10-04T07:59:00Z" } }, error: null } });
-  assert.doesNotMatch(staleWallet, /44\.55|产品类别：现货/);
-  assert.match(staleWallet, /身份资料已过期/);
+  assert.doesNotMatch(staleWallet, /44\.55|API账户类型：现货/);
+  assert.match(staleWallet, /账户类型待确认/);
   selected = "all"; chart = "return";
   const returnHtml = render([baseAccount]);
   metadataRenderFixtures.returns = returnHtml;
   for (const name of ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.ok(returnHtml.includes(name));
-  assert.match(returnHtml, /数据来源与网站使用权限待核/);
+  assert.doesNotMatch(returnHtml, /数据来源与网站使用权限待核/);
+  assert.match(returnHtml, /暂无数据/);
   assert.doesNotMatch(returnHtml, /具体指数与数据来源待确认/);
+  const settingsRow = { id: "paper", platform: "longbridge", key: option.key, title: "Synthetic paper", platformLabel: "LongBridge", environment: "Paper", facts: fresh, strategy: "Synthetic strategy", strategyNote: "", statusLabel: "待确认", activation: "待确认" };
+  const noop = () => {};
+  const settingsHtml = renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: "zh" }, React.createElement(AccountsPage, {
+    rows: [settingsRow], selectedId: "paper", detailOpen: true, settingsEpoch: 0, refreshToken: 0,
+    stopAllowed: false, stopLabel: "", stopRefreshVisible: false, resumeVisible: false,
+    onSelect: noop, onBack: noop, onDirty: noop, onStop: noop, onRefreshStop: noop, onResume: noop, onSettingsRead: noop,
+    resolveStrategy: () => ({ name: "Synthetic strategy", note: "" }),
+  })));
+  metadataRenderFixtures.settings = settingsHtml;
+  assert.doesNotMatch(settingsHtml, /当前配置来自设置读回|草案与风险偏好分别保存|运行端生效需另行验证/);
+  assert.match(settingsHtml, /账户设置/);
   const english = render([baseAccount], {}, "en");
   assert.doesNotMatch(english, /Information unavailable/);
   assert.match(english, /Nasdaq-100/);
+  assert.doesNotMatch(english, /Asset amounts available:|Coverage counts configured entries|Account data basis|The current source range|Physical accounts have not been deduplicated/);
 } finally { Date.now = originalNow; globalThis.fetch = originalFetch; }
 for (const key of ["账户身份不匹配", "账户资料绑定重复", "账户资料尚未绑定", "账户资产资料已过期", "尚未取得账户资产资料", "账户身份待核实", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.notEqual(translate(key, "en"), "Information unavailable");
 assert.equal(externalAttempts, 0);

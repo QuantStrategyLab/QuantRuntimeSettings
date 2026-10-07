@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily, loadOverviewReadModels, mergeOverviewReadModels } from "../web/strategy-switch-console/frontend/src/api.ts";
 import { overviewRuntimeStatusLabel, runtimeDailyAccountDateKey, runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
-import { startVisibleRefreshLoop } from "../web/strategy-switch-console/frontend/src/requestGate.js";
 
 const monitored = {
   scope: "monitoring_only",
@@ -60,66 +59,13 @@ try {
   globalThis.fetch = denyNetwork;
 }
 
-function eventTarget() {
-  const listeners = new Map();
-  return {
-    listeners,
-    addEventListener(name, callback) { listeners.set(name, callback); },
-    removeEventListener(name, callback) { if (listeners.get(name) === callback) listeners.delete(name); },
-    dispatch(name) { listeners.get(name)?.(); },
-  };
-}
-const documentTarget = Object.assign(eventTarget(), { visibilityState: "visible" });
-const windowTarget = eventTarget();
-let intervalCallback;
-let intervalDelay;
-let clearedInterval;
-windowTarget.setInterval = (callback, delay) => { intervalCallback = callback; intervalDelay = delay; return 17; };
-windowTarget.clearInterval = (id) => { clearedInterval = id; };
-let resolveRefresh;
-let refreshCalls = 0;
-const stop = startVisibleRefreshLoop(() => {
-  refreshCalls += 1;
-  return new Promise(resolve => { resolveRefresh = resolve; });
-}, { documentTarget, windowTarget, intervalMs: 300_000 });
-assert.equal(intervalDelay, 300_000);
-assert.equal(refreshCalls, 0);
-intervalCallback();
-await Promise.resolve();
-assert.equal(refreshCalls, 1);
-intervalCallback();
-windowTarget.dispatch("focus");
-assert.equal(refreshCalls, 1);
-documentTarget.visibilityState = "hidden";
-resolveRefresh();
-await new Promise(resolve => setImmediate(resolve));
-intervalCallback();
-windowTarget.dispatch("focus");
-assert.equal(refreshCalls, 1);
-documentTarget.visibilityState = "visible";
-documentTarget.dispatch("visibilitychange");
-await Promise.resolve();
-await Promise.resolve();
-assert.equal(refreshCalls, 2);
-stop();
-assert.equal(clearedInterval, 17);
-assert.equal(documentTarget.listeners.has("visibilitychange"), false);
-assert.equal(windowTarget.listeners.has("focus"), false);
-resolveRefresh();
-await Promise.resolve();
-await Promise.resolve();
-intervalCallback();
-assert.equal(refreshCalls, 2);
-
 const app = readFileSync(new URL("../web/strategy-switch-console/frontend/src/App.tsx", import.meta.url), "utf8");
-const refresh = app.slice(app.indexOf("const refreshOverviewReadModels"), app.indexOf("useEffect(() => {\n        if (model?.session.allowed !== true)"));
-assert.match(refresh, /loadOverviewReadModels\(\)/);
-assert.match(refresh, /if \(fullReadModelRefreshInFlight\.current\)/);
-assert.doesNotMatch(refresh, /loadReadModel\(\)|setUxDraft|setUxDirty/);
-assert.match(refresh, /setOverviewReadModelRefreshVersion/);
-const fullRefresh = app.slice(app.indexOf("const refresh = useCallback"), app.indexOf("const refreshOverviewReadModels"));
-assert.match(fullRefresh, /overviewReadModelEpoch\.current\s*\+=\s*1[\s\S]*?fullReadModelRefreshInFlight\.current\s*=\s*true[\s\S]*?loadReadModel\(\)/);
-assert.match(fullRefresh, /if \(gate\.current\.isCurrent\(token\)\)\s*\{\s*fullReadModelRefreshInFlight\.current\s*=\s*false/);
+assert.doesNotMatch(app, /startVisibleRefreshLoop|window\.setInterval/, "the App must not install background or focus-driven network refreshes");
+const fullRefresh = app.slice(app.indexOf("const refresh = useCallback"), app.indexOf("useEffect(() => { void refresh(); }, []);"));
+assert.match(fullRefresh, /gate\.current\.begin\(\)/);
+assert.match(fullRefresh, /if \(!gate\.current\.isCurrent\(token\)\)/);
+assert.match(fullRefresh, /setModel\(next\);\s*setOverviewReadModelRefreshVersion/, "explicit readback refreshes overview detail data in the same batch as the model");
+assert.match(app, /useEffect\(\(\) => \{ void refresh\(\); \}, \[\]\)/, "boot load is mount-only");
 const overview = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
 const historyEffect = overview.slice(overview.indexOf("const epoch = ++historyEpoch.current"), overview.indexOf("const epoch = ++runtimeEpoch.current"));
 assert.match(historyEffect, /chartAccount\?\.id[\s\S]*chartFacts\?\.observed_finished_at/);
@@ -127,10 +73,11 @@ assert.doesNotMatch(historyEffect, /selectedFacts\?\.observed_finished_at/);
 const runtimeEffect = overview.slice(overview.indexOf("const epoch = ++runtimeEpoch.current"), overview.indexOf("// All-account totals"));
 assert.match(runtimeEffect, /runtimeDateSelectable\(runtimeDate, runtimeNow\)/);
 assert.match(runtimeEffect, /visible\.filter\(account => runtimeDailySelectionEligible/);
-assert.match(runtimeEffect, /runtimeDate === runtimeToday \? readModelRefreshVersion : 0/);
+assert.doesNotMatch(runtimeEffect, /runtimeDate === runtimeToday \? readModelRefreshVersion : 0/, "crossing midnight cannot change a fetch dependency");
+assert.doesNotMatch(overview, /previousToday|setRuntimeDate\(date =>/, "the clock never rewrites the selected day");
 assert.match(runtimeEffect, /runtimeEpoch\.current !== epoch/);
 assert.match(runtimeEffect, /return cancel/);
-assert.match(runtimeEffect, /\[dailyAccountsKey, runtimeToday, readModelRefreshVersion\]/, "today's health refresh follows every exact daily binding independently of the selected historical day");
+assert.match(runtimeEffect, /\[dailyAccountsKey, readModelRefreshVersion\]/, "today health reads only on opening, exact binding changes, or explicit readback");
 
 // Execute the actual history hook and dependency list without a browser or a
 // provider. This is a hook lifecycle harness, not full React rendering evidence.
@@ -262,7 +209,7 @@ const syntheticTargets = {
 const dailyPending = [];
 globalThis.fetch = (path, options) => {
   assert.equal(options.method, "GET"); assert.equal(options.cache, "no-store");
-  assert.match(path, /^\/api\/runtime-daily\?date=2026-10-0[56]&platform=(longbridge|schwab)&account_key=synthetic-same$/);
+  assert.match(path, /^\/api\/runtime-daily\?date=2026-10-0[567]&platform=(longbridge|schwab)&account_key=synthetic-same$/);
   return new Promise((resolve, reject) => dailyPending.push({ path, resolve, reject }));
 };
 function dailyRespond(index, marker = "ok", status = 200, patch = {}) {
@@ -289,6 +236,7 @@ function dailyHarness(today = false) {
   });
   return {
     get state() { return state; },
+    get selectedDate() { return context.runtimeDate; },
     render(patch = {}) { assert.equal(mounted, true); Object.assign(context, patch); runInContext(today ? currentHook : runtimeHook, context, { timeout: 1000 }); },
     unmount() { mounted = false; cancel?.(); },
   };
@@ -336,7 +284,30 @@ try {
   current.render({ dailyAccountsKey: "schwab-unresolved", accounts: [syntheticAccounts[0], { ...syntheticAccounts[1], runtimeDailyBinding: "unresolved" }] });
   assert.equal(dailyPending.length, beforeUnresolved + 1, "unresolved Schwab binding cannot start a daily fetch");
   assert.equal(current.state[schwabKey], undefined); current.unmount();
+  const pinned = dailyHarness(); const opening = dailyPending.length;
+  pinned.render({ runtimeDate: "2026-10-05", readModelRefreshVersion: 4 });
+  assert.equal(dailyPending.length, opening + 2);
+  pinned.render({ runtimeToday: "2026-10-07", runtimeNow: Date.parse("2026-10-07T04:01:00Z") });
+  assert.equal(pinned.selectedDate, "2026-10-05", "crossing New York midnight keeps the chosen historical date");
+  assert.equal(dailyPending.length, opening + 2, "local midnight creates no historical-data GET");
+  pinned.render({ readModelRefreshVersion: 5 });
+  assert.equal(dailyPending.length, opening + 4, "explicit readback may refresh the selected historical data");
+  pinned.unmount();
+
+  const atMidnight = dailyHarness(true); const atOpening = dailyPending.length;
+  atMidnight.render();
+  assert.equal(dailyPending.length, atOpening + 2);
+  atMidnight.render({ runtimeToday: "2026-10-07", runtimeNow: Date.parse("2026-10-07T04:01:00Z") });
+  assert.equal(atMidnight.selectedDate, "2026-10-06", "the selected date remains the opened date across midnight");
+  assert.equal(dailyPending.length, atOpening + 2, "today-health clock changes do not fetch a new day");
+  assert.equal(atMidnight.state[runtimeDailyAccountDateKey("longbridge", "synthetic-same", "2026-10-07")], undefined, "yesterday's record is not current-day evidence");
+  atMidnight.render({ readModelRefreshVersion: 1 });
+  assert.equal(dailyPending.length, atOpening + 4);
+  assert.ok(dailyPending.slice(atOpening + 2).every(item => item.path.includes("date=2026-10-07")), "explicit readback loads the actual current day");
+  atMidnight.unmount();
   console.log("daily hook races: PASS (platform/account/date isolation, all accounts, history versus today, refresh, mismatch, late success/failure and unmount)");
 } finally {
   globalThis.fetch = originalFetch;
 }
+
+await import("./console_load_lifecycle_validation.mjs");

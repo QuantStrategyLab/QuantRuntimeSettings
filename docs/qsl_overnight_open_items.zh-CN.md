@@ -64,6 +64,8 @@
 
 2026-10-07 09:02 UTC 接续：[6.11 网站机制首批展示](#account-metadata-display-20261007)记录四批架构方案已确认后的本地实现与最新有限页面证据；6.10的发布等待和仅计划描述按该节日期保留，当前阶段以6.11为准。
 
+2026-10-07 09:56 UTC 纠偏：[6.12 保留原页面](#opus-audit-copy-removal-20261007)记录撤回内部审计文案和新增说明块的本地候选；数据架构继续推进，不把架构审查文本加入Opus页面。
+
 ### 6.1 使用方法与逐阶段维护
 
 - 任务 ID 保持稳定。按任务指定前置、边界和完成证据推进；“可立即实施”仅指具备有界离线下一步，不额外授权 Git 发布、真实数据/模型调用、部署、通知、账户或资金动作。
@@ -354,3 +356,26 @@ English update: The four presentation groups map every one of the original 23 ID
 新增合成回归沿现CI入口执行实际QRS payload validator/read-model和React渲染，覆盖真实0/null、过期/缺绑定/重复/身份不符、Schwab原生类别与错误来源、跨平台不推断、Binance错账户/过期/单选金额、历史错账户/旧请求隔离、四准确名称及英文fallback，外部fetch尝试为0。前三个整套失败是原源码正则锁定旧内联fresh写法或旧类型标签；更换为共享helper/维度标签断言后重跑通过，原接收端身份、币种、精度、权限和存储断言均保留。上述为纯合成/本地证明，尚不是本批真实网站部署验收，当前候选待精确差异复审后才进入发布。
 
 English update: The four architecture batches are approved and remain under the original six workstreams and 23 IDs. QRS #541 is deployed at c8f095f; a limited authenticated page observation saw asset amounts on 8 of 10 configured account cards, with LongBridge HK and Firstrade unavailable, Schwab CASH and Binance SPOT/USDT present. These are configured rows, not deduplicated physical accounts. This isolated first display candidate consumes only existing metadata: bounded missing/binding/freshness reasons, separate environment/native/product dimensions and observation times, explicit configured coverage, selected Binance card valuation, history range/retention caveats, and the four confirmed benchmark names. No provider, fetch route, health algorithm, identity migration, return calculation, FX aggregation, settings POST or runtime action was added. Build/sync, 38 executable JS/config checks and 450 Python tests (10 existing skips) passed locally. Three old source-regex failures were updated to the reused helper/labels while retaining receiver safety tests and adding actual validator/read-model-to-React positive and negative cases. The known local listener restriction was not retried; packaging, actionlint, external consumer checkout and exact Node22 CI remain unclaimed. CSS/images and unrelated runtime/decision sources are unchanged. New JS is index-CsAhF1rK.js. This candidate remains unpublished pending exact review; the separate decision-readback candidate will rebase after the prioritized display publication.
+
+
+<a id="opus-audit-copy-removal-20261007"></a>
+
+### 6.12 2026-10-07 保留原页面并撤回审计说明
+
+用户明确要求保留Opus前端，架构审查与数据机制的解释不应变成网站页面内容。此前只核对CSS/图片字节不变，仍新增了说明段落、覆盖统计和资料details，实际改变了页面内容结构；这就是本次撤回的根因，不能把CSS不变等同于前端页面没有改变。
+
+QRS [#542](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/542)已合并并自动部署；本地撤回候选基于fresh main `3cf51aab930f71a5b9bafb8fc642e4292fcfaa98` / tree `a3d130cf297f116579154976e2ded7202c498c7d`，全量340个tracked blob一致后独立建立，未编辑旧工作目录。
+
+- `UI-02`：总览账户卡恢复原先单行类型展示，保留可信原生类别、paper标签及未知状态；删除新增配置环境行及账户资料/身份/权限审计details。原生数据readout和身份守卫保留，不猜Cash/Margin或产品权限
+- `UI-05`：删除运行与资产分别核对、资产覆盖计数、配置条目不等于实物账户及去重/币种说明；删除新增历史数据范围details。全部账户指标恢复原“请选择账户”，不新增合计解释。正确原币种金额、真实0/null、过期/绑定异常守卫及单选Binance合格USDT值保留
+- `UI-03`：删除设置页静态说明“当前配置来自设置读回；草案与风险偏好分别保存，运行端生效需另行验证。”；该文案早于#542，属于相同的不必要审计展示。除原生类别读出在既有render中使用当前本地时间外，保存/草案/风险偏好、失败、冲突、未知防重及必要确认合同不改
+- `DATA-01` / `DATA-02`：真实数据与四基准准确名称保留；将#542新增的“数据来源与网站使用权限待核”改回既有简洁空态“暂无数据”，不新增locale或解释层。仍未添加收益、FX、行情来源或账户汇总；未使用的locale/helper不为本次撤回顺手清理
+- `UI-04`：已由单一owner精确整合独立四文件刷新候选。页面打开或用户明确读回才刷新，移除5分钟、focus/visibility及两处3秒网络polling；不再跨纽约午夜自动改用户所选日期或触发GET。保留既有本地时钟、运行/钱包过期判断、账户切换及晚到/401隔离。健康算法、接收器、下单与操作合同未改
+
+回归先在原3cf页面真实React渲染中复现审计文字仍存在而失败，再验证指定段落/details不存在，原金额/原生类型/未知及真实历史点仍存在。设置页面也通过实际React渲染验证指定静态说明已移除。账户身份、币种、时效、真实0/null和错账户负例继续保留；不得仅删除旧断言来通过测试。
+
+**取消网络轮询后的必要时效守卫：** 股票账户原先依赖API重新判定freshness，取消5分钟GET后不能把打开页面时的fresh永久视作当前。新增仅用于显示的快照投影，复用原account_facts的36小时及未来偏差常量，使用Overview既有runtimeNow/同一render时间；无新timer或GET。金额、现金/融资详情及原生类别消费同一投影；过期、无时间或越过未来偏差的当前值隐藏，真实历史points保留，不改加载的原模型。AccountsPage的原生readout在既有render时同样核当前本地时间。该安全补充仅多改types.ts与presentation.ts，未新增页面说明。
+
+截至10:14 UTC，统一候选TypeScript/Vite构建、asset sync及38项可执行既有JS/config检查全部通过；Python450项通过、10项既有skip。新增打开一次/无网络polling/focus/跨日/显式读回/401晚到隔离测试接入现有overview_refresh CI入口；真实React测试验证审计文字撤回以及36小时边界、未来/无时间、真实0/null、原生类型和历史点保留。JS为`index-BQVc_D6K.js`，CSS仍`index-CFupHWyt.css`；原CSS/图片、API/Worker、设置控制器和Decision字节不变。已知受限listener测试未重试；Node22 CI、打包/actionlint/外部consumer及浏览器版式不冒称本地已验。本候选未push或创建PR，线上撤回尚未完成；不尝试新的浏览器/代理/权限路线。
+
+English correction: Preserve the original Opus page instead of adding internal audit explanations. This local combined candidate removes the added coverage/identity/history prose and disclosures plus the specified account-settings paragraph, restores concise type and selection labels, and changes the newly added source-rights audit copy to the existing no-data placeholder. Verified amounts, native/unknown types, true zero/null and qualified historical observations remain. One owner integrated the approved refresh patch: opening and explicit actions can read, but 5-minute, focus/visibility, 3-second polling and clock-driven date/GET changes are removed. Existing clocks continue local expiry. A display-only snapshot projection reuses the existing 36-hour/future-skew constants so loaded current balances, cash/financing details and native types do not stay current indefinitely; no timer or GET is added and historical points are not erased. Build/sync, 38 executable JS/config checks and 450 Python tests with 10 existing skips passed. The new lifecycle test runs through the existing CI entry. JS is index-BQVc_D6K.js; CSS/images, backend/API, settings controller and Decision are unchanged. Known restricted listener and browser checks were not retried. Exact remote CI and production acceptance remain pending; there is no PR or publication yet.

@@ -11,7 +11,7 @@ for (const value of [undefined, '', 'HK', 'SG', 'USD', 'Margin', 'dry_run']) {
 const now = Date.parse('2026-10-05T10:00:00Z');
 const fresh = {
   platform: 'schwab', account_key: 'synthetic', binding_status: 'bound', identity_status: 'partial_identity',
-  identity_mismatch: false, data_status: 'fresh', broker_account_type: { value: 'MARGIN', source_tag: 'securitiesAccount.type' },
+  identity_mismatch: false, data_status: 'fresh', observed_finished_at: '2026-10-05T09:59:00Z', broker_account_type: { value: 'MARGIN', source_tag: 'securitiesAccount.type' },
   balances: [{ currency: 'USD', net_assets: '123' }], cash: [{ currency: 'USD', cash_balance: '-2' }],
 };
 const display = (platform = 'schwab', key = 'synthetic', facts = fresh, report = null) => presentation.accountNativeReadout(platform, key, facts, report, now);

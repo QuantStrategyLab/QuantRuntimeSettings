@@ -285,7 +285,8 @@ const apiSource = readFileSync(join(root, "web/strategy-switch-console/frontend/
 const overviewStyles = readFileSync(join(root, "web/strategy-switch-console/frontend/src/styles.css"), "utf8");
 assert.match(overview, /historyEpoch/);
 assert.match(overview, /useState\("all"\)/);
-assert.match(overview, /const visible = accountId === "all" \? accounts : accounts\.filter/);
+assert.match(overview, /const visible = accountId === "all" \? displayAccounts : displayAccounts\.filter/);
+assert.match(overview, /facts: accountFactsForDisplay\(account\.facts, factsNow\)/, "all visible amount/type/detail reads share the local expiry projection");
 assert.match(overview, /const totalAssets = accountId === "all"/);
 assert.match(overview, /const totalCash = accountId === "all"/);
 assert.doesNotMatch(overview, /chartAccountId|图表账户/);

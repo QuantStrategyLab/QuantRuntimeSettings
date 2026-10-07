@@ -954,9 +954,10 @@ assert.match(overviewPage, /formatAccountFactAmounts\(\s*freshCashRows,\s*cashFi
 assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \? "cash_balance"/);
 assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \? "现金余额"/);
 assert.match(overviewPage, /accountNativeReadout\(account\.platformKey, account\.accountKey, account\.facts,/);
-assert.match(overviewPage, /t\("券商账户类别：\{value\}", \{ value: native\.nativeType \|\| t\("未核实"\) \}\)/);
-assert.match(overviewPage, /brokerAccountType\(account\.brokerEnvironment\)/);
-assert.match(overviewPage, /模拟配置 \{paper\} 个，钱包估值 \{wallet\} 个/);
+assert.match(overviewPage, /native\.nativeType\s*\? `\$\{t\("账户类型"\)\}: \$\{native\.nativeType\}`/);
+assert.match(overviewPage, /const paperConfigured = account\.brokerEnvironment === "paper"/);
+assert.match(overviewPage, /t\("模拟账户"\)/);
+assert.doesNotMatch(overviewPage, /已取得资产金额|覆盖按配置条目统计|账户资料依据|历史数据范围/);
 assert.doesNotMatch(overviewPage, /t\("账户配置"\)/);
 const appSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/App.tsx"), "utf8");
 assert.match(appSource, /brokerEnvironment: typeof row\.account\.broker_environment === "string" \? row\.account\.broker_environment : null/);

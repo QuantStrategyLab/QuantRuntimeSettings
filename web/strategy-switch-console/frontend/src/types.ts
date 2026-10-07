@@ -1,3 +1,5 @@
+import { ACCOUNT_FACTS_STALE_MS, ACCOUNT_FACTS_FUTURE_SKEW_MS } from "../../account_facts.js";
+
 export type AccountFactsReturn = {
   status: "unavailable";
   reason: "external_cashflow_required";
@@ -322,6 +324,19 @@ export function totalsUnavailableDetail(reason: string | null | undefined): stri
   if (reason === "coverage_incomplete") return "账户资产资料覆盖不全，暂不合计";
   if (reason === "no_non_paper_accounts") return "暂无可合计的非模拟账户";
   return "全部账户总额暂不可用";
+}
+
+/** Expire a loaded current snapshot locally; keep source/history values untouched. */
+export function accountFactsForDisplay(
+  account: AccountFactsAccount | null | undefined,
+  now = Date.now(),
+): AccountFactsAccount | null | undefined {
+  if (!account || account.data_status !== "fresh") return account;
+  const observed = typeof account.observed_finished_at === "string" ? Date.parse(account.observed_finished_at) : NaN;
+  if (!Number.isFinite(now) || !Number.isFinite(observed) || observed > now + ACCOUNT_FACTS_FUTURE_SKEW_MS) {
+    return { ...account, data_status: "unavailable" };
+  }
+  return now - observed > ACCOUNT_FACTS_STALE_MS ? { ...account, data_status: "stale" } : account;
 }
 
 export function accountFactsDisplayReady(account: AccountFactsAccount | null | undefined): boolean {
