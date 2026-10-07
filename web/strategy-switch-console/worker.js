@@ -7809,6 +7809,10 @@ function runtimeDailyPublicRecord(record) {
       grace_ends_at: record.schedule.grace_ends_at,
       publication_grace_ended: record.schedule.publication_grace_ended,
       expected_window: record.schedule.expected_window,
+      // Only Schwab's validated, fixed closed-session facts may reach health UI.
+      // Legacy LongBridge reasons remain private bounded diagnostic text.
+      ...(record.platform === "schwab" && ["no_cron_on_business_date", "market_closed"].includes(record.schedule.reason)
+        ? { reason: record.schedule.reason } : {}),
     },
     runs: record.runs.map((run) => ({
       run_id: run.run_id,

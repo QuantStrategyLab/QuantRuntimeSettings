@@ -221,9 +221,11 @@ try {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`,
       ...(sourceBindingId === null ? {} : { "X-QSL-Source-Binding-ID": sourceBindingId }) }, body: JSON.stringify(body),
   }), localEnv);
-  const session = await __test.makeSession("synthetic-reader", [], localEnv);
-  const readPath = path => worker.fetch(new Request(`https://synthetic.example${path}`, { headers: { Cookie: `qsl_switch_session=${session}` } }), localEnv);
-  const readDaily = (platform = "schwab", accountKey = schwab.key) => readPath(`/api/runtime-daily?date=2026-10-06&platform=${platform}&account_key=${accountKey}`);
+  const readPath = async path => {
+    const session = await __test.makeSession("synthetic-reader", [], localEnv);
+    return worker.fetch(new Request(`https://synthetic.example${path}`, { headers: { Cookie: `qsl_switch_session=${session}` } }), localEnv);
+  };
+  const readDaily = (platform = "schwab", accountKey = schwab.key, date = "2026-10-06") => readPath(`/api/runtime-daily?date=${date}&platform=${platform}&account_key=${accountKey}`);
   const bindingSummary = [{ platform: "schwab", target_key: sourceBody.records[0].target_key, account_key: schwab.key, status: "bound" }];
   const selection = { platform: "schwab", accountKey: schwab.key,
     dailyBinding: runtimeDailySelectionBinding({ schwab: [schwab] }, "schwab", schwab.key, bindingSummary) };
@@ -277,6 +279,7 @@ try {
       const read = await readDaily(); assert.equal(read.status, 200);
       const snapshot = await read.json();
       assert.equal(snapshot.record.status, item.projection.records[0].status);
+      assert.equal(Object.hasOwn(snapshot.record.schedule, "reason"), false, "other schedule reasons remain private");
       assert.equal(snapshot.unmatched_count, item.projection.unmatched_reports.length);
       assert.deepEqual(snapshot.fills, { source: "not_connected", records: [], count: null });
       for (const forbidden of ["gs://", "receipt_id", "receipt_state", "broker_account_hash", "binding_fingerprint", "source_binding", "sourceBindingId", "a".repeat(64), "synthetic-broker-hash"]) {
@@ -284,6 +287,18 @@ try {
       }
       assert.equal(presentRuntimeDaily(snapshot, selection, "2026-10-06").accountMatched, true);
       assert.equal(healthFor(snapshot).label, ["due_no_signal", "not_due"].includes(item.name) ? "健康" : "异常", item.name);
+      if (item.name === "not_due") {
+        const originalClock = schwabNow;
+        schwabNow = Date.parse(snapshot.record.schedule.next_due_at) - 1;
+        assert.equal(healthFor(snapshot).label, "健康", "before_schedule retains its explicit future due boundary");
+        schwabNow += 1;
+        assert.equal(healthFor(snapshot).label, "异常", "before_schedule expires exactly at next_due_at");
+        schwabNow = originalClock;
+        const missingNext = structuredClone(item.projection); missingNext.records[0].schedule.next_due_at = null;
+        const writes = localWrites.length;
+        assert.equal((await send(missingNext)).status, 400, "before_schedule cannot borrow the closed-session null-next exception");
+        assert.equal(localWrites.length, writes);
+      }
       if (item.name === "filled_and_submitted") assert.equal(presentRuntimeDaily(snapshot, selection).statusLabel, "已提交");
       if (item.name === "failed_receipt") assert.equal(presentRuntimeDaily(snapshot, selection).statusLabel, "异常");
       assert.equal((await send(item.projection)).status, 200, "same observation and exact content is idempotent");
@@ -415,6 +430,96 @@ try {
       assert.equal(snapshot.record.runs[0].issue, issue, "safe public issue survives removal of private evidence");
       assert.equal(healthFor(snapshot).label, "异常");
     }
+    // Exact merged-producer outputs include honest null-next-due closed sessions.
+    // The local authenticated POST/read path supplies the public object used by UI.
+    for (const item of fixture.closed_session_cases) {
+      schwabNow = Date.parse(item.receiver_test_clock);
+      const body = item.projection;
+      const date = body.records[0].business_date;
+      const key = `runtime_daily:${body.records[0].target_key}:${date}`;
+      localStore.delete(key);
+      assert.equal((await send(body)).status, 200, item.name);
+      assert.deepEqual(JSON.parse(localStore.get(key)).projection, body, "do not invent a next due time or rewrite producer evidence");
+      const response = await readDaily("schwab", schwab.key, date);
+      assert.equal(response.status, 200, item.name);
+      const snapshot = await response.json();
+      assert.equal(snapshot.data_status, "fresh");
+      assert.equal(snapshot.record.schedule.reason, body.records[0].schedule.reason, "safe explicit closed-session reason survives public projection");
+      assert.equal(snapshot.record.schedule.next_due_at, null);
+      assert.equal(healthFor(snapshot).label, "健康", item.name);
+      assert.equal(healthFor(snapshot).nextDueAt, null, "health cannot fabricate a schedule");
+      assert.equal(healthFor(snapshot).lastSuccessAt, null, "a closed session is not a completed execution");
+      assert.equal(presentRuntimeDaily(snapshot, selection, date).statusLabel, body.records[0].status === "market_closed" ? "休市" : "未到期");
+      assert.equal(overviewRuntimeHealth(schwabRuntime(), snapshot, selection, true, schwabNow).label, "异常", "identity mismatch wins over a closed session");
+      for (const [name, mutate] of [
+        ["missing reason", value => delete value.record.schedule.reason],
+        ["unknown reason", value => value.record.schedule.reason = "not_a_source_fact"],
+        ["wrong status reason", value => value.record.schedule.reason = value.record.status === "market_closed" ? "no_cron_on_business_date" : "market_closed"],
+        ["unknown source platform", value => value.platform = "unknown"],
+        ["missing source target", value => delete value.target_key],
+        ["incomplete read", value => value.record.completeness = "incomplete"],
+        ["read error", value => value.read_error_count = 1],
+        ["unmatched report", value => value.unmatched_count = 1],
+        ["conflicting report", value => value.record.conflict_count = 1],
+        ["stale record", value => value.data_status = "stale"],
+        ["future observation", value => value.record.observed_at = new Date(schwabNow + 1).toISOString()],
+      ]) {
+        const altered = structuredClone(snapshot); mutate(altered);
+        assert.equal(healthFor(altered).label, "异常", `${item.name}: ${name}`);
+      }
+      for (const [name, mutate] of [
+        ["failed lifecycle", value => value.account_state.health = "abnormal"],
+        ["expired lifecycle", value => value.observed_at = new Date(schwabNow - 301000).toISOString()],
+        ["expired deployment", value => value.deployment_freshness.data_status = "stale"],
+        ["unknown runtime guard", value => value.target.monitoring.runtime_guard = "unknown"],
+        ["paused scheduler", value => value.target.deployment.scheduler_state = "paused"],
+      ]) {
+        const runtime = schwabRuntime(); mutate(runtime);
+        assert.equal(overviewRuntimeHealth(runtime, snapshot, selection, false, schwabNow).label, "异常", `${item.name}: ${name}`);
+      }
+      for (const [activity, errors] of [["submitted", false], ["failed", true], ["no_submission", true]]) {
+        const conflict = structuredClone(snapshot);
+        conflict.record.runs = [{ run_id: "synthetic", activity, errors_present: errors, execution_lane: "live", started_at: body.observed_at, finished_at: body.observed_at }];
+        assert.equal(healthFor(conflict).label, "异常", `${item.name}: pending or errors precede closed-session health`);
+      }
+      for (const reason of [null, "unsafe-private-diagnostic"]) {
+        const invalid = structuredClone(body); invalid.records[0].schedule.reason = reason;
+        const writes = localWrites.length;
+        assert.equal((await send(invalid)).status, 400, "missing/unknown Schwab reason fails at ingress");
+        assert.equal(localWrites.length, writes);
+      }
+      schwabNow += 301000;
+      assert.equal(overviewRuntimeHealth({ ...schwabRuntime(), observed_at: body.observed_at }, snapshot, selection, false, schwabNow).label, "异常", "existing lifecycle TTL still expires a closed session");
+      schwabNow = Date.parse(item.next_ny_midnight) - 1;
+      assert.equal(healthFor(snapshot).label, "健康", `${item.name}: still the same New York business day with fresh lifecycle evidence`);
+      schwabNow += 1;
+      assert.equal(healthFor(snapshot).label, "异常", `${item.name}: cached fresh flag cannot survive New York midnight`);
+      const historical = await (await readDaily("schwab", schwab.key, date)).json();
+      assert.equal(historical.data_status, "historical", "receiver and UI agree on New York date rollover including DST");
+      assert.equal(healthFor(historical).label, "异常");
+      assertions++;
+    }
+    schwabNow = Date.parse(fixture.receiver_test_clock);
+    for (const item of fixture.closed_session_negative_cases) {
+      localStore.delete(sourceKey);
+      const writes = localWrites.length;
+      const response = await send(item.projection);
+      assert.equal(response.status, item.expected_receiver_status, item.name);
+      if (item.expected_receiver_status === 400) {
+        assert.equal((await response.json()).error, "runtime_daily_summary_conflict", "closed producer summaries cannot hide a pending run");
+        assert.equal(localWrites.length, writes);
+        assert.equal(localStore.has(sourceKey), false);
+        assert.equal(healthFor(await (await readDaily()).json()).label, "异常");
+        assertions++;
+        continue;
+      }
+      const snapshot = await (await readDaily()).json();
+      assert.equal(snapshot.record.schedule.reason, item.projection.records[0].schedule.reason);
+      assert.equal(healthFor(snapshot).label, "异常", `${item.name}: closed-session reasons cannot override incomplete, pending or failed producer evidence`);
+      assert.notEqual(presentRuntimeDaily(snapshot, selection).statusLabel, "休市");
+      assertions++;
+    }
+    console.log("Schwab closed-session health: PASS (6 closed + 6 negative producer outputs, null next due, privacy, source/lifecycle/error priority, NY midnight and DST)");
     console.log(`Schwab daily integration: PASS (${assertions} producer/negative cases plus auth, binding, drift, privacy, legacy isolation and public health)`);
     console.log("Schwab source-binding header: PASS (new-day drift, current-ID positive control, malformed/duplicate/body-only rejection, zero-write and no-ID-echo guards)");
   } finally {

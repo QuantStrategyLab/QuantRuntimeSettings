@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { overviewRuntimeHealth, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
-import { RUNTIME_DAILY_TARGET } from "../web/strategy-switch-console/runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, runtimeDailyTarget } from "../web/strategy-switch-console/runtime_daily_contract.js";
 
 const now = Date.parse("2026-10-04T16:00:00Z");
 const instant = offset => new Date(now + offset * 1000).toISOString();
@@ -161,6 +161,54 @@ sundayMarketClosed.date = "2026-10-04";
 sundayMarketClosed.record = { ...sundayMarketClosed.record, business_date: "2026-10-04", kind: "schedule", status: "market_closed", runs: [], schedule: { state: "market_closed", next_due_at: instant(3600) } };
 assert.equal(health(runtime, sundayMarketClosed).label, "健康", "Sunday is healthy only because the upstream LongBridge schedule explicitly reports market_closed with a future next due time");
 assert.equal(health(runtime, sundayMarketClosed, selection, false, now + 3600_000).label, "异常", "the upstream market-closed window does not remain healthy after its next due time");
+// The null-next-due exception belongs only to explicit, current-day Schwab facts.
+const schwabSelection = { platform: "schwab", accountKey: "synthetic-schwab", dailyBinding: "bound" };
+for (const [status, reason] of [["not_due", "no_cron_on_business_date"], ["market_closed", "market_closed"]]) {
+  const closed = clone(daily);
+  Object.assign(closed, { platform: "schwab", target_key: runtimeDailyTarget("schwab").target_key, account_key: schwabSelection.accountKey });
+  Object.assign(closed.record, runtimeDailyTarget("schwab"), { status, kind: "schedule", runs: [], execution_lane: "insufficient" });
+  closed.record.schedule = { state: status, reason, business_date: closed.date, timezone: "America/New_York",
+    latest_due_at: status === "market_closed" ? instant(-120) : null, next_due_at: null,
+    grace_ends_at: null, publication_grace_ended: null, expected_window: "unspecified" };
+  assert.equal(health(runtime, closed, schwabSelection).label, "健康", reason);
+  for (const [name, mutate] of [
+    ["missing reason", d => delete d.record.schedule.reason],
+    ["null reason", d => d.record.schedule.reason = null],
+    ["arbitrary reason", d => d.record.schedule.reason = "calendar_guess"],
+    ["before_schedule without next", d => d.record.schedule.reason = "before_schedule"],
+    ["missing schedule date", d => delete d.record.schedule.business_date],
+    ["wrong schedule date", d => d.record.schedule.business_date = "2026-10-03"],
+    ["missing schedule timezone", d => delete d.record.schedule.timezone],
+    ["wrong schedule timezone", d => d.record.schedule.timezone = "UTC"],
+    ["previous NY observation", d => d.record.observed_at = "2026-10-04T03:59:59Z"],
+    ["missing explicit next", d => delete d.record.schedule.next_due_at],
+    ["malformed next", d => d.record.schedule.next_due_at = "bad-time"],
+    ["past next", d => d.record.schedule.next_due_at = instant(-1)],
+    ["missing grace", d => delete d.record.schedule.grace_ends_at],
+    ["unverified grace", d => delete d.record.schedule.publication_grace_ended],
+    ["grace conflict", d => d.record.schedule.publication_grace_ended = false],
+    ["future latest", d => d.record.schedule.latest_due_at = instant(1)],
+    ["latest after observation", d => d.record.schedule.latest_due_at = instant(-1)],
+    ["other-day latest", d => d.record.schedule.latest_due_at = "2026-10-03T20:00:00Z"],
+    ["wrong schedule state", d => d.record.schedule.state = "outside_window"],
+    ["wrong kind", d => d.record.kind = "run"],
+    ["missing platform", d => delete d.platform],
+    ["wrong account", d => d.account_key = "other"],
+    ["wrong target", d => d.record.strategy_profile = "other"],
+    ["dry-run lane", d => d.record.execution_lane = "dry_run"],
+  ]) {
+    const altered = clone(closed); mutate(altered);
+    assert.equal(health(runtime, altered, schwabSelection).label, "异常", `${reason}: ${name}`);
+  }
+  const legacy = clone(closed);
+  Object.assign(legacy, { platform: "longbridge", target_key: RUNTIME_DAILY_TARGET.target_key, account_key: selection.accountKey });
+  Object.assign(legacy.record, RUNTIME_DAILY_TARGET);
+  assert.equal(health(runtime, legacy).label, "异常", "Schwab-only closed reasons cannot broaden the original LongBridge contract");
+  for (const status of ["failed", "blocked", "unknown", "submitted", "broker_acknowledged", "partially_filled"]) {
+    const changed = clone(closed); changed.record.status = status;
+    assert.equal(health(runtime, changed, schwabSelection).label, "异常", `${reason}: ${status} cannot become healthy`);
+  }
+}
 const grace = clone(daily);
 grace.record = { ...grace.record, kind: "schedule", status: "within_grace", runs: [], schedule: { state: "within_grace", grace_ends_at: instant(60), publication_grace_ended: false } };
 assert.equal(health(runtime, grace).label, "健康");
