@@ -481,3 +481,5 @@ assert.deepEqual(environmentEditState("paper", "live", "live"), { value: "live",
 assert.deepEqual(environmentEditState("paper", "", "live"), { value: "", conflict: true });
 await import("./overview_refresh_validation.mjs");
 await import("./overview_dashboard_validation.mjs");
+
+await import("./promotion_queue_partial_validation.mjs");
