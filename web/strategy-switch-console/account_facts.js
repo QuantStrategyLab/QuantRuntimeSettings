@@ -666,16 +666,24 @@ export function aggregateAccountFactsTotals(accountRows, physicalIdentities = ne
   }
   for (const group of groups.values()) {
     if (group.length < 2) continue;
+    const canonicalAmounts = values => [...(values || [])]
+      .sort((a, b) => a.currency.localeCompare(b.currency))
+      .map(value => Object.fromEntries(Object.entries(value).map(([key, cell]) => [key,
+        typeof cell === "string" && DECIMAL_RE.test(cell) ? sumMoneyTexts([cell]) : cell])));
     const fingerprint = row => JSON.stringify({
-      paper: !nonPaper(row),
-      balances: [...(row.balances || [])].sort((a, b) => a.currency.localeCompare(b.currency)),
-      cash: [...(row.cash || [])].sort((a, b) => a.currency.localeCompare(b.currency)),
+      paper: !nonPaper(row), balances: canonicalAmounts(row.balances), cash: canonicalAmounts(row.cash),
     });
-    if (group.some(row => row.binding_status !== "bound" || row.data_status !== "fresh"
-        || fingerprint(row) !== fingerprint(group[0]))) {
+    // Distinct deployments can observe one account at different times. Reuse
+    // current-snapshot ordering: latest wins; only equal-time disagreement is
+    // a conflict. Paper classification disagreement remains a conflict.
+    const ordered = [...group].sort((a, b) => Date.parse(b.observed_finished_at) - Date.parse(a.observed_finished_at));
+    const latest = ordered[0];
+    const sameTime = ordered.filter(row => Date.parse(row.observed_finished_at) === Date.parse(latest.observed_finished_at));
+    if (group.some(row => nonPaper(row) !== nonPaper(latest))
+        || sameTime.some(row => fingerprint(row) !== fingerprint(latest))) {
       for (const row of group) row.aggregation_status = "conflict";
     } else {
-      for (const row of group.slice(1)) row.aggregation_status = "duplicate";
+      for (const row of ordered.slice(1)) row.aggregation_status = "duplicate";
     }
   }
   const included = rows.filter(row => nonPaper(row) && row.aggregation_status !== "duplicate");
