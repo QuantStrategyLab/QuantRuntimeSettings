@@ -120,6 +120,7 @@ jobs:
           node tests/firstrade_account_facts_preparation_validation.mjs
           node tests/ibkr_runtime_lifecycle_inspection_validation.mjs
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
+          node --experimental-strip-types tests/overview_benchmark_aggregate_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs

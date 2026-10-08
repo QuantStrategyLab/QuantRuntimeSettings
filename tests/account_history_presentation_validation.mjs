@@ -357,7 +357,8 @@ assert.doesNotMatch(overview, /t\(account\.environmentSource\)|account\.environm
 assert.doesNotMatch(overview, /t\(account\.environment\)|t\(account\.statusDetail\)/);
 assert.doesNotMatch(overview, /source-binding|partial_identity|not_connected|未知不等于零|尚未接通|外部资金流未接入|原金额保留字符串|不保留旧|未由券商原生核实|映射重复/);
 assert.match(overview, /已取得资产合计（不含已标记模拟账户）/);
-assert.match(overview, /全部账户只显示最新分币种估值；历史变化需选择单个账户。/);
+assert.match(overview, /汇总自 \{date\}（Asia\/Shanghai）起计算/);
+assert.doesNotMatch(overview, /全部账户只显示最新分币种估值；历史变化需选择单个账户。/);
 assert.match(overview, /暂无资产记录|chartUnavailable/);
 
 console.log("account_history_presentation_validation ok");

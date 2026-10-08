@@ -443,6 +443,178 @@ export function buildBinanceWalletHistoryChartGeometry(
   return buildChartValueGeometry(points, width, height);
 }
 
+export const MARKET_BENCHMARK_INCEPTION_DATE = "2026-10-09";
+export const MARKET_BENCHMARK_TIMEZONE = "Asia/Shanghai";
+
+export function shanghaiCalendarDate(instant: number | Date | string | null | undefined): string | null {
+  const ms = typeof instant === "number" ? instant
+    : instant instanceof Date ? instant.getTime()
+      : typeof instant === "string" ? Date.parse(instant) : NaN;
+  if (!Number.isFinite(ms)) return null;
+  const formatted = new Intl.DateTimeFormat("en-CA", {
+    timeZone: MARKET_BENCHMARK_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(ms);
+  return DATE_RE.test(formatted) ? formatted : null;
+}
+
+export type MarketBenchmarkSeriesId = typeof RETURN_INDEX_LEGEND[number];
+
+export type MarketBenchmarkPoint = {
+  seriesId: MarketBenchmarkSeriesId;
+  observationDate: string;
+  close: string;
+};
+
+export function presentMarketBenchmarkSeries(
+  stored: readonly MarketBenchmarkPoint[] | null | undefined,
+  seriesId: MarketBenchmarkSeriesId,
+) {
+  const byDate = new Map<string, string | null>();
+  for (const point of stored || []) {
+    if (!point || point.seriesId !== seriesId || !DATE_RE.test(point.observationDate)) continue;
+    const value = parseMoneyForChart(point.close);
+    if (value === null || value <= 0) continue;
+    const previous = byDate.get(point.observationDate);
+    if (previous === undefined) byDate.set(point.observationDate, point.close);
+    else if (previous !== point.close) byDate.set(point.observationDate, null);
+  }
+  const points = [...byDate.entries()]
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string")
+    .sort((left, right) => left[0].localeCompare(right[0]))
+    .map(([observationDate, close]) => ({ observationDate, close }));
+  return {
+    role: "market_benchmark" as const,
+    seriesId,
+    timezone: MARKET_BENCHMARK_TIMEZONE,
+    inceptionDate: MARKET_BENCHMARK_INCEPTION_DATE,
+    startDate: points[0]?.observationDate || MARKET_BENCHMARK_INCEPTION_DATE,
+    storedHistory: points.length > 0,
+    points,
+  };
+}
+
+export function buildBenchmarkChartGeometry(
+  points: Array<{ observationDate: string; close: string }>,
+  width = 640,
+  height = 220,
+): AssetChartGeometry {
+  return buildChartValueGeometry(points.map((point) => ({
+    observation_date: point.observationDate,
+    amount: point.close,
+  })), width, height);
+}
+
+function sumDecimalTexts(amounts: string[]): string {
+  let scale = 0;
+  const parsed = amounts.map((amount) => {
+    const negative = amount.startsWith("-");
+    const [integer, fraction = ""] = amount.replace(/^-/, "").split(".");
+    scale = Math.max(scale, fraction.length);
+    return { negative, integer, fraction };
+  });
+  const total = parsed.reduce((sum, value) => {
+    const magnitude = BigInt(value.integer + value.fraction.padEnd(scale, "0"));
+    return sum + (value.negative ? -magnitude : magnitude);
+  }, 0n);
+  const negative = total < 0n;
+  const digits = (negative ? -total : total).toString().padStart(scale + 1, "0");
+  const amount = scale
+    ? `${negative ? "-" : ""}${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/, "")
+    : `${negative ? "-" : ""}${digits}`;
+  return amount === "-" ? "0" : amount;
+}
+
+export type AggregateAssetPoint = { observation_date: string; net_assets: string };
+
+export function buildAggregateAssetSeries(
+  accounts: Array<{ id: string; points: AggregateAssetPoint[] }>,
+  inceptionDate = MARKET_BENCHMARK_INCEPTION_DATE,
+): { inceptionDate: string; points: AggregateAssetPoint[]; omittedPartialDateCount: number; memberCount: number } {
+  const members = (Array.isArray(accounts) ? accounts : []).map((account) => {
+    const byDate = new Map<string, string | null>();
+    for (const point of account?.points || []) {
+      if (!point || !DATE_RE.test(point.observation_date) || point.observation_date < inceptionDate) continue;
+      if (parseMoneyForChart(point.net_assets) === null) continue;
+      const previous = byDate.get(point.observation_date);
+      if (previous === undefined) byDate.set(point.observation_date, point.net_assets);
+      else if (previous !== point.net_assets) byDate.set(point.observation_date, null);
+    }
+    return byDate;
+  }).filter((byDate) => byDate.size > 0);
+  const dates = new Set<string>();
+  for (const byDate of members) for (const date of byDate.keys()) dates.add(date);
+  const points: AggregateAssetPoint[] = [];
+  let omittedPartialDateCount = 0;
+  for (const observationDate of [...dates].sort()) {
+    const amounts: string[] = [];
+    let complete = true;
+    for (const byDate of members) {
+      const amount = byDate.get(observationDate);
+      if (typeof amount !== "string") {
+        complete = false;
+        break;
+      }
+      amounts.push(amount);
+    }
+    if (!complete) {
+      omittedPartialDateCount += 1;
+      continue;
+    }
+    points.push({ observation_date: observationDate, net_assets: sumDecimalTexts(amounts) });
+  }
+  return { inceptionDate, points, omittedPartialDateCount, memberCount: members.length };
+}
+
+export type QualifiedPeriodReturn = {
+  currency: string;
+  periodFrom: string;
+  periodTo: string;
+  sourceValue: string;
+};
+
+export function readQualifiedPeriodReturn(
+  platform: string,
+  periodReturn: { status?: string; currency?: string; period?: { from?: string; to?: string }; source_value?: string; source_unit?: string } | null | undefined,
+  revisionMatches: boolean,
+): QualifiedPeriodReturn | null {
+  if (!revisionMatches || platform !== "ibkr" || periodReturn?.status !== "available" || periodReturn.source_unit !== "percent") return null;
+  const currency = periodReturn.currency;
+  const sourceValue = periodReturn.source_value;
+  const periodFrom = periodReturn.period?.from;
+  const periodTo = periodReturn.period?.to;
+  if (typeof currency !== "string" || typeof sourceValue !== "string" || typeof periodFrom !== "string" || typeof periodTo !== "string") return null;
+  if (!/^[A-Z]{3}$/.test(currency) || !DATE_RE.test(periodFrom) || !DATE_RE.test(periodTo) || !/^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(sourceValue)) return null;
+  return { currency, periodFrom, periodTo, sourceValue };
+}
+
+export function presentAggregateReturn(entries: Array<{ included: boolean; qualified: QualifiedPeriodReturn | null }>): {
+  status: "available";
+  currency: string;
+  periodFrom: string;
+  periodTo: string;
+  sourceValue: string;
+  basis: "single_eligible_account";
+} | { status: "unavailable"; reason: "no_qualified_record" | "incomplete" | "weighting_unqualified" } {
+  const included = (entries || []).filter((entry) => entry?.included);
+  const qualified = included.map((entry) => entry.qualified).filter((entry): entry is QualifiedPeriodReturn => Boolean(entry));
+  if (!included.length || !qualified.length) return { status: "unavailable", reason: "no_qualified_record" };
+  if (qualified.length < included.length) return { status: "unavailable", reason: "incomplete" };
+  if (qualified.length === 1) return { status: "available", ...qualified[0], basis: "single_eligible_account" };
+  return { status: "unavailable", reason: "weighting_unqualified" };
+}
+
+export function isAggregateAssetAccount(account: {
+  brokerEnvironment: string | null;
+  facts: { broker_environment?: string | null; account_scope?: string | null } | null;
+}): boolean {
+  return account.brokerEnvironment !== "paper"
+    && account.facts?.broker_environment !== "paper"
+    && account.facts?.account_scope !== "paper";
+}
+
 export type RuntimeDailySnapshot = {
   ok: true;
   platform?: string;
