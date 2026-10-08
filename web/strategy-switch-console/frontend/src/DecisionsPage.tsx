@@ -28,9 +28,9 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
   if (!items.length) {
-    return <section className="daily-page"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong></div></section>;
+    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong></div></section>;
   }
-  return <section className="daily-page decisions-page">
+  return <section className="daily-page decisions-page home-decisions">
     <div className="daily-heading"><h1>{t("待办决策")}</h1><DecisionCount count={items.length} /></div>
     {blocked && <p className="workflow-note" role="status"><strong>{t("部分待办暂时无法读取")}</strong> {t("以下仅显示已读取的事项，待办列表可能不完整。")}</p>}
     <div className="decision-layout">
@@ -45,6 +45,11 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
         <h2>{t(selected.question)}</h2>
         {selected.accountChoices.length === 1 ? <p>{selected.accountChoices[0].label}</p> : selected.accountLine ? <p>{t(selected.accountLine)}</p> : null}
         {selected.accountChoices.length > 1 && <label>{t("选择应用账户")}<select value={selectedAccountId} onChange={event => onSelectAccount(event.target.value)}><option value="">{t("选择一个账户")}</option>{selected.accountChoices.map(account => <option key={account.id} value={account.id}>{account.label}</option>)}</select></label>}
+        <dl className="decision-facts">
+          <div><dt>{t("现在")}</dt><dd>{shown(selected.currentName, t)}</dd></div>
+          <div><dt>{t("建议")}</dt><dd>{shown(selected.proposedName, t)}</dd></div>
+          <div><dt>{t("影子结果")}</dt><dd>{t(selected.shadowReadout || "没有记录")}</dd></div>
+        </dl>
         <div className="plan-compare"><div><span>{t("当前方案")}</span><strong>{shown(selected.currentName, t)}</strong></div><div><span>{t("建议方案")}</span><strong>{shown(selected.proposedName, t)}</strong></div></div>
         {selected.explanationKind === "ai" && selected.explanation ? <section className="ai-explanation"><h3>{t("候选说明")}</h3><p>{t("问题")}：{selected.explanation.question}</p><p>{t("依据")}：{selected.explanation.basis}</p><p>{t("限制")}：{selected.explanation.limits}</p><p>{t("建议")}：{selected.explanation.suggestion}</p><details><summary>{t("来源与模型")}</summary><p>{selected.explanation.provider}</p><p>{selected.explanation.model}</p></details></section> : <section><h3>{t("系统摘要")}</h3><p>{t(selected.impact)}</p></section>}
         {selected.explanationKind === "ai" && selected.explanation && <><h3>{t("影响与风险")}</h3><p>{t(selected.impact)}</p></>}

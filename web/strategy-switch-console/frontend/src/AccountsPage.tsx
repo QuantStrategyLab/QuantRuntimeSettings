@@ -58,9 +58,9 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
       .map(at => scheduleBinancePrivateScopeExpiry(at, () => setFactsNow(Date.now()), Date.now(), window, 36 * 60 * 60 * 1000)));
     return () => cancel.forEach(stop => stop());
   }, [rows]);
-  return <section className={`daily-page accounts-page${detailOpen ? " show-detail" : ""}`}>
+  return <section className={`daily-page accounts-page settings-home${detailOpen ? " show-detail" : ""}`}>
     <div className="daily-heading"><h1>{t("账户设置")}</h1></div>
-    <p className="section-note">{t("账户列表仅显示平台账户监测状态；当日周期运行记录完整性请在总览核对。")}</p>
+    <p className="section-note">{t("选择这个账号跑什么策略，以及要不要开启期权收入层。")}</p>
     <div className="accounts-layout">
       <div className="account-list">
         <table className="daily-table">
