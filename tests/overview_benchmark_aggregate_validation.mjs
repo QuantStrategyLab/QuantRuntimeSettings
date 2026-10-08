@@ -3,6 +3,7 @@ import {
   MARKET_BENCHMARK_INCEPTION_DATE,
   MARKET_BENCHMARK_TIMEZONE,
   buildAggregateAssetSeries,
+  buildAssetChartGeometry,
   buildBenchmarkChartGeometry,
   presentAggregateReturn,
   presentMarketBenchmarkSeries,
@@ -42,21 +43,68 @@ assert.equal(presentMarketBenchmarkSeries(stored.points.map(point => ({
 
 const inception = "2026-10-09";
 const summed = buildAggregateAssetSeries([
-  { id: "a", points: [
-    { observation_date: "2026-10-08", net_assets: "10" },
-    { observation_date: "2026-10-09", net_assets: "10.50" },
-    { observation_date: "2026-10-10", net_assets: "11" },
+  { id: "a", currency: "USD", points: [
+    { observation_date: "2026-10-08", net_assets: "10", currency: "USD" },
+    { observation_date: "2026-10-09", net_assets: "10.50", currency: "USD" },
+    { observation_date: "2026-10-10", net_assets: "11", currency: "USD" },
   ] },
-  { id: "b", points: [
-    { observation_date: "2026-10-08", net_assets: "5" },
-    { observation_date: "2026-10-09", net_assets: "1.25" },
-    { observation_date: "2026-10-11", net_assets: "9" },
+  { id: "b", currency: "USD", points: [
+    { observation_date: "2026-10-08", net_assets: "5", currency: "USD" },
+    { observation_date: "2026-10-09", net_assets: "1.25", currency: "USD" },
+    { observation_date: "2026-10-11", net_assets: "9", currency: "USD" },
+  ] },
+  { id: "c", currency: "HKD", points: [
+    { observation_date: "2026-10-09", net_assets: "100", currency: "HKD" },
   ] },
 ], inception);
-assert.deepEqual(summed.points, [{ observation_date: "2026-10-09", net_assets: "11.75" }]);
-assert.equal(summed.omittedPartialDateCount, 2, "2026-10-10 and 2026-10-11 stay gaps");
+assert.deepEqual(summed.points, [], "USD and HKD stay in separate series");
+const usd = summed.byCurrency.find(item => item.currency === "USD");
+const hkd = summed.byCurrency.find(item => item.currency === "HKD");
+assert.deepEqual(usd.points.map(point => ({
+  observation_date: point.observation_date,
+  net_assets: point.net_assets,
+  break_before: point.break_before === true,
+})), [
+  { observation_date: "2026-10-09", net_assets: "11.75", break_before: false },
+  { observation_date: "2026-10-10", net_assets: "11", break_before: true },
+  { observation_date: "2026-10-11", net_assets: "9", break_before: true },
+]);
+assert.equal(usd.omittedPartialDateCount, 2, "missing accounts are omitted from that day instead of dropping it");
+assert.deepEqual(hkd.points.map(point => point.net_assets), ["100"]);
 assert.equal(summed.points.some(point => point.observation_date < inception), false);
-assert.equal(summed.points.some(point => point.net_assets === "0"), false);
+assert.equal(usd.points.some(point => point.net_assets === "0"), false);
+const summedGeometry = buildAssetChartGeometry(usd.points.map(point => ({
+  observation_date: point.observation_date,
+  observed_finished_at: point.observation_date,
+  currency: "USD",
+  net_assets: point.net_assets,
+  total_cash: null,
+  break_before: point.break_before,
+})));
+assert.equal(summedGeometry.dots.length, 3);
+assert.equal(summedGeometry.segments.length, 0, "a coverage change or missing calendar day breaks the line");
+
+const continuous = buildAggregateAssetSeries([
+  { id: "a", points: [
+    { observation_date: "2026-10-09", net_assets: "1.00" },
+    { observation_date: "2026-10-10", net_assets: "2" },
+  ] },
+  { id: "b", points: [
+    { observation_date: "2026-10-09", net_assets: "3" },
+    { observation_date: "2026-10-10", net_assets: "4.00" },
+  ] },
+], inception);
+assert.deepEqual(continuous.points.map(point => point.net_assets), ["4", "6"]);
+assert.equal(continuous.points[1].break_before, false);
+assert.equal(continuous.omittedPartialDateCount, 0);
+assert.equal(buildAssetChartGeometry(continuous.points.map(point => ({
+  observation_date: point.observation_date,
+  observed_finished_at: point.observation_date,
+  currency: "USD",
+  net_assets: point.net_assets,
+  total_cash: null,
+  break_before: point.break_before,
+}))).segments.length, 1);
 
 const conflict = buildAggregateAssetSeries([
   { id: "a", points: [
@@ -65,7 +113,7 @@ const conflict = buildAggregateAssetSeries([
   ] },
   { id: "b", points: [{ observation_date: "2026-10-09", net_assets: "1" }] },
 ], inception);
-assert.deepEqual(conflict.points, [], "disagreeing closes on one date are not averaged into an aggregate");
+assert.deepEqual(conflict.points.map(point => point.net_assets), ["1"], "disagreeing amounts are not averaged; that account is omitted");
 
 assert.deepEqual(buildAggregateAssetSeries([], inception).points, []);
 assert.equal(presentAggregateReturn([

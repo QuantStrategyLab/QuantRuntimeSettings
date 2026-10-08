@@ -430,10 +430,15 @@ function buildChartValueGeometry(points: Array<{ observation_date: string; amoun
   };
 }
 
-export function buildAssetChartGeometry(points: AssetHistoryPoint[], width = 640, height = 220): AssetChartGeometry {
+export function buildAssetChartGeometry(
+  points: Array<AssetHistoryPoint & { break_before?: boolean }>,
+  width = 640,
+  height = 220,
+): AssetChartGeometry {
   return buildChartValueGeometry(points.map((point) => ({
     observation_date: point.observation_date,
     amount: point.net_assets,
+    break_before: point.break_before,
   })), width, height);
 }
 
@@ -527,45 +532,103 @@ function sumDecimalTexts(amounts: string[]): string {
   return amount === "-" ? "0" : amount;
 }
 
-export type AggregateAssetPoint = { observation_date: string; net_assets: string };
+export type AggregateAssetPoint = {
+  observation_date: string;
+  net_assets: string;
+  currency?: string;
+  break_before?: boolean;
+};
+
+type AggregateAssetInputPoint = {
+  observation_date: string;
+  net_assets: string;
+  currency?: string;
+};
+
+function aggregateCurrencyKey(accountCurrency: string | undefined, point: AggregateAssetInputPoint): string {
+  if (typeof point.currency === "string" && /^[A-Z0-9]{3,10}$/.test(point.currency)) return point.currency;
+  if (typeof accountCurrency === "string" && /^[A-Z0-9]{3,10}$/.test(accountCurrency)) return accountCurrency;
+  return "";
+}
 
 export function buildAggregateAssetSeries(
-  accounts: Array<{ id: string; points: AggregateAssetPoint[] }>,
+  accounts: Array<{ id: string; currency?: string; points: AggregateAssetInputPoint[] }>,
   inceptionDate = MARKET_BENCHMARK_INCEPTION_DATE,
-): { inceptionDate: string; points: AggregateAssetPoint[]; omittedPartialDateCount: number; memberCount: number } {
+): {
+  inceptionDate: string;
+  points: AggregateAssetPoint[];
+  byCurrency: Array<{ currency: string; points: AggregateAssetPoint[]; omittedPartialDateCount: number }>;
+  omittedPartialDateCount: number;
+  memberCount: number;
+} {
   const members = (Array.isArray(accounts) ? accounts : []).map((account) => {
-    const byDate = new Map<string, string | null>();
+    const byCurrencyDate = new Map<string, Map<string, string | null>>();
     for (const point of account?.points || []) {
       if (!point || !DATE_RE.test(point.observation_date) || point.observation_date < inceptionDate) continue;
       if (parseMoneyForChart(point.net_assets) === null) continue;
+      const currency = aggregateCurrencyKey(account?.currency, point);
+      let byDate = byCurrencyDate.get(currency);
+      if (!byDate) {
+        byDate = new Map();
+        byCurrencyDate.set(currency, byDate);
+      }
       const previous = byDate.get(point.observation_date);
       if (previous === undefined) byDate.set(point.observation_date, point.net_assets);
       else if (previous !== point.net_assets) byDate.set(point.observation_date, null);
     }
-    return byDate;
-  }).filter((byDate) => byDate.size > 0);
-  const dates = new Set<string>();
-  for (const byDate of members) for (const date of byDate.keys()) dates.add(date);
-  const points: AggregateAssetPoint[] = [];
-  let omittedPartialDateCount = 0;
-  for (const observationDate of [...dates].sort()) {
-    const amounts: string[] = [];
-    let complete = true;
-    for (const byDate of members) {
-      const amount = byDate.get(observationDate);
-      if (typeof amount !== "string") {
-        complete = false;
-        break;
+    return { id: String(account?.id || ""), byCurrencyDate };
+  }).filter((member) => [...member.byCurrencyDate.values()].some((byDate) => byDate.size > 0));
+  const currencies = new Set<string>();
+  for (const member of members) for (const currency of member.byCurrencyDate.keys()) currencies.add(currency);
+  const byCurrency = [...currencies].sort().map((currency) => {
+    const currencyMembers = members.filter((member) => (member.byCurrencyDate.get(currency)?.size || 0) > 0);
+    const dates = new Set<string>();
+    for (const member of currencyMembers) {
+      for (const date of member.byCurrencyDate.get(currency)!.keys()) dates.add(date);
+    }
+    const points: AggregateAssetPoint[] = [];
+    let omittedPartialDateCount = 0;
+    let previousDate = "";
+    let previousContributors = "";
+    for (const observationDate of [...dates].sort()) {
+      const amounts: string[] = [];
+      const contributors: string[] = [];
+      let omittedAccount = false;
+      for (const member of currencyMembers) {
+        const amount = member.byCurrencyDate.get(currency)!.get(observationDate);
+        if (typeof amount !== "string") {
+          omittedAccount = true;
+          continue;
+        }
+        amounts.push(amount);
+        contributors.push(member.id);
       }
-      amounts.push(amount);
+      if (!amounts.length) continue;
+      if (omittedAccount) omittedPartialDateCount += 1;
+      const contributorKey = contributors.join("\n");
+      const consecutive = previousDate !== "" && addUtcDays(previousDate, 1) === observationDate;
+      const break_before = previousDate !== "" && (!consecutive || contributorKey !== previousContributors);
+      points.push({
+        observation_date: observationDate,
+        net_assets: sumDecimalTexts(amounts),
+        break_before,
+        ...(currency ? { currency } : {}),
+      });
+      previousDate = observationDate;
+      previousContributors = contributorKey;
     }
-    if (!complete) {
-      omittedPartialDateCount += 1;
-      continue;
-    }
-    points.push({ observation_date: observationDate, net_assets: sumDecimalTexts(amounts) });
-  }
-  return { inceptionDate, points, omittedPartialDateCount, memberCount: members.length };
+    return { currency, points, omittedPartialDateCount };
+  });
+  const single = byCurrency.length === 1 ? byCurrency[0] : null;
+  return {
+    inceptionDate,
+    points: single ? single.points : [],
+    byCurrency,
+    omittedPartialDateCount: single
+      ? single.omittedPartialDateCount
+      : byCurrency.reduce((sum, item) => sum + item.omittedPartialDateCount, 0),
+    memberCount: members.length,
+  };
 }
 
 export type QualifiedPeriodReturn = {

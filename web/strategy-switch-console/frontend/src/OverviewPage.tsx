@@ -478,25 +478,30 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     : buildAssetChartGeometry(filteredAccountPoints);
   const aggregateInputs = aggregateMembers.map(account => {
     const stored = aggregateHistoryError ? [] : (aggregateHistoryRows?.find(row => row.id === account.id)?.points || []);
-    const points = stored.map(point => ({ observation_date: point.observation_date, net_assets: point.net_assets }));
+    const points = stored.map(point => ({ observation_date: point.observation_date, net_assets: point.net_assets, currency }));
+    const remember = (observationDate: string | null, netAssets: string | null | undefined) => {
+      if (!observationDate || typeof netAssets !== "string") return;
+      if (points.some(point => point.observation_date === observationDate)) return;
+      points.push({ observation_date: observationDate, net_assets: netAssets, currency });
+    };
     if (account.id === walletAccount?.id && walletValuation && currency === walletValuation.currency) {
-      const observationDate = shanghaiCalendarDate(walletValuation.observed_at);
-      if (observationDate) points.push({ observation_date: observationDate, net_assets: walletValuation.amount });
+      remember(shanghaiCalendarDate(walletValuation.observed_at), walletValuation.amount);
     } else if (accountFactsDisplayReady(account.facts)) {
       const row = account.facts?.balances.find(item => item.currency === currency && typeof item.net_assets === "string");
-      const observationDate = shanghaiCalendarDate(account.facts?.observed_finished_at);
-      if (row?.net_assets && observationDate) points.push({ observation_date: observationDate, net_assets: row.net_assets });
+      remember(shanghaiCalendarDate(account.facts?.observed_finished_at), row?.net_assets);
     }
-    return { id: account.id, points };
+    return { id: account.id, currency, points };
   });
   const aggregateSeries = buildAggregateAssetSeries(aggregateInputs);
-  const aggregateGeometry = buildAssetChartGeometry(aggregateSeries.points.map(point => ({
+  const aggregateCurrencySeries = aggregateSeries.byCurrency.find(item => item.currency === currency)?.points || aggregateSeries.points;
+  const aggregateGeometry = buildAssetChartGeometry(filterAssetHistoryByRange(aggregateCurrencySeries.map(point => ({
     observation_date: point.observation_date,
     observed_finished_at: point.observation_date,
     currency,
     net_assets: point.net_assets,
     total_cash: null,
-  })));
+    break_before: point.break_before,
+  })), range));
   const shownGeometry = accountId === "all" ? aggregateGeometry : geometry;
   const benchmarkSeries = RETURN_INDEX_LEGEND.map(name => presentMarketBenchmarkSeries(storedBenchmarkPoints, name));
   const primaryBenchmark = benchmarkSeries[0];
@@ -510,7 +515,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const hasChart = chart === "assets" && (accountId === "all" ? shownGeometry.dots.length > 0 : Boolean(chartAccount) && geometry.dots.length > 0);
   const chartEmptyTitle = accountId === "all" ? "汇总自 {date}（Asia/Shanghai）起计算" : chartUnavailable(chart);
   const chartEmptyDetail = accountId === "all"
-    ? "尚无完整已存储观察。更早合计不回补，缺失不按零计。"
+    ? "尚无已存储合计。更早合计不回补，缺账户不按零计，线段在缺口处断开。"
     : historyLoading
         ? "加载中…"
         : historyError || history?.identity_mismatch
@@ -680,11 +685,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
             <span>{primaryBenchmark.startDate} → {primaryBenchmark.points[primaryBenchmark.points.length - 1]?.observationDate}</span>
           </div>
         </div> : <div className="benchmark-chart benchmark-chart-inception" role="img" aria-label={t("市场基准")}>
-          <svg viewBox="0 0 640 72" className="benchmark-chart-start">
-            <line x1="16" y1="36" x2="128" y2="36" className="benchmark-chart-line" />
-            <circle cx="16" cy="36" r="4" className="benchmark-chart-dot" />
-            <text x="28" y="28">{MARKET_BENCHMARK_INCEPTION_DATE}</text>
-          </svg>
+          <div className="benchmark-chart-start" />
           <p>{t("市场基准自 {date}（Asia/Shanghai）起计算；尚无已存储点位，不回补历史价格。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</p>
         </div>}
         <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>
@@ -753,7 +754,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         <div className="asset-chart-meta">
           <span>{shownGeometry.dots[0]?.date} → {shownGeometry.dots[shownGeometry.dots.length - 1]?.date}</span>
           <span>{currency} {shownGeometry.minLabel} – {shownGeometry.maxLabel}</span>
-          {accountId === "all" && aggregateSeries.omittedPartialDateCount > 0 ? <span>{t("有 {count} 个日期因观察不完整而未画出。", { count: aggregateSeries.omittedPartialDateCount })}</span> : null}
+          {accountId === "all" && aggregateSeries.omittedPartialDateCount > 0 ? <span>{t("有 {count} 个日期省略了缺观察的账户，线段在缺口处断开。", { count: aggregateSeries.omittedPartialDateCount })}</span> : null}
         </div>
       </div> : <div className="chart-empty">
         <strong>{chartEmptyTitle === "汇总自 {date}（Asia/Shanghai）起计算"
