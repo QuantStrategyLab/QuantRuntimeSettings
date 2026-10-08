@@ -11,6 +11,7 @@ on:
           - schwab
           - ibkr
           - longbridge
+          - firstrade
       inspect_ibkr_bindings:
         description: Read and validate existing IBKR account options and facts bindings without writing
         type: boolean
@@ -51,6 +52,7 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'schwab' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
+      FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'firstrade' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON || '' }}
       IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'longbridge' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.platform == 'ibkr' && inputs.initialize_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
@@ -131,6 +133,7 @@ jobs:
           trap cleanup EXIT
 
           if { [ "$BINDING_PLATFORM" = "schwab" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
+            || { [ "$BINDING_PLATFORM" = "firstrade" ] && [ -z "${FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
             || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; } \
             || { [ "$BINDING_PLATFORM" = "longbridge" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
             echo "status=blocked reason=binding_secret_missing"
@@ -197,7 +200,7 @@ jobs:
           };
           const tempDir = process.argv[2];
           const platform = process.env.BINDING_PLATFORM;
-          if (!["schwab", "ibkr", "longbridge"].includes(platform)) stop("binding_platform_invalid");
+          if (!["schwab", "ibkr", "longbridge", "firstrade"].includes(platform)) stop("binding_platform_invalid");
           let proposedRaw;
           let rotation;
           let optionsRaw;
@@ -209,7 +212,9 @@ jobs:
                 : process.env.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON;
               rotation = JSON.parse(rotationText || "");
             } else {
-              proposedRaw = JSON.parse(process.env.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || "");
+              proposedRaw = JSON.parse((platform === "firstrade"
+                ? process.env.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON
+                : process.env.SCHWAB_ACCOUNT_FACTS_BINDING_JSON) || "");
             }
             optionsRaw = JSON.parse(readFileSync(`${tempDir}/account-options.json`, "utf8"));
             existingRaw = JSON.parse(readFileSync(`${tempDir}/account-facts-bindings.json`, "utf8"));
@@ -283,7 +288,7 @@ jobs:
               stop("binding_identity_change_forbidden");
             }
           } else if (sameKey) {
-            stop("existing_schwab_binding_conflict");
+            stop("existing_platform_binding_conflict");
           }
 
           const nextRaw = {

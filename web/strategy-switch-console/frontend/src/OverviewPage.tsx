@@ -118,15 +118,15 @@ function BinanceWalletDetails({
 }
 
 function cashFieldForPlatform(platform: string): "cash_balance" | "available_cash" {
-  return platform === "ibkr" || platform === "schwab" ? "cash_balance" : "available_cash";
+  return platform === "ibkr" || platform === "schwab" || platform === "firstrade" ? "cash_balance" : "available_cash";
 }
 
 function cashLabelForPlatform(platform: string): "现金余额" | "可用现金" {
-  return platform === "ibkr" || platform === "schwab" ? "现金余额" : "可用现金";
+  return platform === "ibkr" || platform === "schwab" || platform === "firstrade" ? "现金余额" : "可用现金";
 }
 
 function negativeCashStatusForPlatform(platform: string): "现金余额为负，融资状态待确认" | "可用现金为负，融资状态待确认" {
-  return platform === "ibkr" || platform === "schwab"
+  return platform === "ibkr" || platform === "schwab" || platform === "firstrade"
     ? "现金余额为负，融资状态待确认"
     : "可用现金为负，融资状态待确认";
 }

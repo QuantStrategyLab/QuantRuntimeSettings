@@ -53,6 +53,8 @@ import {
   ACCOUNT_FACTS_RETURN_UNAVAILABLE,
   IBKR_ACCOUNT_FACTS_PLATFORM,
   SCHWAB_ACCOUNT_FACTS_PLATFORM,
+  FIRSTRADE_ACCOUNT_FACTS_PLATFORM,
+  validFirstradeAccountId,
   accountFactsOptionMatchesBinding,
   accountFactsPlatformForHistory,
   accountFactsReadModelEnabled,
@@ -2672,6 +2674,10 @@ export class RuntimeInstances {
         || typeof command.source_binding_id !== "string") {
       throw new HttpError("invalid_account_facts_account", 400);
     }
+    const brokerAccountId = command.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? command.broker_account_id : null;
+    if (command.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM && !validFirstradeAccountId(brokerAccountId)) {
+      throw new HttpError("invalid_account_facts_account", 400);
+    }
     const brokerAccountHash = command.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
       ? command.broker_account_hash
       : null;
@@ -2681,6 +2687,7 @@ export class RuntimeInstances {
     }
     return {
       platform: command.platform,
+      ...(command.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: brokerAccountId } : {}),
       account_key: command.account_key,
       account_scope: command.account_scope,
       account_selector: command.account_selector,
@@ -2705,6 +2712,7 @@ export class RuntimeInstances {
         expectedBrokerAccountHash: context.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
           ? context.broker_account_hash
           : null,
+        expectedBrokerAccountId: context.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? context.broker_account_id : null,
         enforceObservationWindow: false,
       });
     } catch (error) {
@@ -7384,7 +7392,7 @@ function binanceFactsErrorResponse(error) {
 
 function binanceFactsSyncAuthorizationResponse(request, env) {
   const token = String(env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN || "");
-  const otherTokens = ["ACCOUNT_FACTS_SYNC_TOKEN", "IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN",
+  const otherTokens = ["ACCOUNT_FACTS_SYNC_TOKEN", "IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN", "FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN",
     "RECONCILIATION_RECOVERY_SYNC_TOKEN", "RECONCILIATION_RECOVERY_CONTROLLER_TOKEN", "STRATEGY_SWITCH_SYNC_TOKEN"];
   if (!token || otherTokens.some(name => env[name] && env[name] === token)) {
     return json({ ok: false, error: "binance_account_facts_token_unavailable" }, 503);
@@ -10019,7 +10027,15 @@ function requireDedicatedAccountFactsSyncToken(request, env) {
     ["longbridge", String(env.ACCOUNT_FACTS_SYNC_TOKEN || "")],
     [IBKR_ACCOUNT_FACTS_PLATFORM, String(env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN || "")],
     [SCHWAB_ACCOUNT_FACTS_PLATFORM, String(env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN || "")],
+    [FIRSTRADE_ACCOUNT_FACTS_PLATFORM, String(env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN || "")],
   ].filter(([, token]) => token);
+  const firstradeToken = String(env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN || "");
+  if (firstradeToken && [env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN, env.EXECUTION_EVIDENCE_SYNC_TOKEN,
+    env.STRATEGY_SWITCH_SYNC_TOKEN, env.RECONCILIATION_RECOVERY_SYNC_TOKEN,
+    env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN, env.CYCLE_HEALTH_PROVISIONER_TOKEN]
+    .some(other => other && String(other) === firstradeToken)) {
+    throw new HttpError("account_facts_sync_token_ambiguous", 503);
+  }
   if (new Set(configured.map(([, token]) => token)).size !== configured.length) {
     throw new HttpError("account_facts_sync_token_ambiguous", 503);
   }
@@ -10050,7 +10066,7 @@ function requireCycleHealthProvisionToken(request, env) {
   if (!expected) throw new HttpError("cycle_health_provisioner_unavailable", 503);
   const sourceTokens = [
     env.ACCOUNT_FACTS_SYNC_TOKEN, env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,
-    env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN, env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN, env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
     env.EXECUTION_EVIDENCE_SYNC_TOKEN,
   ].filter(Boolean).map(String);
   if (sourceTokens.includes(expected)) throw new HttpError("cycle_health_provisioner_token_alias", 503);
@@ -10200,6 +10216,7 @@ async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
         ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
           ? { broker_account_hash: binding.broker_account_hash }
           : {}),
+        ...(platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: binding.broker_account_id } : {}),
         target_id: binding.target_id,
         source_binding_id: binding.source_binding.id,
       });
@@ -10301,6 +10318,7 @@ async function syncAccountFactsResponse(request, env) {
       expectedAccountSelector: authorizedPlatform === IBKR_ACCOUNT_FACTS_PLATFORM
         ? resolved.binding.account_selector
         : null,
+      expectedBrokerAccountId: authorizedPlatform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? resolved.binding.broker_account_id : null,
       expectedBrokerAccountHash: authorizedPlatform === SCHWAB_ACCOUNT_FACTS_PLATFORM
         ? resolved.binding.broker_account_hash
         : null,
@@ -10316,6 +10334,7 @@ async function syncAccountFactsResponse(request, env) {
       account_key: resolved.binding.account_key,
       account_scope: resolved.binding.account_scope,
       account_selector: resolved.binding.account_selector,
+      ...(authorizedPlatform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: resolved.binding.broker_account_id } : {}),
       ...(authorizedPlatform === SCHWAB_ACCOUNT_FACTS_PLATFORM
         ? { broker_account_hash: resolved.binding.broker_account_hash }
         : {}),
@@ -10416,6 +10435,7 @@ async function accountFactsHistoryResponse(request, env, url) {
         ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
           ? { broker_account_hash: binding.broker_account_hash }
           : {}),
+        ...(platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: binding.broker_account_id } : {}),
         target_id: binding.target_id,
         source_binding_id: binding.source_binding.id,
       });

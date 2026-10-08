@@ -154,4 +154,17 @@ assert.equal(independentWallet.excludingPaper.missing, 2);
 assert.equal(independentWallet.excludingPaper.missing - independentWallet.excludingPaper.unbound, 1,
   "the bound account with no report must remain a separate coverage gap");
 
+const ft = facts({platform: "firstrade", scope: "live", environment: null,
+  balances: [{currency: "USD", net_assets: "15"}],
+  cash: [{currency: "USD", cash_balance: "0", source_tag: "provider.cash_balance"}]});
+const ftSummary = summarizeCurrentAccountFacts([{id: "firstrade:synthetic", platform: "firstrade", brokerEnvironment: null, facts: ft}]);
+assert.deepEqual(ftSummary.excludingPaper.assets, [{currency: "USD", amount: "15"}]);
+assert.deepEqual(ftSummary.excludingPaper.cashBalance, [{currency: "USD", amount: "0"}]);
+assert.deepEqual(ftSummary.excludingPaper.availableCash, []);
+assert.equal(ftSummary.excludingPaper.cashCovered, 1, "real zero cash is covered, not missing");
+const ftPartial = summarizeCurrentAccountFacts([{id: "firstrade:synthetic", platform: "firstrade", brokerEnvironment: null, facts: {...ft, cash: []}}]);
+assert.equal(ftPartial.excludingPaper.covered, 1);
+assert.equal(ftPartial.excludingPaper.cashCovered, 0);
+assert.equal(ftPartial.excludingPaper.cashMissing, 1);
+
 console.log("overview current aggregation: PASS (currency, environment, freshness, bindings, cash semantics, wallet and duplicate rows)");

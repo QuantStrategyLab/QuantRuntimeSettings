@@ -59,7 +59,13 @@ export type SchwabBrokerAccountType = {
   source_tag: "securitiesAccount.type";
 };
 
-export type AccountFactsCash = LongBridgeAccountFactsCash | IbkrAccountFactsCash | SchwabAccountFactsCash;
+export type FirstradeAccountFactsCash = {
+  currency: string;
+  cash_balance: string;
+  source_tag: "provider.cash_balance";
+};
+
+export type AccountFactsCash = LongBridgeAccountFactsCash | IbkrAccountFactsCash | SchwabAccountFactsCash | FirstradeAccountFactsCash;
 
 export type AccountFactsAccount = {
   platform: string;
@@ -511,11 +517,11 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
       if (facts && !bound) group.unbound += 1;
     }
 
-    if (!["longbridge", "ibkr", "schwab"].includes(account.platform)) continue;
+    if (!["longbridge", "ibkr", "schwab", "firstrade"].includes(account.platform)) continue;
     group.cashAccounts += 1;
     const cashReady = ready;
     const cashRows = cashReady ? facts!.cash : [];
-    const cashField = account.platform === "ibkr" || account.platform === "schwab" ? "cash_balance" : "available_cash";
+    const cashField = account.platform === "ibkr" || account.platform === "schwab" || account.platform === "firstrade" ? "cash_balance" : "available_cash";
     const cashAmounts = cashRows.flatMap(row => {
       const amount = cashField === "cash_balance" && "cash_balance" in row ? row.cash_balance
         : cashField === "available_cash" && "available_cash" in row ? row.available_cash : null;
