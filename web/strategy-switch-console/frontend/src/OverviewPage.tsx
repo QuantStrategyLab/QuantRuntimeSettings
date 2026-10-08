@@ -208,7 +208,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     brokerEnvironment: account.brokerEnvironment,
     facts: account.facts,
     walletValuation: account.id === walletAccount?.id ? walletValuation : null,
-  })));
+  })), accountId !== "all");
   const optionLabel = (account: OverviewAccount) => {
     const duplicates = accounts.filter(item => item.title === account.title);
     if (duplicates.length < 2 || !account.environment) return account.title;

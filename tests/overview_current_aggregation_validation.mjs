@@ -201,3 +201,9 @@ assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, [{...verifiedRows[0]
 assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, verifiedRows, Date.parse("2026-10-08T01:00:00Z"), 8), null,
   "same key and environment cannot authorize old totals after selector/deployment/scope changes");
 assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, verifiedRows, Date.parse("2026-10-08T01:00:00Z"), null), null);
+
+const singleAlias = summarizeCurrentAccountFacts([
+  { id: "firstrade:two", platform: "firstrade", brokerEnvironment: "live", facts: {...ft, aggregation_status: "duplicate"} },
+], true);
+assert.equal(singleAlias.excludingPaper.covered, 1, "single-account selection retains the alias's own source facts");
+assert.deepEqual(singleAlias.excludingPaper.assets, [{currency: "USD", amount: "15"}]);
