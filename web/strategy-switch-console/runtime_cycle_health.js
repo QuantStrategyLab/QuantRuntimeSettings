@@ -70,12 +70,12 @@ export async function normalizeCycleHealth(raw, { target_id, source_binding_id, 
     || (s.next_due_at !== null && compareCycleInstants(s.next_due_at, observed_at) <= 0)
     || (s.deadline_at !== null && s.latest_due_at !== null && compareCycleInstants(s.deadline_at, s.latest_due_at) < 0)) fail("cycle_health_schedule_chronology");
   cycleCoverageComplete(h.coverage);
-  if (h.coverage.through !== observed_at) fail("cycle_health_cutoff_mismatch");
+  if (compareCycleInstants(h.coverage.through, observed_at) > 0) fail("cycle_health_future_coverage");
   const receipts = new Map(), unique = new Map();
   for (const rawCycle of h.cycles) {
     const c = fields(rawCycle, ["cycle_id", "scheduled_for", "receipt_ref", "completed_at", "outcome", "execution_state", "correlation"]);
     normalizeCycleInstant(c.scheduled_for);
-    if (compareCycleInstants(c.scheduled_for, observed_at) > 0) fail("cycle_health_future_cycle");
+    if (compareCycleInstants(c.scheduled_for, h.coverage.through) > 0) fail("cycle_health_future_cycle");
     const id = `cycle.${await cycleHealthSha256([target_id, source_binding_id, h.configuration_sha256, c.scheduled_for])}`;
     if (c.cycle_id !== id) fail("cycle_health_cycle_id_mismatch");
     if (!["explicit", "window_matched", "unconfirmed"].includes(c.correlation)) fail("cycle_health_invalid_correlation");
@@ -87,7 +87,7 @@ export async function normalizeCycleHealth(raw, { target_id, source_binding_id, 
     } else {
       if (typeof c.receipt_ref !== "string" || !/^execution-receipt\.[a-f0-9]{32}$/.test(c.receipt_ref)) fail("cycle_health_invalid_receipt");
       normalizeCycleInstant(c.completed_at);
-      if (compareCycleInstants(c.completed_at, c.scheduled_for) < 0 || compareCycleInstants(c.completed_at, observed_at) > 0) fail("cycle_health_completion_chronology");
+      if (compareCycleInstants(c.completed_at, c.scheduled_for) < 0 || compareCycleInstants(c.completed_at, h.coverage.through) > 0) fail("cycle_health_completion_chronology");
       const expected = c.outcome === "failed" ? ["no_submission", "unresolved"]
         : c.outcome === "filled" ? ["terminal_confirmed"]
         : SUCCESS.has(c.outcome) || c.outcome === "risk_blocked" ? ["no_submission"]
@@ -101,9 +101,12 @@ export async function normalizeCycleHealth(raw, { target_id, source_binding_id, 
   }
   return { ...structuredClone(h), cycles: [...unique.values()] };
 }
-function category(c) { return c.execution_state === "unresolved" || c.outcome === "missing_report" ? "execution_uncertainty" : SUCCESS.has(c.outcome) ? null : "operational"; }
-const faultTime = c => c.completed_at || c.scheduled_for;
-const attemptKey = c => c.receipt_ref || `missing:${c.cycle_id}`;
+export function cycleHealthFaultCategory(c) { return c.execution_state === "unresolved" || c.outcome === "missing_report" ? "execution_uncertainty" : SUCCESS.has(c.outcome) ? null : "operational"; }
+export const cycleHealthFaultTime = c => c.completed_at || c.scheduled_for;
+export const cycleHealthAttemptKey = c => c.receipt_ref || `missing:${c.cycle_id}`;
+const category = cycleHealthFaultCategory;
+const faultTime = cycleHealthFaultTime;
+const attemptKey = cycleHealthAttemptKey;
 export function reduceCycleCheckpoint(context, health, previous = null) {
   // Configuration provenance is per attempt; changes never filter fault history.
   const state = previous ? structuredClone(previous) : { target_id: context.target_id, source_binding_id: context.source_binding_id, incidents: [] };
@@ -117,7 +120,6 @@ export function reduceCycleCheckpoint(context, health, previous = null) {
     let item = state.incidents.find(i => i.cycle.cycle_id === c.cycle_id);
     if (!item) { item = { cycle: structuredClone(c), fault_attempts: [], resolution_history: [] }; state.incidents.push(item); }
     if (!item.fault_attempts.some(a => attemptKey(a.cycle) === attemptKey(c))) item.fault_attempts.push({ cycle: structuredClone(c), configuration_sha256: health.configuration_sha256, resolution_ref: null });
-    if (item.fault_attempts.length > 20 || state.incidents.length > 20) fail("cycle_health_history_capacity_requires_support", 409);
   }
   for (const item of state.incidents) {
     if (!item.fault_attempts?.length || !Array.isArray(item.resolution_history)) fail("cycle_health_checkpoint_invalid", 409);

@@ -5,7 +5,7 @@ import { readFile, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { cycleHealthSha256, canonicalCycleJson } from "../web/strategy-switch-console/runtime_cycle_health.js";
+import { cycleHealthSha256, canonicalCycleJson, reduceCycleCheckpoint } from "../web/strategy-switch-console/runtime_cycle_health.js";
 
 const absent = await worker.fetch(new Request("https://console.example/api/internal/runtime-cycle-health-source?source_id=synthetic.paper&target_id=longbridge.paper", {
   headers: { Authorization: "Bearer synthetic-cycle-token", "X-QSL-Source-Binding-ID": "1".repeat(64) },
@@ -41,6 +41,8 @@ export class SyntheticCycleRuntimeInstances extends RuntimeInstances {
     if (c.action === 'fixture_snapshot') return new Response(JSON.stringify({
       sources: [...this.sql.exec('SELECT * FROM runtime_cycle_health_source ORDER BY source_id')],
       checkpoints: [...this.sql.exec('SELECT * FROM runtime_cycle_health_checkpoint ORDER BY target_id, binding_fingerprint')],
+      incidents: [...this.sql.exec('SELECT * FROM runtime_cycle_health_incident ORDER BY target_id, binding_fingerprint, cycle_id')],
+      attempts: [...this.sql.exec('SELECT * FROM runtime_cycle_health_attempt ORDER BY history_id')],
       diagnoses: [...this.sql.exec('SELECT * FROM account_diagnosis_tasks')],
       facts: [...this.sql.exec('SELECT * FROM account_facts_observation')],
       instances: [...this.sql.exec('SELECT * FROM instance_history')],
@@ -48,6 +50,15 @@ export class SyntheticCycleRuntimeInstances extends RuntimeInstances {
     if (c.action === 'fixture_abort') {
       this.sql.exec("CREATE TRIGGER IF NOT EXISTS cycle_abort_insert BEFORE INSERT ON runtime_cycle_health_checkpoint WHEN NEW.revision = " + Number(c.revision) + " BEGIN SELECT RAISE(ABORT, 'synthetic rollback'); END");
       this.sql.exec("CREATE TRIGGER IF NOT EXISTS cycle_abort_update BEFORE UPDATE ON runtime_cycle_health_checkpoint WHEN NEW.revision = " + Number(c.revision) + " BEGIN SELECT RAISE(ABORT, 'synthetic rollback'); END");
+      return new Response('{}');
+    }
+    if (c.action === 'fixture_clear_abort') {
+      this.sql.exec('DROP TRIGGER IF EXISTS cycle_abort_insert'); this.sql.exec('DROP TRIGGER IF EXISTS cycle_abort_update');
+      return new Response('{}');
+    }
+    if (c.action === 'fixture_legacy_checkpoint') {
+      this.sql.exec('INSERT INTO runtime_cycle_health_checkpoint (target_id, binding_fingerprint, source_id, revision, payload_json) VALUES (?, ?, ?, ?, ?)', c.target_id, c.binding_fingerprint, c.source_id, c.revision, JSON.stringify(c.checkpoint));
+      this.sql.exec('UPDATE runtime_cycle_health_source SET checkpoint_revision = ? WHERE source_id = ?', c.revision, c.source_id);
       return new Response('{}');
     }
     return super.fetch(request);
@@ -88,6 +99,19 @@ async function provision(body, { env = {}, authorization = adminToken, binding =
 }
 async function command(c) { return (await stub.fetch("https://test-only/", { method: "POST", body: JSON.stringify(c) })).json(); }
 const snapshot = () => command({ action: "fixture_snapshot" });
+async function historyPages({ binding = bound.source_binding.id } = {}) {
+  const pages = []; let cursor = null;
+  do {
+    const search = query + (cursor ? `&history_cursor=${encodeURIComponent(cursor)}` : "");
+    const response = await call(undefined, { binding, search });
+    assert.equal(response.status, 200, JSON.stringify(response));
+    assert.equal(response.body.schema_version, "qsl_runtime_cycle_health_checkpoint.v2");
+    assert.equal(response.body.checkpoint?.state?.history_complete, false, "summary never claims full history");
+    pages.push(response.body.history_page);
+    cursor = response.body.history_page.next_cursor;
+  } while (cursor);
+  return pages;
+}
 const admit = (overrides = {}) => command({ action: "fixture_admit", source_id: "synthetic.paper", target_id: "longbridge.paper", binding_fingerprint: fingerprint, configuration_sha256: fixture.context.configuration_sha256, authority_revision: 1, required_from: "2026-10-01T00:00:00Z", ...overrides });
 const second = new Date(Date.now() - 30_000).toISOString().slice(0, 19);
 let sequence = 1;
@@ -98,6 +122,30 @@ function packet(name = "microsecond_no_action", instant = nextInstant()) {
   // synthetic receive window so a future CI date cannot expire next_due_at.
   health.schedule.next_due_at = `${new Date(Date.parse(instant) + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19)}Z`;
   return { schema_version: "qsl_runtime_target_lifecycle_source_snapshot.v1", source_id: "synthetic.paper", generated_at: instant, computed_at: instant, data_status: "ready", errors: [], targets: [{ target_id: "longbridge.paper", target: { platform: "longbridge", configured_state: "enabled", execution_mode: "paper" }, monitoring: { runtime_guard: "pass", execution_heartbeat: "pass" }, disposition: { code: "continue_enabled_monitoring", reason_code: "none" }, no_order: true, cycle_health: health }] };
+}
+function historicalPacket(from, through, observedAt = nextInstant(), name = "weekly_not_due") {
+  const value = packet(name, observedAt);
+  value.targets[0].cycle_health.coverage.from = from;
+  value.targets[0].cycle_health.coverage.through = through;
+  return value;
+}
+function legacyMaximumCheckpoint(bindingId) {
+  const template = byName.uncertain_fault.cycles[0];
+  const incidents = Array.from({ length: 20 }, (_, incidentIndex) => {
+    const cycleId = `cycle.${String(incidentIndex + 1).padStart(64, "0")}`;
+    const fault_attempts = Array.from({ length: 20 }, (_, attemptIndex) => {
+      const n = incidentIndex * 20 + attemptIndex;
+      const scheduledFor = `2026-10-01T00:${String(attemptIndex).padStart(2, "0")}:00Z`;
+      return {
+        cycle: { ...structuredClone(template), cycle_id: cycleId, scheduled_for: scheduledFor,
+          completed_at: scheduledFor, receipt_ref: `execution-receipt.${n.toString(16).padStart(32, "0")}` },
+        configuration_sha256: fixture.context.configuration_sha256, resolution_ref: null,
+      };
+    });
+    return { cycle: fault_attempts[0].cycle, fault_attempts, resolution_history: [] };
+  });
+  return { schema_version: "qsl.runtime_cycle_health_checkpoint.v1", target_id: fixture.context.target_id,
+    source_binding_id: bindingId, incidents };
 }
 try {
   await start();
@@ -119,7 +167,16 @@ try {
   assert.equal(admitted.body.status, "admission_configured", "provision response reports administration state, not runtime health");
   assert.equal(admitted.body.adopted, false);
   assert.equal("healthy" in admitted.body, false, "admission cannot claim health or establish baseline");
-  assert.equal((await call(undefined)).body.status, "uninitialized", "provisioning alone does not establish a baseline or healthy state");
+  const uninitialized = await call(undefined);
+  assert.equal(uninitialized.body.status, "uninitialized", "provisioning alone does not establish a baseline or healthy state");
+  assert.equal(uninitialized.body.checkpoint, null);
+  assert.equal(uninitialized.body.configuration_sha256, fixture.context.configuration_sha256);
+  assert.equal(uninitialized.body.source_binding_id, bound.source_binding.id);
+  assert.equal(uninitialized.body.checkpoint_revision, 0);
+  assert.equal(uninitialized.body.observed_at, null);
+  assert.equal(uninitialized.body.observation_sha256, null);
+  assert.equal(uninitialized.body.received_at, null);
+  assert.equal(uninitialized.body.required_from, initialAdmission.required_from);
   const admissionReplay = await provision(initialAdmission);
   assert.equal(admissionReplay.body.result, "unchanged");
   assert.equal(admissionReplay.body.status, "admission_unchanged");
@@ -127,6 +184,8 @@ try {
   await admit();
   const admittedFault = await call(packet("uncertain_fault"));
   assert.equal(admittedFault.status, 200, JSON.stringify(admittedFault));
+  assert.equal(admittedFault.body.configuration_sha256, fixture.context.configuration_sha256);
+  assert.equal(admittedFault.body.source_binding_id, bound.source_binding.id);
   const beforeProvisionChange = await snapshot();
   const candidateA = { ...initialAdmission, configuration_sha256: "4".repeat(64), required_from: "2026-09-30T00:00:00Z", expected_authority_revision: 1 };
   const candidateB = { ...candidateA, configuration_sha256: "5".repeat(64) };
@@ -176,6 +235,14 @@ try {
   await admit({ required_from: "" });
   for (const p of [undefined, packet()]) assert.equal((await call(p)).body.error, "cycle_health_baseline_not_admitted");
   await admit();
+  const legacyState = reduceCycleCheckpoint({ target_id: fixture.context.target_id, source_binding_id: bound.source_binding.id }, byName.uncertain_fault);
+  await command({ action: "fixture_legacy_checkpoint", target_id: "longbridge.paper", binding_fingerprint: fingerprint,
+    source_id: "synthetic.paper", revision: 1,
+    checkpoint: { configuration_sha256: fixture.context.configuration_sha256, required_from: "2026-10-01T00:00:00Z", baseline_established: true, state: legacyState } });
+  const migratedLegacy = await call();
+  assert.equal(migratedLegacy.body.schema_version, "qsl_runtime_cycle_health_checkpoint.v2");
+  assert.equal(migratedLegacy.body.checkpoint.state.fault_attempt_count, 1, "legacy B1 attempts migrate before readback");
+  assert.equal((await historyPages()).flatMap(p => p.items).length, 1, "legacy fault detail is available in the archive page");
   const pristine = await snapshot();
   for (const opts of [
     { authorization: "wrong" }, { authorization: baseEnv.EXECUTION_EVIDENCE_SYNC_TOKEN },
@@ -212,7 +279,7 @@ try {
   assert.equal(accepted.body.execution_authority_granted, false);
   const initial = await snapshot();
   const read = await call();
-  for (const k of ["observation_sha256", "checkpoint_revision", "authority_revision", "observed_at", "received_at", "checkpoint"]) assert.deepEqual(read.body[k], accepted.body[k], `GET and committed ACK ${k}`);
+  for (const k of ["observation_sha256", "checkpoint_revision", "authority_revision", "configuration_sha256", "source_binding_id", "observed_at", "received_at", "checkpoint"]) assert.deepEqual(read.body[k], accepted.body[k], `GET and committed ACK ${k}`);
   assert.equal(accepted.body.observation_sha256, await cycleHealthSha256(first));
   const retry = await call(first);
   assert.equal(retry.body.result, "unchanged");
@@ -233,7 +300,8 @@ try {
     const r = await call(packet(name)); assert.equal(r.status, 200, JSON.stringify(r)); assert.equal(r.body.checkpoint.state.unresolved_count, 1);
   }
   // Even a newly observed operational fault from an older slot remains retained.
-  assert.equal((await call(packet("operational_fault"))).body.checkpoint.state.incidents[0].fault_attempts.length, 2);
+  assert.ok((await call(packet("operational_fault"))).body.checkpoint.state.fault_attempt_count >= 2);
+  assert.ok((await historyPages()).flatMap(p => p.items).length >= 2, "fault attempts remain individually readable after summary compaction");
   const beforeAbort = await snapshot();
   await command({ action: "fixture_abort", revision: beforeAbort.sources[0].checkpoint_revision + 1 });
   const failed = await call(packet());
@@ -243,6 +311,53 @@ try {
   const beforeRestart = (await call()).body;
   await mf.dispose(); await start();
   assert.deepEqual((await call()).body, beforeRestart, "SQLite rollback and original receipt survive restart");
+  await command({ action: "fixture_clear_abort" });
+  const addSyntheticFault = async i => {
+    const observation = packet("operational_fault");
+    const health = observation.targets[0].cycle_health;
+    const cycle = health.cycles[0];
+    const scheduledFor = new Date(Date.parse(second) - (i + 1) * 60_000).toISOString().replace(".000Z", "Z");
+    cycle.scheduled_for = scheduledFor;
+    cycle.completed_at = new Date(Date.parse(scheduledFor) + 1_000).toISOString().replace(".000Z", "Z");
+    cycle.receipt_ref = `execution-receipt.${(0xabc000 + i).toString(16).padStart(32, "0")}`;
+    cycle.cycle_id = `cycle.${await cycleHealthSha256([fixture.context.target_id, bound.source_binding.id, health.configuration_sha256, scheduledFor])}`;
+    const instant = nextInstant();
+    observation.computed_at = observation.generated_at = instant;
+    health.coverage.through = instant;
+    health.schedule.next_due_at = `${new Date(Date.parse(instant) + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 19)}Z`;
+    const result = await call(observation);
+    assert.equal(result.status, 200, `synthetic fault ${i}: ${JSON.stringify(result.body)}`);
+    return observation;
+  };
+  let finalFault;
+  for (let i = 0; i < 52; i++) finalFault = await addSyntheticFault(i);
+  const overflowSummary = (await call()).body.checkpoint.state;
+  assert.ok(overflowSummary.fault_attempt_count >= 53, "more than twenty faults are accepted without raising the per-packet budget");
+  assert.ok(overflowSummary.incident_count >= 52);
+  assert.ok(overflowSummary.unresolved_count >= 52, "ordinary success or storage compaction does not clear unresolved faults");
+  const firstPage = await call();
+  assert.equal(firstPage.body.history_page.items.length, 50);
+  assert.equal(firstPage.body.history_page.complete, false);
+  const oldCursor = firstPage.body.history_page.next_cursor;
+  const highwater = firstPage.body.history_page.snapshot_through_id;
+  const conflictPacket = structuredClone(finalFault);
+  conflictPacket.generated_at = conflictPacket.computed_at = nextInstant();
+  conflictPacket.targets[0].cycle_health.coverage.through = conflictPacket.computed_at;
+  conflictPacket.targets[0].cycle_health.cycles[0].outcome = "no_action";
+  const beforeArchivedConflict = await snapshot();
+  assert.equal((await call(conflictPacket)).body.error, "cycle_health_fault_receipt_conflict");
+  assert.deepEqual(await snapshot(), beforeArchivedConflict, "attempt reinterpretation rolls back source watermark, archive, and summary");
+  await addSyntheticFault(52);
+  const secondPageAtOldSnapshot = await call(undefined, { search: query + `&history_cursor=${encodeURIComponent(oldCursor)}` });
+  assert.equal(secondPageAtOldSnapshot.body.history_page.snapshot_through_id, highwater, "cursor retains the first page highwater");
+  assert.equal(secondPageAtOldSnapshot.body.history_page.complete, true);
+  assert.ok(secondPageAtOldSnapshot.body.history_page.items.every(item => item.history_id <= highwater), "later inserts do not shift an in-flight page walk");
+  const allPages = await historyPages();
+  const allArchivedAttempts = allPages.flatMap(p => p.items);
+  assert.ok(allPages.length >= 2);
+  assert.equal(allArchivedAttempts.length, (await snapshot()).attempts.length, "bounded pages expose every archived attempt exactly once");
+  assert.equal(new Set(allArchivedAttempts.map(item => item.history_id)).size, allArchivedAttempts.length);
+  assert.ok(allArchivedAttempts.every((item, i) => !i || allArchivedAttempts[i - 1].history_id < item.history_id));
   // Use a different fresh DO partition for transitions, capacity and route smoke.
   await mf.dispose(); options.durableObjectsPersist = false; await start(); await admit();
   const realKv = await mf.getKVNamespace("STRATEGY_SWITCH_CONFIG");
@@ -261,8 +376,9 @@ try {
   cfgCycle.cycle_id = `cycle.${await cycleHealthSha256([fixture.context.target_id, bound.source_binding.id, changedConfig, cfgCycle.scheduled_for])}`;
   const configured = await call(cfgPacket);
   assert.equal(configured.status, 200, JSON.stringify(configured));
-  assert.equal(configured.body.checkpoint.state.incidents.length, 2);
-  assert.equal(configured.body.checkpoint.baseline_established, false, "first config transition has no established coverage baseline");
+  assert.equal(configured.body.checkpoint.state.incident_count, 2);
+  assert.equal(configured.body.checkpoint.baseline_established, true, "a complete first observation establishes a new configuration baseline from required_from");
+  assert.equal(configured.body.checkpoint.covered_through, cfgPacket.computed_at);
   const oldPartition = (await snapshot()).checkpoints[0];
   const newBound = { ...bound, source_binding: { ...bound.source_binding, id: "5".repeat(64) } };
   const newFp = await cycleHealthSha256({ binding: newBound, runtime_status_target_id: account.runtime_status_target_id });
@@ -281,16 +397,36 @@ try {
   await mf.dispose(); options.durableObjectsPersist = false; await start();
   values.set("account_facts_bindings", JSON.stringify({ schema_version: "qsl_account_facts_bindings.v1", bindings: [bound] }));
   await admit();
-  const requiredFrom = `${second}.900000Z`;
+  const requiredFrom = `${second}.000002Z`;
   await admit({ required_from: requiredFrom });
-  const beforeOrigin = await call(packet("weekly_not_due"));
+  const beforeOrigin = await call(packet("weekly_not_due", `${second}.000001Z`));
   assert.equal(beforeOrigin.status, 200, JSON.stringify(beforeOrigin));
   assert.equal(beforeOrigin.body.checkpoint.baseline_established, false, "coverage ending before the admitted origin cannot establish baseline");
   assert.equal((await call()).body.status, "incomplete", "future origin cannot return complete");
-  const atOrigin = await call(packet("weekly_not_due", requiredFrom));
+  const originPacket = packet("weekly_not_due", requiredFrom);
+  const atOrigin = await call(originPacket);
   assert.equal(atOrigin.status, 200, JSON.stringify(atOrigin));
   assert.equal(atOrigin.body.checkpoint.baseline_established, true, "complete coverage reaching the admitted origin establishes baseline");
   assert.equal((await call()).body.status, "complete");
+  const firstCoveredThrough = atOrigin.body.covered_through;
+  const partial = await call(packet("incomplete"));
+  assert.equal(partial.status, 200, JSON.stringify(partial));
+  assert.equal(partial.body.coverage_complete, false);
+  assert.equal(partial.body.covered_through, firstCoveredThrough, "partial coverage cannot advance the acknowledged watermark");
+  assert.equal(partial.body.coverage_incomplete_reason, "scan_incomplete");
+  assert.equal((await call()).body.status, "incomplete", "a prior baseline does not make a partial latest cycle complete");
+  const gapPacket = packet("weekly_not_due", `${new Date(Date.parse(firstCoveredThrough) + 120_000).toISOString().slice(0, 19)}Z`);
+  gapPacket.targets[0].cycle_health.coverage.from = `${new Date(Date.parse(firstCoveredThrough) + 60_000).toISOString().slice(0, 19)}Z`;
+  const gap = await call(gapPacket);
+  assert.equal(gap.status, 200, JSON.stringify(gap));
+  assert.equal(gap.body.coverage_complete, false);
+  assert.equal(gap.body.covered_through, firstCoveredThrough, "coverage gap preserves the previous continuous watermark");
+  assert.equal(gap.body.coverage_incomplete_reason, "coverage_gap");
+  const resumedPacket = packet("weekly_not_due", `${new Date(Date.parse(firstCoveredThrough) + 180_000).toISOString().slice(0, 19)}Z`);
+  resumedPacket.targets[0].cycle_health.coverage.from = firstCoveredThrough;
+  const resumed = await call(resumedPacket);
+  assert.equal(resumed.body.coverage_complete, true, "overlapping complete coverage resumes from the previous watermark");
+  assert.equal(resumed.body.covered_through, resumedPacket.computed_at);
   await mf.dispose(); options.durableObjectsPersist = false; await start(); await admit();
   const missed = await call(packet("multiple_missed_slots"));
   assert.equal(missed.status, 200, JSON.stringify(missed));
@@ -301,10 +437,12 @@ try {
     const p = packet("operational_fault"); p.targets[0].cycle_health.cycles[0].receipt_ref = `execution-receipt.${i.toString(16).padStart(32, "0")}`;
     assert.equal((await call(p)).status, 200);
   }
-  const full = await snapshot();
-  const overflow = await call(packet("operational_fault"));
-  assert.equal(overflow.body.error, "cycle_health_history_capacity_requires_support");
-  assert.deepEqual(await snapshot(), full, "21st attempt rejects atomically without eviction");
+  const twentyFirst = packet("operational_fault");
+  twentyFirst.targets[0].cycle_health.cycles[0].receipt_ref = `execution-receipt.${(20).toString(16).padStart(32, "0")}`;
+  const overflow = await call(twentyFirst);
+  assert.equal(overflow.status, 200, "history archives beyond the former twenty-attempt cap");
+  assert.equal(overflow.body.checkpoint.state.fault_attempt_count, 21);
+  assert.equal((await snapshot()).attempts.length, 21, "all attempts remain stored in SQLite");
   // CAS admission recheck is authoritative inside the same transaction.
   const staleCommand = { action: "cycle_health_read", source_id: "synthetic.paper", target_id: "longbridge.paper", binding_fingerprint: fingerprint, configuration_sha256: fixture.context.configuration_sha256, required_from: "2026-10-01T00:00:00Z", authority_revision: 1 };
   await admit({ authority_revision: 2 });
@@ -313,8 +451,78 @@ try {
   assert.equal((await casResponse.json()).error, "cycle_health_admission_changed");
   const legacyExtension = await call(packet(), { endpoint: "/api/internal/sync-runtime-target-lifecycle-source", authorization: baseEnv.EXECUTION_EVIDENCE_SYNC_TOKEN });
   assert.equal(legacyExtension.status, 400, "legacy lifecycle still rejects companion extension");
+  // Current observation time and historical coverage endpoint are independent:
+  // a fresh, complete page can advance old coverage in bounded contiguous chunks.
+  await mf.dispose(); options.durableObjectsPersist = false; await start(); await admit();
+  const chunkOne = historicalPacket("2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z");
+  const chunkOneAck = await call(chunkOne);
+  assert.equal(chunkOneAck.status, 200, JSON.stringify(chunkOneAck));
+  assert.equal(chunkOneAck.body.observed_at, chunkOne.computed_at, "freshness/order use this observation's current generation time");
+  assert.equal(chunkOneAck.body.covered_through, "2026-10-02T00:00:00Z", "coverage progress uses the historical page endpoint");
+  assert.notEqual(chunkOne.computed_at, chunkOne.targets[0].cycle_health.coverage.through);
+  const chunkTwo = historicalPacket("2026-10-02T00:00:00Z", "2026-10-03T00:00:00Z");
+  const chunkTwoAck = await call(chunkTwo);
+  assert.equal(chunkTwoAck.status, 200, JSON.stringify(chunkTwoAck));
+  assert.equal(chunkTwoAck.body.covered_through, "2026-10-03T00:00:00Z", "contiguous historical chunk advances from the prior watermark");
+  const incompleteChunk = historicalPacket("2026-10-03T00:00:00Z", "2026-10-04T00:00:00Z", nextInstant(), "incomplete");
+  const incompleteChunkAck = await call(incompleteChunk);
+  assert.equal(incompleteChunkAck.status, 200, JSON.stringify(incompleteChunkAck));
+  assert.equal(incompleteChunkAck.body.covered_through, "2026-10-03T00:00:00Z");
+  assert.equal(incompleteChunkAck.body.coverage_incomplete_reason, "scan_incomplete");
+  const gapChunk = historicalPacket("2026-10-05T00:00:00Z", "2026-10-06T00:00:00Z");
+  const gapChunkAck = await call(gapChunk);
+  assert.equal(gapChunkAck.status, 200, JSON.stringify(gapChunkAck));
+  assert.equal(gapChunkAck.body.covered_through, "2026-10-03T00:00:00Z");
+  assert.equal(gapChunkAck.body.coverage_incomplete_reason, "coverage_gap");
+  const futureCoverage = historicalPacket("2026-10-06T00:00:00Z", "2026-10-06T00:00:00Z");
+  futureCoverage.targets[0].cycle_health.coverage.through = `${futureCoverage.computed_at.slice(0, 19)}Z`;
+  futureCoverage.targets[0].cycle_health.coverage.from = "2026-10-06T00:00:00Z";
+  futureCoverage.computed_at = futureCoverage.generated_at = "9999-01-01T00:00:00Z";
+  assert.equal((await call(futureCoverage)).body.error, "cycle_health_observation_age", "future observation timestamps remain rejected before coverage evaluation");
+  const freshFutureCoverage = historicalPacket("2026-10-06T00:00:00Z", "2026-10-06T00:00:00Z");
+  freshFutureCoverage.targets[0].cycle_health.coverage.through = `${new Date(Date.parse(freshFutureCoverage.computed_at) + 60_000).toISOString().slice(0, 19)}Z`;
+  assert.equal((await call(freshFutureCoverage)).body.error, "cycle_health_future_coverage", "a fresh packet cannot claim coverage beyond its observation time");
+  const completedAfterCutoff = historicalPacket("2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z", nextInstant(), "uncertain_fault");
+  const historicalCycle = completedAfterCutoff.targets[0].cycle_health.cycles[0];
+  historicalCycle.scheduled_for = "2026-10-01T01:00:00Z";
+  historicalCycle.completed_at = "2026-10-03T01:00:00Z";
+  historicalCycle.cycle_id = `cycle.${await cycleHealthSha256([fixture.context.target_id, bound.source_binding.id,
+    completedAfterCutoff.targets[0].cycle_health.configuration_sha256, historicalCycle.scheduled_for])}`;
+  assert.equal((await call(completedAfterCutoff)).body.error, "cycle_health_completion_chronology", "a cycle completion after the historical page endpoint is rejected");
   const final = await snapshot();
   assert.equal(final.diagnoses.length, 0); assert.equal(final.facts.length, 0); assert.equal(final.instances.length, 0);
+  // The prior B1 checkpoint's full 20 x 20 envelope migrates transactionally
+  // into SQLite history without truncation.
+  await mf.dispose(); options.durableObjectsPersist = false; await start(); await admit();
+  await command({ action: "fixture_legacy_checkpoint", target_id: "longbridge.paper", binding_fingerprint: fingerprint,
+    source_id: "synthetic.paper", revision: 1,
+    checkpoint: { configuration_sha256: fixture.context.configuration_sha256, required_from: "2026-10-01T00:00:00Z",
+      baseline_established: true, state: legacyMaximumCheckpoint(bound.source_binding.id) } });
+  const migratedMaximum = await call();
+  assert.equal(migratedMaximum.status, 200, JSON.stringify(migratedMaximum));
+  assert.equal(migratedMaximum.body.checkpoint.state.incident_count, 20);
+  assert.equal(migratedMaximum.body.checkpoint.state.fault_attempt_count, 400, "legacy migration retains all 400 allowed attempts");
+  const migratedRows = (await historyPages()).flatMap(p => p.items);
+  assert.equal(migratedRows.length, 400);
+  assert.equal(new Set(migratedRows.map(row => row.attempt_key)).size, 400);
+
+  // A malformed sibling row must roll back an earlier valid row's migration.
+  await mf.dispose(); options.durableObjectsPersist = false; await start(); await admit();
+  const migrationStateBefore = await snapshot();
+  await command({ action: "fixture_legacy_checkpoint", target_id: "longbridge.paper", binding_fingerprint: "0".repeat(64),
+    source_id: "synthetic.paper", revision: 1,
+    checkpoint: { configuration_sha256: fixture.context.configuration_sha256, required_from: "2026-10-01T00:00:00Z",
+      baseline_established: true, state: legacyMaximumCheckpoint(bound.source_binding.id) } });
+  await command({ action: "fixture_legacy_checkpoint", target_id: "longbridge.paper", binding_fingerprint: "f".repeat(64),
+    source_id: "synthetic.paper", revision: 1,
+    checkpoint: { configuration_sha256: fixture.context.configuration_sha256, required_from: "2026-10-01T00:00:00Z",
+      baseline_established: true, state: { schema_version: "qsl.runtime_cycle_health_checkpoint.v1", incidents: [{ fault_attempts: [null] }] } } });
+  const migrationBeforeRead = await snapshot();
+  assert.notDeepEqual(migrationBeforeRead, migrationStateBefore);
+  const rejectedMigration = await call();
+  assert.equal(rejectedMigration.status, 409);
+  assert.equal(rejectedMigration.body.error, "cycle_health_checkpoint_invalid");
+  assert.deepEqual(await snapshot(), migrationBeforeRead, "a bad legacy sibling rolls back every earlier row copied during GET");
   assert.equal(legacyWrites, 0); assert.equal(outbound, 0); assert.equal(directOutbound, 0);
   assert.equal(offlineNetwork.counters.host_external_attempts, 0);
   console.log("runtime cycle-health Worker validation: PASS", { ...offlineNetwork.counters, worker_outbound_attempts: outbound, direct_outbound_attempts: directOutbound, legacy_writes: legacyWrites });

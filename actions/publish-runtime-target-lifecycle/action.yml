@@ -182,8 +182,15 @@ runs:
         const source = packet.source_id, target = packet.targets?.[0]?.target_id;
         if (ack.ok !== true || ack.schema_version !== "qsl_runtime_cycle_health_ack.v1" || !["stored", "unchanged"].includes(ack.result)
           || ack.source_id !== source || ack.target_id !== target || ack.observation_sha256 !== digest
+          || ack.configuration_sha256 !== packet.targets[0].cycle_health.configuration_sha256
+          || ack.source_binding_id !== process.env.INPUT_CYCLE_HEALTH_SOURCE_BINDING_ID
           || ack.observed_at !== packet.computed_at || !Number.isSafeInteger(ack.authority_revision) || ack.authority_revision < 1
           || !Number.isSafeInteger(ack.checkpoint_revision) || ack.checkpoint_revision < 1
+          || typeof ack.coverage_complete !== "boolean"
+          || (ack.coverage_complete ? ack.coverage_incomplete_reason !== null
+            : !["scan_incomplete", "coverage_gap", "coverage_not_advanced"].includes(ack.coverage_incomplete_reason))
+          || (ack.covered_through !== null && (typeof ack.covered_through !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{6})?Z$/.test(ack.covered_through)))
+          || (ack.coverage_complete && ack.covered_through !== packet.targets[0].cycle_health.coverage.through)
           || ack.adopted !== false || ack.no_order !== true || ack.execution_authority_granted !== false) process.exit(1);
         NODE
           then
@@ -202,9 +209,9 @@ runs:
         const [ackPath, readPath] = process.argv.slice(2);
         const ack = JSON.parse(fs.readFileSync(ackPath, "utf8"));
         const read = JSON.parse(fs.readFileSync(readPath, "utf8"));
-        for (const key of ["source_id", "target_id", "observation_sha256", "observed_at", "authority_revision", "checkpoint_revision", "adopted", "no_order", "execution_authority_granted"])
+        for (const key of ["source_id", "target_id", "configuration_sha256", "source_binding_id", "observation_sha256", "observed_at", "authority_revision", "checkpoint_revision", "covered_through", "coverage_complete", "coverage_incomplete_reason", "adopted", "no_order", "execution_authority_granted"])
           if (read[key] !== ack[key]) process.exit(1);
-        if (read.ok !== true || read.schema_version !== "qsl_runtime_cycle_health_checkpoint.v1"
+        if (read.ok !== true || read.schema_version !== "qsl_runtime_cycle_health_checkpoint.v2"
           || read.adopted !== false || read.no_order !== true || read.execution_authority_granted !== false) process.exit(1);
         NODE
           then

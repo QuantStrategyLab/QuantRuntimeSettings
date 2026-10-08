@@ -181,16 +181,30 @@ Companion HTTP calls have 10-second connect and 30-second total time limits;
 POST and GET bodies are each capped at 1 MiB before being written to the
 temporary response file.
 
-`computed_at = generated_at = coverage.through` preserves original collection
-time. Canonical UTC instants use seconds or exactly six nonzero microseconds,
-matching Python `datetime.isoformat()` and cycle-ID hashing. Millisecond-only,
-offset, impossible-calendar and rounded representations are rejected. The
-existing 36-hour observation age gate and independent five-minute future-skew
-allowance govern reception/read freshness; they do not define cadence, deadline
-or retention. A fresh observation may report a late-discovered older fault.
-Read completeness requires a terminal page, no cap, no errors, equal bounded
-listed/read counts, and coverage of the independent required origin. A cap
-remains incomplete even if counts happen to match.
+`generated_at = computed_at` records when this source snapshot was actually
+collected and generated; it does not move back to the historical page cutoff.
+The existing 36-hour observation age gate and independent five-minute
+future-skew allowance continue to govern freshness. `coverage.from` and
+`coverage.through` describe the historical interval queried in this packet:
+the interval must be ordered, `through` cannot be after `computed_at`, and cycle
+schedule/completion evidence cannot extend beyond `through`. Schedule timing
+and observation ordering still use `computed_at`. Canonical UTC instants use
+seconds or exactly six nonzero microseconds, matching Python
+`datetime.isoformat()` and cycle-ID hashing; millisecond-only, offset,
+impossible-calendar and rounded representations are rejected. This allows a
+fresh source to deliver a bounded historical page without presenting an old
+coverage cutoff as a current observation.
+An individual source scan is complete only with a terminal page, no cap, no
+errors, equal bounded listed/read counts, and coverage of the admitted origin.
+The receiver separately maintains `covered_through`, the latest continuously
+acknowledged coverage boundary. The first complete scan must cover
+`required_from`; later complete scans must start at or before the previous
+`covered_through` and reach at least that boundary. Partial scans and gaps keep
+the previous watermark and return `coverage_complete=false` with a fixed
+`coverage_incomplete_reason`. `observed_at` remains the source packet time and
+never acts as a coverage cursor. A configuration, baseline or binding change
+cannot inherit the previous coverage watermark; a new complete scan must
+re-establish it.
 
 Normalization and hashing happen before the synchronous DO transaction. That
 transaction rechecks authority revision, protected fingerprint, configuration
@@ -200,23 +214,49 @@ with different canonical content conflict; equal identical replay returns
 `unchanged` without renewing the original receipt/freshness timestamp. POST's
 `qsl_runtime_cycle_health_ack.v1` response is returned only after commit, with
 `result=stored|unchanged`, source/target, observation digest, original observation
-time, receipt time, and authority/checkpoint revisions. GET requires exactly
-`source_id` and `target_id` query parameters plus the same authentication/binding
-and returns the same durable digest, revisions and checkpoint in
-`qsl_runtime_cycle_health_checkpoint.v1`.
+time, receipt time, authority/checkpoint revisions, and the three coverage
+fields (`covered_through`, `coverage_complete`, `coverage_incomplete_reason`).
+Both ACK and GET also return the admitted `configuration_sha256` and the
+authenticated `source_binding_id` at top level, including while the checkpoint
+is still uninitialized; clients can verify the first request before a baseline
+has been established.
+An incomplete coverage result is still a committed observation; callers must
+not advance their collection cursor unless `coverage_complete=true`. GET
+requires `source_id` and `target_id` query parameters, optionally accepts one
+`history_cursor`, and uses the same authentication/binding. It returns the same
+durable digest, revisions and coverage fields in
+`qsl_runtime_cycle_health_checkpoint.v2`.
 
 Incomplete scans, closed sessions, no-due/empty packets and later success never
 clear old faults. Each incident retains stable receipt attempts, highest
 severity, independent latest-fault watermark and unresolved status. Exact fault
 replays preserve existing proof associations; newly discovered old faults stay
-unresolved. Same-binding configuration changes keep old attempt provenance and
-leave the first new configuration observation's coverage baseline unestablished.
+unresolved. Same-binding configuration changes keep old attempt provenance;
+the new configuration starts without inherited coverage and can establish a
+new baseline only from a complete scan of its admitted origin.
 Binding changes preserve the exact old partition and expose `prior_partitions`
 with `continuity=unconfirmed` and `status=blocked`, including when the new
-partition is empty. Twenty incidents/attempts are the bounded checkpoint limit;
-overflow rejects the entire transaction and requests history capacity support,
-without eviction. Read status is explicit (`uninitialized`, `incomplete`,
-`complete`, `blocked`, or `stale`); it is never a production health label.
+partition is empty. The summary checkpoint stores counts and the latest fault
+watermark; detailed fault attempts live in append-only
+`runtime_cycle_health_attempt` rows grouped by
+`runtime_cycle_health_incident`. New packets remain limited to 20 cycles, while
+the lifetime archive has no incident/attempt cap and never evicts a fault.
+Legacy JSON checkpoints migrate every attempt in the same SQLite transaction
+as the read; malformed legacy state rejects the read and rolls back the whole
+migration. A valid legacy checkpoint without independently provable coverage
+starts with `covered_through=null` and `coverage_complete=false`.
+
+GET v2 returns a summary and one bounded history page (at most 50 attempts),
+not a truncated reducer checkpoint. The page has a fixed
+`snapshot_through_id`; `next_cursor` advances by stable keyset order within
+that high-water snapshot. Pass it as `history_cursor` to fetch the next page.
+Each page item includes its binding fingerprint and continuity label so a
+retained prior binding remains `unconfirmed`; callers must not merge it into a
+current binding as if identity continuity were proven. `history_page.complete`
+means only that this page walk reached its snapshot high-water. It does not
+mean the health checkpoint is complete or faults are resolved. Read status is
+explicit (`uninitialized`, `incomplete`, `complete`, `blocked`, or `stale`); it
+is never a production health label.
 
 `tests/fixtures/runtime_cycle_health.v1.synthetic.json` is newly regenerated
 synthetic evidence, **not** the unavailable earlier frozen fixture. Its real
@@ -229,7 +269,9 @@ includes actual Python projections, reference reducer results and second/six
 microsecond cycle-ID vectors. The focused validators are imported by the
 existing Worker validation suite; they cover strict negative cases, concurrent
 ordering, receipt replay, commit-only ACK, real SQLite abort/rollback, restart,
-configuration/binding history and capacity. Integration uses the existing
+configuration/binding history, >20-attempt archival, stable snapshot paging,
+continuous-coverage gaps/resumption, exact migration of the former 20-by-20
+checkpoint envelope and rollback of malformed legacy migrations. Integration uses the existing
 offline host guard, `cf:false`, disabled metadata fetching and a rejecting Worker
 outbound hook; local workerd loopback is the only allowed network communication.
 

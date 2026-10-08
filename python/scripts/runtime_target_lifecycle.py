@@ -163,10 +163,9 @@ def build_runtime_target_lifecycle_source_snapshot(
     if normalized_cycle_health is not None:
         if normalized_platform != "longbridge" or normalized_target_id != "longbridge.paper" or normalized_mode != "paper":
             raise RuntimeTargetLifecycleError("cycle_health is limited to the existing LongBridge PAPER target")
-        cycle_timestamp = normalized_cycle_health["coverage"]["through"]
-        if observed_at is not None and _timestamp(observed_at, allow_microseconds=True) != cycle_timestamp:
-            raise RuntimeTargetLifecycleError("observed_at must match cycle_health coverage.through")
-        timestamp = cycle_timestamp
+        # This is the time the current source snapshot was generated, not the
+        # historical cutoff of the page carried inside cycle_health.
+        timestamp = _timestamp(observed_at, allow_microseconds=True)
     else:
         timestamp = _timestamp(observed_at)
     return {
