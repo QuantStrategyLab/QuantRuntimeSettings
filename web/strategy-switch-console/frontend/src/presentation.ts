@@ -602,6 +602,12 @@ export function presentRuntimeDaily(
   const runIssue = runIssues.includes("failure") ? "failure" : runIssues.find(issue => issue !== null);
   const conflictingRun = ["no_submission", "no_signal", "no_rebalance", "filled", "not_due", "market_closed", "outside_window", "within_grace"].includes(status) ? runIssue : null;
   const statusLabel = conflictingRun ? conflictingRun === "failure" ? "异常" : "结果待确认" : RUNTIME_DAILY_STATUS_LABELS[status] || status;
+  const statusDetails = conflictingRun ? [conflictingRun === "failure" ? "异常" : "结果待确认"] : [];
+  if (record.schedule?.state === "unevaluable") statusDetails.push("运行计划资料未确认");
+  if (record.completeness !== undefined && record.completeness !== "complete") statusDetails.push("周期记录不完整，结果待确认");
+  if ((snapshot.read_error_count || 0) > 0) statusDetails.push("部分来源读取失败");
+  if ((snapshot.unmatched_count || 0) > 0) statusDetails.push("存在未匹配的来源报告");
+  if ((record.conflict_count || 0) > 0) statusDetails.push("存在冲突运行记录");
   const dryRun = record.execution_lane === "dry_run" || status === "dry_run" || (record.runs || []).some((run) => run.execution_lane === "dry_run");
   const run = (record.runs || []).find((item) => item.started_at || item.finished_at) || null;
   return {
@@ -609,7 +615,7 @@ export function presentRuntimeDaily(
     accountMatched: true,
     title: "每日运行记录",
     statusLabel,
-    statusDetails: conflictingRun ? ["周期记录明细未确认或与汇总冲突"] : [],
+    statusDetails: conflictingRun ? ["周期记录明细未确认或与汇总冲突", ...statusDetails.slice(1)] : statusDetails,
     runStartedAt: typeof run?.started_at === "string" ? run.started_at : null,
     runFinishedAt: typeof run?.finished_at === "string" ? run.finished_at : null,
     dryRun,

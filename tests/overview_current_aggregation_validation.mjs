@@ -82,4 +82,48 @@ assert.deepEqual(duplicateCurrency.live.assets, [], "ambiguous duplicate currenc
 assert.equal(duplicateCurrency.live.covered, 0);
 assert.equal(duplicateCurrency.live.missing, 1);
 
+const duplicateConfigKey = summarizeCurrentAccountFacts([
+  { id: "longbridge:duplicate-key", platform: "longbridge", brokerEnvironment: "live", facts: liveUsd },
+  { id: "longbridge:duplicate-key", platform: "longbridge", brokerEnvironment: "live", facts: liveUsd },
+]);
+assert.deepEqual(duplicateConfigKey.live.assets, [{ currency: "USD", amount: "100.1" }],
+  "repeated rows for the same platform/config key contribute their shared snapshot only once");
+assert.equal(duplicateConfigKey.duplicateConfigurationKeys, 1);
+assert.equal(duplicateConfigKey.duplicateConfigurationConflicts, 0);
+
+const conflictingDuplicateConfigKey = summarizeCurrentAccountFacts([
+  { id: "longbridge:duplicate-conflict", platform: "longbridge", brokerEnvironment: "live", facts: liveUsd },
+  { id: "longbridge:duplicate-conflict", platform: "longbridge", brokerEnvironment: "live", facts: liveHkd },
+]);
+assert.deepEqual(conflictingDuplicateConfigKey.excludingPaper.assets, [],
+  "conflicting snapshots for a repeated configuration key are excluded rather than choosing or summing either value");
+assert.equal(conflictingDuplicateConfigKey.live.missing, 1,
+  "conflicting duplicate facts remain visible as one uncovered configuration key");
+assert.equal(conflictingDuplicateConfigKey.duplicateConfigurationConflicts, 1);
+
+const conflictingDuplicateEnvironment = summarizeCurrentAccountFacts([
+  { id: "longbridge:environment-conflict", platform: "longbridge", brokerEnvironment: "live", facts: null,
+    walletValuation: { amount: "15", currency: "USD" } },
+  { id: "longbridge:environment-conflict", platform: "longbridge", brokerEnvironment: "paper", facts: null,
+    walletValuation: { amount: "15", currency: "USD" } },
+]);
+assert.deepEqual(conflictingDuplicateEnvironment.excludingPaper.assets, [],
+  "a live/paper environment conflict excludes the shared wallet amount");
+assert.deepEqual(conflictingDuplicateEnvironment.paper.assets, []);
+assert.equal(conflictingDuplicateEnvironment.unknown.missing, 1,
+  "an environment-conflicted configuration key remains visible as missing");
+assert.equal(conflictingDuplicateEnvironment.duplicateConfigurationConflicts, 1);
+
+const conflictingFactsWithMatchingWallet = summarizeCurrentAccountFacts([
+  { id: "longbridge:facts-conflict", platform: "longbridge", brokerEnvironment: "live", facts: liveUsd,
+    walletValuation: { amount: "15", currency: "USD" } },
+  { id: "longbridge:facts-conflict", platform: "longbridge", brokerEnvironment: "live", facts: liveHkd,
+    walletValuation: { amount: "15", currency: "USD" } },
+]);
+assert.deepEqual(conflictingFactsWithMatchingWallet.live.assets, [],
+  "facts conflicts exclude wallet values too, even when both wallet snapshots match");
+assert.deepEqual(conflictingFactsWithMatchingWallet.live.availableCash, []);
+assert.equal(conflictingFactsWithMatchingWallet.live.missing, 1);
+assert.equal(conflictingFactsWithMatchingWallet.duplicateConfigurationConflicts, 1);
+
 console.log("overview current aggregation: PASS (currency, environment, freshness, bindings, cash semantics, wallet and duplicate rows)");
