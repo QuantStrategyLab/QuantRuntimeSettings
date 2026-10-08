@@ -208,6 +208,18 @@ try {
   assert.doesNotMatch(staleWallet, /44\.55|API账户类型：现货/);
   assert.match(staleWallet, /账户类型待确认/);
   selected = "all"; chart = "return";
+  const nativeReturnAccount = { ...baseAccount, platformKey: "ibkr", facts: { ...fresh, return: {
+    status: "available", method: "native_ibkr_twr", currency: "EUR", period: {from:"2026-09-01",to:"2026-09-30"},
+    source_value: "-2.5", source_unit: "percent", value: "-0.025", unit: "ratio", source: "ChangeInNAV.twr", observed_at: "2026-10-08T08:00:00Z",
+  } } };
+  const nativeReturnProps = { accountOptionsRevision: 1, accountFacts: { ...model, account_options_revision: 1 } };
+  const nativeReturnHtml = render([nativeReturnAccount], nativeReturnProps);
+  assert.doesNotMatch(render([nativeReturnAccount], { ...nativeReturnProps, accountOptionsRevision: 2 }), /-2\.5%/);
+  assert.doesNotMatch(render([nativeReturnAccount]), /-2\.5%/);
+  assert.match(nativeReturnHtml, /-2\.5% · EUR/);
+  assert.match(nativeReturnHtml, /2026-09-01 — 2026-09-30/);
+  assert.match(nativeReturnHtml, /券商原生时间加权收益率/);
+  assert.doesNotMatch(nativeReturnHtml, /USD -2\.5/);
   const returnHtml = render([baseAccount]);
   metadataRenderFixtures.returns = returnHtml;
   for (const name of ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.ok(returnHtml.includes(name));

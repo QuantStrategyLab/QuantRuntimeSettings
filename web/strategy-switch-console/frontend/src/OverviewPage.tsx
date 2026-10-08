@@ -611,9 +611,19 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
       </div> : null}
       {chart === "return" ? <div className="overview-benchmark">
         <h2>{t("账户与基准收益率比较")}</h2>
-        <p>{t("暂无可比较收益率；账户需要完整估值、资金进出和费用记录。")}</p>
+        <p>{t("券商期间收益单独列示；同窗口基准比较暂不可用。")}</p>
         <ul className="overview-return-coverage" aria-label={t("账户收益覆盖")}>
-          {visible.map(account => <li key={account.id}><strong>{optionLabel(account)}</strong><span>{t("收益率暂不可用")}</span><small>{t("缺少完整估值、资金进出和费用记录")}</small></li>)}
+          {visible.map(account => {
+            const sameConfiguration = Number.isInteger(accountOptionsRevision) && accountOptionsRevision! >= 0
+              && accountFacts?.account_options_revision === accountOptionsRevision;
+            const result = sameConfiguration && account.platformKey === "ibkr" ? account.facts?.return : null;
+            return <li key={account.id}><strong>{optionLabel(account)}</strong>
+              {result?.status === "available" ? <>
+                <span>{`${result.source_value}% · ${result.currency}`}</span>
+                <small>{`${result.period.from} — ${result.period.to} · ${t("券商原生时间加权收益率")}`}</small>
+              </> : <><span>{t("收益率暂不可用")}</span><small>{t("暂无合格期间收益记录")}</small></>}
+            </li>;
+          })}
           {!visible.length ? <li>{t("暂无账户")}</li> : null}
         </ul>
         <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>

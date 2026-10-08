@@ -44,6 +44,8 @@ import {
   parseAccountOptionsJson as parseAccountOptionsSchemaJson,
 } from "./account_options_schema.js";
 import {
+  normalizeIbkrPeriodReturn,
+  publicIbkrPeriodReturn,
   ACCOUNT_FACTS_BINDINGS_KEY,
   ACCOUNT_FACTS_HISTORY_MAX_DAYS,
   ACCOUNT_FACTS_MAX_BODY_BYTES,
@@ -384,6 +386,7 @@ const ACCOUNT_SETTINGS_DO_ACTIONS = new Set([
   "account_settings_profile_application_claim",
 ]);
 const ACCOUNT_FACTS_DO_ACTIONS = new Set([
+  "account_period_return_put", "account_period_return_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
   "binance_wallet_history_put", "binance_wallet_history_read",
 ]);
@@ -804,6 +807,9 @@ export default {
       }
       if (url.pathname === "/api/runtime-daily" && request.method === "GET") {
         return await runtimeDailyResponse(request, env, url);
+      }
+      if (url.pathname === "/api/account-facts/period-return/sync" && request.method === "POST") {
+        return syncAccountPeriodReturnResponse(request, env);
       }
       if (url.pathname === "/api/account-facts/sync" && request.method === "POST") {
         return await syncAccountFactsResponse(request, env);
@@ -1987,6 +1993,10 @@ export class RuntimeInstances {
   constructor(ctx) {
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
+    // Latest native interval only; existing private read-model store, no new ledger.
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
+      account_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
+    )`);
     // Dormant: only an independent protected provisioning step may seed admission.
     // There is deliberately no ingress/admin command that writes an admission.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_source (
@@ -2549,6 +2559,7 @@ export class RuntimeInstances {
     if (command.action === "binance_wallet_history_put" || command.action === "binance_wallet_history_read") {
       return this.binanceWalletHistoryCommand(command);
     }
+    if (command.action === "account_period_return_put" || command.action === "account_period_return_read") return this.accountPeriodReturnCommand(command);
     if (command.action === "account_facts_put") return this.putAccountFactsObservation(command);
     if (command.action === "account_facts_read") return this.readAccountFactsObservation(command);
     if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
@@ -2662,6 +2673,27 @@ export class RuntimeInstances {
       this.sql.exec("DELETE FROM account_facts_daily WHERE platform = 'binance' AND account_key = ? AND observation_date < ?",
         context.account_key, cutoff);
     }
+    return { ok: true, unchanged: false };
+  }
+
+  accountPeriodReturnCommand(command) {
+    const context = this.accountFactsStorageContext(command);
+    if (context.platform !== "ibkr") throw new HttpError("invalid_account_period_return", 400);
+    const binding = { ...context, source_binding: { id: context.source_binding_id } };
+    const existing = this.sql.exec("SELECT payload_json FROM account_period_return WHERE account_key = ?", context.account_key).toArray()[0];
+    let prior = null;
+    if (existing) {
+      try { prior = normalizeIbkrPeriodReturn(JSON.parse(existing.payload_json), { binding, enforceFresh: false }); }
+      catch { if (command.action === "account_period_return_read") return { ok: true, return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE } }; }
+    }
+    if (command.action === "account_period_return_read") return { ok: true, return: prior ? publicIbkrPeriodReturn(prior) : { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE } };
+    const incoming = normalizeIbkrPeriodReturn(command.payload, { binding });
+    if (prior) {
+      if (incoming.period.to < prior.period.to || Date.parse(incoming.observed_at) < Date.parse(prior.observed_at)) throw new HttpError("account_period_return_stale_write", 409);
+      if (incoming.observed_at === prior.observed_at && canonicalResearchTaskJson(incoming) !== canonicalResearchTaskJson(prior)) throw new HttpError("account_period_return_conflict", 409);
+      if (canonicalResearchTaskJson(incoming) === canonicalResearchTaskJson(prior)) return { ok: true, unchanged: true };
+    }
+    this.sql.exec("INSERT INTO account_period_return (account_key, payload_json) VALUES (?, ?) ON CONFLICT(account_key) DO UPDATE SET payload_json = excluded.payload_json", context.account_key, JSON.stringify(incoming));
     return { ok: true, unchanged: false };
   }
 
@@ -10235,6 +10267,34 @@ async function loadStoredAccountFactsMap(env, accountOptions, bindings) {
   return storedByAccount;
 }
 
+function periodReturnCommand(binding, action) {
+  return { action, platform: "ibkr", account_key: binding.account_key, account_scope: binding.account_scope,
+    account_selector: binding.account_selector, target_id: binding.target_id, source_binding_id: binding.source_binding.id };
+}
+
+async function syncAccountPeriodReturnResponse(request, env) {
+  if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
+  try {
+    if (requireDedicatedAccountFactsSyncToken(request, env) !== "ibkr") throw new HttpError("account_facts_sync_token_platform_mismatch", 403);
+    if (!hasConfigStore(env) || !hasRuntimeInstanceStore(env)) throw new HttpError("account_facts_store_unavailable", 503);
+    const raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
+    const bindings = await loadAccountFactsBindings(env);
+    const resolved = resolveTrustedAccountFactsBinding(bindings, raw?.target_id, raw?.source_binding_id);
+    if (!resolved.ok || resolved.binding.platform !== "ibkr") throw new HttpError("account_facts_identity_mismatch", 409);
+    const binding = resolved.binding;
+    const config = await loadAccountOptionsConfig(env);
+    const options = (config.options?.ibkr || []).filter(item => item.key === binding.account_key);
+    if (options.length !== 1 || !accountFactsOptionMatchesBinding(options[0], binding)) throw new HttpError("account_facts_account_unattributed", 409);
+    const payload = normalizeIbkrPeriodReturn(raw, { binding });
+    const stored = await runtimeInstanceCommand(env, { ...periodReturnCommand(binding, "account_period_return_put"), payload });
+    return json({ ok: true, stored: true, unchanged: stored.unchanged === true, account_key: binding.account_key,
+      period: payload.period, currency: payload.currency, method: payload.method });
+  } catch (error) {
+    if (error instanceof AccountFactsError || error instanceof HttpError) return accountFactsErrorResponse(error);
+    return json({ ok: false, error: "account_period_return_unavailable" }, 503);
+  }
+}
+
 async function syncAccountFactsResponse(request, env) {
   if (!accountFactsReadModelEnabled(env)) return accountFactsDisabledResponse();
   let authorizedPlatform;
@@ -10389,6 +10449,16 @@ async function accountFactsResponse(request, env) {
     storedByAccount,
     now: Date.now(),
   });
+  for (const account of model.accounts) {
+    if (account.platform !== "ibkr") continue;
+    const binding = bindings?.bindings?.find(item => item.platform === "ibkr" && item.account_key === account.account_key);
+    const option = (accountConfig.options?.ibkr || []).find(item => item.key === account.account_key);
+    if (!binding || !accountFactsOptionMatchesBinding(option, binding)) continue;
+    try {
+      const result = await runtimeInstanceCommand(env, periodReturnCommand(binding, "account_period_return_read"));
+      account.return = result.return;
+    } catch { /* A failed period read must not hide current balances. */ }
+  }
   return json({
     ...model,
     account_options_revision: accountConfig.revision ?? null,

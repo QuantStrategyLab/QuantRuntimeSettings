@@ -1,0 +1,50 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import worker, { __test } from '../web/strategy-switch-console/worker.js';
+import { normalizeIbkrPeriodReturn } from '../web/strategy-switch-console/account_facts.js';
+const require = createRequire(new URL('../web/strategy-switch-console/package.json', import.meta.url));
+const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || 'miniflare');
+const option = { key: 'synthetic-ibkr', label: 'Synthetic IBKR', account_scope: 'synthetic-live', target_name: 'synthetic-target', service_name: 'synthetic-service', deployment_selector: 'synthetic-deploy', account_selector: 'U100001' };
+const binding = { platform: 'ibkr', account_key: option.key, account_scope: option.account_scope, target_name: option.target_name, service_name: option.service_name, deployment_selector: option.deployment_selector, account_selector: option.account_selector, target_id: 'synthetic-target', source_binding: { kind: 'deployment_runtime_account', id: 'a'.repeat(64) } };
+const now = Date.now();
+const payload = { schema_version: 'ibkr_account_period_return.v1', target_id: binding.target_id, source_binding_id: binding.source_binding.id, account_scope: option.account_scope, account_ids: [option.account_selector], observed_at: new Date(now-1000).toISOString(), currency: 'USD', period: { from: '2026-09-01', to: '2026-09-30' }, method: 'native_ibkr_twr', source: 'ChangeInNAV.twr', source_unit: 'percent', source_value: '2.5', unit: 'ratio', value: '0.025' };
+assert.deepEqual(normalizeIbkrPeriodReturn(payload, { binding, now }), payload);
+for (const bad of [{value:'2.5'}, {value:'-1.1',source_value:'-110'}, {source_unit:'ratio'}, {currency:'USDT'}, {account_ids:['U100002']}, {period:{from:'2026-09-31',to:'2026-09-30'}}, {observed_at:new Date(now-48*3600000).toISOString()}, {account_key:option.key}]) {
+  assert.throws(() => normalizeIbkrPeriodReturn({...payload,...bad}, {binding,now}));
+}
+assert.equal(normalizeIbkrPeriodReturn({...payload,value:'-0.00000000000001',source_value:'-0.000000000001'}, {binding,now}).value, '-0.00000000000001');
+const envBase = { SESSION_SECRET: 'synthetic-session-only', ALLOWED_GITHUB_LOGINS:'synthetic-reader', ACCOUNT_FACTS_READ_MODEL_ENABLED:'true', IBKR_ACCOUNT_FACTS_SYNC_TOKEN:'synthetic-ibkr-sync', SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN:'synthetic-other-sync' };
+const mf = new Miniflare({ modules:true, modulesRules:[{type:'ESModule',include:['**/*.js']}], scriptPath:fileURLToPath(new URL('../web/strategy-switch-console/worker.js',import.meta.url)), compatibilityDate:'2026-06-08', bindings:envBase, durableObjects:{STRATEGY_SWITCH_RUNTIME_INSTANCES:{className:'RuntimeInstances',useSQLite:true}}, kvNamespaces:['STRATEGY_SWITCH_CONFIG'], outboundService:()=>new Response('offline',{status:503}) });
+try {
+  const kv = await mf.getKVNamespace('STRATEGY_SWITCH_CONFIG');
+  const namespace = await mf.getDurableObjectNamespace('STRATEGY_SWITCH_RUNTIME_INSTANCES');
+  const env = {...envBase,STRATEGY_SWITCH_CONFIG:kv,STRATEGY_SWITCH_RUNTIME_INSTANCES:namespace};
+  const setBinding = async b => kv.put('account_facts_bindings',JSON.stringify({schema_version:'qsl_account_facts_bindings.v1',bindings:[b]}));
+  await kv.put('account_options',JSON.stringify({ibkr:[option]})); await setBinding(binding);
+  const post = (p=payload,token=envBase.IBKR_ACCOUNT_FACTS_SYNC_TOKEN) => worker.fetch(new Request('https://switch.example/api/account-facts/period-return/sync',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(p)}),env);
+  const cookie = await __test.makeSession('synthetic-reader',[],envBase);
+  const get = (loggedIn=true) => worker.fetch(new Request('https://switch.example/api/account-facts',{headers:loggedIn?{Cookie:`qsl_switch_session=${cookie}`}:{}}),env);
+  assert.equal((await post(payload,'')).status,401);
+  assert.equal((await post(payload,envBase.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN)).status,403);
+  assert.equal((await post({...payload,account_ids:['U100002']})).status,409);
+  assert.equal((await post({...payload,value:'2.5'})).status,400);
+  const first = await post(); assert.equal(first.status,200); assert.equal((await first.json()).stored,true);
+  const again = await post(); assert.equal((await again.json()).unchanged,true);
+  assert.equal((await post({...payload,source_value:'3',value:'0.03'})).status,409);
+  assert.equal((await post({...payload,observed_at:payload.observed_at.replace('Z','+00:00'),source_value:'3',value:'0.03'})).status,409,'equal instant text cannot bypass conflict');
+  assert.equal((await post({...payload,observed_at:new Date(now-2000).toISOString()})).status,409);
+  assert.equal((await get(false)).status,401);
+  let response = await (await get()).json();
+  assert.equal(response.accounts[0].return.value,'0.025');
+  assert.equal(response.accounts[0].data_status,'unavailable','native return does not require a fresh balance snapshot');
+  assert.equal(response.return.status,'unavailable','never fabricate a combined portfolio return');
+  assert.ok(!JSON.stringify(response).includes(option.account_selector),'native identity remains private');
+  await setBinding({...binding,source_binding:{...binding.source_binding,id:'b'.repeat(64)}});
+  response = await (await get()).json(); assert.equal(response.accounts[0].return.status,'unavailable','binding changes invalidate prior intervals');
+  await setBinding(binding);
+  assert.equal((await post({...payload,currency:'EUR',observed_at:new Date(now).toISOString(),source_value:'-3',value:'-0.03'})).status,200);
+  response = await (await get()).json(); assert.equal(response.accounts[0].return.currency,'EUR','base currency is kept without a USD relabel');
+  assert.equal(response.accounts[0].return.value,'-0.03');
+  console.log('IBKR native period return: offline receiver, persistence, identity, units and privacy PASS');
+} finally { await mf.dispose(); }
