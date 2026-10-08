@@ -144,7 +144,10 @@ try {
   assert.match(html, /模拟账户/);
   assert.match(html, /已取得资产合计（不含已标记模拟账户）/);
   assert.match(html, /配置为模拟（单列，不计入实盘汇总）/);
-  assert.match(html, /暂无组合历史/);
+  assert.match(html, /市场基准/);
+  assert.match(html, /2026-10-09/);
+  assert.match(html, /aria-label="总资产"/);
+  assert.doesNotMatch(html, /fred\.stlouisfed|暂无组合历史/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
   assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /USD 101\.25/);
   assert.match(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /账户资产资料已过期/);
@@ -224,7 +227,11 @@ try {
   metadataRenderFixtures.returns = returnHtml;
   for (const name of ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.ok(returnHtml.includes(name));
   assert.doesNotMatch(returnHtml, /数据来源与网站使用权限待核/);
-  assert.match(returnHtml, /暂无数据/);
+  assert.match(returnHtml, /序列自 2026-10-09（Asia\/Shanghai）起，不回补历史。/);
+  assert.match(returnHtml, /aria-label="收益率"/);
+  assert.match(returnHtml, /汇总收益率/);
+  assert.match(returnHtml, /暂无合格期间收益记录/);
+  assert.doesNotMatch(returnHtml, /<path /, "an account without a qualified return does not get an equity curve");
   assert.doesNotMatch(returnHtml, /具体指数与数据来源待确认/);
   const settingsRow = { id: "paper", platform: "longbridge", key: option.key, title: "Synthetic paper", platformLabel: "LongBridge", environment: "Paper", facts: fresh, strategy: "Synthetic strategy", strategyNote: "", statusLabel: "待确认", activation: "待确认" };
   const noop = () => {};
