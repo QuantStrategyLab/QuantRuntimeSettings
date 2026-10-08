@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { overviewRuntimeHealth, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { overviewRuntimeHealth, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND, binanceWalletStatusDetail } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { RUNTIME_DAILY_TARGET, runtimeDailyTarget } from "../web/strategy-switch-console/runtime_daily_contract.js";
 import "./overview_current_aggregation_validation.mjs";
@@ -88,9 +88,11 @@ unverifiedDisabled.target.disposition.code = "parked";
 assert.equal(health(unverifiedDisabled, null, binance).label, "异常", "a disabled target with a parked disposition remains abnormal");
 const noSchedule = clone(daily);
 noSchedule.record.schedule = { state: "unevaluable", latest_due_at: null, next_due_at: null, grace_ends_at: null, publication_grace_ended: null };
-assert.equal(health(runtime, noSchedule).label, "异常", "a complete run cannot fill an unknown scheduling evidence gap");
+assert.equal(health(runtime, noSchedule).label, "健康", "an unknown daily schedule does not change lifecycle health");
+assert.equal(health(runtime, noSchedule).detail, "运行时间未确认或已到期", "an unknown daily schedule remains an explicit cycle gap");
 delete noSchedule.record.schedule;
-assert.equal(health(runtime, noSchedule).label, "异常", "missing schedule cannot prove current cycle health");
+assert.equal(health(runtime, noSchedule).label, "健康", "missing daily schedule does not change lifecycle health");
+assert.equal(health(runtime, noSchedule).detail, "运行时间未确认或已到期", "missing schedule cannot prove cycle health");
 assert.equal(health().label, "健康");
 assert.equal(health().lastSuccessAt, instant(-60));
 for (const [name, mutate] of [
@@ -111,7 +113,8 @@ for (const [name, mutate] of [
   const r = clone(runtime); mutate(r); assert.equal(health(r).label, "异常", name);
 }
 assert.equal(health(null).label, "异常");
-assert.equal(health(runtime, null).label, "异常", "monitoring green alone cannot prove a cycle");
+assert.equal(health(runtime, null).label, "健康", "a missing cycle does not change lifecycle monitoring health");
+assert.equal(health(runtime, null).detail, "周期记录未取得", "a missing cycle remains explicit and is never counted as success");
 assert.equal(health(runtime, daily, selection, true).detail, "账户身份不匹配");
 assert.equal(health(runtime, null, binance, true).label, "异常", "identity mismatches stay abnormal for non-LongBridge platforms");
 const staleBinance = clone(runtime);
@@ -126,6 +129,64 @@ assert.equal(health(unavailableDeploymentReadback, null, binance).label, "异常
 const abnormalBinance = clone(runtime);
 abnormalBinance.account_state.health = "abnormal";
 assert.equal(health(abnormalBinance, null, binance).label, "异常", "platform monitoring failure remains abnormal");
+const abnormalUnknownActivation = clone(abnormalBinance);
+abnormalUnknownActivation.account_state.activation = "unknown";
+abnormalUnknownActivation.account_state.reason = "retained_attention";
+assert.equal(health(abnormalUnknownActivation, null, binance).detail, "账户运行异常",
+  "a retained parked state without a failed public check keeps its generic reason");
+abnormalUnknownActivation.target.disposition.code = "continue_enabled_monitoring";
+abnormalUnknownActivation.target.monitoring.runtime_guard = "attention";
+assert.equal(health(abnormalUnknownActivation, null, binance).detail, "近期运行检查失败",
+  "a fresh retained-attention runtime guard failure is explained even while activation is unknown");
+const staleAttentionDeployment = clone(abnormalUnknownActivation);
+staleAttentionDeployment.deployment_freshness.data_status = "stale";
+assert.equal(health(staleAttentionDeployment, null, binance).detail, "近期运行检查失败",
+  "fresh lifecycle attention remains visible when deployment evidence is stale");
+const missingAttentionDeployment = clone(abnormalUnknownActivation);
+delete missingAttentionDeployment.target.deployment.observed_at;
+assert.equal(health(missingAttentionDeployment, null, binance).detail, "近期运行检查失败",
+  "fresh lifecycle attention remains visible when deployment evidence is missing");
+const staleAttentionSource = clone(abnormalUnknownActivation);
+staleAttentionSource.observed_at = instant(-301);
+staleAttentionSource.deployment_freshness.data_status = "stale";
+assert.equal(health(staleAttentionSource, null, binance).detail, "运行证据已过期",
+  "an expired lifecycle snapshot cannot be presented as a fresh monitoring failure");
+const heartbeatAttention = clone(abnormalUnknownActivation);
+heartbeatAttention.target.monitoring.runtime_guard = "pass";
+heartbeatAttention.target.monitoring.execution_heartbeat = "attention";
+assert.equal(health(heartbeatAttention, null, binance).detail, "近期执行报告检查失败");
+const bothAttention = clone(abnormalUnknownActivation);
+bothAttention.target.monitoring.execution_heartbeat = "attention";
+assert.equal(health(bothAttention, null, binance).detail, "近期运行检查失败；近期执行报告检查失败");
+const parkedAttention = clone(abnormalUnknownActivation);
+parkedAttention.target.disposition.code = "parked";
+assert.equal(health(parkedAttention, null, binance).detail, "账户运行异常",
+  "parked attention without a specific current check explanation remains generic");
+assert.equal(binanceWalletStatusDetail({ ok: true, report_status: "missing", report: null }, now), "尚未取得钱包报告");
+assert.equal(binanceWalletStatusDetail({ ok: true, report_status: "expired", report: null }, now), "钱包报告已过期");
+assert.equal(binanceWalletStatusDetail({ ok: false, error: "private raw error" }, now), "钱包报告读取失败",
+  "transport errors are not exposed to account cards");
+assert.equal(binanceWalletStatusDetail({ ok: true, report_status: "available", report: {
+  wallet_valuation: { status: "unavailable", reason_code: "wallet_read_failed" },
+} }, now), "钱包余额读取失败");
+assert.equal(binanceWalletStatusDetail({ ok: true, report_status: "available", report: {
+  wallet_valuation: { status: "unavailable", reason_code: "private_provider_error" },
+} }, now), "钱包估值原因待确认", "unknown reason codes are never surfaced verbatim");
+const walletObservedAt = offset => new Date(now + offset).toISOString();
+const walletStatusReport = (valuation, reportObserved = walletObservedAt(0)) => ({ ok: true, report_status: "available", report: {
+  observed_finished_at: reportObserved,
+  wallet_valuation: {
+    status: "available", amount: "10", currency: "USDT", source: "GET /sapi/v1/asset/wallet/balance",
+    scope: "provider_returned_wallet_rows", observed_at: walletObservedAt(0), wallet_count: 1,
+    ...valuation,
+  },
+} });
+assert.equal(binanceWalletStatusDetail(walletStatusReport({ currency: "USD" }), now), "钱包估值资料未确认",
+  "invalid valuation fields are not mislabeled as stale");
+assert.equal(binanceWalletStatusDetail(walletStatusReport({ observed_at: walletObservedAt(-37 * 60 * 60 * 1000) }), now), "钱包估值已过期",
+  "a verifiable observation older than the existing 36-hour limit is stale");
+assert.equal(binanceWalletStatusDetail(walletStatusReport({ observed_at: "invalid timestamp" }), now), "钱包估值资料未确认",
+  "an invalid timestamp cannot prove expiry");
 for (const [name, mutate] of [
   ["configured enabled", r => r.target.target.configured_state = "enabled"],
   ["runtime switch enabled", r => r.target.deployment.runtime_enabled = true],
@@ -157,7 +218,9 @@ for (const [name, mutate] of [
   ["dry-run lane", d => d.record.execution_lane = "dry_run"],
   ["mixed run lane", d => d.record.runs[0].execution_lane = "dry_run"],
 ]) {
-  const d = clone(daily); mutate(d); assert.equal(health(runtime, d).label, "异常", name);
+  const d = clone(daily); mutate(d);
+  assert.equal(health(runtime, d).label, "健康", `${name}: daily evidence does not redefine lifecycle monitoring`);
+  assert.notEqual(health(runtime, d).detail, "运行监测正常，已启用。", `${name}: daily issue remains visible`);
 }
 const scheduleUnverified = clone(daily);
 scheduleUnverified.record = {
@@ -174,7 +237,9 @@ assert.ok(scheduleUnverifiedView.statusDetails.includes("运行计划资料未�
 assert.ok(scheduleUnverifiedView.statusDetails.includes("周期记录不完整，结果待确认"));
 assert.ok(scheduleUnverifiedView.statusDetails.includes("部分来源读取失败"));
 for (const status of ["failed", "blocked", "unknown", "submitted", "broker_acknowledged", "partially_filled", "dry_run", "shadow", "validation", "missing_report"]) {
-  const d = clone(daily); d.record.status = status; assert.equal(health(runtime, d).label, "异常", status);
+  const d = clone(daily); d.record.status = status;
+  assert.equal(health(runtime, d).label, "健康", `${status}: cycle result does not redefine lifecycle monitoring`);
+  assert.notEqual(health(runtime, d).detail, "运行监测正常，已启用。", `${status}: cycle issue remains visible`);
 }
 assert.equal(health(runtime, daily, { platform: "binance", accountKey: selection.accountKey, dailyBinding: "not_applicable" }).label, "健康", "a non-LongBridge status is sourced from its platform lifecycle, not an unrelated daily snapshot");
 for (const status of ["not_due", "market_closed", "outside_window"]) {
@@ -186,15 +251,20 @@ for (const status of ["not_due", "market_closed", "outside_window"]) {
   assert.equal(health(waitingRuntime, d).label, "健康", "verified not-due evidence does not require a monitoring success");
   waitingRuntime.target.monitoring.runtime_guard = "unknown";
   assert.equal(health(waitingRuntime, d).label, "异常", "not-due heartbeat cannot hide an unknown guard");
-  assert.equal(health(runtime, d, selection, false, now + 60_000).label, "异常", `${status} due boundary`);
+  assert.equal(health(runtime, d, selection, false, now + 60_000).label, "健康", `${status} due boundary is separate from lifecycle health`);
+  assert.notEqual(health(runtime, d, selection, false, now + 60_000).detail, "运行监测正常，已启用。");
   d.record.schedule.next_due_at = null;
-  assert.equal(health(runtime, d).label, "异常", `${status} unknown due time`);
+  assert.equal(health(runtime, d).label, "健康", `${status} unknown due time is separate from lifecycle health`);
+  assert.notEqual(health(runtime, d).detail, "运行监测正常，已启用。");
 }
 const sundayMarketClosed = clone(daily);
 sundayMarketClosed.date = "2026-10-04";
 sundayMarketClosed.record = { ...sundayMarketClosed.record, business_date: "2026-10-04", kind: "schedule", status: "market_closed", runs: [], schedule: { state: "market_closed", next_due_at: instant(3600) } };
 assert.equal(health(runtime, sundayMarketClosed).label, "健康", "Sunday is healthy only because the upstream LongBridge schedule explicitly reports market_closed with a future next due time");
-assert.equal(health(runtime, sundayMarketClosed, selection, false, now + 3600_000).label, "异常", "the upstream market-closed window does not remain healthy after its next due time");
+const longFreshRuntime = clone(runtime);
+longFreshRuntime.evidence_valid_for_seconds = 7200;
+assert.equal(health(longFreshRuntime, sundayMarketClosed, selection, false, now + 3600_000).label, "健康", "the expired cycle window does not change lifecycle monitoring health");
+assert.equal(health(longFreshRuntime, sundayMarketClosed, selection, false, now + 3600_000).detail, "运行时间未确认或已到期");
 // The null-next-due exception belongs only to explicit, current-day Schwab facts.
 const schwabSelection = { platform: "schwab", accountKey: "synthetic-schwab", dailyBinding: "bound" };
 for (const [status, reason] of [["not_due", "no_cron_on_business_date"], ["market_closed", "market_closed"]]) {
@@ -232,23 +302,28 @@ for (const [status, reason] of [["not_due", "no_cron_on_business_date"], ["marke
     ["dry-run lane", d => d.record.execution_lane = "dry_run"],
   ]) {
     const altered = clone(closed); mutate(altered);
-    assert.equal(health(runtime, altered, schwabSelection).label, "异常", `${reason}: ${name}`);
+    assert.equal(health(runtime, altered, schwabSelection).label, "健康", `${reason}: ${name} is not lifecycle health`);
+    assert.notEqual(health(runtime, altered, schwabSelection).detail, "运行监测正常，已启用。");
   }
   const legacy = clone(closed);
   Object.assign(legacy, { platform: "longbridge", target_key: RUNTIME_DAILY_TARGET.target_key, account_key: selection.accountKey });
   Object.assign(legacy.record, RUNTIME_DAILY_TARGET);
-  assert.equal(health(runtime, legacy).label, "异常", "Schwab-only closed reasons cannot broaden the original LongBridge contract");
+  assert.equal(health(runtime, legacy).label, "健康", "Schwab-only closed reasons cannot broaden the LongBridge cycle contract or lifecycle health");
+  assert.notEqual(health(runtime, legacy).detail, "运行监测正常，已启用。");
   for (const status of ["failed", "blocked", "unknown", "submitted", "broker_acknowledged", "partially_filled"]) {
     const changed = clone(closed); changed.record.status = status;
-    assert.equal(health(runtime, changed, schwabSelection).label, "异常", `${reason}: ${status} cannot become healthy`);
+    assert.equal(health(runtime, changed, schwabSelection).label, "健康", `${reason}: cycle status is separate from lifecycle health`);
+    assert.notEqual(health(runtime, changed, schwabSelection).detail, "运行监测正常，已启用。");
   }
 }
 const grace = clone(daily);
 grace.record = { ...grace.record, kind: "schedule", status: "within_grace", runs: [], schedule: { state: "within_grace", grace_ends_at: instant(60), publication_grace_ended: false } };
 assert.equal(health(runtime, grace).label, "健康");
-assert.equal(health(runtime, grace, selection, false, now + 60_000).label, "异常");
+assert.equal(health(runtime, grace, selection, false, now + 60_000).label, "健康");
+assert.equal(health(runtime, grace, selection, false, now + 60_000).detail, "周期报告已到期");
 grace.record.schedule.publication_grace_ended = true;
-assert.equal(health(runtime, grace).label, "异常");
+assert.equal(health(runtime, grace).label, "健康");
+assert.equal(health(runtime, grace).detail, "周期报告已到期");
 const overdue = clone(daily);
 overdue.record.schedule.latest_due_at = instant(-10);
 assert.equal(health(runtime, overdue).lastSuccessAt, instant(-60), "overdue evidence retains the last completed cycle time");

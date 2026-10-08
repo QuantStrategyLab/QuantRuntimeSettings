@@ -7507,10 +7507,13 @@ async function binanceAccountFactsResponse(request, env) {
   if (!session?.allowed) return json({ ok: false, error: "login required" }, 401);
   try {
     const binding = await trustedBinanceFactsBinding(env);
-    if (!binding) return json({ ok: true, report: null });
+    if (!binding) return json({ ok: true, report_status: "unavailable", report: null });
     const raw = await readConfigJson(env, `${BINANCE_FACTS_KEY}:${binding.source_binding.id}`);
-    return json({ ok: true, report: raw ? projectBinanceAccountFacts(raw, binding) : null });
-  } catch { return json({ ok: true, report: null }); }
+    if (!raw) return json({ ok: true, report_status: "missing", report: null });
+    const report = projectBinanceAccountFacts(raw, binding);
+    if (!report) return json({ ok: true, report_status: "expired", report: null });
+    return json({ ok: true, report_status: "available", report });
+  } catch { return json({ ok: true, report_status: "unavailable", report: null }); }
 }
 
 async function binancePrivateScopeResponse(request, env) {

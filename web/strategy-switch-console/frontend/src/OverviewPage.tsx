@@ -26,6 +26,7 @@ import {
   runtimeDateSelectable,
   presentBinanceWalletValuation,
   presentBinanceWalletValuationForAccount,
+  binanceWalletStatusDetail,
   presentBinancePrivateScope,
   scheduleBinancePrivateScopeExpiry,
   type ChartMode,
@@ -65,6 +66,7 @@ export type OverviewAccount = {
   statusLabel: string;
   statusDetail: string;
   activation: string;
+  runtimeTargetEnabled?: boolean | null;
   preference: string | null;
   facts: AccountFactsAccount | null;
   runtime?: LifecycleRecord | null;
@@ -423,7 +425,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const showSelectedCashMetric = !selectedWalletValuation || totalCash !== null;
   const assetsDetail = accountId === "all"
     ? "按配置账户当前快照求和，不代表已核实的物理账户组合资产。"
-    : selectedAccount?.platformKey === "binance" ? "钱包估值暂不可用" : accountFactsDetail(selectedFacts);
+    : selectedAccount?.platformKey === "binance" ? binanceWalletStatusDetail(binanceFacts?.error
+      ? { error: binanceFacts.error } : binanceFacts?.value, walletNow) : accountFactsDetail(selectedFacts);
   const cashDetail = accountId === "all"
     ? "按配置账户当前快照求和；现金余额与可用现金分开，不代表已核实的物理账户组合现金。"
     : accountFactsDetail(selectedFacts);
@@ -733,7 +736,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true
             ? freshCashRows : null;
           const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
-          const factDetail = account.platformKey === "binance" ? "钱包估值暂不可用" : accountFactsDetail(account.facts);
+          const factDetail = account.platformKey === "binance" ? binanceWalletStatusDetail(binanceFacts?.error
+            ? { error: binanceFacts.error } : binanceFacts?.value, walletNow) : accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
           const longBridgeCash = longBridgeCashDetails(account.facts);
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
@@ -774,6 +778,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             </span>
             <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
+            {account.runtimeTargetEnabled === true && (account.activation === "待确认" || account.activation === "—")
+              ? <small>{t("配置开关已启用，实际运行待确认。")}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
             <details className="overview-wallet-details"><summary>{t("运行状态依据")}</summary><dl>
