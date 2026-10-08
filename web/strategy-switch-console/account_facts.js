@@ -11,6 +11,10 @@ export const IBKR_ACCOUNT_FACTS_SOURCE_KIND = "deployment_runtime_account";
 export const SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA = "schwab_account_snapshot_history.v1";
 export const SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "schwab_account_snapshot.v1";
 export const SCHWAB_ACCOUNT_FACTS_SOURCE_KIND = "deployment_runtime_account";
+export const FIRSTRADE_ACCOUNT_FACTS_HISTORY_SCHEMA = "firstrade_account_snapshot_history.v1";
+export const FIRSTRADE_ACCOUNT_FACTS_SNAPSHOT_SCHEMA = "firstrade_account_snapshot.v1";
+export const FIRSTRADE_ACCOUNT_FACTS_SOURCE_KIND = "deployment_runtime_account";
+export const FIRSTRADE_ACCOUNT_FACTS_PLATFORM = "firstrade";
 export const ACCOUNT_FACTS_BINDINGS_KEY = "account_facts_bindings";
 export const ACCOUNT_FACTS_PLATFORM = "longbridge";
 export const IBKR_ACCOUNT_FACTS_PLATFORM = "ibkr";
@@ -21,6 +25,7 @@ export const ACCOUNT_FACTS_SUPPORTED_PLATFORMS = Object.freeze([
   ACCOUNT_FACTS_PLATFORM,
   IBKR_ACCOUNT_FACTS_PLATFORM,
   SCHWAB_ACCOUNT_FACTS_PLATFORM,
+  FIRSTRADE_ACCOUNT_FACTS_PLATFORM,
 ]);
 // Exact LongBridge option↔payload pairs only. Not interchangeable sets.
 export const ACCOUNT_FACTS_SCOPE_PAIRS = Object.freeze([
@@ -265,7 +270,8 @@ export function accountFactsScopesMatch(optionScope, payloadScope) {
 
 export function accountFactsScopesMatchForPlatform(platform, optionScope, payloadScope) {
   if (platform === ACCOUNT_FACTS_PLATFORM) return accountFactsScopesMatch(optionScope, payloadScope);
-  return (platform === IBKR_ACCOUNT_FACTS_PLATFORM || platform === SCHWAB_ACCOUNT_FACTS_PLATFORM)
+  return (platform === IBKR_ACCOUNT_FACTS_PLATFORM || platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
+    || platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM)
     && typeof optionScope === "string"
     && optionScope === payloadScope;
 }
@@ -277,6 +283,8 @@ export function accountFactsPlatformForHistory(raw) {
       && raw?.snapshot_schema_version === IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return IBKR_ACCOUNT_FACTS_PLATFORM;
   if (raw?.schema_version === SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA
       && raw?.snapshot_schema_version === SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return SCHWAB_ACCOUNT_FACTS_PLATFORM;
+  if (raw?.schema_version === FIRSTRADE_ACCOUNT_FACTS_HISTORY_SCHEMA
+      && raw?.snapshot_schema_version === FIRSTRADE_ACCOUNT_FACTS_SNAPSHOT_SCHEMA) return FIRSTRADE_ACCOUNT_FACTS_PLATFORM;
   reject("invalid_account_facts_history");
 }
 
@@ -284,7 +292,13 @@ function sourceKindForPlatform(platform) {
   if (platform === ACCOUNT_FACTS_PLATFORM) return ACCOUNT_FACTS_SOURCE_KIND;
   if (platform === IBKR_ACCOUNT_FACTS_PLATFORM) return IBKR_ACCOUNT_FACTS_SOURCE_KIND;
   if (platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) return SCHWAB_ACCOUNT_FACTS_SOURCE_KIND;
+  if (platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM) return FIRSTRADE_ACCOUNT_FACTS_SOURCE_KIND;
   return null;
+}
+
+export function validFirstradeAccountId(value) {
+  return typeof value === "string" && value.length > 0 && value.length <= 128
+    && !/[^A-Za-z0-9._:-]/.test(value);
 }
 
 function validSchwabAccountHash(value) {
@@ -325,6 +339,7 @@ export function normalizeAccountFactsBindings(raw) {
       "target_id", "source_binding",
     ];
     if (item?.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_hash");
+    if (item?.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM) expectedKeys.push("broker_account_id");
     if (!exactKeys(item, expectedKeys)) {
       reject("invalid_account_facts_bindings");
     }
@@ -354,6 +369,9 @@ export function normalizeAccountFactsBindings(raw) {
     if (item.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && !validSchwabAccountHash(item.broker_account_hash)) {
       reject("invalid_account_facts_bindings");
     }
+    if (item.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM && !validFirstradeAccountId(item.broker_account_id)) {
+      reject("invalid_account_facts_bindings");
+    }
     const accountId = `${item.platform}:${item.account_key}`;
     const sourceId = `${item.target_id}|${item.source_binding.id}`;
     if (byAccount.has(accountId) || bySource.has(sourceId)) reject("duplicate_account_facts_binding");
@@ -368,6 +386,7 @@ export function normalizeAccountFactsBindings(raw) {
       ...(item.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
         ? { broker_account_hash: item.broker_account_hash }
         : {}),
+      ...(item.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM ? { broker_account_id: item.broker_account_id } : {}),
       source_binding: {
         kind: sourceKindForPlatform(item.platform),
         id: item.source_binding.id,
@@ -400,6 +419,7 @@ export function accountFactsOptionMatchesBinding(option, binding) {
   if (binding.platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_OPTION_SCOPES.includes(binding.account_scope)) return false;
   if (binding.platform === IBKR_ACCOUNT_FACTS_PLATFORM && !IBKR_ACCOUNT_ID_RE.test(binding.account_selector)) return false;
   if (binding.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && !validSchwabAccountHash(binding.broker_account_hash)) return false;
+  if (binding.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM && !validFirstradeAccountId(binding.broker_account_id)) return false;
   for (const field of OPTION_IDENTITY_FIELDS) {
     if (typeof option[field] !== "string" || option[field] !== binding[field]) return false;
   }
@@ -414,12 +434,14 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   expectedOptionScope = null,
   expectedAccountSelector = null,
   expectedBrokerAccountHash = null,
+  expectedBrokerAccountId = null,
   enforceObservationWindow = true,
 } = {}) {
   const platform = accountFactsPlatformForHistory(raw);
   if (expectedPlatform && platform !== expectedPlatform) reject("account_facts_identity_mismatch", 409);
   const ibkr = platform === IBKR_ACCOUNT_FACTS_PLATFORM;
   const schwab = platform === SCHWAB_ACCOUNT_FACTS_PLATFORM;
+  const firstrade = platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM;
   const longbridge = platform === ACCOUNT_FACTS_PLATFORM;
   const expectedKeys = [
     "schema_version", "snapshot_schema_version", "account_scope", "target_id", "source_binding",
@@ -427,6 +449,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     "broker_reported_balances", "cash",
   ];
   if (ibkr) expectedKeys.push("account_ids");
+  if (firstrade) expectedKeys.push("broker_account_id");
   if (schwab) {
     expectedKeys.push("account_hash");
     if (Object.prototype.hasOwnProperty.call(raw, "broker_account_type")) {
@@ -455,6 +478,10 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   }
   if (schwab && (!validSchwabAccountHash(raw.account_hash)
       || (expectedBrokerAccountHash !== null && raw.account_hash !== expectedBrokerAccountHash))) {
+    reject("account_facts_identity_mismatch", 409);
+  }
+  if (firstrade && (!validFirstradeAccountId(raw.broker_account_id)
+      || (expectedBrokerAccountId !== null && raw.broker_account_id !== expectedBrokerAccountId))) {
     reject("account_facts_identity_mismatch", 409);
   }
   let brokerAccountType;
@@ -492,7 +519,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   if (observationDate !== startedDate) reject("invalid_account_facts_date");
   const balances = moneyRows(
     raw.broker_reported_balances,
-    ibkr ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS),
+    (ibkr || firstrade) ? IBKR_BALANCE_FIELDS : (schwab ? SCHWAB_BALANCE_FIELDS : LONG_BRIDGE_BALANCE_FIELDS),
     "balances",
     schwab
       ? {
@@ -501,11 +528,11 @@ export function normalizeAccountFactsHistoryPayload(raw, {
         sourceTags: new Set(["liquidationValue"]),
         fixedFields: { currency_source: "owner_confirmed" },
       }
-      : { nullableFields: ibkr ? ["net_assets"] : [] },
+      : (firstrade ? { maxRows: 1 } : { nullableFields: ibkr ? ["net_assets"] : [] }),
   );
   const cash = moneyRows(
     raw.cash,
-    ibkr ? IBKR_CASH_FIELDS : (schwab ? ["currency", "cash_balance", "source_tag", "currency_source"] : LONG_BRIDGE_CASH_FIELDS),
+    (ibkr || firstrade) ? IBKR_CASH_FIELDS : (schwab ? ["currency", "cash_balance", "source_tag", "currency_source"] : LONG_BRIDGE_CASH_FIELDS),
     "cash",
     ibkr
       ? { rejectBase: true, sourceTags: IBKR_CASH_SOURCE_TAGS }
@@ -517,16 +544,17 @@ export function normalizeAccountFactsHistoryPayload(raw, {
           sourceTags: new Set(["cashBalance"]),
           fixedFields: { currency_source: "owner_confirmed" },
         }
-        : {}),
+        : (firstrade ? {allowEmpty: true, maxRows: 1, sourceTags: new Set(["provider.cash_balance"]),
+          allowedCurrencies: balances.map(row => row.currency)} : {})),
   );
   const financing = hasFinancing
     ? normalizeLongBridgeFinancing(raw.financing, balances)
     : null;
   const normalized = {
-    schema_version: ibkr
+    schema_version: firstrade ? FIRSTRADE_ACCOUNT_FACTS_HISTORY_SCHEMA : ibkr
       ? IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA
       : (schwab ? SCHWAB_ACCOUNT_FACTS_HISTORY_SCHEMA : ACCOUNT_FACTS_HISTORY_SCHEMA),
-    snapshot_schema_version: ibkr
+    snapshot_schema_version: firstrade ? FIRSTRADE_ACCOUNT_FACTS_SNAPSHOT_SCHEMA : ibkr
       ? IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA
       : (schwab ? SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA : ACCOUNT_FACTS_SNAPSHOT_SCHEMA),
     account_scope: raw.account_scope,
@@ -545,6 +573,7 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   };
   if (financing) normalized.financing = financing;
   if (ibkr) normalized.account_ids = accountIds;
+  if (firstrade) normalized.broker_account_id = raw.broker_account_id;
   if (schwab) {
     normalized.account_hash = raw.account_hash;
     if (brokerAccountType) normalized.broker_account_type = brokerAccountType;
@@ -579,6 +608,7 @@ export function projectStoredAccountFacts(stored, {
   expectedOptionScope = null,
   expectedAccountSelector = null,
   expectedBrokerAccountHash = null,
+  expectedBrokerAccountId = null,
 } = {}) {
   const history = normalizeAccountFactsHistoryPayload(stored, {
     now,
@@ -588,6 +618,7 @@ export function projectStoredAccountFacts(stored, {
     expectedOptionScope,
     expectedAccountSelector,
     expectedBrokerAccountHash,
+    expectedBrokerAccountId,
     enforceObservationWindow: false,
   });
   const finishedMs = parseInstant(history.observed_finished_at);
@@ -662,6 +693,9 @@ export function buildAccountFactsReadModel({
               : null,
             expectedBrokerAccountHash: binding.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
               ? binding.broker_account_hash
+              : null,
+            expectedBrokerAccountId: binding.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM
+              ? binding.broker_account_id
               : null,
           });
           if (
@@ -846,6 +880,9 @@ export function projectAccountFactsHistorySeries({
           : null,
         expectedBrokerAccountHash: binding.platform === SCHWAB_ACCOUNT_FACTS_PLATFORM
           ? binding.broker_account_hash
+          : null,
+        expectedBrokerAccountId: binding.platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM
+          ? binding.broker_account_id
           : null,
         enforceObservationWindow: false,
       });

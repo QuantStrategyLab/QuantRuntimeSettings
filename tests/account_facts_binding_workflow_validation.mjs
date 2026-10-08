@@ -40,6 +40,9 @@ const rotation = { target_id: primary.target_id,
 const schwab = { ...primary, platform: "schwab", account_scope: "live",
   account_selector: "schwab-placeholder", target_id: "schwab-primary",
   broker_account_hash: "synthetic-placeholder-hash" };
+const firstrade = { ...primary, platform: "firstrade", account_key: "ft-synthetic", account_scope: "live",
+  account_selector: "default", target_id: "ft-synthetic", broker_account_id: "synthetic-native-ft",
+  source_binding: {kind: "deployment_runtime_account", id: "9".repeat(64)} };
 const longbridgeSg = { platform: "longbridge", account_key: "sg", account_scope: "sg",
   target_name: "longbridge-sg-placeholder", service_name: "longbridge-service-placeholder",
   deployment_selector: "longbridge-sg-placeholder", account_selector: "sg-placeholder",
@@ -473,6 +476,11 @@ assert.equal(failedReadbackInitialization.putCount, 1);
 assert.equal(failedReadbackInitialization.calls.length, 4);
 
 const cases = [
+  {name: "firstrade_append", platform: "firstrade", rows: [primary, secondary], proposed: firstrade, expected: "prepared"},
+  {name: "firstrade_unchanged", platform: "firstrade", rows: [primary, firstrade], proposed: firstrade, expected: "unchanged"},
+  {name: "firstrade_native_conflict", platform: "firstrade", rows: [primary, firstrade], proposed: {...firstrade, broker_account_id: "other-synthetic"}, expected: "blocked"},
+  {name: "firstrade_native_missing", platform: "firstrade", rows: [primary], proposed: {...firstrade, broker_account_id: undefined}, expected: "blocked"},
+
   { name: "rotate", rows: [primary, secondary], rotation, expected: "prepared" },
   { name: "wrong_previous", rows: [primary, secondary],
     rotation: { ...rotation, previous_source_binding_id: "d".repeat(64) }, expected: "blocked" },
@@ -546,6 +554,7 @@ for (const test of cases) {
       env: { ...process.env, BINDING_PLATFORM: platform,
         IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(test.rotation || {}),
         LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(test.rotation || {}),
+        FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({schema_version: schema, bindings: [proposed]}),
         SCHWAB_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ schema_version: schema, bindings: [proposed] }) },
     });
     assert.equal(child.status, test.expected === "blocked" ? 1 : 0, test.name);
@@ -560,6 +569,10 @@ for (const test of cases) {
       const next = JSON.parse(readFileSync(output, "utf8"));
       assert.deepEqual(next.bindings, [{ ...primary, source_binding: {
         ...primary.source_binding, id: rotation.next_source_binding_id } }, secondary]);
+    }
+    if (test.name === "firstrade_append") {
+      assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings, [primary, secondary, firstrade]);
+      assert.doesNotMatch(child.stdout + child.stderr, /synthetic-native-ft|ft-synthetic/);
     }
     if (test.name === "schwab_append") {
       assert.deepEqual(JSON.parse(readFileSync(output, "utf8")).bindings, [primary, secondary, schwab]);

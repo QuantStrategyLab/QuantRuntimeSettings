@@ -31,6 +31,10 @@ import {
   SCHWAB_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
   SCHWAB_ACCOUNT_FACTS_SOURCE_KIND,
   SCHWAB_ACCOUNT_FACTS_PLATFORM,
+  FIRSTRADE_ACCOUNT_FACTS_PLATFORM,
+  FIRSTRADE_ACCOUNT_FACTS_HISTORY_SCHEMA,
+  FIRSTRADE_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+  FIRSTRADE_ACCOUNT_FACTS_SOURCE_KIND,
   accountFactsOptionMatchesBinding,
   accountFactsPlatformForHistory,
   accountFactsScopesMatch,
@@ -251,6 +255,7 @@ const bindingsEnv = {
   ACCOUNT_FACTS_SYNC_TOKEN: token,
   IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ibkrToken,
   SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: schwabToken,
+  FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN: "synthetic-firstrade-sync",
   ACCOUNT_FACTS_READ_MODEL_ENABLED: "true",
 };
 const mf = new Miniflare({
@@ -953,8 +958,8 @@ assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
 assert.match(overviewPage, /const freshCashRows = accountFactsDisplayReady\(account\.facts\) \? account\.facts!\.cash : null/);
 assert.match(overviewPage, /const cashField = cashFieldForPlatform\(account\.platformKey\)/);
 assert.match(overviewPage, /formatAccountFactAmounts\(\s*freshCashRows,\s*cashField,/);
-assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \? "cash_balance"/);
-assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \? "现金余额"/);
+assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \|\| platform === "firstrade" \? "cash_balance"/);
+assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \|\| platform === "firstrade" \? "现金余额"/);
 assert.match(overviewPage, /accountNativeReadout\(account\.platformKey, account\.accountKey, account\.facts,/);
 assert.match(overviewPage, /native\.nativeType\s*\? `\$\{t\("账户类型"\)\}: \$\{native\.nativeType\}`/);
 assert.match(overviewPage, /const paperConfigured = account\.brokerEnvironment === "paper"/);
@@ -1527,6 +1532,64 @@ assert.equal(JSON.stringify(schwabOutputRow).includes(schwabAccountHash), false)
 const schwabHistoryRead = await getHistory("schwab", schwabAccount.key, "USD", sessionHeaders, env);
 assert.equal(schwabHistoryRead.status, 200, await schwabHistoryRead.clone().text());
 assert.equal(JSON.stringify(await schwabHistoryRead.json()).includes(schwabAccountHash), false);
+
+// Synthetic Firstrade producer contract: exact private identity at every boundary.
+const ftAccount = { key: "ft-synthetic", label: "Synthetic", target_name: "ft-synthetic",
+  service_name: "ft-synthetic-service", deployment_selector: "ft-synthetic-deployment",
+  account_selector: "default", account_scope: "live" };
+const ftBinding = { platform: FIRSTRADE_ACCOUNT_FACTS_PLATFORM, account_key: ftAccount.key,
+  target_name: ftAccount.target_name, service_name: ftAccount.service_name,
+  deployment_selector: ftAccount.deployment_selector, account_selector: ftAccount.account_selector,
+  account_scope: ftAccount.account_scope, broker_account_id: "synthetic-native-ft",
+  target_id: "ft-synthetic-target", source_binding: {kind: FIRSTRADE_ACCOUNT_FACTS_SOURCE_KIND, id: "9".repeat(64)} };
+function ftHistory(patch = {}) {
+  const started = isoMinutesAgo(2), finished = isoMinutesAgo(1);
+  return {schema_version: FIRSTRADE_ACCOUNT_FACTS_HISTORY_SCHEMA,
+    snapshot_schema_version: FIRSTRADE_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
+    account_scope: "live", broker_account_id: ftBinding.broker_account_id,
+    target_id: ftBinding.target_id, source_binding: {...ftBinding.source_binding, status: "bound"},
+    observed_started_at: started, observed_finished_at: finished, snapshot_atomic: false,
+    observation_date: observationDateFrom(started),
+    broker_reported_balances: [{currency: "USD", net_assets: "12.5"}],
+    cash: [{currency: "USD", cash_balance: "0", source_tag: "provider.cash_balance"}], ...patch};
+}
+assert.equal(accountFactsPlatformForHistory(ftHistory()), "firstrade");
+assert.throws(() => normalizeAccountFactsHistoryPayload(ftHistory(), {expectedBrokerAccountId: "other-synthetic"}), /identity_mismatch/);
+for (const patch of [
+  {broker_account_id: "bad\n"}, {broker_reported_balances: []},
+  {broker_reported_balances: [{currency: "USD", net_assets: null}]},
+  {broker_reported_balances: [{currency: "USD", net_assets: "1000000000000000"}]},
+  {cash: [{currency: "USD", cash_balance: "1", source_tag: "buying_power"}]},
+  {cash: [{currency: "HKD", cash_balance: "1", source_tag: "provider.cash_balance"}]},
+]) assert.throws(() => normalizeAccountFactsHistoryPayload(ftHistory(patch)));
+assert.deepEqual(normalizeAccountFactsHistoryPayload(ftHistory({cash: []})).cash, []);
+await saveAccountOptions({firstrade: [ftAccount]});
+await saveBindings([ftBinding]);
+const ftAuth = {Authorization: "Bearer synthetic-firstrade-sync"};
+assert.equal((await post(ftHistory(), schwabAuth, env)).status, 403);
+assert.equal((await post(ftHistory({broker_account_id: "wrong-synthetic"}), ftAuth, env)).status, 409);
+assert.equal((await post(ftHistory(), ftAuth, {...env, FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN: schwabToken})).status, 503);
+for (const field of ["BINANCE_ACCOUNT_FACTS_SYNC_TOKEN", "EXECUTION_EVIDENCE_SYNC_TOKEN", "STRATEGY_SWITCH_SYNC_TOKEN"]) {
+  assert.equal((await post(ftHistory(), ftAuth, {...env, [field]: "synthetic-firstrade-sync"})).status, 503);
+}
+const ftStored = await post(ftHistory(), ftAuth, env);
+assert.equal(ftStored.status, 200, await ftStored.clone().text());
+assert.equal(JSON.stringify(await ftStored.json()).includes(ftBinding.broker_account_id), false);
+const ftOutput = await (await get(sessionHeaders, env)).json();
+assert.equal(ftOutput.accounts[0].data_status, "fresh");
+assert.deepEqual(ftOutput.accounts[0].cash, ftHistory().cash);
+assert.equal(JSON.stringify(ftOutput).includes(ftBinding.broker_account_id), false);
+const ftHistoryResponse = await getHistory("firstrade", ftAccount.key, "USD", sessionHeaders, env);
+assert.equal(ftHistoryResponse.status, 200);
+const ftSeries = await ftHistoryResponse.json();
+assert.equal(ftSeries.series.points.at(-1).net_assets, "12.5");
+assert.equal(JSON.stringify(ftSeries).includes(ftBinding.broker_account_id), false);
+// A binding changed to a different native account must hide both current and historical data.
+await saveBindings([{...ftBinding, broker_account_id: "other-synthetic"}]);
+const changedFt = await get(sessionHeaders, env);
+assert.equal((await changedFt.json()).accounts[0].data_status, "unavailable");
+const changedFtHistory = await getHistory("firstrade", ftAccount.key, "USD", sessionHeaders, env);
+assert.ok(changedFtHistory.status !== 200 || (await changedFtHistory.json()).series.points.length === 0);
 
 const workerSource = readFileSync(join(root, "web/strategy-switch-console/worker.js"), "utf8");
 assert.match(workerSource, /account_facts_put/);

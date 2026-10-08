@@ -57,6 +57,7 @@ jobs:
       ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.ACCOUNT_FACTS_SYNC_TOKEN }}
       IBKR_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.IBKR_ACCOUNT_FACTS_SYNC_TOKEN }}
       SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN }}
+      FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN }}
       BINANCE_ACCOUNT_FACTS_SYNC_TOKEN: ${{ secrets.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN }}
       BINANCE_ACCOUNT_FACTS_BINDING_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_BINDING_JSON }}
       BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON: ${{ secrets.BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON || '[]' }}
@@ -154,6 +155,7 @@ jobs:
           account_facts_token = os.environ.get("ACCOUNT_FACTS_SYNC_TOKEN", "")
           ibkr_account_facts_token = os.environ.get("IBKR_ACCOUNT_FACTS_SYNC_TOKEN", "")
           schwab_account_facts_token = os.environ.get("SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN", "")
+          firstrade_account_facts_token = os.environ.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN", "")
           binance_account_facts_token = os.environ.get("BINANCE_ACCOUNT_FACTS_SYNC_TOKEN", "")
           binance_account_facts_binding = os.environ.get("BINANCE_ACCOUNT_FACTS_BINDING_JSON", "")
           binance_account_facts_history = os.environ.get("BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON", "") or "[]"
@@ -194,11 +196,17 @@ jobs:
               or schwab_account_facts_token_has_http_controls
           ):
               raise SystemExit("SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN must not have surrounding whitespace or HTTP control characters.")
+          if firstrade_account_facts_token and (
+              firstrade_account_facts_token != firstrade_account_facts_token.strip()
+              or any(ord(c) < 0x20 or ord(c) == 0x7f for c in firstrade_account_facts_token)
+          ):
+              raise SystemExit("FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN contains invalid whitespace or HTTP controls.")
           account_facts_tokens = [
               token for token in (
                   account_facts_token,
                   ibkr_account_facts_token,
                   schwab_account_facts_token,
+                  firstrade_account_facts_token,
                   binance_account_facts_token,
               ) if token
           ]
@@ -406,6 +414,13 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
+
+      - name: Sync optional Firstrade account-facts ingress token
+        if: env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          printf '%s' "$FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Binance account-facts credentials
         if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
