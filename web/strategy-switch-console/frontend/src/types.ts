@@ -3,6 +3,17 @@ import { ACCOUNT_FACTS_STALE_MS, ACCOUNT_FACTS_FUTURE_SKEW_MS } from "../../acco
 export type AccountFactsReturn = {
   status: "unavailable";
   reason: "external_cashflow_required";
+} | {
+  status: "available";
+  method: "native_ibkr_twr";
+  source: "ChangeInNAV.twr";
+  currency: string;
+  period: { from: string; to: string };
+  value: string;
+  unit: "ratio";
+  source_value: string;
+  source_unit: "percent";
+  observed_at: string;
 };
 
 export type AccountFactsBalance = {

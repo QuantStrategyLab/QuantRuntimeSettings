@@ -1069,3 +1069,40 @@ export function buildAccountFactsHistoryReadModel({
     return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
   };
 }
+
+// One broker-native interval, independent of daily snapshot freshness. It is
+// never a daily series, a NAV change calculation, or a portfolio return.
+export const IBKR_PERIOD_RETURN_SCHEMA = "ibkr_account_period_return.v1";
+export function normalizeIbkrPeriodReturn(raw, { binding, now = Date.now(), enforceFresh = true } = {}) {
+  if (!exactKeys(raw, ["schema_version", "target_id", "source_binding_id", "account_scope",
+    "account_ids", "observed_at", "currency", "period", "method", "source", "source_unit", "source_value", "unit", "value"]) || raw.schema_version !== IBKR_PERIOD_RETURN_SCHEMA) reject("invalid_account_period_return");
+  if (!binding || binding.platform !== "ibkr" || raw.target_id !== binding.target_id
+    || raw.source_binding_id !== binding.source_binding.id || raw.account_scope !== binding.account_scope
+    || !Array.isArray(raw.account_ids) || raw.account_ids.length !== 1
+    || raw.account_ids[0] !== binding.account_selector) reject("account_facts_identity_mismatch", 409);
+  if (!CURRENCY_RE.test(raw.currency) || typeof raw.currency !== "string"
+    || !exactKeys(raw.period, ["from", "to"]) || !calendarDate(raw.period.from) || !calendarDate(raw.period.to)
+    || raw.period.from > raw.period.to) reject("invalid_account_period_return");
+  const observed = parseInstant(raw.observed_at);
+  if (observed === null || observed > now + ACCOUNT_FACTS_FUTURE_SKEW_MS
+    || raw.period.to > new Date(observed).toISOString().slice(0, 10)
+    || (enforceFresh && now - observed > ACCOUNT_FACTS_STALE_MS)) reject("invalid_account_period_return_time");
+  if (raw.method !== "native_ibkr_twr" || raw.source !== "ChangeInNAV.twr"
+    || raw.source_unit !== "percent" || raw.unit !== "ratio") reject("invalid_account_period_return_method");
+  for (const key of ["source_value", "value"]) {
+    if (typeof raw[key] !== "string" || raw[key].length > 64 || !DECIMAL_RE.test(raw[key])) reject("invalid_account_period_return_value");
+  }
+  const decimal = (text) => {
+    const [whole, fraction = ""] = text.split(".");
+    return { value: BigInt(whole + fraction), scale: fraction.length };
+  };
+  const percent = decimal(raw.source_value), ratio = decimal(raw.value);
+  if (percent.value * 10n ** BigInt(ratio.scale) !== ratio.value * 100n * 10n ** BigInt(percent.scale)
+    || ratio.value < -(10n ** BigInt(ratio.scale))) reject("invalid_account_period_return_value");
+  return { ...structuredClone(raw), observed_at: new Date(observed).toISOString() };
+}
+export function publicIbkrPeriodReturn(raw) {
+  return { status: "available", method: raw.method, currency: raw.currency, period: { ...raw.period },
+    unit: raw.unit, value: raw.value, source: raw.source, source_unit: raw.source_unit,
+    source_value: raw.source_value, observed_at: raw.observed_at };
+}

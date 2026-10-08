@@ -1,4 +1,7 @@
 export const EN_COPY = {
+  "券商期间收益单独列示；同窗口基准比较暂不可用。": "Broker interval returns are listed separately; matching benchmark comparisons are unavailable.",
+  "券商原生时间加权收益率": "Broker-reported time-weighted return",
+  "暂无合格期间收益记录": "No eligible interval return records yet",
   "原生类别观察时间": "Native category observation time",
   "资产观察时间": "Asset observation time",
   "实物账户尚未完成去重，暂不合计": "Physical accounts have not been deduplicated; totals are unavailable",

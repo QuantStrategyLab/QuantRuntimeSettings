@@ -113,6 +113,7 @@ jobs:
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
           node tests/runtime_daily_worker_validation.mjs
           node tests/account_facts_validation.mjs
+          node tests/ibkr_period_return_validation.mjs
           node tests/binance_account_facts_validation.mjs
           node tests/binance_receiver_deploy_acceptance_validation.mjs
           node tests/account_facts_binding_workflow_validation.mjs
