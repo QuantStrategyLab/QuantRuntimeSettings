@@ -17,6 +17,7 @@ import {
   formatOverviewShortInstant,
   accountNativeReadout,
   overviewRuntimeHealth,
+  runtimeDeploymentReadout,
   brokerAccountType,
   RETURN_INDEX_LEGEND,
   presentRuntimeDaily,
@@ -743,6 +744,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
           const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value,
             { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
+          const deployment = runtimeDeploymentReadout(account.runtime, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const cardDetail = walletCardValuation
             ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}`
             : detailLine(factDetail, formatInstant(updatedAt) === selectedUpdatedTime ? null : updatedAt);
@@ -783,10 +785,13 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
             <details className="overview-wallet-details"><summary>{t("运行状态依据")}</summary><dl>
+              <div><dt>{t("定时触发")}</dt><dd>{t(deployment.scheduler)}</dd></div>
+              <div><dt>{t("运行开关")}</dt><dd>{t(deployment.runtimeSwitch)}</dd></div>
+              <div><dt>{t("开关观察时间")}</dt><dd>{formatInstant(deployment.observedAt) || t("未取得")}</dd></div>
               <div><dt>{t("证据观察时间")}</dt><dd>{formatInstant(health.observedAt) || t("未取得")}</dd></div>
               <div><dt>{t("下次运行时间")}</dt><dd>{formatInstant(health.nextDueAt) || t("未取得")}</dd></div>
               <div><dt>{t("最近完整周期")}</dt><dd>{formatInstant(health.lastSuccessAt) || t("未取得")}</dd></div>
-            </dl></details>
+            </dl><small>{t("定时触发、运行开关和周期结果分别核对；启用不代表已下单。")}</small></details>
             {walletCardValuation ? <BinanceWalletDetails
               summary={t("钱包数据详情")}
               scope={t("按 Binance 返回的钱包范围")}

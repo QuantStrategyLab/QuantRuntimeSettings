@@ -671,6 +671,25 @@ export function presentRuntimeDaily(
 }
 
 /** Monitoring proves freshness and activation; the matched daily record proves a cycle. */
+export function runtimeDeploymentReadout(
+  runtime: LifecycleRecord | null | undefined,
+  identityMismatch = false,
+  now = Date.now(),
+): { scheduler: string; runtimeSwitch: string; observedAt: string | null } {
+  const unknown = { scheduler: "待确认", runtimeSwitch: "待确认", observedAt: null };
+  const deployment = runtime?.target?.deployment;
+  const observed = validBinanceScopeInstant(deployment?.observed_at) ? Date.parse(deployment.observed_at) : NaN;
+  const ttl = runtime?.evidence_valid_for_seconds;
+  if (identityMismatch || runtime?.deployment_freshness?.data_status !== "ready"
+    || !Number.isFinite(observed) || observed > now
+    || typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0 || now - observed > ttl * 1000) return unknown;
+  return {
+    scheduler: deployment?.scheduler_state === "enabled" ? "已启用" : deployment?.scheduler_state === "paused" ? "已暂停" : "待确认",
+    runtimeSwitch: deployment?.runtime_enabled === true ? "已启用" : deployment?.runtime_enabled === false ? "已停用" : "待确认",
+    observedAt: deployment?.observed_at || null,
+  };
+}
+
 export function overviewRuntimeHealth(
   runtime: LifecycleRecord | null | undefined,
   snapshot: RuntimeDailySnapshot | null | undefined,
@@ -1695,7 +1714,8 @@ export function activationFromProjection(projection: unknown): "已启用" | "�
 
 export function accountStatusView(projection: unknown, sourceFreshness?: string | null): { label: string; detail: string } {
   const view = presentAccountState(projection as any, sourceFreshness);
-  return { label: view.label, detail: view.detail };
+  const scheduled = overviewRuntimeStatusLabel(projection, sourceFreshness) === "等待周期";
+  return { label: scheduled ? "等待周期" : view.label, detail: view.detail };
 }
 
 export function overviewRuntimeStatusLabel(projection: unknown, sourceFreshness?: string | null): "已停用" | "监测正常" | "异常" | "待确认" | "等待周期" {
