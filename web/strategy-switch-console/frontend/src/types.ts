@@ -474,7 +474,7 @@ export function cashFieldForPlatform(platform: string): "cash_balance" | "availa
 }
 
 /** Summarize only current, fresh, uniquely bound account facts; currencies and cash meanings stay separate. */
-export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[]): CurrentAccountFactsSummary {
+export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[], includeDuplicateAccount = false): CurrentAccountFactsSummary {
   const rowsByConfigKey = new Map<string, CurrentAccountFactsRow[]>();
   for (const account of accounts) {
     const key = JSON.stringify([account.platform, account.id]);
@@ -522,7 +522,7 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
   for (const account of uniqueAccounts) {
     const facts = account.facts;
     // Server deduplicates verified native identities without exposing them.
-    if (facts?.aggregation_status === "duplicate") continue;
+    if (!includeDuplicateAccount && facts?.aggregation_status === "duplicate") continue;
     const physicalConflict = facts?.aggregation_status === "conflict";
     const paperEvidence = account.brokerEnvironment === "paper"
       || facts?.account_scope === "paper" || facts?.broker_environment === "paper";
