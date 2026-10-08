@@ -493,7 +493,6 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
     const group = groups[environment];
     group.accounts += 1;
     const bound = facts?.binding_status === "bound";
-    if (facts && !bound) group.unbound += 1;
     // Configuration and facts refresh separately; conflicting snapshots cannot contribute funds.
     const ready = !environmentConflict && accountFactsDisplayReady(facts);
     const wallet = !environmentConflict && account.walletValuation && /^[A-Z0-9]{3,10}$/.test(account.walletValuation.currency)
@@ -507,7 +506,10 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
     const uniqueAssets = assetRows.filter(row => assetCurrencyCounts.get(row.currency) === 1);
     group.assets.push(...uniqueAssets);
     if (uniqueAssets.length) group.covered += 1;
-    else group.missing += 1;
+    else {
+      group.missing += 1;
+      if (facts && !bound) group.unbound += 1;
+    }
 
     if (!["longbridge", "ibkr", "schwab"].includes(account.platform)) continue;
     group.cashAccounts += 1;

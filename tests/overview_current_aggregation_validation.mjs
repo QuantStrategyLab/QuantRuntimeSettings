@@ -138,4 +138,20 @@ for (const [configuredEnvironment, sourceEnvironment] of [["live", "paper"], ["p
   assert.equal(conflict.unknown.missing, 1);
   assert.equal(conflict.unknown.cashMissing, 1);
 }
+const independentWallet = summarizeCurrentAccountFacts([
+  { id: "binance:wallet-bound", platform: "binance", brokerEnvironment: null,
+    facts: facts({ platform: "binance", binding: "missing", balances: [], cash: [] }),
+    walletValuation: { currency: "USDT", amount: "5" } },
+  { id: "longbridge:no-report", platform: "longbridge", brokerEnvironment: null,
+    facts: facts({ status: "unavailable", balances: [], cash: [] }) },
+  { id: "firstrade:no-source", platform: "firstrade", brokerEnvironment: null,
+    facts: facts({ platform: "firstrade", binding: "missing", balances: [], cash: [] }) },
+]);
+assert.equal(independentWallet.excludingPaper.covered, 1);
+assert.equal(independentWallet.excludingPaper.unbound, 1,
+  "a wallet validated by its own source is not unbound merely because the generic receiver does not accept Binance");
+assert.equal(independentWallet.excludingPaper.missing, 2);
+assert.equal(independentWallet.excludingPaper.missing - independentWallet.excludingPaper.unbound, 1,
+  "the bound account with no report must remain a separate coverage gap");
+
 console.log("overview current aggregation: PASS (currency, environment, freshness, bindings, cash semantics, wallet and duplicate rows)");
