@@ -31,7 +31,7 @@ for (const mutate of [
   h => { h.schedule.latest_due_at = "2026-10-09T00:00:00Z"; },
   h => { h.schedule.next_due_at = "2026-10-01T00:00:00Z"; },
   h => { h.schedule.deadline_at = "2026-10-01T00:00:00Z"; },
-  h => { h.coverage.through = "2026-10-07T16:00:00.123455Z"; },
+  h => { h.coverage.through = "2026-10-05T15:00:30Z"; },
   h => { h.coverage.read_count = 2; }, h => { h.coverage.listed_count = 1.1; },
   h => { h.coverage.limit_hit = "false"; }, h => { h.cycles[0].cycle_id = "cycle." + "0".repeat(64); },
   h => { h.cycles[0].outcome = "unknown"; }, h => { h.cycles[0].execution_state = "terminal_confirmed"; },
@@ -75,13 +75,10 @@ assert.equal(transition.incidents.length, 2, "configuration transitions retain o
 assert.throws(() => reduceCycleCheckpoint({ ...context, source_binding_id: "5".repeat(64) }, base, transition), /binding_changed/);
 assert.throws(() => reduceCycleCheckpoint(context, { ...base, cycles: [{ ...fault, outcome: "no_action" }] }, state), /receipt_conflict/);
 let full = null;
-for (let i = 0; i < 20; i++) full = reduceCycleCheckpoint(context, { ...base, cycles: [{ ...fault, receipt_ref: `execution-receipt.${i.toString(16).padStart(32, "0")}` }] }, full);
-const beforeOverflow = canonicalCycleJson(full);
-assert.throws(() => reduceCycleCheckpoint(context, { ...base, cycles: [late] }, full), /capacity/);
-assert.equal(canonicalCycleJson(full), beforeOverflow, "overflow does not trim or mutate old attempt history");
+for (let i = 0; i < 25; i++) full = reduceCycleCheckpoint(context, { ...base, cycles: [{ ...fault, receipt_ref: `execution-receipt.${i.toString(16).padStart(32, "0")}` }] }, full);
+full = reduceCycleCheckpoint(context, { ...base, cycles: [late] }, full);
+assert.equal(full.incidents[0].fault_attempts.length, 26, "the pure reducer retains more than twenty attempts without eviction");
 let manyIncidents = null;
-for (let i = 0; i < 20; i++) manyIncidents = reduceCycleCheckpoint(context, { ...base, cycles: [{ ...fault, cycle_id: `cycle.${i.toString(16).padStart(64, "0")}`, receipt_ref: `execution-receipt.${i.toString(16).padStart(32, "0")}` }] }, manyIncidents);
-const priorIncidents = canonicalCycleJson(manyIncidents);
-assert.throws(() => reduceCycleCheckpoint(context, { ...base, cycles: [late] }, manyIncidents), /capacity/);
-assert.equal(canonicalCycleJson(manyIncidents), priorIncidents, "21st distinct incident cannot evict historical faults");
+for (let i = 0; i < 21; i++) manyIncidents = reduceCycleCheckpoint(context, { ...base, cycles: [{ ...fault, cycle_id: `cycle.${i.toString(16).padStart(64, "0")}`, receipt_ref: `execution-receipt.${i.toString(16).padStart(32, "0")}` }] }, manyIncidents);
+assert.equal(manyIncidents.incidents.length, 21, "the pure reducer retains more than twenty incidents without eviction");
 console.log("runtime cycle-health pure validation: PASS (Python vectors, strict wire/time, retained fault attempts)");

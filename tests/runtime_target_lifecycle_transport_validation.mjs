@@ -19,11 +19,14 @@ const script = resolve(root, "python/scripts/runtime_target_lifecycle.py");
 const baseArgs = [script, "--source-id", "synthetic.paper", "--target-id", "longbridge.paper", "--platform", "longbridge", "--configured-state", "enabled", "--execution-mode", "paper", "--runtime-guard", "pass", "--execution-heartbeat", "pass", "--output", outputPath];
 function run(extra = []) { return spawnSync("python3", [...baseArgs, ...extra], { cwd: root, encoding: "utf8" }); }
 try {
+  const buildStartedAt = Date.now();
   let result = run(["--cycle-health-json", healthPath]);
   assert.equal(result.status, 0, result.stderr);
   let packet = JSON.parse(readFileSync(outputPath, "utf8"));
-  assert.equal(packet.generated_at, health.coverage.through, "source microseconds are retained exactly");
-  assert.equal(packet.computed_at, health.coverage.through);
+  assert.equal(packet.generated_at, packet.computed_at, "generated and computed times identify this source snapshot");
+  assert.notEqual(packet.computed_at, health.coverage.through, "historical page cutoff is not presented as current observation time");
+  assert.ok(Date.parse(packet.computed_at) >= buildStartedAt - 1000 && Date.parse(packet.computed_at) <= Date.now() + 1000,
+    "builder emits a current source observation timestamp");
   assert.deepEqual(packet.targets[0].cycle_health, health);
   assert.equal(packet.targets[0].no_order, true);
   const normalizedByReceiver = await normalizeCycleHealth(packet.targets[0].cycle_health, {
@@ -63,7 +66,7 @@ assert.match(action, /\/api\/internal\/sync-runtime-target-lifecycle-source/);
 assert.match(action, /ACCOUNT_FACTS_SYNC_TOKEN/);
 assert.match(action, /X-QSL-Source-Binding-ID/);
 assert.match(action, /qsl_runtime_cycle_health_ack\.v1/);
-assert.match(action, /qsl_runtime_cycle_health_checkpoint\.v1/);
+assert.match(action, /qsl_runtime_cycle_health_checkpoint\.v2/);
 assert.match(action, /cycle_health_readback_mismatch/);
 assert.match(action, /--header "@\$headers_path"/);
 const runStart = action.indexOf("      run: |\n");
@@ -98,8 +101,8 @@ if(url.includes("/runtime-cycle-health-source") && (get("--connect-timeout")!=="
 if(process.env.QSL_TEST_OVERSIZE_ACK==="true" && method==="POST") { process.stdout.write(" ".repeat(1048577),()=>process.exit(0)); }
 if(url.includes("/sync-runtime-target-lifecycle-source")) { const packet=JSON.parse(fs.readFileSync(get("--data-binary").slice(1),"utf8")); if(packet.targets[0].cycle_health)process.exit(43); process.exit(0); }
 let response;
-if(method==="POST") { const packet=JSON.parse(fs.readFileSync(get("--data-binary").slice(1),"utf8")); const ack={ok:true,schema_version:"qsl_runtime_cycle_health_ack.v1",result:"stored",source_id:packet.source_id,target_id:packet.targets[0].target_id,authority_revision:1,checkpoint_revision:1,observed_at:packet.computed_at,observation_sha256:digest(packet),adopted:false,no_order:true,execution_authority_granted:false}; if(process.env.QSL_TEST_BAD_ACK==="true")ack.target_id="wrong.target"; fs.writeFileSync(process.env.QSL_TEST_MOCK_STATE,JSON.stringify(ack)); response=ack; }
-else { const ack=JSON.parse(fs.readFileSync(process.env.QSL_TEST_MOCK_STATE,"utf8")); response={...ack,schema_version:"qsl_runtime_cycle_health_checkpoint.v1",status:"incomplete"}; if(process.env.QSL_TEST_BAD_READBACK==="true")response.observation_sha256="0".repeat(64); }
+if(method==="POST") { const packet=JSON.parse(fs.readFileSync(get("--data-binary").slice(1),"utf8")); const ack={ok:true,schema_version:"qsl_runtime_cycle_health_ack.v1",result:"stored",source_id:packet.source_id,target_id:packet.targets[0].target_id,configuration_sha256:packet.targets[0].cycle_health.configuration_sha256,source_binding_id:process.env.INPUT_CYCLE_HEALTH_SOURCE_BINDING_ID,authority_revision:1,checkpoint_revision:1,observed_at:packet.computed_at,observation_sha256:digest(packet),covered_through:packet.targets[0].cycle_health.coverage.through,coverage_complete:true,coverage_incomplete_reason:null,adopted:false,no_order:true,execution_authority_granted:false}; if(process.env.QSL_TEST_PARTIAL_COVERAGE==="true"){ack.covered_through=null;ack.coverage_complete=false;ack.coverage_incomplete_reason="scan_incomplete";} if(process.env.QSL_TEST_BAD_ACK==="true")ack.target_id="wrong.target"; if(process.env.QSL_TEST_BAD_BINDING==="true")ack.source_binding_id="0".repeat(64); if(process.env.QSL_TEST_BAD_CONFIG==="true")ack.configuration_sha256="0".repeat(64); if(process.env.QSL_TEST_BAD_COVERAGE==="true")ack.covered_through="2026-10-01T00:00:00Z"; fs.writeFileSync(process.env.QSL_TEST_MOCK_STATE,JSON.stringify(ack)); response=ack; }
+else { const ack=JSON.parse(fs.readFileSync(process.env.QSL_TEST_MOCK_STATE,"utf8")); response={...ack,schema_version:"qsl_runtime_cycle_health_checkpoint.v2",status:"incomplete"}; if(process.env.QSL_TEST_BAD_READBACK==="true")response.observation_sha256="0".repeat(64); }
 if(output==="-")process.stdout.write(JSON.stringify(response)); else fs.writeFileSync(output,JSON.stringify(response));
 `);
 chmodSync(mockCurl, 0o700);
@@ -119,6 +122,11 @@ try {
   let actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: baseEnv, encoding: "utf8" });
   assert.equal(actionRun.status, 0, `${actionRun.stdout}\n${actionRun.stderr}`);
   assert.equal(actionRun.stdout, "", "transport response bodies are not logged");
+  writeFileSync(requestLogPath, "");
+  actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: { ...baseEnv, QSL_TEST_PARTIAL_COVERAGE: "true" }, encoding: "utf8" });
+  assert.equal(actionRun.status, 0, `${actionRun.stdout}\n${actionRun.stderr}`);
+  assert.deepEqual(readFileSync(requestLogPath, "utf8").trim().split("\n").map(x => x.split(" ")[0]), ["POST", "GET"],
+    "a committed incomplete scan is read back and is not treated as a transport failure");
   actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: { ...baseEnv, QSL_TEST_BAD_READBACK: "true" }, encoding: "utf8" });
   assert.notEqual(actionRun.status, 0, `mismatched GET readback fails the opted-in action: ${JSON.stringify({ status: actionRun.status, stdout: actionRun.stdout, stderr: actionRun.stderr })}`);
   assert.match(actionRun.stderr, /cycle_health_readback_mismatch/);
@@ -128,6 +136,21 @@ try {
   assert.notEqual(actionRun.status, 0, "non-matching POST ACK fails closed");
   assert.match(actionRun.stderr, /cycle_health_ack_invalid/);
   assert.deepEqual(readFileSync(requestLogPath, "utf8").trim().split("\n").map(x => x.split(" ")[0]), ["POST"], "an ACK failure does not fall back to lifecycle POST or continue to GET");
+  writeFileSync(requestLogPath, "");
+  actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: { ...baseEnv, QSL_TEST_BAD_COVERAGE: "true" }, encoding: "utf8" });
+  assert.notEqual(actionRun.status, 0, "ACK cannot claim coverage beyond the submitted packet");
+  assert.match(actionRun.stderr, /cycle_health_ack_invalid/);
+  assert.deepEqual(readFileSync(requestLogPath, "utf8").trim().split("\n").map(x => x.split(" ")[0]), ["POST"], "coverage ACK mismatch fails before GET without fallback");
+  writeFileSync(requestLogPath, "");
+  actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: { ...baseEnv, QSL_TEST_BAD_BINDING: "true" }, encoding: "utf8" });
+  assert.notEqual(actionRun.status, 0, "ACK binding identity must match protected configuration");
+  assert.match(actionRun.stderr, /cycle_health_ack_invalid/);
+  assert.deepEqual(readFileSync(requestLogPath, "utf8").trim().split("\n").map(x => x.split(" ")[0]), ["POST"]);
+  writeFileSync(requestLogPath, "");
+  actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: { ...baseEnv, QSL_TEST_BAD_CONFIG: "true" }, encoding: "utf8" });
+  assert.notEqual(actionRun.status, 0, "ACK configuration digest must match the submitted package");
+  assert.match(actionRun.stderr, /cycle_health_ack_invalid/);
+  assert.deepEqual(readFileSync(requestLogPath, "utf8").trim().split("\n").map(x => x.split(" ")[0]), ["POST"]);
   writeFileSync(requestLogPath, "");
   actionRun = spawnSync("bash", ["-c", runBlock], { cwd: root, env: { ...baseEnv, QSL_TEST_OVERSIZE_ACK: "true" }, encoding: "utf8" });
   assert.notEqual(actionRun.status, 0, "oversized POST ACK is rejected within the response cap");

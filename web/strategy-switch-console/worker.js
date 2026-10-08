@@ -1,6 +1,6 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
-import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, reduceCycleCheckpoint } from "./runtime_cycle_health.js";
+import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
 import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
@@ -90,6 +90,8 @@ import {
   ux1ReceiptId,
 } from "./ux1_research_contract.js";
 
+const CYCLE_HEALTH_HISTORY_PAGE_SIZE = 50;
+const CYCLE_HEALTH_SUMMARY_SCHEMA_VERSION = "qsl_runtime_cycle_health_state_summary.v1";
 const DEFAULT_REPOSITORY = "QuantStrategyLab/QuantRuntimeSettings";
 const DEFAULT_WORKFLOW = "manual-strategy-switch.yml";
 const ACCOUNT_SETTINGS_PROFILE_APPLICATION_OIDC_PATH = "/api/internal/account-settings/profile-application/claim";
@@ -1996,6 +1998,22 @@ export class RuntimeInstances {
       revision INTEGER NOT NULL, payload_json TEXT NOT NULL,
       PRIMARY KEY (target_id, binding_fingerprint)
     )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_incident (
+      target_id TEXT NOT NULL, binding_fingerprint TEXT NOT NULL, source_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL, cycle_json TEXT NOT NULL, category TEXT NOT NULL,
+      active_category TEXT, latest_fault_at TEXT NOT NULL, attempt_count INTEGER NOT NULL,
+      resolution_history_json TEXT NOT NULL,
+      PRIMARY KEY (target_id, binding_fingerprint, source_id, cycle_id)
+    )`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS runtime_cycle_health_attempt (
+      history_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      target_id TEXT NOT NULL, binding_fingerprint TEXT NOT NULL, source_id TEXT NOT NULL,
+      cycle_id TEXT NOT NULL, attempt_key TEXT NOT NULL, fault_at TEXT NOT NULL,
+      category TEXT NOT NULL, configuration_sha256 TEXT NOT NULL, cycle_json TEXT NOT NULL,
+      resolution_ref TEXT,
+      UNIQUE (target_id, binding_fingerprint, source_id, attempt_key)
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS runtime_cycle_health_history_page ON runtime_cycle_health_attempt (target_id, source_id, history_id)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS instance_state (id INTEGER PRIMARY KEY CHECK (id = 1), revision INTEGER NOT NULL, payload TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS instance_history (revision INTEGER PRIMARY KEY, entry TEXT NOT NULL)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_diagnosis_tasks (
@@ -2178,6 +2196,182 @@ export class RuntimeInstances {
     }
   }
 
+  emptyCycleHealthState(targetId, bindingId) {
+    return {
+      schema_version: CYCLE_HEALTH_SUMMARY_SCHEMA_VERSION,
+      target_id: targetId, source_binding_id: bindingId,
+      incident_count: 0, fault_attempt_count: 0, unresolved_count: 0,
+      highest_severity: null, active_category: null, latest_fault_at: null,
+      resolution_history_count: 0, history_complete: false,
+      execution_authority_granted: false,
+    };
+  }
+
+  cycleHealthHistoryCursor(sourceId, targetId, bindingFingerprint, throughId, afterId) {
+    return [sourceId, targetId, bindingFingerprint, throughId, afterId].join(":");
+  }
+
+  cycleHealthHistoryPage(sourceId, targetId, bindingFingerprint, cursor = null) {
+    let throughId, afterId;
+    if (cursor) {
+      const parts = cursor.split(":");
+      if (parts.length !== 5 || parts[0] !== sourceId || parts[1] !== targetId || parts[2] !== bindingFingerprint) {
+        throw new HttpError("cycle_health_history_cursor_mismatch", 400);
+      }
+      throughId = Number(parts[3]); afterId = Number(parts[4]);
+      if (!Number.isSafeInteger(throughId) || throughId < 0 || !Number.isSafeInteger(afterId) || afterId < 0 || afterId > throughId) {
+        throw new HttpError("cycle_health_history_cursor_invalid", 400);
+      }
+    } else {
+      throughId = Number(this.sql.exec("SELECT COALESCE(MAX(history_id), 0) AS highwater FROM runtime_cycle_health_attempt WHERE target_id = ? AND source_id = ?", targetId, sourceId).toArray()[0]?.highwater || 0);
+      afterId = 0;
+    }
+    const rows = this.sql.exec(`SELECT a.history_id, a.binding_fingerprint, a.cycle_id, a.attempt_key, a.fault_at,
+        a.category, a.configuration_sha256, a.cycle_json, a.resolution_ref, i.resolution_history_json
+      FROM runtime_cycle_health_attempt a JOIN runtime_cycle_health_incident i
+        ON i.target_id = a.target_id AND i.binding_fingerprint = a.binding_fingerprint
+        AND i.source_id = a.source_id AND i.cycle_id = a.cycle_id
+      WHERE a.target_id = ? AND a.source_id = ? AND a.history_id > ? AND a.history_id <= ?
+      ORDER BY a.history_id ASC LIMIT ?`, targetId, sourceId, afterId, throughId, CYCLE_HEALTH_HISTORY_PAGE_SIZE + 1).toArray();
+    const hasMore = rows.length > CYCLE_HEALTH_HISTORY_PAGE_SIZE;
+    const selected = rows.slice(0, CYCLE_HEALTH_HISTORY_PAGE_SIZE);
+    const items = selected.map(row => {
+      let cycle, resolutionHistory;
+      try { cycle = JSON.parse(row.cycle_json); resolutionHistory = JSON.parse(row.resolution_history_json); }
+      catch { throw new HttpError("cycle_health_history_stored_invalid", 409); }
+      return {
+        history_id: row.history_id, binding_fingerprint: row.binding_fingerprint,
+        continuity: row.binding_fingerprint === bindingFingerprint ? "same_binding" : "unconfirmed",
+        cycle_id: row.cycle_id, attempt_key: row.attempt_key, fault_at: row.fault_at,
+        category: row.category, configuration_sha256: row.configuration_sha256,
+        cycle, resolution_ref: row.resolution_ref, resolution_history: resolutionHistory,
+      };
+    });
+    const nextCursor = hasMore && selected.length
+      ? this.cycleHealthHistoryCursor(sourceId, targetId, bindingFingerprint, throughId, selected.at(-1).history_id)
+      : null;
+    return {
+      items, snapshot_through_id: throughId, complete: !hasMore,
+      next_cursor: nextCursor,
+    };
+  }
+
+  cycleHealthRecordAttempt({ targetId, bindingFingerprint, sourceId, configurationSha, cycle, resolutionRef = null, resolutionHistory = null, state }) {
+    const category = cycleHealthFaultCategory(cycle);
+    const attemptKey = cycleHealthAttemptKey(cycle);
+    const cycleJson = canonicalCycleJson(cycle);
+    const oldAttempt = this.sql.exec(`SELECT cycle_json FROM runtime_cycle_health_attempt
+      WHERE target_id = ? AND binding_fingerprint = ? AND source_id = ? AND attempt_key = ?`,
+    targetId, bindingFingerprint, sourceId, attemptKey).toArray()[0];
+    if (oldAttempt) {
+      if (oldAttempt.cycle_json !== cycleJson) throw new HttpError("cycle_health_fault_receipt_conflict", 409);
+      return { state, inserted: false };
+    }
+    if (!category) return { state, inserted: false };
+    const faultAt = cycleHealthFaultTime(cycle);
+    const prior = this.sql.exec(`SELECT * FROM runtime_cycle_health_incident
+      WHERE target_id = ? AND binding_fingerprint = ? AND source_id = ? AND cycle_id = ?`,
+    targetId, bindingFingerprint, sourceId, cycle.cycle_id).toArray()[0] || null;
+    let incidentCycle = cycle, incidentCategory = category, latestFaultAt = faultAt;
+    let activeCategory = resolutionRef === null ? category : null;
+    let attemptCount = 1;
+    let history = resolutionHistory || [];
+    if (prior) {
+      let oldCycle;
+      try { oldCycle = JSON.parse(prior.cycle_json); history = JSON.parse(prior.resolution_history_json); }
+      catch { throw new HttpError("cycle_health_checkpoint_invalid", 409); }
+      const oldRank = prior.category === "execution_uncertainty" ? 2 : 1;
+      const newRank = category === "execution_uncertainty" ? 2 : 1;
+      const timeOrder = compareCycleInstants(faultAt, prior.latest_fault_at);
+      if (newRank > oldRank || (newRank === oldRank && (timeOrder > 0 || (timeOrder === 0 && attemptKey > cycleHealthAttemptKey(oldCycle))))) {
+        incidentCycle = cycle;
+      } else {
+        incidentCycle = oldCycle;
+      }
+      incidentCategory = newRank > oldRank ? category : prior.category;
+      latestFaultAt = timeOrder > 0 ? faultAt : prior.latest_fault_at;
+      attemptCount = prior.attempt_count + 1;
+      if (resolutionRef === null) {
+        const priorActiveRank = prior.active_category === "execution_uncertainty" ? 2 : prior.active_category === "operational" ? 1 : 0;
+        activeCategory = newRank > priorActiveRank ? category : prior.active_category;
+      } else activeCategory = prior.active_category;
+    }
+    this.sql.exec(`INSERT INTO runtime_cycle_health_attempt (
+      target_id, binding_fingerprint, source_id, cycle_id, attempt_key, fault_at,
+      category, configuration_sha256, cycle_json, resolution_ref
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, targetId, bindingFingerprint, sourceId,
+    cycle.cycle_id, attemptKey, faultAt, category, configurationSha, cycleJson, resolutionRef);
+    this.sql.exec(`INSERT INTO runtime_cycle_health_incident (
+      target_id, binding_fingerprint, source_id, cycle_id, cycle_json, category,
+      active_category, latest_fault_at, attempt_count, resolution_history_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(target_id, binding_fingerprint, source_id, cycle_id) DO UPDATE SET
+      cycle_json = excluded.cycle_json, category = excluded.category,
+      active_category = excluded.active_category, latest_fault_at = excluded.latest_fault_at,
+      attempt_count = excluded.attempt_count, resolution_history_json = excluded.resolution_history_json`,
+    targetId, bindingFingerprint, sourceId, cycle.cycle_id, canonicalCycleJson(incidentCycle), incidentCategory,
+    activeCategory, latestFaultAt, attemptCount, JSON.stringify(history));
+    const next = { ...state };
+    if (!prior) next.incident_count += 1;
+    next.fault_attempt_count += 1;
+    if (activeCategory !== null && (!prior || prior.active_category === null)) next.unresolved_count += 1;
+    if (!prior && Array.isArray(history)) next.resolution_history_count += history.length;
+    if (activeCategory !== null && !next.active_category) next.active_category = activeCategory;
+    const stateRank = next.highest_severity === "execution_uncertainty" ? 2 : next.highest_severity === "operational" ? 1 : 0;
+    const incidentRank = incidentCategory === "execution_uncertainty" ? 2 : 1;
+    if (incidentRank > stateRank) next.highest_severity = incidentCategory;
+    const activeRank = next.active_category === "execution_uncertainty" ? 2 : next.active_category === "operational" ? 1 : 0;
+    const nextActiveRank = activeCategory === "execution_uncertainty" ? 2 : activeCategory === "operational" ? 1 : 0;
+    if (nextActiveRank > activeRank) next.active_category = activeCategory;
+    if (!next.latest_fault_at || compareCycleInstants(faultAt, next.latest_fault_at) > 0) next.latest_fault_at = faultAt;
+    next.history_complete = false;
+    return { state: next, inserted: true };
+  }
+
+  migrateCycleHealthCheckpoint(row) {
+    let checkpoint;
+    try { checkpoint = JSON.parse(row.payload_json); } catch { throw new HttpError("cycle_health_checkpoint_invalid", 409); }
+    if (checkpoint?.state?.schema_version === CYCLE_HEALTH_SUMMARY_SCHEMA_VERSION) return checkpoint;
+    const oldState = checkpoint?.state;
+    if (!oldState || !Array.isArray(oldState.incidents)) throw new HttpError("cycle_health_checkpoint_invalid", 409);
+    let state = this.emptyCycleHealthState(row.target_id, oldState.source_binding_id);
+    for (const incident of oldState.incidents) {
+      if (!incident || !Array.isArray(incident.fault_attempts) || !incident.fault_attempts.length) throw new HttpError("cycle_health_checkpoint_invalid", 409);
+      for (const attempt of incident.fault_attempts) {
+        if (!attempt?.cycle || typeof attempt.configuration_sha256 !== "string" || !/^[a-f0-9]{64}$/.test(attempt.configuration_sha256)
+          || (attempt.resolution_ref !== null && (typeof attempt.resolution_ref !== "string" || !/^[a-f0-9]{64}$/.test(attempt.resolution_ref)))) {
+          throw new HttpError("cycle_health_checkpoint_invalid", 409);
+        }
+        state = this.cycleHealthRecordAttempt({ targetId: row.target_id, bindingFingerprint: row.binding_fingerprint,
+          sourceId: row.source_id, configurationSha: attempt.configuration_sha256, cycle: attempt.cycle,
+          resolutionRef: attempt.resolution_ref, resolutionHistory: incident.resolution_history || [], state }).state;
+      }
+    }
+    checkpoint.state = state;
+    checkpoint.schema_version = "qsl_runtime_cycle_health_checkpoint_state.v2";
+    checkpoint.covered_through = null;
+    checkpoint.coverage_complete = false;
+    checkpoint.coverage_incomplete_reason = "legacy_watermark_unavailable";
+    const source = this.sql.exec("SELECT binding_fingerprint, configuration_sha256, required_from, observed_at, observation_json FROM runtime_cycle_health_source WHERE source_id = ?", row.source_id).toArray()[0];
+    if (row.binding_fingerprint === source?.binding_fingerprint && checkpoint.baseline_established === true
+      && checkpoint.configuration_sha256 === source.configuration_sha256 && checkpoint.required_from === source.required_from
+      && source.observation_json && source.observed_at) {
+      try {
+        const observation = JSON.parse(source.observation_json);
+        const coverage = observation?.targets?.[0]?.cycle_health?.coverage;
+        if (observation.computed_at === source.observed_at && compareCycleInstants(coverage?.through, observation.computed_at) <= 0
+          && cycleCoverageComplete(coverage, { since: source.required_from, through: source.required_from })) {
+          checkpoint.covered_through = coverage.through;
+          checkpoint.coverage_complete = true;
+          checkpoint.coverage_incomplete_reason = null;
+        }
+      } catch { /* Keep legacy coverage unproven when the stored source record is invalid. */ }
+    }
+    this.sql.exec("UPDATE runtime_cycle_health_checkpoint SET payload_json = ? WHERE target_id = ? AND binding_fingerprint = ? AND source_id = ? AND revision = ?",
+      JSON.stringify(checkpoint), row.target_id, row.binding_fingerprint, row.source_id, row.revision);
+    return checkpoint;
+  }
+
   cycleHealthCommand(command) {
     const rows = [...this.sql.exec("SELECT * FROM runtime_cycle_health_source WHERE source_id = ?", command.source_id)];
     const a = rows[0];
@@ -2190,29 +2384,43 @@ export class RuntimeInstances {
     };
     if (command.authority_revision !== a.authority_revision || command.configuration_sha256 !== a.configuration_sha256
       || command.required_from !== a.required_from) throw new HttpError("cycle_health_admission_changed", 409);
-    const partitions = [...this.sql.exec("SELECT * FROM runtime_cycle_health_checkpoint WHERE target_id = ? AND source_id = ?", a.target_id, a.source_id)];
+    let partitions = [...this.sql.exec("SELECT * FROM runtime_cycle_health_checkpoint WHERE target_id = ? AND source_id = ?", a.target_id, a.source_id)];
     const owner = [...this.sql.exec("SELECT source_id FROM runtime_cycle_health_checkpoint WHERE target_id = ? AND binding_fingerprint = ?", a.target_id, a.binding_fingerprint)][0];
     if (owner && owner.source_id !== a.source_id) throw new HttpError("cycle_health_source_partition_conflict", 409);
-    const row = partitions.find(p => p.binding_fingerprint === a.binding_fingerprint);
-    const previous = row ? JSON.parse(row.payload_json) : null;
+    partitions = partitions.map(row => ({ ...row, checkpoint: this.migrateCycleHealthCheckpoint(row) }));
+    const row = partitions.find(p => p.binding_fingerprint === a.binding_fingerprint) || null;
+    const previous = row?.checkpoint || null;
     const priorPartitions = partitions.filter(p => p.binding_fingerprint !== a.binding_fingerprint).map(p => ({
-      checkpoint_revision: p.revision, checkpoint: JSON.parse(p.payload_json),
+      checkpoint_revision: p.revision, checkpoint: p.checkpoint,
     }));
     if (row && a.checkpoint_revision !== row.revision) throw new HttpError("cycle_health_checkpoint_revision_conflict", 409);
+    const state = previous?.state || this.emptyCycleHealthState(a.target_id, command.source_binding_id);
+    const admissionTransition = previous && (previous.configuration_sha256 !== a.configuration_sha256 || previous.required_from !== a.required_from);
+    const effectiveCheckpoint = admissionTransition ? {
+      ...previous, baseline_established: false, covered_through: null, coverage_complete: false,
+      coverage_incomplete_reason: "admission_changed",
+    } : previous;
     const result = (status, checkpoint = previous, revision = row?.revision || 0) => ({
-      ok: true, schema_version: "qsl_runtime_cycle_health_checkpoint.v1", status,
+      ok: true, schema_version: "qsl_runtime_cycle_health_checkpoint.v2", status,
       source_id: a.source_id, target_id: a.target_id, authority_revision: a.authority_revision,
+      configuration_sha256: a.configuration_sha256, source_binding_id: command.source_binding_id,
       checkpoint_revision: revision, observed_at: a.observed_at, observation_sha256: a.observation_sha256,
       received_at: a.received_at, required_from: a.required_from, checkpoint,
+      covered_through: checkpoint?.covered_through || null,
+      coverage_complete: checkpoint?.coverage_complete === true,
+      coverage_incomplete_reason: checkpoint?.coverage_incomplete_reason || null,
+      ...(command.action === "cycle_health_read"
+        ? { history_page: this.cycleHealthHistoryPage(a.source_id, a.target_id, a.binding_fingerprint, command.history_cursor || null) }
+        : {}),
       prior_partitions: priorPartitions, continuity: priorPartitions.length ? "unconfirmed" : "same_binding",
       adopted: false, no_order: true, execution_authority_granted: false,
     });
     if (command.action === "cycle_health_read") {
-      const r = result(!previous ? "uninitialized" : previous.state.unresolved_count || priorPartitions.length ? "blocked" : !previous.baseline_established ? "incomplete" : "complete");
+      const r = result(!previous ? "uninitialized" : state.unresolved_count || priorPartitions.length ? "blocked"
+        : !effectiveCheckpoint.baseline_established || effectiveCheckpoint.coverage_complete !== true ? "incomplete" : "complete", effectiveCheckpoint);
       if (a.observed_at && (Date.now() - Date.parse(a.observed_at) > ACCOUNT_FACTS_STALE_MS || Date.parse(a.observed_at) - Date.now() > ACCOUNT_FACTS_FUTURE_SKEW_MS)) r.status = "stale";
-      // Admission changes expose retained provenance, never an empty healthy state.
       if (previous && (previous.configuration_sha256 !== a.configuration_sha256 || previous.required_from !== a.required_from)) r.status = "incomplete";
-      if (priorPartitions.length || previous?.state.unresolved_count) r.status = "blocked";
+      if (priorPartitions.length || state.unresolved_count) r.status = "blocked";
       return r;
     }
     if (command.action !== "cycle_health_put") throw new HttpError("unsupported_cycle_health_action", 400);
@@ -2226,19 +2434,36 @@ export class RuntimeInstances {
     }
     const h = packet.targets[0].cycle_health;
     const transition = previous && (previous.configuration_sha256 !== a.configuration_sha256 || previous.required_from !== a.required_from);
+    const expectedCoverageFrom = !transition && previous?.covered_through ? previous.covered_through : a.required_from;
+    const scanComplete = cycleCoverageComplete(h.coverage);
+    const coverageContinuous = scanComplete
+      && compareCycleInstants(h.coverage.from, expectedCoverageFrom) <= 0
+      && compareCycleInstants(h.coverage.through, expectedCoverageFrom) >= 0;
+    const coveredThrough = coverageContinuous ? h.coverage.through : transition ? null : previous?.covered_through || null;
+    const incompleteReason = coverageContinuous ? null : !scanComplete ? "scan_incomplete"
+      : compareCycleInstants(h.coverage.from, expectedCoverageFrom) > 0 ? "coverage_gap" : "coverage_not_advanced";
+    let nextState = structuredClone(state);
+    for (const cycle of h.cycles) {
+      nextState = this.cycleHealthRecordAttempt({ targetId: a.target_id, bindingFingerprint: a.binding_fingerprint,
+        sourceId: a.source_id, configurationSha: h.configuration_sha256, cycle, state: nextState }).state;
+    }
+    const baselineEstablished = coverageContinuous
+      ? (!previous || transition || previous.baseline_established || !previous.covered_through)
+      : Boolean(previous && !transition && previous.baseline_established);
     const checkpoint = {
+      schema_version: "qsl_runtime_cycle_health_checkpoint_state.v2",
       configuration_sha256: a.configuration_sha256, required_from: a.required_from,
-      baseline_established: !transition && cycleCoverageComplete(h.coverage, { since: a.required_from, through: a.required_from }),
-      state: reduceCycleCheckpoint({ target_id: a.target_id, source_binding_id: command.source_binding_id }, h, previous?.state),
+      baseline_established: baselineEstablished,
+      covered_through: coveredThrough, coverage_complete: coverageContinuous,
+      coverage_incomplete_reason: incompleteReason,
+      state: nextState,
     };
     const revision = (row?.revision || 0) + 1;
-    // Observation is written first so the real SQLite abort test proves rollback
-    // across both rows; ACK construction occurs only after transactionSync exits.
     this.sql.exec("UPDATE runtime_cycle_health_source SET observed_at = ?, observation_json = ?, observation_sha256 = ?, received_at = ?, checkpoint_revision = ? WHERE source_id = ?",
       packet.computed_at, command.observation_json, command.observation_sha256, command.received_at, revision, a.source_id);
     this.sql.exec(`INSERT INTO runtime_cycle_health_checkpoint (target_id, binding_fingerprint, source_id, revision, payload_json)
       VALUES (?, ?, ?, ?, ?) ON CONFLICT(target_id, binding_fingerprint) DO UPDATE SET revision = excluded.revision, payload_json = excluded.payload_json`,
-      a.target_id, a.binding_fingerprint, a.source_id, revision, JSON.stringify(checkpoint));
+    a.target_id, a.binding_fingerprint, a.source_id, revision, JSON.stringify(checkpoint));
     a.observed_at = packet.computed_at; a.observation_sha256 = command.observation_sha256; a.received_at = command.received_at;
     return { ...result("stored", checkpoint, revision), schema_version: "qsl_runtime_cycle_health_ack.v1", result: "stored" };
   }
@@ -9886,14 +10111,19 @@ async function runtimeCycleHealthSourceResponse(request, env) {
     }
     if (!hasRuntimeInstanceStore(env)) throw new HttpError("cycle_health_store_unavailable", 503);
     const url = new URL(request.url);
-    let source, targetId, sourceId;
+    let source, targetId, sourceId, historyCursor = null;
     const bindingId = request.headers.get("X-QSL-Source-Binding-ID") || "";
     if (!/^[a-f0-9]{64}$/.test(bindingId)) throw new HttpError("cycle_health_binding_required", 409);
     if (request.method === "GET") {
-      if ([...url.searchParams.keys()].some(k => !["source_id", "target_id"].includes(k))
-        || url.searchParams.getAll("source_id").length !== 1 || url.searchParams.getAll("target_id").length !== 1) throw new HttpError("cycle_health_invalid_query", 400);
+      if ([...url.searchParams.keys()].some(k => !["source_id", "target_id", "history_cursor"].includes(k))
+        || url.searchParams.getAll("source_id").length !== 1 || url.searchParams.getAll("target_id").length !== 1
+        || url.searchParams.getAll("history_cursor").length > 1) throw new HttpError("cycle_health_invalid_query", 400);
       sourceId = normalizeControlPlaneIdentifier(url.searchParams.get("source_id"), "source_id", false);
       targetId = url.searchParams.get("target_id");
+      historyCursor = url.searchParams.get("history_cursor");
+      if (historyCursor !== null) {
+        if (historyCursor.length > 512) throw new HttpError("cycle_health_history_cursor_invalid", 400);
+      }
     } else {
       const raw = await readBoundedJson(request, ACCOUNT_FACTS_MAX_BODY_BYTES);
       if (!Array.isArray(raw?.targets) || raw.targets.length !== 1) throw new HttpError("cycle_health_one_target_required", 400);
@@ -9903,7 +10133,7 @@ async function runtimeCycleHealthSourceResponse(request, env) {
       // normalizer and legacy POST still reject this extension as before.
       source = normalizeRuntimeTargetLifecycleSourceSnapshot({ ...raw, targets: [legacyTarget] });
       normalizeCycleInstant(raw.generated_at); normalizeCycleInstant(raw.computed_at);
-      if (raw.generated_at !== raw.computed_at || source.data_status !== "ready") throw new HttpError("cycle_health_cutoff_mismatch", 400);
+      if (raw.generated_at !== raw.computed_at || source.data_status !== "ready") throw new HttpError("cycle_health_observation_time_mismatch", 400);
       source.generated_at = raw.generated_at; source.computed_at = raw.computed_at;
       if (legacyTarget.deployment?.observed_at !== undefined) {
         source.targets[0].deployment.observed_at = normalizeCycleInstant(legacyTarget.deployment.observed_at);
@@ -9912,14 +10142,17 @@ async function runtimeCycleHealthSourceResponse(request, env) {
       const age = Date.now() - Date.parse(source.computed_at);
       if (age > ACCOUNT_FACTS_STALE_MS || age < -ACCOUNT_FACTS_FUTURE_SKEW_MS) throw new HttpError("cycle_health_observation_age", 409);
       targetId = source.targets[0].target_id; sourceId = source.source_id;
-      source.targets[0].cycle_health = await normalizeCycleHealth(health, { target_id: targetId, source_binding_id: bindingId, observed_at: source.computed_at });
+      source.targets[0].cycle_health = await normalizeCycleHealth(health, {
+        target_id: targetId, source_binding_id: bindingId, observed_at: source.computed_at,
+      });
     }
     if (targetId !== "longbridge.paper" || (source && (source.targets[0].target.platform !== "longbridge" || source.targets[0].target.execution_mode !== "paper"))) throw new HttpError("cycle_health_paper_target_required", 403);
     const bindingFingerprint = await resolveCycleHealthBindingFingerprint(env, targetId, bindingId);
     const identity = { source_id: sourceId, target_id: targetId, binding_fingerprint: bindingFingerprint, source_binding_id: bindingId };
     const admission = await runtimeInstanceCommand(env, { ...identity, action: "cycle_health_admission" });
     if (source && source.targets[0].cycle_health.configuration_sha256 !== admission.configuration_sha256) throw new HttpError("cycle_health_configuration_not_admitted", 409);
-    const command = { ...identity, ...admission, action: source ? "cycle_health_put" : "cycle_health_read" };
+    const command = { ...identity, ...admission, action: source ? "cycle_health_put" : "cycle_health_read",
+      ...(historyCursor ? { history_cursor: historyCursor } : {}) };
     if (source) {
       command.observation = source;
       command.observation_json = canonicalCycleJson(source);
