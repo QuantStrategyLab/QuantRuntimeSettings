@@ -126,4 +126,16 @@ assert.deepEqual(conflictingFactsWithMatchingWallet.live.availableCash, []);
 assert.equal(conflictingFactsWithMatchingWallet.live.missing, 1);
 assert.equal(conflictingFactsWithMatchingWallet.duplicateConfigurationConflicts, 1);
 
+for (const [configuredEnvironment, sourceEnvironment] of [["live", "paper"], ["paper", "live"]]) {
+  const conflict = summarizeCurrentAccountFacts([{
+    id: "longbridge:source-environment-conflict", platform: "longbridge", brokerEnvironment: configuredEnvironment,
+    facts: facts({ environment: sourceEnvironment, balances: [{ currency: "USD", net_assets: "900" }],
+      cash: [{ currency: "USD", available_cash: "300" }] }),
+    walletValuation: { currency: "USDT", amount: "7" },
+  }]);
+  assert.deepEqual(conflict.excludingPaper.assets, [], "environment conflicts exclude both facts and wallet amounts");
+  assert.deepEqual(conflict.excludingPaper.availableCash, []);
+  assert.equal(conflict.unknown.missing, 1);
+  assert.equal(conflict.unknown.cashMissing, 1);
+}
 console.log("overview current aggregation: PASS (currency, environment, freshness, bindings, cash semantics, wallet and duplicate rows)");

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { buildAccountFactsReadModel, normalizeAccountFactsHistoryPayload, projectAccountFactsHistorySeries } from "../web/strategy-switch-console/account_facts.js";
-import { accountFactsDetail, accountFactsDisplayReady, accountFactsForDisplay, accountHistoryCoverage, summarizeAccountFactsCoverage, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
+import { accountFactsDetail, accountFactsDisplayReady, accountFactsForDisplay, accountHistoryCoverage, summarizeAccountFactsCoverage, summarizeCurrentAccountFacts, totalsUnavailableDetail } from "../web/strategy-switch-console/frontend/src/types.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 
 const now = Date.parse("2026-10-07T08:00:00Z");
@@ -21,6 +21,26 @@ const normalized = normalizeAccountFactsHistoryPayload(payload, { now });
 const model = buildAccountFactsReadModel({ accountOptions: { longbridge: [option] }, bindings: { schema_version: "qsl_account_facts_bindings.v1", bindings: [binding] }, storedByAccount: new Map([[`longbridge:${option.key}`, normalized]]), now });
 const fresh = model.accounts[0];
 assert.equal(fresh.data_status, "fresh", "synthetic native-shaped input crosses the actual receiver validator/read-model");
+// Feed the actual receiver/read-model through a config-first refresh race.
+const unmarkedPaperOption = { ...option, broker_environment: null };
+const unmarkedPaperModel = buildAccountFactsReadModel({
+  accountOptions: { longbridge: [unmarkedPaperOption] },
+  bindings: { schema_version: "qsl_account_facts_bindings.v1", bindings: [binding] },
+  storedByAccount: new Map([[`longbridge:${option.key}`, normalized]]), now,
+});
+assert.equal(unmarkedPaperModel.accounts[0].account_scope, "paper");
+const unmarkedPaperSummary = summarizeCurrentAccountFacts([{
+  id: option.key, platform: "longbridge", brokerEnvironment: null, facts: unmarkedPaperModel.accounts[0],
+}]);
+assert.deepEqual(unmarkedPaperSummary.excludingPaper.assets, []);
+assert.deepEqual(unmarkedPaperSummary.paper.assets, [{ currency: "USD", amount: "101.25" }]);
+const configFirstRefresh = summarizeCurrentAccountFacts([{
+  id: option.key, platform: "longbridge", brokerEnvironment: "live", facts: fresh,
+}]);
+assert.deepEqual(configFirstRefresh.excludingPaper.assets, [], "new configuration cannot reclassify a previously loaded paper snapshot as real funds");
+assert.deepEqual(configFirstRefresh.excludingPaper.availableCash, []);
+assert.equal(configFirstRefresh.unknown.missing, 1);
+
 const expiry = Date.parse(fresh.observed_finished_at) + 36 * 60 * 60 * 1000;
 assert.equal(accountFactsForDisplay(fresh, expiry), fresh, "current evidence is unchanged through the exact cutoff");
 assert.equal(accountFactsForDisplay(fresh, expiry + 1).data_status, "stale");
