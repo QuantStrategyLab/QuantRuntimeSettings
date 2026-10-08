@@ -403,6 +403,8 @@ export type CurrentAccountFactsSummary = {
   paper: CurrentAccountFactsGroup;
   unknown: CurrentAccountFactsGroup;
   excludingPaper: CurrentAccountFactsGroup;
+  duplicateConfigurationKeys: number;
+  duplicateConfigurationConflicts: number;
 };
 
 function validCurrentAmount(value: unknown): value is string {
@@ -435,6 +437,39 @@ function sumCurrentAmounts(rows: Array<{ currency: string; amount: string }>): A
 
 /** Summarize only current, fresh, uniquely bound account facts; currencies and cash meanings stay separate. */
 export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[]): CurrentAccountFactsSummary {
+  const rowsByConfigKey = new Map<string, CurrentAccountFactsRow[]>();
+  for (const account of accounts) {
+    const key = JSON.stringify([account.platform, account.id]);
+    rowsByConfigKey.set(key, [...(rowsByConfigKey.get(key) || []), account]);
+  }
+  let duplicateConfigurationKeys = 0;
+  let duplicateConfigurationConflicts = 0;
+  const uniqueAccounts: CurrentAccountFactsRow[] = [];
+  for (const rows of rowsByConfigKey.values()) {
+    if (rows.length === 1) {
+      uniqueAccounts.push(rows[0]);
+      continue;
+    }
+    duplicateConfigurationKeys += 1;
+    const first = rows[0];
+    const factsFingerprint = JSON.stringify(first.facts);
+    const walletFingerprint = JSON.stringify(first.walletValuation ?? null);
+    const factsAgree = rows.every(row => JSON.stringify(row.facts) === factsFingerprint);
+    const walletAgrees = rows.every(row => JSON.stringify(row.walletValuation ?? null) === walletFingerprint);
+    const knownEnvironments = new Set(rows
+      .map(row => row.brokerEnvironment)
+      .filter(environment => environment === "live" || environment === "paper"));
+    const environmentConflict = knownEnvironments.size > 1;
+    const groupConflict = environmentConflict || !factsAgree || !walletAgrees;
+    if (groupConflict) duplicateConfigurationConflicts += 1;
+    const environmentsAgree = rows.every(row => row.brokerEnvironment === first.brokerEnvironment);
+    uniqueAccounts.push({
+      ...first,
+      brokerEnvironment: environmentsAgree && !environmentConflict ? first.brokerEnvironment : null,
+      facts: groupConflict ? null : first.facts,
+      walletValuation: groupConflict ? null : first.walletValuation,
+    });
+  }
   const groups = {
     live: { accounts: 0, covered: 0, unbound: 0, missing: 0, assets: [], cashBalance: [], availableCash: [], cashAccounts: 0, cashCovered: 0, cashUnbound: 0, cashMissing: 0 },
     paper: { accounts: 0, covered: 0, unbound: 0, missing: 0, assets: [], cashBalance: [], availableCash: [], cashAccounts: 0, cashCovered: 0, cashUnbound: 0, cashMissing: 0 },
@@ -446,7 +481,7 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
     availableCash: Array<{ currency: string; amount: string }>;
     cashAccounts: number; cashCovered: number; cashUnbound: number; cashMissing: number;
   }>;
-  for (const account of accounts) {
+  for (const account of uniqueAccounts) {
     const facts = account.facts;
     const paperEvidence = account.brokerEnvironment === "paper"
       || facts?.account_scope === "paper" || facts?.broker_environment === "paper";
@@ -511,7 +546,7 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
     cashUnbound: groups.live.cashUnbound + groups.unknown.cashUnbound,
     cashMissing: groups.live.cashMissing + groups.unknown.cashMissing,
   };
-  return { ...groups, excludingPaper };
+  return { ...groups, excludingPaper, duplicateConfigurationKeys, duplicateConfigurationConflicts };
 }
 
 export function accountHistoryCoverage(series: {

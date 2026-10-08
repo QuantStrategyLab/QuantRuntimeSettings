@@ -159,6 +159,20 @@ for (const [name, mutate] of [
 ]) {
   const d = clone(daily); mutate(d); assert.equal(health(runtime, d).label, "异常", name);
 }
+const scheduleUnverified = clone(daily);
+scheduleUnverified.record = {
+  ...scheduleUnverified.record,
+  kind: "incomplete",
+  status: "insufficient",
+  completeness: "incomplete",
+  schedule: { ...scheduleUnverified.record.schedule, state: "unevaluable" },
+};
+scheduleUnverified.read_error_count = 1;
+const scheduleUnverifiedView = presentRuntimeDaily(scheduleUnverified, selection, scheduleUnverified.date);
+assert.equal(scheduleUnverifiedView.statusLabel, "暂不可用", "an unverified schedule never becomes a healthy status");
+assert.ok(scheduleUnverifiedView.statusDetails.includes("运行计划资料未确认"));
+assert.ok(scheduleUnverifiedView.statusDetails.includes("周期记录不完整，结果待确认"));
+assert.ok(scheduleUnverifiedView.statusDetails.includes("部分来源读取失败"));
 for (const status of ["failed", "blocked", "unknown", "submitted", "broker_acknowledged", "partially_filled", "dry_run", "shadow", "validation", "missing_report"]) {
   const d = clone(daily); d.record.status = status; assert.equal(health(runtime, d).label, "异常", status);
 }

@@ -191,7 +191,8 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const runtimeBounds = runtimeDateBounds(runtimeNow);
   const runtimeToday = runtimeBounds.max;
   const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
-  const [runtimeDate, setRuntimeDate] = useState(runtimeToday);
+  const [selectedRuntimeDate, setSelectedRuntimeDate] = useState<string | null>(null);
+  const runtimeDate = selectedRuntimeDate || runtimeToday;
   const [runtimeDaily, setRuntimeDaily] = useState<Record<string, RuntimeDailyRequestState>>({});
   const [privateScopeNow, setPrivateScopeNow] = useState(() => Date.now());
   const historyEpoch = useRef(0);
@@ -358,9 +359,9 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         });
     }
     return () => { active = false; };
-    // The clock may change which day is current, but only selection/readback reloads data.
+    // A New York business-day rollover reloads current data; a manually selected historical date remains pinned.
   }, [accounts.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|"),
-    visible.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|"), runtimeDate,
+    visible.map(account => JSON.stringify([account.platformKey, account.accountKey, account.runtimeDailyBinding])).join("|"), runtimeDate, runtimeToday,
     readModelRefreshVersion]);
   useEffect(() => {
     const now = Date.now();
@@ -479,6 +480,10 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
               unbound: currentFactsSummary.excludingPaper.unbound,
               missing: Math.max(0, currentFactsSummary.excludingPaper.missing - currentFactsSummary.excludingPaper.unbound),
             })}</small>
+            {currentFactsSummary.duplicateConfigurationKeys > 0 ? <small>{t("重复账户配置键 {count} 组已去重；资料冲突的 {conflicts} 组不计金额。", {
+              count: currentFactsSummary.duplicateConfigurationKeys,
+              conflicts: currentFactsSummary.duplicateConfigurationConflicts,
+            })}</small> : null}
           </div>
           {aggregateAssetGroups.length ? <details className="overview-aggregate-breakdown">
             <summary>{t("按配置环境查看资产明细")}</summary>
@@ -660,7 +665,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
         <h2>{t("每日运行记录")}</h2>
         <label>
           <span>{t(runtimeDateLabel)}</span>
-          <input type="date" aria-label={t(runtimeDateLabel)} value={runtimeDate} min={runtimeBounds.min} max={runtimeToday} onChange={event => setRuntimeDate(event.target.value)} />
+          <input type="date" aria-label={t(runtimeDateLabel)} value={runtimeDate} min={runtimeBounds.min} max={runtimeToday} onChange={event => setSelectedRuntimeDate(event.target.value === runtimeToday ? null : event.target.value)} />
         </label>
       </div>
       {!runtimeDateSelectable(runtimeDate, runtimeNow) ? <p>{t("请选择最近90天内的有效日期")}</p> : visible.map(account => {
