@@ -67,13 +67,13 @@ assert.equal(health(platformNotDue, null, binance).label, "健康", "fresh expli
 assert.equal(health(platformNotDue, null, binance).detail, "尚未到检查时间");
 const stalePlatformNotDue = clone(platformNotDue);
 stalePlatformNotDue.observed_at = instant(-301);
-assert.equal(health(stalePlatformNotDue, null, binance).label, "异常", "a not-due result cannot mask stale monitoring evidence");
+assert.equal(health(stalePlatformNotDue, null, binance).label, "待确认", "a not-due result cannot mask stale monitoring evidence");
 const noDueProof = clone(platformNotDue);
 noDueProof.target.monitoring.runtime_guard = "unavailable";
-assert.equal(health(noDueProof, null, binance).label, "异常", "a not-due heartbeat cannot mask an unavailable runtime guard");
+assert.equal(health(noDueProof, null, binance).label, "待确认", "an unavailable runtime guard leaves monitoring unconfirmed");
 const wrongDueState = clone(platformNotDue);
 wrongDueState.target.monitoring.execution_heartbeat = "pass";
-assert.equal(health(wrongDueState, null, binance).label, "异常", "check_not_due requires matching source-level heartbeat evidence");
+assert.equal(health(wrongDueState, null, binance).label, "待确认", "check_not_due requires matching source-level heartbeat evidence");
 const disabledRuntime = clone(runtime);
 disabledRuntime.account_state.activation = "disabled";
 disabledRuntime.target.target.configured_state = "disabled";
@@ -96,36 +96,40 @@ assert.equal(health(runtime, noSchedule).detail, "运行时间未确认或已到
 assert.equal(health().label, "健康");
 assert.equal(health().lastSuccessAt, instant(-60));
 for (const [name, mutate] of [
+  ["runtime failure", r => r.account_state.health = "abnormal"],
+  ["scheduler paused", r => r.target.deployment.scheduler_state = "paused"],
+]) {
+  const r = clone(runtime); mutate(r); assert.equal(health(r).label, "异常", name);
+}
+for (const [name, mutate] of [
   ["missing source timestamp", r => delete r.observed_at],
   ["missing source validity", r => delete r.evidence_valid_for_seconds],
   ["expired source", r => r.observed_at = instant(-301)],
   ["future source", r => r.observed_at = instant(1)],
   ["stale source", r => r.freshness.data_status = "stale"],
-  ["disabled", r => r.account_state.activation = "disabled"],
   ["unknown activation", r => r.account_state.activation = "unknown"],
-  ["runtime failure", r => r.account_state.health = "abnormal"],
   ["monitoring unknown", r => r.account_state.health = "unknown"],
   ["missing deployment timestamp", r => delete r.target.deployment.observed_at],
   ["expired deployment", r => r.target.deployment.observed_at = instant(-301)],
   ["future deployment", r => r.target.deployment.observed_at = instant(1)],
-  ["scheduler paused", r => r.target.deployment.scheduler_state = "paused"],
 ]) {
-  const r = clone(runtime); mutate(r); assert.equal(health(r).label, "异常", name);
+  const r = clone(runtime); mutate(r); assert.equal(health(r).label, "待确认", name);
 }
-assert.equal(health(null).label, "异常");
+assert.equal(health(null).label, "待确认");
+assert.equal(health(null).detail, "运行证据未取得");
 assert.equal(health(runtime, null).label, "健康", "a missing cycle does not change lifecycle monitoring health");
 assert.equal(health(runtime, null).detail, "周期记录未取得", "a missing cycle remains explicit and is never counted as success");
 assert.equal(health(runtime, daily, selection, true).detail, "账户身份不匹配");
 assert.equal(health(runtime, null, binance, true).label, "异常", "identity mismatches stay abnormal for non-LongBridge platforms");
 const staleBinance = clone(runtime);
 staleBinance.observed_at = instant(-301);
-assert.equal(health(staleBinance, null, binance).label, "异常", "Binance freshness is checked independently of daily cycle data");
+assert.equal(health(staleBinance, null, binance).label, "待确认", "Binance freshness is checked independently of daily cycle data");
 const staleDeploymentReadback = clone(runtime);
 staleDeploymentReadback.deployment_freshness.data_status = "stale";
-assert.equal(health(staleDeploymentReadback, null, binance).label, "异常", "a current monitoring timestamp cannot mask stale deployment evidence");
+assert.equal(health(staleDeploymentReadback, null, binance).label, "待确认", "a current monitoring timestamp cannot mask stale deployment evidence");
 const unavailableDeploymentReadback = clone(runtime);
 unavailableDeploymentReadback.deployment_freshness.data_status = "unavailable";
-assert.equal(health(unavailableDeploymentReadback, null, binance).label, "异常", "a current monitoring timestamp cannot mask unavailable deployment evidence");
+assert.equal(health(unavailableDeploymentReadback, null, binance).label, "待确认", "a current monitoring timestamp cannot mask unavailable deployment evidence");
 const abnormalBinance = clone(runtime);
 abnormalBinance.account_state.health = "abnormal";
 assert.equal(health(abnormalBinance, null, binance).label, "异常", "platform monitoring failure remains abnormal");
@@ -140,15 +144,21 @@ assert.equal(health(abnormalUnknownActivation, null, binance).detail, "近期运
   "a fresh retained-attention runtime guard failure is explained even while activation is unknown");
 const staleAttentionDeployment = clone(abnormalUnknownActivation);
 staleAttentionDeployment.deployment_freshness.data_status = "stale";
+assert.equal(health(staleAttentionDeployment, null, binance).label, "异常",
+  "fresh lifecycle attention remains abnormal when deployment evidence is stale");
 assert.equal(health(staleAttentionDeployment, null, binance).detail, "近期运行检查失败",
   "fresh lifecycle attention remains visible when deployment evidence is stale");
 const missingAttentionDeployment = clone(abnormalUnknownActivation);
 delete missingAttentionDeployment.target.deployment.observed_at;
+assert.equal(health(missingAttentionDeployment, null, binance).label, "异常",
+  "fresh lifecycle attention remains abnormal when deployment evidence is missing");
 assert.equal(health(missingAttentionDeployment, null, binance).detail, "近期运行检查失败",
   "fresh lifecycle attention remains visible when deployment evidence is missing");
 const staleAttentionSource = clone(abnormalUnknownActivation);
 staleAttentionSource.observed_at = instant(-301);
 staleAttentionSource.deployment_freshness.data_status = "stale";
+assert.equal(health(staleAttentionSource, null, binance).label, "待确认",
+  "an expired lifecycle snapshot cannot be presented as a fresh monitoring failure");
 assert.equal(health(staleAttentionSource, null, binance).detail, "运行证据已过期",
   "an expired lifecycle snapshot cannot be presented as a fresh monitoring failure");
 const heartbeatAttention = clone(abnormalUnknownActivation);
@@ -250,7 +260,7 @@ for (const status of ["not_due", "market_closed", "outside_window"]) {
   waitingRuntime.target.monitoring = { runtime_guard: "pass", execution_heartbeat: "not_due" };
   assert.equal(health(waitingRuntime, d).label, "健康", "verified not-due evidence does not require a monitoring success");
   waitingRuntime.target.monitoring.runtime_guard = "unknown";
-  assert.equal(health(waitingRuntime, d).label, "异常", "not-due heartbeat cannot hide an unknown guard");
+  assert.equal(health(waitingRuntime, d).label, "待确认", "not-due heartbeat cannot hide an unknown guard");
   assert.equal(health(runtime, d, selection, false, now + 60_000).label, "健康", `${status} due boundary is separate from lifecycle health`);
   assert.notEqual(health(runtime, d, selection, false, now + 60_000).detail, "运行监测正常，已启用。");
   d.record.schedule.next_due_at = null;
