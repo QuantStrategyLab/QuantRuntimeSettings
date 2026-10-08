@@ -44,12 +44,14 @@ assert.deepEqual(accountStatusView({ scope: "monitoring_only", limit: "not_tradi
 assert.notEqual(activationFromProjection(monitored), "—");
 const waitingCycle = { ...monitored, health: "unknown", reason: "check_not_due" };
 assert.equal(overviewRuntimeStatusLabel(waitingCycle, "ready"), "等待周期");
-assert.equal(accountStatusView(waitingCycle, "ready").label, "—", "the label does not promote unknown health to normal");
+assert.equal(accountStatusView(waitingCycle, "ready").label, "等待周期", "settings distinguishes an explicit not-due check from missing evidence without promoting health to normal");
 for (const freshness of [undefined, null, "stale", "unavailable"]) {
   assert.equal(overviewRuntimeStatusLabel(waitingCycle, freshness), "待确认");
+  assert.notEqual(accountStatusView(waitingCycle, freshness).label, "等待周期");
 }
 for (const override of [{ activation: "unknown" }, { activation: "disabled" }, { reason: "evidence_insufficient" }, { scope: "invalid" }, { limit: "invalid" }]) {
   assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, ...override }, "ready"), "待确认");
+  assert.notEqual(accountStatusView({ ...waitingCycle, ...override }, "ready").label, "等待周期");
 }
 assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, health: "abnormal", reason: "retained_attention" }, "ready"), "异常");
 assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "监测正常");

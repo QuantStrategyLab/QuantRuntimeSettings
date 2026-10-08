@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { overviewRuntimeHealth, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND, binanceWalletStatusDetail } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { overviewRuntimeHealth, runtimeDeploymentReadout, presentRuntimeDaily, runtimeDateBounds, runtimeDateSelectable, RETURN_INDEX_LEGEND, binanceWalletStatusDetail } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { RUNTIME_DAILY_TARGET, runtimeDailyTarget } from "../web/strategy-switch-console/runtime_daily_contract.js";
 import "./overview_current_aggregation_validation.mjs";
@@ -47,6 +47,23 @@ const daily = {
   history: { available_from: "2026-07-10", available_through: "2026-10-04", stored_days: 87, truncated: true },
 };
 const clone = value => structuredClone(value);
+const schedulerOnly = clone(runtime);
+schedulerOnly.target.deployment.runtime_enabled = null;
+schedulerOnly.account_state.activation = "unknown";
+assert.deepEqual(runtimeDeploymentReadout(schedulerOnly, false, now), {
+  scheduler: "已启用", runtimeSwitch: "待确认", observedAt: instant(-60),
+}, "fresh scheduler evidence does not infer the runtime switch");
+assert.equal(runtimeDeploymentReadout(runtime, false, now).runtimeSwitch, "已启用");
+assert.equal(runtimeDeploymentReadout(schedulerOnly, true, now).scheduler, "待确认", "account mismatch cannot expose a matching-looking observation");
+for (const override of [
+  { deployment_freshness: { data_status: "stale" } },
+  { deployment_freshness: { data_status: "unavailable" } },
+  { evidence_valid_for_seconds: 0 },
+  { target: { ...schedulerOnly.target, deployment: { ...schedulerOnly.target.deployment, observed_at: instant(-301) } } },
+  { target: { ...schedulerOnly.target, deployment: { ...schedulerOnly.target.deployment, observed_at: instant(1) } } },
+]) assert.deepEqual(runtimeDeploymentReadout({ ...schedulerOnly, ...override }, false, now), {
+  scheduler: "待确认", runtimeSwitch: "待确认", observedAt: null,
+});
 const health = (r = runtime, d = daily, s = selection, mismatch = false, time = now) => overviewRuntimeHealth(r, d, s, mismatch, time);
 const mixedZones = clone(daily);
 mixedZones.record.schedule.latest_due_at = "2026-10-04T15:20:00Z";
