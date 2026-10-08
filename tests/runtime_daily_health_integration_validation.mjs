@@ -82,7 +82,15 @@ try {
     notDue.observed_at = instant(-301);
     assert.equal(health(notDue, null, selection).label, "异常", `${platform}: not_due cannot mask stale evidence`);
   }
-  assert.equal(health(runtimeFor("longbridge", "not_due"), null).label, "异常", "the bound PAPER source still requires its own daily evidence");
+  const missingPaperDaily = runtimeFor("longbridge", "not_due");
+  assert.equal(health(missingPaperDaily, null).label, "健康", "missing PAPER daily evidence does not redefine lifecycle monitoring");
+  assert.equal(health(missingPaperDaily, null).detail, "周期记录未取得", "missing PAPER daily evidence remains an explicit gap");
+  assert.equal(health(missingPaperDaily, null).lastSuccessAt, null, "a missing daily cycle is never counted as success");
+  const unavailableDailyCard = presentRuntimeDaily({ ok: true, platform: "longbridge", target_key: RUNTIME_DAILY_TARGET.target_key,
+    account_key: paper.key, date: runtimeBusinessDate(now), timezone: "America/New_York", data_status: "unavailable", record: null }, paperSelection, runtimeBusinessDate(now));
+  assert.equal(unavailableDailyCard.statusLabel, "未取得", "a missing cycle stays unavailable in the daily card");
+  assert.equal(unavailableDailyCard.dataStatusLabel, "暂不可用");
+  assert.ok(unavailableDailyCard.statusDetails.includes("未取得该日记录；不能据此判断是否运行。"));
   const disabled = runtimeFor("longbridge");
   disabled.target.target.configured_state = "disabled"; disabled.target.deployment.runtime_enabled = false;
   disabled.target.deployment.scheduler_state = "paused"; disabled.target.monitoring.execution_heartbeat = "not_applicable";
@@ -98,7 +106,8 @@ try {
   saveOptions(ambiguous);
   const ambiguousSelection = selectionFor("longbridge", paper.key, ambiguous);
   assert.equal(ambiguousSelection.dailyBinding, "unresolved");
-  assert.equal(health(runtimeFor("longbridge"), null, ambiguousSelection).label, "异常");
+  assert.equal(health(runtimeFor("longbridge"), null, ambiguousSelection).label, "健康", "an unresolved daily binding does not change lifecycle monitoring");
+  assert.equal(health(runtimeFor("longbridge"), null, ambiguousSelection).detail, "周期记录目标绑定未确认");
   assert.equal((await post(projection())).status, 409);
   assert.equal((await read()).status, 409);
   saveOptions(options);
@@ -145,7 +154,8 @@ try {
     ["unconfirmed public activity", run => run.activity = "submitted"],
   ]) {
     const conflicting = structuredClone(clean); mutate(conflicting.record.runs[0]);
-    assert.equal(health(runtimeFor("longbridge"), conflicting).label, "异常", name);
+    assert.equal(health(runtimeFor("longbridge"), conflicting).label, "健康", `${name}: daily evidence does not redefine lifecycle monitoring`);
+    assert.notEqual(health(runtimeFor("longbridge"), conflicting).detail, "运行监测正常，已启用。");
     assert.notEqual(presentRuntimeDaily(conflicting, paperSelection).statusLabel, "无交易", name);
   }
   const mixedFaults = structuredClone(clean);
@@ -163,7 +173,8 @@ try {
   assert.equal((await post(failed)).status, 200, "honest abnormal evidence is still accepted");
   const failedRead = await (await read()).json();
   assert.equal(failedRead.record.runs[0].errors_present, true);
-  assert.equal(health(runtimeFor("longbridge"), failedRead).label, "异常");
+  assert.equal(health(runtimeFor("longbridge"), failedRead).label, "健康", "a failed daily cycle is reported in the daily card, separately from lifecycle monitoring");
+  assert.equal(health(runtimeFor("longbridge"), failedRead).detail, "周期记录明细未确认或与汇总冲突");
   assert.equal(presentRuntimeDaily(failedRead, paperSelection).statusLabel, "异常");
 
   for (const [date, status] of [["2026-10-04T16:00:00Z", "market_closed"], ["2026-10-05T12:00:00Z", "not_due"]]) {
@@ -180,7 +191,9 @@ try {
     now -= 60_000; store.delete(dailyKey());
     record.schedule.next_due_at = null;
     assert.equal((await post(scheduled)).status, 200);
-    assert.equal(health(runtimeFor("longbridge", "not_due"), await (await read()).json()).label, "异常", "weekend/market_closed alone does not supply the missing next due time");
+    const missingDueSnapshot = await (await read()).json();
+    assert.equal(health(runtimeFor("longbridge", "not_due"), missingDueSnapshot).label, "健康", "missing cycle timing does not redefine lifecycle monitoring");
+    assert.equal(health(runtimeFor("longbridge", "not_due"), missingDueSnapshot).detail, "运行时间未确认或已到期", "weekend/market_closed alone does not supply the missing next due time");
   }
   console.log("runtime daily health integration: PASS (production projection, exact binding, synthetic Worker/KV/UI, conflicts, supplied schedule boundaries)");
 } finally {
@@ -263,7 +276,9 @@ try {
     assert.equal(runtimeDailySelectionBinding({ schwab: [schwab] }, "schwab", schwab.key), "unresolved", "the client cannot infer protected binding from service/scope");
     assert.equal(runtimeDailySelectionBinding({ schwab: [{ ...schwab, account_scope: undefined }] }, "schwab", schwab.key, bindingSummary), "unresolved");
     assert.equal(runtimeDailySelectionBinding({ schwab: [{ ...schwab, account_scope: undefined }] }, "schwab", schwab.key), "unresolved");
-    assert.equal(overviewRuntimeHealth(schwabRuntime(), null, { ...selection, dailyBinding: "unresolved" }, false, schwabNow).label, "异常");
+    const unresolvedHealth = overviewRuntimeHealth(schwabRuntime(), null, { ...selection, dailyBinding: "unresolved" }, false, schwabNow);
+    assert.equal(unresolvedHealth.label, "健康", "an unresolved Schwab daily binding does not change lifecycle monitoring");
+    assert.equal(unresolvedHealth.detail, "周期记录目标绑定未确认");
     for (const item of fixture.cases) {
       localStore.delete(sourceKey);
       const response = await send(item.projection);
@@ -286,13 +301,17 @@ try {
         assert.equal(JSON.stringify(snapshot).includes(forbidden), false, `public read cannot expose ${forbidden}`);
       }
       assert.equal(presentRuntimeDaily(snapshot, selection, "2026-10-06").accountMatched, true);
-      assert.equal(healthFor(snapshot).label, ["due_no_signal", "not_due"].includes(item.name) ? "健康" : "异常", item.name);
+      assert.equal(healthFor(snapshot).label, "健康", `${item.name}: lifecycle monitoring is independent of the cycle result`);
+      if (!["due_no_signal", "not_due"].includes(item.name)) {
+        assert.notEqual(presentRuntimeDaily(snapshot, selection).statusLabel, "无交易", `${item.name}: an abnormal or incomplete cycle is not reported as success`);
+      }
       if (item.name === "not_due") {
         const originalClock = schwabNow;
         schwabNow = Date.parse(snapshot.record.schedule.next_due_at) - 1;
         assert.equal(healthFor(snapshot).label, "健康", "before_schedule retains its explicit future due boundary");
         schwabNow += 1;
-        assert.equal(healthFor(snapshot).label, "异常", "before_schedule expires exactly at next_due_at");
+        assert.equal(healthFor(snapshot).label, "健康", "a cycle due boundary does not change lifecycle monitoring");
+        assert.equal(healthFor(snapshot).detail, "运行时间未确认或已到期");
         schwabNow = originalClock;
         const missingNext = structuredClone(item.projection); missingNext.records[0].schedule.next_due_at = null;
         const writes = localWrites.length;
@@ -371,7 +390,8 @@ try {
     const clean = await (await readDaily()).json();
     const otherPlatform = structuredClone(clean); otherPlatform.platform = "longbridge";
     assert.equal(presentRuntimeDaily(otherPlatform, selection).accountMatched, false);
-    assert.equal(healthFor(otherPlatform).label, "异常");
+    assert.equal(healthFor(otherPlatform).label, "健康", "a mismatched daily snapshot does not change lifecycle monitoring");
+    assert.equal(healthFor(otherPlatform).detail, "周期记录目标不匹配");
     for (const [name, mutate] of [
       ["caller account key", body => body.account_key = "forged"],
       ["array platform alias", body => body.platform = ["schwab"]],
@@ -428,7 +448,8 @@ try {
       localStore.delete(sourceKey); assert.equal((await send(body)).status, 200);
       const snapshot = await (await readDaily()).json();
       assert.equal(snapshot.record.runs[0].issue, issue, "safe public issue survives removal of private evidence");
-      assert.equal(healthFor(snapshot).label, "异常");
+      assert.equal(healthFor(snapshot).label, "健康", "a cycle execution issue does not redefine lifecycle monitoring");
+      assert.notEqual(presentRuntimeDaily(snapshot, selection).statusLabel, "无交易");
     }
     // Exact merged-producer outputs include honest null-next-due closed sessions.
     // The local authenticated POST/read path supplies the public object used by UI.
@@ -465,7 +486,8 @@ try {
         ["future observation", value => value.record.observed_at = new Date(schwabNow + 1).toISOString()],
       ]) {
         const altered = structuredClone(snapshot); mutate(altered);
-        assert.equal(healthFor(altered).label, "异常", `${item.name}: ${name}`);
+        assert.equal(healthFor(altered).label, "健康", `${item.name}: ${name} is a daily evidence issue`);
+        assert.notEqual(healthFor(altered).detail, "运行监测正常，已启用。");
       }
       for (const [name, mutate] of [
         ["failed lifecycle", value => value.account_state.health = "abnormal"],
@@ -480,7 +502,8 @@ try {
       for (const [activity, errors] of [["submitted", false], ["failed", true], ["no_submission", true]]) {
         const conflict = structuredClone(snapshot);
         conflict.record.runs = [{ run_id: "synthetic", activity, errors_present: errors, execution_lane: "live", started_at: body.observed_at, finished_at: body.observed_at }];
-        assert.equal(healthFor(conflict).label, "异常", `${item.name}: pending or errors precede closed-session health`);
+        assert.equal(healthFor(conflict).label, "健康", `${item.name}: cycle conflict is separate from lifecycle monitoring`);
+        assert.notEqual(presentRuntimeDaily(conflict, selection).statusLabel, "休市", `${item.name}: pending or errors cannot become a healthy cycle`);
       }
       for (const reason of [null, "unsafe-private-diagnostic"]) {
         const invalid = structuredClone(body); invalid.records[0].schedule.reason = reason;
@@ -493,10 +516,12 @@ try {
       schwabNow = Date.parse(item.next_ny_midnight) - 1;
       assert.equal(healthFor(snapshot).label, "健康", `${item.name}: still the same New York business day with fresh lifecycle evidence`);
       schwabNow += 1;
-      assert.equal(healthFor(snapshot).label, "异常", `${item.name}: cached fresh flag cannot survive New York midnight`);
+      assert.equal(healthFor(snapshot).label, "健康", `${item.name}: New York midnight changes the daily gap, not lifecycle monitoring`);
+      assert.equal(healthFor(snapshot).detail, "今日周期记录未取得");
       const historical = await (await readDaily("schwab", schwab.key, date)).json();
       assert.equal(historical.data_status, "historical", "receiver and UI agree on New York date rollover including DST");
-      assert.equal(healthFor(historical).label, "异常");
+      assert.equal(healthFor(historical).label, "健康", "a historical daily row cannot redefine lifecycle monitoring");
+      assert.notEqual(healthFor(historical).detail, "运行监测正常，已启用。");
       assertions++;
     }
     schwabNow = Date.parse(fixture.receiver_test_clock);
@@ -509,13 +534,16 @@ try {
         assert.equal((await response.json()).error, "runtime_daily_summary_conflict", "closed producer summaries cannot hide a pending run");
         assert.equal(localWrites.length, writes);
         assert.equal(localStore.has(sourceKey), false);
-        assert.equal(healthFor(await (await readDaily()).json()).label, "异常");
+        const unavailableSnapshot = await (await readDaily()).json();
+        assert.equal(healthFor(unavailableSnapshot).label, "健康", "a rejected daily cycle does not redefine lifecycle monitoring");
+        assert.equal(presentRuntimeDaily(unavailableSnapshot, selection).statusLabel, "未取得");
         assertions++;
         continue;
       }
       const snapshot = await (await readDaily()).json();
       assert.equal(snapshot.record.schedule.reason, item.projection.records[0].schedule.reason);
-      assert.equal(healthFor(snapshot).label, "异常", `${item.name}: closed-session reasons cannot override incomplete, pending or failed producer evidence`);
+      assert.equal(healthFor(snapshot).label, "健康", `${item.name}: lifecycle monitoring remains independent of cycle evidence`);
+      assert.notEqual(healthFor(snapshot).detail, "运行监测正常，已启用。");
       assert.notEqual(presentRuntimeDaily(snapshot, selection).statusLabel, "休市");
       assertions++;
     }

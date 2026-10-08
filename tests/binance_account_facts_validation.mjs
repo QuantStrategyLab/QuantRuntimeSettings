@@ -272,6 +272,9 @@ assert.deepEqual(await unmatchedReadiness.json(), {
   unique_match: false, error: 'binance_account_facts_binding_unmatched',
 });
 assert.equal(puts.length, 0, 'unmatched readiness check does not write facts');
+const missingReadback = await (await get()).json();
+assert.deepEqual({ report_status: missingReadback.report_status, report: missingReadback.report },
+  { report_status: 'missing', report: null }, 'no stored source report is distinct from a binding/read failure');
 const configReadFailure = await readiness({ ...env, STRATEGY_SWITCH_RUNTIME_INSTANCES: {
   idFromName: () => 'synthetic-do-id',
   get: () => ({ fetch: async () => new Response(JSON.stringify({ error: 'synthetic-sensitive-detail' }), { status: 503 }) }),
@@ -355,7 +358,9 @@ assert.equal((await (await post(report)).json()).status, 'unchanged');
 assert.equal(puts.length, 1);
 const read = await get();
 assert.equal(read.status, 200);
-assert.deepEqual((await read.json()).report, projection);
+const readBody = await read.json();
+assert.deepEqual(readBody.report, projection);
+assert.equal(readBody.report_status, 'available');
 assert.equal((await getWalletHistory(env, false)).status, 401, 'wallet history requires the existing authenticated session');
 const unavailableWalletHistory = await (await getWalletHistory()).json();
 assert.deepEqual(unavailableWalletHistory, {
@@ -512,7 +517,8 @@ for (const [index, bad] of invalidReceiverCases.entries()) {
 }
 assert.equal(puts.length, 2);
 assert.equal((await get({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).status, 200);
-assert.equal((await (await get({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).json()).report, null);
+assert.deepEqual(await (await get({ ...env, BINANCE_ACCOUNT_FACTS_BINDING_JSON: '' })).json(),
+  { ok: true, report_status: 'unavailable', report: null }, 'missing trusted binding is not mislabeled as a missing report');
 // The same bytes are generated and checked by the Python producer tests.
 const fixtureBytes = readFileSync(new URL('./fixtures/binance_account_facts.v1.synthetic.json', import.meta.url));
 assert.equal(createHash('sha256').update(fixtureBytes).digest('hex'), '06231ffef64bbfdcad8b3f70f0c2264abcb69aed2854b3c62400869c308ef6e9');
@@ -567,6 +573,7 @@ values.set(`${BINANCE_FACTS_KEY}:${binding.source_binding.id}`, JSON.stringify({
 }));
 const staleApiReport = (await (await get()).json()).report;
 assert.equal(staleApiReport, null, 'stale source facts produce no public report');
+assert.equal((await (await get()).json()).report_status, 'expired', 'validated reports past the existing TTL are distinguished as expired');
 assert.equal(binanceProviderProductTypeForDisplay(staleApiReport, false), null,
   'a stale account does not display the type');
 const writesBeforeFillerChecks = puts.length;

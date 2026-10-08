@@ -716,6 +716,8 @@ function App() {
             statusLabel: overviewRuntimeStatusLabel(row.runtime?.account_state, row.runtime?.freshness?.data_status),
             statusDetail: row.runtimeDetail || status.detail,
             activation: activationFromProjection(row.runtime?.account_state) === "—" ? "待确认" : activationFromProjection(row.runtime?.account_state),
+            runtimeTargetEnabled: typeof row.current?.runtime_target_enabled === "boolean"
+                ? row.current.runtime_target_enabled : null,
             preference: typeof preference === "string" ? preference : null,
             facts: accountFactsForRow(model?.accountFacts.value, row.platform, row.account.key),
             runtime: row.runtime,
