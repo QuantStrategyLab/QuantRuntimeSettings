@@ -494,8 +494,9 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
     group.accounts += 1;
     const bound = facts?.binding_status === "bound";
     if (facts && !bound) group.unbound += 1;
-    const ready = accountFactsDisplayReady(facts);
-    const wallet = account.walletValuation && /^[A-Z0-9]{3,10}$/.test(account.walletValuation.currency)
+    // Configuration and facts refresh separately; conflicting snapshots cannot contribute funds.
+    const ready = !environmentConflict && accountFactsDisplayReady(facts);
+    const wallet = !environmentConflict && account.walletValuation && /^[A-Z0-9]{3,10}$/.test(account.walletValuation.currency)
       && validCurrentAmount(account.walletValuation.amount) ? account.walletValuation : null;
     const assetRows = wallet
       ? [{ currency: wallet.currency, amount: wallet.amount }]
