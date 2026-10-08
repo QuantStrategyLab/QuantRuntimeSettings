@@ -768,7 +768,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
                   <strong title={walletCardValuation.amount} aria-label={`${walletCardValuation.amount} ${walletCardValuation.currency}`}>
                     {amountOrDash(assets)}
                   </strong>
-                  <small>{walletCardValuation.currency}</small>
+                  <small aria-hidden="true">{walletCardValuation.currency}</small>
                 </span>
                 : <span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span>}
               {!walletCardValuation ? <span>
