@@ -53,6 +53,8 @@ jobs:
       STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
       SCHWAB_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'schwab' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.SCHWAB_ACCOUNT_FACTS_BINDING_JSON || '' }}
       FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: ${{ inputs.platform == 'firstrade' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON || '' }}
+      FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON: ${{ inputs.platform == 'firstrade' && secrets.FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON || '' }}
+      GH_TOKEN: ${{ inputs.platform == 'firstrade' && secrets.RUNTIME_SETTINGS_GH_TOKEN || '' }}
       IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'ibkr' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: ${{ inputs.platform == 'longbridge' && !inputs.inspect_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && !inputs.initialize_ibkr_bindings && secrets.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON || '' }}
       IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: ${{ inputs.platform == 'ibkr' && inputs.initialize_ibkr_bindings && !inputs.inspect_ibkr_lifecycle && secrets.IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON || '' }}
@@ -133,7 +135,7 @@ jobs:
           trap cleanup EXIT
 
           if { [ "$BINDING_PLATFORM" = "schwab" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${SCHWAB_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
-            || { [ "$BINDING_PLATFORM" = "firstrade" ] && [ -z "${FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON:-}" ]; } \
+            || { [ "$BINDING_PLATFORM" = "firstrade" ] && [ -z "${FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON:-}" ] && [ -z "${FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON:-}" ]; } \
             || { [ "$BINDING_PLATFORM" = "ibkr" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; } \
             || { [ "$BINDING_PLATFORM" = "longbridge" ] && [ "$INSPECT_IBKR_BINDINGS" != "true" ] && [ "$INSPECT_IBKR_LIFECYCLE" != "true" ] && [ "$INITIALIZE_IBKR_BINDINGS" != "true" ] && [ -z "${LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON:-}" ]; }; then
             echo "status=blocked reason=binding_secret_missing"
@@ -193,6 +195,8 @@ jobs:
             accountFactsOptionMatchesBinding,
             normalizeAccountFactsBindings,
           } from "./account_facts.js";
+          import { prepareFirstradeFactsBinding, applyFirstradeFactsSettings }
+            from "./prepare_firstrade_account_facts_binding.mjs";
 
           const stop = (reason) => {
             process.stdout.write(`status=blocked reason=${reason}\n`);
@@ -205,19 +209,25 @@ jobs:
           let rotation;
           let optionsRaw;
           let existingRaw;
+          const prepareFirstrade = platform === "firstrade"
+            && !process.env.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON;
           try {
+            optionsRaw = JSON.parse(readFileSync(`${tempDir}/account-options.json`, "utf8"));
+            existingRaw = JSON.parse(readFileSync(`${tempDir}/account-facts-bindings.json`, "utf8"));
             if (platform === "ibkr" || platform === "longbridge") {
               const rotationText = platform === "ibkr"
                 ? process.env.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON
                 : process.env.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON;
               rotation = JSON.parse(rotationText || "");
+            } else if (prepareFirstrade) {
+              proposedRaw = prepareFirstradeFactsBinding(
+                JSON.parse(process.env.FIRSTRADE_ACCOUNT_FACTS_RUNTIME_JSON || ""), optionsRaw, existingRaw,
+              );
             } else {
               proposedRaw = JSON.parse((platform === "firstrade"
                 ? process.env.FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON
                 : process.env.SCHWAB_ACCOUNT_FACTS_BINDING_JSON) || "");
             }
-            optionsRaw = JSON.parse(readFileSync(`${tempDir}/account-options.json`, "utf8"));
-            existingRaw = JSON.parse(readFileSync(`${tempDir}/account-facts-bindings.json`, "utf8"));
           } catch {
             stop("invalid_or_unavailable_json");
           }
@@ -276,6 +286,10 @@ jobs:
             stop("previous_binding_mismatch");
           }
           if (sameKey && JSON.stringify(sameKey) === JSON.stringify(binding)) {
+            if (prepareFirstrade) {
+              try { applyFirstradeFactsSettings(proposedRaw); }
+              catch { stop("firstrade_configuration_prepare_failed_or_unknown"); }
+            }
             process.stdout.write("status=unchanged\n");
             process.exit(0);
           }
@@ -305,6 +319,10 @@ jobs:
             writeFileSync(`${tempDir}/next-bindings.json`, JSON.stringify(nextRaw), { mode: 0o600, flag: "wx" });
           } catch {
             stop("updated_bindings_validation_failed");
+          }
+          if (prepareFirstrade) {
+            try { applyFirstradeFactsSettings(proposedRaw); }
+            catch { stop("firstrade_configuration_prepare_failed_or_unknown"); }
           }
           process.stdout.write("status=prepared\n");
           NODE

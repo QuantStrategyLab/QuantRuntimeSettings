@@ -117,6 +117,7 @@ jobs:
           node tests/binance_account_facts_validation.mjs
           node tests/binance_receiver_deploy_acceptance_validation.mjs
           node tests/account_facts_binding_workflow_validation.mjs
+          node tests/firstrade_account_facts_preparation_validation.mjs
           node tests/ibkr_runtime_lifecycle_inspection_validation.mjs
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
