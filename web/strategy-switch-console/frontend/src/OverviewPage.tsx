@@ -426,7 +426,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const selectedNegativeCash = selectedCashField !== null && hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
   const showSelectedCashMetric = !selectedWalletValuation || totalCash !== null;
   const assetsDetail = accountId === "all"
-    ? "按配置账户当前快照求和，不代表已核实的物理账户组合资产。"
+    ? verifiedAssets ? "" : "按配置账户当前快照求和，不代表已核实的物理账户组合资产。"
     : selectedAccount?.platformKey === "binance" ? binanceWalletStatusDetail(binanceFacts?.error
       ? { error: binanceFacts.error } : binanceFacts?.value, walletNow) : accountFactsDetail(selectedFacts);
   const cashDetail = accountId === "all"
@@ -501,7 +501,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
             })}</small>
             </div>)}
           </details> : <small>{t("尚无合格账户估值")}</small>}
-          <small>{t(assetsDetail)}</small>
+          {assetsDetail ? <small>{t(assetsDetail)}</small> : null}
         </div> : <>
           <strong>{amountOrDash(totalAssets)}</strong>
           {selectedWalletValuation
