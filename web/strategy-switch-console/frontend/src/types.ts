@@ -431,9 +431,11 @@ export function verifiedCurrentAccountAssets(
   if (currentIds.size !== snapshotIds.size || [...currentIds].some(id => !snapshotIds.has(id))) return null;
   if (current.some(row => {
     const saved = snapshot.accounts.find(account => `${account.platform}:${account.account_key}` === row.id);
-    return !saved || row.facts !== saved || row.brokerEnvironment !== (saved.broker_environment || null);
+    return !saved || (saved.aggregation_status !== "duplicate" && row.facts !== saved)
+      || row.brokerEnvironment !== (saved.broker_environment || null);
   })) return null;
-  if (snapshot.accounts.some(row => row.broker_environment !== "paper" && row.account_scope !== "paper"
+  if (snapshot.accounts.some(row => row.aggregation_status !== "duplicate"
+      && row.broker_environment !== "paper" && row.account_scope !== "paper"
       && !accountFactsDisplayReady(accountFactsForDisplay(row, now)))) return null;
   return snapshot.totals.by_currency.map(row => ({currency: row.currency, amount: row.net_assets}));
 }
