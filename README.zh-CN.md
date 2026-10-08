@@ -35,6 +35,12 @@ QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategy
 
 AI 与监测系统只能创建不可变、无订单的 `qsl.research_task.v1` 离线研究请求。该请求绑定证据摘要和受限实验，但不会激活候选，也不会授予 P4–P6 权限。详见[研究任务契约](docs/qsl_research_task_v1.zh-CN.md)。
 
+## 当前账户资产合计
+
+账户事实读模型使用已与受保护绑定精确核对的 IBKR、Schwab 和 Firstrade 原生身份去重。原生身份只在 Worker 内存中处理；公开账户行仅返回 `aggregation_status`（`included`、`duplicate`、`conflict` 或 `unverified`）。一致的重复快照只计一次；金额或实盘/模拟分类冲突时均不计入。LongBridge 的渠道身份仍不足以证明独立物理账户。
+
+只有全部非模拟账户绑定、资料新鲜、物理身份可核实且资产值完整时，`totals.status` 才为 `by_currency`。币种分别合计，不隐含换汇。`cash_balance` 与 `available_cash` 分开且允许为 null；缺现金不否定已知资产，也不补零。看板只有在配置集合相同、快照尚未过期时才使用完整合计，否则继续显示明确标注的部分资产合计。这些投影不授予交易权限，也不证明投资收益。
+
 ## 仓库结构
 
 - `python/`：Python 工具链（脚本、测试、pyproject.toml）— 校验、代码生成、部署工具。

@@ -45,6 +45,7 @@ export const EN_COPY = {
   "账户资产覆盖": "Account asset coverage",
   "账户最新估值（按币种）": "Latest account valuations by currency",
   "账户现金（按来源语义和币种）": "Account cash by source meaning and currency",
+  "账户资产合计（已去重，不含模拟账户）": "Account asset total (deduplicated, excluding paper)",
   "已取得资产合计（不含已标记模拟账户）": "Available asset total (excluding accounts marked as paper)",
   "已取得现金合计（不含已标记模拟账户）": "Available cash total (excluding accounts marked as paper)",
   "含环境待确认账户，账户身份未全部核实；缺资料不按零计。": "Includes accounts with unconfirmed environments. Account identities are not fully verified; missing data is not counted as zero.",

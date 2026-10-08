@@ -633,17 +633,78 @@ export function projectStoredAccountFacts(stored, {
   };
 }
 
-export function aggregateAccountFactsTotals(accountRows) {
-  const nonPaperAccounts = Array.isArray(accountRows)
-    ? accountRows.filter((row) => row?.broker_environment !== "paper" && row?.account_scope !== "paper")
-    : [];
-  // LongBridge evidence is BROKER_API_PARTIAL only. Partial identity cannot
-  // prove distinct physical accounts, so all-account totals stay unavailable.
-  // Single-account currency facts remain on each account row.
+function physicalIdentityForProjection(platform, projected) {
+  // Only exact broker identities already checked against protected bindings.
+  // Keep these values in worker memory, never in the public read model.
+  if (!projected) return null;
+  if (platform === IBKR_ACCOUNT_FACTS_PLATFORM) return JSON.stringify([platform, projected.account_ids[0]]);
+  if (platform === SCHWAB_ACCOUNT_FACTS_PLATFORM) return JSON.stringify([platform, projected.account_hash]);
+  if (platform === FIRSTRADE_ACCOUNT_FACTS_PLATFORM) return JSON.stringify([platform, projected.broker_account_id]);
+  return null; // LongBridge channel identity does not prove a physical account.
+}
+
+function sumMoneyTexts(amounts) {
+  const scale = Math.max(...amounts.map(amount => (amount.split(".")[1] || "").length));
+  const total = amounts.reduce((sum, amount) => {
+    const [whole, fraction = ""] = amount.replace(/^-/, "").split(".");
+    const value = BigInt(whole + fraction.padEnd(scale, "0"));
+    return sum + (amount.startsWith("-") ? -value : value);
+  }, 0n);
+  const digits = (total < 0n ? -total : total).toString().padStart(scale + 1, "0");
+  return `${total < 0n ? "-" : ""}${scale ? `${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/, "") : digits}`;
+}
+
+export function aggregateAccountFactsTotals(accountRows, physicalIdentities = new Map()) {
+  const rows = Array.isArray(accountRows) ? accountRows : [];
+  const nonPaper = row => row?.broker_environment !== "paper" && row?.account_scope !== "paper";
+  const unavailable = reason => ({ status: "unavailable", reason, by_currency: [] });
+  const groups = new Map();
+  for (const row of rows) {
+    const identity = physicalIdentities.get(row);
+    row.aggregation_status = identity ? "included" : "unverified";
+    if (identity) groups.set(identity, [...(groups.get(identity) || []), row]);
+  }
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const fingerprint = row => JSON.stringify({
+      paper: !nonPaper(row),
+      balances: [...(row.balances || [])].sort((a, b) => a.currency.localeCompare(b.currency)),
+      cash: [...(row.cash || [])].sort((a, b) => a.currency.localeCompare(b.currency)),
+    });
+    if (group.some(row => row.binding_status !== "bound" || row.data_status !== "fresh"
+        || fingerprint(row) !== fingerprint(group[0]))) {
+      for (const row of group) row.aggregation_status = "conflict";
+    } else {
+      for (const row of group.slice(1)) row.aggregation_status = "duplicate";
+    }
+  }
+  const included = rows.filter(row => nonPaper(row) && row.aggregation_status !== "duplicate");
+  if (!included.length) return unavailable("no_non_paper_accounts");
+  if (included.some(row => row.aggregation_status === "conflict")) return unavailable("duplicate_account_mapping");
+  if (included.some(row => row.binding_status !== "bound" || row.data_status !== "fresh")) return unavailable("coverage_incomplete");
+  if (included.some(row => !physicalIdentities.has(row))) return unavailable("physical_identity_unverified");
+  if (included.some(row => !row.balances?.length || row.balances.some(balance => balance.net_assets === null))) {
+    return unavailable("coverage_incomplete");
+  }
+  const byCurrency = new Map();
+  for (const row of included) {
+    for (const balance of row.balances) {
+      const entries = byCurrency.get(balance.currency) || [];
+      entries.push({ balance, cash: row.cash.find(cash => cash.currency === balance.currency) });
+      byCurrency.set(balance.currency, entries);
+    }
+  }
   return {
-    status: "unavailable",
-    reason: nonPaperAccounts.length ? "physical_identity_unverified" : "no_non_paper_accounts",
-    by_currency: [],
+    status: "by_currency", reason: null,
+    by_currency: Array.from(byCurrency, ([currency, entries]) => ({
+      currency, net_assets: sumMoneyTexts(entries.map(entry => entry.balance.net_assets)),
+      // Different native cash meanings stay separate; absent cash is not zero.
+      available_cash: entries.every(entry => typeof entry.cash?.available_cash === "string")
+        ? sumMoneyTexts(entries.map(entry => entry.cash.available_cash)) : null,
+      cash_balance: entries.every(entry => typeof entry.cash?.cash_balance === "string")
+        ? sumMoneyTexts(entries.map(entry => entry.cash.cash_balance)) : null,
+      account_count: entries.length,
+    })).sort((a, b) => a.currency.localeCompare(b.currency)),
   };
 }
 
@@ -666,6 +727,7 @@ export function buildAccountFactsReadModel({
   }
 
   const accounts = [];
+  const physicalIdentities = new Map();
   for (const [platform, options] of Object.entries(accountOptions || {})) {
     if (!Array.isArray(options)) continue;
     for (const option of options) {
@@ -711,7 +773,7 @@ export function buildAccountFactsReadModel({
         }
       }
 
-      accounts.push({
+      const accountRow = {
         platform,
         account_key: option.key,
         binding_status: bindingStatus === "identity_mismatch" ? "missing" : bindingStatus,
@@ -736,7 +798,10 @@ export function buildAccountFactsReadModel({
           ? { broker_account_type: { ...projected.broker_account_type } }
           : {}),
         return: { ...ACCOUNT_FACTS_RETURN_UNAVAILABLE },
-      });
+      };
+      accounts.push(accountRow);
+      const physicalIdentity = physicalIdentityForProjection(platform, projected);
+      if (physicalIdentity) physicalIdentities.set(accountRow, physicalIdentity);
     }
   }
 
@@ -745,11 +810,7 @@ export function buildAccountFactsReadModel({
     return platformCmp !== 0 ? platformCmp : left.account_key.localeCompare(right.account_key);
   });
 
-  const nonPaperAccounts = accounts.filter((row) => row.broker_environment !== "paper" && row.account_scope !== "paper");
-  const incomplete = nonPaperAccounts.some((row) => row.binding_status !== "bound" || row.data_status !== "fresh");
-  const totals = incomplete
-    ? { status: "unavailable", reason: "coverage_incomplete", by_currency: [] }
-    : aggregateAccountFactsTotals(nonPaperAccounts);
+  const totals = aggregateAccountFactsTotals(accounts, physicalIdentities);
 
   return {
     ok: true,

@@ -773,7 +773,7 @@ function App() {
     const hkStop = Boolean(selectedRow && selectedRow.platform === "longbridge" && (selectedRow.account.target_name || selectedRow.account.key) === "hk");
     const stopAllowed = Boolean(selectedRow && model?.session.allowed && !switchLocks.current.blocked(selectedRow.id) && !busy[`stop:${selectedRow.id}`] && (!hkStop || hkStopSubmitAllowed(stopRecords[selectedRow.id])));
     const stopLabel = !selectedRow ? "停用" : busy[`stop:${selectedRow.id}`] ? "正在提交…" : hkStop && stopRecords[selectedRow.id]?.phase === "stopped" ? "这次停用已确认" : hkStop && !hkStopSubmitAllowed(stopRecords[selectedRow.id]) ? "停用结果未知，不能再次提交" : "停用";
-    const renderOverview = () => <OverviewPage accounts={overviewAccounts} accountFacts={model?.accountFacts.value || null} binanceFacts={model?.binanceFacts || null} isAdmin={model?.session.admin === true} privateScope={model?.privateScope || null} readModelRefreshVersion={overviewReadModelRefreshVersion} onOpenAccount={id => void requestPage("accounts", id)} />;
+    const renderOverview = () => <OverviewPage accounts={overviewAccounts} accountFacts={model?.accountFacts.value || null} accountOptionsRevision={model?.config.value?.accountOptionsRevision} binanceFacts={model?.binanceFacts || null} isAdmin={model?.session.admin === true} privateScope={model?.privateScope || null} readModelRefreshVersion={overviewReadModelRefreshVersion} onOpenAccount={id => void requestPage("accounts", id)} />;
     const renderStrategy = () => {
         const applications = model?.promotions.value?.applications || [];
         const queue = applications.filter((item: any) => {

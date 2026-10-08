@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { summarizeCurrentAccountFacts } from "../web/strategy-switch-console/frontend/src/types.ts";
+import { summarizeCurrentAccountFacts, cashFieldForPlatform, verifiedCurrentAccountAssets } from "../web/strategy-switch-console/frontend/src/types.ts";
 
 const facts = ({
   platform = "longbridge", scope = "HK", environment = "live", status = "fresh",
@@ -168,3 +168,36 @@ assert.equal(ftPartial.excludingPaper.cashCovered, 0);
 assert.equal(ftPartial.excludingPaper.cashMissing, 1);
 
 console.log("overview current aggregation: PASS (currency, environment, freshness, bindings, cash semantics, wallet and duplicate rows)");
+
+for (const [platform, expected] of [["longbridge", "available_cash"], ["ibkr", "cash_balance"],
+  ["schwab", "cash_balance"], ["firstrade", "cash_balance"], ["binance", null], ["unknown", null]]) {
+  assert.equal(cashFieldForPlatform(platform), expected);
+}
+const nativeDuplicate = summarizeCurrentAccountFacts([
+  { id: "firstrade:one", platform: "firstrade", brokerEnvironment: "live", facts: {...ft, aggregation_status: "included"} },
+  { id: "firstrade:two", platform: "firstrade", brokerEnvironment: "live", facts: {...ft, aggregation_status: "duplicate"} },
+]);
+assert.deepEqual(nativeDuplicate.excludingPaper.assets, [{currency: "USD", amount: "15"}]);
+assert.deepEqual(nativeDuplicate.excludingPaper.cashBalance, [{currency: "USD", amount: "0"}]);
+assert.equal(nativeDuplicate.excludingPaper.accounts, 1);
+const nativeConflict = summarizeCurrentAccountFacts([
+  { id: "firstrade:one", platform: "firstrade", brokerEnvironment: "live", facts: {...ft, aggregation_status: "conflict"} },
+  { id: "firstrade:two", platform: "firstrade", brokerEnvironment: "live", facts: {...ft, aggregation_status: "conflict"} },
+]);
+assert.deepEqual(nativeConflict.excludingPaper.assets, []);
+assert.deepEqual(nativeConflict.excludingPaper.cashBalance, []);
+assert.equal(nativeConflict.excludingPaper.missing, 2);
+
+const verifiedFacts = {...ft, account_key: "synthetic", aggregation_status: "included"};
+const verifiedSnapshot = {ok: true, account_options_revision: 7, accounts: [verifiedFacts], totals: {status: "by_currency", reason: null,
+  by_currency: [{currency: "USD", net_assets: "15", cash_balance: "0", available_cash: null, account_count: 1}]}};
+const verifiedRows = [{id: "firstrade:synthetic", platform: "firstrade", brokerEnvironment: null, facts: verifiedFacts}];
+assert.deepEqual(verifiedCurrentAccountAssets(verifiedSnapshot, verifiedRows, Date.parse("2026-10-08T01:00:00Z"), 7), [{currency: "USD", amount: "15"}]);
+assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, verifiedRows, Date.parse("2026-10-10T01:00:00Z"), 7), null);
+assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, [...verifiedRows, {...verifiedRows[0], id: "firstrade:another"}], Date.parse("2026-10-08T01:00:00Z"), 7), null);
+
+assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, [{...verifiedRows[0], brokerEnvironment: "paper"}], Date.parse("2026-10-08T01:00:00Z"), 7), null);
+
+assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, verifiedRows, Date.parse("2026-10-08T01:00:00Z"), 8), null,
+  "same key and environment cannot authorize old totals after selector/deployment/scope changes");
+assert.equal(verifiedCurrentAccountAssets(verifiedSnapshot, verifiedRows, Date.parse("2026-10-08T01:00:00Z"), null), null);

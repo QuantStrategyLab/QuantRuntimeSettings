@@ -33,6 +33,12 @@ It supports the system but does not decide which strategy should be live. Strate
 
 AI and monitoring systems can create only an immutable, no-order `qsl.research_task.v1` request for offline research.  The request binds evidence digests and a bounded experiment, but it does not activate a candidate or grant P4–P6 authority.  See the [research task contract](docs/qsl_research_task_v1.zh-CN.md).
 
+## Current account asset totals
+
+The account-facts read model deduplicates IBKR, Schwab and Firstrade snapshots using broker-native identity already checked against the protected binding. Native identities stay in Worker memory. Each public account row exposes only `aggregation_status` (`included`, `duplicate`, `conflict`, or `unverified`). Identical duplicate snapshots contribute once; conflicting amounts or live/paper classifications contribute nothing. LongBridge channel identity remains insufficient for physical deduplication.
+
+`totals.status=by_currency` requires every non-paper account to have fresh, bound data, verified physical identity and complete net assets. Currencies are never converted implicitly. `cash_balance` and `available_cash` remain separate nullable totals; missing cash does not invalidate known assets or become zero. The dashboard uses complete totals only for the same current configuration and unexpired snapshot; otherwise it retains the explicitly partial available-asset sum. These projections do not authorize trading or establish investment returns.
+
 ## Repository layout
 
 - `python/`: Python tooling (scripts, tests, pyproject.toml) — validation, code generation, deployment scripts.
