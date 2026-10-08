@@ -138,64 +138,57 @@ function render(accounts, props = {}, language = "zh") {
 try {
   const html = render([baseAccount]);
   metadataRenderFixtures.account = html;
-  assert.match(html, /USD 101\.25/);
-  assert.doesNotMatch(html, /运行监测与资产数据分别核对|已取得资产金额|覆盖按配置条目统计|实物账户尚未完成去重|账户资料依据|历史数据范围|配置目录不证明券商原生权限/,
-    "internal review prose and coverage disclosures are not part of the Opus page");
-  assert.match(html, /模拟账户/);
-  assert.match(html, /已取得资产合计（不含已标记模拟账户）/);
-  assert.match(html, /配置为模拟（单列，不计入实盘汇总）/);
-  assert.match(html, /市场基准/);
-  assert.match(html, /2026-10-09/);
-  assert.match(html, /aria-label="总资产"/);
-  assert.doesNotMatch(html, /fred\.stlouisfed|暂无组合历史/);
+  assert.match(html, /没读到/);
+  assert.match(html, /暂无合格收益/);
+  assert.match(html, /没有记录/);
+  assert.doesNotMatch(html, /USD 101\.25|模拟账户|已取得资产合计|配置为模拟|覆盖按配置条目统计|历史数据范围/,
+    "paper accounts and engineering coverage stay off the first screen");
+  for (const name of ["你的账户", "标普 500", "纳斯达克综合", "罗素 2000", "道琼斯工业平均"]) assert.match(html, new RegExp(name));
+  assert.match(html, /aria-label="收益率"/);
+  assert.doesNotMatch(html, /<path |fred\.stlouisfed|暂无组合历史/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
   assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /USD 101\.25/);
-  assert.match(render([{ ...baseAccount, facts: { ...fresh, data_status: "stale" } }]), /账户资产资料已过期/);
   for (const patch of [{ binding_status: "duplicate" }, { binding_status: "missing" }, { identity_mismatch: true }, { identity_status: "missing_identity" }]) {
     assert.doesNotMatch(render([{ ...baseAccount, facts: { ...fresh, ...patch } }]), /USD 101\.25/);
   }
-  const zeroHtml = render([{ ...baseAccount, facts: { ...fresh, balances: [{ currency: "USD", net_assets: "0" }] } }]);
-  assert.doesNotMatch(zeroHtml, /已取得资产金额|配置条目统计/);
-  assert.match(zeroHtml, /账户资产<\/em>0<\/span>/);
-  const missingHtml = render([{ ...baseAccount, facts: { ...fresh, balances: [{ currency: "USD", net_assets: null }] } }]);
-  assert.doesNotMatch(missingHtml, /已取得资产金额|配置条目统计/);
-  assert.match(missingHtml, /账户资产<\/em>—<\/span>/);
   const schwabAccount = { ...baseAccount, id: "schwab", platformKey: "schwab", accountKey: schwabOption.key, brokerEnvironment: "live", facts: schwabModel.accounts[0] };
   const schwabHtml = render([schwabAccount]);
-  assert.match(schwabHtml, /账户类型: CASH/);
-  assert.match(schwabHtml, /USD 208\.5/);
-  assert.match(schwabHtml, /现金余额<\/em>USD -2/);
-  assert.doesNotMatch(schwabHtml, /SYNTHETIC_PRIVATE_HASH/);
-  assert.match(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, broker_account_type: { value: "MARGIN", source_tag: "configuration" } } }]), /账户类型待确认/);
-  assert.match(render([{ ...baseAccount, brokerEnvironment: "live", facts: { ...fresh, broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" } } }]), /账户类型待确认/, "Schwab's type is not assigned to other platforms");
+  assert.match(schwabHtml, /真实/);
+  assert.match(schwabHtml, /208\.5/);
+  assert.match(schwabHtml, /-2/);
+  assert.match(schwabHtml, /可能是借的钱，还没核实/);
+  assert.doesNotMatch(schwabHtml, /SYNTHETIC_PRIVATE_HASH|账户类型: CASH/);
+  const zeroHtml = render([{ ...schwabAccount, facts: { ...schwabAccount.facts, balances: [{ currency: "USD", net_assets: "0" }], cash: [{ currency: "USD", cash_balance: null }] } }]);
+  assert.match(zeroHtml, />0<\/td>/);
+  assert.doesNotMatch(zeroHtml, /208\.5/);
+  const missingHtml = render([{ ...schwabAccount, facts: { ...schwabAccount.facts, balances: [{ currency: "USD", net_assets: null }], cash: [] } }]);
+  assert.match(missingHtml, /没读到/);
+  assert.doesNotMatch(missingHtml, /208\.5/);
+  assert.doesNotMatch(render([{ ...baseAccount, brokerEnvironment: "live", facts: fresh }]), /101\.25/, "a paper snapshot is not relabeled as a real account");
   selected = "paper";
   injectedHistory = historyResponse;
   historyKey = `paper:USD:${fresh.observed_finished_at}:`;
   const historyHtml = render([baseAccount]);
   metadataRenderFixtures.history = historyHtml;
-  assert.doesNotMatch(historyHtml, /历史数据范围|当前返回首点|来源标注缺口|当前来源的返回区间/);
-  assert.match(historyHtml, /2026-10-07 · USD 101\.25/, "the real source-qualified history point remains in the original chart");
+  assert.doesNotMatch(historyHtml, /历史数据范围|2026-10-07 · USD 101\.25|<path /, "stored asset history is not drawn as a return curve");
   browserNow = expiry;
-  assert.match(render([baseAccount]), /账户资产<\/em>USD 101\.25/);
+  assert.match(render([schwabAccount]), /208\.5/);
   browserNow = expiry + 1;
-  const expiredPage = render([baseAccount]);
+  const expiredPage = render([schwabAccount]);
   const expiredCard = expiredPage.slice(expiredPage.indexOf('class="overview-account-entry"'));
-  assert.doesNotMatch(expiredCard, /USD 101\.25|现金详情|融资详情/);
-  assert.match(expiredCard, /账户资产资料已过期/);
-  assert.match(expiredPage, /2026-10-07 · USD 101\.25/, "a past qualified chart observation remains visible after today's snapshot expires");
-  selected = "all";
-  assert.doesNotMatch(render([schwabAccount]), /账户类型: CASH|USD 208\.5/);
+  assert.doesNotMatch(expiredCard, /208\.5|现金详情|融资详情/);
+  assert.match(expiredCard, /没读到/);
   browserNow = now;
   for (const timestamp of [null, "not-a-time", new Date(now + 5 * 60 * 1000 + 1).toISOString()]) {
-    assert.doesNotMatch(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, observed_finished_at: timestamp } }]), /账户类型: CASH|USD 208\.5/);
+    assert.doesNotMatch(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, observed_finished_at: timestamp } }]), /208\.5/);
   }
   selected = "paper";
   injectedHistory = { ...historyResponse, account_key: "other" };
-  assert.doesNotMatch(render([baseAccount]), /历史数据范围/, "another account's late history cannot populate this disclosure");
+  assert.doesNotMatch(render([baseAccount]), /历史数据范围|101\.25/);
   injectedHistory = { ...historyResponse, identity_mismatch: true };
-  assert.doesNotMatch(render([baseAccount]), /历史数据范围/);
+  assert.doesNotMatch(render([baseAccount]), /101\.25/);
   injectedHistory = historyResponse; historyKey = "old-request";
-  assert.doesNotMatch(render([baseAccount]), /历史数据范围/, "superseded request metadata stays hidden");
+  assert.doesNotMatch(render([baseAccount]), /101\.25/, "superseded request metadata stays hidden");
   injectedHistory = null; historyKey = "";
   selected = "wallet";
   const walletHtml = render([walletAccount], { binanceFacts: { value: { report: walletReport }, error: null } });
@@ -203,36 +196,26 @@ try {
   const accountCard = walletHtml.slice(walletHtml.indexOf('class="overview-account-entry"'));
   assert.match(accountCard, /44\.55/);
   assert.match(accountCard, /USDT/);
-  assert.match(accountCard, /API账户类型：现货/);
-  assert.doesNotMatch(accountCard, /券商账户类别：SPOT/);
+  assert.match(accountCard, /真实/);
+  assert.doesNotMatch(accountCard, /券商账户类别：SPOT|API账户类型：现货/);
   const wrongWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, account_key: "other" } }, error: null } });
-  assert.doesNotMatch(wrongWallet, /44\.55|API账户类型：现货/);
+  assert.doesNotMatch(wrongWallet, /44\.55/);
   const staleWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, observed_finished_at: "2026-10-04T07:59:00Z" } }, error: null } });
-  assert.doesNotMatch(staleWallet, /44\.55|API账户类型：现货/);
-  assert.match(staleWallet, /账户类型待确认/);
+  assert.doesNotMatch(staleWallet, /44\.55/);
+  assert.match(staleWallet, /没读到/);
   selected = "all"; chart = "return";
-  const nativeReturnAccount = { ...baseAccount, platformKey: "ibkr", facts: { ...fresh, return: {
+  const nativeReturnAccount = { ...baseAccount, platformKey: "ibkr", brokerEnvironment: "live", facts: { ...fresh, account_scope: "live", broker_environment: "live", return: {
     status: "available", method: "native_ibkr_twr", currency: "EUR", period: {from:"2026-09-01",to:"2026-09-30"},
     source_value: "-2.5", source_unit: "percent", value: "-0.025", unit: "ratio", source: "ChangeInNAV.twr", observed_at: "2026-10-08T08:00:00Z",
   } } };
-  const nativeReturnProps = { accountOptionsRevision: 1, accountFacts: { ...model, account_options_revision: 1 } };
-  const nativeReturnHtml = render([nativeReturnAccount], nativeReturnProps);
-  assert.doesNotMatch(render([nativeReturnAccount], { ...nativeReturnProps, accountOptionsRevision: 2 }), /-2\.5%/);
-  assert.doesNotMatch(render([nativeReturnAccount]), /-2\.5%/);
-  assert.match(nativeReturnHtml, /-2\.5% · EUR/);
-  assert.match(nativeReturnHtml, /2026-09-01 — 2026-09-30/);
-  assert.match(nativeReturnHtml, /券商原生时间加权收益率/);
-  assert.doesNotMatch(nativeReturnHtml, /USD -2\.5/);
+  const nativeReturnHtml = render([nativeReturnAccount]);
+  assert.doesNotMatch(nativeReturnHtml, /-2\.5%|USD -2\.5|<path /, "a single broker percent is not drawn as a benchmark curve");
+  assert.match(nativeReturnHtml, /暂无合格收益/);
   const returnHtml = render([baseAccount]);
   metadataRenderFixtures.returns = returnHtml;
-  for (const name of ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.ok(returnHtml.includes(name));
-  assert.doesNotMatch(returnHtml, /数据来源与网站使用权限待核/);
-  assert.match(returnHtml, /序列自 2026-10-09（Asia\/Shanghai）起，不回补历史。/);
+  assert.doesNotMatch(returnHtml, /数据来源与网站使用权限待核|<path /);
   assert.match(returnHtml, /aria-label="收益率"/);
-  assert.match(returnHtml, /汇总收益率/);
-  assert.match(returnHtml, /暂无合格期间收益记录/);
-  assert.doesNotMatch(returnHtml, /<path /, "an account without a qualified return does not get an equity curve");
-  assert.doesNotMatch(returnHtml, /具体指数与数据来源待确认/);
+  assert.match(returnHtml, /暂无合格收益/);
   const settingsRow = { id: "paper", platform: "longbridge", key: option.key, title: "Synthetic paper", platformLabel: "LongBridge", environment: "Paper", facts: fresh, strategy: "Synthetic strategy", strategyNote: "", statusLabel: "待确认", activation: "待确认" };
   const noop = () => {};
   const settingsHtml = renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: "zh" }, React.createElement(AccountsPage, {
@@ -244,9 +227,11 @@ try {
   metadataRenderFixtures.settings = settingsHtml;
   assert.doesNotMatch(settingsHtml, /当前配置来自设置读回|草案与风险偏好分别保存|运行端生效需另行验证/);
   assert.match(settingsHtml, /账户设置/);
-  const english = render([baseAccount], {}, "en");
+  assert.match(settingsHtml, /选择这个账号跑什么策略，以及要不要开启期权收入层。/);
+  const english = render([schwabAccount], {}, "en");
   assert.doesNotMatch(english, /Information unavailable/);
-  assert.match(english, /Nasdaq-100/);
+  assert.match(english, /Nasdaq Composite/);
+  assert.match(english, /Not read|Real/);
   assert.doesNotMatch(english, /Asset amounts available:|Coverage counts configured entries|Account data basis|The current source range|Physical accounts have not been deduplicated/);
 } finally { Date.now = originalNow; globalThis.fetch = originalFetch; }
 for (const key of ["账户身份不匹配", "账户资料绑定重复", "账户资料尚未绑定", "账户资产资料已过期", "尚未取得账户资产资料", "账户身份待核实", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.notEqual(translate(key, "en"), "Information unavailable");

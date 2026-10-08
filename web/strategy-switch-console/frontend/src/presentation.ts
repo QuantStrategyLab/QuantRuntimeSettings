@@ -1635,6 +1635,9 @@ export type DailyDecision = {
   adoptDecision: string | null;
   rejectDecision: string | null;
   accountChoices: Array<{ id: string; label: string }>;
+  comparisonReady?: boolean;
+  shadowReady?: boolean;
+  shadowReadout?: "影子跑下来更好" | "影子跑下来更差" | "影子跑下来和原来一样" | "还算不出赚了多少" | "没有记录";
 };
 
 type SourceState = { data_status?: unknown; value?: any; error?: unknown };
@@ -1704,6 +1707,53 @@ export function promotionMaterialNotes(summary: Record<string, any> | null | und
   return [comparisonNote, limitationsNote];
 }
 
+
+function promotionComparisonReady(ticket: any): boolean {
+  const comparison = ticket?.research_summary?.comparison;
+  if (!comparison || typeof comparison !== "object") return false;
+  if (comparison.status === "comparable") return true;
+  return Boolean(comparison.baseline) || Boolean(comparison.candidate);
+}
+
+function promotionShadowReady(ticket: any): boolean {
+  if (ticket?.shadow_passed === true || ticket?.shadow_passed === false) return true;
+  const kind = ticket?.shadow_evidence_kind;
+  return typeof kind === "string" && kind.length > 0 && kind !== "none" && kind !== "missing";
+}
+
+function finiteComparisonNumber(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["return", "twr", "value", "source_value"]) {
+    const raw = record[key];
+    if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+    if (typeof raw === "string" && /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(raw)) return Number(raw);
+  }
+  return null;
+}
+
+function promotionShadowReadout(ticket: any): "影子跑下来更好" | "影子跑下来更差" | "影子跑下来和原来一样" | "还算不出赚了多少" | "没有记录" {
+  const comparison = ticket?.research_summary?.comparison;
+  const current = finiteComparisonNumber(comparison?.baseline);
+  const proposed = finiteComparisonNumber(comparison?.candidate);
+  if (current !== null && proposed !== null) {
+    if (proposed > current) return "影子跑下来更好";
+    if (proposed < current) return "影子跑下来更差";
+    return "影子跑下来和原来一样";
+  }
+  return promotionComparisonReady(ticket) || promotionShadowReady(ticket) ? "还算不出赚了多少" : "没有记录";
+}
+
+export function humanDecisionQueue<T extends { kind: string; title: string; reference: string; proposedName: string; comparisonReady?: boolean; shadowReady?: boolean }>(items: T[]): T[] {
+  return items.filter(item => {
+    const title = item.title.trim();
+    if (!title || title === "未命名策略" || title === "Unnamed strategy") return false;
+    if (/smoke/i.test(`${item.title} ${item.reference} ${item.proposedName}`)) return false;
+    if (item.kind === "promotion" && item.comparisonReady !== true && item.shadowReady !== true) return false;
+    return true;
+  });
+}
+
 export function listDailyDecisions(input: {
   language: "zh" | "en";
   profiles: any[];
@@ -1746,6 +1796,9 @@ export function listDailyDecisions(input: {
         adoptDecision: "accept",
         rejectDecision: "reject",
         accountChoices: accounts.map(account => ({ id: `${account.platform}:${account.key}`, label: account.label })),
+        comparisonReady: promotionComparisonReady(ticket),
+        shadowReady: promotionShadowReady(ticket),
+        shadowReadout: promotionShadowReadout(ticket),
       });
     }
   }

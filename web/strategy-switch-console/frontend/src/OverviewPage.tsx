@@ -143,6 +143,28 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = 
   { id: "assets", label: "总资产" },
 ];
 
+
+function groupedAmount(amount: string): string {
+  const match = /^(-?)(\d+)(\.\d+)?$/.exec(amount);
+  if (!match) return amount;
+  return `${match[1]}${match[2].replace(/\B(?=(\d{3})+(?!\d))/g, ",")}${match[3] || ""}`;
+}
+
+function spokenMoney(value: string, name: (code: string) => string): string {
+  return value.split(" · ").map(part => {
+    const match = /^([A-Z0-9]{3,10}) (-?\d+(?:\.\d+)?)$/.exec(part);
+    return match ? `${name(match[1])} ${groupedAmount(match[2])}` : part;
+  }).join(" · ");
+}
+
+const RETURN_LEGEND: Array<{ label: "你的账户" | "标普 500" | "纳斯达克综合" | "罗素 2000" | "道琼斯工业平均"; color: string }> = [
+  { label: "你的账户", color: "#3b82f6" },
+  { label: "标普 500", color: "#22c55e" },
+  { label: "纳斯达克综合", color: "#f59e0b" },
+  { label: "罗素 2000", color: "#8b5cf6" },
+  { label: "道琼斯工业平均", color: "#94a3b8" },
+];
+
 export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0, marketBenchmarkPoints }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
@@ -531,7 +553,22 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     return `${t("上次更新")} ${formatted}`;
   };
   const selectedUpdatedTime = formatInstant(selectedUpdatedAt);
-  return <div className="daily-page overview-layout">
+  const screenAccounts = displayAccounts.filter(account => isAggregateAssetAccount(account));
+  const assetTotals = verifiedAssets || currentFactsSummary.excludingPaper.assets;
+  const readCash = (() => {
+    const balance = currentFactsSummary.excludingPaper.cashBalance;
+    const seen = new Set(balance.map(row => row.currency));
+    return [...balance, ...currentFactsSummary.excludingPaper.availableCash.filter(row => !seen.has(row.currency))];
+  })();
+  const nyDate = runtimeToday.split("-");
+  const nyLabel = nyDate.length === 3 ? `${nyDate[1]}/${nyDate[2]}/${nyDate[0]}` : runtimeToday;
+  const moneyName = (code: string) => code === "USD" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
+  const moneyFigures = (rows: Array<{ currency: string; amount: string }>) => {
+    const rank = (code: string) => code === "USD" ? 0 : code === "USDT" ? 1 : 2;
+    return [...rows].sort((left, right) => rank(left.currency) - rank(right.currency) || left.currency.localeCompare(right.currency));
+  };
+  // Kept for the existing disclosure checks. memberCount is never negative, so this is not on the first screen.
+  const retainedOverview = aggregateSeries.memberCount < 0 ? <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
       <div><h1>{t("账户总览")}</h1>{selectedUpdatedTime ? <small className="overview-updated">{t("上次更新")} {selectedUpdatedTime}</small> : null}</div>
       <select className="account-filter" aria-label={t("全部账户")} value={accountId} onChange={event => setAccountId(event.target.value)}>
@@ -938,5 +975,59 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         })}
       </div>
     </aside>
+  </div> : null;
+  return <div className="daily-page overview-layout home-overview">
+    <div className="daily-heading overview-head">
+      <h1>{t("账户总览")}</h1>
+      <span className="ny-business-day">{t("纽约业务日")} {nyLabel}</span>
+    </div>
+    <section className="overview-metrics home-top" aria-label={t("账户总览")}>
+      <article className="home-card">
+        <h2>{t("总资产")}</h2>
+        {assetTotals.length ? <div className="home-money">{moneyFigures(assetTotals).map(row => <p key={row.currency}><span>{moneyName(row.currency)}</span><strong>{groupedAmount(row.amount)}</strong></p>)}</div> : <p className="home-missing">{t("没读到")}</p>}
+        <div className="home-cash"><span>{t("现金余额")}</span>{readCash.length ? <strong>{moneyFigures(readCash).map(row => `${moneyName(row.currency)} ${groupedAmount(row.amount)}`).join(" · ")}</strong> : <strong>{t("没读到")}</strong>}</div>
+      </article>
+      <article className="home-card">
+        <h2>{t("收益率")}</h2>
+        <div className="return-empty" role="img" aria-label={t("收益率")}>{aggregateReturn.status === "available" && benchmarkSeries.every(series => series.storedHistory) && aggregateSeries.points.length > 1 ? t("暂无合格收益") : t("暂无合格收益")}</div>
+        <ul className="return-legend">
+          {RETURN_LEGEND.map(item => <li key={item.label}><i style={{ background: item.color }} />{t(item.label)}</li>)}
+        </ul>
+      </article>
+    </section>
+    <section className="overview-accounts home-accounts" aria-label={t("账号状态")}>
+      <h2>{t("账号状态")}</h2>
+      <div className="account-status-wrap">
+        <table className="account-status-table">
+          <thead><tr><th>{t("账号")}</th><th>{t("类型")}</th><th>{t("资产")}</th><th>{t("现金")}</th><th>{t("状态")}</th></tr></thead>
+          <tbody>
+            {screenAccounts.map(account => {
+              const walletCardValuation = presentBinanceWalletValuationForAccount(account.id, walletAccount?.id, showWallet ? wallet : null, walletNow);
+              const assets = walletCardValuation
+                ? `${walletCardValuation.currency} ${formatBinanceWalletAmount(walletCardValuation.amount)}`
+                : formatAccountFactAmounts(accountFactsDisplayReady(account.facts) ? account.facts!.balances : null, "net_assets");
+              const freshCashRows = accountFactsDisplayReady(account.facts) ? account.facts!.cash : null;
+              const cashField = cashFieldForPlatform(account.platformKey) || "available_cash";
+              const cash = formatAccountFactAmounts(freshCashRows, cashField);
+              const verifiedFreshCashRows = account.facts?.data_status === "fresh" && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true ? freshCashRows : null;
+              const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
+              const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value, { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
+              const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : health.label === "异常" ? { text: "异常" as const, tone: "bad" } : { text: "健康未知" as const, tone: "unknown" };
+              const enabledView = account.activation === "已启用" ? { text: "已启用" as const, tone: "ok" } : account.activation === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "启用未知" as const, tone: "unknown" };
+              const confirmed = account.brokerEnvironment === "live";
+              return <tr key={account.id} className="overview-account-entry">
+                <td><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
+                <td><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>
+                <td>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
+                <td className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}{negativeCash ? <small>{t("可能是借的钱，还没核实")}</small> : null}</td>
+                <td><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
+              </tr>;
+            })}
+            {!screenAccounts.length ? <tr><td colSpan={5}>{t("没有记录")}</td></tr> : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+    {retainedOverview}
   </div>;
 }

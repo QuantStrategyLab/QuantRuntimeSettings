@@ -5,7 +5,7 @@ import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-co
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { longBridgeCashDetails } from "../web/strategy-switch-console/frontend/src/types.ts";
 import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, listDailyDecisions, mergeAdminFields, overviewFigures, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, humanDecisionQueue, listDailyDecisions, mergeAdminFields, overviewFigures, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 const longBridgeFixture = {
@@ -216,6 +216,12 @@ assert.deepEqual(blocked.items, []);
 const empty = listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] });
 assert.equal(empty.blocked, false);
 assert.deepEqual(empty.items, []);
+
+assert.equal(humanDecisionQueue([{ kind: "promotion", title: "未命名策略", reference: "a", proposedName: "未命名策略", comparisonReady: true, shadowReady: true }]).length, 0);
+assert.equal(humanDecisionQueue([{ kind: "promotion", title: "方案", reference: "smoke-4", proposedName: "方案", shadowReady: true }]).length, 0);
+assert.equal(humanDecisionQueue([{ kind: "promotion", title: "方案", reference: "promo", proposedName: "方案" }]).length, 0);
+assert.equal(humanDecisionQueue([{ kind: "promotion", title: "方案", reference: "promo", proposedName: "方案", shadowReady: true }]).length, 1);
+assert.equal(humanDecisionQueue([{ kind: "recovery", title: "恢复核对", reference: "r", proposedName: "确认材料" }]).length, 1);
 
 const comparison = { status: "unavailable", start_date: null, end_date: null, cost_model: "", baseline: null, candidate: null };
 const ticket = {
