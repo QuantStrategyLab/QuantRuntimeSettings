@@ -677,19 +677,20 @@ export function overviewRuntimeHealth(
   selection: RuntimeDailySelection,
   identityMismatch = false,
   now = Date.now(),
-): { label: "健康" | "异常"; detail: string; observedAt: string | null; nextDueAt: string | null; lastSuccessAt: string | null } {
-  const result = { label: "异常" as "健康" | "异常", detail: "运行证据未取得", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
-  const fail = (detail: string) => ({ ...result, detail });
+): { label: "健康" | "异常" | "待确认"; detail: string; observedAt: string | null; nextDueAt: string | null; lastSuccessAt: string | null } {
+  const result = { label: "待确认" as "健康" | "异常" | "待确认", detail: "运行证据未取得", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
+  const fail = (detail: string) => ({ ...result, label: "异常" as const, detail });
+  const unknown = (detail: string) => ({ ...result, detail });
   const healthy = (detail: string) => ({ ...result, label: "健康" as const, detail });
   const dailyIssue = (detail: string) => ({ ...result, label: "健康" as const, detail });
   if (identityMismatch) return fail("账户身份不匹配");
-  if (!runtime) return fail("运行证据未取得");
+  if (!runtime) return unknown("运行证据未取得");
   const activation = runtime.account_state?.activation;
   const observed = validBinanceScopeInstant(runtime.observed_at) ? Date.parse(runtime.observed_at) : NaN;
   const ttl = runtime.evidence_valid_for_seconds;
-  if (!Number.isFinite(observed) || typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return fail("运行证据时间未取得");
-  if (observed > now) return fail("运行证据时间异常");
-  if (runtime.freshness?.data_status !== "ready" || now - observed > ttl * 1000) return fail("运行证据已过期");
+  if (!Number.isFinite(observed) || typeof ttl !== "number" || !Number.isFinite(ttl) || ttl <= 0) return unknown("运行证据时间未取得");
+  if (observed > now) return unknown("运行证据时间异常");
+  if (runtime.freshness?.data_status !== "ready" || now - observed > ttl * 1000) return unknown("运行证据已过期");
   const deployment = runtime.target.deployment;
   if (runtime.account_state?.health === "abnormal") {
     const monitoring = runtime.target?.monitoring;
@@ -705,9 +706,9 @@ export function overviewRuntimeHealth(
     return fail(state.detail === "暂未取得状态" ? "账户运行异常" : state.detail);
   }
   const deployedAt = validBinanceScopeInstant(deployment?.observed_at) ? Date.parse(deployment.observed_at) : NaN;
-  if (!Number.isFinite(deployedAt) || deployedAt > now) return fail("启用证据时间未确认");
-  if (runtime.deployment_freshness?.data_status !== "ready" || now - deployedAt > ttl * 1000) return fail("启用证据已过期");
-  if (activation !== "enabled" && activation !== "disabled") return fail("启用状态未确认");
+  if (!Number.isFinite(deployedAt) || deployedAt > now) return unknown("启用证据时间未确认");
+  if (runtime.deployment_freshness?.data_status !== "ready" || now - deployedAt > ttl * 1000) return unknown("启用证据已过期");
+  if (activation !== "enabled" && activation !== "disabled") return unknown("启用状态未确认");
   const configuredState = runtime.target.target?.configured_state;
   const monitoring = runtime.target.monitoring;
   const disposition = runtime.target.disposition?.code;
@@ -720,9 +721,14 @@ export function overviewRuntimeHealth(
     && monitoring.execution_heartbeat === "not_applicable"
     && disposition === "continue_disabled_validation";
   if (activation === "disabled") {
-    return disabledAgrees ? healthy("运行监测正常，已停用。") : fail("运行监测未确认");
+    if (disabledAgrees) return healthy("运行监测正常，已停用。");
+    const disabledConflict = configuredState === "enabled" || deployment?.runtime_enabled === true
+      || deployment?.scheduler_state === "enabled" || disposition === "parked"
+      || disposition === "continue_enabled_monitoring" || monitoring?.execution_heartbeat === "pass";
+    return disabledConflict ? fail("启用状态冲突") : unknown("运行监测未确认");
   }
-  if (deployment?.runtime_enabled !== true || deployment.scheduler_state !== "enabled" || configuredState !== "enabled") return fail("启用状态未确认");
+  if (deployment?.runtime_enabled === false || deployment?.scheduler_state === "paused" || configuredState === "disabled") return fail("启用状态冲突");
+  if (deployment?.runtime_enabled !== true || deployment.scheduler_state !== "enabled" || configuredState !== "enabled") return unknown("启用状态未确认");
   const enabledMonitoringAgrees = runtime.account_state?.health === "normal"
     && monitoring?.runtime_guard === "pass"
     && monitoring.execution_heartbeat === "pass"
@@ -732,8 +738,8 @@ export function overviewRuntimeHealth(
     && monitoring?.runtime_guard === "pass"
     && monitoring.execution_heartbeat === "not_due"
     && disposition === "continue_enabled_monitoring";
-  if (runtime.account_state?.health !== "normal" && !platformCheckNotDue) return fail("运行监测未确认");
-  if (runtime.account_state?.health === "normal" && !enabledMonitoringAgrees) return fail("运行监测未确认");
+  if (runtime.account_state?.health !== "normal" && !platformCheckNotDue) return unknown("运行监测未确认");
+  if (runtime.account_state?.health === "normal" && !enabledMonitoringAgrees) return unknown("运行监测未确认");
   const dailyTarget = runtimeDailyTarget(selection.platform);
   if (dailyTarget && selection.dailyBinding !== "bound" && selection.dailyBinding !== "not_applicable") return dailyIssue("周期记录目标绑定未确认");
   // Each platform owns its lifecycle cadence. Do not require another target's daily feed
