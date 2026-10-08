@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import "./account_facts_totals_validation.mjs";
 import { createRequire } from "node:module";
 import { mkdtemp } from "node:fs/promises";
 import { readFileSync } from "node:fs";
@@ -951,15 +952,15 @@ await saveBindings([trustedBinding()]);
 const overviewPage = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
 assert.match(overviewPage, /已取得资产合计（不含已标记模拟账户）/);
 assert.match(overviewPage, /summarizeCurrentAccountFacts/);
-assert.match(overviewPage, /formatCurrentAmounts\(currentFactsSummary\.excludingPaper\.assets\)/);
+assert.match(overviewPage, /formatCurrentAmounts\(verifiedAssets \|\| currentFactsSummary\.excludingPaper\.assets\)/);
 assert.match(overviewPage, /accountId === "all"/);
 assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
 assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
 assert.match(overviewPage, /const freshCashRows = accountFactsDisplayReady\(account\.facts\) \? account\.facts!\.cash : null/);
 assert.match(overviewPage, /const cashField = cashFieldForPlatform\(account\.platformKey\)/);
 assert.match(overviewPage, /formatAccountFactAmounts\(\s*freshCashRows,\s*cashField,/);
-assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \|\| platform === "firstrade" \? "cash_balance"/);
-assert.match(overviewPage, /platform === "ibkr" \|\| platform === "schwab" \|\| platform === "firstrade" \? "现金余额"/);
+assert.match(overviewPage, /cashFieldForPlatform,/);
+assert.match(overviewPage, /cashFieldForPlatform\(platform\) === "cash_balance" \? "现金余额"/);
 assert.match(overviewPage, /accountNativeReadout\(account\.platformKey, account\.accountKey, account\.facts,/);
 assert.match(overviewPage, /native\.nativeType\s*\? `\$\{t\("账户类型"\)\}: \$\{native\.nativeType\}`/);
 assert.match(overviewPage, /const paperConfigured = account\.brokerEnvironment === "paper"/);
@@ -1502,7 +1503,7 @@ const retainedIbkrOld = await runtimeCommand({
 assert.deepEqual(retainedIbkrOld.days.map((day) => day.payload.broker_reported_balances[0].net_assets), ["222"]);
 
 assert.match(overviewPage, /selectedCashLabel/);
-assert.match(overviewPage, /function cashFieldForPlatform\(platform: string\)/);
+assert.match(overviewPage, /cashFieldForPlatform,/);
 assert.match(overviewPage, /longBridgeFinancingDetails\(account\.facts\)/);
 assert.match(overviewPage, /overview-financing-details/);
 const locales = readFileSync(join(root, "web/strategy-switch-console/frontend/src/locales.ts"), "utf8");

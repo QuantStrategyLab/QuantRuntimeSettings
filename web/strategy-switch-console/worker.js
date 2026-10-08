@@ -5456,6 +5456,7 @@ async function configPayload(request, env, ctx) {
 
   return {
     accountOptions: accountConfig.options,
+    accountOptionsRevision: accountConfig.revision ?? null,
     runtimeDailyBindings: runtimeDailyReadModelEnabled(env) ? await runtimeDailyPublicBindings(env, accountConfig.options) : [],
     platformRepositories: platformRepositories(env),
     platformMeta: meta,
@@ -10390,6 +10391,7 @@ async function accountFactsResponse(request, env) {
   });
   return json({
     ...model,
+    account_options_revision: accountConfig.revision ?? null,
     enabled: true,
     configured: Boolean(bindings?.bindings?.length),
   });

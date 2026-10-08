@@ -36,6 +36,8 @@ import {
   type RuntimeDailyBinding,
 } from "./presentation";
 import {
+  cashFieldForPlatform,
+  verifiedCurrentAccountAssets,
   accountFactsDetail,
   accountFactsDisplayReady,
   accountFactsForDisplay,
@@ -117,16 +119,12 @@ function BinanceWalletDetails({
   </details>;
 }
 
-function cashFieldForPlatform(platform: string): "cash_balance" | "available_cash" {
-  return platform === "ibkr" || platform === "schwab" || platform === "firstrade" ? "cash_balance" : "available_cash";
-}
-
 function cashLabelForPlatform(platform: string): "现金余额" | "可用现金" {
-  return platform === "ibkr" || platform === "schwab" || platform === "firstrade" ? "现金余额" : "可用现金";
+  return cashFieldForPlatform(platform) === "cash_balance" ? "现金余额" : "可用现金";
 }
 
 function negativeCashStatusForPlatform(platform: string): "现金余额为负，融资状态待确认" | "可用现金为负，融资状态待确认" {
-  return platform === "ibkr" || platform === "schwab" || platform === "firstrade"
+  return cashFieldForPlatform(platform) === "cash_balance"
     ? "现金余额为负，融资状态待确认"
     : "可用现金为负，融资状态待确认";
 }
@@ -136,9 +134,10 @@ const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = 
   { id: "assets", label: "总资产" },
 ];
 
-export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0 }: {
+export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0 }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
+  accountOptionsRevision?: number | null;
   isAdmin?: boolean;
   privateScope?: { value: Record<string, any> | null; error: string | null } | null;
   binanceFacts?: { value: Record<string, any> | null; error: string | null } | null;
@@ -184,13 +183,15 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
   const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
   const factsNow = Math.max(runtimeNow, Date.now());
   const displayAccounts = accounts.map(account => ({ ...account, facts: accountFactsForDisplay(account.facts, factsNow) || null }));
-  const currentFactsSummary = summarizeCurrentAccountFacts(displayAccounts.map(account => ({
+  const currentFactRows = displayAccounts.map(account => ({
     id: account.id,
     platform: account.platformKey,
     brokerEnvironment: account.brokerEnvironment,
     facts: account.facts,
     walletValuation: account.id === walletAccount?.id ? walletValuation : null,
-  })));
+  }));
+  const currentFactsSummary = summarizeCurrentAccountFacts(currentFactRows);
+  const verifiedAssets = verifiedCurrentAccountAssets(accountFacts, currentFactRows, factsNow, accountOptionsRevision);
   const runtimeBounds = runtimeDateBounds(runtimeNow);
   const runtimeToday = runtimeBounds.max;
   const runtimeDateLabel = "业务日期（纽约业务日，America/New_York）";
@@ -416,13 +417,13 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
     ? null
     : formatAccountFactAmounts(
       accountFactsDisplayReady(selectedFacts) ? selectedFacts!.cash : null,
-      selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash",
+      selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) || "available_cash" : "available_cash",
     );
   const selectedCashField = selectedAccount ? cashFieldForPlatform(selectedAccount.platformKey) : "available_cash";
   const selectedCashRows = selectedFacts?.data_status === "fresh"
     && selectedFacts.binding_status === "bound" && selectedFacts.identity_mismatch !== true
     ? selectedFacts.cash : null;
-  const selectedNegativeCash = hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
+  const selectedNegativeCash = selectedCashField !== null && hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
   const showSelectedCashMetric = !selectedWalletValuation || totalCash !== null;
   const assetsDetail = accountId === "all"
     ? "按配置账户当前快照求和，不代表已核实的物理账户组合资产。"
@@ -475,9 +476,9 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
       <div><span>{t(assetsMetricLabel)}</span>
         {accountId === "all" ? <div className="overview-aggregate-values">
           <div className="overview-aggregate-primary">
-            <span>{t("已取得资产合计（不含已标记模拟账户）")}</span>
-            <strong>{formatCurrentAmounts(currentFactsSummary.excludingPaper.assets)}</strong>
-            <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>
+            <span>{t(verifiedAssets ? "账户资产合计（已去重，不含模拟账户）" : "已取得资产合计（不含已标记模拟账户）")}</span>
+            <strong>{formatCurrentAmounts(verifiedAssets || currentFactsSummary.excludingPaper.assets)}</strong>
+            {verifiedAssets ? null : <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>}
             <small>{t("估值覆盖 {covered}/{total} 个非模拟配置账户；未绑定 {unbound}，其他缺估值 {missing}。", {
               covered: currentFactsSummary.excludingPaper.covered,
               total: currentFactsSummary.excludingPaper.accounts,
@@ -512,7 +513,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
           {aggregateCashTotals.length ? aggregateCashTotals.map(line => <div className="overview-aggregate-primary" key={line.key}>
             <span>{t("已取得现金合计（不含已标记模拟账户）")} · {t(line.label)}</span>
             <strong>{formatCurrentAmounts(line.values)}</strong>
-            <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>
+            {verifiedAssets ? null : <small>{t("含环境待确认账户，账户身份未全部核实；缺资料不按零计。")}</small>}
           </div>) : <small>{t("尚无合格现金资料")}</small>}
           <small>{t("现金资料覆盖 {covered}/{total} 个非模拟且支持现金字段的配置账户；未绑定 {unbound}，其他缺现金资料 {missing}。", {
             covered: currentFactsSummary.excludingPaper.cashCovered,
@@ -728,7 +729,7 @@ export function OverviewPage({ accounts, onOpenAccount, isAdmin, privateScope, b
             ? formatBinanceWalletAmount(walletCardValuation.amount)
             : formatAccountFactAmounts(accountFactsDisplayReady(account.facts) ? account.facts!.balances : null, "net_assets");
           const freshCashRows = accountFactsDisplayReady(account.facts) ? account.facts!.cash : null;
-          const cashField = cashFieldForPlatform(account.platformKey);
+          const cashField = cashFieldForPlatform(account.platformKey) || "available_cash";
           const cash = formatAccountFactAmounts(
             freshCashRows,
             cashField,

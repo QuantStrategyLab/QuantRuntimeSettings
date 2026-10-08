@@ -73,6 +73,7 @@ export type AccountFactsAccount = {
   binding_status: "bound" | "missing" | "duplicate";
   identity_status: "partial_identity" | "missing_identity";
   identity_mismatch?: boolean;
+  aggregation_status?: "included" | "duplicate" | "conflict" | "unverified";
   data_status: "fresh" | "stale" | "unavailable";
   broker_environment?: string | null;
   target_id: string | null;
@@ -94,12 +95,14 @@ export type AccountFactsTotals = {
   by_currency: Array<{
     currency: string;
     net_assets: string;
-    available_cash: string;
+    available_cash: string | null;
+    cash_balance: string | null;
     account_count: number;
   }>;
 };
 
 export type AccountFactsSnapshot = {
+  account_options_revision?: number | null;
   ok: true;
   enabled?: boolean;
   configured?: boolean;
@@ -168,6 +171,7 @@ export type AccountFactsHistorySnapshot = {
   binding_status: "bound" | "missing" | "duplicate";
   identity_status: "partial_identity" | "missing_identity";
   identity_mismatch?: boolean;
+  aggregation_status?: "included" | "duplicate" | "conflict" | "unverified";
   target_id: string | null;
   source_binding_id: string | null;
   account_scope: string | null;
@@ -413,6 +417,27 @@ export type CurrentAccountFactsSummary = {
   duplicateConfigurationConflicts: number;
 };
 
+/** Use server totals only for the same current configured set, before local expiry. */
+export function verifiedCurrentAccountAssets(
+  snapshot: AccountFactsSnapshot | null | undefined,
+  current: CurrentAccountFactsRow[],
+  now: number,
+  configurationRevision: number | null | undefined,
+): Array<{ currency: string; amount: string }> | null {
+  if (!Number.isInteger(configurationRevision) || configurationRevision !== snapshot?.account_options_revision) return null;
+  if (snapshot?.totals.status !== "by_currency" || !snapshot.totals.by_currency.length) return null;
+  const currentIds = new Set(current.map(row => row.id));
+  const snapshotIds = new Set(snapshot.accounts.map(row => `${row.platform}:${row.account_key}`));
+  if (currentIds.size !== snapshotIds.size || [...currentIds].some(id => !snapshotIds.has(id))) return null;
+  if (current.some(row => {
+    const saved = snapshot.accounts.find(account => `${account.platform}:${account.account_key}` === row.id);
+    return !saved || row.facts !== saved || row.brokerEnvironment !== (saved.broker_environment || null);
+  })) return null;
+  if (snapshot.accounts.some(row => row.broker_environment !== "paper" && row.account_scope !== "paper"
+      && !accountFactsDisplayReady(accountFactsForDisplay(row, now)))) return null;
+  return snapshot.totals.by_currency.map(row => ({currency: row.currency, amount: row.net_assets}));
+}
+
 function validCurrentAmount(value: unknown): value is string {
   return typeof value === "string" && value.length <= 128
     && /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/.test(value);
@@ -439,6 +464,13 @@ function sumCurrentAmounts(rows: Array<{ currency: string; amount: string }>): A
       : `${negative ? "-" : ""}${digits}`;
     return { currency, amount: amount === "-" ? "0" : amount };
   }).sort((left, right) => left.currency.localeCompare(right.currency));
+}
+
+/** One definition for both account cards and current cash aggregation. */
+export function cashFieldForPlatform(platform: string): "cash_balance" | "available_cash" | null {
+  if (platform === "longbridge") return "available_cash";
+  if (platform === "ibkr" || platform === "schwab" || platform === "firstrade") return "cash_balance";
+  return null;
 }
 
 /** Summarize only current, fresh, uniquely bound account facts; currencies and cash meanings stay separate. */
@@ -489,6 +521,9 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
   }>;
   for (const account of uniqueAccounts) {
     const facts = account.facts;
+    // Server deduplicates verified native identities without exposing them.
+    if (facts?.aggregation_status === "duplicate") continue;
+    const physicalConflict = facts?.aggregation_status === "conflict";
     const paperEvidence = account.brokerEnvironment === "paper"
       || facts?.account_scope === "paper" || facts?.broker_environment === "paper";
     const environmentConflict = (account.brokerEnvironment === "live" && paperEvidence)
@@ -500,8 +535,8 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
     group.accounts += 1;
     const bound = facts?.binding_status === "bound";
     // Configuration and facts refresh separately; conflicting snapshots cannot contribute funds.
-    const ready = !environmentConflict && accountFactsDisplayReady(facts);
-    const wallet = !environmentConflict && account.walletValuation && /^[A-Z0-9]{3,10}$/.test(account.walletValuation.currency)
+    const ready = !physicalConflict && !environmentConflict && accountFactsDisplayReady(facts);
+    const wallet = !physicalConflict && !environmentConflict && account.walletValuation && /^[A-Z0-9]{3,10}$/.test(account.walletValuation.currency)
       && validCurrentAmount(account.walletValuation.amount) ? account.walletValuation : null;
     const assetRows = wallet
       ? [{ currency: wallet.currency, amount: wallet.amount }]
@@ -517,11 +552,11 @@ export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[])
       if (facts && !bound) group.unbound += 1;
     }
 
-    if (!["longbridge", "ibkr", "schwab", "firstrade"].includes(account.platform)) continue;
+    const cashField = cashFieldForPlatform(account.platform);
+    if (cashField === null) continue;
     group.cashAccounts += 1;
     const cashReady = ready;
     const cashRows = cashReady ? facts!.cash : [];
-    const cashField = account.platform === "ibkr" || account.platform === "schwab" || account.platform === "firstrade" ? "cash_balance" : "available_cash";
     const cashAmounts = cashRows.flatMap(row => {
       const amount = cashField === "cash_balance" && "cash_balance" in row ? row.cash_balance
         : cashField === "available_cash" && "available_cash" in row ? row.available_cash : null;

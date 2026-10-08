@@ -73,6 +73,7 @@ export type PromotionSuggestion = {
   model: string;
 };
 export type ConfigPayload = {
+  accountOptionsRevision?: number | null;
   accountOptions?: Record<string, AccountOption[]> | null;
   runtimeDailyBindings?: Array<{ platform: string; target_key: string; account_key: string | null; status: "bound" | "unresolved" }>;
   platformMeta?: Record<string, { label?: string; console_visible?: boolean; [key: string]: unknown }>;
