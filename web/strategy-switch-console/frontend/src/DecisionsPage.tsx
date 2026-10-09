@@ -1,7 +1,13 @@
 import { useId, useState } from "react";
-import { useT } from "./locales";
+import { useLocale, useT } from "./locales";
 import { StrategyIdentity } from "./StrategyIdentity";
-import { decisionActionState, unnamedDecisionOrdinal, type DailyDecision } from "./presentation";
+import {
+  decisionActionState,
+  unreadDecisionSourceLabels,
+  unnamedDecisionOrdinal,
+  type DailyDecision,
+  type DecisionSourceStatuses,
+} from "./presentation";
 
 export function DecisionCount({ count }: { count: number }) {
   const t = useT();
@@ -13,8 +19,13 @@ function shown(value: string, t: (key: string) => string): string {
   return value === "未命名策略" || value === "当前策略" || value === "保持暂停" || value === "有限观察" || value === "待确认材料" || value === "确认材料" || value === "有限执行观察" || value === "恢复核对" ? t(value) : value;
 }
 
-export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, onSelectAccount, onDecide }: {
+function joinSourceNames(labels: string[], language: "zh" | "en"): string {
+  return labels.join(language === "zh" ? "、" : ", ");
+}
+
+export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAccountId, onSelectAccount, onDecide }: {
   blocked: boolean;
+  sources?: DecisionSourceStatuses;
   items: DailyDecision[];
   admin: boolean;
   busy: boolean;
@@ -23,16 +34,24 @@ export function DecisionsPage({ blocked, items, admin, busy, selectedAccountId, 
   onDecide: (item: DailyDecision, decision: "adopt" | "reject") => void;
 }) {
   const t = useT();
+  const language = useLocale();
   const detailId = useId();
   const [selectedId, setSelectedId] = useState(items[0]?.id || "");
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
+  const unread = sources ? unreadDecisionSourceLabels(sources).map(label => t(label)) : [];
+  const unreadNames = joinSourceNames(unread, language);
   if (!items.length) {
-    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{t(blocked ? "待办暂不可用" : "暂无需要你决定的事项")}</strong></div></section>;
+    const emptyMessage = blocked && unreadNames
+      ? t("暂时读不到：{sources}", { sources: unreadNames })
+      : blocked
+        ? t("暂时读不到：{sources}", { sources: joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })
+        : t("暂无需要你决定的事项");
+    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{emptyMessage}</strong></div></section>;
   }
   return <section className="daily-page decisions-page home-decisions">
     <div className="daily-heading"><h1>{t("待办决策")}</h1><DecisionCount count={items.length} /></div>
-    {blocked && <p className="workflow-note" role="status"><strong>{t("部分待办暂时无法读取")}</strong> {t("以下仅显示已读取的事项，待办列表可能不完整。")}</p>}
+    {blocked && <p className="workflow-note" role="status"><strong>{t("部分待办暂时无法读取")}</strong> {t("{sources} 暂时读不到。以下仅显示已读取的事项，待办列表可能不完整。", { sources: unreadNames || joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })}</p>}
     <div className="decision-layout">
       <div className="decision-list" role="group" aria-label={t("待办事项")}>
         {items.map((item, index) => <button key={item.id} id={`${detailId}-item-${index}`} type="button" aria-pressed={selected?.id === item.id} aria-controls={detailId} className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>

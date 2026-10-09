@@ -13,8 +13,12 @@ const ready = value => ({ value: { data_status: "ready", ...value } });
 const decisions = listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [{ ticket_id: "synthetic-1", state: "awaiting_human", research_summary: null }] }), owners: { error: new Error("synthetic unavailable") }, recovery: ready({ recoveries: [] }), accountsFor: () => [{ platform: "longbridge", key: "synthetic", label: "Synthetic account" }] });
 assert.equal(decisions.blocked, true);
 assert.equal(decisions.items.length, 1, "available decisions remain visible when another source is blocked");
+assert.deepEqual(decisions.sources, { promotions: "ready", owners: "failed", recovery: "ready" });
 assert.deepEqual(decisions.items[0].materialNotes, promotionMaterialNotes(null));
 assert.equal(decisions.items[0].reference, "synthetic-1");
+assert.deepEqual(listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] }).sources, { promotions: "ready", owners: "ready", recovery: "ready" });
+assert.equal(listDailyDecisions({ language: "zh", profiles: [], promotions: { value: { data_status: "stale", tickets: [] } }, owners: ready({ candidates: [] }), recovery: null, accountsFor: () => [] }).sources.promotions, "stale");
+assert.equal(listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: ready({ candidates: [] }), recovery: null, accountsFor: () => [] }).sources.recovery, "missing");
 
 const settings = { platform: "longbridge", key: "synthetic", identity: { platform: "longbridge", key: "synthetic" }, draft: { status: "current", revision: 2, overrides: {} }, risk: { revision: 4, preference: "BALANCED_COMPOUNDING" }, operations: { save_draft: true, save_risk_preference: true }, effective: {} };
 assert.equal(accountSettingsSaveBlockReason(settings, "ready", "draft"), null);

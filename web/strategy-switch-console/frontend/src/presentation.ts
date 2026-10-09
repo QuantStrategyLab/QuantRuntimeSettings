@@ -1642,8 +1642,34 @@ export type DailyDecision = {
 
 type SourceState = { data_status?: unknown; value?: any; error?: unknown };
 
+export type DecisionSourceId = "promotions" | "owners" | "recovery";
+export type DecisionSourceReadStatus = "ready" | "unavailable" | "stale" | "failed" | "missing";
+export type DecisionSourceStatuses = Record<DecisionSourceId, DecisionSourceReadStatus>;
+
+export const DECISION_SOURCE_LABELS: Record<DecisionSourceId, "晋级方案" | "负责人决定" | "对账恢复"> = {
+  promotions: "晋级方案",
+  owners: "负责人决定",
+  recovery: "对账恢复",
+};
+
+export function decisionSourceReadStatus(source: SourceState | null | undefined): DecisionSourceReadStatus {
+  if (source?.error) return "failed";
+  if (!source?.value) return "missing";
+  const status = source.value.data_status;
+  if (status === "ready") return "ready";
+  if (status === "stale") return "stale";
+  if (status === "unavailable") return "unavailable";
+  return "unavailable";
+}
+
+export function unreadDecisionSourceLabels(sources: DecisionSourceStatuses): Array<"晋级方案" | "负责人决定" | "对账恢复"> {
+  return (Object.keys(DECISION_SOURCE_LABELS) as DecisionSourceId[])
+    .filter(id => sources[id] !== "ready")
+    .map(id => DECISION_SOURCE_LABELS[id]);
+}
+
 function ready(source: SourceState | null | undefined): boolean {
-  return Boolean(source && !source.error && source.value && source.value.data_status === "ready");
+  return decisionSourceReadStatus(source) === "ready";
 }
 
 // This one partial contract isolates invalid review material. It never makes
@@ -1762,8 +1788,13 @@ export function listDailyDecisions(input: {
   recovery: SourceState | null | undefined;
   accountsFor: (ticket: any) => Array<{ platform: string; key: string; label: string }>;
   decisionStates?: HumanDecisionState[];
-}): { blocked: boolean; items: DailyDecision[] } {
-  const blocked = !ready(input.promotions) || !ready(input.owners) || !ready(input.recovery);
+}): { blocked: boolean; sources: DecisionSourceStatuses; items: DailyDecision[] } {
+  const sources: DecisionSourceStatuses = {
+    promotions: decisionSourceReadStatus(input.promotions),
+    owners: decisionSourceReadStatus(input.owners),
+    recovery: decisionSourceReadStatus(input.recovery),
+  };
+  const blocked = sources.promotions !== "ready" || sources.owners !== "ready" || sources.recovery !== "ready";
   const items: DailyDecision[] = [];
   if (readablePromotionQueue(input.promotions)) {
     for (const ticket of input.promotions?.value?.tickets || []) {
@@ -1867,7 +1898,7 @@ export function listDailyDecisions(input: {
       });
     }
   }
-  return { blocked, items: items.filter(item => {
+  return { blocked, sources, items: items.filter(item => {
     const kind = item.kind === "owner_observation" ? "owner" : item.kind;
     const source = kind === "promotion" ? input.promotions?.value?.tickets?.find((t: any) => t.ticket_id === item.reference)
       : kind === "owner" ? input.owners?.value?.candidates?.find((e: any) => e.candidate?.candidate_id === item.reference)
