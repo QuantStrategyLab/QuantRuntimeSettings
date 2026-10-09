@@ -17,6 +17,7 @@ import {
   formatOverviewShortInstant,
   overviewAccountTypeLabel,
   overviewCardStatusDetail,
+  overviewLifecycleDetail,
   parseMoneyForChart,
   presentRuntimeDaily,
   runtimeBusinessDate,
@@ -366,3 +367,16 @@ console.log("account_history_presentation_validation ok");
 
 // The same CI entry now checks real React output with the existing source validators.
 await import("./overview_account_metadata_validation.mjs");
+
+assert.equal(
+  overviewLifecycleDetail(null, "账户尚未绑定运行目标", "运行证据未取得"),
+  "账户尚未绑定运行目标",
+);
+assert.equal(
+  overviewLifecycleDetail({ observed_at: "2026-10-09T00:00:00Z" }, "账户尚未绑定运行目标", "运行监测正常，已启用。"),
+  "运行监测正常，已启用。",
+);
+assert.equal(
+  overviewLifecycleDetail(null, null, "今日周期记录未取得"),
+  "今日周期记录未取得，不能据此确认周期结果。",
+);

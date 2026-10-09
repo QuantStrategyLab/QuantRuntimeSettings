@@ -5,6 +5,8 @@
       "label": "paper",
       "target_name": "paper",
       "account_selector": "PAPER",
+      "broker_environment": "paper",
+      "runtime_status_target_id": "longbridge.paper",
       "supported_domains": [
         "us_equity",
         "hk_equity"
@@ -15,6 +17,8 @@
       "label": "sg",
       "target_name": "sg",
       "account_selector": "SG",
+      "broker_environment": "live",
+      "runtime_status_target_id": "longbridge.sg",
       "supported_domains": [
         "us_equity",
         "hk_equity"
@@ -26,6 +30,8 @@
       "target_name": "hk",
       "account_selector": "HK",
       "cash_currency": "HKD",
+      "broker_environment": "live",
+      "runtime_status_target_id": "longbridge.hk",
       "supported_domains": [
         "us_equity",
         "hk_equity"
@@ -42,6 +48,8 @@
       "account_scope": "example-ibkr-soxl",
       "service_name": "example-ibkr-soxl-service",
       "cash_currency": "USD",
+      "broker_environment": "live",
+      "runtime_status_target_id": "ibkr.soxl",
       "supported_domains": [
         "us_equity",
         "hk_equity"
@@ -56,6 +64,8 @@
       "account_scope": "example-ibkr-tqqq",
       "service_name": "example-ibkr-tqqq-service",
       "cash_currency": "USD",
+      "broker_environment": "live",
+      "runtime_status_target_id": "ibkr.tqqq",
       "supported_domains": [
         "us_equity",
         "hk_equity"
@@ -70,6 +80,8 @@
       "account_selector": "live",
       "service_name": "example-schwab-service",
       "cash_currency": "USD",
+      "broker_environment": "live",
+      "runtime_status_target_id": "schwab.live",
       "supported_domains": [
         "us_equity"
       ]
@@ -83,8 +95,25 @@
       "account_selector": "firstrade",
       "service_name": "example-firstrade-service",
       "cash_currency": "USD",
+      "broker_environment": "live",
+      "runtime_status_target_id": "firstrade.live",
       "supported_domains": [
         "us_equity"
+      ]
+    }
+  ],
+  "binance": [
+    {
+      "key": "live",
+      "label": "live",
+      "target_name": "live",
+      "account_selector": "binance",
+      "service_name": "example-binance-service",
+      "cash_currency": "USD",
+      "broker_environment": "live",
+      "runtime_status_target_id": "binance.live",
+      "supported_domains": [
+        "crypto"
       ]
     }
   ],
@@ -99,6 +128,7 @@
       "account_scope": "CN",
       "service_name": "example-qmt-service",
       "cash_currency": "CNY",
+      "broker_environment": "paper",
       "supported_domains": [
         "cn_equity"
       ]

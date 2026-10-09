@@ -93,3 +93,7 @@ assert.doesNotMatch(overview, /启用未知/);
 assert.doesNotMatch(overview, /健康未知/);
 
 console.log("account_status_layers_validation ok");
+
+assert.equal(getPlatformAdapter("firstrade").capability().requiresHumanSession, true);
+assert.equal(getPlatformAdapter("schwab").capability().requiresHumanSession, false);
+assert.equal(getPlatformAdapter("binance").capability().canEnable, false);
