@@ -156,7 +156,7 @@ try {
   assert.match(schwabHtml, /真实/);
   assert.match(schwabHtml, /208\.5/);
   assert.match(schwabHtml, /-2/);
-  assert.match(schwabHtml, /可能是借的钱，还没核实/);
+  assert.doesNotMatch(schwabHtml, /负现金未核实|融资占用（已核实）|可能是借的钱|融资状态待确认/);
   assert.doesNotMatch(schwabHtml, /SYNTHETIC_PRIVATE_HASH|账户类型: CASH/);
   const zeroHtml = render([{ ...schwabAccount, facts: { ...schwabAccount.facts, balances: [{ currency: "USD", net_assets: "0" }], cash: [{ currency: "USD", cash_balance: null }] } }]);
   assert.match(zeroHtml, />0<\/td>/);
