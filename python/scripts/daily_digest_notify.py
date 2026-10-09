@@ -552,6 +552,31 @@ def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
     return _t(locale, "block_heartbeat")
 
 
+def account_block_tag(entry: DigestRunEntry) -> str:
+    """Short account label for ``[tag]`` block titles.
+
+    Preference order (product convention):
+      1. ``account_hint`` (IBKR-style ids such as ``U16608560``)
+      2. ``target_id`` (e.g. ``schwab-primary``) when not the unknown sentinel
+      3. short stable form of ``opaque_account_uid`` (first 8 chars when long)
+    Returns empty string when nothing usable is present.
+    """
+
+    hint = str(entry.account_hint or "").strip()
+    if hint:
+        return hint
+    target = str(entry.target_id or "").strip()
+    if target and target.lower() != UNKNOWN_TARGET_ID:
+        return target
+    uid = str(entry.opaque_account_uid or "").strip()
+    if uid and uid.lower() != UNKNOWN_ACCOUNT_UID:
+        # Binding hashes are 64 hex; keep Telegram titles short and stable.
+        if len(uid) > 12:
+            return uid[:8]
+        return uid
+    return ""
+
+
 def _display_strategy(entry: DigestRunEntry) -> str:
     label = entry.strategy_label.strip()
     return label or entry.strategy_profile
@@ -584,9 +609,9 @@ def _default_conclusion(entry: DigestRunEntry, locale: DigestLocale) -> str:
 def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> list[str]:
     lines: list[str] = []
     title = _block_title(entry, locale)
-    hint = entry.account_hint.strip()
-    if hint:
-        lines.append(f"[{hint}] {title}")
+    tag = account_block_tag(entry)
+    if tag:
+        lines.append(f"[{tag}] {title}")
     else:
         lines.append(title)
     lines.append(f"{_t(locale, 'strategy_label')}: {_display_strategy(entry)}")
@@ -863,6 +888,7 @@ __all__ = [
     "EvidenceCoverage",
     "UNKNOWN_ACCOUNT_UID",
     "UNKNOWN_TARGET_ID",
+    "account_block_tag",
     "filter_runs_for_digest",
     "fills_are_verified_zero",
     "has_observation",

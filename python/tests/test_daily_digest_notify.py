@@ -148,6 +148,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 tips=(
                     "净值 $990 低于建议 $1,000；整数股和最小仓位限制可能导致实盘无法完全复现回测",
                 ),
+                target_id="schwab-primary",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -164,7 +165,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("Asia/Shanghai", text)
         self.assertNotIn("通道", text)
         self.assertNotIn("QuantSentinel", text)
-        self.assertIn("💓 【心跳检测】", text)
+        self.assertIn("[schwab-primary] 💓 【心跳检测】", text)
         self.assertIn("🧭 策略: 半导体趋势收益", text)
         self.assertIn("💰 账户总权益: USD 990.06", text)
         self.assertIn("💼 持仓", text)
@@ -217,6 +218,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
+                account_hint="U16608560",
                 equity=572.93,
                 holdings=(
                     daily_digest_notify.DigestHolding(
@@ -232,7 +234,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("⚠️ 【未下单】", text)
+        self.assertIn("[U16608560] ⚠️ 【未下单】", text)
         self.assertIn("低于最小订单金额:TQQQ", text)
 
     def test_english_observation_labels(self):
@@ -249,6 +251,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 ),
                 signal_summary="SOXX above 140d threshold",
                 rebalance_kind="no_rebalance",
+                target_id="schwab-primary",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -257,6 +260,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("Heartbeat", text)
+        self.assertIn("[schwab-primary] 💓 [Heartbeat]", text)
         self.assertIn("Account equity: USD 990.06", text)
         self.assertIn("4sh", text)
         self.assertIn("No rebalance needed", text)
@@ -373,6 +377,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_profile="soxl_soxx_trend_income",
                 strategy_label="半导体趋势收益",
                 rebalance_kind="no_rebalance",
+                target_id="schwab-primary",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -380,6 +385,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
+        self.assertIn("[schwab-primary] 💓 【心跳检测】", text)
         self.assertIn("半导体趋势收益", text)
         self.assertIn("✅ 无需调仓", text)
         self.assertNotIn("账户总权益", text)
@@ -396,6 +402,10 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 fill_count_status="unknown",
                 equity=989.34,
                 rebalance_kind="no_rebalance",
+                opaque_account_uid=(
+                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                ),
+                target_id="schwab-primary",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -409,7 +419,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
-            "💓 【心跳检测】\n"
+            "[schwab-primary] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -427,6 +437,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 fill_count_status="unknown",
                 equity=989.34,
                 rebalance_kind="no_rebalance",
+                target_id="schwab-primary",
             ),
             daily_digest_notify.DigestRunEntry(
                 platform_id="ibkr",
@@ -462,17 +473,18 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("🧭 策略: 纳斯达克增长收益", text)
         self.assertIn("💰 账户总权益: USD 989.34", text)
         self.assertIn("💰 账户总权益: USD 569.16", text)
+        self.assertIn("[schwab-primary] 💓 【心跳检测】", text)
         self.assertIn("[U16608560] 💓 【心跳检测】", text)
         # Blank line between observation blocks.
         schwab_idx = text.index("平台: schwab")
         ibkr_idx = text.index("[U16608560]")
         between = text[schwab_idx:ibkr_idx]
         self.assertIn("\n\n", between)
-        # Exact multi-platform shape for zh locale.
+        # Exact multi-platform shape for zh locale — every block has [account] tag.
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
-            "💓 【心跳检测】\n"
+            "[schwab-primary] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -487,6 +499,41 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "平台: ibkr"
         )
         self.assertEqual(text, expected)
+
+    def test_account_block_tag_preference_order(self):
+        hint_wins = daily_digest_notify.DigestRunEntry(
+            platform_id="ibkr",
+            strategy_profile="tqqq_growth_income",
+            account_hint="U16608560",
+            opaque_account_uid="aaaaaaaaaaaaaaaa",
+            target_id="ibkr-primary",
+        )
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(hint_wins), "U16608560"
+        )
+        target_wins = daily_digest_notify.DigestRunEntry(
+            platform_id="schwab",
+            strategy_profile="soxl_soxx_trend_income",
+            opaque_account_uid=(
+                "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+            ),
+            target_id="schwab-primary",
+        )
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(target_wins), "schwab-primary"
+        )
+        short_uid = daily_digest_notify.DigestRunEntry(
+            platform_id="schwab",
+            strategy_profile="soxl_soxx_trend_income",
+            opaque_account_uid=(
+                "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+            ),
+        )
+        self.assertEqual(daily_digest_notify.account_block_tag(short_uid), "bf2e6691")
+        empty = daily_digest_notify.DigestRunEntry(
+            platform_id="schwab", strategy_profile="soxl_soxx_trend_income"
+        )
+        self.assertEqual(daily_digest_notify.account_block_tag(empty), "")
 
     def test_identity_key_includes_account_and_target(self):
 
