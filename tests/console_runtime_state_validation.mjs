@@ -340,8 +340,10 @@ test("loading an account never silently prepares an enable override", () => {
     resumeSupported: false,
   }).stop, true);
   assert.equal(accountsSource.includes(">启用<"), false);
-  assert.match(accountsSource, /statusLabel === "—" \? "待确认"/);
-  assert.match(accountsSource, /activation === "—" \? "待确认"/);
+  assert.match(accountsSource, /statusLabel === "—" \|\| row\.statusLabel === "待确认" \? "异常"/);
+  assert.match(accountsSource, /overviewActivationLabel\(row\.activation\)/);
+  assert.match(accountsSource, /activation-not-wired/);
+  assert.match(accountsSource, /启用流程尚未接通，此按钮不会提交/);
   assert.doesNotMatch(accountsSource, /statusLabel === "—" \? "已启用"|activation === "—" \? "已启用"/);
   assert.match(appSource, /loadAdminModel\(\)/);
   assert.doesNotMatch(appSource, /refreshChangeLog|onChangeLog/);
