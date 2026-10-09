@@ -119,32 +119,56 @@
               "platform_id": "longbridge",
               "repository": "QuantStrategyLab/LongBridgePlatform",
               "workflow": "publish-runtime-daily-once.yml",
-              "strategy_profile": "russell_top50_leader_rotation"
+              "strategy_profile": "russell_top50_leader_rotation",
+              "evidence_role": "paper_projection_once",
+              "path_status": "present",
+              "note_zh": "PAPER 环境手动一次性投影；workflow success 仅作存在性证据，不成交事实；≠ live。",
+              "note_en": "PAPER env manual one-shot projection; workflow success is existence-only, not fill facts; not live."
             },
             {
               "platform_id": "schwab",
               "repository": "QuantStrategyLab/CharlesSchwabPlatform",
-              "workflow": "publish-runtime-daily-once.yml",
-              "strategy_profile": "soxl_soxx_trend_income"
-            },
-            {
-              "platform_id": "ibkr",
-              "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
-              "workflow": "publish-runtime-daily-once.yml",
-              "strategy_profile": "soxl_soxx_trend_income"
-            },
-            {
-              "platform_id": "binance",
-              "repository": "QuantStrategyLab/BinancePlatform",
-              "workflow": "publish-runtime-daily-once.yml",
-              "strategy_profile": "crypto_equity_combo"
+              "workflow": "runtime-daily-sync.yml",
+              "strategy_profile": "soxl_soxx_trend_income",
+              "evidence_role": "manual_daily_projection",
+              "path_status": "present",
+              "note_zh": "正式入口为 runtime-daily-sync.yml（原 publish-runtime-daily-once.yml 404）；仍为存在性证据，counts 未知。",
+              "note_en": "Canonical entry is runtime-daily-sync.yml (publish-runtime-daily-once.yml 404); existence-only, counts unknown."
             }
           ],
           "binance_alignment_note_zh": "Binance 历史 GH secret 名 TG_TOKEN 仍独立；对齐步骤：将 TG_TOKEN 换成与 quant-sentinel-telegram-bot-token 同一 bot，或改为 TELEGRAM_TOKEN_SECRET_NAME 模式。公开仓只记名称。",
           "binance_alignment_note_en": "Binance still uses legacy GH secret name TG_TOKEN; align by pointing TG_TOKEN at the same bot as quant-sentinel-telegram-bot-token, or migrate to TELEGRAM_TOKEN_SECRET_NAME. Public repo records names only.",
           "workflow_install_path": ".github/workflows/daily-digest-notify.yml",
           "workflow_install_note_zh": "公开 OAuth 无 workflow scope 时，本仓以 docs/workflows/ 为真源文稿；具备 workflow 权限的维护者拷贝到 .github/workflows/ 后 schedule/dispatch 才会生效。",
-          "workflow_install_note_en": "When the pushing credential lacks the workflow OAuth scope, docs/workflows/ is the authored source; a maintainer with workflow scope must copy it to .github/workflows/ before schedule/dispatch runs."
+          "workflow_install_note_en": "When the pushing credential lacks the workflow OAuth scope, docs/workflows/ is the authored source; a maintainer with workflow scope must copy it to .github/workflows/ before schedule/dispatch runs.",
+          "github_workflow_allowlist_omitted": [
+            {
+              "platform_id": "ibkr",
+              "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+              "requested_workflow": "publish-runtime-daily-once.yml",
+              "path_status": "missing",
+              "reason_zh": "公开仓无 publish-runtime-daily-once.yml / runtime-daily-sync.yml；heartbeat 故意不进日报 allowlist。",
+              "reason_en": "No publish-runtime-daily-once.yml or runtime-daily-sync.yml in public tree; heartbeat intentionally omitted from digest allowlist."
+            },
+            {
+              "platform_id": "binance",
+              "repository": "QuantStrategyLab/BinancePlatform",
+              "requested_workflow": "publish-runtime-daily-once.yml",
+              "path_status": "missing",
+              "reason_zh": "公开仓无该文件；binance-account-facts / runtime-heartbeat 不是 runtime daily projection，不冒充成交证据。",
+              "reason_en": "File absent; binance-account-facts / runtime-heartbeat are not runtime daily projection and must not impersonate fill evidence."
+            },
+            {
+              "platform_id": "firstrade",
+              "repository": "QuantStrategyLab/FirstradePlatform",
+              "requested_workflow": null,
+              "path_status": "no_daily_projection_workflow",
+              "reason_zh": "公开仓无 daily projection workflow；仅有 execution-report-heartbeat，不加入 allowlist。",
+              "reason_en": "No daily projection workflow in public tree; only execution-report-heartbeat, not added to allowlist."
+            }
+          ],
+          "workflow_evidence_policy_zh": "github_workflow_allowlist 仅用于运维定位与存在性辅助证据。workflow success ≠ 成交/订单事实；PAPER once ≠ live；正式业务证据优先 DIGEST_CANDIDATES。heartbeat-only 永不进入 allowlist。",
+          "workflow_evidence_policy_en": "github_workflow_allowlist is ops locator + existence-only auxiliary evidence. workflow success ≠ fill/order facts; PAPER once ≠ live; prefer DIGEST_CANDIDATES for business evidence. Heartbeat-only never enters the allowlist."
         }
       }
     }

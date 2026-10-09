@@ -136,7 +136,19 @@ export async function getJson<T>(path: string): Promise<T> {
   });
   if (response.status === 401 || response.status === 403) { invalidatePrivateSession(); throw new AccessError(response.status); }
   assertPrivateRequestCurrent(epoch);
-  if (!response.ok) throw new Error(`http_${response.status}`);
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({})) as { error?: string; reason_code?: string; reason?: string };
+    // Keep message as http_${status} so overview/history callers stay stable;
+    // diagnosis UI reads reason_code / payload instead of message.
+    const error = new Error(`http_${response.status}`) as Error & {
+      status?: number; payload?: unknown; reason_code?: string; reason?: string;
+    };
+    error.status = response.status;
+    error.payload = payload;
+    error.reason_code = payload?.reason_code || payload?.error || `http_${response.status}`;
+    error.reason = payload?.reason || "";
+    throw error;
+  }
   const payload = await response.json() as T;
   assertPrivateRequestCurrent(epoch);
   return payload;

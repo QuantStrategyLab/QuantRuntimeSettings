@@ -184,6 +184,50 @@ class DailyDigestAggregatorTests(unittest.TestCase):
         self.assertTrue(any(row["platform_id"] == "longbridge" for row in rows))
         self.assertTrue(all(row["repository"].startswith("QuantStrategyLab/") for row in rows))
 
+    def test_allowlist_calibrated_paths_and_roles(self):
+        config = aggregator.load_platform_config()
+        rows = aggregator.default_workflow_allowlist(config)
+        by_platform = {row["platform_id"]: row for row in rows}
+        self.assertEqual(set(by_platform), {"longbridge", "schwab"})
+        self.assertEqual(
+            by_platform["longbridge"]["workflow"], "publish-runtime-daily-once.yml"
+        )
+        self.assertEqual(
+            by_platform["longbridge"].get("evidence_role"), "paper_projection_once"
+        )
+        self.assertEqual(by_platform["schwab"]["workflow"], "runtime-daily-sync.yml")
+        self.assertEqual(
+            by_platform["schwab"].get("evidence_role"), "manual_daily_projection"
+        )
+        # 404 / heartbeat-only platforms stay out of the active allowlist.
+        for absent in ("ibkr", "binance", "firstrade"):
+            self.assertNotIn(absent, by_platform)
+        omitted = (
+            (config.get("notifications") or {})
+            .get("quant_sentinel", {})
+            .get("daily_digest", {})
+            .get("aggregator", {})
+            .get("github_workflow_allowlist_omitted")
+            or []
+        )
+        omitted_ids = {str(item.get("platform_id")) for item in omitted}
+        self.assertTrue({"ibkr", "binance", "firstrade"}.issubset(omitted_ids))
+
+    def test_allowlist_fallback_defaults_match_calibrated_paths(self):
+        config = {
+            "platforms": {
+                "longbridge": {"repository": "QuantStrategyLab/LongBridgePlatform"},
+                "schwab": {"repository": "QuantStrategyLab/CharlesSchwabPlatform"},
+                "ibkr": {"repository": "QuantStrategyLab/InteractiveBrokersPlatform"},
+            },
+            "notifications": {"quant_sentinel": {"daily_digest": {"aggregator": {}}}},
+        }
+        rows = aggregator.default_workflow_allowlist(config)
+        by_platform = {row["platform_id"]: row for row in rows}
+        self.assertEqual(set(by_platform), {"longbridge", "schwab"})
+        self.assertEqual(by_platform["schwab"]["workflow"], "runtime-daily-sync.yml")
+        self.assertNotIn("ibkr", by_platform)
+
     def test_sender_dry_run_does_not_require_secrets(self):
         code = sender.main(
             [

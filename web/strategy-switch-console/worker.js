@@ -380,6 +380,33 @@ const ACCOUNT_DIAGNOSIS_AUTO_ENABLED_ENV = "ACCOUNT_DIAGNOSIS_AUTO_ENABLED";
 const ACCOUNT_DIAGNOSIS_DO_ACTIONS = new Set([
   "diagnosis_create", "diagnosis_latest", "diagnosis_read", "diagnosis_mark_dispatch", "diagnosis_claim", "diagnosis_result", "diagnosis_mark_recheck",
 ]);
+/** Stable 409/qualification reason codes for /api/account-diagnosis (P0-08). */
+const ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT = Object.freeze({
+  account_diagnosis_config_unavailable: "账户选项配置不可用，无法绑定诊断身份。",
+  account_diagnosis_account_not_found: "未找到匹配的账户选项。",
+  account_diagnosis_account_not_unique: "账户选项不唯一，无法安全绑定诊断身份。",
+  account_diagnosis_target_not_admitted: "该 target 未纳入账户诊断准入清单。",
+  account_diagnosis_identity_conflict: "target 与账户身份冲突或不唯一。",
+  account_diagnosis_lifecycle_store_unavailable: "生命周期配置存储不可用。",
+  account_diagnosis_lifecycle_match_missing: "缺少匹配的生命周期观测来源。",
+  account_diagnosis_lifecycle_match_ambiguous: "生命周期观测来源不唯一。",
+  account_diagnosis_source_unavailable: "生命周期来源不可用（非 ready/stale）。",
+  account_diagnosis_observation_missing: "缺少观测时间，无法确认诊断资格。",
+  account_diagnosis_incident_requires_attention: "incident 触发需要已确认的监测关注项。",
+  account_diagnosis_workflow_binding_conflict: "诊断工作流运行绑定冲突。",
+  account_diagnosis_schema_incompatible: "诊断上下文 schema 不兼容。",
+});
+function accountDiagnosisConflict(reasonCode, status = 409) {
+  const reason = ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT[reasonCode] || "";
+  return new HttpError(reasonCode, status, { reason_code: reasonCode, reason });
+}
+function accountDiagnosisErrorPayload(error) {
+  const reason_code = String(error?.reason_code || error?.message || "account_diagnosis_unavailable");
+  const payload = { ok: false, error: reason_code, reason_code };
+  const reason = String(error?.reason || ACCOUNT_DIAGNOSIS_CONFLICT_REASON_TEXT[reason_code] || "").trim();
+  if (reason) payload.reason = reason;
+  return payload;
+}
 const HUMAN_DECISION_DO_ACTIONS = new Set([
   "owner_sync_materials", "recovery_sync_materials", "promotion_sync_materials",
   "owner_decide", "recovery_decide", "promotion_decide",
@@ -932,9 +959,11 @@ export default {
 };
 
 class HttpError extends Error {
-  constructor(message, status) {
+  constructor(message, status, details = null) {
     super(message);
     this.status = status;
+    this.reason_code = (details && details.reason_code) || message;
+    this.reason = (details && details.reason) || "";
   }
 }
 
@@ -3806,10 +3835,10 @@ export class RuntimeInstances {
       if (command.action === "diagnosis_result") {
         const sameRun = row.workflow_run_id === command.workflow_run_id && row.workflow_run_attempt === command.workflow_run_attempt;
         if (["succeeded", "failed", "unknown"].includes(row.status)) {
-          if (!sameRun) throw new HttpError("account_diagnosis_workflow_binding_conflict", 409);
+          if (!sameRun) throw accountDiagnosisConflict("account_diagnosis_workflow_binding_conflict");
           return { ok: true, changed: false, task: accountDiagnosisTaskFromRow(row) };
         }
-        if (row.status !== "running" || !sameRun) throw new HttpError("account_diagnosis_workflow_binding_conflict", 409);
+        if (row.status !== "running" || !sameRun) throw accountDiagnosisConflict("account_diagnosis_workflow_binding_conflict");
         const recheckState = command.status === "succeeded" ? "pending" : "not_requested";
         this.sql.exec(
           `UPDATE account_diagnosis_tasks
@@ -8907,26 +8936,27 @@ async function accountDiagnosisAccount(env, platform, key) {
   try {
     config = await loadAccountOptionsConfig(env);
   } catch {
-    throw new HttpError("account_diagnosis_account_unavailable", 409);
+    throw accountDiagnosisConflict("account_diagnosis_config_unavailable");
   }
   const options = Array.isArray(config.options?.[platform])
     ? config.options[platform].filter(item => item?.key === key) : [];
-  if (options.length !== 1) throw new HttpError("account_diagnosis_account_unavailable", 409);
+  if (options.length === 0) throw accountDiagnosisConflict("account_diagnosis_account_not_found");
+  if (options.length !== 1) throw accountDiagnosisConflict("account_diagnosis_account_not_unique");
   const account = options[0];
   const targetId = String(account.runtime_status_target_id || "").trim();
-  if (!accountDiagnosisTargetSpec(platform, targetId)) throw new HttpError("account_diagnosis_target_unavailable", 409);
+  if (!accountDiagnosisTargetSpec(platform, targetId)) throw accountDiagnosisConflict("account_diagnosis_target_not_admitted");
   const allIdentityMatches = Object.entries(config.options || {}).flatMap(([itemPlatform, items]) =>
     (Array.isArray(items) ? items : []).filter(item => String(item?.runtime_status_target_id || "").trim() === targetId)
       .map(item => ({ platform: itemPlatform, key: item.key })));
   if (allIdentityMatches.length !== 1 || allIdentityMatches[0].platform !== platform || allIdentityMatches[0].key !== key) {
-    throw new HttpError("account_diagnosis_target_unavailable", 409);
+    throw accountDiagnosisConflict("account_diagnosis_identity_conflict");
   }
   return { platform, key, account, targetId, config };
 }
 
 async function accountDiagnosisContext(env, platform, key) {
   const identity = await accountDiagnosisAccount(env, platform, key);
-  if (!hasConfigStore(env)) throw new HttpError("account_diagnosis_status_unavailable", 409);
+  if (!hasConfigStore(env)) throw accountDiagnosisConflict("account_diagnosis_lifecycle_store_unavailable");
   const sources = await readRuntimeTargetLifecycleSources(env);
   const ttlSeconds = executionEvidenceStaleTtlSeconds(env);
   const matches = [];
@@ -8938,14 +8968,25 @@ async function accountDiagnosisContext(env, platform, key) {
       }
     }
   }
+  if (matches.length === 0) {
+    throw accountDiagnosisConflict("account_diagnosis_lifecycle_match_missing");
+  }
   if (matches.length !== 1) {
-    throw new HttpError("account_diagnosis_status_unavailable", 409);
+    throw accountDiagnosisConflict("account_diagnosis_lifecycle_match_ambiguous");
   }
   const entry = matches[0];
-  const checks = accountDiagnosisChecks(entry, entry.freshness.data_status);
-  if (!["ready", "stale"].includes(checks.freshness)) throw new HttpError("account_diagnosis_status_unavailable", 409);
+  let checks;
+  try {
+    checks = accountDiagnosisChecks(entry, entry.freshness.data_status);
+  } catch {
+    throw accountDiagnosisConflict("account_diagnosis_schema_incompatible");
+  }
+  if (!checks || typeof checks !== "object") {
+    throw accountDiagnosisConflict("account_diagnosis_schema_incompatible");
+  }
+  if (!["ready", "stale"].includes(checks.freshness)) throw accountDiagnosisConflict("account_diagnosis_source_unavailable");
   const observedAt = entry.observedAt;
-  if (!observedAt) throw new HttpError("account_diagnosis_status_unavailable", 409);
+  if (!observedAt) throw accountDiagnosisConflict("account_diagnosis_observation_missing");
   return {
     platform, key, targetId: identity.targetId, checks, observedAt,
     stateFingerprint: accountDiagnosisStateFingerprint(identity.targetId, checks),
@@ -9107,7 +9148,7 @@ async function dispatchAccountDiagnosisRecheck(env, task) {
   const token = String(env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
   if (!token) throw new HttpError("account_diagnosis_recheck_unavailable", 503);
   const spec = accountDiagnosisTargetSpec(task?.platform, task?.target_id);
-  if (!spec) throw new HttpError("account_diagnosis_target_unavailable", 409);
+  if (!spec) throw accountDiagnosisConflict("account_diagnosis_target_not_admitted");
   const url = `https://api.github.com/repos/${spec.recheckRepository}/actions/workflows/${spec.recheckWorkflow}/dispatches`;
   const body = task.platform === "longbridge"
     ? { ref: "main", inputs: { target: task.target_id.slice("longbridge.".length) } }
@@ -9133,8 +9174,8 @@ async function accountDiagnosisResponse(request, env, url) {
       const recheckStatus = await accountDiagnosisRecheckStatus(env, result.task);
       return json({ ok: true, account: { platform: identity.platform, key: identity.key, target_id: identity.targetId }, task: accountDiagnosisPublicTask(result.task, recheckStatus) });
     } catch (error) {
-      if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status);
-      return json({ ok: false, error: "account_diagnosis_unavailable" }, 503);
+      if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status);
+      return json({ ok: false, error: "account_diagnosis_unavailable", reason_code: "account_diagnosis_unavailable" }, 503);
     }
   }
   if (request.method !== "POST") return json({ ok: false, error: "method_not_allowed" }, 405);
@@ -9151,7 +9192,7 @@ async function accountDiagnosisResponse(request, env, url) {
   try {
     const context = await accountDiagnosisContext(env, raw.platform, raw.key);
     if (raw.trigger === "incident" && !context.attention) {
-      return json({ ok: false, error: "account_diagnosis_incident_requires_attention" }, 409);
+      return json(accountDiagnosisErrorPayload(accountDiagnosisConflict("account_diagnosis_incident_requires_attention")), 409);
     }
     const requestId = crypto.randomUUID();
     const createdAt = new Date().toISOString();
@@ -9172,8 +9213,8 @@ async function accountDiagnosisResponse(request, env, url) {
     const latest = await runtimeInstanceCommand(env, { action: "diagnosis_read", actor: session.login, request_id: requestId });
     return json({ ok: true, status: "queued", request_id: latest.task.request_id, task: accountDiagnosisPublicTask(latest.task) }, 202);
   } catch (error) {
-    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status);
-    return json({ ok: false, error: "account_diagnosis_unavailable" }, 503);
+    if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status);
+    return json({ ok: false, error: "account_diagnosis_unavailable", reason_code: "account_diagnosis_unavailable" }, 503);
   }
 }
 
@@ -9234,7 +9275,8 @@ async function accountDiagnosisInternalResponse(request, env, url) {
     }
     return json({ ok: true, replayed: !result.changed, recheck_status: result.task?.recheck_dispatch_state || "not_requested" });
   } catch (error) {
-    return json({ ok: false, error: error.message || "invalid_account_diagnosis_result" }, error.status || 409);
+    if (error instanceof HttpError) return json(accountDiagnosisErrorPayload(error), error.status || 409);
+    return json({ ok: false, error: error.message || "invalid_account_diagnosis_result", reason_code: error.message || "invalid_account_diagnosis_result" }, error.status || 409);
   }
 }
 

@@ -347,13 +347,22 @@ function App() {
         getJson<any>(`/api/account-diagnosis?platform=${encodeURIComponent(active.platform)}&key=${encodeURIComponent(active.account.key)}`)
             .then(result => {
             if (alive)
-                setDiagnosis(prev => ({ ...prev, [active.id]: { available: true, loading: false, task: result.task || null } }));
+                setDiagnosis(prev => ({ ...prev, [active.id]: { available: true, loading: false, reason_code: null, reason: null, task: result.task || null } }));
         })
             .catch(error => {
             if (error instanceof AccessError)
                 clearPrivateState(false);
             else if (alive)
-                setDiagnosis(prev => ({ ...prev, [active.id]: { available: false, loading: false, task: null } }));
+                setDiagnosis(prev => ({
+                    ...prev,
+                    [active.id]: {
+                        available: false,
+                        loading: false,
+                        reason_code: (error as any)?.reason_code || (error as any)?.payload?.reason_code || null,
+                        reason: (error as any)?.reason || (error as any)?.payload?.reason || null,
+                        task: null,
+                    },
+                }));
         });
         return () => { alive = false; };
     }, [model?.session.allowed, active?.id]);
