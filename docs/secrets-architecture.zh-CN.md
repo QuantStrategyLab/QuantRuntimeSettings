@@ -50,3 +50,8 @@ qsl-{platform}-{env}-{purpose}     # Secret Manager 友好名
 ## 运营钉（诊断 run id）
 
 一次性 KV 诊断若需限制允许的 `source_run_id`，把允许值放在 GitHub Environment 的 secret/variable（例如 `BINANCE_ACCOUNT_FACTS_ALLOWED_SOURCE_RUN_ID`），不要把生产运行号写进公开 workflow 的 `default`。若仓库里仍有此类默认值，用具备 `workflow` 权限的凭据另开 PR 清空。
+
+## Telegram / QuantSentinel
+
+跨平台通知统一使用 GCP secret 名 `quant-sentinel-telegram-bot-token`（见 `docs/notifications-quant-sentinel.zh-CN.md`）。GitHub 变量 `TELEGRAM_TOKEN_SECRET_NAME` 与 `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME` 都应指向该名称。公开仓只写 secret **名**与 chat **路由变量名**，不写 token 或 chat id。
+

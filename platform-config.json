@@ -15,7 +15,9 @@
       "p4_p6_definition": "UNDEFINED"
     },
     "console_observability": {
-      "extra_platforms": ["alpaca"]
+      "extra_platforms": [
+        "alpaca"
+      ]
     }
   },
   "notifications": {
@@ -51,7 +53,59 @@
       },
       "deprecated_secret_names": [
         "crisis-alert-telegram-bot-token"
-      ]
+      ],
+      "execution_telegram_bot_token_secret_name": "quant-sentinel-telegram-bot-token",
+      "legacy_platform_telegram_bot_token_secret_names": [
+        "longbridge-telegram-token",
+        "interactive-brokers-telegram-token",
+        "firstrade-telegram-token",
+        "charles-schwab-telegram-token"
+      ],
+      "github_variable_contract": {
+        "TELEGRAM_TOKEN_SECRET_NAME": "quant-sentinel-telegram-bot-token",
+        "STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME": "quant-sentinel-telegram-bot-token",
+        "locale_env_preference": [
+          "QSL_NOTIFY_LANG",
+          "NOTIFY_LANG"
+        ],
+        "notes_zh": "平台执行日报与插件告警均应解析到同一 GCP secret 名；禁止在公开仓写入 token 或 chat id。",
+        "notes_en": "Execution digests and plugin alerts must resolve to the same GCP secret name; never commit tokens or chat ids."
+      },
+      "daily_digest": {
+        "schema_version": "qsl.daily_digest.v1",
+        "enabled": true,
+        "channel": "quant_sentinel",
+        "telegram_bot_token_secret_name": "quant-sentinel-telegram-bot-token",
+        "locales": [
+          "zh",
+          "en"
+        ],
+        "default_locale_env": [
+          "QSL_NOTIFY_LANG",
+          "NOTIFY_LANG"
+        ],
+        "default_locale": "zh",
+        "inclusion": {
+          "require_actual_run": true,
+          "include_crypto_if_any_cycle_ran": true,
+          "include_periodic_dca_only_on_run_day": true,
+          "omit_platforms_with_no_run": true,
+          "heartbeat_only_when_no_runs_or_no_fills": true
+        },
+        "schedule": {
+          "timezone": "Asia/Shanghai",
+          "cron": "0 6 * * 2-6",
+          "description_zh": "周二至周六 06:00 Asia/Shanghai，覆盖前一美股 RTH 收盘；加密当日 UTC 有周期则并入同一条日报。",
+          "description_en": "Tue–Sat 06:00 Asia/Shanghai, after prior US RTH close; include crypto if any UTC-day cycle ran."
+        },
+        "message": {
+          "title_key": "daily_digest_title",
+          "heartbeat_title_key": "daily_digest_heartbeat_title",
+          "max_platforms": 12,
+          "max_strategies_per_platform": 8,
+          "forbid_amounts_in_public_logs": true
+        }
+      }
     }
   },
   "domains": {
