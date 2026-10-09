@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-console/frontend/src/operations.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { longBridgeCashDetails } from "../web/strategy-switch-console/frontend/src/types.ts";
-import { nextExplicitTheme, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
+import { nextExplicitTheme, normalizeThemePreference, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
 import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, humanDecisionQueue, listDailyDecisions, mergeAdminFields, overviewFigures, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
@@ -184,8 +184,14 @@ for (const option of CHART_RANGE_OPTIONS) {
   assert.equal(/\d{4}-\d{2}-\d{2}|series|\[/.test(`${note.key} ${note.rangeLabel}`), false);
 }
 assert.equal(overviewFigures(1, ["BALANCED_COMPOUNDING"]).series, null);
+assert.equal(normalizeThemePreference(null), "dark");
+assert.equal(normalizeThemePreference(""), "dark");
+assert.equal(normalizeThemePreference("bogus"), "dark");
+assert.equal(normalizeThemePreference("system"), "system");
+assert.equal(normalizeThemePreference("light"), "light");
 assert.equal(resolveTheme("system", false), "light");
 assert.equal(resolveTheme("system", true), "dark");
+assert.equal(resolveTheme("dark", false), "dark");
 assert.equal(nextExplicitTheme(resolveTheme("system", false)), "dark");
 assert.equal(nextExplicitTheme(resolveTheme("system", true)), "light");
 assert.equal(nextExplicitTheme("dark"), "light");
