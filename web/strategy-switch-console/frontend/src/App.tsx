@@ -10,9 +10,9 @@ import { AccountsPage, type AccountListItem } from "./AccountsPage";
 import { DecisionCount, DecisionsPage } from "./DecisionsPage";
 import { OverviewPage, type OverviewAccount } from "./OverviewPage";
 import { StrategyIdentity } from "./StrategyIdentity";
-import { accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, humanDecisionQueue, listDailyDecisions, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategySelectionName, strategyIdentityView, candidateDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
+import { accountStatusView, overviewActivationLabelFromProjection, adminDirectoryTitle, brokerAccountType, knownAccountLabel, humanDecisionQueue, listDailyDecisions, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, strategyDisplayName, strategySelectionName, strategyIdentityView, candidateDisplayName, strategyNote, strategyOccupiedNames, type DailyDecision } from "./presentation";
 import { accountFactsForRow } from "./types";
-import { runtimeDailySelectionBinding } from "./presentation";
+import { resolveRuntimeDailyTarget, runtimeDailySelectionBinding } from "./presentation";
 type Page = "overview" | "strategy" | "accounts";
 type Theme = "light" | "dark" | "system";
 type AccountRow = {
@@ -707,6 +707,12 @@ function App() {
             platformKey: row.platform,
             accountKey: row.account.key,
             runtimeDailyBinding: runtimeDailySelectionBinding(model?.config.value?.accountOptions, row.platform, row.account.key, model?.config.value?.runtimeDailyBindings),
+            runtimeDailyTarget: resolveRuntimeDailyTarget({
+                platform: row.platform,
+                accountKey: row.account.key,
+                accountOptions: model?.config.value?.accountOptions,
+                trustedBindings: model?.config.value?.runtimeDailyBindings,
+            }),
             title: accountTitle(row.account, row.platformLabel, row.current?.strategy_profile),
             platform: row.platformLabel,
             environment: brokerEnvironment(row.account.broker_environment, t),
@@ -715,7 +721,7 @@ function App() {
             strategy: strategyFields(row).strategy,
             statusLabel: overviewRuntimeStatusLabel(row.runtime?.account_state, row.runtime?.freshness?.data_status),
             statusDetail: row.runtimeDetail || status.detail,
-            activation: activationFromProjection(row.runtime?.account_state) === "—" ? "待确认" : activationFromProjection(row.runtime?.account_state),
+            activation: overviewActivationLabelFromProjection(row.runtime?.account_state),
             runtimeTargetEnabled: typeof row.current?.runtime_target_enabled === "boolean"
                 ? row.current.runtime_target_enabled : null,
             preference: typeof preference === "string" ? preference : null,
@@ -737,8 +743,8 @@ function App() {
             binanceReport: row.platform === "binance" && !model?.binanceFacts.error ? model?.binanceFacts.value?.report : null,
             strategy: fields.strategy,
             strategyNote: fields.note,
-            statusLabel: monitoring.label === "正常" ? "监测正常" : monitoring.label,
-            activation: activationFromProjection(row.runtime?.account_state),
+            statusLabel: monitoring.label,
+            activation: overviewActivationLabelFromProjection(row.runtime?.account_state),
         };
     });
     const decisions = listDailyDecisions({

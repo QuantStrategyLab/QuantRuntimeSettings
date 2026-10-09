@@ -38,7 +38,7 @@ class RuntimeTargetLifecycleTest(unittest.TestCase):
         self.assertNotIn('requestJson("/api/runtime-target-lifecycle")', console)
         self.assertNotIn("function renderRuntimeTargetLifecycle()", console)
         self.assertIn("accountStatusView", console)
-        self.assertIn("activationFromProjection", console)
+        self.assertIn("overviewActivationLabelFromProjection", console)
 
     def test_disabled_target_remains_in_no_order_validation_lane(self) -> None:
         snapshot = _snapshot()

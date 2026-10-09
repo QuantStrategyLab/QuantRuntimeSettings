@@ -80,7 +80,7 @@ try {
     assert.equal(notDue.account_state.reason, "check_not_due");
     assert.equal(health(notDue, null, selection).label, "健康", `${platform}: explicit current check_not_due does not need another target's daily report`);
     notDue.observed_at = instant(-301);
-    assert.equal(health(notDue, null, selection).label, "待确认", `${platform}: not_due cannot mask stale evidence`);
+    assert.equal(health(notDue, null, selection).label, "异常", `${platform}: not_due cannot mask stale evidence`);
   }
   const missingPaperDaily = runtimeFor("longbridge", "not_due");
   assert.equal(health(missingPaperDaily, null).label, "健康", "missing PAPER daily evidence does not redefine lifecycle monitoring");
@@ -491,9 +491,9 @@ try {
       }
       for (const [name, mutate, expected] of [
         ["failed lifecycle", value => value.account_state.health = "abnormal", "异常"],
-        ["expired lifecycle", value => value.observed_at = new Date(schwabNow - 301000).toISOString(), "待确认"],
-        ["expired deployment", value => value.deployment_freshness.data_status = "stale", "待确认"],
-        ["unknown runtime guard", value => value.target.monitoring.runtime_guard = "unknown", "待确认"],
+        ["expired lifecycle", value => value.observed_at = new Date(schwabNow - 301000).toISOString(), "异常"],
+        ["expired deployment", value => value.deployment_freshness.data_status = "stale", "异常"],
+        ["unknown runtime guard", value => value.target.monitoring.runtime_guard = "unknown", "异常"],
         ["paused scheduler", value => value.target.deployment.scheduler_state = "paused", "异常"],
       ]) {
         const runtime = schwabRuntime(); mutate(runtime);
@@ -512,7 +512,7 @@ try {
         assert.equal(localWrites.length, writes);
       }
       schwabNow += 301000;
-      assert.equal(overviewRuntimeHealth({ ...schwabRuntime(), observed_at: body.observed_at }, snapshot, selection, false, schwabNow).label, "待确认", "existing lifecycle TTL expires into unknown, not a proven failure");
+      assert.equal(overviewRuntimeHealth({ ...schwabRuntime(), observed_at: body.observed_at }, snapshot, selection, false, schwabNow).label, "异常", "existing lifecycle TTL expires into 异常, not a separate unknown pill");
       schwabNow = Date.parse(item.next_ny_midnight) - 1;
       assert.equal(healthFor(snapshot).label, "健康", `${item.name}: still the same New York business day with fresh lifecycle evidence`);
       schwabNow += 1;
