@@ -67,7 +67,7 @@ Environment：`runtime-strategy-switch`。
 优先对接已有稳定 facts / 日报投影的平台之一（以各平台仓文档为准，revision 勿编造）：
 
 1. **CharlesSchwabPlatform** — 见下方「平台生产者」与 [PR #488](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/488)；候选由平台侧从已验证 facts 投影，经受保护通道写入中央 Environment secret，或私有 job 写出文件后由 `DIGEST_CANDIDATES_PATH` 消费。
-2. **InteractiveBrokersPlatform** — 同上；注意 `target_id` / account scope 与控制台绑定一致。
+2. **InteractiveBrokersPlatform** — 见 [PR #583](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/583) 与仓内 `docs/digest_candidates_producer.zh-CN.md`；证据源为 `runtime_report.v1` + snapshot history（无 Schwab 式 `runtime-daily-sync`）；注意 `target_id` / account scope 与控制台绑定一致。
 3. **LongBridgePlatform（SG）** — 与 HK 隔离；本任务不改 HK ingress / scheduler。SG 候选同样经受保护通道注入中央。
 
 本仓无法直接拉取平台私有产物时：先用合成候选 dry-run 验收聚合与渲染，再由平台维护者配置 Environment secret。
@@ -78,9 +78,10 @@ Environment：`runtime-strategy-switch`。
 
 | 平台仓 | PR / 文档 | 说明 |
 | --- | --- | --- |
-| CharlesSchwabPlatform | [PR #488](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/488)；仓内 `docs/digest_candidates_producer.zh-CN.md` | 从已验证 runtime daily / facts 投影 `schema_version=qsl.digest_candidates.v1`；默认不上传公开 artifact；fills 未知保持 `null`，不写成 0 |
+| CharlesSchwabPlatform | [PR #488](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/488)；仓内 `docs/digest_candidates_producer.zh-CN.md` | 从已验证 runtime daily / facts（`runtime-daily-sync`）投影 `schema_version=qsl.digest_candidates.v1`；默认不上传公开 artifact；fills 未知保持 `null`，不写成 0 |
+| InteractiveBrokersPlatform | [PR #583](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/583)；仓内 `docs/digest_candidates_producer.zh-CN.md` | 证据源为 **`runtime_report.v1` + snapshot history**（**无** Schwab 式 `runtime-daily-sync`）；投影同 schema；默认不上传公开 artifact；fills 未知保持 `null`，不写成 0 |
 
-对接约定：`platform_id` 用控制台/聚合器已识别的短名（Schwab 为 **`schwab`**）。生产者输出经受保护通道进入本仓 Environment，**不**由本仓直接改平台私有产物。
+对接约定：`platform_id` 用控制台/聚合器已识别的短名（Schwab 为 **`schwab`**，IBKR 为 **`ibkr`**）。生产者输出经受保护通道进入本仓 Environment，**不**由本仓直接改平台私有产物。
 
 ### 本机联调（已验证，2026-10-09）
 
@@ -140,3 +141,4 @@ workflow_dispatch：默认 `dry_run=true`；确认 Environment 已接线后再�
 - `docs/notifications-quant-sentinel.zh-CN.md`
 - `docs/private-target-wiring-baseline.zh-CN.md`
 - 平台生产者（Schwab）：https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/488 ；`CharlesSchwabPlatform/docs/digest_candidates_producer.zh-CN.md`
+- 平台生产者（IBKR）：https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/583 ；`InteractiveBrokersPlatform/docs/digest_candidates_producer.zh-CN.md`（`runtime_report.v1` + snapshot history，无 `runtime-daily-sync`）
