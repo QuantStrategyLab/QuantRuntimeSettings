@@ -22,7 +22,7 @@
   "schema_version": "qsl.runtime_catalog_projection.v1",
   "source": {
     "catalog_as_of": "2026-08-19",
-    "content_sha256": "sha256:80fef891f2fb7854fbfc1f7dac24935892d27f312952d6c6b180da63ec5cc30c",
+    "content_sha256": "sha256:cfe3917f3032e1c71802ccb59f5e6b9c835c58b5e1ebbf87a04ddae37927f59c",
     "path": "platform-config.json"
   },
   "strategies": [
