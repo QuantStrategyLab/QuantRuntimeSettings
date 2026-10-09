@@ -701,6 +701,48 @@ def validate_notification_references(config: dict, errors: list[str]) -> None:
                             f"{path}.daily_digest.inclusion.heartbeat_only_when_no_runs_or_no_fills "
                             "must be true"
                         )
+                aggregator = daily.get("aggregator")
+                if aggregator is not None:
+                    if not isinstance(aggregator, dict):
+                        errors.append(f"{path}.daily_digest.aggregator must be an object")
+                    else:
+                        if aggregator.get("schema_version") != "qsl.daily_digest_aggregator.v1":
+                            errors.append(
+                                f"{path}.daily_digest.aggregator.schema_version must be "
+                                "'qsl.daily_digest_aggregator.v1'"
+                            )
+                        if aggregator.get("counts_policy") != "never_invent_fills_or_orders":
+                            errors.append(
+                                f"{path}.daily_digest.aggregator.counts_policy must be "
+                                "'never_invent_fills_or_orders'"
+                            )
+                        allowlist = aggregator.get("github_workflow_allowlist")
+                        if allowlist is not None:
+                            if not isinstance(allowlist, list):
+                                errors.append(
+                                    f"{path}.daily_digest.aggregator.github_workflow_allowlist "
+                                    "must be a list"
+                                )
+                            else:
+                                for index, item in enumerate(allowlist):
+                                    if not isinstance(item, dict):
+                                        errors.append(
+                                            f"{path}.daily_digest.aggregator."
+                                            f"github_workflow_allowlist[{index}] must be an object"
+                                        )
+                                        continue
+                                    for field in (
+                                        "platform_id",
+                                        "repository",
+                                        "workflow",
+                                        "strategy_profile",
+                                    ):
+                                        if not str(item.get(field) or "").strip():
+                                            errors.append(
+                                                f"{path}.daily_digest.aggregator."
+                                                f"github_workflow_allowlist[{index}].{field} "
+                                                "required"
+                                            )
 
 
 def validate_runtime_authority_status(config: dict, errors: list[str]) -> None:

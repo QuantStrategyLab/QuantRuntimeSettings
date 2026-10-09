@@ -311,6 +311,10 @@ class RuntimeSettingsTest(unittest.TestCase):
             digest["telegram_bot_token_secret_name"],
             "quant-sentinel-telegram-bot-token",
         )
+        aggregator = digest["aggregator"]
+        self.assertEqual(aggregator["schema_version"], "qsl.daily_digest_aggregator.v1")
+        self.assertEqual(aggregator["counts_policy"], "never_invent_fills_or_orders")
+        self.assertTrue(aggregator["github_workflow_allowlist"])
         self.assertEqual(
             sentinel["github_variable_contract"]["TELEGRAM_TOKEN_SECRET_NAME"],
             "quant-sentinel-telegram-bot-token",

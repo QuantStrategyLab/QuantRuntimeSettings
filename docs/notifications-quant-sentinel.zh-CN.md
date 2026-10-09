@@ -97,7 +97,17 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 3. 使用 **同一** `quant-sentinel-telegram-bot-token` 与全局 chat 路由发送。
 4. 平台独立 bot 的执行日报路径应关闭或改指 sentinel，避免昨天那种「分平台 bot 各发一条」。
 
-本仓提供合同与渲染器；跨仓 aggregator workflow 可后续落地，但 **secret 名与变量契约即日起以本文为准**。
+### Aggregator（本仓已落地）
+
+- Workflow 文稿：`docs/workflows/daily-digest-notify.yml`（需拷贝到 `.github/workflows/daily-digest-notify.yml` 后才会被 Actions 调度；当前推送 OAuth 无 `workflow` scope）
+- 脚本：`python/scripts/daily_digest_aggregator.py` + `python/scripts/send_daily_digest_telegram.py`
+- 调度：UTC `0 22 * * 1-5` = **Asia/Shanghai 周二至周六 06:00**（覆盖前一美股 RTH）
+- 证据：`DIGEST_CANDIDATES_PATH` / JSON（优先）+ 可选 allowlisted GitHub workflow 成功结论（**不编造成交数**）
+- 发送：Environment `runtime-strategy-switch`；`TELEGRAM_TOKEN` 或 `TELEGRAM_TOKEN_SECRET_NAME`→GCP `quant-sentinel-telegram-bot-token`；chat 走 `QSL_GLOBAL_TELEGRAM_CHAT_ID` / `GLOBAL_TELEGRAM_CHAT_ID`
+- 测试：`workflow_dispatch` 默认 `dry_run=true`；生产 schedule 会真实发送
+- Binance：历史 `TG_TOKEN` 仍独立；对齐步骤见 `platform-config.json` → `daily_digest.aggregator.binance_alignment_note_*`（公开仓只记名称）
+
+**secret 名与变量契约以本文为准**；缺失 Environment secret 时 receipt 写明缺项，不在日志打印 token/chat id。
 
 ## VPS / Cloud Run
 

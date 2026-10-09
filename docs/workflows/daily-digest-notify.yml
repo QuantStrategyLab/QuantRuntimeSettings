@@ -1,0 +1,181 @@
+# INSTALL: copy this file to .github/workflows/daily-digest-notify.yml
+# with a credential that has the GitHub OAuth `workflow` scope, then push.
+# Until then Actions will not schedule or accept workflow_dispatch for this job.
+#
+name: Daily Digest Notify
+
+# Post-close QuantSentinel aggregator: one message for all platforms that
+# actually ran. Empty evidence → heartbeat via daily_digest_notify renderer.
+#
+# Schedule (GitHub Actions cron is UTC):
+#   0 22 * * 1-5  == Tue–Sat 06:00 Asia/Shanghai (covers prior US RTH close).
+# Optional Asia cash session digest is not scheduled yet; add a second cron
+# only after an Asia evidence contract exists (do not invent runs).
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Render only; do not call Telegram (recommended for first test)."
+        required: true
+        type: boolean
+        default: true
+      business_day:
+        description: "Override America/New_York business day YYYY-MM-DD (empty = today NY)."
+        required: false
+        type: string
+        default: ""
+      locale:
+        description: "zh or en (empty = QSL_NOTIFY_LANG / NOTIFY_LANG / zh)."
+        required: false
+        type: string
+        default: ""
+      include_github_evidence:
+        description: "Query allowlisted platform workflow conclusions (counts stay 0 unless candidates supply them)."
+        required: true
+        type: boolean
+        default: true
+  schedule:
+    # Asia/Shanghai Tue–Sat 06:00 → UTC Mon–Fri 22:00
+    - cron: "0 22 * * 1-5"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: daily-digest-notify
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    name: Aggregate and notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: runtime-strategy-switch
+    env:
+      # Sentinel secret *name* contract (value never committed).
+      TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME || 'quant-sentinel-telegram-bot-token' }}
+      # Optional direct Environment secret; prefer this when present.
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      QSL_GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.QSL_GLOBAL_TELEGRAM_CHAT_ID }}
+      GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
+      QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG || vars.NOTIFY_LANG || 'zh' }}
+      NOTIFY_LANG: ${{ vars.NOTIFY_LANG || 'zh' }}
+      # Cross-repo evidence (optional). Same token used elsewhere for remote reads.
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+      DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+      # GCP project that hosts a sentinel bot-token replica (LongBridge path).
+      GCP_PROJECT_ID: ${{ vars.DIGEST_GCP_PROJECT_ID || 'longbridgequant' }}
+      GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT || 'qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve dry-run and business day
+        id: opts
+        env:
+          INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          INPUT_BUSINESS_DAY: ${{ inputs.business_day || '' }}
+          INPUT_LOCALE: ${{ inputs.locale || '' }}
+          INPUT_INCLUDE_GITHUB: ${{ github.event_name != 'workflow_dispatch' && true || inputs.include_github_evidence }}
+        run: |
+          set -euo pipefail
+          mkdir -p data/output/daily-digest
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          else
+            if [[ "$INPUT_DRY_RUN" == "true" ]]; then
+              echo "dry_run=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "dry_run=false" >> "$GITHUB_OUTPUT"
+            fi
+          fi
+          echo "business_day=$INPUT_BUSINESS_DAY" >> "$GITHUB_OUTPUT"
+          echo "locale=$INPUT_LOCALE" >> "$GITHUB_OUTPUT"
+          if [[ "$INPUT_INCLUDE_GITHUB" == "true" ]]; then
+            echo "include_github=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "include_github=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Authenticate to Google Cloud for sentinel secret (optional)
+        id: gcp_auth
+        if: ${{ env.TELEGRAM_TOKEN == '' && env.TELEGRAM_TOKEN_SECRET_NAME != '' && steps.opts.outputs.dry_run != 'true' }}
+        continue-on-error: true
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud for sentinel secret (optional)
+        if: ${{ steps.gcp_auth.outcome == 'success' }}
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Aggregate, render, and send daily digest
+        id: send
+        env:
+          DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
+          DIGEST_DRY_RUN: ${{ steps.opts.outputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=(
+            python3 python/scripts/send_daily_digest_telegram.py
+            --write-receipt data/output/daily-digest/receipt.json
+          )
+          if [[ -n "${{ steps.opts.outputs.locale }}" ]]; then
+            args+=(--locale "${{ steps.opts.outputs.locale }}")
+          fi
+          if [[ "${{ steps.opts.outputs.include_github }}" != "true" ]]; then
+            args+=(--no-github)
+          fi
+          if [[ "${{ steps.opts.outputs.dry_run }}" == "true" ]]; then
+            args+=(--dry-run)
+          fi
+          "${args[@]}"
+
+      - name: Summarize (no secrets)
+        if: always()
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+
+          receipt_path = Path("data/output/daily-digest/receipt.json")
+          print("## QuantSentinel daily digest")
+          print()
+          if not receipt_path.exists():
+              print("- receipt: `missing`")
+              raise SystemExit(0)
+          receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+          print(f"- status: `{receipt.get('status')}`")
+          print(f"- business_day: `{receipt.get('business_day')}`")
+          print(f"- locale: `{receipt.get('locale')}`")
+          print(f"- run_count: `{receipt.get('run_count')}`")
+          print(f"- total_fills: `{receipt.get('total_fills')}`")
+          print(f"- dry_run: `{receipt.get('dry_run')}`")
+          print(f"- delivered: `{receipt.get('delivered')}`")
+          print(f"- secret_name_contract: `{receipt.get('secret_name_contract')}`")
+          missing = receipt.get("missing") or []
+          if missing:
+              print("- missing configuration:")
+              for item in missing:
+                  print(f"  - `{item}`")
+          PY
+
+      - name: Upload receipt artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-digest-receipt
+          path: data/output/daily-digest/receipt.json
+          if-no-files-found: warn
