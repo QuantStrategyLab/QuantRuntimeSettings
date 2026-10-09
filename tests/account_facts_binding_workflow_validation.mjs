@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { inspectIbkrAccountFactsConfiguration } from "../web/strategy-switch-console/inspect_ibkr_account_facts_configuration.mjs";
 import { prepareIbkrAccountFactsBindings } from "../web/strategy-switch-console/prepare_ibkr_account_facts_bindings.mjs";
 
@@ -43,6 +44,18 @@ const schwab = { ...primary, platform: "schwab", account_scope: "live",
 const firstrade = { ...primary, platform: "firstrade", account_key: "ft-synthetic", account_scope: "live",
   account_selector: "default", target_id: "ft-synthetic", broker_account_id: "synthetic-native-ft",
   source_binding: {kind: "deployment_runtime_account", id: "9".repeat(64)} };
+const firstradeNextBroker = "synthetic-corrected-ft";
+const firstradeNextId = createHash("sha256").update(JSON.stringify({
+  platform: "firstrade", service_name: firstrade.service_name,
+  deployment_selector: firstrade.deployment_selector, account_scope: firstrade.account_scope,
+  broker_account_id: firstradeNextBroker,
+})).digest("hex");
+const firstradeRotation = {
+  target_id: firstrade.target_id,
+  previous_source_binding_id: firstrade.source_binding.id,
+  next_source_binding_id: firstradeNextId,
+  next_broker_account_id: firstradeNextBroker,
+};
 const longbridgeSg = { platform: "longbridge", account_key: "sg", account_scope: "sg",
   target_name: "longbridge-sg-placeholder", service_name: "longbridge-service-placeholder",
   deployment_selector: "longbridge-sg-placeholder", account_selector: "sg-placeholder",
@@ -226,6 +239,7 @@ const inspectorWorkflowGate = workflow.slice(
 assert.match(workflow, /inspect_ibkr_bindings:[\s\S]*?default: false/);
 assert.match(workflow, /IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'ibkr' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'longbridge' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
+assert.match(workflow, /FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: \$\{\{ inputs\.platform == 'firstrade' && !inputs\.inspect_ibkr_bindings && !inputs\.inspect_ibkr_lifecycle && !inputs\.initialize_ibkr_bindings && secrets\.FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON \|\| '' \}\}/);
 assert.match(workflow, /SCHWAB_ACCOUNT_FACTS_BINDING_JSON: \$\{\{ inputs\.platform == 'schwab' && !inputs\.inspect_ibkr_bindings/);
 assert.match(workflow, /- longbridge/);
 assert.match(workflow, /inspection_platform_invalid/);
@@ -549,6 +563,17 @@ const cases = [
   { name: "longbridge_duplicate_binding", platform: "longbridge", rows: [primary, longbridgeSg,
     { ...longbridgeSg, account_key: "sg-copy" }, secondary], proposed: longbridgeSg,
     rotation: longbridgeRotation, expected: "blocked" },
+  { name: "firstrade_rotate_broker", platform: "firstrade", rows: [primary, firstrade, secondary],
+    proposed: firstrade, rotation: firstradeRotation, expected: "prepared" },
+  { name: "firstrade_rotate_wrong_previous", platform: "firstrade", rows: [primary, firstrade, secondary],
+    proposed: firstrade, rotation: { ...firstradeRotation, previous_source_binding_id: "8".repeat(64) },
+    expected: "blocked" },
+  { name: "firstrade_rotate_bad_hash", platform: "firstrade", rows: [primary, firstrade, secondary],
+    proposed: firstrade, rotation: { ...firstradeRotation, next_source_binding_id: "a".repeat(64) },
+    expected: "blocked" },
+  { name: "firstrade_rotate_same_broker", platform: "firstrade", rows: [primary, firstrade, secondary],
+    proposed: firstrade, rotation: { ...firstradeRotation, next_broker_account_id: firstrade.broker_account_id,
+      next_source_binding_id: firstrade.source_binding.id }, expected: "blocked" },
 ];
 
 for (const test of cases) {
@@ -558,13 +583,28 @@ for (const test of cases) {
     const proposed = test.proposed || primary;
     writeFileSync(join(temp, "account-options.json"), JSON.stringify({ [platform]: [{ ...proposed, key: proposed.account_key }] }), { mode: 0o600 });
     writeFileSync(join(temp, "account-facts-bindings.json"), JSON.stringify({ schema_version: schema, bindings: test.rows }), { mode: 0o600 });
+    const binDir = join(temp, "bin");
+    mkdirSync(binDir);
+    writeFileSync(join(binDir, "gh"), `#!/bin/sh
+case "$*" in
+  *"actions/secrets?per_page=100"*) printf '%s' '{"total_count":1,"secrets":[{"name":"FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"}]}' ;;
+  *"FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON"*) printf '%s' '{"name":"FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON"}' ;;
+  *"secret set"*) exit 0 ;;
+  *) exit 0 ;;
+esac
+`, { mode: 0o700 });
     const child = spawnSync(process.execPath, ["--input-type=module", "-", temp], {
       cwd: join(root, "web/strategy-switch-console"), input: code, encoding: "utf8",
-      env: { ...process.env, BINDING_PLATFORM: platform,
+      env: { ...process.env, PATH: `${binDir}:${process.env.PATH}`, BINDING_PLATFORM: platform,
         IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(test.rotation || {}),
         LONGBRIDGE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(test.rotation || {}),
-        FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({schema_version: schema, bindings: [proposed]}),
-        SCHWAB_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ schema_version: schema, bindings: [proposed] }) },
+        FIRSTRADE_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: platform === "firstrade" && test.rotation
+          ? JSON.stringify(test.rotation) : "",
+        FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON: platform === "firstrade" && test.rotation
+          ? ""
+          : JSON.stringify({schema_version: schema, bindings: [proposed]}),
+        SCHWAB_ACCOUNT_FACTS_BINDING_JSON: JSON.stringify({ schema_version: schema, bindings: [proposed] }),
+        GH_TOKEN: platform === "firstrade" && test.rotation ? "synthetic-gh-token" : "" },
     });
     assert.equal(child.status, test.expected === "blocked" ? 1 : 0, test.name);
     assert.match(child.stdout, new RegExp(`status=${test.expected}`), test.name);
@@ -606,6 +646,13 @@ for (const test of cases) {
         { ...longbridgeHk, source_binding: { ...longbridgeHk.source_binding,
           id: longbridgeHkRotation.next_source_binding_id } }, secondary]);
       assert.deepEqual(next.bindings.filter((item) => item !== next.bindings[2]), [primary, longbridgeSg, secondary]);
+    }
+    if (test.name === "firstrade_rotate_broker") {
+      const next = JSON.parse(readFileSync(output, "utf8"));
+      assert.deepEqual(next.bindings, [primary,
+        { ...firstrade, broker_account_id: firstradeNextBroker,
+          source_binding: { ...firstrade.source_binding, id: firstradeNextId } }, secondary]);
+      assert.doesNotMatch(child.stdout + child.stderr, /synthetic-native-ft|synthetic-corrected-ft|ft-synthetic/);
     }
   } finally {
     rmSync(temp, { recursive: true, force: true });

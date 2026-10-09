@@ -3,8 +3,11 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
-import { prepareFirstradeFactsBinding, applyFirstradeFactsSettings }
-  from "../web/strategy-switch-console/prepare_firstrade_account_facts_binding.mjs";
+import {
+  prepareFirstradeFactsBinding, applyFirstradeFactsSettings,
+  rotateFirstradeFactsBrokerAccount, applyFirstradeSourceBindingRotation,
+  firstradeSourceBindingId,
+} from "../web/strategy-switch-console/prepare_firstrade_account_facts_binding.mjs";
 
 const source = { service_name: "synthetic-ft-service", serving_source_sha: "a".repeat(40),
   runtime_target: { platform_id: "firstrade", service_name: "synthetic-ft-service",
@@ -100,4 +103,54 @@ try {
   assert.equal(existsSync(marker), false);
   assert.doesNotMatch(child.stdout + child.stderr, /synthetic-native-ft|synthetic-gh-token/);
 } finally { rmSync(dir, { recursive: true, force: true }); }
+
+const rotatedBroker = "synthetic-corrected-ft";
+const nextId = firstradeSourceBindingId({
+  service_name: binding.bindings[0].service_name,
+  deployment_selector: binding.bindings[0].deployment_selector,
+  account_scope: binding.bindings[0].account_scope,
+  broker_account_id: rotatedBroker,
+});
+const rotated = rotateFirstradeFactsBrokerAccount({
+  target_id: binding.bindings[0].target_id,
+  previous_source_binding_id: binding.bindings[0].source_binding.id,
+  next_source_binding_id: nextId,
+  next_broker_account_id: rotatedBroker,
+}, binding);
+assert.equal(rotated.bindings[0].broker_account_id, rotatedBroker);
+assert.equal(rotated.bindings[0].source_binding.id, nextId);
+assert.throws(() => rotateFirstradeFactsBrokerAccount({
+  target_id: binding.bindings[0].target_id,
+  previous_source_binding_id: binding.bindings[0].source_binding.id,
+  next_source_binding_id: nextId,
+  next_broker_account_id: binding.bindings[0].broker_account_id,
+}, binding));
+assert.throws(() => rotateFirstradeFactsBrokerAccount({
+  target_id: binding.bindings[0].target_id,
+  previous_source_binding_id: "0".repeat(64),
+  next_source_binding_id: nextId,
+  next_broker_account_id: rotatedBroker,
+}, binding));
+const rotateCalls = [];
+const rotateSettings = new Map([["FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID", "old"]]);
+const rotateCommand = (args, input) => {
+  rotateCalls.push({ args, input });
+  if (args[0] === "api" && args[1].endsWith("actions/secrets?per_page=100")) {
+    return JSON.stringify({ total_count: rotateSettings.size,
+      secrets: [...rotateSettings.keys()].map((name) => ({ name })) });
+  }
+  if (args[0] === "api") return JSON.stringify({ name: "FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON" });
+  if (args[0] === "secret" && args[2] === "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID") {
+    rotateSettings.set(args[2], input);
+  }
+  return "";
+};
+assert.deepEqual(applyFirstradeSourceBindingRotation(rotated, {
+  env: { GH_TOKEN: "synthetic-gh-token" }, command: rotateCommand,
+}), { secret_writes: 2, rotated: true });
+assert.equal(rotateSettings.get("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"), nextId);
+for (const call of rotateCalls) {
+  assert.doesNotMatch(call.args.join(" "), /synthetic-corrected-ft|synthetic-native-ft|synthetic-gh-token/);
+}
+
 console.log("PASS Firstrade protected source, exact binding, zero-broker preparation and safe configuration writes");
