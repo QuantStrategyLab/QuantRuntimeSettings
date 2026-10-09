@@ -126,6 +126,7 @@ jobs:
           node tests/account_facts_readonly_extract_validation.mjs
           node tests/account_facts_sync_extract_validation.mjs
           node tests/owner_decision_extract_validation.mjs
+          node tests/research_promotion_application_extract_validation.mjs
           node --experimental-strip-types tests/research_summary_worker_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node --experimental-default-type=module tests/runtime_instances_worker_validation.mjs
