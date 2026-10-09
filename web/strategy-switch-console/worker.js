@@ -100,6 +100,16 @@ import {
   resetOverviewFxCache,
 } from "./infrastructure/fx/overview_fx.js";
 import {
+  MARKET_BENCHMARK_API_PATH,
+  MARKET_BENCHMARK_SYNC_PATH,
+  MARKET_BENCHMARK_SCHEMA,
+  MARKET_BENCHMARK_INCEPTION_DATE as MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+  MARKET_BENCHMARK_SERIES_IDS,
+  MarketBenchmarkError,
+  normalizeMarketBenchmarkSyncPayload,
+  publicMarketBenchmarkReadModel,
+} from "./infrastructure/market_benchmark/market_benchmark.js";
+import {
   accountFactsResponse as accountFactsResponseImpl,
   accountFactsHistoryResponse as accountFactsHistoryResponseImpl,
 } from "./application/account_facts/read.js";
@@ -433,6 +443,9 @@ const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "account_period_return_put", "account_period_return_read",
   "account_facts_put", "account_facts_read", "account_facts_list", "account_facts_history_read",
   "binance_wallet_history_put", "binance_wallet_history_read",
+]);
+const MARKET_BENCHMARK_DO_ACTIONS = new Set([
+  "market_benchmark_put", "market_benchmark_read",
 ]);
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
@@ -2242,6 +2255,15 @@ export class RuntimeInstances {
       PRIMARY KEY (platform, account_key, observation_date)
     )`);
     this.sql.exec("CREATE INDEX IF NOT EXISTS account_facts_daily_account ON account_facts_daily (platform, account_key, observation_date)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS market_benchmark_daily (
+      series_id TEXT NOT NULL,
+      observation_date TEXT NOT NULL,
+      close TEXT NOT NULL,
+      source TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (series_id, observation_date)
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_daily_date ON market_benchmark_daily (observation_date)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
       request_id TEXT PRIMARY KEY,
       target_id TEXT NOT NULL,
@@ -2618,6 +2640,86 @@ export class RuntimeInstances {
     if (command.action === "account_facts_list") return this.listAccountFactsObservations(command);
     if (command.action === "account_facts_history_read") return this.readAccountFactsDailyHistory(command);
     throw new HttpError("unsupported_account_facts_action", 400);
+  }
+
+
+  marketBenchmarkCommand(command) {
+    if (!command || typeof command.action !== "string") throw new HttpError("unsupported_market_benchmark_action", 400);
+    if (command.action === "market_benchmark_read") return this.readMarketBenchmarkPoints(command);
+    if (command.action === "market_benchmark_put") return this.putMarketBenchmarkPoints(command);
+    throw new HttpError("unsupported_market_benchmark_action", 400);
+  }
+
+  readMarketBenchmarkPoints(command = {}) {
+    const inception = typeof command.inception_date === "string" && command.inception_date
+      ? command.inception_date
+      : MARKET_BENCHMARK_INCEPTION_DATE_CONST;
+    const rows = this.sql.exec(
+      `SELECT series_id, observation_date, close, source FROM market_benchmark_daily
+       WHERE observation_date >= ? ORDER BY series_id ASC, observation_date ASC`,
+      inception,
+    ).toArray();
+    const points = rows.map((row) => ({
+      seriesId: row.series_id,
+      observationDate: row.observation_date,
+      close: row.close,
+      ...(row.source ? { source: row.source } : {}),
+    }));
+    return { ok: true, ...publicMarketBenchmarkReadModel(points, { inceptionDate: inception }) };
+  }
+
+  putMarketBenchmarkPoints(command) {
+    let normalized;
+    try {
+      normalized = normalizeMarketBenchmarkSyncPayload(command.payload || command, {
+        inceptionDate: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+        allowDropBeforeInception: true,
+      });
+    } catch (error) {
+      if (error instanceof MarketBenchmarkError) throw new HttpError(error.code, error.status || 400);
+      throw error;
+    }
+    const updatedAt = new Date().toISOString();
+    let written = 0;
+    let unchanged = 0;
+    for (const point of normalized.points) {
+      const existing = this.sql.exec(
+        `SELECT close, source FROM market_benchmark_daily WHERE series_id = ? AND observation_date = ?`,
+        point.seriesId,
+        point.observationDate,
+      ).toArray()[0];
+      if (existing && existing.close === point.close
+          && (existing.source || null) === (point.source || null)) {
+        unchanged += 1;
+        continue;
+      }
+      if (existing && existing.close !== point.close) {
+        throw new HttpError("market_benchmark_point_conflict", 409);
+      }
+      this.sql.exec(
+        `INSERT INTO market_benchmark_daily (series_id, observation_date, close, source, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(series_id, observation_date) DO UPDATE SET
+           close = excluded.close,
+           source = excluded.source,
+           updated_at = excluded.updated_at`,
+        point.seriesId,
+        point.observationDate,
+        point.close,
+        point.source || null,
+        updatedAt,
+      );
+      written += 1;
+    }
+    return {
+      ok: true,
+      stored: true,
+      schema_version: MARKET_BENCHMARK_SCHEMA,
+      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+      written,
+      unchanged,
+      points: normalized.points.length,
+    };
   }
 
   binanceWalletHistoryContext(command) {
@@ -3677,6 +3779,9 @@ export class RuntimeInstances {
       }
       if (ACCOUNT_FACTS_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.accountFactsCommand(command)));
+      }
+      if (MARKET_BENCHMARK_DO_ACTIONS.has(command?.action)) {
+        return json(this.storage.transactionSync(() => this.marketBenchmarkCommand(command)));
       }
       if (HK_STOP_DO_ACTIONS.has(command?.action)) {
         return json(this.storage.transactionSync(() => this.hkStopCommand(command)));
