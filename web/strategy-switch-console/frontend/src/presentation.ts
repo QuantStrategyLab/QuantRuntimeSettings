@@ -478,7 +478,8 @@ export function presentMarketBenchmarkSeries(
   seriesId: MarketBenchmarkSeriesId,
 ) {
   const byDate = new Map<string, string | null>();
-  for (const point of stored || []) {
+  const rows = Array.isArray(stored) ? stored : [];
+  for (const point of rows) {
     if (!point || point.seriesId !== seriesId || !DATE_RE.test(point.observationDate)) continue;
     const value = parseMoneyForChart(point.close);
     if (value === null || value <= 0) continue;
