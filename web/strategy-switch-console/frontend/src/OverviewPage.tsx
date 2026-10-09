@@ -17,6 +17,8 @@ import {
   formatOverviewShortInstant,
   accountNativeReadout,
   overviewRuntimeHealth,
+  overviewActivationLabel,
+  runtimeDailySelectionFromAccount,
   runtimeDeploymentReadout,
   brokerAccountType,
   MARKET_BENCHMARK_INCEPTION_DATE,
@@ -73,6 +75,7 @@ export type OverviewAccount = {
   platformKey: string;
   accountKey: string;
   runtimeDailyBinding: RuntimeDailyBinding;
+  runtimeDailyTarget?: import("./presentation").RuntimeDailyTargetDescriptor | null;
   title: string;
   platform: string;
   environment: string;
@@ -93,6 +96,7 @@ type RuntimeDailyRequestState = { value: RuntimeDailySnapshot | null; error: str
 function runtimeDailyRequestKey(platform: string, accountKey: string, binding: RuntimeDailyBinding, date: string): string {
   return JSON.stringify([platform, accountKey, binding, date]);
 }
+
 
 function amountOrDash(value: string | null | undefined): string {
   return value && value.length ? value : "—";
@@ -259,7 +263,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     if (duplicates.length < 2 || !account.environment) return account.title;
     return `${account.title} · ${account.environment}`;
   };
-  const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
+  const activationText = (label: string) => overviewActivationLabel(label);
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
   const selectedWalletValuation = selectedAccount?.platformKey === "binance"
     && selectedAccount.id === walletAccount?.id ? walletValuation : null;
@@ -363,9 +367,9 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart, readModelRefreshVersion]);
   useEffect(() => {
     let active = true;
-    const todayAccounts = accounts.filter(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }));
+    const todayAccounts = accounts.filter(account => runtimeDailySelectionEligible(runtimeDailySelectionFromAccount(account)));
     const selectedAccounts = runtimeDateSelectable(runtimeDate, runtimeNow) && runtimeDate !== runtimeToday
-      ? visible.filter(account => runtimeDailySelectionEligible({ platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }))
+      ? visible.filter(account => runtimeDailySelectionEligible(runtimeDailySelectionFromAccount(account)))
       : [];
     const requests = new Map<string, { account: OverviewAccount; date: string }>();
     for (const account of todayAccounts) requests.set(runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday), { account, date: runtimeToday });
@@ -376,7 +380,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     }
     setRuntimeDaily(Object.fromEntries(Array.from(requests.keys(), key => [key, { value: null, error: null, loading: true }])));
     for (const [key, { account, date }] of requests) {
-      const selection = { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding };
+      const selection = runtimeDailySelectionFromAccount(account);
       void loadRuntimeDaily(date, account.platformKey, account.accountKey)
         .then((payload) => {
           if (!active) return;
@@ -821,7 +825,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         </label>
       </div>
       {!runtimeDateSelectable(runtimeDate, runtimeNow) ? <p>{t("请选择最近90天内的有效日期")}</p> : visible.map(account => {
-        const selection = { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding };
+        const selection = runtimeDailySelectionFromAccount(account);
         const eligible = runtimeDailySelectionEligible(selection);
         const dailyEntry = runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeDate)];
         const runtimeError = dailyEntry?.error;
@@ -891,7 +895,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
           const longBridgeCash = longBridgeCashDetails(account.facts);
           const longBridgeFinancing = longBridgeFinancingDetails(account.facts);
           const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value,
-            { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
+            runtimeDailySelectionFromAccount(account), account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const deployment = runtimeDeploymentReadout(account.runtime, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
           const cardDetail = walletCardValuation
             ? `${t("观察")} ${formatShortInstant(walletCardValuation.observed_at) || "—"}`
@@ -928,7 +932,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
             </span>
             <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
-            {account.runtimeTargetEnabled === true && (account.activation === "待确认" || account.activation === "—")
+            {account.runtimeTargetEnabled === true && overviewActivationLabel(account.activation) === "异常"
               ? <small>{t("配置开关已启用，实际运行待确认。")}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
@@ -1023,9 +1027,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               const cash = formatAccountFactAmounts(freshCashRows, cashField);
               const verifiedFreshCashRows = account.facts?.data_status === "fresh" && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true ? freshCashRows : null;
               const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
-              const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value, { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
-              const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : health.label === "异常" ? { text: "异常" as const, tone: "bad" } : { text: "健康未知" as const, tone: "unknown" };
-              const enabledView = account.activation === "已启用" ? { text: "已启用" as const, tone: "ok" } : account.activation === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "启用未知" as const, tone: "unknown" };
+              const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value, runtimeDailySelectionFromAccount(account), account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
+              const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : { text: "异常" as const, tone: "bad" };
+              const enabledLabel = overviewActivationLabel(account.activation);
+              const enabledView = enabledLabel === "已启用" ? { text: "已启用" as const, tone: "ok" } : enabledLabel === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "异常" as const, tone: "bad" };
               const confirmed = account.brokerEnvironment === "live";
               return <tr key={account.id} className="overview-account-entry">
                 <td><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>

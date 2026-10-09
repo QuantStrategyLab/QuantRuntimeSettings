@@ -3,8 +3,8 @@ import { accountFactsForDisplay, binanceProviderProductTypeForDisplay } from "./
 import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
 import type { LifecycleRecord } from "./api";
 import { DEFAULT_STRATEGY_PROFILES } from "../../strategy_profiles_asset.js";
-import { RUNTIME_DAILY_TARGET, runtimeDailyTarget, runtimeDailyRecordMatchesTarget, runtimeDailyRunIssue } from "../../runtime_daily_contract.js";
-export { runtimeDailySelectionBinding } from "../../runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, runtimeDailyTarget, resolveRuntimeDailyTarget, runtimeDailyRecordMatchesTarget, runtimeDailyRunIssue, runtimeDailyExpectedLane } from "../../runtime_daily_contract.js";
+export { resolveRuntimeDailyTarget, runtimeDailyExpectedLane, runtimeDailySelectionBinding } from "../../runtime_daily_contract.js";
 
 const BINANCE_SCOPE_MAX_ASSETS = 5000;
 const BINANCE_SCOPE_MAX_DECIMAL_LENGTH = 128;
@@ -838,17 +838,52 @@ export const RUNTIME_DAILY_PLATFORM = RUNTIME_DAILY_TARGET.platform;
 
 export type RuntimeDailyBinding = "bound" | "not_applicable" | "unresolved";
 
+export type RuntimeDailyTargetDescriptor = {
+  platform: string;
+  service: string;
+  strategy_profile: string;
+  account_scope: string;
+  target_key: string;
+};
+
 export type RuntimeDailySelection = {
   platform: string | null | undefined;
   accountKey: string | null | undefined;
   dailyBinding: RuntimeDailyBinding;
+  /** Bound cadence target for this account when already resolved. */
+  target?: RuntimeDailyTargetDescriptor | null;
 };
+
+export function selectionRuntimeDailyTarget(selection: RuntimeDailySelection | null | undefined): RuntimeDailyTargetDescriptor | null {
+  if (!selection) return null;
+  if (selection.target) return selection.target;
+  if (typeof selection.platform !== "string" || !selection.platform) return null;
+  // Tests may pass a bound selection without options; fixture lookup stays last-resort only.
+  return resolveRuntimeDailyTarget({
+    platform: selection.platform,
+    accountKey: typeof selection.accountKey === "string" ? selection.accountKey : undefined,
+  }) || (selection.dailyBinding === "bound" ? runtimeDailyTarget(selection.platform) : null);
+}
+
+export function runtimeDailySelectionFromAccount(account: {
+  platformKey: string;
+  accountKey: string;
+  runtimeDailyBinding: RuntimeDailyBinding;
+  runtimeDailyTarget?: RuntimeDailyTargetDescriptor | null;
+}): RuntimeDailySelection {
+  return {
+    platform: account.platformKey,
+    accountKey: account.accountKey,
+    dailyBinding: account.runtimeDailyBinding,
+    target: account.runtimeDailyTarget ?? null,
+  };
+}
 
 export function runtimeDailySelectionEligible(selection: RuntimeDailySelection | null | undefined): boolean {
   if (!selection) return false;
   if (typeof selection.platform !== "string" || !selection.platform) return false;
   if (typeof selection.accountKey !== "string" || !selection.accountKey) return false;
-  return Boolean(runtimeDailyTarget(selection.platform)) && selection.dailyBinding === "bound";
+  return Boolean(selectionRuntimeDailyTarget(selection)) && selection.dailyBinding === "bound";
 }
 
 export function runtimeDailyAccountDateKey(platform: string, accountKey: string, date: string): string {
@@ -856,13 +891,13 @@ export function runtimeDailyAccountDateKey(platform: string, accountKey: string,
 }
 
 export function runtimeDailySnapshotMatchesSelection(snapshot: RuntimeDailySnapshot, selection: RuntimeDailySelection, date?: string): boolean {
-  const target = runtimeDailyTarget(selection.platform);
+  const target = selectionRuntimeDailyTarget(selection);
   if (!target || snapshot.ok !== true || snapshot.account_key !== selection.accountKey) return false;
-  // Old PAPER read fixtures remain compatible; Schwab always requires explicit identity.
+  // Legacy paper reads may omit identity fields; live cadence always requires explicit identity.
   if ((snapshot.platform !== undefined && snapshot.platform !== target.platform)
     || (snapshot.target_key !== undefined && snapshot.target_key !== target.target_key)
-    || (target.platform === "schwab" && (snapshot.platform !== "schwab" || snapshot.target_key !== target.target_key))) return false;
-  return (!snapshot.record || runtimeDailyRecordMatchesTarget(snapshot.record, target.platform))
+    || (target.account_scope === "live" && (snapshot.platform !== target.platform || snapshot.target_key !== target.target_key))) return false;
+  return (!snapshot.record || (runtimeDailyRecordMatchesTarget as (record: unknown, platformOrTarget?: unknown) => boolean)(snapshot.record, target))
     && (!date || (snapshot.date === date && (!snapshot.record || snapshot.record.business_date === date)));
 }
 
@@ -1010,11 +1045,13 @@ export function overviewRuntimeHealth(
   selection: RuntimeDailySelection,
   identityMismatch = false,
   now = Date.now(),
-): { label: "健康" | "异常" | "待确认"; detail: string; observedAt: string | null; nextDueAt: string | null; lastSuccessAt: string | null } {
-  const result = { label: "待确认" as "健康" | "异常" | "待确认", detail: "运行证据未取得", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
+): { label: "健康" | "异常"; detail: string; observedAt: string | null; nextDueAt: string | null; lastSuccessAt: string | null } {
+  const result = { label: "异常" as "健康" | "异常", detail: "运行证据未取得", observedAt: runtime?.observed_at || null, nextDueAt: null as string | null, lastSuccessAt: null as string | null };
   const fail = (detail: string) => ({ ...result, label: "异常" as const, detail });
-  const unknown = (detail: string) => ({ ...result, detail });
+  // Former 健康未知 / 待确认: missing or stale evidence is shown as 异常.
+  const unknown = (detail: string) => ({ ...result, label: "异常" as const, detail });
   const healthy = (detail: string) => ({ ...result, label: "健康" as const, detail });
+  // Cycle gaps stay visible in detail but do not flip lifecycle monitoring by themselves.
   const dailyIssue = (detail: string) => ({ ...result, label: "健康" as const, detail });
   if (identityMismatch) return fail("账户身份不匹配");
   if (!runtime) return unknown("运行证据未取得");
@@ -1073,10 +1110,13 @@ export function overviewRuntimeHealth(
     && disposition === "continue_enabled_monitoring";
   if (runtime.account_state?.health !== "normal" && !platformCheckNotDue) return unknown("运行监测未确认");
   if (runtime.account_state?.health === "normal" && !enabledMonitoringAgrees) return unknown("运行监测未确认");
-  const dailyTarget = runtimeDailyTarget(selection.platform);
+  // Prefer the account-bound target; fall back to the platform fixture only to
+  // fail closed when dailyBinding itself is missing from the selection.
+  const dailyTarget = selectionRuntimeDailyTarget(selection)
+    || (typeof selection.platform === "string" ? runtimeDailyTarget(selection.platform) : null);
   if (dailyTarget && selection.dailyBinding !== "bound" && selection.dailyBinding !== "not_applicable") return dailyIssue("周期记录目标绑定未确认");
-  // Each platform owns its lifecycle cadence. Do not require another target's daily feed
-  // to assess another platform, and never infer a due time from this evidence's freshness TTL.
+  // Each account owns its lifecycle cadence via the bound target. Do not require
+  // another account's daily feed, and never infer a due time from freshness TTL.
   if (!runtimeDailySelectionEligible(selection)) {
     return platformCheckNotDue ? healthy("尚未到检查时间") : healthy("运行监测正常，已启用。");
   }
@@ -1089,22 +1129,23 @@ export function overviewRuntimeHealth(
   if (record.completeness !== "complete" || !Array.isArray(record.runs) || (snapshot.read_error_count || 0) > 0 || (snapshot.unmatched_count || 0) > 0 || (record.conflict_count || 0) > 0) return dailyIssue("周期记录不完整");
   if ((record.runs || []).some(run => runtimeDailyRunIssue(run) !== null)) return dailyIssue("周期记录明细未确认或与汇总冲突");
   // A no-run schedule from the exact bound target may honestly have no observed
-  // execution lane. This does not turn any observed dry-run/live lane into PAPER.
+  // execution lane. This does not invent a lane from the platform name.
   const scheduleWithoutRun = record.kind === "schedule" && record.runs.length === 0
     && ["not_due", "market_closed", "outside_window", "within_grace"].includes(record.status);
-  const expectedLane = dailyTarget?.platform === "schwab" ? "live" : "paper";
-  if ((record.execution_lane !== expectedLane && !(scheduleWithoutRun && record.execution_lane === "insufficient"))
+  const expectedLane = runtimeDailyExpectedLane(dailyTarget);
+  if (!expectedLane
+    || (record.execution_lane !== expectedLane && !(scheduleWithoutRun && record.execution_lane === "insufficient"))
     || record.runs.some(run => run.execution_lane !== expectedLane)) return dailyIssue("真实账户周期未确认");
   const schedule = record.schedule;
   const nextDue = validBinanceScopeInstant(schedule?.next_due_at) ? Date.parse(schedule.next_due_at) : NaN;
   const graceEnds = validBinanceScopeInstant(schedule?.grace_ends_at) ? Date.parse(schedule.grace_ends_at) : NaN;
   result.nextDueAt = Number.isFinite(nextDue) ? schedule!.next_due_at! : null;
   if (record.kind === "schedule" && ["not_due", "market_closed", "outside_window"].includes(record.status)) {
-    // The validated Schwab producer can explicitly have no further run today.
-    // Keep this source- and date-bound; a weekend or null due time proves nothing.
+    // Live cadence may publish an explicit closed/no-cron session with null next_due.
+    // Read that from schedule.state/reason; do not special-case a platform name.
     const latestDue = validBinanceScopeInstant(schedule?.latest_due_at) ? Date.parse(schedule.latest_due_at) : NaN;
-    const closedToday = dailyTarget?.platform === "schwab" && schedule?.state === record.status
-      && schedule.business_date === snapshot.date && schedule.timezone === RUNTIME_DAILY_TIMEZONE
+    const closedToday = expectedLane === "live" && schedule?.state === record.status
+      && schedule.business_date === snapshot.date && schedule.timezone === snapshot.timezone
       && runtimeBusinessDate(Date.parse(record.observed_at)) === snapshot.date
       && schedule.next_due_at === null && schedule.grace_ends_at === null && schedule.publication_grace_ended === null
       && ((record.status === "not_due" && schedule.reason === "no_cron_on_business_date" && schedule.latest_due_at === null
@@ -2110,20 +2151,28 @@ export function activationFromProjection(projection: unknown): "已启用" | "�
   return activationLabel(activation);
 }
 
-export function accountStatusView(projection: unknown, sourceFreshness?: string | null): { label: string; detail: string } {
-  const view = presentAccountState(projection as any, sourceFreshness);
-  const scheduled = overviewRuntimeStatusLabel(projection, sourceFreshness) === "等待周期";
-  return { label: scheduled ? "等待周期" : view.label, detail: view.detail };
+/** User-facing enable pill: only 已启用 / 已停用 / 异常. Former 启用未知 / 待确认 map to 异常. */
+export function overviewActivationLabel(activation: unknown): "已启用" | "已停用" | "异常" {
+  if (activation === "已启用" || activation === "enabled") return "已启用";
+  if (activation === "已停用" || activation === "disabled") return "已停用";
+  return "异常";
 }
 
-export function overviewRuntimeStatusLabel(projection: unknown, sourceFreshness?: string | null): "已停用" | "监测正常" | "异常" | "待确认" | "等待周期" {
+export function overviewActivationLabelFromProjection(projection: unknown): "已启用" | "已停用" | "异常" {
+  return overviewActivationLabel(activationFromProjection(projection));
+}
+
+export function accountStatusView(projection: unknown, sourceFreshness?: string | null): { label: string; detail: string } {
+  const view = presentAccountState(projection as any, sourceFreshness);
+  return { label: overviewRuntimeStatusLabel(projection, sourceFreshness), detail: view.detail };
+}
+
+/** Platform monitoring pill: only 健康 or 异常. check_not_due stays 健康; unknown evidence is 异常. */
+export function overviewRuntimeStatusLabel(projection: unknown, sourceFreshness?: string | null): "健康" | "异常" {
   const view = presentAccountState(projection as any, sourceFreshness);
   const activation = projection && typeof projection === "object" ? (projection as { activation?: unknown }).activation : null;
-  if (view.label === "—") {
-    return view.detail === "尚未到检查时间" && activation === "enabled" && sourceFreshness === "ready"
-      ? "等待周期" : "待确认";
-  }
+  if (view.detail === "尚未到检查时间" && activation === "enabled" && sourceFreshness === "ready") return "健康";
   if (view.label === "异常") return "异常";
-  if (activation === "disabled") return "已停用";
-  return activation === "enabled" ? "监测正常" : "待确认";
+  if (view.label === "正常") return "健康";
+  return "异常";
 }

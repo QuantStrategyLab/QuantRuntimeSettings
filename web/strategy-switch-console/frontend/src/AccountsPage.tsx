@@ -6,7 +6,7 @@ import { StrategyIdentity } from "./StrategyIdentity";
 import { statusTone } from "./statusTone";
 import type { StrategyIdentityView } from "./presentation";
 import type { AccountFactsAccount } from "./types";
-import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility, strategySelectionName } from "./presentation";
+import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, overviewActivationLabel, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility, strategySelectionName } from "./presentation";
 
 export type AccountListItem = {
   id: string;
@@ -63,8 +63,8 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
             return <tr key={row.id} className={row.id === selectedId ? "selected" : ""} tabIndex={0} aria-selected={row.id === selectedId} onClick={() => onSelect(row.id)} onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelect(row.id); } }}>
             <td className="account-identity"><button type="button" className="table-link" onClick={event => { event.stopPropagation(); onSelect(row.id); }}><strong>{row.title}</strong></button><span className="account-field-label account-fact-label">{t("配置环境")}</span><small className="account-environment">{row.environment}</small><span className="account-field-label account-fact-label">{t("原生类别")}</span><small className="account-native-type">{native.nativeType || t("未核实")}</small><span className="account-field-label account-fact-label">{t("身份可信度")}</span><small className="account-identity-confidence">{t(native.identityLabel)}</small></td>
             <td><span className="account-field-label">{t("当前策略")}</span><span className="account-field-value">{row.strategy === "未命名策略" ? t(row.strategy) : row.strategy}</span></td>
-            <td><span className="account-field-label">{t("平台监测")}</span><span className="account-field-value" data-tone={statusTone(row.statusLabel)}>{t(row.statusLabel === "—" ? "待确认" : row.statusLabel)}</span></td>
-            <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value" data-tone={statusTone(row.activation)}>{t(row.activation === "—" ? "待确认" : row.activation)}</span></td>
+            <td><span className="account-field-label">{t("平台监测")}</span><span className="account-field-value" data-tone={statusTone(row.statusLabel)}>{t(row.statusLabel === "—" || row.statusLabel === "待确认" ? "异常" : row.statusLabel)}</span></td>
+            <td><span className="account-field-label">{t("启用")}</span><span className="account-field-value" data-tone={statusTone(row.activation)}>{t(overviewActivationLabel(row.activation))}</span></td>
           </tr>; })}</tbody>
         </table>
       </div>
@@ -343,7 +343,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           <select value={strategyChoice} disabled={!canSaveCash} onChange={event => {
             selectStrategy(event.target.value);
           }}>
-            {!strategyChoice && <option value="" hidden disabled></option>}
+            {!strategyChoice && <option value="" hidden disabled>{t("未读到配置")}</option>}
             {currentProfile && !strategyOptions.some((item: { profile?: string }) => item.profile === currentProfile) && <option value={currentProfile}>{strategyName(currentProfile)}</option>}
             {savedStrategy && savedStrategy !== currentProfile && !strategyOptions.some((item: { profile?: string }) => item.profile === savedStrategy) && <option value={savedStrategy}>{strategyName(savedStrategy)}</option>}
             {strategyOptions.map((item: { profile: string }) => <option key={item.profile} value={item.profile}>{strategyName(item.profile)}</option>)}
@@ -382,7 +382,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         </div>
         <label className="cash-floor-field">{t("资金预留")}
           <select value={displayCashMode} disabled={!canSaveCash} onChange={event => { if (event.target.value === "saved") return; chooseMode(event.target.value as "floor" | "ratio" | "both"); }}>
-            {!displayCashMode && <option value="" hidden disabled></option>}
+            {!displayCashMode && <option value="" hidden disabled>{t("未读到配置")}</option>}
             {displayCashMode === "saved" && <option value="saved">{t("已保存的预留覆盖")}</option>}
             <option value="floor">{t("固定金额")}</option>
             <option value="ratio">{t("资产比例")}</option>
@@ -430,7 +430,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
             else controller.edit({ income: next, incomeTouched: true });
             sync();
           }}>
-            {!incomeValue && <option value="" hidden disabled></option>}
+            {!incomeValue && <option value="" hidden disabled>{t("未读到配置")}</option>}
             <option value="true">{t("开启")}</option>
             <option value="false">{t("关闭")}</option>
           </select>
@@ -452,7 +452,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
             else controller.edit({ option: next, optionTouched: true });
             sync();
           }}>
-            {!optionValue && <option value="" hidden disabled></option>}
+            {!optionValue && <option value="" hidden disabled>{t("未读到配置")}</option>}
             <option value="true" disabled={!boundSupports}>{t("开启")}</option>
             <option value="false" disabled={!boundSupports}>{t("关闭")}</option>
           </select>
@@ -466,9 +466,12 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         {otherNotice && <p role="status">{t(otherNotice)}</p>}
       </section>
     </fieldset>}
-    <section className="detail-group runtime-controls"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
+    <section className="detail-group runtime-controls"><div className="activation-row"><span>{t("运行控制")}</span><strong>{t(overviewActivationLabel(row.activation))}</strong></div>
     <div className="form-actions">
-      {readState === "ready" && <button type="button" className="button button-secondary" aria-describedby={settings?.operations?.activation_reason === "admin_required" ? "activation-unavailable" : undefined} disabled>{t("启用")}</button>}
+      {readState === "ready" && <>
+        <button type="button" className="button button-secondary" aria-describedby="activation-not-wired" disabled>{t("启用")}</button>
+        <p id="activation-not-wired" className="field-note" role="note">{t("启用流程尚未接通，此按钮不会提交。")}</p>
+      </>}
       {actions.stop && <button type="button" className="button button-secondary" disabled={!stopAllowed} onClick={onStop}>{t(stopLabel)}</button>}
       {readState === "ready" && actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}
     </div>
