@@ -294,6 +294,27 @@ class RuntimeSettingsTest(unittest.TestCase):
                 "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
             ],
         )
+        self.assertEqual(
+            sentinel["telegram_bot_token_secret_name"],
+            "quant-sentinel-telegram-bot-token",
+        )
+        self.assertEqual(
+            sentinel["execution_telegram_bot_token_secret_name"],
+            sentinel["telegram_bot_token_secret_name"],
+        )
+        digest = sentinel["daily_digest"]
+        self.assertEqual(digest["schema_version"], "qsl.daily_digest.v1")
+        self.assertEqual(digest["locales"], ["zh", "en"])
+        self.assertTrue(digest["inclusion"]["require_actual_run"])
+        self.assertTrue(digest["inclusion"]["heartbeat_only_when_no_runs_or_no_fills"])
+        self.assertEqual(
+            digest["telegram_bot_token_secret_name"],
+            "quant-sentinel-telegram-bot-token",
+        )
+        self.assertEqual(
+            sentinel["github_variable_contract"]["TELEGRAM_TOKEN_SECRET_NAME"],
+            "quant-sentinel-telegram-bot-token",
+        )
         self.assertEqual(build_config.validate(config), [])
 
     def test_notification_route_rejects_public_literal(self):

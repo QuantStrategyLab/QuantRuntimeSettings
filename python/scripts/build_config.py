@@ -669,6 +669,39 @@ def validate_notification_references(config: dict, errors: list[str]) -> None:
                 f"{path}.env_aliases.chat_id must match telegram_chat_id_ref"
             )
 
+        bot_secret = notification.get("telegram_bot_token_secret_name")
+        execution_secret = notification.get("execution_telegram_bot_token_secret_name")
+        if execution_secret is not None and bot_secret is not None and execution_secret != bot_secret:
+            errors.append(
+                f"{path}.execution_telegram_bot_token_secret_name must match "
+                "telegram_bot_token_secret_name"
+            )
+        daily = notification.get("daily_digest")
+        if daily is not None:
+            if not isinstance(daily, dict):
+                errors.append(f"{path}.daily_digest must be an object")
+            else:
+                digest_secret = daily.get("telegram_bot_token_secret_name")
+                if bot_secret is not None and digest_secret is not None and digest_secret != bot_secret:
+                    errors.append(
+                        f"{path}.daily_digest.telegram_bot_token_secret_name must match "
+                        "telegram_bot_token_secret_name"
+                    )
+                locales = daily.get("locales")
+                if locales is not None and locales != ["zh", "en"]:
+                    errors.append(f"{path}.daily_digest.locales must be ['zh', 'en']")
+                inclusion = daily.get("inclusion")
+                if isinstance(inclusion, dict):
+                    if inclusion.get("require_actual_run") is not True:
+                        errors.append(
+                            f"{path}.daily_digest.inclusion.require_actual_run must be true"
+                        )
+                    if inclusion.get("heartbeat_only_when_no_runs_or_no_fills") is not True:
+                        errors.append(
+                            f"{path}.daily_digest.inclusion.heartbeat_only_when_no_runs_or_no_fills "
+                            "must be true"
+                        )
+
 
 def validate_runtime_authority_status(config: dict, errors: list[str]) -> None:
     """Keep legacy execution metadata distinct from P0--P6 runtime authority."""
