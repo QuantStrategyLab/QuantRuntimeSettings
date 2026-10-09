@@ -32,6 +32,7 @@ if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
 import daily_digest_notify as digest  # noqa: E402
+import daily_digest_delivery_axes as delivery_axes  # noqa: E402
 
 DEFAULT_PLATFORM_CONFIG = ROOT / "platform-config.json"
 NY_TZ = ZoneInfo("America/New_York")
@@ -664,7 +665,7 @@ def build_receipt(
     message_chars: int,
 ) -> dict[str, Any]:
     fills = digest.total_fills(payload.runs)
-    return {
+    receipt = {
         "schema_version": "qsl.daily_digest_receipt.v1",
         "business_day": payload.business_day,
         "window_label": payload.window_label,
@@ -678,6 +679,8 @@ def build_receipt(
         "runs": [_run_receipt_dict(entry) for entry in payload.runs],
         "message_chars": message_chars,
     }
+    # B11-b: additive dual-write of delivery axes (projection only).
+    return delivery_axes.attach_delivery_axes(receipt)
 
 
 def main(argv: list[str] | None = None) -> int:

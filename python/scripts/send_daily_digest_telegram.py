@@ -31,7 +31,8 @@ SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
-import daily_digest_aggregator as aggregator  # noqa: E402
+import daily_digest_aggregator as aggregator
+import daily_digest_delivery_axes as delivery_axes  # noqa: E402
 import daily_digest_notify as digest  # noqa: E402
 
 DEFAULT_SECRET_NAME = "quant-sentinel-telegram-bot-token"
@@ -336,6 +337,8 @@ def _receipt_base(*, dry_run: bool, route: dict[str, Any]) -> dict[str, Any]:
 
 
 def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
+    # B11-b: refresh delivery_axes after dry_run/delivered/status are known.
+    delivery_axes.attach_delivery_axes(receipt)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
@@ -405,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         receipt = _receipt_base(dry_run=True, route=route)
         receipt["status"] = "route_check"
+        delivery_axes.attach_delivery_axes(receipt)
         receipt["missing"] = list(route.get("missing") or [])
         receipt["business_day"] = None
         receipt["run_count"] = 0
@@ -472,6 +476,7 @@ def main(argv: list[str] | None = None) -> int:
         missing = list(route.get("missing") or [])
         receipt["missing"] = missing
         receipt["status"] = "dry_run"
+        delivery_axes.attach_delivery_axes(receipt)
         print(
             "Daily digest dry-run: message rendered; "
             f"token_source_kind={route['token_source_kind']}; "
@@ -496,6 +501,7 @@ def main(argv: list[str] | None = None) -> int:
         receipt["warnings"] = list(route.get("warnings") or [])
         receipt["missing"] = missing
         receipt["status"] = "blocked_missing_secrets"
+        delivery_axes.attach_delivery_axes(receipt)
         print(
             "Daily digest not sent: missing Environment configuration:",
             file=sys.stderr,
@@ -528,6 +534,7 @@ def main(argv: list[str] | None = None) -> int:
     ok = send_telegram_message(token=token, chat_id=chat_id, text=text)
     receipt["delivered"] = ok
     receipt["status"] = "delivered" if ok else "send_failed"
+    delivery_axes.attach_delivery_axes(receipt)
     if args.write_receipt:
         _write_receipt(args.write_receipt, receipt)
     if not ok:

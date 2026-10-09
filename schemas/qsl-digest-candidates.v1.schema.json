@@ -297,6 +297,38 @@
         "note": {
           "type": "string",
           "maxLength": 512
+        },
+        "execution_status": {
+          "type": "string",
+          "enum": [
+            "ok_no_order",
+            "ok_filled",
+            "ok_rebalanced",
+            "execution_alert",
+            "execution_unknown",
+            "reconciliation_required"
+          ],
+          "description": "B11 optional producer execution axis. When omitted, central projects from fills/rebalance/status. Does not authorize order retry."
+        },
+        "evidence_persistence_status": {
+          "type": "string",
+          "enum": [
+            "persisted",
+            "persistence_failed",
+            "skipped",
+            "absent",
+            "unknown"
+          ],
+          "description": "B11 optional platform evidence persistence axis. Archive retry must not trigger orders."
+        },
+        "evidence_delivery_status": {
+          "type": "string",
+          "enum": [
+            "pending_central",
+            "omitted",
+            "delivered_to_central"
+          ],
+          "description": "B11 optional producer-side delivery intent toward central. Central receipt projects authoritative evidence_delivery_status."
         }
       }
     }
