@@ -169,9 +169,13 @@ try {
       const html = render(result, language);
       assert.equal(html.includes(good.ticket_id), true); assert.equal(html.includes("fixture-invalid"), false);
       assert.equal(html.includes(translate("部分待办暂时无法读取", language)), true); assert.match(html, /role="status"/);
+      assert.equal(html.includes(translate("{sources} 暂时读不到。以下仅显示已读取的事项，待办列表可能不完整。", language, { sources: translate("晋级方案", language) })), true);
       assert.match(html, /disabled=""/, "non-admin action remains disabled");
       assert.equal(render(derive(controlRead.payload), language).includes(translate("部分待办暂时无法读取", language)), false);
-      assert.equal(render(derive({ ...mixed, errors: ["unknown"] }), language).includes(translate("待办暂不可用", language)), true);
+      const emptyBlocked = render(derive({ ...mixed, errors: ["unknown"] }), language);
+      assert.equal(emptyBlocked.includes(translate("暂时读不到：{sources}", language, { sources: translate("晋级方案", language) })), true);
+      assert.equal(emptyBlocked.includes(translate("待办暂不可用", language)), false);
+      assert.equal(emptyBlocked.includes(translate("暂无需要你决定的事项", language)), false);
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
   assert.equal(networkAttempts, 0);
