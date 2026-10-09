@@ -42,6 +42,7 @@ import {
   runtimeDateSelectable,
   presentBinanceWalletValuation,
   presentBinanceWalletValuationForAccount,
+  overviewReportingCurrency,
   binanceWalletStatusDetail,
   presentBinancePrivateScope,
   scheduleBinancePrivateScopeExpiry,
@@ -570,7 +571,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const cashUsd = sumAmountsToUsd(readCash, overviewUsdRates);
   const nyDate = runtimeToday.split("-");
   const nyLabel = nyDate.length === 3 ? `${nyDate[1]}/${nyDate[2]}/${nyDate[0]}` : runtimeToday;
-  const moneyName = (code: string) => code === "USD" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
+  const moneyName = (code: string) => code === "USD" || code === "USDT" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
   // Kept for the existing disclosure checks. memberCount is never negative, so this is not on the first screen.
   const retainedOverview = aggregateSeries.memberCount < 0 ? <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
@@ -904,10 +905,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               {walletCardValuation
                 ? <span className="wallet-card-valuation">
                   <em>{t("钱包总资产")}</em>
-                  <strong title={walletCardValuation.amount} aria-label={`${walletCardValuation.amount} ${walletCardValuation.currency}`}>
+                  <strong title={walletCardValuation.amount} aria-label={`${walletCardValuation.amount} ${overviewReportingCurrency(walletCardValuation.currency)}`}>
                     {amountOrDash(assets)}
                   </strong>
-                  <small aria-hidden="true">{walletCardValuation.currency}</small>
+                  <small aria-hidden="true">{overviewReportingCurrency(walletCardValuation.currency)}</small>
                 </span>
                 : <span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span>}
               {!walletCardValuation ? <span>
@@ -1004,7 +1005,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
             {screenAccounts.map(account => {
               const walletCardValuation = presentBinanceWalletValuationForAccount(account.id, walletAccount?.id, showWallet ? wallet : null, walletNow);
               const assets = walletCardValuation
-                ? `${walletCardValuation.currency} ${formatBinanceWalletAmount(walletCardValuation.amount)}`
+                ? `${overviewReportingCurrency(walletCardValuation.currency)} ${formatBinanceWalletAmount(walletCardValuation.amount)}`
                 : formatAccountFactAmounts(accountFactsDisplayReady(account.facts) ? account.facts!.balances : null, "net_assets");
               const freshCashRows = accountFactsDisplayReady(account.facts) ? account.facts!.cash : null;
               const cashField = cashFieldForPlatform(account.platformKey) || "available_cash";

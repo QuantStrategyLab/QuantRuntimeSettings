@@ -15,6 +15,12 @@ assert.match(overviewSource, /sumAmountsToUsd\(readCash, overviewUsdRates\)/,
   "home cash converts ready amounts to one USD figure with live FX rates");
 assert.match(overviewSource, /loadOverviewUsdRates\(\)/,
   "home cards load Frankfurter FX rates at runtime");
+assert.match(overviewSource, /code === "USD" \|\| code === "USDT"/,
+  "overview spoken money labels USDT as 美元 under the 1:1 USD policy");
+assert.match(overviewSource, /overviewReportingCurrency\(walletCardValuation\.currency\)/,
+  "Binance wallet amounts display under the overview USD reporting unit");
+assert.match(overviewSource, /cashFieldForPlatform\(account\.platformKey\) \|\| "available_cash"/,
+  "Binance cash stays unread when the platform has no cash field (no invented cash)");
 assert.match(overviewSource, /formatOverviewUsdAmount\(assetUsd\.amount\)/,
   "home total assets display with two decimal places");
 assert.match(overviewSource, /formatOverviewUsdAmount\(cashUsd\.amount\)/,

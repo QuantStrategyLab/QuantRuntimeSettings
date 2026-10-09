@@ -4,8 +4,10 @@ import {
   MARKET_BENCHMARK_TIMEZONE,
   OVERVIEW_FX_API_URL,
   OVERVIEW_FX_SOURCE,
+  OVERVIEW_FX_UPSTREAM_URL,
   OVERVIEW_USD_RATES,
   amountToUsd,
+  overviewReportingCurrency,
   buildAggregateAssetSeries,
   buildAssetChartGeometry,
   buildBenchmarkChartGeometry,
@@ -154,10 +156,14 @@ assert.equal(readQualifiedPeriodReturn("ibkr", {
 
 
 assert.deepEqual(OVERVIEW_USD_RATES, {}, "static overview seed does not invent FX rates");
-assert.match(OVERVIEW_FX_API_URL, /^https:\/\/api\.frankfurter\.dev\/v1\/latest\?/);
+assert.equal(OVERVIEW_FX_API_URL, "/api/overview-fx", "browser FX fetch stays same-origin under CSP connect-src 'self'");
+assert.match(OVERVIEW_FX_UPSTREAM_URL, /^https:\/\/api\.frankfurter\.dev\/v1\/latest\?/);
+assert.match(OVERVIEW_FX_SOURCE, /overview-fx/i);
 assert.match(OVERVIEW_FX_SOURCE, /frankfurter/i);
 assert.equal(amountToUsd("USD", "2095.95"), "2095.95");
 assert.equal(amountToUsd("USDT", "133.13"), "133.13", "USDT counts 1:1 with USD");
+assert.equal(overviewReportingCurrency("USDT"), "USD", "overview labels USDT under the USD reporting unit");
+assert.equal(overviewReportingCurrency("SGD"), "SGD");
 assert.equal(amountToUsd("SGD", "100"), null, "SGD without a rate is omitted, not zero-filled");
 assert.equal(amountToUsd("HKD", "780"), null, "HKD without a rate is omitted, not zero-filled");
 assert.equal(amountToUsd("EUR", "10", { EUR: "1.1" }), "11");
