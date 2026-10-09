@@ -1,7 +1,7 @@
 # 私有 target 接线基线（模板，无密钥）
 
-审计基准日：2026-10-09  
-仓库：QuantRuntimeSettings（控制面）  
+审计基准日：2026-10-09
+仓库：QuantRuntimeSettings（控制面）
 用途：登记每个运行目标的身份、Environment、revision、schema、producer、摄入路径与 ACK/读回；**禁止**写入密钥、真实账户号、资产金额。
 
 ## 审计日已知（勿回退）
