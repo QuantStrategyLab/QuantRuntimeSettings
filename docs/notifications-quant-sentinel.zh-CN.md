@@ -51,7 +51,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 - **只收录当日实际运行**的平台/策略：加密小时级有周期才出现；月末 DCA 仅在运行日出现；未运行的省略。
 - **无运行**：真空虚心跳（短文案）。**有运行但无成交**：心跳标题；若候选证据带有观察字段则按旧版分平台 bot 风格展开策略块。
 - **有成交**：收盘日报标题；同样优先展开观察块。
-- **观察字段（有证据才写，禁止编造）**：`strategy_label`、`equity`、`holdings[]`（symbol/value/qty）、`signal_summary`、`rebalance_kind` / `rebalance_conclusion`、可选 `tips` / `account_hint`。每个观察块标题前缀 `[account]`：`account_hint` → `account_scope`/`execution_mode`(live|paper|…) → 短 `opaque_account_uid` → `target_id`（末位，接线名不是 live 账户标签）。GitHub workflow 成功结论只证明「跑过」，不填金额/持仓。
+- **观察字段（有证据才写，禁止编造）**：`strategy_label`、`equity`、`holdings[]`（symbol/value/qty）、`signal_summary`、`rebalance_kind` / `rebalance_conclusion`、可选 `tips` / `account_hint`。每个观察块标题前缀 `[account]`：`account_hint`（人类可读）→ `{platform_id} {account_scope|execution_mode}`（如 `schwab live` / `ibkr live` / `firstrade paper`）→ 短 `opaque_account_uid` → `target_id`（末位）。GitHub workflow 成功结论只证明「跑过」，不填金额/持仓。
 - **不改交易/风控判定**；纯聚合展示。金额与账户标识不得写入公开 CI 日志。
 
 ### 调度（合同默认）
@@ -88,7 +88,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ```
 📡 量化哨兵 · 心跳
 业务日: 2026-10-08
-[bf2e6691] 💓 【心跳检测】
+[schwab live] 💓 【心跳检测】
 🧭 策略: 半导体趋势收益
 💰 账户总权益: USD 990.06
 💼 持仓
@@ -104,7 +104,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ```
 📡 量化哨兵 · 心跳
 业务日: 2026-10-09
-[bf2e6691] 💓 【心跳检测】
+[schwab live] 💓 【心跳检测】
 🧭 策略: 半导体趋势收益
 💰 账户总权益: USD 989.34
 ✅ 无需调仓

@@ -166,7 +166,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("Asia/Shanghai", text)
         self.assertNotIn("通道", text)
         self.assertNotIn("QuantSentinel", text)
-        self.assertIn("[live] 💓 【心跳检测】", text)
+        self.assertIn("[schwab live] 💓 【心跳检测】", text)
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("🧭 策略: 半导体趋势收益", text)
         self.assertIn("💰 账户总权益: USD 990.06", text)
@@ -263,7 +263,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("Heartbeat", text)
-        self.assertIn("[live] 💓 [Heartbeat]", text)
+        self.assertIn("[schwab live] 💓 [Heartbeat]", text)
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("Account equity: USD 990.06", text)
         self.assertIn("4sh", text)
@@ -392,7 +392,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[bf2e6691] 💓 【心跳检测】", text)
+        self.assertIn("[bf2e6691] 💓 【心跳检测】", text)  # no scope → short uid
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("半导体趋势收益", text)
         self.assertIn("✅ 无需调仓", text)
@@ -414,6 +414,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                     "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
                 ),
                 target_id="schwab-primary",
+                account_scope="live",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -427,7 +428,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
-            "[bf2e6691] 💓 【心跳检测】\n"
+            "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -449,6 +450,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                     "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
                 ),
                 target_id="schwab-primary",
+                account_scope="live",
             ),
             daily_digest_notify.DigestRunEntry(
                 platform_id="ibkr",
@@ -484,7 +486,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("🧭 策略: 纳斯达克增长收益", text)
         self.assertIn("💰 账户总权益: USD 989.34", text)
         self.assertIn("💰 账户总权益: USD 569.16", text)
-        self.assertIn("[bf2e6691] 💓 【心跳检测】", text)
+        self.assertIn("[schwab live] 💓 【心跳检测】", text)
         self.assertIn("[U16608560] 💓 【心跳检测】", text)
         # Blank line between observation blocks.
         schwab_idx = text.index("平台: schwab")
@@ -495,7 +497,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
-            "[bf2e6691] 💓 【心跳检测】\n"
+            "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -523,23 +525,44 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertEqual(
             daily_digest_notify.account_block_tag(hint_wins), "U16608560"
         )
-        scope_wins = daily_digest_notify.DigestRunEntry(
+        # Hex-only hint is rejected; platform+scope wins.
+        hex_hint = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
             strategy_profile="soxl_soxx_trend_income",
+            account_hint="bf2e669106f029a4",
             account_scope="live",
-            opaque_account_uid=(
-                "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
-            ),
-            target_id="schwab-primary",
         )
-        self.assertEqual(daily_digest_notify.account_block_tag(scope_wins), "live")
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(hex_hint), "schwab live"
+        )
+        # Universal platform + scope for every venue.
+        for platform, scope, expected in (
+            ("schwab", "live", "schwab live"),
+            ("ibkr", "live", "ibkr live"),
+            ("firstrade", "paper", "firstrade paper"),
+            ("longbridge", "live", "longbridge live"),
+        ):
+            entry = daily_digest_notify.DigestRunEntry(
+                platform_id=platform,
+                strategy_profile="any_strategy",
+                account_scope=scope,
+                opaque_account_uid=(
+                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                ),
+                target_id=f"{platform}-primary",
+            )
+            self.assertEqual(
+                daily_digest_notify.account_block_tag(entry), expected
+            )
         mode_wins = daily_digest_notify.DigestRunEntry(
-            platform_id="schwab",
-            strategy_profile="soxl_soxx_trend_income",
+            platform_id="ibkr",
+            strategy_profile="tqqq_growth_income",
             execution_mode="paper",
-            target_id="schwab-primary",
+            target_id="ibkr-primary",
         )
-        self.assertEqual(daily_digest_notify.account_block_tag(mode_wins), "paper")
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(mode_wins), "ibkr paper"
+        )
         uid_beats_target = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
             strategy_profile="soxl_soxx_trend_income",
@@ -622,6 +645,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 opaque_account_uid=(
                     "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
                 ),
+                account_scope="live",
                 fill_count=2,
                 order_count=2,
                 equity=989.34,  # live-known equity reused for illustration
@@ -638,7 +662,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("收盘日报", text)
-        self.assertIn("[bf2e6691] 🔔 【调仓指令】", text)
+        self.assertIn("[schwab live] 🔔 【调仓指令】", text)
         self.assertIn("✅ 成交 2", text)
         self.assertNotIn("窗口", text)
         self.assertNotIn("通道", text)
@@ -654,6 +678,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 opaque_account_uid=(
                     "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
                 ),
+                account_scope="live",
                 fill_count=None,
                 fill_count_status="unknown",
                 equity=989.34,
@@ -687,7 +712,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
-            "[bf2e6691] 💓 【心跳检测】\n"
+            "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -703,7 +728,49 @@ class DailyDigestNotifyTests(unittest.TestCase):
         )
         self.assertEqual(text, expected)
 
+    def test_multi_platform_scope_tags_universal(self):
+        """Every venue uses ``[platform scope]`` when scope is known (no hardcode)."""
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_label="半导体趋势收益",
+                account_scope="live",
+                equity=989.34,
+                rebalance_kind="no_rebalance",
+            ),
+            daily_digest_notify.DigestRunEntry(
+                platform_id="ibkr",
+                strategy_profile="tqqq_growth_income",
+                strategy_label="纳斯达克增长收益",
+                # no account_hint → platform+scope, not U-number
+                account_scope="live",
+                equity=569.16,
+                rebalance_kind="no_rebalance",
+            ),
+            daily_digest_notify.DigestRunEntry(
+                platform_id="firstrade",
+                strategy_profile="dca_month_end",
+                strategy_label="月末定投",
+                execution_mode="paper",
+                equity=100.0,
+                rebalance_kind="no_rebalance",
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09", locale="zh", runs=runs
+            )
+        )
+        self.assertIn("[schwab live] 💓 【心跳检测】", text)
+        self.assertIn("[ibkr live] 💓 【心跳检测】", text)
+        self.assertIn("[firstrade paper] 💓 【心跳检测】", text)
+        self.assertNotIn("[bf2e6691]", text)
+        self.assertNotIn("[schwab-primary]", text)
+        self.assertNotIn("[live]", text)  # bare scope alone is not the tag
+
     def test_identity_key_includes_account_and_target(self):
+
 
 
         a = daily_digest_notify.identity_key(
