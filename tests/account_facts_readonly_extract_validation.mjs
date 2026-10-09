@@ -40,7 +40,7 @@ assert.equal(
 assert.equal(
   /account_facts_put|syncAccountFactsResponse/.test(readSource),
   false,
-  "B10-a stays read-only; sync/write stays in worker",
+  "B10-a stays read-only; sync/write is outside read.js (B10-b: application/account_facts/sync.js)",
 );
 
 function json(payload, status = 200) {
