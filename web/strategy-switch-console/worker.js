@@ -392,6 +392,16 @@ const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
     recheckRepository: "QuantStrategyLab/LongBridgePlatform",
     recheckWorkflow: "runtime-target-lifecycle.yml",
   }),
+  "schwab.live": Object.freeze({
+    platform: "schwab",
+    recheckRepository: "QuantStrategyLab/CharlesSchwabPlatform",
+    recheckWorkflow: "runtime-target-lifecycle.yml",
+  }),
+  "firstrade.live": Object.freeze({
+    platform: "firstrade",
+    recheckRepository: "QuantStrategyLab/FirstradePlatform",
+    recheckWorkflow: "runtime-target-lifecycle.yml",
+  }),
 });
 const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/AIAuditBridge";
 const ACCOUNT_DIAGNOSIS_WORKFLOW = "codex_audit.yml";

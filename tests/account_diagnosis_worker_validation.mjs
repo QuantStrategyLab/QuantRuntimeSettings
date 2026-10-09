@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
 
+
 const require = createRequire(new URL("../web/strategy-switch-console/package.json", import.meta.url));
 const { Miniflare } = require(process.env.QRT_MINIFLARE_MODULE || "miniflare");
 

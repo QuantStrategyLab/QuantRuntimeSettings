@@ -173,9 +173,15 @@ try {
       assert.match(html, /disabled=""/, "non-admin action remains disabled");
       assert.equal(render(derive(controlRead.payload), language).includes(translate("部分待办暂时无法读取", language)), false);
       const emptyBlocked = render(derive({ ...mixed, errors: ["unknown"] }), language);
-      assert.equal(emptyBlocked.includes(translate("暂时读不到：{sources}", language, { sources: translate("晋级方案", language) })), true);
-      assert.equal(emptyBlocked.includes(translate("待办暂不可用", language)), false);
-      assert.equal(emptyBlocked.includes(translate("暂无需要你决定的事项", language)), false);
+      // Soft unavailable (partial/unknown errors) is not a hard read failure — calm empty + degraded note.
+      assert.equal(emptyBlocked.includes(translate("暂无需要你决定的事项", language)), true);
+      assert.equal(emptyBlocked.includes(translate("部分来源暂不可用：{sources}。当前没有已取到的待办事项。", language, { sources: translate("晋级方案", language) })), true);
+      assert.equal(emptyBlocked.includes(translate("暂时读不到：{sources}", language, { sources: translate("晋级方案", language) })), false);
+      assert.equal(emptyBlocked.includes(translate("待办来源读取失败：{sources}", language, { sources: translate("晋级方案", language) })), false);
+      const emptyHard = render(derive(mixed, { promotions: { error: "transport_failed" } }), language);
+      assert.equal(emptyHard.includes(translate("待办来源读取失败：{sources}", language, { sources: translate("晋级方案", language) })), true);
+      assert.equal(emptyHard.includes(translate("这是读取失败，不是没有待办。请重试；若持续失败再核对来源服务。", language)), true);
+      assert.equal(emptyHard.includes(translate("暂无需要你决定的事项", language)), false);
     }
   } finally { rmSync(temporary, { recursive: true, force: true }); }
   assert.equal(networkAttempts, 0);

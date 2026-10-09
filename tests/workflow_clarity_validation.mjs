@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { accountSettingsOperationReason, accountSettingsSaveBlockReason, listDailyDecisions, presentRuntimeDaily, promotionMaterialNotes } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { accountSettingsOperationReason, accountSettingsSaveBlockReason, decisionSourceDegradedLabels, decisionSourceFailureLabels, listDailyDecisions, presentRuntimeDaily, promotionMaterialNotes } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { createAccountSettingsController, refreshAccountSettingsReadback } from "../web/strategy-switch-console/frontend/src/accountSettingsState.ts";
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import postcss from "../web/strategy-switch-console/frontend/node_modules/postcss/lib/postcss.js";
@@ -19,6 +19,14 @@ assert.equal(decisions.items[0].reference, "synthetic-1");
 assert.deepEqual(listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: ready({ candidates: [] }), recovery: ready({ recoveries: [] }), accountsFor: () => [] }).sources, { promotions: "ready", owners: "ready", recovery: "ready" });
 assert.equal(listDailyDecisions({ language: "zh", profiles: [], promotions: { value: { data_status: "stale", tickets: [] } }, owners: ready({ candidates: [] }), recovery: null, accountsFor: () => [] }).sources.promotions, "stale");
 assert.equal(listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: ready({ candidates: [] }), recovery: null, accountsFor: () => [] }).sources.recovery, "missing");
+const softUnavailable = listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: { value: { data_status: "unavailable", candidates: [], errors: ["control_plane_not_ready"] } }, recovery: { value: { data_status: "unavailable", recoveries: [] } }, accountsFor: () => [] });
+assert.equal(softUnavailable.blocked, true);
+assert.deepEqual(decisionSourceFailureLabels(softUnavailable.sources), []);
+assert.deepEqual(decisionSourceDegradedLabels(softUnavailable.sources), ["负责人决定", "对账恢复"]);
+const hardFailed = listDailyDecisions({ language: "zh", profiles: [], promotions: ready({ tickets: [] }), owners: { error: "boom" }, recovery: ready({ recoveries: [] }), accountsFor: () => [] });
+assert.deepEqual(decisionSourceFailureLabels(hardFailed.sources), ["负责人决定"]);
+assert.deepEqual(decisionSourceDegradedLabels(hardFailed.sources), []);
+
 
 const settings = { platform: "longbridge", key: "synthetic", identity: { platform: "longbridge", key: "synthetic" }, draft: { status: "current", revision: 2, overrides: {} }, risk: { revision: 4, preference: "BALANCED_COMPOUNDING" }, operations: { save_draft: true, save_risk_preference: true }, effective: {} };
 assert.equal(accountSettingsSaveBlockReason(settings, "ready", "draft"), null);
