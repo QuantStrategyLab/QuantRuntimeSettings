@@ -70,6 +70,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "shares_unit": "股",
         "tip_prefix": "小账户提示",
         "conclusion_no_rebalance": "✅ 无需调仓",
+        "conclusion_fills": "✅ 成交 {count}",
         "conclusion_no_order_prefix": "未下单",
         "platform_tag": "平台",
         "identity_tag": "身份",
@@ -117,6 +118,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "shares_unit": "sh",
         "tip_prefix": "Small-account note",
         "conclusion_no_rebalance": "✅ No rebalance needed",
+        "conclusion_fills": "✅ fills {count}",
         "conclusion_no_order_prefix": "No order",
         "platform_tag": "Platform",
         "identity_tag": "Identity",
@@ -405,6 +407,23 @@ def fills_are_verified_zero(runs: Sequence[DigestRunEntry]) -> bool:
     return True
 
 
+def has_known_positive_fills(runs: Sequence[DigestRunEntry]) -> bool:
+    """True when any run reports a known fill_count > 0.
+
+    Used for digest title selection so a successful-trade block is not
+    hidden behind the heartbeat title when another run's fills are unknown.
+    """
+
+    for entry in runs:
+        if (
+            entry.fill_count is not None
+            and entry.fill_count_status != "unknown"
+            and entry.fill_count > 0
+        ):
+            return True
+    return False
+
+
 def has_observation(entry: DigestRunEntry) -> bool:
     """True when producer evidence includes displayable observation fields."""
 
@@ -603,6 +622,10 @@ def _default_conclusion(entry: DigestRunEntry, locale: DigestLocale) -> str:
     kind = entry.rebalance_kind or ""
     if kind == "no_rebalance":
         return _t(locale, "conclusion_no_rebalance")
+    # Trade-success fallback when producer left conclusion empty but counts known.
+    fill = entry.fill_count if entry.fill_count_status != "unknown" else None
+    if fill is not None and fill > 0:
+        return _t(locale, "conclusion_fills").format(count=fill)
     return ""
 
 
@@ -693,12 +716,12 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
             lines.append(_t(locale, "heartbeat_evidence_unknown"))
         return "\n".join(lines)
 
-    if known_fills is None:
-        lines.append(_t(locale, "daily_digest_heartbeat_title"))
-    elif known_fills == 0:
-        lines.append(_t(locale, "daily_digest_heartbeat_title"))
-    else:
+    # Prefer 收盘日报 when any run has known fills > 0, even if other runs'
+    # fill counts are unknown (mixed multi-platform digest).
+    if has_known_positive_fills(runs) or (known_fills is not None and known_fills > 0):
         lines.append(_t(locale, "daily_digest_title"))
+    else:
+        lines.append(_t(locale, "daily_digest_heartbeat_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
     if not rich:
         if known_fills is None:
@@ -891,6 +914,7 @@ __all__ = [
     "account_block_tag",
     "filter_runs_for_digest",
     "fills_are_verified_zero",
+    "has_known_positive_fills",
     "has_observation",
     "identity_is_unknown",
     "identity_key",

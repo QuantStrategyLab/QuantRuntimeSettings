@@ -535,7 +535,141 @@ class DailyDigestNotifyTests(unittest.TestCase):
         )
         self.assertEqual(daily_digest_notify.account_block_tag(empty), "")
 
+    def test_trade_success_observation_block_zh(self):
+        """Filled rebalance: 收盘日报 + [account] + 调仓指令 + conclusion."""
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="ibkr",
+                strategy_profile="tqqq_growth_income",
+                strategy_label="纳斯达克增长收益",
+                account_hint="U16608560",
+                fill_count=1,
+                order_count=1,
+                equity=569.16,  # fixture (not live)
+                holdings=(
+                    daily_digest_notify.DigestHolding(
+                        symbol="TQQQ", market_value=312.40, quantity=4
+                    ),
+                ),
+                rebalance_kind="rebalance",
+                rebalance_conclusion=(
+                    "✅ 成交成功 1个标的: TQQQ 1\n"
+                    "📈 [市价买入] TQQQ: 1股 ✅ 已成交（状态: Filled）"
+                ),
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09",
+                window_label="must-not-appear",
+                locale="zh",
+                runs=runs,
+            )
+        )
+        expected = (
+            "📡 量化哨兵 · 收盘日报\n"
+            "业务日: 2026-10-09\n"
+            "[U16608560] 🔔 【调仓指令】\n"
+            "🧭 策略: 纳斯达克增长收益\n"
+            "💰 账户总权益: USD 569.16\n"
+            "💼 持仓\n"
+            "- TQQQ: $312.40 / 4股\n"
+            "✅ 成交成功 1个标的: TQQQ 1\n"
+            "📈 [市价买入] TQQQ: 1股 ✅ 已成交（状态: Filled）\n"
+            "平台: ibkr"
+        )
+        self.assertEqual(text, expected)
+        self.assertNotIn("窗口", text)
+        self.assertNotIn("通道", text)
+
+    def test_trade_success_default_fills_conclusion(self):
+        """Known fills without producer conclusion → default ✅ 成交 N."""
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_label="半导体趋势收益",
+                target_id="schwab-primary",
+                fill_count=2,
+                order_count=2,
+                equity=989.34,  # live-known equity reused for illustration
+                holdings=(
+                    daily_digest_notify.DigestHolding(
+                        symbol="SOXL", market_value=700.00, quantity=5
+                    ),
+                ),
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09", locale="zh", runs=runs
+            )
+        )
+        self.assertIn("收盘日报", text)
+        self.assertIn("[schwab-primary] 🔔 【调仓指令】", text)
+        self.assertIn("✅ 成交 2", text)
+        self.assertNotIn("窗口", text)
+        self.assertNotIn("通道", text)
+
+    def test_multi_heartbeat_plus_fills_uses_digest_title(self):
+        """Mixed: unknown-fill heartbeat + known fills → 收盘日报; both tagged."""
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_label="半导体趋势收益",
+                target_id="schwab-primary",
+                fill_count=None,
+                fill_count_status="unknown",
+                equity=989.34,
+                rebalance_kind="no_rebalance",
+            ),
+            daily_digest_notify.DigestRunEntry(
+                platform_id="ibkr",
+                strategy_profile="tqqq_growth_income",
+                strategy_label="纳斯达克增长收益",
+                account_hint="U16608560",
+                fill_count=1,
+                order_count=1,
+                equity=569.16,  # fixture
+                holdings=(
+                    daily_digest_notify.DigestHolding(
+                        symbol="TQQQ", market_value=312.40, quantity=4
+                    ),
+                ),
+                rebalance_kind="rebalance",
+                rebalance_conclusion="✅ 成交成功 1个标的: TQQQ 1",
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09", locale="zh", runs=runs
+            )
+        )
+        self.assertTrue(daily_digest_notify.has_known_positive_fills(runs))
+        # total_fills stays None (schwab unknown), but title still 收盘日报.
+        self.assertIsNone(daily_digest_notify.total_fills(runs))
+        expected = (
+            "📡 量化哨兵 · 收盘日报\n"
+            "业务日: 2026-10-09\n"
+            "[schwab-primary] 💓 【心跳检测】\n"
+            "🧭 策略: 半导体趋势收益\n"
+            "💰 账户总权益: USD 989.34\n"
+            "✅ 无需调仓\n"
+            "平台: schwab\n"
+            "\n"
+            "[U16608560] 🔔 【调仓指令】\n"
+            "🧭 策略: 纳斯达克增长收益\n"
+            "💰 账户总权益: USD 569.16\n"
+            "💼 持仓\n"
+            "- TQQQ: $312.40 / 4股\n"
+            "✅ 成交成功 1个标的: TQQQ 1\n"
+            "平台: ibkr"
+        )
+        self.assertEqual(text, expected)
+
     def test_identity_key_includes_account_and_target(self):
+
 
         a = daily_digest_notify.identity_key(
             {
