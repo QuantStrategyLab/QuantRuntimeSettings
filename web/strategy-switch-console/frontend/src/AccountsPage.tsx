@@ -8,12 +8,6 @@ import type { StrategyIdentityView } from "./presentation";
 import type { AccountFactsAccount } from "./types";
 import { accountNativeReadout, accountSettingsOperationReason, accountSettingsSaveBlockReason, scheduleBinancePrivateScopeExpiry, cashDraftDirty, dcaSettingsReadout, percentTextToRatio, ratioTextToPercent, readOnlyLayerState, reservedCashAmount, reservedCashEditor, safeActionVisibility, strategySelectionName } from "./presentation";
 
-const PREFERENCES = [
-  ["CAPITAL_PRESERVATION", "保守", "优先控制波动和亏损，接受较低的增长潜力。"],
-  ["BALANCED_COMPOUNDING", "均衡", "兼顾长期增长与风险控制，接受一定波动。"],
-  ["GROWTH_COMPOUNDING", "增长", "更看重长期增长，愿意承受较大的波动和回撤。"],
-] as const;
-
 export type AccountListItem = {
   id: string;
   platform: string;
@@ -60,7 +54,6 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
   }, [rows]);
   return <section className={`daily-page accounts-page settings-home${detailOpen ? " show-detail" : ""}`}>
     <div className="daily-heading"><h1>{t("账户设置")}</h1></div>
-    <p className="section-note">{t("选择这个账号跑什么策略，以及要不要开启期权收入层。")}</p>
     <div className="accounts-layout">
       <div className="account-list">
         <table className="daily-table">
@@ -83,6 +76,21 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
 function observedProfile(settings: Record<string, any> | null): string | null {
   const raw = settings?.effective?.strategy_profile;
   return raw?.status === "known" && typeof raw.value === "string" && raw.value.trim() ? raw.value.trim() : null;
+}
+
+function readBoolChoice(field: unknown): "" | "true" | "false" {
+  const state = readOnlyLayerState(field);
+  return state === "on" ? "true" : state === "off" ? "false" : "";
+}
+
+function effectiveReservedMode(floor: string | null, ratio: string | null): "" | "floor" | "ratio" | "both" {
+  if (floor === null || ratio === null) return "";
+  const floorValue = Number(floor);
+  const ratioValue = Number(ratio);
+  if (!Number.isFinite(floorValue) || !Number.isFinite(ratioValue)) return "";
+  if (ratioValue === 0 && floorValue !== 0) return "floor";
+  if (floorValue === 0 && ratioValue !== 0) return "ratio";
+  return "both";
 }
 
 function validDcaAmount(value: string): boolean {
@@ -115,14 +123,12 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const sync = () => setTick(value => value + 1);
   const view = controller.view();
   const settings = view.settings;
-  const savedPreference = typeof settings?.risk?.preference === "string" ? settings.risk.preference : "";
   const cashDirty = cashDraftDirty(view.draft);
   const incomeDirty = view.draft.incomeTouched === true;
   const optionDirty = view.draft.optionTouched === true;
   const strategyDirty = view.draft.strategyTouched === true || view.draft.dcaTouched === true || view.draft.clearDca === true;
   const draftDirty = cashDirty || incomeDirty || optionDirty || strategyDirty;
-  const riskDirty = controller.riskDirty();
-  const dirty = draftDirty || riskDirty;
+  const dirty = draftDirty;
   useEffect(() => { onDirty(dirty); }, [dirty, onDirty]);
   useEffect(() => {
     const accountId = `${row.platform}:${row.key}`;
@@ -165,34 +171,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     })();
     return () => { cancelled = true; controller.abandon(op); };
   }, [row.platform, row.key, readAttempt, refreshToken, controller, onSettingsRead]);
-  const savePreference = async () => {
-    if (readState !== "ready" || view.saving || view.review.risk || settings?.operations?.save_risk_preference !== true) return;
-    const started = controller.startSave("risk");
-    const body = controller.requestBody(started);
-    if (!started || !body || !controller.markSaving(started, "risk")) return;
-    sync();
-    try {
-      const currentBody = controller.requestBody(started);
-      if (!currentBody) return;
-      const saved = await postJson<Record<string, any>>("/api/account-settings", currentBody);
-      if (!controller.isCurrent(started)) return;
-      if (controller.applySave(started, saved, "偏好已保存")) sync();
-    } catch (error) {
-      const status = (error as { status?: number })?.status;
-      if (!controller.fail(started, status === 409 ? "版本已变化，未覆盖已保存内容。" : "账户设置暂不可用。", status !== 409)) return;
-      sync();
-      const refresh = controller.start("refresh");
-      setReadState("refreshing");
-      setReadError("");
-      const result = await refreshAccountSettingsReadback(controller, refresh, () => loadAccountSettings(started.account.platform, started.account.key));
-      if (result.status === "superseded") return;
-      if (result.status === "ready") setReadState("ready");
-      else { setReadError(result.message); setReadState("stale"); }
-      sync();
-    } finally {
-      if (controller.finish(started)) sync();
-    }
-  };
   const saveScoped = async (kind: "cash" | "income" | "option" | "strategy", ready: boolean) => {
     if (readState !== "ready" || view.saving || !ready || view.review.draft || settings?.operations?.save_draft !== true) return;
     const started = controller.startSave(kind);
@@ -222,11 +200,10 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     }
   };
   const draftSaveReason = accountSettingsSaveBlockReason(settings, readState, "draft");
-  const riskSaveReason = accountSettingsSaveBlockReason(settings, readState, "risk");
-  const canSaveRisk = riskSaveReason === null;
   const canSaveCash = draftSaveReason === null;
   const savedIncome = settings?.draft?.overrides?.income_layer_enabled === true ? "true" : settings?.draft?.overrides?.income_layer_enabled === false ? "false" : "";
-  const incomeValue = view.draft.incomeTouched ? (view.draft.income === "clear" ? "" : view.draft.income) : savedIncome;
+  const effectiveIncome = readBoolChoice(settings?.effective?.income_layer_enabled);
+  const incomeValue = view.draft.incomeTouched ? (view.draft.income === "clear" ? effectiveIncome : view.draft.income) : (savedIncome || effectiveIncome);
   const editor = reservedCashEditor(settings?.draft?.overrides, view.draft);
   const selectMode = view.draft.cashMode || editor.mode;
   const cashBody = pendingDraftOverrides(view.draft, "cash");
@@ -255,13 +232,15 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     return strategySelectionName(choice, strategyOptions, language);
   };
   const currentProfile = observedProfile(settings) || "";
+  const strategyChoice = strategyDirty ? (view.draft.clearStrategy ? currentProfile : view.draft.strategy) : (savedStrategy || currentProfile);
   const savedBound = savedStrategy || currentProfile;
   const localBound = strategyDirty ? (view.draft.clearStrategy ? observedProfile(settings) || "" : view.draft.strategy) : savedBound;
   const strategyPending = strategyDirty && localBound !== savedBound;
   const optionDefined = (profileId: string) => strategyOptions.some((item: { profile?: string; option_overlay_enabled?: boolean }) => item.profile === profileId && item.option_overlay_enabled === true);
   const boundSupports = !strategyPending && settings?.operations?.save_option_draft === true && optionDefined(localBound);
   const savedOption = settings?.draft?.overrides?.option_overlay_enabled === true ? "true" : settings?.draft?.overrides?.option_overlay_enabled === false ? "false" : "";
-  const optionValue = optionDirty ? (view.draft.option === "clear" ? "" : view.draft.option) : savedOption;
+  const effectiveOption = readBoolChoice(settings?.effective?.option_overlay_enabled);
+  const optionValue = optionDirty ? (view.draft.option === "clear" ? effectiveOption : view.draft.option) : (savedOption || effectiveOption);
   const optionConcrete = optionDirty ? view.draft.option === "true" || view.draft.option === "false" : savedOption === "true" || savedOption === "false";
   const nextStrategy = strategyValue || currentProfile;
   const dcaChoice = strategyOptions.find((item: { profile?: string }) => item.profile === nextStrategy);
@@ -275,6 +254,11 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const dcaAmount = view.draft.dcaTouched && view.draft.dcaProfile === nextStrategy ? view.draft.dcaAmount : (savedDcaProfile === nextStrategy ? savedDcaAmount : "");
   const dcaTouched = view.draft.dcaTouched === true;
   const selectStrategy = (next: string) => {
+    if (next === (savedStrategy || currentProfile)) {
+      controller.revertStrategy();
+      sync();
+      return;
+    }
     const targetProfile = next || currentProfile;
     const targetChoice = strategyOptions.find((item: { profile?: string }) => item.profile === targetProfile);
     const targetDca = targetChoice?.dca_supported === true || (settings?.current_dca_supported === true && targetProfile === currentProfile);
@@ -297,14 +281,30 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const strategyBlocked = strategyDirty && optionConcrete && !optionDefined(nextStrategy) && !(view.draft.optionTouched && view.draft.option === "clear");
   const optionSubmittable = Boolean(optionDirty && optionBody && Object.keys(optionBody).length && (optionBody.option_overlay_enabled === null || boundSupports));
   const strategySubmittable = Boolean(strategyDirty && strategyBody && Object.prototype.hasOwnProperty.call(strategyBody, "strategy_profile") && !strategyBlocked);
-  const chooseMode = (next: "inherit" | "floor" | "ratio" | "both") => {
+  const savedCashEditor = reservedCashEditor(settings?.draft?.overrides, {});
+  const effectiveMode = effectiveReservedMode(currentCash, currentRatio);
+  const shownFloor = editor.mode === "inherit" ? (currentCash ?? "") : editor.floor;
+  const shownRatio = editor.mode === "inherit" ? (currentRatio ?? "") : editor.ratio;
+  const shownPercent = editor.mode === "inherit" ? (currentRatio === null ? "" : ratioTextToPercent(currentRatio)) : editor.percent;
+  const displayCashMode = selectMode === "inherit" ? effectiveMode : selectMode;
+  const chooseMode = (next: "floor" | "ratio" | "both") => {
+    if (savedCashEditor.mode === "inherit" && next === effectiveMode) {
+      controller.revertCash();
+      sync();
+      return;
+    }
     if (!view.draft.cashMode && editor.mode === next) return;
-    if (next === "inherit") controller.edit({ cashMode: "inherit", floor: "", ratio: "", percent: "", floorTouched: true, ratioTouched: true, clearFloor: true, clearRatio: true });
-    else if (next === "floor") controller.edit({ cashMode: "floor", floor: editor.mode === "ratio" ? "" : editor.floor, ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
-    else if (next === "ratio") controller.edit({ cashMode: "ratio", floor: "0", ratio: editor.mode === "floor" ? "" : editor.ratio, percent: editor.mode === "floor" ? "" : (view.draft.percent || editor.percent), floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
-    else controller.edit({ cashMode: "both", floor: editor.mode === "ratio" ? "" : editor.floor, ratio: editor.mode === "floor" ? "" : editor.ratio, percent: editor.mode === "floor" ? "" : (view.draft.percent || editor.percent), floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
+    const sourceMode = view.draft.cashMode || editor.mode;
+    const floorBase = savedCashEditor.mode === "inherit" && !view.draft.cashMode ? shownFloor : editor.floor;
+    const ratioBase = savedCashEditor.mode === "inherit" && !view.draft.cashMode ? shownRatio : editor.ratio;
+    const percentBase = savedCashEditor.mode === "inherit" && !view.draft.cashMode ? shownPercent : (view.draft.percent || editor.percent);
+    if (next === "floor") controller.edit({ cashMode: "floor", floor: sourceMode === "ratio" ? "" : floorBase, ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
+    else if (next === "ratio") controller.edit({ cashMode: "ratio", floor: "0", ratio: sourceMode === "floor" ? "" : ratioBase, percent: sourceMode === "floor" ? "" : percentBase, floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
+    else controller.edit({ cashMode: "both", floor: sourceMode === "ratio" ? "" : floorBase, ratio: sourceMode === "floor" ? "" : ratioBase, percent: sourceMode === "floor" ? "" : percentBase, floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false });
     sync();
   };
+  const readPercent = currentRatio === null ? "" : ratioTextToPercent(currentRatio);
+  const cashMatchesRead = (mode: "floor" | "ratio" | "both", floor: string, percent: string) => savedCashEditor.mode === "inherit" && mode === effectiveMode && (mode === "ratio" || floor === (currentCash ?? "")) && (mode === "floor" || percent === readPercent);
   const shareText = (value: string) => {
     const percent = ratioTextToPercent(value);
     return percent === "" ? t("未知") : `${percent}%`;
@@ -316,13 +316,11 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const actions = safeActionVisibility({ settingsUnavailable: Boolean(view.unavailable), activation: row.activation, refreshSupported: stopRefreshVisible, resumeSupported: resumeVisible });
   const strategy = resolveStrategy(observedProfile(settings));
   const dca = dcaSettingsReadout(settings?.effective);
-  const selectedNote = PREFERENCES.find(([value]) => value === view.preference)?.[2] || "";
   const cashNotice = view.noticeGroup === "cash" && view.notice === "草案已保存";
   const incomeNotice = view.noticeGroup === "income" && view.notice === "草案已保存";
   const optionNotice = view.noticeGroup === "option" && view.notice === "草案已保存";
   const strategyNotice = view.noticeGroup === "strategy" && view.notice === "草案已保存";
-  const riskNotice = view.noticeGroup === "risk" && view.notice === "偏好已保存";
-  const otherNotice = view.notice && !cashNotice && !incomeNotice && !optionNotice && !strategyNotice && !riskNotice ? view.notice : "";
+  const otherNotice = view.notice && !cashNotice && !incomeNotice && !optionNotice && !strategyNotice && view.noticeGroup !== "risk" ? view.notice : "";
   const reading = readState === "loading";
   return <aside className={`account-detail${reading ? " is-loading" : ""}`} aria-busy={reading}>
     {reading ? <div className="settings-progress" role="progressbar" aria-label={t("正在读取账户设置")}><span className="settings-progress-bar" /><p className="settings-progress-hint" aria-hidden="true">{t("正在读取账户设置")}</p></div> : null}
@@ -340,12 +338,14 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         <StrategyIdentity value={strategy.identity} />
         {dca ? <div className="setting-facts"><p><span>{t("定投计划")}</span><strong>{t(dca.label)}</strong></p><p><span>{t("配置模式")}</span><strong>{t(dca.mode)}</strong></p><p><span>{t("基准金额（美元）")}</span><strong>{dca.amount === "未核实" ? t(dca.amount) : dca.amount}</strong></p></div> : null}
         {savedStrategy && <p className="section-note">{t("已保存策略草案")}：{strategyName(savedStrategy)}</p>}
-        {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("策略草案")}</span><strong>{strategyValue === "" ? t("沿用当前") : strategyName(strategyValue)}</strong></p></div>}
+        {(strategyDirty || savedStrategy) && <div className="setting-facts"><p><span>{t("策略草案")}</span><strong>{strategyValue ? strategyName(strategyValue) : (currentProfile ? strategyName(currentProfile) : t("未知"))}</strong></p></div>}
         <label className="cash-floor-field">{t("策略草案")}
-          <select value={strategyValue} disabled={!canSaveCash} onChange={event => {
+          <select value={strategyChoice} disabled={!canSaveCash} onChange={event => {
             selectStrategy(event.target.value);
           }}>
-            <option value="">{t("沿用当前")}</option>
+            {!strategyChoice && <option value="" hidden disabled></option>}
+            {currentProfile && !strategyOptions.some((item: { profile?: string }) => item.profile === currentProfile) && <option value={currentProfile}>{strategyName(currentProfile)}</option>}
+            {savedStrategy && savedStrategy !== currentProfile && !strategyOptions.some((item: { profile?: string }) => item.profile === savedStrategy) && <option value={savedStrategy}>{strategyName(savedStrategy)}</option>}
             {strategyOptions.map((item: { profile: string }) => <option key={item.profile} value={item.profile}>{strategyName(item.profile)}</option>)}
           </select>
         </label>
@@ -383,30 +383,30 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         </div>
         <p className="section-note">{t("这是预留规则的配置值，实际预留现金尚未核实。")}</p>
         <label className="cash-floor-field">{t("资金预留")}
-          <select value={selectMode} disabled={!canSaveCash} onChange={event => { if (event.target.value === "saved") return; chooseMode(event.target.value as "inherit" | "floor" | "ratio" | "both"); }}>
-            {selectMode === "saved" && <option value="saved">{t("已保存的预留覆盖")}</option>}
-            <option value="inherit">{t("沿用当前")}</option>
+          <select value={displayCashMode} disabled={!canSaveCash} onChange={event => { if (event.target.value === "saved") return; chooseMode(event.target.value as "floor" | "ratio" | "both"); }}>
+            {!displayCashMode && <option value="" hidden disabled></option>}
+            {displayCashMode === "saved" && <option value="saved">{t("已保存的预留覆盖")}</option>}
             <option value="floor">{t("固定金额")}</option>
             <option value="ratio">{t("资产比例")}</option>
             <option value="both">{t("比例与最低金额")}</option>
           </select>
         </label>
-        {selectMode === "both" ? <div className="cash-pair">
+        {displayCashMode === "both" ? <div className="cash-pair">
           <label className="cash-floor-field">{t("预留现金金额")}
-            <input value={view.draft.cashMode ? view.draft.floor : editor.floor} inputMode="decimal" disabled={!canSaveCash} onChange={event => { controller.edit({ cashMode: "both", floor: event.target.value, ratio: view.draft.ratio || editor.ratio, percent: view.draft.percent || editor.percent, floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
+            <input value={view.draft.cashMode ? view.draft.floor : shownFloor} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const floor = event.target.value; const percent = view.draft.cashMode ? view.draft.percent : shownPercent; if (cashMatchesRead("both", floor, percent)) { controller.revertCash(); sync(); return; } controller.edit({ cashMode: "both", floor, ratio: view.draft.ratio || shownRatio, percent, floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
           </label>
           <label className="cash-floor-field">{t("比例（%）")}
-            <input value={view.draft.cashMode ? view.draft.percent : editor.percent} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const percent = event.target.value; controller.edit({ cashMode: "both", percent, ratio: percentTextToRatio(percent) || "", floor: view.draft.cashMode ? view.draft.floor : editor.floor, floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
+            <input value={view.draft.cashMode ? view.draft.percent : shownPercent} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const percent = event.target.value; const floor = view.draft.cashMode ? view.draft.floor : shownFloor; if (cashMatchesRead("both", floor, percent)) { controller.revertCash(); sync(); return; } controller.edit({ cashMode: "both", percent, ratio: percentTextToRatio(percent) || "", floor, floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
           </label>
         </div> : <>
-          {(selectMode === "floor") && <label className="cash-floor-field">{t("预留现金金额")}
-            <input value={view.draft.cashMode ? view.draft.floor : editor.floor} inputMode="decimal" disabled={!canSaveCash} onChange={event => { controller.edit({ cashMode: "floor", floor: event.target.value, ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
+          {(displayCashMode === "floor") && <label className="cash-floor-field">{t("预留现金金额")}
+            <input value={view.draft.cashMode ? view.draft.floor : shownFloor} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const floor = event.target.value; if (cashMatchesRead("floor", floor, "0")) { controller.revertCash(); sync(); return; } controller.edit({ cashMode: "floor", floor, ratio: "0", percent: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
           </label>}
-          {(selectMode === "ratio") && <label className="cash-floor-field">{t("比例（%）")}
-            <input value={view.draft.cashMode ? view.draft.percent : editor.percent} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const percent = event.target.value; controller.edit({ cashMode: "ratio", percent, ratio: percentTextToRatio(percent) || "", floor: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
+          {(displayCashMode === "ratio") && <label className="cash-floor-field">{t("比例（%）")}
+            <input value={view.draft.cashMode ? view.draft.percent : shownPercent} inputMode="decimal" disabled={!canSaveCash} onChange={event => { const percent = event.target.value; if (cashMatchesRead("ratio", "0", percent)) { controller.revertCash(); sync(); return; } controller.edit({ cashMode: "ratio", percent, ratio: percentTextToRatio(percent) || "", floor: "0", floorTouched: true, ratioTouched: true, clearFloor: false, clearRatio: false }); sync(); }} />
           </label>}
         </>}
-        {selectMode === "both" && <p className="section-note">{t("按比例预留，且不少于固定金额")}</p>}
+        {displayCashMode === "both" && <p className="section-note">{t("按比例预留，且不少于固定金额")}</p>}
         {amountInvalid && <p className="section-note">{t("金额需要是大于或等于 0 的数字。")}</p>}
         {shareInvalid && <p className="section-note">{t("比例需要在 0 到 100 之间。")}</p>}
         <div className="form-actions">
@@ -419,22 +419,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         {cashNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
       </section>
       <section className="detail-group">
-        <h3>{t("风险偏好")}</h3>
-        <div className="preference-choices" role="group" aria-label={t("风险偏好")}>
-          {PREFERENCES.map(([value, label, note]) => <button key={value} type="button" className="preference-choice" aria-pressed={view.preference === value} disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: value }); sync(); }}>{t(label)}<span className="preference-hint" role="tooltip">{t(note)}</span></button>)}
-        </div>
-        {selectedNote ? <p className="preference-selected-note">{t(selectedNote)}</p> : null}
-        {riskSaveReason && <p className="section-note">{t(riskSaveReason)}</p>}
-        <div className="form-actions">
-          <button type="button" className="button button-primary" disabled={!canSaveRisk || !riskDirty || view.review.risk || Boolean(view.saving)} onClick={() => void savePreference()}>{t("保存风险偏好")}</button>
-          {riskDirty && !view.review.risk && <button type="button" className="button button-secondary" disabled={!canSaveRisk} onClick={() => { controller.edit({ preference: savedPreference }); sync(); }}>{t("取消")}</button>}
-          {view.review.risk && <button type="button" className="button button-secondary" onClick={() => { controller.revertRisk(); sync(); }}>{t("取消")}</button>}
-          {view.review.risk && <button type="button" className="button button-secondary" onClick={() => { if (!controller.acknowledgeReview("risk")) setReadAttempt(value => value + 1); sync(); }}>{t("重新核对")}</button>}
-        </div>
-        {view.review.risk && <p className="section-note" role="status">{t("风险版本或账户来源已变化，请取消或核对后再保存。")}</p>}
-        {riskNotice && <p role="status">{t(view.notice)} {t("偏好保存不代表运行端已应用。")}</p>}
-      </section>
-      <section className="detail-group">
         <h3>{t("附加功能")}</h3>
         <div className="setting-facts">
           <p><span>{t("收入层")}</span><strong>{layerText(settings?.effective?.income_layer_enabled)}</strong></p>
@@ -443,12 +427,14 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
         <label className="cash-floor-field">{t("收入层草案")}
           <select value={incomeValue} disabled={!canSaveCash} onChange={event => {
             const next = event.target.value;
-            controller.edit(next === savedIncome ? { income: savedIncome, incomeTouched: false } : { income: next === "" ? "clear" : next, incomeTouched: true });
+            if (!savedIncome && next === effectiveIncome) controller.edit({ income: "", incomeTouched: false });
+            else if (next === savedIncome) controller.edit({ income: savedIncome, incomeTouched: false });
+            else controller.edit({ income: next, incomeTouched: true });
             sync();
           }}>
-            <option value="">{t("沿用当前收入设置")}</option>
-            <option value="true">{t("开启收入层")}</option>
-            <option value="false">{t("关闭收入层")}</option>
+            {!incomeValue && <option value="" hidden disabled></option>}
+            <option value="true">{t("开启")}</option>
+            <option value="false">{t("关闭")}</option>
           </select>
         </label>
         <div className="form-actions">
@@ -463,12 +449,14 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           <select value={optionValue} disabled={!canSaveCash} onChange={event => {
             const next = event.target.value;
             if ((next === "true" || next === "false") && !boundSupports) return;
-            controller.edit(next === savedOption ? { option: savedOption, optionTouched: false } : { option: next === "" ? "clear" : next, optionTouched: true });
+            if (!savedOption && next === effectiveOption) controller.edit({ option: "", optionTouched: false });
+            else if (next === savedOption) controller.edit({ option: savedOption, optionTouched: false });
+            else controller.edit({ option: next, optionTouched: true });
             sync();
           }}>
-            <option value="">{t("沿用当前期权设置")}</option>
-            <option value="true" disabled={!boundSupports}>{t("开启期权层")}</option>
-            <option value="false" disabled={!boundSupports}>{t("关闭期权层")}</option>
+            {!optionValue && <option value="" hidden disabled></option>}
+            <option value="true" disabled={!boundSupports}>{t("开启")}</option>
+            <option value="false" disabled={!boundSupports}>{t("关闭")}</option>
           </select>
         </label>
         {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再核对期权层支持。" : accountSettingsOperationReason(settings?.operations?.save_option_draft_reason))}</p>}

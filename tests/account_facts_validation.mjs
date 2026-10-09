@@ -1286,7 +1286,10 @@ assert.equal(ibkrFacts.totals.status, "unavailable");
 const ibkrUsdHistory = await (await getHistory("ibkr", ibkrAccount.key, "USD", sessionHeaders, env)).json();
 assert.equal(ibkrUsdHistory.binding_status, "bound");
 assert.deepEqual(ibkrUsdHistory.series.points, []);
-assert.deepEqual(ibkrUsdHistory.series.gap_dates, [normalizedIbkrHistory.observation_date]);
+assert.deepEqual(ibkrUsdHistory.series.gap_dates, [...new Set([
+  observationDateFrom(ibkrFortyMinuteStarted),
+  normalizedIbkrHistory.observation_date,
+])].sort());
 const ibkrHkdHistory = await (await getHistory("ibkr", ibkrAccount.key, "HKD", sessionHeaders, env)).json();
 assert.equal(ibkrHkdHistory.series.points[0].net_assets, "99.25");
 assert.equal(ibkrHkdHistory.series.points[0].total_cash, null);

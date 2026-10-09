@@ -1195,6 +1195,7 @@ export const EN_COPY = {
   "放弃未保存的修改？": "Discard unsaved changes?",
   "未保存的预留现金和风险偏好会丢弃。": "Unsaved reserved cash and the risk preference will be discarded.",
   "未保存的预留现金、收入层草案和风险偏好会丢弃。": "Unsaved reserved cash, the income draft, and the risk preference will be discarded.",
+  "未保存的预留现金和收入层草案会丢弃。": "Unsaved reserved cash and the income draft will be discarded.",
   "放弃未保存的风险偏好？": "Discard the unsaved risk preference?",
   "未保存的风险偏好会丢弃。": "The unsaved risk preference will be discarded.",
   "策略说明": "Strategy note",

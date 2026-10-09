@@ -227,7 +227,8 @@ try {
   metadataRenderFixtures.settings = settingsHtml;
   assert.doesNotMatch(settingsHtml, /当前配置来自设置读回|草案与风险偏好分别保存|运行端生效需另行验证/);
   assert.match(settingsHtml, /账户设置/);
-  assert.match(settingsHtml, /选择这个账号跑什么策略，以及要不要开启期权收入层。/);
+  assert.doesNotMatch(settingsHtml, /选择这个账号跑什么策略，以及要不要开启期权收入层。/);
+  assert.doesNotMatch(settingsHtml, /风险偏好|沿用当前/);
   const english = render([schwabAccount], {}, "en");
   assert.doesNotMatch(english, /Information unavailable/);
   assert.match(english, /Nasdaq Composite/);
