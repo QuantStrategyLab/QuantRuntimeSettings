@@ -19,8 +19,12 @@ assert.match(overviewSource, /code === "USD" \|\| code === "USDT"/,
   "overview spoken money labels USDT as 美元 under the 1:1 USD policy");
 assert.match(overviewSource, /overviewReportingCurrency\(walletCardValuation\.currency\)/,
   "Binance wallet amounts display under the overview USD reporting unit");
-assert.match(overviewSource, /cashFieldForPlatform\(account\.platformKey\) \|\| "available_cash"/,
-  "Binance cash stays unread when the platform has no cash field (no invented cash)");
+assert.match(overviewSource, /formatOverviewAccountCash/,
+  "overview cash uses shared formatter (AFS cash or Binance spot_free; no invented zeros)");
+assert.match(overviewSource, /overviewTypePillLabel/,
+  "overview type pills use shared live/paper/unconfirmed helper");
+assert.match(overviewSource, /overviewMonitoringPillLabel/,
+  "overview status uses distinct monitoring vs enable labels");
 assert.match(overviewSource, /formatOverviewUsdAmount\(assetUsd\.amount\)/,
   "home total assets display with two decimal places");
 assert.match(overviewSource, /formatOverviewUsdAmount\(cashUsd\.amount\)/,

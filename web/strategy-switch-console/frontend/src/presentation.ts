@@ -2191,15 +2191,35 @@ export function activationFromProjection(projection: unknown): "已启用" | "�
   return activationLabel(activation);
 }
 
-/** User-facing enable pill: only 已启用 / 已停用 / 异常. Former 启用未知 / 待确认 map to 异常. */
-export function overviewActivationLabel(activation: unknown): "已启用" | "已停用" | "异常" {
+/** User-facing enable pill: 已启用 / 已停用 / 启用待确认. Unknown evidence is not labeled 异常 (avoids twin 异常 pills). */
+export function overviewActivationLabel(activation: unknown): "已启用" | "已停用" | "启用待确认" {
   if (activation === "已启用" || activation === "enabled") return "已启用";
   if (activation === "已停用" || activation === "disabled") return "已停用";
-  return "异常";
+  return "启用待确认";
 }
 
-export function overviewActivationLabelFromProjection(projection: unknown): "已启用" | "已停用" | "异常" {
+export function overviewActivationLabelFromProjection(projection: unknown): "已启用" | "已停用" | "启用待确认" {
   return overviewActivationLabel(activationFromProjection(projection));
+}
+
+/** Overview type pill: paper / configured-live / unconfirmed. Never invents live from regional scopes alone. */
+export function overviewTypePillLabel(account: {
+  brokerEnvironment?: string | null;
+  facts?: { broker_environment?: string | null; account_scope?: string | null } | null;
+}): "模拟" | "真实" | "环境待确认" {
+  const paper = account.brokerEnvironment === "paper"
+    || account.facts?.broker_environment === "paper"
+    || account.facts?.account_scope === "paper";
+  if (paper) return "模拟";
+  const live = account.brokerEnvironment === "live"
+    || account.facts?.broker_environment === "live"
+    || account.facts?.account_scope === "live";
+  return live ? "真实" : "环境待确认";
+}
+
+/** Monitoring pill copy for the overview table — distinct from enable pills. */
+export function overviewMonitoringPillLabel(healthLabel: string): "健康" | "监测异常" {
+  return healthLabel === "健康" ? "健康" : "监测异常";
 }
 
 export function accountStatusView(projection: unknown, sourceFreshness?: string | null): { label: string; detail: string } {
