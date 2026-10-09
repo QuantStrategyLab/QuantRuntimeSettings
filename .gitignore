@@ -4,11 +4,41 @@ __pycache__/
 .venv/
 .wrangler/
 local/
+.worktrees/
+
+# Local env and Cloudflare runtime (never commit)
 .env
 .env.*
+!.env.example
 !*.env.example
+.dev.vars
+.dev.vars.*
 web/strategy-switch-console/wrangler.toml
+web/strategy-switch-console/.dev.vars
+web/strategy-switch-console/.dev.vars.*
+
+# Private account directory copies (use *.example.json in git only)
+**/account-options.json
+!**/account-options.example.json
+**/strategy-switch-accounts.json
+**/private-accounts.json
+
+# Key material and cloud credentials
+*.pem
+*.key
+*.p12
+*.pfx
+!**/tests/**/*.pem
+!**/*.example.pem
+*credentials*.json
+!*credentials*.example.json
+*-sa.json
+*service-account*.json
+*serviceaccount*.json
+secrets/
+**/secrets/
+
+# Node
 /web/strategy-switch-console/node_modules/
 /web/strategy-switch-console/frontend/node_modules/
 /web/strategy-switch-console/frontend/dist/
-.worktrees/

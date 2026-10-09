@@ -22,6 +22,12 @@ If you suspect tokens, passwords, API keys, service-account keys, cookies, broke
 5. Do not use an exposed value to test, identify, or revoke a credential. Rotate from the owning provider or control plane, then update the approved secret store and verify the runtime path.
 6. Close a secret-scanning alert as `revoked` only after rotation and runtime verification. A history rewrite is a follow-up control, never a substitute for rotation.
 
+## Secrets Architecture (Open Source)
+
+Account routes, broker tokens, OAuth secrets, Flex credentials, Gateway login material, and cloud keys must not live in this public repository. Use Google Secret Manager (platform GCP projects), GitHub Environment secrets/variables, and Cloudflare Worker secrets. Public git may hold schemas, adapters, secret **names**, and `*.example.json` placeholders only.
+
+See [docs/secrets-architecture.zh-CN.md](docs/secrets-architecture.zh-CN.md) for the layered store model, naming, rotation, and local Mac Gateway vs cloud split. Report exposures per the sections below — rotate first; never paste secret values into issues or chat.
+
 ## Public Configuration and Runtime Routing
 
 - Public configuration may describe a runtime variable or secret reference, but must not contain a production notification target, account identifier, token, or credential value.
