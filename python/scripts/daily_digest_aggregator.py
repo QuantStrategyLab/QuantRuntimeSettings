@@ -196,26 +196,19 @@ def default_workflow_allowlist(config: Mapping[str, Any]) -> list[dict[str, str]
 
     platforms = config.get("platforms") or {}
     rows: list[dict[str, str]] = []
-    defaults: dict[str, tuple[str, str]] = {
+    # Fallback only when platform-config allowlist is absent.
+    # Keep in sync with calibrated present paths (P0-04); never list 404 stems.
+    defaults: dict[str, tuple[str, str, str]] = {
+        # workflow → strategy_profile → evidence_role
         "longbridge": (
             "publish-runtime-daily-once.yml",
             "russell_top50_leader_rotation",
+            "paper_projection_once",
         ),
         "schwab": (
-            "publish-runtime-daily-once.yml",
+            "runtime-daily-sync.yml",
             "soxl_soxx_trend_income",
-        ),
-        "ibkr": (
-            "publish-runtime-daily-once.yml",
-            "soxl_soxx_trend_income",
-        ),
-        "firstrade": (
-            "publish-runtime-daily-once.yml",
-            "unspecified",
-        ),
-        "binance": (
-            "publish-runtime-daily-once.yml",
-            "crypto_equity_combo",
+            "manual_daily_projection",
         ),
     }
     configured = (
@@ -239,17 +232,22 @@ def default_workflow_allowlist(config: Mapping[str, Any]) -> list[dict[str, str]
                 repo = str(platforms[platform_id].get("repository") or "").strip()
             if not repo:
                 continue
-            rows.append(
-                {
-                    "platform_id": platform_id,
-                    "repository": repo,
-                    "workflow": workflow,
-                    "strategy_profile": strategy or "unspecified",
-                }
-            )
+            row = {
+                "platform_id": platform_id,
+                "repository": repo,
+                "workflow": workflow,
+                "strategy_profile": strategy or "unspecified",
+            }
+            evidence_role = str(item.get("evidence_role") or "").strip()
+            if evidence_role:
+                row["evidence_role"] = evidence_role
+            path_status = str(item.get("path_status") or "").strip()
+            if path_status:
+                row["path_status"] = path_status
+            rows.append(row)
         return rows
 
-    for platform_id, (workflow, strategy) in defaults.items():
+    for platform_id, (workflow, strategy, evidence_role) in defaults.items():
         meta = platforms.get(platform_id) or {}
         repo = str(meta.get("repository") or "").strip()
         if not repo:
@@ -260,6 +258,8 @@ def default_workflow_allowlist(config: Mapping[str, Any]) -> list[dict[str, str]
                 "repository": repo,
                 "workflow": workflow,
                 "strategy_profile": strategy,
+                "evidence_role": evidence_role,
+                "path_status": "present",
             }
         )
     return rows
@@ -305,6 +305,7 @@ def collect_from_github_workflows(
         repository = entry["repository"]
         workflow = entry["workflow"]
         strategy = entry["strategy_profile"]
+        evidence_role = str(entry.get("evidence_role") or "").strip()
         owner_repo = repository.split("/", 1)
         if len(owner_repo) != 2:
             result.failures.append(
@@ -387,7 +388,10 @@ def collect_from_github_workflows(
             "order_count": None,
             "cycle_count": 1,
             "status": "ok",
-            "note": f"github_workflow:{workflow}",
+            "note": (
+                f"github_workflow:{workflow}"
+                + (f";evidence_role:{evidence_role}" if evidence_role else "")
+            ),
             "field_status": {
                 "fill_count": "counts_unknown",
                 "order_count": "counts_unknown",

@@ -532,11 +532,37 @@ export function accountMatchesStatusFilter(filter: string, projection: AccountSt
   return false;
 }
 
-export function diagnosisUserSummary(input: { available?: boolean; task?: Record<string, any> | null } | null | undefined): {
+const DIAGNOSIS_QUALIFICATION_REASON_TEXT: Record<string, string> = {
+  account_diagnosis_config_unavailable: "账户选项配置不可用，无法绑定诊断身份。",
+  account_diagnosis_account_not_found: "未找到匹配的账户选项。",
+  account_diagnosis_account_not_unique: "账户选项不唯一，无法安全绑定诊断身份。",
+  account_diagnosis_target_not_admitted: "该账户目标未纳入诊断准入清单。",
+  account_diagnosis_identity_conflict: "账户与目标身份冲突或不唯一。",
+  account_diagnosis_lifecycle_store_unavailable: "生命周期配置存储不可用。",
+  account_diagnosis_lifecycle_match_missing: "缺少匹配的生命周期观测来源。",
+  account_diagnosis_lifecycle_match_ambiguous: "生命周期观测来源不唯一。",
+  account_diagnosis_source_unavailable: "生命周期来源不可用。",
+  account_diagnosis_observation_missing: "缺少观测时间，无法确认诊断资格。",
+  account_diagnosis_incident_requires_attention: "incident 需要已确认的监测关注项。",
+  account_diagnosis_schema_incompatible: "诊断上下文 schema 不兼容。",
+};
+
+export function diagnosisUserSummary(input: {
+  available?: boolean;
+  reason_code?: string | null;
+  reason?: string | null;
+  task?: Record<string, any> | null;
+} | null | undefined): {
   status: string; reason: string; action: "check" | "refresh";
 } {
   if (!input || input.available === undefined) return { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" };
-  if (input.available === false) return { status: "暂时无法检查", reason: "检查服务暂时不可用；刷新状态后再试。", action: "refresh" };
+  if (input.available === false) {
+    const code = String(input.reason_code || "").trim();
+    const mapped = DIAGNOSIS_QUALIFICATION_REASON_TEXT[code]
+      || (input.reason ? String(input.reason) : "")
+      || "检查服务暂时不可用；刷新状态后再试。";
+    return { status: "暂时无法检查", reason: mapped, action: "refresh" };
+  }
   const task = input.task;
   if (!task) return { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" };
   if (task.status === "unknown" || task.dispatch_state === "unknown") {

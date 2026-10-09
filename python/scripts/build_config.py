@@ -743,6 +743,56 @@ def validate_notification_references(config: dict, errors: list[str]) -> None:
                                                 f"github_workflow_allowlist[{index}].{field} "
                                                 "required"
                                             )
+                                    evidence_role = item.get("evidence_role")
+                                    if evidence_role is not None and not str(evidence_role).strip():
+                                        errors.append(
+                                            f"{path}.daily_digest.aggregator."
+                                            f"github_workflow_allowlist[{index}].evidence_role "
+                                            "must be non-empty when set"
+                                        )
+                                    path_status = item.get("path_status")
+                                    if path_status is not None and str(path_status).strip() not in {
+                                        "present",
+                                    }:
+                                        errors.append(
+                                            f"{path}.daily_digest.aggregator."
+                                            f"github_workflow_allowlist[{index}].path_status "
+                                            "must be 'present' when set (404 paths belong in "
+                                            "github_workflow_allowlist_omitted)"
+                                        )
+                        omitted = aggregator.get("github_workflow_allowlist_omitted")
+                        if omitted is not None:
+                            if not isinstance(omitted, list):
+                                errors.append(
+                                    f"{path}.daily_digest.aggregator."
+                                    "github_workflow_allowlist_omitted must be a list"
+                                )
+                            else:
+                                for index, item in enumerate(omitted):
+                                    if not isinstance(item, dict):
+                                        errors.append(
+                                            f"{path}.daily_digest.aggregator."
+                                            f"github_workflow_allowlist_omitted[{index}] "
+                                            "must be an object"
+                                        )
+                                        continue
+                                    if not str(item.get("platform_id") or "").strip():
+                                        errors.append(
+                                            f"{path}.daily_digest.aggregator."
+                                            f"github_workflow_allowlist_omitted[{index}]."
+                                            "platform_id required"
+                                        )
+                                    status = str(item.get("path_status") or "").strip()
+                                    if status not in {
+                                        "missing",
+                                        "no_daily_projection_workflow",
+                                    }:
+                                        errors.append(
+                                            f"{path}.daily_digest.aggregator."
+                                            f"github_workflow_allowlist_omitted[{index}]."
+                                            "path_status must be 'missing' or "
+                                            "'no_daily_projection_workflow'"
+                                        )
 
 
 def validate_runtime_authority_status(config: dict, errors: list[str]) -> None:

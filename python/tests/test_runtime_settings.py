@@ -315,6 +315,23 @@ class RuntimeSettingsTest(unittest.TestCase):
         self.assertEqual(aggregator["schema_version"], "qsl.daily_digest_aggregator.v1")
         self.assertEqual(aggregator["counts_policy"], "never_invent_fills_or_orders")
         self.assertTrue(aggregator["github_workflow_allowlist"])
+        allow_by_platform = {
+            row["platform_id"]: row for row in aggregator["github_workflow_allowlist"]
+        }
+        self.assertEqual(
+            allow_by_platform["longbridge"]["workflow"],
+            "publish-runtime-daily-once.yml",
+        )
+        self.assertEqual(
+            allow_by_platform["schwab"]["workflow"],
+            "runtime-daily-sync.yml",
+        )
+        self.assertNotIn("ibkr", allow_by_platform)
+        self.assertNotIn("binance", allow_by_platform)
+        omitted_ids = {
+            row["platform_id"] for row in aggregator.get("github_workflow_allowlist_omitted") or []
+        }
+        self.assertTrue({"ibkr", "binance", "firstrade"}.issubset(omitted_ids))
         self.assertEqual(
             sentinel["github_variable_contract"]["TELEGRAM_TOKEN_SECRET_NAME"],
             "quant-sentinel-telegram-bot-token",

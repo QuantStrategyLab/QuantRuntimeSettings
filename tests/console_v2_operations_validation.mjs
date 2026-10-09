@@ -128,6 +128,16 @@ assert.equal(mixedSources.operations.some(item => item.kind === "candidate_revie
   "stale owner data cannot suppress an actionable review from a ready source");
 assert.deepEqual(mixedSources.sourceWarnings.map(item => item.source), ["所有者决定", "候选晋级", "恢复确认", "账户运行", "账户配置"]);
 assert.deepEqual(diagnosisUserSummary(undefined), { status: "尚未检查", reason: "可以发起一次只读账户检查。", action: "check" });
+assert.deepEqual(
+  diagnosisUserSummary({ available: false, reason_code: "account_diagnosis_identity_conflict" }),
+  { status: "暂时无法检查", reason: "账户与目标身份冲突或不唯一。", action: "refresh" },
+);
+assert.deepEqual(
+  diagnosisUserSummary({ available: false, reason_code: "account_diagnosis_lifecycle_match_missing" }),
+  { status: "暂时无法检查", reason: "缺少匹配的生命周期观测来源。", action: "refresh" },
+);
+assert.equal(diagnosisUserSummary({ available: false }).reason, "检查服务暂时不可用；刷新状态后再试。");
+
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "running" } }), { status: "正在检查", reason: "检查仍在处理，无需重复操作。", action: "refresh" });
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "unknown" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });
 assert.deepEqual(diagnosisUserSummary({ available: true, task: { status: "queued", dispatch_state: "unknown" } }), { status: "结果暂未确认", reason: "请查看技术详情或联系维护人员；暂不重复请求。", action: "refresh" });

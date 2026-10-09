@@ -218,6 +218,8 @@ try {
   });
   assert.equal(incidentHealthy.status, 409);
   assert.equal(incidentHealthy.body.error, "account_diagnosis_incident_requires_attention");
+  assert.equal(incidentHealthy.body.reason_code, "account_diagnosis_incident_requires_attention");
+  assert.match(String(incidentHealthy.body.reason || ""), /监测关注项/);
   assert.equal(dispatches.length, 0);
 
   const manual = await call("/api/account-diagnosis", {
@@ -326,6 +328,19 @@ try {
   assert.equal(extraField.status, 400);
   const wrongTarget = await call("/api/account-diagnosis", { method: "POST", body: { platform: "binance", key: "missing", trigger: "manual_check" } });
   assert.equal(wrongTarget.status, 409);
+  assert.equal(wrongTarget.body.error, "account_diagnosis_account_not_found");
+  assert.equal(wrongTarget.body.reason_code, "account_diagnosis_account_not_found");
+  assert.match(String(wrongTarget.body.reason || ""), /未找到匹配的账户选项/);
+
+  const unknownPlatform = await call("/api/account-diagnosis", {
+    method: "POST", body: { platform: "schwab", key: "default", trigger: "manual_check" },
+  });
+  assert.equal(unknownPlatform.status, 409);
+  assert.equal(unknownPlatform.body.reason_code, "account_diagnosis_account_not_found");
+
+  const getMissing = await call("/api/account-diagnosis?platform=binance&key=missing");
+  assert.equal(getMissing.status, 409);
+  assert.equal(getMissing.body.reason_code, "account_diagnosis_account_not_found");
 
   seeded = await call("/api/internal/sync-runtime-target-lifecycle-source", {
     method: "POST", cookie: "", origin: "", headers: { Authorization: "Bearer synthetic-lifecycle-token" },
