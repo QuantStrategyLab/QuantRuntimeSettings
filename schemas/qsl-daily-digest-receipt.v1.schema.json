@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/schemas/qsl-daily-digest-receipt.v1.schema.json",
+  "title": "QSL Daily Digest Receipt v1 (B11 delivery_axes additive)",
+  "description": "Observation receipt for QuantSentinel daily digest aggregate/notify. Legacy fields (delivered, dry_run, evidence_status, runs[].status, …) remain authoritative for existing readers. delivery_axes is an additive dual-write projection (B11-b); ignore-unknown readers stay compatible. Not an OrderEvent.",
+  "type": "object",
+  "required": [
+    "schema_version"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "enum": [
+        "qsl.daily_digest_receipt.v1",
+        "qsl.daily_digest_delivery_receipt.v1"
+      ]
+    },
+    "delivery_axes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "execution_status": {
+          "type": "string"
+        },
+        "evidence_persistence_status": {
+          "type": "string"
+        },
+        "evidence_delivery_status": {
+          "type": "string"
+        },
+        "notification_delivery_status": {
+          "type": "string"
+        }
+      },
+      "description": "B11 four delivery axes projected from existing receipt fields. Dual-written alongside delivered/dry_run/evidence_status."
+    }
+  },
+  "additionalProperties": true
+}

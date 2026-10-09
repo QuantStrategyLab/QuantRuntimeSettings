@@ -312,6 +312,10 @@ class DigestRunEntry:
     cycle_count_status: CountFieldStatus = "known"
     reason_code: str = ""
     evidence_provenance: str = ""
+    # B11 optional producer axes (pass-through; central projects when empty).
+    execution_status: str = ""
+    evidence_persistence_status: str = ""
+    evidence_delivery_status: str = ""
 
     def __post_init__(self) -> None:
         if not str(self.platform_id).strip():
@@ -1000,6 +1004,13 @@ def filter_runs_for_digest(
                 cycle_count_status=cycle_status,
                 reason_code=str(raw.get("reason_code") or "").strip(),
                 evidence_provenance=str(raw.get("evidence_provenance") or "").strip(),
+                execution_status=str(raw.get("execution_status") or "").strip(),
+                evidence_persistence_status=str(
+                    raw.get("evidence_persistence_status") or ""
+                ).strip(),
+                evidence_delivery_status=str(
+                    raw.get("evidence_delivery_status") or ""
+                ).strip(),
             )
         )
     return out
