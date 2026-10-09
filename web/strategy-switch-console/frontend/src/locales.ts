@@ -785,6 +785,7 @@ export const EN_COPY = {
   "管理运行实例、登录权限、账户路由与风险偏好；角色权限仍由 Worker 校验。": "Manage runtime instances, access, account routing, and risk preferences. The server still enforces roles.",
   "暂不支持在此启用账户。": "Enabling accounts here is not yet supported.",
   "登录": "Sign in",
+  "登录后可查看账户总览、待办决策与账户设置。": "Sign in to view the account overview, open decisions, and account settings.",
   "管理账户资料与网站访问权限。": "Manage account details and website access.",
   "获准操作的用户，每行一个": "Authorized users, one per line",
   "获准操作的组织，每行一个": "Authorized organizations, one per line",
