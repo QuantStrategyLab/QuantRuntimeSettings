@@ -2,14 +2,21 @@ import assert from "node:assert/strict";
 import {
   MARKET_BENCHMARK_INCEPTION_DATE,
   MARKET_BENCHMARK_TIMEZONE,
+  OVERVIEW_FX_API_URL,
+  OVERVIEW_FX_SOURCE,
   OVERVIEW_USD_RATES,
   amountToUsd,
   buildAggregateAssetSeries,
   buildAssetChartGeometry,
   buildBenchmarkChartGeometry,
+  formatOverviewUsdAmount,
+  loadOverviewUsdRates,
+  parseFrankfurterUsdBaseRates,
   presentAggregateReturn,
   presentMarketBenchmarkSeries,
   readQualifiedPeriodReturn,
+  resetOverviewUsdRatesCache,
+  roundDecimalHalfUp,
   shanghaiCalendarDate,
   sumAmountsToUsd,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
@@ -146,13 +153,37 @@ assert.equal(readQualifiedPeriodReturn("ibkr", {
 }, false), null, "a revision mismatch cannot display a qualified return");
 
 
-assert.deepEqual(OVERVIEW_USD_RATES, {}, "overview does not invent extra FX rates");
+assert.deepEqual(OVERVIEW_USD_RATES, {}, "static overview seed does not invent FX rates");
+assert.match(OVERVIEW_FX_API_URL, /^https:\/\/api\.frankfurter\.dev\/v1\/latest\?/);
+assert.match(OVERVIEW_FX_SOURCE, /frankfurter/i);
 assert.equal(amountToUsd("USD", "2095.95"), "2095.95");
 assert.equal(amountToUsd("USDT", "133.13"), "133.13", "USDT counts 1:1 with USD");
 assert.equal(amountToUsd("SGD", "100"), null, "SGD without a rate is omitted, not zero-filled");
 assert.equal(amountToUsd("HKD", "780"), null, "HKD without a rate is omitted, not zero-filled");
 assert.equal(amountToUsd("EUR", "10", { EUR: "1.1" }), "11");
 assert.equal(amountToUsd("EUR", "10", { EUR: "0" }), null, "a zero rate is unusable and omits the amount");
+
+assert.equal(roundDecimalHalfUp("2229.081", 2), "2229.08");
+assert.equal(roundDecimalHalfUp("2229.085", 2), "2229.09", "half-up at exactly 5");
+assert.equal(roundDecimalHalfUp("100", 2), "100.00");
+assert.equal(formatOverviewUsdAmount("2229.081"), "2,229.08");
+assert.equal(formatOverviewUsdAmount("100"), "100.00");
+assert.equal(formatOverviewUsdAmount("1234567.891"), "1,234,567.89");
+
+const frankfurterRates = parseFrankfurterUsdBaseRates({
+  amount: 1.0,
+  base: "USD",
+  date: "2026-10-08",
+  rates: { CNY: 6.7023, EUR: 0.89397, HKD: 7.8476, SGD: 1.282 },
+});
+assert.ok(frankfurterRates.SGD, "SGD multiplier is derived from the USD quote");
+assert.ok(frankfurterRates.HKD);
+assert.ok(frankfurterRates.EUR);
+assert.ok(frankfurterRates.CNY);
+assert.equal(frankfurterRates.CNH, frankfurterRates.CNY, "CNH reuses the CNY onshore reference");
+assert.equal(amountToUsd("SGD", "100", { SGD: "0.78" }), "78", "explicit rates convert");
+assert.deepEqual(parseFrankfurterUsdBaseRates({ base: "EUR", rates: { USD: 1.1 } }), {}, "non-USD base is rejected");
+assert.deepEqual(parseFrankfurterUsdBaseRates(null), {}, "bad payload yields no invented rates");
 
 const usdTotal = sumAmountsToUsd([
   { currency: "USD", amount: "2095.95" },
@@ -162,6 +193,18 @@ const usdTotal = sumAmountsToUsd([
 ], OVERVIEW_USD_RATES);
 assert.equal(usdTotal.amount, "2229.08", "ready USD and USDT sum at 1:1; missing rates stay out of the total");
 assert.deepEqual(usdTotal.omittedCurrencies, ["HKD", "SGD"]);
+assert.equal(formatOverviewUsdAmount(usdTotal.amount), "2,229.08");
+
+const ratedTotal = sumAmountsToUsd([
+  { currency: "USD", amount: "2095.95" },
+  { currency: "USDT", amount: "133.13" },
+  { currency: "SGD", amount: "100" },
+  { currency: "HKD", amount: "780" },
+  { currency: "JPY", amount: "1000" },
+], { ...frankfurterRates, SGD: "0.78", HKD: "0.128" });
+assert.equal(ratedTotal.amount, "2406.92", "rated SGD and HKD convert into the USD sum");
+assert.deepEqual(ratedTotal.omittedCurrencies, ["JPY"], "unrated currencies still omit");
+assert.equal(formatOverviewUsdAmount(ratedTotal.amount), "2,406.92");
 
 const onlyUnrated = sumAmountsToUsd([
   { currency: "SGD", amount: "50" },
@@ -173,5 +216,21 @@ assert.deepEqual(onlyUnrated.omittedCurrencies, ["HKD", "SGD"]);
 const emptyUsd = sumAmountsToUsd([], OVERVIEW_USD_RATES);
 assert.equal(emptyUsd.amount, null);
 assert.deepEqual(emptyUsd.omittedCurrencies, []);
+
+resetOverviewUsdRatesCache();
+const failedFetch = await loadOverviewUsdRates(async () => {
+  throw new Error("network_down");
+});
+assert.deepEqual(failedFetch, {}, "FX fetch failure fails closed with an empty rate map");
+resetOverviewUsdRatesCache();
+const badStatus = await loadOverviewUsdRates(async () => new Response("nope", { status: 503 }));
+assert.deepEqual(badStatus, {}, "non-OK FX response fails closed");
+resetOverviewUsdRatesCache();
+const okFetch = await loadOverviewUsdRates(async () => new Response(JSON.stringify({
+  amount: 1.0, base: "USD", date: "2026-10-08",
+  rates: { CNY: 6.7023, EUR: 0.89397, HKD: 7.8476, SGD: 1.282 },
+}), { status: 200, headers: { "Content-Type": "application/json" } }));
+assert.equal(okFetch.SGD, frankfurterRates.SGD);
+assert.equal(okFetch.CNH, okFetch.CNY);
 
 console.log("overview_benchmark_aggregate_validation ok");
