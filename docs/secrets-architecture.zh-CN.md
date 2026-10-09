@@ -54,3 +54,15 @@ qsl-{platform}-{env}-{purpose}     # Secret Manager 友好名
 ## Telegram / QuantSentinel
 
 跨平台通知统一使用 GCP secret 名 `quant-sentinel-telegram-bot-token`（见 `docs/notifications-quant-sentinel.zh-CN.md`）。GitHub 变量 `TELEGRAM_TOKEN_SECRET_NAME` 与 `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME` 都应指向该名称。公开仓只写 secret **名**与 chat **路由变量名**，不写 token 或 chat id。
+
+## Telegram 路由解析与别名（P0-06）
+
+运行时解析顺序（名称，不是值）见 `docs/notifications-quant-sentinel.zh-CN.md`：
+
+- token：`TELEGRAM_TOKEN` → `TG_TOKEN` → GCP Secret Manager（合同名 `quant-sentinel-telegram-bot-token`，可由 `TELEGRAM_TOKEN_SECRET_NAME` 覆盖）
+- chat：`QSL_GLOBAL_TELEGRAM_CHAT_ID` → `GLOBAL_TELEGRAM_CHAT_ID` → `STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS`（取首个）
+
+Environment 注入的 `TELEGRAM_TOKEN` / `TG_TOKEN` **会遮蔽** GCP Secret Manager 路径（发送器不再调用 gcloud）。组织级与 Environment 级同名 secret 的最终胜出方以 GitHub Actions / Cloud Run 实际注入为准；公开仓只提供 `--route-check` 匹配元数据（`token_source_kind` / `chat_source_kind` / `warnings`），不打印值。
+
+别名退役条件与「重复发送风险待证」清单见通知文档同节；退役前须有 route-check 证据，禁止在聊天中粘贴 token 或 chat id。
+

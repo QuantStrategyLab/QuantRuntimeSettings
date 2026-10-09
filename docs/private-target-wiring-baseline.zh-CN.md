@@ -10,7 +10,7 @@
 | --- | --- |
 | FX 同源代理 | QRS #585 已上线 `/api/overview-fx`；勿再当 CSP 未修 |
 | 日报渲染字段 | #584 已支持权益/持仓/信号/调仓；缺的是各平台 DIGEST_CANDIDATES 管道 |
-| LongBridge HK | 勿改 `independent_get` / Cloud Run ingress；已回 `scheduler_archive`；与 SG 对齐由 quant 负责 |
+| LongBridge HK | 已回 `scheduler_archive`；Environment：`RECORDING_ENABLED=true`、无 `OBSERVATION_MODE`、`RUNTIME_TARGET_ENABLED=false`；阻塞为 observation_timeout（`/probe`→GCS），**非** ingress。来源：quant 2026-10-09 FYI。勿改 `independent_get` / Cloud Run ingress；与 SG 同款 PAUSED resume 由 quant 负责 |
 | Firstrade facts sync | 关闭待 quant；本基线不改 Firstrade sync |
 
 ## 接线表（占位）
@@ -22,7 +22,7 @@
 | `schwab/待填` | schwab | `待填` | 待填 | 未知 | 未知 | CharlesSchwabPlatform runtime daily / facts（文档路径待核） | 控制台 account-facts 绑定 + 可选 DIGEST_CANDIDATES → 中央日报 | 未知 | Environment 名、binding、日报候选是否已注入 |
 | `ibkr/待填` | ibkr | `待填` | 待填 | 未知 | 未知 | InteractiveBrokersPlatform facts / period-return（文档路径待核） | 同上 | 未知 | target 与 account_scope 是否唯一 |
 | `longbridge/sg`（占位名） | longbridge | `待填` | 待填 | 未知 | 未知 | LongBridgePlatform SG | facts + DIGEST_CANDIDATES（待接） | 未知 | 与 HK 隔离；勿改 HK ingress |
-| `longbridge/hk`（占位名） | longbridge | `待填` | 待填 | 未知 | 未知 | LongBridgePlatform HK（scheduler_archive） | **本任务不改** | 未知 | quant 对齐 SG PAUSED resume |
+| `longbridge/hk`（占位名） | longbridge | `待填` | 见上表 HK Environment 钉 | 未知 | 未知 | LongBridgePlatform HK（`scheduler_archive`） | **本任务不改**；阻塞 observation_timeout（/probe→GCS） | 未知 | revision 未核；quant 对齐 SG PAUSED resume |
 | `binance/待填` | binance | `待填` | 待填 | 未知 | 未知 | BinancePlatform（Oracle VPS / self-hosted，非 Cloud Run） | facts 可发布≠现金/钱包已读回 | 未知 | 资产字段覆盖、通知 TG_TOKEN 对齐 |
 | `firstrade/待填` | firstrade | `待填` | 待填 | 未知 | 未知 | FirstradePlatform | facts sync **关闭**（quant） | 未知 | sync 开关与专用 token |
 
@@ -34,8 +34,9 @@
 | Environment | `runtime-strategy-switch` |
 | 候选注入 | `DIGEST_CANDIDATES_JSON`（secret）或 `DIGEST_CANDIDATES_PATH`（var） |
 | 接线说明 | [digest-candidates-wiring.zh-CN.md](./digest-candidates-wiring.zh-CN.md) |
+| 路由诊断 | `python/scripts/send_daily_digest_telegram.py --route-check`（只输出匹配元数据） |
 | 聚合键 | `platform_id + strategy_profile + opaque_account_uid\|unknown + target_id\|unknown` |
-| receipt | `source_coverage` / `failures` / 每条 run 的 identity + field provenance |
+| receipt | 候选侧 `source_coverage` / `failures` / identity + field provenance；路由侧 `secret_name_contract` / `token_source_kind` / `chat_source_kind` / `warnings` |
 
 ## 填写规则
 
@@ -48,4 +49,5 @@
 
 | 日期 | 说明 |
 | --- | --- |
-| 2026-10-09 | rebuild P0-01 初稿：模板 + 审计日已知项；平台行均为待填/未知 |
+| 2026-10-09 | rebuild P0-01 初稿（#586）：模板 + 审计日已知项 |
+| 2026-10-09 | rebuild P0-06：LB-HK Environment/阻塞钉（quant FYI）；路由诊断入口；不编造其他平台 revision |
