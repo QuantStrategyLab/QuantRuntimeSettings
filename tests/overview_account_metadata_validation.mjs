@@ -143,7 +143,7 @@ try {
   assert.match(html, /没有记录/);
   assert.doesNotMatch(html, /USD 101\.25|模拟账户|已取得资产合计|配置为模拟|覆盖按配置条目统计|历史数据范围/,
     "paper accounts and engineering coverage stay off the first screen");
-  for (const name of ["你的账户", "标普 500", "纳斯达克综合", "罗素 2000", "道琼斯工业平均"]) assert.match(html, new RegExp(name));
+  for (const name of ["你的账户", "标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.match(html, new RegExp(name));
   assert.match(html, /aria-label="收益率"/);
   assert.doesNotMatch(html, /<path |fred\.stlouisfed|暂无组合历史/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
@@ -230,7 +230,7 @@ try {
   assert.doesNotMatch(settingsHtml, /风险偏好|沿用当前/);
   const english = render([schwabAccount], {}, "en");
   assert.doesNotMatch(english, /Information unavailable/);
-  assert.match(english, /Nasdaq Composite/);
+  assert.match(english, /Nasdaq-100/);
   assert.match(english, /Not read|Real/);
   assert.doesNotMatch(english, /Asset amounts available:|Coverage counts configured entries|Account data basis|The current source range|Physical accounts have not been deduplicated/);
 } finally { Date.now = originalNow; globalThis.fetch = originalFetch; }

@@ -819,7 +819,7 @@ function App() {
     if (bootState === "loading" && !model)
         return <LocaleContext.Provider value={language}><main className="boot-screen" aria-live="polite">{t("\u6B63\u5728\u8BFB\u53D6\u540C\u6E90\u914D\u7F6E\u3001\u8FD0\u884C\u72B6\u6001\u4E0E\u7814\u7A76\u8D44\u6599\u2026")}</main></LocaleContext.Provider>;
     if (bootState === "denied")
-        return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>QuantStrategyLab</h1><a className="button button-primary" href="/login">{t("登录")}</a></main></LocaleContext.Provider>;
+        return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>QuantStrategyLab</h1><p>{t("登录后可查看账户总览、待办决策与账户设置。")}</p><a className="button button-primary" href="/login">{t("登录")}</a></main></LocaleContext.Provider>;
     if (bootState === "error" && !model)
         return <LocaleContext.Provider value={language}><main className="access-screen"><QslIcon /><h1>{t("\u6682\u65F6\u65E0\u6CD5\u8BFB\u53D6\u63A7\u5236\u53F0")}</h1><p>{t("\u540C\u6E90\u4F1A\u8BDD\u670D\u52A1\u6682\u65F6\u4E0D\u53EF\u7528\u3002")}</p><button className="button button-primary" onClick={() => void refresh()} type="button">{t("\u91CD\u8BD5")}</button></main></LocaleContext.Provider>;
     return <LocaleContext.Provider value={language}><><div className="app-shell" inert={Boolean(confirmDialog)}>

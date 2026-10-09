@@ -162,12 +162,12 @@ function spokenMoney(value: string, name: (code: string) => string): string {
   }).join(" · ");
 }
 
-const RETURN_LEGEND: Array<{ label: "你的账户" | "标普 500" | "纳斯达克综合" | "罗素 2000" | "道琼斯工业平均"; color: string }> = [
+const RETURN_LEGEND: Array<{ label: "你的账户" | (typeof RETURN_INDEX_LEGEND)[number]; color: string }> = [
   { label: "你的账户", color: "#3b82f6" },
-  { label: "标普 500", color: "#22c55e" },
-  { label: "纳斯达克综合", color: "#f59e0b" },
-  { label: "罗素 2000", color: "#8b5cf6" },
-  { label: "道琼斯工业平均", color: "#94a3b8" },
+  { label: "标普500", color: "#22c55e" },
+  { label: "纳斯达克100", color: "#f59e0b" },
+  { label: "道琼斯工业平均指数", color: "#94a3b8" },
+  { label: "罗素2000", color: "#8b5cf6" },
 ];
 
 export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0, marketBenchmarkPoints }: {
@@ -1001,7 +1001,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
       </article>
       <article className="home-card">
         <h2>{t("收益率")}</h2>
-        <div className="return-empty" role="img" aria-label={t("收益率")}>{aggregateReturn.status === "available" && benchmarkSeries.every(series => series.storedHistory) && aggregateSeries.points.length > 1 ? t("暂无合格收益") : t("暂无合格收益")}</div>
+        <div className="return-empty" role="img" aria-label={t("收益率")}>{t("暂无合格收益")}</div>
         <ul className="return-legend">
           {RETURN_LEGEND.map(item => <li key={item.label}><i style={{ background: item.color }} />{t(item.label)}</li>)}
         </ul>
