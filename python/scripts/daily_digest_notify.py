@@ -646,7 +646,11 @@ def resolve_evidence_status(
 
 
 def render_daily_digest(payload: DailyDigestInput) -> str:
-    """Render one Telegram message body (never includes tokens or chat ids)."""
+    """Render one Telegram message body (never includes tokens or chat ids).
+
+    Omits schedule window and channel footer lines (product preference).
+    Multiple observation blocks are separated by a blank line.
+    """
 
     locale = normalize_locale(str(payload.locale))
     runs = tuple(payload.runs)
@@ -658,13 +662,10 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     if not runs:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
         lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
-        if payload.window_label.strip():
-            lines.append(f"{_t(locale, 'window_label')}: {payload.window_label.strip()}")
         if evidence_status == "verified_idle":
             lines.append(_t(locale, "heartbeat_no_run_verified"))
         else:
             lines.append(_t(locale, "heartbeat_evidence_unknown"))
-        lines.append(_t(locale, "footer"))
         return "\n".join(lines)
 
     if known_fills is None:
@@ -674,8 +675,6 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     else:
         lines.append(_t(locale, "daily_digest_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
-    if payload.window_label.strip():
-        lines.append(f"{_t(locale, 'window_label')}: {payload.window_label.strip()}")
     if not rich:
         if known_fills is None:
             lines.append(_t(locale, "heartbeat_fills_unknown"))
@@ -688,10 +687,15 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
 
     for index, entry in enumerate(runs):
         block = _render_run_line(entry, locale)
-        if index > 0 and (has_observation(entry) or has_observation(runs[index - 1])):
+        # Separate multi-platform / multi-run blocks for readability.
+        # Observation blocks always get a blank line; thin list rows stay compact.
+        if index > 0 and (
+            has_observation(entry)
+            or has_observation(runs[index - 1])
+            or rich
+        ):
             lines.append("")
         lines.extend(block)
-    lines.append(_t(locale, "footer"))
     return "\n".join(lines)
 
 

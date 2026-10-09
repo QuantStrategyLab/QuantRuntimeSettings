@@ -36,7 +36,8 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("心跳", text)
         self.assertIn("证据未知或读取失败", text)
         self.assertNotIn("监测链路心跳正常", text)
-        self.assertIn("QuantSentinel", text)
+        self.assertNotIn("窗口", text)
+        self.assertNotIn("通道", text)
         self.assertNotIn("token", text.lower())
         self.assertNotIn("账户总权益", text)
         self.assertNotIn("持仓", text)
@@ -125,6 +126,8 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("binance", text)
         self.assertNotIn("firstrade", text)
         self.assertIn("成交 2", text)
+        self.assertNotIn("窗口", text)
+        self.assertNotIn("通道", text)
 
     def test_rich_heartbeat_matches_legacy_schwab_fields(self):
         runs = (
@@ -156,6 +159,11 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("量化哨兵 · 心跳", text)
+        self.assertIn("业务日: 2026-10-08", text)
+        self.assertNotIn("窗口", text)
+        self.assertNotIn("Asia/Shanghai", text)
+        self.assertNotIn("通道", text)
+        self.assertNotIn("QuantSentinel", text)
         self.assertIn("💓 【心跳检测】", text)
         self.assertIn("🧭 策略: 半导体趋势收益", text)
         self.assertIn("💰 账户总权益: USD 990.06", text)
@@ -378,7 +386,110 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("持仓", text)
         self.assertNotIn("信号", text)
 
+    def test_single_schwab_omits_window_and_channel(self):
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_label="半导体趋势收益",
+                fill_count=None,
+                fill_count_status="unknown",
+                equity=989.34,
+                rebalance_kind="no_rebalance",
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09",
+                window_label="Asia/Shanghai cron `0 6 * * 2-6`",
+                locale="zh",
+                runs=runs,
+            )
+        )
+        expected = (
+            "📡 量化哨兵 · 心跳\n"
+            "业务日: 2026-10-09\n"
+            "💓 【心跳检测】\n"
+            "🧭 策略: 半导体趋势收益\n"
+            "💰 账户总权益: USD 989.34\n"
+            "✅ 无需调仓\n"
+            "平台: schwab"
+        )
+        self.assertEqual(text, expected)
+
+    def test_multi_platform_observation_blocks_separated(self):
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                strategy_label="半导体趋势收益",
+                fill_count=None,
+                fill_count_status="unknown",
+                equity=989.34,
+                rebalance_kind="no_rebalance",
+            ),
+            daily_digest_notify.DigestRunEntry(
+                platform_id="ibkr",
+                strategy_profile="tqqq_growth_income",
+                strategy_label="纳斯达克增长收益",
+                account_hint="U16608560",
+                fill_count=0,
+                equity=569.16,
+                holdings=(
+                    daily_digest_notify.DigestHolding(
+                        symbol="TQQQ", market_value=312.40, quantity=4
+                    ),
+                ),
+                rebalance_kind="no_rebalance",
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09",
+                window_label="should-not-appear",
+                locale="zh",
+                runs=runs,
+            )
+        )
+        self.assertNotIn("窗口", text)
+        self.assertNotIn("通道", text)
+        self.assertNotIn("should-not-appear", text)
+        # Header once; each platform block keeps its own strategy/equity/platform.
+        self.assertEqual(text.count("量化哨兵 · 心跳"), 1)
+        self.assertIn("平台: schwab", text)
+        self.assertIn("平台: ibkr", text)
+        self.assertIn("🧭 策略: 半导体趋势收益", text)
+        self.assertIn("🧭 策略: 纳斯达克增长收益", text)
+        self.assertIn("💰 账户总权益: USD 989.34", text)
+        self.assertIn("💰 账户总权益: USD 569.16", text)
+        self.assertIn("[U16608560] 💓 【心跳检测】", text)
+        # Blank line between observation blocks.
+        schwab_idx = text.index("平台: schwab")
+        ibkr_idx = text.index("[U16608560]")
+        between = text[schwab_idx:ibkr_idx]
+        self.assertIn("\n\n", between)
+        # Exact multi-platform shape for zh locale.
+        expected = (
+            "📡 量化哨兵 · 心跳\n"
+            "业务日: 2026-10-09\n"
+            "💓 【心跳检测】\n"
+            "🧭 策略: 半导体趋势收益\n"
+            "💰 账户总权益: USD 989.34\n"
+            "✅ 无需调仓\n"
+            "平台: schwab\n"
+            "\n"
+            "[U16608560] 💓 【心跳检测】\n"
+            "🧭 策略: 纳斯达克增长收益\n"
+            "💰 账户总权益: USD 569.16\n"
+            "💼 持仓\n"
+            "- TQQQ: $312.40 / 4股\n"
+            "✅ 无需调仓\n"
+            "平台: ibkr"
+        )
+        self.assertEqual(text, expected)
+
     def test_identity_key_includes_account_and_target(self):
+
         a = daily_digest_notify.identity_key(
             {
                 "platform_id": "schwab",
