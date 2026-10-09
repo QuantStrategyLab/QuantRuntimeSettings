@@ -51,6 +51,8 @@ _OBSERVATION_FIELDS = (
     "tips",
     "tip",
     "account_hint",
+    "account_scope",
+    "execution_mode",
 )
 
 

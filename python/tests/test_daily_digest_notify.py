@@ -149,6 +149,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                     "净值 $990 低于建议 $1,000；整数股和最小仓位限制可能导致实盘无法完全复现回测",
                 ),
                 target_id="schwab-primary",
+                account_scope="live",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -165,7 +166,8 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("Asia/Shanghai", text)
         self.assertNotIn("通道", text)
         self.assertNotIn("QuantSentinel", text)
-        self.assertIn("[schwab-primary] 💓 【心跳检测】", text)
+        self.assertIn("[live] 💓 【心跳检测】", text)
+        self.assertNotIn("[schwab-primary]", text)
         self.assertIn("🧭 策略: 半导体趋势收益", text)
         self.assertIn("💰 账户总权益: USD 990.06", text)
         self.assertIn("💼 持仓", text)
@@ -252,6 +254,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 signal_summary="SOXX above 140d threshold",
                 rebalance_kind="no_rebalance",
                 target_id="schwab-primary",
+                account_scope="live",
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -260,7 +263,8 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("Heartbeat", text)
-        self.assertIn("[schwab-primary] 💓 [Heartbeat]", text)
+        self.assertIn("[live] 💓 [Heartbeat]", text)
+        self.assertNotIn("[schwab-primary]", text)
         self.assertIn("Account equity: USD 990.06", text)
         self.assertIn("4sh", text)
         self.assertIn("No rebalance needed", text)
@@ -378,6 +382,9 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_label="半导体趋势收益",
                 rebalance_kind="no_rebalance",
                 target_id="schwab-primary",
+                opaque_account_uid=(
+                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                ),
             ),
         )
         text = daily_digest_notify.render_daily_digest(
@@ -385,7 +392,8 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[schwab-primary] 💓 【心跳检测】", text)
+        self.assertIn("[bf2e6691] 💓 【心跳检测】", text)
+        self.assertNotIn("[schwab-primary]", text)
         self.assertIn("半导体趋势收益", text)
         self.assertIn("✅ 无需调仓", text)
         self.assertNotIn("账户总权益", text)
@@ -419,7 +427,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
-            "[schwab-primary] 💓 【心跳检测】\n"
+            "[bf2e6691] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -437,6 +445,9 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 fill_count_status="unknown",
                 equity=989.34,
                 rebalance_kind="no_rebalance",
+                opaque_account_uid=(
+                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                ),
                 target_id="schwab-primary",
             ),
             daily_digest_notify.DigestRunEntry(
@@ -473,7 +484,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("🧭 策略: 纳斯达克增长收益", text)
         self.assertIn("💰 账户总权益: USD 989.34", text)
         self.assertIn("💰 账户总权益: USD 569.16", text)
-        self.assertIn("[schwab-primary] 💓 【心跳检测】", text)
+        self.assertIn("[bf2e6691] 💓 【心跳检测】", text)
         self.assertIn("[U16608560] 💓 【心跳检测】", text)
         # Blank line between observation blocks.
         schwab_idx = text.index("平台: schwab")
@@ -484,7 +495,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
-            "[schwab-primary] 💓 【心跳检测】\n"
+            "[bf2e6691] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
@@ -505,13 +516,31 @@ class DailyDigestNotifyTests(unittest.TestCase):
             platform_id="ibkr",
             strategy_profile="tqqq_growth_income",
             account_hint="U16608560",
+            account_scope="live",
             opaque_account_uid="aaaaaaaaaaaaaaaa",
             target_id="ibkr-primary",
         )
         self.assertEqual(
             daily_digest_notify.account_block_tag(hint_wins), "U16608560"
         )
-        target_wins = daily_digest_notify.DigestRunEntry(
+        scope_wins = daily_digest_notify.DigestRunEntry(
+            platform_id="schwab",
+            strategy_profile="soxl_soxx_trend_income",
+            account_scope="live",
+            opaque_account_uid=(
+                "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+            ),
+            target_id="schwab-primary",
+        )
+        self.assertEqual(daily_digest_notify.account_block_tag(scope_wins), "live")
+        mode_wins = daily_digest_notify.DigestRunEntry(
+            platform_id="schwab",
+            strategy_profile="soxl_soxx_trend_income",
+            execution_mode="paper",
+            target_id="schwab-primary",
+        )
+        self.assertEqual(daily_digest_notify.account_block_tag(mode_wins), "paper")
+        uid_beats_target = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
             strategy_profile="soxl_soxx_trend_income",
             opaque_account_uid=(
@@ -520,16 +549,16 @@ class DailyDigestNotifyTests(unittest.TestCase):
             target_id="schwab-primary",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(target_wins), "schwab-primary"
+            daily_digest_notify.account_block_tag(uid_beats_target), "bf2e6691"
         )
-        short_uid = daily_digest_notify.DigestRunEntry(
+        target_last = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
             strategy_profile="soxl_soxx_trend_income",
-            opaque_account_uid=(
-                "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
-            ),
+            target_id="schwab-primary",
         )
-        self.assertEqual(daily_digest_notify.account_block_tag(short_uid), "bf2e6691")
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(target_last), "schwab-primary"
+        )
         empty = daily_digest_notify.DigestRunEntry(
             platform_id="schwab", strategy_profile="soxl_soxx_trend_income"
         )
@@ -590,6 +619,9 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_profile="soxl_soxx_trend_income",
                 strategy_label="半导体趋势收益",
                 target_id="schwab-primary",
+                opaque_account_uid=(
+                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                ),
                 fill_count=2,
                 order_count=2,
                 equity=989.34,  # live-known equity reused for illustration
@@ -606,7 +638,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("收盘日报", text)
-        self.assertIn("[schwab-primary] 🔔 【调仓指令】", text)
+        self.assertIn("[bf2e6691] 🔔 【调仓指令】", text)
         self.assertIn("✅ 成交 2", text)
         self.assertNotIn("窗口", text)
         self.assertNotIn("通道", text)
@@ -619,6 +651,9 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_profile="soxl_soxx_trend_income",
                 strategy_label="半导体趋势收益",
                 target_id="schwab-primary",
+                opaque_account_uid=(
+                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                ),
                 fill_count=None,
                 fill_count_status="unknown",
                 equity=989.34,
@@ -652,7 +687,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
-            "[schwab-primary] 💓 【心跳检测】\n"
+            "[bf2e6691] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
             "✅ 无需调仓\n"
