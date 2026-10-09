@@ -1716,6 +1716,25 @@ export function overviewCardStatusDetail(detail: string | null | undefined): str
   return null;
 }
 
+/**
+ * Prefer runtime-link / binding reasons when lifecycle row is missing.
+ * Generic "运行证据未取得" alone does not tell operators the account is unbound.
+ */
+export function overviewLifecycleDetail(
+  runtime: { observed_at?: string | null } | null | undefined,
+  statusDetail: string | null | undefined,
+  healthDetail: string | null | undefined,
+): string {
+  if (!runtime && typeof statusDetail === "string" && statusDetail.trim()) {
+    return statusDetail.trim();
+  }
+  const detail = typeof healthDetail === "string" ? healthDetail : "";
+  if (detail === "今日周期记录未取得") {
+    return "今日周期记录未取得，不能据此确认周期结果。";
+  }
+  return detail;
+}
+
 export function paperApplicationActionable(application: PaperApplicationItem): boolean {
   return paperApplicationAccounts(application).some(account => paperApplicationReady(application, account.id));
 }

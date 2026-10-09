@@ -18,6 +18,7 @@ import {
   accountNativeReadout,
   overviewRuntimeHealth,
   overviewActivationLabel,
+  overviewLifecycleDetail,
   runtimeDailySelectionFromAccount,
   runtimeDeploymentReadout,
   brokerAccountType,
@@ -914,7 +915,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               </span> : null}
             </span>
             <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
-            <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
+            <small>{t(overviewLifecycleDetail(account.runtime, account.statusDetail, health.detail))}</small>
             {account.runtimeTargetEnabled === true && overviewActivationLabel(account.activation) === "异常"
               ? <small>{t("配置开关已启用，实际运行待确认。")}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}
@@ -1020,7 +1021,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
                 <td><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>
                 <td>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
                 <td className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}</td>
-                <td><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
+                <td title={overviewLifecycleDetail(account.runtime, account.statusDetail, health.detail) || undefined}><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
               </tr>;
             })}
             {!screenAccounts.length ? <tr><td colSpan={5}>{t("没有记录")}</td></tr> : null}

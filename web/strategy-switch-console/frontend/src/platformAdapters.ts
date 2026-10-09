@@ -28,6 +28,8 @@ export type Capability = {
   supportsMarginEvidence: boolean;
   supportsDailyCycle: boolean;
   supportsWalletValuation: boolean;
+  /** Firstrade (and similar) need a human-refreshed read-only session before facts publish. */
+  requiresHumanSession: boolean;
 };
 
 export type NegativeCashInput = {
@@ -54,6 +56,7 @@ function baseBrokerCapability(cashField: "available_cash" | "cash_balance"): Cap
     supportsMarginEvidence: false,
     supportsDailyCycle: true,
     supportsWalletValuation: false,
+    requiresHumanSession: false,
   };
 }
 
@@ -116,7 +119,9 @@ function cashOnlyUnverifiedAdapter(
 
 const ibkrAdapter = cashOnlyUnverifiedAdapter("ibkr", "cash_balance");
 const schwabAdapter = cashOnlyUnverifiedAdapter("schwab", "cash_balance");
-const firstradeAdapter = cashOnlyUnverifiedAdapter("firstrade", "cash_balance");
+const firstradeAdapter = cashOnlyUnverifiedAdapter("firstrade", "cash_balance", {
+  requiresHumanSession: true,
+});
 
 const binanceAdapter: PlatformAdapter = {
   platform: "binance",
@@ -131,6 +136,7 @@ const binanceAdapter: PlatformAdapter = {
       supportsMarginEvidence: false,
       supportsDailyCycle: false,
       supportsWalletValuation: true,
+      requiresHumanSession: false,
     };
   },
   classifyNegativeCash({ hasNonzeroNegativeCash }) {
@@ -152,6 +158,7 @@ const unsupportedAdapter: PlatformAdapter = {
       supportsMarginEvidence: false,
       supportsDailyCycle: false,
       supportsWalletValuation: false,
+      requiresHumanSession: false,
     };
   },
   classifyNegativeCash({ hasNonzeroNegativeCash }) {

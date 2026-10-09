@@ -27,7 +27,17 @@
         "cash_currency": { "type": "string" },
         "broker_environment": { "type": "string", "enum": ["live", "paper"] },
         "default_execution_mode": { "type": "string" },
-        "default_strategy_profile": { "type": "string" }
+        "default_strategy_profile": { "type": "string" },
+        "runtime_status_target_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional one-to-one lifecycle target_id for this platform account; display/monitoring only."
+        },
+        "github_environment": { "type": "string", "minLength": 1 },
+        "variable_scope": {
+          "type": "string",
+          "enum": ["default", "repository", "environment"]
+        }
       }
     }
   }
