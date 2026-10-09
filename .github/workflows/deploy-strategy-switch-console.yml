@@ -91,6 +91,7 @@ jobs:
           node tests/console_v2_i18n_validation.mjs
           node tests/console_v2_worker_validation.mjs
           node tests/ibkr_period_return_validation.mjs
+          node --experimental-strip-types tests/market_benchmark_validation.mjs
           node tests/console_catalog_release_validation.mjs
           node --experimental-default-type=module tests/binance_account_facts_validation.mjs
           node tests/binance_receiver_deploy_acceptance_validation.mjs

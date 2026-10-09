@@ -122,6 +122,7 @@ jobs:
           node --experimental-strip-types tests/account_history_presentation_validation.mjs
           node --experimental-strip-types tests/overview_benchmark_aggregate_validation.mjs
           node --experimental-strip-types tests/overview_fx_proxy_validation.mjs
+          node --experimental-strip-types tests/market_benchmark_validation.mjs
           node tests/account_facts_readonly_extract_validation.mjs
           node tests/account_facts_sync_extract_validation.mjs
           node tests/owner_decision_extract_validation.mjs

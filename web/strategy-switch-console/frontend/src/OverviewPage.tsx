@@ -52,6 +52,7 @@ import {
   type RuntimeDailySnapshot,
   type RuntimeDailyBinding,
 } from "./presentation";
+import { loadMarketBenchmarkPoints } from "./marketBenchmark";
 import {
   cashFieldForPlatform,
   verifiedCurrentAccountAssets,
@@ -213,6 +214,16 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     });
     return () => { cancelled = true; };
   }, []);
+  // Prefer [] over null so SSR/test useState hooks that remap the first null
+  // (account history injection) never treat a history snapshot as benchmark points.
+  const [loadedBenchmarkPoints, setLoadedBenchmarkPoints] = useState<readonly MarketBenchmarkPoint[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    void loadMarketBenchmarkPoints().then((points) => {
+      if (!cancelled && Array.isArray(points)) setLoadedBenchmarkPoints(points);
+    });
+    return () => { cancelled = true; };
+  }, [readModelRefreshVersion]);
   const [chart, setChart] = useState<ChartMode>("assets");
   const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
   const [currencyChoice, setCurrencyChoice] = useState({ accountId: "", value: "" });
@@ -244,7 +255,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const [privateScopeNow, setPrivateScopeNow] = useState(() => Date.now());
   const historyEpoch = useRef(0);
   const aggregateEpoch = useRef(0);
-  const storedBenchmarkPoints = marketBenchmarkPoints ?? [];
+  const storedBenchmarkPoints = Array.isArray(marketBenchmarkPoints) ? marketBenchmarkPoints : loadedBenchmarkPoints;
   const emptyNote = chartRangeEmptyNote(range);
   const visible = accountId === "all" ? displayAccounts : displayAccounts.filter(account => account.id === accountId);
   const visibleFactsSummary = summarizeCurrentAccountFacts(visible.map(account => ({
