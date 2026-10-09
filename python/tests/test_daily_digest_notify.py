@@ -208,7 +208,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("收盘日报", text)
-        self.assertIn("[U16608560] ⏳ 【待确认】", text)
+        self.assertIn("[ibkr U16608560] ⏳ 【待确认】", text)
         self.assertIn("纳斯达克增长收益", text)
         self.assertIn("USD 569.16", text)
         self.assertIn("TQQQ: $312.40 / 4股", text)
@@ -236,7 +236,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[U16608560] ⚠️ 【未下单】", text)
+        self.assertIn("[ibkr U16608560] ⚠️ 【未下单】", text)
         self.assertIn("低于最小订单金额:TQQQ", text)
 
     def test_english_observation_labels(self):
@@ -392,7 +392,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[bf2e6691] 💓 【心跳检测】", text)  # no scope → short uid
+        self.assertIn("[schwab bf2e6691] 💓 【心跳检测】", text)  # no scope → platform + short uid
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("半导体趋势收益", text)
         self.assertIn("✅ 无需调仓", text)
@@ -487,10 +487,10 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("💰 账户总权益: USD 989.34", text)
         self.assertIn("💰 账户总权益: USD 569.16", text)
         self.assertIn("[schwab live] 💓 【心跳检测】", text)
-        self.assertIn("[U16608560] 💓 【心跳检测】", text)
+        self.assertIn("[ibkr U16608560] 💓 【心跳检测】", text)
         # Blank line between observation blocks.
         schwab_idx = text.index("平台: schwab")
-        ibkr_idx = text.index("[U16608560]")
+        ibkr_idx = text.index("[ibkr U16608560]")
         between = text[schwab_idx:ibkr_idx]
         self.assertIn("\n\n", between)
         # Exact multi-platform shape for zh locale — every block has [account] tag.
@@ -503,7 +503,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
-            "[U16608560] 💓 【心跳检测】\n"
+            "[ibkr U16608560] 💓 【心跳检测】\n"
             "🧭 策略: 纳斯达克增长收益\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
@@ -523,7 +523,26 @@ class DailyDigestNotifyTests(unittest.TestCase):
             target_id="ibkr-primary",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(hint_wins), "U16608560"
+            daily_digest_notify.account_block_tag(hint_wins), "ibkr U16608560"
+        )
+        # Lowercase broker hint normalizes to U######.
+        lower_hint = daily_digest_notify.DigestRunEntry(
+            platform_id="ibkr",
+            strategy_profile="soxl_soxx_trend_income",
+            account_hint="u15998061",
+            account_scope="live",
+        )
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(lower_hint), "ibkr U15998061"
+        )
+        # Scope embedding live-u###### → broker id without needing account_hint.
+        embedded = daily_digest_notify.DigestRunEntry(
+            platform_id="ibkr",
+            strategy_profile="soxl_soxx_trend_income",
+            account_scope="live-u15998061",
+        )
+        self.assertEqual(
+            daily_digest_notify.account_block_tag(embedded), "ibkr U15998061"
         )
         # Hex-only hint is rejected; platform+scope wins.
         hex_hint = daily_digest_notify.DigestRunEntry(
@@ -572,7 +591,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             target_id="schwab-primary",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(uid_beats_target), "bf2e6691"
+            daily_digest_notify.account_block_tag(uid_beats_target), "schwab bf2e6691"
         )
         target_last = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
@@ -580,7 +599,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             target_id="schwab-primary",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(target_last), "schwab-primary"
+            daily_digest_notify.account_block_tag(target_last), "schwab schwab-primary"
         )
         empty = daily_digest_notify.DigestRunEntry(
             platform_id="schwab", strategy_profile="soxl_soxx_trend_income"
@@ -621,7 +640,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
-            "[U16608560] 🔔 【调仓指令】\n"
+            "[ibkr U16608560] 🔔 【调仓指令】\n"
             "🧭 策略: 纳斯达克增长收益\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
@@ -718,7 +737,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
-            "[U16608560] 🔔 【调仓指令】\n"
+            "[ibkr U16608560] 🔔 【调仓指令】\n"
             "🧭 策略: 纳斯达克增长收益\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
@@ -743,7 +762,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                # no account_hint → platform+scope, not U-number
+                # no account_hint / no embedded U-id → platform+scope
                 account_scope="live",
                 equity=569.16,
                 rebalance_kind="no_rebalance",
