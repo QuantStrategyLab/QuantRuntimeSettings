@@ -9,12 +9,18 @@ import {
 assert.equal(OVERVIEW_FX_API_URL, __test.OVERVIEW_FX_PROXY_PATH);
 assert.equal(OVERVIEW_FX_UPSTREAM_URL, __test.OVERVIEW_FX_UPSTREAM_URL);
 
-const workerSource = await (await import("node:fs/promises")).readFile(
+const fs = await import("node:fs/promises");
+const workerSource = await fs.readFile(
   new URL("../web/strategy-switch-console/worker.js", import.meta.url),
   "utf8",
 );
+const fxSource = await fs.readFile(
+  new URL("../web/strategy-switch-console/infrastructure/fx/overview_fx.js", import.meta.url),
+  "utf8",
+);
 assert.match(workerSource, /connect-src 'self'/, "CSP stays same-origin; Frankfurter is not widened into connect-src");
-assert.equal(workerSource.includes("api.frankfurter.dev"), true, "Worker retains the fixed Frankfurter upstream");
+assert.equal(fxSource.includes("api.frankfurter.dev"), true, "FX module retains the fixed Frankfurter upstream");
+assert.equal(workerSource.includes("infrastructure/fx/overview_fx.js"), true, "Worker imports the FX module");
 assert.equal(/connect-src[^;]*frankfurter/.test(workerSource), false, "browser CSP must not allow frankfurter");
 
 __test.resetOverviewFxCache();

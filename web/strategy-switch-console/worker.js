@@ -93,6 +93,12 @@ import {
   ux1IntentRecord,
   ux1ReceiptId,
 } from "./ux1_research_contract.js";
+import {
+  OVERVIEW_FX_PROXY_PATH,
+  OVERVIEW_FX_UPSTREAM_URL,
+  overviewFxResponse as overviewFxResponseImpl,
+  resetOverviewFxCache,
+} from "./infrastructure/fx/overview_fx.js";
 
 const CYCLE_HEALTH_HISTORY_PAGE_SIZE = 50;
 const CYCLE_HEALTH_SUMMARY_SCHEMA_VERSION = "qsl_runtime_cycle_health_state_summary.v1";
@@ -136,12 +142,6 @@ const CURRENT_STRATEGIES_CACHE_TTL_MS = 5_000;       // 5 sec — rapid refresh 
 const CURRENT_STRATEGIES_STALE_TTL_MS = 600_000;       // 10 min — return stale + background refresh
 const GITHUB_API_TIMEOUT_MS = 8000;
 const GITHUB_LOGIN_REQUEST_TIMEOUT_MS = 20000;
-const OVERVIEW_FX_UPSTREAM_URL = "https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY,EUR,HKD,SGD";
-const OVERVIEW_FX_PROXY_PATH = "/api/overview-fx";
-const OVERVIEW_FX_TIMEOUT_MS = 5000;
-const OVERVIEW_FX_CACHE_MS = 60 * 60 * 1000;
-/** In-memory cache of the fixed Frankfurter payload; never accepts a caller-controlled URL. */
-let overviewFxCache = null;
 const UX1_CALCULATOR_DEADLINE_MS = 30000;
 const UX1_CALCULATOR_MAX_BYTES = 65536;
 const UX1_RESEARCH_REPOSITORY = "QuantStrategyLab/UsEquityStrategies";
@@ -16090,47 +16090,12 @@ function clearOAuthCookie() {
 }
 
 async function overviewFxResponse(request, fetchImpl = fetch) {
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return json({ ok: false, error: "method_not_allowed" }, 405);
-  }
-  const now = Date.now();
-  if (overviewFxCache && now - overviewFxCache.at < OVERVIEW_FX_CACHE_MS && overviewFxCache.status === 200) {
-    const headers = responseHeaders({
-      "Content-Type": overviewFxCache.contentType,
-      "Cache-Control": "no-store",
-    });
-    return new Response(request.method === "HEAD" ? null : overviewFxCache.body, { status: 200, headers });
-  }
-  let upstream;
-  try {
-    upstream = await fetchWithTimeout(OVERVIEW_FX_UPSTREAM_URL, {
-      method: "GET",
-      headers: { Accept: "application/json" },
-    }, OVERVIEW_FX_TIMEOUT_MS, fetchImpl);
-  } catch {
-    return json({ ok: false, error: "overview_fx_upstream_unavailable" }, 502);
-  }
-  let bodyText;
-  try {
-    bodyText = await upstream.text();
-  } catch {
-    return json({ ok: false, error: "overview_fx_upstream_unavailable" }, 502);
-  }
-  if (!upstream.ok) return json({ ok: false, error: "overview_fx_upstream_failed" }, 502);
-  let parsed;
-  try {
-    parsed = JSON.parse(bodyText);
-  } catch {
-    return json({ ok: false, error: "overview_fx_upstream_invalid" }, 502);
-  }
-  if (!parsed || typeof parsed !== "object" || parsed.base !== "USD"
-      || !parsed.rates || typeof parsed.rates !== "object" || Array.isArray(parsed.rates)) {
-    return json({ ok: false, error: "overview_fx_upstream_invalid" }, 502);
-  }
-  const contentType = "application/json; charset=utf-8";
-  overviewFxCache = { at: now, status: 200, body: bodyText, contentType };
-  const headers = responseHeaders({ "Content-Type": contentType, "Cache-Control": "no-store" });
-  return new Response(request.method === "HEAD" ? null : bodyText, { status: 200, headers });
+  return overviewFxResponseImpl(request, {
+    fetchImpl,
+    fetchWithTimeout,
+    json,
+    responseHeaders,
+  });
 }
 
 function json(payload, status = 200, headers = {}) {
@@ -16234,7 +16199,7 @@ export const __test = {
   overviewFxResponse,
   OVERVIEW_FX_PROXY_PATH,
   OVERVIEW_FX_UPSTREAM_URL,
-  resetOverviewFxCache: () => { overviewFxCache = null; },
+  resetOverviewFxCache,
   syncDefaultStrategyProfiles: syncStrategyProfilesConfig,
   syncDefaultStrategyForAccount,
   normalizeStrategyHealthSnapshot,
