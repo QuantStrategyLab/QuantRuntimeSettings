@@ -8,6 +8,10 @@
 
 GitHub workflow 成功结论只是**存在性**辅助证据；成交/订单数未知时必须显示「未知」，不得写成 0。
 
+## JSON Schema 归档
+
+正式合同文件：[`schemas/qsl-digest-candidates.v1.schema.json`](../schemas/qsl-digest-candidates.v1.schema.json)（`schema_version` = `qsl.digest_candidates.v1`）。本文件示例与平台 producer 文档必须与该 schema 对齐；未知成交数保持 `null` + `field_status.counts_unknown`。
+
 ## 候选 JSON 形状（最小）
 
 ```json
