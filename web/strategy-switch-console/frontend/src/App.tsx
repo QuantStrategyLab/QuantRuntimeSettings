@@ -803,7 +803,7 @@ function App() {
             {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="decision-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
                 {queue.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} profiles={profileOptions} language={language} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => void applyPromotion(application, accountId)} />)}
             </details>}
-            <DecisionsPage blocked={decisions.blocked} sources={decisions.sources} items={humanDecisionQueue(decisions.items)} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} />
+            <DecisionsPage blocked={decisions.blocked} sources={decisions.sources} items={humanDecisionQueue(decisions.items)} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} onRetry={() => void refresh()} />
         </>;
     };
     const onSettingsRead = useCallback((id: string, profile: string | null) => {

@@ -1027,7 +1027,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : { text: "异常" as const, tone: "bad" };
               const enabledLabel = overviewActivationLabel(account.activation);
               const enabledView = enabledLabel === "已启用" ? { text: "已启用" as const, tone: "ok" } : enabledLabel === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "异常" as const, tone: "bad" };
-              const confirmed = account.brokerEnvironment === "live";
+              const confirmed = account.brokerEnvironment === "live" || account.facts?.broker_environment === "live" || account.facts?.account_scope === "live";
               return <tr key={account.id} className="overview-account-entry">
                 <td data-label={t("账号")}><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
                 <td data-label={t("类型")}><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>

@@ -1815,6 +1815,19 @@ export function unreadDecisionSourceLabels(sources: DecisionSourceStatuses): Arr
     .map(id => DECISION_SOURCE_LABELS[id]);
 }
 
+/** Hard unread: fetch/parse failure. Soft unread: empty/unavailable/stale/missing read models. */
+export function decisionSourceFailureLabels(sources: DecisionSourceStatuses): Array<"晋级方案" | "负责人决定" | "对账恢复"> {
+  return (Object.keys(DECISION_SOURCE_LABELS) as DecisionSourceId[])
+    .filter(id => sources[id] === "failed")
+    .map(id => DECISION_SOURCE_LABELS[id]);
+}
+
+export function decisionSourceDegradedLabels(sources: DecisionSourceStatuses): Array<"晋级方案" | "负责人决定" | "对账恢复"> {
+  return (Object.keys(DECISION_SOURCE_LABELS) as DecisionSourceId[])
+    .filter(id => sources[id] === "unavailable" || sources[id] === "stale" || sources[id] === "missing")
+    .map(id => DECISION_SOURCE_LABELS[id]);
+}
+
 function ready(source: SourceState | null | undefined): boolean {
   return decisionSourceReadStatus(source) === "ready";
 }
