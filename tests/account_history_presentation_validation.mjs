@@ -321,13 +321,18 @@ assert.match(walletCardSource, /amount=\{walletCardValuation\.amount\}[\s\S]{0,2
 assert.match(overview, /function BinanceQuantity[\s\S]{0,260}<summary title=\{amount\}[\s\S]{0,120}\{display\}[\s\S]{0,100}<span><em>\{originalLabel\}<\/em>\{amount\}/,
   "native quantity details expose both the compact value and the original precision");
 assert.match(overview, /overview-figures-wallet/);
-assert.match(overview, /!walletCardValuation \? <span>[\s\S]{0,180}negativeCash/,
+assert.match(overview, /!walletCardValuation \? <span>[\s\S]{0,220}cashSignText/,
   "negative-cash note only appears on a real cash field and never infers financing from wallet valuation");
+assert.match(overview, /classifyAccountCashSign\(account\.platformKey, account\.facts, negativeCash\)/,
+  "cash sign classification goes through the platform adapter layer");
 assert.match(overview, /<BinanceQuantity amount=\{item\.spot_free\} originalLabel=\{t\("原始值"\)\}/);
 assert.match(overview, /selectedFacts\.binding_status === "bound" && selectedFacts\.identity_mismatch !== true/,
   "top-level financing note requires a fresh, uniquely bound identity");
 assert.match(overview, /const verifiedFreshCashRows = account\.facts\?\.data_status === "fresh"[\s\S]{0,150}identity_mismatch !== true/);
-assert.match(overview, /融资状态待确认/);
+assert.match(overview, /融资占用（已核实）|负现金未核实|cashSignText/,
+  "negative cash uses definitive financing/unverified labels, not soft hedges");
+assert.doesNotMatch(overview, /可能是借的钱/);
+assert.doesNotMatch(overview, /融资状态待确认/);
 assert.match(overviewStyles, /\.overview-figures-wallet \{ grid-template-columns: minmax\(0, 1fr\); \}/);
 assert.match(overviewStyles, /\.wallet-card-valuation strong \{ white-space: nowrap; overflow-wrap: normal;/,
   "wallet total gets a full-width non-wrapping amount instead of sharing a narrow cash column");
