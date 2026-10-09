@@ -392,12 +392,12 @@ const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
     recheckRepository: "QuantStrategyLab/LongBridgePlatform",
     recheckWorkflow: "runtime-target-lifecycle.yml",
   }),
-  "schwab.live": Object.freeze({
+  "schwab.primary": Object.freeze({
     platform: "schwab",
     recheckRepository: "QuantStrategyLab/CharlesSchwabPlatform",
     recheckWorkflow: "runtime-target-lifecycle.yml",
   }),
-  "firstrade.live": Object.freeze({
+  "firstrade.primary": Object.freeze({
     platform: "firstrade",
     recheckRepository: "QuantStrategyLab/FirstradePlatform",
     recheckWorkflow: "runtime-target-lifecycle.yml",

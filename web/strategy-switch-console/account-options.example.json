@@ -81,7 +81,7 @@
       "service_name": "example-schwab-service",
       "cash_currency": "USD",
       "broker_environment": "live",
-      "runtime_status_target_id": "schwab.live",
+      "runtime_status_target_id": "schwab.primary",
       "supported_domains": [
         "us_equity"
       ]
@@ -96,7 +96,7 @@
       "service_name": "example-firstrade-service",
       "cash_currency": "USD",
       "broker_environment": "live",
-      "runtime_status_target_id": "firstrade.live",
+      "runtime_status_target_id": "firstrade.primary",
       "supported_domains": [
         "us_equity"
       ]
