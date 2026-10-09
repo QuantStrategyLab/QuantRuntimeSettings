@@ -148,6 +148,54 @@ scripts/daily_briefing_pipeline.sh      # 历史 briefing；收盘日报以 dail
 
 `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME=quant-sentinel-telegram-bot-token`
 
+## 路由解析只读诊断（P0-06）
+
+实现：`python/scripts/send_daily_digest_telegram.py` → `diagnose_telegram_route()` / `--route-check`。
+
+只输出**匹配元数据**，禁止打印 token / chat 明文。可选 `--include-chat-fingerprint`（默认关闭）才写 `sha256_12` + `last4`。
+
+| 字段 | 含义 |
+|------|------|
+| `secret_name_contract` | 合同名，默认 `quant-sentinel-telegram-bot-token` |
+| `token_source_kind` | `env:TELEGRAM_TOKEN` / `env:TG_TOKEN` / `gcp_secret_manager` / `gcp_secret_manager_unprobed` / `missing` |
+| `chat_source_kind` | `env:QSL_GLOBAL_TELEGRAM_CHAT_ID` / `env:GLOBAL_TELEGRAM_CHAT_ID` / `env:STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS` / `missing` |
+| `token_alias_used` / `chat_alias_used` | 是否走了非首选别名 |
+| `warnings` | 遮蔽 / 冲突码（如 `token_env_shadowed:TG_TOKEN_…`、`token_gcp_secret_manager_shadowed_by_environment:…`、`chat_env_shadowed:…`） |
+| `missing` | 接线名缺失（有默认 secret 合同名时 token 不算 missing；未探测 GCP 时 kind=`gcp_secret_manager_unprobed`） |
+
+```bash
+python3 python/scripts/send_daily_digest_telegram.py --route-check --write-receipt /tmp/route-receipt.json
+# 需要确认 GCP SM 是否真能取出 token（值立即丢弃、不打印）时：
+python3 python/scripts/send_daily_digest_telegram.py --route-check --probe-secret-manager --write-receipt /tmp/route-receipt.json
+```
+
+dry-run receipt 同样写入 `token_source_kind` / `chat_source_kind` / `warnings` / `route_diagnosis`。
+
+### 别名退役条件
+
+| 别名 | 可删条件（全部满足） | 删除前 |
+|------|----------------------|--------|
+| `TG_TOKEN` | 所有消费方已注入 `TELEGRAM_TOKEN`，或仅走 `TELEGRAM_TOKEN_SECRET_NAME`→GCP `quant-sentinel-telegram-bot-token`；Binance / 插件路径不再读 `TG_TOKEN`；连续 ≥1 个业务周 `--route-check` 无 `token_alias_used=true` 且无 `TG_TOKEN` present 警告 | 在 Environment / org secret 清单中标注废弃日；保留只读一周 |
+| `GLOBAL_TELEGRAM_CHAT_ID` | 所有消费方已注入 `QSL_GLOBAL_TELEGRAM_CHAT_ID`；平台 heartbeat / canary / Cloud Run sync 不再回退读 `GLOBAL_*`；连续 ≥1 个业务周 route-check 无 `chat_alias_used` 来自 `GLOBAL_*` | 同上 |
+| `STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS`（作为日报 chat 回退） | 日报与全局路由只依赖 `QSL_GLOBAL_*`；插件告警若仍要多 chat，应有独立合同，不与日报混用首个 id | 文档化插件专用路由后再删日报回退 |
+| 遗留平台 bot secret 名（`longbridge-telegram-token` 等） | GH 变量已全部指向 `quant-sentinel-telegram-bot-token`；平台侧无再 `gcloud secrets access` 旧名；PAPER 预览 equality 核验通过 | 见上文「历史平台独立 bot secret」表 |
+
+退役**不**等于轮换 bot：展示名「QSL资产管家」与内部 QuantSentinel 可并存；技术合同名保持 `quant-sentinel-telegram-bot-token`。
+
+### 重复发送风险待证（公开代码证据，未改它仓）
+
+中央收盘日报由本仓 `daily-digest-notify` → `send_daily_digest_telegram.py` 发送。以下平台路径仍可能对**同一业务事件**另发 Telegram（是否与日报重复 = 待证，取决于 Environment 是否仍启用、文案是否同源）：
+
+| 仓 | 公开文件 | 路径角色 | 风险标注 |
+|----|----------|----------|----------|
+| LongBridgePlatform | `main.py`（`api.telegram.org/.../sendMessage`） | 运行时策略通知 | 重复发送风险待证 |
+| LongBridgePlatform | `scripts/execution_report_heartbeat.py` | 执行报告心跳 | 重复发送风险待证 |
+| LongBridgePlatform | `scripts/cloud_run_runtime_guard.py` | Cloud Run 守卫告警 | 重复发送风险待证（异常类，可能与日报正交） |
+| LongBridgePlatform | `scripts/send_paper_notification_canary.py` | PAPER 预览 / canary | 预览路径；生产 schedule 勿与正式日报并行误触 |
+| QuantRuntimeSettings | `.github/workflows/daily-digest-notify.yml` | 中央跨平台日报 | 唯一合同入口（本仓） |
+
+说明：LongBridge 若干脚本 chat 解析以 `GLOBAL_TELEGRAM_CHAT_ID` 为主、未统一优先 `QSL_GLOBAL_TELEGRAM_CHAT_ID`（公开代码）；与本仓优先级不一致本身会放大「同 bot 不同注入源」排障成本。其它券商仓未在本机克隆核到的发送点标为**未知**，不编造清单。
+
 ## 验证（不泄露 secret）
 
 - 允许：`workflow_dispatch` 各平台 `paper-notification-preview`（PAPER 合成预览，不下单）。

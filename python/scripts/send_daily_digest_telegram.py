@@ -2,19 +2,21 @@
 """Send QuantSentinel daily digest via unified bot secret-name path.
 
 Token resolution (never logged):
-  TELEGRAM_TOKEN / TG_TOKEN → else gcloud Secret Manager via
+  TELEGRAM_TOKEN → TG_TOKEN → else gcloud Secret Manager via
   TELEGRAM_TOKEN_SECRET_NAME (default quant-sentinel-telegram-bot-token).
 
 Chat resolution (never logged):
   QSL_GLOBAL_TELEGRAM_CHAT_ID → GLOBAL_TELEGRAM_CHAT_ID →
   STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS (first id).
 
-Dry-run renders and prints delivery readiness without calling Telegram.
+Dry-run / --route-check record match metadata only; never call Telegram
+and never print token or chat id values.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import subprocess
@@ -23,6 +25,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
@@ -33,6 +36,16 @@ import daily_digest_notify as digest  # noqa: E402
 
 DEFAULT_SECRET_NAME = "quant-sentinel-telegram-bot-token"
 
+# Resolution order contracts (names only; mirrors platform-config notifications).
+TOKEN_ENV_PRIORITY = ("TELEGRAM_TOKEN", "TG_TOKEN")
+CHAT_ENV_PRIORITY = (
+    "QSL_GLOBAL_TELEGRAM_CHAT_ID",
+    "GLOBAL_TELEGRAM_CHAT_ID",
+    "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
+)
+# Present in env_aliases but NOT consulted by this sender — shadow/ambiguity signal.
+TOKEN_ALIAS_NOT_IN_SENDER_CHAIN = ("STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN",)
+
 
 def _split_chat_ids(raw: str | None) -> list[str]:
     if not raw:
@@ -40,22 +53,26 @@ def _split_chat_ids(raw: str | None) -> list[str]:
     return [part.strip() for part in str(raw).replace(";", ",").split(",") if part.strip()]
 
 
+def _env_nonempty(key: str) -> bool:
+    return bool((os.environ.get(key) or "").strip())
+
+
 def resolve_telegram_chat_id() -> str:
-    for key in (
-        "QSL_GLOBAL_TELEGRAM_CHAT_ID",
-        "GLOBAL_TELEGRAM_CHAT_ID",
-        "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS",
-    ):
+    for key in CHAT_ENV_PRIORITY:
         chats = _split_chat_ids(os.environ.get(key))
         if chats:
             return chats[0]
     return ""
 
 
-def _load_token_from_secret_manager() -> str:
-    secret_name = (
+def _secret_name_contract() -> str:
+    return (
         os.environ.get("TELEGRAM_TOKEN_SECRET_NAME") or DEFAULT_SECRET_NAME
-    ).strip()
+    ).strip() or DEFAULT_SECRET_NAME
+
+
+def _load_token_from_secret_manager() -> str:
+    secret_name = _secret_name_contract()
     if not secret_name:
         return ""
     command = [
@@ -98,10 +115,161 @@ def _load_token_from_secret_manager() -> str:
 
 
 def resolve_telegram_token() -> str:
-    direct = (os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TG_TOKEN") or "").strip()
-    if direct:
-        return direct
+    for key in TOKEN_ENV_PRIORITY:
+        direct = (os.environ.get(key) or "").strip()
+        if direct:
+            return direct
     return _load_token_from_secret_manager()
+
+
+def _optional_chat_fingerprint(chat_id: str, *, enabled: bool) -> str | None:
+    """Optional last4 / short hash; default off so receipts stay free of chat material."""
+    if not enabled or not chat_id:
+        return None
+    digest_hex = hashlib.sha256(chat_id.encode("utf-8")).hexdigest()[:12]
+    last4 = chat_id[-4:] if len(chat_id) >= 4 else chat_id
+    return f"sha256_12={digest_hex};last4={last4}"
+
+
+def diagnose_telegram_route(
+    *,
+    probe_secret_manager: bool = False,
+    include_chat_fingerprint: bool = False,
+) -> dict[str, Any]:
+    """Read-only route match metadata. Never includes token or chat plaintext.
+
+    probe_secret_manager: when True and no env token wins, attempt gcloud access
+    solely to learn whether GCP SM yields a token (value discarded). Default False
+    so dry-run / unit tests never call gcloud.
+    """
+    secret_name = _secret_name_contract()
+    secret_name_overridden = bool(
+        (os.environ.get("TELEGRAM_TOKEN_SECRET_NAME") or "").strip()
+    )
+    if secret_name_overridden and secret_name != DEFAULT_SECRET_NAME:
+        secret_name_contract = secret_name
+        secret_name_matches_default = False
+    else:
+        secret_name_contract = DEFAULT_SECRET_NAME
+        secret_name_matches_default = secret_name == DEFAULT_SECRET_NAME
+
+    present_token_envs = [key for key in TOKEN_ENV_PRIORITY if _env_nonempty(key)]
+    present_chat_envs = [key for key in CHAT_ENV_PRIORITY if _env_nonempty(key)]
+    unused_token_aliases = [
+        key for key in TOKEN_ALIAS_NOT_IN_SENDER_CHAIN if _env_nonempty(key)
+    ]
+
+    warnings: list[str] = []
+    token_source_kind = "missing"
+    token_alias_used = False
+    token_resolved = False
+
+    if present_token_envs:
+        winner = present_token_envs[0]
+        token_source_kind = f"env:{winner}"
+        token_alias_used = winner != "TELEGRAM_TOKEN"
+        token_resolved = True
+        for shadowed in present_token_envs[1:]:
+            warnings.append(
+                f"token_env_shadowed:{shadowed}_present_but_{winner}_wins"
+            )
+        # Environment injection shadows GCP Secret Manager path.
+        warnings.append(
+            "token_gcp_secret_manager_shadowed_by_environment:"
+            f"{winner}_prevents_gcloud_access_to_{secret_name}"
+        )
+    elif probe_secret_manager:
+        sm_token = _load_token_from_secret_manager()
+        if sm_token:
+            token_source_kind = "gcp_secret_manager"
+            token_resolved = True
+            # Discard value immediately; do not retain.
+            sm_token = ""
+        else:
+            token_source_kind = "missing"
+            token_resolved = False
+    else:
+        # Env absent: contract says GCP SM is next. Without probing we can only
+        # report the intended fallback kind when a secret name is configured.
+        if secret_name:
+            token_source_kind = "gcp_secret_manager_unprobed"
+            token_resolved = False  # readiness unknown without probe
+        else:
+            token_source_kind = "missing"
+            token_resolved = False
+
+    if unused_token_aliases:
+        for key in unused_token_aliases:
+            warnings.append(
+                f"token_alias_present_but_not_in_sender_chain:{key}"
+            )
+
+    if secret_name_overridden and not secret_name_matches_default:
+        warnings.append(
+            "telegram_token_secret_name_differs_from_contract:"
+            f"resolved={secret_name};contract={DEFAULT_SECRET_NAME}"
+        )
+
+    chat_source_kind = "missing"
+    chat_alias_used = False
+    chat_resolved = False
+    chat_id_for_optional_fp = ""
+
+    if present_chat_envs:
+        winner = present_chat_envs[0]
+        chats = _split_chat_ids(os.environ.get(winner))
+        chat_source_kind = f"env:{winner}"
+        chat_alias_used = winner != "QSL_GLOBAL_TELEGRAM_CHAT_ID"
+        chat_resolved = bool(chats)
+        chat_id_for_optional_fp = chats[0] if chats else ""
+        for shadowed in present_chat_envs[1:]:
+            warnings.append(
+                f"chat_env_shadowed:{shadowed}_present_but_{winner}_wins"
+            )
+        if winner == "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS" and len(chats) > 1:
+            warnings.append(
+                "chat_multi_id_list_first_only:"
+                f"STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS_count={len(chats)}"
+            )
+    else:
+        chat_source_kind = "missing"
+        chat_resolved = False
+
+    missing: list[str] = []
+    # Wiring-name readiness (dry-run / route-check): env token OR secret-name
+    # contract counts as present. Unprobed GCP is reflected in
+    # token_source_kind, not as a hard missing env name.
+    if not token_resolved and token_source_kind == "missing":
+        missing.append(
+            "TELEGRAM_TOKEN|TG_TOKEN|TELEGRAM_TOKEN_SECRET_NAME+GCP"
+        )
+    if not chat_resolved:
+        missing.append(
+            "QSL_GLOBAL_TELEGRAM_CHAT_ID|GLOBAL_TELEGRAM_CHAT_ID|"
+            "STRATEGY_PLUGIN_ALERT_TELEGRAM_CHAT_IDS"
+        )
+
+    route: dict[str, Any] = {
+        "schema_version": "qsl.telegram_route_diagnosis.v1",
+        "channel": "quant_sentinel",
+        "secret_name_contract": secret_name_contract,
+        "secret_name_matches_default_contract": secret_name_matches_default,
+        "token_source_kind": token_source_kind,
+        "token_alias_used": token_alias_used,
+        "token_env_present": present_token_envs,
+        "chat_source_kind": chat_source_kind,
+        "chat_alias_used": chat_alias_used,
+        "chat_env_present": present_chat_envs,
+        "missing": missing,
+        "warnings": warnings,
+        "probe_secret_manager": bool(probe_secret_manager),
+    }
+    fingerprint = _optional_chat_fingerprint(
+        chat_id_for_optional_fp, enabled=include_chat_fingerprint
+    )
+    if fingerprint is not None:
+        route["chat_fingerprint"] = fingerprint
+    return route
 
 
 def missing_delivery_requirements() -> list[str]:
@@ -149,6 +317,32 @@ def send_telegram_message(*, token: str, chat_id: str, text: str) -> bool:
     return bool(payload.get("ok"))
 
 
+def _receipt_base(*, dry_run: bool, route: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "schema_version": "qsl.daily_digest_delivery_receipt.v1",
+        "dry_run": dry_run,
+        "delivered": False,
+        "channel": "quant_sentinel",
+        "secret_name_contract": route.get(
+            "secret_name_contract", DEFAULT_SECRET_NAME
+        ),
+        "token_source_kind": route.get("token_source_kind"),
+        "chat_source_kind": route.get("chat_source_kind"),
+        "token_alias_used": route.get("token_alias_used"),
+        "chat_alias_used": route.get("chat_alias_used"),
+        "warnings": list(route.get("warnings") or []),
+        "route_diagnosis": route,
+    }
+
+
+def _write_receipt(path: Path, receipt: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="Render and optionally send QuantSentinel daily digest."
@@ -165,12 +359,77 @@ def main(argv: list[str] | None = None) -> int:
         help="Render only; do not call Telegram.",
     )
     parser.add_argument(
+        "--route-check",
+        action="store_true",
+        default=False,
+        help=(
+            "Read-only Telegram route diagnosis only: no digest render, "
+            "no Telegram send, no secret values printed."
+        ),
+    )
+    parser.add_argument(
+        "--probe-secret-manager",
+        action="store_true",
+        default=False,
+        help=(
+            "With --route-check / dry-run: attempt gcloud Secret Manager access "
+            "to resolve token_source_kind when env tokens are absent. "
+            "Token value is discarded and never printed."
+        ),
+    )
+    parser.add_argument(
+        "--include-chat-fingerprint",
+        action="store_true",
+        default=False,
+        help="Optional chat sha256_12+last4 in route diagnosis (default off).",
+    )
+    parser.add_argument(
         "--write-receipt",
         type=Path,
         default=None,
-        help="Write delivery receipt JSON (no secrets/chat ids).",
+        help="Write delivery/route receipt JSON (no secrets/chat ids by default).",
     )
     args = parser.parse_args(argv)
+
+    include_fp = bool(args.include_chat_fingerprint) or str(
+        os.environ.get("DIGEST_ROUTE_CHAT_FINGERPRINT") or ""
+    ).lower() in {"1", "true", "yes"}
+    probe_sm = bool(args.probe_secret_manager) or str(
+        os.environ.get("DIGEST_ROUTE_PROBE_SECRET_MANAGER") or ""
+    ).lower() in {"1", "true", "yes"}
+
+    if args.route_check:
+        route = diagnose_telegram_route(
+            probe_secret_manager=probe_sm,
+            include_chat_fingerprint=include_fp,
+        )
+        receipt = _receipt_base(dry_run=True, route=route)
+        receipt["status"] = "route_check"
+        receipt["missing"] = list(route.get("missing") or [])
+        receipt["business_day"] = None
+        receipt["run_count"] = 0
+        receipt["total_fills"] = None
+        # Safe summary: kinds and warning codes only.
+        print(
+            json.dumps(
+                {
+                    "status": "route_check",
+                    "secret_name_contract": route["secret_name_contract"],
+                    "token_source_kind": route["token_source_kind"],
+                    "chat_source_kind": route["chat_source_kind"],
+                    "token_alias_used": route["token_alias_used"],
+                    "chat_alias_used": route["chat_alias_used"],
+                    "missing": route["missing"],
+                    "warnings": route["warnings"],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        if args.write_receipt:
+            _write_receipt(args.write_receipt, receipt)
+        # Exit 0 even when missing — diagnosis succeeded; readiness is in receipt.
+        return 0
 
     payload, text, collected = aggregator.build_digest_payload(
         business_day=args.business_day,
@@ -186,51 +445,55 @@ def main(argv: list[str] | None = None) -> int:
         "yes",
     }
 
+    # Dry-run never probes SM unless explicitly requested (keeps CI offline).
+    route = diagnose_telegram_route(
+        probe_secret_manager=probe_sm if dry_run else False,
+        include_chat_fingerprint=include_fp,
+    )
     base_receipt = aggregator.build_receipt(
         payload, collected, message_chars=len(text)
     )
-    receipt = {
-        **base_receipt,
-        "schema_version": "qsl.daily_digest_delivery_receipt.v1",
-        "dry_run": dry_run,
-        "delivered": False,
-        "missing": [],
-        "channel": "quant_sentinel",
-        "secret_name_contract": DEFAULT_SECRET_NAME,
-    }
+    receipt = _receipt_base(dry_run=dry_run, route=route)
+    receipt.update(base_receipt)
+    receipt.update(
+        {
+            "business_day": payload.business_day,
+            "locale": digest.normalize_locale(str(payload.locale)),
+            "run_count": len(payload.runs),
+            "total_fills": digest.total_fills(payload.runs),
+            "missing": [],
+        }
+    )
 
     print(text)
     print("---")
 
     if dry_run:
-        missing = []
-        # Probe Environment wiring only (no gcloud / Telegram I/O).
-        direct_token = (
-            os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TG_TOKEN") or ""
-        ).strip()
-        secret_name = (
-            os.environ.get("TELEGRAM_TOKEN_SECRET_NAME") or DEFAULT_SECRET_NAME
-        ).strip()
-        if not direct_token and not secret_name:
-            missing.append("token")
-        if not resolve_telegram_chat_id():
-            missing.append("chat_id")
+        missing = list(route.get("missing") or [])
         receipt["missing"] = missing
         receipt["status"] = "dry_run"
         print(
             "Daily digest dry-run: message rendered; "
+            f"token_source_kind={route['token_source_kind']}; "
+            f"chat_source_kind={route['chat_source_kind']}; "
+            f"warnings={len(route.get('warnings') or [])}; "
             f"delivery extras missing={missing or 'none'}."
         )
         if args.write_receipt:
-            args.write_receipt.parent.mkdir(parents=True, exist_ok=True)
-            args.write_receipt.write_text(
-                json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            _write_receipt(args.write_receipt, receipt)
         return 0
 
     missing = missing_delivery_requirements()
     if missing:
+        # Re-diagnose with probe so receipt reflects actual SM outcome when sending.
+        route = diagnose_telegram_route(
+            probe_secret_manager=True,
+            include_chat_fingerprint=include_fp,
+        )
+        receipt["route_diagnosis"] = route
+        receipt["token_source_kind"] = route.get("token_source_kind")
+        receipt["chat_source_kind"] = route.get("chat_source_kind")
+        receipt["warnings"] = list(route.get("warnings") or [])
         receipt["missing"] = missing
         receipt["status"] = "blocked_missing_secrets"
         print(
@@ -240,24 +503,33 @@ def main(argv: list[str] | None = None) -> int:
         for item in missing:
             print(f"  - {item}", file=sys.stderr)
         if args.write_receipt:
-            args.write_receipt.parent.mkdir(parents=True, exist_ok=True)
-            args.write_receipt.write_text(
-                json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
-                encoding="utf-8",
-            )
+            _write_receipt(args.write_receipt, receipt)
         return 2
 
     token = resolve_telegram_token()
     chat_id = resolve_telegram_chat_id()
+    # After resolve: env kinds if present, else probe SM so receipt shows
+    # gcp_secret_manager (value discarded inside diagnose).
+    env_token_present = any(_env_nonempty(k) for k in TOKEN_ENV_PRIORITY)
+    route = diagnose_telegram_route(
+        probe_secret_manager=not env_token_present,
+        include_chat_fingerprint=include_fp,
+    )
+    receipt["route_diagnosis"] = route
+    receipt["token_source_kind"] = route.get("token_source_kind")
+    receipt["chat_source_kind"] = route.get("chat_source_kind")
+    receipt["token_alias_used"] = route.get("token_alias_used")
+    receipt["chat_alias_used"] = route.get("chat_alias_used")
+    receipt["warnings"] = list(route.get("warnings") or [])
+    receipt["secret_name_contract"] = route.get(
+        "secret_name_contract", DEFAULT_SECRET_NAME
+    )
+
     ok = send_telegram_message(token=token, chat_id=chat_id, text=text)
     receipt["delivered"] = ok
     receipt["status"] = "delivered" if ok else "send_failed"
     if args.write_receipt:
-        args.write_receipt.parent.mkdir(parents=True, exist_ok=True)
-        args.write_receipt.write_text(
-            json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        _write_receipt(args.write_receipt, receipt)
     if not ok:
         print("Daily digest Telegram delivery failed.", file=sys.stderr)
         return 1
