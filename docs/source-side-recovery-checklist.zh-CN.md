@@ -7,7 +7,7 @@
 
 交叉链接：
 
-- 接线基线指针：[private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)（本 PR 精简版；完整表见 [private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)（#586 已合入））
+- 接线基线：[private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)（#586 已合入全文）
 - 候选接线说明：`docs/digest-candidates-wiring.zh-CN.md`（#586 已合入）
 - 审计 P0-09：对 LB-HK 与 Firstrade 明确关闭原因、既有绑定及权限；**采集恢复不改变交易配置**
 
@@ -140,7 +140,7 @@
 
 ## 4. 候选生产者现状（DIGEST_CANDIDATES）
 
-只读检索（2026-10-09）：对 Schwab / IBKR / LongBridge / Firstrade 的 `notifications/*` 抽样及树内文件名检索，**未发现**字面量 `DIGEST_CANDIDATES` / `digest_candidate` 生产者路径。中央消费侧在 QRS（`DIGEST_CANDIDATES_JSON` / `PATH`，见 #586）。下表为「邻近日报/事实投影」公开证据，**不等于**已接通中央候选管道。
+只读检索（2026-10-09）：对 Schwab / IBKR / LongBridge / Firstrade 的 `notifications/*` 抽样及树内文件名检索，审计取证日公开检索曾未发现字面量；之后 Schwab [#488](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/488) / IBKR [#583](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/583) 已合入生产者。中央消费侧在 QRS（`DIGEST_CANDIDATES_JSON` / `PATH`，见 #586）。下表为「邻近日报/事实投影」公开证据，**不等于**已接通中央候选管道。
 
 | 平台 | DIGEST_CANDIDATES 产出路径 | 邻近公开证据（非中央候选合同） | 结论 |
 | --- | --- | --- | --- |
@@ -149,7 +149,7 @@
 | LongBridgePlatform | **未知** | [publish-runtime-daily-once.yml](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/7e5e9efef87ca8ceab2a572a61525fde24b6ef3b/.github/workflows/publish-runtime-daily-once.yml)；[docs/daily_runtime_projection.md](https://github.com/QuantStrategyLab/LongBridgePlatform/blob/7e5e9efef87ca8ceab2a572a61525fde24b6ef3b/docs/daily_runtime_projection.md)（PAPER 投影；`fills` 未接通） | PAPER 日投影 ≠ HK facts；≠ DIGEST_CANDIDATES |
 | FirstradePlatform | **未知** | account-facts sync 路径见 §3；树内无 runtime-daily / digest-candidate 文件名 | facts sync 关闭时无中央候选来源 |
 
-QRS main allowlist（仍指向多处 `publish-runtime-daily-once.yml`；校准见 draft [#587](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/587)）：[`platform-config.json` daily_digest.github_workflow_allowlist](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/26e1f705e20ff1cfdcc8ca61ca670285bcad9702/platform-config.json)。
+QRS main allowlist（仍指向多处 `publish-runtime-daily-once.yml`；校准见已合入 [#587](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/587)）：[`platform-config.json` daily_digest.github_workflow_allowlist](https://github.com/QuantStrategyLab/QuantRuntimeSettings/blob/26e1f705e20ff1cfdcc8ca61ca670285bcad9702/platform-config.json)。
 
 ---
 
