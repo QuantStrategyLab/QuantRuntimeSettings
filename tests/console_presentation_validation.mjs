@@ -5,7 +5,7 @@ import { confirmationAccepted, recoveryBinding } from "../web/strategy-switch-co
 import { translate } from "../web/strategy-switch-console/frontend/src/locales.ts";
 import { longBridgeCashDetails } from "../web/strategy-switch-console/frontend/src/types.ts";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme } from "../web/strategy-switch-console/frontend/src/theme.js";
-import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, humanDecisionQueue, listDailyDecisions, mergeAdminFields, overviewFigures, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { CHART_RANGE_OPTIONS, DEFAULT_CHART_RANGE, RETURN_INDEX_LEGEND, accountDisplayTitle, accountIdentity, accountStatusView, activationFromProjection, adminDirectoryTitle, brokerAccountType, cashDraftDirty, chartRangeNote, chartUnavailable, dcaSettingsReadout, decisionActionState, environmentEditState, formatAccountIdentity, formatLocalChangeTime, knownAccountLabel, humanDecisionQueue, listDailyDecisions, mergeAdminFields, overviewFigures, overviewActivationLabel, overviewActivationLabelFromProjection, overviewRuntimeStatusLabel, paperApplicationAccounts, paperApplicationActionable, paperApplicationReady, paperApplicationUnresolved, changeAccountName, decimalUnitRatio, percentTextToRatio, preferenceDirty, ratioTextToPercent, readOnlyLayerState, recentUserChanges, reservedCashAmount, reservedCashEditor, routeAfterDirtyPrompt, safeActionVisibility, strategyDisplayName, strategyNote, strategyOccupiedNames, unnamedDecisionOrdinal } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = { scope: "monitoring_only", limit: "not_trading_or_books", health: "normal", activation: "enabled", reason: "monitoring_agrees" };
 const longBridgeFixture = {
@@ -38,24 +38,33 @@ assert.equal(activationFromProjection(null), "—");
 assert.equal(activationFromProjection({ activation: null }), "—");
 assert.equal(activationFromProjection({ activation: false }), "—");
 assert.equal(activationFromProjection({ activation: 0 }), "—");
-assert.equal(accountStatusView(null).label, "—");
-assert.deepEqual(accountStatusView({ configured_state: "disabled" }), { label: "—", detail: "暂未取得状态" });
-assert.deepEqual(accountStatusView({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), { label: "—", detail: "运行状态来源已过期" });
+assert.equal(accountStatusView(null).label, "异常");
+assert.deepEqual(accountStatusView({ configured_state: "disabled" }), { label: "异常", detail: "暂未取得状态" });
+assert.deepEqual(accountStatusView({ scope: "monitoring_only", limit: "not_trading_or_books", health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), { label: "异常", detail: "运行状态来源已过期" });
 assert.notEqual(activationFromProjection(monitored), "—");
 const waitingCycle = { ...monitored, health: "unknown", reason: "check_not_due" };
-assert.equal(overviewRuntimeStatusLabel(waitingCycle, "ready"), "等待周期");
-assert.equal(accountStatusView(waitingCycle, "ready").label, "等待周期", "settings distinguishes an explicit not-due check from missing evidence without promoting health to normal");
+assert.equal(overviewRuntimeStatusLabel(waitingCycle, "ready"), "健康", "check_not_due / former 等待周期 stays 健康");
+assert.equal(accountStatusView(waitingCycle, "ready").label, "健康", "settings shows 健康 for an explicit not-due check");
 for (const freshness of [undefined, null, "stale", "unavailable"]) {
-  assert.equal(overviewRuntimeStatusLabel(waitingCycle, freshness), "待确认");
-  assert.notEqual(accountStatusView(waitingCycle, freshness).label, "等待周期");
+  assert.equal(overviewRuntimeStatusLabel(waitingCycle, freshness), "异常", "not-due without ready evidence is 异常");
+  assert.equal(accountStatusView(waitingCycle, freshness).label, "异常");
 }
 for (const override of [{ activation: "unknown" }, { activation: "disabled" }, { reason: "evidence_insufficient" }, { scope: "invalid" }, { limit: "invalid" }]) {
-  assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, ...override }, "ready"), "待确认");
-  assert.notEqual(accountStatusView({ ...waitingCycle, ...override }, "ready").label, "等待周期");
+  assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, ...override }, "ready"), "异常");
+  assert.equal(accountStatusView({ ...waitingCycle, ...override }, "ready").label, "异常");
 }
 assert.equal(overviewRuntimeStatusLabel({ ...waitingCycle, health: "abnormal", reason: "retained_attention" }, "ready"), "异常");
-assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "监测正常");
-assert.equal(overviewRuntimeStatusLabel({ ...monitored, activation: "disabled" }, "ready"), "已停用");
+assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "健康");
+assert.equal(overviewRuntimeStatusLabel({ ...monitored, activation: "disabled" }, "ready"), "健康", "disabled with normal monitoring is 健康 on 平台监测");
+assert.equal(overviewActivationLabel("已启用"), "已启用");
+assert.equal(overviewActivationLabel("已停用"), "已停用");
+assert.equal(overviewActivationLabel("待确认"), "异常");
+assert.equal(overviewActivationLabel("启用未知"), "异常");
+assert.equal(overviewActivationLabel("—"), "异常");
+assert.equal(overviewActivationLabelFromProjection(monitored), "已启用");
+assert.equal(overviewActivationLabelFromProjection({ ...monitored, activation: "disabled" }), "已停用");
+assert.equal(overviewActivationLabelFromProjection(null), "异常");
+
 
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk", label: "港股账户" }] }, "longbridge", "hk"), "港股账户");
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk" }] }, "longbridge", "hk"), "");

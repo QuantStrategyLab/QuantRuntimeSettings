@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { loadAccountFactsHistory, loadBinanceWalletHistory, loadReadModel, loadRuntimeDaily } from "../web/strategy-switch-console/frontend/src/api.ts";
-import { overviewRuntimeStatusLabel, runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { overviewRuntimeStatusLabel, runtimeDailySelectionEligible, runtimeDailySelectionFromAccount, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 const monitored = {
   scope: "monitoring_only",
@@ -11,11 +11,11 @@ const monitored = {
   activation: "enabled",
   reason: "monitoring_agrees",
 };
-assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "监测正常");
-assert.equal(overviewRuntimeStatusLabel({ ...monitored, activation: "disabled" }, "ready"), "已停用");
-assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "unknown", activation: "disabled" }, "ready"), "待确认");
+assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "健康");
+assert.equal(overviewRuntimeStatusLabel({ ...monitored, activation: "disabled" }, "ready"), "健康");
+assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "unknown", activation: "disabled" }, "ready"), "异常");
 assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "abnormal", activation: "enabled" }, "ready"), "异常");
-assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), "待确认");
+assert.equal(overviewRuntimeStatusLabel({ ...monitored, health: "unknown", activation: "unknown", reason: "source_not_fresh" }, "stale"), "异常");
 
 const originalFetch = globalThis.fetch;
 const denyNetwork = async () => { throw new Error("external network is forbidden in overview refresh validation"); };
@@ -210,7 +210,7 @@ function dailyHarness() {
     runtimeDate: "2026-10-06", runtimeToday: "2026-10-06", runtimeNow: Date.parse("2026-10-06T21:00:00Z"),
     accountId: "all", visible: syntheticAccounts, accounts: syntheticAccounts, readModelRefreshVersion: 0,
     setRuntimeDaily: update, runtimeDailyRequestKey: (platform, account, binding, date) => JSON.stringify([platform, account, binding, date]),
-    runtimeDailySelectionEligible, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable, loadRuntimeDaily,
+    runtimeDailySelectionEligible, runtimeDailySelectionFromAccount, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable, loadRuntimeDaily,
     useEffect(effect, next) {
       if (dependencies && next.length === dependencies.length && next.every((value, index) => Object.is(value, dependencies[index]))) return;
       cancel?.(); dependencies = Array.from(next); cancel = effect();
