@@ -25,6 +25,8 @@ import {
   buildBenchmarkChartGeometry,
   isAggregateAssetAccount,
   OVERVIEW_USD_RATES,
+  formatOverviewUsdAmount,
+  loadOverviewUsdRates,
   sumAmountsToUsd,
   presentAggregateReturn,
   presentMarketBenchmarkSeries,
@@ -203,6 +205,14 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
       cancelValuationExpiry();
     };
   }, [wallet?.observed_finished_at, walletValuation?.observed_at]);
+  const [overviewUsdRates, setOverviewUsdRates] = useState<Readonly<Record<string, string>>>(OVERVIEW_USD_RATES);
+  useEffect(() => {
+    let cancelled = false;
+    void loadOverviewUsdRates().then((rates) => {
+      if (!cancelled) setOverviewUsdRates({ ...OVERVIEW_USD_RATES, ...rates });
+    });
+    return () => { cancelled = true; };
+  }, []);
   const [chart, setChart] = useState<ChartMode>("assets");
   const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
   const [currencyChoice, setCurrencyChoice] = useState({ accountId: "", value: "" });
@@ -562,8 +572,8 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     const seen = new Set(balance.map(row => row.currency));
     return [...balance, ...currentFactsSummary.excludingPaper.availableCash.filter(row => !seen.has(row.currency))];
   })();
-  const assetUsd = sumAmountsToUsd(assetTotals, OVERVIEW_USD_RATES);
-  const cashUsd = sumAmountsToUsd(readCash, OVERVIEW_USD_RATES);
+  const assetUsd = sumAmountsToUsd(assetTotals, overviewUsdRates);
+  const cashUsd = sumAmountsToUsd(readCash, overviewUsdRates);
   const nyDate = runtimeToday.split("-");
   const nyLabel = nyDate.length === 3 ? `${nyDate[1]}/${nyDate[2]}/${nyDate[0]}` : runtimeToday;
   const moneyName = (code: string) => code === "USD" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
@@ -984,9 +994,9 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     <section className="overview-metrics home-top" aria-label={t("账户总览")}>
       <article className="home-card">
         <h2>{t("总资产")}</h2>
-        {assetUsd.amount !== null ? <div className="home-money"><p><span>{t("美元")}</span><strong>{groupedAmount(assetUsd.amount)}</strong></p></div> : <p className="home-missing">{t("没读到")}</p>}
+        {assetUsd.amount !== null ? <div className="home-money"><p><span>{t("美元")}</span><strong>{formatOverviewUsdAmount(assetUsd.amount)}</strong></p></div> : <p className="home-missing">{t("没读到")}</p>}
         {assetUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: assetUsd.omittedCurrencies.join("、") })}</small> : null}
-        <div className="home-cash"><span>{t("现金余额")}</span>{cashUsd.amount !== null ? <strong>{`${t("美元")} ${groupedAmount(cashUsd.amount)}`}</strong> : <strong>{t("没读到")}</strong>}</div>
+        <div className="home-cash"><span>{t("现金余额")}</span>{cashUsd.amount !== null ? <strong>{`${t("美元")} ${formatOverviewUsdAmount(cashUsd.amount)}`}</strong> : <strong>{t("没读到")}</strong>}</div>
         {cashUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: cashUsd.omittedCurrencies.join("、") })}</small> : null}
       </article>
       <article className="home-card">

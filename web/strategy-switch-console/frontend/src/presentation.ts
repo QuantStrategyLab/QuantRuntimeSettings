@@ -555,10 +555,22 @@ export const BUILTIN_USD_RATES: Readonly<Record<string, string>> = Object.freeze
 });
 
 /**
- * Extra FX rates for overview USD reporting (currency → USD multiplier).
- * Empty until a trusted feed exists; do not invent SGD/HKD/EUR rates here.
+ * Static seed for overview USD reporting (currency → USD multiplier).
+ * Remains empty: live FX is loaded via overviewUsd.ts (Frankfurter); never invent rates here.
  */
 export const OVERVIEW_USD_RATES: Readonly<Record<string, string>> = Object.freeze({});
+
+export {
+  OVERVIEW_FX_API_URL,
+  OVERVIEW_FX_CACHE_MS,
+  OVERVIEW_FX_SOURCE,
+  OVERVIEW_FX_SYMBOLS,
+  formatOverviewUsdAmount,
+  loadOverviewUsdRates,
+  parseFrankfurterUsdBaseRates,
+  resetOverviewUsdRatesCache,
+  roundDecimalHalfUp,
+} from "./overviewUsd.ts";
 
 /** Convert one amount to USD. Missing or unusable rate → null (omit, never treat as 0). */
 export function amountToUsd(
