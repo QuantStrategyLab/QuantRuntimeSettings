@@ -8,6 +8,8 @@ Collects only platforms/strategies that actually ran from:
 
 Does not trade, does not embed tokens, does not invent missing platforms.
 Empty evidence → heartbeat body via ``daily_digest_notify.render_daily_digest``.
+Optional producer fields (equity/holdings/signal/rebalance) pass through when
+present; GitHub workflow stubs never invent those observation values.
 """
 
 from __future__ import annotations
@@ -308,7 +310,7 @@ def collect_from_github_workflows(
 
 
 def merge_candidates(*groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Merge evidence; file/API rows with explicit counts win over workflow stubs."""
+    """Merge evidence; richer observation/count rows win over workflow stubs."""
 
     merged: dict[tuple[str, str], dict[str, Any]] = {}
     for group in groups:
@@ -323,17 +325,71 @@ def merge_candidates(*groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any
             if existing is None:
                 merged[key] = candidate
                 continue
-            # Prefer the row that carries more concrete activity counts.
-            def score(row: Mapping[str, Any]) -> int:
-                return (
-                    int(row.get("fill_count", 0) or 0)
-                    + int(row.get("order_count", 0) or 0)
-                    + int(row.get("cycle_count", 0) or 0)
-                )
-
-            if score(candidate) >= score(existing):
-                merged[key] = candidate
+            if digest.observation_score(candidate) >= digest.observation_score(existing):
+                # Keep non-empty observation fields from the losing row when the
+                # winner omitted them (producer partial + workflow stub).
+                winner = dict(candidate)
+                for field in (
+                    "strategy_label",
+                    "equity",
+                    "equity_usd",
+                    "equity_currency",
+                    "currency",
+                    "holdings",
+                    "positions",
+                    "signal_summary",
+                    "rebalance_kind",
+                    "rebalance_conclusion",
+                    "tips",
+                    "tip",
+                    "account_hint",
+                ):
+                    if winner.get(field) in (None, "", [], ()):
+                        if existing.get(field) not in (None, "", [], ()):
+                            winner[field] = existing[field]
+                for count_field in ("fill_count", "order_count", "cycle_count"):
+                    if int(winner.get(count_field, 0) or 0) == 0 and int(
+                        existing.get(count_field, 0) or 0
+                    ) > 0:
+                        winner[count_field] = existing[count_field]
+                merged[key] = winner
     return list(merged.values())
+
+
+def strategy_label_from_config(
+    config: Mapping[str, Any],
+    strategy_profile: str,
+    *,
+    locale: str = "zh",
+) -> str:
+    """Public display label from platform-config (not invented numbers)."""
+
+    strategies = config.get("strategies") or {}
+    meta = strategies.get(strategy_profile) or {}
+    if not isinstance(meta, Mapping):
+        return ""
+    if str(locale).lower().startswith("en"):
+        return str(meta.get("label_en") or meta.get("label") or "").strip()
+    return str(meta.get("label") or meta.get("label_en") or "").strip()
+
+
+def enrich_candidate_labels(
+    rows: Sequence[Mapping[str, Any]],
+    config: Mapping[str, Any],
+    *,
+    locale: str = "zh",
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        if not str(row.get("strategy_label") or "").strip():
+            label = strategy_label_from_config(
+                config, str(row.get("strategy_profile") or ""), locale=locale
+            )
+            if label:
+                row["strategy_label"] = label
+        out.append(row)
+    return out
 
 
 def collect_digest_runs(
@@ -342,6 +398,7 @@ def collect_digest_runs(
     config: Mapping[str, Any],
     candidates_path: Path | None = None,
     include_github: bool = True,
+    locale: str = "zh",
 ) -> list[digest.DigestRunEntry]:
     file_rows = load_candidates_from_file(candidates_path)
     github_rows: list[dict[str, Any]] = []
@@ -350,7 +407,8 @@ def collect_digest_runs(
             business_day=business_day, config=config
         )
     merged = merge_candidates(file_rows, github_rows)
-    return digest.filter_runs_for_digest(merged)
+    enriched = enrich_candidate_labels(merged, config, locale=locale)
+    return digest.filter_runs_for_digest(enriched)
 
 
 def build_digest_payload(
@@ -370,6 +428,7 @@ def build_digest_payload(
         config=config,
         candidates_path=candidates_path,
         include_github=include_github,
+        locale=loc,
     )
     payload = digest.DailyDigestInput(
         business_day=day,

@@ -127,6 +127,98 @@ class DailyDigestAggregatorTests(unittest.TestCase):
         self.assertEqual(code, 0)
 
 
+
+    def test_merge_prefers_observation_rich_rows(self):
+        merged = aggregator.merge_candidates(
+            [
+                {
+                    "platform_id": "schwab",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "actually_ran": True,
+                    "cycle_count": 1,
+                    "note": "github_workflow:x.yml",
+                }
+            ],
+            [
+                {
+                    "platform_id": "schwab",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "actually_ran": True,
+                    "cycle_count": 1,
+                    "equity": 990.06,
+                    "holdings": [{"symbol": "SOXL", "market_value": 635.92, "qty": 4}],
+                    "signal_summary": "hold",
+                    "rebalance_kind": "no_rebalance",
+                    "strategy_label": "半导体趋势收益",
+                    "note": "producer",
+                }
+            ],
+        )
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["equity"], 990.06)
+        self.assertEqual(merged[0]["note"], "producer")
+        self.assertEqual(merged[0]["strategy_label"], "半导体趋势收益")
+
+    def test_candidates_with_observation_render_rich_zh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "runs": [
+                            {
+                                "platform_id": "schwab",
+                                "strategy_profile": "soxl_soxx_trend_income",
+                                "actually_ran": True,
+                                "cycle_count": 1,
+                                "equity": 990.06,
+                                "holdings": [
+                                    {
+                                        "symbol": "SOXL",
+                                        "market_value": 635.92,
+                                        "quantity": 4,
+                                    }
+                                ],
+                                "signal_summary": "SOXX 站上 140 日门槛线，持有 SOXL 70.0% + SOXX 20.0%",
+                                "rebalance_kind": "no_rebalance",
+                                "tips": [
+                                    "净值 $990 低于建议 $1,000；整数股和最小仓位限制可能导致实盘无法完全复现回测"
+                                ],
+                            }
+                        ]
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            payload, text = aggregator.build_digest_payload(
+                business_day="2026-10-08",
+                locale="zh",
+                candidates_path=path,
+                include_github=False,
+            )
+            self.assertEqual(len(payload.runs), 1)
+            self.assertEqual(payload.runs[0].strategy_label, "半导体趋势收益")
+            self.assertIn("💓 【心跳检测】", text)
+            self.assertIn("账户总权益: USD 990.06", text)
+            self.assertIn("SOXL: $635.92 / 4股", text)
+            self.assertIn("✅ 无需调仓", text)
+
+    def test_strategy_label_from_config(self):
+        config = aggregator.load_platform_config()
+        self.assertEqual(
+            aggregator.strategy_label_from_config(
+                config, "soxl_soxx_trend_income", locale="zh"
+            ),
+            "半导体趋势收益",
+        )
+        self.assertEqual(
+            aggregator.strategy_label_from_config(
+                config, "tqqq_growth_income", locale="en"
+            ),
+            "NASDAQ Growth Income",
+        )
+
 class DailyDigestWorkflowContractTests(unittest.TestCase):
     def test_workflow_schedule_matches_shanghai_post_close(self):
         workflow = (

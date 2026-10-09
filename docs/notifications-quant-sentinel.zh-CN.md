@@ -49,7 +49,9 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 
 - **一条消息**，统一走 QuantSentinel bot，不按平台各发一只 bot。
 - **只收录当日实际运行**的平台/策略：加密小时级有周期才出现；月末 DCA 仅在运行日出现；未运行的省略。
-- **无运行或无成交**：发心跳-only 通知（短文案）；有成交则发完整日报列表。
+- **无运行**：真空虚心跳（短文案）。**有运行但无成交**：心跳标题；若候选证据带有观察字段则按旧版分平台 bot 风格展开策略块。
+- **有成交**：收盘日报标题；同样优先展开观察块。
+- **观察字段（有证据才写，禁止编造）**：`strategy_label`、`equity`、`holdings[]`（symbol/value/qty）、`signal_summary`、`rebalance_kind` / `rebalance_conclusion`、可选 `tips` / `account_hint`。GitHub workflow 成功结论只证明「跑过」，不填金额/持仓。
 - **不改交易/风控判定**；纯聚合展示。金额与账户标识不得写入公开 CI 日志。
 
 ### 调度（合同默认）
@@ -69,7 +71,9 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 
 语言解析：`QSL_NOTIFY_LANG` → `NOTIFY_LANG` → 默认 `zh`。
 
-消息结构（示意，非真实数据）：
+消息结构（示意；金额仅在候选证据存在时出现）：
+
+薄列表（无观察字段时仍可用）：
 
 ```
 📡 量化哨兵 · 收盘日报
@@ -81,7 +85,26 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 通道：QuantSentinel（统一 bot）· 仅含当日实际运行项
 ```
 
-心跳（无运行）：
+观察块心跳（对齐旧版嘉信风格；字段来自 producer 候选，非编造）：
+
+```
+📡 量化哨兵 · 心跳
+业务日: 2026-10-08
+窗口: Asia/Shanghai cron `0 6 * * 2-6`
+
+💓 【心跳检测】
+🧭 策略: 半导体趋势收益
+💰 账户总权益: USD 990.06
+💼 持仓
+- SOXL: $635.92 / 4股
+- 🎯 信号: SOXX 站上 140 日门槛线，持有 SOXL 70.0% + SOXX 20.0%
+- 小账户提示: 净值 $990 低于建议 $1,000；…
+✅ 无需调仓
+平台: schwab
+通道：QuantSentinel（统一 bot）· 仅含当日实际运行项
+```
+
+真空虚心跳（无运行证据）：
 
 ```
 📡 量化哨兵 · 心跳
@@ -99,7 +122,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 
 ### Aggregator（本仓已落地）
 
-- Workflow 文稿：`docs/workflows/daily-digest-notify.yml`（需拷贝到 `.github/workflows/daily-digest-notify.yml` 后才会被 Actions 调度；当前推送 OAuth 无 `workflow` scope）
+- Workflow：`.github/workflows/daily-digest-notify.yml`（文稿同步于 `docs/workflows/daily-digest-notify.yml`）
 - 脚本：`python/scripts/daily_digest_aggregator.py` + `python/scripts/send_daily_digest_telegram.py`
 - 调度：UTC `0 22 * * 1-5` = **Asia/Shanghai 周二至周六 06:00**（覆盖前一美股 RTH）
 - 证据：`DIGEST_CANDIDATES_PATH` / JSON（优先）+ 可选 allowlisted GitHub workflow 成功结论（**不编造成交数**）
@@ -133,4 +156,4 @@ scripts/daily_briefing_pipeline.sh      # 历史 briefing；收盘日报以 dail
 - 健康无单 / dry-run 成功不单独刷屏；真实订单与异常仍可达。
 - 本文件**不授权**在聊天中粘贴 bot token。
 
-English summary: One QuantSentinel bot secret name for alerts and execution digests; daily digest after the Shanghai 06:00 window includes only strategies that actually ran (crypto/DCA conditional); otherwise heartbeat-only; zh/en via `daily_digest_notify.py`; no tokens in git or chat.
+English summary: One QuantSentinel bot secret name for alerts and execution digests; daily digest after the Shanghai 06:00 window includes only strategies that actually ran (crypto/DCA conditional); empty evidence → thin heartbeat; producer observation fields (equity/holdings/signal/rebalance) enrich the message when present and are never invented; zh/en via `daily_digest_notify.py`; no tokens in git or chat.
