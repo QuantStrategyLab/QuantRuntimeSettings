@@ -173,6 +173,10 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   }, [row.platform, row.key, readAttempt, refreshToken, controller, onSettingsRead]);
   const saveScoped = async (kind: "cash" | "income" | "option" | "strategy", ready: boolean) => {
     if (readState !== "ready" || view.saving || !ready || view.review.draft || settings?.operations?.save_draft !== true) return;
+    if (kind === "strategy") {
+      const ok = window.confirm(t("确认保存策略草案？仅保存草案，不会直接启用账户或改生产运行配置。"));
+      if (!ok) return;
+    }
     const started = controller.startSave(kind);
     const body = controller.requestBody(started);
     if (!started || !body || !controller.markSaving(started, "draft")) return;
@@ -322,6 +326,56 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
   const strategyNotice = view.noticeGroup === "strategy" && view.notice === "草案已保存";
   const otherNotice = view.notice && !cashNotice && !incomeNotice && !optionNotice && !strategyNotice && view.noticeGroup !== "risk" ? view.notice : "";
   const reading = readState === "loading";
+  const pendingProfile = typeof settings?.draft?.overrides?.strategy_profile === "string" ? settings.draft.overrides.strategy_profile.trim() : "";
+  const effectiveProfile = observedProfile(settings) || "";
+  const profileApproveEligible = Boolean(
+    readState === "ready"
+    && settings?.operations?.save_draft === true
+    && pendingProfile
+    && effectiveProfile
+    && pendingProfile !== effectiveProfile
+    && settings?.identity
+    && Number.isSafeInteger(settings?.instance_revision)
+    && Number.isSafeInteger(settings?.draft?.revision)
+    && Object.keys(settings?.draft?.overrides || {}).length === 1
+  );
+  const submitEnable = () => {
+    const ok = window.confirm(t("确认启用此账户？不会改策略或风险预算；实际运行启用仍须走既有 Promotion / Manual Strategy Switch。"));
+    if (!ok) return;
+    if (actions.resume) {
+      onResume();
+      return;
+    }
+    window.alert(t("启用请求未改变生产运行配置。请用 Manual Strategy Switch / 平台既有启用流程完成实际启用。"));
+  };
+  const submitProfileApprove = () => {
+    if (!profileApproveEligible || !settings) return;
+    const ok = window.confirm(t("确认批准策略应用？仅在目标已停用时可批准；不会静默改风险预算，策略切换仍须既有 Promotion 规则。"));
+    if (!ok) return;
+    void (async () => {
+      try {
+        const requestKey = (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function")
+          ? crypto.randomUUID()
+          : "00000000-0000-4000-8000-000000000001";
+        await postJson<Record<string, any>>("/api/account-settings/profile-application/approve", {
+          platform: row.platform,
+          key: row.key,
+          request_key: requestKey,
+          identity: settings.identity,
+          expected_instance_revision: settings.instance_revision,
+          expected_draft_revision: settings.draft.revision,
+          old_profile: effectiveProfile,
+          new_profile: pendingProfile,
+        });
+        window.alert(t("策略应用已记录批准，运行端采用仍须既有 workflow。"));
+        setReadAttempt(value => value + 1);
+      } catch (error) {
+        const message = (error as { message?: string })?.message || "账户设置暂不可用。";
+        window.alert(t(message));
+      }
+    })();
+  };
+
   return <aside className={`account-detail${reading ? " is-loading" : ""}`} aria-busy={reading}>
     {reading ? <div className="settings-progress" role="progressbar" aria-label={t("正在读取账户设置")}><span className="settings-progress-bar" /><p className="settings-progress-hint" aria-hidden="true">{t("正在读取账户设置")}</p></div> : null}
     <button type="button" className="text-link mobile-back" onClick={onBack}>{t("返回账户列表")}</button>
@@ -469,8 +523,9 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     <section className="detail-group runtime-controls"><div className="activation-row"><span>{t("运行控制")}</span><strong>{t(overviewActivationLabel(row.activation))}</strong></div>
     <div className="form-actions">
       {readState === "ready" && <>
-        <button type="button" className="button button-secondary" aria-describedby="activation-not-wired" disabled>{t("启用")}</button>
-        <p id="activation-not-wired" className="field-note" role="note">{t("启用流程尚未接通，此按钮不会提交。")}</p>
+        <button type="button" className="button button-secondary" aria-describedby="activation-enable-note" disabled={Boolean(view.saving) || settings?.operations?.save_draft !== true} onClick={submitEnable}>{t("启用")}</button>
+        {profileApproveEligible && <button type="button" className="button button-primary" disabled={Boolean(view.saving)} onClick={submitProfileApprove}>{t("批准策略应用")}</button>}
+        <p id="activation-enable-note" className="field-note" role="note">{t(actions.resume ? "确认后将走现有恢复入口；不会静默改策略或风险预算。" : "启用需确认。一般启用不改生产运行配置；有策略草案时可走既有批准 API，策略切换仍须 Promotion 规则。")}</p>
       </>}
       {actions.stop && <button type="button" className="button button-secondary" disabled={!stopAllowed} onClick={onStop}>{t(stopLabel)}</button>}
       {readState === "ready" && actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}

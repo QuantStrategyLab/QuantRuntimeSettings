@@ -58,12 +58,12 @@ assert.equal(overviewRuntimeStatusLabel(monitored, "ready"), "健康");
 assert.equal(overviewRuntimeStatusLabel({ ...monitored, activation: "disabled" }, "ready"), "健康", "disabled with normal monitoring is 健康 on 平台监测");
 assert.equal(overviewActivationLabel("已启用"), "已启用");
 assert.equal(overviewActivationLabel("已停用"), "已停用");
-assert.equal(overviewActivationLabel("待确认"), "异常");
-assert.equal(overviewActivationLabel("启用未知"), "异常");
-assert.equal(overviewActivationLabel("—"), "异常");
+assert.equal(overviewActivationLabel("待确认"), "启用待确认");
+assert.equal(overviewActivationLabel("启用未知"), "启用待确认");
+assert.equal(overviewActivationLabel("—"), "启用待确认");
 assert.equal(overviewActivationLabelFromProjection(monitored), "已启用");
 assert.equal(overviewActivationLabelFromProjection({ ...monitored, activation: "disabled" }), "已停用");
-assert.equal(overviewActivationLabelFromProjection(null), "异常");
+assert.equal(overviewActivationLabelFromProjection(null), "启用待确认");
 
 
 assert.equal(knownAccountLabel({ longbridge: [{ key: "hk", target_name: "hk", label: "港股账户" }] }, "longbridge", "hk"), "港股账户");

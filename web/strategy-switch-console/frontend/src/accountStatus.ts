@@ -19,7 +19,7 @@ export type AccountStatus = {
   identity: Evidence<"live" | "paper" | "unverified">;
 };
 
-export type ActivationPill = "已启用" | "已停用" | "异常";
+export type ActivationPill = "已启用" | "已停用" | "异常" | "启用待确认";
 export type HealthPill = "健康" | "异常";
 export type StatusTone = "ok" | "bad";
 

@@ -18,6 +18,8 @@ import {
   accountNativeReadout,
   overviewRuntimeHealth,
   overviewActivationLabel,
+  overviewTypePillLabel,
+  overviewMonitoringPillLabel,
   overviewLifecycleDetail,
   runtimeDailySelectionFromAccount,
   runtimeDeploymentReadout,
@@ -55,6 +57,7 @@ import {
 import { loadMarketBenchmarkPoints } from "./marketBenchmark";
 import {
   cashFieldForPlatform,
+  formatOverviewAccountCash,
   verifiedCurrentAccountAssets,
   accountFactsDetail,
   accountFactsDisplayReady,
@@ -881,11 +884,13 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
             ? formatBinanceWalletAmount(walletCardValuation.amount)
             : formatAccountFactAmounts(accountFactsDisplayReady(account.facts) ? account.facts!.balances : null, "net_assets");
           const freshCashRows = accountFactsDisplayReady(account.facts) ? account.facts!.cash : null;
-          const cashField = cashFieldForPlatform(account.platformKey) || "available_cash";
-          const cash = formatAccountFactAmounts(
-            freshCashRows,
-            cashField,
-          );
+          const binanceCashAssets = (showWallet && walletAccount?.id === account.id && Array.isArray(wallet?.assets))
+            ? wallet.assets : null;
+          const cash = formatOverviewAccountCash({
+            platform: account.platformKey,
+            factsCash: freshCashRows,
+            binanceAssets: binanceCashAssets,
+          });
           const factDetail = account.platformKey === "binance" ? binanceWalletStatusDetail(binanceFacts?.error
             ? { error: binanceFacts.error } : binanceFacts?.value, walletNow) : accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
@@ -923,12 +928,16 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
                 </span>
                 : <span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span>}
               {!walletCardValuation ? <span>
-                <em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}
+                <em>{t(cashLabelForPlatform(account.platformKey))}</em>{cash ? amountOrDash(cash) : (assets && assets !== "—" ? t("现金未回报") : amountOrDash(cash))}
+              </span> : walletCardValuation && cash ? <span>
+                <em>{t("可用现金")}</em>{amountOrDash(cash)}
+              </span> : walletCardValuation ? <span>
+                <em>{t("可用现金")}</em>{t("现金未回报")}
               </span> : null}
             </span>
             <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             <small>{t(overviewLifecycleDetail(account.runtime, account.statusDetail, health.detail))}</small>
-            {account.runtimeTargetEnabled === true && overviewActivationLabel(account.activation) === "异常"
+            {account.runtimeTargetEnabled === true && overviewActivationLabel(account.activation) === "启用待确认"
               ? <small>{t("配置开关已启用，实际运行待确认。")}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
@@ -1020,19 +1029,32 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
                 : formatAccountFactAmounts(accountFactsDisplayReady(account.facts) ? account.facts!.balances : null, "net_assets");
               const freshCashRows = accountFactsDisplayReady(account.facts) ? account.facts!.cash : null;
               const cashField = cashFieldForPlatform(account.platformKey) || "available_cash";
-              const cash = formatAccountFactAmounts(freshCashRows, cashField);
+              const binanceCashAssets = (showWallet && walletAccount?.id === account.id && Array.isArray(wallet?.assets))
+                ? wallet.assets : null;
+              const cash = formatOverviewAccountCash({
+                platform: account.platformKey,
+                factsCash: freshCashRows,
+                binanceAssets: binanceCashAssets,
+              });
               const verifiedFreshCashRows = account.facts?.data_status === "fresh" && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true ? freshCashRows : null;
               const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
               const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value, runtimeDailySelectionFromAccount(account), account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
-              const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : { text: "异常" as const, tone: "bad" };
+              const monitoringLabel = overviewMonitoringPillLabel(health.label);
+              const healthView = monitoringLabel === "健康" ? { text: "健康" as const, tone: "ok" } : { text: "监测异常" as const, tone: "bad" };
               const enabledLabel = overviewActivationLabel(account.activation);
-              const enabledView = enabledLabel === "已启用" ? { text: "已启用" as const, tone: "ok" } : enabledLabel === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "异常" as const, tone: "bad" };
-              const confirmed = account.brokerEnvironment === "live" || account.facts?.broker_environment === "live" || account.facts?.account_scope === "live";
+              const enabledView = enabledLabel === "已启用" ? { text: "已启用" as const, tone: "ok" } : enabledLabel === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "启用待确认" as const, tone: "unknown" };
+              const typeLabel = overviewTypePillLabel(account);
+              const assetsPresent = Boolean(assets && assets !== "没读到");
+              const cashCell = cash && cash !== "0"
+                ? spokenMoney(cash, moneyName)
+                : cash === "0"
+                  ? "0"
+                  : (assetsPresent || walletCardValuation ? t("现金未回报") : t("没读到"));
               return <tr key={account.id} className="overview-account-entry">
                 <td data-label={t("账号")}><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
-                <td data-label={t("类型")}><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>
+                <td data-label={t("类型")}><span className={`type-pill${typeLabel === "环境待确认" ? " is-unknown" : ""}`}>{t(typeLabel)}</span></td>
                 <td data-label={t("资产")}>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
-                <td data-label={t("现金")} className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}</td>
+                <td data-label={t("现金")} className={negativeCash ? "is-negative" : ""}>{cashCell}</td>
                 <td data-label={t("状态")} title={overviewLifecycleDetail(account.runtime, account.statusDetail, health.detail) || undefined}><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
               </tr>;
             })}

@@ -486,6 +486,36 @@ export function cashFieldForPlatform(platform: string): "cash_balance" | "availa
   return null;
 }
 
+/**
+ * Format overview cash from AFS rows or Binance spot_free when present.
+ * Returns null when cash is unknown (caller may show 现金未回报 / 没读到).
+ * Never invents a zero for a missing field.
+ */
+export function formatOverviewAccountCash(input: {
+  platform: string;
+  factsCash: Array<{ currency?: string; [field: string]: unknown }> | null | undefined;
+  binanceAssets?: Array<{ asset?: string; spot_free?: string }> | null;
+}): string | null {
+  const field = cashFieldForPlatform(input.platform);
+  if (field) {
+    const formatted = formatAccountFactAmounts(input.factsCash, field);
+    if (formatted !== null) return formatted;
+  }
+  if (input.platform === "binance" && Array.isArray(input.binanceAssets) && input.binanceAssets.length) {
+    const parts: string[] = [];
+    for (const row of input.binanceAssets) {
+      if (typeof row?.asset !== "string" || typeof row?.spot_free !== "string") continue;
+      if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(row.spot_free)) continue;
+      if (/^0(?:\.0+)?$/.test(row.spot_free)) continue;
+      // Prefer stable quote assets for the cash column; still real provider free balances.
+      if (!["USDT", "USD", "USDC", "BUSD", "FDUSD"].includes(row.asset)) continue;
+      parts.push(`${row.asset} ${row.spot_free}`);
+    }
+    if (parts.length) return parts.join(" · ");
+  }
+  return null;
+}
+
 /** Summarize only current, fresh, uniquely bound account facts; currencies and cash meanings stay separate. */
 export function summarizeCurrentAccountFacts(accounts: CurrentAccountFactsRow[], includeDuplicateAccount = false): CurrentAccountFactsSummary {
   const rowsByConfigKey = new Map<string, CurrentAccountFactsRow[]>();

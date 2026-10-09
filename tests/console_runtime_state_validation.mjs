@@ -342,8 +342,10 @@ test("loading an account never silently prepares an enable override", () => {
   assert.equal(accountsSource.includes(">启用<"), false);
   assert.match(accountsSource, /statusLabel === "—" \|\| row\.statusLabel === "待确认" \? "异常"/);
   assert.match(accountsSource, /overviewActivationLabel\(row\.activation\)/);
-  assert.match(accountsSource, /activation-not-wired/);
-  assert.match(accountsSource, /启用流程尚未接通，此按钮不会提交/);
+  assert.match(accountsSource, /activation-enable-note/);
+  assert.match(accountsSource, /确认启用此账户？不会改策略或风险预算/);
+  assert.match(accountsSource, /profile-application\/approve/);
+  assert.match(accountsSource, /确认保存策略草案？仅保存草案/);
   assert.doesNotMatch(accountsSource, /statusLabel === "—" \? "已启用"|activation === "—" \? "已启用"/);
   assert.match(appSource, /loadAdminModel\(\)/);
   assert.doesNotMatch(appSource, /refreshChangeLog|onChangeLog/);
