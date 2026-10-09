@@ -16,6 +16,8 @@ Count semantics:
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from typing import Any, Literal, Mapping, Sequence
 
@@ -574,6 +576,7 @@ def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
 
 
 _SCOPE_TAG_ALLOWED = frozenset({"live", "paper", "shadow", "research"})
+_HEX_HINT_RE = re.compile(r"^[0-9a-fA-F]{12,}$")
 
 
 def _normalize_scope_tag(raw: str) -> str:
@@ -582,38 +585,67 @@ def _normalize_scope_tag(raw: str) -> str:
     value = str(raw or "").strip().lower()
     if not value:
         return ""
-    # Accept plain mode or prefixed forms like LIVE-U… handled via account_hint.
+    # Accept plain mode or prefixed forms like live_us / paper-us.
     if value in _SCOPE_TAG_ALLOWED:
         return value
-    # account_scope sometimes arrives as "LIVE" already covered; also "live_us".
     for mode in _SCOPE_TAG_ALLOWED:
         if value == mode or value.startswith(f"{mode}_") or value.startswith(f"{mode}-"):
             return mode
     return ""
 
 
-def account_block_tag(entry: DigestRunEntry) -> str:
-    """Short account label for ``[tag]`` block titles.
+def _human_account_hint(raw: str) -> str:
+    """Return account_hint when it is already a good human label.
 
-    Preference order (product convention — identity, not wiring name):
-      1. ``account_hint`` (IBKR-style ids such as ``U16608560``)
-      2. ``account_scope`` / ``execution_mode`` when live|paper|shadow|research
-      3. short stable form of ``opaque_account_uid`` (first 8 chars when long)
-      4. ``target_id`` last resort only (e.g. ``schwab-primary`` is a wiring id,
-         not the live account label)
-    Returns empty string when nothing usable is present.
+    Reject empty values and opaque hex hashes (those are not display tags).
+    IBKR-style ids such as ``U16608560`` are kept.
     """
 
-    hint = str(entry.account_hint or "").strip()
-    if hint:
-        return hint
+    hint = str(raw or "").strip()
+    if not hint:
+        return ""
+    if _HEX_HINT_RE.fullmatch(hint):
+        return ""
+    return hint
+
+
+def _platform_scope_tag(entry: DigestRunEntry) -> str:
+    """Universal ``{platform_id} {scope}`` label when both are known.
+
+    Same rule for schwab / ibkr / firstrade / longbridge / etc. — never
+    hard-code a single platform string.
+    """
+
+    platform = str(entry.platform_id or "").strip()
+    if not platform:
+        return ""
     for raw in (entry.account_scope, entry.execution_mode):
         scope = _normalize_scope_tag(raw)
         if scope:
-            return scope
+            return f"{platform} {scope}"
+    return ""
+
+
+def account_block_tag(entry: DigestRunEntry) -> str:
+    """Short account label for ``[tag]`` block titles.
+
+    Preference order (universal across platforms):
+      1. human ``account_hint`` (e.g. IBKR ``U16608560``) when not a hex hash
+      2. ``{platform_id} {account_scope|execution_mode}`` e.g. ``schwab live``,
+         ``ibkr live``, ``firstrade paper``
+      3. short stable form of ``opaque_account_uid`` (first 8 chars when long)
+      4. ``target_id`` last resort only (wiring name, not live account label)
+    Returns empty string when nothing usable is present.
+    """
+
+    hint = _human_account_hint(entry.account_hint)
+    if hint:
+        return hint
+    platform_scope = _platform_scope_tag(entry)
+    if platform_scope:
+        return platform_scope
     uid = str(entry.opaque_account_uid or "").strip()
     if uid and uid.lower() != UNKNOWN_ACCOUNT_UID:
-        # Binding hashes are 64 hex; keep Telegram titles short and stable.
         if len(uid) > 12:
             return uid[:8]
         return uid
