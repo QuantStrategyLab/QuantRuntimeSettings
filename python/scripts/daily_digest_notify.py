@@ -8,6 +8,10 @@ and send via the unified bot secret ``quant-sentinel-telegram-bot-token``.
 
 Observation fields (equity, holdings, signal, rebalance) are rendered
 only when present on the evidence row — never invented.
+
+Count semantics:
+  - int 0 with known status / legacy producer row → verified zero（无成交）
+  - None / field_status counts_unknown → unknown（未知）, never rendered as 0
 """
 
 from __future__ import annotations
@@ -23,6 +27,12 @@ RebalanceKind = Literal[
     "no_order",
     "pending",
 ]
+EvidenceStatus = Literal[
+    "verified_idle",
+    "evidence_unknown",
+    "has_runs",
+]
+CountFieldStatus = Literal["known", "unknown", ""]
 
 _TEXTS: dict[str, dict[str, str]] = {
     "zh": {
@@ -35,10 +45,18 @@ _TEXTS: dict[str, dict[str, str]] = {
         "orders_label": "订单",
         "cycles_label": "周期",
         "no_fill": "无成交",
+        "counts_unknown": "未知",
         "status_ok": "正常",
         "status_alert": "异常",
-        "heartbeat_no_run": "今日无平台/策略实际运行。监测链路心跳正常。",
-        "heartbeat_no_fill": "今日有运行但无成交。监测链路心跳正常。",
+        "heartbeat_no_run_verified": "今日已验证无平台/策略实际运行。",
+        "heartbeat_evidence_unknown": (
+            "今日运行证据未知或读取失败，不能判定为链路正常。"
+        ),
+        "heartbeat_no_fill_verified": "今日有运行且已验证零成交。",
+        "heartbeat_fills_unknown": "今日有运行，成交数未知（证据未覆盖）。",
+        # Legacy keys kept for callers/tests that still reference them.
+        "heartbeat_no_run": "今日已验证无平台/策略实际运行。",
+        "heartbeat_no_fill": "今日有运行且已验证零成交。",
         "footer": "通道：QuantSentinel（统一 bot）· 仅含当日实际运行项",
         "platform_line": "· {platform} / {strategy} · {detail}",
         "block_heartbeat": "💓 【心跳检测】",
@@ -54,6 +72,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "conclusion_no_rebalance": "✅ 无需调仓",
         "conclusion_no_order_prefix": "未下单",
         "platform_tag": "平台",
+        "identity_tag": "身份",
     },
     "en": {
         "daily_digest_title": "📡 QuantSentinel · Daily digest",
@@ -65,10 +84,26 @@ _TEXTS: dict[str, dict[str, str]] = {
         "orders_label": "orders",
         "cycles_label": "cycles",
         "no_fill": "no fills",
+        "counts_unknown": "unknown",
         "status_ok": "ok",
         "status_alert": "alert",
-        "heartbeat_no_run": "No platform/strategy actually ran today. Monitoring heartbeat only.",
-        "heartbeat_no_fill": "Runs completed with no fills today. Monitoring heartbeat only.",
+        "heartbeat_no_run_verified": (
+            "Verified: no platform/strategy actually ran today."
+        ),
+        "heartbeat_evidence_unknown": (
+            "Run evidence is unknown or a source read failed; "
+            "monitoring link health is not confirmed."
+        ),
+        "heartbeat_no_fill_verified": (
+            "Runs completed with verified zero fills today."
+        ),
+        "heartbeat_fills_unknown": (
+            "Runs completed but fill counts are unknown (evidence uncovered)."
+        ),
+        "heartbeat_no_run": (
+            "Verified: no platform/strategy actually ran today."
+        ),
+        "heartbeat_no_fill": "Runs completed with verified zero fills today.",
         "footer": "Channel: QuantSentinel (unified bot) · only entries that actually ran",
         "platform_line": "· {platform} / {strategy} · {detail}",
         "block_heartbeat": "💓 [Heartbeat]",
@@ -84,8 +119,12 @@ _TEXTS: dict[str, dict[str, str]] = {
         "conclusion_no_rebalance": "✅ No rebalance needed",
         "conclusion_no_order_prefix": "No order",
         "platform_tag": "Platform",
+        "identity_tag": "Identity",
     },
 }
+
+UNKNOWN_ACCOUNT_UID = "unknown"
+UNKNOWN_TARGET_ID = "unknown"
 
 
 def normalize_locale(raw: str | None) -> DigestLocale:
@@ -104,6 +143,20 @@ def _optional_float(raw: Any) -> float | None:
         return float(raw)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"expected numeric value, got {raw!r}") from exc
+
+
+def _optional_nonneg_int(raw: Any) -> int | None:
+    """Parse an optional non-negative int; None stays unknown."""
+
+    if raw is None or raw == "":
+        return None
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"expected integer count, got {raw!r}") from exc
+    if value < 0:
+        raise ValueError("counts must be non-negative")
+    return value
 
 
 def _format_qty(qty: float | None) -> str | None:
@@ -127,6 +180,79 @@ def _format_equity(value: float, *, currency: str = "USD") -> str:
     code = (currency or "USD").strip().upper() or "USD"
     amount = f"{value:,.2f}"
     return f"{code} {amount}"
+
+
+def _field_status_map(raw: Mapping[str, Any] | None) -> dict[str, str]:
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, str] = {}
+    for key, value in raw.items():
+        status = str(value or "").strip().lower()
+        if status:
+            out[str(key)] = status
+    return out
+
+
+def count_is_unknown(
+    raw: Mapping[str, Any],
+    field_name: str,
+    *,
+    parsed: int | None,
+) -> bool:
+    """True when producer/stub marks the count unknown (not verified zero)."""
+
+    status_map = _field_status_map(
+        raw.get("field_status") if isinstance(raw.get("field_status"), Mapping) else None
+    )
+    status = status_map.get(field_name, "")
+    if status in {"unknown", "counts_unknown", "unverified"}:
+        return True
+    reason = str(raw.get("reason_code") or "").strip().lower()
+    if reason in {"counts_unknown", "github_workflow_existence_only"} and field_name in {
+        "fill_count",
+        "order_count",
+    }:
+        # Existence-only stubs never assert verified zero fills/orders.
+        if field_name not in raw or raw.get(field_name) is None:
+            return True
+        if status in {"unknown", "counts_unknown", "unverified"}:
+            return True
+    if field_name not in raw and parsed is None:
+        # Absent key with no legacy int → unknown (new producers).
+        # Legacy rows that omit the key but lack reason_code are treated as
+        # explicit 0 only when filter supplies default via present int.
+        return True
+    return parsed is None
+
+
+def resolve_count_field(
+    raw: Mapping[str, Any],
+    field_name: str,
+    *,
+    legacy_default_zero: bool = False,
+) -> tuple[int | None, CountFieldStatus]:
+    """Return (value, status). Legacy int 0 without field_status → known zero."""
+
+    status_map = _field_status_map(
+        raw.get("field_status") if isinstance(raw.get("field_status"), Mapping) else None
+    )
+    status_hint = status_map.get(field_name, "")
+    if status_hint in {"unknown", "counts_unknown", "unverified"}:
+        return None, "unknown"
+
+    if field_name not in raw:
+        reason = str(raw.get("reason_code") or "").strip().lower()
+        if reason in {"counts_unknown", "github_workflow_existence_only"}:
+            return None, "unknown"
+        if legacy_default_zero:
+            # Backward compat: old candidates omitting the key meant 0.
+            return 0, "known"
+        return None, "unknown"
+
+    value = _optional_nonneg_int(raw.get(field_name))
+    if value is None:
+        return None, "unknown"
+    return value, "known"
 
 
 @dataclass(frozen=True)
@@ -153,13 +279,15 @@ class DigestRunEntry:
 
     Optional observation fields are schema-ready for producer evidence.
     Render omits any field that is empty/None — never invents numbers.
+
+    Counts may be None (= unknown). Verified zero is int 0 with known status.
     """
 
     platform_id: str
     strategy_profile: str
-    fill_count: int = 0
-    order_count: int = 0
-    cycle_count: int = 0
+    fill_count: int | None = 0
+    order_count: int | None = 0
+    cycle_count: int | None = 0
     status: Literal["ok", "alert"] = "ok"
     note: str = ""
     strategy_label: str = ""
@@ -171,14 +299,26 @@ class DigestRunEntry:
     rebalance_conclusion: str = ""
     tips: tuple[str, ...] = ()
     account_hint: str = ""
+    opaque_account_uid: str = ""
+    target_id: str = ""
+    fill_count_status: CountFieldStatus = "known"
+    order_count_status: CountFieldStatus = "known"
+    cycle_count_status: CountFieldStatus = "known"
+    reason_code: str = ""
+    evidence_provenance: str = ""
 
     def __post_init__(self) -> None:
         if not str(self.platform_id).strip():
             raise ValueError("platform_id required")
         if not str(self.strategy_profile).strip():
             raise ValueError("strategy_profile required")
-        if min(self.fill_count, self.order_count, self.cycle_count) < 0:
-            raise ValueError("counts must be non-negative")
+        for name, value in (
+            ("fill_count", self.fill_count),
+            ("order_count", self.order_count),
+            ("cycle_count", self.cycle_count),
+        ):
+            if value is not None and value < 0:
+                raise ValueError(f"{name} must be non-negative")
         if self.equity is not None and self.equity < 0:
             raise ValueError("equity must be non-negative")
         kind = str(self.rebalance_kind or "")
@@ -188,15 +328,81 @@ class DigestRunEntry:
 
 
 @dataclass(frozen=True)
+class EvidenceCoverage:
+    """Source coverage for distinguishing verified idle vs read failure."""
+
+    candidates_configured: bool = False
+    candidates_loaded: bool = False
+    candidates_count: int = 0
+    github_enabled: bool = False
+    github_sources_queried: int = 0
+    github_sources_matched: int = 0
+    github_failures: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def has_source_failures(self) -> bool:
+        return bool(self.github_failures)
+
+    @property
+    def is_complete_for_verified_idle(self) -> bool:
+        """True only when configured sources were consulted without failure."""
+
+        if self.has_source_failures:
+            return False
+        if self.github_enabled and self.github_sources_queried <= 0:
+            return False
+        if self.candidates_loaded or (
+            self.github_enabled and self.github_sources_queried > 0
+        ):
+            return True
+        return False
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "candidates_configured": self.candidates_configured,
+            "candidates_loaded": self.candidates_loaded,
+            "candidates_count": self.candidates_count,
+            "github_enabled": self.github_enabled,
+            "github_sources_queried": self.github_sources_queried,
+            "github_sources_matched": self.github_sources_matched,
+            "github_failures": list(self.github_failures),
+            "has_source_failures": self.has_source_failures,
+            "is_complete_for_verified_idle": self.is_complete_for_verified_idle,
+        }
+
+
+@dataclass(frozen=True)
 class DailyDigestInput:
     business_day: str
     window_label: str = ""
     locale: DigestLocale | str = "zh"
     runs: Sequence[DigestRunEntry] = field(default_factory=tuple)
+    evidence_coverage: EvidenceCoverage | None = None
+    evidence_status: EvidenceStatus | str = ""
 
 
-def total_fills(runs: Sequence[DigestRunEntry]) -> int:
-    return sum(entry.fill_count for entry in runs)
+def total_fills(runs: Sequence[DigestRunEntry]) -> int | None:
+    """Sum known fills. Returns None when any run has unknown fill_count."""
+
+    total = 0
+    saw_known = False
+    for entry in runs:
+        if entry.fill_count is None or entry.fill_count_status == "unknown":
+            return None
+        saw_known = True
+        total += entry.fill_count
+    return total if saw_known or not runs else 0
+
+
+def fills_are_verified_zero(runs: Sequence[DigestRunEntry]) -> bool:
+    if not runs:
+        return False
+    for entry in runs:
+        if entry.fill_count is None or entry.fill_count_status == "unknown":
+            return False
+        if entry.fill_count != 0:
+            return False
+    return True
 
 
 def has_observation(entry: DigestRunEntry) -> bool:
@@ -213,13 +419,13 @@ def has_observation(entry: DigestRunEntry) -> bool:
 
 
 def observation_score(row: Mapping[str, Any]) -> int:
-    """Rank evidence richness for merge (counts + optional observation)."""
+    """Rank evidence richness for merge (known counts + optional observation)."""
 
-    score = (
-        int(row.get("fill_count", 0) or 0)
-        + int(row.get("order_count", 0) or 0)
-        + int(row.get("cycle_count", 0) or 0)
-    )
+    score = 0
+    for field_name in ("fill_count", "order_count", "cycle_count"):
+        value, status = resolve_count_field(row, field_name, legacy_default_zero=False)
+        if status == "known" and value is not None:
+            score += value
     if row.get("equity") is not None and row.get("equity") != "":
         score += 10
     holdings = row.get("holdings") or row.get("positions") or ()
@@ -233,19 +439,96 @@ def observation_score(row: Mapping[str, Any]) -> int:
         score += 5
     if str(row.get("strategy_label") or "").strip():
         score += 1
+    # Prefer producer rows over github existence stubs.
+    provenance = str(row.get("evidence_provenance") or "").strip().lower()
+    if provenance in {"candidates", "producer"}:
+        score += 20
+    if provenance in {"github_workflow_stub", "github_stub"}:
+        score -= 5
     return score
+
+
+def identity_key(row: Mapping[str, Any]) -> tuple[str, str, str, str]:
+    """Aggregation identity: platform + strategy + account/target.
+
+    Missing account/target use explicit sentinels. Callers must not freely
+    cross-fill observation fields across unknown-identity rows.
+    """
+
+    platform_id = str(row.get("platform_id") or "").strip()
+    strategy = str(row.get("strategy_profile") or "").strip()
+    account_uid = str(row.get("opaque_account_uid") or "").strip()
+    target = str(row.get("target_id") or "").strip()
+    return (
+        platform_id,
+        strategy,
+        account_uid or UNKNOWN_ACCOUNT_UID,
+        target or UNKNOWN_TARGET_ID,
+    )
+
+
+def identity_is_unknown(row: Mapping[str, Any]) -> bool:
+    account_uid = str(row.get("opaque_account_uid") or "").strip()
+    target = str(row.get("target_id") or "").strip()
+    return not account_uid and not target
+
+
+def _format_count_part(
+    locale: DigestLocale,
+    *,
+    label_key: str,
+    value: int | None,
+    status: CountFieldStatus,
+) -> str | None:
+    if status == "unknown" or value is None:
+        if label_key == "fills_label":
+            return f"{_t(locale, 'fills_label')} {_t(locale, 'counts_unknown')}"
+        return f"{_t(locale, label_key)} {_t(locale, 'counts_unknown')}"
+    if label_key == "fills_label" and value == 0:
+        return _t(locale, "no_fill")
+    if value == 0 and label_key != "fills_label":
+        return None
+    return f"{_t(locale, label_key)} {value}"
 
 
 def _detail_for(entry: DigestRunEntry, locale: DigestLocale) -> str:
     parts: list[str] = []
-    if entry.cycle_count:
-        parts.append(f"{_t(locale, 'cycles_label')} {entry.cycle_count}")
-    if entry.order_count:
-        parts.append(f"{_t(locale, 'orders_label')} {entry.order_count}")
-    if entry.fill_count:
-        parts.append(f"{_t(locale, 'fills_label')} {entry.fill_count}")
-    else:
-        parts.append(_t(locale, "no_fill"))
+    cycle_part = _format_count_part(
+        locale,
+        label_key="cycles_label",
+        value=entry.cycle_count,
+        status=entry.cycle_count_status,
+    )
+    if cycle_part and not (
+        entry.cycle_count_status == "known"
+        and entry.cycle_count == 0
+    ):
+        if entry.cycle_count_status == "unknown" or (
+            entry.cycle_count is not None and entry.cycle_count > 0
+        ):
+            parts.append(cycle_part)
+
+    order_part = _format_count_part(
+        locale,
+        label_key="orders_label",
+        value=entry.order_count,
+        status=entry.order_count_status,
+    )
+    if order_part and (
+        entry.order_count_status == "unknown"
+        or (entry.order_count is not None and entry.order_count > 0)
+    ):
+        parts.append(order_part)
+
+    fill_part = _format_count_part(
+        locale,
+        label_key="fills_label",
+        value=entry.fill_count,
+        status=entry.fill_count_status,
+    )
+    if fill_part:
+        parts.append(fill_part)
+
     parts.append(_t(locale, "status_ok" if entry.status == "ok" else "status_alert"))
     if entry.note.strip():
         parts.append(entry.note.strip())
@@ -262,7 +545,9 @@ def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
         return _t(locale, "block_pending")
     if kind == "no_rebalance":
         return _t(locale, "block_heartbeat")
-    if entry.fill_count > 0 or entry.order_count > 0:
+    fill = entry.fill_count if entry.fill_count_status != "unknown" else None
+    order = entry.order_count if entry.order_count_status != "unknown" else None
+    if (fill is not None and fill > 0) or (order is not None and order > 0):
         return _t(locale, "block_rebalance")
     return _t(locale, "block_heartbeat")
 
@@ -341,6 +626,25 @@ def _render_run_line(entry: DigestRunEntry, locale: DigestLocale) -> list[str]:
     ]
 
 
+def resolve_evidence_status(
+    payload: DailyDigestInput,
+) -> EvidenceStatus:
+    if payload.evidence_status in {
+        "verified_idle",
+        "evidence_unknown",
+        "has_runs",
+    }:
+        return payload.evidence_status  # type: ignore[return-value]
+    runs = tuple(payload.runs)
+    if runs:
+        return "has_runs"
+    coverage = payload.evidence_coverage
+    if coverage is not None and coverage.is_complete_for_verified_idle:
+        return "verified_idle"
+    # Safer default: empty without proven coverage ≠ verified idle.
+    return "evidence_unknown"
+
+
 def render_daily_digest(payload: DailyDigestInput) -> str:
     """Render one Telegram message body (never includes tokens or chat ids)."""
 
@@ -348,28 +652,39 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     runs = tuple(payload.runs)
     lines: list[str] = []
     rich = any(has_observation(entry) for entry in runs)
+    evidence_status = resolve_evidence_status(payload)
+    known_fills = total_fills(runs)
 
     if not runs:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
         lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
         if payload.window_label.strip():
             lines.append(f"{_t(locale, 'window_label')}: {payload.window_label.strip()}")
-        lines.append(_t(locale, "heartbeat_no_run"))
+        if evidence_status == "verified_idle":
+            lines.append(_t(locale, "heartbeat_no_run_verified"))
+        else:
+            lines.append(_t(locale, "heartbeat_evidence_unknown"))
         lines.append(_t(locale, "footer"))
         return "\n".join(lines)
 
-    if total_fills(runs) == 0:
+    if known_fills is None:
+        lines.append(_t(locale, "daily_digest_heartbeat_title"))
+    elif known_fills == 0:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
     else:
         lines.append(_t(locale, "daily_digest_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
     if payload.window_label.strip():
         lines.append(f"{_t(locale, 'window_label')}: {payload.window_label.strip()}")
-    if total_fills(runs) == 0 and not rich:
-        lines.append(_t(locale, "heartbeat_no_fill"))
-        lines.append(_t(locale, "ran_section"))
-    elif total_fills(runs) > 0 and not rich:
-        lines.append(_t(locale, "ran_section"))
+    if not rich:
+        if known_fills is None:
+            lines.append(_t(locale, "heartbeat_fills_unknown"))
+            lines.append(_t(locale, "ran_section"))
+        elif known_fills == 0:
+            lines.append(_t(locale, "heartbeat_no_fill_verified"))
+            lines.append(_t(locale, "ran_section"))
+        else:
+            lines.append(_t(locale, "ran_section"))
 
     for index, entry in enumerate(runs):
         block = _render_run_line(entry, locale)
@@ -442,28 +757,75 @@ def _parse_rebalance_kind(raw: Any) -> RebalanceKind:
     return kind  # type: ignore[return-value]
 
 
+def _parse_actually_ran(raw: Mapping[str, Any]) -> bool | None:
+    """Return True/False when key present; None when absent (do not default True)."""
+
+    if "actually_ran" not in raw:
+        return None
+    value = raw.get("actually_ran")
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return None
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y"}:
+        return True
+    if text in {"0", "false", "no", "n"}:
+        return False
+    raise ValueError(f"unsupported actually_ran value: {value!r}")
+
+
 def filter_runs_for_digest(
     candidates: Sequence[Mapping[str, object]],
 ) -> list[DigestRunEntry]:
-    """Keep only rows marked ``actually_ran`` (default True if key absent).
+    """Keep only rows with explicit ``actually_ran=True``.
 
-    Upstream decides inclusion: crypto hourly only if a cycle ran; monthly DCA
-    only on run days; idle platforms omitted. Optional observation keys are
-    copied when present and never fabricated here.
+    Absent ``actually_ran`` is treated as incomplete evidence and excluded
+    (no longer defaults to True). Optional observation keys are copied when
+    present and never fabricated here.
+
+    Count compat: an explicit int 0 without field_status remains verified zero.
+    New stubs must omit counts or set field_status/reason_code for unknown.
     """
 
     out: list[DigestRunEntry] = []
     for raw in candidates:
-        if not bool(raw.get("actually_ran", True)):
+        ran = _parse_actually_ran(raw)
+        if ran is not True:
             continue
         holdings_raw = raw.get("holdings", raw.get("positions"))
+        # Legacy producer rows often omit field_status and may omit keys;
+        # if fill_count key is present as int (incl. 0) → known.
+        # If key absent and no unknown reason → legacy default 0 for counts
+        # only when *any* count key is present OR evidence_provenance is
+        # producer/candidates; github stubs must mark unknown explicitly.
+        provenance = str(raw.get("evidence_provenance") or "").strip().lower()
+        reason = str(raw.get("reason_code") or "").strip().lower()
+        is_existence_stub = provenance in {
+            "github_workflow_stub",
+            "github_stub",
+        } or reason in {"github_workflow_existence_only", "counts_unknown"}
+        legacy_zero = not is_existence_stub
+
+        fill_count, fill_status = resolve_count_field(
+            raw, "fill_count", legacy_default_zero=legacy_zero
+        )
+        order_count, order_status = resolve_count_field(
+            raw, "order_count", legacy_default_zero=legacy_zero
+        )
+        cycle_count, cycle_status = resolve_count_field(
+            raw, "cycle_count", legacy_default_zero=legacy_zero
+        )
+
         out.append(
             DigestRunEntry(
                 platform_id=str(raw["platform_id"]),
                 strategy_profile=str(raw["strategy_profile"]),
-                fill_count=int(raw.get("fill_count", 0) or 0),
-                order_count=int(raw.get("order_count", 0) or 0),
-                cycle_count=int(raw.get("cycle_count", 0) or 0),
+                fill_count=fill_count,
+                order_count=order_count,
+                cycle_count=cycle_count,
                 status="alert" if str(raw.get("status", "ok")) == "alert" else "ok",
                 note=str(raw.get("note", "") or ""),
                 strategy_label=str(raw.get("strategy_label") or "").strip(),
@@ -478,6 +840,13 @@ def filter_runs_for_digest(
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
                 tips=_parse_tips(raw.get("tips") or raw.get("tip")),
                 account_hint=str(raw.get("account_hint") or "").strip(),
+                opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),
+                target_id=str(raw.get("target_id") or "").strip(),
+                fill_count_status=fill_status,
+                order_count_status=order_status,
+                cycle_count_status=cycle_status,
+                reason_code=str(raw.get("reason_code") or "").strip(),
+                evidence_provenance=str(raw.get("evidence_provenance") or "").strip(),
             )
         )
     return out
@@ -487,10 +856,18 @@ __all__ = [
     "DailyDigestInput",
     "DigestHolding",
     "DigestRunEntry",
+    "EvidenceCoverage",
+    "UNKNOWN_ACCOUNT_UID",
+    "UNKNOWN_TARGET_ID",
     "filter_runs_for_digest",
+    "fills_are_verified_zero",
     "has_observation",
+    "identity_is_unknown",
+    "identity_key",
     "normalize_locale",
     "observation_score",
     "render_daily_digest",
+    "resolve_count_field",
+    "resolve_evidence_status",
     "total_fills",
 ]

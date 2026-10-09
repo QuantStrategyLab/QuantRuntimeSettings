@@ -104,12 +104,16 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 通道：QuantSentinel（统一 bot）· 仅含当日实际运行项
 ```
 
-真空虚心跳（无运行证据）：
+真空虚心跳需区分三种语义（P0）：
+
+- **已验证无运行**：配置的证据源已成功查询且无匹配 →「今日已验证无平台/策略实际运行。」
+- **证据未知/读取失败**：候选未注入或 GitHub API 失败 →「今日运行证据未知或读取失败，不能判定为链路正常。」（不得写「链路正常」）
+- **已验证零成交**：生产者明确给出 `fill_count=0` →「无成交」；GitHub 存在性 stub 的成交数为**未知**，不得写成 0。
 
 ```
 📡 量化哨兵 · 心跳
 业务日: 2026-10-08
-今日无平台/策略实际运行。监测链路心跳正常。
+今日运行证据未知或读取失败，不能判定为链路正常。
 通道：QuantSentinel（统一 bot）· 仅含当日实际运行项
 ```
 
@@ -125,9 +129,11 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 - Workflow：`.github/workflows/daily-digest-notify.yml`（文稿同步于 `docs/workflows/daily-digest-notify.yml`）
 - 脚本：`python/scripts/daily_digest_aggregator.py` + `python/scripts/send_daily_digest_telegram.py`
 - 调度：UTC `0 22 * * 1-5` = **Asia/Shanghai 周二至周六 06:00**（覆盖前一美股 RTH）
-- 证据：`DIGEST_CANDIDATES_PATH` / JSON（优先）+ 可选 allowlisted GitHub workflow 成功结论（**不编造成交数**）
+- 证据：`DIGEST_CANDIDATES_PATH` / `DIGEST_CANDIDATES_JSON`（优先，见 [digest-candidates-wiring.zh-CN.md](./digest-candidates-wiring.zh-CN.md)）+ 可选 allowlisted GitHub workflow 成功结论（**存在性 only；成交数未知≠0**）
+- 聚合键：`platform_id + strategy + opaque_account_uid|unknown + target_id|unknown`；同策略多账户不得混拼
 - 发送：Environment `runtime-strategy-switch`；`TELEGRAM_TOKEN` 或 `TELEGRAM_TOKEN_SECRET_NAME`→GCP `quant-sentinel-telegram-bot-token`；chat 走 `QSL_GLOBAL_TELEGRAM_CHAT_ID` / `GLOBAL_TELEGRAM_CHAT_ID`
 - 测试：`workflow_dispatch` 默认 `dry_run=true`；生产 schedule 会真实发送
+- 接线基线模板：[private-target-wiring-baseline.zh-CN.md](./private-target-wiring-baseline.zh-CN.md)
 - Binance：历史 `TG_TOKEN` 仍独立；对齐步骤见 `platform-config.json` → `daily_digest.aggregator.binance_alignment_note_*`（公开仓只记名称）
 
 **secret 名与变量契约以本文为准**；缺失 Environment secret 时 receipt 写明缺项，不在日志打印 token/chat id。

@@ -27,20 +27,42 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertEqual(daily_digest_notify.normalize_locale("en-US"), "en")
         self.assertEqual(daily_digest_notify.normalize_locale(None), "zh")
 
-    def test_heartbeat_when_nothing_ran(self):
+    def test_empty_runs_without_coverage_is_evidence_unknown(self):
         text = daily_digest_notify.render_daily_digest(
             daily_digest_notify.DailyDigestInput(
                 business_day="2026-10-08", locale="zh", runs=()
             )
         )
         self.assertIn("心跳", text)
-        self.assertIn("无平台/策略实际运行", text)
+        self.assertIn("证据未知或读取失败", text)
+        self.assertNotIn("监测链路心跳正常", text)
         self.assertIn("QuantSentinel", text)
         self.assertNotIn("token", text.lower())
         self.assertNotIn("账户总权益", text)
         self.assertNotIn("持仓", text)
 
-    def test_heartbeat_when_ran_but_no_fills(self):
+    def test_verified_idle_when_coverage_complete(self):
+        coverage = daily_digest_notify.EvidenceCoverage(
+            candidates_configured=True,
+            candidates_loaded=True,
+            candidates_count=0,
+            github_enabled=True,
+            github_sources_queried=3,
+            github_sources_matched=0,
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-08",
+                locale="zh",
+                runs=(),
+                evidence_coverage=coverage,
+            )
+        )
+        self.assertIn("已验证无平台/策略实际运行", text)
+        self.assertNotIn("监测链路心跳正常", text)
+        self.assertNotIn("证据未知", text)
+
+    def test_heartbeat_when_ran_but_verified_zero_fills(self):
         runs = (
             daily_digest_notify.DigestRunEntry(
                 "binance", "crypto_equity_combo", cycle_count=3, fill_count=0
@@ -53,8 +75,33 @@ class DailyDigestNotifyTests(unittest.TestCase):
         )
         self.assertIn("Heartbeat", text)
         self.assertIn("no fills", text)
+        self.assertIn("verified zero fills", text.lower())
         self.assertIn("binance", text)
         self.assertEqual(daily_digest_notify.total_fills(runs), 0)
+
+    def test_unknown_fill_count_renders_unknown_not_zero(self):
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="schwab",
+                strategy_profile="soxl_soxx_trend_income",
+                fill_count=None,
+                fill_count_status="unknown",
+                order_count=None,
+                order_count_status="unknown",
+                cycle_count=1,
+                cycle_count_status="known",
+                reason_code="github_workflow_existence_only",
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-08", locale="zh", runs=runs
+            )
+        )
+        self.assertIn("成交 未知", text)
+        self.assertNotIn("无成交", text)
+        self.assertIn("成交数未知", text)
+        self.assertIsNone(daily_digest_notify.total_fills(runs))
 
     def test_digest_lists_only_provided_runners(self):
         runs = (
@@ -238,14 +285,22 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertEqual(entry.holdings[0].symbol, "SOXL")
         self.assertEqual(entry.holdings[0].quantity, 4)
         self.assertTrue(daily_digest_notify.has_observation(entry))
+        self.assertEqual(entry.fill_count, 0)
+        self.assertEqual(entry.fill_count_status, "known")
 
-    def test_filter_skips_non_runners(self):
+    def test_filter_skips_non_runners_and_missing_actually_ran(self):
         rows = daily_digest_notify.filter_runs_for_digest(
             [
                 {
                     "platform_id": "firstrade",
                     "strategy_profile": "dca_month_end",
                     "actually_ran": False,
+                },
+                {
+                    "platform_id": "ibkr",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    # actually_ran absent → excluded (no default True)
+                    "fill_count": 9,
                 },
                 {
                     "platform_id": "schwab",
@@ -257,6 +312,47 @@ class DailyDigestNotifyTests(unittest.TestCase):
         )
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].platform_id, "schwab")
+
+    def test_filter_github_stub_counts_unknown(self):
+        rows = daily_digest_notify.filter_runs_for_digest(
+            [
+                {
+                    "platform_id": "schwab",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "actually_ran": True,
+                    "fill_count": None,
+                    "order_count": None,
+                    "cycle_count": 1,
+                    "field_status": {
+                        "fill_count": "counts_unknown",
+                        "order_count": "counts_unknown",
+                    },
+                    "reason_code": "github_workflow_existence_only",
+                    "evidence_provenance": "github_workflow_stub",
+                }
+            ]
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0].fill_count)
+        self.assertEqual(rows[0].fill_count_status, "unknown")
+        self.assertEqual(rows[0].cycle_count, 1)
+
+    def test_legacy_explicit_zero_remains_known(self):
+        rows = daily_digest_notify.filter_runs_for_digest(
+            [
+                {
+                    "platform_id": "binance",
+                    "strategy_profile": "crypto_equity_combo",
+                    "actually_ran": True,
+                    "fill_count": 0,
+                    "order_count": 0,
+                    "cycle_count": 1,
+                    "evidence_provenance": "candidates",
+                }
+            ]
+        )
+        self.assertEqual(rows[0].fill_count, 0)
+        self.assertEqual(rows[0].fill_count_status, "known")
 
     def test_rejects_blank_ids(self):
         with self.assertRaises(ValueError):
@@ -281,6 +377,33 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("账户总权益", text)
         self.assertNotIn("持仓", text)
         self.assertNotIn("信号", text)
+
+    def test_identity_key_includes_account_and_target(self):
+        a = daily_digest_notify.identity_key(
+            {
+                "platform_id": "schwab",
+                "strategy_profile": "soxl_soxx_trend_income",
+                "opaque_account_uid": "uid-a",
+                "target_id": "schwab/a",
+            }
+        )
+        b = daily_digest_notify.identity_key(
+            {
+                "platform_id": "schwab",
+                "strategy_profile": "soxl_soxx_trend_income",
+                "opaque_account_uid": "uid-b",
+                "target_id": "schwab/b",
+            }
+        )
+        self.assertNotEqual(a, b)
+        unknown = daily_digest_notify.identity_key(
+            {
+                "platform_id": "schwab",
+                "strategy_profile": "soxl_soxx_trend_income",
+            }
+        )
+        self.assertEqual(unknown[2], daily_digest_notify.UNKNOWN_ACCOUNT_UID)
+        self.assertEqual(unknown[3], daily_digest_notify.UNKNOWN_TARGET_ID)
 
 
 if __name__ == "__main__":

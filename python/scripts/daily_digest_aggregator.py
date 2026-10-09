@@ -3,13 +3,12 @@
 
 Collects only platforms/strategies that actually ran from:
   1) candidates JSON file / DIGEST_CANDIDATES_JSON (preferred; producer-authored)
-  2) optional GitHub Actions workflow conclusions (allowlisted; counts stay 0
-     unless the candidate row supplies them — never invent fills/orders)
+  2) optional GitHub Actions workflow conclusions (allowlisted; existence only —
+     fill/order counts stay unknown unless a candidate row supplies them)
 
 Does not trade, does not embed tokens, does not invent missing platforms.
-Empty evidence → heartbeat body via ``daily_digest_notify.render_daily_digest``.
-Optional producer fields (equity/holdings/signal/rebalance) pass through when
-present; GitHub workflow stubs never invent those observation values.
+Aggregation keys include account/target identity. Source read failures are
+recorded in coverage/receipt and must not render as “link healthy / no runs”.
 """
 
 from __future__ import annotations
@@ -21,7 +20,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
-from dataclasses import asdict
+from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -37,6 +36,37 @@ import daily_digest_notify as digest  # noqa: E402
 DEFAULT_PLATFORM_CONFIG = ROOT / "platform-config.json"
 NY_TZ = ZoneInfo("America/New_York")
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+
+_OBSERVATION_FIELDS = (
+    "strategy_label",
+    "equity",
+    "equity_usd",
+    "equity_currency",
+    "currency",
+    "holdings",
+    "positions",
+    "signal_summary",
+    "rebalance_kind",
+    "rebalance_conclusion",
+    "tips",
+    "tip",
+    "account_hint",
+)
+
+
+@dataclass
+class GithubEvidenceResult:
+    rows: list[dict[str, Any]] = field(default_factory=list)
+    failures: list[dict[str, Any]] = field(default_factory=list)
+    sources_queried: int = 0
+    sources_matched: int = 0
+
+
+@dataclass
+class CollectResult:
+    runs: list[digest.DigestRunEntry]
+    coverage: digest.EvidenceCoverage
+    merged_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 def resolve_business_day(
@@ -99,22 +129,34 @@ def _as_candidate_rows(raw: Any) -> list[dict[str, Any]]:
     for item in raw:
         if not isinstance(item, Mapping):
             raise ValueError("each candidate must be an object")
-        out.append(dict(item))
+        row = dict(item)
+        if not str(row.get("evidence_provenance") or "").strip():
+            row["evidence_provenance"] = "candidates"
+        out.append(row)
     return out
 
 
-def load_candidates_from_file(path: Path | None) -> list[dict[str, Any]]:
+def load_candidates_from_file(path: Path | None) -> tuple[list[dict[str, Any]], bool, bool]:
+    """Return (rows, configured, loaded).
+
+    configured: env/path asked for candidates.
+    loaded: file/JSON was successfully parsed (may be empty list).
+    """
+
+    configured = False
     if path is None:
         env_path = (os.environ.get("DIGEST_CANDIDATES_PATH") or "").strip()
         path = Path(env_path) if env_path else None
-    if path is None:
-        inline = (os.environ.get("DIGEST_CANDIDATES_JSON") or "").strip()
-        if inline:
-            return _as_candidate_rows(json.loads(inline))
-        return []
-    if not path.is_file():
-        raise FileNotFoundError(f"candidates file not found: {path}")
-    return _as_candidate_rows(json.loads(path.read_text(encoding="utf-8")))
+    if path is not None:
+        configured = True
+        if not path.is_file():
+            raise FileNotFoundError(f"candidates file not found: {path}")
+        return _as_candidate_rows(json.loads(path.read_text(encoding="utf-8"))), True, True
+    inline = (os.environ.get("DIGEST_CANDIDATES_JSON") or "").strip()
+    if inline:
+        configured = True
+        return _as_candidate_rows(json.loads(inline)), True, True
+    return [], False, False
 
 
 def _gh_api_get(url: str, token: str) -> Any:
@@ -148,14 +190,13 @@ def business_day_utc_window(business_day: str) -> tuple[datetime, datetime]:
 def default_workflow_allowlist(config: Mapping[str, Any]) -> list[dict[str, str]]:
     """Allowlisted workflows that may contribute *run existence* evidence only.
 
-    Counts remain zero unless a candidates file supplies them. Heartbeat-only
+    Counts remain unknown unless a candidates file supplies them. Heartbeat-only
     monitor workflows are intentionally omitted.
     """
 
     platforms = config.get("platforms") or {}
     rows: list[dict[str, str]] = []
     defaults: dict[str, tuple[str, str]] = {
-        # workflow file stem/path → default strategy_profile label for digest line
         "longbridge": (
             "publish-runtime-daily-once.yml",
             "russell_top50_leader_rotation",
@@ -230,27 +271,51 @@ def collect_from_github_workflows(
     config: Mapping[str, Any],
     token: str | None = None,
     allowlist: Sequence[Mapping[str, str]] | None = None,
-) -> list[dict[str, Any]]:
+) -> GithubEvidenceResult:
     """Include a platform only when an allowlisted workflow succeeded that day.
 
-    Never invents fill/order counts. Missing workflows or API errors skip that
-    source row (fail open toward heartbeat, not toward fake runs).
+    Never invents fill/order counts (null + counts_unknown). API errors are
+    recorded as source failures — callers must not treat empty rows alone as
+    verified idle / link-healthy.
     """
 
-    gh_token = (token or os.environ.get("DIGEST_GH_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+    result = GithubEvidenceResult()
+    gh_token = (
+        token or os.environ.get("DIGEST_GH_TOKEN") or os.environ.get("GH_TOKEN") or ""
+    ).strip()
+    entries = list(allowlist or default_workflow_allowlist(config))
+    if not entries:
+        return result
     if not gh_token:
-        return []
+        result.failures.append(
+            {
+                "platform_id": "*",
+                "workflow": "*",
+                "repository": "*",
+                "reason_code": "github_token_missing",
+                "message": "DIGEST_GH_TOKEN/GH_TOKEN absent; github evidence not queried",
+            }
+        )
+        return result
 
     start_utc, end_utc = business_day_utc_window(business_day)
-    rows: list[dict[str, Any]] = []
-    seen: set[tuple[str, str]] = set()
-    for entry in allowlist or default_workflow_allowlist(config):
+    seen: set[tuple[str, str, str, str]] = set()
+    for entry in entries:
         platform_id = entry["platform_id"]
         repository = entry["repository"]
         workflow = entry["workflow"]
         strategy = entry["strategy_profile"]
         owner_repo = repository.split("/", 1)
         if len(owner_repo) != 2:
+            result.failures.append(
+                {
+                    "platform_id": platform_id,
+                    "workflow": workflow,
+                    "repository": repository,
+                    "reason_code": "invalid_repository",
+                    "message": f"repository must be owner/repo, got {repository!r}",
+                }
+            )
             continue
         owner, repo = owner_repo
         query = urllib.parse.urlencode(
@@ -265,13 +330,34 @@ def collect_from_github_workflows(
             f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/"
             f"{urllib.parse.quote(workflow)}/runs?{query}"
         )
+        result.sources_queried += 1
         try:
             payload = _gh_api_get(url, gh_token)
         except RuntimeError as exc:
-            print(f"digest evidence skip {platform_id}/{workflow}: {exc}", file=sys.stderr)
+            failure = {
+                "platform_id": platform_id,
+                "workflow": workflow,
+                "repository": repository,
+                "reason_code": "github_api_error",
+                "message": str(exc)[:300],
+            }
+            result.failures.append(failure)
+            print(
+                f"digest evidence failure {platform_id}/{workflow}: {exc}",
+                file=sys.stderr,
+            )
             continue
         runs = payload.get("workflow_runs") if isinstance(payload, Mapping) else None
         if not isinstance(runs, list):
+            result.failures.append(
+                {
+                    "platform_id": platform_id,
+                    "workflow": workflow,
+                    "repository": repository,
+                    "reason_code": "github_payload_invalid",
+                    "message": "workflow_runs missing or not a list",
+                }
+            )
             continue
         matched = False
         for run in runs:
@@ -290,70 +376,137 @@ def collect_from_github_workflows(
             break
         if not matched:
             continue
-        key = (platform_id, strategy)
+        stub = {
+            "platform_id": platform_id,
+            "strategy_profile": strategy,
+            "opaque_account_uid": "",
+            "target_id": "",
+            "actually_ran": True,
+            # Existence only — do not assert verified zero fills/orders.
+            "fill_count": None,
+            "order_count": None,
+            "cycle_count": 1,
+            "status": "ok",
+            "note": f"github_workflow:{workflow}",
+            "field_status": {
+                "fill_count": "counts_unknown",
+                "order_count": "counts_unknown",
+                "cycle_count": "known",
+            },
+            "reason_code": "github_workflow_existence_only",
+            "evidence_provenance": "github_workflow_stub",
+        }
+        key = digest.identity_key(stub)
         if key in seen:
             continue
         seen.add(key)
-        rows.append(
-            {
-                "platform_id": platform_id,
-                "strategy_profile": strategy,
-                "actually_ran": True,
-                "fill_count": 0,
-                "order_count": 0,
-                "cycle_count": 1,
-                "status": "ok",
-                "note": f"github_workflow:{workflow}",
-            }
-        )
-    return rows
+        result.sources_matched += 1
+        result.rows.append(stub)
+    return result
+
+
+def _merge_count_field(
+    winner: dict[str, Any],
+    loser: dict[str, Any],
+    field_name: str,
+) -> None:
+    """Fill known counts into unknown winner slots; never invent 0 from stub."""
+
+    w_value, w_status = digest.resolve_count_field(
+        winner, field_name, legacy_default_zero=False
+    )
+    l_value, l_status = digest.resolve_count_field(
+        loser, field_name, legacy_default_zero=False
+    )
+    if w_status == "known" and w_value is not None:
+        return
+    if l_status == "known" and l_value is not None:
+        winner[field_name] = l_value
+        status_map = dict(winner.get("field_status") or {})
+        status_map[field_name] = "known"
+        winner["field_status"] = status_map
+        # Drop existence-only reason if we now have a known producer count.
+        if str(winner.get("reason_code") or "") == "github_workflow_existence_only":
+            if field_name in {"fill_count", "order_count"}:
+                winner["reason_code"] = str(loser.get("reason_code") or "") or (
+                    "merged_known_counts"
+                )
+
+
+def _should_cross_fill_observation(winner: Mapping[str, Any], loser: Mapping[str, Any]) -> bool:
+    """Only cross-fill observation fields when both sides share a real identity."""
+
+    if digest.identity_is_unknown(winner) or digest.identity_is_unknown(loser):
+        return False
+    return digest.identity_key(winner) == digest.identity_key(loser)
 
 
 def merge_candidates(*groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Merge evidence; richer observation/count rows win over workflow stubs."""
+    """Merge evidence by identity key; do not mix different accounts/targets.
 
-    merged: dict[tuple[str, str], dict[str, Any]] = {}
+    Same identity: dedupe, prefer richer known evidence. Unknown-identity rows
+    do not cross-fill observation fields onto each other. Different identities
+    never merge.
+    """
+
+    merged: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    unknown_rows: list[dict[str, Any]] = []
+
     for group in groups:
         for raw in group:
             platform_id = str(raw.get("platform_id") or "").strip()
             strategy = str(raw.get("strategy_profile") or "").strip()
             if not platform_id or not strategy:
                 continue
-            key = (platform_id, strategy)
-            existing = merged.get(key)
             candidate = dict(raw)
+            key = digest.identity_key(candidate)
+
+            if digest.identity_is_unknown(candidate):
+                # Keep unknown-identity rows separate unless exact duplicate key
+                # already present with identical provenance note (dedupe only).
+                existing_unknown = None
+                for idx, row in enumerate(unknown_rows):
+                    if digest.identity_key(row) == key and str(row.get("note") or "") == str(
+                        candidate.get("note") or ""
+                    ) and str(row.get("evidence_provenance") or "") == str(
+                        candidate.get("evidence_provenance") or ""
+                    ):
+                        existing_unknown = (idx, row)
+                        break
+                if existing_unknown is None:
+                    unknown_rows.append(candidate)
+                    continue
+                idx, existing = existing_unknown
+                if digest.observation_score(candidate) >= digest.observation_score(existing):
+                    # Replace whole row; do not patch fields across unknowns.
+                    unknown_rows[idx] = candidate
+                continue
+
+            existing = merged.get(key)
             if existing is None:
                 merged[key] = candidate
                 continue
             if digest.observation_score(candidate) >= digest.observation_score(existing):
-                # Keep non-empty observation fields from the losing row when the
-                # winner omitted them (producer partial + workflow stub).
                 winner = dict(candidate)
-                for field in (
-                    "strategy_label",
-                    "equity",
-                    "equity_usd",
-                    "equity_currency",
-                    "currency",
-                    "holdings",
-                    "positions",
-                    "signal_summary",
-                    "rebalance_kind",
-                    "rebalance_conclusion",
-                    "tips",
-                    "tip",
-                    "account_hint",
-                ):
-                    if winner.get(field) in (None, "", [], ()):
-                        if existing.get(field) not in (None, "", [], ()):
-                            winner[field] = existing[field]
+                loser = existing
+            else:
+                winner = dict(existing)
+                loser = candidate
+            if _should_cross_fill_observation(winner, loser):
+                for field_name in _OBSERVATION_FIELDS:
+                    if winner.get(field_name) in (None, "", [], ()):
+                        if loser.get(field_name) not in (None, "", [], ()):
+                            winner[field_name] = loser[field_name]
                 for count_field in ("fill_count", "order_count", "cycle_count"):
-                    if int(winner.get(count_field, 0) or 0) == 0 and int(
-                        existing.get(count_field, 0) or 0
-                    ) > 0:
-                        winner[count_field] = existing[count_field]
-                merged[key] = winner
-    return list(merged.values())
+                    _merge_count_field(winner, loser, count_field)
+                # Preserve identity fields from either side if winner omitted.
+                for id_field in ("opaque_account_uid", "target_id"):
+                    if not str(winner.get(id_field) or "").strip():
+                        if str(loser.get(id_field) or "").strip():
+                            winner[id_field] = loser[id_field]
+            merged[key] = winner
+
+    return list(merged.values()) + unknown_rows
 
 
 def strategy_label_from_config(
@@ -399,16 +552,68 @@ def collect_digest_runs(
     candidates_path: Path | None = None,
     include_github: bool = True,
     locale: str = "zh",
-) -> list[digest.DigestRunEntry]:
-    file_rows = load_candidates_from_file(candidates_path)
-    github_rows: list[dict[str, Any]] = []
+) -> CollectResult:
+    file_rows, candidates_configured, candidates_loaded = load_candidates_from_file(
+        candidates_path
+    )
+    github_result = GithubEvidenceResult()
     if include_github:
-        github_rows = collect_from_github_workflows(
+        github_result = collect_from_github_workflows(
             business_day=business_day, config=config
         )
-    merged = merge_candidates(file_rows, github_rows)
+    merged = merge_candidates(file_rows, github_result.rows)
     enriched = enrich_candidate_labels(merged, config, locale=locale)
-    return digest.filter_runs_for_digest(enriched)
+    runs = digest.filter_runs_for_digest(enriched)
+    coverage = digest.EvidenceCoverage(
+        candidates_configured=candidates_configured,
+        candidates_loaded=candidates_loaded,
+        candidates_count=len(file_rows),
+        github_enabled=include_github,
+        github_sources_queried=github_result.sources_queried,
+        github_sources_matched=github_result.sources_matched,
+        github_failures=tuple(github_result.failures),
+    )
+    return CollectResult(runs=runs, coverage=coverage, merged_rows=enriched)
+
+
+def _run_receipt_dict(entry: digest.DigestRunEntry) -> dict[str, Any]:
+    payload = asdict(entry)
+    # holdings are nested dataclasses already flattened by asdict
+    payload["identity"] = {
+        "platform_id": entry.platform_id,
+        "strategy_profile": entry.strategy_profile,
+        "opaque_account_uid": entry.opaque_account_uid
+        or digest.UNKNOWN_ACCOUNT_UID,
+        "target_id": entry.target_id or digest.UNKNOWN_TARGET_ID,
+    }
+    provenance = entry.evidence_provenance or "unknown"
+    payload["field_provenance"] = {
+        "fill_count": (
+            "unknown"
+            if entry.fill_count_status == "unknown"
+            else ("github_stub" if provenance.startswith("github") else "candidates")
+        ),
+        "order_count": (
+            "unknown"
+            if entry.order_count_status == "unknown"
+            else ("github_stub" if provenance.startswith("github") else "candidates")
+        ),
+        "cycle_count": (
+            "unknown"
+            if entry.cycle_count_status == "unknown"
+            else ("github_stub" if provenance.startswith("github") else "candidates")
+        ),
+        "equity": "candidates" if entry.equity is not None else "absent",
+        "holdings": "candidates" if entry.holdings else "absent",
+        "signal_summary": "candidates" if entry.signal_summary else "absent",
+        "rebalance": (
+            "candidates"
+            if entry.rebalance_kind or entry.rebalance_conclusion
+            else "absent"
+        ),
+        "evidence_provenance": provenance,
+    }
+    return payload
 
 
 def build_digest_payload(
@@ -418,25 +623,55 @@ def build_digest_payload(
     candidates_path: Path | None = None,
     include_github: bool = True,
     config_path: Path | None = None,
-) -> tuple[digest.DailyDigestInput, str]:
+) -> tuple[digest.DailyDigestInput, str, CollectResult]:
     config = load_platform_config(config_path)
     contract = digest_contract(config)
     day = resolve_business_day(explicit=business_day)
     loc = resolve_locale(locale)
-    runs = collect_digest_runs(
+    collected = collect_digest_runs(
         business_day=day,
         config=config,
         candidates_path=candidates_path,
         include_github=include_github,
         locale=loc,
     )
+    evidence_status = "has_runs" if collected.runs else (
+        "verified_idle"
+        if collected.coverage.is_complete_for_verified_idle
+        else "evidence_unknown"
+    )
     payload = digest.DailyDigestInput(
         business_day=day,
         window_label=window_label_for(contract),
         locale=loc,
-        runs=tuple(runs),
+        runs=tuple(collected.runs),
+        evidence_coverage=collected.coverage,
+        evidence_status=evidence_status,
     )
-    return payload, digest.render_daily_digest(payload)
+    return payload, digest.render_daily_digest(payload), collected
+
+
+def build_receipt(
+    payload: digest.DailyDigestInput,
+    collected: CollectResult,
+    *,
+    message_chars: int,
+) -> dict[str, Any]:
+    fills = digest.total_fills(payload.runs)
+    return {
+        "schema_version": "qsl.daily_digest_receipt.v1",
+        "business_day": payload.business_day,
+        "window_label": payload.window_label,
+        "locale": digest.normalize_locale(str(payload.locale)),
+        "run_count": len(payload.runs),
+        "total_fills": fills,
+        "total_fills_status": "unknown" if fills is None else "known",
+        "evidence_status": digest.resolve_evidence_status(payload),
+        "source_coverage": collected.coverage.to_dict(),
+        "failures": list(collected.coverage.github_failures),
+        "runs": [_run_receipt_dict(entry) for entry in payload.runs],
+        "message_chars": message_chars,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -471,7 +706,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    payload, text = build_digest_payload(
+    payload, text, collected = build_digest_payload(
         business_day=args.business_day,
         locale=args.locale,
         candidates_path=args.candidates,
@@ -482,16 +717,7 @@ def main(argv: list[str] | None = None) -> int:
         args.write_text.parent.mkdir(parents=True, exist_ok=True)
         args.write_text.write_text(text + "\n", encoding="utf-8")
     if args.write_json:
-        receipt = {
-            "schema_version": "qsl.daily_digest_receipt.v1",
-            "business_day": payload.business_day,
-            "window_label": payload.window_label,
-            "locale": digest.normalize_locale(str(payload.locale)),
-            "run_count": len(payload.runs),
-            "total_fills": digest.total_fills(payload.runs),
-            "runs": [asdict(entry) for entry in payload.runs],
-            "message_chars": len(text),
-        }
+        receipt = build_receipt(payload, collected, message_chars=len(text))
         args.write_json.parent.mkdir(parents=True, exist_ok=True)
         args.write_json.write_text(
             json.dumps(receipt, ensure_ascii=False, indent=2) + "\n",

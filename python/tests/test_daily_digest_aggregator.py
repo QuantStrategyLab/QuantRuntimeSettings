@@ -7,6 +7,7 @@ import tempfile
 import unittest
 from datetime import datetime
 from pathlib import Path
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,26 +25,29 @@ def _load_module(name: str):
 
 aggregator = _load_module("daily_digest_aggregator")
 sender = _load_module("send_daily_digest_telegram")
+digest = _load_module("daily_digest_notify")
 
 
 class DailyDigestAggregatorTests(unittest.TestCase):
     def test_business_day_uses_new_york_calendar(self):
-        # Monday 22:00 UTC == Monday evening America/New_York (EDT).
         stamp = datetime(2026, 10, 5, 22, 0, tzinfo=ZoneInfo("UTC"))
         self.assertEqual(
             aggregator.resolve_business_day(now=stamp),
             "2026-10-05",
         )
 
-    def test_empty_evidence_renders_heartbeat(self):
-        payload, text = aggregator.build_digest_payload(
+    def test_empty_evidence_without_sources_is_unknown_not_link_healthy(self):
+        payload, text, collected = aggregator.build_digest_payload(
             business_day="2026-10-08",
             locale="zh",
             include_github=False,
         )
         self.assertEqual(payload.runs, ())
+        self.assertEqual(payload.evidence_status, "evidence_unknown")
         self.assertIn("心跳", text)
-        self.assertIn("无平台/策略实际运行", text)
+        self.assertIn("证据未知或读取失败", text)
+        self.assertNotIn("监测链路心跳正常", text)
+        self.assertFalse(collected.coverage.is_complete_for_verified_idle)
 
     def test_candidates_file_only_includes_actual_runners(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,7 +73,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            payload, text = aggregator.build_digest_payload(
+            payload, text, collected = aggregator.build_digest_payload(
                 business_day="2026-10-08",
                 locale="zh",
                 candidates_path=path,
@@ -79,16 +83,22 @@ class DailyDigestAggregatorTests(unittest.TestCase):
             self.assertEqual(payload.runs[0].platform_id, "ibkr")
             self.assertIn("收盘日报", text)
             self.assertNotIn("firstrade", text)
+            self.assertTrue(collected.coverage.candidates_loaded)
 
-    def test_merge_prefers_rows_with_counts(self):
+    def test_merge_same_identity_prefers_rows_with_counts(self):
         merged = aggregator.merge_candidates(
             [
                 {
                     "platform_id": "binance",
                     "strategy_profile": "crypto_equity_combo",
+                    "opaque_account_uid": "binance-opaque-1",
+                    "target_id": "binance/main",
                     "actually_ran": True,
                     "cycle_count": 1,
-                    "fill_count": 0,
+                    "fill_count": None,
+                    "field_status": {"fill_count": "counts_unknown"},
+                    "reason_code": "github_workflow_existence_only",
+                    "evidence_provenance": "github_workflow_stub",
                     "note": "github_workflow:x.yml",
                 }
             ],
@@ -96,9 +106,12 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                 {
                     "platform_id": "binance",
                     "strategy_profile": "crypto_equity_combo",
+                    "opaque_account_uid": "binance-opaque-1",
+                    "target_id": "binance/main",
                     "actually_ran": True,
                     "cycle_count": 4,
                     "fill_count": 1,
+                    "evidence_provenance": "candidates",
                     "note": "producer",
                 }
             ],
@@ -106,6 +119,64 @@ class DailyDigestAggregatorTests(unittest.TestCase):
         self.assertEqual(len(merged), 1)
         self.assertEqual(merged[0]["fill_count"], 1)
         self.assertEqual(merged[0]["note"], "producer")
+
+    def test_merge_does_not_combine_different_account_uids(self):
+        merged = aggregator.merge_candidates(
+            [
+                {
+                    "platform_id": "schwab",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "opaque_account_uid": "uid-a",
+                    "target_id": "schwab/a",
+                    "actually_ran": True,
+                    "fill_count": 0,
+                    "equity": 100.0,
+                    "evidence_provenance": "candidates",
+                },
+                {
+                    "platform_id": "schwab",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "opaque_account_uid": "uid-b",
+                    "target_id": "schwab/b",
+                    "actually_ran": True,
+                    "fill_count": 2,
+                    "equity": 200.0,
+                    "evidence_provenance": "candidates",
+                },
+            ]
+        )
+        self.assertEqual(len(merged), 2)
+        uids = {row["opaque_account_uid"] for row in merged}
+        self.assertEqual(uids, {"uid-a", "uid-b"})
+
+    def test_unknown_identity_rows_do_not_cross_fill_fields(self):
+        merged = aggregator.merge_candidates(
+            [
+                {
+                    "platform_id": "ibkr",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "actually_ran": True,
+                    "cycle_count": 1,
+                    "note": "github_workflow:a.yml",
+                    "evidence_provenance": "github_workflow_stub",
+                    "reason_code": "github_workflow_existence_only",
+                },
+                {
+                    "platform_id": "ibkr",
+                    "strategy_profile": "soxl_soxx_trend_income",
+                    "actually_ran": True,
+                    "equity": 500.0,
+                    "note": "producer-partial",
+                    "evidence_provenance": "candidates",
+                },
+            ]
+        )
+        # Different notes/provenance → kept separate; no field patching.
+        self.assertEqual(len(merged), 2)
+        equities = [row.get("equity") for row in merged]
+        self.assertIn(500.0, equities)
+        self.assertTrue(any(row.get("equity") in (None, "") for row in merged) or
+                        any("github_workflow" in str(row.get("note")) for row in merged))
 
     def test_allowlist_loaded_from_platform_config(self):
         config = aggregator.load_platform_config()
@@ -126,23 +197,29 @@ class DailyDigestAggregatorTests(unittest.TestCase):
         )
         self.assertEqual(code, 0)
 
-
-
-    def test_merge_prefers_observation_rich_rows(self):
+    def test_merge_prefers_observation_rich_rows_same_identity(self):
         merged = aggregator.merge_candidates(
             [
                 {
                     "platform_id": "schwab",
                     "strategy_profile": "soxl_soxx_trend_income",
+                    "opaque_account_uid": "schwab-opaque",
+                    "target_id": "schwab/paper",
                     "actually_ran": True,
                     "cycle_count": 1,
                     "note": "github_workflow:x.yml",
+                    "evidence_provenance": "github_workflow_stub",
+                    "reason_code": "github_workflow_existence_only",
+                    "fill_count": None,
+                    "field_status": {"fill_count": "counts_unknown"},
                 }
             ],
             [
                 {
                     "platform_id": "schwab",
                     "strategy_profile": "soxl_soxx_trend_income",
+                    "opaque_account_uid": "schwab-opaque",
+                    "target_id": "schwab/paper",
                     "actually_ran": True,
                     "cycle_count": 1,
                     "equity": 990.06,
@@ -151,6 +228,8 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                     "rebalance_kind": "no_rebalance",
                     "strategy_label": "半导体趋势收益",
                     "note": "producer",
+                    "evidence_provenance": "candidates",
+                    "fill_count": 0,
                 }
             ],
         )
@@ -171,6 +250,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "actually_ran": True,
                                 "cycle_count": 1,
+                                "fill_count": 0,
                                 "equity": 990.06,
                                 "holdings": [
                                     {
@@ -191,7 +271,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            payload, text = aggregator.build_digest_payload(
+            payload, text, _collected = aggregator.build_digest_payload(
                 business_day="2026-10-08",
                 locale="zh",
                 candidates_path=path,
@@ -219,6 +299,185 @@ class DailyDigestAggregatorTests(unittest.TestCase):
             "NASDAQ Growth Income",
         )
 
+    def test_multi_account_candidates_render_separately_and_unknown_fills(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "runs": [
+                            {
+                                "platform_id": "schwab",
+                                "strategy_profile": "soxl_soxx_trend_income",
+                                "opaque_account_uid": "acct-a",
+                                "target_id": "schwab/a",
+                                "actually_ran": True,
+                                "cycle_count": 1,
+                                "fill_count": None,
+                                "order_count": None,
+                                "field_status": {
+                                    "fill_count": "counts_unknown",
+                                    "order_count": "counts_unknown",
+                                },
+                                "reason_code": "counts_unknown",
+                                "evidence_provenance": "candidates",
+                            },
+                            {
+                                "platform_id": "schwab",
+                                "strategy_profile": "soxl_soxx_trend_income",
+                                "opaque_account_uid": "acct-b",
+                                "target_id": "schwab/b",
+                                "actually_ran": True,
+                                "cycle_count": 1,
+                                "fill_count": 0,
+                                "order_count": 0,
+                                "evidence_provenance": "candidates",
+                            },
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-08",
+                locale="zh",
+                candidates_path=path,
+                include_github=False,
+            )
+            self.assertEqual(len(payload.runs), 2)
+            self.assertIn("成交 未知", text)
+            self.assertIn("无成交", text)  # verified zero on acct-b line
+            self.assertIsNone(digest.total_fills(payload.runs))
+            receipt = aggregator.build_receipt(
+                payload, collected, message_chars=len(text)
+            )
+            self.assertEqual(receipt["total_fills_status"], "unknown")
+            identities = {
+                (r["identity"]["opaque_account_uid"], r["identity"]["target_id"])
+                for r in receipt["runs"]
+            }
+            self.assertEqual(
+                identities, {("acct-a", "schwab/a"), ("acct-b", "schwab/b")}
+            )
+
+    def test_github_api_failure_recorded_not_silent_healthy(self):
+        config = aggregator.load_platform_config()
+        allowlist = [
+            {
+                "platform_id": "schwab",
+                "repository": "QuantStrategyLab/CharlesSchwabPlatform",
+                "workflow": "publish-runtime-daily-once.yml",
+                "strategy_profile": "soxl_soxx_trend_income",
+            }
+        ]
+        with mock.patch.object(
+            aggregator,
+            "_gh_api_get",
+            side_effect=RuntimeError("GitHub API HTTP 403 for test"),
+        ):
+            result = aggregator.collect_from_github_workflows(
+                business_day="2026-10-08",
+                config=config,
+                token="fake-token",
+                allowlist=allowlist,
+            )
+        self.assertEqual(result.rows, [])
+        self.assertEqual(len(result.failures), 1)
+        self.assertEqual(result.failures[0]["reason_code"], "github_api_error")
+        self.assertEqual(result.sources_queried, 1)
+
+        coverage = digest.EvidenceCoverage(
+            github_enabled=True,
+            github_sources_queried=result.sources_queried,
+            github_sources_matched=0,
+            github_failures=tuple(result.failures),
+        )
+        payload = digest.DailyDigestInput(
+            business_day="2026-10-08",
+            locale="zh",
+            runs=(),
+            evidence_coverage=coverage,
+        )
+        text = digest.render_daily_digest(payload)
+        self.assertIn("证据未知或读取失败", text)
+        self.assertNotIn("监测链路心跳正常", text)
+        self.assertNotIn("已验证无平台", text)
+
+    def test_github_stub_omits_fake_zero_fills(self):
+        config = aggregator.load_platform_config()
+        allowlist = [
+            {
+                "platform_id": "ibkr",
+                "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+                "workflow": "publish-runtime-daily-once.yml",
+                "strategy_profile": "soxl_soxx_trend_income",
+            }
+        ]
+        fake_payload = {
+            "workflow_runs": [
+                {
+                    "conclusion": "success",
+                    "updated_at": "2026-10-08T18:00:00Z",
+                    "created_at": "2026-10-08T17:00:00Z",
+                }
+            ]
+        }
+        with mock.patch.object(aggregator, "_gh_api_get", return_value=fake_payload):
+            result = aggregator.collect_from_github_workflows(
+                business_day="2026-10-08",
+                config=config,
+                token="fake-token",
+                allowlist=allowlist,
+            )
+        self.assertEqual(len(result.rows), 1)
+        stub = result.rows[0]
+        self.assertTrue(stub["actually_ran"])
+        self.assertIsNone(stub["fill_count"])
+        self.assertIsNone(stub["order_count"])
+        self.assertEqual(stub["reason_code"], "github_workflow_existence_only")
+        filtered = digest.filter_runs_for_digest(result.rows)
+        self.assertIsNone(filtered[0].fill_count)
+        self.assertEqual(filtered[0].fill_count_status, "unknown")
+
+    def test_receipt_includes_coverage_and_provenance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "candidates.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "runs": [
+                            {
+                                "platform_id": "ibkr",
+                                "strategy_profile": "soxl_soxx_trend_income",
+                                "opaque_account_uid": "ibkr-opaque",
+                                "target_id": "ibkr/demo",
+                                "actually_ran": True,
+                                "fill_count": 1,
+                                "order_count": 1,
+                                "evidence_provenance": "candidates",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-08",
+                locale="zh",
+                candidates_path=path,
+                include_github=False,
+            )
+            receipt = aggregator.build_receipt(
+                payload, collected, message_chars=len(text)
+            )
+            self.assertIn("source_coverage", receipt)
+            self.assertTrue(receipt["source_coverage"]["candidates_loaded"])
+            self.assertEqual(receipt["runs"][0]["field_provenance"]["fill_count"], "candidates")
+            self.assertEqual(
+                receipt["runs"][0]["identity"]["opaque_account_uid"], "ibkr-opaque"
+            )
+
+
 class DailyDigestWorkflowContractTests(unittest.TestCase):
     def test_workflow_schedule_matches_shanghai_post_close(self):
         workflow = (
@@ -233,6 +492,9 @@ class DailyDigestWorkflowContractTests(unittest.TestCase):
         self.assertIn("send_daily_digest_telegram.py", workflow)
         self.assertNotIn("api.telegram.org/bot", workflow)
         self.assertIn("dry_run", workflow)
+        self.assertIn("DIGEST_CANDIDATES", workflow)
+        self.assertIn("Materialize DIGEST_CANDIDATES", workflow)
+        self.assertIn("digest-candidates-wiring.zh-CN.md", workflow)
 
 
 if __name__ == "__main__":
