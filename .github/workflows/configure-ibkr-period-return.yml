@@ -1,0 +1,98 @@
+name: Configure IBKR period-return secrets
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: list safe target catalog, or apply secrets for one target_id
+        type: choice
+        options:
+          - list
+          - apply
+        default: list
+      target_id:
+        description: Existing IBKR account-facts target_id (required for apply)
+        type: string
+        required: false
+        default: ""
+      overwrite:
+        description: Replace existing IBKR_PERIOD_RETURN_* / IBKR_FLEX_EXPECTED_ACCOUNT_IDS_JSON secrets
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: strategy-switch-console-deploy
+  cancel-in-progress: false
+
+jobs:
+  configure:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: runtime-strategy-switch
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID }}
+      STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: ${{ secrets.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID || vars.STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID }}
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN }}
+      CONFIGURE_MODE: ${{ inputs.mode }}
+      TARGET_ID: ${{ inputs.target_id }}
+      OVERWRITE: ${{ inputs.overwrite }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Read bindings and configure period-return secrets
+        working-directory: web/strategy-switch-console
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID:-}" ]; then
+            echo "status=blocked reason=cloudflare_credentials_missing"
+            exit 1
+          fi
+          if [ "$CONFIGURE_MODE" = "apply" ] && [ -z "${GH_TOKEN:-}" ]; then
+            echo "status=blocked reason=github_token_missing"
+            exit 1
+          fi
+          if [ "$CONFIGURE_MODE" = "apply" ] && [ -z "${TARGET_ID:-}" ]; then
+            echo "status=blocked reason=target_id_missing"
+            exit 1
+          fi
+          umask 077
+          temp_dir="$(mktemp -d "${RUNNER_TEMP:-/tmp}/ibkr-period-return.XXXXXX")"
+          chmod 700 "$temp_dir"
+          cleanup() { rm -rf -- "$temp_dir"; }
+          trap cleanup EXIT
+          if ! npx --yes wrangler@4.106.0 kv key get account_options \
+            --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+            > "$temp_dir/account-options.json" 2>/dev/null; then
+            echo "status=blocked reason=account_options_read_failed"
+            exit 1
+          fi
+          if ! npx --yes wrangler@4.106.0 kv key get account_facts_bindings \
+            --namespace-id "$STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID" --remote \
+            > "$temp_dir/account-facts-bindings.json" 2>/dev/null; then
+            echo "status=blocked reason=account_facts_bindings_read_failed"
+            exit 1
+          fi
+          if [ "$CONFIGURE_MODE" = "list" ]; then
+            node ./configure_ibkr_period_return.mjs list \
+              "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json"
+            exit $?
+          fi
+          overwrite_flag=""
+          if [ "$OVERWRITE" = "true" ]; then
+            overwrite_flag="overwrite"
+          fi
+          node ./configure_ibkr_period_return.mjs apply \
+            "$temp_dir/account-options.json" "$temp_dir/account-facts-bindings.json" \
+            "$TARGET_ID" $overwrite_flag
