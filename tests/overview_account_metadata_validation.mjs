@@ -153,6 +153,8 @@ try {
   }
   const schwabAccount = { ...baseAccount, id: "schwab", platformKey: "schwab", accountKey: schwabOption.key, brokerEnvironment: "live", facts: schwabModel.accounts[0] };
   const schwabHtml = render([schwabAccount]);
+  assert.match(schwabHtml, /data-label="账号"/);
+  assert.match(schwabHtml, /data-label="资产"/);
   assert.match(schwabHtml, /真实/);
   assert.match(schwabHtml, /208\.5/);
   assert.match(schwabHtml, /-2/);

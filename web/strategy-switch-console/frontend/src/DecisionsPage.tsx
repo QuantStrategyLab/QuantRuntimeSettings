@@ -47,7 +47,7 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
       : blocked
         ? t("暂时读不到：{sources}", { sources: joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })
         : t("暂无需要你决定的事项");
-    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1><div className="empty-state"><strong>{emptyMessage}</strong></div></section>;
+    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1><div className="empty-state" role="status"><strong>{emptyMessage}</strong>{blocked ? null : <p>{t("有新的待确认材料时会显示在这里。")}</p>}</div></section>;
   }
   return <section className="daily-page decisions-page home-decisions">
     <div className="daily-heading"><h1>{t("待办决策")}</h1><DecisionCount count={items.length} /></div>

@@ -1178,6 +1178,7 @@ export const EN_COPY = {
   "一项事项等待你的决定": "One item is waiting for your decision",
   "{count} 项事项等待你的决定": "{count} items are waiting for your decision",
   "暂无需要你决定的事项": "Nothing is waiting for your decision",
+  "有新的待确认材料时会显示在这里。": "New items awaiting confirmation will appear here.",
   "待办暂不可用": "Decisions are temporarily unavailable",
   "晋级方案": "Promotion proposals",
   "负责人决定": "Owner decisions",

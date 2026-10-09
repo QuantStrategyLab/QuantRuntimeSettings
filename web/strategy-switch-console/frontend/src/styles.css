@@ -462,14 +462,18 @@ textarea { width: 100%; resize: vertical; }
 .application-account select { width: 100%; }
 
 /* Boot, sign-in and error screens */
-.boot-screen, .access-screen { display: grid; align-content: center; justify-items: start; gap: 12px; width: min(440px, calc(100% - 32px)); min-height: 0; margin: max(16vh, 32px) auto 32px; padding: 28px 28px 26px; border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r-lg); color: var(--ink); background: var(--paper); text-align: left; }
+.boot-screen, .access-screen { display: grid; align-content: center; justify-items: start; gap: 12px; width: min(440px, calc(100% - 32px)); min-height: 0; margin: max(16vh, 32px) auto 32px; padding: max(28px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right)) max(26px, env(safe-area-inset-bottom)) max(28px, env(safe-area-inset-left)); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r-lg); color: var(--ink); background: var(--paper); text-align: left; }
 .boot-screen { color: var(--muted); font-size: 13px; }
 .boot-screen::before { content: ""; display: block; width: 100%; height: 2px; border-radius: 2px; background: linear-gradient(90deg, var(--accent) 0 30%, var(--soft-line) 30% 100%); background-size: 200% 100%; animation: boot-scan 1.2s ease-in-out infinite; }
 @keyframes boot-scan { from { background-position: 100% 0; } to { background-position: -40% 0; } }
 .access-screen .brand-mark { width: 36px; height: 36px; }
 .access-screen h1 { margin: 4px 0 0; font-size: 20px; }
-.access-screen p { max-width: 540px; margin: 0; color: var(--muted); }
-.access-screen .button { margin-top: 8px; }
+.access-screen p { max-width: 540px; margin: 0; color: var(--muted); line-height: 1.45; }
+.access-gate-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.access-gate-controls .theme-button, .access-gate-controls .language-control select { min-height: 44px; }
+.access-gate-controls .theme-button { width: 44px; min-width: 44px; color: var(--ink); border-color: var(--line); }
+.access-gate-controls .language-control select { color: var(--ink); background-color: var(--paper); border-color: var(--line); }
+.access-screen .button { margin-top: 4px; min-height: 44px; padding-left: 18px; padding-right: 18px; }
 
 /* Confirmation dialog */
 .confirm-backdrop { position: fixed; z-index: 1000; inset: 0; display: flex; overflow: auto; padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); background: var(--overlay); }
@@ -546,7 +550,7 @@ textarea { width: 100%; resize: vertical; }
   .main-content { min-height: 0; padding: 16px var(--gutter) max(28px, env(safe-area-inset-bottom)); }
   .brand em { display: none; }
   .primary-nav { justify-content: space-between; gap: 0; }
-  .primary-nav button { flex: 1 1 0; min-width: 0; padding: 8px 4px; font-size: 13px; white-space: normal; }
+  .primary-nav button { flex: 1 1 0; min-width: 0; min-height: 44px; padding: 8px 4px; font-size: 13px; white-space: normal; }
   h1 { font-size: 20px; }
   .daily-heading { flex-wrap: wrap; align-items: stretch; }
   .daily-heading select { width: 100%; max-width: 100%; min-height: 44px; }
@@ -650,4 +654,18 @@ textarea { width: 100%; resize: vertical; }
   .home-money strong { font-size: 28px; }
   .decision-facts { grid-template-columns: minmax(0, 1fr); }
   .ny-business-day { margin-top: 8px; }
+}
+
+@media (max-width: 800px) {
+  .account-status-wrap { overflow-x: visible; }
+  .account-status-table { min-width: 0; }
+  .account-status-table thead { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .account-status-table tbody { display: grid; gap: 10px; padding: 10px; }
+  .account-status-table tr.overview-account-entry { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; padding: 12px 12px; border: 1px solid var(--line); border-radius: 14px; background: color-mix(in srgb, var(--ink) 2%, var(--paper)); }
+  .account-status-table tr.overview-account-entry td { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 0; border: 0; min-width: 0; }
+  .account-status-table tr.overview-account-entry td:first-child { grid-column: 1 / -1; font-weight: 650; }
+  .account-status-table tr.overview-account-entry td::before { content: attr(data-label); color: var(--muted); font-size: 11px; font-weight: 550; margin-right: 4px; }
+  .account-status-table tr.overview-account-entry td:first-child::before { display: none; }
+  .account-status-table tr:not(.overview-account-entry) { display: block; padding: 12px; color: var(--muted); }
+  .home-decisions .empty-state { margin-top: 12px; padding: 22px 18px; }
 }
