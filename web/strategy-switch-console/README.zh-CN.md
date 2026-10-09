@@ -528,6 +528,8 @@ wrangler deploy
 
 `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` 建议作为 secret 配置，这样真实账号下拉项只会在登录且通过 allowlist 后返回给前端。它只放账号路由信息，不要放 broker、email、cloud、API key 等密钥。
 
+完整分层（Secret Manager / GitHub Environment / Worker / 前端脱敏）见 [docs/secrets-architecture.zh-CN.md](../../docs/secrets-architecture.zh-CN.md)。`account-options.example.json` 仅占位，勿把生产路由提交回公开仓。
+
 ## 操作流程
 
 1. 访问控制台页面。

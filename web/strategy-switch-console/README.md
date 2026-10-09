@@ -340,6 +340,8 @@ For a full fork checklist, see [docs/strategy_switch_fork_guide.md](../../docs/s
 
 Configure `STRATEGY_SWITCH_ACCOUNT_OPTIONS_JSON` as a secret if it contains real account routes. It is returned only after an allowlisted login. Keep broker, email, cloud, API key, and token values out of this config.
 
+For the layered store model (Secret Manager / GitHub Environments / Worker secrets / redacted UI), see [docs/secrets-architecture.zh-CN.md](../../docs/secrets-architecture.zh-CN.md). Keep production routes out of public git; use `account-options.example.json` as a shape-only template.
+
 Operator simplification: compatible strategies remain browsable even when live submission is blocked. Existing execution authorization checks are unchanged. Engineering health/research diagnostics have no operator-page entry point; APIs remain available. A configuration/last-check mismatch is not proof of current deployed state.
 
 ## Account facts and history (disabled by default)
