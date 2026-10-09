@@ -46,3 +46,7 @@ qsl-{platform}-{env}-{purpose}     # Secret Manager 友好名
 ## 本地忽略
 
 仓库 `.gitignore` 已忽略 `.env*`、`wrangler.toml`、`.dev.vars`、本机 `account-options.json`、常见密钥后缀等。新增私有文件时先确认未被跟踪：`git status` / `git check-ignore -v <path>`。
+
+## 运营钉（诊断 run id）
+
+一次性 KV 诊断若需限制允许的 `source_run_id`，把允许值放在 GitHub Environment 的 secret/variable（例如 `BINANCE_ACCOUNT_FACTS_ALLOWED_SOURCE_RUN_ID`），不要把生产运行号写进公开 workflow 的 `default`。若仓库里仍有此类默认值，用具备 `workflow` 权限的凭据另开 PR 清空。
