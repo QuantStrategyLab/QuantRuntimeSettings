@@ -113,8 +113,8 @@ assert.match(controls, /actions\.stop && <button[^>]+disabled=\{!stopAllowed\} o
 assert.match(controls, /readState === "ready" && actions\.resume/);
 assert.match(controls, /actions\.refresh && <button[^>]+onClick=\{onRefreshStop\}/);
 assert.doesNotMatch(accountsSource, /readState === "ready" \? <section className="detail-group runtime-controls"/, "settings read availability cannot hide independent stop controls");
-assert.equal((accountsSource.match(/setReadState\("refreshing"\);\s*setReadError\(""\);\s*const result = await refreshAccountSettingsReadback/g) || []).length, 2, "both failed-save recovery paths block saves before awaiting read-back");
-assert.equal((accountsSource.match(/if \(result.status === "superseded"\) return;/g) || []).length, 2, "both recovery paths ignore interrupted reads");
+assert.equal((accountsSource.match(/setReadState\("refreshing"\);\s*setReadError\(""\);\s*const result = await refreshAccountSettingsReadback/g) || []).length, 1, "the draft failed-save recovery path blocks saves before awaiting read-back");
+assert.equal((accountsSource.match(/if \(result.status === "superseded"\) return;/g) || []).length, 1, "the draft recovery path ignores interrupted reads");
 for (const key of [...promotionMaterialNotes(null), ...promotionMaterialNotes({ comparison: { status: "comparable" }, limitations: [] }), unmatched.statusDetails[0], accountSettingsOperationReason("strategy_application_not_connected"), accountSettingsSaveBlockReason(settings, "stale", "draft")]) assert.notEqual(translate(key, "en"), key, key);
 
 const decisionSource = readFileSync(new URL("../web/strategy-switch-console/frontend/src/DecisionsPage.tsx", import.meta.url), "utf8");

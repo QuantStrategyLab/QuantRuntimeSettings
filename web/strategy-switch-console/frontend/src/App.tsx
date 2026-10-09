@@ -374,7 +374,7 @@ function App() {
     };
     const discardUnsaved = async () => {
         if (!settingsDirty.current) return true;
-        const accepted = await confirmAction({ title: t("放弃未保存的修改？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的预留现金、收入层草案和风险偏好会丢弃。"), consequence: t("未保存的预留现金、收入层草案和风险偏好会丢弃。"), tone: "normal" });
+        const accepted = await confirmAction({ title: t("放弃未保存的修改？"), target: active ? accountTitle(active.account, active.platformLabel, active.current?.strategy_profile) : t("账户"), summary: t("未保存的预留现金和收入层草案会丢弃。"), consequence: t("未保存的预留现金和收入层草案会丢弃。"), tone: "normal" });
         if (!accepted) return false;
         settingsDirty.current = false;
         setSettingsEpoch(value => value + 1);
