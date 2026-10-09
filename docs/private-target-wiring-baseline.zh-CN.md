@@ -38,6 +38,10 @@
 | 聚合键 | `platform_id + strategy_profile + opaque_account_uid\|unknown + target_id\|unknown` |
 | receipt | 候选侧 `source_coverage` / `failures` / identity + field provenance；路由侧 `secret_name_contract` / `token_source_kind` / `chat_source_kind` / `warnings` |
 
+## 相关文档
+
+- 源侧恢复清单（LB-HK / Firstrade，只文档）：[source-side-recovery-checklist.zh-CN.md](./source-side-recovery-checklist.zh-CN.md)
+
 ## 填写规则
 
 1. 只填已核到的 Environment 名、schema 名、文档化 producer 路径；未核到写「未知」或「待填」。
@@ -51,3 +55,4 @@
 | --- | --- |
 | 2026-10-09 | rebuild P0-01 初稿（#586）：模板 + 审计日已知项 |
 | 2026-10-09 | rebuild P0-06：LB-HK Environment/阻塞钉（quant FYI）；路由诊断入口；不编造其他平台 revision |
+| 2026-10-09 | rebuild P0-09：链到源侧恢复清单（LB-HK/Firstrade） |
