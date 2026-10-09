@@ -65,4 +65,3 @@ qsl-{platform}-{env}-{purpose}     # Secret Manager 友好名
 Environment 注入的 `TELEGRAM_TOKEN` / `TG_TOKEN` **会遮蔽** GCP Secret Manager 路径（发送器不再调用 gcloud）。组织级与 Environment 级同名 secret 的最终胜出方以 GitHub Actions / Cloud Run 实际注入为准；公开仓只提供 `--route-check` 匹配元数据（`token_source_kind` / `chat_source_kind` / `warnings`），不打印值。
 
 别名退役条件与「重复发送风险待证」清单见通知文档同节；退役前须有 route-check 证据，禁止在聊天中粘贴 token 或 chat id。
-
