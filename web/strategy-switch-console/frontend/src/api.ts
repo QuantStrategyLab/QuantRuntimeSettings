@@ -138,7 +138,9 @@ export async function getJson<T>(path: string): Promise<T> {
   assertPrivateRequestCurrent(epoch);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({})) as { error?: string; reason_code?: string; reason?: string };
-    const error = new Error(payload?.error || `http_${response.status}`) as Error & {
+    // Keep message as http_${status} so overview/history callers stay stable;
+    // diagnosis UI reads reason_code / payload instead of message.
+    const error = new Error(`http_${response.status}`) as Error & {
       status?: number; payload?: unknown; reason_code?: string; reason?: string;
     };
     error.status = response.status;
