@@ -303,6 +303,8 @@ class DigestRunEntry:
     account_hint: str = ""
     opaque_account_uid: str = ""
     target_id: str = ""
+    account_scope: str = ""
+    execution_mode: str = ""
     fill_count_status: CountFieldStatus = "known"
     order_count_status: CountFieldStatus = "known"
     cycle_count_status: CountFieldStatus = "known"
@@ -571,28 +573,53 @@ def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
     return _t(locale, "block_heartbeat")
 
 
+_SCOPE_TAG_ALLOWED = frozenset({"live", "paper", "shadow", "research"})
+
+
+def _normalize_scope_tag(raw: str) -> str:
+    """Return lowercase live/paper/shadow/research when value looks like a mode."""
+
+    value = str(raw or "").strip().lower()
+    if not value:
+        return ""
+    # Accept plain mode or prefixed forms like LIVE-U… handled via account_hint.
+    if value in _SCOPE_TAG_ALLOWED:
+        return value
+    # account_scope sometimes arrives as "LIVE" already covered; also "live_us".
+    for mode in _SCOPE_TAG_ALLOWED:
+        if value == mode or value.startswith(f"{mode}_") or value.startswith(f"{mode}-"):
+            return mode
+    return ""
+
+
 def account_block_tag(entry: DigestRunEntry) -> str:
     """Short account label for ``[tag]`` block titles.
 
-    Preference order (product convention):
+    Preference order (product convention — identity, not wiring name):
       1. ``account_hint`` (IBKR-style ids such as ``U16608560``)
-      2. ``target_id`` (e.g. ``schwab-primary``) when not the unknown sentinel
+      2. ``account_scope`` / ``execution_mode`` when live|paper|shadow|research
       3. short stable form of ``opaque_account_uid`` (first 8 chars when long)
+      4. ``target_id`` last resort only (e.g. ``schwab-primary`` is a wiring id,
+         not the live account label)
     Returns empty string when nothing usable is present.
     """
 
     hint = str(entry.account_hint or "").strip()
     if hint:
         return hint
-    target = str(entry.target_id or "").strip()
-    if target and target.lower() != UNKNOWN_TARGET_ID:
-        return target
+    for raw in (entry.account_scope, entry.execution_mode):
+        scope = _normalize_scope_tag(raw)
+        if scope:
+            return scope
     uid = str(entry.opaque_account_uid or "").strip()
     if uid and uid.lower() != UNKNOWN_ACCOUNT_UID:
         # Binding hashes are 64 hex; keep Telegram titles short and stable.
         if len(uid) > 12:
             return uid[:8]
         return uid
+    target = str(entry.target_id or "").strip()
+    if target and target.lower() != UNKNOWN_TARGET_ID:
+        return target
     return ""
 
 
@@ -894,6 +921,12 @@ def filter_runs_for_digest(
                 account_hint=str(raw.get("account_hint") or "").strip(),
                 opaque_account_uid=str(raw.get("opaque_account_uid") or "").strip(),
                 target_id=str(raw.get("target_id") or "").strip(),
+                account_scope=str(
+                    raw.get("account_scope") or raw.get("accountScope") or ""
+                ).strip(),
+                execution_mode=str(
+                    raw.get("execution_mode") or raw.get("executionMode") or ""
+                ).strip(),
                 fill_count_status=fill_status,
                 order_count_status=order_status,
                 cycle_count_status=cycle_status,
