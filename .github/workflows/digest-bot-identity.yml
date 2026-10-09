@@ -1,0 +1,45 @@
+name: Digest Bot Identity (read-only)
+
+# Resolves the token the daily digest actually uses (Environment
+# runtime-strategy-switch; TELEGRAM_TOKEN > TG_TOKEN, same priority as
+# send_daily_digest_telegram.py) to its public bot id/username via getMe.
+# Never prints token or chat id; sends no message; changes nothing.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    env:
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+    steps:
+      - name: Resolve digest bot identity
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          out = []
+          for key in ("TELEGRAM_TOKEN", "TG_TOKEN"):
+              token = (os.environ.get(key) or "").strip()
+              if not token:
+                  out.append({"env": key, "status": "absent"})
+                  continue
+              try:
+                  with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=15) as r:
+                      body = json.loads(r.read().decode("utf-8"))
+                  res = body.get("result") or {}
+                  out.append({"env": key, "status": "ok" if body.get("ok") else "getme_not_ok",
+                              "bot_id": res.get("id"), "bot_username": res.get("username"),
+                              "bot_first_name": res.get("first_name")})
+              except Exception as exc:  # noqa: BLE001
+                  out.append({"env": key, "status": f"getme_failed:{type(exc).__name__}"})
+          text = json.dumps({"digest_token_priority": ["TELEGRAM_TOKEN", "TG_TOKEN"], "tokens": out}, ensure_ascii=False, indent=2)
+          print(text)
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write("## Digest bot identity\n\n```json\n" + text + "\n```\n")
+          PY
