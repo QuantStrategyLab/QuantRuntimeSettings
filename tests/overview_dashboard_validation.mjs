@@ -9,6 +9,14 @@ const overviewSource = readFileSync(new URL("../web/strategy-switch-console/fron
 assert.equal((overviewSource.match(/amountOrDash\(totalCash\)/g) || []).length, 1,
   "the selected-account cash metric renders its amount exactly once");
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.assets/);
+assert.match(overviewSource, /sumAmountsToUsd\(assetTotals, OVERVIEW_USD_RATES\)/,
+  "home total assets convert ready amounts to one USD figure");
+assert.match(overviewSource, /sumAmountsToUsd\(readCash, OVERVIEW_USD_RATES\)/,
+  "home cash converts ready amounts to one USD figure");
+assert.match(overviewSource, /t\("美元"\)/,
+  "home cards label the reporting unit as 美元/USD");
+assert.equal(overviewSource.includes("moneyFigures(assetTotals)"), false,
+  "home cards no longer render a multi-currency asset list");
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashBalance/);
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.availableCash/);
 assert.match(overviewSource, /currentFactsSummary\.excludingPaper\.cashCovered/);

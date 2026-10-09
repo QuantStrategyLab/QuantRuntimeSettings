@@ -1308,6 +1308,7 @@ export const EN_COPY = {
   "请先清除期权层草案，再保存这个策略草案。": "Clear the options draft before saving this strategy draft.",
   "{count} 项待办": "{count} open decisions",
   "没读到": "Not read",
+  "缺汇率未计入：{codes}": "Omitted for missing FX rate: {codes}",
   "暂无合格收益": "No qualified return yet",
   "你的账户": "Your accounts",
   "标普 500": "S&P 500",

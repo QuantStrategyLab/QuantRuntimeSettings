@@ -609,6 +609,7 @@ textarea { width: 100%; resize: vertical; }
 .home-money strong { font-size: 32px; font-weight: 680; letter-spacing: -.04em; line-height: 1.1; }
 .home-money p + p strong { font-size: 22px; }
 .home-missing { margin: 8px 0 0; color: var(--subtle); font-size: 20px; }
+.home-omit-note { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .home-cash { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
 .home-cash strong { font-size: 18px; font-weight: 650; }
 .ny-business-day { align-self: center; padding: 6px 10px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: color-mix(in srgb, var(--paper) 70%, transparent); font-size: 12px; white-space: nowrap; }

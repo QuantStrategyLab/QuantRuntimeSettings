@@ -24,6 +24,8 @@ import {
   buildAggregateAssetSeries,
   buildBenchmarkChartGeometry,
   isAggregateAssetAccount,
+  OVERVIEW_USD_RATES,
+  sumAmountsToUsd,
   presentAggregateReturn,
   presentMarketBenchmarkSeries,
   readQualifiedPeriodReturn,
@@ -560,13 +562,11 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     const seen = new Set(balance.map(row => row.currency));
     return [...balance, ...currentFactsSummary.excludingPaper.availableCash.filter(row => !seen.has(row.currency))];
   })();
+  const assetUsd = sumAmountsToUsd(assetTotals, OVERVIEW_USD_RATES);
+  const cashUsd = sumAmountsToUsd(readCash, OVERVIEW_USD_RATES);
   const nyDate = runtimeToday.split("-");
   const nyLabel = nyDate.length === 3 ? `${nyDate[1]}/${nyDate[2]}/${nyDate[0]}` : runtimeToday;
   const moneyName = (code: string) => code === "USD" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
-  const moneyFigures = (rows: Array<{ currency: string; amount: string }>) => {
-    const rank = (code: string) => code === "USD" ? 0 : code === "USDT" ? 1 : 2;
-    return [...rows].sort((left, right) => rank(left.currency) - rank(right.currency) || left.currency.localeCompare(right.currency));
-  };
   // Kept for the existing disclosure checks. memberCount is never negative, so this is not on the first screen.
   const retainedOverview = aggregateSeries.memberCount < 0 ? <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
@@ -984,8 +984,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     <section className="overview-metrics home-top" aria-label={t("账户总览")}>
       <article className="home-card">
         <h2>{t("总资产")}</h2>
-        {assetTotals.length ? <div className="home-money">{moneyFigures(assetTotals).map(row => <p key={row.currency}><span>{moneyName(row.currency)}</span><strong>{groupedAmount(row.amount)}</strong></p>)}</div> : <p className="home-missing">{t("没读到")}</p>}
-        <div className="home-cash"><span>{t("现金余额")}</span>{readCash.length ? <strong>{moneyFigures(readCash).map(row => `${moneyName(row.currency)} ${groupedAmount(row.amount)}`).join(" · ")}</strong> : <strong>{t("没读到")}</strong>}</div>
+        {assetUsd.amount !== null ? <div className="home-money"><p><span>{t("美元")}</span><strong>{groupedAmount(assetUsd.amount)}</strong></p></div> : <p className="home-missing">{t("没读到")}</p>}
+        {assetUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: assetUsd.omittedCurrencies.join("、") })}</small> : null}
+        <div className="home-cash"><span>{t("现金余额")}</span>{cashUsd.amount !== null ? <strong>{`${t("美元")} ${groupedAmount(cashUsd.amount)}`}</strong> : <strong>{t("没读到")}</strong>}</div>
+        {cashUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: cashUsd.omittedCurrencies.join("、") })}</small> : null}
       </article>
       <article className="home-card">
         <h2>{t("收益率")}</h2>
