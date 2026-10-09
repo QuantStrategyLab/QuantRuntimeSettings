@@ -54,4 +54,3 @@ qsl-{platform}-{env}-{purpose}     # Secret Manager 友好名
 ## Telegram / QuantSentinel
 
 跨平台通知统一使用 GCP secret 名 `quant-sentinel-telegram-bot-token`（见 `docs/notifications-quant-sentinel.zh-CN.md`）。GitHub 变量 `TELEGRAM_TOKEN_SECRET_NAME` 与 `STRATEGY_PLUGIN_ALERT_TELEGRAM_BOT_TOKEN_SECRET_NAME` 都应指向该名称。公开仓只写 secret **名**与 chat **路由变量名**，不写 token 或 chat id。
-
