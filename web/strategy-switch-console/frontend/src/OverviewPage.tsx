@@ -67,6 +67,8 @@ import {
   type AccountFactsSnapshot,
   type BinanceWalletHistorySnapshot,
 } from "./types";
+import { classifyAccountCashSign, cashSignNote } from "./platformAdapters";
+import { presentActivation, activationEvidenceFromLegacyLabel } from "./accountStatus";
 
 export type OverviewAccount = {
   id: string;
@@ -134,12 +136,6 @@ function BinanceWalletDetails({
 
 function cashLabelForPlatform(platform: string): "现金余额" | "可用现金" {
   return cashFieldForPlatform(platform) === "cash_balance" ? "现金余额" : "可用现金";
-}
-
-function negativeCashStatusForPlatform(platform: string): "现金余额为负，融资状态待确认" | "可用现金为负，融资状态待确认" {
-  return cashFieldForPlatform(platform) === "cash_balance"
-    ? "现金余额为负，融资状态待确认"
-    : "可用现金为负，融资状态待确认";
 }
 
 const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = [
@@ -259,7 +255,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     if (duplicates.length < 2 || !account.environment) return account.title;
     return `${account.title} · ${account.environment}`;
   };
-  const activationText = (label: string) => label === "已启用" || label === "已停用" ? label : "待确认";
+  const activationText = (label: string) => presentActivation(activationEvidenceFromLegacyLabel(label)).label;
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
   const selectedWalletValuation = selectedAccount?.platformKey === "binance"
     && selectedAccount.id === walletAccount?.id ? walletValuation : null;
@@ -491,6 +487,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     && selectedFacts.binding_status === "bound" && selectedFacts.identity_mismatch !== true
     ? selectedFacts.cash : null;
   const selectedNegativeCash = selectedCashField !== null && hasNonzeroNegativeAccountFactAmount(selectedCashRows, selectedCashField);
+  const selectedCashSign = selectedAccount
+    ? classifyAccountCashSign(selectedAccount.platformKey, selectedFacts, selectedNegativeCash)
+    : classifyAccountCashSign(null, null, false);
+  const selectedCashSignText = cashSignNote(selectedCashSign);
   const showSelectedCashMetric = !selectedWalletValuation || totalCash !== null;
   const assetsDetail = accountId === "all"
     ? verifiedAssets ? "" : "按配置账户当前快照求和，不代表已核实的物理账户组合资产。"
@@ -648,7 +648,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
           </details> : <small>{t("尚无合格现金资料")}</small>}
         </div> : <>
           <strong>{amountOrDash(totalCash)}</strong>
-          {selectedNegativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(selectedAccount!.platformKey))}</small> : null}
+          {selectedCashSignText ? <small className="negative-cash-note">{t(selectedCashSignText)}</small> : null}
           {detailLine(cashDetail, null) ? <small>{detailLine(cashDetail, null)}</small> : null}
         </>}</div> : null}
     </section>
@@ -885,6 +885,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
             && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true
             ? freshCashRows : null;
           const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
+          const cashSignText = cashSignNote(classifyAccountCashSign(account.platformKey, account.facts, negativeCash));
           const factDetail = account.platformKey === "binance" ? binanceWalletStatusDetail(binanceFacts?.error
             ? { error: binanceFacts.error } : binanceFacts?.value, walletNow) : accountFactsDetail(account.facts);
           const updatedAt = accountFactsUpdatedAt(account.facts);
@@ -923,12 +924,12 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
                 : <span><em>{t("账户资产")}</em>{amountOrDash(assets)}</span>}
               {!walletCardValuation ? <span>
                 <em>{t(cashLabelForPlatform(account.platformKey))}</em>{amountOrDash(cash)}
-                {negativeCash ? <small className="negative-cash-note">{t(negativeCashStatusForPlatform(account.platformKey))}</small> : null}
+                {cashSignText ? <small className="negative-cash-note">{t(cashSignText)}</small> : null}
               </span> : null}
             </span>
             <span className="overview-marks"><span data-tone={statusTone(health.label)}><em>{t("运行监测")}</em>{t(health.label)}</span><span data-tone={statusTone(activationText(account.activation))}><em>{t("启用")}</em>{t(activationText(account.activation))}</span></span>
             <small>{t(health.detail === "今日周期记录未取得" ? "今日周期记录未取得，不能据此确认周期结果。" : health.detail)}</small>
-            {account.runtimeTargetEnabled === true && (account.activation === "待确认" || account.activation === "—")
+            {account.runtimeTargetEnabled === true && presentActivation(activationEvidenceFromLegacyLabel(account.activation)).label === "异常"
               ? <small>{t("配置开关已启用，实际运行待确认。")}</small> : null}
             {cardDetail ? <small>{cardDetail}</small> : null}
             </button>
@@ -1023,15 +1024,17 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               const cash = formatAccountFactAmounts(freshCashRows, cashField);
               const verifiedFreshCashRows = account.facts?.data_status === "fresh" && account.facts.binding_status === "bound" && account.facts.identity_mismatch !== true ? freshCashRows : null;
               const negativeCash = hasNonzeroNegativeAccountFactAmount(verifiedFreshCashRows, cashField);
+              const cashSignText = cashSignNote(classifyAccountCashSign(account.platformKey, account.facts, negativeCash));
               const health = overviewRuntimeHealth(account.runtime, runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value, { platform: account.platformKey, accountKey: account.accountKey, dailyBinding: account.runtimeDailyBinding }, account.facts?.identity_mismatch === true, Math.max(runtimeNow, Date.now()));
-              const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : health.label === "异常" ? { text: "异常" as const, tone: "bad" } : { text: "健康未知" as const, tone: "unknown" };
-              const enabledView = account.activation === "已启用" ? { text: "已启用" as const, tone: "ok" } : account.activation === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "启用未知" as const, tone: "unknown" };
+              const healthView = health.label === "健康" ? { text: "健康" as const, tone: "ok" } : { text: "异常" as const, tone: "bad" };
+              const activationPresented = presentActivation(activationEvidenceFromLegacyLabel(account.activation));
+              const enabledView = { text: activationPresented.label, tone: activationPresented.tone };
               const confirmed = account.brokerEnvironment === "live";
               return <tr key={account.id} className="overview-account-entry">
                 <td><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
                 <td><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>
                 <td>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
-                <td className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}{negativeCash ? <small>{t("可能是借的钱，还没核实")}</small> : null}</td>
+                <td className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}{cashSignText ? <small>{t(cashSignText)}</small> : null}</td>
                 <td><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
               </tr>;
             })}
