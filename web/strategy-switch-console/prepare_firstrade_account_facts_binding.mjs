@@ -14,6 +14,14 @@ const SETTINGS = [
 ];
 const fail = (reason) => { throw new Error(reason); };
 
+export function firstradeSourceBindingId({
+  service_name, deployment_selector, account_scope, broker_account_id,
+}) {
+  return createHash("sha256").update(JSON.stringify({
+    platform: "firstrade", service_name, deployment_selector, account_scope, broker_account_id,
+  })).digest("hex");
+}
+
 export function prepareFirstradeFactsBinding(source, optionsRaw, bindingsRaw) {
   const target = source?.runtime_target;
   if (!source || Object.keys(source).sort().join(",") !== "runtime_target,service_name,serving_source_sha"
@@ -54,15 +62,50 @@ export function prepareFirstradeFactsBinding(source, optionsRaw, bindingsRaw) {
     ...identity, target_id: "firstrade-homepage",
     source_binding: {
       kind: "deployment_runtime_account",
-      id: createHash("sha256").update(JSON.stringify({
-        platform: "firstrade", service_name: target.service_name,
-        deployment_selector: target.deployment_selector, account_scope: target.account_scope,
+      id: firstradeSourceBindingId({
+        service_name: target.service_name,
+        deployment_selector: target.deployment_selector,
+        account_scope: target.account_scope,
         broker_account_id: selectors[0],
-      })).digest("hex"),
+      }),
     },
   };
   if (existing.bindings.some((item) => item.target_id === binding.target_id)) fail("facts_target_already_used");
   return normalizeAccountFactsBindings({ schema_version: SCHEMA, bindings: [binding] });
+}
+
+export function rotateFirstradeFactsBrokerAccount(rotation, bindingsRaw) {
+  if (!rotation || Array.isArray(rotation)
+      || Object.keys(rotation).sort().join(",")
+        !== "next_broker_account_id,next_source_binding_id,previous_source_binding_id,target_id"
+      || !/^[a-f0-9]{64}$/.test(rotation.previous_source_binding_id || "")
+      || !/^[a-f0-9]{64}$/.test(rotation.next_source_binding_id || "")
+      || rotation.next_source_binding_id === rotation.previous_source_binding_id
+      || typeof rotation.target_id !== "string"
+      || typeof rotation.next_broker_account_id !== "string"
+      || !/^[A-Za-z0-9._:-]{1,128}$/.test(rotation.next_broker_account_id)) {
+    fail("rotation_config_invalid");
+  }
+  const existing = normalizeAccountFactsBindings(bindingsRaw);
+  const candidates = existing.bindings.filter((item) => item.platform === "firstrade"
+    && item.target_id === rotation.target_id);
+  if (candidates.length !== 1) fail("expected_existing_firstrade_binding");
+  const current = candidates[0];
+  if (current.source_binding.id !== rotation.previous_source_binding_id) fail("previous_binding_mismatch");
+  if (current.broker_account_id === rotation.next_broker_account_id) fail("rotation_broker_unchanged");
+  const expectedId = firstradeSourceBindingId({
+    service_name: current.service_name,
+    deployment_selector: current.deployment_selector,
+    account_scope: current.account_scope,
+    broker_account_id: rotation.next_broker_account_id,
+  });
+  if (expectedId !== rotation.next_source_binding_id) fail("rotation_binding_id_mismatch");
+  const updated = {
+    ...current,
+    broker_account_id: rotation.next_broker_account_id,
+    source_binding: { ...current.source_binding, id: rotation.next_source_binding_id },
+  };
+  return normalizeAccountFactsBindings({ schema_version: SCHEMA, bindings: [updated] });
 }
 
 function protectedCommand(args, input, env) {
@@ -119,4 +162,26 @@ export function applyFirstradeFactsSettings(payload, {
         || bindingSecret.name !== "FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON") fail("readback_mismatch");
   } catch { fail("firstrade_configuration_readback_failed"); }
   return { secret_writes: 5, sync_enabled: false };
+}
+
+export function applyFirstradeSourceBindingRotation(payload, {
+  env = process.env, command = protectedCommand,
+} = {}) {
+  const normalized = normalizeAccountFactsBindings(payload);
+  if (normalized.bindings.length !== 1 || normalized.bindings[0].platform !== "firstrade"
+      || !env.GH_TOKEN) fail("protected_configuration_unavailable");
+  const binding = normalized.bindings[0];
+  command(["secret", "set", "FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID", "--repo", FT_REPO],
+    binding.source_binding.id, env);
+  command(["secret", "set", "FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON", "--repo", QRS_REPO,
+    "--env", QRS_ENV], JSON.stringify(normalized), env);
+  try {
+    const secrets = JSON.parse(command(["api", `repos/${FT_REPO}/actions/secrets?per_page=100`], undefined, env));
+    const names = new Set(secrets.secrets.map((item) => item.name));
+    const bindingSecret = JSON.parse(command(["api",
+      `repos/${QRS_REPO}/environments/${QRS_ENV}/secrets/FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON`], undefined, env));
+    if (!names.has("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID")
+        || bindingSecret.name !== "FIRSTRADE_ACCOUNT_FACTS_BINDING_JSON") fail("readback_mismatch");
+  } catch { fail("firstrade_configuration_readback_failed"); }
+  return { secret_writes: 2, rotated: true };
 }
