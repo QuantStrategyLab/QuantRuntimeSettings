@@ -1,0 +1,52 @@
+name: Sync Market Benchmark Closes
+
+# After US cash equity close (approx 20:00–21:00 UTC). Weekday evenings UTC.
+# First close on/after MARKET_BENCHMARK_INCEPTION_DATE=2026-10-09 is OK; empty
+# pre-close runs exit soft-success without fabricating points.
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Fetch Yahoo and print sample; do not POST.
+        required: false
+        type: boolean
+        default: false
+      range:
+        description: Yahoo chart range query (e.g. 5d, 10d).
+        required: false
+        type: string
+        default: "10d"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-market-benchmark
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: runtime-strategy-switch
+    env:
+      MARKET_BENCHMARK_SYNC_URL: ${{ vars.MARKET_BENCHMARK_SYNC_URL || 'https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync' }}
+      # Prefer dedicated token; fall back to STRATEGY_SWITCH_SYNC_TOKEN (Worker accepts either).
+      MARKET_BENCHMARK_SYNC_TOKEN: ${{ secrets.MARKET_BENCHMARK_SYNC_TOKEN || secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_DISPATCH_TOKEN }}
+      MARKET_BENCHMARK_RANGE: ${{ inputs.range || '10d' }}
+      MARKET_BENCHMARK_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+
+      - name: Fetch closes and sync
+        run: node scripts/sync_market_benchmark_closes.mjs

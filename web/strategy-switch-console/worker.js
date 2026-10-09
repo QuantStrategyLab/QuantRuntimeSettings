@@ -740,6 +740,12 @@ export default {
       if (url.pathname === "/callback") return await finishLogin(request, env);
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === OVERVIEW_FX_PROXY_PATH) return await overviewFxResponse(request);
+      if (url.pathname === MARKET_BENCHMARK_API_PATH && (request.method === "GET" || request.method === "HEAD")) {
+        return await marketBenchmarkResponse(request, env);
+      }
+      if (url.pathname === MARKET_BENCHMARK_SYNC_PATH && request.method === "POST") {
+        return await syncMarketBenchmarkResponse(request, env);
+      }
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
       if (url.pathname === "/api/config") return json(await configPayload(request, env, ctx));
@@ -15791,6 +15797,89 @@ function clearOAuthCookie() {
   return { "Set-Cookie": clearCookie(OAUTH_STATE_COOKIE) };
 }
 
+
+function requireMarketBenchmarkSyncToken(request, env) {
+  const expected = String(env.MARKET_BENCHMARK_SYNC_TOKEN || env.STRATEGY_SWITCH_SYNC_TOKEN || env.RUNTIME_SETTINGS_DISPATCH_TOKEN || "");
+  if (!expected) throw new HttpError("market_benchmark_sync_token_missing", 503);
+  const token = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (!token || token !== expected) throw new HttpError("unauthorized", 401);
+  // Fail closed if the bearer equals another dedicated sync token family when those are set differently.
+  const forbidden = [
+    env.ACCOUNT_FACTS_SYNC_TOKEN,
+    env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.EXECUTION_EVIDENCE_SYNC_TOKEN,
+  ].filter((value) => typeof value === "string" && value && value !== expected);
+  if (forbidden.includes(token)) throw new HttpError("unauthorized", 401);
+}
+
+async function marketBenchmarkResponse(request, env) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return json({ ok: false, error: "method_not_allowed" }, 405);
+  }
+  if (!hasRuntimeInstanceStore(env)) {
+    return json({ ok: false, error: "market_benchmark_store_unavailable" }, 503);
+  }
+  try {
+    const stored = await runtimeInstanceCommand(env, {
+      action: "market_benchmark_read",
+      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+    });
+    const body = {
+      ok: true,
+      schema_version: MARKET_BENCHMARK_SCHEMA,
+      inception_date: stored.inception_date || MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+      timezone: stored.timezone || "Asia/Shanghai",
+      points: Array.isArray(stored.points) ? stored.points : [],
+    };
+    const headers = responseHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+    return new Response(request.method === "HEAD" ? null : JSON.stringify(body), { status: 200, headers });
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 500);
+    return json({ ok: false, error: "market_benchmark_unavailable" }, 503);
+  }
+}
+
+async function syncMarketBenchmarkResponse(request, env) {
+  try {
+    requireMarketBenchmarkSyncToken(request, env);
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 401);
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+  if (!hasRuntimeInstanceStore(env)) {
+    return json({ ok: false, error: "market_benchmark_store_unavailable" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, 64 * 1024);
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 400);
+    return json({ ok: false, error: "invalid_market_benchmark_payload" }, 400);
+  }
+  try {
+    const result = await runtimeInstanceCommand(env, {
+      action: "market_benchmark_put",
+      payload: raw,
+    });
+    return json({
+      ok: true,
+      stored: true,
+      schema_version: MARKET_BENCHMARK_SCHEMA,
+      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+      written: result.written || 0,
+      unchanged: result.unchanged || 0,
+      points: result.points || 0,
+    });
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 500);
+    if (error instanceof MarketBenchmarkError) return json({ ok: false, error: error.code }, error.status || 400);
+    return json({ ok: false, error: "market_benchmark_sync_failed" }, 502);
+  }
+}
+
 async function overviewFxResponse(request, fetchImpl = fetch) {
   return overviewFxResponseImpl(request, {
     fetchImpl,
@@ -15902,6 +15991,15 @@ export const __test = {
   OVERVIEW_FX_PROXY_PATH,
   OVERVIEW_FX_UPSTREAM_URL,
   resetOverviewFxCache,
+  marketBenchmarkResponse,
+  syncMarketBenchmarkResponse,
+  MARKET_BENCHMARK_API_PATH,
+  MARKET_BENCHMARK_SYNC_PATH,
+  MARKET_BENCHMARK_SCHEMA,
+  MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+  normalizeMarketBenchmarkSyncPayload,
+  publicMarketBenchmarkReadModel,
+  MarketBenchmarkError,
   syncDefaultStrategyProfiles: syncStrategyProfilesConfig,
   syncDefaultStrategyForAccount,
   normalizeStrategyHealthSnapshot,

@@ -10,6 +10,7 @@ workers_dev = true
 # - RUNTIME_SETTINGS_DISPATCH_TOKEN
 # - UX1_RESEARCH_JOB_TOKEN  # dedicated UX1 research claim/result bearer; never reuse the dispatch or session token
 # - STRATEGY_SWITCH_SYNC_TOKEN  # optional; defaults to RUNTIME_SETTINGS_DISPATCH_TOKEN
+# - MARKET_BENCHMARK_SYNC_TOKEN # optional overview market-benchmark ingress; falls back to STRATEGY_SWITCH_SYNC_TOKEN
 # - STRATEGY_HEALTH_SYNC_TOKEN  # dedicated outbound health snapshot token; never reuse dispatch token
 # - CONTROL_PLANE_SYNC_TOKEN    # dedicated global dashboard snapshot token; never reuse dispatch token
 # - RESEARCH_TASK_SYNC_TOKEN    # dedicated immutable research-task source token; never reuse another token
