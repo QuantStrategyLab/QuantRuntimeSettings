@@ -577,6 +577,13 @@ def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
 
 _SCOPE_TAG_ALLOWED = frozenset({"live", "paper", "shadow", "research"})
 _HEX_HINT_RE = re.compile(r"^[0-9a-fA-F]{12,}$")
+# Broker account ids like IBKR ``U15998061`` / ``u15998061``.
+_BROKER_ACCOUNT_ID_RE = re.compile(r"^[Uu]\d{5,}$")
+# Scope forms that embed the broker id: ``live-u15998061``, ``paper_U16608560``.
+_SCOPE_EMBEDDED_ACCOUNT_RE = re.compile(
+    r"^(?:live|paper|shadow|research)[_-]([Uu]\d{5,})$",
+    re.IGNORECASE,
+)
 
 
 def _normalize_scope_tag(raw: str) -> str:
@@ -594,11 +601,29 @@ def _normalize_scope_tag(raw: str) -> str:
     return ""
 
 
+def _normalize_broker_account_id(raw: str) -> str:
+    """Return ``U######`` when ``raw`` is a broker account id (IBKR-style).
+
+    Existing ops config uses uppercase ``U``; lowercase input is normalized.
+    """
+
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if _BROKER_ACCOUNT_ID_RE.fullmatch(value):
+        return "U" + value[1:]
+    match = _SCOPE_EMBEDDED_ACCOUNT_RE.fullmatch(value)
+    if match:
+        acc = match.group(1)
+        return "U" + acc[1:]
+    return ""
+
+
 def _human_account_hint(raw: str) -> str:
     """Return account_hint when it is already a good human label.
 
     Reject empty values and opaque hex hashes (those are not display tags).
-    IBKR-style ids such as ``U16608560`` are kept.
+    IBKR-style ids such as ``U16608560`` are kept (normalized to ``U######``).
     """
 
     hint = str(raw or "").strip()
@@ -606,44 +631,34 @@ def _human_account_hint(raw: str) -> str:
         return ""
     if _HEX_HINT_RE.fullmatch(hint):
         return ""
+    broker = _normalize_broker_account_id(hint)
+    if broker:
+        return broker
     return hint
 
 
-def _platform_scope_tag(entry: DigestRunEntry) -> str:
-    """Universal ``{platform_id} {scope}`` label when both are known.
+def _account_label(entry: DigestRunEntry) -> str:
+    """Resolve the account half of ``[{platform_id} {account_label}]``.
 
-    Same rule for schwab / ibkr / firstrade / longbridge / etc. — never
-    hard-code a single platform string.
-    """
-
-    platform = str(entry.platform_id or "").strip()
-    if not platform:
-        return ""
-    for raw in (entry.account_scope, entry.execution_mode):
-        scope = _normalize_scope_tag(raw)
-        if scope:
-            return f"{platform} {scope}"
-    return ""
-
-
-def account_block_tag(entry: DigestRunEntry) -> str:
-    """Short account label for ``[tag]`` block titles.
-
-    Preference order (universal across platforms):
-      1. human ``account_hint`` (e.g. IBKR ``U16608560``) when not a hex hash
-      2. ``{platform_id} {account_scope|execution_mode}`` e.g. ``schwab live``,
-         ``ibkr live``, ``firstrade paper``
-      3. short stable form of ``opaque_account_uid`` (first 8 chars when long)
-      4. ``target_id`` last resort only (wiring name, not live account label)
-    Returns empty string when nothing usable is present.
+    Preference (universal):
+      1. human ``account_hint`` / broker id (e.g. IBKR ``U15998061``)
+      2. broker id embedded in ``account_scope`` (``live-u15998061``)
+      3. broker id on ``opaque_account_uid`` when it is already ``U######``
+      4. normalized scope ``live|paper|shadow|research``
+      5. short ``opaque_account_uid`` / ``target_id`` last resorts
     """
 
     hint = _human_account_hint(entry.account_hint)
     if hint:
         return hint
-    platform_scope = _platform_scope_tag(entry)
-    if platform_scope:
-        return platform_scope
+    for raw in (entry.account_scope, entry.execution_mode, entry.opaque_account_uid):
+        broker = _normalize_broker_account_id(raw)
+        if broker:
+            return broker
+    for raw in (entry.account_scope, entry.execution_mode):
+        scope = _normalize_scope_tag(raw)
+        if scope:
+            return scope
     uid = str(entry.opaque_account_uid or "").strip()
     if uid and uid.lower() != UNKNOWN_ACCOUNT_UID:
         if len(uid) > 12:
@@ -653,6 +668,27 @@ def account_block_tag(entry: DigestRunEntry) -> str:
     if target and target.lower() != UNKNOWN_TARGET_ID:
         return target
     return ""
+
+
+def account_block_tag(entry: DigestRunEntry) -> str:
+    """Account tag body for ``[tag]`` block titles.
+
+    Universal form: ``{platform_id} {account_label}`` — e.g. ``ibkr U15998061``,
+    ``schwab live``, ``firstrade paper``. Never hard-code a single venue.
+    Returns empty string when nothing usable is present.
+    """
+
+    platform = str(entry.platform_id or "").strip()
+    label = _account_label(entry)
+    if not label:
+        return ""
+    if not platform:
+        return label
+    # Avoid ``ibkr ibkr U…`` if label already carries the platform prefix.
+    prefix = platform.lower() + " "
+    if label.lower().startswith(prefix):
+        return label
+    return f"{platform} {label}"
 
 
 def _display_strategy(entry: DigestRunEntry) -> str:
