@@ -1029,11 +1029,11 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
               const enabledView = enabledLabel === "已启用" ? { text: "已启用" as const, tone: "ok" } : enabledLabel === "已停用" ? { text: "已停用" as const, tone: "bad" } : { text: "异常" as const, tone: "bad" };
               const confirmed = account.brokerEnvironment === "live";
               return <tr key={account.id} className="overview-account-entry">
-                <td><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
-                <td><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>
-                <td>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
-                <td className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}</td>
-                <td title={overviewLifecycleDetail(account.runtime, account.statusDetail, health.detail) || undefined}><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
+                <td data-label={t("账号")}><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
+                <td data-label={t("类型")}><span className={`type-pill${confirmed ? "" : " is-unknown"}`}>{t(confirmed ? "真实" : "还没确认")}</span></td>
+                <td data-label={t("资产")}>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
+                <td data-label={t("现金")} className={negativeCash ? "is-negative" : ""}>{cash && cash !== "0" ? spokenMoney(cash, moneyName) : cash === "0" ? "0" : t("没读到")}</td>
+                <td data-label={t("状态")} title={overviewLifecycleDetail(account.runtime, account.statusDetail, health.detail) || undefined}><span className={`status-pill is-${healthView.tone}`}>{t(healthView.text)}</span><span className={`status-pill is-${enabledView.tone}`}>{t(enabledView.text)}</span></td>
               </tr>;
             })}
             {!screenAccounts.length ? <tr><td colSpan={5}>{t("没有记录")}</td></tr> : null}
