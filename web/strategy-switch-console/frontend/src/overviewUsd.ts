@@ -2,9 +2,13 @@
 
 const MONEY_RE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
 
-/** Frankfurter ECB reference feed (no API key). Quotes are USD→foreign; we invert to foreign→USD. */
-export const OVERVIEW_FX_SOURCE = "api.frankfurter.dev (ECB reference rates via Frankfurter)";
-export const OVERVIEW_FX_API_URL =
+/** Same-origin Worker proxy for Frankfurter ECB reference rates (keeps CSP connect-src 'self'). */
+export const OVERVIEW_FX_SOURCE =
+  "same-origin /api/overview-fx (proxies api.frankfurter.dev ECB reference rates)";
+/** Browser fetch stays same-origin; Worker fetches Frankfurter. Quotes are USD→foreign; we invert. */
+export const OVERVIEW_FX_API_URL = "/api/overview-fx";
+/** Upstream Frankfurter URL used by the Worker proxy (not fetched from the browser). */
+export const OVERVIEW_FX_UPSTREAM_URL =
   "https://api.frankfurter.dev/v1/latest?base=USD&symbols=CNY,EUR,HKD,SGD";
 export const OVERVIEW_FX_SYMBOLS = Object.freeze(["CNY", "EUR", "HKD", "SGD"] as const);
 /** Brief in-memory cache; omit currencies on fetch failure (fail closed). */

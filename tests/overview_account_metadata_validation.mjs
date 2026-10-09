@@ -194,8 +194,7 @@ try {
   const walletHtml = render([walletAccount], { binanceFacts: { value: { report: walletReport }, error: null } });
   metadataRenderFixtures.wallet = walletHtml;
   const accountCard = walletHtml.slice(walletHtml.indexOf('class="overview-account-entry"'));
-  assert.match(accountCard, /44\.55/);
-  assert.match(accountCard, /USDT/);
+  assert.match(accountCard, /美元 44\.55/, "USDT wallet valuation displays under the overview USD reporting unit");
   assert.match(accountCard, /真实/);
   assert.doesNotMatch(accountCard, /券商账户类别：SPOT|API账户类型：现货/);
   const wrongWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, account_key: "other" } }, error: null } });

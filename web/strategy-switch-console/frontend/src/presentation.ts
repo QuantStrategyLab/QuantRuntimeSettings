@@ -565,12 +565,19 @@ export {
   OVERVIEW_FX_CACHE_MS,
   OVERVIEW_FX_SOURCE,
   OVERVIEW_FX_SYMBOLS,
+  OVERVIEW_FX_UPSTREAM_URL,
   formatOverviewUsdAmount,
   loadOverviewUsdRates,
   parseFrankfurterUsdBaseRates,
   resetOverviewUsdRatesCache,
   roundDecimalHalfUp,
 } from "./overviewUsd.ts";
+
+/** Overview reporting label: USDT is policy-equivalent to USD (1:1); other codes unchanged. */
+export function overviewReportingCurrency(currency: string): string {
+  if (currency === "USDT") return "USD";
+  return currency;
+}
 
 /** Convert one amount to USD. Missing or unusable rate → null (omit, never treat as 0). */
 export function amountToUsd(
