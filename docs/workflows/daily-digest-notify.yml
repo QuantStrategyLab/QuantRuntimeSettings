@@ -57,7 +57,9 @@ jobs:
       # Sentinel secret *name* contract (value never committed).
       TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME || 'quant-sentinel-telegram-bot-token' }}
       # Optional direct Environment secret; prefer this when present.
+      # Prefer Environment TELEGRAM_TOKEN; fall back to org/repo TG_TOKEN (legacy name).
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
       QSL_GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.QSL_GLOBAL_TELEGRAM_CHAT_ID }}
       GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
       QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG || vars.NOTIFY_LANG || 'zh' }}
