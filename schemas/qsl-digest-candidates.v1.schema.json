@@ -1,0 +1,325 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/QuantStrategyLab/QuantRuntimeSettings/schemas/qsl-digest-candidates.v1.schema.json",
+  "title": "QSL Digest Candidates v1",
+  "description": "Producer-authored daily-digest candidate envelope consumed by QuantRuntimeSettings daily_digest_aggregator / daily_digest_notify. Observation fields are optional; unknown fill/order counts must be null with field_status counts_unknown (never invent 0). Not an order, fill, or adoption receipt.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "qsl.digest_candidates.v1"
+    },
+    "runs": {
+      "type": "array",
+      "description": "Preferred candidate row array (producer contract).",
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "candidates": {
+      "type": "array",
+      "description": "Consumer alias for runs; aggregator accepts either key.",
+      "items": {
+        "$ref": "#/$defs/run"
+      }
+    },
+    "producer_status": {
+      "type": "string",
+      "enum": [
+        "projected",
+        "empty",
+        "skipped"
+      ],
+      "description": "Platform producer outcome; informational for operators, not rendered as fills."
+    },
+    "producer_reason": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "Short machine reason when status is empty/skipped or equity-without-runs."
+    }
+  },
+  "$defs": {
+    "count_value": {
+      "description": "Verified non-negative count, or null when unknown.",
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "integer",
+          "minimum": 0
+        }
+      ]
+    },
+    "field_status_token": {
+      "type": "string",
+      "enum": [
+        "known",
+        "counts_unknown",
+        "unknown",
+        "unverified"
+      ]
+    },
+    "holding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "symbol"
+      ],
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "market_value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "value": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "market_value_usd": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "quantity": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "qty": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "shares": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        },
+        "ccy": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16
+        }
+      }
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "platform_id",
+        "strategy_profile",
+        "actually_ran"
+      ],
+      "properties": {
+        "platform_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Short platform id recognized by central aggregator (e.g. schwab, ibkr)."
+        },
+        "strategy_profile": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "actually_ran": {
+          "type": "boolean",
+          "description": "Must be explicit; consumer no longer defaults missing to true."
+        },
+        "opaque_account_uid": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Opaque account binding hash/uid; never a raw broker login secret."
+        },
+        "target_id": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "account_hint": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Human display account label when already safe (e.g. IBKR U15998061)."
+        },
+        "account_scope": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Runtime account_scope / mode token (e.g. live, paper, live-u15998061)."
+        },
+        "execution_mode": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "fill_count": {
+          "$ref": "#/$defs/count_value"
+        },
+        "order_count": {
+          "$ref": "#/$defs/count_value"
+        },
+        "cycle_count": {
+          "$ref": "#/$defs/count_value"
+        },
+        "field_status": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/field_status_token"
+          },
+          "properties": {
+            "fill_count": {
+              "$ref": "#/$defs/field_status_token"
+            },
+            "order_count": {
+              "$ref": "#/$defs/field_status_token"
+            },
+            "cycle_count": {
+              "$ref": "#/$defs/field_status_token"
+            }
+          }
+        },
+        "evidence_provenance": {
+          "type": "string",
+          "maxLength": 64,
+          "description": "Defaults to candidates when omitted by consumer load path."
+        },
+        "reason_code": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "alert"
+          ]
+        },
+        "business_day": {
+          "type": "string",
+          "maxLength": 32,
+          "description": "Optional producer business day (ISO date preferred)."
+        },
+        "strategy_label": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "equity": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "equity_usd": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "equity_currency": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "currency": {
+          "type": "string",
+          "maxLength": 16
+        },
+        "holdings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/holding"
+          }
+        },
+        "positions": {
+          "type": "array",
+          "description": "Consumer alias for holdings.",
+          "items": {
+            "$ref": "#/$defs/holding"
+          }
+        },
+        "signal_summary": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "rebalance_kind": {
+          "type": "string",
+          "enum": [
+            "",
+            "no_rebalance",
+            "rebalance",
+            "no_order",
+            "pending"
+          ]
+        },
+        "rebalance_conclusion": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "tips": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 512
+              }
+            }
+          ]
+        },
+        "tip": {
+          "type": "string",
+          "maxLength": 512
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 512
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "required": [
+        "schema_version"
+      ]
+    },
+    {
+      "anyOf": [
+        {
+          "required": [
+            "runs"
+          ]
+        },
+        {
+          "required": [
+            "candidates"
+          ]
+        }
+      ]
+    }
+  ]
+}
