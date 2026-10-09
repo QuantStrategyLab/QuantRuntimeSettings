@@ -6,11 +6,19 @@ name: Daily Digest Notify
 
 # Post-close QuantSentinel aggregator: one message for all platforms that
 # actually ran. Empty evidence → heartbeat via daily_digest_notify renderer.
+# Distinguishes verified idle vs source-read failure (never claim link healthy
+# when GitHub/candidates evidence could not be loaded).
 #
 # Schedule (GitHub Actions cron is UTC):
 #   0 22 * * 1-5  == Tue–Sat 06:00 Asia/Shanghai (covers prior US RTH close).
 # Optional Asia cash session digest is not scheduled yet; add a second cron
 # only after an Asia evidence contract exists (do not invent runs).
+#
+# DIGEST_CANDIDATES wiring (optional, preferred over GitHub stubs):
+#   - Environment secret DIGEST_CANDIDATES_JSON → materialized to a local file
+#   - or Environment variable DIGEST_CANDIDATES_PATH pointing at a runner file
+#   Do NOT upload account-asset candidates as a public artifact by default.
+#   See docs/digest-candidates-wiring.zh-CN.md
 
 on:
   workflow_dispatch:
@@ -31,7 +39,7 @@ on:
         type: string
         default: ""
       include_github_evidence:
-        description: "Query allowlisted platform workflow conclusions (counts stay 0 unless candidates supply them)."
+        description: "Query allowlisted platform workflow conclusions (counts stay unknown unless candidates supply them)."
         required: true
         type: boolean
         default: true
@@ -67,6 +75,10 @@ jobs:
       # Cross-repo evidence (optional). Same token used elsewhere for remote reads.
       GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
       DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+      # Optional producer candidates (Environment secret). Never log the value.
+      DIGEST_CANDIDATES_JSON: ${{ secrets.DIGEST_CANDIDATES_JSON }}
+      # Optional path override (Environment variable); relative to workspace.
+      DIGEST_CANDIDATES_PATH_VAR: ${{ vars.DIGEST_CANDIDATES_PATH || '' }}
       # GCP project that hosts a sentinel bot-token replica (LongBridge path).
       GCP_PROJECT_ID: ${{ vars.DIGEST_GCP_PROJECT_ID || 'longbridgequant' }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
@@ -89,7 +101,7 @@ jobs:
           INPUT_INCLUDE_GITHUB: ${{ github.event_name != 'workflow_dispatch' && true || inputs.include_github_evidence }}
         run: |
           set -euo pipefail
-          mkdir -p data/output/daily-digest
+          mkdir -p data/output/daily-digest data/input/daily-digest
           if [[ "${{ github.event_name }}" == "schedule" ]]; then
             echo "dry_run=false" >> "$GITHUB_OUTPUT"
           else
@@ -105,6 +117,39 @@ jobs:
             echo "include_github=true" >> "$GITHUB_OUTPUT"
           else
             echo "include_github=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Materialize DIGEST_CANDIDATES input (optional)
+        id: candidates
+        env:
+          CANDIDATES_JSON: ${{ env.DIGEST_CANDIDATES_JSON }}
+          CANDIDATES_PATH_VAR: ${{ env.DIGEST_CANDIDATES_PATH_VAR }}
+        run: |
+          set -euo pipefail
+          dest="data/input/daily-digest/candidates.json"
+          if [[ -n "${CANDIDATES_JSON:-}" ]]; then
+            # Secret JSON materialized locally; do not echo contents.
+            printf '%s' "$CANDIDATES_JSON" > "$dest"
+            echo "DIGEST_CANDIDATES_PATH=$dest" >> "$GITHUB_ENV"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "source=environment_secret_json" >> "$GITHUB_OUTPUT"
+            echo "Candidates input: Environment secret DIGEST_CANDIDATES_JSON → $dest"
+          elif [[ -n "${CANDIDATES_PATH_VAR:-}" ]]; then
+            if [[ ! -f "$CANDIDATES_PATH_VAR" ]]; then
+              echo "DIGEST_CANDIDATES_PATH var set but file missing: $CANDIDATES_PATH_VAR" >&2
+              echo "configured=true" >> "$GITHUB_OUTPUT"
+              echo "source=path_missing" >> "$GITHUB_OUTPUT"
+              exit 1
+            fi
+            echo "DIGEST_CANDIDATES_PATH=$CANDIDATES_PATH_VAR" >> "$GITHUB_ENV"
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "source=environment_path_var" >> "$GITHUB_OUTPUT"
+            echo "Candidates input: path var → $CANDIDATES_PATH_VAR"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "source=none" >> "$GITHUB_OUTPUT"
+            echo "No DIGEST_CANDIDATES injected; aggregator uses GitHub stubs only (counts unknown)."
+            echo "Wire steps: docs/digest-candidates-wiring.zh-CN.md"
           fi
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
@@ -142,6 +187,10 @@ jobs:
           if [[ "${{ steps.opts.outputs.dry_run }}" == "true" ]]; then
             args+=(--dry-run)
           fi
+          # Prefer explicit --candidates when env path was materialized.
+          if [[ -n "${DIGEST_CANDIDATES_PATH:-}" ]]; then
+            args+=(--candidates "$DIGEST_CANDIDATES_PATH")
+          fi
           "${args[@]}"
 
       - name: Summarize (no secrets)
@@ -162,11 +211,34 @@ jobs:
           print(f"- status: `{receipt.get('status')}`")
           print(f"- business_day: `{receipt.get('business_day')}`")
           print(f"- locale: `{receipt.get('locale')}`")
+          print(f"- evidence_status: `{receipt.get('evidence_status')}`")
           print(f"- run_count: `{receipt.get('run_count')}`")
           print(f"- total_fills: `{receipt.get('total_fills')}`")
+          print(f"- total_fills_status: `{receipt.get('total_fills_status')}`")
           print(f"- dry_run: `{receipt.get('dry_run')}`")
           print(f"- delivered: `{receipt.get('delivered')}`")
           print(f"- secret_name_contract: `{receipt.get('secret_name_contract')}`")
+          coverage = receipt.get("source_coverage") or {}
+          if coverage:
+              print("- source_coverage:")
+              print(f"  - candidates_configured: `{coverage.get('candidates_configured')}`")
+              print(f"  - candidates_count: `{coverage.get('candidates_count')}`")
+              print(f"  - github_enabled: `{coverage.get('github_enabled')}`")
+              print(f"  - github_sources_queried: `{coverage.get('github_sources_queried')}`")
+              print(f"  - github_sources_matched: `{coverage.get('github_sources_matched')}`")
+              print(f"  - has_source_failures: `{coverage.get('has_source_failures')}`")
+              print(f"  - is_complete_for_verified_idle: `{coverage.get('is_complete_for_verified_idle')}`")
+          failures = receipt.get("failures") or coverage.get("github_failures") or []
+          if failures:
+              print("- failures:")
+              for item in failures:
+                  if isinstance(item, dict):
+                      print(
+                          f"  - `{item.get('platform_id')}` / `{item.get('workflow')}` "
+                          f"reason=`{item.get('reason_code')}`"
+                      )
+                  else:
+                      print(f"  - `{item}`")
           missing = receipt.get("missing") or []
           if missing:
               print("- missing configuration:")
@@ -181,3 +253,5 @@ jobs:
           name: daily-digest-receipt
           path: data/output/daily-digest/receipt.json
           if-no-files-found: warn
+          # receipt may include opaque_account_uid / target_id placeholders —
+          # still no secrets; do not upload candidates.json here.

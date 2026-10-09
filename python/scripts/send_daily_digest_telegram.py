@@ -172,7 +172,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    payload, text = aggregator.build_digest_payload(
+    payload, text, collected = aggregator.build_digest_payload(
         business_day=args.business_day,
         locale=args.locale,
         candidates_path=args.candidates,
@@ -186,12 +186,12 @@ def main(argv: list[str] | None = None) -> int:
         "yes",
     }
 
+    base_receipt = aggregator.build_receipt(
+        payload, collected, message_chars=len(text)
+    )
     receipt = {
+        **base_receipt,
         "schema_version": "qsl.daily_digest_delivery_receipt.v1",
-        "business_day": payload.business_day,
-        "locale": digest.normalize_locale(str(payload.locale)),
-        "run_count": len(payload.runs),
-        "total_fills": digest.total_fills(payload.runs),
         "dry_run": dry_run,
         "delivered": False,
         "missing": [],
@@ -261,9 +261,11 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         print("Daily digest Telegram delivery failed.", file=sys.stderr)
         return 1
+    fills = digest.total_fills(payload.runs)
+    fills_label = "unknown" if fills is None else fills
     print(
         "Daily digest delivered via QuantSentinel "
-        f"(runs={len(payload.runs)}, fills={digest.total_fills(payload.runs)})."
+        f"(runs={len(payload.runs)}, fills={fills_label})."
     )
     return 0
 
