@@ -130,6 +130,111 @@ _TEXTS: dict[str, dict[str, str]] = {
 UNKNOWN_ACCOUNT_UID = "unknown"
 UNKNOWN_TARGET_ID = "unknown"
 
+# Producer machine tokens (snake_case) → locale UI labels.
+# Free-form Chinese/English prose is never rewritten — only exact whole-string tokens.
+_SIGNAL_TOKEN_DISPLAY: dict[str, dict[str, str]] = {
+    "zh": {
+        "no_action": "无需操作",
+        "no_signal": "无信号",
+        "no_rebalance": "无需调仓",
+        "no_submission": "未提交",
+        "not_due": "未到执行时点",
+        "hold": "持有",
+        "order_submitted": "订单已提交",
+        "order_acknowledged": "券商已确认",
+        "partially_filled": "部分成交",
+        "filled": "已成交",
+        "previewed": "仅预览",
+        "blocked": "已拦截",
+        "failed": "失败",
+        "unknown": "未知",
+        "reconciliation_required": "需对账",
+        "risk_blocked": "风控拦截",
+    },
+    "en": {
+        "no_action": "No action",
+        "no_signal": "No signal",
+        "no_rebalance": "No rebalance",
+        "no_submission": "No submission",
+        "not_due": "Not due",
+        "hold": "Hold",
+        "order_submitted": "Order submitted",
+        "order_acknowledged": "Broker acknowledged",
+        "partially_filled": "Partially filled",
+        "filled": "Filled",
+        "previewed": "Preview only",
+        "blocked": "Blocked",
+        "failed": "Failed",
+        "unknown": "Unknown",
+        "reconciliation_required": "Reconciliation required",
+        "risk_blocked": "Risk blocked",
+    },
+}
+
+# Bare conclusion tokens. Empty string → omit line (block title already covers it).
+_CONCLUSION_TOKEN_DISPLAY: dict[str, dict[str, str]] = {
+    "zh": {
+        "no_order": "",
+        "no_rebalance": "✅ 无需调仓",
+        "pending": "⏳ 待确认",
+        "rebalance": "🔔 调仓",
+        "filled": "✅ 已成交",
+        "partially_filled": "✅ 部分成交",
+        "submitted": "已提交",
+        "broker_acknowledged": "券商已确认",
+        "previewed": "仅预览",
+        "blocked": "已拦截",
+        "failed": "失败",
+        "unknown": "未知",
+        "reconciliation_required": "需对账",
+        "not_due": "未到执行时点",
+        "no_action": "无需操作",
+        "no_signal": "无信号",
+        "no_submission": "未提交",
+    },
+    "en": {
+        "no_order": "",
+        "no_rebalance": "✅ No rebalance needed",
+        "pending": "⏳ Pending",
+        "rebalance": "🔔 Rebalance",
+        "filled": "✅ Filled",
+        "partially_filled": "✅ Partially filled",
+        "submitted": "Submitted",
+        "broker_acknowledged": "Broker acknowledged",
+        "previewed": "Preview only",
+        "blocked": "Blocked",
+        "failed": "Failed",
+        "unknown": "Unknown",
+        "reconciliation_required": "Reconciliation required",
+        "not_due": "Not due",
+        "no_action": "No action",
+        "no_signal": "No signal",
+        "no_submission": "No submission",
+    },
+}
+
+
+def _localize_producer_token(
+    locale: DigestLocale, raw: str, table: Mapping[str, Mapping[str, str]]
+) -> str | None:
+    """If ``raw`` is exactly a known machine token, return its locale label.
+
+    Returns ``None`` when ``raw`` is free-form prose (caller keeps original).
+    A mapped empty string means \"omit this line\".
+    """
+
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    key = text.lower()
+    locale_map = table.get(locale) or table.get("zh") or {}
+    if key in locale_map:
+        return locale_map[key]
+    # Also accept when en table defines the token but zh missed it (defensive).
+    if key in (table.get("en") or {}) or key in (table.get("zh") or {}):
+        return (table.get(locale) or {}).get(key, text)
+    return None
+
 
 def normalize_locale(raw: str | None) -> DigestLocale:
     value = (raw or "zh").strip().lower()
@@ -716,8 +821,17 @@ def _holding_line(holding: DigestHolding, locale: DigestLocale) -> str:
 
 
 def _default_conclusion(entry: DigestRunEntry, locale: DigestLocale) -> str:
-    if entry.rebalance_conclusion.strip():
-        return entry.rebalance_conclusion.strip()
+    raw = entry.rebalance_conclusion.strip()
+    if raw:
+        localized = _localize_producer_token(locale, raw, _CONCLUSION_TOKEN_DISPLAY)
+        if localized is not None:
+            # Bare machine token: use mapped label (may be "" to omit).
+            if localized:
+                return localized
+            # Empty mapping → fall through to kind-based defaults.
+        else:
+            # Free-form producer prose (often already zh) — keep as-is.
+            return raw
     kind = entry.rebalance_kind or ""
     if kind == "no_rebalance":
         return _t(locale, "conclusion_no_rebalance")
@@ -747,9 +861,16 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         for holding in entry.holdings:
             lines.append(_holding_line(holding, locale))
     if entry.signal_summary.strip():
-        lines.append(
-            f"- {_t(locale, 'signal_prefix')}: {entry.signal_summary.strip()}"
+        signal_raw = entry.signal_summary.strip()
+        signal_display = _localize_producer_token(
+            locale, signal_raw, _SIGNAL_TOKEN_DISPLAY
         )
+        if signal_display is None:
+            signal_display = signal_raw
+        if signal_display:
+            lines.append(
+                f"- {_t(locale, 'signal_prefix')}: {signal_display}"
+            )
     for tip in entry.tips:
         tip_text = str(tip).strip()
         if tip_text:
