@@ -1,7 +1,7 @@
 export const THEME_STORAGE_KEY = "qsl-theme-preference";
 
 export function normalizeThemePreference(value) {
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
+  return value === "light" || value === "dark" || value === "system" ? value : "dark";
 }
 
 export function resolveTheme(preference, systemPrefersDark) {

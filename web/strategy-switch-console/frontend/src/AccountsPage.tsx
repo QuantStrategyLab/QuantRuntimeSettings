@@ -371,7 +371,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           {strategyDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertStrategy(); sync(); }}>{t("取消")}</button>}
         </div>
         {strategyNotice && <p role="status">{t("草案已保存，运行端生效尚未验证。")}</p>}
-        {settings?.operations?.apply_strategy !== true && <p className="section-note">{t(accountSettingsOperationReason(settings?.operations?.apply_strategy_reason))}</p>}
       </section>
       <section className="detail-group">
         <h3>{t("资金预留")}</h3>
@@ -381,7 +380,6 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
           {showPendingFloor && <p><span>{t(cashDirty ? "未保存草案最低预留额" : "已保存草案最低预留额")}</span><strong>{pendingFloor}</strong></p>}
           {showPendingRatio && <p><span>{t(cashDirty ? "未保存草案预留比例" : "已保存草案预留比例")}</span><strong>{shareText(pendingRatio)}</strong></p>}
         </div>
-        <p className="section-note">{t("这是预留规则的配置值，实际预留现金尚未核实。")}</p>
         <label className="cash-floor-field">{t("资金预留")}
           <select value={displayCashMode} disabled={!canSaveCash} onChange={event => { if (event.target.value === "saved") return; chooseMode(event.target.value as "floor" | "ratio" | "both"); }}>
             {!displayCashMode && <option value="" hidden disabled></option>}
@@ -459,7 +457,7 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
             <option value="false" disabled={!boundSupports}>{t("关闭")}</option>
           </select>
         </label>
-        {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再核对期权层支持。" : accountSettingsOperationReason(settings?.operations?.save_option_draft_reason))}</p>}
+        {!boundSupports && <p className="section-note">{t(strategyPending ? "请先保存策略草案，再核对期权层支持。" : (settings?.operations?.save_option_draft_reason === "option_overlay_not_defined" || settings?.operations?.save_option_draft_reason === "admin_required" ? accountSettingsOperationReason(settings?.operations?.save_option_draft_reason) : "这项操作暂不可用。"))}</p>}
         <div className="form-actions">
           <button type="button" className="button button-primary" disabled={!canSaveCash || !optionSubmittable || view.review.draft || Boolean(view.saving)} onClick={() => void saveScoped("option", optionSubmittable)}>{t("保存期权层草案")}</button>
           {optionDirty && <button type="button" className="button button-secondary" onClick={() => { controller.revertOption(); sync(); }}>{t("取消")}</button>}
@@ -470,11 +468,11 @@ function DailyAccountSettings({ row, unresolvedSaves, refreshToken, stopAllowed,
     </fieldset>}
     <section className="detail-group runtime-controls"><div className="activation-row"><span>{t("运行控制")}</span><strong>{row.activation === "已启用" || row.activation === "已停用" ? t(row.activation) : t("待确认")}</strong></div>
     <div className="form-actions">
-      {readState === "ready" && <button type="button" className="button button-secondary" aria-describedby="activation-unavailable" disabled>{t("启用")}</button>}
+      {readState === "ready" && <button type="button" className="button button-secondary" aria-describedby={settings?.operations?.activation_reason === "admin_required" ? "activation-unavailable" : undefined} disabled>{t("启用")}</button>}
       {actions.stop && <button type="button" className="button button-secondary" disabled={!stopAllowed} onClick={onStop}>{t(stopLabel)}</button>}
       {readState === "ready" && actions.resume && <button type="button" className="button button-secondary" onClick={onResume}>{t("恢复现有 Binance 目标")}</button>}
     </div>
-    {readState === "ready" && <p className="section-note" id="activation-unavailable">{t(accountSettingsOperationReason(settings?.operations?.activation_reason))}</p>}
+    {readState === "ready" && settings?.operations?.activation_reason === "admin_required" && <p className="section-note" id="activation-unavailable">{t(accountSettingsOperationReason(settings?.operations?.activation_reason))}</p>}
     {actions.refresh && <button type="button" className="text-link" onClick={onRefreshStop}>{t("刷新停用状态")}</button>}
     </section>
   </aside>;
