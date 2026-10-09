@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   MARKET_BENCHMARK_INCEPTION_DATE,
   MARKET_BENCHMARK_TIMEZONE,
+  OVERVIEW_USD_RATES,
+  amountToUsd,
   buildAggregateAssetSeries,
   buildAssetChartGeometry,
   buildBenchmarkChartGeometry,
@@ -9,6 +11,7 @@ import {
   presentMarketBenchmarkSeries,
   readQualifiedPeriodReturn,
   shanghaiCalendarDate,
+  sumAmountsToUsd,
 } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 
 assert.equal(MARKET_BENCHMARK_INCEPTION_DATE, "2026-10-09");
@@ -141,5 +144,34 @@ assert.equal(readQualifiedPeriodReturn("longbridge", {
 assert.equal(readQualifiedPeriodReturn("ibkr", {
   status: "available", currency: "EUR", period: { from: "2026-09-01", to: "2026-09-30" }, source_value: "-2.5", source_unit: "percent",
 }, false), null, "a revision mismatch cannot display a qualified return");
+
+
+assert.deepEqual(OVERVIEW_USD_RATES, {}, "overview does not invent extra FX rates");
+assert.equal(amountToUsd("USD", "2095.95"), "2095.95");
+assert.equal(amountToUsd("USDT", "133.13"), "133.13", "USDT counts 1:1 with USD");
+assert.equal(amountToUsd("SGD", "100"), null, "SGD without a rate is omitted, not zero-filled");
+assert.equal(amountToUsd("HKD", "780"), null, "HKD without a rate is omitted, not zero-filled");
+assert.equal(amountToUsd("EUR", "10", { EUR: "1.1" }), "11");
+assert.equal(amountToUsd("EUR", "10", { EUR: "0" }), null, "a zero rate is unusable and omits the amount");
+
+const usdTotal = sumAmountsToUsd([
+  { currency: "USD", amount: "2095.95" },
+  { currency: "USDT", amount: "133.13" },
+  { currency: "SGD", amount: "100" },
+  { currency: "HKD", amount: "780" },
+], OVERVIEW_USD_RATES);
+assert.equal(usdTotal.amount, "2229.08", "ready USD and USDT sum at 1:1; missing rates stay out of the total");
+assert.deepEqual(usdTotal.omittedCurrencies, ["HKD", "SGD"]);
+
+const onlyUnrated = sumAmountsToUsd([
+  { currency: "SGD", amount: "50" },
+  { currency: "HKD", amount: "10" },
+], {});
+assert.equal(onlyUnrated.amount, null, "when every currency lacks a rate the USD total is absent, not 0");
+assert.deepEqual(onlyUnrated.omittedCurrencies, ["HKD", "SGD"]);
+
+const emptyUsd = sumAmountsToUsd([], OVERVIEW_USD_RATES);
+assert.equal(emptyUsd.amount, null);
+assert.deepEqual(emptyUsd.omittedCurrencies, []);
 
 console.log("overview_benchmark_aggregate_validation ok");

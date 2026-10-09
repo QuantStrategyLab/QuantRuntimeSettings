@@ -532,6 +532,73 @@ function sumDecimalTexts(amounts: string[]): string {
   return amount === "-" ? "0" : amount;
 }
 
+function multiplyDecimalTexts(left: string, right: string): string {
+  const leftNegative = left.startsWith("-");
+  const rightNegative = right.startsWith("-");
+  const [leftInteger, leftFraction = ""] = left.replace(/^-/, "").split(".");
+  const [rightInteger, rightFraction = ""] = right.replace(/^-/, "").split(".");
+  const scale = leftFraction.length + rightFraction.length;
+  const product = BigInt(leftInteger + leftFraction) * BigInt(rightInteger + rightFraction);
+  const negative = leftNegative !== rightNegative;
+  const digits = product.toString().padStart(scale + 1, "0");
+  const amount = scale
+    ? `${negative ? "-" : ""}${digits.slice(0, -scale)}.${digits.slice(-scale)}`.replace(/\.?0+$/, "")
+    : `${negative ? "-" : ""}${digits}`;
+  if (amount === "-" || amount === "" || amount === "-0") return "0";
+  return amount;
+}
+
+/** Built-in USD reporting multipliers. USDT is treated as 1:1 with USD. */
+export const BUILTIN_USD_RATES: Readonly<Record<string, string>> = Object.freeze({
+  USD: "1",
+  USDT: "1",
+});
+
+/**
+ * Extra FX rates for overview USD reporting (currency → USD multiplier).
+ * Empty until a trusted feed exists; do not invent SGD/HKD/EUR rates here.
+ */
+export const OVERVIEW_USD_RATES: Readonly<Record<string, string>> = Object.freeze({});
+
+/** Convert one amount to USD. Missing or unusable rate → null (omit, never treat as 0). */
+export function amountToUsd(
+  currency: string,
+  amount: string,
+  rates: Readonly<Record<string, string>> = {},
+): string | null {
+  if (typeof currency !== "string" || !/^[A-Z0-9]{3,10}$/.test(currency)) return null;
+  if (typeof amount !== "string" || amount.length > 128 || !MONEY_RE.test(amount)) return null;
+  const rate = Object.prototype.hasOwnProperty.call(rates, currency)
+    ? rates[currency]
+    : BUILTIN_USD_RATES[currency as keyof typeof BUILTIN_USD_RATES];
+  if (typeof rate !== "string" || !/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(rate)) return null;
+  if (/^0+(?:\.0+)?$/.test(rate)) return null;
+  return multiplyDecimalTexts(amount, rate);
+}
+
+/** Sum currency rows into one USD total; unrated currencies are omitted, not zero-filled. */
+export function sumAmountsToUsd(
+  rows: Array<{ currency: string; amount: string }>,
+  rates: Readonly<Record<string, string>> = {},
+): { amount: string | null; omittedCurrencies: string[] } {
+  const converted: string[] = [];
+  const omitted = new Set<string>();
+  for (const row of Array.isArray(rows) ? rows : []) {
+    if (!row || typeof row.currency !== "string" || typeof row.amount !== "string") continue;
+    const usd = amountToUsd(row.currency, row.amount, rates);
+    if (usd === null) {
+      if (/^[A-Z0-9]{3,10}$/.test(row.currency) && MONEY_RE.test(row.amount) && row.amount.length <= 128) {
+        omitted.add(row.currency);
+      }
+      continue;
+    }
+    converted.push(usd);
+  }
+  const omittedCurrencies = [...omitted].sort((a, b) => a.localeCompare(b));
+  if (!converted.length) return { amount: null, omittedCurrencies };
+  return { amount: sumDecimalTexts(converted), omittedCurrencies };
+}
+
 export type AggregateAssetPoint = {
   observation_date: string;
   net_assets: string;
