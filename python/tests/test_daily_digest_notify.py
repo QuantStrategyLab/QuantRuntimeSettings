@@ -788,7 +788,58 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertNotIn("[schwab-primary]", text)
         self.assertNotIn("[live]", text)  # bare scope alone is not the tag
 
+    def test_machine_token_signal_and_conclusion_localized_zh(self):
+        """Live IBKR shape: bare no_action / no_order must not leak English."""
+        runs = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="ibkr",
+                strategy_profile="tqqq_growth_income",
+                strategy_label="纳斯达克增长收益",
+                account_hint="U16608560",
+                equity=582.12,
+                signal_summary="no_action",
+                rebalance_kind="no_order",
+                rebalance_conclusion="no_order",
+                fill_count=None,
+                fill_count_status="unknown",
+                order_count=None,
+                order_count_status="unknown",
+            ),
+        )
+        text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09", locale="zh", runs=runs
+            )
+        )
+        self.assertIn("[ibkr U16608560] ⚠️ 【未下单】", text)
+        self.assertIn("- 🎯 信号: 无需操作", text)
+        self.assertNotIn("no_action", text)
+        self.assertNotIn("\nno_order\n", text)
+        self.assertNotIn("信号: no_action", text)
+        # Free-form Chinese conclusion still passes through.
+        rich = (
+            daily_digest_notify.DigestRunEntry(
+                platform_id="ibkr",
+                strategy_profile="tqqq_growth_income",
+                strategy_label="纳斯达克增长收益",
+                account_hint="U16608560",
+                equity=572.93,
+                signal_summary="no_action",
+                rebalance_kind="no_order",
+                rebalance_conclusion="未下单: 原因=低于最小订单金额:TQQQ",
+            ),
+        )
+        rich_text = daily_digest_notify.render_daily_digest(
+            daily_digest_notify.DailyDigestInput(
+                business_day="2026-10-09", locale="zh", runs=rich
+            )
+        )
+        self.assertIn("未下单: 原因=低于最小订单金额:TQQQ", rich_text)
+        self.assertIn("- 🎯 信号: 无需操作", rich_text)
+        self.assertNotIn("信号: no_action", rich_text)
+
     def test_identity_key_includes_account_and_target(self):
+
 
 
 
