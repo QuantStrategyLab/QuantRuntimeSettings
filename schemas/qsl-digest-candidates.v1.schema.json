@@ -250,6 +250,14 @@
             "$ref": "#/$defs/holding"
           }
         },
+        "holdings_scope": {
+          "type": "string",
+          "enum": [
+            "strategy_symbols_only",
+            "stocks_only"
+          ],
+          "description": "Optional coverage label for holdings: strategy_symbols_only (Schwab: only strategy symbols are listed) or stocks_only (IBKR: only STK positions). Holdings are never a full-account inventory unless this is absent and the producer says so."
+        },
         "positions": {
           "type": "array",
           "description": "Consumer alias for holdings.",

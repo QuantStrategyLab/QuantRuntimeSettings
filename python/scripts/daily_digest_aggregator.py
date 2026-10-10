@@ -57,6 +57,12 @@ _OBSERVATION_FIELDS = (
 )
 
 
+def _has_holdings(row: Mapping[str, Any]) -> bool:
+    return row.get("holdings") not in (None, "", [], ()) or row.get(
+        "positions"
+    ) not in (None, "", [], ())
+
+
 @dataclass
 class GithubEvidenceResult:
     rows: list[dict[str, Any]] = field(default_factory=list)
@@ -500,10 +506,18 @@ def merge_candidates(*groups: Sequence[Mapping[str, Any]]) -> list[dict[str, Any
                 winner = dict(existing)
                 loser = candidate
             if _should_cross_fill_observation(winner, loser):
+                winner_had_holdings = _has_holdings(winner)
                 for field_name in _OBSERVATION_FIELDS:
                     if winner.get(field_name) in (None, "", [], ()):
                         if loser.get(field_name) not in (None, "", [], ()):
                             winner[field_name] = loser[field_name]
+                # holdings_scope labels one holdings list; keep it paired with
+                # whichever side supplied the holdings that were kept.
+                if not winner_had_holdings and _has_holdings(winner):
+                    if loser.get("holdings_scope") not in (None, ""):
+                        winner["holdings_scope"] = loser["holdings_scope"]
+                    else:
+                        winner.pop("holdings_scope", None)
                 for count_field in ("fill_count", "order_count", "cycle_count"):
                     _merge_count_field(winner, loser, count_field)
                 # Preserve identity fields from either side if winner omitted.

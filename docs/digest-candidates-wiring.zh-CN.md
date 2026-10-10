@@ -45,6 +45,7 @@ GitHub workflow 成功结论只是**存在性**辅助证据；成交/订单数�
 - 新 stub / 存在性证据：`fill_count`/`order_count` 用 `null` + `field_status.counts_unknown` 或 `reason_code=github_workflow_existence_only`。
 - 旧生产者若仍给 `int 0` 且无 `field_status`，按「已验证零成交」兼容。
 - 权益/持仓/信号/调仓字段可选；有则渲染，无则省略；中央不编造。
+- `holdings_scope`（可选）：标注持仓覆盖范围，`strategy_symbols_only`（嘉信：仅策略标的）/ `stocks_only`（盈透：仅股票）；渲染为「💼 持仓（仅策略标的）」/「💼 持仓（仅股票）」。未知值忽略；无持仓时不渲染。
 
 ## 中央 workflow 接线点
 
