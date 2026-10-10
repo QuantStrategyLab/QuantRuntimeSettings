@@ -68,6 +68,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "strategy_label": "🧭 策略",
         "equity_label": "💰 账户总权益",
         "holdings_label": "💼 持仓",
+        "holdings_scope_strategy_symbols_only": "仅策略标的",
+        "holdings_scope_stocks_only": "仅股票",
         "signal_prefix": "🎯 信号",
         "shares_unit": "股",
         "tip_prefix": "小账户提示",
@@ -116,6 +118,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "strategy_label": "🧭 Strategy",
         "equity_label": "💰 Account equity",
         "holdings_label": "💼 Holdings",
+        "holdings_scope_strategy_symbols_only": "strategy symbols only",
+        "holdings_scope_stocks_only": "stocks only",
         "signal_prefix": "🎯 Signal",
         "shares_unit": "sh",
         "tip_prefix": "Small-account note",
@@ -403,6 +407,8 @@ class DigestRunEntry:
     equity: float | None = None
     equity_currency: str = "USD"
     holdings: tuple[DigestHolding, ...] = ()
+    # Optional coverage label for holdings (strategy_symbols_only | stocks_only).
+    holdings_scope: str = ""
     signal_summary: str = ""
     rebalance_kind: RebalanceKind = ""
     rebalance_conclusion: str = ""
@@ -805,6 +811,26 @@ def _display_strategy(entry: DigestRunEntry) -> str:
     return label or entry.strategy_profile
 
 
+_HOLDINGS_SCOPES = frozenset({"strategy_symbols_only", "stocks_only"})
+
+
+def _parse_holdings_scope(raw: Any) -> str:
+    """Accept only known coverage tokens; anything else renders without a label."""
+
+    text = str(raw or "").strip()
+    return text if text in _HOLDINGS_SCOPES else ""
+
+
+def _holdings_header(scope: str, locale: DigestLocale) -> str:
+    label = _t(locale, "holdings_label")
+    if scope in _HOLDINGS_SCOPES:
+        scope_text = _t(locale, f"holdings_scope_{scope}")
+        if locale == "en":
+            return f"{label} ({scope_text})"
+        return f"{label}（{scope_text}）"
+    return label
+
+
 def _holding_line(holding: DigestHolding, locale: DigestLocale) -> str:
     symbol = holding.symbol.strip()
     pieces: list[str] = []
@@ -857,7 +883,7 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
             f"{_format_equity(entry.equity, currency=entry.equity_currency)}"
         )
     if entry.holdings:
-        lines.append(_t(locale, "holdings_label"))
+        lines.append(_holdings_header(entry.holdings_scope, locale))
         for holding in entry.holdings:
             lines.append(_holding_line(holding, locale))
     if entry.signal_summary.strip():
@@ -1107,6 +1133,7 @@ def filter_runs_for_digest(
                 ).strip()
                 or "USD",
                 holdings=_parse_holdings(holdings_raw),
+                holdings_scope=_parse_holdings_scope(raw.get("holdings_scope")),
                 signal_summary=str(raw.get("signal_summary") or "").strip(),
                 rebalance_kind=_parse_rebalance_kind(raw.get("rebalance_kind")),
                 rebalance_conclusion=str(raw.get("rebalance_conclusion") or "").strip(),
