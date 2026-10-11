@@ -107,6 +107,12 @@ python3 python/scripts/send_daily_digest_telegram.py \
 - receipt：`total_fills=null`（`total_fills_status=unknown`），非 0
 - 渲染文案含「成交数未知」/「成交 未知」；**不**出现「无成交」「链路正常」
 
+### 私有存储自动接线（NOTIFY-04 B2，默认关闭）
+
+- 生产者（Schwab `digest-candidates-daily.yml`、IBKR `execution-report-heartbeat.yml` 定时）每天生成候选，只有设置了仓库变量 `DIGEST_CANDIDATES_GCS_URI` 才会上传到 `<uri>/<platform_id>/<business_day>/<target>.json`；没设就是 dry-run，文件只留在 runner 临时目录。
+- 中央日报设置了同名 Environment 变量才去读取：先用 `DIGEST_CANDIDATES_READER_*` 的 WIF 认证，再把 `<uri>/*/<business_day>/*.json` 和旧 secret（如果还有）用 `merge_digest_candidates.py` 合并（日志只打印条数）。过期行仍由 B0 规则丢弃。
+- 需要 owner 一次性准备：私有 bucket 或前缀、生产者 SA 的 objectCreator、读取 SA 的 objectViewer，然后设置这两个变量。全部完成并且 dry-run 核对通过之后，才删除 `DIGEST_CANDIDATES_JSON`（B7）。
+
 ### 生产注入（人闸）
 
 写入 Environment `runtime-strategy-switch` 的 secret `DIGEST_CANDIDATES_JSON`（或由私有前置步骤写出文件后设 `DIGEST_CANDIDATES_PATH`），再对 `daily-digest-notify.yml` 做 **dry-run** `workflow_dispatch`。改生产 Environment / 关 dry-run 需人工确认；本任务与自动化**不得**直接改生产 Environment。
