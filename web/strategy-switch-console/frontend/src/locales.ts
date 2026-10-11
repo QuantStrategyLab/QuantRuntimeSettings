@@ -992,6 +992,7 @@ export const EN_COPY = {
   "请选择账户": "Select an account",
   "加载中…": "Loading…",
   "{range}内暂无资产记录": "No asset history in {range}",
+  "历史仅 {days} 天（自 {date} 起），不代表更长期表现。": "Only {days} days of history (since {date}); this does not represent longer-term performance.",
   "只读演练": "Read-only rehearsal",
   "模拟观察": "Shadow observation",
   "验证": "Validation",

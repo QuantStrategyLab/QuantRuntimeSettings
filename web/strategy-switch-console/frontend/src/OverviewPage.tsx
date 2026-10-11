@@ -13,6 +13,7 @@ import {
   chartRangeEmptyNote,
   chartUnavailable,
   filterAssetHistoryByRange,
+  assetHistoryCoverage,
   formatOverviewInstant,
   formatOverviewShortInstant,
   accountNativeReadout,
@@ -511,11 +512,11 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const selectedUpdatedAt = accountId === "all" ? null : accountFactsUpdatedAt(selectedFacts);
   const assetsMetricLabel = accountId === "all" ? "账户最新估值（按币种）" : selectedWalletValuation ? "钱包总资产" : "总资产";
   const selectedCashLabel = accountId === "all" ? "账户现金（按来源语义和币种）" : selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
-  const filteredWalletPoints = walletChartSelected
-    ? filterAssetHistoryByRange(historyKey === requestedHistoryKey ? walletHistory?.points || [] : [], range) : [];
-  const filteredAccountPoints = walletChartSelected
-    ? [] : filterAssetHistoryByRange(historyKey === requestedHistoryKey && accountHistory?.identity_mismatch !== true && accountHistory?.series.currency === currency
-      ? (accountHistory?.series.points || []).filter(point => point.currency === currency) : [], range);
+  const storedWalletPoints = walletChartSelected && historyKey === requestedHistoryKey ? walletHistory?.points || [] : [];
+  const storedAccountPoints = !walletChartSelected && historyKey === requestedHistoryKey && accountHistory?.identity_mismatch !== true && accountHistory?.series.currency === currency
+    ? (accountHistory?.series.points || []).filter(point => point.currency === currency) : [];
+  const filteredWalletPoints = walletChartSelected ? filterAssetHistoryByRange(storedWalletPoints, range) : [];
+  const filteredAccountPoints = walletChartSelected ? [] : filterAssetHistoryByRange(storedAccountPoints, range);
   const geometry = walletChartSelected
     ? buildBinanceWalletHistoryChartGeometry(filteredWalletPoints)
     : buildAssetChartGeometry(filteredAccountPoints);
@@ -546,6 +547,9 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     break_before: point.break_before,
   })), range));
   const shownGeometry = accountId === "all" ? aggregateGeometry : geometry;
+  const historyCoverage = assetHistoryCoverage(accountId === "all"
+    ? aggregateCurrencySeries
+    : walletChartSelected ? storedWalletPoints : storedAccountPoints, range);
   const benchmarkSeries = RETURN_INDEX_LEGEND.map(name => presentMarketBenchmarkSeries(storedBenchmarkPoints, name));
   const primaryBenchmark = benchmarkSeries[0];
   const benchmarkGeometry = buildBenchmarkChartGeometry(primaryBenchmark.points);
@@ -809,6 +813,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         <div className="asset-chart-meta">
           <span>{shownGeometry.dots[0]?.date} → {shownGeometry.dots[shownGeometry.dots.length - 1]?.date}</span>
           <span>{currency} {shownGeometry.minLabel} – {shownGeometry.maxLabel}</span>
+          {historyCoverage?.shorterThanRange ? <span className="asset-chart-coverage">{t("历史仅 {days} 天（自 {date} 起），不代表更长期表现。", { days: historyCoverage.days, date: historyCoverage.firstDate })}</span> : null}
           {accountId === "all" && aggregateSeries.omittedPartialDateCount > 0 ? <span>{t("有 {count} 个日期省略了缺观察的账户，线段在缺口处断开。", { count: aggregateSeries.omittedPartialDateCount })}</span> : null}
         </div>
       </div> : <div className="chart-empty">

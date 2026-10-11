@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
+  assetHistoryCoverage,
   buildAssetChartGeometry,
   buildBinanceWalletHistoryChartGeometry,
   chartRangeEmptyNote,
@@ -59,6 +60,18 @@ const points = [
 const now = Date.parse("2026-09-04T12:00:00Z");
 assert.equal(filterAssetHistoryByRange(points, "all", now).length, 3);
 assert.deepEqual(filterAssetHistoryByRange(points, "3m", now).map((row) => row.observation_date), ["2026-09-01", "2026-09-02", "2026-09-04"]);
+// Coverage is measured from the first to the last real sample; a 3y/5y/10y/all
+// selection over 4 days of history must say so instead of implying more.
+assert.equal(assetHistoryCoverage([], "1y"), null);
+assert.equal(assetHistoryCoverage([{ observation_date: "bad" }], "1y"), null);
+assert.deepEqual(assetHistoryCoverage([...points].reverse(), "3y"), { firstDate: "2026-09-01", lastDate: "2026-09-04", days: 4, shorterThanRange: true });
+assert.equal(assetHistoryCoverage(points, "10y").shorterThanRange, true);
+assert.equal(assetHistoryCoverage(points, "all").shorterThanRange, true);
+assert.equal(assetHistoryCoverage([{ observation_date: "2026-09-04" }], "3m").days, 1);
+const longPoints = Array.from({ length: 120 }, (_, index) => ({ observation_date: new Date(Date.parse("2026-05-01T00:00:00Z") + index * 86400000).toISOString().slice(0, 10) }));
+assert.equal(assetHistoryCoverage(longPoints, "3m").shorterThanRange, false);
+assert.equal(assetHistoryCoverage(longPoints, "6m").shorterThanRange, true);
+
 
 const geometry = buildAssetChartGeometry(points);
 assert.equal(geometry.dots.length, 3);

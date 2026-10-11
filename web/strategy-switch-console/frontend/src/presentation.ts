@@ -363,6 +363,30 @@ export function filterAssetHistoryByRange<T extends { observation_date: string }
   return sorted.filter((item) => item.observation_date >= start && item.observation_date <= end);
 }
 
+export type AssetHistoryCoverage = {
+  firstDate: string;
+  lastDate: string;
+  days: number;
+  shorterThanRange: boolean;
+};
+
+/**
+ * Real coverage of stored history, measured from the first to the last stored
+ * sample (inclusive calendar days). `shorterThanRange` is true when the
+ * selected range (or "all") is longer than what was actually stored, so the
+ * chart must say how short the history is instead of implying multi-year data.
+ */
+export function assetHistoryCoverage(points: ReadonlyArray<{ observation_date: string }>, range: ChartRange): AssetHistoryCoverage | null {
+  if (!Array.isArray(points) || !points.length) return null;
+  const dates = points.map((item) => item?.observation_date).filter((date): date is string => typeof date === "string" && utcDayMs(date) !== null).sort();
+  if (!dates.length) return null;
+  const firstDate = dates[0];
+  const lastDate = dates[dates.length - 1];
+  const days = Math.round((utcDayMs(lastDate)! - utcDayMs(firstDate)!) / 86400000) + 1;
+  const shorterThanRange = range === "all" ? true : days < CHART_RANGE_DAYS[range];
+  return { firstDate, lastDate, days, shorterThanRange };
+}
+
 export type AssetChartGeometry = {
   width: number;
   height: number;
