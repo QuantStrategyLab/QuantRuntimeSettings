@@ -87,6 +87,11 @@ jobs:
       DIGEST_CANDIDATES_JSON: ${{ secrets.DIGEST_CANDIDATES_JSON }}
       # Optional path override (Environment variable); relative to workspace.
       DIGEST_CANDIDATES_PATH_VAR: ${{ vars.DIGEST_CANDIDATES_PATH || '' }}
+      # NOTIFY-04 B2: private producer store (unset = disabled). Layout:
+      #   <uri>/<platform_id>/<business_day>/<target>.json
+      DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}
+      DIGEST_CANDIDATES_READER_WIF_PROVIDER: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
+      DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT || 'qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com' }}
       # GCP project that hosts a sentinel bot-token replica (LongBridge path).
       GCP_PROJECT_ID: ${{ vars.DIGEST_GCP_PROJECT_ID || 'longbridgequant' }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
@@ -169,6 +174,50 @@ jobs:
             echo "No DIGEST_CANDIDATES injected; aggregator uses GitHub stubs only (counts unknown)."
             echo "Wire steps: docs/digest-candidates-wiring.zh-CN.md"
           fi
+
+      - name: Authenticate to Google Cloud for producer candidates (optional)
+        id: candidates_gcp_auth
+        if: ${{ env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        continue-on-error: true
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ env.DIGEST_CANDIDATES_READER_WIF_PROVIDER }}
+          service_account: ${{ env.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud for producer candidates (optional)
+        if: ${{ steps.candidates_gcp_auth.outcome == 'success' }}
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Fetch producer candidates from private store (optional)
+        if: ${{ env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        env:
+          INPUT_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
+          AUTH_OUTCOME: ${{ steps.candidates_gcp_auth.outcome }}
+        run: |
+          set -euo pipefail
+          # Never echo row contents (may carry equity); counts only.
+          if [[ "$AUTH_OUTCOME" != "success" ]]; then
+            echo "Producer candidates store configured but authentication failed; continuing without it." >&2
+            echo "::warning::digest candidates store auth failed"
+            exit 0
+          fi
+          day="${INPUT_BUSINESS_DAY:-$(TZ=America/New_York date +%F)}"
+          fetched="data/input/daily-digest/fetched"
+          mkdir -p "$fetched"
+          uri="${DIGEST_CANDIDATES_GCS_URI%/}"
+          found=0
+          while IFS= read -r object; do
+            [[ "$object" == *"/${day}/"*.json ]] || continue
+            rel="${object#"${uri}/"}"
+            mkdir -p "$fetched/$(dirname "$rel")"
+            gcloud storage cp "$object" "$fetched/$rel" --no-user-output-enabled
+            found=$((found + 1))
+          done < <(gcloud storage ls "${uri}/*/${day}/*.json" 2>/dev/null || true)
+          echo "Producer candidate files for ${day}: ${found}"
+          base="${DIGEST_CANDIDATES_PATH:-}"
+          out="data/input/daily-digest/candidates-merged.json"
+          python3 python/scripts/merge_digest_candidates.py ${base:+--base "$base"} --input-dir "$fetched" --output "$out"
+          echo "DIGEST_CANDIDATES_PATH=$out" >> "$GITHUB_ENV"
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
         id: gcp_auth
