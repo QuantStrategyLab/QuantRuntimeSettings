@@ -87,8 +87,9 @@ jobs:
       DIGEST_CANDIDATES_JSON: ${{ secrets.DIGEST_CANDIDATES_JSON }}
       # Optional path override (Environment variable); relative to workspace.
       DIGEST_CANDIDATES_PATH_VAR: ${{ vars.DIGEST_CANDIDATES_PATH || '' }}
-      # NOTIFY-04 B2: private producer store (unset = disabled). Layout:
-      #   <uri>/<platform_id>/<business_day>/<target>.json
+      # NOTIFY-04 B2: producer store (unset = disabled). Production value:
+      #   gs://qsl-runtime-logs-shared/digest-candidates  (reader SA: prefix-conditioned objectViewer)
+      # Layout: <uri>/<platform_id>/<business_day>/<target>.json
       DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}
       DIGEST_CANDIDATES_READER_WIF_PROVIDER: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
       DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT || 'qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com' }}
