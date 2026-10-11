@@ -2236,3 +2236,36 @@ export function overviewRuntimeStatusLabel(projection: unknown, sourceFreshness?
   if (view.label === "正常") return "健康";
   return "异常";
 }
+
+
+export type AccountHoldingsView =
+  | { status: "empty" }
+  | {
+    status: "available";
+    scopeNote: "仅股票，不含期权等其他品种" | "仅列出策略标的，不是账户全部持仓";
+    rows: Array<{ symbol: string; quantity: string; marketValue: string; currency: string }>;
+  };
+
+const HOLDINGS_DECIMAL_RE = /^-?(?:0|[1-9]\d*)(?:\.\d+)?$/;
+
+/**
+ * Read-only holdings from broker-reported run-report positions. Anything
+ * missing, stale, unscoped or malformed is "empty" (shown as 暂无), never a
+ * zero-quantity list.
+ */
+export function presentAccountHoldings(facts: { data_status?: string; positions?: unknown; positions_scope?: unknown } | null | undefined): AccountHoldingsView {
+  if (!facts || facts.data_status !== "fresh" || !Array.isArray(facts.positions) || !facts.positions.length) return { status: "empty" };
+  const scopeNote = facts.positions_scope === "stocks_only" ? "仅股票，不含期权等其他品种"
+    : facts.positions_scope === "strategy_symbols_only" ? "仅列出策略标的，不是账户全部持仓" : null;
+  if (!scopeNote) return { status: "empty" };
+  const rows: Array<{ symbol: string; quantity: string; marketValue: string; currency: string }> = [];
+  for (const item of facts.positions as Array<Record<string, unknown>>) {
+    if (!item || typeof item.symbol !== "string" || typeof item.currency !== "string"
+        || typeof item.quantity !== "string" || !HOLDINGS_DECIMAL_RE.test(item.quantity)
+        || typeof item.market_value !== "string" || !HOLDINGS_DECIMAL_RE.test(item.market_value)) {
+      return { status: "empty" };
+    }
+    rows.push({ symbol: item.symbol, quantity: item.quantity, marketValue: item.market_value, currency: item.currency });
+  }
+  return { status: "available", scopeNote, rows };
+}

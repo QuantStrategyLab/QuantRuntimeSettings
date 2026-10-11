@@ -13,6 +13,7 @@ import {
   chartRangeEmptyNote,
   chartUnavailable,
   filterAssetHistoryByRange,
+  presentAccountHoldings,
   formatOverviewInstant,
   formatOverviewShortInstant,
   accountNativeReadout,
@@ -310,6 +311,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     { admin: isAdmin === true, allAccounts: accountId === "all", now: privateScopeNow },
   );
   const selectedFacts = selectedAccount?.facts || null;
+  const selectedHoldings = presentAccountHoldings(selectedFacts);
   const chartFacts = chartAccount?.facts || null;
   const walletChartSelected = chartAccount?.platformKey === "binance";
   const accountHistory = history?.account_key === chartAccount?.accountKey && history?.platform === chartAccount?.platformKey ? history : null;
@@ -707,6 +709,16 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
           <BinanceQuantity amount={item.locked} originalLabel={t("原始值")} />
         </div>)}
       </div>
+    </section> : null}
+    {accountId !== "all" && selectedAccount && selectedAccount.platformKey !== "binance" ? <section className="overview-holdings" aria-label={t("持仓")}>
+      <h2>{t("持仓")}</h2>
+      {selectedHoldings.status === "available" ? <>
+        <p>{t(selectedHoldings.scopeNote)}</p>
+        <table>
+          <thead><tr><th>{t("标的")}</th><th>{t("数量")}</th><th>{t("市值")}</th></tr></thead>
+          <tbody>{selectedHoldings.rows.map(row => <tr key={row.symbol}><td>{row.symbol}</td><td>{row.quantity}</td><td>{row.currency} {row.marketValue}</td></tr>)}</tbody>
+        </table>
+      </> : <p>{t("暂无持仓数据")}</p>}
     </section> : null}
     <section className="chart-panel overview-chart">
       {walletChartSelected && chart === "assets" ? <h2>{t("钱包总资产变化（USDT）")}</h2> : null}

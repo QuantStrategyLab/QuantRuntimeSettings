@@ -24,6 +24,7 @@ import {
   ACCOUNT_FACTS_SOURCE_KIND,
   ACCOUNT_FACTS_STALE_MS,
   ACCOUNT_FACTS_PLATFORMS,
+  ACCOUNT_FACTS_POSITIONS_SCOPES,
   IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA,
   IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
   IBKR_ACCOUNT_FACTS_SOURCE_KIND,
@@ -1213,6 +1214,57 @@ const normalizedIbkrHistory = normalizeAccountFactsHistoryPayload(acceptedIbkrHi
 });
 assert.equal(normalizedIbkrHistory.broker_reported_balances[0].net_assets, null);
 assert.deepEqual(normalizedIbkrHistory.account_ids, ["U16608560"]);
+
+// Optional broker-reported positions (read-only holdings panel).
+assert.equal(Object.hasOwn(normalizedIbkrHistory, "broker_reported_positions"), false, "history without positions stays readable");
+const ibkrPositions = [
+  { symbol: "SOXL", quantity: "4", market_value: "635.92", currency: "USD" },
+  { symbol: "BRK.B", quantity: "1.5", market_value: "700", currency: "USD", avg_cost: "450.1" },
+];
+const ibkrWithPositions = normalizeAccountFactsHistoryPayload(ibkrHistory({
+  broker_reported_positions: ibkrPositions,
+  broker_reported_positions_scope: "stocks_only",
+}));
+assert.deepEqual(ibkrWithPositions.broker_reported_positions, ibkrPositions);
+assert.equal(ibkrWithPositions.broker_reported_positions_scope, ACCOUNT_FACTS_POSITIONS_SCOPES.ibkr);
+for (const patch of [
+  { broker_reported_positions: ibkrPositions },
+  { broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: ibkrPositions, broker_reported_positions_scope: "strategy_symbols_only" },
+  { broker_reported_positions: [], broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: [ibkrPositions[0], ibkrPositions[0]], broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: [{ ...ibkrPositions[0], quantity: 4 }], broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: [{ ...ibkrPositions[0], symbol: "soxl" }], broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: [{ ...ibkrPositions[0], currency: "BASE" }], broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: [{ ...ibkrPositions[0], account_id: "U1" }], broker_reported_positions_scope: "stocks_only" },
+  { broker_reported_positions: Array.from({ length: 65 }, (_, i) => ({ ...ibkrPositions[0], symbol: `S${i}` })), broker_reported_positions_scope: "stocks_only" },
+]) {
+  assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory(patch)), /invalid_account_facts_(positions|history)/);
+}
+const ibkrPositionsReadModel = buildAccountFactsReadModel({
+  accountOptions: { ibkr: [ibkrAccount] },
+  bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [ibkrBinding] },
+  storedByAccount: new Map([[`ibkr:${ibkrAccount.key}`, ibkrWithPositions]]),
+  now: Date.parse(ibkrWithPositions.observed_finished_at) + 1000,
+});
+assert.deepEqual(ibkrPositionsReadModel.accounts[0].positions, ibkrPositions);
+assert.equal(ibkrPositionsReadModel.accounts[0].positions_scope, "stocks_only");
+const staleIbkrPositionsReadModel = buildAccountFactsReadModel({
+  accountOptions: { ibkr: [ibkrAccount] },
+  bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [ibkrBinding] },
+  storedByAccount: new Map([[`ibkr:${ibkrAccount.key}`, ibkrWithPositions]]),
+  now: Date.parse(ibkrWithPositions.observed_finished_at) + ACCOUNT_FACTS_STALE_MS + 1,
+});
+assert.equal(Object.hasOwn(staleIbkrPositionsReadModel.accounts[0], "positions"), false, "stale positions are not shown");
+const schwabWithPositions = normalizeAccountFactsHistoryPayload(schwabHistory({
+  broker_reported_positions: [{ symbol: "TQQQ", quantity: "10", market_value: "900", currency: "USD" }],
+  broker_reported_positions_scope: "strategy_symbols_only",
+}));
+assert.equal(schwabWithPositions.broker_reported_positions_scope, "strategy_symbols_only");
+assert.throws(() => normalizeAccountFactsHistoryPayload(schwabHistory({
+  broker_reported_positions: [{ symbol: "TQQQ", quantity: "10", market_value: "900", currency: "USD" }],
+  broker_reported_positions_scope: "stocks_only",
+})), /invalid_account_facts_positions/);
 assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
   broker_account_type: { value: "MARGIN", source_tag: "securitiesAccount.type" },
 })), /invalid_account_facts_history/);

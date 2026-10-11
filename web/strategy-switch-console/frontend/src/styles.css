@@ -669,3 +669,7 @@ textarea { width: 100%; resize: vertical; }
   .account-status-table tr:not(.overview-account-entry) { display: block; padding: 12px; color: var(--muted); }
   .home-decisions .empty-state { margin-top: 12px; padding: 22px 18px; }
 }
+
+.overview-holdings table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.overview-holdings th, .overview-holdings td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line, rgba(127, 127, 127, 0.25)); }
+.overview-holdings td:not(:first-child), .overview-holdings th:not(:first-child) { text-align: right; }
