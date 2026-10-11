@@ -1,0 +1,44 @@
+{
+  "schema_version": "runtime_report.v1",
+  "platform": "interactive_brokers",
+  "deploy_target": "cloud_run",
+  "project_id": "example-project",
+  "service_name": "synthetic-service",
+  "account_scope": "live-synthetic",
+  "runtime_target": {
+    "account_selector": [
+      "U00000001"
+    ],
+    "deployment_selector": "synthetic-deployment"
+  },
+  "diagnostics": {
+    "runtime_revision": "synthetic-00001-abc"
+  },
+  "summary": {
+    "account_facts": {
+      "schema_version": "ibkr_account_snapshot.v1",
+      "account_ids": [
+        "U00000001"
+      ],
+      "currency": "USD",
+      "net_assets": null,
+      "cash": [
+        {
+          "currency": "USD",
+          "cash_balance": "12.50",
+          "source_tag": "CashBalance"
+        }
+      ],
+      "broker_reported_positions": [
+        {
+          "symbol": "SOXL",
+          "quantity": "2",
+          "market_value": "25.50",
+          "currency": "USD",
+          "avg_cost": "10"
+        }
+      ],
+      "broker_reported_positions_scope": "stocks_only"
+    }
+  }
+}
