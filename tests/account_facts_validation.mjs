@@ -1241,6 +1241,25 @@ for (const patch of [
 ]) {
   assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory(patch)), /invalid_account_facts_(positions|history)/);
 }
+// Both optional fields are additive; other platforms and malformed pairs stay closed.
+for (const makeHistory of [ibkrHistory, schwabHistory]) {
+  const scope = makeHistory === ibkrHistory ? "stocks_only" : "strategy_symbols_only";
+  assert.doesNotThrow(() => normalizeAccountFactsHistoryPayload(makeHistory()));
+  for (const rows of [null, {}, [null], [{ ...ibkrPositions[0], avg_cost: 1 }],
+    [{ ...ibkrPositions[0], quantity: "1e3" }], [{ ...ibkrPositions[0], market_value: "NaN" }]]) {
+    assert.throws(() => normalizeAccountFactsHistoryPayload(makeHistory({
+      broker_reported_positions: rows, broker_reported_positions_scope: scope,
+    })), /invalid_account_facts_positions/);
+  }
+  const maximumRows = Array.from({ length: 64 }, (_, i) => ({ ...ibkrPositions[0], symbol: `S${i}` }));
+  assert.equal(normalizeAccountFactsHistoryPayload(makeHistory({
+    broker_reported_positions: maximumRows, broker_reported_positions_scope: scope,
+  })).broker_reported_positions.length, 64);
+}
+assert.throws(() => normalizeAccountFactsHistoryPayload(historyPayload({
+  broker_reported_positions: ibkrPositions, broker_reported_positions_scope: "stocks_only",
+})), /invalid_account_facts_positions/);
+
 const ibkrPositionsReadModel = buildAccountFactsReadModel({
   accountOptions: { ibkr: [ibkrAccount] },
   bindings: { schema_version: ACCOUNT_FACTS_BINDINGS_SCHEMA, bindings: [ibkrBinding] },
@@ -1346,6 +1365,40 @@ assert.deepEqual(ibkrUsdHistory.series.gap_dates, [...new Set([
 const ibkrHkdHistory = await (await getHistory("ibkr", ibkrAccount.key, "HKD", sessionHeaders, env)).json();
 assert.equal(ibkrHkdHistory.series.points[0].net_assets, "99.25");
 assert.equal(ibkrHkdHistory.series.points[0].total_cash, null);
+
+// Receiver-first rollout: old publishers work, paired fields survive storage/readback,
+// invalid updates cannot overwrite them, and publisher rollback removes latest holdings.
+const holdingsStarted = new Date(Date.now() - 50_000).toISOString();
+const holdingsFinished = new Date(Date.now() - 40_000).toISOString();
+const holdingsHistory = ibkrHistory({
+  observed_started_at: holdingsStarted, observed_finished_at: holdingsFinished,
+  broker_reported_positions: ibkrPositions, broker_reported_positions_scope: "stocks_only",
+});
+const holdingsWrite = await post(holdingsHistory, ibkrAuth, env);
+assert.equal(holdingsWrite.status, 200);
+const holdingsAck = await holdingsWrite.json();
+assert.equal(Object.hasOwn(holdingsAck, "broker_reported_positions"), false);
+const readIbkrHoldings = async () => (await (await get(sessionHeaders, env)).json()).accounts
+  .find(item => item.platform === "ibkr" && item.account_key === ibkrAccount.key);
+assert.deepEqual((await readIbkrHoldings()).positions, ibkrPositions);
+assert.equal((await readIbkrHoldings()).positions_scope, "stocks_only");
+assert.equal((await (await post(holdingsHistory, ibkrAuth, env)).json()).unchanged, true);
+for (const patch of [
+  { broker_reported_positions_scope: "strategy_symbols_only" },
+  { broker_reported_positions: [] },
+]) {
+  assert.equal((await post({ ...holdingsHistory, ...patch }, ibkrAuth, env)).status, 400);
+  assert.deepEqual((await readIbkrHoldings()).positions, ibkrPositions, "rejected updates preserve stored holdings");
+}
+const publisherRollback = await post(ibkrHistory({
+  observed_started_at: new Date(Date.now() - 35_000).toISOString(),
+  observed_finished_at: new Date(Date.now() - 30_000).toISOString(),
+}), ibkrAuth, env);
+assert.equal(publisherRollback.status, 200);
+const rollbackRead = await readIbkrHoldings();
+assert.equal(rollbackRead.data_status, "fresh");
+assert.equal(Object.hasOwn(rollbackRead, "positions"), false, "missing positions never carry forward from an older snapshot");
+assert.equal(Object.hasOwn(rollbackRead, "positions_scope"), false);
 
 // A server-approved source revision may rotate while the account identity stays fixed.
 // Old data must disappear under the new binding until a new-source observation arrives.
@@ -1466,6 +1519,8 @@ const rotationIbkrOldHistory = {
   target_id: rotationIbkrOldBinding.target_id,
   source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, status: "bound", id: rotationIbkrOldId },
   observation_date: observationDateFrom(previousDayStartedAt),
+  broker_reported_positions: ibkrPositions,
+  broker_reported_positions_scope: "stocks_only",
   broker_reported_balances: [{ currency: "USD", net_assets: "222" }],
   cash: [{ currency: "USD", cash_balance: "2", source_tag: "CashBalance" }],
 };
@@ -1557,6 +1612,9 @@ const retainedIbkrOld = await runtimeCommand({
   source_binding_id: rotationIbkrOldId,
 });
 assert.deepEqual(retainedIbkrOld.days.map((day) => day.payload.broker_reported_balances[0].net_assets), ["222"]);
+assert.deepEqual(retainedIbkrOld.days[0].payload.broker_reported_positions, ibkrPositions,
+  "old daily payloads retain holdings even after a source change and a newer position-less snapshot");
+assert.equal(retainedIbkrOld.days[0].payload.broker_reported_positions_scope, "stocks_only");
 
 assert.match(overviewPage, /selectedCashLabel/);
 assert.match(overviewPage, /cashFieldForPlatform,/);
