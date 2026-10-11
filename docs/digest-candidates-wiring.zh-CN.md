@@ -42,6 +42,7 @@ GitHub workflow 成功结论只是**存在性**辅助证据；成交/订单数�
 
 - 聚合键为 `(platform_id, strategy_profile, opaque_account_uid|unknown, target_id|unknown)`；同策略多账户必须带身份，禁止仅用平台+策略合并。
 - `actually_ran` 必须显式布尔；缺省不再默认 `true`。
+- **NOTIFY-04 新鲜度**：每行必须带 `business_day`（America/New_York 交易日，ISO 日期），或者带 `as_of`（ISO 时间戳，按纽约日历日换算；无时区按 UTC）。和本次日报业务日不一致、缺失或无法解析的行一律丢弃，不渲染金额/持仓；日报末尾加一段「⚠️ 数据未更新，已略去：· 平台 / 策略（数据业务日 …）」，receipt 写 `stale_candidates[]`（只含平台、策略、日期、原因码）和 `source_coverage.stale_candidates_count`。有丢弃行时不判定「已验证无运行」。
 - 新 stub / 存在性证据：`fill_count`/`order_count` 用 `null` + `field_status.counts_unknown` 或 `reason_code=github_workflow_existence_only`。
 - 旧生产者若仍给 `int 0` 且无 `field_status`，按「已验证零成交」兼容。
 - 权益/持仓/信号/调仓字段可选；有则渲染，无则省略；中央不编造。

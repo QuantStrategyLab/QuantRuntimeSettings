@@ -566,6 +566,88 @@ def enrich_candidate_labels(
     return out
 
 
+CANDIDATE_STALE_REASON_OLDER = "candidate_business_day_stale"
+CANDIDATE_STALE_REASON_FUTURE = "candidate_business_day_future"
+CANDIDATE_STALE_REASON_UNDATED = "candidate_business_day_missing"
+CANDIDATE_STALE_REASON_INVALID = "candidate_business_day_invalid"
+
+
+def candidate_business_day(row: Mapping[str, Any]) -> tuple[str, str]:
+    """Return ``(iso_day, status)`` for one producer candidate row.
+
+    Sources, in order: ``business_day`` (ISO date, first 10 chars) then
+    ``as_of`` (ISO datetime → America/New_York calendar day; naive = UTC).
+    ``status`` is ``ok`` / ``missing`` / ``invalid``.
+    """
+
+    raw_day = str(row.get("business_day") or "").strip()
+    if raw_day:
+        try:
+            return date.fromisoformat(raw_day[:10]).isoformat(), "ok"
+        except ValueError:
+            return "", "invalid"
+    raw_as_of = str(row.get("as_of") or "").strip()
+    if raw_as_of:
+        try:
+            stamp = datetime.fromisoformat(raw_as_of.replace("Z", "+00:00"))
+        except ValueError:
+            return "", "invalid"
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=timezone.utc)
+        return stamp.astimezone(NY_TZ).date().isoformat(), "ok"
+    return "", "missing"
+
+
+def partition_candidates_by_business_day(
+    rows: Sequence[Mapping[str, Any]],
+    business_day: str,
+    *,
+    config: Mapping[str, Any] | None = None,
+    locale: str = "zh",
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """NOTIFY-04: keep only candidates whose business day equals the digest day.
+
+    Producer candidates are injected out-of-band (Environment secret / file), so
+    a row that was valid yesterday must never be rendered as today's evidence.
+    Rows with a different, missing, or unparseable business day are dropped
+    (fail closed). Returns ``(fresh_rows, stale_notes)``; stale notes are
+    redacted (no account ids, no amounts) for the receipt and the digest note.
+    """
+
+    target = date.fromisoformat(business_day).isoformat()
+    fresh: list[dict[str, Any]] = []
+    stale: list[dict[str, Any]] = []
+    for raw in rows:
+        row = dict(raw)
+        day, status = candidate_business_day(row)
+        if status == "ok" and day == target:
+            fresh.append(row)
+            continue
+        if status == "missing":
+            reason = CANDIDATE_STALE_REASON_UNDATED
+        elif status == "invalid":
+            reason = CANDIDATE_STALE_REASON_INVALID
+        elif day < target:
+            reason = CANDIDATE_STALE_REASON_OLDER
+        else:
+            reason = CANDIDATE_STALE_REASON_FUTURE
+        profile = str(row.get("strategy_profile") or "").strip()
+        label = str(row.get("strategy_label") or "").strip()
+        if not label and config is not None and profile:
+            label = strategy_label_from_config(config, profile, locale=locale)
+        stale.append(
+            {
+                "platform_id": str(row.get("platform_id") or "").strip(),
+                "strategy_profile": profile,
+                "strategy_label": label,
+                "candidate_business_day": day,
+                "digest_business_day": target,
+                "reason_code": reason,
+            }
+        )
+    return fresh, stale
+
+
 def collect_digest_runs(
     *,
     business_day: str,
@@ -574,8 +656,11 @@ def collect_digest_runs(
     include_github: bool = True,
     locale: str = "zh",
 ) -> CollectResult:
-    file_rows, candidates_configured, candidates_loaded = load_candidates_from_file(
+    loaded_rows, candidates_configured, candidates_loaded = load_candidates_from_file(
         candidates_path
+    )
+    file_rows, stale_notes = partition_candidates_by_business_day(
+        loaded_rows, business_day, config=config, locale=locale
     )
     github_result = GithubEvidenceResult()
     if include_github:
@@ -593,6 +678,7 @@ def collect_digest_runs(
         github_sources_queried=github_result.sources_queried,
         github_sources_matched=github_result.sources_matched,
         github_failures=tuple(github_result.failures),
+        stale_candidates=tuple(stale_notes),
     )
     return CollectResult(runs=runs, coverage=coverage, merged_rows=enriched)
 
@@ -690,6 +776,7 @@ def build_receipt(
         "evidence_status": digest.resolve_evidence_status(payload),
         "source_coverage": collected.coverage.to_dict(),
         "failures": list(collected.coverage.github_failures),
+        "stale_candidates": [dict(item) for item in collected.coverage.stale_candidates],
         "runs": [_run_receipt_dict(entry) for entry in payload.runs],
         "message_chars": message_chars,
     }
