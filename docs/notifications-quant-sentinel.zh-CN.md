@@ -54,6 +54,13 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 - **观察字段（有证据才写，禁止编造）**：`strategy_label`、`equity`、`holdings[]`（symbol/value/qty）、`signal_summary`、`rebalance_kind` / `rebalance_conclusion`、可选 `tips` / `account_hint`。每个观察块标题前缀 `[account]`：`account_hint`（人类可读）→ `{platform_id} {account_scope|execution_mode}`（如 `schwab live` / `ibkr live` / `firstrade paper`）→ 短 `opaque_account_uid` → `target_id`（末位）。GitHub workflow 成功结论只证明「跑过」，不填金额/持仓。
 - **不改交易/风控判定**；纯聚合展示。金额与账户标识不得写入公开 CI 日志。
 
+### NOTIFY-04 四段式日报（sections_v2，试运行中）
+
+- 版式：`--layout sections_v2` / env `DIGEST_LAYOUT` / workflow_dispatch 输入 `layout`。**定时运行固定 `v1`**，切换需要单独批准（NOTIFY-04 B7）。
+- 窗口：纽约交易日 `B` 的日报标为上海 `B+1`，覆盖 `[B 06:00, B+1 06:00)` Asia/Shanghai（= `[B-1 22:00, B 22:00)` UTC）；receipt 写 `window{start_local,end_local,start_utc,end_utc,report_date}`。
+- 顺序：⚠️ 待处理（异常行、过期候选、证据未知）→ 📈 美股日策略（纽约周末写「休市」，工作日无证据写「本窗口无运行证据」）→ 💰 定投（`us_dca_month_end` 和加密 `*_dca`；只在有运行时出现）→ 🪙 加密小时策略（只在有运行时出现）→ 🧾 覆盖。
+- 分段：候选行的 `section`（`us_daily` / `dca` / `crypto_intraday`）优先；没有就按 `platform-config.json` 的 domain / scheduler_profile 推断。Binance 小时策略里的 BTC 定投腿要等生产者单独出一行 `section=dca`（B3）。
+
 ### 调度（合同默认）
 
 - 时区：`Asia/Shanghai`
