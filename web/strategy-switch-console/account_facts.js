@@ -130,16 +130,23 @@ function normalizeBrokerReportedPositions(platform, raw) {
   if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_POSITIONS) reject("invalid_account_facts_positions");
   const seen = new Set();
   const positions = rows.map((item) => {
-    const keys = Object.prototype.hasOwnProperty.call(item || {}, "avg_cost") ? [...POSITION_KEYS, "avg_cost"] : POSITION_KEYS;
+    const hasAvgCost = Object.prototype.hasOwnProperty.call(item || {}, "avg_cost");
+    const hasCurrencySource = Object.prototype.hasOwnProperty.call(item || {}, "currency_source");
+    const keys = [...POSITION_KEYS, ...(hasAvgCost ? ["avg_cost"] : []),
+      ...(hasCurrencySource ? ["currency_source"] : [])];
     if (!exactKeys(item, keys)
         || typeof item.symbol !== "string" || !POSITION_SYMBOL_RE.test(item.symbol) || seen.has(item.symbol)
         || typeof item.currency !== "string" || !CURRENCY_RE.test(item.currency)
-        || keys.slice(1).some((key) => key !== "currency" && (typeof item[key] !== "string" || !DECIMAL_RE.test(item[key])))) {
+        || (hasCurrencySource && (platform !== "schwab" || item.currency_source !== "owner_confirmed" || item.currency !== "USD"))
+        || ["quantity", "market_value", ...(hasAvgCost ? ["avg_cost"] : [])]
+          .some((key) => typeof item[key] !== "string" || !DECIMAL_RE.test(item[key]))) {
       reject("invalid_account_facts_positions");
     }
     seen.add(item.symbol);
     const row = { symbol: item.symbol, quantity: item.quantity, market_value: item.market_value, currency: item.currency };
-    if (keys.length > POSITION_KEYS.length) row.avg_cost = item.avg_cost;
+    if (hasAvgCost) row.avg_cost = item.avg_cost;
+    // Preserve the producer's explicit owner-confirmed USD provenance; never infer it.
+    if (hasCurrencySource) row.currency_source = item.currency_source;
     return row;
   });
   return { positions, scope };

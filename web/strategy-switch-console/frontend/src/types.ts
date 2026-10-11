@@ -108,6 +108,7 @@ export type AccountFactsPosition = {
   market_value: string;
   currency: string;
   avg_cost?: string;
+  currency_source?: "owner_confirmed";
 };
 
 export type AccountFactsTotals = {
