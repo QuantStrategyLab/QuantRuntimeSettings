@@ -246,6 +246,7 @@ class BuildReceiptDualWriteTests(unittest.TestCase):
                         "runs": [
                             {
                                 "platform_id": "schwab",
+                                "business_day": "2026-10-09",
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "actually_ran": True,
                                 "opaque_account_uid": "acct-a",
@@ -303,6 +304,7 @@ class BuildReceiptDualWriteTests(unittest.TestCase):
                         "runs": [
                             {
                                 "platform_id": "ibkr",
+                                "business_day": "2026-10-09",
                                 "strategy_profile": "tqqq_growth_income",
                                 "actually_ran": True,
                                 "account_hint": "U16608560",

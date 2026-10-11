@@ -78,6 +78,11 @@ _TEXTS: dict[str, dict[str, str]] = {
         "conclusion_no_order_prefix": "未下单",
         "platform_tag": "平台",
         "identity_tag": "身份",
+        "stale_candidates_header": "⚠️ 数据未更新，已略去：",
+        "stale_candidate_line": "· {platform} / {strategy}（{detail}）",
+        "stale_detail_day": "数据业务日 {day}",
+        "stale_detail_undated": "未注明业务日",
+        "heartbeat_all_candidates_stale": "今日候选数据均未更新，不能判定为链路正常。",
     },
     "en": {
         "daily_digest_title": "📡 QuantSentinel · Daily digest",
@@ -128,6 +133,13 @@ _TEXTS: dict[str, dict[str, str]] = {
         "conclusion_no_order_prefix": "No order",
         "platform_tag": "Platform",
         "identity_tag": "Identity",
+        "stale_candidates_header": "⚠️ Data not updated, omitted:",
+        "stale_candidate_line": "· {platform} / {strategy} ({detail})",
+        "stale_detail_day": "data business day {day}",
+        "stale_detail_undated": "no business day",
+        "heartbeat_all_candidates_stale": (
+            "All candidate data is stale today; monitoring link health is not confirmed."
+        ),
     },
 }
 
@@ -459,6 +471,15 @@ class EvidenceCoverage:
     github_sources_queried: int = 0
     github_sources_matched: int = 0
     github_failures: tuple[dict[str, Any], ...] = ()
+    # NOTIFY-04: candidate rows dropped because their business day did not match
+    # the digest business day (or was missing). Each item is a redacted mapping
+    # with platform_id / strategy_profile / strategy_label /
+    # candidate_business_day / reason_code — never account ids or amounts.
+    stale_candidates: tuple[dict[str, Any], ...] = ()
+
+    @property
+    def stale_candidates_count(self) -> int:
+        return len(self.stale_candidates)
 
     @property
     def has_source_failures(self) -> bool:
@@ -469,6 +490,10 @@ class EvidenceCoverage:
         """True only when configured sources were consulted without failure."""
 
         if self.has_source_failures:
+            return False
+        # Stale producer data means the producer did not refresh: we cannot
+        # claim a verified idle day.
+        if self.stale_candidates:
             return False
         if self.github_enabled and self.github_sources_queried <= 0:
             return False
@@ -489,6 +514,8 @@ class EvidenceCoverage:
             "github_failures": list(self.github_failures),
             "has_source_failures": self.has_source_failures,
             "is_complete_for_verified_idle": self.is_complete_for_verified_idle,
+            "stale_candidates_count": self.stale_candidates_count,
+            "stale_candidates": [dict(item) for item in self.stale_candidates],
         }
 
 
@@ -939,6 +966,41 @@ def resolve_evidence_status(
     return "evidence_unknown"
 
 
+def _render_stale_candidates(
+    coverage: EvidenceCoverage | None, locale: DigestLocale
+) -> list[str]:
+    """Localized note listing candidate rows dropped as stale (NOTIFY-04)."""
+
+    items = tuple(coverage.stale_candidates) if coverage is not None else ()
+    if not items:
+        return []
+    lines = [_t(locale, "stale_candidates_header")]
+    seen: set[tuple[str, str, str]] = set()
+    for item in items:
+        platform = str(item.get("platform_id") or "").strip() or "unknown"
+        strategy = (
+            str(item.get("strategy_label") or "").strip()
+            or str(item.get("strategy_profile") or "").strip()
+            or "unknown"
+        )
+        day = str(item.get("candidate_business_day") or "").strip()
+        detail = (
+            _t(locale, "stale_detail_day").format(day=day)
+            if day
+            else _t(locale, "stale_detail_undated")
+        )
+        key = (platform, strategy, detail)
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(
+            _t(locale, "stale_candidate_line").format(
+                platform=platform, strategy=strategy, detail=detail
+            )
+        )
+    return lines
+
+
 def render_daily_digest(payload: DailyDigestInput) -> str:
     """Render one Telegram message body (never includes tokens or chat ids).
 
@@ -956,10 +1018,16 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     if not runs:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
         lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
+        stale_lines = _render_stale_candidates(payload.evidence_coverage, locale)
         if evidence_status == "verified_idle":
             lines.append(_t(locale, "heartbeat_no_run_verified"))
+        elif stale_lines:
+            lines.append(_t(locale, "heartbeat_all_candidates_stale"))
         else:
             lines.append(_t(locale, "heartbeat_evidence_unknown"))
+        if stale_lines:
+            lines.append("")
+            lines.extend(stale_lines)
         return "\n".join(lines)
 
     # Prefer 收盘日报 when any run has known fills > 0, even if other runs'
@@ -990,6 +1058,10 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
         ):
             lines.append("")
         lines.extend(block)
+    stale_lines = _render_stale_candidates(payload.evidence_coverage, locale)
+    if stale_lines:
+        lines.append("")
+        lines.extend(stale_lines)
     return "\n".join(lines)
 
 

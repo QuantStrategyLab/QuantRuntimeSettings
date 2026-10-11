@@ -58,6 +58,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                         "runs": [
                             {
                                 "platform_id": "ibkr",
+                                "business_day": "2026-10-08",
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "actually_ran": True,
                                 "fill_count": 2,
@@ -65,6 +66,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                             },
                             {
                                 "platform_id": "firstrade",
+                                "business_day": "2026-10-08",
                                 "strategy_profile": "dca_month_end",
                                 "actually_ran": False,
                             },
@@ -291,6 +293,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                         "runs": [
                             {
                                 "platform_id": "schwab",
+                                "business_day": "2026-10-08",
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "actually_ran": True,
                                 "cycle_count": 1,
@@ -352,6 +355,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                         "runs": [
                             {
                                 "platform_id": "schwab",
+                                "business_day": "2026-10-08",
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "opaque_account_uid": "acct-a",
                                 "target_id": "schwab/a",
@@ -368,6 +372,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                             },
                             {
                                 "platform_id": "schwab",
+                                "business_day": "2026-10-08",
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "opaque_account_uid": "acct-b",
                                 "target_id": "schwab/b",
@@ -492,6 +497,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                         "runs": [
                             {
                                 "platform_id": "ibkr",
+                                "business_day": "2026-10-08",
                                 "strategy_profile": "soxl_soxx_trend_income",
                                 "opaque_account_uid": "ibkr-opaque",
                                 "target_id": "ibkr/demo",
@@ -543,3 +549,150 @@ class DailyDigestWorkflowContractTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CandidateFreshnessTests(unittest.TestCase):
+    """NOTIFY-04: stale DIGEST_CANDIDATES rows are dropped, never replayed."""
+
+    def _write(self, tmp: str, rows: list[dict]) -> Path:
+        path = Path(tmp) / "candidates.json"
+        path.write_text(
+            json.dumps({"schema_version": "qsl.digest_candidates.v1", "runs": rows}),
+            encoding="utf-8",
+        )
+        return path
+
+    def _row(self, **extra) -> dict:
+        row = {
+            "platform_id": "schwab",
+            "strategy_profile": "soxl_soxx_trend_income",
+            "opaque_account_uid": "acct-a",
+            "target_id": "schwab/live",
+            "actually_ran": True,
+            "cycle_count": 1,
+            "fill_count": None,
+            "field_status": {"fill_count": "counts_unknown"},
+            "equity": 990.06,
+            "signal_summary": "hold",
+        }
+        row.update(extra)
+        return row
+
+    def test_candidate_business_day_sources(self):
+        self.assertEqual(
+            aggregator.candidate_business_day({"business_day": "2026-10-09"}),
+            ("2026-10-09", "ok"),
+        )
+        # as_of falls back to the New York calendar day (02:00Z → prior NY day).
+        self.assertEqual(
+            aggregator.candidate_business_day({"as_of": "2026-10-10T02:00:00Z"}),
+            ("2026-10-09", "ok"),
+        )
+        self.assertEqual(aggregator.candidate_business_day({}), ("", "missing"))
+        self.assertEqual(
+            aggregator.candidate_business_day({"business_day": "yesterday"}),
+            ("", "invalid"),
+        )
+
+    def test_stale_rows_dropped_and_fresh_rows_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp,
+                [
+                    self._row(business_day="2026-10-12"),
+                    self._row(
+                        platform_id="ibkr",
+                        strategy_profile="tqqq_growth_income",
+                        opaque_account_uid="acct-b",
+                        target_id="ibkr/live",
+                        business_day="2026-10-08",
+                    ),
+                ],
+            )
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-12",
+                locale="zh",
+                candidates_path=path,
+                include_github=False,
+            )
+            receipt = aggregator.build_receipt(payload, collected, message_chars=len(text))
+        self.assertEqual([r.platform_id for r in payload.runs], ["schwab"])
+        self.assertEqual(receipt["source_coverage"]["candidates_count"], 1)
+        self.assertEqual(receipt["source_coverage"]["stale_candidates_count"], 1)
+        stale = receipt["stale_candidates"][0]
+        self.assertEqual(stale["platform_id"], "ibkr")
+        self.assertEqual(stale["candidate_business_day"], "2026-10-08")
+        self.assertEqual(stale["reason_code"], "candidate_business_day_stale")
+        self.assertNotIn("opaque_account_uid", stale)
+        self.assertNotIn("equity", stale)
+        self.assertIn("⚠️ 数据未更新，已略去：", text)
+        self.assertIn("· ibkr / 纳斯达克增长收益（数据业务日 2026-10-08）", text)
+
+    def test_all_stale_is_not_verified_idle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(
+                tmp,
+                [
+                    self._row(business_day="2026-10-09"),
+                    self._row(opaque_account_uid="acct-z"),  # undated
+                ],
+            )
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-12",
+                locale="zh",
+                candidates_path=path,
+                include_github=False,
+            )
+            receipt = aggregator.build_receipt(payload, collected, message_chars=len(text))
+        self.assertEqual(payload.runs, ())
+        self.assertEqual(receipt["evidence_status"], "evidence_unknown")
+        self.assertFalse(receipt["source_coverage"]["is_complete_for_verified_idle"])
+        self.assertNotIn("已验证无平台", text)
+        self.assertNotIn("990", text)
+        self.assertIn("今日候选数据均未更新，不能判定为链路正常。", text)
+        self.assertIn("（数据业务日 2026-10-09）", text)
+        self.assertIn("（未注明业务日）", text)
+        reasons = sorted(item["reason_code"] for item in receipt["stale_candidates"])
+        self.assertEqual(
+            reasons,
+            ["candidate_business_day_missing", "candidate_business_day_stale"],
+        )
+
+    def test_future_row_dropped_and_english_note(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, [self._row(business_day="2026-10-13")])
+            payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-12",
+                locale="en",
+                candidates_path=path,
+                include_github=False,
+            )
+        self.assertEqual(payload.runs, ())
+        self.assertEqual(
+            collected.coverage.stale_candidates[0]["reason_code"],
+            "candidate_business_day_future",
+        )
+        self.assertIn("⚠️ Data not updated, omitted:", text)
+        self.assertIn("data business day 2026-10-13", text)
+
+    def test_no_stale_note_when_all_fresh(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, [self._row(business_day="2026-10-12")])
+            _payload, text, collected = aggregator.build_digest_payload(
+                business_day="2026-10-12",
+                locale="zh",
+                candidates_path=path,
+                include_github=False,
+            )
+        self.assertEqual(collected.coverage.stale_candidates, ())
+        self.assertNotIn("数据未更新", text)
+
+    def test_schema_declares_as_of(self):
+        schema = json.loads(
+            (ROOT.parent / "schemas" / "qsl-digest-candidates.v1.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        props = schema["$defs"]["run"]["properties"]
+        self.assertIn("as_of", props)
+        self.assertIn("business_day", props)
