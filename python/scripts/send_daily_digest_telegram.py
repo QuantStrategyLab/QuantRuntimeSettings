@@ -352,6 +352,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--business-day", default=os.environ.get("DIGEST_BUSINESS_DAY"))
     parser.add_argument("--locale", default=None)
+    parser.add_argument(
+        "--layout",
+        default=None,
+        choices=["v1", "sections_v2"],
+        help="Message layout (default env DIGEST_LAYOUT or v1). sections_v2 = NOTIFY-04 four-section report.",
+    )
     parser.add_argument("--candidates", type=Path, default=None)
     parser.add_argument("--no-github", action="store_true")
     parser.add_argument("--platform-config", type=Path, default=None)
@@ -441,6 +447,7 @@ def main(argv: list[str] | None = None) -> int:
         candidates_path=args.candidates,
         include_github=not args.no_github,
         config_path=args.platform_config,
+        layout=args.layout,
     )
 
     dry_run = args.dry_run or str(os.environ.get("DIGEST_DRY_RUN") or "").lower() in {

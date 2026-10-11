@@ -95,6 +95,51 @@ def resolve_business_day(
     return stamp.astimezone(NY_TZ).date().isoformat()
 
 
+DIGEST_CUTOFF_HOUR_SHANGHAI = 6
+
+
+def digest_window_for(business_day: str) -> dict[str, str]:
+    """NOTIFY-04 B1: Shanghai cut-off window for a New York business day.
+
+    The report for NY session ``B`` is dated ``B+1`` in Shanghai and covers
+    ``[B 06:00, B+1 06:00)`` Asia/Shanghai — i.e. ``[B-1 22:00, B 22:00)`` UTC.
+    The US close (16:00 NY = 04:00/05:00 Shanghai) of ``B`` falls inside it, and
+    a 24/7 crypto runtime contributes the cycles started inside the window.
+    """
+
+    day = date.fromisoformat(business_day)
+    start_local = datetime(
+        day.year, day.month, day.day, DIGEST_CUTOFF_HOUR_SHANGHAI, tzinfo=SHANGHAI_TZ
+    )
+    end_local = start_local + timedelta(days=1)
+    return {
+        "timezone": "Asia/Shanghai",
+        "business_day": day.isoformat(),
+        "report_date": end_local.date().isoformat(),
+        "start_local": start_local.strftime("%Y-%m-%d %H:%M"),
+        "end_local": end_local.strftime("%Y-%m-%d %H:%M"),
+        "start_utc": start_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "end_utc": end_local.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
+    }
+
+
+def resolve_layout(raw: str | None = None) -> str:
+    return digest.normalize_layout(raw or os.environ.get("DIGEST_LAYOUT") or "v1")
+
+
+def section_for_profile(config: Mapping[str, Any], strategy_profile: str) -> str:
+    """Infer the digest section from platform-config (explicit row value wins)."""
+
+    meta = (config.get("strategies") or {}).get(strategy_profile) or {}
+    if not isinstance(meta, Mapping):
+        return "us_daily"
+    if str(meta.get("domain") or "") == "crypto":
+        return "dca" if "dca" in strategy_profile else "crypto_intraday"
+    if str(meta.get("scheduler_profile") or "") == "us_dca_month_end":
+        return "dca"
+    return "us_daily"
+
+
 def resolve_locale(raw: str | None = None) -> digest.DigestLocale:
     return digest.normalize_locale(
         raw
@@ -556,6 +601,10 @@ def enrich_candidate_labels(
     out: list[dict[str, Any]] = []
     for raw in rows:
         row = dict(raw)
+        if not str(row.get("section") or "").strip():
+            row["section"] = section_for_profile(
+                config, str(row.get("strategy_profile") or "")
+            )
         if not str(row.get("strategy_label") or "").strip():
             label = strategy_label_from_config(
                 config, str(row.get("strategy_profile") or ""), locale=locale
@@ -730,6 +779,7 @@ def build_digest_payload(
     candidates_path: Path | None = None,
     include_github: bool = True,
     config_path: Path | None = None,
+    layout: str | None = None,
 ) -> tuple[digest.DailyDigestInput, str, CollectResult]:
     config = load_platform_config(config_path)
     contract = digest_contract(config)
@@ -754,6 +804,8 @@ def build_digest_payload(
         runs=tuple(collected.runs),
         evidence_coverage=collected.coverage,
         evidence_status=evidence_status,
+        layout=resolve_layout(layout),
+        window=digest_window_for(day),
     )
     return payload, digest.render_daily_digest(payload), collected
 
@@ -769,6 +821,8 @@ def build_receipt(
         "schema_version": "qsl.daily_digest_receipt.v1",
         "business_day": payload.business_day,
         "window_label": payload.window_label,
+        "layout": digest.normalize_layout(str(payload.layout)),
+        "window": dict(payload.window or {}),
         "locale": digest.normalize_locale(str(payload.locale)),
         "run_count": len(payload.runs),
         "total_fills": fills,

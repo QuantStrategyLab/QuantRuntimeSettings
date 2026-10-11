@@ -38,6 +38,14 @@ on:
         required: false
         type: string
         default: ""
+      layout:
+        description: "Message layout. v1 = current production; sections_v2 = NOTIFY-04 four-section report (try with dry_run first)."
+        required: false
+        type: choice
+        default: v1
+        options:
+          - v1
+          - sections_v2
       include_github_evidence:
         description: "Query allowlisted platform workflow conclusions (counts stay unknown unless candidates supply them)."
         required: true
@@ -98,6 +106,7 @@ jobs:
           INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
           INPUT_BUSINESS_DAY: ${{ inputs.business_day || '' }}
           INPUT_LOCALE: ${{ inputs.locale || '' }}
+          INPUT_LAYOUT: ${{ inputs.layout || 'v1' }}
           INPUT_INCLUDE_GITHUB: ${{ github.event_name != 'workflow_dispatch' && true || inputs.include_github_evidence }}
         run: |
           set -euo pipefail
@@ -113,6 +122,15 @@ jobs:
           fi
           echo "business_day=$INPUT_BUSINESS_DAY" >> "$GITHUB_OUTPUT"
           echo "locale=$INPUT_LOCALE" >> "$GITHUB_OUTPUT"
+          # Scheduled runs stay on v1 until the NOTIFY-04 switch-over is approved.
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "layout=v1" >> "$GITHUB_OUTPUT"
+          else
+            case "$INPUT_LAYOUT" in
+              sections_v2) echo "layout=sections_v2" >> "$GITHUB_OUTPUT" ;;
+              *) echo "layout=v1" >> "$GITHUB_OUTPUT" ;;
+            esac
+          fi
           if [[ "$INPUT_INCLUDE_GITHUB" == "true" ]]; then
             echo "include_github=true" >> "$GITHUB_OUTPUT"
           else
@@ -177,6 +195,7 @@ jobs:
           args=(
             python3 python/scripts/send_daily_digest_telegram.py
             --write-receipt data/output/daily-digest/receipt.json
+            --layout "${{ steps.opts.outputs.layout }}"
           )
           if [[ -n "${{ steps.opts.outputs.locale }}" ]]; then
             args+=(--locale "${{ steps.opts.outputs.locale }}")
@@ -211,6 +230,10 @@ jobs:
           print(f"- status: `{receipt.get('status')}`")
           print(f"- business_day: `{receipt.get('business_day')}`")
           print(f"- locale: `{receipt.get('locale')}`")
+          print(f"- layout: `{receipt.get('layout')}`")
+          window = receipt.get("window") or {}
+          if window:
+              print(f"- window (Asia/Shanghai): `{window.get('start_local')}` → `{window.get('end_local')}`")
           print(f"- evidence_status: `{receipt.get('evidence_status')}`")
           print(f"- run_count: `{receipt.get('run_count')}`")
           print(f"- total_fills: `{receipt.get('total_fills')}`")
@@ -228,6 +251,7 @@ jobs:
               print(f"  - github_sources_matched: `{coverage.get('github_sources_matched')}`")
               print(f"  - has_source_failures: `{coverage.get('has_source_failures')}`")
               print(f"  - is_complete_for_verified_idle: `{coverage.get('is_complete_for_verified_idle')}`")
+              print(f"  - stale_candidates_count: `{coverage.get('stale_candidates_count')}`")
           failures = receipt.get("failures") or coverage.get("github_failures") or []
           if failures:
               print("- failures:")
