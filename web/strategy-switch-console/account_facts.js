@@ -106,6 +106,45 @@ function reject(code, status = 400) {
   throw new AccountFactsError(code, status);
 }
 
+// Optional, read-only broker-reported positions carried from run reports.
+// Each platform has exactly one coverage label; holdings are never a
+// full-account inventory unless a producer says so. Unknown or malformed
+// inventories are rejected rather than stored as an empty list.
+export const ACCOUNT_FACTS_POSITIONS_SCOPES = Object.freeze({
+  ibkr: "stocks_only",
+  schwab: "strategy_symbols_only",
+});
+const POSITION_SYMBOL_RE = /^[A-Z0-9][A-Z0-9./ -]{0,31}$/;
+const POSITION_KEYS = Object.freeze(["symbol", "quantity", "market_value", "currency"]);
+const MAX_POSITIONS = 64;
+
+function normalizeBrokerReportedPositions(platform, raw) {
+  const hasRows = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions");
+  const hasScope = Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_scope");
+  if (!hasRows && !hasScope) return null;
+  const scope = ACCOUNT_FACTS_POSITIONS_SCOPES[platform];
+  if (!scope || !hasRows || !hasScope || raw.broker_reported_positions_scope !== scope) {
+    reject("invalid_account_facts_positions");
+  }
+  const rows = raw.broker_reported_positions;
+  if (!Array.isArray(rows) || rows.length === 0 || rows.length > MAX_POSITIONS) reject("invalid_account_facts_positions");
+  const seen = new Set();
+  const positions = rows.map((item) => {
+    const keys = Object.prototype.hasOwnProperty.call(item || {}, "avg_cost") ? [...POSITION_KEYS, "avg_cost"] : POSITION_KEYS;
+    if (!exactKeys(item, keys)
+        || typeof item.symbol !== "string" || !POSITION_SYMBOL_RE.test(item.symbol) || seen.has(item.symbol)
+        || typeof item.currency !== "string" || !CURRENCY_RE.test(item.currency)
+        || keys.slice(1).some((key) => key !== "currency" && (typeof item[key] !== "string" || !DECIMAL_RE.test(item[key])))) {
+      reject("invalid_account_facts_positions");
+    }
+    seen.add(item.symbol);
+    const row = { symbol: item.symbol, quantity: item.quantity, market_value: item.market_value, currency: item.currency };
+    if (keys.length > POSITION_KEYS.length) row.avg_cost = item.avg_cost;
+    return row;
+  });
+  return { positions, scope };
+}
+
 function exactKeys(value, keys) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const present = Object.keys(value);
@@ -458,7 +497,12 @@ export function normalizeAccountFactsHistoryPayload(raw, {
   }
   const hasFinancing = longbridge && Object.prototype.hasOwnProperty.call(raw, "financing");
   if (hasFinancing) expectedKeys.push("financing");
+  if (raw && typeof raw === "object" && (Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions")
+      || Object.prototype.hasOwnProperty.call(raw, "broker_reported_positions_scope"))) {
+    expectedKeys.push("broker_reported_positions", "broker_reported_positions_scope");
+  }
   if (!exactKeys(raw, expectedKeys)) reject("invalid_account_facts_history");
+  const brokerPositions = normalizeBrokerReportedPositions(platform, raw);
   if (typeof raw.account_scope !== "string" || !ACCOUNT_SCOPE_RE.test(raw.account_scope)
       || (platform === ACCOUNT_FACTS_PLATFORM && !ACCOUNT_FACTS_PAYLOAD_SCOPES.includes(raw.account_scope))) {
     reject("invalid_account_facts_scope");
@@ -572,6 +616,10 @@ export function normalizeAccountFactsHistoryPayload(raw, {
     cash,
   };
   if (financing) normalized.financing = financing;
+  if (brokerPositions) {
+    normalized.broker_reported_positions = brokerPositions.positions;
+    normalized.broker_reported_positions_scope = brokerPositions.scope;
+  }
   if (ibkr) normalized.account_ids = accountIds;
   if (firstrade) normalized.broker_account_id = raw.broker_account_id;
   if (schwab) {
@@ -801,6 +849,12 @@ export function buildAccountFactsReadModel({
           && projected?.data_status === "fresh"
           && Array.isArray(projected?.financing)
           ? { financing: projected.financing.map((row) => ({ ...row })) }
+          : {}),
+        ...(projected?.data_status === "fresh" && Array.isArray(projected?.broker_reported_positions)
+          ? {
+            positions: projected.broker_reported_positions.map((row) => ({ ...row })),
+            positions_scope: projected.broker_reported_positions_scope,
+          }
           : {}),
         ...(platform === SCHWAB_ACCOUNT_FACTS_PLATFORM && projected?.broker_account_type
           ? { broker_account_type: { ...projected.broker_account_type } }

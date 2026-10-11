@@ -10,6 +10,7 @@ import {
   chartUnavailable,
   defaultOverviewChartAccountId,
   filterAssetHistoryByRange,
+  presentAccountHoldings,
   formatBinanceNativeQuantity,
   formatBinanceWalletAmount,
   formatLocalChangeTime,
@@ -380,3 +381,15 @@ assert.equal(
   overviewLifecycleDetail(null, null, "今日周期记录未取得"),
   "今日周期记录未取得，不能据此确认周期结果。",
 );
+
+// Read-only holdings: unknown/stale/unscoped/malformed is "empty" (暂无), never zero rows.
+assert.deepEqual(presentAccountHoldings(null), { status: "empty" });
+assert.deepEqual(presentAccountHoldings({ data_status: "fresh", positions: [] , positions_scope: "stocks_only" }), { status: "empty" });
+assert.deepEqual(presentAccountHoldings({ data_status: "stale", positions: [{ symbol: "SOXL", quantity: "4", market_value: "1", currency: "USD" }], positions_scope: "stocks_only" }), { status: "empty" });
+assert.deepEqual(presentAccountHoldings({ data_status: "fresh", positions: [{ symbol: "SOXL", quantity: "4", market_value: "1", currency: "USD" }] }), { status: "empty" });
+assert.deepEqual(presentAccountHoldings({ data_status: "fresh", positions: [{ symbol: "SOXL", quantity: 4, market_value: "1", currency: "USD" }], positions_scope: "stocks_only" }), { status: "empty" });
+assert.deepEqual(presentAccountHoldings({ data_status: "fresh", positions: [{ symbol: "TQQQ", quantity: "10", market_value: "900.5", currency: "USD" }], positions_scope: "strategy_symbols_only" }), {
+  status: "available",
+  scopeNote: "仅列出策略标的，不是账户全部持仓",
+  rows: [{ symbol: "TQQQ", quantity: "10", marketValue: "900.5", currency: "USD" }],
+});
