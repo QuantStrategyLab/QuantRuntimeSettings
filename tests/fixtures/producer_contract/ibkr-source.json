@@ -1,0 +1,6 @@
+{
+  "repository": "QuantStrategyLab/InteractiveBrokersPlatform",
+  "revision": "bd5c1a12d9cd0df8dbd88c1eb8b058b7b849990f",
+  "path": "scripts/publish_account_facts_from_report.py",
+  "sha256": "37464f92228caa795eae6e71f7acc48f8a1e46fbd8bb21bbc3c707e2afdb58f1"
+}

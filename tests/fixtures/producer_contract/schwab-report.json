@@ -1,0 +1,38 @@
+{
+  "schema_version": "runtime_report.v1",
+  "platform": "charles_schwab",
+  "project_id": "charlesschwabquant",
+  "service_name": "synthetic-service",
+  "strategy_profile": "soxl_soxx_trend_income",
+  "account_scope": null,
+  "status": "ok",
+  "errors": [],
+  "runtime_target": {
+    "strategy_profile": "soxl_soxx_trend_income",
+    "account_scope": "live",
+    "account_selector": [
+      "live"
+    ]
+  },
+  "diagnostics": {
+    "runtime_revision": "synthetic-00001-abc"
+  },
+  "summary": {
+    "account_observation": {
+      "account_hash": "synthetic-account-hash",
+      "currency": null,
+      "net_assets": "123.45",
+      "net_assets_source": "liquidationValue",
+      "net_assets_currency": "USD",
+      "net_assets_currency_source": "owner_confirmed",
+      "broker_reported_positions": [
+        {
+          "symbol": "SOXL",
+          "quantity": "2",
+          "market_value": "25.50"
+        }
+      ],
+      "broker_reported_positions_scope": "strategy_symbols_only"
+    }
+  }
+}

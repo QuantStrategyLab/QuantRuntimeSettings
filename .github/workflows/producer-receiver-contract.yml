@@ -1,0 +1,54 @@
+name: Offline producer receiver contracts
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-producer-roundtrip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Checkout exact IBKR projection source
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/InteractiveBrokersPlatform
+          ref: bd5c1a12d9cd0df8dbd88c1eb8b058b7b849990f
+          path: .contract-sources/ibkr
+          persist-credentials: false
+          sparse-checkout: scripts/publish_account_facts_from_report.py
+          sparse-checkout-cone-mode: false
+      - name: Checkout exact Schwab projection source
+        uses: actions/checkout@v6
+        with:
+          repository: QuantStrategyLab/CharlesSchwabPlatform
+          ref: 5b563ad3609eefd9cf431ead82d0f30c586645db
+          path: .contract-sources/schwab
+          persist-credentials: false
+          sparse-checkout: scripts/publish_account_facts_from_reports.py
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install existing receiver test runtime
+        run: npm ci --prefix web/strategy-switch-console
+      - name: Verify deterministic synthetic projection regeneration
+        run: |
+          python3 tests/generate_producer_contract.py --ibkr .contract-sources/ibkr --schwab .contract-sources/schwab > "$RUNNER_TEMP/contract-a.json"
+          python3 tests/generate_producer_contract.py --ibkr .contract-sources/ibkr --schwab .contract-sources/schwab > "$RUNNER_TEMP/contract-b.json"
+          cmp "$RUNNER_TEMP/contract-a.json" "$RUNNER_TEMP/contract-b.json"
+      - name: Exercise offline authenticated receiver and durable history
+        env:
+          CLOUDFLARE_CF_FETCH_ENABLED: "false"
+          npm_config_update_notifier: "false"
+        run: node tests/producer_receiver_contract_validation.mjs .contract-sources/ibkr .contract-sources/schwab
