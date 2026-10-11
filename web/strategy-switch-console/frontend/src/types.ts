@@ -97,7 +97,17 @@ export type AccountFactsAccount = {
   cash: AccountFactsCash[];
   financing?: LongBridgeFinancingRow[];
   broker_account_type?: SchwabBrokerAccountType;
+  positions?: AccountFactsPosition[];
+  positions_scope?: "stocks_only" | "strategy_symbols_only";
   return: AccountFactsReturn;
+};
+
+export type AccountFactsPosition = {
+  symbol: string;
+  quantity: string;
+  market_value: string;
+  currency: string;
+  avg_cost?: string;
 };
 
 export type AccountFactsTotals = {
