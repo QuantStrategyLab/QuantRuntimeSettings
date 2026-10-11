@@ -30,6 +30,7 @@ digest = _load_module("daily_digest_notify")
 def _row(**extra):
     row = {
         "platform_id": "ibkr",
+        "business_day": "2026-10-09",
         "strategy_profile": "global_etf_rotation",
         "opaque_account_uid": "ibkr-opaque",
         "target_id": "ibkr/live",

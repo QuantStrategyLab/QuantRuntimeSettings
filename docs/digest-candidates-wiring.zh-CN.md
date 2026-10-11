@@ -42,6 +42,7 @@ GitHub workflow 成功结论只是**存在性**辅助证据；成交/订单数�
 
 - 聚合键为 `(platform_id, strategy_profile, opaque_account_uid|unknown, target_id|unknown)`；同策略多账户必须带身份，禁止仅用平台+策略合并。
 - `actually_ran` 必须显式布尔；缺省不再默认 `true`。
+- **NOTIFY-04 新鲜度**：每行必须带 `business_day`（America/New_York 交易日，ISO 日期），或者带 `as_of`（ISO 时间戳，按纽约日历日换算；无时区按 UTC）。和本次日报业务日不一致、缺失或无法解析的行一律丢弃，不渲染金额/持仓；日报末尾加一段「⚠️ 数据未更新，已略去：· 平台 / 策略（数据业务日 …）」，receipt 写 `stale_candidates[]`（只含平台、策略、日期、原因码）和 `source_coverage.stale_candidates_count`。有丢弃行时不判定「已验证无运行」。
 - 新 stub / 存在性证据：`fill_count`/`order_count` 用 `null` + `field_status.counts_unknown` 或 `reason_code=github_workflow_existence_only`。
 - 旧生产者若仍给 `int 0` 且无 `field_status`，按「已验证零成交」兼容。
 - 权益/持仓/信号/调仓字段可选；有则渲染，无则省略；中央不编造。
@@ -105,6 +106,16 @@ python3 python/scripts/send_daily_digest_telegram.py \
 - receipt：`source_coverage.candidates_loaded=true`
 - receipt：`total_fills=null`（`total_fills_status=unknown`），非 0
 - 渲染文案含「成交数未知」/「成交 未知」；**不**出现「无成交」「链路正常」
+
+### 私有存储自动接线（NOTIFY-04 B2，默认关闭）
+
+- 生产者（Schwab `digest-candidates-daily.yml`、IBKR `execution-report-heartbeat.yml` 定时）每天生成候选，只有设置了仓库变量 `DIGEST_CANDIDATES_GCS_URI` 才会上传到 `<uri>/<platform_id>/<business_day>/<target>.json`；没设就是 dry-run，文件只留在 runner 临时目录。
+- 中央日报设置了同名 Environment 变量才去读取：先用 `DIGEST_CANDIDATES_READER_*` 的 WIF 认证，再把 `<uri>/*/<business_day>/*.json` 和旧 secret（如果还有）用 `merge_digest_candidates.py` 合并（日志只打印条数）。过期行仍由 B0 规则丢弃。
+- 存储位置：复用现有的共享 bucket，前缀为 `gs://qsl-runtime-logs-shared/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。
+- 2026-10-11 只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `qsl-artifact-evidence@longbridgequant` **不能 get/list**；匿名 list 返回 401。
+- 2026-10-11 owner 已加好 3 条带前缀条件的 IAM。生产者仓库的变量值为 `DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates`。QRS 的同名变量**暂不设置**：一旦设置，日报内容会改变（B7）。
+- （原计划）需要 owner 一次性加带前缀条件的 IAM：生产者在 `digest-candidates/<platform>/` 下给 objectUser；读取者给 objectViewer，条件为对象前缀或 `objectListPrefix` 前缀。完成后先设生产者仓库的变量，日报仓库的变量最后设，因为它会改变日报内容（B7，需要批准）。全部核对通过之后，才删除 `DIGEST_CANDIDATES_JSON`。
+- 不用 Actions artifact 中转：这几个仓库都是公开仓库，artifact 任何登录用户都能下载，而候选数据可能带有账户权益。
 
 ### 生产注入（人闸）
 

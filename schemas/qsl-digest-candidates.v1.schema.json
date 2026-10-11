@@ -218,7 +218,12 @@
         "business_day": {
           "type": "string",
           "maxLength": 32,
-          "description": "Optional producer business day (ISO date preferred)."
+          "description": "Producer business day (ISO date, America/New_York session). NOTIFY-04: the aggregator drops rows whose business day differs from the digest business day; rows with neither business_day nor as_of are dropped."
+        },
+        "as_of": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Optional ISO 8601 observation timestamp; used only when business_day is absent (converted to the America/New_York calendar day; naive = UTC)."
         },
         "strategy_label": {
           "type": "string",
