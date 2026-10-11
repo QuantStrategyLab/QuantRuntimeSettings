@@ -113,7 +113,8 @@ python3 python/scripts/send_daily_digest_telegram.py \
 - 中央日报设置了同名 Environment 变量才去读取：先用 `DIGEST_CANDIDATES_READER_*` 的 WIF 认证，再把 `<uri>/*/<business_day>/*.json` 和旧 secret（如果还有）用 `merge_digest_candidates.py` 合并（日志只打印条数）。过期行仍由 B0 规则丢弃。
 - 存储位置：复用现有的共享 bucket，前缀为 `gs://qsl-runtime-logs-shared/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。
 - 2026-10-11 只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `qsl-artifact-evidence@longbridgequant` **不能 get/list**；匿名 list 返回 401。
-- 需要 owner 一次性加带前缀条件的 IAM：生产者在 `digest-candidates/<platform>/` 下给 objectUser；读取者给 objectViewer，条件为对象前缀或 `objectListPrefix` 前缀。完成后先设生产者仓库的变量，日报仓库的变量最后设，因为它会改变日报内容（B7，需要批准）。全部核对通过之后，才删除 `DIGEST_CANDIDATES_JSON`。
+- 2026-10-11 owner 已加好 3 条带前缀条件的 IAM。生产者仓库的变量值为 `DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates`。QRS 的同名变量**暂不设置**：一旦设置，日报内容会改变（B7）。
+- （原计划）需要 owner 一次性加带前缀条件的 IAM：生产者在 `digest-candidates/<platform>/` 下给 objectUser；读取者给 objectViewer，条件为对象前缀或 `objectListPrefix` 前缀。完成后先设生产者仓库的变量，日报仓库的变量最后设，因为它会改变日报内容（B7，需要批准）。全部核对通过之后，才删除 `DIGEST_CANDIDATES_JSON`。
 - 不用 Actions artifact 中转：这几个仓库都是公开仓库，artifact 任何登录用户都能下载，而候选数据可能带有账户权益。
 
 ### 生产注入（人闸）
