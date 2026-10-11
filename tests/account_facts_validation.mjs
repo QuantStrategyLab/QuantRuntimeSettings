@@ -1280,6 +1280,34 @@ const schwabWithPositions = normalizeAccountFactsHistoryPayload(schwabHistory({
   broker_reported_positions_scope: "strategy_symbols_only",
 }));
 assert.equal(schwabWithPositions.broker_reported_positions_scope, "strategy_symbols_only");
+assert.equal(Object.hasOwn(schwabWithPositions.broker_reported_positions[0], "currency_source"), false,
+  "legacy holdings do not acquire inferred provenance");
+const schwabPosition = schwabWithPositions.broker_reported_positions[0];
+for (const avgCost of [{}, { avg_cost: "90" }]) {
+  const row = { ...schwabPosition, ...avgCost, currency_source: "owner_confirmed" };
+  const normalized = normalizeAccountFactsHistoryPayload(schwabHistory({
+    broker_reported_positions: [row], broker_reported_positions_scope: "strategy_symbols_only",
+  }));
+  assert.deepEqual(normalized.broker_reported_positions, [row]);
+}
+for (const patch of [
+  ...[null, "", "broker", "owner_confirmed_wrongly", 1, true, {}, []].map(currency_source => ({ currency_source })),
+  { currency_source: "owner_confirmed", currency: "HKD" },
+  { currency_source: "owner_confirmed", currency: null },
+  { currency_source: "owner_confirmed", currency: undefined },
+  { currency_source: "owner_confirmed", unexpected: "field" },
+  { currency_source: "owner_confirmed", avg_cost: "invalid" },
+]) {
+  assert.throws(() => normalizeAccountFactsHistoryPayload(schwabHistory({
+    broker_reported_positions: [{ ...schwabPosition, ...patch }],
+    broker_reported_positions_scope: "strategy_symbols_only",
+  })), /invalid_account_facts_positions/);
+}
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({
+  broker_reported_positions: [{ ...ibkrPositions[0], currency_source: "owner_confirmed" }],
+  broker_reported_positions_scope: "stocks_only",
+})), /invalid_account_facts_positions/);
+
 assert.throws(() => normalizeAccountFactsHistoryPayload(schwabHistory({
   broker_reported_positions: [{ symbol: "TQQQ", quantity: "10", market_value: "900", currency: "USD" }],
   broker_reported_positions_scope: "stocks_only",

@@ -85,24 +85,30 @@ try {
     // Pre-strip archive output is a FUTURE publication contract, never evidence of activation.
     assert.equal(extended.broker_reported_positions_scope, expectedScope);
     const stub = namespace.get(namespace.idFromName("runtime-instances"));
-    const compatibleArchive = platform === "ibkr";
-    if (compatibleArchive) {
-      await accept(extended);
-      assert.deepEqual((await read()).positions, extended.broker_reported_positions);
-      assert.equal((await read()).positions_scope, expectedScope);
-      assert.equal((await accept(extended)).unchanged, true);
-      assert.equal((await read()).balances[0].net_assets, null);
-    } else {
-      // Real incompatibility: the producer adds currency_source, but the receiver
-      // has exact position keys. Do not sanitize producer output to make this pass.
+    await accept(extended);
+    assert.deepEqual((await read()).positions, extended.broker_reported_positions);
+    assert.equal((await read()).positions_scope, expectedScope);
+    assert.equal((await accept(extended)).unchanged, true);
+    if (platform === "ibkr") assert.equal((await read()).balances[0].net_assets, null);
+    else {
       assert.equal(extended.broker_reported_positions[0].currency_source, "owner_confirmed");
-      const rejected = await post(extended);
-      assert.equal(rejected.status, 400);
-      assert.equal((await rejected.json()).error, "invalid_account_facts_positions");
-      assert.equal(Object.hasOwn(await read(), "positions"), false);
       assert.deepEqual((await read()).cash, []);
     }
-    const valid = compatibleArchive ? extended : published;
+    // Reject malformed provenance and unknown keys without contaminating accepted data.
+    const invalidRows = [
+      { ...extended.broker_reported_positions[0], unexpected: "field" },
+      { ...extended.broker_reported_positions[0], currency_source: "broker" },
+      { ...extended.broker_reported_positions[0], currency_source: null },
+      ...(platform === "schwab" ? [{ ...extended.broker_reported_positions[0], currency: "HKD" }] :
+        [{ ...extended.broker_reported_positions[0], currency_source: "owner_confirmed" }]),
+    ];
+    for (const row of invalidRows) {
+      const rejected = await post({ ...extended, broker_reported_positions: [row] });
+      assert.equal(rejected.status, 400);
+      assert.equal((await rejected.json()).error, "invalid_account_facts_positions");
+      assert.deepEqual((await read()).positions, extended.broker_reported_positions);
+    }
+    const valid = extended;
     for (const [body, status] of [
       [{ ...valid, source_binding: { ...valid.source_binding, id: "0".repeat(64) } }, 409],
       [{ ...valid, target_id: "wrong-target" }, 409],
@@ -111,8 +117,7 @@ try {
       [{ ...valid, account_key: "caller-assigned" }, 400],
     ]) {
       assert.equal((await post(body)).status, status);
-      if (compatibleArchive) assert.deepEqual((await read()).positions, extended.broker_reported_positions);
-      else assert.equal(Object.hasOwn(await read(), "positions"), false);
+      assert.deepEqual((await read()).positions, extended.broker_reported_positions);
     }
     assert.equal((await post(extended, "wrong-token")).status, 401);
     // Real newer stripped output removes latest holdings without erasing previous-day evidence.
@@ -133,14 +138,9 @@ try {
     assert.equal(response.status, 200, await response.clone().text());
     const history = await response.json();
     assert.ok(history.days.length >= 2);
-    if (compatibleArchive) {
-      const old = history.days.find(day => day.payload.observation_date === extended.observation_date).payload;
-      assert.deepEqual(old.broker_reported_positions, extended.broker_reported_positions);
-      assert.equal(old.broker_reported_positions_scope, expectedScope);
-    } else {
-      assert.ok(history.days.every(day => !Object.hasOwn(day.payload, "broker_reported_positions")),
-        "rejected Schwab archive output must not contaminate durable history");
-    }
+    const old = history.days.find(day => day.payload.observation_date === extended.observation_date).payload;
+    assert.deepEqual(old.broker_reported_positions, extended.broker_reported_positions);
+    assert.equal(old.broker_reported_positions_scope, expectedScope);
     const series = await get(`/api/account-facts/history?platform=${platform}&account_key=${account.key}&currency=USD`);
     if (platform === "ibkr") {
       assert.deepEqual(series.series.points, []);
@@ -152,7 +152,7 @@ try {
     }
   }
   assert.equal(outboundCalls, 0, "neither receiver nor projections may make external HTTP calls");
-  console.log("Pinned contracts passed: stripped IBKR/Schwab accepted; IBKR archive accepted; Schwab archive BLOCKED by currency_source (synthetic/offline).");
+  console.log("Pinned contracts passed: stripped IBKR/Schwab accepted; IBKR/Schwab archive accepted with provenance preserved (synthetic/offline).");
 } finally {
   await mf.dispose();
   globalThis.fetch = nativeFetch;
