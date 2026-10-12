@@ -47,7 +47,7 @@ function visit(node) {
 visit(app);
 const overviewPath = path.join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx");
 visit(ts.createSourceFile(overviewPath, fs.readFileSync(overviewPath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
-for (const page of ["AccountsPage.tsx", "DecisionsPage.tsx"]) {
+for (const page of ["AccountsPage.tsx", "DecisionsPage.tsx", "RuntimeHistoryPanel.tsx", "OverviewDecisionPreview.tsx"]) {
   const pagePath = path.join(root, "web/strategy-switch-console/frontend/src", page);
   visit(ts.createSourceFile(pagePath, fs.readFileSync(pagePath, "utf8"), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX));
 }

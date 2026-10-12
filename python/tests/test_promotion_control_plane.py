@@ -105,8 +105,9 @@ def _response(status, body=None):
 
 PROTECTED = [
     _response(200, [{"id": 7, "enforcement": "active"}]),
-    _response(200, {"target": "tag", "bypass_actors": [], "current_user_can_bypass": "never",
-                    "conditions": {"ref_name": {"include": ["refs/tags/qsl-promotion-consumed/**"]}},
+    _response(200, {"id": 7, "target": "tag", "enforcement": "active", "bypass_actors": [],
+                    "current_user_can_bypass": "never",
+                    "conditions": {"ref_name": {"include": ["refs/tags/qsl-promotion-consumed/**"], "exclude": []}},
                     "rules": [{"type": "deletion"}, {"type": "update"}]}),
 ]
 ARGS = dict(single_use_id="longbridge-sg-0123456789abcdef", promotion_sha256="a" * 64,

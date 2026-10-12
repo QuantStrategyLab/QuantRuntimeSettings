@@ -17,7 +17,7 @@ export function DecisionCount({ count }: { count: number }) {
   return <span className="count-badge" aria-label={t("{count} 项待办", { count })}>{count > 99 ? "99+" : String(count)}</span>;
 }
 
-function shown(value: string, t: (key: string) => string): string {
+export function shown(value: string, t: (key: string) => string): string {
   return value === "未命名策略" || value === "当前策略" || value === "保持暂停" || value === "有限观察" || value === "待确认材料" || value === "确认材料" || value === "有限执行观察" || value === "恢复核对" ? t(value) : value;
 }
 

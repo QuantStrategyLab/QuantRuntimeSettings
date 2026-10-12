@@ -3,6 +3,9 @@ import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily } f
 import type { LifecycleRecord } from "./api";
 import { useT, useLocale } from "./locales";
 import { statusTone } from "./statusTone";
+import { OverviewDecisionPreview } from "./OverviewDecisionPreview";
+import { RuntimeHistoryPanel } from "./RuntimeHistoryPanel";
+import type { DailyDecision, DecisionSourceStatuses } from "./presentation";
 import {
   CHART_RANGE_OPTIONS,
   DEFAULT_CHART_RANGE,
@@ -175,7 +178,7 @@ const RETURN_LEGEND: Array<{ label: "你的账户" | (typeof RETURN_INDEX_LEGEND
   { label: "罗素2000", color: "#8b5cf6" },
 ];
 
-export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0, marketBenchmarkPoints }: {
+export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0, marketBenchmarkPoints, pendingDecisions = [], decisionSources, onOpenDecisions }: {
   accounts: OverviewAccount[];
   accountFacts?: AccountFactsSnapshot | null;
   accountOptionsRevision?: number | null;
@@ -185,6 +188,9 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   readModelRefreshVersion?: number;
   onOpenAccount: (id: string) => void;
   marketBenchmarkPoints?: readonly MarketBenchmarkPoint[];
+  pendingDecisions?: DailyDecision[];
+  decisionSources?: DecisionSourceStatuses;
+  onOpenDecisions?: () => void;
 }) {
   const t = useT();
   const language = useLocale();
@@ -1019,11 +1025,15 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     </div>
     <section className="overview-metrics home-top" aria-label={t("账户总览")}>
       <article className="home-card">
-        <h2>{t("总资产")}</h2>
+        <h2>{t("总资产")} · {t("折合美元（不含模拟资金）")}</h2>
         {assetUsd.amount !== null ? <div className="home-money"><p><span>{t("美元")}</span><strong>{formatOverviewUsdAmount(assetUsd.amount)}</strong></p></div> : <p className="home-missing">{t("没读到")}</p>}
         {assetUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: assetUsd.omittedCurrencies.join("、") })}</small> : null}
         <div className="home-cash"><span>{t("现金余额")}</span>{cashUsd.amount !== null ? <strong>{`${t("美元")} ${formatOverviewUsdAmount(cashUsd.amount)}`}</strong> : <strong>{t("没读到")}</strong>}</div>
         {cashUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: cashUsd.omittedCurrencies.join("、") })}</small> : null}
+        <div className="overview-freshness">{screenAccounts.map(account => {
+          const timestamp = accountFactsDisplayReady(account.facts) ? accountFactsUpdatedAt(account.facts) : null;
+          return <small key={account.id}>{account.title} · {timestamp ? <time dateTime={timestamp}>{formatShortInstant(timestamp)}</time> : t("尚未取得账户资产资料")}</small>;
+        })}</div>
       </article>
       <article className="home-card">
         <h2>{t("收益率")}</h2>
@@ -1068,7 +1078,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
                   ? "0"
                   : (assetsPresent || walletCardValuation ? t("现金未回报") : t("没读到"));
               return <tr key={account.id} className="overview-account-entry">
-                <td data-label={t("账号")}><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button></td>
+                <td data-label={t("账号")}><button type="button" className="table-link" onClick={() => onOpenAccount(account.id)}>{account.title}</button><small className="broker-strategy">{t("策略")} · {account.strategy}</small></td>
                 <td data-label={t("类型")}><span className={`type-pill${typeLabel === "环境待确认" ? " is-unknown" : ""}`}>{t(typeLabel)}</span></td>
                 <td data-label={t("资产")}>{assets && assets !== "0" ? spokenMoney(assets, moneyName) : assets === "0" ? "0" : t("没读到")}</td>
                 <td data-label={t("现金")} className={negativeCash ? "is-negative" : ""}>{cashCell}</td>
@@ -1080,6 +1090,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         </table>
       </div>
     </section>
+    <div className="overview-bottom">
+      <OverviewDecisionPreview items={pendingDecisions} sources={decisionSources} onOpen={onOpenDecisions} />
+      <RuntimeHistoryPanel accounts={displayAccounts} today={runtimeToday} now={Math.max(runtimeNow, Date.now())} refreshVersion={readModelRefreshVersion} todaySnapshot={account => runtimeDaily[runtimeDailyRequestKey(account.platformKey, account.accountKey, account.runtimeDailyBinding, runtimeToday)]?.value} />
+    </div>
     {retainedOverview}
   </div>;
 }
