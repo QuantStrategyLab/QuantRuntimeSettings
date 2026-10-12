@@ -34,9 +34,9 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --canvas: #0b1220;
-  --paper: #111a2b;
-  --panel: #152238;
+  --canvas: #0b1016;
+  --paper: #131b25;
+  --panel: #192330;
   --ink: #e8eef7;
   --muted: #93a0b5;
   --subtle: #8c95a6;
@@ -58,10 +58,7 @@
   --topbar-accent: #60a5fa;
   --shadow: 0 18px 40px rgba(0, 0, 0, .28);
   --overlay: #000000b3;
-  --canvas-glow:
-    radial-gradient(900px 420px at 12% -10%, rgba(59, 130, 246, .22), transparent 55%),
-    radial-gradient(700px 380px at 90% 0%, rgba(34, 211, 238, .10), transparent 50%),
-    linear-gradient(180deg, #070b14 0%, #0b1220 40%, #0a101c 100%);
+  --canvas-glow: radial-gradient(900px 500px at 12% -10%, #2563eb15, transparent 65%), #0b1016;
 }
 
 :root {
@@ -678,7 +675,6 @@ textarea { width: 100%; resize: vertical; }
    real decision preview and per-account calendar history. Existing controls remain. */
 html, body, #root { min-height: 100%; }
 body { min-height: 100vh; background-attachment: fixed; background-repeat: no-repeat; }
-:root[data-theme="dark"] { --canvas: #0b1016; --paper: #131b25; --panel: #192330; --canvas-glow: radial-gradient(900px 500px at 12% -10%, #2563eb15, transparent 65%), #0b1016; }
 .app-shell { padding-left: 0; padding-top: 76px; background: var(--canvas); }
 .topbar { position: fixed; inset: 0 0 auto; width: 100%; height: 76px; padding: 0 max(24px, calc((100vw - 1520px) / 2)); flex-direction: row; align-items: center; gap: 36px; border-right: 0; border-bottom: 1px solid var(--topbar-line); }
 .topbar .brand { display: flex; flex: 0 0 auto; gap: 10px; width: auto; margin: 0; padding: 0; border: 0; }
