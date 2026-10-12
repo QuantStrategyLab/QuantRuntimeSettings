@@ -57,23 +57,88 @@ def _gh_api(run: Runner, args: list[str], payload: Mapping[str, Any] | None = No
     return int(match.group(1)), parsed
 
 
+LEDGER_REF_PATTERN = f"refs/tags/{LEDGER_REF_PREFIX}**"
+_LEDGER_FULL_PREFIX = f"refs/tags/{LEDGER_REF_PREFIX}"
+# fnmatch / File.fnmatch metacharacters (incl. brace expansion and escapes).
+_GLOB_META = re.compile(r"[*?\[\]{}\\!]")
+
+
+def _string_list(value: Any) -> list[str] | None:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        return None
+    return value
+
+
+def _exclude_may_cover_ledger(pattern: str) -> bool:
+    """Conservative: True unless ``pattern`` provably cannot match any ledger ref.
+
+    A pattern is provably disjoint only when it is a fully qualified ``refs/...``
+    pattern with no whitespace whose literal prefix (text before the first glob
+    metacharacter) already diverges from ``refs/tags/qsl-promotion-consumed/``
+    (case-insensitively). ``~ALL``/``~DEFAULT_BRANCH``, unqualified patterns and
+    anything ambiguous are treated as covering the ledger.
+    """
+    if not pattern.startswith("refs/") or any(ch.isspace() for ch in pattern):
+        return True
+    meta = _GLOB_META.search(pattern)
+    literal = (pattern[:meta.start()] if meta else pattern).lower()
+    ledger = _LEDGER_FULL_PREFIX.lower()
+    return ledger.startswith(literal) or literal.startswith(ledger)
+
+
+def _ruleset_protects_ledger(summary_id: int, detail: Any) -> bool:
+    if not isinstance(detail, Mapping) or detail.get("id") != summary_id:
+        return False
+    if detail.get("target") != "tag" or detail.get("enforcement") != "active":
+        return False
+    conditions = detail.get("conditions")
+    # Only a pure ref_name condition is understood; any other condition type
+    # (repository_name, repository_property, ...) could narrow applicability.
+    if not isinstance(conditions, Mapping) or set(conditions) != {"ref_name"}:
+        return False
+    ref_name = conditions["ref_name"]
+    if not isinstance(ref_name, Mapping) or set(ref_name) != {"include", "exclude"}:
+        return False
+    include = _string_list(ref_name["include"])
+    exclude = _string_list(ref_name["exclude"])
+    if include is None or exclude is None or LEDGER_REF_PATTERN not in include:
+        return False
+    if any(_exclude_may_cover_ledger(pattern) for pattern in exclude):
+        return False
+    rules = detail.get("rules")
+    if not isinstance(rules, list):
+        return False
+    types = {rule.get("type") for rule in rules if isinstance(rule, Mapping)}
+    if not {"deletion", "update"} <= types:
+        return False
+    # bypass_actors can be hidden from non-admin tokens (key absent); when it is
+    # present it must be an empty list. Independently, the ledger token itself
+    # must never be able to bypass the ruleset.
+    if "bypass_actors" in detail and detail["bypass_actors"] != []:
+        return False
+    return detail.get("current_user_can_bypass") == "never"
+
+
 def require_protected_ledger(repository: str, *, run: Runner = subprocess.run) -> None:
+    """Fail closed unless one active tag ruleset provably protects every ledger ref.
+
+    GitHub rulesets layer: rules from every applicable ruleset aggregate, so an
+    exclude in an unrelated ruleset cannot remove protection granted by another.
+    One fully qualifying ruleset is therefore sufficient; a ruleset whose
+    ref_name.exclude may match any ``refs/tags/qsl-promotion-consumed/*`` ref,
+    or whose shape is not fully understood, never qualifies.
+    """
     status, rulesets = _gh_api(run, [f"repos/{repository}/rulesets?targets=tag&includes_parents=true"])
     if status != 200 or not isinstance(rulesets, list):
         raise PromotionLedgerError("ledger_protection_unverified")
     for summary in rulesets:
         if not isinstance(summary, Mapping) or summary.get("enforcement") != "active":
             continue
-        status, detail = _gh_api(run, [f"repos/{repository}/rulesets/{summary.get('id')}"])
-        if status != 200 or not isinstance(detail, Mapping) or detail.get("target") != "tag":
+        summary_id = summary.get("id")
+        if not isinstance(summary_id, int) or isinstance(summary_id, bool) or summary_id <= 0:
             continue
-        include = ((detail.get("conditions") or {}).get("ref_name") or {}).get("include") or []
-        rules = {rule.get("type") for rule in detail.get("rules") or [] if isinstance(rule, Mapping)}
-        bypass = detail.get("bypass_actors") or []
-        # bypass_actors can be hidden from non-admin tokens; also require that
-        # the ledger token itself can never bypass the ruleset.
-        if (f"refs/tags/{LEDGER_REF_PREFIX}**" in include and {"deletion", "update"} <= rules and not bypass
-                and detail.get("current_user_can_bypass") == "never"):
+        status, detail = _gh_api(run, [f"repos/{repository}/rulesets/{summary_id}"])
+        if status == 200 and _ruleset_protects_ledger(summary_id, detail):
             return
     raise PromotionLedgerError("ledger_protection_missing")
 

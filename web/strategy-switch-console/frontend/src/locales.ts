@@ -1,4 +1,13 @@
 export const EN_COPY = {
+  "查看全部": "View all",
+  "没有账户": "No accounts",
+  "折合美元（不含模拟资金）": "In US dollars (paper funds excluded)",
+  "近 14 天运行": "Last 14 calendar days",
+  "完整周期记录": "Complete cycle record",
+  "部分或待确认": "Partial or unconfirmed",
+  "未运行 / 未知": "Not scheduled / unknown",
+  "运行记录读取失败或身份不匹配": "Daily record read failed or identity mismatch",
+  "灰色表示未到期、未接入或没有可验证记录；不能据此判断账户未运行。": "Grey means not due, not connected or no verifiable record; it does not prove the account did not run.",
   "券商期间收益单独列示；同窗口基准比较暂不可用。": "Broker interval returns are listed separately; matching benchmark comparisons are unavailable.",
   "券商原生时间加权收益率": "Broker-reported time-weighted return",
   "暂无合格期间收益记录": "No eligible interval return records yet",

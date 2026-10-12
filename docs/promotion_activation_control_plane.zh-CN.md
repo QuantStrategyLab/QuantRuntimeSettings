@@ -13,6 +13,7 @@
 4. `Consume single_use_id`：在 `promotion_ledger.py` 里，在 QRS 创建 annotated tag `qsl-promotion-consumed/<id>`。
    - 为什么用这个存储：`POST git/refs` 在 ref 已存在时返回 422，天然是原子的"不存在才创建"；不用新建任何云资源；tag 对象里记了 promotion_sha256、签名摘要、run id，可审计，也不含秘密。
    - 防篡改：消费前会检查 tag ruleset 是否 active、是否覆盖 `refs/tags/qsl-promotion-consumed/**`、是否禁止 deletion 和 update、是否没有 bypass。缺任何一项都拒绝。
+   - 判定是 fail-closed 的：必须有一个 ruleset 同时满足 target=tag、列表与详情的 enforcement 都是 active、`conditions` 只含 `ref_name` 且 `ref_name` 恰好只有 `include`/`exclude` 两个字符串列表、include 含 `refs/tags/qsl-promotion-consumed/**`、exclude 里没有任何可能匹配 ledger tag 的模式（`~ALL`、`~DEFAULT_BRANCH`、非 `refs/` 开头的模式、以及字面前缀与 `refs/tags/qsl-promotion-consumed/` 相交的通配，均按覆盖处理，大小写不敏感）、rules 含 deletion 与 update、`bypass_actors` 若可见必须为空列表、`current_user_can_bypass` 为 `never`。exclude 字段缺失或类型不对一律拒绝。
    - 消费发生在写入之前。之后任何一步失败，这个 id 就作废了，要重新签一份，绝不重试。
 5. `Apply GitHub variable updates`，然后 `Read back applied variables`（`verify_applied_assignments.py`，只输出变量名）。
 6. `trigger_platform_sync` 仍然拒绝。平台同步要另外单独跑。
