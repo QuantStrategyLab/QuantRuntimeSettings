@@ -65,7 +65,6 @@ export function RuntimeHistoryPanel({ accounts, today, now, refreshVersion, toda
       })}
       {!accounts.length ? <p className="overview-panel-empty">{t("没有账户")}</p> : null}
     </div>
-    <ul className="runtime-history-legend"><li><i className="is-ok" />{t("完整周期记录")}</li><li><i className="is-partial" />{t("部分或待确认")}</li><li><i className="is-error" />{t("异常")}</li><li><i className="is-unknown" />{t("未运行 / 未知")}</li></ul>
-    <p className="overview-panel-note">{t("灰色表示未到期、未接入或没有可验证记录；不能据此判断账户未运行。")}</p>
+    <ul className="runtime-history-legend"><li><i className="is-ok" />{t("完整周期记录")}</li><li><i className="is-partial" />{t("部分或待确认")}</li><li><i className="is-error" />{t("异常")}</li><li><i className="is-unknown" />{t("未知")}</li></ul>
   </section>;
 }
