@@ -322,10 +322,14 @@ class ActivationContractTest(unittest.TestCase):
         ):
             self.assertIn(argument, workflow)
         verify_index = workflow.index("Verify immutable Promotion Manifest")
-        reject_index = workflow.index("Reject unconnected activation apply and sync")
+        signature_index = workflow.index("Verify Promotion Manifest KMS signature")
+        consume_index = workflow.index("Consume single_use_id in the durable ledger")
         apply_index = workflow.index("Apply GitHub variable updates")
-        self.assertLess(verify_index, reject_index)
-        self.assertLess(reject_index, apply_index)
+        readback_index = workflow.index("Read back applied variables")
+        self.assertLess(verify_index, signature_index)
+        self.assertLess(signature_index, consume_index)
+        self.assertLess(consume_index, apply_index)
+        self.assertLess(apply_index, readback_index)
         self.assertNotIn("gh workflow run", workflow)
         self.assertNotIn("--ref main", workflow)
 
