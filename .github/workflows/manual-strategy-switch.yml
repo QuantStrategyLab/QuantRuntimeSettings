@@ -120,7 +120,7 @@ on:
           - allow_create
           - off
       promotion_manifest_json:
-        description: "Required for apply: immutable qsl.activation.v2 Promotion Manifest JSON. Never include credentials or account data."
+        description: "Required for apply: signed envelope {\"promotion_manifest\": <qsl.activation.v2 manifest>, \"kms_signature_b64\": <DER b64>}. Never include credentials or account data."
         required: false
         type: string
       promotion_single_use_id:
@@ -188,6 +188,7 @@ jobs:
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
       PROMOTION_MANIFEST_JSON: ${{ inputs.promotion_manifest_json }}
       PROMOTION_SINGLE_USE_ID: ${{ inputs.promotion_single_use_id }}
+      QSL_PROMOTION_TRUSTED_ROOTS_JSON: ${{ vars.QSL_PROMOTION_TRUSTED_ROOTS_JSON }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
       CONFIRM_APPLY: ${{ inputs.confirm_apply }}
@@ -247,7 +248,11 @@ jobs:
               exit 2
             fi
             if [ -z "${PROMOTION_MANIFEST_JSON:-}" ] || [ -z "${PROMOTION_SINGLE_USE_ID:-}" ]; then
-              echo "apply=true requires an immutable Promotion Manifest and its exact single_use_id." >&2
+              echo "apply=true requires a signed Promotion Manifest envelope and its exact single_use_id." >&2
+              exit 2
+            fi
+            if [ "${TRIGGER_PLATFORM_SYNC}" = "true" ]; then
+              echo "trigger_platform_sync remains disabled; run the platform sync workflow separately after review." >&2
               exit 2
             fi
             if [ -z "${GH_TOKEN:-}" ]; then
@@ -484,8 +489,9 @@ jobs:
         run: |
           set -euo pipefail
           manifest_file="${RUNNER_TEMP}/promotion-manifest.json"
-          trap 'rm -f "${manifest_file}"' EXIT
-          printf '%s' "${PROMOTION_MANIFEST_JSON}" > "${manifest_file}"
+          signature_file="${RUNNER_TEMP}/promotion-signature.b64"
+          printf '%s' "${PROMOTION_MANIFEST_JSON}" | python3 python/scripts/promotion_signature.py unpack \
+            --manifest-output "${manifest_file}" --signature-output "${signature_file}"
 
           mapfile -t binding < <(python3 - "${manifest_file}" "${TARGET_FILE}" <<'PY'
           import hashlib
@@ -533,11 +539,28 @@ jobs:
             --expected-target-name "${binding[6]}" \
             --expected-execution-mode "${binding[7]}"
 
-      - name: Reject unconnected activation apply and sync
+      - name: Verify Promotion Manifest KMS signature
+        id: promotion_signature
         if: env.APPLY_SWITCH == 'true'
         run: |
-          echo "Promotion Manifest verified, but durable single-use consumption and immutable cross-platform activation are not wired; apply and sync remain disabled." >&2
-          exit 2
+          set -euo pipefail
+          if [ -z "${QSL_PROMOTION_TRUSTED_ROOTS_JSON:-}" ]; then
+            echo "No promotion trust root is pinned in the runtime-strategy-switch Environment; apply stays disabled." >&2
+            exit 2
+          fi
+          work="$(mktemp -d)"
+          trap 'rm -rf "${work}"' EXIT
+          python3 python/scripts/promotion_signature.py verify \
+            --manifest "${RUNNER_TEMP}/promotion-manifest.json" \
+            --signature-b64-file "${RUNNER_TEMP}/promotion-signature.b64" \
+            --platform "${PLATFORM}" \
+            --pinned-roots-json "${QSL_PROMOTION_TRUSTED_ROOTS_JSON}" > "${work}/result.json"
+          python3 - "${work}/result.json" >> "$GITHUB_OUTPUT" <<'PY'
+          import json, sys
+          result = json.load(open(sys.argv[1], encoding="utf-8"))
+          print(f"promotion_sha256={result['promotion_sha256']}")
+          print(f"signature_sha256={result['signature_sha256']}")
+          PY
 
       - name: Preview assignments
         run: |
@@ -549,8 +572,10 @@ jobs:
 
           target = json.load(open(sys.argv[1], encoding="utf-8"))
           assignments = json.load(open(sys.argv[2], encoding="utf-8"))
+          import hashlib
           print("## Runtime switch preview")
           print()
+          print(f"- config_sha256 (bind in Promotion Manifest): `{hashlib.sha256(open(sys.argv[1], 'rb').read()).hexdigest()}`")
           print(f"- platform: `{target['runtime_target']['platform_id']}`")
           print("- target_id: `<redacted>`")
           print("- repository: `<redacted>`")
@@ -596,9 +621,27 @@ jobs:
             --platform-root "${platform_root}" \
             --repository-variables-file "${repository_variables_file}"
 
+      - name: Consume single_use_id in the durable ledger
+        if: env.APPLY_SWITCH == 'true'
+        env:
+          PROMOTION_SHA256: ${{ steps.promotion_signature.outputs.promotion_sha256 }}
+          PROMOTION_SIGNATURE_SHA256: ${{ steps.promotion_signature.outputs.signature_sha256 }}
+          GH_TOKEN: ${{ secrets.QSL_PROMOTION_LEDGER_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "QSL_PROMOTION_LEDGER_TOKEN is missing; apply stays disabled." >&2
+            exit 2
+          fi
+          python3 python/scripts/promotion_ledger.py
+
       - name: Apply GitHub variable updates
         if: env.APPLY_SWITCH == 'true'
         run: python3 python/scripts/runtime_settings.py apply "${TARGET_FILE}" --yes
+
+      - name: Read back applied variables
+        if: env.APPLY_SWITCH == 'true'
+        run: python3 python/scripts/verify_applied_assignments.py "${TARGET_FILE}"
 
       - name: Sync strategy switch account defaults
         if: env.APPLY_SWITCH == 'true' && env.STRATEGY_SWITCH_CONSOLE_URL != ''
