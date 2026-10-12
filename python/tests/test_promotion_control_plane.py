@@ -105,7 +105,7 @@ def _response(status, body=None):
 
 PROTECTED = [
     _response(200, [{"id": 7, "enforcement": "active"}]),
-    _response(200, {"target": "tag", "bypass_actors": [],
+    _response(200, {"target": "tag", "bypass_actors": [], "current_user_can_bypass": "never",
                     "conditions": {"ref_name": {"include": ["refs/tags/qsl-promotion-consumed/**"]}},
                     "rules": [{"type": "deletion"}, {"type": "update"}]}),
 ]
@@ -146,7 +146,10 @@ class PromotionLedgerTests(unittest.TestCase):
                         "rules": [{"type": "deletion"}, {"type": "update"}]},
                        {"target": "tag", "bypass_actors": [],
                         "conditions": {"ref_name": {"include": ["refs/tags/qsl-promotion-consumed/**"]}},
-                        "rules": [{"type": "deletion"}]}):
+                        "rules": [{"type": "deletion"}]},
+                       {"target": "tag", "bypass_actors": [], "current_user_can_bypass": "always",
+                        "conditions": {"ref_name": {"include": ["refs/tags/qsl-promotion-consumed/**"]}},
+                        "rules": [{"type": "deletion"}, {"type": "update"}]}):
             _, fake = self.run_with([_response(200, [{"id": 7, "enforcement": "active"}]), _response(200, detail)])
             with self.subTest(detail=detail), self.assertRaisesRegex(ValueError, "protection_missing"):
                 ledger.consume("o/r", run=fake, **ARGS)

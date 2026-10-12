@@ -70,7 +70,10 @@ def require_protected_ledger(repository: str, *, run: Runner = subprocess.run) -
         include = ((detail.get("conditions") or {}).get("ref_name") or {}).get("include") or []
         rules = {rule.get("type") for rule in detail.get("rules") or [] if isinstance(rule, Mapping)}
         bypass = detail.get("bypass_actors") or []
-        if (f"refs/tags/{LEDGER_REF_PREFIX}**" in include and {"deletion", "update"} <= rules and not bypass):
+        # bypass_actors can be hidden from non-admin tokens; also require that
+        # the ledger token itself can never bypass the ruleset.
+        if (f"refs/tags/{LEDGER_REF_PREFIX}**" in include and {"deletion", "update"} <= rules and not bypass
+                and detail.get("current_user_can_bypass") == "never"):
             return
     raise PromotionLedgerError("ledger_protection_missing")
 
