@@ -19,14 +19,14 @@ const script = resolve(root, "python/scripts/runtime_target_lifecycle.py");
 const baseArgs = [script, "--source-id", "synthetic.paper", "--target-id", "longbridge.paper", "--platform", "longbridge", "--configured-state", "enabled", "--execution-mode", "paper", "--runtime-guard", "pass", "--execution-heartbeat", "pass", "--output", outputPath];
 function run(extra = []) { return spawnSync("python3", [...baseArgs, ...extra], { cwd: root, encoding: "utf8" }); }
 try {
-  const buildStartedAt = Date.now();
-  let result = run(["--cycle-health-json", healthPath]);
+  // Receiver compatibility uses the historical fixture's timeline, so its
+  // fixed next_due_at does not expire when the test runs on a later date.
+  const observedAt = "2026-10-07T16:00:01.123457Z";
+  let result = run(["--cycle-health-json", healthPath, "--observed-at", observedAt]);
   assert.equal(result.status, 0, result.stderr);
   let packet = JSON.parse(readFileSync(outputPath, "utf8"));
   assert.equal(packet.generated_at, packet.computed_at, "generated and computed times identify this source snapshot");
-  assert.notEqual(packet.computed_at, health.coverage.through, "historical page cutoff is not presented as current observation time");
-  assert.ok(Date.parse(packet.computed_at) >= buildStartedAt - 1000 && Date.parse(packet.computed_at) <= Date.now() + 1000,
-    "builder emits a current source observation timestamp");
+  assert.equal(packet.computed_at, observedAt, "explicit source observation preserves microseconds");
   assert.deepEqual(packet.targets[0].cycle_health, health);
   assert.equal(packet.targets[0].no_order, true);
   const normalizedByReceiver = await normalizeCycleHealth(packet.targets[0].cycle_health, {
@@ -35,6 +35,22 @@ try {
   });
   assert.equal(canonicalCycleJson(normalizedByReceiver), canonicalCycleJson(packet.targets[0].cycle_health),
     "Python builder package is accepted unchanged by the existing B1 receiver normalizer");
+
+  for (const expiredAt of [health.schedule.next_due_at, "2026-10-13T00:00:00Z"]) {
+    await assert.rejects(normalizeCycleHealth(health, { ...fixture.context, observed_at: expiredAt }),
+      { message: "cycle_health_schedule_chronology" }, "expired next_due_at still fails receiver chronology checks");
+  }
+
+  // Check the default clock separately from acceptance of historical evidence.
+  const buildStartedAt = Date.now();
+  result = run(["--cycle-health-json", healthPath]);
+  assert.equal(result.status, 0, result.stderr);
+  packet = JSON.parse(readFileSync(outputPath, "utf8"));
+  assert.equal(packet.generated_at, packet.computed_at);
+  assert.notEqual(packet.computed_at, health.coverage.through, "historical page cutoff is not presented as current observation time");
+  assert.ok(Date.parse(packet.computed_at) >= buildStartedAt - 1000 && Date.parse(packet.computed_at) <= Date.now() + 1000,
+    "builder emits a current source observation timestamp");
+  assert.deepEqual(packet.targets[0].cycle_health, health);
 
   result = run();
   assert.equal(result.status, 0, result.stderr);
