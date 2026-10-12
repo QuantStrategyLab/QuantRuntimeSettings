@@ -56,6 +56,13 @@ leverage, reset a hard breaker, or approve a new live target.
 The console offers a separate **Resume current live target** action for the
 configured Binance legacy target. It does not use the candidate strategy form.
 The authenticated request binds the current target's exact bytes; protected
+`manual-longbridge-resume.yml` applies the same contract to LongBridge
+`longbridge-sg` / `longbridge-hk` Environment variables: it saves only
+`RUNTIME_TARGET_ENABLED=true` for an unchanged frozen `legacy_authorized`
+target with `LONGBRIDGE_DRY_RUN_ONLY=false`. It never writes the target,
+strategy, risk or Scheduler state and never issues live authority; a strategy
+change still needs the Promotion Manifest path.
+
 `manual-binance-resume.yml` re-reads the repository variables and saves only
 `RUNTIME_TARGET_ENABLED=true`. It rejects changed identity/configuration,
 non-legacy targets, other platforms/scopes, a disabled recovery-control guard,
