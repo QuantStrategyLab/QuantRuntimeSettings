@@ -1,9 +1,7 @@
 name: Digest Bot Identity (read-only)
 
-# Resolves the token the daily digest actually uses (Environment
-# runtime-strategy-switch; TELEGRAM_TOKEN > TG_TOKEN, same priority as
-# send_daily_digest_telegram.py) to its public bot id/username via getMe.
-# Never prints token or chat id; sends no message; changes nothing.
+# Observe the existing daily sender's Environment winner via getMe only.
+# The public receipt contains fixed status and nullable equality, no identities.
 on:
   workflow_dispatch:
 
@@ -12,34 +10,26 @@ permissions:
 
 jobs:
   identity:
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     environment: runtime-strategy-switch
     env:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      QSL_GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.QSL_GLOBAL_TELEGRAM_CHAT_ID }}
+      GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
+      INPUT_EVENT_NAME: ${{ github.event_name }}
+      INPUT_REF: ${{ github.ref }}
+      SOURCE_SHA: ${{ github.sha }}
+      # No new authentication or private vars injection in this diagnostic.
+      DIAGNOSTIC_SM_AUTH_STATUS: unavailable
     steps:
-      - name: Resolve digest bot identity
-        run: |
-          python3 - <<'PY'
-          import json, os, urllib.request
-          out = []
-          for key in ("TELEGRAM_TOKEN", "TG_TOKEN"):
-              token = (os.environ.get(key) or "").strip()
-              if not token:
-                  out.append({"env": key, "status": "absent"})
-                  continue
-              try:
-                  with urllib.request.urlopen(f"https://api.telegram.org/bot{token}/getMe", timeout=15) as r:
-                      body = json.loads(r.read().decode("utf-8"))
-                  res = body.get("result") or {}
-                  out.append({"env": key, "status": "ok" if body.get("ok") else "getme_not_ok",
-                              "bot_id": res.get("id"), "bot_username": res.get("username"),
-                              "bot_first_name": res.get("first_name")})
-              except Exception as exc:  # noqa: BLE001
-                  out.append({"env": key, "status": f"getme_failed:{type(exc).__name__}"})
-          text = json.dumps({"digest_token_priority": ["TELEGRAM_TOKEN", "TG_TOKEN"], "tokens": out}, ensure_ascii=False, indent=2)
-          print(text)
-          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
-              fh.write("## Digest bot identity\n\n```json\n" + text + "\n```\n")
-          PY
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Observe the selected daily sender configuration
+        run: python3 python/scripts/diagnose_digest_route_identity.py
