@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
 import { loadAccountFactsHistory, loadBinanceWalletHistory, loadReadModel, loadRuntimeDaily } from "../web/strategy-switch-console/frontend/src/api.ts";
 import { overviewRuntimeStatusLabel, runtimeDailySelectionEligible, runtimeDailySelectionFromAccount, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
+import { loadOverviewUsdRates, resetOverviewUsdRatesCache } from "../web/strategy-switch-console/frontend/src/overviewUsd.ts";
 
 const monitored = {
   scope: "monitoring_only",
@@ -311,6 +312,73 @@ try {
   console.log("daily hook races: PASS (dedupe, shared today result, history/current separation, selection and date races, binding, refresh, identity match and midnight)");
 } finally {
   globalThis.fetch = originalFetch;
+}
+
+// Run the actual FX effect and production loader. A failed initial request must
+// recover on the existing explicit readback refresh without adding polling.
+const fxHookStart = overview.indexOf("  useEffect(() => {", overview.indexOf("const [overviewUsdRates"));
+const fxHookEnd = overview.indexOf("  // Prefer [] over null", fxHookStart);
+const fxHook = overview.slice(fxHookStart, fxHookEnd).trim();
+function fxHarness(loader = loadOverviewUsdRates) {
+  const state = { rates: {}, updates: 0 };
+  let dependencies; let cancel; let mounted = true;
+  const context = createContext({
+    readModelRefreshVersion: 0, OVERVIEW_USD_RATES: {}, loadOverviewUsdRates: loader,
+    setOverviewUsdRates(value) { state.rates = value; state.updates += 1; },
+    useEffect(effect, next) {
+      if (dependencies && next.length === dependencies.length && next.every((value, index) => Object.is(value, dependencies[index]))) return;
+      cancel?.(); dependencies = Array.from(next); cancel = effect();
+    },
+  });
+  return {
+    state,
+    render(patch = {}) { assert.equal(mounted, true); Object.assign(context, patch); runInContext(fxHook, context, { timeout: 1000 }); },
+    unmount() { mounted = false; cancel?.(); },
+  };
+}
+const fxPending = [];
+globalThis.fetch = (path, options) => {
+  assert.equal(path, "/api/overview-fx", "FX refresh reads only the existing same-origin endpoint");
+  assert.equal(options.method, "GET"); assert.equal(options.cache, "no-store");
+  return new Promise(resolve => fxPending.push(resolve));
+};
+resetOverviewUsdRatesCache();
+try {
+  const recovery = fxHarness(); recovery.render();
+  assert.equal(fxPending.length, 1);
+  fxPending[0](new Response(JSON.stringify({ ok: false, error: "overview_fx_upstream_unavailable" }), { status: 502 }));
+  await flush();
+  assert.deepEqual({ ...recovery.state.rates }, {}, "failed FX never manufactures conversion rates");
+  recovery.render();
+  assert.equal(fxPending.length, 1, "the same refresh version does not retry a failed FX read");
+  recovery.render({ readModelRefreshVersion: 1 });
+  assert.equal(fxPending.length, 2, "explicit readback refresh retries FX after its initial failure");
+  recovery.render({ readModelRefreshVersion: 1 });
+  assert.equal(fxPending.length, 2, "same-version renders do not duplicate an in-flight FX read");
+  fxPending[1](new Response(JSON.stringify({ base: "USD", rates: { HKD: 8, SGD: 2 } }), { status: 200 }));
+  await flush();
+  assert.deepEqual({ ...recovery.state.rates }, { HKD: "0.125", SGD: "0.5" }, "recovered reference rates reach the overview");
+  recovery.render({ readModelRefreshVersion: 2 }); await flush();
+  assert.equal(fxPending.length, 2, "explicit refresh preserves the production loader's successful cache");
+  recovery.unmount();
+
+  // Controlled deferred loader results exercise effect cancellation itself,
+  // separately from the production loader's shared in-flight/cache behavior.
+  const deferred = [];
+  const races = fxHarness(() => new Promise(resolve => deferred.push(resolve)));
+  races.render(); races.render({ readModelRefreshVersion: 1 });
+  assert.equal(deferred.length, 2);
+  deferred[1]({ HKD: "0.125" }); await flush();
+  deferred[0]({ HKD: "0.1" }); await flush();
+  assert.deepEqual({ ...races.state.rates }, { HKD: "0.125" }, "late pre-refresh FX cannot overwrite current rates");
+  assert.equal(races.state.updates, 1, "cancelled prior FX effects cannot publish state");
+  races.render({ readModelRefreshVersion: 2 });
+  const beforeUnmount = JSON.stringify(races.state);
+  races.unmount(); deferred[2]({ SGD: "0.5" }); await flush();
+  assert.equal(JSON.stringify(races.state), beforeUnmount, "unmount cancels late FX state updates");
+  console.log("FX hook recovery and races: PASS");
+} finally {
+  resetOverviewUsdRatesCache(); globalThis.fetch = originalFetch;
 }
 
 await import("./console_load_lifecycle_validation.mjs");
