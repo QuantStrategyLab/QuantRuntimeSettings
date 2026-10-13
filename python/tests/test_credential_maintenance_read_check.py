@@ -1,5 +1,6 @@
 """Offline contracts for the isolated, manual maintenance GET diagnostic."""
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -8,8 +9,6 @@ from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch
-
-import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'python/scripts'))
@@ -41,26 +40,44 @@ class MaintenanceReadCheckTests(unittest.TestCase):
     def test_workflow_isolated_from_digest_with_minimum_existing_authority(self):
         source = (ROOT / '.github/workflows/daily-digest-notify.yml').read_text()
         self.assertEqual(source, (ROOT / 'docs/workflows/daily-digest-notify.yml').read_text())
-        config = yaml.safe_load(source)
-        triggers = config.get('on', config.get(True))
-        inputs = triggers['workflow_dispatch']['inputs']
-        self.assertIn('maintenance_read_check', inputs, 'a separate manual check must not execute the sending job')
-        self.assertEqual(inputs['maintenance_read_check']['default'], False)
-        self.assertEqual(triggers['schedule'], [{'cron': '0 22 * * 1-5'}])
-        jobs = config['jobs']
-        self.assertEqual(jobs['digest']['if'], "${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}")
-        check = jobs['maintenance-read-check']
-        self.assertEqual(check['if'], "${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.maintenance_read_check == true }}")
-        self.assertEqual(check['permissions'], {'contents': 'read'})
-        self.assertEqual(check['environment'], jobs['digest']['environment'])
-        self.assertEqual(set(check['env']), {'STRATEGY_SWITCH_CONSOLE_URL', 'STRATEGY_SWITCH_SYNC_TOKEN', 'TELEGRAM_TOKEN', 'TG_TOKEN', 'GH_TOKEN', 'DIGEST_GH_TOKEN'})
-        self.assertEqual(check['env']['STRATEGY_SWITCH_CONSOLE_URL'], '${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}')
-        self.assertEqual(check['env']['STRATEGY_SWITCH_SYNC_TOKEN'], '${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN }}')
-        for name in ['TELEGRAM_TOKEN', 'TG_TOKEN', 'GH_TOKEN', 'DIGEST_GH_TOKEN']:
-            self.assertEqual(check['env'][name], jobs['digest']['env'][name])
-        self.assertEqual(check['steps'][0]['with']['persist-credentials'], False)
-        self.assertEqual([step.get('run') for step in check['steps'] if 'run' in step], ['python3 python/scripts/check_credential_maintenance_read.py'])
-        self.assertEqual(len(check['steps']), 3)
+        # Check this workflow's fixed text contract; actionlint validates YAML.
+        self.assertIn('''      maintenance_read_check:
+        description: "Independent main-only maintenance GET check; never sends notifications or runs the digest job."
+        required: true
+        type: boolean
+        default: false
+''', source)
+        self.assertIn('''  schedule:
+    # Asia/Shanghai Tue–Sat 06:00 → UTC Mon–Fri 22:00
+    - cron: "0 22 * * 1-5"
+''', source)
+        digest, check = source.split('jobs:\n  digest:\n', 1)[1].split('\n  maintenance-read-check:\n', 1)
+        exclude_check = "    if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}\n"
+        self.assertTrue(digest.startswith(exclude_check))
+        # Freeze the original job bytes at 8f295d2, excluding only the added if.
+        self.assertEqual(hashlib.sha256(digest[len(exclude_check):].encode()).hexdigest(),
+                         'e33966c074fefd90216b398937f34d0628ab7294aeaba652c786cc11259b7a39')
+        self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.maintenance_read_check == true }}\n", check)
+        self.assertIn('    permissions:\n      contents: read\n    runs-on:', check)
+        self.assertIn('    environment: runtime-strategy-switch\n', check)
+        env, steps = check.split('    env:\n', 1)[1].split('    steps:\n', 1)
+        self.assertEqual(env, '''      STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
+      STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN }}
+      # Same injected token aliases as the digest; compare only, never use them.
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+      DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+''')
+        self.assertEqual(steps, '''      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Read once and print fixed public status
+        run: python3 python/scripts/check_credential_maintenance_read.py
+''')
 
     def test_main_only_one_get_for_valid_not_due_and_unknown(self):
         for meta in [META, {**META, 'phase': 'unknown', 'expires_at': None, 'requires_action': True}]:
