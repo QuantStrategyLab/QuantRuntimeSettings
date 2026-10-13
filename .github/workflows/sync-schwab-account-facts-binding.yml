@@ -32,6 +32,11 @@ on:
         type: boolean
         required: true
         default: false
+      preview_ibkr_source_rotation:
+        description: Validate one protected IBKR source rotation without writing any remote binding
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -64,6 +69,9 @@ jobs:
       INSPECT_IBKR_LIFECYCLE: ${{ inputs.inspect_ibkr_lifecycle }}
       INITIALIZE_IBKR_BINDINGS: ${{ inputs.initialize_ibkr_bindings }}
       APPLY_INITIAL_IBKR_BINDINGS: ${{ inputs.apply_initial_ibkr_bindings }}
+      PREVIEW_IBKR_SOURCE_ROTATION: ${{ inputs.preview_ibkr_source_rotation }}
+      INPUT_EVENT_NAME: ${{ github.event_name }}
+      INPUT_REF: ${{ github.ref }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -77,6 +85,21 @@ jobs:
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
+          case "${PREVIEW_IBKR_SOURCE_ROTATION:-false}" in
+            true)
+              if [ "$BINDING_PLATFORM" != "ibkr" ] || [ "${INPUT_EVENT_NAME:-}" != "workflow_dispatch" ] || [ "${INPUT_REF:-}" != "refs/heads/main" ] \
+                || [ "$INSPECT_IBKR_BINDINGS" = "true" ] || [ "$INSPECT_IBKR_LIFECYCLE" = "true" ] \
+                || [ "$INITIALIZE_IBKR_BINDINGS" = "true" ] || [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ]; then
+                echo "status=blocked reason=rotation_preview_mode_invalid"
+                exit 1
+              fi
+              ;;
+            false|"") ;;
+            *)
+              echo "status=blocked reason=rotation_preview_input_invalid"
+              exit 1
+              ;;
+          esac
           if [ "$INSPECT_IBKR_LIFECYCLE" = "true" ]; then
             if [ "$BINDING_PLATFORM" != "ibkr" ] || [ "$INSPECT_IBKR_BINDINGS" = "true" ] || [ "$INITIALIZE_IBKR_BINDINGS" = "true" ] || [ "$APPLY_INITIAL_IBKR_BINDINGS" = "true" ]; then
               echo "status=blocked reason=inspection_mode_invalid"
@@ -294,6 +317,11 @@ jobs:
 
           const sameKey = existing.bindings.find((item) =>
             item.platform === platform && item.account_key === binding.account_key);
+          // A preview must validate its stated predecessor even for a no-op.
+          if (process.env.PREVIEW_IBKR_SOURCE_ROTATION === "true"
+              && (!sameKey || sameKey.source_binding.id !== rotation.previous_source_binding_id)) {
+            stop("previous_binding_mismatch");
+          }
           if (platform === "longbridge" && (!sameKey
               || sameKey.source_binding.id !== rotation.previous_source_binding_id)) {
             stop("previous_binding_mismatch");
@@ -366,6 +394,10 @@ jobs:
             exit 1
           fi
 
+          if [ "${PREVIEW_IBKR_SOURCE_ROTATION:-false}" = "true" ]; then
+            echo "status=preview reason=none"
+            exit 0
+          fi
           if [ ! -f "$temp_dir/next-bindings.json" ]; then
             echo "status=unchanged"
             exit 0

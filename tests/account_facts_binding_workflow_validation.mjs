@@ -659,3 +659,109 @@ esac
   }
 }
 console.log(`account-facts binding workflow validation: ${cases.length} rotation cases plus initial-binding preview/apply and rejection matrix passed`);
+
+// Exercise the actual two workflow bodies, not a replacement rotation helper.
+const runSourceRotationPreview = ({
+  preview = "true", platform = "ibkr", inspect = "false", lifecycle = "false",
+  initialize = "false", apply = "false", event = "workflow_dispatch", ref = "refs/heads/main",
+  request = rotation, original = [primary, secondary], options = { ibkr: [primary, secondary].map(optionFor) },
+  allowMockPut = false,
+} = {}) => {
+  const temp = mkdtempSync(join(tmpdir(), "qsl-source-rotation-preview-"));
+  try {
+    const bin = join(temp, "bin");
+    mkdirSync(bin);
+    const optionsPath = join(temp, "options.json");
+    const bindingsPath = join(temp, "bindings.json");
+    const trace = join(temp, "trace.log");
+    const put = join(temp, "put-called");
+    writeFileSync(optionsPath, JSON.stringify(options), { mode: 0o600 });
+    writeFileSync(bindingsPath, JSON.stringify({ schema_version: schema, bindings: original }), { mode: 0o600 });
+    const mock = join(bin, "npx");
+    writeFileSync(mock, `#!/bin/sh
+set -eu
+printf '%s\\n' "$*" >> "$MOCK_TRACE"
+case "$*" in
+  *"kv key get account_options"*) cat "$MOCK_OPTIONS" ;;
+  *"kv key get account_facts_bindings"*) cat "$MOCK_BINDINGS" ;;
+  *"kv key put"*) : > "$MOCK_PUT"; exit 23 ;;
+  *) exit 24 ;;
+esac
+`);
+    chmodSync(mock, 0o700);
+    const child = spawnSync("/bin/bash", ["-e", "-u", "-o", "pipefail", "-c", setupShell + "\n" + syncShell], {
+      cwd: join(root, "web/strategy-switch-console"), encoding: "utf8",
+      env: {
+        ...process.env, PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: temp,
+        BINDING_PLATFORM: platform, PREVIEW_IBKR_SOURCE_ROTATION: preview,
+        INSPECT_IBKR_BINDINGS: inspect, INSPECT_IBKR_LIFECYCLE: lifecycle,
+        INITIALIZE_IBKR_BINDINGS: initialize, APPLY_INITIAL_IBKR_BINDINGS: apply,
+        INPUT_EVENT_NAME: event, INPUT_REF: ref,
+        IBKR_ACCOUNT_FACTS_SOURCE_ROTATION_JSON: JSON.stringify(request),
+        IBKR_ACCOUNT_FACTS_INITIAL_BINDINGS_JSON: "", CLOUDFLARE_API_TOKEN: "synthetic-token",
+        CLOUDFLARE_WRANGLER_CONFIG_TOML: "", STRATEGY_SWITCH_CONFIG_KV_NAMESPACE_ID: "synthetic-namespace",
+        MOCK_OPTIONS: optionsPath, MOCK_BINDINGS: bindingsPath, MOCK_TRACE: trace, MOCK_PUT: put,
+      },
+    });
+    const calls = existsSync(trace) ? readFileSync(trace, "utf8").trim().split("\n") : [];
+    if (!allowMockPut) assert.equal(existsSync(put), false, "preview reached remote KV put");
+    assert.doesNotMatch(child.stdout + child.stderr, /U0000000[1-4]|ibkr-(primary|secondary)|[a-d]{64}/);
+    return { ...child, calls, mockPutCalled: existsSync(put) };
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+};
+
+const preview = runSourceRotationPreview();
+assert.equal(preview.status, 0, preview.stderr);
+assert.match(preview.stdout, /status=preview reason=none/);
+assert.equal(preview.calls.length, 2);
+assert.ok(preview.calls.every((call) => call.includes("kv key get")));
+
+const noChangePreview = runSourceRotationPreview({ request: {
+  ...rotation, next_source_binding_id: primary.source_binding.id,
+} });
+assert.equal(noChangePreview.status, 0);
+assert.match(noChangePreview.stdout, /status=preview reason=none/);
+assert.equal(noChangePreview.calls.length, 2);
+
+for (const variant of [
+  { platform: "schwab" }, { platform: "longbridge" }, { platform: "firstrade" },
+  { inspect: "true" }, { lifecycle: "true" }, { initialize: "true" }, { apply: "true" },
+  { event: "schedule" }, { ref: "refs/heads/other" },
+]) {
+  const denied = runSourceRotationPreview(variant);
+  assert.equal(denied.status, 1);
+  assert.match(denied.stdout, /status=blocked reason=rotation_preview_mode_invalid/);
+  assert.deepEqual(denied.calls, [], "invalid preview read private configuration");
+}
+const invalidFlag = runSourceRotationPreview({ preview: "invalid" });
+assert.equal(invalidFlag.status, 1);
+assert.match(invalidFlag.stdout, /status=blocked reason=rotation_preview_input_invalid/);
+assert.deepEqual(invalidFlag.calls, []);
+
+for (const request of [
+  { ...rotation, previous_source_binding_id: "f".repeat(64) },
+  { ...rotation, next_source_binding_id: primary.source_binding.id, previous_source_binding_id: "f".repeat(64) },
+]) {
+  const denied = runSourceRotationPreview({ request });
+  assert.equal(denied.status, 1);
+  assert.match(denied.stdout, /reason=previous_binding_mismatch/);
+  assert.equal(denied.calls.length, 2);
+}
+const identityMismatch = runSourceRotationPreview({ options: {
+  ibkr: [{ ...optionFor(primary), service_name: "other-synthetic-service" }, optionFor(secondary)],
+} });
+assert.equal(identityMismatch.status, 1);
+assert.match(identityMismatch.stdout, /reason=live_account_option_mismatch/);
+assert.equal(identityMismatch.calls.length, 2);
+for (const disabledFlag of ["false", ""]) {
+  const legacy = runSourceRotationPreview({ preview: disabledFlag, allowMockPut: true });
+  assert.equal(legacy.status, 1, "mock put deliberately fails the existing normal write path");
+  assert.match(legacy.stdout, /status=blocked reason=binding_write_failed/);
+  assert.equal(legacy.mockPutCalled, true);
+  assert.equal(legacy.calls.length, 3);
+  assert.match(legacy.calls[2], /kv key put/);
+}
+assert.match(workflow, /preview_ibkr_source_rotation:[\s\S]*?default: false/);
+console.log("IBKR source rotation preview: 15 acceptance/rejection cases without KV writes and 2 unchanged default-path mock write controls passed");
