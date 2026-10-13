@@ -471,7 +471,6 @@ def main(argv: list[str] | None = None) -> int:
             "business_day": payload.business_day,
             "locale": digest.normalize_locale(str(payload.locale)),
             "run_count": len(payload.runs),
-            "total_fills": digest.total_fills(payload.runs),
             "missing": [],
         }
     )
@@ -547,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
     if not ok:
         print("Daily digest Telegram delivery failed.", file=sys.stderr)
         return 1
-    fills = digest.total_fills(payload.runs)
+    fills = receipt.get("total_fills")
     fills_label = "unknown" if fills is None else fills
     print(
         "Daily digest delivered via QuantSentinel "

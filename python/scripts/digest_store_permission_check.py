@@ -8,7 +8,7 @@ calls read-only Cloud Storage APIs:
 * ``buckets.get`` (public-access-prevention / uniform access), if allowed;
 * ``buckets.getIamPolicy``, if allowed, to report whether ``allUsers`` /
   ``allAuthenticatedUsers`` appear (booleans only; no member list printed);
-* ``objects.list`` under the prefix (object names / sizes / timestamps only)
+* ``objects.list`` under the prefix (safe presence / count summary only)
   and a metadata-only ``objects.get`` on the first object (no content);
 * an anonymous ``objects.list`` (expect 401/403 for a private bucket).
 
@@ -59,7 +59,7 @@ def main() -> int:
     granted = set(body.get("permissions") or [])
     result: dict[str, object] = {
         "bucket": BUCKET,
-        "prefix": PREFIX,
+        "prefix_configured": bool(PREFIX),
         "test_permissions_http": code,
         **{p.replace("storage.", "").replace(".", "_"): (p in granted) for p in PERMS},
     }
@@ -77,17 +77,15 @@ def main() -> int:
         result["policy_has_allAuthenticatedUsers"] = "allAuthenticatedUsers" in members
         result["policy_has_conditions"] = any(b.get("condition") for b in policy.get("bindings") or [])
     code, listing = _get(
-        f"{API}/o?" + urllib.parse.urlencode({"prefix": PREFIX, "maxResults": 100, "fields": "items(name,size,updated)"}),
+        f"{API}/o?" + urllib.parse.urlencode({"prefix": PREFIX, "maxResults": 100, "fields": "items(name),nextPageToken"}),
         token,
     )
     result["prefix_list_http"] = code
     items = listing.get("items") or [] if code == 200 else []
     result["prefix_has_objects"] = bool(items) if code == 200 else None
-    # Object names/sizes/timestamps only (names carry platform/business_day/target, no values).
-    result["prefix_objects"] = [
-        {"name": item.get("name"), "size": int(item.get("size") or 0), "updated": item.get("updated")}
-        for item in items
-    ]
+    # Names contain private target/account identity; use them only for the GET.
+    result["prefix_objects_count"] = len(items) if code == 200 else None
+    result["prefix_listing_complete"] = not bool(listing.get("nextPageToken")) if code == 200 else None
     if items:
         name = urllib.parse.quote(str(items[0].get("name")), safe="")
         # Metadata-only GET (alt=json default): proves objects.get without reading content.

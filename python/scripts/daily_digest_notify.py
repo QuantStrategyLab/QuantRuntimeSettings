@@ -99,6 +99,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_attention_alert": "· {tag} {strategy}：状态异常{reason}",
         "v2_coverage_line": "已收录 {runs} 条运行；候选 {fresh} 条可用、{stale} 条过期已略去",
         "v2_coverage_github_failures": "GitHub 证据读取失败 {count} 处",
+        "candidate_source_failures": "⚠️ 候选读取失败 {count} 处；本窗口覆盖不完整。",
         "v2_evidence_unknown": "运行证据未知或读取失败，不能判定为链路正常。",
         "v2_verified_idle": "已验证本窗口无平台/策略实际运行。",
     },
@@ -171,6 +172,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_attention_alert": "· {tag} {strategy}: alert{reason}",
         "v2_coverage_line": "{runs} runs included; candidates {fresh} usable, {stale} stale omitted",
         "v2_coverage_github_failures": "GitHub evidence read failures: {count}",
+        "candidate_source_failures": "⚠️ Candidate source read failures: {count}; window coverage is incomplete.",
         "v2_evidence_unknown": "Run evidence is unknown or a source read failed; link health is not confirmed.",
         "v2_verified_idle": "Verified: no platform/strategy actually ran in this window.",
     },
@@ -506,6 +508,7 @@ class EvidenceCoverage:
     github_sources_queried: int = 0
     github_sources_matched: int = 0
     github_failures: tuple[dict[str, Any], ...] = ()
+    candidate_failures: tuple[dict[str, Any], ...] = ()
     # NOTIFY-04: candidate rows dropped because their business day did not match
     # the digest business day (or was missing). Each item is a redacted mapping
     # with platform_id / strategy_profile / strategy_label /
@@ -518,7 +521,7 @@ class EvidenceCoverage:
 
     @property
     def has_source_failures(self) -> bool:
-        return bool(self.github_failures)
+        return bool(self.github_failures or self.candidate_failures)
 
     @property
     def is_complete_for_verified_idle(self) -> bool:
@@ -547,6 +550,7 @@ class EvidenceCoverage:
             "github_sources_queried": self.github_sources_queried,
             "github_sources_matched": self.github_sources_matched,
             "github_failures": list(self.github_failures),
+            "candidate_failures": list(self.candidate_failures),
             "has_source_failures": self.has_source_failures,
             "is_complete_for_verified_idle": self.is_complete_for_verified_idle,
             "stale_candidates_count": self.stale_candidates_count,
@@ -1010,6 +1014,16 @@ def resolve_evidence_status(
     return "evidence_unknown"
 
 
+def global_total_fills(payload: DailyDigestInput) -> int | None:
+    """An all-source total requires complete, current evidence; keep run facts."""
+    coverage = payload.evidence_coverage
+    if coverage is not None and (coverage.has_source_failures or coverage.stale_candidates):
+        return None
+    if not payload.runs and resolve_evidence_status(payload) != "verified_idle":
+        return None
+    return total_fills(payload.runs)
+
+
 def _render_stale_candidates(
     coverage: EvidenceCoverage | None, locale: DigestLocale
 ) -> list[str]:
@@ -1059,7 +1073,12 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     lines: list[str] = []
     rich = any(has_observation(entry) for entry in runs)
     evidence_status = resolve_evidence_status(payload)
-    known_fills = total_fills(runs)
+    known_fills = global_total_fills(payload)
+    coverage = payload.evidence_coverage
+    candidate_failure_line = (
+        _t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures))
+        if coverage is not None and coverage.candidate_failures else ""
+    )
 
     if not runs:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
@@ -1074,6 +1093,8 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
         if stale_lines:
             lines.append("")
             lines.extend(stale_lines)
+        if candidate_failure_line:
+            lines.append(candidate_failure_line)
         return "\n".join(lines)
 
     # Prefer 收盘日报 when any run has known fills > 0, even if other runs'
@@ -1108,6 +1129,9 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     if stale_lines:
         lines.append("")
         lines.extend(stale_lines)
+    if candidate_failure_line:
+        lines.append("")
+        lines.append(candidate_failure_line)
     return "\n".join(lines)
 
 
@@ -1157,6 +1181,8 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
         )
 
     attention: list[str] = []
+    if coverage is not None and coverage.candidate_failures:
+        attention.append(_t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures)))
     for entry in runs:
         if entry.status == "alert":
             reason = f"（{entry.reason_code}）" if locale == "zh" and entry.reason_code else (
@@ -1220,6 +1246,8 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
                 count=len(coverage.github_failures)
             )
         )
+    if coverage is not None and coverage.candidate_failures:
+        lines.append(_t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures)))
     return "\n".join(lines)
 
 
@@ -1424,4 +1452,5 @@ __all__ = [
     "resolve_count_field",
     "resolve_evidence_status",
     "total_fills",
+    "global_total_fills",
 ]

@@ -66,7 +66,7 @@ Environment：`runtime-strategy-switch`。
 - env `DIGEST_CANDIDATES_PATH` / `DIGEST_CANDIDATES_JSON`
 - CLI `--candidates <path>`（workflow 在物化后会传入）
 
-**不要**把含账户资产的候选默认上传为公开 artifact。receipt.json 可上传（含 coverage / failures / identity 占位与 field provenance，不含 token）。
+**不要**把含账户资产的候选或完整 `receipt.json` 上传为公开 artifact。完整 receipt 及发送器消息预览只留在 runner；公开 artifact / summary 使用 `project_public_digest_receipt.py` 的白名单 `receipt-public.json`，保留 source SHA、窗口、覆盖计数、未知状态及固定失败原因，不包含运行行、身份、金额或自由文本。
 
 ## 推荐对接顺序（文档化路径，本仓只读说明）
 
@@ -116,6 +116,16 @@ python3 python/scripts/send_daily_digest_telegram.py \
 - 2026-10-11 owner 已加好 3 条带前缀条件的 IAM。生产者仓库的变量值为 `DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates`。QRS 的同名变量**暂不设置**：一旦设置，日报内容会改变（B7）。
 - （原计划）需要 owner 一次性加带前缀条件的 IAM：生产者在 `digest-candidates/<platform>/` 下给 objectUser；读取者给 objectViewer，条件为对象前缀或 `objectListPrefix` 前缀。完成后先设生产者仓库的变量，日报仓库的变量最后设，因为它会改变日报内容（B7，需要批准）。全部核对通过之后，才删除 `DIGEST_CANDIDATES_JSON`。
 - 不用 Actions artifact 中转：这几个仓库都是公开仓库，artifact 任何登录用户都能下载，而候选数据可能带有账户权益。
+
+离线读取边界：`merge_digest_candidates.py` 未指定任何 base / input-dir 来源时拒绝合并。指定路径缺失、读取失败、损坏 JSON、缺少候选数组或不支持的显式 schema 均返回失败（CLI exit 2），不写出部分成功的 envelope，也不覆盖既有输出。显式 `producer_status` 只接受 schema 的 `projected` / `empty` / `skipped`，其中 `skipped` 仍拒绝；`failed`、其他值及 `null` 不得变成成功空源，缺省 metadata 保持 legacy 兼容。合法 `runs=[]` / `producer_status=empty` 和明确读取成功的空目录仍可进入既有 idle 合同。调用方必须遵守失败退出码，不能继续消费上一次的输出。`digest_store_permission_check.py` 仅输出对象数量、列表是否完整、权限布尔和 HTTP 状态；对象名与配置前缀可能包含私有 target，均不输出。
+
+非空候选的三项必需字段在过滤前校验：`platform_id` / `strategy_profile` 必须为非空字符串，按现有 schema 分别最多 64 / 128 字符；`actually_ran` 必须为显式 boolean。缺项或非法类型拒绝，不能被静默过滤为已验证 idle；不增加平台或策略 registry allowlist。明确 `actually_ran=false`、合法空来源和既有可选计数字段的 legacy 兼容仍保留。
+
+中央获取步骤把私有 store 的读取结果通过内部 env `DIGEST_CANDIDATES_STORE_STATUS=loaded|failed` 和 `DIGEST_CANDIDATES_STORE_REASON` 传给聚合器；未配置 store 时可省略状态或使用 `disabled`。只有成功完成列表、复制和合并才记录 `loaded`；列表非零退出（包括无法确认完整的无匹配结果）保持失败，不解析错误文本为已知空。固定失败原因是 `candidate_store_auth_failed` / `candidate_store_list_failed` / `candidate_store_copy_failed` / `candidate_store_merge_failed`；缺失或非法 outcome 对应 `candidate_store_outcome_missing` / `candidate_store_outcome_invalid`，不含 URI、对象或账户。
+
+这些失败写入 additive `source_coverage.candidate_failures[]` 及 receipt `failures[]`，不混入 GitHub 来源。既有候选的已知事实可以保留，但完整覆盖为 false、全源 `total_fills=null` / `unknown`，v1 和 sections_v2 都提示候选读取失败。workflow 先形成消息、完整 receipt 和公开摘要，再由 intake gate 标记运行失败；定时版式仍为 v1，发送/路由及异常可达规则不变。这些离线修复不证明 reader 权限、生产采用或真实送达。
+
+只有已明确标记 `DIGEST_CANDIDATES_STORE_STATUS=failed` 的 intake，才将无法读取或不符合上述候选合同的 legacy fallback 降级为未知：配置保留、`candidates_loaded=false`，另记固定原因 `candidate_input_unavailable_or_invalid`，继续形成警告消息、完整 receipt 和公开摘要后执行失败 gate。正常未标记失败的坏源继续拒绝，不生成成功空 JSON。渲染、receipt 和发送结果摘要共用全源计数门：来源失败、过期候选或未知成交均不能声明全源零或正成交，逐 run 已知事实保留。公开 receipt 同时校验白名单字段的类型、枚举、日期/窗口值；非法字段为 unknown / null，不复制私有容器或把未知计数填成零。
 
 ### 生产注入（人闸）
 

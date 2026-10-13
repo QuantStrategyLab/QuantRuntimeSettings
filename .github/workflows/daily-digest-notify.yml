@@ -160,7 +160,7 @@ jobs:
             echo "Candidates input: Environment secret DIGEST_CANDIDATES_JSON → $dest"
           elif [[ -n "${CANDIDATES_PATH_VAR:-}" ]]; then
             if [[ ! -f "$CANDIDATES_PATH_VAR" ]]; then
-              echo "DIGEST_CANDIDATES_PATH var set but file missing: $CANDIDATES_PATH_VAR" >&2
+              echo "DIGEST_CANDIDATES_PATH var set but file missing." >&2
               echo "configured=true" >> "$GITHUB_OUTPUT"
               echo "source=path_missing" >> "$GITHUB_OUTPUT"
               exit 1
@@ -168,7 +168,7 @@ jobs:
             echo "DIGEST_CANDIDATES_PATH=$CANDIDATES_PATH_VAR" >> "$GITHUB_ENV"
             echo "configured=true" >> "$GITHUB_OUTPUT"
             echo "source=environment_path_var" >> "$GITHUB_OUTPUT"
-            echo "Candidates input: path var → $CANDIDATES_PATH_VAR"
+            echo "Candidates input: configured private path."
           else
             echo "configured=false" >> "$GITHUB_OUTPUT"
             echo "source=none" >> "$GITHUB_OUTPUT"
@@ -190,35 +190,51 @@ jobs:
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Fetch producer candidates from private store (optional)
+        id: candidates_fetch
         if: ${{ env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        # Form the receipt and preserve exception delivery before the final gate.
+        continue-on-error: true
         env:
           INPUT_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
           AUTH_OUTCOME: ${{ steps.candidates_gcp_auth.outcome }}
         run: |
           set -euo pipefail
+          umask 077
           # Never echo row contents (may carry equity); counts only.
+          store_failed() {
+            printf 'DIGEST_CANDIDATES_STORE_STATUS=failed\nDIGEST_CANDIDATES_STORE_REASON=%s\n' "$1" >> "$GITHUB_ENV"
+            echo "::warning::$1" >&2
+            exit 1
+          }
+          # Fail closed if the step ends before it records a complete outcome.
+          printf 'DIGEST_CANDIDATES_STORE_STATUS=failed\nDIGEST_CANDIDATES_STORE_REASON=candidate_store_outcome_missing\n' >> "$GITHUB_ENV"
           if [[ "$AUTH_OUTCOME" != "success" ]]; then
-            echo "Producer candidates store configured but authentication failed; continuing without it." >&2
-            echo "::warning::digest candidates store auth failed"
-            exit 0
+            store_failed candidate_store_auth_failed
           fi
           day="${INPUT_BUSINESS_DAY:-$(TZ=America/New_York date +%F)}"
           fetched="data/input/daily-digest/fetched"
           mkdir -p "$fetched"
           uri="${DIGEST_CANDIDATES_GCS_URI%/}"
+          listing="$RUNNER_TEMP/digest-candidates-list.txt"
+          if ! gcloud storage ls "${uri}/*/${day}/*.json" > "$listing" 2>/dev/null; then
+            store_failed candidate_store_list_failed
+          fi
           found=0
           while IFS= read -r object; do
+            [[ "$object" == "${uri}/"* ]] || store_failed candidate_store_list_failed
             [[ "$object" == *"/${day}/"*.json ]] || continue
-            rel="${object#"${uri}/"}"
-            mkdir -p "$fetched/$(dirname "$rel")"
-            gcloud storage cp "$object" "$fetched/$rel" --no-user-output-enabled
+            if ! gcloud storage cp "$object" "$fetched/candidate-${found}.json" --no-user-output-enabled > /dev/null 2>&1; then
+              store_failed candidate_store_copy_failed
+            fi
             found=$((found + 1))
-          done < <(gcloud storage ls "${uri}/*/${day}/*.json" 2>/dev/null || true)
+          done < "$listing"
           echo "Producer candidate files for ${day}: ${found}"
           base="${DIGEST_CANDIDATES_PATH:-}"
           out="data/input/daily-digest/candidates-merged.json"
-          python3 python/scripts/merge_digest_candidates.py ${base:+--base "$base"} --input-dir "$fetched" --output "$out"
-          echo "DIGEST_CANDIDATES_PATH=$out" >> "$GITHUB_ENV"
+          if ! python3 python/scripts/merge_digest_candidates.py ${base:+--base "$base"} --input-dir "$fetched" --output "$out"; then
+            store_failed candidate_store_merge_failed
+          fi
+          printf 'DIGEST_CANDIDATES_PATH=%s\nDIGEST_CANDIDATES_STORE_STATUS=loaded\nDIGEST_CANDIDATES_STORE_REASON=\n' "$out" >> "$GITHUB_ENV"
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
         id: gcp_auth
@@ -260,7 +276,23 @@ jobs:
           if [[ -n "${DIGEST_CANDIDATES_PATH:-}" ]]; then
             args+=(--candidates "$DIGEST_CANDIDATES_PATH")
           fi
-          "${args[@]}"
+          # The local sender preview and full receipt contain private facts.
+          umask 077
+          "${args[@]}" > "$RUNNER_TEMP/digest-message-private.log" 2>&1
+
+      - name: Prepare public receipt summary
+        if: always()
+        env:
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! -f data/output/daily-digest/receipt.json ]]; then
+            exit 0
+          fi
+          python3 python/scripts/project_public_digest_receipt.py \
+            --input data/output/daily-digest/receipt.json \
+            --output data/output/daily-digest/receipt-public.json \
+            --source-sha "$SOURCE_SHA"
 
       - name: Summarize (no secrets)
         if: always()
@@ -270,7 +302,7 @@ jobs:
           import json
           from pathlib import Path
 
-          receipt_path = Path("data/output/daily-digest/receipt.json")
+          receipt_path = Path("data/output/daily-digest/receipt-public.json")
           print("## QuantSentinel daily digest")
           print()
           if not receipt_path.exists():
@@ -308,11 +340,9 @@ jobs:
               for item in failures:
                   if isinstance(item, dict):
                       print(
-                          f"  - `{item.get('platform_id')}` / `{item.get('workflow')}` "
+                          f"  - `{item.get('source_kind')}` "
                           f"reason=`{item.get('reason_code')}`"
                       )
-                  else:
-                      print(f"  - `{item}`")
           missing = receipt.get("missing") or []
           if missing:
               print("- missing configuration:")
@@ -325,7 +355,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: daily-digest-receipt
-          path: data/output/daily-digest/receipt.json
+          path: data/output/daily-digest/receipt-public.json
           if-no-files-found: warn
-          # receipt may include opaque_account_uid / target_id placeholders —
-          # still no secrets; do not upload candidates.json here.
+          # Complete receipt, candidates and message previews stay on the runner.
+
+      - name: Require complete private candidate intake
+        if: ${{ always() && env.DIGEST_CANDIDATES_STORE_STATUS == 'failed' }}
+        run: |
+          echo "::error::Private candidate intake failed; see the public receipt source reason."
+          exit 1
