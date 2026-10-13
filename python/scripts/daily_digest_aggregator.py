@@ -33,6 +33,7 @@ if str(SCRIPTS) not in sys.path:
 
 import daily_digest_notify as digest  # noqa: E402
 import daily_digest_delivery_axes as delivery_axes  # noqa: E402
+import merge_digest_candidates as candidate_contract  # noqa: E402
 
 DEFAULT_PLATFORM_CONFIG = ROOT / "platform-config.json"
 NY_TZ = ZoneInfo("America/New_York")
@@ -168,21 +169,8 @@ def window_label_for(contract: Mapping[str, Any]) -> str:
 
 
 def _as_candidate_rows(raw: Any) -> list[dict[str, Any]]:
-    if raw is None:
-        return []
-    if isinstance(raw, Mapping):
-        if "runs" in raw:
-            raw = raw["runs"]
-        elif "candidates" in raw:
-            raw = raw["candidates"]
-        else:
-            raise ValueError("candidates object must contain runs or candidates")
-    if not isinstance(raw, list):
-        raise ValueError("candidates must be a list")
     out: list[dict[str, Any]] = []
-    for item in raw:
-        if not isinstance(item, Mapping):
-            raise ValueError("each candidate must be an object")
+    for item in candidate_contract._rows(raw):
         row = dict(item)
         if not str(row.get("evidence_provenance") or "").strip():
             row["evidence_provenance"] = "candidates"
@@ -211,6 +199,25 @@ def load_candidates_from_file(path: Path | None) -> tuple[list[dict[str, Any]], 
         configured = True
         return _as_candidate_rows(json.loads(inline)), True, True
     return [], False, False
+
+
+CANDIDATE_STORE_FAILURE_REASONS = frozenset({
+    "candidate_store_auth_failed", "candidate_store_list_failed", "candidate_store_copy_failed",
+    "candidate_store_merge_failed", "candidate_store_outcome_missing", "candidate_store_outcome_invalid",
+    "candidate_input_unavailable_or_invalid",
+})
+
+
+def candidate_store_failures() -> list[dict[str, str]]:
+    """Read the workflow's explicit private-store outcome; never log its URI."""
+    configured = bool((os.environ.get("DIGEST_CANDIDATES_GCS_URI") or "").strip())
+    state = (os.environ.get("DIGEST_CANDIDATES_STORE_STATUS") or "").strip()
+    if state == "loaded" or (not configured and state in {"", "disabled"}):
+        return []
+    reason = (os.environ.get("DIGEST_CANDIDATES_STORE_REASON") or "").strip()
+    if state != "failed" or reason not in CANDIDATE_STORE_FAILURE_REASONS:
+        reason = "candidate_store_outcome_missing" if not state else "candidate_store_outcome_invalid"
+    return [{"source_kind": "candidate_store", "reason_code": reason}]
 
 
 def _gh_api_get(url: str, token: str) -> Any:
@@ -722,8 +729,18 @@ def collect_digest_runs(
     include_github: bool = True,
     locale: str = "zh",
 ) -> CollectResult:
-    loaded_rows, candidates_configured, candidates_loaded = load_candidates_from_file(
-        candidates_path
+    store_failures = candidate_store_failures()
+    try:
+        loaded_rows, candidates_configured, candidates_loaded = load_candidates_from_file(candidates_path)
+    except (OSError, ValueError):
+        # Only an already failed intake may downgrade an unusable fallback.
+        # Ordinary malformed/absent configured sources retain their rejection.
+        if (os.environ.get("DIGEST_CANDIDATES_STORE_STATUS") or "").strip() != "failed":
+            raise
+        loaded_rows, candidates_configured, candidates_loaded = [], True, False
+        store_failures.append({"source_kind": "candidate_store", "reason_code": "candidate_input_unavailable_or_invalid"})
+    candidates_configured = candidates_configured or bool(
+        (os.environ.get("DIGEST_CANDIDATES_GCS_URI") or "").strip()
     )
     file_rows, stale_notes = partition_candidates_by_business_day(
         loaded_rows, business_day, config=config, locale=locale
@@ -744,6 +761,7 @@ def collect_digest_runs(
         github_sources_queried=github_result.sources_queried,
         github_sources_matched=github_result.sources_matched,
         github_failures=tuple(github_result.failures),
+        candidate_failures=tuple(store_failures),
         stale_candidates=tuple(stale_notes),
     )
     return CollectResult(runs=runs, coverage=coverage, merged_rows=enriched)
@@ -834,15 +852,7 @@ def build_receipt(
     message_chars: int,
 ) -> dict[str, Any]:
     evidence_status = digest.resolve_evidence_status(payload)
-    fills = digest.total_fills(payload.runs)
-    # Missing/stale sources cannot prove an all-source fill total. Keep known
-    # per-run counts intact, but never turn an empty/degraded intake into zero.
-    if (
-        collected.coverage.has_source_failures
-        or collected.coverage.stale_candidates
-        or (not payload.runs and evidence_status != "verified_idle")
-    ):
-        fills = None
+    fills = digest.global_total_fills(payload)
     receipt = {
         "schema_version": "qsl.daily_digest_receipt.v1",
         "business_day": payload.business_day,
@@ -855,7 +865,7 @@ def build_receipt(
         "total_fills_status": "unknown" if fills is None else "known",
         "evidence_status": evidence_status,
         "source_coverage": collected.coverage.to_dict(),
-        "failures": list(collected.coverage.github_failures),
+        "failures": list(collected.coverage.github_failures) + list(collected.coverage.candidate_failures),
         "stale_candidates": [dict(item) for item in collected.coverage.stale_candidates],
         "runs": [_run_receipt_dict(entry) for entry in payload.runs],
         "message_chars": message_chars,
