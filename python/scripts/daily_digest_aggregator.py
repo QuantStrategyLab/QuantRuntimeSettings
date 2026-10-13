@@ -373,27 +373,71 @@ def collect_from_github_workflows(
             )
             continue
         owner, repo = owner_repo
-        query = urllib.parse.urlencode(
-            {
-                "event": "schedule,workflow_dispatch",
-                "status": "completed",
-                "per_page": "20",
-                "created": f">={start_utc.date().isoformat()}",
-            }
-        )
-        url = (
-            f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/"
-            f"{urllib.parse.quote(workflow)}/runs?{query}"
-        )
         result.sources_queried += 1
+        matched = False
+        failure_reason = "github_api_error"
         try:
-            payload = _gh_api_get(url, gh_token)
-        except RuntimeError as exc:
+            # GitHub accepts one event value, not a comma-separated OR filter.
+            # Exhaust both event queries/pages before declaring no match.
+            for event in ("workflow_dispatch", "schedule"):
+                page = 1
+                seen_run_count = 0
+                while True:
+                    query = urllib.parse.urlencode({
+                        "event": event,
+                        "status": "completed",
+                        "per_page": "100",
+                        "page": str(page),
+                        "created": f">={start_utc.date().isoformat()}",
+                    })
+                    url = (
+                        f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/"
+                        f"{urllib.parse.quote(workflow)}/runs?{query}"
+                    )
+                    payload = _gh_api_get(url, gh_token)
+                    runs = payload.get("workflow_runs") if isinstance(payload, Mapping) else None
+                    if not isinstance(runs, list):
+                        failure_reason = "github_payload_invalid"
+                        raise ValueError("workflow_runs missing or not a list")
+                    for run in runs:
+                        if not isinstance(run, Mapping):
+                            continue
+                        if str(run.get("conclusion") or "") != "success":
+                            continue
+                        updated = str(run.get("updated_at") or run.get("created_at") or "")
+                        try:
+                            stamp = datetime.fromisoformat(updated.replace("Z", "+00:00"))
+                            if stamp.tzinfo is None:
+                                raise ValueError("workflow timestamp lacks timezone")
+                        except ValueError:
+                            continue
+                        if start_utc <= stamp < end_utc:
+                            matched = True
+                            break
+                    seen_run_count += len(runs)
+                    count = payload.get("total_count")
+                    if matched:
+                        break
+                    if type(count) is not int or count < seen_run_count:
+                        failure_reason = "github_payload_invalid"
+                        raise ValueError("invalid GitHub total_count for received rows")
+                    if count > seen_run_count and len(runs) < 100:
+                        failure_reason = "github_pagination_incomplete"
+                        raise ValueError("short GitHub page contradicts total_count")
+                    if seen_run_count == count:
+                        break
+                    if page >= 10:
+                        failure_reason = "github_pagination_incomplete"
+                        raise ValueError("GitHub workflow result limit reached without complete evidence")
+                    page += 1
+                if matched:
+                    break
+        except (RuntimeError, ValueError, urllib.error.URLError, TimeoutError) as exc:
             failure = {
                 "platform_id": platform_id,
                 "workflow": workflow,
                 "repository": repository,
-                "reason_code": "github_api_error",
+                "reason_code": failure_reason,
                 "message": str(exc)[:300],
             }
             result.failures.append(failure)
@@ -402,33 +446,6 @@ def collect_from_github_workflows(
                 file=sys.stderr,
             )
             continue
-        runs = payload.get("workflow_runs") if isinstance(payload, Mapping) else None
-        if not isinstance(runs, list):
-            result.failures.append(
-                {
-                    "platform_id": platform_id,
-                    "workflow": workflow,
-                    "repository": repository,
-                    "reason_code": "github_payload_invalid",
-                    "message": "workflow_runs missing or not a list",
-                }
-            )
-            continue
-        matched = False
-        for run in runs:
-            if not isinstance(run, Mapping):
-                continue
-            if str(run.get("conclusion") or "") != "success":
-                continue
-            updated = str(run.get("updated_at") or run.get("created_at") or "")
-            try:
-                stamp = datetime.fromisoformat(updated.replace("Z", "+00:00"))
-            except ValueError:
-                continue
-            if stamp < start_utc or stamp >= end_utc:
-                continue
-            matched = True
-            break
         if not matched:
             continue
         stub = {
@@ -816,7 +833,16 @@ def build_receipt(
     *,
     message_chars: int,
 ) -> dict[str, Any]:
+    evidence_status = digest.resolve_evidence_status(payload)
     fills = digest.total_fills(payload.runs)
+    # Missing/stale sources cannot prove an all-source fill total. Keep known
+    # per-run counts intact, but never turn an empty/degraded intake into zero.
+    if (
+        collected.coverage.has_source_failures
+        or collected.coverage.stale_candidates
+        or (not payload.runs and evidence_status != "verified_idle")
+    ):
+        fills = None
     receipt = {
         "schema_version": "qsl.daily_digest_receipt.v1",
         "business_day": payload.business_day,
@@ -827,7 +853,7 @@ def build_receipt(
         "run_count": len(payload.runs),
         "total_fills": fills,
         "total_fills_status": "unknown" if fills is None else "known",
-        "evidence_status": digest.resolve_evidence_status(payload),
+        "evidence_status": evidence_status,
         "source_coverage": collected.coverage.to_dict(),
         "failures": list(collected.coverage.github_failures),
         "stale_candidates": [dict(item) for item in collected.coverage.stale_candidates],

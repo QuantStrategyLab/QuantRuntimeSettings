@@ -21,6 +21,10 @@
 
 配置真源：`platform-config.json` → `notifications.quant_sentinel.daily_digest.aggregator.github_workflow_allowlist` 与 `github_workflow_allowlist_omitted`。
 
+查询分别使用 GitHub 支持的单一 `event=workflow_dispatch` 与 `event=schedule`，逐页读取后才能认定未命中；逗号拼接不是 OR，会漏掉真实运行。API/分页失败或达到结果限制时覆盖保持降级，不能据此认定无运行。只修复取证，不新增 allowlist 平台，也不将 workflow 成功换算为成交数。
+
+Query dispatch and schedule as separate single-event filters and paginate before declaring no match. A comma-separated event is not an OR filter. API or pagination failures and result limits keep coverage degraded; the allowlist and unknown fill/order semantics remain unchanged.
+
 ## 验收
 
 ```bash
