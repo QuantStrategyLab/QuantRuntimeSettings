@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 DUE = {'30', '7', '1', 'expired'}
-READ_STATUSES = {'not_attempted', 'ready', 'failed', 'invalid', 'http_401', 'http_403', 'http_503'}
+READ_STATUSES = {'not_attempted', 'ready', 'failed', 'invalid', 'http_401', 'http_403', 'http_403_challenge', 'http_503'}
 PHASES = DUE | {'unknown', 'not_due'}
 DELIVERIES = {'unknown', 'not_reserved', 'reserved', 'delivered'}
 
@@ -89,7 +89,12 @@ class MaintenanceClient:
             value = self._request('')
         except urllib.error.HTTPError as error:
             self.diagnostic['read'] = {401: 'http_401', 403: 'http_403', 503: 'http_503'}.get(error.code, 'failed')
-            return None  # Status code only; never read the body, URL or error text.
+            if error.code == 403:
+                try:
+                    if error.headers is not None and error.headers.get_all('cf-mitigated') == ['challenge']:
+                        self.diagnostic['read'] = 'http_403_challenge'
+                except Exception: pass  # Absent/invalid header evidence keeps generic 403.
+            return None  # Fixed diagnostic only; never read the body, URL or error text.
         except Exception as error:
             self.diagnostic['read'] = 'invalid' if isinstance(error, ValueError) else 'failed'
             return None  # Never echo upstream bodies, URLs or private fields.

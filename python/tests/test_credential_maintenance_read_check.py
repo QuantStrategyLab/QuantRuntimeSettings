@@ -1,6 +1,7 @@
 """Offline contracts for the isolated, manual maintenance GET diagnostic."""
 import contextlib
 import hashlib
+from http.client import HTTPMessage
 import importlib.util
 import io
 import json
@@ -146,6 +147,41 @@ class MaintenanceReadCheckTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertEqual(public, {'read': 'failed', 'phase': 'unknown', 'delivery': 'unknown'})
         request.assert_called_once_with('')
+
+    def test_only_unique_challenge_header_on_403_changes_public_classification(self):
+        marker = 'synthetic-private-response-header-body-url-token-sentinel'
+        cases = [(403, ['challenge'], False, 'http_403_challenge'),
+                 (403, [], False, 'http_403'), (403, ['other'], False, 'http_403'),
+                 (403, ['challenge', 'challenge'], False, 'http_403'),
+                 (403, ['challenge, challenge'], False, 'http_403'),
+                 (403, [None], False, 'http_403'),
+                 (403, ['Challenge'], False, 'http_403'), (403, [' challenge'], False, 'http_403'),
+                 (403, [marker], False, 'http_403'), (403, ['challenge'], True, 'http_403'),
+                 (401, ['challenge'], False, 'http_401'), (503, ['challenge'], False, 'http_503')]
+        for code, values, broken, read in cases:
+            headers = HTTPMessage()
+            for value in values: headers['Cf-Mitigated'] = value
+            headers['X-Private'] = marker
+            original_get_all = headers.get_all
+            def lookup(name):
+                self.assertEqual(name, 'cf-mitigated', 'only the fixed challenge header may be inspected')
+                if broken: raise ValueError(marker)
+                return original_get_all(name)
+            body = io.BytesIO(marker.encode())
+            error = urllib.error.HTTPError('https://console.example/' + marker, code, marker, headers, body)
+            out, err = io.StringIO(), io.StringIO()
+            with self.subTest(code=code, values=values, broken=broken), patch.dict(os.environ, ENV, clear=True), patch.object(maintenance, '_open', side_effect=error) as opened, patch.object(headers, 'get_all', side_effect=lookup) as lookup_header, patch.object(headers, 'get', side_effect=AssertionError('other header access is forbidden')), patch.object(HTTPMessage, '__iter__', side_effect=AssertionError('headers must not be enumerated')), patch.object(headers, 'items', side_effect=AssertionError('headers must not be enumerated')), patch.object(headers, 'keys', side_effect=AssertionError('headers must not be enumerated')), patch.object(headers, 'values', side_effect=AssertionError('headers must not be enumerated')), patch.object(error, 'read', side_effect=AssertionError('error body must not be read')) as read_body, patch.object(urllib.error.HTTPError, '__str__', side_effect=AssertionError('error text must not be read')) as read_text, patch.object(error, 'geturl', side_effect=AssertionError('error URL must not be read')) as read_url, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(self.module().main([]), 1)
+            self.assertEqual(json.loads(out.getvalue()), {'read': read, 'phase': 'unknown', 'delivery': 'unknown'})
+            self.assertEqual(err.getvalue(), '')
+            self.assertNotIn(marker, out.getvalue())
+            self.assertEqual(body.tell(), 0)
+            read_body.assert_not_called(); read_text.assert_not_called(); read_url.assert_not_called()
+            if code == 403: lookup_header.assert_called_once_with('cf-mitigated')
+            else: lookup_header.assert_not_called()
+            opened.assert_called_once()
+            self.assertEqual(opened.call_args.args[0].method, 'GET')
+            self.assertIsNone(opened.call_args.args[0].data)
 
 
 if __name__ == '__main__': unittest.main()
