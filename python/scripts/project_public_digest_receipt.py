@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from daily_digest_aggregator import CANDIDATE_STORE_FAILURE_REASONS
+from credential_maintenance_notify import READ_STATUSES, PHASES, DELIVERIES
 from daily_digest_delivery_axes import (
     EVIDENCE_DELIVERY_STATUSES, EXECUTION_STATUSES, NOTIFICATION_DELIVERY_STATUSES, PERSISTENCE_STATUSES,
 )
@@ -39,6 +40,7 @@ AXIS_VALUES = {
     "execution_status": EXECUTION_STATUSES, "evidence_persistence_status": PERSISTENCE_STATUSES,
     "evidence_delivery_status": EVIDENCE_DELIVERY_STATUSES, "notification_delivery_status": NOTIFICATION_DELIVERY_STATUSES,
 }
+MAINTENANCE_VALUES = {"read": READ_STATUSES, "phase": PHASES, "delivery": DELIVERIES}
 
 
 def _enum(value: object, choices: set[str] | frozenset[str], unknown: str = "unknown") -> str:
@@ -140,6 +142,15 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
             key: _enum(value, AXIS_VALUES[key])
             for key, value in axes.items() if key in AXIS_VALUES
         }
+    if "maintenance" in receipt:
+        maintenance = receipt["maintenance"]
+        maintenance = maintenance if isinstance(maintenance, Mapping) else {}
+        public["maintenance"] = {
+            key: _enum(maintenance.get(key), choices)
+            for key, choices in MAINTENANCE_VALUES.items()
+        }
+        if public["maintenance"]["read"] != "ready":
+            public["maintenance"].update(phase="unknown", delivery="unknown")
     return public
 
 

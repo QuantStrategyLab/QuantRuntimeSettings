@@ -12,6 +12,12 @@ from dataclasses import dataclass, field
 from typing import Mapping
 
 DUE = {'30', '7', '1', 'expired'}
+READ_STATUSES = {'not_attempted', 'ready', 'failed', 'invalid'}
+PHASES = DUE | {'unknown', 'not_due'}
+DELIVERIES = {'unknown', 'not_reserved', 'reserved', 'delivered'}
+
+def empty_diagnostic():
+    return {'read': 'not_attempted', 'phase': 'unknown', 'delivery': 'unknown'}
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
@@ -52,7 +58,9 @@ class Reminder:
         return f'🔑 IBKR Flex — {status}\n到期：{self.expires_at}\n续期共享 Flex 凭据后，在看板登记到期时间。'
 
 class MaintenanceClient:
-    def __init__(self, origin, token): self.origin = origin; self.token = token
+    def __init__(self, origin, token):
+        self.origin = origin; self.token = token
+        self.diagnostic = empty_diagnostic()
     @classmethod
     def from_environment(cls, env: Mapping[str, str], *, dry_run=False):
         # Existing daily may run other branches. Persistent maintenance may not.
@@ -75,18 +83,32 @@ class MaintenanceClient:
             headers={'Authorization': 'Bearer ' + self.token, 'Content-Type': 'application/json', 'Accept': 'application/json'})
         return _json(request)
     def read_due(self):
+        self.diagnostic.update(read='invalid', phase='unknown', delivery='unknown')
         try:
             value = self._request('')
+        except Exception as error:
+            self.diagnostic['read'] = 'invalid' if isinstance(error, ValueError) else 'failed'
+            return None  # Never echo upstream bodies, URLs or private fields.
+        try:
             if value.get('id') != 'ibkr_flex' or value.get('metadata_source') != 'operator_provided' or type(value.get('metadata_revision')) is not int or value['metadata_revision'] < 0: return None
+            phase = value.get('phase'); delivery = value.get('delivery')
+            if (isinstance(phase, str) and phase in PHASES and isinstance(delivery, str) and delivery in DELIVERIES
+                    and (phase not in {'unknown', 'not_due'} or delivery == 'not_reserved')
+                    and type(value.get('requires_action')) is bool and value['requires_action'] == (phase != 'not_due')
+                    and (_valid_expiry(value.get('expires_at')) if phase != 'unknown' else value.get('expires_at') is None)):
+                self.diagnostic.update(read='ready', phase=phase, delivery=delivery)
             if value.get('phase') not in DUE or value.get('requires_action') is not True or value.get('delivery') != 'not_reserved' or not _valid_expiry(value.get('expires_at')): return None
             return Reminder(value['expires_at'], value['metadata_revision'], value['phase'])
         except Exception: return None  # Never echo upstream bodies, URLs or private fields.
     def reserve(self, reminder):
+        # Even a failed/invalid response may have reserved on the server.
+        self.diagnostic['delivery'] = 'unknown'
         try:
             value = self._request('/claim', reminder.proposal())
             claim = value.get('claim_id')
             if value.get('granted') is not True or value.get('phase') != reminder.phase or value.get('delivery') != 'reserved' or not isinstance(claim, str) or not claim or len(claim) > 128: return False
             reminder.claim_id = claim
+            self.diagnostic['delivery'] = 'reserved'
             return True
         except Exception: return False  # A request may already have reserved server-side.
     def ack(self, reminder, outcome):

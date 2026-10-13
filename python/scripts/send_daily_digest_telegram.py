@@ -334,6 +334,7 @@ def _receipt_base(*, dry_run: bool, route: dict[str, Any]) -> dict[str, Any]:
         "chat_alias_used": route.get("chat_alias_used"),
         "warnings": list(route.get("warnings") or []),
         "route_diagnosis": route,
+        "maintenance": maintenance.empty_diagnostic(),
     }
 
 
@@ -469,6 +470,8 @@ def main(argv: list[str] | None = None) -> int:
     base_receipt = aggregator.build_receipt(payload, collected, message_chars=len(text)) if payload is not None else {"total_fills": None, "run_count": None, "business_digest_failed": True}
     receipt = _receipt_base(dry_run=dry_run, route=route)
     receipt.update(base_receipt)
+    if maintenance_client:
+        receipt["maintenance"] = maintenance_client.diagnostic
     receipt.update(
         {
             "business_day": payload.business_day if payload is not None else None,
@@ -547,7 +550,7 @@ def main(argv: list[str] | None = None) -> int:
     if reserved:
         ok = maintenance.send_strict_telegram(token=token, chat_id=chat_id, text=combined)
         delivery = maintenance_client.ack(reminder, "delivered" if ok else "unknown")
-        receipt["maintenance"] = {"phase": reminder.phase, "delivery": delivery}
+        receipt["maintenance"].update(phase=reminder.phase, delivery=delivery)
     elif business_failed:
         receipt["status"] = "business_digest_failed"
         receipt["delivered"] = False

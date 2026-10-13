@@ -86,6 +86,23 @@ class PublicDigestReceiptTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "source_sha_invalid"):
             project_public_receipt({}, source_sha="private-path")
 
+    def test_maintenance_only_fixed_enum_values_can_be_public(self):
+        marker = 'synthetic-private-date-token-claim-account-sentinel'
+        for raw in [marker, [marker], {'read': marker, 'phase': marker, 'delivery': marker},
+                    {'read': {'private': marker}, 'phase': [marker], 'delivery': True}]:
+            public = project_public_receipt({'maintenance': raw})
+            self.assertEqual(public.get('maintenance'), {'read': 'unknown', 'phase': 'unknown', 'delivery': 'unknown'})
+            self.assertNotIn(marker, json.dumps(public))
+        public = project_public_receipt({'maintenance': {'read': 'ready', 'phase': '7', 'delivery': 'delivered',
+                                                        'expires_at': marker, 'metadata_revision': 42,
+                                                        'claim_id': marker, 'token': marker, 'account': marker}})
+        self.assertEqual(public['maintenance'], {'read': 'ready', 'phase': '7', 'delivery': 'delivered'})
+        self.assertNotIn(marker, json.dumps(public))
+        for read in ['failed', 'invalid', 'not_attempted', marker]:
+            public = project_public_receipt({'maintenance': {'read': read, 'phase': '7', 'delivery': 'delivered'}})
+            self.assertEqual(public['maintenance']['phase'], 'unknown', 'an unsuccessful read cannot attest a due phase')
+            self.assertEqual(public['maintenance']['delivery'], 'unknown')
+
 
 if __name__ == "__main__":
     unittest.main()
