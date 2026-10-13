@@ -150,6 +150,10 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 - **证据未知/读取失败**：候选未注入或 GitHub API 失败 →「今日运行证据未知或读取失败，不能判定为链路正常。」（不得写「链路正常」）
 - **已验证零成交**：生产者明确给出 `fill_count=0` →「无成交」；GitHub 存在性 stub 的成交数为**未知**，不得写成 0。
 
+receipt 的全源 `total_fills` 也遵守未知不等于零：未取得运行证据、候选全部过期或任一来源失败时写 `null` / `total_fills_status=unknown`。部分来源可用时保留各运行的真实计数，但有过期或失败来源就不能把这些计数冒充完整总数。只有已验证无运行或完整可用运行的成交计数全已知，才写已知总数（包括真实 0）。此规则不改变版式、是否发送、生产接线或交易判定。
+
+Receipt totals follow the same evidence boundary: absent evidence, stale candidates or source failures make the all-source `total_fills` null/unknown. Known per-run counts are preserved; verified idle and complete known run counts retain their known totals, including a genuine zero. This does not switch layouts, change delivery gates/wiring or alter trading decisions.
+
 ```
 📡 量化哨兵 · 心跳
 业务日: 2026-10-08
