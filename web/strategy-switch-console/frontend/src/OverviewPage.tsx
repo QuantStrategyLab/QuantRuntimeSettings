@@ -224,7 +224,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
       if (!cancelled) setOverviewUsdRates({ ...OVERVIEW_USD_RATES, ...rates });
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [readModelRefreshVersion]);
   // Prefer [] over null so SSR/test useState hooks that remap the first null
   // (account history injection) never treat a history snapshot as benchmark points.
   const [loadedBenchmarkPoints, setLoadedBenchmarkPoints] = useState<readonly MarketBenchmarkPoint[]>([]);
