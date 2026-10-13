@@ -100,9 +100,11 @@ class CredentialMaintenanceTests(unittest.TestCase):
         payload = type('Payload', (), {'business_day': '2035-03-25', 'locale': 'en', 'runs': []})()
         route = {'token_source_kind': 'missing', 'chat_source_kind': 'missing', 'warnings': [], 'missing': [], 'token_alias_used': None, 'chat_alias_used': None, 'secret_name_contract': 'synthetic-name'}
         for args in [['--no-github', '--dry-run'], ['--route-check']]:
-            with patch.dict(os.environ, ENV, clear=True), patch.object(sender.aggregator, 'build_digest_payload', return_value=(payload, 'existing digest', [])), patch.object(sender.aggregator, 'build_receipt', return_value={'total_fills': None}), patch.object(sender, 'diagnose_telegram_route', return_value=route), patch.object(self.m.MaintenanceClient, '_request') as request, patch.object(self.m, 'send_strict_telegram') as send, patch.object(sender, 'resolve_telegram_token') as token, contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(sender.main(args), 0)
+            with patch.dict(os.environ, ENV, clear=True), patch.object(sender.aggregator, 'build_digest_payload', return_value=(payload, 'existing digest', [])), patch.object(sender.aggregator, 'build_receipt', return_value={'total_fills': None}), patch.object(sender, 'diagnose_telegram_route', return_value=route), patch.object(self.m.MaintenanceClient, '_request') as request, patch.object(self.m, 'send_strict_telegram') as send, patch.object(sender, 'resolve_telegram_token') as token, patch.object(sender, '_write_receipt') as write, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(sender.main([*args, '--write-receipt', 'unused-synthetic.json']), 0)
                 request.assert_not_called(); send.assert_not_called(); token.assert_not_called()
+                from project_public_digest_receipt import project_public_receipt
+                self.assertEqual(project_public_receipt(write.call_args.args[1])['maintenance'], {'read': 'not_attempted', 'phase': 'unknown', 'delivery': 'unknown'})
 
     def test_combined_capacity_and_route_before_reserve(self):
         self.assertTrue(self.m.can_combine_reminder(text='digest', chat_id='-123'))
@@ -156,5 +158,53 @@ class CredentialMaintenanceTests(unittest.TestCase):
             self.assertEqual(sender.main(['--no-github']), 1)
             self.assertEqual(send.call_count, 1)
             self.assertNotIn('runs=', send.call_args.kwargs['text'])
+
+    def test_actual_sender_public_receipt_distinguishes_read_outcomes(self):
+        import send_daily_digest_telegram as sender
+        from project_public_digest_receipt import project_public_receipt
+        payload = type('Payload', (), {'business_day': '2035-03-25', 'locale': 'en', 'runs': []})()
+        route = {'token_source_kind': 'env', 'chat_source_kind': 'env', 'warnings': [], 'missing': []}
+        marker = 'synthetic-private-date-token-claim-account-sentinel'
+        cases = [
+            (ENV, {**META, 'phase': 'not_due', 'requires_action': False}, {'read': 'ready', 'phase': 'not_due', 'delivery': 'not_reserved'}),
+            (ENV, {**META, 'phase': 'unknown', 'expires_at': None}, {'read': 'ready', 'phase': 'unknown', 'delivery': 'not_reserved'}),
+            (ENV, {**META, 'delivery': 'reserved'}, {'read': 'ready', 'phase': '7', 'delivery': 'reserved'}),
+            (ENV, {**META, 'delivery': 'delivered'}, {'read': 'ready', 'phase': '7', 'delivery': 'delivered'}),
+            (ENV, RuntimeError(marker), {'read': 'failed', 'phase': 'unknown', 'delivery': 'unknown'}),
+            (ENV, {**META, 'expires_at': marker}, {'read': 'invalid', 'phase': 'unknown', 'delivery': 'unknown'}),
+            (ENV, {**META, 'phase': 'unknown', 'expires_at': None, 'delivery': 'delivered'}, {'read': 'invalid', 'phase': 'unknown', 'delivery': 'unknown'}),
+            (ENV, {**META, 'phase': 'not_due', 'requires_action': False, 'delivery': 'reserved'}, {'read': 'invalid', 'phase': 'unknown', 'delivery': 'unknown'}),
+            ({**ENV, 'STRATEGY_SWITCH_SYNC_TOKEN': ''}, META, {'read': 'not_attempted', 'phase': 'unknown', 'delivery': 'unknown'}),
+            ({**ENV, 'GITHUB_REF': 'refs/heads/feature'}, META, {'read': 'not_attempted', 'phase': 'unknown', 'delivery': 'unknown'}),
+        ]
+        for env, upstream, expected in cases:
+            with self.subTest(expected=expected), patch.dict(os.environ, env, clear=True), patch.object(self.m.MaintenanceClient, '_request', side_effect=[upstream]) as request, patch.object(sender.aggregator, 'build_digest_payload', return_value=(payload, 'synthetic digest', [])), patch.object(sender.aggregator, 'build_receipt', return_value={'total_fills': None}), patch.object(sender, 'diagnose_telegram_route', return_value=route), patch.object(sender, 'missing_delivery_requirements', return_value=[]), patch.object(sender, 'resolve_telegram_token', return_value='synthetic-token'), patch.object(sender, 'resolve_telegram_chat_id', return_value='-123'), patch.object(sender, 'send_telegram_message', return_value=True) as legacy, patch.object(self.m, 'send_strict_telegram') as strict, patch.object(sender, '_write_receipt') as write, contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(sender.main(['--no-github', '--write-receipt', 'unused-synthetic.json']), 0)
+                public = project_public_receipt(write.call_args.args[1])
+                self.assertEqual(public.get('maintenance'), expected)
+                self.assertNotIn(marker, json.dumps(public))
+                self.assertNotIn(META['expires_at'], json.dumps(public))
+                self.assertEqual(legacy.call_count, 1)
+                strict.assert_not_called()
+                self.assertEqual(request.call_count, 0 if expected['read'] == 'not_attempted' else 1)
+
+    def test_due_phase_and_ack_delivery_survive_actual_public_projection(self):
+        import send_daily_digest_telegram as sender
+        from project_public_digest_receipt import project_public_receipt
+        payload = type('Payload', (), {'business_day': '2035-03-25', 'locale': 'en', 'runs': []})()
+        route = {'token_source_kind': 'env', 'chat_source_kind': 'env', 'warnings': [], 'missing': []}
+        for phase in ['30', '7', '1', 'expired']:
+            for delivery in ['delivered', 'reserved', 'unknown']:
+                responses = [{**META, 'phase': phase}, {'granted': True, 'claim_id': 'synthetic-private-claim', 'phase': phase, 'delivery': 'reserved'}, {'phase': phase, 'delivery': delivery}]
+                with self.subTest(phase=phase, delivery=delivery), patch.dict(os.environ, ENV, clear=True), patch.object(self.m.MaintenanceClient, '_request', side_effect=responses) as request, patch.object(sender.aggregator, 'build_digest_payload', return_value=(payload, 'synthetic digest', [])), patch.object(sender.aggregator, 'build_receipt', return_value={'total_fills': None}), patch.object(sender, 'diagnose_telegram_route', return_value=route), patch.object(sender, 'missing_delivery_requirements', return_value=[]), patch.object(sender, 'resolve_telegram_token', return_value='synthetic-token'), patch.object(sender, 'resolve_telegram_chat_id', return_value='-123'), patch.object(self.m, 'send_strict_telegram', return_value=True) as strict, patch.object(sender, 'send_telegram_message') as legacy, patch.object(sender, '_write_receipt') as write, contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(sender.main(['--no-github', '--write-receipt', 'unused-synthetic.json']), 0)
+                    raw = write.call_args.args[1]
+                    public = project_public_receipt(raw)
+                    self.assertEqual(public.get('maintenance'), {'read': 'ready', 'phase': phase, 'delivery': delivery})
+                    self.assertNotIn(META['expires_at'], json.dumps(public))
+                    self.assertNotIn('synthetic-private-claim', json.dumps(public))
+                    self.assertEqual(request.call_count, 3)
+                    self.assertEqual(strict.call_count, 1)
+                    legacy.assert_not_called()
 
 if __name__ == '__main__': unittest.main()

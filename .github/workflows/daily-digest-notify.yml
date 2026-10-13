@@ -24,10 +24,15 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Render only; do not call Telegram (recommended for first test)."
+        description: "Digest job only: render without Telegram. Does not control the independent maintenance read check."
         required: true
         type: boolean
         default: true
+      maintenance_read_check:
+        description: "Independent main-only maintenance GET check; never sends notifications or runs the digest job."
+        required: true
+        type: boolean
+        default: false
       preflight_private_store:
         description: "Read private candidates only for a dry-run on main; no production configuration changes."
         required: true
@@ -70,6 +75,7 @@ concurrency:
 
 jobs:
   digest:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}
     name: Aggregate and notify
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -399,3 +405,29 @@ jobs:
         run: |
           echo "::error::Private candidate intake failed; see the public receipt source reason."
           exit 1
+
+  maintenance-read-check:
+    name: Read maintenance ingress only
+    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.maintenance_read_check == true }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: runtime-strategy-switch
+    env:
+      STRATEGY_SWITCH_CONSOLE_URL: ${{ vars.STRATEGY_SWITCH_CONSOLE_URL }}
+      STRATEGY_SWITCH_SYNC_TOKEN: ${{ secrets.STRATEGY_SWITCH_SYNC_TOKEN }}
+      # Same injected token aliases as the digest; compare only, never use them.
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+      DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Read once and print fixed public status
+        run: python3 python/scripts/check_credential_maintenance_read.py
