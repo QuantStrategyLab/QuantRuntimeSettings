@@ -6,13 +6,14 @@ from __future__ import annotations
 import datetime as dt
 import json
 import re
+import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from typing import Mapping
 
 DUE = {'30', '7', '1', 'expired'}
-READ_STATUSES = {'not_attempted', 'ready', 'failed', 'invalid'}
+READ_STATUSES = {'not_attempted', 'ready', 'failed', 'invalid', 'http_401', 'http_403', 'http_503'}
 PHASES = DUE | {'unknown', 'not_due'}
 DELIVERIES = {'unknown', 'not_reserved', 'reserved', 'delivered'}
 
@@ -86,6 +87,9 @@ class MaintenanceClient:
         self.diagnostic.update(read='invalid', phase='unknown', delivery='unknown')
         try:
             value = self._request('')
+        except urllib.error.HTTPError as error:
+            self.diagnostic['read'] = {401: 'http_401', 403: 'http_403', 503: 'http_503'}.get(error.code, 'failed')
+            return None  # Status code only; never read the body, URL or error text.
         except Exception as error:
             self.diagnostic['read'] = 'invalid' if isinstance(error, ValueError) else 'failed'
             return None  # Never echo upstream bodies, URLs or private fields.
