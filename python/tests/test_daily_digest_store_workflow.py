@@ -29,7 +29,117 @@ def workflow_body(name):
 
 
 class DailyDigestStoreWorkflowTests(unittest.TestCase):
-    def execute_fetch(self, root, failure="", old_candidate=False, objects=True):
+    def execute_opts(self, root, **overrides):
+        env = {
+            "PATH": os.environ["PATH"], "GITHUB_ENV": str(root / "github-env"),
+            "GITHUB_OUTPUT": str(root / "github-output"), "INPUT_EVENT_NAME": "workflow_dispatch",
+            "INPUT_REF": "refs/heads/main", "INPUT_DRY_RUN": "true",
+            "INPUT_PREFLIGHT_PRIVATE_STORE": "true", "INPUT_BUSINESS_DAY": "2026-10-12",
+            "INPUT_LOCALE": "zh", "INPUT_LAYOUT": "sections_v2", "INPUT_INCLUDE_GITHUB": "false",
+            **overrides,
+        }
+        body = workflow_body("Resolve dry-run and business day").replace("${{ github.event_name }}", env["INPUT_EVENT_NAME"])
+        result = subprocess.run(["bash", "-c", body],
+                                cwd=root, env=env, capture_output=True, text=True, timeout=15)
+        def emitted(path):
+            return dict(line.split("=", 1) for line in path.read_text().splitlines()) if path.exists() else {}
+        outputs = emitted(root / "github-output")
+        updates = emitted(root / "github-env")
+        return result, {**env, **updates}, outputs, updates
+
+    def test_private_store_preflight_main_dry_run_fills_only_empty_runner_uri(self):
+        for uri in [None, ""]:
+            with self.subTest(uri=uri), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                overrides = {} if uri is None else {"DIGEST_CANDIDATES_GCS_URI": uri}
+                result, env, outputs, updates = self.execute_opts(root, **overrides)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(updates, {
+                    "DIGEST_CANDIDATES_GCS_URI": "gs://qsl-runtime-logs-shared/digest-candidates",
+                })
+                self.assertEqual(env["DIGEST_CANDIDATES_GCS_URI"], updates["DIGEST_CANDIDATES_GCS_URI"])
+                self.assertEqual(outputs["preflight_private_store"], "true")
+                self.assertEqual(outputs["dry_run"], "true")
+                self.assertEqual(outputs["layout"], "sections_v2")
+                self.assertTrue((root / "data/input/daily-digest").is_dir())
+
+    def test_private_store_preflight_preserves_configured_uri_and_legacy_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            legacy = root / "legacy.json"
+            legacy.write_text('{"runs":[]}')
+            existing = {
+                "DIGEST_CANDIDATES_GCS_URI": "gs://synthetic-private/existing-candidates",
+                "DIGEST_CANDIDATES_PATH": str(legacy), "DIGEST_CANDIDATES_JSON": '{"runs":[]}',
+                "DIGEST_CANDIDATES_READER_WIF_PROVIDER": "synthetic-existing-provider",
+                "DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT": "synthetic-existing-reader",
+            }
+            result, env, outputs, updates = self.execute_opts(root, **existing)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(updates, {})
+            self.assertEqual(outputs["preflight_private_store"], "true")
+            for key, value in existing.items():
+                self.assertEqual(env[key], value)
+                self.assertNotIn(value, result.stdout + result.stderr)
+            self.assertEqual(legacy.read_text(), '{"runs":[]}')
+
+    def test_private_store_preflight_rejects_nonmanual_nondry_or_nonmain_before_materializing(self):
+        rejected = [
+            {"INPUT_DRY_RUN": value} for value in ["false", "", "TRUE", "1", "invalid"]
+        ] + [
+            {"INPUT_EVENT_NAME": event} for event in ["schedule", "push", "pull_request"]
+        ] + [
+            {"INPUT_REF": ref} for ref in ["refs/heads/topic", "refs/pull/1/merge", "refs/tags/main", ""]
+        ]
+        for overrides in rejected:
+            with self.subTest(overrides=overrides), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                result, _, outputs, updates = self.execute_opts(root, **overrides)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("candidate_store_preflight_requires_manual_main_dry_run", result.stderr)
+                self.assertEqual(outputs, {})
+                self.assertEqual(updates, {})
+                self.assertFalse((root / "data").exists())
+
+    def test_invalid_private_store_preflight_flag_is_rejected_before_materializing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            result, _, outputs, updates = self.execute_opts(root, INPUT_PREFLIGHT_PRIVATE_STORE="invalid")
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("candidate_store_preflight_input_invalid", result.stderr)
+            self.assertEqual(outputs, {})
+            self.assertEqual(updates, {})
+            self.assertFalse((root / "data").exists())
+
+    def test_disabled_private_store_preflight_preserves_existing_options_and_legacy(self):
+        for event in ["workflow_dispatch", "schedule", "push", "pull_request"]:
+            for dry_run in ["true", "false", "invalid"]:
+                for flag in ["false", ""]:
+                    with self.subTest(event=event, dry_run=dry_run, flag=flag), tempfile.TemporaryDirectory() as tmp:
+                        root = Path(tmp)
+                        legacy = root / "legacy.json"
+                        legacy.write_text('{"runs":[]}')
+                        result, env, outputs, updates = self.execute_opts(
+                            root, INPUT_PREFLIGHT_PRIVATE_STORE=flag, INPUT_EVENT_NAME=event,
+                            INPUT_DRY_RUN=dry_run, INPUT_REF="refs/heads/topic",
+                            DIGEST_CANDIDATES_PATH=str(legacy), DIGEST_CANDIDATES_JSON='{"runs":[]}',
+                            DIGEST_CANDIDATES_GCS_URI="",
+                        )
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertEqual(outputs, {
+                            "preflight_private_store": "false",
+                            "dry_run": "true" if event != "schedule" and dry_run == "true" else "false",
+                            "business_day": "2026-10-12", "locale": "zh",
+                            "layout": "v1" if event == "schedule" else "sections_v2",
+                            "include_github": "false",
+                        })
+                        self.assertEqual(updates, {})
+                        self.assertEqual(env["DIGEST_CANDIDATES_GCS_URI"], "")
+                        self.assertEqual(env["DIGEST_CANDIDATES_PATH"], str(legacy))
+                        self.assertEqual(env["DIGEST_CANDIDATES_JSON"], '{"runs":[]}')
+                        self.assertEqual(legacy.read_text(), '{"runs":[]}')
+
+    def execute_fetch(self, root, failure="", old_candidate=False, objects=True, initial_env=None):
         fake_bin = root / "bin"
         fake_bin.mkdir()
         fake_gcloud = fake_bin / "gcloud"
@@ -57,11 +167,12 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
             "fill_count": 0, "order_count": 0, "cycle_count": 1,
             "equity": 123456.78,
         }
-        env = {"PATH": str(fake_bin) + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": str(root),
+        env = {**(initial_env or {}), "PATH": str(fake_bin) + os.pathsep + os.environ["PATH"], "RUNNER_TEMP": str(root),
                "GITHUB_ENV": str(root / "github-env"), "INPUT_BUSINESS_DAY": "2026-10-12",
                "AUTH_OUTCOME": "failure" if failure == "auth" else "success",
                "FAIL_STAGE": failure, "OBJECTS": "true" if objects else "false",
-               "DIGEST_CANDIDATES_GCS_URI": "gs://synthetic-private/digest-candidates",
+               "DIGEST_CANDIDATES_GCS_URI": (initial_env or {}).get(
+                   "DIGEST_CANDIDATES_GCS_URI", "gs://synthetic-private/digest-candidates"),
                "CANDIDATE_JSON": "{broken" if failure == "merge" else json.dumps({"runs": [candidate]})}
         if old_candidate:
             base = root / "legacy.json"
@@ -228,6 +339,49 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
         self.assertIn("always() && env.DIGEST_CANDIDATES_STORE_STATUS == 'failed'", workflow)
         self.assertIn("path: data/output/daily-digest/receipt-public.json", workflow)
         self.assertNotIn("path: data/output/daily-digest/receipt.json", workflow)
+
+    def test_preflight_success_and_failure_use_existing_dry_run_receipt_and_gate(self):
+        for failure in ["", "auth"]:
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                opts_result, opts_env, outputs, _ = self.execute_opts(root)
+                self.assertEqual(opts_result.returncode, 0, opts_result.stderr)
+                fetch_result, env = self.execute_fetch(root, failure, old_candidate=True, initial_env=opts_env)
+                self.assertEqual(fetch_result.returncode, 0 if not failure else 1)
+                env.update({"SOURCE_SHA": "a" * 40, "GITHUB_STEP_SUMMARY": str(root / "step-summary"),
+                            "DIGEST_BUSINESS_DAY": outputs["business_day"], "DIGEST_DRY_RUN": outputs["dry_run"]})
+                send = workflow_body("Aggregate, render, and send daily digest")
+                for key in ["layout", "locale", "include_github", "dry_run"]:
+                    send = send.replace("${{ steps.opts.outputs." + key + " }}", outputs[key])
+                result = subprocess.run(["bash", "-c", send], cwd=root, env=env,
+                                        capture_output=True, text=True, timeout=15)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                private = json.loads((root / "data/output/daily-digest/receipt.json").read_text())
+                self.assertEqual(private["status"], "dry_run")
+                self.assertTrue(private["dry_run"])
+                self.assertFalse(private["delivered"])
+                for step in ["Prepare public receipt summary", "Summarize (no secrets)"]:
+                    result = subprocess.run(["bash", "-c", workflow_body(step)], cwd=root, env=env,
+                                            capture_output=True, text=True, timeout=15)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                public_text = (root / "data/output/daily-digest/receipt-public.json").read_text()
+                self.assertNotIn("private-target-account", public_text)
+                self.assertNotIn("123456.78", public_text)
+                self.assertNotIn(env["DIGEST_CANDIDATES_GCS_URI"], public_text)
+                public = json.loads(public_text)
+                self.assertEqual(public["source_sha"], "a" * 40)
+                self.assertEqual(public["layout"], "sections_v2")
+                self.assertEqual(public["total_fills"], None if failure else 0)
+                self.assertEqual(public["total_fills_status"], "unknown" if failure else "known")
+                if failure:
+                    gate = subprocess.run(["bash", "-c", workflow_body("Require complete private candidate intake")],
+                                          cwd=root, env=env, capture_output=True, text=True, timeout=15)
+                    self.assertEqual(gate.returncode, 1)
+                else:
+                    # The workflow's failure-only if condition skips this step on loaded intake.
+                    self.assertEqual(env["DIGEST_CANDIDATES_STORE_STATUS"], "loaded")
+                    workflow = (ROOT / ".github/workflows/daily-digest-notify.yml").read_text()
+                    self.assertIn("always() && env.DIGEST_CANDIDATES_STORE_STATUS == 'failed'", workflow)
 
 
 if __name__ == "__main__":

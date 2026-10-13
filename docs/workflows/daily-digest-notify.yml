@@ -28,6 +28,11 @@ on:
         required: true
         type: boolean
         default: true
+      preflight_private_store:
+        description: "Read private candidates only for a dry-run on main; no production configuration changes."
+        required: true
+        type: boolean
+        default: false
       business_day:
         description: "Override America/New_York business day YYYY-MM-DD (empty = today NY)."
         required: false
@@ -110,14 +115,37 @@ jobs:
         id: opts
         env:
           INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+          INPUT_PREFLIGHT_PRIVATE_STORE: ${{ inputs.preflight_private_store || false }}
+          INPUT_EVENT_NAME: ${{ github.event_name }}
+          INPUT_REF: ${{ github.ref }}
           INPUT_BUSINESS_DAY: ${{ inputs.business_day || '' }}
           INPUT_LOCALE: ${{ inputs.locale || '' }}
           INPUT_LAYOUT: ${{ inputs.layout || 'v1' }}
           INPUT_INCLUDE_GITHUB: ${{ github.event_name != 'workflow_dispatch' && true || inputs.include_github_evidence }}
         run: |
           set -euo pipefail
+          preflight=false
+          case "$INPUT_PREFLIGHT_PRIVATE_STORE" in
+            true)
+              if [[ "$INPUT_EVENT_NAME" != "workflow_dispatch" || "$INPUT_DRY_RUN" != "true" || "$INPUT_REF" != "refs/heads/main" ]]; then
+                echo "::error::candidate_store_preflight_requires_manual_main_dry_run" >&2
+                exit 2
+              fi
+              # Runner-only default; preserve any configured URI and reader identity.
+              if [[ -z "${DIGEST_CANDIDATES_GCS_URI:-}" ]]; then
+                echo "DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates" >> "$GITHUB_ENV"
+              fi
+              preflight=true
+              ;;
+            false|"") ;;
+            *)
+              echo "::error::candidate_store_preflight_input_invalid" >&2
+              exit 2
+              ;;
+          esac
+          echo "preflight_private_store=$preflight" >> "$GITHUB_OUTPUT"
           mkdir -p data/output/daily-digest data/input/daily-digest
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          if [[ "$INPUT_EVENT_NAME" == "schedule" ]]; then
             echo "dry_run=false" >> "$GITHUB_OUTPUT"
           else
             if [[ "$INPUT_DRY_RUN" == "true" ]]; then
@@ -129,7 +157,7 @@ jobs:
           echo "business_day=$INPUT_BUSINESS_DAY" >> "$GITHUB_OUTPUT"
           echo "locale=$INPUT_LOCALE" >> "$GITHUB_OUTPUT"
           # Scheduled runs stay on v1 until the NOTIFY-04 switch-over is approved.
-          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+          if [[ "$INPUT_EVENT_NAME" == "schedule" ]]; then
             echo "layout=v1" >> "$GITHUB_OUTPUT"
           else
             case "$INPUT_LAYOUT" in
