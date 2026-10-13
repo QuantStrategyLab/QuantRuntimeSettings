@@ -127,6 +127,16 @@ python3 python/scripts/send_daily_digest_telegram.py \
 
 只有已明确标记 `DIGEST_CANDIDATES_STORE_STATUS=failed` 的 intake，才将无法读取或不符合上述候选合同的 legacy fallback 降级为未知：配置保留、`candidates_loaded=false`，另记固定原因 `candidate_input_unavailable_or_invalid`，继续形成警告消息、完整 receipt 和公开摘要后执行失败 gate。正常未标记失败的坏源继续拒绝，不生成成功空 JSON。渲染、receipt 和发送结果摘要共用全源计数门：来源失败、过期候选或未知成交均不能声明全源零或正成交，逐 run 已知事实保留。公开 receipt 同时校验白名单字段的类型、枚举、日期/窗口值；非法字段为 unknown / null，不复制私有容器或把未知计数填成零。
 
+### 私有候选只读预检（不改生产 Environment）
+
+`workflow_dispatch` 新增 boolean `preflight_private_store`，默认 `false`。仅在 `main` 分支（`refs/heads/main`）、手动运行且 `dry_run=true` 时接受 `true`；其他 event / ref、非 `true` 的 dry-run 均在创建候选目录和认证、读取、发送之前以 exit 2 拒绝。非法预检输入也拒绝，失败日志只有固定原因码。
+
+启用后只为本次 runner 的空 `DIGEST_CANDIDATES_GCS_URI` 填入已有 `gs://qsl-runtime-logs-shared/digest-candidates`；已有 URI 原样保留，仍沿用既有 `DIGEST_CANDIDATES_READER_*` WIF / SA，不选择其他身份。Resolve 步骤输出固定 boolean `preflight_private_store`，供本次源身份审计。该模式不写 GitHub Environment / secret / IAM，不改 schedule 的 v1 默认，不覆盖或删除 legacy 候选。
+
+后续复用原 auth → list / copy / strict merge → sender `--dry-run` → 白名单公开 receipt → intake 失败 gate。只读访问需要既有 reader 对配置前缀的 list/get 权限；不需要 create/delete，不新增对象或发送 Telegram 消息。完整候选、消息预览与完整 receipt 只留 runner，只有 `receipt-public.json` 可上传。
+
+预检建议选定准确的纽约 `business_day`，可选 `layout=sections_v2` 检查已有四段式消费链。旧 legacy 来源仍参与合并：读取成功、候选新鲜度/完整覆盖和全源已知成交必须分别验收；存在 stale / unknown 或 intake 失败时保留未知状态。预检通过不能代替生产 reader 接线、自然送达、bot/chat/topic 与去重验收或真实 Telegram 截图。
+
 ### 生产注入（人闸）
 
 写入 Environment `runtime-strategy-switch` 的 secret `DIGEST_CANDIDATES_JSON`（或由私有前置步骤写出文件后设 `DIGEST_CANDIDATES_PATH`），再对 `daily-digest-notify.yml` 做 **dry-run** `workflow_dispatch`。改生产 Environment / 关 dry-run 需人工确认；本任务与自动化**不得**直接改生产 Environment。
