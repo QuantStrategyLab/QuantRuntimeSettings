@@ -1,3 +1,4 @@
+import type { CredentialMaintenance, Source } from "./api";
 import { applicationRetryAllowed, ownerDecisionBinding, presentAccountState, promotionSuggestion, promotionDecisionReady, type HumanDecisionState, recoveryBinding } from "./operations.ts";
 import { accountFactsForDisplay, binanceProviderProductTypeForDisplay } from "./types.ts";
 import type { AccountFactsAccount, BinancePrivateScopeAsset, BinancePrivateScopeDisplay, BinanceWalletHistoryPoint } from "./types";
@@ -1428,7 +1429,8 @@ export function strategyIdentityView(input: { profile?: object | null; profileId
   };
 }
 
-export function decisionActionState(item: { canAdopt: boolean; canReject: boolean; accountChoices: Array<{ id: string }> }, input: { admin: boolean; busy: boolean; selectedAccountId: string }): { adoptEnabled: boolean; rejectEnabled: boolean } {
+export function decisionActionState(item: { kind?: string; canAdopt: boolean; canReject: boolean; accountChoices: Array<{ id: string }> }, input: { admin: boolean; busy: boolean; selectedAccountId: string }): { adoptEnabled: boolean; rejectEnabled: boolean } {
+  if (item.kind === "maintenance") return { adoptEnabled: false, rejectEnabled: false };
   const accountReady = item.accountChoices.length <= 1 || item.accountChoices.some(account => account.id === input.selectedAccountId);
   const allowed = input.admin === true && input.busy !== true;
   return {
@@ -1786,7 +1788,8 @@ export function activationLabel(activation: unknown): "已启用" | "已停用" 
 
 export type DailyDecision = {
   id: string;
-  kind: "promotion" | "owner_observation" | "owner_retire" | "recovery";
+  kind: "promotion" | "owner_observation" | "owner_retire" | "recovery" | "maintenance";
+  maintenance?: CredentialMaintenance | null;
   title: string;
   kicker: string;
   question: string;
@@ -1972,6 +1975,7 @@ export function listDailyDecisions(input: {
   recovery: SourceState | null | undefined;
   accountsFor: (ticket: any) => Array<{ platform: string; key: string; label: string }>;
   decisionStates?: HumanDecisionState[];
+  maintenance?: Source<CredentialMaintenance>;
 }): { blocked: boolean; sources: DecisionSourceStatuses; items: DailyDecision[] } {
   const sources: DecisionSourceStatuses = {
     promotions: decisionSourceReadStatus(input.promotions),
@@ -2082,7 +2086,16 @@ export function listDailyDecisions(input: {
       });
     }
   }
+  if (input.maintenance && (input.maintenance.error || !input.maintenance.value || input.maintenance.value.requires_action)) {
+    const maintenance = input.maintenance.error ? null : input.maintenance.value;
+    const question = !maintenance ? "到期时间读取失败" : maintenance.phase === "unknown" ? "登记到期时间" : maintenance.phase === "expired" ? "已到登记到期时间" : "即将到登记到期时间";
+    items.unshift({ id: "maintenance:ibkr_flex", kind: "maintenance", maintenance,
+      title: "IBKR Flex", kicker: "凭据维护", question, accountLine: "", currentName: "", proposedName: "",
+      explanationKind: "none", explanation: null, reasons: [], impact: "", technical: "", reference: "ibkr_flex",
+      materialNotes: [], canAdopt: false, canReject: false, adoptDecision: null, rejectDecision: null, accountChoices: [] });
+  }
   return { blocked, sources, items: items.filter(item => {
+    if (item.kind === "maintenance") return true;
     const kind = item.kind === "owner_observation" ? "owner" : item.kind;
     const source = kind === "promotion" ? input.promotions?.value?.tickets?.find((t: any) => t.ticket_id === item.reference)
       : kind === "owner" ? input.owners?.value?.candidates?.find((e: any) => e.candidate?.candidate_id === item.reference)

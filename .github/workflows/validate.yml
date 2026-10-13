@@ -111,6 +111,8 @@ jobs:
           git diff --exit-code -- web/strategy-switch-console/config.js web/strategy-switch-console/strategy_profiles_asset.js web/strategy-switch-console/runtime-catalog-projection.json
           jq empty web/strategy-switch-console/strategy-profiles.example.json
           node --experimental-default-type=module tests/strategy_switch_worker_validation.mjs
+          node tests/credential_maintenance_worker_validation.mjs
+          node --experimental-strip-types tests/credential_maintenance_presentation_validation.mjs
           node tests/runtime_daily_worker_validation.mjs
           node tests/account_facts_validation.mjs
           node tests/ibkr_period_return_validation.mjs

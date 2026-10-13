@@ -1,4 +1,5 @@
 // deploy: 2026-06-30 — config driven by platform-config.json
+import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
 import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
@@ -775,6 +776,7 @@ export default {
       }
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
+      if (url.pathname === "/api/credential-maintenance" || url.pathname === "/api/internal/credential-maintenance" || url.pathname === "/api/internal/credential-maintenance/claim" || url.pathname === "/api/internal/credential-maintenance/ack") return await credentialMaintenanceResponse(request, env, url);
       if (url.pathname === "/api/config") return json(await configPayload(request, env, ctx));
       if (url.pathname === "/api/admin/runtime-instances") return await runtimeInstancesResponse(request, env);
       if (url.pathname === "/api/admin/config" && request.method === "GET") {
@@ -1032,6 +1034,39 @@ async function runtimeInstanceCommand(env, command) {
     if (error instanceof HttpError) throw error;
     throw new HttpError("runtime_instances_unavailable", 503);
   }
+}
+
+async function credentialMaintenanceResponse(request, env, url) {
+  const machine = url.pathname.startsWith("/api/internal/");
+  const suffix = url.pathname.split("/").at(-1);
+  let action = "credential_maintenance_read";
+  if (machine) {
+    const expected = typeof env.STRATEGY_SWITCH_SYNC_TOKEN === "string" ? env.STRATEGY_SWITCH_SYNC_TOKEN : "";
+    // No dispatch fallback, and no alias for broker, control or session authority.
+    const aliases = Object.entries(env).filter(([name, value]) => name !== "STRATEGY_SWITCH_SYNC_TOKEN" &&
+      (name.endsWith("_TOKEN") || name === "SESSION_SECRET") && typeof value === "string" && value && value === expected);
+    if (!expected || aliases.length) throw new HttpError("credential_maintenance_auth_unavailable", 503);
+    const supplied = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+    if (supplied !== expected) throw new HttpError("credential_maintenance_auth_invalid", 401);
+    if (suffix === "claim" || suffix === "ack") {
+      if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
+      action = `credential_maintenance_${suffix}`;
+    } else if (request.method !== "GET") throw new HttpError("method_not_allowed", 405);
+  } else {
+    const session = await requireUx1Session(request, env);
+    if (request.method === "POST") {
+      if (!session.admin) throw new HttpError("admin required", 403);
+      requireSameOrigin(request, { requireOrigin: true });
+      action = "credential_maintenance_save";
+    } else if (request.method !== "GET") throw new HttpError("method_not_allowed", 405);
+  }
+  let body;
+  if (request.method === "POST") {
+    const text = await request.text();
+    if (text.length > 1024) throw new HttpError("invalid_credential_maintenance_request", 400);
+    try { body = JSON.parse(text); } catch { throw new HttpError("invalid_credential_maintenance_request", 400); }
+  }
+  return json(await runtimeInstanceCommand(env, { action, body }));
 }
 
 let ux1ModuleEpoch = "";
@@ -2073,6 +2108,7 @@ export class RuntimeInstances {
   constructor(ctx) {
     this.storage = ctx.storage;
     this.sql = ctx.storage.sql;
+    initializeCredentialMaintenance(this.sql);
     // Latest native interval only; existing private read-model store, no new ledger.
     this.sql.exec(`CREATE TABLE IF NOT EXISTS account_period_return (
       account_key TEXT PRIMARY KEY, payload_json TEXT NOT NULL
@@ -3770,6 +3806,9 @@ export class RuntimeInstances {
       if (request.method !== "POST") throw new HttpError("method_not_allowed", 405);
       let command;
       try { command = await request.json(); } catch { throw new HttpError("invalid_runtime_instance_request", 400); }
+      if (["credential_maintenance_read", "credential_maintenance_save", "credential_maintenance_claim", "credential_maintenance_ack"].includes(command?.action)) {
+        return json(this.storage.transactionSync(() => credentialMaintenanceCommand(this.sql, command)));
+      }
       if (ACCOUNT_DIAGNOSIS_DO_ACTIONS.has(command?.action)) {
         return json(await this.accountDiagnosisCommand(command));
       }
@@ -3885,7 +3924,7 @@ export class RuntimeInstances {
         return this.response(state);
       }));
     } catch (error) {
-      return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError ? error.status : 409);
+      return json({ ok: false, error: error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError ? error.message : "runtime_instance_transaction_failed" }, error instanceof HttpError || error instanceof CycleHealthError || error instanceof CredentialMaintenanceError ? error.status : 409);
     }
   }
 

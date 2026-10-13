@@ -1,5 +1,7 @@
 import { useId, useState } from "react";
 import { useLocale, useT } from "./locales";
+import { CredentialMaintenanceDetail } from "./CredentialMaintenanceDetail";
+import type { CredentialMaintenance, Source } from "./api";
 import { StrategyIdentity } from "./StrategyIdentity";
 import {
   decisionActionState,
@@ -25,7 +27,7 @@ function joinSourceNames(labels: string[], language: "zh" | "en"): string {
   return labels.join(language === "zh" ? "、" : ", ");
 }
 
-export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAccountId, onSelectAccount, onDecide, onRetry }: {
+export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAccountId, onSelectAccount, onDecide, onRetry, maintenance, maintenanceBusy, onRegisterExpiry, onReloadMaintenance }: {
   blocked: boolean;
   sources?: DecisionSourceStatuses;
   items: DailyDecision[];
@@ -35,11 +37,17 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
   onSelectAccount: (id: string) => void;
   onDecide: (item: DailyDecision, decision: "adopt" | "reject") => void;
   onRetry?: () => void;
+  maintenance?: Source<CredentialMaintenance>;
+  maintenanceBusy?: boolean;
+  onRegisterExpiry?: (expiry: string, revision: number) => Promise<CredentialMaintenance>;
+  onReloadMaintenance?: () => Promise<CredentialMaintenance>;
 }) {
   const t = useT();
   const language = useLocale();
   const detailId = useId();
   const [selectedId, setSelectedId] = useState(items[0]?.id || "");
+  const [manageMaintenance, setManageMaintenance] = useState(false);
+  const management = admin && maintenance ? <><button type="button" className="text-link" onClick={() => setManageMaintenance(value => !value)} aria-expanded={manageMaintenance}>{t("管理到期记录")}</button>{manageMaintenance && <CredentialMaintenanceDetail value={maintenance.value} error={maintenance.error} admin={admin} busy={Boolean(maintenanceBusy)} onSave={onRegisterExpiry} onReload={onReloadMaintenance} />}</> : null;
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
   const unread = sources ? unreadDecisionSourceLabels(sources).map(label => t(label)) : [];
@@ -55,12 +63,13 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
     const emptyMessage = readFailed
       ? t("待办来源读取失败：{sources}", { sources: hardNames || joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })
       : t("暂无需要你决定的事项");
-    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1><div className="empty-state" role="status"><strong>{emptyMessage}</strong>{readFailed
+    return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1>{management}<div className="empty-state" role="status"><strong>{emptyMessage}</strong>{readFailed
       ? <><p>{t("这是读取失败，不是没有待办。请重试；若持续失败再核对来源服务。")}</p>{onRetry ? <button type="button" className="button button-secondary" onClick={onRetry}>{t("重新读取待办")}</button> : null}</>
       : <><p>{t("有新的待确认材料时会显示在这里。")}</p>{softNames ? <p>{t("部分来源暂不可用：{sources}。当前没有已取到的待办事项。", { sources: softNames })}</p> : null}</>}</div></section>;
   }
   return <section className="daily-page decisions-page home-decisions">
     <div className="daily-heading"><h1>{t("待办决策")}</h1><DecisionCount count={items.length} /></div>
+    {management}
     {blocked && <p className="workflow-note" role="status"><strong>{t("部分待办暂时无法读取")}</strong> {t("{sources} 暂时读不到。以下仅显示已读取的事项，待办列表可能不完整。", { sources: unreadNames || joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })}</p>}
     <div className="decision-layout">
       <div className="decision-list" role="group" aria-label={t("待办事项")}>
@@ -70,6 +79,7 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
         </button>)}
       </div>
       {selected && <article id={detailId} className="decision-detail" aria-labelledby={`${detailId}-item-${items.indexOf(selected)}`}>
+        {selected.kind === "maintenance" ? <CredentialMaintenanceDetail value={selected.maintenance || null} error={maintenance?.error || null} admin={admin} busy={Boolean(maintenanceBusy)} onSave={onRegisterExpiry} onReload={onReloadMaintenance} /> : <>
         <p className="kicker">{t(selected.kicker)}</p>
         <h2>{t(selected.question)}</h2>
         {selected.accountChoices.length === 1 ? <p>{selected.accountChoices[0].label}</p> : selected.accountLine ? <p>{t(selected.accountLine)}</p> : null}
@@ -91,6 +101,7 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
           {selected.canReject && <button type="button" className="button button-secondary" aria-describedby={`${detailId}-intent`} disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).rejectEnabled} onClick={() => onDecide(selected, "reject")}>{t("记录不采用意向")}</button>}
           {selected.canAdopt && <button type="button" className="button button-primary" aria-describedby={`${detailId}-intent`} disabled={!decisionActionState(selected, { admin, busy, selectedAccountId }).adoptEnabled} onClick={() => onDecide(selected, "adopt")}>{t("记录采用意向")}</button>}
         </div>
+        </>}
       </article>}
     </div>
   </section>;

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { AccountOption, AdminModel, ConfigPayload, LifecycleRecord, ReadModel, UxDraft } from "./api";
-import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, loadHumanDecisionReceipt, postJson, runtimeStopQuery } from "./api";
+import type { AccountOption, CredentialMaintenance, AdminModel, ConfigPayload, LifecycleRecord, ReadModel, UxDraft } from "./api";
+import { AccessError, getJson, invalidatePrivateSession, loadAdminModel, loadReadModel, loadHumanDecisionReceipt, loadCredentialMaintenance, validCredentialRegistrationAck, postJson, runtimeStopQuery } from "./api";
 import { createRequestGate } from "./requestGate.js";
 import { nextExplicitTheme, normalizeThemePreference, resolveTheme, THEME_STORAGE_KEY } from "./theme.js";
 import { accountEnvironmentSourceDetail, accountRuntimeLinkDetail, applicationRetryAllowed, beginNonHkStop, buildConfirmationFingerprint, buildSwitchInputs, canResumeBinance, confirmationAccepted, createHumanDecisionController, humanDecisionExpectation, type HumanDecisionKind, type HumanDecisionState, createRequestLock, createUnknownSubmitLock, defaultSwitchDraft, createHkStopController, hkStopSubmitAllowed, ownerDecisionBinding, pageFromWorkspace, recoveryBinding, type SwitchDraft } from "./operations";
@@ -652,7 +652,26 @@ function App() {
             expected_proposed_params: ticket.proposed_params || {}, expected_strategy_profile: ticket.strategy_profile, expected_domain: ticket.domain,
         }, "/api/research-promotion-decisions", "promotion");
     }
+    async function rereadCredentialExpiry() {
+        if (!model?.session.admin || !beginOnce("maintenance:ibkr_flex")) throw new Error("credential_registration_unavailable");
+        try {
+            const fresh = await loadCredentialMaintenance();
+            setModel(current => current ? { ...current, maintenance: { value: fresh, error: null } } : current);
+            return fresh;
+        } finally { finishOnce("maintenance:ibkr_flex"); }
+    }
+    async function registerCredentialExpiry(expires_at: string, metadata_revision: number) {
+        const previous = model?.maintenance.value;
+        if (!model?.session.admin || !previous || previous.metadata_revision !== metadata_revision || !beginOnce("maintenance:ibkr_flex")) throw new Error("credential_registration_unavailable");
+        try {
+            const saved = await postJson<CredentialMaintenance>("/api/credential-maintenance", { expires_at, metadata_revision });
+            if (!validCredentialRegistrationAck(saved, expires_at, previous)) throw new Error("credential_registration_ack_unconfirmed");
+            setModel(current => current ? { ...current, maintenance: { value: saved, error: null } } : current);
+            return saved;
+        } finally { finishOnce("maintenance:ibkr_flex"); }
+    }
     async function decideDaily(item: DailyDecision, action: "adopt" | "reject") {
+        if (item.kind === "maintenance") return;
         if (item.kind === "promotion") {
             const ticket = (model?.promotions.value?.tickets || []).find((entry: any) => item.id === `promotion:${entry.ticket_id}`);
             if (!ticket) return;
@@ -763,6 +782,7 @@ function App() {
         promotions: model?.promotions,
         owners: model?.owners,
         recovery: model?.recovery,
+        maintenance: model?.maintenance,
         decisionStates: humanDecisions.current.entries(),
         accountsFor: (ticket) => {
             const application = (model?.promotions.value?.applications || []).find((item: any) => item.ticket_id === ticket?.ticket_id);
@@ -804,7 +824,7 @@ function App() {
             {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="decision-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
                 {queue.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} profiles={profileOptions} language={language} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => void applyPromotion(application, accountId)} />)}
             </details>}
-            <DecisionsPage blocked={decisions.blocked} sources={decisions.sources} items={humanDecisionQueue(decisions.items)} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} onRetry={() => void refresh()} />
+            <DecisionsPage blocked={decisions.blocked} sources={decisions.sources} items={humanDecisionQueue(decisions.items)} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} onRetry={() => void refresh()} maintenance={model?.maintenance} maintenanceBusy={Boolean(busy["maintenance:ibkr_flex"])} onRegisterExpiry={registerCredentialExpiry} onReloadMaintenance={rereadCredentialExpiry} />
         </>;
     };
     const onSettingsRead = useCallback((id: string, profile: string | null) => {

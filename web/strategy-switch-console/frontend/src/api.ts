@@ -97,8 +97,40 @@ import type { AccountFactsSnapshot, AccountFactsHistorySnapshot, BinanceWalletHi
 import type { RuntimeDailySnapshot } from "./presentation";
 export type { RuntimeDailySnapshot } from "./presentation";
 export type Source<T> = { value: T | null; error: string | null };
+export type CredentialMaintenance = {
+  id: "ibkr_flex"; metadata_source: "operator_provided"; metadata_revision: number;
+  expires_at: string | null; phase: "unknown" | "not_due" | "30" | "7" | "1" | "expired";
+  requires_action: boolean; delivery: "not_reserved" | "reserved" | "delivered" | "unknown";
+};
+function canonicalCredentialExpiry(value: unknown): string | null {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return null;
+  const [date, time] = value.split("T");
+  const [year, month, day] = date.split("-").map(Number);
+  if (year < 1970 || month < 1 || month > 12 || day < 1 || day > new Date(Date.UTC(year, month, 0)).getUTCDate() || Number(time.slice(0, 2)) > 23 || Number(time.slice(3, 5)) > 59 || Number(time.slice(6, 8)) > 59) return null;
+  const instant = Date.parse(value);
+  return Number.isFinite(instant) ? new Date(instant).toISOString() : null;
+}
+export function validCredentialMaintenance(value: unknown): value is CredentialMaintenance {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const p = value as CredentialMaintenance;
+  if (p.id !== "ibkr_flex" || p.metadata_source !== "operator_provided" || !Number.isSafeInteger(p.metadata_revision) || p.metadata_revision < 0 ||
+      !["unknown", "not_due", "30", "7", "1", "expired"].includes(p.phase) || !["not_reserved", "reserved", "delivered", "unknown"].includes(p.delivery) || p.requires_action !== (p.phase !== "not_due")) return false;
+  if (p.phase === "unknown") return p.expires_at === null && p.delivery === "not_reserved";
+  return typeof p.expires_at === "string" && canonicalCredentialExpiry(p.expires_at) === p.expires_at && (p.phase !== "not_due" || p.delivery === "not_reserved");
+}
+export function validCredentialRegistrationAck(value: unknown, requested: string, previous: CredentialMaintenance): value is CredentialMaintenance {
+  const canonical = canonicalCredentialExpiry(requested);
+  return canonical !== null && validCredentialMaintenance(previous) && validCredentialMaintenance(value) && value.expires_at === canonical &&
+    value.metadata_revision === previous.metadata_revision + (previous.expires_at === canonical ? 0 : 1);
+}
+export async function loadCredentialMaintenance(): Promise<CredentialMaintenance> {
+  const value = await getJson<unknown>("/api/credential-maintenance");
+  if (!validCredentialMaintenance(value)) throw new Error("credential_maintenance_read_invalid");
+  return value;
+}
 export type ReadModel = {
   session: Session;
+  maintenance: Source<CredentialMaintenance>;
   config: Source<ConfigPayload>; runtime: Source<RuntimeSnapshot>;
   control: Source<ControlPlane>; research: Source<UxDraft>;
   owners: Source<Record<string, any>>; recovery: Source<Record<string, any>>;
@@ -186,7 +218,7 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
   const privateScopeRequest = session.admin
     ? source(getJson<Record<string, any>>("/api/binance-private-scope"))
     : Promise.resolve<Source<Record<string, any>>>({ value: null, error: null });
-  const [config, runtime, control, research, owners, recovery, privateScope, promotions, accountFacts, binanceFacts] = await Promise.all([
+  const [config, runtime, control, research, owners, recovery, privateScope, promotions, accountFacts, binanceFacts, maintenance] = await Promise.all([
     source(getJson<ConfigPayload>("/api/config")),
     source(getJson<RuntimeSnapshot>("/api/runtime-target-lifecycle")),
     source(getJson<ControlPlane>("/api/control-plane")),
@@ -197,8 +229,9 @@ export async function loadReadModel(): Promise<ReadModel | { session: Session; d
     source(getJson<Record<string, any>>("/api/research-promotion-tickets")),
     source(getJson<AccountFactsSnapshot>("/api/account-facts")),
     source(getJson<Record<string, any>>("/api/binance-account-facts")),
+    source(loadCredentialMaintenance()),
   ]);
-  return { session, config, runtime, control, research, owners, recovery, privateScope, promotions, accountFacts, binanceFacts };
+  return { session, config, runtime, control, research, owners, recovery, privateScope, promotions, accountFacts, binanceFacts, maintenance };
 }
 
 export function runtimeStopQuery(platform: string, targetName: string): string {

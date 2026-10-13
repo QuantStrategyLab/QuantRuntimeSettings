@@ -31,6 +31,7 @@ SCRIPTS = Path(__file__).resolve().parent
 if str(SCRIPTS) not in sys.path:
     sys.path.insert(0, str(SCRIPTS))
 
+import credential_maintenance_notify as maintenance
 import daily_digest_aggregator as aggregator
 import daily_digest_delivery_axes as delivery_axes  # noqa: E402
 import daily_digest_notify as digest  # noqa: E402
@@ -441,42 +442,45 @@ def main(argv: list[str] | None = None) -> int:
         # Exit 0 even when missing — diagnosis succeeded; readiness is in receipt.
         return 0
 
-    payload, text, collected = aggregator.build_digest_payload(
-        business_day=args.business_day,
-        locale=args.locale,
-        candidates_path=args.candidates,
-        include_github=not args.no_github,
-        config_path=args.platform_config,
-        layout=args.layout,
-    )
-
-    dry_run = args.dry_run or str(os.environ.get("DIGEST_DRY_RUN") or "").lower() in {
-        "1",
-        "true",
-        "yes",
-    }
+    dry_run = args.dry_run or str(os.environ.get("DIGEST_DRY_RUN") or "").lower() in {"1", "true", "yes"}
+    maintenance_client = maintenance.MaintenanceClient.from_environment(os.environ, dry_run=dry_run)
+    reminder = maintenance_client.read_due() if maintenance_client else None
+    business_failed = False
+    try:
+        if os.environ.get("DIGEST_CANDIDATES_INPUT_STATUS") == "failure":
+            raise ValueError("candidate_input_materialization_failed")
+        payload, text, collected = aggregator.build_digest_payload(
+            business_day=args.business_day, locale=args.locale, candidates_path=args.candidates,
+            include_github=not args.no_github, config_path=args.platform_config, layout=args.layout,
+        )
+    except Exception:
+        if reminder is None: raise
+        # Expiry may be why candidates are absent. Keep the business failure and
+        # unknown counts while allowing only this independently sourced reminder.
+        business_failed = True
+        payload, text, collected = None, "", []
+        print("Daily digest construction failed; maintenance fallback only.", file=sys.stderr)
 
     # Dry-run never probes SM unless explicitly requested (keeps CI offline).
     route = diagnose_telegram_route(
         probe_secret_manager=probe_sm if dry_run else False,
         include_chat_fingerprint=include_fp,
     )
-    base_receipt = aggregator.build_receipt(
-        payload, collected, message_chars=len(text)
-    )
+    base_receipt = aggregator.build_receipt(payload, collected, message_chars=len(text)) if payload is not None else {"total_fills": None, "run_count": None, "business_digest_failed": True}
     receipt = _receipt_base(dry_run=dry_run, route=route)
     receipt.update(base_receipt)
     receipt.update(
         {
-            "business_day": payload.business_day,
-            "locale": digest.normalize_locale(str(payload.locale)),
-            "run_count": len(payload.runs),
+            "business_day": payload.business_day if payload is not None else None,
+            "locale": digest.normalize_locale(str(payload.locale)) if payload is not None else digest.normalize_locale(args.locale or "zh"),
+            "run_count": len(payload.runs) if payload is not None else None,
             "missing": [],
         }
     )
 
-    print(text)
-    print("---")
+    if payload is not None:
+        print(text)
+        print("---")
 
     if dry_run:
         missing = list(route.get("missing") or [])
@@ -537,14 +541,30 @@ def main(argv: list[str] | None = None) -> int:
         "secret_name_contract", DEFAULT_SECRET_NAME
     )
 
-    ok = send_telegram_message(token=token, chat_id=chat_id, text=text)
+    combined = (text + "\n\n" if text else "") + reminder.block(receipt["locale"]) if reminder is not None else text
+    compatible = maintenance.can_combine_reminder(text=combined, chat_id=chat_id)
+    reserved = bool(reminder is not None and maintenance_client and compatible and maintenance_client.reserve(reminder))
+    if reserved:
+        ok = maintenance.send_strict_telegram(token=token, chat_id=chat_id, text=combined)
+        delivery = maintenance_client.ack(reminder, "delivered" if ok else "unknown")
+        receipt["maintenance"] = {"phase": reminder.phase, "delivery": delivery}
+    elif business_failed:
+        receipt["status"] = "business_digest_failed"
+        receipt["delivered"] = False
+        delivery_axes.attach_delivery_axes(receipt)
+        if args.write_receipt: _write_receipt(args.write_receipt, receipt)
+        return 1
+    else:
+        ok = send_telegram_message(token=token, chat_id=chat_id, text=text)
     receipt["delivered"] = ok
-    receipt["status"] = "delivered" if ok else "send_failed"
+    receipt["status"] = "business_digest_failed" if business_failed else "delivered" if ok else "send_failed"
     delivery_axes.attach_delivery_axes(receipt)
     if args.write_receipt:
         _write_receipt(args.write_receipt, receipt)
     if not ok:
         print("Daily digest Telegram delivery failed.", file=sys.stderr)
+        return 1
+    if business_failed:
         return 1
     fills = receipt.get("total_fills")
     fills_label = "unknown" if fills is None else fills
