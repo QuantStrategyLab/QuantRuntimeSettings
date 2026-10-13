@@ -83,6 +83,9 @@ jobs:
       TG_TOKEN: ${{ secrets.TG_TOKEN }}
       QSL_GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.QSL_GLOBAL_TELEGRAM_CHAT_ID }}
       GLOBAL_TELEGRAM_CHAT_ID: ${{ secrets.GLOBAL_TELEGRAM_CHAT_ID }}
+      # Existing console authority; maintenance writes are main-only and never dry-run.
+      STRATEGY_SWITCH_CONSOLE_URL: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) && vars.STRATEGY_SWITCH_CONSOLE_URL || '' }}
+      STRATEGY_SWITCH_SYNC_TOKEN: ${{ github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.dry_run != true) && secrets.STRATEGY_SWITCH_SYNC_TOKEN || '' }}
       QSL_NOTIFY_LANG: ${{ vars.QSL_NOTIFY_LANG || vars.NOTIFY_LANG || 'zh' }}
       NOTIFY_LANG: ${{ vars.NOTIFY_LANG || 'zh' }}
       # Cross-repo evidence (optional). Same token used elsewhere for remote reads.
@@ -281,7 +284,11 @@ jobs:
 
       - name: Aggregate, render, and send daily digest
         id: send
+        # A failed private path may still deliver only an independently sourced
+        # maintenance block. The original failed step and sender nonzero remain.
+        if: ${{ success() || (!cancelled() && github.ref == 'refs/heads/main' && steps.opts.outcome == 'success' && steps.opts.outputs.dry_run != 'true' && steps.candidates.outcome == 'failure') }}
         env:
+          DIGEST_CANDIDATES_INPUT_STATUS: ${{ steps.candidates.outcome }}
           DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
           DIGEST_DRY_RUN: ${{ steps.opts.outputs.dry_run }}
         run: |
