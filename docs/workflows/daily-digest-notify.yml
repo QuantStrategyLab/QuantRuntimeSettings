@@ -207,8 +207,7 @@ jobs:
             exit 1
           }
           # Fail closed if the step ends before it records a complete outcome.
-          echo "DIGEST_CANDIDATES_STORE_STATUS=failed" >> "$GITHUB_ENV"
-          echo "DIGEST_CANDIDATES_STORE_REASON=candidate_store_outcome_missing" >> "$GITHUB_ENV"
+          printf 'DIGEST_CANDIDATES_STORE_STATUS=failed\nDIGEST_CANDIDATES_STORE_REASON=candidate_store_outcome_missing\n' >> "$GITHUB_ENV"
           if [[ "$AUTH_OUTCOME" != "success" ]]; then
             store_failed candidate_store_auth_failed
           fi
@@ -235,9 +234,7 @@ jobs:
           if ! python3 python/scripts/merge_digest_candidates.py ${base:+--base "$base"} --input-dir "$fetched" --output "$out"; then
             store_failed candidate_store_merge_failed
           fi
-          echo "DIGEST_CANDIDATES_PATH=$out" >> "$GITHUB_ENV"
-          echo "DIGEST_CANDIDATES_STORE_STATUS=loaded" >> "$GITHUB_ENV"
-          echo "DIGEST_CANDIDATES_STORE_REASON=" >> "$GITHUB_ENV"
+          printf 'DIGEST_CANDIDATES_PATH=%s\nDIGEST_CANDIDATES_STORE_STATUS=loaded\nDIGEST_CANDIDATES_STORE_REASON=\n' "$out" >> "$GITHUB_ENV"
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
         id: gcp_auth
