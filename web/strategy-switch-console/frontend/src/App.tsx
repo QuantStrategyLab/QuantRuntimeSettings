@@ -165,6 +165,8 @@ function App() {
     const [promotionTicketId, setPromotionTicketId] = useState("");
     const [promotionAccountId, setPromotionAccountId] = useState("");
     const [promotionRisk] = useState("CAPITAL_PRESERVATION");
+    const modelRef = useRef(model);
+    modelRef.current = model;
     const gate = useRef(createRequestGate());
     const hkStops = useRef(new Map<string, ReturnType<typeof createHkStopController>>());
     const switchLocks = useRef(createUnknownSubmitLock());
@@ -653,20 +655,30 @@ function App() {
         }, "/api/research-promotion-decisions", "promotion");
     }
     async function rereadCredentialExpiry() {
-        if (!model?.session.admin || !beginOnce("maintenance:ibkr_flex")) throw new Error("credential_registration_unavailable");
+        const login = model?.session.login;
+        if (!model?.session.allowed || !model.session.admin || !beginOnce("maintenance:ibkr_flex")) throw new Error("credential_registration_unavailable");
         try {
             const fresh = await loadCredentialMaintenance();
-            setModel(current => current ? { ...current, maintenance: { value: fresh, error: null } } : current);
+            const latest = modelRef.current;
+            if (!latest?.session.allowed || !latest.session.admin || latest.session.login !== login || (latest.maintenance.value && latest.maintenance.value.metadata_revision > fresh.metadata_revision)) throw new Error("credential_registration_read_unconfirmed");
+            gate.current.invalidate();
+            setRefreshing(false);
+            setModel(current => current?.session.allowed && current.session.admin && current.session.login === login && (!current.maintenance.value || current.maintenance.value.metadata_revision <= fresh.metadata_revision) ? { ...current, maintenance: { value: fresh, error: null } } : current);
             return fresh;
         } finally { finishOnce("maintenance:ibkr_flex"); }
     }
     async function registerCredentialExpiry(expires_at: string, metadata_revision: number) {
         const previous = model?.maintenance.value;
-        if (!model?.session.admin || !previous || previous.metadata_revision !== metadata_revision || !beginOnce("maintenance:ibkr_flex")) throw new Error("credential_registration_unavailable");
+        const login = model?.session.login;
+        if (!model?.session.allowed || !model.session.admin || !previous || previous.metadata_revision !== metadata_revision || !beginOnce("maintenance:ibkr_flex")) throw new Error("credential_registration_unavailable");
         try {
             const saved = await postJson<CredentialMaintenance>("/api/credential-maintenance", { expires_at, metadata_revision });
             if (!validCredentialRegistrationAck(saved, expires_at, previous)) throw new Error("credential_registration_ack_unconfirmed");
-            setModel(current => current ? { ...current, maintenance: { value: saved, error: null } } : current);
+            const latest = modelRef.current;
+            if (!latest?.session.allowed || !latest.session.admin || latest.session.login !== login || (latest.maintenance.value && latest.maintenance.value.metadata_revision > saved.metadata_revision)) throw new Error("credential_registration_ack_unconfirmed");
+            gate.current.invalidate();
+            setRefreshing(false);
+            setModel(current => current?.session.allowed && current.session.admin && current.session.login === login && (!current.maintenance.value || current.maintenance.value.metadata_revision <= saved.metadata_revision) ? { ...current, maintenance: { value: saved, error: null } } : current);
             return saved;
         } finally { finishOnce("maintenance:ibkr_flex"); }
     }

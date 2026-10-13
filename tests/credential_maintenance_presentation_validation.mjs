@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequestGate } from '../web/strategy-switch-console/frontend/src/requestGate.js';
 import * as api from '../web/strategy-switch-console/frontend/src/api.ts';
 import { humanDecisionQueue, listDailyDecisions, decisionActionState } from '../web/strategy-switch-console/frontend/src/presentation.ts';
 const ready = { value: { data_status: 'ready' }, error: null };
@@ -27,6 +28,9 @@ assert.match(page, /selected\.kind === "maintenance"/);
 assert.match(page, /CredentialMaintenanceDetail/);
 assert.match(app, /if \(item\.kind === "maintenance"\) return;/);
 assert.match(page, /管理到期记录/);
+assert.match(page, /item.kind !== "maintenance" && <small className="decision-reference">/);
+const preview = readFileSync(new URL('../web/strategy-switch-console/frontend/src/OverviewDecisionPreview.tsx', import.meta.url), 'utf8');
+assert.match(preview, /item.kind !== "maintenance" && <small>/);
 assert.equal(typeof api.validCredentialMaintenance, 'function', 'both reads and ACKs validate the maintenance schema');
 assert.equal(api.validCredentialMaintenance(metadata), true);
 for (const invalid of [{}, { ...metadata, metadata_revision: true }, { ...metadata, id: 'other' }, { ...metadata, phase: 'not_due' }, { ...metadata, expires_at: '2035-02-30T00:00:00.000Z' }, { ...metadata, delivery: 'other' }]) assert.equal(api.validCredentialMaintenance(invalid), false);
@@ -44,9 +48,9 @@ const registerBody = app.slice(app.indexOf('    async function registerCredentia
 const executable = registerBody.replace('expires_at: string, metadata_revision: number', 'expires_at, metadata_revision').replace('postJson<CredentialMaintenance>', 'postJson');
 function handler(current, response) {
   let posts = 0, writes = 0, releases = 0;
-  const fn = new Function('model', 'beginOnce', 'postJson', 'setModel', 'finishOnce', 'validCredentialRegistrationAck', `${executable}; return registerCredentialExpiry;`)(
-    { session: { admin: true }, maintenance: { value: current, error: null } }, () => true,
-    async () => { posts++; return response; }, () => { writes++; }, () => { releases++; }, api.validCredentialRegistrationAck);
+  const fn = new Function('model', 'beginOnce', 'postJson', 'setModel', 'finishOnce', 'validCredentialRegistrationAck', 'modelRef', 'gate', 'setRefreshing', `${executable}; return registerCredentialExpiry;`)(
+    { session: { admin: true, allowed: true, login: 'fixture-admin' }, maintenance: { value: current, error: null } }, () => true,
+    async () => { posts++; return response; }, () => { writes++; }, () => { releases++; }, api.validCredentialRegistrationAck, { current: { session: { admin: true, allowed: true, login: 'fixture-admin' }, maintenance: { value: current, error: null } } }, { current: { invalidate() {} } }, () => {});
   return { fn, counts: () => ({ posts, writes, releases }) };
 }
 const conflicted = handler(goodAck, goodAck);
@@ -73,4 +77,61 @@ assert.equal(failedReadback.state.revision, 4, 'failed readback cannot bind the 
 const explicitReadback = reloadHandler(goodAck);
 await explicitReadback.fn();
 assert.deepEqual(explicitReadback.state, { expiry: goodAck.expires_at, revision: 5, status: null }, 'explicit verified readback replaces both input and edit revision');
+
+// Delayed responses must preserve a newer private revision and cleared session.
+async function delayedActualHandler(kind, latest, result) {
+  let resolve;
+  const pending = new Promise(done => { resolve = done; });
+  let current = { session: { admin: true, allowed: true, login: 'fixture-admin' }, maintenance: { value: prior, error: null } };
+  const captured = current;
+  let invalidated = 0;
+  const body = kind === 'save' ? executable : app.slice(app.indexOf('    async function rereadCredentialExpiry('), app.indexOf('    async function registerCredentialExpiry('));
+  const ref = { get current() { return current; } };
+  const fn = new Function('model', 'modelRef', 'beginOnce', 'postJson', 'loadCredentialMaintenance', 'setModel', 'finishOnce', 'validCredentialRegistrationAck', 'gate', 'setRefreshing', `${body}; return ${kind === 'save' ? 'registerCredentialExpiry' : 'rereadCredentialExpiry'};`)(
+    captured, ref, () => true, async () => pending, async () => pending,
+    updater => { current = updater(current); }, () => {}, api.validCredentialRegistrationAck,
+    { current: { invalidate: () => { invalidated++; } } }, () => {});
+  const submission = kind === 'save' ? fn(expiry, prior.metadata_revision) : fn();
+  current = latest;
+  resolve(result);
+  const settled = await Promise.allSettled([submission]);
+  return { current, settled, invalidated };
+}
+const latestModel = { session: { admin: true, allowed: true, login: 'fixture-admin' }, maintenance: { value: { ...goodAck, metadata_revision: 6, requires_action: true, phase: '7' }, error: null } };
+for (const kind of ['save', 'read']) {
+  const late = await delayedActualHandler(kind, latestModel, goodAck);
+  assert.equal(late.current.maintenance.value.metadata_revision, 6, 'late maintenance response cannot replace a newer revision');
+  assert.equal(late.current.maintenance.value.requires_action, true);
+  assert.equal(late.settled[0].status, 'rejected', 'stale response cannot acknowledge saved or reset editing snapshot');
+  const cleared = await delayedActualHandler(kind, null, goodAck);
+  assert.equal(cleared.current, null);
+  assert.equal(cleared.settled[0].status, 'rejected');
+}
+
+for (const kind of ['save', 'read']) {
+  const sameSession = { session: { admin: true, allowed: true, login: 'fixture-admin' }, maintenance: { value: prior, error: null } };
+  const accepted = await delayedActualHandler(kind, sameSession, goodAck);
+  assert.equal(accepted.current.maintenance.value.metadata_revision, 5);
+  assert.equal(accepted.invalidated, 1, 'successful maintenance update invalidates a pending old full-refresh token');
+  const changedSession = await delayedActualHandler(kind, { ...sameSession, session: { admin: true, allowed: true, login: 'other-fixture-admin' } }, goodAck);
+  assert.equal(changedSession.settled[0].status, 'rejected');
+  assert.equal(changedSession.current.maintenance.value.metadata_revision, 4);
+}
+// Execute the existing full-refresh prefix with the same actual request gate.
+const actualGate = createRequestGate();
+let resolveOld;
+const oldRead = new Promise(done => { resolveOld = done; });
+let visible = { session: { admin: true, allowed: true, login: 'fixture-admin' }, maintenance: { value: prior, error: null } };
+const refreshStart = app.indexOf('    const refresh = useCallback(async () => {') + '    const refresh = useCallback(async () => {'.length;
+const refreshPrefix = app.slice(refreshStart, app.indexOf('            if ("denied" in next)', refreshStart));
+const refresh = new Function('gate', 'setRefreshing', 'setErrorMessage', 'loadReadModel', 'setModel', `return async () => { ${refreshPrefix} setModel(next); } finally {} };`)(
+  { current: actualGate }, () => {}, () => {}, async () => oldRead, value => { visible = value; });
+const delayedRefresh = refresh();
+const realSave = new Function('model', 'modelRef', 'beginOnce', 'postJson', 'setModel', 'finishOnce', 'validCredentialRegistrationAck', 'gate', 'setRefreshing', `${executable}; return registerCredentialExpiry;`)(
+  visible, { get current() { return visible; } }, () => true, async () => goodAck,
+  updater => { visible = updater(visible); }, () => {}, api.validCredentialRegistrationAck, { current: actualGate }, () => {});
+await realSave(expiry, prior.metadata_revision);
+resolveOld({ session: visible.session, maintenance: { value: prior, error: null } });
+await delayedRefresh;
+assert.equal(visible.maintenance.value.metadata_revision, 5, 'old full refresh cannot overwrite a successful new save');
 console.log('credential maintenance presentation validation passed');

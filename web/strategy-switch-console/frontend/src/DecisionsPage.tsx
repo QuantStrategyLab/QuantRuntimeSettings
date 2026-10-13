@@ -75,7 +75,7 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
       <div className="decision-list" role="group" aria-label={t("待办事项")}>
         {items.map((item, index) => <button key={item.id} id={`${detailId}-item-${index}`} type="button" aria-pressed={selected?.id === item.id} aria-controls={detailId} className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>
           <small>{t(item.kicker)}</small><strong>{shown(item.title, t)}{unnamedDecisionOrdinal(items, item) ? ` ${unnamedDecisionOrdinal(items, item)}` : ""}</strong>
-          <small className="decision-reference">{t("材料编号")}：{item.reference}</small>
+          {item.kind !== "maintenance" && <small className="decision-reference">{t("材料编号")}：{item.reference}</small>}
         </button>)}
       </div>
       {selected && <article id={detailId} className="decision-detail" aria-labelledby={`${detailId}-item-${items.indexOf(selected)}`}>
