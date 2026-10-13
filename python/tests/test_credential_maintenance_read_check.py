@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -122,6 +123,29 @@ class MaintenanceReadCheckTests(unittest.TestCase):
         self.assertEqual(request.full_url, 'https://console.example/api/internal/credential-maintenance')
         self.assertIsNone(request.data)
         self.assertEqual(set(json.loads(out.getvalue())), {'read', 'phase', 'delivery'})
+
+    def test_http_codes_are_fixed_public_enums_without_private_error_access(self):
+        marker = 'synthetic-private-http-body-url-token-sentinel'
+        for code, read in [(401, 'http_401'), (403, 'http_403'), (503, 'http_503'), (500, 'failed')]:
+            body = io.BytesIO(marker.encode())
+            error = urllib.error.HTTPError('https://console.example/' + marker, code, marker, {}, body)
+            out, err = io.StringIO(), io.StringIO()
+            with self.subTest(code=code), patch.dict(os.environ, ENV, clear=True), patch.object(maintenance, '_open', side_effect=error) as opened, patch.object(error, 'read', side_effect=AssertionError('error body must not be read')) as read_body, patch.object(urllib.error.HTTPError, '__str__', side_effect=AssertionError('error text must not be read')) as read_text, patch.object(error, 'geturl', side_effect=AssertionError('error URL must not be read')) as read_url, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                self.assertEqual(self.module().main([]), 1)
+            self.assertEqual(json.loads(out.getvalue()), {'read': read, 'phase': 'unknown', 'delivery': 'unknown'})
+            self.assertEqual(err.getvalue(), '')
+            self.assertNotIn(marker, out.getvalue() + err.getvalue())
+            self.assertEqual(body.tell(), 0)
+            read_body.assert_not_called(); read_text.assert_not_called(); read_url.assert_not_called()
+            opened.assert_called_once()
+            request = opened.call_args.args[0]
+            self.assertEqual(request.method, 'GET')
+            self.assertIsNone(request.data)
+
+        status, public, request = self.run_check(ENV, urllib.error.URLError(marker))
+        self.assertEqual(status, 1)
+        self.assertEqual(public, {'read': 'failed', 'phase': 'unknown', 'delivery': 'unknown'})
+        request.assert_called_once_with('')
 
 
 if __name__ == '__main__': unittest.main()
