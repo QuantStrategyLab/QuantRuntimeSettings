@@ -15,11 +15,11 @@ QuantRuntimeSettings (配置 + 控制台)
 ├── HkEquityStrategies       → hk_equity domain
 ├── CryptoStrategies         → crypto domain
 
-组合策略仓库（独立）
-├── QuantCnComboStrategies
-├── QuantUsComboStrategies
-├── QuantHkComboStrategies
-└── QuantCryptoComboStrategies
+组合策略（已并入各域策略仓库）
+├── CnEquityStrategies       → cn_equity_combo
+├── UsEquityStrategies       → 美股组合策略
+├── HkEquityStrategies       → 港股组合策略
+└── CryptoStrategies         → crypto_equity_combo
 
 执行平台（独立）
 ├── QmtPlatform              → cn_equity
