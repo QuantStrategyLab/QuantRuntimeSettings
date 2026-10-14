@@ -179,7 +179,12 @@ for (const scenario of ["counts", "read_denied", "malformed_read", "allowed_pref
   assert.equal(output.includes("2345.987"), false);
   if (scenario === "counts") {
     assert.equal(result.status, 0, result.stderr);
-    const counts = JSON.parse(result.stdout.trim().split("\n").at(-1));
+    const lines = result.stdout.trim().split("\n");
+    const counts = JSON.parse(lines.at(-2));
+    const revisionPlan = JSON.parse(lines.at(-1)).revision_plan;
+    assert.equal(revisionPlan.tolerated_keys, 1);
+    assert.equal(revisionPlan.differing_keys, 0);
+    assert.equal(revisionPlan.overwrites, 0);
     assert.equal(counts.post_attempts, 0);
     assert.equal(counts.stored_differing_keys, 1);
     assert.equal(counts.unseen_keys, 3);
@@ -193,3 +198,40 @@ for (const scenario of ["counts", "read_denied", "malformed_read", "allowed_pref
   }
 }
 console.log("market_benchmark_producer_dry_run_validation ok");
+
+// Non-dry-run sync path: within-tolerance stored key is kept (not posted); beyond tolerance blocks with no POST.
+for (const scenario of ["within", "beyond"]) {
+  const harness = `
+    const scenario = ${JSON.stringify(scenario)};
+    globalThis.fetch = async (url, options) => {
+      if (String(url).startsWith('https://query1.finance.yahoo.com/v8/finance/chart/')) {
+        return new Response(JSON.stringify({chart:{result:[{timestamp:[Date.parse('2026-10-09T20:00:00Z')/1000, Date.parse('2026-10-12T20:00:00Z')/1000],indicators:{quote:[{close:[scenario === 'within' ? 2345.987 : 2400.5, 2350.25]}]}}]}}));
+      }
+      if (options.method === 'POST') {
+        const body = JSON.parse(options.body);
+        console.log('POSTED=' + body.points.map((p) => p.observationDate).join(','));
+        return new Response(JSON.stringify({ok:true,stored:true}));
+      }
+      return new Response(JSON.stringify({ok:true,schema_version:'qsl.market_benchmark_points.v1',inception_date:'2026-10-09',points:${JSON.stringify(Object.keys(MARKET_BENCHMARK_YAHOO_SYMBOLS))}.map((s)=>({seriesId:s,observationDate:'2026-10-09',close:'2345.986',source:'yahoo_chart_v8'}))}));
+    };
+    process.argv[1] = ${JSON.stringify(fileURLToPath(producerUrl))};
+    await import(${JSON.stringify(producerUrl.href)});
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", harness], {
+    encoding: "utf8",
+    env: { ...process.env, MARKET_BENCHMARK_DRY_RUN: "false", MARKET_BENCHMARK_SYNC_URL: "https://console.example/api/market-benchmark/sync", MARKET_BENCHMARK_SYNC_TOKEN: "synthetic_secret_marker" },
+  });
+  const output = result.stdout + result.stderr;
+  assert.equal(output.includes("synthetic_secret_marker"), false);
+  if (scenario === "within") {
+    assert.equal(result.status, 0, output);
+    const posted = output.split("\n").filter((line) => line.startsWith("POSTED="));
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0], "POSTED=" + Array(4).fill("2026-10-12").join(","));
+  } else {
+    assert.equal(result.status, 1, output);
+    assert.equal(output.includes("POSTED="), false);
+    assert.match(result.stderr, /frozen_history_conflict/);
+  }
+}
+console.log("market_benchmark_producer_tolerance_validation ok");

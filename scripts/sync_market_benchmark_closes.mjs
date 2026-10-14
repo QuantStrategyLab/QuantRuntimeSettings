@@ -22,6 +22,11 @@ import {
   parseYahooChartDailyCloses,
   normalizeMarketBenchmarkPoint,
 } from "../web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark.js";
+import {
+  PRIMARY_SOURCE,
+  RELATIVE_TOLERANCE,
+  planBenchmarkRevision,
+} from "./market_benchmark_revision_policy.mjs";
 
 const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL
   || "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync";
@@ -160,10 +165,36 @@ export async function main() {
     // Soft success: schedule may run before the first US close on/after inception.
     process.exit(0);
   }
+  const storedPoints = await readStoredPoints();
+  const plan = planBenchmarkRevision(
+    body.points.map((point) => normalizeMarketBenchmarkPoint(point)),
+    storedPoints.map((point) => normalizeMarketBenchmarkPoint(point)),
+    { relativeTolerance: RELATIVE_TOLERANCE, primarySource: PRIMARY_SOURCE },
+  );
+  const planSummary = {
+    policy: plan.policy, primary_source: PRIMARY_SOURCE, relative_tolerance: RELATIVE_TOLERANCE,
+    post_allowed: plan.post_allowed, post_points: plan.post_points, identical_keys: plan.identical_keys,
+    unseen_keys: plan.unseen_keys, tolerated_keys: plan.tolerated_keys, differing_keys: plan.differing_keys,
+    overwrites: plan.overwrites, deletes: plan.deletes, block_reason: plan.block_reason,
+  };
   if (DRY_RUN) {
-    console.log(JSON.stringify(diagnoseBenchmarkPoints(body.points, await readStoredPoints())));
+    console.log(JSON.stringify(diagnoseBenchmarkPoints(body.points, storedPoints)));
+    console.log(JSON.stringify({ revision_plan: planSummary }));
     process.exit(0);
   }
+  console.log(JSON.stringify({ revision_plan: planSummary }));
+  if (!plan.post_allowed) {
+    console.error("frozen_history_conflict");
+    process.exit(1);
+  }
+  if (plan.post_candidates.length === 0) {
+    console.log("nothing_to_post");
+    process.exit(0);
+  }
+  body.points = plan.post_candidates.map((point) => ({
+    seriesId: point.seriesId, observationDate: point.observationDate,
+    close: point.close, source: point.source || "yahoo_chart_v8",
+  }));
   const response = await fetch(SYNC_URL, {
     method: "POST",
     headers: {
@@ -193,6 +224,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       "invalid_market_benchmark_point", "invalid_market_benchmark_series", "invalid_market_benchmark_date",
       "invalid_market_benchmark_close", "invalid_market_benchmark_source", "market_benchmark_zero_close_rejected",
       "market_benchmark_before_inception", "market_benchmark_upstream_invalid",
+      "benchmark_candidate_conflicting_key", "benchmark_close_not_decimal",
     ]);
     const yahoo = message.match(/^yahoo_http_([1-5]\d{2}):(.+)$/);
     const readHttp = message.match(/^benchmark_read_http_([1-5]\d{2})$/);
