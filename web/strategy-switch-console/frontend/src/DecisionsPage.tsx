@@ -63,7 +63,7 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
     const readFailed = Boolean(hardNames) || (blocked && !sources);
     const emptyMessage = readFailed
       ? t("待办来源读取失败：{sources}", { sources: hardNames || joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })
-      : t("暂无需要你决定的事项");
+      : softNames ? t("待办来源未取得：{sources}", { sources: softNames }) : t("暂无需要你决定的事项");
     return <section className="daily-page home-decisions"><h1>{t("待办决策")}</h1>{management}<div className="empty-state" role="status"><strong>{emptyMessage}</strong>{readFailed
       ? <><p>{t("这是读取失败，不是没有待办。请重试；若持续失败再核对来源服务。")}</p>{onRetry ? <button type="button" className="button button-secondary" disabled={retrying} onClick={onRetry}>{t(retrying ? "正在读取…" : "重新读取待办")}</button> : null}</>
       : <><p>{t("有新的待确认材料时会显示在这里。")}</p>{softNames ? <><p>{t("部分来源暂不可用：{sources}。当前没有已取到的待办事项。", { sources: softNames })}</p>{onRetry && <button type="button" className="button button-secondary" disabled={retrying} onClick={onRetry}>{t(retrying ? "正在读取…" : "重新读取待办")}</button>}</> : null}</>}</div></section>;

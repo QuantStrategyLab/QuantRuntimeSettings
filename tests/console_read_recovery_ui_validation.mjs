@@ -26,6 +26,7 @@ try {
   assert.match(render(AccountsPage, { ...accountProps, directoryUnavailable: true }, 'en'), /Account list unavailable/);
   const decisionProps = { blocked: true, items: [], sources: { promotions: 'ready', owners: 'stale', recovery: 'ready' }, admin: false, busy: false, selectedAccountId: '', onSelectAccount() {}, onDecide() {}, onRetry() {} };
   assert.match(render(DecisionsPage, decisionProps), /重新读取待办/);
+  assert.doesNotMatch(render(DecisionsPage, decisionProps), /暂无需要你决定的事项/, 'unread sources are not a confirmed empty queue');
   const item = { id: 'synthetic-1', kind: 'promotion', title: 'Synthetic proposal', kicker: '新策略方案', question: '是否采用这项方案？', currentName: '当前策略', proposedName: 'Synthetic proposal', accountLine: '', accountChoices: [], materialNotes: [], reference: 'synthetic-1', technical: '{}', impact: '采用只记录你的意向，账户策略和交易权限保持不变。', canAdopt: false, canReject: false };
   const partial = render(DecisionsPage, { ...decisionProps, items: [item], sources: { ...decisionProps.sources, owners: 'failed' } });
   assert.match(partial, /部分待办暂时无法读取/);
