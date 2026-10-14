@@ -136,9 +136,13 @@ assert.deepEqual(conflictCounts, {
   dry_run: true, post_attempts: 0, candidate_points: 3, candidate_keys: 2,
   candidate_duplicate_keys: 1, candidate_conflicting_keys: 1, stored_points: 1,
   stored_overlap_keys: 1, stored_differing_keys: 1, unseen_keys: 1,
+  differing_keys: [{
+    series_id: "标普500", symbol: MARKET_BENCHMARK_YAHOO_SYMBOLS["标普500"],
+    observation_date: "2026-10-09", relative_diff_pct: 0.081004,
+  }],
 });
 assert.equal(JSON.stringify(conflictCounts).includes("1234.5"), false);
-assert.equal(JSON.stringify(conflictCounts).includes("2026-10-09"), false);
+assert.equal(JSON.stringify(conflictCounts).includes("1235.5"), false);
 assert.equal(diagnoseBenchmarkPoints([
   diagnosticPoint("2026-10-09", "1234.5"), diagnosticPoint("2026-10-09", "1234.5"),
 ], [diagnosticPoint("2026-10-09", "1234.5")]).candidate_conflicting_keys, 0);
@@ -179,6 +183,10 @@ for (const scenario of ["counts", "read_denied", "malformed_read", "allowed_pref
     assert.equal(counts.post_attempts, 0);
     assert.equal(counts.stored_differing_keys, 1);
     assert.equal(counts.unseen_keys, 3);
+    assert.equal(counts.differing_keys.length, 1);
+    assert.equal(counts.differing_keys[0].observation_date, "2026-10-09");
+    assert.equal(counts.differing_keys[0].relative_diff_pct, 0.000043);
+    assert.equal(result.stdout.includes("2345.986"), false);
   } else {
     assert.equal(result.status, 1);
     assert.match(result.stderr, scenario === "read_denied" ? /benchmark_read_http_403/ : /benchmark_sync_failed/);
