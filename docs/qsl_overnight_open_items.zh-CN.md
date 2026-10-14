@@ -66,6 +66,8 @@
 
 2026-10-07 09:56 UTC 纠偏：[6.12 保留原页面](#opus-audit-copy-removal-20261007)记录撤回内部审计文案和新增说明块的本地候选；数据架构继续推进，不把架构审查文本加入Opus页面。
 
+2026-10-14 接续：[6.15 本轮收尾进度](#system-closeout-20261014)记录原审计十项任务、运行采用、通知自然窗口及 Pigbibi 外部阻塞的当前证据。旧日期快照保留；工程条目数不替代整体完成度或业务验收。
+
 ### 6.1 使用方法与逐阶段维护
 
 - 任务 ID 保持稳定。按任务指定前置、边界和完成证据推进；“可立即实施”仅指具备有界离线下一步，不额外授权 Git 发布、真实数据/模型调用、部署、通知、账户或资金动作。
@@ -429,3 +431,62 @@ English receiver stage: This isolated nine-file backend/test/docs candidate is b
 **跨线阶段读回（仅文档同步，2026-10-07）：** [UES #566](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/566) 已合并 main `2bf3a785`，[main CI 37612716634](https://github.com/QuantStrategyLab/UsEquityStrategies/actions/runs/37612716634) 的2144+460项通过；三文件synthetic评价合同完成，真实OOS/252天和生产采用未闭环。[HK #564](https://github.com/QuantStrategyLab/LongBridgePlatform/pull/564) source-only已合并验证（main `71e01d68`，后续另有Dependabot `4c128282`），未启用getter。[Schwab #479](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/pull/479) 与 [真实prepare 37605771016](https://github.com/QuantStrategyLab/CharlesSchwabPlatform/actions/runs/37605771016)（head `96355d4`）仅定位20/20 `target_scope`、0 runs、truncated、publish skipped。AI固定QPK已安装并独立验证成功，但未采用。上述状态不扩大本批代码范围，也不构成评价/周期健康/真实数据全站闭环。
 
 English: PR #544 and its exact CI/deploy completed while preserving the #543 frontend. A normal read-only browser reload still showed a partial warning; its production cause is unknown. A separate offline RED proves that representable legacy numeric strings can make the new full-review hash fail an entire promotion queue. This fresh9408 local eight-file candidate isolates only canonical-invalid material into a bounded explicit partial diagnosis, rejects its decision/source writes, and lets the existing promotion adapter display only the valid subset while retaining the existing warning. Other partial/stale/unavailable sources and infrastructure failures remain fail-closed. No JSX, copy, CSS, image, polling or local-expiry behavior changes; the data adapter rebuild produces index-BJ-MoMv4.js with unchanged index-CFupHWyt.css. Synthetic backend/adapter/actual React SSR, 39 executable compatibility commands, 450 Python tests (10 existing skips), and build/sync passed. Exact Node22 CI, deployment, production cause/readiness and browser acceptance remain separate pending evidence. Cross-repository evaluation/source-only/installation results above are documentation read-backs, not expanded implementation or production adoption.
+
+<a id="system-closeout-20261014"></a>
+
+### 6.15 2026-10-14 本轮收尾进度
+
+本节继续现有任务及[总接续 #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[统一通知 #634](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/634)，不另建任务登记或路线图。量化与 Pigbibi 并行，**Gdei 前端保持暂停**。只更新已取得的证据；源码合并、CI、运行采用、真实业务及自然观察分别记录，旧报告不覆盖本节之后的新事实。
+
+#### 原报告十项任务与研究状态
+
+原 Claude 审计 PDF 已取得并核对。以下 A1/A2/A3/C1/B3 是原十项任务中的 **5 项工程交付**，不是系统完成 50%，也不据此给出整体完工日期。真实采用与业务验收仍按各目标证据判断。
+
+| 原任务 | 当前工程证据 | 仍保留的验收边界 |
+| --- | --- | --- |
+| A1 因果成交与退出费用 | [Binance #373](https://github.com/QuantStrategyLab/BinancePlatform/pull/373) 已合并 | 不把该回测修复当成全部策略、现有部署或真实交易已验收 |
+| A2 成交与成本模型 | [QPK #663](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/663) 已合并；显式成交时点与逐边费用工程已交付 | RS-04 多资产现金/净仓位及内外费用反馈仍需所选路径证明 |
+| A3 指标语义 | [QPK #667](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/667) 已集成 A3/B3 | 指标修复不追认旧收益或替代真实同频、成本后研究输入 |
+| C1 账本保护 | [QRS #631](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/631) 是当前已合并集成证据 | 不以旧候选 #628 冒称已合并，不把保护工程当作新研究 journal 完整性证明 |
+| B3 统一净收益报告 | 同 QPK #667，UES 现有默认关闭消费者已交付 | 缺同路径 gross、完整累计 trial 或真实成本材料时继续不可计算，不补零 |
+| D1 运行来源核验 | 有新增只读诊断与部分运行采用证据，见下表 | 整体仍 **UNKNOWN / 未验收**；标签、main SHA、健康或候选文件匹配均不等于实际加载来源 |
+| B1/B2 可靠对照 | [UES #594](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/594) 已记录首路径 **PATH_SELECTED：RS-04 SOXL/TQQQ research core**；[#593](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/593) 补齐实际末次 close fill 的显式费用测量 | 完整 scope/variant/参数、现金与费用会计、cap、PIT/许可、holdout、完整累计 trial、runner 与 owner 未冻结。新入口是 no_weight_feedback NAV overlay，不能冒称完整自融资净仓位模拟 |
+| C2 NONE→enable | 已有[设计合同](fresh_none_enable_design.zh-CN.md) | 真实目标材料、独立准入与启用验收未闭合，不因设计或 CI 开候选 |
+| E1 独立晋级验收 | 已有运行正确性与统计优势双轴提案 | 真实目标及统计验收未完成，运行日数不替代优势或启用批准 |
+
+额外 B4 为[UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588) 的独立草案，后验更新尚未实现；不计为原十项中新增一个已完成项。顺序保持 B1/B2 真实冻结与可靠对照 → B4 DEVELOPMENT_ONLY → E1；模型、holdout、PIT、许可、完整 journal 与 owner 的未知不由原公式或历史许可代填。本轮未运行真实研究、读取 holdout、改旧账本、提高预算或启用账户。
+
+#### 工程发布、实际采用与仍未知的运行事实
+
+| 项 | 已取得的证据 | 尚未证明 / 停止条件 |
+| --- | --- | --- |
+| Personal / Quant 共享运行核心 | 主控本轮 fresh 读回：Personal core 2.0.6 源 `d40f528`；Quant shim 2.0.6 源 `fa6f239`、core 同 `d40f528`。两目标安装来源 2/2、route、依赖检查与 health 已通过；[AAB #342](https://github.com/QuantStrategyLab/AIAuditBridge/pull/342) 与精确 [main CI 38547997537](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/38547997537) 成功 | 不把服务健康、安装来源或 Git CI 当作原生 Dot 订阅、真实模型身份、合成任务或业务验收 |
+| Personal 公共 synthetic 入口 | [Ctrip #34](https://github.com/Pigbibi/CtripTravelComplianceWatch/pull/34) 与精确 [main CI 38549623551](https://github.com/Pigbibi/CtripTravelComplianceWatch/actions/runs/38549623551) 成功；默认关闭，显式 main/manual/run-attempt=1，与原 monthly scan 完整分流 | 新 Cloud 会话 `6acf55cf` 两轮均没有 nativeEvents 入口；`2026-10-14T11:28:43Z` 两服务授权项目只读 aggregate 的 active subscription 均为 0、expiry 为 null。本轮未 submit/claim/report。源码入口完成不等于 native task 成功，不绕过确认或未知结果防重 |
+| IBKR 静态镜像源码诊断 | 原 [IBKR #627](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/627) 保留；新 [#628](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/628) 为固定脱敏 redirect 诊断，399 项相关测试及独立复审通过，[main CI 38556668822](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38556668822) 成功。单次 [38556930616](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38556930616) 四 slot 的四项 scope 等式均 true、immutable image verified；均在 **layer 阶段 HTTP302** 停止，Location 存在 | 均 registry_redirect_blocked，Location 分类为 other_or_invalid，HTTPS 默认443/query 布尔未知，不能断言实际目标主机、许可或具体不合格原因。未跟跳或转发认证；字节/source/predecessor 未闭合，未轮换 Secret Manager/KV 或 producer/receiver 绑定。下一步须获得可验证的 delivery 形状/来源证据，再判断有界读取方案，不猜白名单或自动重跑 |
+| Pigbibi 六仓运行来源 | [ARC #103](https://github.com/Pigbibi/ActionsReliabilityController/issues/103)：AIGateway 已有本轮采用证据，ARC 仅部分材料，其余四仓保持 UNKNOWN | 文件、timer/CI、health 与实际进程加载/业务状态分别报告，不扩大局部核验 |
+| ARC v2 接续 | [ARC #104](https://github.com/Pigbibi/ActionsReliabilityController/issues/104) 已列冻结调用身份、模型材料授权、receipt 合同与 adapter 接入 | 合同及 adapter 尚未完成，不调用旧 Gateway 兜底，不用健康替代新契约采用 |
+
+本轮正常浏览器补充读回：Personal 与 Quant 原插件均在已安装列表，原 OAuth 连接可见，权限为“允许低风险操作”，各自事件目录包含 `task.requested`。Plugin Management registry 对同一引用返回 `not_installed`，依赖查询报错；这个 registry 结果不能替代上述连接证据，也不能证明 Events 被禁用。已检查页面无可用 native subscribe 控件，workspace Events 策略仍未知，未重装、重连、改权限或重复发送 Cloud 指令。
+
+d40 的首次订阅 discovery、project filter、有限 TTL 与签名 challenge 已按[官方 MCP Events 合同](https://developers.openai.com/plugins/build/mcp-events)核对，未发现解释当前零订阅的新源码缺陷。另有独立的 refresh 密钥轮换双签窗口缺口，尚未修改或验收；它不解释首次订阅未建立，接续应单独评估。
+
+新 IBKR #628/main CI 的 source 为 `de406e2c`；原 #627/main CI 为 `4e984eff`，AAB 为 `fa6f239`，Ctrip 为 `34303aed`，均与相应合并提交一致。它们证明相应工程检查成功；运行采用仍使用前表独立读回，私有配置、账户映射、原生标识与密钥不进入本节。
+
+#### 通知与网站：配置采用、自然窗口和外部阻塞
+
+| 项 | 当前事实 | 下一项实际证据 |
+| --- | --- | --- |
+| DigestCandidateStore | 原 Environment 候选 URI 于 `2026-10-14T06:42:23Z` 单次采用并准确读回；原三个 prefix-scoped IAM binding 保留，无重复 IAM 变更 | 已完成配置采用，不能继续写成待批准，也不因此称自然读取/覆盖/通知验收成功 |
+| 私有 intake 预检 | 单次 [38522813397](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38522813397) auth/fetch 成功，dry_run=true / delivered=false；fresh 候选 5、另有 stale 5 被过滤，fills 仍 unknown；store listing 为 5 文件 | 不把 5 fresh 与 5 stale 当作同一批，不把 listing 5 伪称 merge base 5，或反推全部真实目标/运行/成交。完整 coverage 与 source/target identity 未验收 |
+| 采用后自然周期 | 最新已核自然 run [38492143939](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38492143939) 创建 `2026-10-14T00:47:30Z`，早于 URI 采用。原 cron 下一名义时间为 `2026-10-14T22:00:00Z` / 新加坡 `2026-10-15 06:00`，Actions 可能延迟 | 只观察原自然周期，未补跑发送。v1 与 legacy 保留；Binance candidate、四段式自然采用及统一 bot/chat/topic 身份仍未闭合 |
+| Flex 与维护读取 | 到期时间已登记并读回；维护机器 GET 仍 HTTP403，原因未归因 | 不公开真实到期时刻，不由页面登记推断机器读取、token 或提醒送达。无唯一 challenge 证据，不改 token/WAF/保护来变绿 |
+| 网站来源与资金资料 | 10 月 14 日已核的网页状态仍见控制面/恢复来源陈旧及部分资产、现金、收益和绑定资料缺口 | 来源需真实新观测；不延长 TTL、补零或重写观察时间，不以 UI/CI 或局部健康填全业务验收 |
+| Franchise / Medical | [Franchise #37](https://github.com/Pigbibi/FranchiseLeadWorkflows/issues/37) 为人工站点安全验证；[Medical #39](https://github.com/Pigbibi/MedicalClaimAssistant/issues/39) 为 HUMAN_REQUIRED / portal_captcha_unsolved | 两项生产接续均未恢复；不是可用改码造绿的 CI 回归，不代验证码、不绕过安全验证、不触发业务重试 |
+
+工程 CI 与定时业务分开：QRS `Sync Market Benchmark Closes` 自然 run [38490437510](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38490437510) 为 failure，原因尚未诊断。本轮未自动扩大至该独立故障修复，也不把上述工程 CI 成功概括为全部定时业务健康。
+
+#### 本次文档发布边界
+
+唯一写集为本文件及本文件页内入口。当前 [Deploy workflow](../.github/workflows/deploy-strategy-switch-console.yml) 的 main push paths 仅覆盖部署 workflow、配置、构建脚本、指定 console tests 与 `web/strategy-switch-console/**`；本文件不匹配，单独的文档 main push **不会触发该 Deploy**。deploy job 本身没有额外 docs-only guard，其隔离来自 workflow paths；不能把未来混合代码提交套用此结论。
+
+[Validate](../.github/workflows/validate.yml) 的 push/PR 未设 paths 过滤；[Offline producer receiver contracts](../.github/workflows/producer-receiver-contract.yml) 也会响应 main push/PR。它们是既有工程检查，不是部署或业务运行。这次仅文档更新，没有 workflow dispatch、生产配置/身份变更、发送或部署；后续 GitHub 发布仍由主控执行。
