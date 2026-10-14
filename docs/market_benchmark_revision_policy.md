@@ -34,3 +34,17 @@ append-only revision endpoint that does not exist yet.
 - Keep history frozen permanently, or allow traceable revisions.
 - If revisions: authority source of truth, tolerance (if any), who approves, and the revision ledger/endpoint design.
 - How to resolve the 2 currently differing stored keys before re-enabling the schedule.
+
+
+## Owner-approved revision endpoint (additive, feature-gated)
+- Path: `POST /api/market-benchmark/revision`
+- Auth: dedicated `MARKET_BENCHMARK_REVISION_TOKEN` only (no fallback to sync/dispatch tokens).
+- If the secret is absent, the endpoint returns 503; normal sync keeps working unchanged.
+- Body: approved proposal (`qsl.market_benchmark_revision_proposal.v1`) + `approved_proposal_sha256` (must match) + concrete `replacements` whose closes hash to the proposal digests.
+- Effect: updates matching stored rows and appends to `market_benchmark_revision_ledger` (append-only; re-applying the same `proposal_sha256` is 409).
+- Producer opt-in: `MARKET_BENCHMARK_APPLY_REVISION=true` with `MARKET_BENCHMARK_REVISION_TOKEN` and `MARKET_BENCHMARK_REVISION_PAYLOAD_JSON`. Logs are hash/ratio only.
+
+### Operator next steps (not done by this PR)
+1. Create Cloudflare Worker secret `MARKET_BENCHMARK_REVISION_TOKEN` (and optionally a matching GitHub Actions secret for the apply job). Do not reuse sync tokens.
+2. After US close on 2026-10-15 evening Asia/Shanghai, run a cloud dry-run diagnostic, generate a revision proposal for the four 2026-10-14 intraday points, and approve the `proposal_sha256`.
+3. Deploy the Worker build that includes this endpoint, then submit the approved payload once.
