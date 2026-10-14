@@ -12,6 +12,9 @@
  *   MARKET_BENCHMARK_SYNC_TOKEN  required bearer
  *   MARKET_BENCHMARK_RANGE     Yahoo range query, default 10d
  *   MARKET_BENCHMARK_DRY_RUN   when "true", compare conflict counts without POST
+ *   MARKET_BENCHMARK_APPLY_REVISION  when "true", POST an owner-approved revision
+ *     (requires MARKET_BENCHMARK_REVISION_TOKEN + MARKET_BENCHMARK_REVISION_PAYLOAD_JSON).
+ *     Normal sync never reads the revision token.
  */
 
 import { pathToFileURL } from "node:url";
@@ -27,12 +30,21 @@ import {
   RELATIVE_TOLERANCE,
   planBenchmarkRevision,
 } from "./market_benchmark_revision_policy.mjs";
+import { createHash } from "node:crypto";
+import {
+  MARKET_BENCHMARK_REVISION_PATH,
+  planRevisionApply,
+  revisionApplyLogSummary,
+} from "../web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js";
 
 const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL
   || "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync";
 const TOKEN = process.env.MARKET_BENCHMARK_SYNC_TOKEN || "";
 const RANGE = process.env.MARKET_BENCHMARK_RANGE || "10d";
 const DRY_RUN = process.env.MARKET_BENCHMARK_DRY_RUN === "true";
+const APPLY_REVISION = process.env.MARKET_BENCHMARK_APPLY_REVISION === "true";
+const REVISION_TOKEN = process.env.MARKET_BENCHMARK_REVISION_TOKEN || "";
+const REVISION_PAYLOAD_JSON = process.env.MARKET_BENCHMARK_REVISION_PAYLOAD_JSON || "";
 
 function yahooUrl(symbol) {
   const encoded = encodeURIComponent(symbol);
@@ -159,6 +171,83 @@ async function readStoredPoints() {
 }
 
 export async function main() {
+
+function nodeDigest(value) {
+  return createHash("sha256").update(String(value)).digest("hex");
+}
+
+async function applyApprovedRevision() {
+  if (!REVISION_TOKEN) {
+    console.error("MARKET_BENCHMARK_REVISION_TOKEN is required for apply-revision");
+    process.exit(2);
+  }
+  if (!REVISION_PAYLOAD_JSON) {
+    console.error("MARKET_BENCHMARK_REVISION_PAYLOAD_JSON is required for apply-revision");
+    process.exit(2);
+  }
+  let payload;
+  try { payload = JSON.parse(REVISION_PAYLOAD_JSON); }
+  catch { console.error("benchmark_revision_payload_invalid"); process.exit(2); }
+  const storedPoints = (await readStoredPoints()).map((point) => normalizeMarketBenchmarkPoint(point));
+  const plan = planRevisionApply({
+    proposal: payload.proposal,
+    approvedProposalSha256: payload.approved_proposal_sha256,
+    replacements: (payload.replacements || []).map((point) => normalizeMarketBenchmarkPoint(point)),
+    storedPoints,
+    digest: nodeDigest,
+    appliedAt: payload.applied_at || new Date().toISOString(),
+    previouslyAppliedProposalSha256s: payload.previously_applied_proposal_sha256s || [],
+  });
+  console.log(JSON.stringify(revisionApplyLogSummary(plan)));
+  if (DRY_RUN) {
+    console.log(JSON.stringify({ dry_run: true, post_attempts: 0, revision_overwrites: plan.overwrites }));
+    process.exit(0);
+  }
+  const url = new URL(SYNC_URL);
+  if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash
+      || url.pathname !== "/api/market-benchmark/sync") {
+    throw new Error("benchmark_revision_url_invalid");
+  }
+  url.pathname = MARKET_BENCHMARK_REVISION_PATH;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${REVISION_TOKEN}`,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify({
+      schema_version: "qsl.market_benchmark_revision_apply.v1",
+      approved_proposal_sha256: payload.approved_proposal_sha256,
+      proposal: payload.proposal,
+      replacements: plan.updates,
+      applied_at: plan.ledger_entries[0].applied_at,
+    }),
+    redirect: "manual",
+  });
+  const text = await response.text();
+  console.log(`revision_status=${response.status}`);
+  // Never echo body prices; only status and ok flag if present.
+  let ok = false;
+  try {
+    const parsed = JSON.parse(text);
+    ok = parsed?.ok === true && parsed?.applied === true;
+    console.log(JSON.stringify({
+      ok: parsed?.ok === true,
+      applied: parsed?.applied === true,
+      overwrites: parsed?.overwrites,
+      proposal_sha256: parsed?.proposal_sha256,
+    }));
+  } catch {
+    console.log(JSON.stringify({ ok: false, applied: false }));
+  }
+  process.exit(ok ? 0 : 1);
+}
+
+  if (APPLY_REVISION) {
+    await applyApprovedRevision();
+    return;
+  }
   if (!DRY_RUN && !TOKEN) {
     console.error("MARKET_BENCHMARK_SYNC_TOKEN is required unless MARKET_BENCHMARK_DRY_RUN=true");
     process.exit(2);
@@ -245,6 +334,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       "invalid_market_benchmark_close", "invalid_market_benchmark_source", "market_benchmark_zero_close_rejected",
       "market_benchmark_before_inception", "market_benchmark_upstream_invalid",
       "benchmark_candidate_conflicting_key", "benchmark_close_not_decimal",
+      "benchmark_revision_approval_required", "benchmark_revision_approval_mismatch",
+      "benchmark_revision_already_applied", "benchmark_revision_url_invalid",
     ]);
     const yahoo = message.match(/^yahoo_http_([1-5]\d{2}):(.+)$/);
     const readHttp = message.match(/^benchmark_read_http_([1-5]\d{2})$/);

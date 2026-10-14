@@ -111,6 +111,12 @@ import {
   publicMarketBenchmarkReadModel,
 } from "./infrastructure/market_benchmark/market_benchmark.js";
 import {
+  MARKET_BENCHMARK_REVISION_PATH,
+  planRevisionApply,
+  revisionApplyLogSummary,
+  MarketBenchmarkRevisionError,
+} from "./infrastructure/market_benchmark/market_benchmark_revision.js";
+import {
   accountFactsResponse as accountFactsResponseImpl,
   accountFactsHistoryResponse as accountFactsHistoryResponseImpl,
 } from "./application/account_facts/read.js";
@@ -460,7 +466,7 @@ const ACCOUNT_FACTS_DO_ACTIONS = new Set([
   "binance_wallet_history_put", "binance_wallet_history_read",
 ]);
 const MARKET_BENCHMARK_DO_ACTIONS = new Set([
-  "market_benchmark_put", "market_benchmark_read",
+  "market_benchmark_put", "market_benchmark_read", "market_benchmark_revise",
 ]);
 const HK_STOP_DO_ACTIONS = new Set(["hk_stop_claim", "hk_stop_record", "hk_stop_read", "hk_stop_accept_result"]);
 const HK_STOP_TARGET_ID = "longbridge/hk";
@@ -773,6 +779,9 @@ export default {
       }
       if (url.pathname === MARKET_BENCHMARK_SYNC_PATH && request.method === "POST") {
         return await syncMarketBenchmarkResponse(request, env);
+      }
+      if (url.pathname === MARKET_BENCHMARK_REVISION_PATH && request.method === "POST") {
+        return await reviseMarketBenchmarkResponse(request, env);
       }
       if (url.pathname === "/api/strategy-profiles") return json(await strategyProfilesPayload(env));
       if (url.pathname === "/api/runtime-catalog") return await runtimeCatalogResponse(request, env);
@@ -2314,6 +2323,19 @@ export class RuntimeInstances {
       PRIMARY KEY (series_id, observation_date)
     )`);
     this.sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_daily_date ON market_benchmark_daily (observation_date)");
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS market_benchmark_revision_ledger (
+      proposal_sha256 TEXT NOT NULL,
+      entry_index INTEGER NOT NULL,
+      series_id_sha256 TEXT NOT NULL,
+      observation_date TEXT NOT NULL,
+      prior_close_sha256 TEXT NOT NULL,
+      new_close_sha256 TEXT NOT NULL,
+      candidate_source TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      applied_at TEXT NOT NULL,
+      PRIMARY KEY (proposal_sha256, entry_index)
+    )`);
+    this.sql.exec("CREATE INDEX IF NOT EXISTS market_benchmark_revision_ledger_date ON market_benchmark_revision_ledger (observation_date)");
     this.sql.exec(`CREATE TABLE IF NOT EXISTS hk_stop_request (
       request_id TEXT PRIMARY KEY,
       target_id TEXT NOT NULL,
@@ -2697,6 +2719,7 @@ export class RuntimeInstances {
     if (!command || typeof command.action !== "string") throw new HttpError("unsupported_market_benchmark_action", 400);
     if (command.action === "market_benchmark_read") return this.readMarketBenchmarkPoints(command);
     if (command.action === "market_benchmark_put") return this.putMarketBenchmarkPoints(command);
+    if (command.action === "market_benchmark_revise") return this.reviseMarketBenchmarkPoints(command);
     throw new HttpError("unsupported_market_benchmark_action", 400);
   }
 
@@ -2771,6 +2794,70 @@ export class RuntimeInstances {
       points: normalized.points.length,
     };
   }
+
+  reviseMarketBenchmarkPoints(command) {
+    const appliedAt = typeof command.applied_at === "string" && !Number.isNaN(Date.parse(command.applied_at))
+      ? command.applied_at
+      : new Date().toISOString();
+    // Plan is validated by the HTTP layer (hashes + concrete updates); DO only applies.
+    const plan = command.plan;
+    if (!plan || !Array.isArray(plan.updates) || !Array.isArray(plan.ledger_entries)) {
+      throw new HttpError("benchmark_revision_plan_required", 400);
+    }
+    if (plan.overwrites !== plan.updates.length || plan.deletes !== 0) {
+      throw new HttpError("benchmark_revision_plan_invalid", 400);
+    }
+    const existingProposal = this.sql.exec(
+      `SELECT proposal_sha256 FROM market_benchmark_revision_ledger WHERE proposal_sha256 = ? LIMIT 1`,
+      plan.proposal_sha256,
+    ).toArray()[0];
+    if (existingProposal) throw new HttpError("benchmark_revision_already_applied", 409);
+    let written = 0;
+    for (const point of plan.updates) {
+      const existing = this.sql.exec(
+        `SELECT close, source FROM market_benchmark_daily WHERE series_id = ? AND observation_date = ?`,
+        point.seriesId,
+        point.observationDate,
+      ).toArray()[0];
+      if (!existing) throw new HttpError("benchmark_revision_target_missing", 404);
+      if (existing.close === point.close) throw new HttpError("benchmark_revision_noop", 400);
+      this.sql.exec(
+        `UPDATE market_benchmark_daily SET close = ?, source = ?, updated_at = ? WHERE series_id = ? AND observation_date = ?`,
+        point.close,
+        point.source || null,
+        appliedAt,
+        point.seriesId,
+        point.observationDate,
+      );
+      written += 1;
+    }
+    for (const entry of plan.ledger_entries) {
+      this.sql.exec(
+        `INSERT INTO market_benchmark_revision_ledger (
+           proposal_sha256, entry_index, series_id_sha256, observation_date,
+           prior_close_sha256, new_close_sha256, candidate_source, reason, applied_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        entry.proposal_sha256,
+        entry.entry_index,
+        entry.series_id_sha256,
+        entry.observation_date,
+        entry.prior_close_sha256,
+        entry.new_close_sha256,
+        entry.candidate_source,
+        entry.reason,
+        entry.applied_at || appliedAt,
+      );
+    }
+    return {
+      ok: true,
+      applied: true,
+      proposal_sha256: plan.proposal_sha256,
+      overwrites: written,
+      deletes: 0,
+      ledger_entries: plan.ledger_entries.length,
+    };
+  }
+
 
   binanceWalletHistoryContext(command) {
     const accountKey = command?.account_key;
@@ -15931,6 +16018,131 @@ async function marketBenchmarkResponse(request, env) {
   }
 }
 
+
+function requireMarketBenchmarkRevisionToken(request, env) {
+  // Dedicated secret only — never fall back to sync/dispatch tokens.
+  const expected = String(env.MARKET_BENCHMARK_REVISION_TOKEN || "");
+  if (!expected) throw new HttpError("market_benchmark_revision_token_missing", 503);
+  const token = (request.headers.get("Authorization") || "").match(/^Bearer\s+(.+)$/i)?.[1] || "";
+  if (!token || token !== expected) throw new HttpError("unauthorized", 401);
+  const forbidden = [
+    env.MARKET_BENCHMARK_SYNC_TOKEN,
+    env.STRATEGY_SWITCH_SYNC_TOKEN,
+    env.RUNTIME_SETTINGS_DISPATCH_TOKEN,
+    env.ACCOUNT_FACTS_SYNC_TOKEN,
+    env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN,
+    env.EXECUTION_EVIDENCE_SYNC_TOKEN,
+  ].filter((value) => typeof value === "string" && value && value !== expected);
+  if (forbidden.includes(token)) throw new HttpError("unauthorized", 401);
+}
+
+async function reviseMarketBenchmarkResponse(request, env) {
+  try {
+    requireMarketBenchmarkRevisionToken(request, env);
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 401);
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+  if (!hasRuntimeInstanceStore(env)) {
+    return json({ ok: false, error: "market_benchmark_store_unavailable" }, 503);
+  }
+  let raw;
+  try {
+    raw = await readBoundedJson(request, 64 * 1024);
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 400);
+    return json({ ok: false, error: "invalid_market_benchmark_revision_payload" }, 400);
+  }
+  try {
+    const stored = await runtimeInstanceCommand(env, {
+      action: "market_benchmark_read",
+      inception_date: MARKET_BENCHMARK_INCEPTION_DATE_CONST,
+    });
+    const appliedAt = typeof raw.applied_at === "string" && !Number.isNaN(Date.parse(raw.applied_at))
+      ? raw.applied_at
+      : new Date().toISOString();
+    const digestHex = async (value) => sha256Hex(String(value));
+    // planRevisionApply expects sync digest; pre-hash with Web Crypto then use a map.
+    const strings = new Set();
+    const proposal = raw.proposal;
+    if (proposal && Array.isArray(proposal.entries)) {
+      strings.add(JSON.stringify(proposal.entries));
+      for (const entry of proposal.entries) {
+        if (entry && typeof entry.series_id_sha256 === "string") strings.add(entry.series_id_sha256);
+      }
+    }
+    for (const point of (raw.replacements || [])) {
+      if (point?.seriesId) strings.add(point.seriesId);
+      if (point?.close) strings.add(point.close);
+    }
+    for (const point of (Array.isArray(stored.points) ? stored.points : [])) {
+      if (point?.close) strings.add(point.close);
+      if (point?.seriesId) strings.add(point.seriesId);
+    }
+    const cache = new Map();
+    for (const value of strings) cache.set(value, await digestHex(value));
+    // Also hash every seriesId/close used by planRevisionApply via digest()
+    const digest = (value) => {
+      const text = String(value);
+      if (cache.has(text)) return cache.get(text);
+      throw new HttpError("benchmark_revision_digest_cache_miss", 500);
+    };
+    // Ensure proposal.entries JSON and all replacement/stored closes/seriesIds are cached —
+    // re-walk after building any missing by computing individually.
+    async function ensure(value) {
+      const text = String(value);
+      if (!cache.has(text)) cache.set(text, await digestHex(text));
+      return cache.get(text);
+    }
+    await ensure(JSON.stringify(proposal?.entries || []));
+    for (const point of (raw.replacements || [])) {
+      await ensure(point.seriesId);
+      await ensure(point.close);
+    }
+    for (const point of (Array.isArray(stored.points) ? stored.points : [])) {
+      await ensure(point.seriesId);
+      await ensure(point.close);
+    }
+    const plan = planRevisionApply({
+      proposal: raw.proposal,
+      approvedProposalSha256: raw.approved_proposal_sha256,
+      replacements: raw.replacements || [],
+      storedPoints: Array.isArray(stored.points) ? stored.points : [],
+      digest: (value) => cache.get(String(value)) || (() => { throw new HttpError("benchmark_revision_digest_cache_miss", 500); })(),
+      appliedAt,
+      previouslyAppliedProposalSha256s: [],
+    });
+    const result = await runtimeInstanceCommand(env, {
+      action: "market_benchmark_revise",
+      plan: {
+        proposal_sha256: plan.proposal_sha256,
+        overwrites: plan.overwrites,
+        deletes: plan.deletes,
+        updates: plan.updates,
+        ledger_entries: plan.ledger_entries,
+      },
+      applied_at: appliedAt,
+    });
+    return json({
+      ok: true,
+      applied: true,
+      proposal_sha256: result.proposal_sha256 || plan.proposal_sha256,
+      overwrites: result.overwrites || plan.overwrites,
+      deletes: 0,
+      ledger_entries: result.ledger_entries || plan.ledger_entries.length,
+      log: revisionApplyLogSummary(plan),
+    });
+  } catch (error) {
+    if (error instanceof HttpError) return json({ ok: false, error: error.message }, error.status || 500);
+    if (error instanceof MarketBenchmarkRevisionError) return json({ ok: false, error: error.code }, error.status || 400);
+    if (error instanceof MarketBenchmarkError) return json({ ok: false, error: error.code }, error.status || 400);
+    return json({ ok: false, error: "market_benchmark_revision_failed" }, 502);
+  }
+}
+
 async function syncMarketBenchmarkResponse(request, env) {
   try {
     requireMarketBenchmarkSyncToken(request, env);
@@ -16083,6 +16295,7 @@ export const __test = {
   marketBenchmarkResponse,
   syncMarketBenchmarkResponse,
   MARKET_BENCHMARK_API_PATH,
+  MARKET_BENCHMARK_REVISION_PATH,
   MARKET_BENCHMARK_SYNC_PATH,
   MARKET_BENCHMARK_SCHEMA,
   MARKET_BENCHMARK_INCEPTION_DATE_CONST,

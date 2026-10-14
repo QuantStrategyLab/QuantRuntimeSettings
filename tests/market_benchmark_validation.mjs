@@ -250,3 +250,25 @@ assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-14T21:30:00Z"
 assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-15T04:00:00Z")).map((p) => p.observationDate),
   ["2026-10-12", "2026-10-13", "2026-10-14"]);
 console.log("market_benchmark_closed_session_validation ok");
+
+// Apply-revision path is opt-in and must not run without the dedicated token.
+{
+  const harness = `
+    process.argv[1] = ${JSON.stringify(fileURLToPath(producerUrl))};
+    await import(${JSON.stringify(producerUrl.href)});
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", harness], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      MARKET_BENCHMARK_APPLY_REVISION: "true",
+      MARKET_BENCHMARK_DRY_RUN: "true",
+      MARKET_BENCHMARK_SYNC_URL: "https://console.example/api/market-benchmark/sync",
+      MARKET_BENCHMARK_REVISION_PAYLOAD_JSON: "{}",
+    },
+  });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr + result.stdout, /MARKET_BENCHMARK_REVISION_TOKEN/);
+  assert.equal((result.stdout + result.stderr).includes("POSTED="), false);
+}
+console.log("market_benchmark_apply_revision_gate_validation ok");
