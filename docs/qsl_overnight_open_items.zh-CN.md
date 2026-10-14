@@ -436,11 +436,13 @@ English: PR #544 and its exact CI/deploy completed while preserving the #543 fro
 
 ### 6.15 2026-10-14 本轮收尾进度
 
+后续停车条件及本批修复的复审见[6.16](#closeout-blocker-audit-20261014)；本节保留原观察时点，不能用其较早版本覆盖之后读回。
+
 本节继续现有任务及[总接续 #632](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/632)、[统一通知 #634](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/634)，不另建任务登记或路线图。量化与 Pigbibi 并行，**Gdei 前端保持暂停**。只更新已取得的证据；源码合并、CI、运行采用、真实业务及自然观察分别记录，旧报告不覆盖本节之后的新事实。
 
 #### 原报告十项任务与研究状态
 
-原 Claude 审计 PDF 已取得并核对。以下 A1/A2/A3/C1/B3 是原十项任务中的 **5 项工程交付**，不是系统完成 50%，也不据此给出整体完工日期。真实采用与业务验收仍按各目标证据判断。
+原 Claude 审计 PDF 已取得并核对。A1/A2/A3/C1/B3 五项工程修复已合并，C2/E1 的设计提案也已交付；D1 的逐目标文档覆盖在6.16补齐。修复、设计、账本覆盖和真实研究是不同成果，不折算成系统完成百分比或完工日期。
 
 | 原任务 | 当前工程证据 | 仍保留的验收边界 |
 | --- | --- | --- |
@@ -449,12 +451,12 @@ English: PR #544 and its exact CI/deploy completed while preserving the #543 fro
 | A3 指标语义 | [QPK #667](https://github.com/QuantStrategyLab/QuantPlatformKit/pull/667) 已集成 A3/B3 | 指标修复不追认旧收益或替代真实同频、成本后研究输入 |
 | C1 账本保护 | [QRS #631](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/631) 是当前已合并集成证据 | 不以旧候选 #628 冒称已合并，不把保护工程当作新研究 journal 完整性证明 |
 | B3 统一净收益报告 | 同 QPK #667，UES 现有默认关闭消费者已交付 | 缺同路径 gross、完整累计 trial 或真实成本材料时继续不可计算，不补零 |
-| D1 运行来源核验 | 有新增只读诊断与部分运行采用证据，见下表 | 整体仍 **UNKNOWN / 未验收**；标签、main SHA、健康或候选文件匹配均不等于实际加载来源 |
+| D1 逐目标版本账本 | 原五目标六字段覆盖见6.16，已知证据与明确 UNKNOWN 分列 | 原报告允许未核字段写 UNKNOWN；实际镜像/加载来源的后续证据任务仍开放，不能将全部来源绿灯改成原账本文档完成条件，也不能用 main SHA 填部署源 |
 | B1/B2 可靠对照 | [UES #594](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/594) 已记录首路径 **PATH_SELECTED：RS-04 SOXL/TQQQ research core**；[#593](https://github.com/QuantStrategyLab/UsEquityStrategies/pull/593) 补齐实际末次 close fill 的显式费用测量 | 完整 scope/variant/参数、现金与费用会计、cap、PIT/许可、holdout、完整累计 trial、runner 与 owner 未冻结。新入口是 no_weight_feedback NAV overlay，不能冒称完整自融资净仓位模拟 |
-| C2 NONE→enable | 已有[设计合同](fresh_none_enable_design.zh-CN.md) | 真实目标材料、独立准入与启用验收未闭合，不因设计或 CI 开候选 |
-| E1 独立晋级验收 | 已有运行正确性与统计优势双轴提案 | 真实目标及统计验收未完成，运行日数不替代优势或启用批准 |
+| C2 NONE→enable 路径设计 | 已有[设计提案](fresh_none_enable_design.zh-CN.md) | 设计交付、owner设计采纳、实现和真实启用分开；真实材料不否定已有文档，设计/CI 不授权启用 |
+| E1 晋级标准拆分 | QPK #667 已交付[双门标准提案](https://github.com/QuantStrategyLab/QuantPlatformKit/blob/f8d8b4045276ce9e0c491eefd8506c544c19575b/docs/promotion_dual_gate_proposal.zh-CN.md) | 原文档目标已交付，owner政策采用未证；真实候选运行正确性/统计优势另验，不能把真实晋级通过改成提案完成标准 |
 
-额外 B4 为[UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588) 的独立草案，后验更新尚未实现；不计为原十项中新增一个已完成项。顺序保持 B1/B2 真实冻结与可靠对照 → B4 DEVELOPMENT_ONLY → E1；模型、holdout、PIT、许可、完整 journal 与 owner 的未知不由原公式或历史许可代填。本轮未运行真实研究、读取 holdout、改旧账本、提高预算或启用账户。
+额外 B4 为[UES #588](https://github.com/QuantStrategyLab/UsEquityStrategies/issues/588) 的独立草案，后验更新尚未实现；不计为原十项中新增一个已完成项。B1/B2真实对照 → B4 DEVELOPMENT_ONLY → 实际候选E1是后续批准的研究安排；原 PDF 的E1标准文档只依赖B3，不等待B4。模型、holdout、PIT、许可、完整 journal 与 owner 的未知不由原公式或历史许可代填。本轮未运行真实研究、读取 holdout、改旧账本、提高预算或启用账户。
 
 #### 工程发布、实际采用与仍未知的运行事实
 
@@ -490,3 +492,50 @@ d40 的首次订阅 discovery、project filter、有限 TTL 与签名 challenge 
 唯一写集为本文件及本文件页内入口。当前 [Deploy workflow](../.github/workflows/deploy-strategy-switch-console.yml) 的 main push paths 仅覆盖部署 workflow、配置、构建脚本、指定 console tests 与 `web/strategy-switch-console/**`；本文件不匹配，单独的文档 main push **不会触发该 Deploy**。deploy job 本身没有额外 docs-only guard，其隔离来自 workflow paths；不能把未来混合代码提交套用此结论。
 
 [Validate](../.github/workflows/validate.yml) 的 push/PR 未设 paths 过滤；[Offline producer receiver contracts](../.github/workflows/producer-receiver-contract.yml) 也会响应 main push/PR。它们是既有工程检查，不是部署或业务运行。这次仅文档更新，没有 workflow dispatch、生产配置/身份变更、发送或部署；后续 GitHub 发布仍由主控执行。
+
+<a id="closeout-blocker-audit-20261014"></a>
+
+### 6.16 2026-10-14 停车条件复审与接续
+
+本轮审计的问题是：哪些缺口确实阻止最终验收，哪些只是未完成的准备工作。当前证据支持保留真实身份、历史一致性、资金与材料许可保护；应纠正将普通工程字段或宿主入口未知笼统归为“只能等”的处理。已授权的源码、离线验证、GitHub 发布与原目标接续继续推进。前端仍暂停。
+
+| 项目 | 不能整体关闭的实际依据 | 本轮处理与后续动作 |
+| --- | --- | --- |
+| IBKR 镜像来源、版本与前驱 | [新诊断 38563326169](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38563326169) 四 slot 的四项 scope 等式均 true，immutable image verified；均 layer HTTP302、单值 Location、未超长，但 `missing_scheme_or_host`。该枚举不能区分合法相对地址与不完整地址。仍未取得 image 字节/source/predecessor/加载证据 | [#629](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/629)、[main CI 38562099455](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38562099455) 成功，423 项相关检查通过。不跟跳/不转 Authorization 的当前停止正确；不能据此永久禁止合法相对 URI。下一步只在批准云端核清有界地址形状与准确对象，再评估同源规范化/无凭据读取；不猜白名单、复制 observed 为 expected 或盲轮换绑定 |
+| Personal / Quant Events | 正常 OAuth 与安装可见；专用云端对话最新实际事件来源发现只返回 GitHub，未提供 Personal Dot 的原生注册入口；workspace 策略不可读。没有新的 challenge/active/expiry/合成回执 | 澄清之前“不要 automation”的指令只禁止 cron/heartbeat/轮询替代，允许原批准最多15分钟的原生 Events 注册，随后仅尝试一次正常发现，仍无 Dot。这是宿主入口未提供与策略未知，不能写成服务不支持或权限拒绝；不自己造 callback/secret、DB 订阅或 ordinary subscribe 工具。新的有限订阅机器确认后才交付唯一公开 synthetic task。依据[官方 Events 合同](https://developers.openai.com/plugins/build/mcp-events) |
+| 共享核心 refresh 密钥轮换 | 原 core2.0.6 没有刷新期间的短期双签，不符合已有 refresh 合同；该缺陷不解释首次注册入口缺失 | [AIGateway #19](https://github.com/Pigbibi/AIGateway/pull/19) / 源 `9aeaa93e` / [main CI 38562473071](https://github.com/Pigbibi/AIGateway/actions/runs/38562473071) 成功，90 项相关测试通过；最多60秒、旧/新有效期取最早、连续刷新不延长旧 key。真实 Quant wrapper2.0.7 精确绑定 core2.0.7 的 [AAB #343](https://github.com/QuantStrategyLab/AIAuditBridge/pull/343) / `4769cf6d` / [main CI 38565557305](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/38565557305) 成功。准确正式 wheel 源已核，生产接续另行记录 |
+| private-store / Binance | URI 已采用，原 intake 预检成功，但最新自然 run 仍早于采用。Binance 新增四输入在仓库、现有 Environment、可用组织 Secret 名称清单均未找到；前缀写权限与实际 source identity 尚未证明 | 默认关闭 producer [#378](https://github.com/QuantStrategyLab/BinancePlatform/pull/378) / `76937ed0` / [main CI 38564050801](https://github.com/QuantStrategyLab/BinancePlatform/actions/runs/38564050801) 成功，28 项相关测试通过。它保留 source 时间与 scope、fills未知、单次 SDK 写入和 unknown 防重。现有 `RUNTIME_TARGET_ENABLED` 只读值为 true，不代表完整配置/guard 已通过；工作流没有 Environment，不能在别的 Environment 填值后冒称该 job 可见。须核准确受保护映射与原 prefix 权限；不能再只说等 cron，也不为候选改变交易开关 |
+| 基准同步 runfailed | 原 [38490437510](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38490437510) 实际是 `409 market_benchmark_point_conflict`，不是网络或 token 原因。[本次只读 38566351201](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38566351201) 候选12点/12键、重复0、内部冲突0，既有4点/重合4键，其中2键收盘价不同、新键8；POST0 | [QRS #646](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/646) / `f7dd6b32` / [main Validate 38566039379](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38566039379) 与 contracts CI 成功，原 dry-run 改为有界、无价格/原始响应的计数核验。真实历史一致性拒绝正确；不能删历史、静默覆盖、过滤冲突造绿或把 dry-run 成功当定时同步恢复。后续须决定/实现可追溯的历史修订规则或保留冻结历史的来源规则 |
+| Medical / Franchise 人工验证 | 两站安全验证确需本人正常操作；Medical 的 Mac 会话与生产 D1 接续尚未证明。Franchise 原业务 workflow headless/no-state，没有已核可见原 runner 验证入口；可见模式源码不等于生产窗口就绪 | Medical 原窗口仅在开始核 readiness、结束返回旧报告，是可修工程缺口。[#40](https://github.com/Pigbibi/MedicalClaimAssistant/pull/40) / `89dc2b1e` / [main CI 38564401492](https://github.com/Pigbibi/MedicalClaimAssistant/actions/runs/38564401492) 成功，81 项相关测试通过；窗口后复用原正向登录证据核查，失败明确非成功，HUMAN_REQUIRED 原退出语义保留。真实门户仍未验，不代验证码。Franchise 不应只催用户等待：须先核原 runner 可见入口、相同出口和状态接续；不能盲开 state，现有 finally 会在失败后保存会话 |
+| B1/B2 与后续 B4/E1 | RS-04 路径已选择、原 PDF 已取得、close-fill 费用测量已交付，不能继续将其列为阻塞。真实现金/费用/风险 cap、PIT/许可、holdout、累计 trials/journal 与实际 runner 尚未冻结 | 参数和 trial 单位可先形成具体推荐草案，调用差分/现金会计桥与合成反例可在现有工程授权内准备；内部 required 字段不全都等于新增人工审批。真实限制、费率、未见 holdout 和材料权限不代填，不先跑新研究或提前 B4/实际候选E1 |
+| ARC 与其余 Pigbibi 运行身份 | [#103](https://github.com/Pigbibi/ActionsReliabilityController/issues/103) 六仓实际身份仍有明确未知；[#104](https://github.com/Pigbibi/ActionsReliabilityController/issues/104) 缺实际 ARC caller、项目/材料/模型/费用与严格回执合同，不能借 Ctrip/UES grant | 保持实际业务调用/生产切换停车；现有 client/schema、凭据引用路径及默认关闭 adapter 的合成契约可准备。健康、repo main、CI、runner online 与实际加载/真实业务分别留证，不另造框架或扩大材料授权 |
+
+自然观察保持原日程：下一名义 digest cron 为 `2026-10-14T22:00:00Z`（新加坡10月15日06:00），Actions 可能延迟；截至本节计数诊断时仍无 URI 采用后自然结果。完整 coverage、四段式通知及 bot/chat/topic 同一性仍待各自证据。Flex 已登记；机器维护读取 HTTP403 的归因与送达仍未知，不由页面登记反推提醒已送达。
+
+本次 QRS 写集不含前端源码/资产或 Deploy paths，不触发该前端 Deploy。工程合并与诊断不代替网站当前资产、现金、收益、控制面来源和日覆盖验收；用户暂停的前端工作按原要求保留。
+
+#### 两服务实际接续：2026-10-14 13:03:04 UTC
+
+主控在既有 VPS 串行采用 Personal→Quant 2.0.7。Personal 安装11包、Quant安装12包；原十依赖轮子完整SHA保持，两个新wheel绑定准确 core `9aeaa93e61856facd01f905f5f5466bd93acfe1f` / shim `4769cf6de39012b0691027c35d33aef30edbef3a`。真实 Linux resolver 的 `--no-index --require-hashes` 和 `pip check`、核心11/包装器2份源码字节、有效启动路径、目标重启与默认TLS discovery200/resource匹配、未认证MCP401全部通过。26项针对性脚本检查及独立复审通过；生产操作仅主控执行。
+
+每次切换前后四项任务计数均为已知0，原配置内容/权限、共享current与另一进程保持；只CAS目标drop-in、只重启目标，无自动回滚/重试或会话复制。这证明安装与启动链，不声称进程内存源码、原生订阅、指定模型或真实业务验收。没有新建v2.0.7 GitHub Release；采用artifact由已审准确Git源构建并按完整SHA核验，不使用同名公共包或旧候选冒充。
+
+#### D1 原五目标六字段覆盖
+
+原 PDF 第7、9页的D1是只读版本账本文档，并允许未核字段明确unknown，不阻塞其他研究。以下复用原IBKR四目标/Schwab一目标的逻辑范围；不把旧historical digest宣布为当前serving。原生目标标识、真实digest值与配置指纹仅从受保护来源消费，不进入公开表。此前局部材料没有完整五行六字段，本次补齐文档覆盖，实际证据未知保留。
+
+| 原目标 | 实际源码 | 运行依赖pin | 实际源码CI | image digest | 实装依赖 | 有效配置指纹 |
+| --- | --- | --- | --- | --- | --- | --- |
+| IBKR primary-live | UNKNOWN：layer读取停止 | UNKNOWN：未取依赖字节 | UNKNOWN：实际源码未绑定 | immutable引用verified；值私有，字节UNKNOWN | UNKNOWN | UNKNOWN；四scope等式已核true |
+| IBKR additional-1 | UNKNOWN：layer读取停止 | UNKNOWN：未取依赖字节 | UNKNOWN：实际源码未绑定 | immutable引用verified；值私有，字节UNKNOWN | UNKNOWN | UNKNOWN；四scope等式已核true |
+| IBKR additional-2 | UNKNOWN：layer读取停止 | UNKNOWN：未取依赖字节 | UNKNOWN：实际源码未绑定 | immutable引用verified；值私有，字节UNKNOWN | UNKNOWN | UNKNOWN；四scope等式已核true |
+| IBKR additional-3 | UNKNOWN：layer读取停止 | UNKNOWN：未取依赖字节 | UNKNOWN：实际源码未绑定 | immutable引用verified；值私有，字节UNKNOWN | UNKNOWN | UNKNOWN；四scope等式已核true |
+| Schwab 原固定目标 | UNKNOWN：本批未实时取证 | UNKNOWN | UNKNOWN | UNKNOWN：历史locator不等于当前serving | UNKNOWN | UNKNOWN |
+
+IBKR本轮四行依据唯一新诊断38563326169；诊断程序自身源码 `1f76c267` 与CI成功仅证明工具工程，不填入“实际源码CI”。Schwab沿历史固定范围记录本批未复验，不据此宣称未部署。**D1文档覆盖可结项；实际来源、前驱与独立批准核验按用户后续明确要求继续，不能借文档结项追认UNKNOWN。**
+
+#### 与 Claude 原目标的范围纠正
+
+原报告共12页，原十任务见第9–10页。A1/A2/A3/C1/B3的工程方向与原要求一致；C2路径设计和E1标准拆分提案已交付，owner采纳、实现或真实启用另分阶段。B1/B2尚未执行真实可靠对照；可先补所选RS-04的现金/成交/费用桥接合同、具体参数与trial单位推荐及合成反例，不要求先核全部实盘broker。只有声称实盘等价时才需要额外部署身份；合法真实研究仍需其自身输入、许可/PIT、holdout隔离与完整journal。
+
+private-store、通知、OAuth/Events、Medical/Franchise及共享服务升级均有后续用户授权和实际维护依据，属于独立运行维护，不累计成原十项数学成果，也不作为所有离线准备的共同前置。HAR、B4、CVaR仓位约束等可选研究按具体消费与批准范围安排，B5不自动扩展。下一批数学线应优先完成最小B1/B2对照准备，避免可选笛卡尔积、无新事实的诊断或反复形式审查挤占主线。
