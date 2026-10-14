@@ -461,12 +461,16 @@ English: PR #544 and its exact CI/deploy completed while preserving the #543 fro
 | 项 | 已取得的证据 | 尚未证明 / 停止条件 |
 | --- | --- | --- |
 | Personal / Quant 共享运行核心 | 主控本轮 fresh 读回：Personal core 2.0.6 源 `d40f528`；Quant shim 2.0.6 源 `fa6f239`、core 同 `d40f528`。两目标安装来源 2/2、route、依赖检查与 health 已通过；[AAB #342](https://github.com/QuantStrategyLab/AIAuditBridge/pull/342) 与精确 [main CI 38547997537](https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/38547997537) 成功 | 不把服务健康、安装来源或 Git CI 当作原生 Dot 订阅、真实模型身份、合成任务或业务验收 |
-| Personal 公共 synthetic 入口 | [Ctrip #34](https://github.com/Pigbibi/CtripTravelComplianceWatch/pull/34) 与精确 [main CI 38549623551](https://github.com/Pigbibi/CtripTravelComplianceWatch/actions/runs/38549623551) 成功；默认关闭，显式 main/manual/run-attempt=1，与原 monthly scan 完整分流 | 新 Cloud 会话 `6acf55cf` 两轮均没有 nativeEvents 入口，active subscription count=0；本轮未 submit/claim/report。源码入口完成不等于 native task 成功，不绕过确认或未知结果防重 |
-| IBKR 静态镜像源码诊断 | [IBKR #627](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/627) 与精确 [main CI 38548300511](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38548300511) 成功；单次真实 [38548624012](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38548624012) 四 slot 的四项 scope 等式均 true、immutable image verified | 四 slot 均 registry_redirect_blocked，字节读取未完成；source/predecessor 未闭合，未轮换 Secret Manager/KV 或 producer/receiver 绑定。NoRedirect 保留，实际 delivery 目标未知；只做官方资料调查，不猜主机白名单或自动重跑 |
+| Personal 公共 synthetic 入口 | [Ctrip #34](https://github.com/Pigbibi/CtripTravelComplianceWatch/pull/34) 与精确 [main CI 38549623551](https://github.com/Pigbibi/CtripTravelComplianceWatch/actions/runs/38549623551) 成功；默认关闭，显式 main/manual/run-attempt=1，与原 monthly scan 完整分流 | 新 Cloud 会话 `6acf55cf` 两轮均没有 nativeEvents 入口；`2026-10-14T11:28:43Z` 两服务授权项目只读 aggregate 的 active subscription 均为 0、expiry 为 null。本轮未 submit/claim/report。源码入口完成不等于 native task 成功，不绕过确认或未知结果防重 |
+| IBKR 静态镜像源码诊断 | 原 [IBKR #627](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/627) 保留；新 [#628](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/pull/628) 为固定脱敏 redirect 诊断，399 项相关测试及独立复审通过，[main CI 38556668822](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38556668822) 成功。单次 [38556930616](https://github.com/QuantStrategyLab/InteractiveBrokersPlatform/actions/runs/38556930616) 四 slot 的四项 scope 等式均 true、immutable image verified；均在 **layer 阶段 HTTP302** 停止，Location 存在 | 均 registry_redirect_blocked，Location 分类为 other_or_invalid，HTTPS 默认443/query 布尔未知，不能断言实际目标主机、许可或具体不合格原因。未跟跳或转发认证；字节/source/predecessor 未闭合，未轮换 Secret Manager/KV 或 producer/receiver 绑定。下一步须获得可验证的 delivery 形状/来源证据，再判断有界读取方案，不猜白名单或自动重跑 |
 | Pigbibi 六仓运行来源 | [ARC #103](https://github.com/Pigbibi/ActionsReliabilityController/issues/103)：AIGateway 已有本轮采用证据，ARC 仅部分材料，其余四仓保持 UNKNOWN | 文件、timer/CI、health 与实际进程加载/业务状态分别报告，不扩大局部核验 |
 | ARC v2 接续 | [ARC #104](https://github.com/Pigbibi/ActionsReliabilityController/issues/104) 已列冻结调用身份、模型材料授权、receipt 合同与 adapter 接入 | 合同及 adapter 尚未完成，不调用旧 Gateway 兜底，不用健康替代新契约采用 |
 
-上述 main CI 的 source 分别为 IBKR `4e984eff`、AAB `fa6f239`、Ctrip `34303aed`，与对应合并提交一致。它们证明相应工程检查成功；运行采用仍使用前表独立读回，私有配置、账户映射、原生标识与密钥不进入本节。
+本轮正常浏览器补充读回：Personal 与 Quant 原插件均在已安装列表，原 OAuth 连接可见，权限为“允许低风险操作”，各自事件目录包含 `task.requested`。Plugin Management registry 对同一引用返回 `not_installed`，依赖查询报错；这个 registry 结果不能替代上述连接证据，也不能证明 Events 被禁用。已检查页面无可用 native subscribe 控件，workspace Events 策略仍未知，未重装、重连、改权限或重复发送 Cloud 指令。
+
+d40 的首次订阅 discovery、project filter、有限 TTL 与签名 challenge 已按[官方 MCP Events 合同](https://developers.openai.com/plugins/build/mcp-events)核对，未发现解释当前零订阅的新源码缺陷。另有独立的 refresh 密钥轮换双签窗口缺口，尚未修改或验收；它不解释首次订阅未建立，接续应单独评估。
+
+新 IBKR #628/main CI 的 source 为 `de406e2c`；原 #627/main CI 为 `4e984eff`，AAB 为 `fa6f239`，Ctrip 为 `34303aed`，均与相应合并提交一致。它们证明相应工程检查成功；运行采用仍使用前表独立读回，私有配置、账户映射、原生标识与密钥不进入本节。
 
 #### 通知与网站：配置采用、自然窗口和外部阻塞
 
@@ -476,8 +480,10 @@ English: PR #544 and its exact CI/deploy completed while preserving the #543 fro
 | 私有 intake 预检 | 单次 [38522813397](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38522813397) auth/fetch 成功，dry_run=true / delivered=false；fresh 候选 5、另有 stale 5 被过滤，fills 仍 unknown；store listing 为 5 文件 | 不把 5 fresh 与 5 stale 当作同一批，不把 listing 5 伪称 merge base 5，或反推全部真实目标/运行/成交。完整 coverage 与 source/target identity 未验收 |
 | 采用后自然周期 | 最新已核自然 run [38492143939](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38492143939) 创建 `2026-10-14T00:47:30Z`，早于 URI 采用。原 cron 下一名义时间为 `2026-10-14T22:00:00Z` / 新加坡 `2026-10-15 06:00`，Actions 可能延迟 | 只观察原自然周期，未补跑发送。v1 与 legacy 保留；Binance candidate、四段式自然采用及统一 bot/chat/topic 身份仍未闭合 |
 | Flex 与维护读取 | 到期时间已登记并读回；维护机器 GET 仍 HTTP403，原因未归因 | 不公开真实到期时刻，不由页面登记推断机器读取、token 或提醒送达。无唯一 challenge 证据，不改 token/WAF/保护来变绿 |
-| 网站来源与资金资料 | 本轮网页检查仍见控制面/恢复来源陈旧及部分资产、现金、收益和绑定资料缺口 | 来源需真实新观测；不延长 TTL、补零或重写观察时间，不以 UI/CI 或局部健康填全业务验收 |
+| 网站来源与资金资料 | 10 月 14 日已核的网页状态仍见控制面/恢复来源陈旧及部分资产、现金、收益和绑定资料缺口 | 来源需真实新观测；不延长 TTL、补零或重写观察时间，不以 UI/CI 或局部健康填全业务验收 |
 | Franchise / Medical | [Franchise #37](https://github.com/Pigbibi/FranchiseLeadWorkflows/issues/37) 为人工站点安全验证；[Medical #39](https://github.com/Pigbibi/MedicalClaimAssistant/issues/39) 为 HUMAN_REQUIRED / portal_captcha_unsolved | 两项生产接续均未恢复；不是可用改码造绿的 CI 回归，不代验证码、不绕过安全验证、不触发业务重试 |
+
+工程 CI 与定时业务分开：QRS `Sync Market Benchmark Closes` 自然 run [38490437510](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38490437510) 为 failure，原因尚未诊断。本轮未自动扩大至该独立故障修复，也不把上述工程 CI 成功概括为全部定时业务健康。
 
 #### 本次文档发布边界
 
