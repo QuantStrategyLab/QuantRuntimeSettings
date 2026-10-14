@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import {
   MARKET_BENCHMARK_INCEPTION_DATE,
   MARKET_BENCHMARK_SCHEMA,
@@ -14,6 +16,7 @@ import {
 import { MARKET_BENCHMARK_INCEPTION_DATE as UI_INCEPTION } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { MARKET_BENCHMARK_API_URL, loadMarketBenchmarkPoints } from "../web/strategy-switch-console/frontend/src/marketBenchmark.ts";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
+import { diagnoseBenchmarkPoints } from "../scripts/sync_market_benchmark_closes.mjs";
 
 assert.equal(MARKET_BENCHMARK_INCEPTION_DATE, "2026-10-09");
 assert.equal(UI_INCEPTION, MARKET_BENCHMARK_INCEPTION_DATE);
@@ -121,3 +124,64 @@ assert.match(workflow, /sync_market_benchmark_closes\.mjs/);
 assert.match(workflow, /30 21 \* \* 1-5/);
 
 console.log("market_benchmark_validation ok");
+
+// Diagnose the two distinct 409 causes without overwriting or logging prices.
+const diagnosticPoint = (date, close) => ({ seriesId: "标普500", observationDate: date, close });
+const conflictCounts = diagnoseBenchmarkPoints([
+  diagnosticPoint("2026-10-09", "1234.5"),
+  diagnosticPoint("2026-10-09", "1235.5"),
+  diagnosticPoint("2026-10-12", "1236.5"),
+], [diagnosticPoint("2026-10-09", "1234.5")]);
+assert.deepEqual(conflictCounts, {
+  dry_run: true, post_attempts: 0, candidate_points: 3, candidate_keys: 2,
+  candidate_duplicate_keys: 1, candidate_conflicting_keys: 1, stored_points: 1,
+  stored_overlap_keys: 1, stored_differing_keys: 1, unseen_keys: 1,
+});
+assert.equal(JSON.stringify(conflictCounts).includes("1234.5"), false);
+assert.equal(JSON.stringify(conflictCounts).includes("2026-10-09"), false);
+assert.equal(diagnoseBenchmarkPoints([
+  diagnosticPoint("2026-10-09", "1234.5"), diagnosticPoint("2026-10-09", "1234.5"),
+], [diagnosticPoint("2026-10-09", "1234.5")]).candidate_conflicting_keys, 0);
+assert.throws(() => diagnoseBenchmarkPoints([], [
+  diagnosticPoint("2026-10-09", "1234.5"), diagnosticPoint("2026-10-09", "1234.5"),
+]), /benchmark_stored_duplicate_key/);
+
+const producerUrl = new URL("../scripts/sync_market_benchmark_closes.mjs", import.meta.url);
+for (const scenario of ["counts", "read_denied", "malformed_read", "allowed_prefix_secret", "allowed_prefix_price"]) {
+  const harness = `
+    const scenario = ${JSON.stringify(scenario)};
+    globalThis.fetch = async (url, options) => {
+      if (scenario === 'allowed_prefix_secret') throw new Error('yahoo_http_403:synthetic_secret_marker');
+      if (scenario === 'allowed_prefix_price') throw new Error('yahoo_http_403:2345.987');
+      if (options.method !== 'GET' || options.headers.Authorization) throw new Error('unexpected_authenticated_or_mutating_request');
+      if (String(url).startsWith('https://query1.finance.yahoo.com/v8/finance/chart/')) {
+        return new Response(JSON.stringify({chart:{result:[{timestamp:[Date.parse('2026-10-09T20:00:00Z')/1000],indicators:{quote:[{close:[2345.987]}]}}]}}));
+      }
+      if (String(url) !== 'https://console.example/api/market-benchmark' || options.redirect !== 'manual') throw new Error('unexpected_read_destination');
+      if (scenario === 'read_denied') return new Response('private_response_marker', {status:403});
+      if (scenario === 'malformed_read') return new Response('private_response_marker');
+      return new Response(JSON.stringify({ok:true,schema_version:'qsl.market_benchmark_points.v1',inception_date:'2026-10-09',points:[{seriesId:'标普500',observationDate:'2026-10-09',close:'2345.986'}]}));
+    };
+    process.argv[1] = ${JSON.stringify(fileURLToPath(producerUrl))};
+    await import(${JSON.stringify(producerUrl.href)});
+  `;
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", harness], {
+    encoding: "utf8",
+    env: { ...process.env, MARKET_BENCHMARK_DRY_RUN: "true", MARKET_BENCHMARK_SYNC_URL: "https://console.example/api/market-benchmark/sync", MARKET_BENCHMARK_SYNC_TOKEN: "synthetic_secret_marker" },
+  });
+  const output = result.stdout + result.stderr;
+  assert.equal(output.includes("synthetic_secret_marker"), false);
+  assert.equal(output.includes("private_response_marker"), false);
+  assert.equal(output.includes("2345.987"), false);
+  if (scenario === "counts") {
+    assert.equal(result.status, 0, result.stderr);
+    const counts = JSON.parse(result.stdout.trim().split("\n").at(-1));
+    assert.equal(counts.post_attempts, 0);
+    assert.equal(counts.stored_differing_keys, 1);
+    assert.equal(counts.unseen_keys, 3);
+  } else {
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, scenario === "read_denied" ? /benchmark_read_http_403/ : /benchmark_sync_failed/);
+  }
+}
+console.log("market_benchmark_producer_dry_run_validation ok");

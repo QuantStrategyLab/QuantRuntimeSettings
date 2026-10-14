@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Fetch Yahoo and print sample; do not POST.
+        description: Compare candidate and stored conflict counts; no prices or POST.
         required: false
         type: boolean
         default: false
