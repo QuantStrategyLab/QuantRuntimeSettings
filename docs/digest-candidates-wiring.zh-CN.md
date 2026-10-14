@@ -107,21 +107,24 @@ python3 python/scripts/send_daily_digest_telegram.py \
 - receipt：`total_fills=null`（`total_fills_status=unknown`），非 0
 - 渲染文案含「成交数未知」/「成交 未知」；**不**出现「无成交」「链路正常」
 
-### 私有存储自动接线（NOTIFY-04 B2，默认关闭）
+### 私有日报候选存储（DigestCandidateStore，NOTIFY-04 B2）
+
+`DigestCandidateStore`（私有日报候选存储）指现有候选数据通道：平台生产者写入候选 JSON，QuantRuntimeSettings 读取并合并成日报。它复用现有 GCS bucket，不是新的 GitHub 仓库或独立服务；实际 bucket、对象前缀和变量名沿用现有配置。
 
 - 生产者（Schwab `digest-candidates-daily.yml`、IBKR `execution-report-heartbeat.yml` 定时）每天生成候选，只有设置了仓库变量 `DIGEST_CANDIDATES_GCS_URI` 才会上传到 `<uri>/<platform_id>/<business_day>/<target>.json`；没设就是 dry-run，文件只留在 runner 临时目录。
 - 中央日报设置了同名 Environment 变量才去读取：先用 `DIGEST_CANDIDATES_READER_*` 的 WIF 认证，再把 `<uri>/*/<business_day>/*.json` 和旧 secret（如果还有）用 `merge_digest_candidates.py` 合并（日志只打印条数）。过期行仍由 B0 规则丢弃。
 - 存储位置：复用现有的共享 bucket，前缀为 `gs://qsl-runtime-logs-shared/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。
-- 2026-10-11 只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `qsl-artifact-evidence@longbridgequant` **不能 get/list**；匿名 list 返回 401。
-- 2026-10-11 owner 已加好 3 条带前缀条件的 IAM。生产者仓库的变量值为 `DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates`。QRS 的同名变量**暂不设置**：一旦设置，日报内容会改变（B7）。
-- （原计划）需要 owner 一次性加带前缀条件的 IAM：生产者在 `digest-candidates/<platform>/` 下给 objectUser；读取者给 objectViewer，条件为对象前缀或 `objectListPrefix` 前缀。完成后先设生产者仓库的变量，日报仓库的变量最后设，因为它会改变日报内容（B7，需要批准）。全部核对通过之后，才删除 `DIGEST_CANDIDATES_JSON`。
+- 2026-10-11 加权限前的只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `qsl-artifact-evidence@longbridgequant` **不能 get/list**；匿名 list 返回 401。这是历史探测，不代表加权限后的状态。
+- 2026-10-11 owner 已加好 3 条带前缀条件的 IAM，生产者仓库已配置 `DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates`。2026-10-14 的[只读预检 38522813397](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38522813397)已通过现有身份的认证、列表、复制和严格合并；公开回执保留未知成交与不完整覆盖，`dry_run=true`、`delivered=false`。
+- 2026-10-14 06:42:23 UTC，QRS 的 `runtime-strategy-switch` Environment 已按既有授权配置同名 URI 变量，精确读回与上述存储位置一致。旧 `DIGEST_CANDIDATES_JSON` 仍保留，原 cron、v1 定时版式和通知路由未改变；本次只读预检选择 sections_v2 不等于生产版式切换。
+- 接线后的首个自然周期仍待验收，具体进展见[通知接续 #634](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/634)。分别核验候选读取、新鲜度与覆盖、回执、实际送达及 bot/chat/topic 和去重；接线前的自然运行或手动预检不能替代这项验收。替换覆盖验收完成前保留旧 secret，不重复添加既有 IAM。
 - 不用 Actions artifact 中转：这几个仓库都是公开仓库，artifact 任何登录用户都能下载，而候选数据可能带有账户权益。
 
 离线读取边界：`merge_digest_candidates.py` 未指定任何 base / input-dir 来源时拒绝合并。指定路径缺失、读取失败、损坏 JSON、缺少候选数组或不支持的显式 schema 均返回失败（CLI exit 2），不写出部分成功的 envelope，也不覆盖既有输出。显式 `producer_status` 只接受 schema 的 `projected` / `empty` / `skipped`，其中 `skipped` 仍拒绝；`failed`、其他值及 `null` 不得变成成功空源，缺省 metadata 保持 legacy 兼容。合法 `runs=[]` / `producer_status=empty` 和明确读取成功的空目录仍可进入既有 idle 合同。调用方必须遵守失败退出码，不能继续消费上一次的输出。`digest_store_permission_check.py` 仅输出对象数量、列表是否完整、权限布尔和 HTTP 状态；对象名与配置前缀可能包含私有 target，均不输出。
 
 非空候选的三项必需字段在过滤前校验：`platform_id` / `strategy_profile` 必须为非空字符串，按现有 schema 分别最多 64 / 128 字符；`actually_ran` 必须为显式 boolean。缺项或非法类型拒绝，不能被静默过滤为已验证 idle；不增加平台或策略 registry allowlist。明确 `actually_ran=false`、合法空来源和既有可选计数字段的 legacy 兼容仍保留。
 
-中央获取步骤把私有 store 的读取结果通过内部 env `DIGEST_CANDIDATES_STORE_STATUS=loaded|failed` 和 `DIGEST_CANDIDATES_STORE_REASON` 传给聚合器；未配置 store 时可省略状态或使用 `disabled`。只有成功完成列表、复制和合并才记录 `loaded`；列表非零退出（包括无法确认完整的无匹配结果）保持失败，不解析错误文本为已知空。固定失败原因是 `candidate_store_auth_failed` / `candidate_store_list_failed` / `candidate_store_copy_failed` / `candidate_store_merge_failed`；缺失或非法 outcome 对应 `candidate_store_outcome_missing` / `candidate_store_outcome_invalid`，不含 URI、对象或账户。
+中央获取步骤把私有日报候选存储的读取结果通过内部 env `DIGEST_CANDIDATES_STORE_STATUS=loaded|failed` 和 `DIGEST_CANDIDATES_STORE_REASON` 传给聚合器；未配置存储时可省略状态或使用 `disabled`。只有成功完成列表、复制和合并才记录 `loaded`；列表非零退出（包括无法确认完整的无匹配结果）保持失败，不解析错误文本为已知空。固定失败原因是 `candidate_store_auth_failed` / `candidate_store_list_failed` / `candidate_store_copy_failed` / `candidate_store_merge_failed`；缺失或非法 outcome 对应 `candidate_store_outcome_missing` / `candidate_store_outcome_invalid`，不含 URI、对象或账户。
 
 这些失败写入 additive `source_coverage.candidate_failures[]` 及 receipt `failures[]`，不混入 GitHub 来源。既有候选的已知事实可以保留，但完整覆盖为 false、全源 `total_fills=null` / `unknown`，v1 和 sections_v2 都提示候选读取失败。workflow 先形成消息、完整 receipt 和公开摘要，再由 intake gate 标记运行失败；定时版式仍为 v1，发送/路由及异常可达规则不变。这些离线修复不证明 reader 权限、生产采用或真实送达。
 

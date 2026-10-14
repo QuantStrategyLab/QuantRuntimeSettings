@@ -172,7 +172,7 @@ Receipt totals follow the same evidence boundary: absent evidence, stale candida
 - Workflow：`.github/workflows/daily-digest-notify.yml`（文稿同步于 `docs/workflows/daily-digest-notify.yml`）
 - 脚本：`python/scripts/daily_digest_aggregator.py` + `python/scripts/send_daily_digest_telegram.py`
 - 调度：UTC `0 22 * * 1-5` = **Asia/Shanghai 周二至周六 06:00**（覆盖前一美股 RTH）
-- 证据：`DIGEST_CANDIDATES_PATH` / `DIGEST_CANDIDATES_JSON`（优先，见 [digest-candidates-wiring.zh-CN.md](./digest-candidates-wiring.zh-CN.md)）+ 可选 allowlisted GitHub workflow 成功结论（**存在性 only；成交数未知≠0**）
+- 证据：私有日报候选存储 `DigestCandidateStore` 经 `DIGEST_CANDIDATES_GCS_URI` 读取，与保留的 `DIGEST_CANDIDATES_JSON` 合并后由 `DIGEST_CANDIDATES_PATH` 消费（见 [接线与采用状态](./digest-candidates-wiring.zh-CN.md)）；另有可选 allowlisted GitHub workflow 成功结论（**存在性 only；成交数未知≠0**）。接线完成、自然周期和真实送达分别验收。
 - 聚合键：`platform_id + strategy + opaque_account_uid|unknown + target_id|unknown`；同策略多账户不得混拼
 - 发送：Environment `runtime-strategy-switch`；`TELEGRAM_TOKEN` 或 `TELEGRAM_TOKEN_SECRET_NAME`→GCP `quant-sentinel-telegram-bot-token`；chat 走 `QSL_GLOBAL_TELEGRAM_CHAT_ID` / `GLOBAL_TELEGRAM_CHAT_ID`
 - 测试：`workflow_dispatch` 默认 `dry_run=true`；生产 schedule 会真实发送
