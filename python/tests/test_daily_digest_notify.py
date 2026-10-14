@@ -184,7 +184,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 fill_count=1,
                 order_count=1,
                 equity=569.16,
@@ -208,7 +208,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("收盘日报", text)
-        self.assertIn("[ibkr U16608560] ⏳ 【待确认】", text)
+        self.assertIn("[ibkr U00000001] ⏳ 【待确认】", text)
         self.assertIn("纳斯达克增长收益", text)
         self.assertIn("USD 569.16", text)
         self.assertIn("TQQQ: $312.40 / 4股", text)
@@ -220,7 +220,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 equity=572.93,
                 holdings=(
                     daily_digest_notify.DigestHolding(
@@ -236,7 +236,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[ibkr U16608560] ⚠️ 【未下单】", text)
+        self.assertIn("[ibkr U00000001] ⚠️ 【未下单】", text)
         self.assertIn("低于最小订单金额:TQQQ", text)
 
     def test_english_observation_labels(self):
@@ -428,9 +428,11 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
+            "今日有运行，成交数未知（证据未覆盖）。\n"
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
+            "成交 未知\n"
             "✅ 无需调仓\n"
             "平台: schwab"
         )
@@ -456,7 +458,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 fill_count=0,
                 equity=569.16,
                 holdings=(
@@ -487,23 +489,25 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("💰 账户总权益: USD 989.34", text)
         self.assertIn("💰 账户总权益: USD 569.16", text)
         self.assertIn("[schwab live] 💓 【心跳检测】", text)
-        self.assertIn("[ibkr U16608560] 💓 【心跳检测】", text)
+        self.assertIn("[ibkr U00000001] 💓 【心跳检测】", text)
         # Blank line between observation blocks.
         schwab_idx = text.index("平台: schwab")
-        ibkr_idx = text.index("[ibkr U16608560]")
+        ibkr_idx = text.index("[ibkr U00000001]")
         between = text[schwab_idx:ibkr_idx]
         self.assertIn("\n\n", between)
         # Exact multi-platform shape for zh locale — every block has [account] tag.
         expected = (
             "📡 量化哨兵 · 心跳\n"
             "业务日: 2026-10-09\n"
+            "今日有运行，成交数未知（证据未覆盖）。\n"
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
+            "成交 未知\n"
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
-            "[ibkr U16608560] 💓 【心跳检测】\n"
+            "[ibkr U00000001] 💓 【心跳检测】\n"
             "🧭 策略: 纳斯达克增长收益\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
@@ -517,32 +521,32 @@ class DailyDigestNotifyTests(unittest.TestCase):
         hint_wins = daily_digest_notify.DigestRunEntry(
             platform_id="ibkr",
             strategy_profile="tqqq_growth_income",
-            account_hint="U16608560",
+            account_hint="U00000001",
             account_scope="live",
             opaque_account_uid="aaaaaaaaaaaaaaaa",
             target_id="ibkr-primary",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(hint_wins), "ibkr U16608560"
+            daily_digest_notify.account_block_tag(hint_wins), "ibkr U00000001"
         )
         # Lowercase broker hint normalizes to U######.
         lower_hint = daily_digest_notify.DigestRunEntry(
             platform_id="ibkr",
             strategy_profile="soxl_soxx_trend_income",
-            account_hint="u15998061",
+            account_hint="u00000002",
             account_scope="live",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(lower_hint), "ibkr U15998061"
+            daily_digest_notify.account_block_tag(lower_hint), "ibkr U00000002"
         )
         # Scope embedding live-u###### → broker id without needing account_hint.
         embedded = daily_digest_notify.DigestRunEntry(
             platform_id="ibkr",
             strategy_profile="soxl_soxx_trend_income",
-            account_scope="live-u15998061",
+            account_scope="live-u00000002",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(embedded), "ibkr U15998061"
+            daily_digest_notify.account_block_tag(embedded), "ibkr U00000002"
         )
         # Hex-only hint is rejected; platform+scope wins.
         hex_hint = daily_digest_notify.DigestRunEntry(
@@ -613,7 +617,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 fill_count=1,
                 order_count=1,
                 equity=569.16,  # fixture (not live)
@@ -640,7 +644,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
-            "[ibkr U16608560] 🔔 【调仓指令】\n"
+            "[ibkr U00000001] 🔔 【调仓指令】\n"
             "🧭 策略: 纳斯达克增长收益\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
@@ -707,7 +711,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 fill_count=1,
                 order_count=1,
                 equity=569.16,  # fixture
@@ -731,13 +735,15 @@ class DailyDigestNotifyTests(unittest.TestCase):
         expected = (
             "📡 量化哨兵 · 收盘日报\n"
             "业务日: 2026-10-09\n"
+            "今日有运行，成交数未知（证据未覆盖）。\n"
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
+            "成交 未知\n"
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
-            "[ibkr U16608560] 🔔 【调仓指令】\n"
+            "[ibkr U00000001] 🔔 【调仓指令】\n"
             "🧭 策略: 纳斯达克增长收益\n"
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
@@ -795,7 +801,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 equity=582.12,
                 signal_summary="no_action",
                 rebalance_kind="no_order",
@@ -811,7 +817,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-09", locale="zh", runs=runs
             )
         )
-        self.assertIn("[ibkr U16608560] ⚠️ 【未下单】", text)
+        self.assertIn("[ibkr U00000001] ⚠️ 【未下单】", text)
         self.assertIn("- 🎯 信号: 无需操作", text)
         self.assertNotIn("no_action", text)
         self.assertNotIn("\nno_order\n", text)
@@ -822,7 +828,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 platform_id="ibkr",
                 strategy_profile="tqqq_growth_income",
                 strategy_label="纳斯达克增长收益",
-                account_hint="U16608560",
+                account_hint="U00000001",
                 equity=572.93,
                 signal_summary="no_action",
                 rebalance_kind="no_order",
