@@ -1,4 +1,5 @@
 export const EN_COPY = {
+  "返回待办列表": "Back to pending decisions",
   "凭据维护": "Credential maintenance",
   "登记到期时间": "Register expiry",
   "管理到期记录": "Manage expiry",

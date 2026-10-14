@@ -439,6 +439,7 @@ textarea { width: 100%; resize: vertical; }
 .ai-explanation details { color: var(--muted); font-size: 12px; }
 .decision-materials ul { margin: 0 0 12px; padding-left: 18px; color: var(--muted); line-height: 1.6; }
 .decision-detail pre { max-width: 100%; overflow: auto; padding: 10px 12px; border: 1px solid var(--soft-line); border-radius: var(--r-md); color: var(--muted); background: var(--panel); white-space: pre-wrap; overflow-wrap: anywhere; }
+.decision-back { display: none; }
 .decision-detail > .section-note { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--soft-line); }
 .decisions-page .form-actions .button { white-space: normal; text-align: center; }
 .decision-fold { margin: 10px 0; border-top: 1px solid var(--soft-line); border-bottom: 1px solid var(--soft-line); }
@@ -501,6 +502,8 @@ textarea { width: 100%; resize: vertical; }
 
 /* Account list becomes cards and detail becomes its own view */
 @media (max-width: 1099px) {
+  .decision-back { display: inline-flex; min-height: 44px; align-items: center; }
+  .decision-detail, .decision-list button { scroll-margin-top: 160px; }
   .accounts-page .account-detail { display: none; }
   .accounts-page.show-detail .account-list { display: none; }
   .accounts-page.show-detail .account-detail, .accounts-page.show-detail .mobile-back { display: block; }

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useLocale, useT } from "./locales";
 import { CredentialMaintenanceDetail } from "./CredentialMaintenanceDetail";
 import type { CredentialMaintenance, Source } from "./api";
@@ -45,11 +45,23 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
   const t = useT();
   const language = useLocale();
   const detailId = useId();
+  const detailRef = useRef<HTMLElement>(null);
+  const [focusRequest, setFocusRequest] = useState(0);
   const [selectedId, setSelectedId] = useState(items[0]?.id || "");
   const [manageMaintenance, setManageMaintenance] = useState(false);
   const management = admin && maintenance ? <><button type="button" className="text-link" onClick={() => setManageMaintenance(value => !value)} aria-expanded={manageMaintenance}>{t("管理到期记录")}</button>{manageMaintenance && <CredentialMaintenanceDetail value={maintenance.value} error={maintenance.error} admin={admin} busy={Boolean(maintenanceBusy)} onSave={onRegisterExpiry} onReload={onReloadMaintenance} />}</> : null;
   const [showPlan, setShowPlan] = useState(false);
   const selected = items.find(item => item.id === selectedId) || items[0] || null;
+  useEffect(() => {
+    if (!focusRequest || !window.matchMedia("(max-width: 1099px)").matches) return;
+    detailRef.current?.focus({ preventScroll: true });
+    detailRef.current?.scrollIntoView({ block: "start" });
+  }, [focusRequest]);
+  const returnToList = () => {
+    const button = document.getElementById(`${detailId}-item-${items.indexOf(selected!)}`);
+    button?.focus({ preventScroll: true });
+    button?.scrollIntoView({ block: "start" });
+  };
   const unread = sources ? unreadDecisionSourceLabels(sources).map(label => t(label)) : [];
   const unreadNames = joinSourceNames(unread, language);
   if (!items.length) {
@@ -73,12 +85,13 @@ export function DecisionsPage({ blocked, sources, items, admin, busy, selectedAc
     {blocked && <p className="workflow-note" role="status"><strong>{t("部分待办暂时无法读取")}</strong> {t("{sources} 暂时读不到。以下仅显示已读取的事项，待办列表可能不完整。", { sources: unreadNames || joinSourceNames([t("晋级方案"), t("负责人决定"), t("对账恢复")], language) })}</p>}
     <div className="decision-layout">
       <div className="decision-list" role="group" aria-label={t("待办事项")}>
-        {items.map((item, index) => <button key={item.id} id={`${detailId}-item-${index}`} type="button" aria-pressed={selected?.id === item.id} aria-controls={detailId} className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); }}>
+        {items.map((item, index) => <button key={item.id} id={`${detailId}-item-${index}`} type="button" aria-pressed={selected?.id === item.id} aria-controls={detailId} className={selected?.id === item.id ? "active" : ""} onClick={() => { setSelectedId(item.id); setShowPlan(false); setFocusRequest(value => value + 1); }}>
           <small>{t(item.kicker)}</small><strong>{shown(item.title, t)}{unnamedDecisionOrdinal(items, item) ? ` ${unnamedDecisionOrdinal(items, item)}` : ""}</strong>
           {item.kind !== "maintenance" && <small className="decision-reference">{t("材料编号")}：{item.reference}</small>}
         </button>)}
       </div>
-      {selected && <article id={detailId} className="decision-detail" aria-labelledby={`${detailId}-item-${items.indexOf(selected)}`}>
+      {selected && <article ref={detailRef} tabIndex={-1} id={detailId} className="decision-detail" aria-labelledby={`${detailId}-item-${items.indexOf(selected)}`}>
+        <button type="button" className="text-link decision-back" onClick={returnToList}>{t("返回待办列表")}</button>
         {selected.kind === "maintenance" ? <CredentialMaintenanceDetail value={selected.maintenance || null} error={maintenance?.error || null} admin={admin} busy={Boolean(maintenanceBusy)} onSave={onRegisterExpiry} onReload={onReloadMaintenance} /> : <>
         <p className="kicker">{t(selected.kicker)}</p>
         <h2>{t(selected.question)}</h2>
