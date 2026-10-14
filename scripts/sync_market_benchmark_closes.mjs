@@ -57,6 +57,25 @@ async function fetchSeries(seriesId, symbol) {
   });
 }
 
+/** Calendar date (YYYY-MM-DD) in America/New_York for the given instant. */
+export function newYorkDate(now = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(now);
+  const get = (type) => parts.find((part) => part.type === type).value;
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+/**
+ * Conservative closed-session filter: keep only observation dates strictly
+ * before the current New York date. Today's bar may be intraday (or a half
+ * day / holiday quirk), so it is never stored; it is picked up next day.
+ */
+export function closedSessionPoints(points, now = new Date()) {
+  const today = newYorkDate(now);
+  return points.filter((point) => point.observationDate < today);
+}
+
 export function diagnoseBenchmarkPoints(points, storedPoints) {
   const candidates = new Map();
   const stored = new Map();
@@ -146,8 +165,9 @@ export async function main() {
   }
   const points = [];
   for (const [seriesId, symbol] of Object.entries(MARKET_BENCHMARK_YAHOO_SYMBOLS)) {
-    const seriesPoints = await fetchSeries(seriesId, symbol);
-    console.log(`fetched series=${seriesId} symbol=${symbol} points=${seriesPoints.length}`);
+    const fetched = await fetchSeries(seriesId, symbol);
+    const seriesPoints = closedSessionPoints(fetched);
+    console.log(`fetched series=${seriesId} symbol=${symbol} points=${seriesPoints.length} skipped_open_session=${fetched.length - seriesPoints.length}`);
     points.push(...seriesPoints);
   }
   const body = {
