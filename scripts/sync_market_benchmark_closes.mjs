@@ -78,6 +78,22 @@ export function diagnoseBenchmarkPoints(points, storedPoints) {
     stored_overlap_keys: [...candidates.keys()].filter((value) => stored.has(value)).length,
     stored_differing_keys: [...candidates].filter(([value, closes]) => stored.has(value) && closes.some((close) => close !== stored.get(value))).length,
     unseen_keys: [...candidates.keys()].filter((value) => !stored.has(value)).length,
+    // Per differing key: identifiers and relative difference only; never closes.
+    differing_keys: [...candidates]
+      .filter(([value, closes]) => stored.has(value) && closes.some((close) => close !== stored.get(value)))
+      .map(([value, closes]) => {
+        const [seriesId, observationDate] = value.split("\0");
+        const base = Number(stored.get(value));
+        const worst = Math.max(...closes.map((close) => Math.abs(Number(close) - base)));
+        const pct = base > 0 && Number.isFinite(worst) ? (worst / base) * 100 : null;
+        return {
+          series_id: seriesId,
+          symbol: MARKET_BENCHMARK_YAHOO_SYMBOLS[seriesId] || null,
+          observation_date: observationDate,
+          relative_diff_pct: pct === null ? null : Number(pct.toFixed(6)),
+        };
+      })
+      .sort((a, b) => `${a.observation_date}${a.series_id}`.localeCompare(`${b.observation_date}${b.series_id}`)),
   };
 }
 
