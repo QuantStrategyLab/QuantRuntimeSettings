@@ -539,3 +539,11 @@ IBKR本轮四行依据唯一新诊断38563326169；诊断程序自身源码 `1f7
 原报告共12页，原十任务见第9–10页。A1/A2/A3/C1/B3的工程方向与原要求一致；C2路径设计和E1标准拆分提案已交付，owner采纳、实现或真实启用另分阶段。B1/B2尚未执行真实可靠对照；可先补所选RS-04的现金/成交/费用桥接合同、具体参数与trial单位推荐及合成反例，不要求先核全部实盘broker。只有声称实盘等价时才需要额外部署身份；合法真实研究仍需其自身输入、许可/PIT、holdout隔离与完整journal。
 
 private-store、通知、OAuth/Events、Medical/Franchise及共享服务升级均有后续用户授权和实际维护依据，属于独立运行维护，不累计成原十项数学成果，也不作为所有离线准备的共同前置。HAR、B4、CVaR仓位约束等可选研究按具体消费与批准范围安排，B5不自动扩展。下一批数学线应优先完成最小B1/B2对照准备，避免可选笛卡尔积、无新事实的诊断或反复形式审查挤占主线。
+
+#### 暂缓前端的源码复审
+
+本轮只读复审原UI-01–05/DATA-01–02，不浏览器验收、构建或部署前端。QRS [#611](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/611)、[#616](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/616)、[#617](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/617)、[#631](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/631)、[#640](https://github.com/QuantStrategyLab/QuantRuntimeSettings/pull/640) 已合并：当前main已有严格设置ACK、持仓receiver/面板、历史实际天数、FX显式刷新及14日卡片；收益receiver/UI与四个价格指数接线也已存在。10月7日未发布ACK计划和10月11日持仓/历史提示/FX缺口不能机械恢复。真实资产/持仓/期间收益资格、来源日覆盖、应用读回和完整双语/手机场景仍分别未验；代码存在不填这些事实。
+
+Gdei两仓默认分支是master。WechatApp准确源 `c16ccea7` 仍将类别注册为marketplace、发布/编辑分支判断ershou，源码缺陷成立；本机旧dirty已含修复与未追踪回归，尚未按新基线整合/发布，本轮未测试。Web准确源 `392b594c` 的Cet固定image/jpg与mock PNG签名不一致，实际渲染影响本轮未验；本机分型/视觉候选保持。它们因用户要求暂停，不能借审计恢复或覆盖dirty；不将MIME差异直接报成浏览器故障。
+
+本轮Pigbibi八仓准确main的工程CI均success，六仓运行身份仍有ARC自然source、Medical权限/绑定、PhotoStory旧活动artifact与Telecom/Hotline安装locator缺口。Franchise/Medical失败与新Hotline/PhotoStory业务run success分开报告；job结论不证明登录、提交、Worker来源或业务完整。现有[#103](https://github.com/Pigbibi/ActionsReliabilityController/issues/103)、[#104](https://github.com/Pigbibi/ActionsReliabilityController/issues/104)、[Franchise #37](https://github.com/Pigbibi/FranchiseLeadWorkflows/issues/37)、[Medical #39](https://github.com/Pigbibi/MedicalClaimAssistant/issues/39) 按实际未验层级继续open。
