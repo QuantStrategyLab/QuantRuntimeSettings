@@ -16,7 +16,7 @@ import {
 import { MARKET_BENCHMARK_INCEPTION_DATE as UI_INCEPTION } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { MARKET_BENCHMARK_API_URL, loadMarketBenchmarkPoints } from "../web/strategy-switch-console/frontend/src/marketBenchmark.ts";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { diagnoseBenchmarkPoints } from "../scripts/sync_market_benchmark_closes.mjs";
+import { closedSessionPoints, diagnoseBenchmarkPoints, newYorkDate } from "../scripts/sync_market_benchmark_closes.mjs";
 
 assert.equal(MARKET_BENCHMARK_INCEPTION_DATE, "2026-10-09");
 assert.equal(UI_INCEPTION, MARKET_BENCHMARK_INCEPTION_DATE);
@@ -235,3 +235,18 @@ for (const scenario of ["within", "beyond"]) {
   }
 }
 console.log("market_benchmark_producer_tolerance_validation ok");
+
+// Closed-session filter: only dates strictly before the current New York date.
+assert.equal(newYorkDate(new Date("2026-10-14T14:25:00Z")), "2026-10-14"); // 10:25 ET, open
+assert.equal(newYorkDate(new Date("2026-10-15T03:59:00Z")), "2026-10-14"); // 23:59 ET
+assert.equal(newYorkDate(new Date("2026-10-15T04:00:00Z")), "2026-10-15"); // 00:00 ET (EDT)
+assert.equal(newYorkDate(new Date("2026-12-15T04:59:00Z")), "2026-12-14"); // EST offset
+assert.equal(newYorkDate(new Date("2026-12-15T05:00:00Z")), "2026-12-15");
+const sessionPts = ["2026-10-12", "2026-10-13", "2026-10-14"].map((d) => ({ observationDate: d }));
+assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-14T14:25:00Z")).map((p) => p.observationDate),
+  ["2026-10-12", "2026-10-13"]); // intraday today skipped
+assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-14T21:30:00Z")).map((p) => p.observationDate),
+  ["2026-10-12", "2026-10-13"]); // even after close, same ET day waits until tomorrow
+assert.deepEqual(closedSessionPoints(sessionPts, new Date("2026-10-15T04:00:00Z")).map((p) => p.observationDate),
+  ["2026-10-12", "2026-10-13", "2026-10-14"]);
+console.log("market_benchmark_closed_session_validation ok");
