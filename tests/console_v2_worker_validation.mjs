@@ -43,14 +43,14 @@ const privateBundleText = Object.entries(V2_ASSETS)
   .join("\n");
 assert.doesNotMatch(privateBundleText, /private-account-routing-fixture|qsl_switch_session|SESSION_SECRET/);
 
-const icon = V2_ASSETS["/v2/assets/qsl-brand-icon.png"];
-assert.equal(icon.contentType, "image/png");
-const iconResponse = await worker.fetch(request("/v2/assets/qsl-brand-icon.png"), {});
+const icon = V2_ASSETS["/v2/assets/qsl-brand-icon.svg"];
+assert.equal(icon.contentType, "image/svg+xml");
+const iconResponse = await worker.fetch(request("/v2/assets/qsl-brand-icon.svg"), {});
 assert.equal(iconResponse.status, 200);
-assert.equal(iconResponse.headers.get("content-type"), "image/png");
+assert.equal(iconResponse.headers.get("content-type"), "image/svg+xml");
 assert.equal(iconResponse.headers.get("cache-control"), "no-cache");
-assert.deepEqual(Buffer.from(await iconResponse.arrayBuffer()), await readFile(new URL("../web/strategy-switch-console/frontend/public/qsl-brand-icon.png", import.meta.url)));
-const iconHead = await worker.fetch(request("/v2/assets/qsl-brand-icon.png", "HEAD"), {});
+assert.deepEqual(Buffer.from(await iconResponse.arrayBuffer()), await readFile(new URL("../web/strategy-switch-console/frontend/public/qsl-brand-icon.svg", import.meta.url)));
+const iconHead = await worker.fetch(request("/v2/assets/qsl-brand-icon.svg", "HEAD"), {});
 assert.equal(iconHead.status, 200);
 assert.equal(await iconHead.text(), "");
 for (const path of ["/v2", "/v2/unknown", "/v2/assets/not-built.js", "/v2/assets/%2e%2e%2fapi%2fconfig"]) {
@@ -59,6 +59,6 @@ for (const path of ["/v2", "/v2/unknown", "/v2/assets/not-built.js", "/v2/assets
   assert.equal(head.status, 404);
   assert.equal(await head.text(), "", "HEAD responses must not include an error body");
 }
-for (const method of ["POST", "PUT", "DELETE"]) assert.equal((await worker.fetch(request("/v2/assets/qsl-brand-icon.png", method), {})).status, 405);
+for (const method of ["POST", "PUT", "DELETE"]) assert.equal((await worker.fetch(request("/v2/assets/qsl-brand-icon.svg", method), {})).status, 405);
 assert.equal((await worker.fetch(request("/missing"), {})).status, 404);
 console.log("console_v2_worker_validation: PASS");

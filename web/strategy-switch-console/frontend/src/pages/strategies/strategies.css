@@ -1,0 +1,40 @@
+/* Strategies page: catalog cards + research leads list. */
+
+.page-header .page-header-spacer { flex: 1 1 auto; }
+
+.catalog-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+
+.strategy-card { display: flex; flex-direction: column; gap: 10px; }
+.strategy-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+.strategy-card-title { margin: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+
+.strategy-rows { margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.strategy-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.strategy-row dt { color: var(--muted); flex: 0 0 auto; }
+.strategy-row dd {
+  margin: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.strategy-accounts { display: inline-flex; gap: 4px 8px; flex-wrap: wrap; justify-content: flex-end; }
+.strategy-account-link { color: var(--accent); padding: 0 2px; border-radius: 4px; }
+.strategy-account-link:hover { text-decoration: underline; }
+
+.strategy-card-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+.strategy-details { border-top: 1px solid var(--line); padding-top: 8px; margin-top: auto; }
+.strategy-details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.strategy-details summary:hover { color: var(--ink); }
+.strategy-details-body { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+
+.research-list { display: flex; flex-direction: column; gap: 8px; }
+.research-item { display: flex; flex-direction: column; gap: 6px; }
+.research-item-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.research-item-title { font-weight: 600; overflow-wrap: anywhere; }
+.research-item-summary { margin: 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }

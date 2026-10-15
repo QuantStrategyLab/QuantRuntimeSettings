@@ -1,0 +1,62 @@
+/* Accounts page: list + detail split; two-screen behavior on mobile. */
+
+.accounts-split {
+  display: grid;
+  grid-template-columns: minmax(300px, 400px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.accounts-list-cards { display: none; }
+
+.accounts-alias-button {
+  color: var(--accent);
+  font-weight: 600;
+  text-align: left;
+  padding: 0;
+}
+.accounts-alias-button:hover { text-decoration: underline; }
+
+.accounts-mobile-back { display: none; margin-bottom: 12px; }
+
+.accounts-summary-rows { display: flex; flex-direction: column; gap: 8px; }
+.accounts-summary-row { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; align-items: center; flex-wrap: wrap; }
+.accounts-summary-row > span:first-child { color: var(--muted); }
+
+.accounts-field-rows { display: flex; flex-direction: column; }
+.accounts-field-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 220px) 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--line);
+}
+.accounts-field-row:last-child { border-bottom: none; }
+.accounts-field-label { color: var(--muted); font-size: 13px; padding-top: 8px; }
+.accounts-field-body { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.accounts-field-value { font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.accounts-field-control { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.accounts-field-control .input { max-width: 280px; }
+.accounts-field-error { color: var(--status-error); font-size: 12px; }
+.accounts-field-current { color: var(--muted); font-size: 12px; }
+
+.accounts-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.accounts-inline-note { font-size: 13px; margin: 8px 0; }
+.accounts-inline-note.error { color: var(--status-error); }
+.accounts-inline-note.success { color: var(--status-ok); }
+
+.accounts-diff-section + .accounts-diff-section { margin-top: 12px; }
+.accounts-diff-section h3 { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
+
+@media (max-width: 768px) {
+  .accounts-split { display: block; }
+  .accounts-list-table { display: none; }
+  .accounts-list-cards { display: flex; flex-direction: column; gap: 8px; }
+  .accounts-split.detail-open .accounts-list { display: none; }
+  .accounts-split:not(.detail-open) .accounts-detail { display: none; }
+  .accounts-mobile-back { display: inline-flex; }
+  .accounts-field-row { grid-template-columns: 1fr; gap: 4px; }
+  .accounts-field-label { padding-top: 0; }
+  .accounts-field-control .input { max-width: none; }
+}

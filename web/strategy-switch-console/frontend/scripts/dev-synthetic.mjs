@@ -18,7 +18,7 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
     const url = new URL(req.url, 'http://127.0.0.1:4173');
     if (url.searchParams.has('qa')) scenario = url.searchParams.get('qa');
     if (url.pathname === '/__qa/requests') { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(requests)); return; }
-    if (url.pathname === '/v2/assets/qsl-brand-icon.png') { res.setHeader('Content-Type', 'image/png'); res.end(await readFile(root + 'public/qsl-brand-icon.png')); return; }
+    if (url.pathname === '/v2/assets/qsl-brand-icon.svg') { res.setHeader('Content-Type', 'image/svg+xml'); res.end(await readFile(root + 'public/qsl-brand-icon.svg')); return; }
     if (url.pathname === '/login') { res.statusCode = 503; res.end('Synthetic demo: sign-in is unavailable.'); return; }
     if (url.pathname.startsWith('/api/')) {
       requests.push({ path: url.pathname, method: req.method, scenario });
