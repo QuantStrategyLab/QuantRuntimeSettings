@@ -14,7 +14,7 @@ class M0ResearchPublisherWorkflowTest(unittest.TestCase):
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("workflow_dispatch:", workflow)
-        self.assertIn('cron: "20 17 * * 6"', workflow)
+        self.assertIn('cron: "20 20 * * 0"', workflow)
         self.assertNotRegex(workflow, r"(?m)^  (?:push|pull_request|repository_dispatch):")
         self.assertIn("if: github.ref == 'refs/heads/main'", workflow)
         self.assertIn("environment: m0-research-publisher", workflow)
