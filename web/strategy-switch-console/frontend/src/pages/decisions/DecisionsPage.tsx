@@ -241,11 +241,11 @@ export default function DecisionsPage() {
     [pendingItems, category],
   );
 
-  const selected = visibleItems.find(item => item.id === selectedId) || visibleItems[0] || null;
+  const selected = visibleItems.find(item => item.id === selectedId) || null;
 
   useEffect(() => {
-    if (selected && selected.id !== selectedId) setSelectedId(selected.id);
-  }, [selected, selectedId]);
+    if (selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
+  }, [selectedId, visibleItems]);
 
   // Account options for promotion categories come from the legacy ticket payload.
   const needsPromotions = Boolean(
@@ -572,6 +572,9 @@ export default function DecisionsPage() {
     return (
       <div className="card inbox-detail">
         <div className="decision-detail-head">
+          <button type="button" className="button button-secondary inbox-back" onClick={() => setSelectedId(null)}>
+            {t("common.back")}
+          </button>
           <div className="decision-badges">
             <Badge tone={item.category === "reconciliation_recovery" ? "warn" : "accent"}>
               {t(`category.${item.category}`)}
@@ -640,7 +643,7 @@ export default function DecisionsPage() {
         {visibleItems.length === 0 ? (
           <EmptyState title={t("decisions.empty_pending")} />
         ) : (
-          <div className="inbox">
+          <div className={`inbox${selected ? " detail-open" : ""}`}>
             <div className="inbox-list" role="list">
               {visibleItems.map(item => {
                 const expired = isExpired(item);

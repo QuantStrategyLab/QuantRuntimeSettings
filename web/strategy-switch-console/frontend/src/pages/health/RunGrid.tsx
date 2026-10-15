@@ -35,7 +35,7 @@ function cellKey(alias: string, date: string): string {
   return `${alias}${date}`;
 }
 
-/** Business-date domain is New York; the columns are calendar dates in that zone. */
+/** Business-date domain is New York; the columns are the most recent business days in that zone. */
 function todayInNewYork(): string {
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",
@@ -45,11 +45,14 @@ function todayInNewYork(): string {
   }).format(new Date());
 }
 
+/** The n most recent New York business days (Mon–Fri), oldest first; holidays keep their real record state. */
 function lastNDates(end: string, n: number): string[] {
-  const base = Date.parse(`${end}T00:00:00Z`);
   const dates: string[] = [];
-  for (let i = n - 1; i >= 0; i -= 1) {
-    dates.push(new Date(base - i * 86_400_000).toISOString().slice(0, 10));
+  let cursor = Date.parse(`${end}T00:00:00Z`);
+  while (dates.length < n) {
+    const day = new Date(cursor).getUTCDay();
+    if (day !== 0 && day !== 6) dates.unshift(new Date(cursor).toISOString().slice(0, 10));
+    cursor -= 86_400_000;
   }
   return dates;
 }

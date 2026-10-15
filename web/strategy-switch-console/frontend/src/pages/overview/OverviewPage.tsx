@@ -20,6 +20,7 @@ import {
 import { useApi } from "../../lib/hooks";
 import type { AsyncState } from "../../lib/hooks";
 import { relativeFreshness } from "../../lib/format";
+import { renderableStatus } from "../../lib/status";
 import { useNavigate, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
 import {
@@ -55,9 +56,7 @@ function localToday(): string {
   return `${now.getFullYear()}-${month}-${day}`;
 }
 
-function usable(status: string): boolean {
-  return status === "ok" || status === "partial" || status === "stale";
-}
+const usable = renderableStatus;
 
 /** State text replaces the main value when the status is not usable. */
 function KpiState({ status, reason }: { status: string; reason?: string | null }) {

@@ -49,4 +49,13 @@
 
 .inbox-item.is-expired { opacity: 0.7; }
 
+/* Mobile two-screen: list and detail take turns; the back button returns to the list. */
+.inbox-back { display: none; align-self: flex-start; }
+
+@media (max-width: 1024px) {
+  .inbox.detail-open .inbox-list { display: none; }
+  .inbox:not(.detail-open) .inbox-detail { display: none; }
+  .inbox-back { display: inline-flex; }
+}
+
 .decision-history-more { margin-top: 12px; }
