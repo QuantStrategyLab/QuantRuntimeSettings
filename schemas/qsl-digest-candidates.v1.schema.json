@@ -162,12 +162,12 @@
         "account_hint": {
           "type": "string",
           "maxLength": 64,
-          "description": "Human display account label when already safe (e.g. IBKR U15998061)."
+          "description": "Human display account label when already safe (e.g. IBKR U00000008)."
         },
         "account_scope": {
           "type": "string",
           "maxLength": 64,
-          "description": "Runtime account_scope / mode token (e.g. live, paper, live-u15998061)."
+          "description": "Runtime account_scope / mode token (e.g. live, paper, live-u00000008)."
         },
         "execution_mode": {
           "type": "string",

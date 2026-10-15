@@ -307,7 +307,7 @@ class BuildReceiptDualWriteTests(unittest.TestCase):
                                 "business_day": "2026-10-09",
                                 "strategy_profile": "tqqq_growth_income",
                                 "actually_ran": True,
-                                "account_hint": "U16608560",
+                                "account_hint": "U00000009",
                                 "fill_count": 0,
                                 "execution_status": "ok_no_order",
                                 "evidence_persistence_status": "persisted",
