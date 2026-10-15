@@ -64,6 +64,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         ),
         "heartbeat_no_fill_verified": "今日有运行且已验证零成交。",
         "heartbeat_fills_unknown": "今日有运行，成交数未知（证据未覆盖）。",
+        "heartbeat_orders_unknown": "今日有运行，订单证据缺失（证据未覆盖）。",
         # Legacy keys kept for callers/tests that still reference them.
         "heartbeat_no_run": "今日已验证无平台/策略实际运行。",
         "heartbeat_no_fill": "今日有运行且已验证零成交。",
@@ -144,6 +145,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "heartbeat_fills_unknown": (
             "Runs completed but fill counts are unknown (evidence uncovered)."
         ),
+        "heartbeat_orders_unknown": "Runs completed but order evidence is missing (evidence uncovered).",
         "heartbeat_no_run": (
             "Verified: no platform/strategy actually ran today."
         ),
@@ -1174,8 +1176,10 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
     counts_missing = any(entry.order_count_status == "unknown" or entry.order_count is None for entry in runs)
-    if known_fills is None or counts_missing:
+    if known_fills is None:
         lines.append(_t(locale, "heartbeat_fills_unknown"))
+    elif counts_missing:
+        lines.append(_t(locale, "heartbeat_orders_unknown"))
     if not rich:
         if known_fills is None or counts_missing:
             lines.append(_t(locale, "ran_section"))
@@ -1251,10 +1255,11 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
             )
         )
 
-    if runs and (global_total_fills(payload) is None or any(
-        entry.order_count_status == "unknown" or entry.order_count is None for entry in runs
-    )):
-        lines.append(_t(locale, "heartbeat_fills_unknown"))
+    if runs:
+        if global_total_fills(payload) is None:
+            lines.append(_t(locale, "heartbeat_fills_unknown"))
+        elif any(entry.order_count_status == "unknown" or entry.order_count is None for entry in runs):
+            lines.append(_t(locale, "heartbeat_orders_unknown"))
 
     attention: list[str] = []
     if coverage is not None and coverage.candidate_failures:
