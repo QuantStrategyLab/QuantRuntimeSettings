@@ -75,15 +75,12 @@ test("the generated catalog asset parses back to the same sync projection", () =
   assert.equal(decision.changed, false);
 });
 
-test("the deploy workflow compares built catalogs and keeps the manual sync choice", () => {
+test("the deploy workflow syncs catalogs only after an explicit manual choice", () => {
   const workflow = readFileSync(new URL("../.github/workflows/deploy-strategy-switch-console.yml", import.meta.url), "utf8");
-  assert.match(workflow, /catalogReleaseDecision/);
   assert.match(workflow, /strategy_profiles_asset\.js/);
-  assert.match(workflow, /inputs\.sync_strategy_profiles/);
+  assert.match(workflow, /if: github\.event_name == 'workflow_dispatch' && inputs\.sync_strategy_profiles/);
+  assert.doesNotMatch(workflow, /id: catalog-change|steps\.catalog-change/);
   assert.doesNotMatch(workflow, /git diff --quiet "\$BEFORE" HEAD -- platform-config\.json/);
-  const gate = workflow.slice(workflow.indexOf("id: catalog-change"), workflow.indexOf("id: catalog-change") + 1800);
-  assert.match(gate, /process\.exit\(1\)/);
-  assert.doesNotMatch(gate, /changed=true/);
 });
 
 test("the deploy renderer pins account-facts and runtime-daily flags and fails closed before deploy", () => {
