@@ -5,11 +5,8 @@ import { loadRuntimeDaily } from "../../api/endpoints";
 import { useLanguage, useT, type MessageKey } from "../../i18n";
 import { formatDate, formatDateTime } from "../../lib/format";
 import { Badge, EmptyState, Skeleton, StatusBadge } from "../../components/primitives";
-
-export interface GridAccount {
-  account_alias: string;
-  platform: string;
-}
+import { runtimeDailyBusinessDate } from "../../../../runtime_daily_contract.js";
+import type { GridAccount } from "./dailySelection";
 
 type CellState =
   | { phase: "loading" }
@@ -38,18 +35,8 @@ const CELL_ICON: Record<CellKind, string> = {
   "read-failed": "!",
 };
 
-function cellKey(alias: string, date: string): string {
-  return `${alias}${date}`;
-}
-
-/** Business-date domain is New York; the columns are the most recent business days in that zone. */
-function todayInNewYork(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/New_York",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+function cellKey(account: GridAccount, date: string): string {
+  return `${account.platform}/${account.account_alias}/${date}`;
 }
 
 /** The n most recent New York business days (Mon–Fri), oldest first; holidays keep their real record state. */
@@ -122,7 +109,7 @@ function DayDetail({ selection, cell }: { selection: Selection; cell: CellState 
 
 export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: number }) {
   const t = useT();
-  const dates = useMemo(() => lastNDates(todayInNewYork(), 14), [epoch]);
+  const dates = useMemo(() => lastNDates(runtimeDailyBusinessDate(), 14), [epoch]);
   const [cells, setCells] = useState<Record<string, CellState>>({});
   const [historyError, setHistoryError] = useState(false);
   const [selected, setSelected] = useState<Selection | null>(null);
@@ -132,7 +119,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
     let cancelled = false;
     const initial: Record<string, CellState> = {};
     for (const account of accounts) {
-      for (const date of dates) initial[cellKey(account.account_alias, date)] = { phase: "loading" };
+      for (const date of dates) initial[cellKey(account, date)] = { phase: "loading" };
     }
     setCells(initial);
     setHistoryError(false);
@@ -147,7 +134,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
         if (cancelled) return;
         const patch: Record<string, CellState> = {};
         results.forEach((result, index) => {
-          const key = cellKey(accounts[index].account_alias, date);
+          const key = cellKey(accounts[index], date);
           if (result.status === "fulfilled") {
             patch[key] = { phase: "ready", snapshot: result.value };
           } else {
@@ -191,9 +178,10 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
                   <span className="card-note"> {account.platform}</span>
                 </th>
                 {dates.map(date => {
-                  const key = cellKey(account.account_alias, date);
+                  const key = cellKey(account, date);
                   const cell = cells[key];
-                  const isSelected = selected?.account.account_alias === account.account_alias && selected.date === date;
+                  const isSelected = selected?.account.platform === account.platform
+                    && selected.account.account_alias === account.account_alias && selected.date === date;
                   if (!cell || cell.phase === "loading") {
                     return (
                       <td key={date}>
@@ -245,7 +233,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
         ))}
       </div>
       {historyError && <p className="health-grid-note">{t("health.grid_read_failed_note")}</p>}
-      {selected && <DayDetail selection={selected} cell={cells[cellKey(selected.account.account_alias, selected.date)]} />}
+      {selected && <DayDetail selection={selected} cell={cells[cellKey(selected.account, selected.date)]} />}
     </>
   );
 }

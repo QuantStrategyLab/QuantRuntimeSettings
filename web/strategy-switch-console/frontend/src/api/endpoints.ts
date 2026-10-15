@@ -144,6 +144,18 @@ export interface RuntimeDailySnapshot {
   record: RuntimeDailyRecord | null;
 }
 
+export interface RuntimeDailyBinding {
+  platform: string;
+  target_key: string;
+  account_key: string | null;
+  status: "bound" | "unresolved";
+}
+
+export async function loadRuntimeDailyBindings(): Promise<RuntimeDailyBinding[]> {
+  const config = await getJson<{ runtimeDailyBindings?: RuntimeDailyBinding[] }>("/api/config");
+  return config.runtimeDailyBindings ?? [];
+}
+
 /** Legacy per-date daily snapshot used by the 14-day run grid on the health page. */
 export function loadRuntimeDaily(date: string, platform?: string, accountKey?: string): Promise<RuntimeDailySnapshot> {
   const params = new URLSearchParams({ date });

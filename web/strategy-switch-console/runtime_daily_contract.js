@@ -1,3 +1,11 @@
+export const RUNTIME_DAILY_TIMEZONE = "America/New_York";
+
+export function runtimeDailyBusinessDate(now = Date.now()) {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: RUNTIME_DAILY_TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(now);
+}
+
 // Fixture targets for tests/docs and producer ingest allowlisting.
 // Production console resolution uses the account's bound target_key via
 // resolveRuntimeDailyTarget({ accountKey, accountOptions, trustedBindings }).
