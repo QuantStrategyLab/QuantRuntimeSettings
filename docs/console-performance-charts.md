@@ -99,3 +99,59 @@ starts, missing benchmark days, rebasing, deposits/withdrawals, capital-weighted
 multi-account TWR, unknown flows, incomplete cohorts, empty/single observations
 and invalid values. All fixtures are synthetic. Loader, render and refresh
 tests exercise the production components without live account data.
+
+## Performance API statistics
+
+The [console API](console-api.md) exposes calendar, summary, return, asset and
+current-holdings blocks. Pure statistics are separate from HTTP handlers. Charts
+and the Worker share `web/strategy-switch-console/performance_math.js`; the
+frontend helper module re-exports its types and functions.
+
+Daily P/L is `V[t] - V[previous close] - F[t]`. Its displayed daily percentage is
+`100 * daily P/L / (V[previous close] + F[t])` when the denominator is positive.
+The period's simple-weighted percentage is
+`100 * period P/L / (V[start] + sum(F))`, only with complete flows. Period and
+monthly TWR use the shared end-flow index above. Maximum drawdown is the largest
+`100 * (1 - I[trough] / I[peak])` on that index, with the peak before the trough.
+It is zero for a monotonic positive index and unavailable for fewer than two
+observations. A deposit during a drawdown does not reset its peak.
+
+Excess return is primary minus benchmark return in percentage points. Every
+comparison uses the shared aligned start and its last exact shared endpoint.
+The endpoint is returned so different histories cannot hide different end dates.
+The API never labels an unknown-flow curve as TWR or computes qualified drawdown
+from raw assets. Best and worst day are ranked by supported daily return, with
+the corresponding amount. They are null when daily returns cannot be supported.
+
+Observation dates retain producer-provided daily labels; the API does not
+reinterpret an intraday timestamp as a US session date. Range boundaries use
+Asia/Shanghai as above. Stock calendars mark Saturdays and Sundays non-trading.
+Binance-only calendars include every calendar day. There is no stored holiday
+calendar: an absent weekday is `snapshot_missing`, not a presumed holiday.
+The prior stock close must be the immediately preceding weekday; an intervening
+missing weekday makes daily change unavailable. No multi-day change is assigned
+to a single calendar day. A month with missing required dates has a null total
+and return, plus `observed_amount` and observed/expected day counts. The partial
+sum is not a full-month result. Positive/negative numeric signs carry no colors;
+clients retain the console's existing locale-aware up/down colors.
+
+| Stored source | Assets/history | Current positions | Cash-flow-qualified daily P/L/TWR | Console fills |
+|---|---|---|---|---|
+| LongBridge | Broker balances and up to 366 daily snapshots | Not carried by this schema | Unavailable: complete flows absent | Not connected |
+| IBKR | Broker balances and up to 366 daily snapshots | Optional `stocks_only`, optional average cost | Unavailable: interval-return reports do not provide daily flows | Not connected |
+| Schwab | Broker balances and up to 366 daily snapshots | Optional `strategy_symbols_only`, optional average cost | Unavailable: complete flows absent | Not connected |
+| Firstrade | Broker balances and up to 366 daily snapshots | Not carried by this schema | Unavailable: complete flows absent | Not connected |
+| Binance | Stored USDT wallet-valuation history | Not a stock-position source | Unavailable: complete flows absent | Not connected |
+| Other configured platforms | No connected snapshot-history source | Unavailable | Unavailable | Not connected |
+
+This table describes source capabilities, not the presence of data in any specific
+account. Holdings use only current broker-reported rows, labelled current,
+unrealized. `unrealized_pnl = market_value - avg_cost * quantity`; missing cost
+produces null with `avg_cost_missing`. These are not period contributions.
+There is no daily position history or closed-trade source for attribution or
+win-rate statistics. No trade count, fee estimate or placeholder win rate is
+returned. Native-currency API amounts remain separate; see the API contract for
+mixed-currency percentage curves.
+
+Definitions are informed by Longbridge's public
+[P/L analysis guide](https://longbridge.com/sg/en/support/topics/tradingfaqs/pl-analysis).

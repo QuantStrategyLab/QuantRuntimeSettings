@@ -1,3 +1,4 @@
+import { consoleApiFixture } from './console-api-synthetic.mjs';
 import { createServer } from 'vite';
 import { readFile } from 'node:fs/promises';
 import { performanceFixture } from './performance-synthetic.mjs';
@@ -23,6 +24,8 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       requests.push({ path: url.pathname, method: req.method, scenario });
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
+      const apiFixture = consoleApiFixture(url.pathname, url.searchParams, scenario, req.method);
+      if (apiFixture !== undefined) { res.statusCode = apiFixture.status || 200; res.end(JSON.stringify(apiFixture.body)); return; }
       if (req.method !== 'GET') { res.statusCode = 405; res.end(JSON.stringify({ error: 'synthetic_audit_read_only' })); return; }
       const performance = performanceFixture(url.pathname, url.searchParams, scenario);
       if (performance !== undefined) {
