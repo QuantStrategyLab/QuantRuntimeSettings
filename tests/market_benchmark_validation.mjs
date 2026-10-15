@@ -16,7 +16,8 @@ import {
 import { MARKET_BENCHMARK_INCEPTION_DATE as UI_INCEPTION } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { MARKET_BENCHMARK_API_URL, loadMarketBenchmarkPoints } from "../web/strategy-switch-console/frontend/src/marketBenchmark.ts";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { closedSessionPoints, diagnoseBenchmarkPoints, newYorkDate } from "../scripts/sync_market_benchmark_closes.mjs";
+import { buildUpstreamRevisionPayload, closedSessionPoints, diagnoseBenchmarkPoints, newYorkDate } from "../scripts/sync_market_benchmark_closes.mjs";
+import { createHash } from "node:crypto";
 
 assert.equal(MARKET_BENCHMARK_INCEPTION_DATE, "2026-10-09");
 assert.equal(UI_INCEPTION, MARKET_BENCHMARK_INCEPTION_DATE);
@@ -262,9 +263,10 @@ console.log("market_benchmark_closed_session_validation ok");
     env: {
       ...process.env,
       MARKET_BENCHMARK_APPLY_REVISION: "true",
-      MARKET_BENCHMARK_DRY_RUN: "true",
+      MARKET_BENCHMARK_DRY_RUN: "false",
       MARKET_BENCHMARK_SYNC_URL: "https://console.example/api/market-benchmark/sync",
       MARKET_BENCHMARK_REVISION_PAYLOAD_JSON: "{}",
+      MARKET_BENCHMARK_REVISION_TOKEN: "",
     },
   });
   assert.equal(result.status, 2);
@@ -272,3 +274,80 @@ console.log("market_benchmark_closed_session_validation ok");
   assert.equal((result.stdout + result.stderr).includes("POSTED="), false);
 }
 console.log("market_benchmark_apply_revision_gate_validation ok");
+
+// Apply-from-upstream: the job rebuilds proposal + replacements and refuses on hash mismatch.
+{
+  const seriesIds = Object.keys(MARKET_BENCHMARK_YAHOO_SYMBOLS);
+  const storedPts = seriesIds.flatMap((s) => [
+    { seriesId: s, observationDate: "2026-10-13", close: "100.0", source: "yahoo_chart_v8" },
+    { seriesId: s, observationDate: "2026-10-14", close: "200.0", source: "yahoo_chart_v8" },
+  ]);
+  const candidatePts = seriesIds.flatMap((s) => [
+    { seriesId: s, observationDate: "2026-10-13", close: "100.0", source: "yahoo_chart_v8" },
+    { seriesId: s, observationDate: "2026-10-14", close: "203.5", source: "yahoo_chart_v8" },
+  ]);
+  assert.throws(() => buildUpstreamRevisionPayload(candidatePts, storedPts, "0".repeat(64), "2026-10-15T12:00:00Z"),
+    /benchmark_revision_approval_mismatch/);
+  assert.throws(() => buildUpstreamRevisionPayload(candidatePts, storedPts, "", "2026-10-15T12:00:00Z"),
+    /benchmark_revision_approval_required/);
+  assert.throws(() => buildUpstreamRevisionPayload(storedPts, storedPts, "a".repeat(64), "2026-10-15T12:00:00Z"),
+    /benchmark_revision_nothing_to_apply/);
+  // Derive the hash the owner would have approved from a dry-run proposal (hash covers entries only).
+  const sha = (v) => createHash("sha256").update(String(v)).digest("hex");
+  const entries = seriesIds.map((s) => ({
+    series_id_sha256: sha(s), observation_date: "2026-10-14", prior_close_sha256: sha("200.0"),
+    candidate_close_sha256: sha("203.5"), candidate_source: "yahoo_chart_v8", reason: "upstream_revision_unverified",
+  })).sort((a, b) => (a.series_id_sha256 + a.observation_date).localeCompare(b.series_id_sha256 + b.observation_date));
+  const approved = sha(JSON.stringify(entries));
+  const payload = buildUpstreamRevisionPayload(candidatePts, storedPts, approved, "2026-10-15T13:00:00Z");
+  assert.equal(payload.proposal.proposal_sha256, approved);
+  assert.equal(payload.replacements.length, 4);
+  assert.equal(payload.summary.identical_keys, 4);
+  assert.equal(payload.summary.differing_keys, 4);
+  assert.ok(payload.replacements.every((p) => p.observationDate === "2026-10-14" && p.close === "203.5"));
+  // Detection time does not change the approved hash.
+  assert.equal(buildUpstreamRevisionPayload(candidatePts, storedPts, approved, "2026-10-16T00:00:00Z").proposal.proposal_sha256, approved);
+
+  // End-to-end apply dry run: no POST, no token required, logs hashes/counts only.
+  const yahooDay = (d) => Date.parse(`${d}T20:00:00Z`) / 1000;
+  const harness = `
+    globalThis.fetch = async (url, options = {}) => {
+      if (String(url).startsWith('https://query1.finance.yahoo.com/v8/finance/chart/')) {
+        return new Response(JSON.stringify({chart:{result:[{timestamp:[${yahooDay("2026-10-13")}, ${yahooDay("2026-10-14")}],indicators:{quote:[{close:[100.0, 203.5]}]}}]}}));
+      }
+      if (options.method === 'POST') { console.log('POSTED=1'); return new Response('{}'); }
+      return new Response(JSON.stringify({ok:true,schema_version:'qsl.market_benchmark_points.v1',inception_date:'2026-10-09',points:${JSON.stringify(storedPts)}}));
+    };
+    process.argv[1] = ${JSON.stringify(fileURLToPath(producerUrl))};
+    await import(${JSON.stringify(producerUrl.href)});
+  `;
+  for (const [hash, expectOk] of [[approved, true], ["e".repeat(64), false]]) {
+    const result = spawnSync(process.execPath, ["--input-type=module", "--eval", harness], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        MARKET_BENCHMARK_APPLY_REVISION: "true",
+        MARKET_BENCHMARK_DRY_RUN: "true",
+        MARKET_BENCHMARK_SYNC_URL: "https://console.example/api/market-benchmark/sync",
+        MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256: hash,
+        MARKET_BENCHMARK_REVISION_TOKEN: "",
+        MARKET_BENCHMARK_REVISION_PAYLOAD_JSON: "",
+      },
+    });
+    const output = result.stdout + result.stderr;
+    assert.equal(output.includes("POSTED="), false, output);
+    assert.equal(output.includes("203.5"), false, output);
+    assert.equal(output.includes("200.0"), false, output);
+    if (expectOk) {
+      assert.equal(result.status, 0, output);
+      assert.match(output, /"approved_proposal_sha256_match":true/);
+      assert.match(output, /"overwrites":4/);
+      assert.match(output, /"deletes":0/);
+      assert.match(output, /"untouched_points":4/);
+    } else {
+      assert.equal(result.status, 1, output);
+      assert.match(result.stderr, /benchmark_revision_approval_mismatch/);
+    }
+  }
+}
+console.log("market_benchmark_apply_from_upstream_validation ok");

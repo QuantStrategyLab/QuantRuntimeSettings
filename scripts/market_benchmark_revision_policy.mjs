@@ -103,20 +103,28 @@ export function planBenchmarkRevision(candidates, stored, options = {}) {
   Object.defineProperty(plan, "post_candidates", {
     value: blocked ? [] : [...unseen, ...identical], enumerable: false,
   });
+  // Differing candidates in proposal-entry order; non-enumerable so closes never reach logs.
+  Object.defineProperty(plan, "revision_candidates", { value: [], enumerable: false });
   if (blocked && policy === "revision_proposal") {
     if (!options.detectedAt || Number.isNaN(Date.parse(options.detectedAt))) {
       throw new Error("benchmark_revision_detected_at_required");
     }
-    const entries = differing
+    const rows = differing
       .map(({ stored: s, candidate: c }) => ({
-        series_id_sha256: digest(s.seriesId),
-        observation_date: s.observationDate,
-        prior_close_sha256: digest(s.close),
-        candidate_close_sha256: digest(c.close),
-        candidate_source: c.source || "unknown",
-        reason: "upstream_revision_unverified",
+        candidate: c,
+        entry: {
+          series_id_sha256: digest(s.seriesId),
+          observation_date: s.observationDate,
+          prior_close_sha256: digest(s.close),
+          candidate_close_sha256: digest(c.close),
+          candidate_source: c.source || "unknown",
+          reason: "upstream_revision_unverified",
+        },
       }))
-      .sort((a, b) => (a.series_id_sha256 + a.observation_date).localeCompare(b.series_id_sha256 + b.observation_date));
+      .sort((a, b) => (a.entry.series_id_sha256 + a.entry.observation_date)
+        .localeCompare(b.entry.series_id_sha256 + b.entry.observation_date));
+    const entries = rows.map((row) => row.entry);
+    plan.revision_candidates.push(...rows.map((row) => row.candidate));
     plan.revision_proposal = {
       schema_version: REVISION_PROPOSAL_SCHEMA,
       detected_at: options.detectedAt,
