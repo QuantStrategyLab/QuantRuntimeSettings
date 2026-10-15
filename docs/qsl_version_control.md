@@ -12,17 +12,19 @@ management.
 
 ## CLI
 
-Use `qslctl` for repository and workspace checks:
+Use `qslctl` for repository and workspace checks. `$QSL_WORKSPACE` is the
+directory that contains the checked-out repositories; when `--projects-root`
+is omitted, the parent directory of this repository is used.
 
 ```bash
 python3 python/scripts/qslctl.py check --repo-root ../UsEquityStrategies
-python3 python/scripts/qslctl.py check-all --projects-root /Users/lisiyi/Projects
-python3 python/scripts/qslctl.py report --projects-root /Users/lisiyi/Projects
-python3 python/scripts/qslctl.py plan --projects-root /Users/lisiyi/Projects
-python3 python/scripts/qslctl.py report --projects-root /Users/lisiyi/Projects --scope current
-python3 python/scripts/qslctl.py plan --projects-root /Users/lisiyi/Projects --scope current
-python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --check
-python3 python/scripts/qslctl.py generate-matrix --projects-root /Users/lisiyi/Projects --sync
+python3 python/scripts/qslctl.py check-all --projects-root "$QSL_WORKSPACE"
+python3 python/scripts/qslctl.py report --projects-root "$QSL_WORKSPACE"
+python3 python/scripts/qslctl.py plan --projects-root "$QSL_WORKSPACE"
+python3 python/scripts/qslctl.py report --projects-root "$QSL_WORKSPACE" --scope current
+python3 python/scripts/qslctl.py plan --projects-root "$QSL_WORKSPACE" --scope current
+python3 python/scripts/qslctl.py generate-matrix --projects-root "$QSL_WORKSPACE" --check
+python3 python/scripts/qslctl.py generate-matrix --projects-root "$QSL_WORKSPACE" --sync
 ```
 
 ## Rollout policy
