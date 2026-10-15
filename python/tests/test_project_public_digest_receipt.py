@@ -25,6 +25,10 @@ class PublicDigestReceiptTests(unittest.TestCase):
             {"failures": [{"reason_code": {"private": marker}}],
              "delivery_axes": {"execution_status": {"private": marker}}},
             {"failures": {"private": marker}},
+            {"resend_guard": {"decision": marker, "reason": marker, "previous_failures": marker,
+                              "private_detail": marker}, "test_message": marker,
+             "source_coverage": {"missing_targets": [{"account_hint": marker}],
+                                 "suppressed_candidates_count": {"private": marker}}},
         ]
         for raw in probes:
             with self.subTest(raw=raw):

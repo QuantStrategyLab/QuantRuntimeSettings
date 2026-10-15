@@ -20,6 +20,8 @@ and actual order activity remain immediate. Immediate alerts may also appear
 as historical context in the daily report; a recap does not release a guard.
 
 Both existing `v1` and `sections_v2` templates support `zh-CN` and `en`.
+See [daily digest display and resend guard](daily-digest-display-and-resend.md)
+for compact no-trade lines, missing-data reasons, current-day gaps and test resends.
 Language is configured separately from delivery mode. A typical routine
 conclusion is `✅ 无需调仓` / `✅ No rebalance needed`; unknown fills remain
 `成交数未知` / `fill counts are unknown`. Signals and tips authored as prose

@@ -35,6 +35,7 @@ import credential_maintenance_notify as maintenance
 import daily_digest_aggregator as aggregator
 import daily_digest_delivery_axes as delivery_axes  # noqa: E402
 import daily_digest_notify as digest  # noqa: E402
+import daily_digest_resend_guard as resend_guard
 
 DEFAULT_SECRET_NAME = "quant-sentinel-telegram-bot-token"
 
@@ -444,6 +445,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     dry_run = args.dry_run or str(os.environ.get("DIGEST_DRY_RUN") or "").lower() in {"1", "true", "yes"}
+    day = aggregator.resolve_business_day(explicit=args.business_day)
+    guard = resend_guard.evaluate(day, os.environ, dry_run=dry_run)
+    print(guard.log(day, os.environ.get("GITHUB_EVENT_NAME", "local")))
+    if guard.decision in {"skip", "blocked"}:
+        receipt = resend_guard.skip_receipt(day, aggregator.resolve_locale(args.locale), guard)
+        if args.write_receipt:
+            _write_receipt(args.write_receipt, receipt)
+        if guard.decision == "blocked":
+            print(f"::error::Daily digest not sent: resend guard {guard.reason}.", file=sys.stderr)
+        return 0 if guard.decision == "skip" else 1
     maintenance_client = maintenance.MaintenanceClient.from_environment(os.environ, dry_run=dry_run)
     reminder = maintenance_client.read_due() if maintenance_client else None
     business_failed = False
@@ -451,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
         if os.environ.get("DIGEST_CANDIDATES_INPUT_STATUS") == "failure":
             raise ValueError("candidate_input_materialization_failed")
         payload, text, collected = aggregator.build_digest_payload(
-            business_day=args.business_day, locale=args.locale, candidates_path=args.candidates,
+            business_day=day, locale=args.locale, candidates_path=args.candidates,
             include_github=not args.no_github, config_path=args.platform_config, layout=args.layout,
         )
     except Exception:
@@ -462,6 +473,11 @@ def main(argv: list[str] | None = None) -> int:
         payload, text, collected = None, "", []
         print("Daily digest construction failed; maintenance fallback only.", file=sys.stderr)
 
+    text = digest.label_delivery_text(
+        text, str(payload.locale) if payload is not None else aggregator.resolve_locale(args.locale),
+        test=guard.test_message, previous_failures=guard.previous_failures,
+    )
+
     # Dry-run never probes SM unless explicitly requested (keeps CI offline).
     route = diagnose_telegram_route(
         probe_secret_manager=probe_sm if dry_run else False,
@@ -470,6 +486,8 @@ def main(argv: list[str] | None = None) -> int:
     base_receipt = aggregator.build_receipt(payload, collected, message_chars=len(text)) if payload is not None else {"total_fills": None, "run_count": None, "business_digest_failed": True}
     receipt = _receipt_base(dry_run=dry_run, route=route)
     receipt.update(base_receipt)
+    receipt["resend_guard"] = guard.to_dict()
+    receipt["test_message"] = guard.test_message
     if maintenance_client:
         receipt["maintenance"] = maintenance_client.diagnostic
     receipt.update(

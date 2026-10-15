@@ -55,10 +55,12 @@ class MaintenanceReadCheckTests(unittest.TestCase):
 ''', source)
         digest, check = source.split('jobs:\n  digest:\n', 1)[1].split('\n  maintenance-read-check:\n', 1)
         exclude_check = "    if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}\n"
-        self.assertTrue(digest.startswith(exclude_check))
-        # Freeze the original job bytes at 8f295d2, excluding only the added if.
-        self.assertEqual(hashlib.sha256(digest[len(exclude_check):].encode()).hexdigest(),
-                         'e33966c074fefd90216b398937f34d0628ab7294aeaba652c786cc11259b7a39')
+        self.assertIn(exclude_check, digest)
+        # Digest admission now has its own read-only history permission. Freeze
+        # the independent maintenance job, whose authority and steps must not change.
+        self.assertIn('      actions: read', digest)
+        self.assertEqual(hashlib.sha256(check.encode()).hexdigest(),
+                         '768c7a6e975c9ad3f7c24d29d6835733d4288f9da4096c5de40605f87432cd8c')
         self.assertIn("    if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.maintenance_read_check == true }}\n", check)
         self.assertIn('    permissions:\n      contents: read\n    runs-on:', check)
         self.assertIn('    environment: runtime-strategy-switch\n', check)

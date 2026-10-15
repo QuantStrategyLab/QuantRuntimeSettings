@@ -52,7 +52,7 @@ class DailyDigestFillEvidenceTests(unittest.TestCase):
         for layout in ("v1", "sections_v2"):
             with self.subTest(layout=layout):
                 payload, text, collected = render(five_accounts(), layout=layout)
-                self.assertEqual(text.count("成交 0 笔 / 无订单"), 5)
+                self.assertEqual(text.count("无交易"), 5)
                 self.assertNotIn("证据未覆盖", text)
                 self.assertEqual(aggregator.build_receipt(payload, collected, message_chars=len(text))["total_fills"], 0)
 
@@ -80,7 +80,7 @@ class DailyDigestFillEvidenceTests(unittest.TestCase):
                 with self.subTest(mode=mode, layout=layout):
                     payload, text, _ = render(rows, layout=layout)
                     self.assertIn("证据未覆盖", text)
-                    self.assertEqual(text.count("成交 未知 / 订单 未知"), 5)
+                    self.assertEqual(text.count("数据缺失："), 5)
                     self.assertIsNone(aggregator.digest.global_total_fills(payload))
 
     def test_mixed_coverage_keeps_total_unknown_and_known_account_facts(self):
@@ -89,8 +89,8 @@ class DailyDigestFillEvidenceTests(unittest.TestCase):
         for layout in ("v1", "sections_v2"):
             with self.subTest(layout=layout):
                 payload, text, _ = render(rows, layout=layout)
-                self.assertEqual(text.count("成交 0 笔 / 无订单"), 4)
-                self.assertEqual(text.count("成交 未知 / 订单 未知"), 1)
+                self.assertEqual(text.count("无交易"), 4)
+                self.assertEqual(text.count("数据缺失："), 1)
                 self.assertIn("证据未覆盖", text)
                 self.assertIsNone(aggregator.digest.global_total_fills(payload))
 
@@ -132,7 +132,7 @@ class DailyDigestFillEvidenceTests(unittest.TestCase):
                     payload, text, _ = aggregator.build_digest_payload(
                         business_day=DAY, candidates_path=path, include_github=True,
                     )
-                self.assertEqual(text.count("成交 未知 / 订单 未知"), 5)
+                self.assertEqual(text.count("数据缺失："), 10 if kind == "stale" else 5)
                 self.assertIn("证据未覆盖", text)
                 self.assertIsNone(aggregator.digest.global_total_fills(payload))
 
@@ -141,7 +141,7 @@ class DailyDigestFillEvidenceTests(unittest.TestCase):
         rows[0].pop("field_status")
         rows[0].pop("signal_summary")
         payload, text, _ = render(rows)
-        self.assertIn("成交 0 笔 / 无订单", text)
+        self.assertIn("无交易", text)
         self.assertEqual(aggregator.digest.global_total_fills(payload), 0)
 
 

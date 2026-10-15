@@ -17,20 +17,22 @@ from daily_digest_delivery_axes import (
 
 PUBLIC_FIELDS = (
     "schema_version", "business_day", "layout", "locale", "run_count", "total_fills", "total_fills_status",
-    "evidence_status", "message_chars", "status", "dry_run", "delivered",
+    "evidence_status", "message_chars", "status", "dry_run", "delivered", "test_message",
 )
 PUBLIC_ENUMS = {
     "schema_version": {"qsl.daily_digest_receipt.v1", "qsl.daily_digest_delivery_receipt.v1"},
     "layout": {"v1", "sections_v2"}, "locale": {"zh", "en"},
     "total_fills_status": {"known", "unknown"},
     "evidence_status": {"has_runs", "verified_idle", "evidence_unknown"},
-    "status": {"route_check", "dry_run", "blocked_missing_secrets", "delivered", "send_failed"},
+    "status": {"route_check", "dry_run", "blocked_missing_secrets", "delivered", "send_failed",
+               "skipped_duplicate", "blocked_resend_guard", "business_digest_failed"},
 }
 WINDOW_FIELDS = ("timezone", "business_day", "report_date", "start_local", "end_local", "start_utc", "end_utc")
 COVERAGE_FIELDS = (
     "candidates_configured", "candidates_loaded", "candidates_count", "github_enabled",
     "github_sources_queried", "github_sources_matched", "has_source_failures", "is_complete_for_verified_idle",
     "stale_candidates_count",
+    "missing_targets_count", "suppressed_candidates_count",
 )
 PUBLIC_FAILURE_REASONS = CANDIDATE_STORE_FAILURE_REASONS | {
     "github_token_missing", "invalid_repository", "github_api_error", "github_payload_invalid",
@@ -82,7 +84,7 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
         value = receipt[key]
         if key in PUBLIC_ENUMS:
             public[key] = _enum(value, PUBLIC_ENUMS[key], "evidence_unknown" if key == "evidence_status" else "unknown")
-        elif key in {"dry_run", "delivered"}:
+        elif key in {"dry_run", "delivered", "test_message"}:
             public[key] = value if type(value) is bool else None
         elif key == "business_day":
             public[key] = _date(value)
@@ -91,6 +93,16 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
     if "total_fills" in public and (public["total_fills"] is None or public.get("total_fills_status") != "known"):
         public["total_fills"], public["total_fills_status"] = None, "unknown"
     public["projection"] = "public_summary"
+    guard = receipt.get("resend_guard")
+    if isinstance(guard, Mapping):
+        public["resend_guard"] = {
+            "decision": _enum(guard.get("decision"), {"send", "skip", "blocked", "preview"}),
+            "reason": _enum(guard.get("reason"), {
+                "FIRST_SEND", "ALREADY_DELIVERED", "EXPLICIT_TEST_RESEND", "HISTORY_UNAVAILABLE",
+                "DELIVERY_UNCERTAIN", "CONFIGURATION_INVALID", "UNSUPPORTED_EVENT", "LOCAL_EXECUTION", "DRY_RUN",
+            }),
+            "previous_failures": _count(guard.get("previous_failures")),
+        }
     if source_sha:
         if not isinstance(source_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", source_sha):
             raise ValueError("source_sha_invalid")
