@@ -46,7 +46,7 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
     if not trades and not problems:
         return ""
     header = f"每日交易摘要 / Daily trading digest · {payload.business_day}"
-    rows = (["交易 / Trading"] + trades if trades else []) + (["需关注 / Diagnostics"] + problems if problems else [])
+    rows = (["需关注 / Diagnostics"] + problems if problems else []) + (["交易 / Trading"] + trades if trades else [])
     lines = [header]
     for i, row in enumerate(rows):
         suffix = f"\n其余 {len(rows) - i} 项已省略 / {len(rows) - i} more items omitted"
