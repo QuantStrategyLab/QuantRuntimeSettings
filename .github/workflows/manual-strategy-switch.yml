@@ -188,6 +188,7 @@ jobs:
       SERVICE_TARGETS_MODE: ${{ inputs.service_targets_mode }}
       PROMOTION_MANIFEST_JSON: ${{ inputs.promotion_manifest_json }}
       PROMOTION_SINGLE_USE_ID: ${{ inputs.promotion_single_use_id }}
+      QSL_PROMOTION_ROOT_PROJECTS_JSON: ${{ vars.QSL_PROMOTION_ROOT_PROJECTS_JSON }}
       QSL_PROMOTION_TRUSTED_ROOTS_JSON: ${{ vars.QSL_PROMOTION_TRUSTED_ROOTS_JSON }}
       APPLY_SWITCH: ${{ inputs.apply }}
       TRIGGER_PLATFORM_SYNC: ${{ inputs.trigger_platform_sync }}
@@ -203,6 +204,15 @@ jobs:
       RUNTIME_SETTINGS_QMT_REPO: ${{ vars.RUNTIME_SETTINGS_QMT_REPO }}
       RUNTIME_SETTINGS_BINANCE_REPO: ${{ vars.RUNTIME_SETTINGS_BINANCE_REPO }}
     steps:
+      - name: Require QSL_PROMOTION_ROOT_PROJECTS_JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${QSL_PROMOTION_ROOT_PROJECTS_JSON:-}" ]]; then
+            echo "::error::QSL_PROMOTION_ROOT_PROJECTS_JSON is required" >&2
+            exit 2
+          fi
+
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
 

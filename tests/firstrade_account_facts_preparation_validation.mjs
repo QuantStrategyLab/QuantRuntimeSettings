@@ -53,7 +53,7 @@ const command = (args, input) => {
   if (args[0] === "variable" && args[1] === "set") variables.set(args[2], input);
   return "";
 };
-assert.deepEqual(applyFirstradeFactsSettings(binding, { env: { GH_TOKEN: "synthetic-gh-token" }, command }),
+assert.deepEqual(applyFirstradeFactsSettings(binding, { env: { STRATEGY_SWITCH_CONSOLE_URL: "https://console.example.invalid", GH_TOKEN: "synthetic-gh-token" }, command }),
   { secret_writes: 5, sync_enabled: false });
 assert.equal(variables.get("FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED"), "false");
 assert.equal(settings.get("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"), binding.bindings[0].source_binding.id);
@@ -62,11 +62,11 @@ for (const call of calls) {
 }
 const mutations = (items) => items.filter(({ args }) => args[1] === "set");
 const before = mutations(calls).length;
-assert.throws(() => applyFirstradeFactsSettings(binding, { env: { GH_TOKEN: "synthetic-gh-token" }, command }),
+assert.throws(() => applyFirstradeFactsSettings(binding, { env: { STRATEGY_SWITCH_CONSOLE_URL: "https://console.example.invalid", GH_TOKEN: "synthetic-gh-token" }, command }),
   /firstrade_settings_already_present/);
 assert.equal(mutations(calls).length, before);
 let writes = 0;
-assert.throws(() => applyFirstradeFactsSettings(binding, { env: { GH_TOKEN: "synthetic" }, command: (args) => {
+assert.throws(() => applyFirstradeFactsSettings(binding, { env: { STRATEGY_SWITCH_CONSOLE_URL: "https://console.example.invalid", GH_TOKEN: "synthetic" }, command: (args) => {
   if (args[0] === "api") return JSON.stringify({ total_count: 0, secrets: [] });
   if (args[1] === "list") return JSON.stringify([{ name: "FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED", value: "true" }]);
   writes++; return "";
@@ -146,7 +146,7 @@ const rotateCommand = (args, input) => {
   return "";
 };
 assert.deepEqual(applyFirstradeSourceBindingRotation(rotated, {
-  env: { GH_TOKEN: "synthetic-gh-token" }, command: rotateCommand,
+  env: { STRATEGY_SWITCH_CONSOLE_URL: "https://console.example.invalid", GH_TOKEN: "synthetic-gh-token" }, command: rotateCommand,
 }), { secret_writes: 2, rotated: true });
 assert.equal(rotateSettings.get("FIRSTRADE_ACCOUNT_FACTS_SOURCE_BINDING_ID"), nextId);
 for (const call of rotateCalls) {

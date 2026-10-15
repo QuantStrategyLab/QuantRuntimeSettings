@@ -10,6 +10,21 @@ QuantRuntimeSettings 是 QuantStrategyLab 的运行配置包。为 QuantStrategy
 
 它支撑系统运行，但不决定哪个策略应该 live。策略资格由策略仓和 snapshot 仓负责；券商执行由平台仓负责。
 
+## 配置
+
+Set these non-secret repository variables before running the affected workflows. Export the same names for standalone scripts. Promotion root records and externally pinned root digests remain authoritative.
+
+| Variable | Purpose | Required | Default |
+|---|---|---|---|
+| `MARKET_BENCHMARK_SYNC_URL` | Complete benchmark sync endpoint | Benchmark sync | none |
+| `STRATEGY_SWITCH_CONSOLE_URL` | HTTPS console origin | Review credential check and Firstrade preparation | none |
+| `DIGEST_GCP_PROJECT_ID` | Digest cloud project | Digest workflow | none |
+| `DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT` | Digest cloud identity | Digest workflow | none |
+| `DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT` | Candidate store reader identity | Optional | `DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT` |
+| `DIGEST_CANDIDATES_GCS_URI` | Candidate store prefix | Store preflight; optional otherwise | empty |
+| `QSL_PROMOTION_ROOT_PROJECTS_JSON` | JSON object mapping platform IDs to their existing trust-root project IDs | Strategy switch and signature verification | none |
+
+
 ## QSL 架构角色
 
 - **层级**：`运行配置控制面`。

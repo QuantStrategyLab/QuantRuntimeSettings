@@ -19,7 +19,8 @@ class V7CredentialTests(unittest.TestCase):
         writes = []
         reads = []
         env = {"GITHUB_REPOSITORY": "QuantStrategyLab/QuantRuntimeSettings", "GITHUB_REF": ref,
-               "GH_TOKEN": "synthetic-management", module.SECRET: "synthetic-review"}
+               "GH_TOKEN": "synthetic-management", module.SECRET: "synthetic-review",
+               "STRATEGY_SWITCH_CONSOLE_URL": "https://console.example.invalid"}
 
         def run(args, **kw):
             if args[1] == "secret":
@@ -103,7 +104,8 @@ class V7CredentialTests(unittest.TestCase):
 
     def test_github_failure_logs_status_without_sensitive_stderr(self):
         env = {"GITHUB_REPOSITORY": "QuantStrategyLab/QuantRuntimeSettings", "GITHUB_REF": "refs/heads/main",
-               "GH_TOKEN": "synthetic-management", module.SECRET: "synthetic-review"}
+               "GH_TOKEN": "synthetic-management", module.SECRET: "synthetic-review",
+               "STRATEGY_SWITCH_CONSOLE_URL": "https://console.example.invalid"}
         output = io.StringIO()
         def run(args, **kwargs):
             raise subprocess.CalledProcessError(1, args, stderr="synthetic-management rejected (HTTP 403)")

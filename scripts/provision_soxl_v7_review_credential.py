@@ -12,16 +12,22 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
+from urllib.parse import urlsplit
 
 DESTINATION = "repos/QuantStrategyLab/UsEquitySnapshotPipelines/environments/market-data-nonlive"
 SECRET = "RESEARCH_PROMOTION_SYNC_TOKEN"
-PROBE_URL = (
-    "https://qsl-strategy-switch-console.pigbibi.workers.dev"
-    "/api/internal/research-promotion-ticket?ticket_id=soxl-v7-credential-binding-check"
-)
 
 
 def provision(*, env, run=subprocess.run, opener=urllib.request.urlopen, apply=False):
+    base = env.get("STRATEGY_SWITCH_CONSOLE_URL", "").rstrip("/")
+    if not base:
+        raise ValueError("STRATEGY_SWITCH_CONSOLE_URL is required")
+    endpoint = urlsplit(base)
+    if (endpoint.scheme != "https" or not endpoint.hostname or endpoint.path
+            or endpoint.username is not None or endpoint.password is not None
+            or endpoint.query or endpoint.fragment):
+        raise ValueError("STRATEGY_SWITCH_CONSOLE_URL must be an HTTPS origin")
+    probe_url = base + "/api/internal/research-promotion-ticket?ticket_id=soxl-v7-credential-binding-check"
     print("V7_BINDING_CHECK source_context", flush=True)
     if env.get("GITHUB_REPOSITORY") != "QuantStrategyLab/QuantRuntimeSettings" or env.get("GITHUB_REF") != "refs/heads/main":
         raise ValueError("designated main branch required")
@@ -50,7 +56,7 @@ def provision(*, env, run=subprocess.run, opener=urllib.request.urlopen, apply=F
     # Only this authenticated, application-specific 404 verifies the existing
     # credential. No real ticket is created or human decision submitted.
     print("V7_BINDING_CHECK console_credential", flush=True)
-    request = urllib.request.Request(PROBE_URL, headers={
+    request = urllib.request.Request(probe_url, headers={
         "Authorization": "Bearer " + token,
         "Accept": "application/json",
         # Identify the actual service client; the generic urllib signature is

@@ -34,12 +34,21 @@ jobs:
     timeout-minutes: 10
     environment: runtime-strategy-switch
     env:
-      MARKET_BENCHMARK_SYNC_URL: ${{ vars.MARKET_BENCHMARK_SYNC_URL || 'https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync' }}
+      MARKET_BENCHMARK_SYNC_URL: ${{ vars.MARKET_BENCHMARK_SYNC_URL }}
       # Prefer dedicated token; fall back to STRATEGY_SWITCH_SYNC_TOKEN (Worker accepts either).
       MARKET_BENCHMARK_SYNC_TOKEN: ${{ secrets.MARKET_BENCHMARK_SYNC_TOKEN || secrets.STRATEGY_SWITCH_SYNC_TOKEN || secrets.RUNTIME_SETTINGS_DISPATCH_TOKEN }}
       MARKET_BENCHMARK_RANGE: ${{ inputs.range || '10d' }}
       MARKET_BENCHMARK_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
     steps:
+      - name: Require MARKET_BENCHMARK_SYNC_URL
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${MARKET_BENCHMARK_SYNC_URL:-}" ]]; then
+            echo "::error::MARKET_BENCHMARK_SYNC_URL is required" >&2
+            exit 2
+          fi
+
       - name: Checkout
         uses: actions/checkout@v6
 
