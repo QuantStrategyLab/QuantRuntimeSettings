@@ -1,0 +1,47 @@
+import assert from 'node:assert/strict';
+import { loadPerformanceData } from '../web/strategy-switch-console/frontend/src/performanceData.ts';
+const account = (id, currencies = ['USD']) => ({id, platformKey:'longbridge',accountKey:id,facts:{balances:currencies.map(currency=>({currency}))}});
+const payload = (key,currency,value='100') => ({platform:'longbridge',account_key:key,identity_mismatch:false,series:{currency,truncated:false,points:[{observation_date:'2026-10-01',currency,net_assets:value},{observation_date:'2026-10-02',currency,net_assets:value}]}});
+const calls = [];
+const loaders = { account:async (platform,key,currency)=>{ calls.push([platform,key,currency]);return payload(key,currency); }, wallet:async()=>({currency:'USDT',points:[{observation_date:'2026-10-01',amount:'100'}]}) };
+const data = await loadPerformanceData([account('synthetic-a',['USD','HKD']), account('synthetic-b')], {HKD:'.125'},loaders);
+assert.equal(data.accounts[0].points.length,0,'invalid decimal FX is not accepted');
+const valid = await loadPerformanceData([account('synthetic-a',['USD','HKD']),account('synthetic-b')], {HKD:'0.125'},loaders);
+assert.equal(valid.accounts[0].points[0].value,112.5);
+assert.equal(valid.accounts[0].points[0].externalFlow,null,'cash balances must not be inferred as flows');
+assert.equal(valid.referenceFx,true);
+assert.deepEqual(valid.failed,[]);
+const missingFx = await loadPerformanceData([account('synthetic-a',['USD','HKD'])],{},loaders);
+assert.deepEqual(missingFx.failed,['synthetic-a']);
+assert.deepEqual(missingFx.omittedCurrencies,['HKD']);
+assert.equal(missingFx.accounts[0].points.length,0,'an incomplete currency total is not understated');
+const mixed = await loadPerformanceData([account('synthetic-a'),account('synthetic-b')],{}, {...loaders,account:async(p,k,c)=>{if(k==='synthetic-a')throw new Error('unavailable');return payload(k,c);}});
+assert.equal(mixed.accounts[1].points.length,2,'one failed source does not erase another account');
+assert.deepEqual(mixed.failed,['synthetic-a']);
+const mismatched = await loadPerformanceData([account('synthetic-a')],{}, {...loaders,account:async()=>payload('wrong-identity','USD')});
+assert.deepEqual(mismatched.failed,['synthetic-a']);
+const identityFlag = await loadPerformanceData([account('synthetic-a')],{}, {...loaders,account:async()=>({...payload('synthetic-a','USD'),identity_mismatch:true})});
+assert.deepEqual(identityFlag.failed,['synthetic-a']);
+const gap = await loadPerformanceData([account('synthetic-a',['USD','HKD'])],{HKD:'0.125'}, {...loaders,account:async(p,k,c)=>{const result=payload(k,c);if(c==='HKD')result.series.points.pop();return result;}});
+assert.equal(gap.incompleteDates,1);
+assert.equal(gap.accounts[0].points.length,1);
+const wallet = await loadPerformanceData([{id:'synthetic-wallet',platformKey:'binance',accountKey:'synthetic-wallet'}],{},loaders);
+assert.equal(wallet.accounts[0].points[0].value,100,'existing USDT/USD convention retained');
+assert.equal(wallet.accounts[0].points[0].externalFlow,null);
+assert.deepEqual((await loadPerformanceData([],{},loaders)).accounts,[]);
+assert.ok(calls.every(([p,k,c])=>p==='longbridge'&&k.startsWith('synthetic-')&&['USD','HKD'].includes(c)));
+const originalFetch = globalThis.fetch;
+const requested = [];
+globalThis.fetch = async (path,init) => {
+  requested.push(path);
+  assert.equal(init.method,'GET');
+  assert.equal(init.credentials,'same-origin');
+  assert.equal(init.cache,'no-store');
+  return Response.json(payload('synthetic-a','USD'));
+};
+try {
+  const realAdapter = await loadPerformanceData([account('synthetic-a')],{});
+  assert.equal(realAdapter.accounts[0].points.length,2);
+  assert.deepEqual(requested,['/api/account-facts/history?platform=longbridge&account_key=synthetic-a&currency=USD']);
+} finally { globalThis.fetch = originalFetch; }
+console.log('console_performance_data_validation: PASS (existing history adapters, all currencies, missing FX, isolated read failures, identity mismatch, gaps, unknown flows, wallet; synthetic only)');

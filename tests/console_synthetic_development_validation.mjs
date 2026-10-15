@@ -36,6 +36,17 @@ try {
   const proposals = await fetch(`${base}/api/research-promotion-tickets`).then(response => response.json());
   assert.equal(proposals.tickets.length, 12);
   assert.ok(proposals.tickets.every(ticket => ticket.live_authority_granted === false && ticket.no_order === true));
+  await fetch(`${base}/v2/?qa=performance`);
+  const chartConfig = await fetch(`${base}/api/config`).then(r => r.json());
+  assert.equal(chartConfig.accountOptions.longbridge.length, 2);
+  const chartHistoryPath = '/api/account-facts/history?platform=longbridge&account_key=synthetic-alpha&currency=USD';
+  const chartHistory = await fetch(base + chartHistoryPath).then(r => r.json());
+  assert.equal(chartHistory.series.points.length, 7);
+  assert.equal(chartHistory.account_key, 'synthetic-alpha');
+  await fetch(`${base}/v2/?qa=performance-empty`);
+  assert.equal((await fetch(base + chartHistoryPath).then(r => r.json())).series.points.length, 0);
+  await fetch(`${base}/v2/?qa=performance-partial`);
+  assert.equal((await fetch(base + chartHistoryPath.replace('synthetic-alpha', 'synthetic-beta'))).status, 503);
   console.log('console_synthetic_development_validation: PASS (loopback fixtures, rejected writes, failure scenarios)');
 } finally {
   const exited = once(server, 'exit');

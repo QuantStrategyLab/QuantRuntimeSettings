@@ -1,5 +1,6 @@
 import { createServer } from 'vite';
 import { readFile } from 'node:fs/promises';
+import { performanceFixture } from './performance-synthetic.mjs';
 
 const root = new URL('../', import.meta.url).pathname;
 const port = Number(process.env.QSL_SYNTHETIC_PORT || 4173);
@@ -23,6 +24,11 @@ const vite = await createServer({ root, envDir: false, server: { host: '127.0.0.
       res.setHeader('Content-Type', 'application/json');
       res.setHeader('Cache-Control', 'no-store');
       if (req.method !== 'GET') { res.statusCode = 405; res.end(JSON.stringify({ error: 'synthetic_audit_read_only' })); return; }
+      const performance = performanceFixture(url.pathname, url.searchParams, scenario);
+      if (performance !== undefined) {
+        res.statusCode = performance.status || 200;
+        res.end(JSON.stringify(performance.body || performance)); return;
+      }
       const fail = scenario === 'source-error' && url.pathname === '/api/owner-decisions'
         || scenario === 'config-error' && url.pathname === '/api/config'
         || scenario === 'session-error' && url.pathname === '/api/session';
