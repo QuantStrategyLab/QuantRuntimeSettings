@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 
 export const EN_COPY = {
+  "返回待办列表": "Back to pending decisions",
   "账户清单暂时读不到，请重新读取。": "The account list could not be read. Try reading it again.",
   "重新读取账户": "Read accounts again",
   "账户配置就绪后会显示在这里。": "Accounts will appear here when their configuration is available.",
