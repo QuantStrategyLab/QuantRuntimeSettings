@@ -1,3 +1,6 @@
+import { performanceResponse } from "./application/console_api/performance_routes.js";
+import { consoleApiResponse } from "./application/console_api/routes.js";
+import { decorateQueue, decisionFields } from "./application/console_api/presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
@@ -772,6 +775,22 @@ export default {
       }
       if (url.pathname === "/login") return await startLogin(request, env);
       if (url.pathname === "/callback") return await finishLogin(request, env);
+      if (url.pathname.startsWith("/api/performance/")) {
+        return await performanceResponse(request, env, {
+          json, readSession, accountOptions: loadAccountOptionsConfig, facts: accountFactsResponse,
+          history: (req, e) => accountFactsHistoryResponse(req, e, new URL(req.url)),
+          wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
+        });
+      }
+      if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft"].includes(url.pathname)) {
+        return await consoleApiResponse(request, env, {
+          json, readSession, command: runtimeInstanceCommand, accountOptions: loadAccountOptionsConfig,
+          settings: accountSettingsResponse, saveDraft: saveCombinedAccountDraft,
+          owner: ownerDecisionQueueResponse, promotion: researchPromotionTicketsResponse,
+          recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
+          audit: loadAuditLog,
+        });
+      }
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
       if (url.pathname === OVERVIEW_FX_PROXY_PATH) return await overviewFxResponse(request);
       if (url.pathname === MARKET_BENCHMARK_API_PATH && (request.method === "GET" || request.method === "HEAD")) {
@@ -1075,7 +1094,8 @@ async function credentialMaintenanceResponse(request, env, url) {
     if (text.length > 1024) throw new HttpError("invalid_credential_maintenance_request", 400);
     try { body = JSON.parse(text); } catch { throw new HttpError("invalid_credential_maintenance_request", 400); }
   }
-  return json(await runtimeInstanceCommand(env, { action, body }));
+  const result = await runtimeInstanceCommand(env, { action, body });
+  return json(!machine && request.method === "GET" ? { ...result, ...decisionFields(result, "credential_maintenance") } : result);
 }
 
 let ux1ModuleEpoch = "";
@@ -3899,6 +3919,9 @@ export class RuntimeInstances {
       if (ACCOUNT_DIAGNOSIS_DO_ACTIONS.has(command?.action)) {
         return json(await this.accountDiagnosisCommand(command));
       }
+      if (["console_decision_history", "console_settings_history", "console_account_metadata"].includes(command?.action)) {
+        return json(this.consoleReadCommand(command));
+      }
       if (HUMAN_DECISION_DO_ACTIONS.has(command?.action)) {
         return json(this.humanDecisionCommand(command));
       }
@@ -4117,6 +4140,29 @@ export class RuntimeInstances {
       }
       throw new HttpError("unsupported_account_diagnosis_action", 400);
     });
+  }
+
+  consoleReadCommand(command) {
+    if (!command.actor) throw new HttpError("runtime_instance_actor_required", 400);
+    if (command.action === "console_decision_history") {
+      const { limit, offset } = command;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0 || offset > 100000) throw new HttpError("invalid_pagination", 400);
+      return { rows: this.sql.exec("SELECT kind, subject_id, material_key, action, actor, decided_at FROM human_decision_record ORDER BY decided_at DESC, request_key DESC LIMIT ? OFFSET ?", limit + 1, offset).toArray() };
+    }
+    if (command.action === "console_settings_history") {
+      this.existingAccountInstance(command.platform, command.key);
+      return { approvals: this.sql.exec("SELECT approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray() };
+    }
+    const drafts = this.sql.exec("SELECT platform, account_key, overrides_json, updated_at FROM account_setting_draft").toArray();
+    const approvals = this.sql.exec("SELECT platform, account_key, MAX(approved_at) AS approved_at FROM account_setting_profile_application GROUP BY platform, account_key").toArray();
+    return { rows: this.read().instances.map(item => {
+      const draft = drafts.find(row => row.platform === item.platform && row.account_key === item.key);
+      const approval = approvals.find(row => row.platform === item.platform && row.account_key === item.key);
+      return { platform: item.platform, account_key: item.key,
+        pending_draft_count: draft ? new Set(Object.keys(JSON.parse(draft.overrides_json)).map(field => field.startsWith("dca_") ? "dca" : field.startsWith("reserved_") ? "cash" : field)).size : 0,
+        last_change_at: [draft?.updated_at, approval?.approved_at, item.updated_at].filter(Boolean).sort().at(-1) || null,
+      };
+    }) };
   }
 
   humanDecisionCommand(command) {
@@ -5182,6 +5228,18 @@ function assertAccountDraftPatch(profiles, observed, patch, trustedProfile, opti
   if (previous !== next || touchesDcaMode || touchesDcaBase) {
     if (!touchesDcaMode || !touchesDcaBase) throw new HttpError("account_settings_dca_rejected", 400);
   }
+}
+
+async function saveCombinedAccountDraft(request, env) {
+  requireSameOrigin(request, { requireOrigin: true });
+  const session = await readSession(request, env);
+  if (!session) return json({ ok: false, error: "login required" }, 401);
+  if (!session.admin) return json({ ok: false, error: "admin required" }, 403);
+  let raw;
+  try { raw = await readBoundedJson(request, 16 * 1024); } catch (error) { return json({ ok: false, error: "invalid_account_setting_overrides" }, error.status || 400); }
+  const allowed = ["platform", "key", "identity", "expected_draft_revision", "acknowledge_identity_conflict", "overrides"];
+  if (!raw || Array.isArray(raw) || Object.keys(raw).some(key => !allowed.includes(key)) || !Object.hasOwn(raw, "overrides")) return json({ ok: false, error: "invalid_account_setting_overrides" }, 400);
+  return saveAccountSettings(new Request(request.url, { method: "POST", headers: request.headers, body: JSON.stringify(raw) }), env);
 }
 
 async function saveAccountSettings(request, env) {
@@ -7543,7 +7601,7 @@ async function reconciliationRecoveryResponse(request, env) {
   const exact = await exactHumanDecisionResponse(request, env, session, "recovery");
   if (exact) return exact;
   if (!hasConfigStore(env)) return json(emptyReconciliationRecoveryPayload("snapshot_unavailable"));
-  return json(await aggregateReconciliationRecoverySources(env));
+  return json(decorateQueue(await aggregateReconciliationRecoverySources(env), "recoveries", "reconciliation_recovery"));
 }
 
 async function syncBinancePrivateScopeResponse(request, env) {
@@ -11270,7 +11328,7 @@ async function researchPromotionTicketsResponse(request, env) {
     schema_version: RESEARCH_PROMOTION_QUEUE_SCHEMA,
     data_status: hasConfigStore(env) ? (invalidTickets.length ? "partial" : "ready") : "unavailable",
     computed_at: new Date().toISOString(),
-    tickets: awaiting.map(attachRiskEnvelopeView),
+    tickets: decorateQueue({ tickets: awaiting.map(attachRiskEnvelopeView) }, "tickets", "strategy_promotion").tickets,
     applications,
     ...(invalidTickets.length ? { invalid_tickets: invalidTickets } : {}),
     summary: {
