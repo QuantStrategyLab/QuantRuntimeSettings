@@ -770,3 +770,6 @@ body { min-height: 100vh; background-attachment: fixed; background-repeat: no-re
   .runtime-history-row { grid-template-columns: minmax(0, 1fr); }
   .runtime-history-cells { gap: 3px; }
 }
+
+.benchmark-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+@media (max-width: 640px) { .benchmark-chart-grid { grid-template-columns: minmax(0, 1fr); } }
