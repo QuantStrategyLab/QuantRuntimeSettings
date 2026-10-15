@@ -1,0 +1,12 @@
+{
+  "schema_version": "qsl.runtime_control.v1",
+  "target_id": "example/paper",
+  "platform_id": "example",
+  "strategy_profile": "soxl_soxx_trend_income",
+  "description": "Illustrative target in the QuantPlatformKit runtime-control format. Not read by any runtime.",
+  "enabled": false,
+  "mode": "dry_run",
+  "cash_policy": {"cash_only": true, "reserved_cash_ratio": 0.03, "reserved_cash_floor_usd": 0},
+  "risk_limits_ref": "soxl_soxx_trend_income/soxl-runtime-risk-20260917",
+  "options_enabled": false
+}
