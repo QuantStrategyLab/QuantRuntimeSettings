@@ -87,7 +87,7 @@ jobs:
       id-token: write
       # Read this workflow's existing public receipts; no new state-store writes.
       actions: read
-    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true) && (github.event_name != 'schedule' || (github.event.schedule == '0 23 * * *' && vars.QSL_ROUTINE_NOTIFICATION_MODE == 'daily_digest') || (github.event.schedule == '0 22 * * 1-5' && vars.QSL_ROUTINE_NOTIFICATION_MODE != 'daily_digest')) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}
     name: Aggregate and notify
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -125,7 +125,23 @@ jobs:
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
       GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
     steps:
+      - name: Select the configured digest schedule
+        id: schedule_slot
+        env:
+          DIGEST_EVENT_NAME: ${{ github.event_name }}
+          DIGEST_EVENT_SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          python3 - <<'PY_SLOT'
+          import os
+          mode = os.environ.get("QSL_ROUTINE_NOTIFICATION_MODE", "immediate")
+          expected = "0 23 * * *" if mode == "daily_digest" else "0 22 * * 1-5"
+          proceed = os.environ.get("DIGEST_EVENT_NAME") != "schedule" or os.environ.get("DIGEST_EVENT_SCHEDULE") == expected
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"proceed={str(proceed).lower()}\n")
+          PY_SLOT
+
       - name: Require digest infrastructure variables
+        if: steps.schedule_slot.outputs.proceed == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -143,14 +159,17 @@ jobs:
           fi
 
       - uses: actions/checkout@v6
+        if: steps.schedule_slot.outputs.proceed == 'true'
         with:
           persist-credentials: false
 
       - uses: actions/setup-python@v6
+        if: steps.schedule_slot.outputs.proceed == 'true'
         with:
           python-version: "3.12"
 
       - name: Resolve dry-run and business day
+        if: steps.schedule_slot.outputs.proceed == 'true'
         id: opts
         env:
           INPUT_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
@@ -212,6 +231,7 @@ jobs:
           fi
 
       - name: Check same-business-day send history
+        if: steps.schedule_slot.outputs.proceed == 'true'
         id: resend_guard
         env:
           DIGEST_RESEND_GUARD: 'true'
@@ -223,7 +243,7 @@ jobs:
         run: python3 python/scripts/daily_digest_resend_guard.py --write-receipt data/output/daily-digest/receipt.json
 
       - name: Materialize DIGEST_CANDIDATES input (optional)
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true') }}
         id: candidates
         env:
           CANDIDATES_JSON: ${{ env.DIGEST_CANDIDATES_JSON }}
@@ -258,7 +278,7 @@ jobs:
 
       - name: Authenticate to Google Cloud for producer candidates (optional)
         id: candidates_gcp_auth
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '') }}
         continue-on-error: true
         uses: google-github-actions/auth@v3
         with:
@@ -266,12 +286,12 @@ jobs:
           service_account: ${{ env.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud for producer candidates (optional)
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' && steps.candidates_gcp_auth.outcome == 'success' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && steps.candidates_gcp_auth.outcome == 'success') }}
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Fetch producer candidates from private store (optional)
         id: candidates_fetch
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '') }}
         # Form the receipt and preserve exception delivery before the final gate.
         continue-on-error: true
         env:
@@ -318,7 +338,7 @@ jobs:
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
         id: gcp_auth
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.TELEGRAM_TOKEN == '' && env.TELEGRAM_TOKEN_SECRET_NAME != '' && steps.opts.outputs.dry_run != 'true' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && env.TELEGRAM_TOKEN == '' && env.TELEGRAM_TOKEN_SECRET_NAME != '' && steps.opts.outputs.dry_run != 'true') }}
         continue-on-error: true
         uses: google-github-actions/auth@v3
         with:
@@ -326,7 +346,7 @@ jobs:
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud for sentinel secret (optional)
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' && steps.gcp_auth.outcome == 'success' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && steps.gcp_auth.outcome == 'success') }}
         uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
@@ -335,7 +355,7 @@ jobs:
         id: send
         # A failed private path may still deliver only an independently sourced
         # maintenance block. The original failed step and sender nonzero remain.
-        if: ${{ steps.resend_guard.outputs.proceed == 'true' && (success() || (!cancelled() && github.ref == 'refs/heads/main' && steps.opts.outcome == 'success' && steps.opts.outputs.dry_run != 'true' && steps.candidates.outcome == 'failure')) }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (steps.resend_guard.outputs.proceed == 'true' && (success() || (!cancelled() && github.ref == 'refs/heads/main' && steps.opts.outcome == 'success' && steps.opts.outputs.dry_run != 'true' && steps.candidates.outcome == 'failure'))) }}
         env:
           DIGEST_CANDIDATES_INPUT_STATUS: ${{ steps.candidates.outcome }}
           DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
@@ -368,7 +388,7 @@ jobs:
           "${args[@]}" > "$RUNNER_TEMP/digest-message-private.log" 2>&1
 
       - name: Prepare public receipt summary
-        if: always()
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (always()) }}
         env:
           SOURCE_SHA: ${{ github.sha }}
         run: |
@@ -382,7 +402,7 @@ jobs:
             --source-sha "$SOURCE_SHA"
 
       - name: Summarize (no secrets)
-        if: always()
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (always()) }}
         run: |
           set -euo pipefail
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
@@ -444,7 +464,7 @@ jobs:
           PY
 
       - name: Upload receipt artifact
-        if: always()
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (always()) }}
         uses: actions/upload-artifact@v4
         with:
           name: daily-digest-receipt
@@ -453,7 +473,7 @@ jobs:
           # Complete receipt, candidates and message previews stay on the runner.
 
       - name: Require complete private candidate intake
-        if: ${{ always() && env.DIGEST_CANDIDATES_STORE_STATUS == 'failed' }}
+        if: ${{ steps.schedule_slot.outputs.proceed == 'true' && (always() && env.DIGEST_CANDIDATES_STORE_STATUS == 'failed') }}
         run: |
           echo "::error::Private candidate intake failed; see the public receipt source reason."
           exit 1
