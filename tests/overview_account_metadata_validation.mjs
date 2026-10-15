@@ -172,7 +172,10 @@ try {
   historyKey = `paper:USD:${fresh.observed_finished_at}:`;
   const historyHtml = render([baseAccount]);
   metadataRenderFixtures.history = historyHtml;
-  assert.doesNotMatch(historyHtml, /历史数据范围|2026-10-07 · USD 101\.25|<path /, "stored asset history is not drawn as a return curve");
+  assert.match(historyHtml, /2026-10-07 · USD 101\.25/, "stored history is visible in the selected asset chart");
+  chart = "return";
+  assert.doesNotMatch(render([baseAccount]), /2026-10-07 · USD 101\.25|class="asset-chart-line"/, "stored assets are not drawn as a return curve");
+  chart = "assets";
   browserNow = expiry;
   assert.match(render([schwabAccount]), /208\.5/);
   browserNow = expiry + 1;
