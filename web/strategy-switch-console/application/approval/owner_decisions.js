@@ -1,3 +1,4 @@
+import { decisionFields } from "../console_api/presentation.js";
 /**
  * Owner-decision HTTP use cases (GET/POST /api/owner-decisions).
  *
@@ -66,6 +67,7 @@ export async function ownerDecisionQueueResponse(request, env, deps) {
       ? stored.intent
       : null;
     candidates.push({
+      ...decisionFields({ candidate, intent }, "owner_decision"),
       candidate,
       candidate_evidence_sha256: candidateEvidenceSha256,
       decision_binding: { kind: "owner", subject_id: candidate.candidate_id, material_sha256: candidateEvidenceSha256 },

@@ -208,6 +208,13 @@ try {
   const stableEvidence = stableQueue.body.candidates.find((item) => item.candidate.candidate_id === "owner-stable").candidate_evidence_sha256;
   const stable = await call("/api/owner-decisions", { method: "POST", body: { candidate_id: "owner-stable", decision: "keep_parked", candidate_evidence_sha256: stableEvidence } });
   assert.equal(stable.status, 200);
+  const historyPage = await call("/api/owner-decisions/history?limit=1");
+  assert.equal(historyPage.status, 200);
+  assert.equal(historyPage.body.items.length, 1);
+  assert.equal(historyPage.body.next_cursor, "1");
+  assert.match(historyPage.body.items[0].actor_alias, /^actor-[a-f0-9]{16}$/);
+  assert.match(historyPage.body.items[0].evidence_sha256, /^[a-f0-9]{64}$/);
+  assert.equal((await call("/api/owner-decisions/history?limit=1&cursor=1")).body.items.length, 1);
   assert.equal((await syncControl(ownerSnapshot("owner-stable"))).status, 200);
   const stableAgain = await call("/api/owner-decisions");
   const stableIntent = stableAgain.body.candidates.find((item) => item.candidate.candidate_id === "owner-stable").intent;

@@ -1,0 +1,15 @@
+:root { color: #1c3043; background: #f5f8fc; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; line-height: 1.6; }
+body { margin: 0; }
+main { max-width: 880px; margin: 40px auto; padding: 0 24px; }
+h1 { font-size: 28px; margin: 0; }
+h2 { font-size: 21px; margin-top: 0; }
+header p { color: #50647a; }
+section { background: #fff; border-left: 4px solid #387391; margin: 24px 0; padding: 24px; }
+section + section { border-color: #a07428; }
+[role="status"] { font-weight: 600; }
+dl { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px 16px; }
+dt { color: #50647a; } dd { margin: 0; overflow-wrap: anywhere; }
+pre { background: #eef3f8; padding: 16px; overflow: auto; font-size: 13px; }
+summary { cursor: pointer; } a { color: #205d80; }
+:focus-visible { outline: 3px solid #387391; outline-offset: 4px; }
+@media (max-width: 500px) { main { margin: 24px auto; padding: 0 12px; } section { padding: 16px; } dl { grid-template-columns: 1fr; gap: 2px; } dd { margin-bottom: 10px; } }

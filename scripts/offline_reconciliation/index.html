@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>离线对账观察</title>
+<link rel="stylesheet" href="/offline-reconciliation.css">
+<main>
+  <header><h1>离线对账观察</h1><p>合成数据演示。观察结果不授予交易或恢复权限。</p></header>
+  <section aria-labelledby="current-title">
+    <h2 id="current-title">当前观察</h2>
+    <p id="current-status" role="status">读取中…</p>
+    <dl id="current-fields"></dl>
+    <details><summary>查看观察 JSON</summary><pre id="current-json"></pre></details>
+  </section>
+  <section aria-labelledby="historical-title">
+    <h2 id="historical-title">历史恢复审批材料</h2>
+    <p id="historical-status" role="status">读取中…</p>
+    <p>历史材料保留原有时间、决定和过期提示。</p>
+    <details open><summary>查看原始材料</summary><pre id="historical-json"></pre></details>
+  </section>
+  <footer><a href="/api/reconciliation-overview">查看分区 API</a></footer>
+</main>
+<script type="module" src="/offline-reconciliation.js"></script>
+</html>
