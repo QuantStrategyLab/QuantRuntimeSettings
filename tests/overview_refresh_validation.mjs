@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createContext, runInContext } from "node:vm";
-import { loadAccountFactsHistory, loadBinanceWalletHistory, loadReadModel, loadRuntimeDaily } from "../web/strategy-switch-console/frontend/src/api.ts";
+import { loadReadModel, loadRuntimeDaily } from "../web/strategy-switch-console/frontend/src/api.ts";
 import { overviewRuntimeStatusLabel, runtimeDailySelectionEligible, runtimeDailySelectionFromAccount, runtimeDailySnapshotMatchesSelection, runtimeDateSelectable } from "../web/strategy-switch-console/frontend/src/presentation.ts";
 import { loadOverviewUsdRates, resetOverviewUsdRatesCache } from "../web/strategy-switch-console/frontend/src/overviewUsd.ts";
 
@@ -53,9 +53,6 @@ assert.match(fullRefresh, /if \(!gate\.current\.isCurrent\(token\)\)/);
 assert.match(fullRefresh, /setModel\(next\);\s*setOverviewReadModelRefreshVersion/, "explicit readback refreshes overview detail data in the same batch as the model");
 assert.match(app, /useEffect\(\(\) => \{ void refresh\(\); \}, \[\]\)/, "boot load is mount-only");
 const overview = readFileSync(new URL("../web/strategy-switch-console/frontend/src/OverviewPage.tsx", import.meta.url), "utf8");
-const historyEffect = overview.slice(overview.indexOf("const epoch = ++historyEpoch.current"), overview.indexOf("const todayAccounts ="));
-assert.match(historyEffect, /chartAccount\?\.id[\s\S]*chartFacts\?\.observed_finished_at/);
-assert.doesNotMatch(historyEffect, /selectedFacts\?\.observed_finished_at/);
 const runtimeEffect = overview.slice(overview.lastIndexOf("  useEffect(() => {", overview.indexOf("const todayAccounts =")), overview.indexOf("  useEffect(() => {", overview.indexOf("const todayAccounts =")));
 assert.match(runtimeEffect, /runtimeDateSelectable\(runtimeDate, runtimeNow\)/);
 assert.match(runtimeEffect, /visible\.filter\(account => runtimeDailySelectionEligible/);
@@ -65,117 +62,45 @@ assert.match(runtimeEffect, /if \(!active\) return/);
 assert.match(runtimeEffect, /return \(\) => \{ active = false; \}/);
 assert.match(runtimeEffect, /readModelRefreshVersion/);
 
-// Execute the actual history hook and dependency list without a browser or a
-// provider. This is a hook lifecycle harness, not full React rendering evidence.
-const hookStart = overview.lastIndexOf("  useEffect(() => {", overview.indexOf("const epoch = ++historyEpoch.current"));
-const hookEnd = overview.indexOf("  useEffect(() => {", hookStart + 1);
-const historyHook = overview.slice(hookStart, hookEnd).trim();
-assert.match(historyHook, /^useEffect\(\(\) => \{/);
-assert.match(historyHook, /\]\);$/);
+// Execute the current performance hook to preserve stale-response protection.
+const charts = readFileSync(new URL("../web/strategy-switch-console/frontend/src/PerformanceCharts.tsx", import.meta.url), "utf8");
+const hookStart = charts.lastIndexOf("  useEffect(() => {", charts.indexOf("const current = ++epoch.current"));
+const hookEnd = charts.indexOf("  const data =", hookStart);
+const historyHook = charts.slice(hookStart, hookEnd).trim();
+assert.match(charts, /a\.facts\?\.observed_finished_at/);
+assert.match(charts, /rates, refreshVersion/);
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); };
 const pending = [];
-globalThis.fetch = (path, options) => {
-  assert.equal(options.method, "GET", "history recovery cannot perform writes");
-  assert.equal(options.cache, "no-store");
-  assert.ok(/^\/api\/(?:account-facts\/history\?platform=longbridge&account_key=synthetic-[ab]&currency=(?:USD|EUR)|binance-account-facts\/history\?account_key=synthetic-wallet)$/.test(path), "only synthetic internal history reads are mocked");
-  return new Promise((resolve, reject) => pending.push({ path, resolve, reject }));
-};
-function historyHarness(accountKey = "synthetic-a", walletChartSelected = false) {
-  const state = { history: null, walletHistory: null, error: null, loading: false, key: "" };
-  let dependencies;
-  let cancel;
-  let mounted = true;
+function historyHarness() {
+  const state = { loaded: null };
+  let dependencies, cancel;
   const context = createContext({
-    Error,
-    historyEpoch: { current: 0 },
-    chartAccount: { id: accountKey, platformKey: walletChartSelected ? "binance" : "longbridge", accountKey },
-    chartFacts: { observed_finished_at: "2026-10-06T00:00:00Z" },
-    binanceFacts: { value: { report: { observed_finished_at: "2026-10-06T00:00:00Z" } } },
-    walletChartSelected, currency: walletChartSelected ? "USDT" : "USD", chart: "assets",
-    requestedHistoryKey: "synthetic-history", readModelRefreshVersion: 0,
-    setHistory: value => { state.history = value; },
-    setWalletHistory: value => { state.walletHistory = value; },
-    setHistoryError: value => { state.error = value; },
-    setHistoryLoading: value => { state.loading = value; },
-    setHistoryKey: value => { state.key = value; },
-    loadAccountFactsHistory, loadBinanceWalletHistory,
+    epoch: { current: 0 }, members: [{ id: 'synthetic-a' }], rates: {}, requestKey: 'a:0',
+    setLoaded: value => { state.loaded = value; },
+    loadPerformanceData: (members, rates) => new Promise(resolve => pending.push({ members, rates, resolve })),
     useEffect(effect, next) {
-      if (dependencies && next.length === dependencies.length && next.every((value, index) => Object.is(value, dependencies[index]))) return;
-      cancel?.();
-      dependencies = Array.from(next);
-      cancel = effect();
+      if (dependencies && next.every((value,index)=>Object.is(value,dependencies[index]))) return;
+      cancel?.(); dependencies = Array.from(next); cancel = effect();
     },
   });
-  return {
-    state,
-    render(patch = {}) { assert.equal(mounted, true); Object.assign(context, patch); runInContext(historyHook, context, { timeout: 1000 }); },
-    unmount() { mounted = false; cancel?.(); },
-  };
+  return { state, render(patch = {}) { Object.assign(context,patch); runInContext(historyHook,context); }, unmount() { cancel?.(); } };
 }
-function respond(index, payload, status = 200) {
-  pending[index].resolve(new Response(JSON.stringify(payload), { status, headers: { "Content-Type": "application/json" } }));
-}
-try {
-  const failed = historyHarness();
-  failed.render();
-  const first = pending.length - 1;
-  respond(first, { ok: false, error: "synthetic-history-unavailable" }, 503);
-  await flush();
-  assert.equal(failed.state.error, "http_503");
-  assert.equal(failed.state.loading, false);
-  failed.render({ readModelRefreshVersion: 1 });
-  assert.equal(pending.length, first + 2, "a visible refresh retries history after 503 even when the facts timestamp is unchanged");
-  failed.render({ readModelRefreshVersion: 1 });
-  assert.equal(pending.length, first + 2, "same refresh render does not duplicate its in-flight GET");
-  respond(first + 1, { marker: "recovered-history" });
-  await flush();
-  assert.equal(failed.state.history.marker, "recovered-history");
-  assert.equal(failed.state.error, null);
-  assert.equal(failed.state.loading, false);
-  failed.unmount();
-
-  const switched = historyHarness();
-  switched.render();
-  const oldAccount = pending.length - 1;
-  switched.render({ chartAccount: { id: "synthetic-b", platformKey: "longbridge", accountKey: "synthetic-b" } });
-  const newAccount = pending.length - 1;
-  respond(newAccount, { marker: "new-account" });
-  await flush();
-  respond(oldAccount, { marker: "old-account" });
-  await flush();
-  assert.equal(switched.state.history.marker, "new-account", "a late previous-account response cannot replace the current history");
-  switched.render({ currency: "EUR" });
-  assert.match(pending.at(-1).path, /account_key=synthetic-b&currency=EUR$/);
-  const beforeUnmount = structuredClone(switched.state);
-  switched.unmount();
-  respond(pending.length - 1, { marker: "after-unmount" });
-  await flush();
-  assert.deepEqual(switched.state, beforeUnmount, "unmount cancels late history state updates");
-
-  const wallet = historyHarness("synthetic-wallet", true);
-  wallet.render();
-  const oldWallet = pending.length - 1;
-  respond(oldWallet, { ok: false }, 503);
-  await flush();
-  wallet.render({ readModelRefreshVersion: 1 });
-  assert.equal(pending.length, oldWallet + 2, "same-timestamp refresh also retries wallet history");
-  respond(oldWallet + 1, { marker: "recovered-wallet" });
-  await flush();
-  assert.equal(wallet.state.walletHistory.marker, "recovered-wallet");
-  wallet.render({ readModelRefreshVersion: 2 });
-  const cancelledWallet = pending.length - 1;
-  wallet.render({ chart: "return" });
-  const requestsBeforeCancel = pending.length;
-  wallet.render({ readModelRefreshVersion: 3 });
-  assert.equal(pending.length, requestsBeforeCancel, "return mode must not request asset history");
-  respond(cancelledWallet, { marker: "late-wallet-after-mode-change" });
-  await flush();
-  assert.equal(wallet.state.walletHistory, null);
-  assert.equal(wallet.state.error, null, "a cancelled history request cannot set an error in return mode");
-  wallet.unmount();
-} finally {
-  globalThis.fetch = originalFetch;
-}
+const harness = historyHarness();
+harness.render();
+assert.equal(pending.length,1);
+harness.render();
+assert.equal(pending.length,1,'same scope does not duplicate in-flight history reads');
+harness.render({ requestKey:'a:1' });
+assert.equal(pending.length,2,'explicit refresh retries history without requiring a timestamp change');
+pending[1].resolve({ marker:'recovered' }); await flush();
+pending[0].resolve({ marker:'old' }); await flush();
+assert.equal(harness.state.loaded.data.marker,'recovered','late old responses are discarded');
+harness.render({ requestKey:'b:1', members:[{id:'synthetic-b'}] });
+assert.equal(pending[2].members[0].id,'synthetic-b');
+harness.unmount();
+pending[2].resolve({marker:'after-unmount'}); await flush();
+assert.equal(harness.state.loaded.data.marker,'recovered','unmount invalidates pending reads');
+globalThis.fetch = originalFetch;
 
 console.log("overview refresh validation: PASS");
 
