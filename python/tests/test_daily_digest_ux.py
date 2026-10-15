@@ -86,6 +86,8 @@ class DailyDigestUXTests(unittest.TestCase):
                 row["order_count"] = None
                 _, text, _ = render([row], locale=locale, layout=layout)
                 self.assertIn("证据未覆盖" if locale == "zh" else "evidence uncovered", text)
+                self.assertIn("订单证据缺失" if locale == "zh" else "order evidence is missing", text)
+                self.assertNotIn("成交数未知" if locale == "zh" else "fill counts are unknown", text)
                 self.assertNotIn("已验证零成交" if locale == "zh" else "verified zero fills", text)
                 self.assertIn("EVIDENCE_NOT_FOUND", text)
 
