@@ -110,7 +110,7 @@ jobs:
           research = project.get("optional-dependencies", {}).get("research", [])
           pattern = re.compile(
               r"^ai-gateway-client\s*@\s*git\+https://github\.com/"
-              r"QuantStrategyLab/PersonalAIService\.git@([0-9a-f]{40})$"
+              r"QuantStrategyLab/(?:AIAuditBridge|PersonalAIService)\.git@([0-9a-f]{40})$"
           )
           matches = [pattern.fullmatch(item.strip()) for item in research if isinstance(item, str)]
           matches = [match for match in matches if match]

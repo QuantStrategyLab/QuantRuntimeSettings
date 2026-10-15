@@ -89,7 +89,7 @@
       "consumer_repo": "CnEquityStrategies",
       "path": "pyproject.toml",
       "package": "ai-gateway-client",
-      "source_repo": "PersonalAIService",
+      "source_repo": "AIAuditBridge",
       "ref": "60bd64a2ae059a082614181eeb845b46df395523"
     },
     {
@@ -103,7 +103,7 @@
       "consumer_repo": "CnEquityStrategies",
       "path": "uv.lock",
       "package": "ai-gateway-client",
-      "source_repo": "PersonalAIService",
+      "source_repo": "AIAuditBridge",
       "ref": "60bd64a2ae059a082614181eeb845b46df395523"
     },
     {
@@ -327,7 +327,7 @@
       "consumer_repo": "UsEquitySnapshotPipelines",
       "path": "pyproject.toml",
       "package": "ai-gateway-client",
-      "source_repo": "PersonalAIService",
+      "source_repo": "AIAuditBridge",
       "ref": "65c8bcf432f578f657c12d5dab0e16ebec0bef5a"
     },
     {
@@ -355,7 +355,7 @@
       "consumer_repo": "UsEquitySnapshotPipelines",
       "path": "uv.lock",
       "package": "ai-gateway-client",
-      "source_repo": "PersonalAIService",
+      "source_repo": "AIAuditBridge",
       "ref": "65c8bcf432f578f657c12d5dab0e16ebec0bef5a"
     },
     {
