@@ -394,8 +394,8 @@ class DailyDigestAggregatorTests(unittest.TestCase):
                 include_github=False,
             )
             self.assertEqual(len(payload.runs), 2)
-            self.assertIn("成交 未知", text)
-            self.assertIn("成交 0 笔 / 无订单", text)  # verified zero on acct-b line
+            self.assertIn("数据缺失：EVIDENCE_NOT_FOUND", text)
+            self.assertIn("无交易", text)  # verified zero on acct-b line
             self.assertIsNone(digest.total_fills(payload.runs))
             receipt = aggregator.build_receipt(
                 payload, collected, message_chars=len(text)
@@ -625,8 +625,9 @@ class CandidateFreshnessTests(unittest.TestCase):
         self.assertEqual(stale["reason_code"], "candidate_business_day_stale")
         self.assertNotIn("opaque_account_uid", stale)
         self.assertNotIn("equity", stale)
-        self.assertIn("⚠️ 数据未更新，已略去：", text)
-        self.assertIn("· ibkr / 纳斯达克增长收益（数据业务日 2026-10-08）", text)
+        self.assertIn("⚠️ 以下账户今天的数据缺失或过期：", text)
+        self.assertIn("· ibkr / 纳斯达克增长收益（数据缺失：EVIDENCE_STALE_BUSINESS_DAY", text)
+        self.assertIn("数据业务日 2026-10-08", text)
 
     def test_all_stale_is_not_verified_idle(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -650,8 +651,8 @@ class CandidateFreshnessTests(unittest.TestCase):
         self.assertNotIn("已验证无平台", text)
         self.assertNotIn("990", text)
         self.assertIn("今日候选数据均未更新，不能判定为链路正常。", text)
-        self.assertIn("（数据业务日 2026-10-09）", text)
-        self.assertIn("（未注明业务日）", text)
+        self.assertIn("数据业务日 2026-10-09", text)
+        self.assertIn("未注明业务日", text)
         reasons = sorted(item["reason_code"] for item in receipt["stale_candidates"])
         self.assertEqual(
             reasons,
@@ -672,7 +673,7 @@ class CandidateFreshnessTests(unittest.TestCase):
             collected.coverage.stale_candidates[0]["reason_code"],
             "candidate_business_day_future",
         )
-        self.assertIn("⚠️ Data not updated, omitted:", text)
+        self.assertIn("⚠️ These accounts have missing or stale data today:", text)
         self.assertIn("data business day 2026-10-13", text)
 
     def test_no_stale_note_when_all_fresh(self):

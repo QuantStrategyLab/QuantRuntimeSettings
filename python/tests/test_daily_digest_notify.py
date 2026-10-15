@@ -75,7 +75,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("Heartbeat", text)
-        self.assertIn("fills 0 / no orders", text)
+        self.assertIn("No trades", text)
         self.assertIn("verified zero fills", text.lower())
         self.assertIn("binance", text)
         self.assertEqual(daily_digest_notify.total_fills(runs), 0)
@@ -99,7 +99,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("成交 未知", text)
+        self.assertIn("数据缺失：EVIDENCE_NOT_FOUND", text)
         self.assertNotIn("无成交", text)
         self.assertIn("成交数未知", text)
         self.assertIsNone(daily_digest_notify.total_fills(runs))
@@ -432,7 +432,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
-            "成交 未知 / 无订单\n"
+            "数据缺失：EVIDENCE_NOT_FOUND（未找到当天的成交或订单证据）\n"
             "✅ 无需调仓\n"
             "平台: schwab"
         )
@@ -503,7 +503,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
-            "成交 未知 / 无订单\n"
+            "数据缺失：EVIDENCE_NOT_FOUND（未找到当天的成交或订单证据）\n"
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
@@ -512,7 +512,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
-            "成交 0 笔 / 无订单\n"
+            "无交易\n"
             "✅ 无需调仓\n"
             "平台: ibkr"
         )
@@ -741,7 +741,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
-            "成交 未知 / 无订单\n"
+            "数据缺失：EVIDENCE_NOT_FOUND（未找到当天的成交或订单证据）\n"
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"

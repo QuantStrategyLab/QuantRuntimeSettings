@@ -38,6 +38,9 @@ EvidenceStatus = Literal[
     "has_runs",
 ]
 CountFieldStatus = Literal["known", "unknown", ""]
+MISSING_EVIDENCE_REASONS = frozenset({
+    "EVIDENCE_NOT_FOUND", "EVIDENCE_UNREADABLE", "EVIDENCE_STALE_BUSINESS_DAY", "SOURCE_NOT_CONFIGURED",
+})
 
 _TEXTS: dict[str, dict[str, str]] = {
     "zh": {
@@ -83,7 +86,15 @@ _TEXTS: dict[str, dict[str, str]] = {
         "conclusion_no_order_prefix": "未下单",
         "platform_tag": "平台",
         "identity_tag": "身份",
-        "stale_candidates_header": "⚠️ 数据未更新，已略去：",
+        "stale_candidates_header": "⚠️ 以下账户今天的数据缺失或过期：",
+        "no_trades": "无交易",
+        "missing_evidence": "数据缺失：{code}（{explanation}）",
+        "EVIDENCE_NOT_FOUND": "未找到当天的成交或订单证据",
+        "EVIDENCE_UNREADABLE": "证据读取失败或格式无效",
+        "EVIDENCE_STALE_BUSINESS_DAY": "证据业务日与日报不一致",
+        "SOURCE_NOT_CONFIGURED": "未配置成交或订单证据来源",
+        "test_label": "【测试】",
+        "guard_recovery": "⚠️ 此前 {count} 次日报因无法确认发送记录而停止发送，请查看工作流回执。",
         "stale_candidate_line": "· {platform} / {strategy}（{detail}）",
         "stale_detail_day": "数据业务日 {day}",
         "stale_detail_undated": "未注明业务日",
@@ -91,7 +102,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_title": "📡 量化哨兵 · 日报 {date}",
         "v2_window": "窗口 {start} → {end}（上海时间）",
         "v2_section_attention": "⚠️ 待处理",
-        "v2_stale_header": "数据未更新，已略去：",
+        "v2_stale_header": "以下账户今天的数据缺失或过期：",
         "v2_section_us_daily": "📈 美股日策略（纽约交易日 {day}）",
         "v2_section_dca": "💰 定投",
         "v2_section_crypto": "🪙 加密小时策略",
@@ -156,7 +167,15 @@ _TEXTS: dict[str, dict[str, str]] = {
         "conclusion_no_order_prefix": "No order",
         "platform_tag": "Platform",
         "identity_tag": "Identity",
-        "stale_candidates_header": "⚠️ Data not updated, omitted:",
+        "stale_candidates_header": "⚠️ These accounts have missing or stale data today:",
+        "no_trades": "No trades",
+        "missing_evidence": "Data missing: {code} ({explanation})",
+        "EVIDENCE_NOT_FOUND": "No fill or order evidence for this business day",
+        "EVIDENCE_UNREADABLE": "Evidence could not be read or has an invalid format",
+        "EVIDENCE_STALE_BUSINESS_DAY": "Evidence belongs to a different business day",
+        "SOURCE_NOT_CONFIGURED": "No fill or order evidence source is configured",
+        "test_label": "[TEST]",
+        "guard_recovery": "⚠️ {count} earlier digest attempts were blocked because send history could not be verified; check the workflow receipts.",
         "stale_candidate_line": "· {platform} / {strategy} ({detail})",
         "stale_detail_day": "data business day {day}",
         "stale_detail_undated": "no business day",
@@ -166,7 +185,7 @@ _TEXTS: dict[str, dict[str, str]] = {
         "v2_title": "📡 QuantSentinel · Daily report {date}",
         "v2_window": "Window {start} → {end} (Asia/Shanghai)",
         "v2_section_attention": "⚠️ Needs attention",
-        "v2_stale_header": "Data not updated, omitted:",
+        "v2_stale_header": "These accounts have missing or stale data today:",
         "v2_section_us_daily": "📈 US daily strategies (NY session {day})",
         "v2_section_dca": "💰 DCA",
         "v2_section_crypto": "🪙 Crypto intraday",
@@ -473,6 +492,7 @@ class DigestRunEntry:
     order_count_status: CountFieldStatus = "known"
     cycle_count_status: CountFieldStatus = "known"
     reason_code: str = ""
+    missing_evidence_reason: str = ""
     evidence_provenance: str = ""
     # B11 optional producer axes (pass-through; central projects when empty).
     execution_status: str = ""
@@ -515,9 +535,12 @@ class EvidenceCoverage:
     candidate_failures: tuple[dict[str, Any], ...] = ()
     # NOTIFY-04: candidate rows dropped because their business day did not match
     # the digest business day (or was missing). Each item is a redacted mapping
-    # with platform_id / strategy_profile / strategy_label /
-    # candidate_business_day / reason_code — never account ids or amounts.
+    # with platform/strategy/day/reason and optional account display hint.
+    # Full details remain private; the public projection exports counts only.
     stale_candidates: tuple[dict[str, Any], ...] = ()
+    missing_targets: tuple[dict[str, Any], ...] = ()
+    suppressed_candidates_count: int = 0
+    legacy_candidates_only: bool = False
 
     @property
     def stale_candidates_count(self) -> int:
@@ -535,7 +558,7 @@ class EvidenceCoverage:
             return False
         # Stale producer data means the producer did not refresh: we cannot
         # claim a verified idle day.
-        if self.stale_candidates:
+        if self.stale_candidates or self.missing_targets or self.legacy_candidates_only:
             return False
         if self.github_enabled and self.github_sources_queried <= 0:
             return False
@@ -559,6 +582,8 @@ class EvidenceCoverage:
             "is_complete_for_verified_idle": self.is_complete_for_verified_idle,
             "stale_candidates_count": self.stale_candidates_count,
             "stale_candidates": [dict(item) for item in self.stale_candidates],
+            "missing_targets_count": len(self.missing_targets),
+            "suppressed_candidates_count": self.suppressed_candidates_count,
         }
 
 
@@ -734,18 +759,48 @@ def _detail_for(entry: DigestRunEntry, locale: DigestLocale) -> str:
 
 
 def _trade_counts(entry: DigestRunEntry, locale: DigestLocale) -> str:
+    if (entry.fill_count_status == "unknown" or entry.fill_count is None
+            or entry.order_count_status == "unknown" or entry.order_count is None):
+        # Keep a partially known count visible without claiming the other is zero.
+        known = []
+        for label, value, status in (
+            ("fills_label", entry.fill_count, entry.fill_count_status),
+            ("orders_label", entry.order_count, entry.order_count_status),
+        ):
+            if status != "unknown" and value is not None and value > 0:
+                known.append(_t(locale, "trade_count").format(label=_t(locale, label), count=value))
+        return " / ".join(known + [missing_evidence_text(locale, entry.missing_evidence_reason or entry.reason_code)])
+    if entry.fill_count == 0 and entry.order_count == 0:
+        return _t(locale, "no_trades")
     parts = []
     for label, value, status in (
         ("fills_label", entry.fill_count, entry.fill_count_status),
         ("orders_label", entry.order_count, entry.order_count_status),
     ):
-        if status == "unknown" or value is None:
-            parts.append(f"{_t(locale, label)} {_t(locale, 'counts_unknown')}")
-        elif label == "orders_label" and value == 0:
+        if label == "orders_label" and value == 0:
             parts.append(_t(locale, "no_orders"))
         else:
             parts.append(_t(locale, "trade_count").format(label=_t(locale, label), count=value))
     return " / ".join(parts)
+
+
+def missing_evidence_text(locale: DigestLocale, reason: str = "") -> str:
+    code = reason if reason in MISSING_EVIDENCE_REASONS else "EVIDENCE_NOT_FOUND"
+    return _t(locale, "missing_evidence").format(code=code, explanation=_t(locale, code))
+
+
+def _source_missing_reason(coverage: EvidenceCoverage | None) -> str:
+    if coverage is not None and coverage.has_source_failures:
+        return "EVIDENCE_UNREADABLE"
+    return "EVIDENCE_NOT_FOUND" if coverage is not None and coverage.candidates_configured else "SOURCE_NOT_CONFIGURED"
+
+
+def label_delivery_text(text: str, locale: str, *, test: bool = False, previous_failures: int = 0) -> str:
+    loc = normalize_locale(locale)
+    prefix = [_t(loc, "test_label")] if test else []
+    if previous_failures:
+        prefix.append(_t(loc, "guard_recovery").format(count=previous_failures))
+    return "\n".join(prefix + [text])
 
 
 def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
@@ -1021,7 +1076,9 @@ def resolve_evidence_status(
 def global_total_fills(payload: DailyDigestInput) -> int | None:
     """An all-source total requires complete, current evidence; keep run facts."""
     coverage = payload.evidence_coverage
-    if coverage is not None and (coverage.has_source_failures or coverage.stale_candidates):
+    if coverage is not None and (
+        coverage.has_source_failures or coverage.stale_candidates or coverage.missing_targets or coverage.legacy_candidates_only
+    ):
         return None
     if not payload.runs and resolve_evidence_status(payload) != "verified_idle":
         return None
@@ -1033,7 +1090,7 @@ def _render_stale_candidates(
 ) -> list[str]:
     """Localized note listing candidate rows dropped as stale (NOTIFY-04)."""
 
-    items = tuple(coverage.stale_candidates) if coverage is not None else ()
+    items = tuple(coverage.missing_targets or coverage.stale_candidates) if coverage is not None else ()
     if not items:
         return []
     lines = [_t(locale, "stale_candidates_header")]
@@ -1051,6 +1108,12 @@ def _render_stale_candidates(
             if day
             else _t(locale, "stale_detail_undated")
         )
+        reason = str(item.get("reason_code") or "")
+        code = reason if reason in MISSING_EVIDENCE_REASONS else "EVIDENCE_STALE_BUSINESS_DAY"
+        detail = missing_evidence_text(locale, code) + (f"; {detail}" if "candidate_business_day" in item else "")
+        hint = str(item.get("account_hint") or "").strip()
+        if hint:
+            strategy = f"{strategy} [{hint}]"
         key = (platform, strategy, detail)
         if key in seen:
             continue
@@ -1094,6 +1157,8 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
             lines.append(_t(locale, "heartbeat_all_candidates_stale"))
         else:
             lines.append(_t(locale, "heartbeat_evidence_unknown"))
+        if evidence_status != "verified_idle" and not stale_lines:
+            lines.append(missing_evidence_text(locale, _source_missing_reason(coverage)))
         if stale_lines:
             lines.append("")
             lines.extend(stale_lines)
@@ -1108,10 +1173,11 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     else:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
-    if known_fills is None:
+    counts_missing = any(entry.order_count_status == "unknown" or entry.order_count is None for entry in runs)
+    if known_fills is None or counts_missing:
         lines.append(_t(locale, "heartbeat_fills_unknown"))
     if not rich:
-        if known_fills is None:
+        if known_fills is None or counts_missing:
             lines.append(_t(locale, "ran_section"))
         elif known_fills == 0:
             lines.append(_t(locale, "heartbeat_no_fill_verified"))
@@ -1185,7 +1251,9 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
             )
         )
 
-    if runs and global_total_fills(payload) is None:
+    if runs and (global_total_fills(payload) is None or any(
+        entry.order_count_status == "unknown" or entry.order_count is None for entry in runs
+    )):
         lines.append(_t(locale, "heartbeat_fills_unknown"))
 
     attention: list[str] = []
@@ -1210,6 +1278,8 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
             if stale_lines
             else _t(locale, "v2_evidence_unknown")
         )
+        if not stale_lines:
+            attention.append(missing_evidence_text(locale, _source_missing_reason(coverage)))
     if stale_lines:
         attention.append(_t(locale, "v2_stale_header"))
         attention.extend(stale_lines[1:])
@@ -1405,6 +1475,7 @@ def filter_runs_for_digest(
                 order_count_status=order_status,
                 cycle_count_status=cycle_status,
                 reason_code=str(raw.get("reason_code") or "").strip(),
+                missing_evidence_reason=str(raw.get("missing_evidence_reason") or "").strip(),
                 section=_parse_section(raw.get("section")),
                 evidence_provenance=str(raw.get("evidence_provenance") or "").strip(),
                 execution_status=str(raw.get("execution_status") or "").strip(),

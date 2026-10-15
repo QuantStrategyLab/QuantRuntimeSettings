@@ -14,6 +14,7 @@ recorded in coverage/receipt and must not render as “link healthy / no runs”
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -645,6 +646,21 @@ CANDIDATE_STALE_REASON_UNDATED = "candidate_business_day_missing"
 CANDIDATE_STALE_REASON_INVALID = "candidate_business_day_invalid"
 
 
+def _target_key(row: Mapping[str, Any]) -> str:
+    """Match the target, then account fallback; never guess across anonymous rows."""
+    platform = str(row.get("platform_id") or "").strip()
+    target = str(row.get("target_id") or "").strip()
+    account = str(row.get("opaque_account_uid") or "").strip()
+    if not platform or not (target or account):
+        return ""
+    identity = [platform, "target" if target else "account", target or account]
+    return hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+
+
+def _is_legacy(row: Mapping[str, Any]) -> bool:
+    return row.get("legacy") is True or row.get("source_legacy") is True or row.get("source_kind") == "legacy"
+
+
 def candidate_business_day(row: Mapping[str, Any]) -> tuple[str, str]:
     """Return ``(iso_day, status)`` for one producer candidate row.
 
@@ -677,6 +693,7 @@ def partition_candidates_by_business_day(
     *,
     config: Mapping[str, Any] | None = None,
     locale: str = "zh",
+    stats: dict[str, int] | None = None,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """NOTIFY-04: keep only candidates whose business day equals the digest day.
 
@@ -684,15 +701,25 @@ def partition_candidates_by_business_day(
     a row that was valid yesterday must never be rendered as today's evidence.
     Rows with a different, missing, or unparseable business day are dropped
     (fail closed). Returns ``(fresh_rows, stale_notes)``; stale notes are
-    redacted (no account ids, no amounts) for the receipt and the digest note.
+    private receipt details (no amounts) for the digest note. The public receipt
+    projects counts only, never target fingerprints or display hints.
     """
 
     target = date.fromisoformat(business_day).isoformat()
     fresh: list[dict[str, Any]] = []
     stale: list[dict[str, Any]] = []
+    current_targets = {
+        _target_key(row) for row in rows
+        if not _is_legacy(row) and candidate_business_day(row) == (target, "ok") and _target_key(row)
+    }
+    suppressed = 0
     for raw in rows:
         row = dict(raw)
         day, status = candidate_business_day(row)
+        key = _target_key(row)
+        if _is_legacy(row) or (status == "ok" and day < target and key and key in current_targets):
+            suppressed += 1
+            continue
         if status == "ok" and day == target:
             fresh.append(row)
             continue
@@ -716,8 +743,12 @@ def partition_candidates_by_business_day(
                 "candidate_business_day": day,
                 "digest_business_day": target,
                 "reason_code": reason,
+                "target_key": key,
+                "account_hint": str(row.get("account_hint") or "").strip(),
             }
         )
+    if stats is not None:
+        stats["suppressed_candidates_count"] = suppressed
     return fresh, stale
 
 
@@ -742,9 +773,31 @@ def collect_digest_runs(
     candidates_configured = candidates_configured or bool(
         (os.environ.get("DIGEST_CANDIDATES_GCS_URI") or "").strip()
     )
+    partition_stats: dict[str, int] = {}
     file_rows, stale_notes = partition_candidates_by_business_day(
-        loaded_rows, business_day, config=config, locale=locale
+        loaded_rows, business_day, config=config, locale=locale, stats=partition_stats
     )
+    missing_targets = []
+    stale_by_target = {item["target_key"]: item for item in stale_notes if item.get("target_key")}
+    current_targets = {_target_key(row) for row in file_rows if _target_key(row)}
+    for item in stale_notes:
+        missing_targets.append(dict(item, reason_code="EVIDENCE_STALE_BUSINESS_DAY"))
+    expected = digest_contract(config).get("aggregator", {}).get("expected_targets", [])
+    if not isinstance(expected, list):
+        raise ValueError("digest_expected_targets_invalid")
+    for row in expected:
+        if not isinstance(row, Mapping) or not _target_key(row) or not row.get("strategy_profile"):
+            raise ValueError("digest_expected_targets_invalid")
+        key = _target_key(row)
+        if key not in current_targets and key not in stale_by_target:
+            reason = "EVIDENCE_UNREADABLE" if store_failures else (
+                "EVIDENCE_NOT_FOUND" if candidates_configured else "SOURCE_NOT_CONFIGURED"
+            )
+            missing_targets.append({
+                "platform_id": row["platform_id"], "strategy_profile": row["strategy_profile"],
+                "strategy_label": str(row.get("strategy_label") or ""), "target_key": key,
+                "account_hint": str(row.get("account_hint") or ""), "reason_code": reason,
+            })
     github_result = GithubEvidenceResult()
     if include_github:
         github_result = collect_from_github_workflows(
@@ -752,6 +805,15 @@ def collect_digest_runs(
         )
     merged = merge_candidates(file_rows, github_result.rows)
     enriched = enrich_candidate_labels(merged, config, locale=locale)
+    for row in enriched:
+        if all(digest.resolve_count_field(row, name)[1] == "known" for name in ("fill_count", "order_count")):
+            continue
+        if row.get("reason_code") in digest.MISSING_EVIDENCE_REASONS:
+            continue
+        row["missing_evidence_reason"] = "EVIDENCE_UNREADABLE" if store_failures else (
+            "EVIDENCE_STALE_BUSINESS_DAY" if _target_key(row) in stale_by_target else
+            "SOURCE_NOT_CONFIGURED" if not candidates_configured else "EVIDENCE_NOT_FOUND"
+        )
     runs = digest.filter_runs_for_digest(enriched)
     coverage = digest.EvidenceCoverage(
         candidates_configured=candidates_configured,
@@ -763,6 +825,9 @@ def collect_digest_runs(
         github_failures=tuple(github_result.failures),
         candidate_failures=tuple(store_failures),
         stale_candidates=tuple(stale_notes),
+        missing_targets=tuple(missing_targets),
+        suppressed_candidates_count=partition_stats.get("suppressed_candidates_count", 0),
+        legacy_candidates_only=bool(partition_stats.get("suppressed_candidates_count") and not file_rows),
     )
     return CollectResult(runs=runs, coverage=coverage, merged_rows=enriched)
 

@@ -24,7 +24,14 @@ class Response:
 class CredentialMaintenanceTests(unittest.TestCase):
     def setUp(self):
         import credential_maintenance_notify as maintenance
+        import send_daily_digest_telegram as sender
         self.m = maintenance
+        # These tests exercise the existing reminder path after digest admission.
+        # Resend rejection and zero maintenance I/O are covered by guard tests.
+        admission = patch.object(sender.resend_guard, 'evaluate',
+                                 return_value=sender.resend_guard.Decision('send', 'FIRST_SEND'))
+        admission.start()
+        self.addCleanup(admission.stop)
 
     def client(self, **extra):
         return self.m.MaintenanceClient.from_environment({**ENV, **extra})

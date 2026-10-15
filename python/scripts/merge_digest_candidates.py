@@ -53,7 +53,8 @@ def _rows(payload: Any) -> list[dict[str, Any]]:
                 raise ValueError("candidate_required_fields_invalid")
         if type(item.get("actually_ran")) is not bool:
             raise ValueError("candidate_required_fields_invalid")
-    return [dict(item) for item in raw]
+    return [dict(item, legacy=True) if isinstance(payload, dict) and payload.get("legacy") is True
+            else dict(item) for item in raw]
 
 
 def _read_rows(path: Path) -> list[dict[str, Any]]:

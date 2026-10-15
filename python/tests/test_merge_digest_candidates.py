@@ -178,5 +178,5 @@ class WorkflowWiringTests(unittest.TestCase):
         live = (root / ".github/workflows/daily-digest-notify.yml").read_text(encoding="utf-8")
         self.assertEqual(live, (root / "docs/workflows/daily-digest-notify.yml").read_text(encoding="utf-8"))
         self.assertIn("DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}", live)
-        self.assertIn("if: ${{ env.DIGEST_CANDIDATES_GCS_URI != '' }}", live)
+        self.assertIn("if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '' }}", live)
         self.assertIn("merge_digest_candidates.py", live)

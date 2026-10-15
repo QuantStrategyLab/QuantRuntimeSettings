@@ -28,6 +28,11 @@ on:
         required: true
         type: boolean
         default: true
+      force_resend:
+        description: "Explicit test resend: bypass the daily guard and label the message TEST. Never used by schedule."
+        required: true
+        type: boolean
+        default: false
       maintenance_read_check:
         description: "Independent main-only maintenance GET check; never sends notifications or runs the digest job."
         required: true
@@ -75,6 +80,11 @@ concurrency:
 
 jobs:
   digest:
+    permissions:
+      contents: read
+      id-token: write
+      # Read this workflow's existing public receipts; no new state-store writes.
+      actions: read
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}
     name: Aggregate and notify
     runs-on: ubuntu-latest
@@ -180,7 +190,19 @@ jobs:
             echo "include_github=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Check same-business-day send history
+        id: resend_guard
+        env:
+          DIGEST_RESEND_GUARD: 'true'
+          DIGEST_GUARD_TOKEN: ${{ github.token }}
+          DIGEST_FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend || false }}
+          DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
+          DIGEST_DRY_RUN: ${{ steps.opts.outputs.dry_run }}
+          DIGEST_LOCALE: ${{ steps.opts.outputs.locale }}
+        run: python3 python/scripts/daily_digest_resend_guard.py --write-receipt data/output/daily-digest/receipt.json
+
       - name: Materialize DIGEST_CANDIDATES input (optional)
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' }}
         id: candidates
         env:
           CANDIDATES_JSON: ${{ env.DIGEST_CANDIDATES_JSON }}
@@ -215,7 +237,7 @@ jobs:
 
       - name: Authenticate to Google Cloud for producer candidates (optional)
         id: candidates_gcp_auth
-        if: ${{ env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '' }}
         continue-on-error: true
         uses: google-github-actions/auth@v3
         with:
@@ -223,12 +245,12 @@ jobs:
           service_account: ${{ env.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud for producer candidates (optional)
-        if: ${{ steps.candidates_gcp_auth.outcome == 'success' }}
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' && steps.candidates_gcp_auth.outcome == 'success' }}
         uses: google-github-actions/setup-gcloud@v3
 
       - name: Fetch producer candidates from private store (optional)
         id: candidates_fetch
-        if: ${{ env.DIGEST_CANDIDATES_GCS_URI != '' }}
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.DIGEST_CANDIDATES_GCS_URI != '' }}
         # Form the receipt and preserve exception delivery before the final gate.
         continue-on-error: true
         env:
@@ -275,7 +297,7 @@ jobs:
 
       - name: Authenticate to Google Cloud for sentinel secret (optional)
         id: gcp_auth
-        if: ${{ env.TELEGRAM_TOKEN == '' && env.TELEGRAM_TOKEN_SECRET_NAME != '' && steps.opts.outputs.dry_run != 'true' }}
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' && env.TELEGRAM_TOKEN == '' && env.TELEGRAM_TOKEN_SECRET_NAME != '' && steps.opts.outputs.dry_run != 'true' }}
         continue-on-error: true
         uses: google-github-actions/auth@v3
         with:
@@ -283,7 +305,7 @@ jobs:
           service_account: ${{ env.GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
 
       - name: Set up gcloud for sentinel secret (optional)
-        if: ${{ steps.gcp_auth.outcome == 'success' }}
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' && steps.gcp_auth.outcome == 'success' }}
         uses: google-github-actions/setup-gcloud@v3
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
@@ -292,11 +314,14 @@ jobs:
         id: send
         # A failed private path may still deliver only an independently sourced
         # maintenance block. The original failed step and sender nonzero remain.
-        if: ${{ success() || (!cancelled() && github.ref == 'refs/heads/main' && steps.opts.outcome == 'success' && steps.opts.outputs.dry_run != 'true' && steps.candidates.outcome == 'failure') }}
+        if: ${{ steps.resend_guard.outputs.proceed == 'true' && (success() || (!cancelled() && github.ref == 'refs/heads/main' && steps.opts.outcome == 'success' && steps.opts.outputs.dry_run != 'true' && steps.candidates.outcome == 'failure')) }}
         env:
           DIGEST_CANDIDATES_INPUT_STATUS: ${{ steps.candidates.outcome }}
           DIGEST_BUSINESS_DAY: ${{ steps.opts.outputs.business_day }}
           DIGEST_DRY_RUN: ${{ steps.opts.outputs.dry_run }}
+          DIGEST_RESEND_GUARD: 'true'
+          DIGEST_FORCE_RESEND: ${{ github.event_name == 'workflow_dispatch' && inputs.force_resend || false }}
+          DIGEST_GUARD_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           args=(
@@ -341,6 +366,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
           import json
+          import sys
           from pathlib import Path
 
           receipt_path = Path("data/output/daily-digest/receipt-public.json")
@@ -363,6 +389,11 @@ jobs:
           print(f"- total_fills_status: `{receipt.get('total_fills_status')}`")
           print(f"- dry_run: `{receipt.get('dry_run')}`")
           print(f"- delivered: `{receipt.get('delivered')}`")
+          guard = receipt.get("resend_guard") or {}
+          if guard:
+              decision = f"digest_resend_guard decision={guard.get('decision')} reason={guard.get('reason')} business_day={receipt.get('business_day')} test={str(receipt.get('test_message', False)).lower()}"
+              print(f"- {decision}")
+              print(("::error::" if guard.get("decision") == "blocked" else "") + decision, file=sys.stderr)
           print(f"- secret_name_contract: `{receipt.get('secret_name_contract')}`")
           coverage = receipt.get("source_coverage") or {}
           if coverage:
