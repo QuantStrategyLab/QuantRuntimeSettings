@@ -3,7 +3,9 @@ import { performanceBlocks } from "../../application/console_api/performance.js"
 import {
   canonicalItem,
   settingsDiff,
+  shortId,
 } from "../../application/console_api/presentation.js";
+import { notificationLog, READ_ONLY, businessDate } from "../../application/console_api/operations.js";
 export function consoleApiFixture(
   path,
   query,
@@ -18,6 +20,7 @@ export function consoleApiFixture(
     "/api/account-settings/diff",
     "/api/account-settings/history",
     "/api/account-settings/draft",
+    "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/accounts/run-controls",
   ];
   if (!paths.includes(path) && !path.startsWith("/api/performance/"))
     return undefined;
@@ -107,6 +110,33 @@ export function consoleApiFixture(
     execution_authority_granted: false,
   };
   const status = scenario === "api-partial" ? "partial" : "ok";
+  if (path === "/api/notifications/send-log") return { body: notificationLog() };
+  if (path === "/api/runtime/today") {
+    const connected = scenario !== "api-not-connected";
+    const observed = !empty && connected;
+    return { body: { status: observed && scenario !== "api-stale" ? status : "partial",
+      date: businessDate(now), timezone: "Asia/Shanghai", as_of: observed ? at : null,
+      coverage: "synthetic", counts: { configured: empty ? 0 : 1, observed: observed ? 1 : 0, runs: observed ? 1 : null },
+      accounts: empty ? [] : [{ account_alias: "synthetic-alpha", platform: "longbridge",
+        status: !connected ? "not_connected" : scenario === "api-stale" ? "stale" : "ok",
+        unavailable_reason: !connected ? "runtime_daily_not_connected" : scenario === "api-stale" ? "runtime_daily_stale" : null,
+        as_of: observed ? at : null, activity: observed ? "no_signal" : null,
+        run_count: observed ? 1 : null, runs: observed ? [{ id: "synthetic-run", started_at: at, finished_at: at,
+          activity: "no_signal", execution_lane: "paper", errors_present: false }] : [] }], ...READ_ONLY } };
+  }
+  if (path === "/api/strategies/summary") {
+    const sourceStatus = scenario === "api-not-connected" ? "not_connected" : scenario === "api-stale" ? "stale" : "ok";
+    return { body: { status: sourceStatus, as_of: sourceStatus === "not_connected" ? null : at, coverage: "synthetic",
+      strategies: empty ? [] : [{ profile: "synthetic-growth", domain: "us_equity", allowed_execution_modes: ["paper"],
+        configured_accounts: [{ account_alias: "synthetic-alpha", platform: "longbridge" }],
+        health_status: sourceStatus === "not_connected" ? null : "healthy", health_score: sourceStatus === "not_connected" ? null : 80,
+        status: sourceStatus, unavailable_reason: sourceStatus === "not_connected" ? "strategy_health_not_connected" : null }], ...READ_ONLY } };
+  }
+  if (path === "/api/accounts/run-controls") return { body: { status,
+    account_alias: "synthetic-alpha", platform: "longbridge", as_of: at,
+    actions: Object.fromEntries(["enable", "stop", "resume", "approve_application"].map(name => [name, {
+      enabled: name === "stop" && scenario === "api-ready", reason: name === "stop" && scenario === "api-ready" ? "available" : "synthetic_guard_blocked",
+      requires_confirmation: true }])), ...READ_ONLY } };
   if (path === "/api/decisions-inbox")
     return {
       body: {
@@ -120,7 +150,7 @@ export function consoleApiFixture(
           },
           { source: "credential", status: "ok" },
         ],
-        items: empty ? [] : [recovery, item, credential],
+        items: empty ? [] : [recovery, item, credential, canonicalItem({ ticket_id: "synthetic-paper", confirmation_execution_mode: "paper", created_at: at }, "strategy_promotion")],
         coverage: "synthetic",
         no_order: true,
         execution_authority_granted: false,
@@ -134,7 +164,10 @@ export function consoleApiFixture(
           ? []
           : [
               {
+                id: "synthetic-decision",
+                short_id: shortId("synthetic-decision", "CH"),
                 item_id: item.id,
+                item_short_id: item.short_id,
                 category: item.category,
                 actor_alias: "actor-synthetic",
                 time: at,
@@ -198,6 +231,8 @@ export function consoleApiFixture(
           ? []
           : [
               {
+                id: "synthetic-draft-event",
+                short_id: shortId("synthetic-draft-event", "CH"),
                 event: "draft_saved",
                 time: at,
                 actor_alias: "actor-synthetic",
@@ -205,6 +240,8 @@ export function consoleApiFixture(
                 source: "synthetic",
               },
               {
+                id: "synthetic-approval-event",
+                short_id: shortId("synthetic-approval-event", "CH"),
                 event: "approved",
                 time: at,
                 actor_alias: "actor-synthetic",

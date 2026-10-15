@@ -18,6 +18,10 @@ draft saves and conflicts. All responses use `Cache-Control: no-store`.
 | GET `/api/account-settings/diff` | `account`, optional `platform` | `SettingsDiffResponse` / `settings_diff` |
 | GET `/api/account-settings/history` | `account`, optional `platform`, `limit`, `cursor` | `SettingsHistoryResponse` / `settings_history` |
 | POST `/api/account-settings/draft` | `CombinedDraftRequest` | `CombinedDraftResponse` / `draft` |
+| GET `/api/runtime/today` | none | `TodayRunSummary` / `today_runs` |
+| GET `/api/strategies/summary` | none | `StrategySummary` / `strategy_summary` |
+| GET `/api/notifications/send-log` | `limit`, `cursor` | `NotificationSendLog` / `notification_log` |
+| GET `/api/accounts/run-controls` | `account`, optional `platform` | `RunControlAvailability` / `run_controls` |
 | GET `/api/performance/calendar` | `scope`, `range`, `year`, optional `month`, `platform` | `CalendarResponse` / `calendar` |
 | GET `/api/performance/summary` | `scope`, `range`, optional `platform` | `SummaryResponse` / `summary` |
 | GET `/api/performance/returns` | `scope`, `range`, optional `platform` | `ReturnsResponse` / `returns` |
@@ -57,6 +61,25 @@ additive `DecisionFields`. Exact evidence-receipt reads keep their existing shap
 | `credential_maintenance` | `medium` at 30/7/1 days or expired; otherwise `normal` | false |
 | `strategy_promotion` | `normal` | true only for a stored live confirmation mode; intent remains non-executable |
 | `owner_decision` | `normal` | true for a stored live-decision recommendation; intent remains non-executable |
+| `paper_account_application` | `normal` | false; existing paper qualification and application controls still apply |
+
+Paper application requests are entries in this inbox. Explicit paper promotion
+tickets, accepted requests with an existing paper application, and qualified
+paper preview preparations use `paper_account_application`. Duplicate ticket
+entries are collapsed. Their original `promotion` decision binding is retained;
+there is no new decision writer, paper trading endpoint, or execution authority.
+Accepted requests are `decided`; `application_status` separately reports the
+stored application outcome, including `uncertain`. An uncertain outcome must
+never be treated as permission to submit another application.
+
+Inbox entries include `id` and `short_id`. Decision history adds a full event
+`id`, `short_id` and `item_short_id` alongside the existing full `item_id`.
+Settings change history also adds `id` and `short_id`. Inbox references use
+`IN-` and change references use `CH-`, followed by a stable 13-character base-36
+checksum of the full ID (FNV-1a 64-bit). These are display references, not unique
+database keys or evidence digests. Always retain the full ID for selection,
+lookups and writes. Legacy rows without a stored event ID use a deterministic
+full reference built from their existing identity, revision and timestamp.
 
 A stored decision produces `decided`. Expired evidence or an elapsed recorded
 expiry produces `expired`; otherwise the item is `pending`. Unknown dates are
@@ -81,6 +104,71 @@ There are no batch actions.
 A source failure remains visible in `sources` and produces inbox
 `status=read_failed`, even if other sources returned items. An unreadable history
 returns HTTP 503 with `ReadFailed`, never an empty success.
+
+## Today, strategies and notification context
+
+`/api/runtime/today` chooses today's date on the server in `Asia/Shanghai`,
+matching the existing daily read model. It covers every configured account,
+using only existing trusted daily bindings and validated stored records. It
+does not fetch broker data, dispatch a run or infer execution from the schedule.
+Each row separates observation availability (`status`) from the recorded
+`activity`. A fresh observation of `failed`, `unknown` or `no_signal` is still
+that activity, never a successful trade. Run counts count reports, not fills.
+
+Unbound or disabled sources return `not_connected/runtime_daily_not_connected`;
+a bound account without today's record returns `no_data/today_record_missing`.
+Expired observations return `stale/runtime_daily_stale`. Read or identity
+validation failures return `read_failed/stored_records_unreadable` on the row
+and summary, retaining other rows. Unknown counts are null. `counts.runs` is
+null whenever any account lacks a usable record; `counts.observed` discloses
+coverage. No records from another business day are silently substituted.
+
+`/api/strategies/summary` joins the configured strategy catalog with the existing
+stored health snapshot. It exposes profile, domain, allowed modes, configured
+account aliases and available health status/score. `configured_accounts` means
+the declared default configuration, not a verified runtime deployment. Missing
+health remains null with `strategy_health_not_connected`; invalid stored health
+returns `read_failed/stored_records_unreadable`; stale health stays stale. It
+does not refresh GitHub variables, generate research or change strategy state.
+
+`/api/notifications/send-log` provides a stable read contract for runtime and
+preference screens. **No delivery-log store is connected to this console.**
+It returns `not_connected/notification_log_not_connected`, null timestamp and
+cursor, and an empty item list. It does not report an empty successful history,
+convert queued intent into delivery, send notifications or store destinations.
+Pagination syntax is validated for compatibility with a future stored source.
+Connecting that source requires a separately scoped integration.
+
+## Run-control availability
+
+`/api/accounts/run-controls` is the backend authority for button availability.
+Each of `enable`, `stop`, `resume` and `approve_application` has `enabled`,
+`reason`, and `requires_confirmation=true`. Frontends must not turn a backend
+false into true. They must still disable pending local submissions and retain
+the existing unknown-result locks; this read cannot clear a browser's unresolved
+request. Every existing POST revalidates its own identity, revision, origin,
+permissions and execution guards. A preflight is not authorization or a promise
+that the later request will succeed.
+
+The display API requires admin for action buttons, while legacy POST permissions
+remain unchanged. Generic enable stays false with
+`strategy_application_not_connected`. Stop uses configured target identity and
+existing durable HK pending/unknown state. Resume is offered only after the
+existing Binance source validator accepts a fresh backend read; its opaque
+`resume_binding.runtime_target_sha256` is passed to the existing controller.
+Profile approval requires a current identity-bound, profile-only draft, a
+selectable non-DCA profile, a fresh readback of a disabled runtime target and
+no active application. This API never approves, dispatches or changes anything.
+Source readback uses existing backend clients and permissions; no credentials
+are returned.
+
+Reasons include `available`, `admin_required`, `dispatch_unavailable`,
+`stop_pending_or_identity_unavailable`, `existing_recovery_not_available`,
+`runtime_instances_not_bound`, `account_settings_identity_conflict`,
+`profile_draft_required`, `profile_only_required`, `profile_not_selectable`,
+`runtime_readback_unavailable`, `runtime_target_not_disabled`,
+`current_profile_conflict`, `profile_application_pending`, and
+`stored_records_unreadable`. Readback failures disable the affected action.
 
 ## Draft settings
 
