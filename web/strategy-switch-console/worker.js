@@ -6,7 +6,7 @@ import { decorateQueue, decisionFields } from "./application/console_api/present
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
-import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
+import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
   BINANCE_FACTS_KEY, BINANCE_FACTS_MAX_BYTES, BinanceFactsError,
   normalizeBinanceFactsBinding, binanceFactsOptionMatches, assertBinanceFactsSourceBinding,
@@ -312,7 +312,6 @@ const BINANCE_PRIVATE_SCOPE_READ_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 // Keeping this contract separate prevents a P1/P3 source from accidentally
 // turning into an execution or P6 authority source.
 const EXECUTION_EVIDENCE_SOURCE_PREFIX = "execution_evidence_source:";
-const RUNTIME_DAILY_TIMEZONE = "America/New_York";
 const RUNTIME_DAILY_KEY_PREFIX = "runtime_daily:";
 const RUNTIME_DAILY_MAX_BODY_BYTES = 64 * 1024;
 const RUNTIME_DAILY_MAX_RUNS = 20;
@@ -8318,12 +8317,7 @@ function runtimeDailyKey(businessDate, target = RUNTIME_DAILY_TARGET) {
 }
 
 function runtimeDailyToday(now = Date.now()) {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: RUNTIME_DAILY_TIMEZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(now);
+  return runtimeDailyBusinessDate(now);
 }
 
 function runtimeDailyCalendarDate(value) {

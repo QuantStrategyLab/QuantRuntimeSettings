@@ -5,19 +5,20 @@ import { inbox } from "../web/strategy-switch-console/application/console_api/ro
 import { canonicalItem, decisionHistoryRows, shortId } from "../web/strategy-switch-console/application/console_api/presentation.js";
 import { consoleApiFixture } from "../web/strategy-switch-console/frontend/scripts/console-api-synthetic.mjs";
 import { validate } from "./console_api_contract_validation.mjs";
+import { runtimeDailyBusinessDate, RUNTIME_DAILY_TIMEZONE } from "../web/strategy-switch-console/runtime_daily_contract.js";
 
 const now = Date.parse("2026-10-15T16:30:00Z");
 assert.equal(businessDate(now), "2026-10-16", "today follows the backend business timezone");
 const account = { key: "synthetic-alpha", platform: "longbridge", default_strategy_profile: "synthetic-growth" };
 const request = new Request("https://console.example/api/runtime/today");
 const binding = { platform: account.platform, account_key: account.key, target_key: "synthetic-target", status: "bound" };
-const record = { business_date: businessDate(now), target_key: binding.target_key, observed_at: new Date(now).toISOString(),
+const record = { business_date: runtimeDailyBusinessDate(now), target_key: binding.target_key, observed_at: new Date(now).toISOString(),
   completeness: "complete",
   status: "no_signal", runs: [{ run_id: "synthetic-run", started_at: null, finished_at: null,
     activity: "no_signal", execution_lane: "paper", errors_present: false }] };
-const dailyBody = { account_key: account.key, platform: account.platform, date: businessDate(now), data_status: "fresh", record };
+const dailyBody = { account_key: account.key, platform: account.platform, date: runtimeDailyBusinessDate(now), data_status: "fresh", record };
 const deps = { dailyBindings: async () => [binding], daily: async req => {
-  assert.equal(new URL(req.url).searchParams.get("date"), "2026-10-16");
+  assert.equal(new URL(req.url).searchParams.get("date"), "2026-10-15");
   return Response.json(dailyBody);
 } };
 let result = await todaySummary(request, {}, deps, [account], now);
@@ -35,7 +36,7 @@ for (const [body, status] of [
   [{ ...dailyBody, record: { ...record, completeness: "incomplete" } }, "partial"],
   [{ ...dailyBody, read_error_count: 1 }, "partial"],
   [{ ...dailyBody, account_key: "synthetic-other" }, "read_failed"],
-  [{ ...dailyBody, record: { ...record, business_date: "2026-10-15" } }, "read_failed"],
+  [{ ...dailyBody, record: { ...record, business_date: "2026-10-14" } }, "read_failed"],
 ]) {
   result = await todaySummary(request, {}, { ...deps, daily: async () => Response.json(body) }, [account], now);
   assert.equal(result.accounts[0].status, status);
@@ -47,6 +48,31 @@ assert.equal(result.status, "read_failed");
 assert.equal(result.counts.runs, null);
 result = await todaySummary(request, {}, { ...deps, dailyBindings: async () => [] }, [account], now);
 assert.equal(result.accounts[0].status, "not_connected");
+
+// Reproduce the UTC/Shanghai date lead and both New York midnight offsets.
+for (const [instant, expected] of [
+  ["2026-10-15T22:24:00Z", "2026-10-15"],
+  ["2026-07-16T03:59:59Z", "2026-07-15"],
+  ["2026-07-16T04:00:00Z", "2026-07-16"],
+  ["2026-01-16T04:59:59Z", "2026-01-15"],
+  ["2026-01-16T05:00:00Z", "2026-01-16"],
+]) {
+  const clock = Date.parse(instant);
+  assert.equal(runtimeDailyBusinessDate(clock), expected);
+  const reads = [];
+  const summary = await todaySummary(request, {}, { ...deps, daily: async req => {
+    const date = new URL(req.url).searchParams.get("date");
+    reads.push(date);
+    if (date > expected) return Response.json({ error: "invalid_runtime_daily_date" }, { status: 400 });
+    return Response.json({ ...dailyBody, date, record: null });
+  } }, [account], clock);
+  assert.deepEqual(reads, [expected]);
+  assert.equal(summary.timezone, RUNTIME_DAILY_TIMEZONE);
+  assert.equal(summary.date, expected);
+  assert.equal(summary.accounts[0].status, "no_data", "a missing record is not a storage failure or a successful run");
+  assert.equal(summary.counts.runs, null);
+  validate("today_runs", summary);
+}
 
 const strategies = await strategySummary(request, {}, {
   profiles: async () => [{ profile: "synthetic-growth", domain: "us_equity", allowed_execution_modes: ["paper"] }],
