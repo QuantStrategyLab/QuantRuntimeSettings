@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { TodayRunSummary } from "../../api/contracts";
 import {
   loadAccounts,
   loadCredentialMaintenance,
   loadNotificationLog,
   loadTodayRuns,
+  loadRuntimeDailyBindings,
   type CredentialMaintenance,
 } from "../../api/endpoints";
 import { useLanguage, useT } from "../../i18n";
@@ -22,6 +23,7 @@ import {
   StatusBadge,
 } from "../../components/primitives";
 import { RunGrid } from "./RunGrid";
+import { boundDailyAccounts } from "./dailySelection";
 import "./health.css";
 
 type SummaryAccount = TodayRunSummary["accounts"][number];
@@ -228,6 +230,10 @@ export default function HealthPage() {
   const summary = useApi(() => loadTodayRuns(), [epoch]);
   const credential = useApi(() => loadCredentialMaintenance(), [epoch]);
   const accounts = useApi(() => loadAccounts(), [epoch]);
+  const dailyBindings = useApi(() => loadRuntimeDailyBindings(), [epoch]);
+  const gridAccounts = useMemo(() => accounts.phase === "ready" && dailyBindings.phase === "ready"
+    ? boundDailyAccounts(accounts.data.accounts, dailyBindings.data) : [],
+    [accounts.phase, accounts.data, dailyBindings.phase, dailyBindings.data]);
 
   return (
     <div className="page">
@@ -242,14 +248,12 @@ export default function HealthPage() {
 
       <section className="card">
         <h2 className="card-title">{t("health.grid_title")}</h2>
-        {accounts.phase === "loading" && <Skeleton height={160} />}
+        {(accounts.phase === "loading" || dailyBindings.phase === "loading") && <Skeleton height={160} />}
         {accounts.phase === "error" && <ErrorState onRetry={accounts.reload} />}
-        {accounts.phase === "ready" && (
+        {dailyBindings.phase === "error" && <ErrorState onRetry={dailyBindings.reload} />}
+        {accounts.phase === "ready" && dailyBindings.phase === "ready" && (
           <RunGrid
-            accounts={accounts.data.accounts.map(account => ({
-              account_alias: account.account_alias,
-              platform: account.platform,
-            }))}
+            accounts={gridAccounts}
             epoch={epoch}
           />
         )}

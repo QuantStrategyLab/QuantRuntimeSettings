@@ -324,7 +324,7 @@ export interface ReadOnlyProjection {
 export interface TodayRunSummary extends ReadOnlyProjection {
   status: "ok" | "partial" | "read_failed";
   date: string;
-  timezone: "Asia/Shanghai";
+  timezone: "America/New_York";
   as_of: string | null;
   coverage: string;
   counts: { configured: number; observed: number; runs: number | null };

@@ -6,6 +6,7 @@ import {
   shortId,
 } from "../../application/console_api/presentation.js";
 import { notificationLog, READ_ONLY, businessDate } from "../../application/console_api/operations.js";
+import { runtimeDailyBusinessDate, RUNTIME_DAILY_TIMEZONE } from "../../runtime_daily_contract.js";
 export function consoleApiFixture(
   path,
   query,
@@ -115,7 +116,7 @@ export function consoleApiFixture(
     const connected = scenario !== "api-not-connected";
     const observed = !empty && connected;
     return { body: { status: observed && scenario !== "api-stale" ? status : "partial",
-      date: businessDate(now), timezone: "Asia/Shanghai", as_of: observed ? at : null,
+      date: runtimeDailyBusinessDate(now), timezone: RUNTIME_DAILY_TIMEZONE, as_of: observed ? at : null,
       coverage: "synthetic", counts: { configured: empty ? 0 : 1, observed: observed ? 1 : 0, runs: observed ? 1 : null },
       accounts: empty ? [] : [{ account_alias: "synthetic-alpha", platform: "longbridge",
         status: !connected ? "not_connected" : scenario === "api-stale" ? "stale" : "ok",

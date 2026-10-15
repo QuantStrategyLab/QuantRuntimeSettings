@@ -1,4 +1,5 @@
 /** Read-only page projections. Missing observations never imply a successful run. */
+import { RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate } from "../../runtime_daily_contract.js";
 export const READ_ONLY = { no_order: true, execution_authority_granted: false };
 export function businessDate(now = Date.now()) {
   return new Intl.DateTimeFormat("en-CA", {
@@ -6,7 +7,8 @@ export function businessDate(now = Date.now()) {
   }).format(now);
 }
 export async function todaySummary(request, env, deps, accounts, now = Date.now()) {
-  const date = businessDate(now);
+  // Daily records, their reader, and this summary must share one date domain.
+  const date = runtimeDailyBusinessDate(now);
   const bindings = await deps.dailyBindings(env);
   const rows = await Promise.all(accounts.map(async (account) => {
     const base = { account_alias: account.key, platform: account.platform,
@@ -45,7 +47,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
   }));
   return { status: rows.some(r => r.status === "read_failed") ? "read_failed"
     : rows.some(r => r.status !== "ok") ? "partial" : "ok",
-    date, timezone: "Asia/Shanghai", as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
+    date, timezone: RUNTIME_DAILY_TIMEZONE, as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
     accounts: rows, counts: { configured: rows.length,
       observed: rows.filter(r => r.run_count !== null).length,
       runs: rows.some(r => r.run_count === null || r.completeness !== "complete") ? null : rows.reduce((n, r) => n + r.run_count, 0) },
