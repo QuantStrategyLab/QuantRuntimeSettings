@@ -298,26 +298,20 @@ assert.doesNotMatch(shortObserved || "", /2026|America\/New_York/,
 const overview = readFileSync(join(root, "web/strategy-switch-console/frontend/src/OverviewPage.tsx"), "utf8");
 const apiSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/api.ts"), "utf8");
 const overviewStyles = readFileSync(join(root, "web/strategy-switch-console/frontend/src/styles.css"), "utf8");
-assert.match(overview, /historyEpoch/);
+const performanceSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/PerformanceCharts.tsx"), "utf8");
+const performanceDataSource = readFileSync(join(root, "web/strategy-switch-console/frontend/src/performanceData.ts"), "utf8");
+assert.match(performanceSource, /epoch.current/);
 assert.match(overview, /useState\("all"\)/);
 assert.match(overview, /const visible = accountId === "all" \? displayAccounts : displayAccounts\.filter/);
 assert.match(overview, /facts: accountFactsForDisplay\(account\.facts, factsNow\)/, "all visible amount/type/detail reads share the local expiry projection");
 assert.match(overview, /const totalAssets = accountId === "all"/);
 assert.match(overview, /const totalCash = accountId === "all"/);
 assert.doesNotMatch(overview, /chartAccountId|图表账户/);
-assert.match(overview, /const chartAccount = selectedAccount/);
-assert.match(overview, /loadAccountFactsHistory\(chartAccount\.platformKey, chartAccount\.accountKey, currency\)/);
-assert.match(overview, /loadBinanceWalletHistory\(chartAccount\.accountKey\)/);
-assert.match(overview, /buildBinanceWalletHistoryChartGeometry/);
-assert.match(overview, /钱包总资产变化（USDT）/);
-assert.match(overview, /按 Binance 返回的钱包范围/);
-assert.match(overview, /walletChartSelected\s*\? <details className="overview-wallet-details"><summary>\{t\("数据范围"\)\}/,
-  "wallet chart scope is accessible in a disclosure instead of repeating permanent copy");
-assert.match(overview, /binanceFacts\?\.value\?\.report\?\.observed_finished_at/);
-const walletHistoryLoadStart = overview.indexOf("setHistory(null);\n    setWalletHistory(null);\n    setHistoryError(null);\n    setHistoryLoading(true);");
-const walletHistoryRequest = overview.indexOf("loadBinanceWalletHistory(chartAccount.accountKey)");
-assert.ok(walletHistoryLoadStart >= 0 && walletHistoryLoadStart < walletHistoryRequest,
-  "switching/refetching chart history clears the previous wallet points before awaiting new data");
+assert.match(overview, /<PerformanceCharts accounts=\{accounts\} accountId=\{accountId\}/);
+assert.match(performanceDataSource, /loaders.account\(account.platformKey, account.accountKey, currency\)/);
+assert.match(performanceDataSource, /loaders.wallet\(account.accountKey\)/);
+assert.match(performanceSource, /loaded\?\.key === requestKey/,
+  "old history is hidden as soon as scope or refresh metadata changes");
 assert.match(apiSource, /\/api\/binance-account-facts\/history\?account_key=/);
 assert.doesNotMatch(overview, /walletHistory\.points[\s\S]{0,160}net_assets/,
   "Binance wallet amounts stay separate from the account NAV field");
@@ -366,16 +360,16 @@ assert.match(overview, /accountNativeReadout/);
 assert.match(overview, /overviewRuntimeHealth/);
 assert.doesNotMatch(walletCardSource.slice(walletCardSource.indexOf("<button"), walletCardSource.indexOf("</button>")), /<details/, "disclosures stay outside the navigation button");
 assert.match(overview, /formatOverviewInstant/);
-assert.match(overview, /setHistory\(null\)/);
+assert.match(performanceSource, /epoch.current === current/);
 assert.match(overview, /setRuntimeDaily\(\{\}\)/, "invalid or unbound selections clear every account/date slot");
 assert.doesNotMatch(overview, /only_cash|假比较|forged_return/);
 assert.doesNotMatch(overview, /t\(account\.environmentSource\)|account\.environmentSource/);
 assert.doesNotMatch(overview, /t\(account\.environment\)|t\(account\.statusDetail\)/);
 assert.doesNotMatch(overview, /source-binding|partial_identity|not_connected|未知不等于零|尚未接通|外部资金流未接入|原金额保留字符串|不保留旧|未由券商原生核实|映射重复/);
 assert.match(overview, /已取得资产合计（不含已标记模拟账户）/);
-assert.match(overview, /汇总自 \{date\}（Asia\/Shanghai）起计算/);
+assert.match(performanceSource, /共同起点：\{date\}/);
 assert.doesNotMatch(overview, /全部账户只显示最新分币种估值；历史变化需选择单个账户。/);
-assert.match(overview, /暂无资产记录|chartUnavailable/);
+assert.match(performanceSource, /PerformancePlot/);
 
 console.log("account_history_presentation_validation ok");
 

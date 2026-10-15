@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { loadAccountFactsHistory, loadBinanceWalletHistory, loadRuntimeDaily } from "./api";
+import { useEffect, useState } from "react";
+import { loadRuntimeDaily } from "./api";
 import type { LifecycleRecord } from "./api";
 import { useT, useLocale } from "./locales";
 import { statusTone } from "./statusTone";
@@ -7,16 +7,8 @@ import { OverviewDecisionPreview } from "./OverviewDecisionPreview";
 import { RuntimeHistoryPanel } from "./RuntimeHistoryPanel";
 import type { DailyDecision, DecisionSourceStatuses } from "./presentation";
 import {
-  CHART_RANGE_OPTIONS,
-  DEFAULT_CHART_RANGE,
-  buildAssetChartGeometry,
-  buildBinanceWalletHistoryChartGeometry,
   formatBinanceNativeQuantity,
   formatBinanceWalletAmount,
-  chartRangeEmptyNote,
-  chartUnavailable,
-  filterAssetHistoryByRange,
-  assetHistoryCoverage,
   presentAccountHoldings,
   formatOverviewInstant,
   formatOverviewShortInstant,
@@ -29,19 +21,13 @@ import {
   runtimeDailySelectionFromAccount,
   runtimeDeploymentReadout,
   brokerAccountType,
-  MARKET_BENCHMARK_INCEPTION_DATE,
-  RETURN_INDEX_LEGEND,
-  buildAggregateAssetSeries,
-  buildBenchmarkChartGeometry,
   isAggregateAssetAccount,
   OVERVIEW_USD_RATES,
   formatOverviewUsdAmount,
   loadOverviewUsdRates,
   sumAmountsToUsd,
   presentAggregateReturn,
-  presentMarketBenchmarkSeries,
   readQualifiedPeriodReturn,
-  shanghaiCalendarDate,
   presentRuntimeDaily,
   runtimeDailySelectionEligible,
   runtimeDailySnapshotMatchesSelection,
@@ -53,13 +39,12 @@ import {
   binanceWalletStatusDetail,
   presentBinancePrivateScope,
   scheduleBinancePrivateScopeExpiry,
-  type ChartMode,
-  type ChartRange,
   type MarketBenchmarkPoint,
   type RuntimeDailySnapshot,
   type RuntimeDailyBinding,
 } from "./presentation";
 import { loadMarketBenchmarkPoints } from "./marketBenchmark";
+import { PerformanceCharts } from "./PerformanceCharts";
 import {
   cashFieldForPlatform,
   formatOverviewAccountCash,
@@ -76,9 +61,7 @@ import {
   longBridgeRiskLevelLabel,
   summarizeCurrentAccountFacts,
   type AccountFactsAccount,
-  type AccountFactsHistorySnapshot,
   type AccountFactsSnapshot,
-  type BinanceWalletHistorySnapshot,
 } from "./types";
 
 export type OverviewAccount = {
@@ -151,12 +134,6 @@ function cashLabelForPlatform(platform: string): "现金余额" | "可用现金"
   return cashFieldForPlatform(platform) === "cash_balance" ? "现金余额" : "可用现金";
 }
 
-const CHART_MODES: Array<{ id: ChartMode; label: "收益率" | "总资产" }> = [
-  { id: "return", label: "收益率" },
-  { id: "assets", label: "总资产" },
-];
-
-
 function groupedAmount(amount: string): string {
   const match = /^(-?)(\d+)(\.\d+)?$/.exec(amount);
   if (!match) return amount;
@@ -169,14 +146,6 @@ function spokenMoney(value: string, name: (code: string) => string): string {
     return match ? `${name(match[1])} ${groupedAmount(match[2])}` : part;
   }).join(" · ");
 }
-
-const RETURN_LEGEND: Array<{ label: "你的账户" | (typeof RETURN_INDEX_LEGEND)[number]; color: string }> = [
-  { label: "你的账户", color: "#3b82f6" },
-  { label: "标普500", color: "#22c55e" },
-  { label: "纳斯达克100", color: "#f59e0b" },
-  { label: "道琼斯工业平均指数", color: "#94a3b8" },
-  { label: "罗素2000", color: "#8b5cf6" },
-];
 
 export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, onOpenAccount, isAdmin, privateScope, binanceFacts, readModelRefreshVersion = 0, marketBenchmarkPoints, pendingDecisions = [], decisionSources, onOpenDecisions }: {
   accounts: OverviewAccount[];
@@ -235,16 +204,6 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     });
     return () => { cancelled = true; };
   }, [readModelRefreshVersion]);
-  const [chart, setChart] = useState<ChartMode>("assets");
-  const [range, setRange] = useState<ChartRange>(DEFAULT_CHART_RANGE);
-  const [currencyChoice, setCurrencyChoice] = useState({ accountId: "", value: "" });
-  const [historyKey, setHistoryKey] = useState("");
-  const [history, setHistory] = useState<AccountFactsHistorySnapshot | null>(null);
-  const [walletHistory, setWalletHistory] = useState<BinanceWalletHistorySnapshot | null>(null);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [historyLoading, setHistoryLoading] = useState(false);
-  const [aggregateHistoryRows, setAggregateHistoryRows] = useState<Array<{ id: string; points: Array<{ observation_date: string; net_assets: string }> }> | null>(null);
-  const [aggregateHistoryError, setAggregateHistoryError] = useState<string | null>(null);
   const [runtimeNow, setRuntimeNow] = useState(() => Date.now());
   const factsNow = Math.max(runtimeNow, Date.now());
   const displayAccounts = accounts.map(account => ({ ...account, facts: accountFactsForDisplay(account.facts, factsNow) || null }));
@@ -264,10 +223,7 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const runtimeDate = selectedRuntimeDate || runtimeToday;
   const [runtimeDaily, setRuntimeDaily] = useState<Record<string, RuntimeDailyRequestState>>({});
   const [privateScopeNow, setPrivateScopeNow] = useState(() => Date.now());
-  const historyEpoch = useRef(0);
-  const aggregateEpoch = useRef(0);
   const storedBenchmarkPoints = Array.isArray(marketBenchmarkPoints) ? marketBenchmarkPoints : loadedBenchmarkPoints;
-  const emptyNote = chartRangeEmptyNote(range);
   const visible = accountId === "all" ? displayAccounts : displayAccounts.filter(account => account.id === accountId);
   const visibleFactsSummary = summarizeCurrentAccountFacts(visible.map(account => ({
     id: account.id,
@@ -285,7 +241,6 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const selectedAccount = accountId === "all" ? null : (visible[0] || null);
   const selectedWalletValuation = selectedAccount?.platformKey === "binance"
     && selectedAccount.id === walletAccount?.id ? walletValuation : null;
-  const chartAccount = selectedAccount;
   useEffect(() => {
     if (accountId !== "all" && !accounts.some(account => account.id === accountId)) setAccountId("all");
   }, [accountId, accounts]);
@@ -319,71 +274,6 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   );
   const selectedFacts = selectedAccount?.facts || null;
   const selectedHoldings = presentAccountHoldings(selectedFacts);
-  const chartFacts = chartAccount?.facts || null;
-  const walletChartSelected = chartAccount?.platformKey === "binance";
-  const accountHistory = history?.account_key === chartAccount?.accountKey && history?.platform === chartAccount?.platformKey ? history : null;
-  const aggregateMembers = displayAccounts.filter(account => isAggregateAssetAccount(account)
-    && account.facts?.aggregation_status !== "duplicate" && account.facts?.aggregation_status !== "conflict");
-  const aggregateCurrencyOptions = Array.from(new Set(aggregateMembers.flatMap(account => {
-    const codes = (account.facts?.balances || []).map(row => row.currency).filter((code): code is string => Boolean(code));
-    if (account.id === walletAccount?.id && walletValuation?.currency) codes.push(walletValuation.currency);
-    return codes;
-  })));
-  const currencyScopeId = accountId === "all" ? "all" : (chartAccount?.id || "");
-  const currencyOptions = accountId === "all" ? aggregateCurrencyOptions : walletChartSelected ? ["USDT"] : Array.from(new Set([
-    ...(chartFacts?.balances || []).map((row) => row.currency).filter(Boolean),
-    ...(accountHistory?.series.points || []).map((row) => row.currency).filter(Boolean),
-  ]));
-  const currency = currencyChoice.accountId === currencyScopeId && currencyOptions.includes(currencyChoice.value)
-    ? currencyChoice.value : currencyOptions[0] || "";
-  const requestedHistoryKey = chartAccount ? `${chartAccount.id}:${currency}:${chartFacts?.observed_finished_at || ""}:${walletChartSelected ? wallet?.observed_finished_at || "" : ""}` : "";
-  useEffect(() => {
-    const epoch = ++historyEpoch.current;
-    const cancel = () => { if (historyEpoch.current === epoch) historyEpoch.current += 1; };
-    if (!chartAccount || chart !== "assets" || !currency || (walletChartSelected && currency !== "USDT")) {
-      setHistory(null);
-      setWalletHistory(null);
-      setHistoryError(null);
-      setHistoryLoading(false);
-      return cancel;
-    }
-    setHistory(null);
-    setWalletHistory(null);
-    setHistoryError(null);
-    setHistoryLoading(true);
-    setHistoryKey(requestedHistoryKey);
-    if (walletChartSelected) {
-      setHistory(null);
-      void loadBinanceWalletHistory(chartAccount.accountKey)
-        .then((payload) => {
-          if (historyEpoch.current !== epoch) return;
-          setWalletHistory(payload);
-          setHistoryLoading(false);
-        })
-        .catch((error) => {
-          if (historyEpoch.current !== epoch) return;
-          setWalletHistory(null);
-          setHistoryError(error instanceof Error ? error.message : "request_failed");
-          setHistoryLoading(false);
-        });
-      return cancel;
-    }
-    setWalletHistory(null);
-    void loadAccountFactsHistory(chartAccount.platformKey, chartAccount.accountKey, currency)
-      .then((payload) => {
-        if (historyEpoch.current !== epoch) return;
-        setHistory(payload);
-        setHistoryLoading(false);
-      })
-      .catch((error) => {
-        if (historyEpoch.current !== epoch) return;
-        setHistory(null);
-        setHistoryError(error instanceof Error ? error.message : "request_failed");
-        setHistoryLoading(false);
-      });
-    return cancel;
-  }, [chartAccount?.id, chartAccount?.platformKey, chartAccount?.accountKey, chartFacts?.observed_finished_at,
-    binanceFacts?.value?.report?.observed_finished_at, walletChartSelected, currency, chart, readModelRefreshVersion]);
   useEffect(() => {
     let active = true;
     const todayAccounts = accounts.filter(account => runtimeDailySelectionEligible(runtimeDailySelectionFromAccount(account)));
@@ -435,47 +325,6 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     const timer = window.setTimeout(() => setRuntimeNow(Date.now()), Math.min(next - now + 1, 2_147_483_647));
     return () => window.clearTimeout(timer);
   }, [accounts, runtimeDaily, runtimeToday, runtimeNow]);
-  const aggregateMemberKey = aggregateMembers.map(account => JSON.stringify([
-    account.id, account.platformKey, account.accountKey, account.facts?.observed_finished_at || "",
-  ])).join("|");
-  useEffect(() => {
-    const epoch = ++aggregateEpoch.current;
-    if (chart !== "assets" || accountId !== "all" || !currency || !aggregateMembers.length) {
-      setAggregateHistoryRows(null);
-      setAggregateHistoryError(null);
-      return;
-    }
-    const members = aggregateMembers;
-    setAggregateHistoryRows(null);
-    setAggregateHistoryError(null);
-    void Promise.all(members.map(async (account) => {
-      if (account.platformKey === "binance") {
-        if (currency !== "USDT") return { id: account.id, points: [] };
-        const payload = await loadBinanceWalletHistory(account.accountKey);
-        return {
-          id: account.id,
-          points: payload.currency === "USDT" ? payload.points.map(point => ({ observation_date: point.observation_date, net_assets: point.amount })) : [],
-        };
-      }
-      const payload = await loadAccountFactsHistory(account.platformKey, account.accountKey, currency);
-      if (payload.identity_mismatch || payload.account_key !== account.accountKey || payload.platform !== account.platformKey) return { id: account.id, points: [] };
-      return {
-        id: account.id,
-        points: (payload.series.points || []).filter(point => point.currency === currency).map(point => ({
-          observation_date: point.observation_date,
-          net_assets: point.net_assets,
-        })),
-      };
-    })).then((rows) => {
-      if (aggregateEpoch.current !== epoch) return;
-      setAggregateHistoryRows(rows);
-    }).catch((error) => {
-      if (aggregateEpoch.current !== epoch) return;
-      setAggregateHistoryRows(null);
-      setAggregateHistoryError(error instanceof Error ? error.message : "request_failed");
-    });
-    return () => { if (aggregateEpoch.current === epoch) aggregateEpoch.current += 1; };
-  }, [chart, accountId, currency, aggregateMemberKey, readModelRefreshVersion]);
   const formatCurrentAmounts = (rows: Array<{ currency: string; amount: string }>) => rows.length
     ? rows.map(row => `${row.currency} ${row.amount}`).join(" · ") : "—";
   const aggregateAssetGroups = [
@@ -520,62 +369,12 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const selectedUpdatedAt = accountId === "all" ? null : accountFactsUpdatedAt(selectedFacts);
   const assetsMetricLabel = accountId === "all" ? "账户最新估值（按币种）" : selectedWalletValuation ? "钱包总资产" : "总资产";
   const selectedCashLabel = accountId === "all" ? "账户现金（按来源语义和币种）" : selectedAccount ? cashLabelForPlatform(selectedAccount.platformKey) : "可用现金";
-  const storedWalletPoints = walletChartSelected && historyKey === requestedHistoryKey ? walletHistory?.points || [] : [];
-  const storedAccountPoints = !walletChartSelected && historyKey === requestedHistoryKey && accountHistory?.identity_mismatch !== true && accountHistory?.series.currency === currency
-    ? (accountHistory?.series.points || []).filter(point => point.currency === currency) : [];
-  const filteredWalletPoints = walletChartSelected ? filterAssetHistoryByRange(storedWalletPoints, range) : [];
-  const filteredAccountPoints = walletChartSelected ? [] : filterAssetHistoryByRange(storedAccountPoints, range);
-  const geometry = walletChartSelected
-    ? buildBinanceWalletHistoryChartGeometry(filteredWalletPoints)
-    : buildAssetChartGeometry(filteredAccountPoints);
-  const aggregateInputs = aggregateMembers.map(account => {
-    const stored = aggregateHistoryError ? [] : (aggregateHistoryRows?.find(row => row.id === account.id)?.points || []);
-    const points = stored.map(point => ({ observation_date: point.observation_date, net_assets: point.net_assets, currency }));
-    const remember = (observationDate: string | null, netAssets: string | null | undefined) => {
-      if (!observationDate || typeof netAssets !== "string") return;
-      if (points.some(point => point.observation_date === observationDate)) return;
-      points.push({ observation_date: observationDate, net_assets: netAssets, currency });
-    };
-    if (account.id === walletAccount?.id && walletValuation && currency === walletValuation.currency) {
-      remember(shanghaiCalendarDate(walletValuation.observed_at), walletValuation.amount);
-    } else if (accountFactsDisplayReady(account.facts)) {
-      const row = account.facts?.balances.find(item => item.currency === currency && typeof item.net_assets === "string");
-      remember(shanghaiCalendarDate(account.facts?.observed_finished_at), row?.net_assets);
-    }
-    return { id: account.id, currency, points };
-  });
-  const aggregateSeries = buildAggregateAssetSeries(aggregateInputs);
-  const aggregateCurrencySeries = aggregateSeries.byCurrency.find(item => item.currency === currency)?.points || aggregateSeries.points;
-  const aggregateGeometry = buildAssetChartGeometry(filterAssetHistoryByRange(aggregateCurrencySeries.map(point => ({
-    observation_date: point.observation_date,
-    observed_finished_at: point.observation_date,
-    currency,
-    net_assets: point.net_assets,
-    total_cash: null,
-    break_before: point.break_before,
-  })), range));
-  const shownGeometry = accountId === "all" ? aggregateGeometry : geometry;
-  const historyCoverage = assetHistoryCoverage(accountId === "all"
-    ? aggregateCurrencySeries
-    : walletChartSelected ? storedWalletPoints : storedAccountPoints, range);
-  const benchmarkSeries = RETURN_INDEX_LEGEND.map(name => presentMarketBenchmarkSeries(storedBenchmarkPoints, name));
   const returnRevisionMatches = Number.isInteger(accountOptionsRevision) && accountOptionsRevision! >= 0
     && accountFacts?.account_options_revision === accountOptionsRevision;
   const aggregateReturn = presentAggregateReturn(displayAccounts.map(account => ({
     included: isAggregateAssetAccount(account) && account.facts?.aggregation_status !== "duplicate" && account.facts?.aggregation_status !== "conflict",
     qualified: readQualifiedPeriodReturn(account.platformKey, account.facts?.return, returnRevisionMatches),
   })));
-  const hasChart = chart === "assets" && (accountId === "all" ? shownGeometry.dots.length > 0 : Boolean(chartAccount) && geometry.dots.length > 0);
-  const chartEmptyTitle = accountId === "all" ? "汇总自 {date}（Asia/Shanghai）起计算" : chartUnavailable(chart);
-  const chartEmptyDetail = accountId === "all"
-    ? "尚无已存储合计。更早合计不回补，缺账户不按零计，线段在缺口处断开。"
-    : historyLoading
-        ? "加载中…"
-        : historyError || history?.identity_mismatch
-          ? "暂不可用"
-          : emptyNote.key === "{range}内暂无资产记录"
-            ? emptyNote.key
-            : "暂无资产记录";
   const detailLine = (label: string, updatedAt: string | null) => {
     const formatted = formatInstant(updatedAt);
     if (!label && !formatted) return null;
@@ -596,123 +395,10 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const nyDate = runtimeToday.split("-");
   const nyLabel = nyDate.length === 3 ? `${nyDate[1]}/${nyDate[2]}/${nyDate[0]}` : runtimeToday;
   const moneyName = (code: string) => code === "USD" || code === "USDT" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
-  // Share the existing read-only chart panel with the current homepage.
-  const chartPanel = (
-    <section className="chart-panel overview-chart" aria-label={t("图表")}>
-      {walletChartSelected && chart === "assets" ? <h2>{t("钱包总资产变化（USDT）")}</h2> : null}
-      <div className="chart-toolbar">
-        <div className="chart-switch" role="tablist" aria-label={t("图表")}>
-          {CHART_MODES.map(mode => <button key={mode.id} type="button" role="tab" aria-selected={chart === mode.id} className={chart === mode.id ? "active" : ""} onClick={() => setChart(mode.id)}>{t(mode.label)}</button>)}
-        </div>
-        <label className="chart-account-filter">
-          <span>{t("账户")}</span>
-          <select aria-label={chart === "return" ? t("收益率") : t("总资产")} value={accountId} onChange={event => setAccountId(event.target.value)}>
-            <option value="all">{t("全部账户")}</option>
-            {accounts.map(account => <option key={account.id} value={account.id}>{optionLabel(account)}</option>)}
-          </select>
-        </label>
-        {chart === "assets" ? <div className="chart-range" role="tablist" aria-label={t("图表范围")}>
-          {CHART_RANGE_OPTIONS.map(option => <button key={option.id} type="button" role="tab" aria-selected={range === option.id} className={range === option.id ? "active" : ""} onClick={() => setRange(option.id)}>{t(option.label)}</button>)}
-        </div> : null}
-      </div>
-      <div className="overview-benchmark">
-        <h2>{t("市场基准")}</h2>
-        <p>{t("市场基准不是账户收益。")}</p>
-        <div className="benchmark-chart-grid">{benchmarkSeries.map(series => {
-          const geometry = buildBenchmarkChartGeometry(series.points);
-          return series.storedHistory ? <div className="asset-chart benchmark-chart" key={series.seriesId}>
-            <strong>{t(series.seriesId)}</strong>
-            <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t(series.seriesId)}>
-              {geometry.segments.map((path, index) => <path key={index} d={path} className="benchmark-chart-line" fill="none" />)}
-              {geometry.dots.map(dot => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={geometry.dots.length === 1 ? 4 : 2.5} className="benchmark-chart-dot">
-                <title>{`${t(series.seriesId)} · ${dot.date} · ${dot.amount}`}</title>
-              </circle>)}
-            </svg>
-            <div className="asset-chart-meta"><span>{series.startDate} → {series.points[series.points.length - 1]?.observationDate}</span><span>{geometry.minLabel} – {geometry.maxLabel}</span></div>
-          </div> : null;
-        })}</div>
-        {!benchmarkSeries.some(series => series.storedHistory) ? <p>{t("市场基准自 {date}（Asia/Shanghai）起计算；尚无已存储点位，不回补历史价格。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</p> : null}
-        <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>
-          {benchmarkSeries.map(series => <li key={series.seriesId}>
-            <strong>{t(series.seriesId)}</strong>
-            <span>{series.storedHistory ? t("市场基准") : t("比较序列未取得")}</span>
-            <small>{series.storedHistory
-              ? `${series.startDate} → ${series.points[series.points.length - 1]?.observationDate}`
-              : t("序列自 {date}（Asia/Shanghai）起，不回补历史。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</small>
-          </li>)}
-        </ul>
-      </div>
-      {chart === "assets" ? <div className="chart-currency">
-        {accountId === "all" ? <span>{t("全部账户")}</span> : chartAccount ? <span>{`${chartAccount.title} · ${chartAccount.environment} · ${chartAccount.platform}`}</span> : null}
-        <label>
-          <span>{t("币种")}</span>
-          <select aria-label={t("币种")} value={currency} onChange={event => setCurrencyChoice({ accountId: currencyScopeId, value: event.target.value })} disabled={!currencyOptions.length}>
-            {!currencyOptions.length ? <option value="">{t("暂无币种")}</option> : null}
-            {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
-          </select>
-        </label>
-        {accountId === "all" ? <small>{t("汇总自 {date}（Asia/Shanghai）起计算", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</small> : chartAccount ? walletChartSelected
-          ? <details className="overview-wallet-details"><summary>{t("数据范围")}</summary><small>{t("按 Binance 返回的钱包范围")}</small></details>
-          : <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
-      </div> : null}
-      {chart === "return" ? <div className="overview-return">
-        <h2>{t(accountId === "all" ? "汇总收益率" : "账户收益率")}</h2>
-        <p>{t("券商期间收益单独列示；同窗口基准比较暂不可用。")}</p>
-        {accountId === "all" ? <ul className="overview-return-coverage" aria-label={t("汇总收益率")}>
-          <li>
-            <strong>{t("全部账户")}</strong>
-            {aggregateReturn.status === "available" ? <>
-              <span>{`${aggregateReturn.sourceValue}% · ${aggregateReturn.currency}`}</span>
-              <small>{`${aggregateReturn.periodFrom} — ${aggregateReturn.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
-              <small>{t("仅此一个纳入汇总的账户具有合格期间收益。")}</small>
-            </> : <>
-              <span>{aggregateReturn.reason === "no_qualified_record" ? t("暂无合格期间收益记录") : t("汇总收益率暂不可用")}</span>
-              <small>{aggregateReturn.reason === "incomplete"
-                ? t("缺账户不按零计，也不用资产变化代替。")
-                : aggregateReturn.reason === "weighting_unqualified"
-                  ? t("各账户合格收益已列示；尚无可加权汇总口径。")
-                  : t("暂无合格期间收益记录")}</small>
-            </>}
-          </li>
-        </ul> : null}
-        <ul className="overview-return-coverage" aria-label={t("账户收益覆盖")}>
-          {visible.map(account => {
-            const result = readQualifiedPeriodReturn(account.platformKey, account.facts?.return, returnRevisionMatches);
-            return <li key={account.id}><strong>{optionLabel(account)}</strong>
-              {result ? <>
-                <span>{`${result.sourceValue}% · ${result.currency}`}</span>
-                <small>{`${result.periodFrom} — ${result.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
-              </> : <><span>{t("收益率暂不可用")}</span><small>{t("暂无合格期间收益记录")}</small></>}
-            </li>;
-          })}
-          {!visible.length ? <li>{t("暂无账户")}</li> : null}
-        </ul>
-        <details className="overview-benchmark-source"><summary>{t("收益率口径")}</summary><p>{t("比较需完整外部资金流、费用和原币种估值，共同起止区间以可信首点归零；多账户汇总还需可信汇率与加权口径。")}</p></details>
-      </div> : hasChart ? <div className="asset-chart">
-        <svg viewBox={`0 0 ${shownGeometry.width} ${shownGeometry.height}`} role="img" aria-label={t(accountId === "all" ? "总资产" : walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>
-          {shownGeometry.segments.map((path, index) => <path key={index} d={path} className="asset-chart-line" fill="none" />)}
-          {shownGeometry.dots.map((dot) => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={shownGeometry.dots.length === 1 ? 4 : 2.5} className="asset-chart-dot">
-            <title>{`${dot.date} · ${currency} ${dot.amount}`}</title>
-          </circle>)}
-        </svg>
-        <div className="asset-chart-meta">
-          <span>{shownGeometry.dots[0]?.date} → {shownGeometry.dots[shownGeometry.dots.length - 1]?.date}</span>
-          <span>{currency} {shownGeometry.minLabel} – {shownGeometry.maxLabel}</span>
-          {historyCoverage?.shorterThanRange ? <span className="asset-chart-coverage">{t("历史仅 {days} 天（自 {date} 起），不代表更长期表现。", { days: historyCoverage.days, date: historyCoverage.firstDate })}</span> : null}
-          {accountId === "all" && aggregateSeries.omittedPartialDateCount > 0 ? <span>{t("有 {count} 个日期省略了缺观察的账户，线段在缺口处断开。", { count: aggregateSeries.omittedPartialDateCount })}</span> : null}
-        </div>
-      </div> : <div className="chart-empty">
-        <strong>{chartEmptyTitle === "汇总自 {date}（Asia/Shanghai）起计算"
-          ? t(chartEmptyTitle, { date: MARKET_BENCHMARK_INCEPTION_DATE })
-          : t(chartEmptyTitle)}</strong>
-        <p>{chartEmptyDetail === "{range}内暂无资产记录"
-          ? t(chartEmptyDetail, { range: t(emptyNote.rangeLabel) })
-          : t(chartEmptyDetail)}</p>
-      </div>}
-    </section>
-  );
+  const chartPanel = <PerformanceCharts accounts={accounts} accountId={accountId} onSelectAccount={setAccountId}
+    benchmarks={storedBenchmarkPoints} rates={overviewUsdRates} refreshVersion={readModelRefreshVersion} now={factsNow} />;
   // Kept for the existing disclosure checks. memberCount is never negative, so this is not on the first screen.
-  const retainedOverview = aggregateSeries.memberCount < 0 ? <div className="daily-page overview-layout">
+  const retainedOverview = screenAccounts.length < 0 ? <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
       <div><h1>{t("账户总览")}</h1>{selectedUpdatedTime ? <small className="overview-updated">{t("上次更新")} {selectedUpdatedTime}</small> : null}</div>
       <select className="account-filter" aria-label={t("全部账户")} value={accountId} onChange={event => setAccountId(event.target.value)}>
@@ -1036,14 +722,12 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         })}</div>
       </article>
       <article className="home-card">
-        <h2>{t("收益率")}</h2>
+        <h2>{t("券商期间收益")}</h2>
         {aggregateReturn.status === "available" ? <div className="overview-return">
           <strong>{`${aggregateReturn.sourceValue}% · ${aggregateReturn.currency}`}</strong>
           <small>{`${aggregateReturn.periodFrom} — ${aggregateReturn.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
         </div> : <div className="return-empty" role="img" aria-label={t("收益率")}>{t("暂无合格收益")}</div>}
-        <ul className="return-legend">
-          {RETURN_LEGEND.map(item => <li key={item.label}><i style={{ background: item.color }} />{t(item.label)}</li>)}
-        </ul>
+
       </article>
     </section>
     {chartPanel}

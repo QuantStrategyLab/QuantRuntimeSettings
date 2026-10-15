@@ -26,8 +26,8 @@ const points = await loadMarketBenchmarkPoints(async (path, init) => {
   assert.equal(init.method, "GET");
   assert.equal(init.credentials, "same-origin");
   return Response.json({ ok: true, inception_date: "2026-10-09", points: seriesIds.flatMap(seriesId => [
-    { seriesId, observationDate: "2026-10-12", close: "100" },
-    { seriesId, observationDate: "2026-10-13", close: "102" },
+    { seriesId, observationDate: "2026-10-14", close: "100" },
+    { seriesId, observationDate: "2026-10-15", close: "102" },
   ]) });
 });
 assert.equal(points.length, 8);
@@ -36,41 +36,46 @@ const require = createRequire(join(frontend, "package.json"));
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
-const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
-let selected = "all";
-let chart = "assets";
-let nullIndex = 0;
-const hookedReact = { ...React, useState(initial) {
-  const value = initial === "all" ? selected : initial === "assets" ? chart
-    : initial === "" && selected !== "all" ? `${selected}:USD:${payload.observed_finished_at}:`
-    : initial === null && ++nullIndex === 1 && selected !== "all" ? history : initial;
-  return React.useState(value);
-} };
+const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { PerformanceCharts } from "./PerformanceCharts"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
 const component = { exports: {} };
-new Function("require", "module", "exports", bundled)((name) => name === "react" ? hookedReact : require(name), component, component.exports);
-const { OverviewPage, LocaleContext } = component.exports;
+new Function("require", "module", "exports", bundled)(require, component, component.exports);
+const { OverviewPage, PerformanceCharts, LocaleContext } = component.exports;
 const account = { id: "synthetic", platformKey: binding.platform, accountKey: option.key, runtimeDailyBinding: "not_applicable", title: "Synthetic live", platform: "LongBridge", environment: "Live", brokerEnvironment: "live", environmentSource: "config", strategy: "Synthetic strategy", statusLabel: "", statusDetail: "", activation: "待确认", preference: null, facts: model.accounts[0], runtime: null };
+const initialData = { accounts: [{ id: account.id, points: series.points.map(p => ({ date: p.observation_date, value: Number(p.net_assets), externalFlow: null })) }], failed: [], omittedCurrencies: [], truncated: false, referenceFx: false, incompleteDates: 0 };
+const render = (Component, props, language = "zh") => renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(Component, props)));
 const originalNow = Date.now;
 Date.now = () => now;
-function render(marketBenchmarkPoints = points, accounts = [account]) {
-  nullIndex = 0;
-  return renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: "zh" }, React.createElement(OverviewPage, { accounts, accountFacts: model, marketBenchmarkPoints, onOpenAccount() {} })));
-}
 try {
-  const home = render();
-  assert.match(home, /<svg[^>]+aria-label="总资产"/, "homepage_asset_chart_visible: HTTP 200 account facts must reach a visible chart");
-  assert.match(home, /role="tablist" aria-label="图表"/, "read-only chart navigation must be reachable");
-  for (const name of seriesIds) assert.match(home, new RegExp(`<svg[^>]+aria-label="${name}"`), "homepage_benchmarks_visible: each successful synthetic series renders");
-  assert.equal((home.match(/class="benchmark-chart-line"/g) || []).length, 4, "consecutive stored closes produce four visible line segments");
-  assert.match(home, /市场基准不是账户收益/);
-  selected = "synthetic";
-  assert.match(render([]), /2026-10-15 · USD 101.25/, "selected_account_history_visible: the receiver-projected history reaches SVG");
-  assert.match(render([]), /class="asset-chart-line"/, "consecutive stored account observations produce a visible line segment");
-  chart = "return";
-  const returns = render();
-  assert.doesNotMatch(returns, /class="asset-chart-line"/, "asset values must never be plotted as account returns");
-  assert.match(returns, /暂无合格期间收益记录/);
-  selected = "all";
-  assert.doesNotMatch(render([], [{ ...account, brokerEnvironment: "paper", facts: { ...account.facts, account_scope: "paper", broker_environment: "paper" } }]), /<svg/, "missing benchmarks and paper-only accounts must not fabricate charts");
+  const home = render(OverviewPage, { accounts: [account], accountFacts: model, marketBenchmarkPoints: points, onOpenAccount() {} });
+  assert.match(home, /performance-panel/, "the unified chart panel must be reachable from the actual homepage");
+  assert.match(home, /累计收益/);
+  assert.doesNotMatch(home, /benchmark-chart-grid|benchmark-chart-line/, "old separate benchmark charts are removed");
+  const props = { accounts: [account], accountId: "synthetic", onSelectAccount() {}, benchmarks: points, rates: {}, refreshVersion: 0, now, initialData };
+  const html = render(PerformanceCharts, props);
+  assert.equal((html.match(/<svg /g) || []).length, 2, "exactly one return plot and one total-assets plot");
+  assert.match(html, /<svg[^>]+aria-label="累计收益"/);
+  assert.match(html, /<svg[^>]+aria-label="总资产"/);
+  const returns = html.slice(html.indexOf('data-testid="returns-plot"'), html.indexOf('data-testid="assets-plot"'));
+  const assets = html.slice(html.indexOf('data-testid="assets-plot"'));
+  for (const id of seriesIds) {
+    assert.match(returns, new RegExp(`data-series="${id}"`));
+    assert.doesNotMatch(assets, new RegExp(`data-series="${id}"`));
+  }
+  assert.match(html, /现金流未知/);
+  assert.match(html, /0\.00%/);
+  assert.match(html, /console-performance-charts\.md/);
+  assert.equal((html.match(/aria-pressed="(?:true|false)"/g) || []).length, 9, "five shared ranges and four benchmark toggles");
+  const en = render(PerformanceCharts, props, "en");
+  assert.match(en, /Partial data: cash flows are unknown/);
+  assert.doesNotMatch(en, /Information unavailable/);
+  const empty = render(PerformanceCharts, { ...props, initialData: { ...initialData, accounts: [] } });
+  assert.match(empty, /所选范围暂无数据/);
+  assert.doesNotMatch(empty, /<svg/);
+  const partial = render(PerformanceCharts, { ...props, now: now + 10 * 86400000, initialData: { ...initialData, failed: ['missing'], referenceFx: true, truncated: true } });
+  assert.match(partial, /数据已过期/);
+  assert.match(partial, /部分覆盖/);
+  assert.match(partial, /非历史汇率/);
+  const noCommon = render(PerformanceCharts, { ...props, benchmarks: points.map(p=>({...p,observationDate:'2026-10-10'})) });
+  assert.match(noCommon, /比较数据不足或没有共同日期/);
 } finally { Date.now = originalNow; }
-console.log("console_chart_visibility_validation: PASS (homepage_asset_chart_visible, homepage_benchmarks_visible, selected_account_history_visible; synthetic only)");
+console.log("console_chart_visibility_validation: PASS (receiver history → unified return/asset SVG, four overlaid benchmarks, partial/empty/stale, English; synthetic only)");

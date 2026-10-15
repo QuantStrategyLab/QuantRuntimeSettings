@@ -955,7 +955,7 @@ assert.match(overviewPage, /已取得资产合计（不含已标记模拟账户�
 assert.match(overviewPage, /summarizeCurrentAccountFacts/);
 assert.match(overviewPage, /formatCurrentAmounts\(verifiedAssets \|\| currentFactsSummary\.excludingPaper\.assets\)/);
 assert.match(overviewPage, /accountId === "all"/);
-assert.match(overviewPage, /loadAccountFactsHistory|asset-chart/);
+assert.match(overviewPage, /PerformanceCharts/);
 assert.match(overviewPage, /loadRuntimeDaily|每日运行记录/);
 assert.match(overviewPage, /const freshCashRows = accountFactsDisplayReady\(account\.facts\) \? account\.facts!\.cash : null/);
 assert.match(overviewPage, /formatOverviewAccountCash\(\{/);

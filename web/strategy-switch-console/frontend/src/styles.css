@@ -773,3 +773,54 @@ body { min-height: 100vh; background-attachment: fixed; background-repeat: no-re
 
 .benchmark-chart-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 640px) { .benchmark-chart-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* Performance comparison: a shared percentage scale, then a separate value scale. */
+.performance-panel { min-width: 0; overflow: hidden; }
+.performance-toolbar { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 14px; }
+.performance-toolbar label { display: grid; gap: 6px; min-width: 0; max-width: 100%; color: var(--muted); font-size: 13px; }
+.performance-toolbar select { max-width: 100%; min-height: 42px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; }
+.performance-ranges { display: flex; gap: 3px; padding: 3px; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; }
+.performance-ranges button { min-width: 42px; min-height: 38px; padding: 5px 10px; border: 0; border-radius: 4px; color: var(--muted); background: transparent; font-size: 13px; font-weight: 650; }
+.performance-ranges button[aria-pressed="true"] { color: var(--accent-strong); background: var(--paper); box-shadow: 0 1px 4px var(--line); }
+.performance-notices { margin: 14px 0; padding: 10px 12px; border-left: 2px solid var(--line); background: var(--panel); }
+.performance-notices p { margin: 4px 0; color: var(--muted); font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.performance-notices .performance-warning { color: var(--amber); }
+.performance-section + .performance-section { margin-top: 24px; padding-top: 22px; border-top: 1px solid var(--line); }
+.performance-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; }
+.performance-heading h2 { margin: 0; font-size: 17px; }
+.performance-heading > span { color: var(--muted); font-size: 12px; }
+.performance-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-top: 12px; font-size: 12px; }
+.performance-legend > span, .performance-legend button { display: inline-flex; align-items: center; gap: 7px; min-height: 38px; color: var(--ink); }
+.performance-legend button { border: 0; background: transparent; padding: 4px 0; font-size: inherit; }
+.performance-legend button[aria-pressed="false"] { color: var(--muted); text-decoration: line-through; }
+.performance-legend button[aria-pressed="false"] i { opacity: .3; }
+.performance-legend i, .performance-readout i { width: 16px; height: 3px; border-radius: 2px; flex: 0 0 auto; }
+.performance-baseline, .performance-hint, .performance-benchmark-status { color: var(--muted); font-size: 11px; line-height: 1.6; }
+.performance-baseline { margin: 2px 0 8px; }
+.performance-plot { min-width: 0; font-variant-numeric: tabular-nums; }
+.performance-plot svg { width: 100%; display: block; touch-action: pan-y; }
+.performance-line { stroke-linecap: round; stroke-linejoin: round; }
+.performance-axis line { stroke: var(--soft-line); }
+.performance-axis text { fill: var(--muted); font-size: 11px; }
+.performance-zero { stroke: var(--line); stroke-dasharray: 3 3; }
+.performance-crosshair { stroke: var(--muted); opacity: .5; stroke-dasharray: 3 3; pointer-events: none; }
+.performance-readout { display: flex; flex-wrap: wrap; gap: 8px 18px; padding: 10px 12px; margin: 4px 0 8px; background: var(--panel); border-radius: 5px; font-size: 12px; min-height: 56px; }
+.performance-readout time { width: 100%; color: var(--muted); }
+.performance-readout > span { display: inline-flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.performance-readout strong { font-weight: 600; }
+.performance-benchmark-status { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 10px; }
+.performance-empty { min-height: 180px; display: grid; place-content: center; padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+.performance-method { margin-top: 20px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.performance-method summary { cursor: pointer; width: fit-content; }
+.performance-method a { color: var(--accent); }
+@media (max-width: 480px) {
+  .performance-toolbar { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .performance-toolbar select { width: 100%; }
+  .performance-ranges { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .performance-ranges button { min-width: 0; padding: 5px 2px; }
+  .performance-legend { gap: 2px 16px; }
+  .performance-readout { display: grid; gap: 7px; }
+  .performance-readout > span { display: flex; }
+  .performance-readout strong { margin-left: auto; }
+  .performance-notices { padding: 8px; }
+}

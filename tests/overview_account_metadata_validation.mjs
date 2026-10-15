@@ -97,7 +97,6 @@ const schwabModel = buildAccountFactsReadModel({ accountOptions: { schwab: [schw
 assert.equal(schwabModel.accounts[0].data_status, "fresh");
 const historySeries = projectAccountFactsHistorySeries({ binding, currency: "USD", days: [{ target_id: binding.target_id, source_binding_id: binding.source_binding.id, account_scope: binding.account_scope, observation_date: payload.observation_date, payload }] });
 assert.equal(historySeries.points.length, 1);
-const historyResponse = { ok: true, platform: "longbridge", account_key: option.key, identity_mismatch: false, series: historySeries };
 
 const frontend = fileURLToPath(new URL("../web/strategy-switch-console/frontend/", import.meta.url));
 const require = createRequire(join(frontend, "package.json"));
@@ -106,17 +105,8 @@ const { renderToStaticMarkup } = require("react-dom/server");
 const { buildSync } = require("esbuild");
 const bundled = buildSync({ stdin: { contents: 'export { OverviewPage } from "./OverviewPage"; export { AccountsPage } from "./AccountsPage"; export { LocaleContext } from "./locales";', resolveDir: join(frontend, "src"), loader: "tsx" }, bundle: true, platform: "node", format: "cjs", jsx: "automatic", external: ["react", "react-dom", "react/jsx-runtime"], write: false, logLevel: "silent" }).outputFiles[0].text;
 let selected = "all";
-let chart = "assets";
-let injectedHistory = null;
-let historyKey = "";
-let nullState = 0;
 const hookedReact = { ...React, useState(initial) {
-  // Supply the state that normal account/tab selection establishes; effects and
-  // HTTP remain disabled in this deterministic server render.
-  const value = initial === "all" ? selected : initial === "assets" ? chart
-    : initial === "" && historyKey ? historyKey
-    : initial === null && ++nullState === 1 && injectedHistory ? injectedHistory : initial;
-  return React.useState(value);
+  return React.useState(initial === "all" ? selected : initial);
 } };
 const component = { exports: {} };
 new Function("require", "module", "exports", bundled)((name) => name === "react" ? hookedReact : require(name), component, component.exports);
@@ -132,7 +122,6 @@ let browserNow = now;
 Date.now = () => browserNow;
 globalThis.fetch = async () => { externalAttempts += 1; throw new Error("external fetch forbidden"); };
 function render(accounts, props = {}, language = "zh") {
-  nullState = 0;
   return renderToStaticMarkup(React.createElement(LocaleContext.Provider, { value: language }, React.createElement(OverviewPage, { accounts, accountFacts: model, onOpenAccount() {}, ...props })));
 }
 try {
@@ -141,9 +130,9 @@ try {
   assert.match(html, /没读到/);
   assert.match(html, /暂无合格收益/);
   assert.match(html, /没有记录/);
-  assert.doesNotMatch(html, /USD 101\.25|模拟账户|已取得资产合计|配置为模拟|覆盖按配置条目统计|历史数据范围/,
+  assert.doesNotMatch(html, /USD 101\.25|已取得资产合计|配置为模拟|覆盖按配置条目统计|历史数据范围/,
     "paper accounts and engineering coverage stay off the first screen");
-  for (const name of ["你的账户", "标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.match(html, new RegExp(name));
+  for (const name of ["全部账户", "标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"]) assert.match(html, new RegExp(name));
   assert.match(html, /aria-label="收益率"/);
   assert.doesNotMatch(html, /<path |fred\.stlouisfed|暂无组合历史/);
   assert.doesNotMatch(html, new RegExp(bindingId), "private source identity is not rendered");
@@ -168,14 +157,9 @@ try {
   assert.doesNotMatch(missingHtml, /208\.5/);
   assert.doesNotMatch(render([{ ...baseAccount, brokerEnvironment: "live", facts: fresh }]), /101\.25/, "a paper snapshot is not relabeled as a real account");
   selected = "paper";
-  injectedHistory = historyResponse;
-  historyKey = `paper:USD:${fresh.observed_finished_at}:`;
   const historyHtml = render([baseAccount]);
   metadataRenderFixtures.history = historyHtml;
-  assert.match(historyHtml, /2026-10-07 · USD 101\.25/, "stored history is visible in the selected asset chart");
-  chart = "return";
-  assert.doesNotMatch(render([baseAccount]), /2026-10-07 · USD 101\.25|class="asset-chart-line"/, "stored assets are not drawn as a return curve");
-  chart = "assets";
+  assert.match(historyHtml, /performance-panel/, "selected account reaches the shared performance panel; actual history rendering is tested in console_chart_visibility_validation");
   browserNow = expiry;
   assert.match(render([schwabAccount]), /208\.5/);
   browserNow = expiry + 1;
@@ -187,14 +171,6 @@ try {
   for (const timestamp of [null, "not-a-time", new Date(now + 5 * 60 * 1000 + 1).toISOString()]) {
     assert.doesNotMatch(render([{ ...schwabAccount, facts: { ...schwabAccount.facts, observed_finished_at: timestamp } }]), /208\.5/);
   }
-  selected = "paper";
-  injectedHistory = { ...historyResponse, account_key: "other" };
-  assert.doesNotMatch(render([baseAccount]), /历史数据范围|101\.25/);
-  injectedHistory = { ...historyResponse, identity_mismatch: true };
-  assert.doesNotMatch(render([baseAccount]), /101\.25/);
-  injectedHistory = historyResponse; historyKey = "old-request";
-  assert.doesNotMatch(render([baseAccount]), /101\.25/, "superseded request metadata stays hidden");
-  injectedHistory = null; historyKey = "";
   selected = "wallet";
   const walletHtml = render([walletAccount], { binanceFacts: { value: { report: walletReport }, error: null } });
   metadataRenderFixtures.wallet = walletHtml;
@@ -207,7 +183,7 @@ try {
   const staleWallet = render([walletAccount], { binanceFacts: { value: { report: { ...walletReport, observed_finished_at: "2026-10-04T07:59:00Z" } }, error: null } });
   assert.doesNotMatch(staleWallet, /44\.55/);
   assert.match(staleWallet, /没读到/);
-  selected = "all"; chart = "return";
+  selected = "all";
   const nativeReturnAccount = { ...baseAccount, platformKey: "ibkr", brokerEnvironment: "live", facts: { ...fresh, account_scope: "live", broker_environment: "live", return: {
     status: "available", method: "native_ibkr_twr", currency: "EUR", period: {from:"2026-09-01",to:"2026-09-30"},
     source_value: "-2.5", source_unit: "percent", value: "-0.025", unit: "ratio", source: "ChangeInNAV.twr", observed_at: "2026-10-08T08:00:00Z",
