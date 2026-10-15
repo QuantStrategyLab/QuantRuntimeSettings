@@ -129,6 +129,19 @@ export function decisionFields(entry, category, now = Date.now()) {
     diff,
   };
 }
+export function decisionCategory(entry, fallback = "strategy_promotion") {
+  return fallback === "strategy_promotion" &&
+    (entry.confirmation_execution_mode === "paper" || entry.application?.broker_environment === "paper" ||
+      entry.application_preparation?.preview_request)
+    ? "paper_account_application" : fallback;
+}
+/** Stable display reference only. Full IDs remain mandatory for lookups and writes. */
+export function shortId(id, prefix = "IN") {
+  let hash = 14695981039346656037n;
+  for (const byte of new TextEncoder().encode(id))
+    hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 1099511628211n);
+  return `${prefix}-${hash.toString(36).toUpperCase().padStart(13, "0")}`;
+}
 export function decorateQueue(payload, field, category) {
   return {
     ...payload,
@@ -139,6 +152,7 @@ export function decorateQueue(payload, field, category) {
   };
 }
 export function canonicalItem(entry, category) {
+  category = decisionCategory(entry, category);
   const data = entry.candidate || entry.recovery || entry;
   const id =
     category === "credential_maintenance"
@@ -146,7 +160,12 @@ export function canonicalItem(entry, category) {
       : `${category}:${data.candidate_id || data.recovery_id || data.ticket_id}`;
   return {
     id,
+    short_id: shortId(id),
     ...decisionFields(entry, category),
+    ...(category === "paper_account_application" ? {
+      status: entry.application || entry.state === "human_accepted" ? "decided" : decisionFields(entry, category).status,
+      application_status: entry.application?.status || null,
+    } : {}),
     title_key: `decisions.${category}`,
     account_alias: data.account_key || data.confirmation_account_key || null,
     platform: scalar(data.platform || data.confirmation_target_platform),
@@ -186,21 +205,25 @@ export async function decisionHistoryRows(rows) {
     recovery: "reconciliation_recovery",
   };
   return Promise.all(
-    rows.map(async (row) => ({
-      item_id: `${categories[row.kind]}:${row.subject_id}`,
-      category: categories[row.kind],
-      actor_alias: await actorAlias(row.actor),
-      time: row.decided_at,
-      action: [
-        "accept",
-        "adopt_candidate",
-        "confirm",
-        "approve",
-        "approve_limited_live_canary",
-      ].includes(row.action)
-        ? "adopt_intent"
-        : "decline_intent",
-      evidence_sha256: row.material_key,
-    })),
+    rows.map(async (row) => {
+      const target = JSON.parse(row.target_json || "{}");
+      const category = row.kind === "promotion" && (target.confirmation?.execution_mode === "paper" || row.confirmation_execution_mode === "paper")
+        ? "paper_account_application" : categories[row.kind];
+      const itemId = `${category}:${row.subject_id}`;
+      const id = row.request_key || `${itemId}:${row.material_key}:${row.decided_at}`;
+      return {
+        id,
+        short_id: shortId(id, "CH"),
+        item_id: itemId,
+        item_short_id: shortId(itemId),
+        category,
+        actor_alias: await actorAlias(row.actor),
+        time: row.decided_at,
+        action: [
+          "accept", "adopt_candidate", "confirm", "approve", "approve_limited_live_canary",
+        ].includes(row.action) ? "adopt_intent" : "decline_intent",
+        evidence_sha256: row.material_key,
+      };
+    }),
   );
 }

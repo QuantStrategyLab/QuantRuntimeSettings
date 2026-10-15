@@ -145,6 +145,7 @@ jobs:
           node --experimental-strip-types tests/decision_review_material_pure_validation.mjs
           node tests/console_api_contract_validation.mjs
           node tests/console_api_worker_validation.mjs
+          node tests/console_design_api_validation.mjs
           node tests/console_performance_stats_validation.mjs
           node tests/account_settings_worker_validation.mjs
           node --experimental-default-type=module tests/console_evidence_metadata_validation.mjs

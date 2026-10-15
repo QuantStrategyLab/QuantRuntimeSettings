@@ -204,6 +204,26 @@ try {
   validate("accounts", accounts.body);
   assert.equal(accounts.body.accounts[0].pending_draft_count, 4);
   for (const [path, schema] of [
+    ["/api/runtime/today", "today_runs"], ["/api/strategies/summary", "strategy_summary"],
+    ["/api/notifications/send-log", "notification_log"], ["/api/accounts/run-controls?account=synthetic-alpha", "run_controls"],
+  ]) {
+    const read = await call(path, { cookie: reader });
+    assert.equal(read.status, 200);
+    validate(schema, read.body);
+    assert.equal(read.body.no_order, true);
+    assert.equal(read.body.execution_authority_granted, false);
+    assert.equal((await call(path, { cookie: null })).status, 401);
+    assert.equal((await call(path, { method: "POST", body: {} })).status, 405);
+  }
+  const controls = await call("/api/accounts/run-controls?account=synthetic-alpha");
+  validate("run_controls", controls.body);
+  assert.equal(controls.body.actions.enable.enabled, false);
+  assert.equal(controls.body.actions.stop.enabled, false, "no dispatch client is configured");
+  assert.equal(controls.body.actions.approve_application.enabled, false, "combined overrides cannot approve a profile-only application");
+  assert.equal((await call("/api/accounts/run-controls?account=missing")).status, 400);
+  assert.match(history.body.items[0].short_id, /^CH-[0-9A-Z]{13}$/);
+  assert.ok(history.body.items[0].id);
+  for (const [path, schema] of [
     ["/api/owner-decisions/history", "decision_history"],
     ["/api/decisions-inbox", "inbox"],
   ]) {
