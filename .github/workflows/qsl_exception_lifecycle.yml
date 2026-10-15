@@ -110,7 +110,7 @@ jobs:
           research = project.get("optional-dependencies", {}).get("research", [])
           pattern = re.compile(
               r"^ai-gateway-client\s*@\s*git\+https://github\.com/"
-              r"QuantStrategyLab/(?:AIAuditBridge|PersonalAIService)\.git@([0-9a-f]{40})$"
+              r"QuantStrategyLab/(?:AIAuditBridge|QuantAIService)\.git@([0-9a-f]{40})$"
           )
           matches = [pattern.fullmatch(item.strip()) for item in research if isinstance(item, str)]
           matches = [match for match in matches if match]
@@ -126,7 +126,7 @@ jobs:
               str(destination), encoding="utf-8"
           )
           subprocess.run(
-              ["gh", "repo", "clone", "QuantStrategyLab/PersonalAIService", str(destination)],
+              ["gh", "repo", "clone", "QuantStrategyLab/QuantAIService", str(destination)],
               check=True,
           )
           subprocess.run(["git", "-C", str(destination), "checkout", "--detach", ref], check=True)
