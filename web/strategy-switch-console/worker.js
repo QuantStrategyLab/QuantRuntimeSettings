@@ -8798,6 +8798,13 @@ function runtimeDailyReadStatus(stored, now) {
   return {
     data_status: dataStatus,
     read_error_count: stored.read_errors.length,
+    // These producer codes contain no object paths, identities or exception text.
+    // Unknown legacy diagnostics remain private and retain an explicit error.
+    read_error_codes: stored.read_errors.map(error => {
+      if (["report_read_error", "coverage_unconfirmed", "report_rejected", "read_failed", "read_truncated", "list_failed"].includes(error)) return error;
+      if (error === "listing truncated") return "listing_truncated";
+      return "source_read_error";
+    }),
     unmatched_count: stored.unmatched_reports.length,
     record: runtimeDailyPublicRecord(record),
     fills: { source: "not_connected", records: [], count: null },

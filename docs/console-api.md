@@ -319,6 +319,9 @@ production session or real account data are used.
 binding, date and all source evidence. Default reads retain the existing coverage.
 The date grid and today summary do not consume coverage and use this option.
 Concurrent inbox consumers share only their in-flight request, never settled data.
+`read_error_codes` contains only fixed public producer diagnostics; unknown legacy
+text is returned as `source_read_error`, with the original error count and record
+state preserved. It never exposes object paths or exception text.
 A provider daily list quota failure remains `read_failed`; inbox source metadata
 reports `failure_reason=kv_list_daily_limit_exceeded`. No cached successful queue
 is substituted for a failed read. Reducing requests cannot restore exhausted quota
