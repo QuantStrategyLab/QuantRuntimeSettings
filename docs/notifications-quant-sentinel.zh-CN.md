@@ -9,7 +9,7 @@
 | `quant-sentinel-telegram-bot-token` | **唯一**组织哨兵 bot（监控、收盘日报、插件告警、执行路径） |
 | `crisis-alert-telegram-bot-token` | **已弃用**，保留只作回滚 |
 
-各平台 GCP 项目均应有 sentinel secret **同名副本**（同一 bot）：`firstradequant`、`longbridgequant`、`charlesschwabquant`、`interactivebrokersquant`（以及加密侧若走 GCP 的项目）。
+各平台 GCP 项目均应有 sentinel secret **同名副本**（同一 bot）：`<firstrade-project-id>`、`<longbridge-project-id>`、`<schwab-project-id>`、`<ibkr-project-id>`（以及加密侧若走 GCP 的项目）。
 
 历史平台独立 bot secret **不得再作为执行日报入口**：
 
@@ -117,7 +117,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ✅ 无需调仓
 平台: schwab
 
-[U16608560] 💓 【心跳检测】
+[U00000000] 💓 【心跳检测】
 🧭 策略: 纳斯达克增长收益
 💰 账户总权益: USD 569.16
 💼 持仓
@@ -131,7 +131,7 @@ Chat 目标仍只通过运行时注入：`QSL_GLOBAL_TELEGRAM_CHAT_ID`（首选�
 ```
 📡 量化哨兵 · 收盘日报
 业务日: 2026-10-09
-[U16608560] 🔔 【调仓指令】
+[U00000000] 🔔 【调仓指令】
 🧭 策略: 纳斯达克增长收益
 💰 账户总权益: USD 569.16
 💼 持仓

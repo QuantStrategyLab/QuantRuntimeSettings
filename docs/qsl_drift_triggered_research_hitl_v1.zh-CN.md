@@ -118,7 +118,7 @@ drift(REVIEW|CRITICAL)
 | 定时 cron 独立 reopt | **禁止** | 不得新增；既有 health 检查须保持零优化副作用 |
 | `build_config` `scheduled_*` 触发器文案 | **已澄清** | 语义为「lane 允许响应 drift/人工复测」，非日历优化 |
 
-生产分数只以 lifecycle store 为来源，不从平台日志或 UES 另算第二份分数。平台 lifecycle observe 与 UES `drift-check` 是双轨消费者；UES 必须写入同一 `gs://qsl-runtime-logs-shared/strategy-lifecycle/v1`，避免来源分叉。
+生产分数只以 lifecycle store 为来源，不从平台日志或 UES 另算第二份分数。平台 lifecycle observe 与 UES `drift-check` 是双轨消费者；UES 必须写入同一 `gs://<shared-bucket>/strategy-lifecycle/v1`，避免来源分叉。
 
 交接报告称 inject 已部署；这是历史运行报告，不是本轮独立核验。observe profile override 不改变交易 `RUNTIME_TARGET_JSON` 的 profile，也不证明交易 store → NEW_RISK 闭环。共享桶 GitHub vars 的历史配置、同步代码已合、Cloud Run 已应用和真实 `drift_score` 可用须分别说明；本轮后两者未核验。
 

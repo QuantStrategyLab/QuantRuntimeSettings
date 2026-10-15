@@ -113,9 +113,9 @@ python3 python/scripts/send_daily_digest_telegram.py \
 
 - 生产者（Schwab `digest-candidates-daily.yml`、IBKR `execution-report-heartbeat.yml` 定时）每天生成候选，只有设置了仓库变量 `DIGEST_CANDIDATES_GCS_URI` 才会上传到 `<uri>/<platform_id>/<business_day>/<target>.json`；没设就是 dry-run，文件只留在 runner 临时目录。
 - 中央日报设置了同名 Environment 变量才去读取：先用 `DIGEST_CANDIDATES_READER_*` 的 WIF 认证，再把 `<uri>/*/<business_day>/*.json` 和旧 secret（如果还有）用 `merge_digest_candidates.py` 合并（日志只打印条数）。过期行仍由 B0 规则丢弃。
-- 存储位置：复用现有的共享 bucket，前缀为 `gs://qsl-runtime-logs-shared/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。
-- 2026-10-11 加权限前的只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `qsl-artifact-evidence@longbridgequant` **不能 get/list**；匿名 list 返回 401。这是历史探测，不代表加权限后的状态。
-- 2026-10-11 owner 已加好 3 条带前缀条件的 IAM，生产者仓库已配置 `DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates`。2026-10-14 的[只读预检 38522813397](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38522813397)已通过现有身份的认证、列表、复制和严格合并；公开回执保留未知成交与不完整覆盖，`dry_run=true`、`delivered=false`。
+- 存储位置：复用现有的共享 bucket，前缀为 `gs://<shared-bucket>/digest-candidates/`（不新建 bucket，不做 Cloud Scheduler 准点触发，继续用 GitHub Actions cron）。
+- 2026-10-11 加权限前的只读探测（各仓库的 `Digest Store Permission Check`）：Schwab 和 IBKR 的部署 SA 对该 bucket 只能 get/list，**不能 create**；QRS 读取 SA `<digest-reader-service-account>` **不能 get/list**；匿名 list 返回 401。这是历史探测，不代表加权限后的状态。
+- 2026-10-11 owner 已加好 3 条带前缀条件的 IAM，生产者仓库已配置 `DIGEST_CANDIDATES_GCS_URI=gs://<shared-bucket>/digest-candidates`。2026-10-14 的[只读预检 38522813397](https://github.com/QuantStrategyLab/QuantRuntimeSettings/actions/runs/38522813397)已通过现有身份的认证、列表、复制和严格合并；公开回执保留未知成交与不完整覆盖，`dry_run=true`、`delivered=false`。
 - 2026-10-14 06:42:23 UTC，QRS 的 `runtime-strategy-switch` Environment 已按既有授权配置同名 URI 变量，精确读回与上述存储位置一致。旧 `DIGEST_CANDIDATES_JSON` 仍保留，原 cron、v1 定时版式和通知路由未改变；本次只读预检选择 sections_v2 不等于生产版式切换。
 - 接线后的首个自然周期仍待验收，具体进展见[通知接续 #634](https://github.com/QuantStrategyLab/QuantRuntimeSettings/issues/634)。分别核验候选读取、新鲜度与覆盖、回执、实际送达及 bot/chat/topic 和去重；接线前的自然运行或手动预检不能替代这项验收。替换覆盖验收完成前保留旧 secret，不重复添加既有 IAM。
 - 不用 Actions artifact 中转：这几个仓库都是公开仓库，artifact 任何登录用户都能下载，而候选数据可能带有账户权益。
@@ -134,7 +134,7 @@ python3 python/scripts/send_daily_digest_telegram.py \
 
 `workflow_dispatch` 新增 boolean `preflight_private_store`，默认 `false`。仅在 `main` 分支（`refs/heads/main`）、手动运行且 `dry_run=true` 时接受 `true`；其他 event / ref、非 `true` 的 dry-run 均在创建候选目录和认证、读取、发送之前以 exit 2 拒绝。非法预检输入也拒绝，失败日志只有固定原因码。
 
-启用后只为本次 runner 的空 `DIGEST_CANDIDATES_GCS_URI` 填入已有 `gs://qsl-runtime-logs-shared/digest-candidates`；已有 URI 原样保留，仍沿用既有 `DIGEST_CANDIDATES_READER_*` WIF / SA，不选择其他身份。Resolve 步骤输出固定 boolean `preflight_private_store`，供本次源身份审计。该模式不写 GitHub Environment / secret / IAM，不改 schedule 的 v1 默认，不覆盖或删除 legacy 候选。
+启用后只为本次 runner 的空 `DIGEST_CANDIDATES_GCS_URI` 填入已有 `gs://<shared-bucket>/digest-candidates`；已有 URI 原样保留，仍沿用既有 `DIGEST_CANDIDATES_READER_*` WIF / SA，不选择其他身份。Resolve 步骤输出固定 boolean `preflight_private_store`，供本次源身份审计。该模式不写 GitHub Environment / secret / IAM，不改 schedule 的 v1 默认，不覆盖或删除 legacy 候选。
 
 后续复用原 auth → list / copy / strict merge → sender `--dry-run` → 白名单公开 receipt → intake 失败 gate。只读访问需要既有 reader 对配置前缀的 list/get 权限；不需要 create/delete，不新增对象或发送 Telegram 消息。完整候选、消息预览与完整 receipt 只留 runner，只有 `receipt-public.json` 可上传。
 
