@@ -142,7 +142,7 @@ function App() {
     const [overviewReadModelRefreshVersion, setOverviewReadModelRefreshVersion] = useState(0);
     const [adminModel, setAdminModel] = useState<AdminModel | null>(null);
     const [bootState, setBootState] = useState<"loading" | "ready" | "denied" | "error">("loading");
-    const [, setRefreshing] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
     const [errorMessage, setErrorMessage] = useState<LocaleMessage | null>(null);
     const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
     const [selectedId, setSelectedId] = useState(() => new URLSearchParams(window.location.search).get("account") || "");
@@ -199,6 +199,7 @@ function App() {
         setConfirmDialog({ ...dialog, fingerprint: confirmationFingerprint() });
     });
     const rows = useMemo(() => makeRows(model), [model]);
+    const directoryUnavailable = Boolean(model && (model.config.error || !model.config.value?.accountOptions || !model.config.value?.platformMeta));
     const active = rows.find(row => row.id === selectedId) || rows[0] || null;
     const accountTitle = (account: { label?: unknown; key?: unknown; account_selector?: unknown }, platformLabel: string, currentProfile?: unknown) => adminDirectoryTitle(account, platformLabel, strategyOccupiedNames(model?.config.value?.strategyProfiles || [], currentProfile));
     const resolvedTheme = resolveTheme(theme, systemDark);
@@ -836,7 +837,7 @@ function App() {
             {(pendingApplications > 0 || unresolvedApplications > 0) && <details className="decision-fold" open={applicationsOpen} onToggle={event => setApplicationFold(event.currentTarget.open)}><summary>{t("模拟账户应用 · {pending} 待处理 · {unresolved} 未决", { pending: pendingApplications, unresolved: unresolvedApplications })}</summary>
                 {queue.map((application: any) => <ApplicationCard key={String(application.ticket_id)} application={application} profiles={profileOptions} language={language} busy={Boolean(busy[`apply:${application.ticket_id}`])} onDeploy={accountId => void applyPromotion(application, accountId)} />)}
             </details>}
-            <DecisionsPage blocked={decisions.blocked} sources={decisions.sources} items={humanDecisionQueue(decisions.items)} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} onRetry={() => void refresh()} maintenance={model?.maintenance} maintenanceBusy={Boolean(busy["maintenance:ibkr_flex"])} onRegisterExpiry={registerCredentialExpiry} onReloadMaintenance={rereadCredentialExpiry} />
+            <DecisionsPage retrying={refreshing} blocked={decisions.blocked} sources={decisions.sources} items={humanDecisionQueue(decisions.items)} admin={Boolean(model?.session.admin)} busy={Boolean(busy.promotion) || onceLocks.current.hasAnyWithPrefixes(["owner:", "recovery:"])} selectedAccountId={promotionAccountId} onSelectAccount={setPromotionAccountId} onDecide={(item, action) => void decideDaily(item, action)} onRetry={() => void refresh()} maintenance={model?.maintenance} maintenanceBusy={Boolean(busy["maintenance:ibkr_flex"])} onRegisterExpiry={registerCredentialExpiry} onReloadMaintenance={rereadCredentialExpiry} />
         </>;
     };
     const onSettingsRead = useCallback((id: string, profile: string | null) => {
@@ -848,7 +849,7 @@ function App() {
         const name = profileId ? strategySelectionName(profile || { profile: profileId }, profiles, language) : t("未知");
         return { name, note: strategyNote(profile, language), identity: strategyIdentityView({ profile, profileId, basis: "策略目录" }) };
     }, [language, model?.config.value?.strategyProfiles]);
-    const renderAccounts = () => <AccountsPage unresolvedSaves={unresolvedSettingsSaves.current} rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
+    const renderAccounts = () => <AccountsPage directoryUnavailable={directoryUnavailable} unresolvedSaves={unresolvedSettingsSaves.current} rows={accountItems} selectedId={selectedAccount?.id || ""} detailOpen={accountDetailOpen} settingsEpoch={settingsEpoch} refreshToken={settingsRefresh} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={hkStop} resumeVisible={Boolean(selectedRow && canResumeBinance(selectedRow.platform, selectedRow.account, selectedRow.current) && !busy[`resume:${selectedRow.id}`] && !onceLocks.current.isLocked(`resume:${selectedRow.id}`))} onSelect={id => void requestPage("accounts", id)} onBack={() => void (async () => { if (!await discardUnsaved()) return; setAccountDetailOpen(false); })()} onDirty={dirty => { settingsDirty.current = dirty; }} onStop={() => { if (selectedRow) void submitAccountPlan(selectedRow, true); }} onRefreshStop={() => { if (selectedRow) void refreshStopRecord(selectedRow); }} onResume={() => { if (selectedRow) void resumeBinance(selectedRow); }} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />;
     const gateControls = (
         <div className="access-gate-controls">
             <button className="theme-button" type="button" aria-label={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} title={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} onClick={() => setTheme(nextExplicitTheme(resolvedTheme))}><ThemeIcon dark={resolvedTheme === "dark"} /></button>
@@ -868,6 +869,7 @@ function App() {
       <div className="top-controls"><button className="theme-button" type="button" aria-label={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} title={t(resolvedTheme === "dark" ? "切换到浅色" : "切换到深色")} onClick={() => setTheme(nextExplicitTheme(resolvedTheme))}><ThemeIcon dark={resolvedTheme === "dark"} /></button><label className="language-control"><span className="sr-only">{t("语言")}</span><select aria-label={t("语言")} value={language} onChange={e => setLanguage(e.target.value as Language)}><option value="zh">{t("中文")}</option><option value="en">English</option></select></label><details className="user-menu" ref={userMenuRef}><summary aria-label={t("用户")}>{(model?.session.login || "U").slice(0, 1).toUpperCase()}</summary><div className="user-menu-panel"><strong className="user-menu-name">{model?.session.login || t("已登录")}</strong><button type="button" onClick={() => void logout()}>{t("退出")}</button></div></details></div>
     </header>
     {errorMessage && <div className="global-notice" role="status"><span>{renderLocaleMessage(errorMessage,language)}</span><button type="button" onClick={() => setErrorMessage(null)} aria-label={t("\u5173\u95ED\u63D0\u793A")}>{t("\u5173\u95ED")}</button></div>}
+    {directoryUnavailable && <div className="global-notice" role="status"><span>{t("账户清单暂时读不到，请重新读取。")}</span><button type="button" disabled={refreshing} onClick={() => void refresh()}>{t(refreshing ? "正在读取…" : "重新读取账户")}</button></div>}
     <main className="main-content" key={page}>{page === "overview" ? renderOverview() : page === "strategy" ? renderStrategy() : renderAccounts()}</main>
   </div>{confirmDialog && <ConfirmationDialog dialog={confirmDialog} onCancel={() => resolveConfirmation(false)} onConfirm={() => resolveConfirmation(true)}/>}</></LocaleContext.Provider>;
 }
