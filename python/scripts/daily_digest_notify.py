@@ -824,9 +824,9 @@ def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
 
 _SCOPE_TAG_ALLOWED = frozenset({"live", "paper", "shadow", "research"})
 _HEX_HINT_RE = re.compile(r"^[0-9a-fA-F]{12,}$")
-# Broker account ids like IBKR ``U15998061`` / ``u15998061``.
+# Broker account ids like IBKR ``U00000008`` / ``u00000008``.
 _BROKER_ACCOUNT_ID_RE = re.compile(r"^[Uu]\d{5,}$")
-# Scope forms that embed the broker id: ``live-u15998061``, ``paper_U16608560``.
+# Scope forms that embed the broker id: ``live-u00000008``, ``paper_U00000009``.
 _SCOPE_EMBEDDED_ACCOUNT_RE = re.compile(
     r"^(?:live|paper|shadow|research)[_-]([Uu]\d{5,})$",
     re.IGNORECASE,
@@ -870,7 +870,7 @@ def _human_account_hint(raw: str) -> str:
     """Return account_hint when it is already a good human label.
 
     Reject empty values and opaque hex hashes (those are not display tags).
-    IBKR-style ids such as ``U16608560`` are kept (normalized to ``U######``).
+    IBKR-style ids such as ``U00000009`` are kept (normalized to ``U######``).
     """
 
     hint = str(raw or "").strip()
@@ -888,8 +888,8 @@ def _account_label(entry: DigestRunEntry) -> str:
     """Resolve the account half of ``[{platform_id} {account_label}]``.
 
     Preference (universal):
-      1. human ``account_hint`` / broker id (e.g. IBKR ``U15998061``)
-      2. broker id embedded in ``account_scope`` (``live-u15998061``)
+      1. human ``account_hint`` / broker id (e.g. IBKR ``U00000008``)
+      2. broker id embedded in ``account_scope`` (``live-u00000008``)
       3. broker id on ``opaque_account_uid`` when it is already ``U######``
       4. normalized scope ``live|paper|shadow|research``
       5. short ``opaque_account_uid`` / ``target_id`` last resorts
@@ -920,7 +920,7 @@ def _account_label(entry: DigestRunEntry) -> str:
 def account_block_tag(entry: DigestRunEntry) -> str:
     """Account tag body for ``[tag]`` block titles.
 
-    Universal form: ``{platform_id} {account_label}`` — e.g. ``ibkr U15998061``,
+    Universal form: ``{platform_id} {account_label}`` — e.g. ``ibkr U00000008``,
     ``schwab live``, ``firstrade paper``. Never hard-code a single venue.
     Returns empty string when nothing usable is present.
     """

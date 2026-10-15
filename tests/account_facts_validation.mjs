@@ -76,8 +76,8 @@ assert.equal(accountFactsScopesMatch("hk", "HK"), false);
 assert.equal(accountFactsScopesMatch("HK", "PAPER"), false);
 assert.equal(accountFactsScopesMatch("sg", "HK"), false);
 assert.deepEqual([...ACCOUNT_FACTS_PLATFORMS], ["longbridge", "ibkr"]);
-assert.equal(accountFactsScopesMatchForPlatform("ibkr", "live-u16608560", "live-u16608560"), true);
-assert.equal(accountFactsScopesMatchForPlatform("ibkr", "live-u16608560", "U16608560"), false);
+assert.equal(accountFactsScopesMatchForPlatform("ibkr", "live-u00000009", "live-u00000009"), true);
+assert.equal(accountFactsScopesMatchForPlatform("ibkr", "live-u00000009", "U00000009"), false);
 
 const account = {
   key: "lb-paper",
@@ -981,10 +981,10 @@ const ibkrAccount = {
   key: "tqqq",
   label: "tqqq",
   target_name: "tqqq",
-  service_name: "interactive-brokers-quant-live-u16608560-service",
-  deployment_selector: "live-u16608560",
-  account_scope: "live-u16608560",
-  account_selector: "U16608560",
+  service_name: "interactive-brokers-quant-live-u00000009-service",
+  deployment_selector: "live-u00000009",
+  account_scope: "live-u00000009",
+  account_selector: "U00000009",
   supported_domains: ["us_equity"],
 };
 const ibkrBinding = {
@@ -995,7 +995,7 @@ const ibkrBinding = {
   service_name: ibkrAccount.service_name,
   deployment_selector: ibkrAccount.deployment_selector,
   account_selector: ibkrAccount.account_selector,
-  target_id: "ibkr-u16608560",
+  target_id: "ibkr-u00000009",
   source_binding: { kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND, id: "e".repeat(64) },
 };
 function ibkrHistory(patch = {}) {
@@ -1184,7 +1184,7 @@ assert.throws(() => normalizeAccountFactsHistoryPayload({
   ...ibkrHistory(),
   snapshot_schema_version: ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
 }), /invalid_account_facts_history/);
-assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({ account_ids: ["DU123", "U16608560"] })), /account_facts_identity_mismatch/);
+assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({ account_ids: ["DU123", "U00000009"] })), /account_facts_identity_mismatch/);
 assert.throws(() => normalizeAccountFactsHistoryPayload(ibkrHistory({ account_ids: ["DU123"] }), {
   expectedPlatform: IBKR_ACCOUNT_FACTS_PLATFORM,
   expectedAccountSelector: ibkrBinding.account_selector,
@@ -1213,7 +1213,7 @@ const normalizedIbkrHistory = normalizeAccountFactsHistoryPayload(acceptedIbkrHi
   expectedAccountSelector: ibkrBinding.account_selector,
 });
 assert.equal(normalizedIbkrHistory.broker_reported_balances[0].net_assets, null);
-assert.deepEqual(normalizedIbkrHistory.account_ids, ["U16608560"]);
+assert.deepEqual(normalizedIbkrHistory.account_ids, ["U00000009"]);
 
 // Optional broker-reported positions (read-only holdings panel).
 assert.equal(Object.hasOwn(normalizedIbkrHistory, "broker_reported_positions"), false, "history without positions stays readable");
@@ -1353,7 +1353,7 @@ const mixedIbkrSchema = ibkrHistory({ snapshot_schema_version: ACCOUNT_FACTS_SNA
 assert.equal((await post(mixedIbkrSchema, ibkrAuth, env)).status, 400);
 const wrongIbkrIdentity = await post(ibkrHistory({ account_ids: ["DU123"] }), ibkrAuth, env);
 assert.equal(wrongIbkrIdentity.status, 409);
-const wrongIbkrScope = await post(ibkrHistory({ account_scope: "U16608560" }), ibkrAuth, env);
+const wrongIbkrScope = await post(ibkrHistory({ account_scope: "U00000009" }), ibkrAuth, env);
 assert.equal(wrongIbkrScope.status, 409, "native ID is not an account-scope substitute");
 const ibkrFortyMinuteStarted = new Date(Date.now() - 41 * 60 * 1000).toISOString();
 const ibkrFortyMinuteFinished = new Date(Date.now() - 40 * 60 * 1000).toISOString();

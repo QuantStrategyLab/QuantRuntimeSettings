@@ -108,17 +108,17 @@ test("frontend account normalization and display preserve broker identity and al
       label: "主账户",
       target_name: "example",
       supported_domains: ["us_equity"],
-      account_selector: "U10000001, U10000002",
+      account_selector: "U00000005, U00000006",
       broker_environment: "live",
     }],
   });
-  assert.equal(normalized.ibkr[0].account_selector, "U10000001, U10000002");
+  assert.equal(normalized.ibkr[0].account_selector, "U00000005, U00000006");
   assert.equal(normalized.ibkr[0].broker_environment, "live");
   assert.equal(accountDisplayTitle(normalized.ibkr[0], "IBKR", "实盘"), "主账户");
   assert.equal(accountDisplayTitle({ key: "internal-key" }, "IBKR", "实盘"), "账户");
   assert.equal(accountDisplayTitle(normalized.ibkr[0], "IBKR", "实盘").includes("0001"), false);
-  assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U10000001" }, "IBKR", "实盘"), "U10000001");
-  assert.equal(accountDisplayTitle({ key: "hk", account_selector: "U10000001, U10000002" }, "IBKR", "实盘"), "账户 · hk");
+  assert.equal(accountDisplayTitle({ label: "soxl", account_selector: "U00000005" }, "IBKR", "实盘"), "U00000005");
+  assert.equal(accountDisplayTitle({ key: "hk", account_selector: "U00000005, U00000006" }, "IBKR", "实盘"), "账户 · hk");
   const binance = { key: "crypto_combo", target_name: "crypto_combo" };
   assert.equal(accountDisplayTitle(binance, "Binance", ""), "账户 · live");
   assert.equal(binance.key, "crypto_combo");
