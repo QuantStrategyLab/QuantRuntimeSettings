@@ -23,7 +23,8 @@ export type AccountListItem = {
   activation: string;
 };
 
-export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, settingsEpoch, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onSelect, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+export function AccountsPage({ directoryUnavailable = false, unresolvedSaves, rows, selectedId, detailOpen, settingsEpoch, refreshToken, stopAllowed, stopLabel, stopRefreshVisible, resumeVisible, onSelect, onBack, onDirty, onStop, onRefreshStop, onResume, onSettingsRead, resolveStrategy }: {
+  directoryUnavailable?: boolean;
   unresolvedSaves: Parameters<typeof createAccountSettingsController>[0];
   rows: AccountListItem[];
   selectedId: string;
@@ -54,7 +55,7 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
   }, [rows]);
   return <section className={`daily-page accounts-page settings-home${detailOpen ? " show-detail" : ""}`}>
     <div className="daily-heading"><h1>{t("账户设置")}</h1></div>
-    <div className="accounts-layout">
+    {!rows.length ? <div className="empty-state" role="status"><strong>{t(directoryUnavailable ? "账户清单暂不可用" : "暂无账户")}</strong>{!directoryUnavailable && <p>{t("账户配置就绪后会显示在这里。")}</p>}</div> : <div className="accounts-layout">
       <div className="account-list">
         <table className="daily-table">
           <thead><tr><th>{t("账户")}</th><th>{t("当前策略")}</th><th>{t("平台监测")}</th><th>{t("运行控制")}</th></tr></thead>
@@ -69,7 +70,7 @@ export function AccountsPage({ unresolvedSaves, rows, selectedId, detailOpen, se
         </table>
       </div>
       {selected && <DailyAccountSettings key={`${selected.id}:${settingsEpoch}`} row={selected} unresolvedSaves={unresolvedSaves} refreshToken={refreshToken} stopAllowed={stopAllowed} stopLabel={stopLabel} stopRefreshVisible={stopRefreshVisible} resumeVisible={resumeVisible} onBack={onBack} onDirty={onDirty} onStop={onStop} onRefreshStop={onRefreshStop} onResume={onResume} onSettingsRead={onSettingsRead} resolveStrategy={resolveStrategy} />}
-    </div>
+    </div>}
   </section>;
 }
 
