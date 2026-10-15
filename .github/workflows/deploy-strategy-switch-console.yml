@@ -14,6 +14,11 @@ on:
       - "web/strategy-switch-console/**"
   workflow_dispatch:
     inputs:
+      sync_secrets:
+        description: "After deploy, synchronize Worker secrets. Disable to retain deployed secrets."
+        required: true
+        type: boolean
+        default: true
       sync_strategy_profiles:
         description: "After deploy, write the bundled strategy profile catalog to KV."
         required: true
@@ -315,6 +320,7 @@ jobs:
           PY
 
       - name: Verify M0 research-ledger ingress token
+        if: github.event_name != 'workflow_dispatch' || inputs.sync_secrets
         env:
           # Only the Worker deployment receives this copy. The M0 publisher
           # reads the same value from its separate main-only Environment,
@@ -331,8 +337,9 @@ jobs:
         working-directory: web/strategy-switch-console
         run: npx wrangler@4.106.0 deploy --config wrangler.toml
 
+      # Manual releases can retain every deployed secret without rotating credentials.
       - name: Sync UX1 research job token
-        if: env.UX1_PREVIEW_MODE == 'github_actions'
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.UX1_PREVIEW_MODE == 'github_actions')
         env:
           UX1_RESEARCH_JOB_TOKEN: ${{ secrets.UX1_RESEARCH_JOB_TOKEN }}
         working-directory: web/strategy-switch-console
@@ -341,91 +348,91 @@ jobs:
           printf '%s' "$UX1_RESEARCH_JOB_TOKEN" | npx wrangler@4.106.0 secret put UX1_RESEARCH_JOB_TOKEN --config wrangler.toml
 
       - name: Sync optional control-plane ingress token
-        if: env.CONTROL_PLANE_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.CONTROL_PLANE_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$CONTROL_PLANE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put CONTROL_PLANE_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional AAB validation-only ingress token
-        if: env.AAB_VALIDATION_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.AAB_VALIDATION_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$AAB_VALIDATION_SYNC_TOKEN" | npx wrangler@4.106.0 secret put AAB_VALIDATION_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional strategy-health ingress token
-        if: env.STRATEGY_HEALTH_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.STRATEGY_HEALTH_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$STRATEGY_HEALTH_SYNC_TOKEN" | npx wrangler@4.106.0 secret put STRATEGY_HEALTH_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional research-task ingress token
-        if: env.RESEARCH_TASK_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.RESEARCH_TASK_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RESEARCH_TASK_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RESEARCH_TASK_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional research-promotion ingress token
-        if: env.RESEARCH_PROMOTION_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.RESEARCH_PROMOTION_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RESEARCH_PROMOTION_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RESEARCH_PROMOTION_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional execution-evidence ingress token
-        if: env.EXECUTION_EVIDENCE_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.EXECUTION_EVIDENCE_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$EXECUTION_EVIDENCE_SYNC_TOKEN" | npx wrangler@4.106.0 secret put EXECUTION_EVIDENCE_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional reconciliation-recovery ingress token
-        if: env.RECONCILIATION_RECOVERY_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.RECONCILIATION_RECOVERY_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RECONCILIATION_RECOVERY_SYNC_TOKEN" | npx wrangler@4.106.0 secret put RECONCILIATION_RECOVERY_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional reconciliation-recovery controller token
-        if: env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.RECONCILIATION_RECOVERY_CONTROLLER_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$RECONCILIATION_RECOVERY_CONTROLLER_TOKEN" | npx wrangler@4.106.0 secret put RECONCILIATION_RECOVERY_CONTROLLER_TOKEN --config wrangler.toml
 
       - name: Sync optional account-facts ingress token
-        if: env.ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.ACCOUNT_FACTS_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional IBKR account-facts ingress token
-        if: env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.IBKR_ACCOUNT_FACTS_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$IBKR_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put IBKR_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Schwab account-facts ingress token
-        if: env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put SCHWAB_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Firstrade account-facts ingress token
-        if: env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
           printf '%s' "$FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN" | npx wrangler@4.106.0 secret put FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN --config wrangler.toml
 
       - name: Sync optional Binance account-facts credentials
-        if: env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''
+        if: (github.event_name != 'workflow_dispatch' || inputs.sync_secrets) && (env.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != '')
         working-directory: web/strategy-switch-console
         run: |
           set -euo pipefail
@@ -434,6 +441,7 @@ jobs:
           printf '%s' "$BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON" | npx wrangler@4.106.0 secret put BINANCE_ACCOUNT_FACTS_HISTORY_BINDINGS_JSON --config wrangler.toml
 
       - name: Sync M0 research-ledger ingress token
+        if: github.event_name != 'workflow_dispatch' || inputs.sync_secrets
         env:
           M0_RESEARCH_SYNC_TOKEN: ${{ secrets.M0_RESEARCH_SYNC_TOKEN }}
         working-directory: web/strategy-switch-console
