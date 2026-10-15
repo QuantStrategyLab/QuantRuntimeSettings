@@ -20,6 +20,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
     url.searchParams.set("date", date);
     url.searchParams.set("platform", account.platform);
     url.searchParams.set("account_key", account.key);
+    url.searchParams.set("include_history", "false");
     try {
       const response = await deps.daily(new Request(url, { headers: request.headers }), env);
       if (response.status === 404) return base;

@@ -310,3 +310,32 @@ Use `qa=api-empty`, `api-partial`, `api-stale`, `api-not-connected`,
 `api-read-failed` or `api-conflict`. The last scenario returns 409 for the mock
 combined POST. Trade stats are not connected in every scenario. No provider,
 production session or real account data are used.
+
+
+### Candidate routing and list quota
+
+`include_history=false` on `/api/runtime-daily` skips directory discovery and returns
+`history: null`. It still reads and validates the selected stored record, account
+binding, date and all source evidence. Default reads retain the existing coverage.
+The date grid and today summary do not consume coverage and use this option.
+Concurrent inbox consumers share only their in-flight request, never settled data.
+A provider daily list quota failure remains `read_failed`; inbox source metadata
+reports `failure_reason=kv_list_daily_limit_exceeded`. No cached successful queue
+is substituted for a failed read. Reducing requests cannot restore exhausted quota
+or repair producer records.
+
+The generated shell and asset responses identify their exact asset set with
+`X-Console-Build`. After staging a candidate at 0%, run:
+
+```sh
+node scripts/console_candidate_readiness.mjs "$CONSOLE_ORIGIN" "$WORKER_NAME" "$CANDIDATE_VERSION"
+```
+
+The configurable probe waits for three consecutive complete HEAD rounds with
+matching build IDs for the HTML and every asset. Deployment acknowledgements and
+request override headers alone are insufficient because routers can still serve
+the old version during propagation. Use the same browser transport/region for the
+probe and acceptance. Then verify GET bytes once and run the six-page acceptance;
+keep every failure and do not retry failed acceptance into a pass. A timeout stops
+acceptance/promotion. This guard does not claim global propagation is atomic and
+does not remove transient platform responses before readiness.
