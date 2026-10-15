@@ -395,7 +395,7 @@ class DailyDigestAggregatorTests(unittest.TestCase):
             )
             self.assertEqual(len(payload.runs), 2)
             self.assertIn("成交 未知", text)
-            self.assertIn("无成交", text)  # verified zero on acct-b line
+            self.assertIn("成交 0 笔 / 无订单", text)  # verified zero on acct-b line
             self.assertIsNone(digest.total_fills(payload.runs))
             receipt = aggregator.build_receipt(
                 payload, collected, message_chars=len(text)

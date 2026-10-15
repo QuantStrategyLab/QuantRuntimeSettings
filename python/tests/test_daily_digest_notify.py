@@ -75,7 +75,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             )
         )
         self.assertIn("Heartbeat", text)
-        self.assertIn("no fills", text)
+        self.assertIn("fills 0 / no orders", text)
         self.assertIn("verified zero fills", text.lower())
         self.assertIn("binance", text)
         self.assertEqual(daily_digest_notify.total_fills(runs), 0)
@@ -432,7 +432,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
-            "成交 未知\n"
+            "成交 未知 / 无订单\n"
             "✅ 无需调仓\n"
             "平台: schwab"
         )
@@ -503,7 +503,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
-            "成交 未知\n"
+            "成交 未知 / 无订单\n"
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
@@ -512,6 +512,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
+            "成交 0 笔 / 无订单\n"
             "✅ 无需调仓\n"
             "平台: ibkr"
         )
@@ -649,6 +650,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
+            "成交 1 笔 / 订单 1 笔\n"
             "✅ 成交成功 1个标的: TQQQ 1\n"
             "📈 [市价买入] TQQQ: 1股 ✅ 已成交（状态: Filled）\n"
             "平台: ibkr"
@@ -739,7 +741,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "[schwab live] 💓 【心跳检测】\n"
             "🧭 策略: 半导体趋势收益\n"
             "💰 账户总权益: USD 989.34\n"
-            "成交 未知\n"
+            "成交 未知 / 无订单\n"
             "✅ 无需调仓\n"
             "平台: schwab\n"
             "\n"
@@ -748,6 +750,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
             "💰 账户总权益: USD 569.16\n"
             "💼 持仓\n"
             "- TQQQ: $312.40 / 4股\n"
+            "成交 1 笔 / 订单 1 笔\n"
             "✅ 成交成功 1个标的: TQQQ 1\n"
             "平台: ibkr"
         )
