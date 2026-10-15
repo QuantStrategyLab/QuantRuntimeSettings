@@ -559,8 +559,6 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
     ? aggregateCurrencySeries
     : walletChartSelected ? storedWalletPoints : storedAccountPoints, range);
   const benchmarkSeries = RETURN_INDEX_LEGEND.map(name => presentMarketBenchmarkSeries(storedBenchmarkPoints, name));
-  const primaryBenchmark = benchmarkSeries[0];
-  const benchmarkGeometry = buildBenchmarkChartGeometry(primaryBenchmark.points);
   const returnRevisionMatches = Number.isInteger(accountOptionsRevision) && accountOptionsRevision! >= 0
     && accountFacts?.account_options_revision === accountOptionsRevision;
   const aggregateReturn = presentAggregateReturn(displayAccounts.map(account => ({
@@ -598,6 +596,121 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
   const nyDate = runtimeToday.split("-");
   const nyLabel = nyDate.length === 3 ? `${nyDate[1]}/${nyDate[2]}/${nyDate[0]}` : runtimeToday;
   const moneyName = (code: string) => code === "USD" || code === "USDT" ? t("美元") : code === "HKD" ? t("港元") : code === "SGD" ? t("新加坡元") : code === "EUR" ? t("欧元") : code === "CNY" || code === "CNH" ? t("人民币") : code;
+  // Share the existing read-only chart panel with the current homepage.
+  const chartPanel = (
+    <section className="chart-panel overview-chart" aria-label={t("图表")}>
+      {walletChartSelected && chart === "assets" ? <h2>{t("钱包总资产变化（USDT）")}</h2> : null}
+      <div className="chart-toolbar">
+        <div className="chart-switch" role="tablist" aria-label={t("图表")}>
+          {CHART_MODES.map(mode => <button key={mode.id} type="button" role="tab" aria-selected={chart === mode.id} className={chart === mode.id ? "active" : ""} onClick={() => setChart(mode.id)}>{t(mode.label)}</button>)}
+        </div>
+        <label className="chart-account-filter">
+          <span>{t("账户")}</span>
+          <select aria-label={chart === "return" ? t("收益率") : t("总资产")} value={accountId} onChange={event => setAccountId(event.target.value)}>
+            <option value="all">{t("全部账户")}</option>
+            {accounts.map(account => <option key={account.id} value={account.id}>{optionLabel(account)}</option>)}
+          </select>
+        </label>
+        {chart === "assets" ? <div className="chart-range" role="tablist" aria-label={t("图表范围")}>
+          {CHART_RANGE_OPTIONS.map(option => <button key={option.id} type="button" role="tab" aria-selected={range === option.id} className={range === option.id ? "active" : ""} onClick={() => setRange(option.id)}>{t(option.label)}</button>)}
+        </div> : null}
+      </div>
+      <div className="overview-benchmark">
+        <h2>{t("市场基准")}</h2>
+        <p>{t("市场基准不是账户收益。")}</p>
+        <div className="benchmark-chart-grid">{benchmarkSeries.map(series => {
+          const geometry = buildBenchmarkChartGeometry(series.points);
+          return series.storedHistory ? <div className="asset-chart benchmark-chart" key={series.seriesId}>
+            <strong>{t(series.seriesId)}</strong>
+            <svg viewBox={`0 0 ${geometry.width} ${geometry.height}`} role="img" aria-label={t(series.seriesId)}>
+              {geometry.segments.map((path, index) => <path key={index} d={path} className="benchmark-chart-line" fill="none" />)}
+              {geometry.dots.map(dot => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={geometry.dots.length === 1 ? 4 : 2.5} className="benchmark-chart-dot">
+                <title>{`${t(series.seriesId)} · ${dot.date} · ${dot.amount}`}</title>
+              </circle>)}
+            </svg>
+            <div className="asset-chart-meta"><span>{series.startDate} → {series.points[series.points.length - 1]?.observationDate}</span><span>{geometry.minLabel} – {geometry.maxLabel}</span></div>
+          </div> : null;
+        })}</div>
+        {!benchmarkSeries.some(series => series.storedHistory) ? <p>{t("市场基准自 {date}（Asia/Shanghai）起计算；尚无已存储点位，不回补历史价格。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</p> : null}
+        <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>
+          {benchmarkSeries.map(series => <li key={series.seriesId}>
+            <strong>{t(series.seriesId)}</strong>
+            <span>{series.storedHistory ? t("市场基准") : t("比较序列未取得")}</span>
+            <small>{series.storedHistory
+              ? `${series.startDate} → ${series.points[series.points.length - 1]?.observationDate}`
+              : t("序列自 {date}（Asia/Shanghai）起，不回补历史。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</small>
+          </li>)}
+        </ul>
+      </div>
+      {chart === "assets" ? <div className="chart-currency">
+        {accountId === "all" ? <span>{t("全部账户")}</span> : chartAccount ? <span>{`${chartAccount.title} · ${chartAccount.environment} · ${chartAccount.platform}`}</span> : null}
+        <label>
+          <span>{t("币种")}</span>
+          <select aria-label={t("币种")} value={currency} onChange={event => setCurrencyChoice({ accountId: currencyScopeId, value: event.target.value })} disabled={!currencyOptions.length}>
+            {!currencyOptions.length ? <option value="">{t("暂无币种")}</option> : null}
+            {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+          </select>
+        </label>
+        {accountId === "all" ? <small>{t("汇总自 {date}（Asia/Shanghai）起计算", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</small> : chartAccount ? walletChartSelected
+          ? <details className="overview-wallet-details"><summary>{t("数据范围")}</summary><small>{t("按 Binance 返回的钱包范围")}</small></details>
+          : <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
+      </div> : null}
+      {chart === "return" ? <div className="overview-return">
+        <h2>{t(accountId === "all" ? "汇总收益率" : "账户收益率")}</h2>
+        <p>{t("券商期间收益单独列示；同窗口基准比较暂不可用。")}</p>
+        {accountId === "all" ? <ul className="overview-return-coverage" aria-label={t("汇总收益率")}>
+          <li>
+            <strong>{t("全部账户")}</strong>
+            {aggregateReturn.status === "available" ? <>
+              <span>{`${aggregateReturn.sourceValue}% · ${aggregateReturn.currency}`}</span>
+              <small>{`${aggregateReturn.periodFrom} — ${aggregateReturn.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
+              <small>{t("仅此一个纳入汇总的账户具有合格期间收益。")}</small>
+            </> : <>
+              <span>{aggregateReturn.reason === "no_qualified_record" ? t("暂无合格期间收益记录") : t("汇总收益率暂不可用")}</span>
+              <small>{aggregateReturn.reason === "incomplete"
+                ? t("缺账户不按零计，也不用资产变化代替。")
+                : aggregateReturn.reason === "weighting_unqualified"
+                  ? t("各账户合格收益已列示；尚无可加权汇总口径。")
+                  : t("暂无合格期间收益记录")}</small>
+            </>}
+          </li>
+        </ul> : null}
+        <ul className="overview-return-coverage" aria-label={t("账户收益覆盖")}>
+          {visible.map(account => {
+            const result = readQualifiedPeriodReturn(account.platformKey, account.facts?.return, returnRevisionMatches);
+            return <li key={account.id}><strong>{optionLabel(account)}</strong>
+              {result ? <>
+                <span>{`${result.sourceValue}% · ${result.currency}`}</span>
+                <small>{`${result.periodFrom} — ${result.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
+              </> : <><span>{t("收益率暂不可用")}</span><small>{t("暂无合格期间收益记录")}</small></>}
+            </li>;
+          })}
+          {!visible.length ? <li>{t("暂无账户")}</li> : null}
+        </ul>
+        <details className="overview-benchmark-source"><summary>{t("收益率口径")}</summary><p>{t("比较需完整外部资金流、费用和原币种估值，共同起止区间以可信首点归零；多账户汇总还需可信汇率与加权口径。")}</p></details>
+      </div> : hasChart ? <div className="asset-chart">
+        <svg viewBox={`0 0 ${shownGeometry.width} ${shownGeometry.height}`} role="img" aria-label={t(accountId === "all" ? "总资产" : walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>
+          {shownGeometry.segments.map((path, index) => <path key={index} d={path} className="asset-chart-line" fill="none" />)}
+          {shownGeometry.dots.map((dot) => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={shownGeometry.dots.length === 1 ? 4 : 2.5} className="asset-chart-dot">
+            <title>{`${dot.date} · ${currency} ${dot.amount}`}</title>
+          </circle>)}
+        </svg>
+        <div className="asset-chart-meta">
+          <span>{shownGeometry.dots[0]?.date} → {shownGeometry.dots[shownGeometry.dots.length - 1]?.date}</span>
+          <span>{currency} {shownGeometry.minLabel} – {shownGeometry.maxLabel}</span>
+          {historyCoverage?.shorterThanRange ? <span className="asset-chart-coverage">{t("历史仅 {days} 天（自 {date} 起），不代表更长期表现。", { days: historyCoverage.days, date: historyCoverage.firstDate })}</span> : null}
+          {accountId === "all" && aggregateSeries.omittedPartialDateCount > 0 ? <span>{t("有 {count} 个日期省略了缺观察的账户，线段在缺口处断开。", { count: aggregateSeries.omittedPartialDateCount })}</span> : null}
+        </div>
+      </div> : <div className="chart-empty">
+        <strong>{chartEmptyTitle === "汇总自 {date}（Asia/Shanghai）起计算"
+          ? t(chartEmptyTitle, { date: MARKET_BENCHMARK_INCEPTION_DATE })
+          : t(chartEmptyTitle)}</strong>
+        <p>{chartEmptyDetail === "{range}内暂无资产记录"
+          ? t(chartEmptyDetail, { range: t(emptyNote.rangeLabel) })
+          : t(chartEmptyDetail)}</p>
+      </div>}
+    </section>
+  );
   // Kept for the existing disclosure checks. memberCount is never negative, so this is not on the first screen.
   const retainedOverview = aggregateSeries.memberCount < 0 ? <div className="daily-page overview-layout">
     <div className="daily-heading overview-head">
@@ -730,119 +843,6 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         </table>
       </> : <p>{t("暂无持仓数据")}</p>}
     </section> : null}
-    <section className="chart-panel overview-chart">
-      {walletChartSelected && chart === "assets" ? <h2>{t("钱包总资产变化（USDT）")}</h2> : null}
-      <div className="chart-toolbar">
-        <div className="chart-switch" role="tablist" aria-label={t("图表")}>
-          {CHART_MODES.map(mode => <button key={mode.id} type="button" role="tab" aria-selected={chart === mode.id} className={chart === mode.id ? "active" : ""} onClick={() => setChart(mode.id)}>{t(mode.label)}</button>)}
-        </div>
-        <label className="chart-account-filter">
-          <span>{t("账户")}</span>
-          <select aria-label={chart === "return" ? t("收益率") : t("总资产")} value={accountId} onChange={event => setAccountId(event.target.value)}>
-            <option value="all">{t("全部账户")}</option>
-            {accounts.map(account => <option key={account.id} value={account.id}>{optionLabel(account)}</option>)}
-          </select>
-        </label>
-        {chart === "assets" ? <div className="chart-range" role="tablist" aria-label={t("图表范围")}>
-          {CHART_RANGE_OPTIONS.map(option => <button key={option.id} type="button" role="tab" aria-selected={range === option.id} className={range === option.id ? "active" : ""} onClick={() => setRange(option.id)}>{t(option.label)}</button>)}
-        </div> : null}
-      </div>
-      <div className="overview-benchmark">
-        <h2>{t("市场基准")}</h2>
-        <p>{t("市场基准不是账户收益。")}</p>
-        {primaryBenchmark.storedHistory ? <div className="asset-chart benchmark-chart">
-          <svg viewBox={`0 0 ${benchmarkGeometry.width} ${benchmarkGeometry.height}`} role="img" aria-label={t("市场基准")}>
-            {benchmarkGeometry.segments.map((path, index) => <path key={index} d={path} className="benchmark-chart-line" fill="none" />)}
-            {benchmarkGeometry.dots.map((dot) => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={benchmarkGeometry.dots.length === 1 ? 4 : 2.5} className="benchmark-chart-dot">
-              <title>{`${t("市场基准")} · ${dot.date} · ${dot.amount}`}</title>
-            </circle>)}
-          </svg>
-          <div className="asset-chart-meta">
-            <span>{t("市场基准")} · {t(primaryBenchmark.seriesId)}</span>
-            <span>{primaryBenchmark.startDate} → {primaryBenchmark.points[primaryBenchmark.points.length - 1]?.observationDate}</span>
-          </div>
-        </div> : <div className="benchmark-chart benchmark-chart-inception" role="img" aria-label={t("市场基准")}>
-          <div className="benchmark-chart-start" />
-          <p>{t("市场基准自 {date}（Asia/Shanghai）起计算；尚无已存储点位，不回补历史价格。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</p>
-        </div>}
-        <ul className="overview-return-coverage" aria-label={t("基准收益覆盖")}>
-          {benchmarkSeries.map(series => <li key={series.seriesId}>
-            <strong>{t(series.seriesId)}</strong>
-            <span>{series.storedHistory ? t("市场基准") : t("比较序列未取得")}</span>
-            <small>{series.storedHistory
-              ? `${series.startDate} → ${series.points[series.points.length - 1]?.observationDate}`
-              : t("序列自 {date}（Asia/Shanghai）起，不回补历史。", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</small>
-          </li>)}
-        </ul>
-      </div>
-      {chart === "assets" ? <div className="chart-currency">
-        {accountId === "all" ? <span>{t("全部账户")}</span> : chartAccount ? <span>{`${chartAccount.title} · ${chartAccount.environment} · ${chartAccount.platform}`}</span> : null}
-        <label>
-          <span>{t("币种")}</span>
-          <select aria-label={t("币种")} value={currency} onChange={event => setCurrencyChoice({ accountId: currencyScopeId, value: event.target.value })} disabled={!currencyOptions.length}>
-            {!currencyOptions.length ? <option value="">{t("暂无币种")}</option> : null}
-            {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
-          </select>
-        </label>
-        {accountId === "all" ? <small>{t("汇总自 {date}（Asia/Shanghai）起计算", { date: MARKET_BENCHMARK_INCEPTION_DATE })}</small> : chartAccount ? walletChartSelected
-          ? <details className="overview-wallet-details"><summary>{t("数据范围")}</summary><small>{t("按 Binance 返回的钱包范围")}</small></details>
-          : <small>{t("仅显示单个账户的资产变化")}{chartAccount.brokerEnvironment === "paper" || chartFacts?.account_scope === "paper" ? ` · ${t("模拟账户图表不计入总额")}` : ""}</small> : null}
-      </div> : null}
-      {chart === "return" ? <div className="overview-return">
-        <h2>{t(accountId === "all" ? "汇总收益率" : "账户收益率")}</h2>
-        <p>{t("券商期间收益单独列示；同窗口基准比较暂不可用。")}</p>
-        {accountId === "all" ? <ul className="overview-return-coverage" aria-label={t("汇总收益率")}>
-          <li>
-            <strong>{t("全部账户")}</strong>
-            {aggregateReturn.status === "available" ? <>
-              <span>{`${aggregateReturn.sourceValue}% · ${aggregateReturn.currency}`}</span>
-              <small>{`${aggregateReturn.periodFrom} — ${aggregateReturn.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
-              <small>{t("仅此一个纳入汇总的账户具有合格期间收益。")}</small>
-            </> : <>
-              <span>{aggregateReturn.reason === "no_qualified_record" ? t("暂无合格期间收益记录") : t("汇总收益率暂不可用")}</span>
-              <small>{aggregateReturn.reason === "incomplete"
-                ? t("缺账户不按零计，也不用资产变化代替。")
-                : aggregateReturn.reason === "weighting_unqualified"
-                  ? t("各账户合格收益已列示；尚无可加权汇总口径。")
-                  : t("暂无合格期间收益记录")}</small>
-            </>}
-          </li>
-        </ul> : null}
-        <ul className="overview-return-coverage" aria-label={t("账户收益覆盖")}>
-          {visible.map(account => {
-            const result = readQualifiedPeriodReturn(account.platformKey, account.facts?.return, returnRevisionMatches);
-            return <li key={account.id}><strong>{optionLabel(account)}</strong>
-              {result ? <>
-                <span>{`${result.sourceValue}% · ${result.currency}`}</span>
-                <small>{`${result.periodFrom} — ${result.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
-              </> : <><span>{t("收益率暂不可用")}</span><small>{t("暂无合格期间收益记录")}</small></>}
-            </li>;
-          })}
-          {!visible.length ? <li>{t("暂无账户")}</li> : null}
-        </ul>
-        <details className="overview-benchmark-source"><summary>{t("收益率口径")}</summary><p>{t("比较需完整外部资金流、费用和原币种估值，共同起止区间以可信首点归零；多账户汇总还需可信汇率与加权口径。")}</p></details>
-      </div> : hasChart ? <div className="asset-chart">
-        <svg viewBox={`0 0 ${shownGeometry.width} ${shownGeometry.height}`} role="img" aria-label={t(accountId === "all" ? "总资产" : walletChartSelected ? "钱包总资产变化（USDT）" : "资产变化")}>
-          {shownGeometry.segments.map((path, index) => <path key={index} d={path} className="asset-chart-line" fill="none" />)}
-          {shownGeometry.dots.map((dot) => <circle key={`${dot.date}:${dot.amount}`} cx={dot.x} cy={dot.y} r={shownGeometry.dots.length === 1 ? 4 : 2.5} className="asset-chart-dot">
-            <title>{`${dot.date} · ${currency} ${dot.amount}`}</title>
-          </circle>)}
-        </svg>
-        <div className="asset-chart-meta">
-          <span>{shownGeometry.dots[0]?.date} → {shownGeometry.dots[shownGeometry.dots.length - 1]?.date}</span>
-          <span>{currency} {shownGeometry.minLabel} – {shownGeometry.maxLabel}</span>
-          {historyCoverage?.shorterThanRange ? <span className="asset-chart-coverage">{t("历史仅 {days} 天（自 {date} 起），不代表更长期表现。", { days: historyCoverage.days, date: historyCoverage.firstDate })}</span> : null}
-          {accountId === "all" && aggregateSeries.omittedPartialDateCount > 0 ? <span>{t("有 {count} 个日期省略了缺观察的账户，线段在缺口处断开。", { count: aggregateSeries.omittedPartialDateCount })}</span> : null}
-        </div>
-      </div> : <div className="chart-empty">
-        <strong>{chartEmptyTitle === "汇总自 {date}（Asia/Shanghai）起计算"
-          ? t(chartEmptyTitle, { date: MARKET_BENCHMARK_INCEPTION_DATE })
-          : t(chartEmptyTitle)}</strong>
-        <p>{chartEmptyDetail === "{range}内暂无资产记录"
-          ? t(chartEmptyDetail, { range: t(emptyNote.rangeLabel) })
-          : t(chartEmptyDetail)}</p>
-      </div>}
-    </section>
     <section className="overview-runtime" aria-label={t("每日运行记录")}>
       <div className="overview-runtime-head">
         <h2>{t("每日运行记录")}</h2>
@@ -1032,17 +1032,21 @@ export function OverviewPage({ accounts, accountFacts, accountOptionsRevision, o
         {cashUsd.omittedCurrencies.length ? <small className="home-omit-note">{t("缺汇率未计入：{codes}", { codes: cashUsd.omittedCurrencies.join("、") })}</small> : null}
         <div className="overview-freshness">{screenAccounts.map(account => {
           const timestamp = accountFactsDisplayReady(account.facts) ? accountFactsUpdatedAt(account.facts) : null;
-          return <small key={account.id}>{account.title} · {timestamp ? <time dateTime={timestamp}>{formatShortInstant(timestamp)}</time> : t("尚未取得账户资产资料")}</small>;
+          return <small key={account.id}>{account.title} · {timestamp ? <time dateTime={timestamp}>{formatShortInstant(timestamp)}</time> : t(accountFactsDetail(account.facts))}</small>;
         })}</div>
       </article>
       <article className="home-card">
         <h2>{t("收益率")}</h2>
-        <div className="return-empty" role="img" aria-label={t("收益率")}>{t("暂无合格收益")}</div>
+        {aggregateReturn.status === "available" ? <div className="overview-return">
+          <strong>{`${aggregateReturn.sourceValue}% · ${aggregateReturn.currency}`}</strong>
+          <small>{`${aggregateReturn.periodFrom} — ${aggregateReturn.periodTo} · ${t("券商原生时间加权收益率")}`}</small>
+        </div> : <div className="return-empty" role="img" aria-label={t("收益率")}>{t("暂无合格收益")}</div>}
         <ul className="return-legend">
           {RETURN_LEGEND.map(item => <li key={item.label}><i style={{ background: item.color }} />{t(item.label)}</li>)}
         </ul>
       </article>
     </section>
+    {chartPanel}
     <section className="overview-accounts home-accounts" aria-label={t("账号状态")}>
       <h2>{t("账号状态")}</h2>
       <div className="account-status-wrap">
