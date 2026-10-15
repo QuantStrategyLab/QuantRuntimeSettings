@@ -113,6 +113,7 @@ jobs:
       DIGEST_GH_TOKEN: ${{ secrets.RUNTIME_SETTINGS_GH_TOKEN || github.token }}
       # Optional producer candidates (Environment secret). Never log the value.
       DIGEST_CANDIDATES_JSON: ${{ secrets.DIGEST_CANDIDATES_JSON }}
+      DIGEST_EXPECTED_TARGETS_JSON: ${{ secrets.DIGEST_EXPECTED_TARGETS_JSON }}
       # Optional path override (Environment variable); relative to workspace.
       DIGEST_CANDIDATES_PATH_VAR: ${{ vars.DIGEST_CANDIDATES_PATH || '' }}
       # Optional producer store: gs://<bucket>/digest-candidates.

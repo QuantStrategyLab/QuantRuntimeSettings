@@ -782,7 +782,10 @@ def collect_digest_runs(
     current_targets = {_target_key(row) for row in file_rows if _target_key(row)}
     for item in stale_notes:
         missing_targets.append(dict(item, reason_code="EVIDENCE_STALE_BUSINESS_DAY"))
-    expected = digest_contract(config).get("aggregator", {}).get("expected_targets", [])
+    expected_raw = os.environ.get("DIGEST_EXPECTED_TARGETS_JSON", "").strip()
+    expected = json.loads(expected_raw) if expected_raw else digest_contract(config).get("aggregator", {}).get("expected_targets", [])
+    if os.environ.get("QSL_ROUTINE_NOTIFICATION_MODE") == "daily_digest" and not expected:
+        raise ValueError("digest_expected_targets_required")
     if not isinstance(expected, list):
         raise ValueError("digest_expected_targets_invalid")
     for row in expected:

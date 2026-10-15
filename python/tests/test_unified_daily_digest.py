@@ -127,3 +127,20 @@ class UnifiedFillFactsTests(unittest.TestCase):
         self.assertIn("Completed", text)
         self.assertNotIn("Fills 1", text)
         self.assertNotIn("Diagnostics", text)
+
+
+class UnifiedCoverageTests(unittest.TestCase):
+    def test_declared_target_inventory_is_required_and_missing_targets_are_visible(self):
+        import daily_digest_aggregator as aggregator
+        from test_daily_digest_ux import config
+        expected = [dict(platform_id='schwab', strategy_profile='synthetic_core', target_id='synthetic-a'),
+                    dict(platform_id='binance', strategy_profile='synthetic_core', target_id='synthetic-b')]
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'QSL_ROUTINE_NOTIFICATION_MODE': 'daily_digest'}, clear=True), patch.object(aggregator, 'load_platform_config', return_value=config()):
+            path = Path(directory) / 'candidates.json'
+            path.write_text(json.dumps({'runs': [dict(expected[0], actually_ran=True, business_day='2026-10-15', order_count=1, fill_count=1, status='ok')]}))
+            with self.assertRaisesRegex(ValueError, 'digest_expected_targets_required'):
+                aggregator.build_digest_payload(business_day='2026-10-15', candidates_path=path, include_github=False)
+            os.environ['DIGEST_EXPECTED_TARGETS_JSON'] = json.dumps(expected)
+            result, text, collected = aggregator.build_digest_payload(business_day='2026-10-15', candidates_path=path, include_github=False)
+            self.assertEqual(len(collected.coverage.missing_targets), 1)
+            self.assertIn('Target report missing', text)

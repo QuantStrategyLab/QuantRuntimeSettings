@@ -22,3 +22,10 @@ Keep the workflow concurrency group shared by manual and scheduled runs.
 No variables are applied, workflow dispatched, secrets read or messages sent by
 this code-only change. Validate protected source bindings and the approved UES
 fingerprint/baseline release plan before production adoption.
+
+Unified mode requires a nonempty protected `DIGEST_EXPECTED_TARGETS_JSON` list
+(or the existing `aggregator.expected_targets` contract). Declare only approved
+active targets, with platform/profile and protected target/account identity.
+Missing due targets remain diagnostics; an absent inventory stops construction
+rather than silently claiming coverage of all platforms. Configured closed
+sessions provide an `actually_ran=false` candidate without a no-trade heartbeat.
