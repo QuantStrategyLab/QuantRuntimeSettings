@@ -781,14 +781,7 @@ export function presentAggregateReturn(entries: Array<{ included: boolean; quali
   return { status: "unavailable", reason: "weighting_unqualified" };
 }
 
-export function isAggregateAssetAccount(account: {
-  brokerEnvironment: string | null;
-  facts: { broker_environment?: string | null; account_scope?: string | null } | null;
-}): boolean {
-  return account.brokerEnvironment !== "paper"
-    && account.facts?.broker_environment !== "paper"
-    && account.facts?.account_scope !== "paper";
-}
+export { isAggregateAssetAccount } from "../../performance_math.js";
 
 export type RuntimeDailySnapshot = {
   ok: true;

@@ -119,3 +119,10 @@ export function alignReturns(primary, comparisons) {
         noCommonDate: available.length > 0 && !common,
     };
 }
+
+/** Match the overview cohort. Unspecified environments remain eligible. */
+export function isAggregateAssetAccount(account) {
+    return account.brokerEnvironment !== "paper"
+        && account.facts?.broker_environment !== "paper"
+        && account.facts?.account_scope !== "paper";
+}
