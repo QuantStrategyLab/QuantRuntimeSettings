@@ -57,7 +57,7 @@ export function decisionFields(entry, category, now = Date.now()) {
     (expires && Date.parse(expires) < now) ||
     ["stale", "expired"].includes(freshness);
   const diff = [];
-  const row = (field, before, after, affects = true) => {
+  const row = (field, before, after, affects = category !== "paper_account_application") => {
     const old = scalar(before),
       next = scalar(after);
     if (old !== null || next !== null)

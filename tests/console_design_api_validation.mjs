@@ -82,7 +82,7 @@ result = await runControls(account, { admin: true }, { ...controlDeps, stopReady
 assert.equal(result.actions.stop.enabled, false);
 assert.equal(result.status, "partial");
 
-const paperTicket = { ticket_id: "synthetic-paper", confirmation_execution_mode: "paper", state: "awaiting_human",
+const paperTicket = { ticket_id: "synthetic-paper", strategy_profile: "synthetic-paper-strategy", confirmation_execution_mode: "paper", state: "awaiting_human",
   decision_binding: { kind: "promotion", subject_id: "synthetic-paper", material_sha256: "a".repeat(64) } };
 const empty = async () => Response.json({ data_status: "ready" });
 const queue = await inbox(request, {}, { owner: empty, recovery: empty, credential: empty,
@@ -91,6 +91,8 @@ validate("inbox", queue);
 assert.equal(queue.items.length, 1, "paper application has one inbox entry");
 assert.equal(queue.items[0].category, "paper_account_application");
 assert.equal(queue.items[0].affects_live, false);
+assert.ok(queue.items[0].diff.length > 0);
+assert.ok(queue.items[0].diff.every(row => row.affects_live === false), "paper diff rows cannot claim a live-account effect");
 assert.deepEqual(queue.items[0].decision_binding, paperTicket.decision_binding);
 const accepted = canonicalItem({ ...paperTicket, state: "human_accepted", application: { broker_environment: "paper", status: "uncertain" } }, "strategy_promotion");
 assert.equal(accepted.status, "decided", "uncertain application must not invite another adoption");
