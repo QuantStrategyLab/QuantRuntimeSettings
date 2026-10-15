@@ -26,8 +26,10 @@ draft saves and conflicts. All responses use `Cache-Control: no-store`.
 | GET `/api/performance/trades` | `scope`, `range`, optional `platform` | `TradeStatsResponse` / `trades` |
 
 `account` and `scope` are configured account aliases, never broker account numbers.
-`scope=all` selects accounts explicitly configured as live and excludes conflicting
-or duplicate facts. Single-account reads also allow configured paper accounts.
+`scope=all` reuses the overview cohort: it excludes known paper accounts and
+conflicting or duplicate facts. An unspecified environment remains eligible,
+as in the existing charts; this does not certify a live identity. Single-account
+reads also allow configured paper accounts.
 An ambiguous alias requires `platform`. Settings reads also accept the existing
 `platform` and `key` parameter pair.
 

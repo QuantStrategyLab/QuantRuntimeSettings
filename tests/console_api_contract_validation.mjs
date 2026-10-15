@@ -334,3 +334,45 @@ assert.equal(
   401,
 );
 console.log("console_api_contract_validation: PASS");
+
+const unspecifiedEnvironment = {
+  ...perfDeps,
+  accountOptions: async () => ({
+    options: { ibkr: [{ key: "synthetic-alpha" }] },
+  }),
+};
+const unspecifiedRead = await performanceResponse(
+  new Request("https://console.example/api/performance/assets?scope=all"),
+  {},
+  unspecifiedEnvironment,
+);
+const unspecifiedBody = await unspecifiedRead.json();
+assert.equal(
+  unspecifiedBody.points.length,
+  2,
+  "all uses the existing chart cohort when an environment label is absent",
+);
+const paperRead = await performanceResponse(
+  new Request("https://console.example/api/performance/assets?scope=all"),
+  {},
+  {
+    ...unspecifiedEnvironment,
+    facts: async () =>
+      json({
+        accounts: [
+          {
+            platform: "ibkr",
+            account_key: "synthetic-alpha",
+            broker_environment: "paper",
+            binding_status: "bound",
+            balances: [{ currency: "USD" }],
+          },
+        ],
+      }),
+  },
+);
+assert.equal(
+  (await paperRead.json()).points.length,
+  0,
+  "facts still exclude a known paper account",
+);

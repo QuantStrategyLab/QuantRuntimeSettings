@@ -46,3 +46,8 @@ export declare function alignReturns(primary: readonly ValuePoint[], comparisons
     }[];
     noCommonDate: boolean;
 };
+
+export declare function isAggregateAssetAccount(account: {
+    brokerEnvironment: string | null;
+    facts: { broker_environment?: string | null; account_scope?: string | null } | null;
+}): boolean;

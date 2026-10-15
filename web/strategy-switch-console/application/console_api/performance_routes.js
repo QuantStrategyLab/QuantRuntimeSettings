@@ -1,3 +1,4 @@
+import { isAggregateAssetAccount } from "../../performance_math.js";
 import { MARKET_BENCHMARK_SERIES_IDS } from "../../infrastructure/market_benchmark/market_benchmark.js";
 import { businessDate, performanceBlocks } from "./performance.js";
 const ENDPOINTS = {
@@ -46,7 +47,10 @@ export async function performanceResponse(request, env, deps) {
     );
     const matches = options.filter((a) =>
       scope === "all"
-        ? a.broker_environment === "live"
+        ? isAggregateAssetAccount({
+            brokerEnvironment: a.broker_environment ?? null,
+            facts: null,
+          })
         : a.key === scope &&
           (!url.searchParams.has("platform") ||
             a.platform === url.searchParams.get("platform")),
@@ -124,6 +128,14 @@ export async function performanceResponse(request, env, deps) {
         failed.push(option.key);
         continue;
       }
+      if (
+        scope === "all" &&
+        !isAggregateAssetAccount({
+          brokerEnvironment: option.broker_environment ?? null,
+          facts: fact,
+        })
+      )
+        continue;
       accounts.push(fact);
       const currencies = [
         ...new Set((fact.balances || []).map((b) => b.currency)),
