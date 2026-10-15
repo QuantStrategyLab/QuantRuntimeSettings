@@ -86,6 +86,8 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
+      - name: Validate offline synthetic reconciliation console
+        run: node tests/offline_reconciliation_console_validation.mjs
       - name: Install local Worker test runtime
         working-directory: web/strategy-switch-console
         run: npm ci
