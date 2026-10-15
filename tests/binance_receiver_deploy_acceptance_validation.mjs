@@ -416,16 +416,15 @@ for (const missingToken of ["", undefined, null]) {
 
 const gateIndex = workflow.indexOf("- name: Wait for optional Binance account-facts readiness stability");
 const m0Index = workflow.indexOf("- name: Sync M0 research-ledger ingress token");
-const catalogIndex = workflow.indexOf("- name: Check whether this release changes the strategy catalog");
 const publishIndex = workflow.indexOf("- name: Sync bundled strategy profiles to KV");
-assert.ok(syncIndex < m0Index && m0Index < gateIndex && gateIndex < verifyIndex && verifyIndex < catalogIndex && catalogIndex < publishIndex,
+assert.ok(syncIndex < m0Index && m0Index < gateIndex && gateIndex < verifyIndex && verifyIndex < publishIndex,
   "all secret sync, including M0, precedes the gate, retained single POST, then catalog publication");
 const gateStep = workflow.slice(gateIndex, verifyIndex);
 assert.match(gateStep, /if: env\.BINANCE_ACCOUNT_FACTS_SYNC_TOKEN != ''/);
 assert.match(gateStep, /BINANCE_ACCOUNT_FACTS_DEPLOYMENT_READINESS: "true"/);
 assert.match(gateStep, /run: node scripts\/verify_binance_account_facts_receiver\.mjs/);
 assert.doesNotMatch(workflow.slice(gateIndex), /secret put|continue-on-error:|always\(\)/);
-assert.doesNotMatch(workflow.slice(verifyIndex, catalogIndex), /BINANCE_ACCOUNT_FACTS_(?:DEPLOYMENT_READINESS|READINESS_ONLY)|for attempt|while |retry/);
+assert.doesNotMatch(workflow.slice(verifyIndex, publishIndex), /BINANCE_ACCOUNT_FACTS_(?:DEPLOYMENT_READINESS|READINESS_ONLY)|for attempt|while |retry/);
 assert.equal((workflow.match(/node tests\/binance_receiver_deploy_acceptance_validation\.mjs/g) || []).length, 1);
 const validateWorkflow = readFileSync(new URL("../.github/workflows/validate.yml", import.meta.url), "utf8");
 assert.equal((validateWorkflow.match(/node tests\/binance_receiver_deploy_acceptance_validation\.mjs/g) || []).length, 1);
