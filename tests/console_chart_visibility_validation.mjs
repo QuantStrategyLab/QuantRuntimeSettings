@@ -16,8 +16,9 @@ const payload = normalizeAccountFactsHistoryPayload({
   broker_reported_balances: [{ currency: "USD", net_assets: "101.25", total_cash: "5" }], cash: [{ currency: "USD", available_cash: "5", frozen_cash: "0", settling_cash: "0" }],
 }, { now });
 const model = buildAccountFactsReadModel({ accountOptions: { longbridge: [option] }, bindings: { schema_version: "qsl_account_facts_bindings.v1", bindings: [binding] }, storedByAccount: new Map([[`longbridge:${option.key}`, payload]]), now });
-const series = projectAccountFactsHistorySeries({ binding, currency: "USD", days: [{ target_id: binding.target_id, source_binding_id: binding.source_binding.id, account_scope: binding.account_scope, observation_date: payload.observation_date, payload }] });
-assert.equal(series.points.length, 1);
+const previous = { ...payload, observation_date: "2026-10-14", observed_started_at: "2026-10-14T07:58:00Z", observed_finished_at: "2026-10-14T07:59:00Z" };
+const series = projectAccountFactsHistorySeries({ binding, currency: "USD", days: [previous, payload].map(payload => ({ target_id: binding.target_id, source_binding_id: binding.source_binding.id, account_scope: binding.account_scope, observation_date: payload.observation_date, payload })) });
+assert.equal(series.points.length, 2);
 const history = { ok: true, platform: binding.platform, account_key: option.key, identity_mismatch: false, series };
 const seriesIds = ["标普500", "纳斯达克100", "道琼斯工业平均指数", "罗素2000"];
 const points = await loadMarketBenchmarkPoints(async (path, init) => {
@@ -25,8 +26,8 @@ const points = await loadMarketBenchmarkPoints(async (path, init) => {
   assert.equal(init.method, "GET");
   assert.equal(init.credentials, "same-origin");
   return Response.json({ ok: true, inception_date: "2026-10-09", points: seriesIds.flatMap(seriesId => [
-    { seriesId, observationDate: "2026-10-09", close: "100" },
-    { seriesId, observationDate: "2026-10-12", close: "102" },
+    { seriesId, observationDate: "2026-10-12", close: "100" },
+    { seriesId, observationDate: "2026-10-13", close: "102" },
   ]) });
 });
 assert.equal(points.length, 8);
@@ -60,9 +61,11 @@ try {
   assert.match(home, /<svg[^>]+aria-label="总资产"/, "homepage_asset_chart_visible: HTTP 200 account facts must reach a visible chart");
   assert.match(home, /role="tablist" aria-label="图表"/, "read-only chart navigation must be reachable");
   for (const name of seriesIds) assert.match(home, new RegExp(`<svg[^>]+aria-label="${name}"`), "homepage_benchmarks_visible: each successful synthetic series renders");
+  assert.equal((home.match(/class="benchmark-chart-line"/g) || []).length, 4, "consecutive stored closes produce four visible line segments");
   assert.match(home, /市场基准不是账户收益/);
   selected = "synthetic";
   assert.match(render([]), /2026-10-15 · USD 101.25/, "selected_account_history_visible: the receiver-projected history reaches SVG");
+  assert.match(render([]), /class="asset-chart-line"/, "consecutive stored account observations produce a visible line segment");
   chart = "return";
   const returns = render();
   assert.doesNotMatch(returns, /class="asset-chart-line"/, "asset values must never be plotted as account returns");
