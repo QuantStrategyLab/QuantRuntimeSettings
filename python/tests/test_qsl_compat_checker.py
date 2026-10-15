@@ -302,19 +302,19 @@ class QSLCompatCheckerTest(unittest.TestCase):
                     'bundle = "2026.07.2"\nrequires = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/'
                     + "AIAuditBridge.git@" + ref + '"]\n', encoding="utf-8"
                 )
-                base = ('"ai-gateway-client @ git+https://github.com/QuantStrategyLab/AIAuditBridge.git@' + ref + '"') if base_dependency else ''
+                base = ('"ai-gateway-client @ git+https://github.com/QuantStrategyLab/PersonalAIService.git@' + ref + '"') if base_dependency else ''
                 deps = (base + ',') if base else ''
                 (repo_root / "pyproject.toml").write_text(
                     '[project]\nname = "consumer"\ndependencies = [' + deps + ']\n'
                     '[project.optional-dependencies]\n' + extra_name + ' = ["ai-gateway-client @ git+https://github.com/QuantStrategyLab/'
                     + "AIAuditBridge.git@" + ref + '"]\n', encoding="utf-8"
                 )
-                lock_requires = '{ name = "ai-gateway-client", marker = "' + marker + '", git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev=' + ref + '" }'
+                lock_requires = '{ name = "ai-gateway-client", marker = "' + marker + '", git = "https://github.com/QuantStrategyLab/PersonalAIService.git?rev=' + ref + '" }'
                 if duplicate_marker is not None:
-                    lock_requires += ', { name = "ai-gateway-client", marker = "' + duplicate_marker + '", git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev=' + ref + '" }'
+                    lock_requires += ', { name = "ai-gateway-client", marker = "' + duplicate_marker + '", git = "https://github.com/QuantStrategyLab/PersonalAIService.git?rev=' + ref + '" }'
                 (repo_root / "uv.lock").write_text(
                     'version = 1\n[[package]]\nname = "consumer"\nsource = { editable = "." }\n'
-                    '[package.metadata]\nrequires-dist = [' + lock_requires + ']\n\n[[package]]\nname = "ai-gateway-client"\nsource = { git = "https://github.com/QuantStrategyLab/AIAuditBridge.git?rev='
+                    '[package.metadata]\nrequires-dist = [' + lock_requires + ']\n\n[[package]]\nname = "ai-gateway-client"\nsource = { git = "https://github.com/QuantStrategyLab/PersonalAIService.git?rev='
                     + ref + '" }\n', encoding="utf-8"
                 )
                 return check_qsl_compat._check(repo_root=repo_root, compat_root=compat_root, scope="current")

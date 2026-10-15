@@ -148,7 +148,7 @@ try {
     assert.equal(longbridgeManual.status, 202);
     assert.equal(longbridgeManual.body.task.target_id, longbridgeAccount.runtime_status_target_id);
     assert.equal(dispatches.length, beforeLongbridgeManual + 1);
-    assert.match(dispatches.at(-1).url, /QuantStrategyLab\/AIAuditBridge\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
+    assert.match(dispatches.at(-1).url, /QuantStrategyLab\/PersonalAIService\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
     longbridgeTasks.push(longbridgeManual.body.task);
     const longbridgeIncident = await call("/api/account-diagnosis", {
       method: "POST", body: { platform: "longbridge", key: longbridgeAccount.key, trigger: "incident" },
@@ -230,7 +230,7 @@ try {
   assert.equal(manual.body.status, "queued");
   assert.match(manual.body.request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   assert.equal(dispatches.length, 1);
-  assert.match(dispatches[0].url, /QuantStrategyLab\/AIAuditBridge\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
+  assert.match(dispatches[0].url, /QuantStrategyLab\/PersonalAIService\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
   assert.deepEqual(JSON.parse(dispatches[0].body), { ref: "main", inputs: { account_diagnosis_request_id: manual.body.request_id } });
 
   const duplicate = await call("/api/account-diagnosis", {
@@ -434,7 +434,7 @@ try {
   assert.equal(autoLongbridge.status, 200);
   assert.equal(dispatches.length, autoLongbridgeBefore + 1, "the enabled abnormal LongBridge account creates its AAB task");
   const autoLongbridgeDispatch = JSON.parse(dispatches.at(-1).body);
-  assert.match(dispatches.at(-1).url, /QuantStrategyLab\/AIAuditBridge\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
+  assert.match(dispatches.at(-1).url, /QuantStrategyLab\/PersonalAIService\/actions\/workflows\/codex_audit\.yml\/dispatches$/);
   assert.match(autoLongbridgeDispatch.inputs.account_diagnosis_request_id, /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   const autoLongbridgeRead = await autoCall(`/api/internal/account-diagnosis/${autoLongbridgeDispatch.inputs.account_diagnosis_request_id}`, {
     headers: { Authorization: "Bearer synthetic-diagnosis-token" },
