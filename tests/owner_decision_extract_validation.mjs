@@ -180,3 +180,4 @@ function recordDeps(overrides = {}) {
 }
 
 console.log("owner_decision_extract_validation: ok");
+await import("./control_plane_retirement_validation.mjs");
