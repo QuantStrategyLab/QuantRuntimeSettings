@@ -47,6 +47,8 @@ export const en: Record<CoreMessageKey, string> = {
   "common.unsaved_guard_title": "Discard unsaved changes?",
   "common.unsaved_guard_body": "You have unsaved changes that will be lost if you leave.",
 
+  "state.healthy": "Healthy",
+  "state.no_signal": "No signal",
   "state.ok": "OK",
   "state.partial": "Partial",
   "state.stale": "Stale",
