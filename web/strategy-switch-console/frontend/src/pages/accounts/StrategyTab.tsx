@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { DraftField, Scalar, SettingsDiffResponse, SettingsDiffRow, SettingsSection } from "../../api/contracts";
 import { loadAccountSettings, loadSettingsDiff, saveCombinedDraft } from "../../api/endpoints";
 import { HttpError } from "../../api/client";
@@ -100,6 +100,8 @@ export function StrategyTab({
   setEdits: (next: EditMap | ((prev: EditMap) => EditMap)) => void;
   confirm: Confirm;
 }) {
+  const formId = useId();
+  const controlId = (field: DraftField) => `${formId}-${field}`;
   const t = useT();
   const toast = useToast();
   const [checking, setChecking] = useState(false);
@@ -289,11 +291,16 @@ export function StrategyTab({
     const edited = hasOwn(edits, row.field);
     const text = proposed === null || proposed === undefined ? "" : String(proposed);
     const error = fieldErrors[row.field];
+    const accessibility = {
+      id: controlId(row.field),
+      "aria-invalid": Boolean(error),
+      "aria-describedby": error ? `${controlId(row.field)}-error` : undefined,
+    };
     let control;
     if (row.field === "strategy_profile") {
       const known = options.some(option => option.profile === text);
       control = (
-        <select className="input" value={text} onChange={event => setEdit(row.field, event.target.value)}>
+        <select {...accessibility} className="input" value={text} onChange={event => setEdit(row.field, event.target.value)}>
           {!text && <option value="" disabled>{t("accounts.form.select_profile")}</option>}
           {text && !known && <option value={text}>{text}</option>}
           {options.map(option => (
@@ -303,7 +310,7 @@ export function StrategyTab({
       );
     } else if (row.field === "dca_mode") {
       control = (
-        <select className="input" value={text} onChange={event => setEdit(row.field, event.target.value)}>
+        <select {...accessibility} className="input" value={text} onChange={event => setEdit(row.field, event.target.value)}>
           {!text && <option value="" disabled>{t("common.na")}</option>}
           <option value="fixed">{t("accounts.dca_mode.fixed")}</option>
           <option value="smart">{t("accounts.dca_mode.smart")}</option>
@@ -311,7 +318,7 @@ export function StrategyTab({
       );
     } else if (row.field === "income_layer_enabled" || row.field === "option_overlay_enabled") {
       control = (
-        <select className="input" value={text} onChange={event => setEdit(row.field, event.target.value === "true")}>
+        <select {...accessibility} className="input" value={text} onChange={event => setEdit(row.field, event.target.value === "true")}>
           {!text && <option value="" disabled>{t("common.na")}</option>}
           <option value="true">{t("accounts.bool.on")}</option>
           <option value="false">{t("accounts.bool.off")}</option>
@@ -320,6 +327,7 @@ export function StrategyTab({
     } else {
       control = (
         <input
+          {...accessibility}
           className="input"
           value={text}
           inputMode="decimal"
@@ -346,7 +354,7 @@ export function StrategyTab({
         <span className="accounts-field-current">
           {t("decisions.col.current")} · {scalarText(t, row.field, row.current, row.current_status === "unknown")}
         </span>
-        {error && <span className="accounts-field-error">{error}</span>}
+        {error && <span id={`${controlId(row.field)}-error`} className="accounts-field-error">{error}</span>}
       </div>
     );
   };
@@ -400,7 +408,7 @@ export function StrategyTab({
             <div className="accounts-field-rows">
               {group.rows.map(row => (
                 <div className="accounts-field-row" key={row.field}>
-                  <span className="accounts-field-label">{fieldLabel(t, row)}</span>
+                  <label className="accounts-field-label" htmlFor={controlId(row.field)}>{fieldLabel(t, row)}</label>
                   {renderControl(row)}
                 </div>
               ))}

@@ -703,7 +703,7 @@ export type HumanDecisionState = {
   receipt: Record<string, any> | null; queueConfirmed: boolean;
 };
 const digestPattern = /^[0-9a-f]{64}$/;
-const decisionRecord = (v: any) => Boolean(v && typeof v === "object" && !Array.isArray(v));
+const decisionRecord = (v: any): v is Record<string, any> => Boolean(v && typeof v === "object" && !Array.isArray(v));
 function decisionCanonical(value: any): string {
   if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value);
   if (typeof value === "number" && Number.isFinite(value)) return JSON.stringify(value);
@@ -720,6 +720,15 @@ export function promotionDecisionReady(ticket: any): boolean {
   return b?.kind === "promotion" && b.subject_id === ticket.ticket_id && typeof b.material_sha256 === "string"
     && digestPattern.test(b.material_sha256) && (b.review_binding == null || (b.review_binding.schema_version === "qsl_promotion_review_binding.v2"
     && typeof b.review_binding.review_sha256 === "string" && digestPattern.test(b.review_binding.review_sha256)));
+}
+/** Require the fresh write expectation to match the material actually displayed for review. */
+export function reviewedDecisionMatches(binding: unknown, expected: HumanDecisionExpectation): boolean {
+  if (!decisionRecord(binding) || binding.kind !== expected.kind || binding.subject_id !== expected.subject_id
+    || binding.material_sha256 !== expected.material_sha256) return false;
+  const review = binding.review_binding;
+  if (expected.review_sha256 === null) return review == null;
+  return decisionRecord(review) && review.schema_version === "qsl_promotion_review_binding.v2"
+    && review.review_sha256 === expected.review_sha256;
 }
 export async function humanDecisionExpectation(kind: HumanDecisionKind, source: any, body: any): Promise<HumanDecisionExpectation | null> {
   try {

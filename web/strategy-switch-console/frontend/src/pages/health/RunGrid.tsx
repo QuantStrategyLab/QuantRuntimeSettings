@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { RuntimeDailyRecord, RuntimeDailySnapshot } from "../../api/endpoints";
+import { cellKind, type CellKind } from "./status";
 import { loadRuntimeDaily } from "../../api/endpoints";
 import { useLanguage, useT, type MessageKey } from "../../i18n";
 import { formatDate, formatDateTime } from "../../lib/format";
@@ -9,8 +10,6 @@ export interface GridAccount {
   account_alias: string;
   platform: string;
 }
-
-type CellKind = "ok" | "failed" | "not-run" | "no-record";
 
 type CellState =
   | { phase: "loading" }
@@ -22,6 +21,10 @@ const CELL_LABEL_KEY: Record<CellKind, MessageKey> = {
   failed: "health.grid.failed",
   "not-run": "health.grid.not_run",
   "no-record": "health.grid.no_record",
+  unknown: "state.unknown",
+  incomplete: "health.grid.incomplete",
+  stale: "state.stale",
+  "read-failed": "state.read_failed",
 };
 
 const CELL_ICON: Record<CellKind, string> = {
@@ -29,6 +32,10 @@ const CELL_ICON: Record<CellKind, string> = {
   failed: "✗",
   "not-run": "–",
   "no-record": "",
+  unknown: "?",
+  incomplete: "…",
+  stale: "~",
+  "read-failed": "!",
 };
 
 function cellKey(alias: string, date: string): string {
@@ -55,14 +62,6 @@ function lastNDates(end: string, n: number): string[] {
     cursor -= 86_400_000;
   }
   return dates;
-}
-
-function cellKind(snapshot: RuntimeDailySnapshot): CellKind {
-  const record = snapshot.record;
-  if (!record || snapshot.data_status === "unavailable") return "no-record";
-  if (record.status === "failed" || (record.runs ?? []).some(run => run.errors_present === true)) return "failed";
-  if ((snapshot.data_status === "fresh" || snapshot.data_status === "historical") && record.completeness === "complete") return "ok";
-  return "not-run";
 }
 
 interface Selection {
@@ -169,7 +168,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
 
   if (!accounts.length) return <EmptyState title={t("state.no_data")} />;
 
-  const legendKinds: CellKind[] = ["ok", "failed", "not-run", "no-record"];
+  const legendKinds = Object.keys(CELL_LABEL_KEY) as CellKind[];
 
   return (
     <>
@@ -207,11 +206,11 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
                       <td key={date}>
                         <button
                           type="button"
-                          className={`health-cell no-record${isSelected ? " selected" : ""}`}
+                          className={`health-cell read-failed${isSelected ? " selected" : ""}`}
                           title={t("state.read_failed")}
                           aria-label={`${account.account_alias} ${date}: ${t("state.read_failed")}`}
                           onClick={() => setSelected({ account, date })}
-                        />
+                        >!</button>
                       </td>
                     );
                   }

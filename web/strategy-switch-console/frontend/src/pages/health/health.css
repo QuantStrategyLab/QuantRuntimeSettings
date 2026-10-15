@@ -24,3 +24,6 @@
 .health-day-runs { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .health-day-runs li { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .health-day-runs .num { font-variant-numeric: tabular-nums; }
+
+.health-cell.unknown, .health-cell.incomplete, .health-cell.stale { background: var(--surface-2); color: var(--muted); }
+.health-cell.read-failed { background: var(--surface-2); color: var(--status-error); }

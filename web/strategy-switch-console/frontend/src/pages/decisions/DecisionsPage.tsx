@@ -9,6 +9,7 @@ import {
   humanDecisionExpectation,
   ownerDecisionBinding,
   recoveryBinding,
+  reviewedDecisionMatches,
   type HumanDecisionKind,
 } from "../../operations";
 import { paperApplicationReady } from "../../presentation";
@@ -27,6 +28,7 @@ import { DiffTable } from "../../components/DiffTable";
 import { Timeline } from "../../components/Timeline";
 import { ConfirmationDialog, useConfirmation } from "../../components/Dialog";
 import { useToast } from "../../components/Toast";
+import { resolveAccountChoice } from "./helpers";
 import "./decisions.css";
 
 type View = "pending" | "decided";
@@ -244,8 +246,8 @@ export default function DecisionsPage() {
   const selected = visibleItems.find(item => item.id === selectedId) || null;
 
   useEffect(() => {
-    if (selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
-  }, [selectedId, visibleItems]);
+    if (inbox.phase === "ready" && selectedId && !visibleItems.some(item => item.id === selectedId)) setSelectedId(null);
+  }, [inbox.phase, selectedId, visibleItems]);
 
   // Account options for promotion categories come from the legacy ticket payload.
   const needsPromotions = Boolean(
@@ -272,7 +274,7 @@ export default function DecisionsPage() {
     refresh();
   };
 
-  /** Shared legacy write path: fresh source read → legacy binding → expectation readback → POST with expected_material_sha256. */
+  /** Read fresh material, verify the displayed binding, then confirm and submit that exact version. */
   const recordIntent = async (item: InboxItem, action: Action, choiceId: string | null) => {
     const subject = subjectIdOf(item);
     const kind: HumanDecisionKind =
@@ -280,6 +282,7 @@ export default function DecisionsPage() {
     let source: Record<string, any>;
     let body: Record<string, unknown>;
     let path: string;
+    let targetAccount: AccountChoice | null = null;
     try {
       if (kind === "owner") {
         const payload = await getJson<Record<string, any>>("/api/owner-decisions");
@@ -331,12 +334,13 @@ export default function DecisionsPage() {
         if (action === "adopt") {
           const application = (payload.applications || []).find((entry: any) => entry?.ticket_id === subject);
           const options = accountOptionsOf(application, false);
-          const resolved = options.length === 1 ? options[0] : options.find(option => option.id === choiceId);
+          const resolved = options.find(option => option.id === choiceId);
           if (!resolved) {
             notice("error", "decisions.intent_unavailable");
             return;
           }
           account = resolved;
+          targetAccount = resolved;
         }
         source = ticket;
         body = {
@@ -362,6 +366,13 @@ export default function DecisionsPage() {
       notice("error", "decisions.intent_unavailable");
       return;
     }
+    if (!reviewedDecisionMatches(item.decision_binding, expected)) {
+      notice("info", "decisions.material_changed");
+      refresh();
+      return;
+    }
+    if (!await confirmDecision(item, action, false, targetAccount)) return;
+    if (sessionEpoch !== humanDecisions.current.epoch() || isExpired(item)) return;
     const op = humanDecisions.current.start(expected);
     if (!op) return; // same decision already in flight
     const busyKey = `intent:${item.id}`;
@@ -416,21 +427,39 @@ export default function DecisionsPage() {
     }
   };
 
+  const confirmDecision = (item: InboxItem, action: Action, paperAdopt: boolean, account: AccountChoice | null) => confirm({
+    title: t(action === "adopt" ? "decisions.confirm_adopt_title" : "decisions.confirm_decline_title"),
+    target: account ? `${itemTitle(item, t)} · ${account.label} (${account.platform} / ${account.key} / ${account.mode})` : itemTitle(item, t),
+    summary: t(paperAdopt ? "decisions.apply_note" : "decisions.confirm_body"),
+    body: <DiffTable rows={item.diff.map(row => ({ ...row, label: t(row.label_key) === row.label_key ? row.field : t(row.label_key), affectsLive: row.affects_live }))} />,
+    consequence: t("decisions.intent_note"),
+    tone: action === "adopt" ? "normal" : "danger",
+    confirmLabel: t(action === "adopt" ? "decisions.confirm_adopt_label" : "decisions.confirm_decline_label"),
+  });
+
   const onDecide = async (item: InboxItem, action: Action) => {
-    const paperAdopt = item.category === "paper_account_application" && action === "adopt";
-    const choiceId = accountChoice[item.id] || null;
-    if (paperAdopt && !choiceId) return;
-    const confirmed = await confirm({
-      title: t(action === "adopt" ? "decisions.confirm_adopt_title" : "decisions.confirm_decline_title"),
-      target: itemTitle(item, t),
-      summary: t(paperAdopt ? "decisions.apply_note" : "decisions.confirm_body"),
-      consequence: t("decisions.intent_note"),
-      tone: action === "adopt" ? "normal" : "danger",
-      confirmLabel: t(action === "adopt" ? "decisions.confirm_adopt_label" : "decisions.confirm_decline_label"),
-    });
-    if (!confirmed) return;
-    if (paperAdopt && choiceId) await applyPaper(item, choiceId);
-    else await recordIntent(item, action, choiceId);
+    if (!admin || item.status !== "pending" || isExpired(item)) return;
+    const lockKey = `confirm:${item.id}`;
+    if (!applyLocks.current.acquire(lockKey)) return;
+    const busyKey = `intent:${item.id}`;
+    setBusy(current => ({ ...current, [busyKey]: true }));
+    try {
+      const paperAdopt = item.category === "paper_account_application" && action === "adopt";
+      const options = accountOptionsOf(selectedApplication, item.category === "paper_account_application");
+      const choice = resolveAccountChoice(options, accountChoice[item.id]);
+      if (action === "adopt" && (paperAdopt || item.category === "strategy_promotion") && !choice) {
+        notice("error", "decisions.intent_unavailable");
+        return;
+      }
+      if (paperAdopt && choice) {
+        if (await confirmDecision(item, action, true, choice)) await applyPaper(item, choice.id);
+      } else {
+        await recordIntent(item, action, choice?.id ?? null);
+      }
+    } finally {
+      applyLocks.current.release(lockKey);
+      setBusy(current => ({ ...current, [busyKey]: false }));
+    }
   };
 
   function itemTitle(item: InboxItem, translate: ReturnType<typeof useT>): string {
@@ -468,11 +497,7 @@ export default function DecisionsPage() {
         );
       } else if (item.category === "paper_account_application") {
         const options = accountOptionsOf(selectedApplication, true);
-        const chosen = options.some(option => option.id === accountChoice[item.id])
-          ? accountChoice[item.id]
-          : options.length === 1
-            ? options[0].id
-            : "";
+        const chosen = resolveAccountChoice(options, accountChoice[item.id])?.id ?? "";
         const uncertain = item.application_status === "uncertain";
         const ready = Boolean(chosen && selectedApplication && paperApplicationReady(selectedApplication, chosen));
         actions = (
@@ -524,11 +549,7 @@ export default function DecisionsPage() {
         );
       } else {
         const options = item.category === "strategy_promotion" ? accountOptionsOf(selectedApplication, false) : [];
-        const chosen = options.some(option => option.id === accountChoice[item.id])
-          ? accountChoice[item.id]
-          : options.length === 1
-            ? options[0].id
-            : "";
+        const chosen = resolveAccountChoice(options, accountChoice[item.id])?.id ?? "";
         actions = (
           <>
             {options.length > 1 && (
@@ -549,7 +570,7 @@ export default function DecisionsPage() {
               <button
                 type="button"
                 className="button button-primary"
-                disabled={anyBusy || (item.category === "strategy_promotion" && options.length > 1 && !chosen)}
+                disabled={anyBusy || (item.category === "strategy_promotion" && !chosen)}
                 onClick={() => void onDecide(item, "adopt")}
               >
                 {busyIntent ? t("decisions.submitting") : t("decisions.adopt_intent")}

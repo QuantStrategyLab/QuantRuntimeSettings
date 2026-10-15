@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { getJson } from "../../api/client";
 import type {
   AccountsResponse,
+  AssetsResponse,
   CalendarResponse,
   InboxResponse,
   ReturnsResponse,
@@ -12,6 +13,7 @@ import type {
 import {
   loadAccounts,
   loadInbox,
+  loadPerformanceAssets,
   loadPerformanceCalendar,
   loadPerformanceReturns,
   loadPerformanceSummary,
@@ -20,6 +22,7 @@ import {
 import { useApi } from "../../lib/hooks";
 import type { AsyncState } from "../../lib/hooks";
 import { relativeFreshness } from "../../lib/format";
+import { latestAssetBalance } from "../../lib/performance";
 import { renderableStatus } from "../../lib/status";
 import { useNavigate, useScope } from "../../app/context";
 import { useLanguage, useT } from "../../i18n";
@@ -72,29 +75,19 @@ function kpiLoading(title: string) {
 
 /* ---------- KPI cards ---------- */
 
-function AssetKpi({ state }: { state: Api<SummaryResponse> }) {
+function AssetKpi({ state }: { state: Api<AssetsResponse> }) {
   const t = useT();
   const title = t("overview.total_assets");
   if (state.phase === "loading") return kpiLoading(title);
   if (state.phase === "error") return <KpiCard title={title} value={<KpiState status="read_failed" />} />;
   const data = state.data;
-  const kindLabel = data.value_kind === "pnl" ? t("perf.value_kind_pnl") : t("perf.value_kind_asset_change");
-  const footer = (
-    <>
-      <StatusBadge status={data.status} reason={data.unavailable_reason} />
-      <AsOfStamp value={data.as_of} />
-    </>
-  );
-  if (usable(data.status) && data.unavailable_reason !== "mixed_currency") {
-    return <KpiCard title={title} value={<Money value={data.amount} currency={data.currency} />} sub={kindLabel} footer={footer} />;
-  }
-  const value =
-    data.unavailable_reason === "mixed_currency" ? (
-      <span className="flat">—</span>
-    ) : (
-      <KpiState status={data.status} reason={data.unavailable_reason} />
-    );
-  return <KpiCard title={title} value={value} sub={kindLabel} footer={footer} />;
+  const balance = latestAssetBalance(data);
+  const status = balance === null && usable(data.status) ? "unavailable" : data.status;
+  const footer = <><StatusBadge status={status} reason={data.unavailable_reason} /><AsOfStamp value={data.as_of} /></>;
+  const value = balance !== null
+    ? <Money value={balance} currency={data.currency} />
+    : <KpiState status={status} reason={data.unavailable_reason} />;
+  return <KpiCard title={title} value={value} footer={footer} />;
 }
 
 function ReturnKpi({ state }: { state: Api<SummaryResponse> }) {
@@ -425,6 +418,7 @@ export default function OverviewPage() {
   const refresh = () => setEpoch(value => value + 1);
 
   const now = new Date();
+  const assets = useApi(() => loadPerformanceAssets(scope, RANGE), [scope, epoch]);
   const summary = useApi(() => loadPerformanceSummary(scope, RANGE), [scope, epoch]);
   const calendar = useApi(() => loadPerformanceCalendar(scope, RANGE, now.getFullYear(), now.getMonth() + 1), [scope, epoch]);
   const inbox = useApi(() => loadInbox(), [epoch]);
@@ -442,7 +436,7 @@ export default function OverviewPage() {
         </button>
       </div>
       <div className="kpi-grid">
-        <AssetKpi state={summary} />
+        <AssetKpi state={assets} />
         <ReturnKpi state={summary} />
         <LastDayKpi state={calendar} />
         <TodosKpi state={inbox} />

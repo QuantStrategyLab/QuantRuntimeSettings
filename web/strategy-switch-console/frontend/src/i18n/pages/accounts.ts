@@ -42,7 +42,7 @@ export const zh: Record<string, string> = {
   "controls.confirm.enable_title": "确认启用运行目标",
   "controls.confirm.resume_title": "确认恢复运行目标",
   "controls.confirm.approve_title": "确认批准策略应用",
-  "controls.enable_note": "控制台不直接执行启用；请使用既有启用流程完成实际启用。",
+  "controls.enable_note": "当前页面暂不支持提交启用请求；运行目标状态保持不变。",
   "controls.approve_not_ready": "当前没有可批准的纯策略档案草案；请刷新确认。",
   "controls.stop_consequence": "停止只阻止新的触发；不会撤单、平仓或清除在途请求。",
 };
@@ -89,7 +89,7 @@ export const en: Record<string, string> = {
   "controls.confirm.enable_title": "Confirm enabling the runtime target",
   "controls.confirm.resume_title": "Confirm resuming the runtime target",
   "controls.confirm.approve_title": "Confirm approving the strategy application",
-  "controls.enable_note": "The console does not enable runs directly; use the existing enable flow.",
+  "controls.enable_note": "This page cannot submit an enable request yet. The runtime target state stays unchanged.",
   "controls.approve_not_ready": "There is no profile-only draft to approve right now. Refresh and verify.",
   "controls.stop_consequence": "Stopping only blocks new triggers; it does not cancel orders, close positions, or clear in-flight requests.",
 };

@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useLanguage } from "../i18n";
 import type { Point } from "../api/contracts";
+import { dailyReturnsFromCumulative } from "./returns";
 import { formatPercent } from "../lib/format";
 
 export interface ChartSeries {
@@ -57,14 +58,7 @@ export function LineChart({
         return { date: point.date, value, breakBefore: point.breakBefore };
       });
       if (mode === "daily") {
-        const daily = [];
-        let previous: number | null = null;
-        for (const point of item.points) {
-          const value = previous === null ? 0 : point.value - previous;
-          daily.push({ date: point.date, value, breakBefore: point.breakBefore || previous === null });
-          previous = point.value;
-        }
-        return { ...item, points: daily };
+        return { ...item, points: dailyReturnsFromCumulative(item.points) };
       }
       return { ...item, points };
     });

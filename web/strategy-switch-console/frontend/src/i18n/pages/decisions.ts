@@ -5,6 +5,7 @@ export const zh: Record<string, string> = {
   "decisions.partial_sources": "部分来源未就绪：{value}",
   "decisions.material_freshness": "材料新鲜度：{value}",
   "decisions.intent_recorded": "意向已记录。",
+  "decisions.material_changed": "材料已更新，请重新查看详情后再确认。",
   "decisions.intent_not_pending": "该事项已不在待处理状态。",
   "decisions.intent_unavailable": "暂无法确认材料，无法记录意向；请刷新后重试。",
 
@@ -48,6 +49,7 @@ export const en: Record<string, string> = {
   "decisions.partial_sources": "Some sources are not ready: {value}",
   "decisions.material_freshness": "Material freshness: {value}",
   "decisions.intent_recorded": "Intent recorded.",
+  "decisions.material_changed": "The material has changed. Review the refreshed details before confirming again.",
   "decisions.intent_not_pending": "This item is no longer pending.",
   "decisions.intent_unavailable": "The material cannot be verified right now; refresh and try again.",
 
