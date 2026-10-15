@@ -68,7 +68,8 @@
                   "reconciliation_recovery",
                   "strategy_promotion",
                   "owner_decision",
-                  "credential_maintenance"
+                  "credential_maintenance",
+                  "paper_account_application"
                 ]
               },
               "priority": {
@@ -157,6 +158,10 @@
                     "affects_live"
                   ]
                 }
+              },
+              "short_id": {
+                "type": "string",
+                "pattern": "^(IN|CH)-[0-9A-Z]{13}$"
               }
             },
             "required": [
@@ -172,7 +177,8 @@
               "evidence_freshness",
               "status",
               "affects_live",
-              "diff"
+              "diff",
+              "short_id"
             ]
           }
         },
@@ -214,7 +220,8 @@
                   "reconciliation_recovery",
                   "strategy_promotion",
                   "owner_decision",
-                  "credential_maintenance"
+                  "credential_maintenance",
+                  "paper_account_application"
                 ]
               },
               "actor_alias": {
@@ -235,6 +242,17 @@
               "evidence_sha256": {
                 "type": "string",
                 "pattern": "^[a-f0-9]{64}$"
+              },
+              "short_id": {
+                "type": "string",
+                "pattern": "^(IN|CH)-[0-9A-Z]{13}$"
+              },
+              "id": {
+                "type": "string"
+              },
+              "item_short_id": {
+                "type": "string",
+                "pattern": "^IN-[0-9A-Z]{13}$"
               }
             },
             "required": [
@@ -243,7 +261,10 @@
               "actor_alias",
               "time",
               "action",
-              "evidence_sha256"
+              "evidence_sha256",
+              "short_id",
+              "id",
+              "item_short_id"
             ]
           }
         },
@@ -408,6 +429,13 @@
               },
               "source": {
                 "type": "string"
+              },
+              "short_id": {
+                "type": "string",
+                "pattern": "^(IN|CH)-[0-9A-Z]{13}$"
+              },
+              "id": {
+                "type": "string"
               }
             },
             "required": [
@@ -415,7 +443,9 @@
               "time",
               "actor_alias",
               "draft_revision",
-              "source"
+              "source",
+              "short_id",
+              "id"
             ]
           }
         },
@@ -1568,6 +1598,466 @@
         "as_of",
         "coverage",
         "value_kind"
+      ]
+    },
+    "today_runs": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "read_failed"
+          ]
+        },
+        "date": {
+          "type": "string"
+        },
+        "timezone": {
+          "const": "Asia/Shanghai"
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": "string"
+        },
+        "counts": {
+          "type": "object",
+          "properties": {
+            "configured": {
+              "type": "integer"
+            },
+            "observed": {
+              "type": "integer"
+            },
+            "runs": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "configured",
+            "observed",
+            "runs"
+          ]
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "account_alias": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "read_failed",
+                  "partial"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "activity": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "run_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "runs": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "started_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "finished_at": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "activity": {
+                      "type": "string"
+                    },
+                    "execution_lane": {
+                      "type": "string"
+                    },
+                    "errors_present": {
+                      "type": [
+                        "boolean",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "started_at",
+                    "finished_at",
+                    "activity",
+                    "execution_lane",
+                    "errors_present"
+                  ]
+                }
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  null
+                ]
+              }
+            },
+            "required": [
+              "account_alias",
+              "platform",
+              "status",
+              "unavailable_reason",
+              "as_of",
+              "activity",
+              "run_count",
+              "runs",
+              "completeness"
+            ]
+          }
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "status",
+        "date",
+        "timezone",
+        "as_of",
+        "coverage",
+        "counts",
+        "accounts",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "strategy_summary": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "stale",
+            "not_connected",
+            "read_failed",
+            "partial"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": "string"
+        },
+        "strategies": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "profile": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "allowed_execution_modes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "configured_accounts": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "account_alias": {
+                      "type": "string"
+                    },
+                    "platform": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "account_alias",
+                    "platform"
+                  ]
+                }
+              },
+              "health_status": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "health_score": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "stale",
+                  "not_connected",
+                  "read_failed"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "profile",
+              "domain",
+              "allowed_execution_modes",
+              "configured_accounts",
+              "health_status",
+              "health_score",
+              "status",
+              "unavailable_reason"
+            ]
+          }
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "status",
+        "as_of",
+        "coverage",
+        "strategies",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "notification_log": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "not_connected"
+        },
+        "unavailable_reason": {
+          "const": "notification_log_not_connected"
+        },
+        "as_of": {
+          "type": "null"
+        },
+        "items": {
+          "type": "array",
+          "maxItems": 0
+        },
+        "next_cursor": {
+          "type": "null"
+        },
+        "coverage": {
+          "const": "no_delivery_source"
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "items",
+        "next_cursor",
+        "coverage",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "run_controls": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial"
+          ]
+        },
+        "account_alias": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "as_of": {
+          "type": "string"
+        },
+        "actions": {
+          "type": "object",
+          "properties": {
+            "enable": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "requires_confirmation": {
+                  "const": true
+                }
+              },
+              "required": [
+                "enabled",
+                "reason",
+                "requires_confirmation"
+              ]
+            },
+            "stop": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "requires_confirmation": {
+                  "const": true
+                }
+              },
+              "required": [
+                "enabled",
+                "reason",
+                "requires_confirmation"
+              ]
+            },
+            "resume": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "requires_confirmation": {
+                  "const": true
+                }
+              },
+              "required": [
+                "enabled",
+                "reason",
+                "requires_confirmation"
+              ]
+            },
+            "approve_application": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "requires_confirmation": {
+                  "const": true
+                }
+              },
+              "required": [
+                "enabled",
+                "reason",
+                "requires_confirmation"
+              ]
+            }
+          },
+          "required": [
+            "enable",
+            "stop",
+            "resume",
+            "approve_application"
+          ]
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        },
+        "resume_binding": {
+          "type": "object",
+          "properties": {
+            "runtime_target_sha256": {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            }
+          },
+          "required": [
+            "runtime_target_sha256"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "account_alias",
+        "platform",
+        "as_of",
+        "actions",
+        "no_order",
+        "execution_authority_granted"
       ]
     }
   }
