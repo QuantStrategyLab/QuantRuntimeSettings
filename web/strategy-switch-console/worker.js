@@ -1,10 +1,11 @@
+import { sourceListFailure } from "./application/console_api/read_failures.js";
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
 import { runControls } from "./application/console_api/run_controls.js";
 import { decorateQueue, decisionFields } from "./application/console_api/presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
-import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
+import { V2_ASSETS, V2_PAGE_HTML, V2_BUILD_ID } from "./v2_asset_map.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
 import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, RUNTIME_DAILY_TIMEZONE, runtimeDailyBusinessDate, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
@@ -756,18 +757,19 @@ export default {
     try {
       if (url.pathname === "/") {
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
-        const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+        const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "X-Console-Build": V2_BUILD_ID, "Cache-Control": "no-store" });
         return new Response(request.method === "HEAD" ? null : V2_PAGE_HTML, { status: 200, headers });
       }
       if (url.pathname === "/v2" || url.pathname.startsWith("/v2/")) {
+        const buildHeaders = values => responseHeaders({ ...values, "X-Console-Build": V2_BUILD_ID });
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
         const asset = V2_ASSETS[url.pathname];
         if (!asset) {
-          if (request.method === "HEAD") return new Response(null, { status: 404, headers: responseHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }) });
-          return json({ ok: false, error: "not_found" }, 404);
+          if (request.method === "HEAD") return new Response(null, { status: 404, headers: buildHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }) });
+          return new Response(JSON.stringify({ ok: false, error: "not_found" }), { status: 404, headers: buildHeaders({ "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }) });
         }
         const hashedBundle = /^\/v2\/assets\/index-[A-Za-z0-9_-]{8,}\.(?:js|css)$/.test(url.pathname);
-        const headers = responseHeaders({ "Content-Type": asset.contentType, "Cache-Control": hashedBundle ? "public, max-age=31536000, immutable" : "no-cache" });
+        const headers = buildHeaders({ "Content-Type": asset.contentType, "Cache-Control": hashedBundle ? "public, max-age=31536000, immutable" : "no-cache" });
         if (request.method === "HEAD") return new Response(null, { status: 200, headers });
         const binary = atob(asset.base64);
         const bytes = new Uint8Array(binary.length);
@@ -8281,8 +8283,8 @@ async function readReconciliationRecoverySources(env) {
   let listing;
   try {
     listing = await store.list({ prefix: RECONCILIATION_RECOVERY_SOURCE_PREFIX, limit: RECONCILIATION_RECOVERY_MAX_SOURCES });
-  } catch {
-    return [emptyReconciliationRecoverySourceSnapshot("reconciliation_recovery_source_list_unavailable")];
+  } catch (error) {
+    return [emptyReconciliationRecoverySourceSnapshot(sourceListFailure(error, "reconciliation_recovery_source_list_unavailable"))];
   }
   const keys = Array.isArray(listing?.keys) ? listing.keys : [];
   const sources = [];
@@ -8796,6 +8798,13 @@ function runtimeDailyReadStatus(stored, now) {
   return {
     data_status: dataStatus,
     read_error_count: stored.read_errors.length,
+    // These producer codes contain no object paths, identities or exception text.
+    // Unknown legacy diagnostics remain private and retain an explicit error.
+    read_error_codes: stored.read_errors.map(error => {
+      if (["report_read_error", "coverage_unconfirmed", "report_rejected", "read_failed", "read_truncated", "list_failed"].includes(error)) return error;
+      if (error === "listing truncated") return "listing_truncated";
+      return "source_read_error";
+    }),
     unmatched_count: stored.unmatched_reports.length,
     record: runtimeDailyPublicRecord(record),
     fills: { source: "not_connected", records: [], count: null },
@@ -8892,6 +8901,10 @@ async function runtimeDailyResponse(request, env, url) {
   // Legacy date-only reads always mean PAPER, never the first configured target.
   const target = platforms.length ? runtimeDailyTarget(platforms[0]) : RUNTIME_DAILY_TARGET;
   if (!target || (accounts.length && !runtimeDailyBoundedText(accounts[0], 120))) return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
+  const historyOptions = url.searchParams.getAll("include_history");
+  if (historyOptions.length > 1 || historyOptions.some(value => !["true", "false"].includes(value)))
+    return json({ ok: false, error: "invalid_runtime_daily_selection" }, 400);
+  const includeHistory = historyOptions[0] !== "false";
   const businessDate = runtimeDailyCalendarDate(url.searchParams.get("date"));
   if (!businessDate || businessDate > runtimeDailyToday()) return json({ ok: false, error: "invalid_runtime_daily_date" }, 400);
   const binding = await runtimeDailyTrustedBinding(env, target);
@@ -8910,7 +8923,7 @@ async function runtimeDailyResponse(request, env, url) {
     account_key: accountKey,
     platform: target.platform,
     target_key: target.target_key,
-    history: await runtimeDailyHistory(env, target),
+    history: includeHistory ? await runtimeDailyHistory(env, target) : null,
   };
   if (stored === null || stored === undefined) {
     return json({ ...base, data_status: "unavailable", record: null, fills: null, read_error_count: 0, unmatched_count: 0 });
@@ -9947,8 +9960,8 @@ async function readControlPlaneSources(env) {
   let listing;
   try {
     listing = await store.list({ prefix: CONTROL_PLANE_SOURCE_PREFIX, limit: CONTROL_PLANE_MAX_SOURCES });
-  } catch {
-    return [emptyControlPlaneSourceSnapshot("control_plane_source_list_unavailable")];
+  } catch (error) {
+    return [emptyControlPlaneSourceSnapshot(sourceListFailure(error, "control_plane_source_list_unavailable"))];
   }
   const keys = Array.isArray(listing?.keys) ? listing.keys : [];
   const sources = [];
@@ -11320,10 +11333,12 @@ async function fetchResearchPromotionTicketResponse(request, env) {
 async function listResearchPromotionTickets(env) {
   if (!hasConfigStore(env)) return [];
   const store = configStore(env);
-  const listing = await store.list({
-    prefix: RESEARCH_PROMOTION_TICKET_PREFIX,
-    limit: RESEARCH_PROMOTION_MAX_TICKETS,
-  });
+  let listing;
+  try {
+    listing = await store.list({ prefix: RESEARCH_PROMOTION_TICKET_PREFIX, limit: RESEARCH_PROMOTION_MAX_TICKETS });
+  } catch (error) {
+    throw new HttpError(sourceListFailure(error, "research_promotion_source_list_unavailable"), 503);
+  }
   const keys = listing?.keys || [];
   const tickets = [];
   for (const entry of keys) {

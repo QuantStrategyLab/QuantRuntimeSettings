@@ -7,6 +7,7 @@ import {
   shortId,
 } from "./presentation.js";
 import { todaySummary, strategySummary, notificationLog } from "./operations.js";
+import { KV_LIST_DAILY_LIMIT, sourceListFailure } from "./read_failures.js";
 
 export async function consoleApiResponse(request, env, deps) {
   const { json, readSession, command } = deps;
@@ -209,8 +210,10 @@ export async function inbox(request, env, deps) {
     definitions.map(async ([source, category, field]) => {
       try {
         const response = await deps[source](request, env);
-        if (!response.ok) throw new Error("source_read_failed");
         const body = await response.json();
+        const quotaExceeded = body.error === KV_LIST_DAILY_LIMIT
+          || (body.errors || []).includes(KV_LIST_DAILY_LIMIT);
+        if (!response.ok && !quotaExceeded) throw new Error("source_read_failed");
         const failed = (body.errors || []).some((e) =>
           /unavailable|invalid|unreadable|failed/.test(e),
         );
@@ -234,7 +237,7 @@ export async function inbox(request, env, deps) {
         }
         return {
           source,
-          status: failed
+          status: failed || quotaExceeded
             ? "read_failed"
             : unavailable
               ? "unavailable"
@@ -242,9 +245,11 @@ export async function inbox(request, env, deps) {
                 ? "stale"
                 : "ok",
           items: rows.map((row) => canonicalItem(row, category)),
+          ...(quotaExceeded ? { failure_reason: KV_LIST_DAILY_LIMIT } : {}),
         };
-      } catch {
-        return { source, status: "read_failed", items: [] };
+      } catch (error) {
+        const failure = sourceListFailure(error, null);
+        return { source, status: "read_failed", items: [], ...(failure ? { failure_reason: failure } : {}) };
       }
     }),
   );
@@ -258,7 +263,8 @@ export async function inbox(request, env, deps) {
       : results.some((r) => r.status !== "ok")
         ? "partial"
         : "ok",
-    sources: results.map(({ source, status }) => ({ source, status })),
+    sources: results.map(({ source, status, failure_reason }) => ({ source, status,
+      ...(failure_reason ? { failure_reason } : {}) })),
     items: [...unique.values()].sort(
       (a, b) =>
         priority[a.priority] - priority[b.priority] ||
