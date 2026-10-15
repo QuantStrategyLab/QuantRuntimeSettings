@@ -19,6 +19,21 @@ on:
         required: false
         type: string
         default: "10d"
+      apply_revision:
+        description: Apply an owner-approved benchmark revision rebuilt in-job from Yahoo (requires approved_proposal_sha256).
+        required: false
+        type: boolean
+        default: false
+      approved_proposal_sha256:
+        description: Owner-approved proposal_sha256 (64 hex chars); the rebuilt proposal must match exactly.
+        required: false
+        type: string
+        default: ""
+      apply_dry_run:
+        description: With apply_revision, plan only (hash/count logs, no POST, no revision token).
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -58,4 +73,23 @@ jobs:
           node-version: "22"
 
       - name: Fetch closes and sync
+        # Scheduled runs and plain dispatches keep the frozen sync path unchanged.
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.apply_revision) }}
         run: node scripts/sync_market_benchmark_closes.mjs
+
+      - name: Apply approved revision
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.apply_revision }}
+        env:
+          MARKET_BENCHMARK_APPLY_REVISION: "true"
+          MARKET_BENCHMARK_DRY_RUN: ${{ inputs.apply_dry_run && 'true' || 'false' }}
+          MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256: ${{ inputs.approved_proposal_sha256 }}
+          # Dedicated revision bearer, exposed only to this step and only for the real write.
+          MARKET_BENCHMARK_REVISION_TOKEN: ${{ !inputs.apply_dry_run && secrets.MARKET_BENCHMARK_REVISION_TOKEN || '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256}" =~ ^[a-f0-9]{64}$ ]]; then
+            echo "::error::approved_proposal_sha256 must be 64 lowercase hex characters" >&2
+            exit 2
+          fi
+          node scripts/sync_market_benchmark_closes.mjs
