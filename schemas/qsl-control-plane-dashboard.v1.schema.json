@@ -40,6 +40,29 @@
       "maxItems": 1000,
       "items": { "$ref": "#/$defs/candidate" }
     },
+    "historical_sources": {
+      "type": "array",
+      "maxItems": 100,
+      "description": "Retired sources retained for audit; excluded from active freshness, timestamps, errors and candidates.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["retirement", "snapshot", "freshness"],
+        "properties": {
+          "retirement": { "$ref": "qsl-control-plane-source-retirements.v1.schema.json#/$defs/retirement" },
+          "snapshot": { "$ref": "qsl-control-plane-source-snapshot.v1.schema.json" },
+          "freshness": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["data_status", "age_seconds"],
+            "properties": {
+              "data_status": { "enum": ["ready", "unavailable", "stale"] },
+              "age_seconds": { "type": ["integer", "null"], "minimum": 0 }
+            }
+          }
+        }
+      }
+    },
     "policy": {
       "type": "object",
       "additionalProperties": false,
