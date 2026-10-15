@@ -1,0 +1,30 @@
+{
+  "schema_version": "qsl_reconciliation_observation_source_snapshot.v1",
+  "source_id": "binance.reconciliation_observation.mock",
+  "generated_at": "2000-01-01T00:02:00+00:00",
+  "computed_at": "2000-01-01T00:02:00+00:00",
+  "data_status": "ready",
+  "observations": [
+    {
+      "observation_id": "fixture-observation-001",
+      "platform": "binance",
+      "strategy_profile": "synthetic_reconciliation",
+      "environment": "synthetic",
+      "scope_version": "synthetic-scope-v1",
+      "reference_version": "synthetic-reference-v1",
+      "first_observed_at": "2000-01-01T00:01:00+00:00",
+      "last_observed_at": "2000-01-01T00:01:50+00:00",
+      "evidence_sample_count": 1,
+      "coverage": "complete",
+      "comparison_status": "matched",
+      "reason_codes": [],
+      "report_id": "fixture-report-001"
+    }
+  ],
+  "errors": [],
+  "policy": {
+    "purpose": "observation_only",
+    "no_order": true,
+    "execution_authority_granted": false
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "data_status": "stale",
+  "generated_at": "1999-09-21T00:02:00Z",
+  "computed_at": "1999-09-21T00:01:55Z",
+  "recoveries": [
+    {
+      "status": "decided",
+      "recovery": {
+        "recovery_id": "synthetic-september-recovery",
+        "platform": "binance",
+        "strategy_profile": "synthetic_reconciliation",
+        "first_observed_at": "1999-09-21T00:01:00Z",
+        "last_observed_at": "1999-09-21T00:01:50Z"
+      },
+      "freshness": {"data_status": "stale"},
+      "decision": {"decision": "accept", "decided_at": "1999-09-21T00:03:00Z"}
+    }
+  ],
+  "errors": ["reconciliation_recovery_source_stale"]
+}
