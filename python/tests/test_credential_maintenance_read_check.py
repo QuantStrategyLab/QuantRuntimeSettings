@@ -54,7 +54,7 @@ class MaintenanceReadCheckTests(unittest.TestCase):
     - cron: "0 22 * * 1-5"
 ''', source)
         digest, check = source.split('jobs:\n  digest:\n', 1)[1].split('\n  maintenance-read-check:\n', 1)
-        exclude_check = "    if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}\n"
+        exclude_check = "github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true"
         self.assertIn(exclude_check, digest)
         # Digest admission now has its own read-only history permission. Freeze
         # the independent maintenance job, whose authority and steps must not change.

@@ -455,6 +455,7 @@ def main(argv: list[str] | None = None) -> int:
         if guard.decision == "blocked":
             print(f"::error::Daily digest not sent: resend guard {guard.reason}.", file=sys.stderr)
         return 0 if guard.decision == "skip" else 1
+    from unified_daily_digest import enabled as unified_enabled
     maintenance_client = maintenance.MaintenanceClient.from_environment(os.environ, dry_run=dry_run)
     reminder = maintenance_client.read_due() if maintenance_client else None
     business_failed = False
@@ -475,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
 
     text = digest.label_delivery_text(
         text, str(payload.locale) if payload is not None else aggregator.resolve_locale(args.locale),
-        test=guard.test_message, previous_failures=guard.previous_failures,
+        test=guard.test_message, previous_failures=0 if unified_enabled() else guard.previous_failures,
     )
 
     # Dry-run never probes SM unless explicitly requested (keeps CI offline).
@@ -498,6 +499,16 @@ def main(argv: list[str] | None = None) -> int:
             "missing": [],
         }
     )
+
+    receipt["report_date"] = resend_guard.report_date()
+    receipt["recipient_scope"] = os.environ.get("DIGEST_RECIPIENT_SCOPE", "default")
+    if unified_enabled():
+        receipt["languages"] = ["zh", "en"]
+    if unified_enabled() and not text and reminder is None:
+        receipt.update(status="skipped_empty", delivered=False)
+        if args.write_receipt:
+            _write_receipt(args.write_receipt, receipt)
+        return 0
 
     if payload is not None:
         print(text)
@@ -562,7 +573,11 @@ def main(argv: list[str] | None = None) -> int:
         "secret_name_contract", DEFAULT_SECRET_NAME
     )
 
-    combined = (text + "\n\n" if text else "") + reminder.block(receipt["locale"]) if reminder is not None else text
+    if unified_enabled() and reminder is not None:
+        from unified_daily_digest import render
+        if payload is not None:
+            text = render(payload, max_units=max(256, 3900 - len(reminder.block("zh")) - len(reminder.block("en")) - 20))
+    combined = (text + "\n\n" if text else "") + (reminder.block("zh") + "\n" + reminder.block("en") if unified_enabled() else reminder.block(receipt["locale"])) if reminder is not None else text
     compatible = maintenance.can_combine_reminder(text=combined, chat_id=chat_id)
     reserved = bool(reminder is not None and maintenance_client and compatible and maintenance_client.reserve(reminder))
     if reserved:
