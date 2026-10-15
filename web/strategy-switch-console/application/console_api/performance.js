@@ -79,12 +79,18 @@ export function dailyChanges(points, { crypto = false } = {}) {
           ? (amount / denominator) * 100
           : null,
       value_kind: known ? "pnl" : "asset_change",
-      status: !previous ? "no_data" : known ? "ok" : "partial",
+      status: !previous
+        ? "no_data"
+        : known && denominator > 0
+          ? "ok"
+          : "partial",
       unavailable_reason: !previous
         ? "previous_snapshot_missing"
-        : known
-          ? null
-          : "external_cashflow_required",
+        : !known
+          ? "external_cashflow_required"
+          : denominator > 0
+            ? null
+            : "invalid_return_period",
     };
   });
 }
@@ -155,14 +161,16 @@ export function calendarCells(points, year, month, options = {}) {
       value_kind: kind,
       status: !values.length
         ? "no_data"
-        : complete && kind === "pnl"
+        : complete && kind === "pnl" && !twr.invalidPeriod
           ? "ok"
           : "partial",
       unavailable_reason: !complete
         ? "incomplete_month"
         : kind !== "pnl"
           ? "external_cashflow_required"
-          : null,
+          : twr.invalidPeriod
+            ? "invalid_return_period"
+            : null,
       coverage: {
         observed_days: values.length,
         expected_weekdays: cells.length,

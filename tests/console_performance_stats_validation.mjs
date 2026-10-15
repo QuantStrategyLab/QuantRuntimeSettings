@@ -150,3 +150,11 @@ assert.equal(
 );
 assert.equal(months[1].amount, null);
 console.log("console_performance_stats_validation: PASS");
+
+assert.equal(
+  dailyChanges([
+    { date: "2026-10-01", value: 0, externalFlow: 0 },
+    { date: "2026-10-02", value: 0, externalFlow: 0 },
+  ])[1].unavailable_reason,
+  "invalid_return_period",
+);
