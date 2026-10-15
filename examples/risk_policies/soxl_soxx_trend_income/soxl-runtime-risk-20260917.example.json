@@ -1,0 +1,16 @@
+{
+  "schema_version": "qsl.risk_policy.v1",
+  "policy_id": "soxl_soxx_trend_income/soxl-runtime-risk-20260917",
+  "status": "reference_only_not_runtime_wired",
+  "description": "Reference copy of the SOXL/SOXX trend-income runtime risk limits currently carried inside platform RUNTIME_TARGET_JSON variables. Account bindings are intentionally omitted; platforms keep binding them at deploy time.",
+  "strategy_profile": "soxl_soxx_trend_income",
+  "allowed_symbols": ["SOXL", "SOXX", "BOXX", "SCHD", "DGRO", "SGOV", "SPYI", "QQQI"],
+  "product_leverage_factors": {"BOXX": 1, "DGRO": 1, "QQQI": 1, "SCHD": 1, "SGOV": 1, "SOXL": 3, "SOXX": 1, "SPYI": 1},
+  "nominal_caps": {"BOXX": 0.97, "DGRO": 0.97, "QQQI": 0.97, "SCHD": 0.97, "SGOV": 0.97, "SOXL": 0.679, "SOXX": 0.873, "SPYI": 0.97},
+  "total_nominal_exposure_cap": 0.97,
+  "total_effective_exposure_cap": 2.328,
+  "max_positions": 8,
+  "cash_policy": {"cash_only": true, "reserved_cash_ratio": 0.03},
+  "options_enabled": false,
+  "exit_parameters": {"trend_exit_buffer": 0.02}
+}
