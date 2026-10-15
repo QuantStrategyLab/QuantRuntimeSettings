@@ -6,7 +6,7 @@ export const zh: Record<string, string> = {
   "decisions.material_freshness": "材料新鲜度：{value}",
   "decisions.intent_recorded": "意向已记录。",
   "decisions.intent_not_pending": "该事项已不在待处理状态。",
-  "decisions.intent_unavailable": "暂无法核对材料，无法记录意向；请刷新后重试。",
+  "decisions.intent_unavailable": "暂无法确认材料，无法记录意向；请刷新后重试。",
 
   "decisions.reconciliation_recovery": "对账恢复确认",
   "decisions.strategy_promotion": "策略晋级方案",

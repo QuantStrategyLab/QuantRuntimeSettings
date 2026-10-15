@@ -109,7 +109,7 @@ export function ControlsTab({
     setBusy("resume");
     try {
       await postJson("/api/runtime-resume", {
-        platform: "binance",
+        platform: account.platform,
         target_name: targetNameFor(config, account.platform, account.account_alias),
         runtime_target_sha256: sha256,
         confirm: "RESUME_EXISTING",

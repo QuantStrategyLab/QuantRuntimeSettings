@@ -52,12 +52,13 @@ export function HistoryTab({ account }: { account: AccountRow }) {
   };
 
   const timelineItems: TimelineItem[] = items.map(item => {
-    const detail = [
+    const parts = [
       item.actor_alias || t("accounts.event.unrecorded"),
       item.draft_revision === null ? null : t("accounts.draft_revision", { value: item.draft_revision }),
       item.source ? null : t("accounts.event.unrecorded"),
       t("decisions.ref", { id: item.short_id }),
-    ].filter(Boolean).join(" · ");
+    ].filter(Boolean) as string[];
+    const detail = parts.filter((part, index) => part !== parts[index - 1]).join(" · ");
     return { id: item.id, time: item.time, title: eventLabel(item), detail };
   });
 

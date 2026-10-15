@@ -18,15 +18,18 @@ const HealthPage = lazy(() => import("../pages/health/HealthPage"));
 
 type Boot = "loading" | "ready" | "denied" | "error";
 
-function AccessScreen({ kind, onRetry }: { kind: "denied" | "error"; onRetry?: () => void }) {
+function AccessScreen({ kind, noAccess, onRetry }: { kind: "denied" | "error"; noAccess?: boolean; onRetry?: () => void }) {
   const t = useT();
+  const denied = kind === "denied";
   return (
     <main className="access-screen">
       <img src="/v2/assets/qsl-brand-icon.svg" alt="" width={48} height={48} />
-      <h1>{t(kind === "denied" ? "auth.login_title" : "auth.error_title")}</h1>
-      <p>{t(kind === "denied" ? "auth.login_body" : "auth.error_body")}</p>
-      {kind === "denied" ? (
-        <a className="button button-primary" href="/login">{t("auth.login")}</a>
+      <h1>{t(denied ? (noAccess ? "auth.denied_title" : "auth.login_title") : "auth.error_title")}</h1>
+      <p>{t(denied ? (noAccess ? "auth.denied_body" : "auth.login_body") : "auth.error_body")}</p>
+      {denied ? (
+        noAccess ? null : (
+          <a className="button button-primary" href="/login">{t("auth.login")}</a>
+        )
       ) : (
         <button className="button button-primary" type="button" onClick={onRetry}>{t("common.retry")}</button>
       )}
@@ -194,7 +197,7 @@ export default function App() {
   if (boot === "denied") {
     return (
       <I18nProvider language={prefs.language}>
-        <AccessScreen kind="denied" />
+        <AccessScreen kind="denied" noAccess={session?.authenticated === true && !session.allowed} />
       </I18nProvider>
     );
   }

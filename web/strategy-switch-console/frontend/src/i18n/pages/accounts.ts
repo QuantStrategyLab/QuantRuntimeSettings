@@ -36,14 +36,14 @@ export const zh: Record<string, string> = {
 
   "accounts.checking": "正在读取最新差异…",
   "accounts.saving": "正在保存…",
-  "accounts.save_unknown": "保存结果未知；请刷新并核对草案版本，确认之前不要重复提交。",
+  "accounts.save_unknown": "保存结果未知；请刷新并确认草案版本，确认之前不要重复提交。",
 
   "controls.submitting": "正在提交…",
   "controls.confirm.enable_title": "确认启用运行目标",
   "controls.confirm.resume_title": "确认恢复运行目标",
   "controls.confirm.approve_title": "确认批准策略应用",
   "controls.enable_note": "控制台不直接执行启用；请使用既有启用流程完成实际启用。",
-  "controls.approve_not_ready": "当前没有可批准的纯策略档案草案；请刷新核对。",
+  "controls.approve_not_ready": "当前没有可批准的纯策略档案草案；请刷新确认。",
   "controls.stop_consequence": "停止只阻止新的触发；不会撤单、平仓或清除在途请求。",
 };
 export const en: Record<string, string> = {

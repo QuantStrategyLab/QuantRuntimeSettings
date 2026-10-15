@@ -156,6 +156,7 @@ export const en: Record<CoreMessageKey, string> = {
   "perf.range.YTD": "YTD",
   "perf.range.1Y": "1Y",
   "perf.range.ALL": "All",
+  "perf.range.label": "Time range",
   "perf.range.return_label": "{range} return",
   "perf.card.twr": "Cumulative return (TWR)",
   "perf.card.amount": "P/L amount",

@@ -7,7 +7,7 @@ export const RANGES: Range[] = ["1M", "3M", "YTD", "1Y", "ALL"];
 export function RangeSelector({ value, onChange, returns }: { value: Range; onChange: (range: Range) => void; returns?: Partial<Record<Range, string | null>> }) {
   const t = useT();
   return (
-    <div className="segmented" role="group" aria-label={t("perf.calendar_title") /* group label overridden below */}>
+    <div className="segmented" role="group" aria-label={t("perf.range.label")}>
       {RANGES.map(range => (
         <button
           key={range}
