@@ -331,10 +331,11 @@ export interface TodayRunSummary extends ReadOnlyProjection {
   accounts: {
     account_alias: string;
     platform: string;
-    status: "ok" | "stale" | "no_data" | "not_connected" | "read_failed";
+    status: "ok" | "partial" | "stale" | "no_data" | "not_connected" | "read_failed";
     unavailable_reason: string | null;
     as_of: string | null;
     activity: string | null;
+    completeness: "complete" | "incomplete" | null;
     run_count: number | null;
     runs: { id: string; started_at: string | null; finished_at: string | null;
       activity: string; execution_lane: string; errors_present: boolean | null }[];

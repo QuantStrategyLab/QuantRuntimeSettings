@@ -11,7 +11,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
   const rows = await Promise.all(accounts.map(async (account) => {
     const base = { account_alias: account.key, platform: account.platform,
       status: "not_connected", unavailable_reason: "runtime_daily_not_connected",
-      as_of: null, activity: null, run_count: null, runs: [] };
+      as_of: null, activity: null, completeness: null, run_count: null, runs: [] };
     const matches = bindings.filter(b => b.platform === account.platform && b.account_key === account.key && b.status === "bound");
     if (matches.length !== 1) return base;
     const url = new URL("/api/runtime-daily", request.url);
@@ -29,9 +29,11 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
       const record = body.record;
       if (record.business_date !== date || record.target_key !== matches[0].target_key)
         throw Error("daily_record_mismatch");
-      return { ...base, status: body.data_status === "fresh" ? "ok" : "stale",
-        unavailable_reason: body.data_status === "fresh" ? null : "runtime_daily_stale",
+      const incomplete = record.completeness !== "complete" || body.read_error_count > 0 || body.unmatched_count > 0 || record.conflict_count > 0;
+      return { ...base, status: body.data_status !== "fresh" ? "stale" : incomplete ? "partial" : "ok",
+        unavailable_reason: body.data_status !== "fresh" ? "runtime_daily_stale" : incomplete ? "runtime_daily_incomplete" : null,
         as_of: record.observed_at, activity: record.status,
+        completeness: incomplete ? "incomplete" : "complete",
         run_count: record.runs.length,
         runs: record.runs.map(run => ({ id: run.run_id, started_at: run.started_at,
           finished_at: run.finished_at, activity: run.activity,
@@ -46,7 +48,7 @@ export async function todaySummary(request, env, deps, accounts, now = Date.now(
     date, timezone: "Asia/Shanghai", as_of: rows.map(r => r.as_of).filter(Boolean).sort()[0] || null,
     accounts: rows, counts: { configured: rows.length,
       observed: rows.filter(r => r.run_count !== null).length,
-      runs: rows.some(r => r.run_count === null) ? null : rows.reduce((n, r) => n + r.run_count, 0) },
+      runs: rows.some(r => r.run_count === null || r.completeness !== "complete") ? null : rows.reduce((n, r) => n + r.run_count, 0) },
     coverage: "configured_accounts_existing_bound_daily_records", ...READ_ONLY };
 }
 export async function strategySummary(request, env, deps, accounts) {

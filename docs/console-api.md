@@ -119,9 +119,12 @@ Unbound or disabled sources return `not_connected/runtime_daily_not_connected`;
 a bound account without today's record returns `no_data/today_record_missing`.
 Expired observations return `stale/runtime_daily_stale`. Read or identity
 validation failures return `read_failed/stored_records_unreadable` on the row
-and summary, retaining other rows. Unknown counts are null. `counts.runs` is
-null whenever any account lacks a usable record; `counts.observed` discloses
-coverage. No records from another business day are silently substituted.
+and summary, retaining other rows. Incomplete records, conflicts or reported
+source read errors return `partial/runtime_daily_incomplete` while preserving
+the observed reports and their `completeness`. Unknown or incomplete totals are
+null. `counts.runs` is null whenever any account lacks a complete usable record;
+`counts.observed` discloses coverage. No records from another business day are
+silently substituted.
 
 `/api/strategies/summary` joins the configured strategy catalog with the existing
 stored health snapshot. It exposes profile, domain, allowed modes, configured

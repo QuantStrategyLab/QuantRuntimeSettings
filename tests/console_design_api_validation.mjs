@@ -12,6 +12,7 @@ const account = { key: "synthetic-alpha", platform: "longbridge", default_strate
 const request = new Request("https://console.example/api/runtime/today");
 const binding = { platform: account.platform, account_key: account.key, target_key: "synthetic-target", status: "bound" };
 const record = { business_date: businessDate(now), target_key: binding.target_key, observed_at: new Date(now).toISOString(),
+  completeness: "complete",
   status: "no_signal", runs: [{ run_id: "synthetic-run", started_at: null, finished_at: null,
     activity: "no_signal", execution_lane: "paper", errors_present: false }] };
 const dailyBody = { account_key: account.key, platform: account.platform, date: businessDate(now), data_status: "fresh", record };
@@ -31,11 +32,14 @@ assert.equal(result.accounts[1].run_count, null);
 for (const [body, status] of [
   [{ ...dailyBody, record: null }, "no_data"],
   [{ ...dailyBody, data_status: "stale" }, "stale"],
+  [{ ...dailyBody, record: { ...record, completeness: "incomplete" } }, "partial"],
+  [{ ...dailyBody, read_error_count: 1 }, "partial"],
   [{ ...dailyBody, account_key: "synthetic-other" }, "read_failed"],
   [{ ...dailyBody, record: { ...record, business_date: "2026-10-15" } }, "read_failed"],
 ]) {
   result = await todaySummary(request, {}, { ...deps, daily: async () => Response.json(body) }, [account], now);
   assert.equal(result.accounts[0].status, status);
+  if (status === "partial") assert.equal(result.counts.runs, null, "incomplete reports do not certify a total");
   validate("today_runs", result);
 }
 result = await todaySummary(request, {}, { ...deps, daily: async () => new Response(null, { status: 503 }) }, [account], now);

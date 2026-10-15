@@ -1664,7 +1664,8 @@
                   "stale",
                   "no_data",
                   "not_connected",
-                  "read_failed"
+                  "read_failed",
+                  "partial"
                 ]
               },
               "unavailable_reason": {
@@ -1733,6 +1734,13 @@
                     "errors_present"
                   ]
                 }
+              },
+              "completeness": {
+                "enum": [
+                  "complete",
+                  "incomplete",
+                  null
+                ]
               }
             },
             "required": [
@@ -1743,7 +1751,8 @@
               "as_of",
               "activity",
               "run_count",
-              "runs"
+              "runs",
+              "completeness"
             ]
           }
         },

@@ -121,6 +121,7 @@ export function consoleApiFixture(
         status: !connected ? "not_connected" : scenario === "api-stale" ? "stale" : "ok",
         unavailable_reason: !connected ? "runtime_daily_not_connected" : scenario === "api-stale" ? "runtime_daily_stale" : null,
         as_of: observed ? at : null, activity: observed ? "no_signal" : null,
+        completeness: observed ? "complete" : null,
         run_count: observed ? 1 : null, runs: observed ? [{ id: "synthetic-run", started_at: at, finished_at: at,
           activity: "no_signal", execution_lane: "paper", errors_present: false }] : [] }], ...READ_ONLY } };
   }
