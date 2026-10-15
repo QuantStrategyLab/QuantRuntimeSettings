@@ -50,6 +50,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "orders_label": "订单",
         "cycles_label": "周期",
         "no_fill": "无成交",
+        "trade_count": "{label} {count} 笔",
+        "no_orders": "无订单",
         "counts_unknown": "未知",
         "status_ok": "正常",
         "status_alert": "异常",
@@ -114,6 +116,8 @@ _TEXTS: dict[str, dict[str, str]] = {
         "cycles_label": "cycles",
         "no_fill": "no fills",
         "counts_unknown": "unknown",
+        "trade_count": "{label} {count}",
+        "no_orders": "no orders",
         "status_ok": "ok",
         "status_alert": "alert",
         "heartbeat_no_run_verified": (
@@ -721,31 +725,27 @@ def _detail_for(entry: DigestRunEntry, locale: DigestLocale) -> str:
         ):
             parts.append(cycle_part)
 
-    order_part = _format_count_part(
-        locale,
-        label_key="orders_label",
-        value=entry.order_count,
-        status=entry.order_count_status,
-    )
-    if order_part and (
-        entry.order_count_status == "unknown"
-        or (entry.order_count is not None and entry.order_count > 0)
-    ):
-        parts.append(order_part)
-
-    fill_part = _format_count_part(
-        locale,
-        label_key="fills_label",
-        value=entry.fill_count,
-        status=entry.fill_count_status,
-    )
-    if fill_part:
-        parts.append(fill_part)
+    parts.append(_trade_counts(entry, locale))
 
     parts.append(_t(locale, "status_ok" if entry.status == "ok" else "status_alert"))
     if entry.note.strip():
         parts.append(entry.note.strip())
     return " · ".join(parts)
+
+
+def _trade_counts(entry: DigestRunEntry, locale: DigestLocale) -> str:
+    parts = []
+    for label, value, status in (
+        ("fills_label", entry.fill_count, entry.fill_count_status),
+        ("orders_label", entry.order_count, entry.order_count_status),
+    ):
+        if status == "unknown" or value is None:
+            parts.append(f"{_t(locale, label)} {_t(locale, 'counts_unknown')}")
+        elif label == "orders_label" and value == 0:
+            parts.append(_t(locale, "no_orders"))
+        else:
+            parts.append(_t(locale, "trade_count").format(label=_t(locale, label), count=value))
+    return " / ".join(parts)
 
 
 def _block_title(entry: DigestRunEntry, locale: DigestLocale) -> str:
@@ -976,15 +976,10 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         tip_text = str(tip).strip()
         if tip_text:
             lines.append(f"- {_t(locale, 'tip_prefix')}: {tip_text}")
-    # Rich observations must not hide unknown order/fill evidence that is
-    # visible in the thin-row renderer. This is presentation only.
-    for label, value, status in (
-        ("fills_label", entry.fill_count, entry.fill_count_status),
-        ("orders_label", entry.order_count, entry.order_count_status),
-        ("cycles_label", entry.cycle_count, entry.cycle_count_status),
-    ):
-        if status == "unknown" or value is None:
-            lines.append(_format_count_part(locale, label_key=label, value=value, status=status))
+    lines.append(_trade_counts(entry, locale))
+    if entry.cycle_count_status == "unknown" or entry.cycle_count is None:
+        lines.append(_format_count_part(locale, label_key="cycles_label", value=entry.cycle_count,
+                                       status=entry.cycle_count_status))
     conclusion = _default_conclusion(entry, locale)
     if conclusion:
         lines.append(conclusion)
@@ -1190,6 +1185,9 @@ def render_daily_digest_sections(payload: DailyDigestInput) -> str:
             )
         )
 
+    if runs and global_total_fills(payload) is None:
+        lines.append(_t(locale, "heartbeat_fills_unknown"))
+
     attention: list[str] = []
     if coverage is not None and coverage.candidate_failures:
         attention.append(_t(locale, "candidate_source_failures").format(count=len(coverage.candidate_failures)))
@@ -1367,28 +1365,11 @@ def filter_runs_for_digest(
         if ran is not True:
             continue
         holdings_raw = raw.get("holdings", raw.get("positions"))
-        # Legacy producer rows often omit field_status and may omit keys;
-        # if fill_count key is present as int (incl. 0) → known.
-        # If key absent and no unknown reason → legacy default 0 for counts
-        # only when *any* count key is present OR evidence_provenance is
-        # producer/candidates; github stubs must mark unknown explicitly.
-        provenance = str(raw.get("evidence_provenance") or "").strip().lower()
-        reason = str(raw.get("reason_code") or "").strip().lower()
-        is_existence_stub = provenance in {
-            "github_workflow_stub",
-            "github_stub",
-        } or reason in {"github_workflow_existence_only", "counts_unknown"}
-        legacy_zero = not is_existence_stub
-
-        fill_count, fill_status = resolve_count_field(
-            raw, "fill_count", legacy_default_zero=legacy_zero
-        )
-        order_count, order_status = resolve_count_field(
-            raw, "order_count", legacy_default_zero=legacy_zero
-        )
-        cycle_count, cycle_status = resolve_count_field(
-            raw, "cycle_count", legacy_default_zero=legacy_zero
-        )
+        # Old explicit integer counts remain compatible. Missing fields and
+        # signal labels carry no count evidence, including producer rows.
+        fill_count, fill_status = resolve_count_field(raw, "fill_count")
+        order_count, order_status = resolve_count_field(raw, "order_count")
+        cycle_count, cycle_status = resolve_count_field(raw, "cycle_count")
 
         out.append(
             DigestRunEntry(
