@@ -1,5 +1,6 @@
 import { performanceResponse } from "./application/console_api/performance_routes.js";
 import { consoleApiResponse } from "./application/console_api/routes.js";
+import { runControls } from "./application/console_api/run_controls.js";
 import { decorateQueue, decisionFields } from "./application/console_api/presentation.js";
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
@@ -782,13 +783,17 @@ export default {
           wallet: (req, e) => binanceWalletHistoryResponse(req, e, new URL(req.url)), benchmarks: marketBenchmarkResponse,
         });
       }
-      if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft"].includes(url.pathname)) {
+      if (["/api/decisions-inbox", "/api/owner-decisions/history", "/api/accounts", "/api/account-settings/diff", "/api/account-settings/history", "/api/account-settings/draft", "/api/runtime/today", "/api/strategies/summary", "/api/notifications/send-log", "/api/accounts/run-controls"].includes(url.pathname)) {
         return await consoleApiResponse(request, env, {
           json, readSession, command: runtimeInstanceCommand, accountOptions: loadAccountOptionsConfig,
           settings: accountSettingsResponse, saveDraft: saveCombinedAccountDraft,
           owner: ownerDecisionQueueResponse, promotion: researchPromotionTicketsResponse,
           recovery: reconciliationRecoveryResponse, credential: (req, e) => credentialMaintenanceResponse(req, e, new URL("/api/credential-maintenance", req.url)),
           audit: loadAuditLog,
+          profiles: loadStrategyProfilesConfig, health: strategyHealthResponse,
+          dailyBindings: async e => runtimeDailyReadModelEnabled(e) ? runtimeDailyPublicBindings(e, (await loadAccountOptionsConfig(e)).options) : [],
+          daily: (req, e) => runtimeDailyResponse(req, e, new URL(req.url)),
+          runControls: consoleRunControls,
         });
       }
       if (url.pathname === "/api/session") return json(await sessionPayload(request, env));
@@ -4147,11 +4152,11 @@ export class RuntimeInstances {
     if (command.action === "console_decision_history") {
       const { limit, offset } = command;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || !Number.isSafeInteger(offset) || offset < 0 || offset > 100000) throw new HttpError("invalid_pagination", 400);
-      return { rows: this.sql.exec("SELECT kind, subject_id, material_key, action, actor, decided_at FROM human_decision_record ORDER BY decided_at DESC, request_key DESC LIMIT ? OFFSET ?", limit + 1, offset).toArray() };
+      return { rows: this.sql.exec("SELECT request_key, kind, subject_id, material_key, action, actor, decided_at, target_json, json_extract(payload_json, '$.ticket.confirmation_execution_mode') AS confirmation_execution_mode FROM human_decision_record ORDER BY decided_at DESC, request_key DESC LIMIT ? OFFSET ?", limit + 1, offset).toArray() };
     }
     if (command.action === "console_settings_history") {
       this.existingAccountInstance(command.platform, command.key);
-      return { approvals: this.sql.exec("SELECT approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray() };
+      return { approvals: this.sql.exec("SELECT request_key, status, identity_json, instance_revision, old_profile, new_profile, approved_at, approved_by, draft_revision FROM account_setting_profile_application WHERE platform = ? AND account_key = ? ORDER BY approved_at DESC", command.platform, command.key).toArray() };
     }
     const drafts = this.sql.exec("SELECT platform, account_key, overrides_json, updated_at FROM account_setting_draft").toArray();
     const approvals = this.sql.exec("SELECT platform, account_key, MAX(approved_at) AS approved_at FROM account_setting_profile_application GROUP BY platform, account_key").toArray();
@@ -5018,6 +5023,58 @@ async function saveRiskProfileBindings(request, env) {
     configured_targets: riskProfileBindingTargets(saved.account_options || {}),
     no_order: true,
     execution_authority_granted: false,
+  });
+}
+
+async function consoleRunControls(_request, env, account, session) {
+  return runControls(account, session, {
+    dispatchAvailable: Boolean(env.RUNTIME_SETTINGS_DISPATCH_TOKEN),
+    stopReady: async () => {
+      if (account.platform === "longbridge" && account.target_name === "hk") {
+        if (account.key !== "hk") return false;
+        await loadHkStopAccount(env);
+        const { record } = await runtimeInstanceCommand(env, { action: "hk_stop_read" });
+        return !record || !["reserved", "accepted", "unknown", "stopped"].includes(record.phase);
+      }
+      const config = await loadAccountOptionsConfig(env);
+      if (!account.target_name || (config.options?.[account.platform] || []).filter(a => a.target_name === account.target_name).length !== 1) return false;
+      const inputs = { ...account, platform: account.platform };
+      const values = Object.fromEntries(["deployment_selector", "account_scope", "account_selector", "service_name"]
+        .map(field => [field, inputs[field] || defaultInputValue(field, inputs)]));
+      return Object.values(values).every(Boolean) && String(values.account_selector).split(",").some(value => value.trim());
+    },
+    resumeTarget: async () => {
+      const repository = platformRepositories(env).binance;
+      const config = await loadAccountOptionsConfig(env);
+      if (repository !== "QuantStrategyLab/BinancePlatform" || !account.target_name ||
+        (config.options?.binance || []).filter(a => a.target_name === account.target_name).length !== 1 ||
+        resolvedVariableScope(account.variable_scope, { ...account, platform: "binance" }) !== "repository") return null;
+      const variables = await fetchGithubVariables(env.RUNTIME_SETTINGS_DISPATCH_TOKEN, repository, "repository", "");
+      return binanceResumeTarget(Object.fromEntries(variables), account);
+    },
+    profileState: async () => {
+      if (!hasRuntimeInstanceStore(env)) return { reason: "runtime_instances_not_bound" };
+      const observed = await runtimeInstanceCommand(env, { action: "account_settings_read", actor: session.login, platform: account.platform, key: account.key });
+      const draft = observed.draft;
+      if (draft?.status === "identity_conflict") return { reason: "account_settings_identity_conflict" };
+      const next = draft?.overrides?.strategy_profile;
+      if (draft?.status !== "current" || typeof next !== "string" || Object.keys(draft.overrides).length !== 1 ||
+        !accountSettingsIdentityIsComplete(observed.identity) ||
+        canonicalResearchTaskJson(draft.identity) !== canonicalResearchTaskJson(observed.identity)) return { reason: "profile_draft_required" };
+      if (isDcaProfile(next)) return { reason: "profile_only_required" };
+      const profiles = await loadAccountDraftProfiles(env);
+      if (!accountDraftStrategyChoices(account.platform, observed.config, profiles).some(p => p.profile === next && !p.dca_supported)) return { reason: "profile_not_selectable" };
+      const readback = await accountSettingsProfileRuntimeReadback(env, observed);
+      if (!readback) return { reason: "runtime_readback_unavailable" };
+      if (readback.runtime_target_enabled !== "false") return { reason: "runtime_target_not_disabled" };
+      if (!readback.strategy_profile || readback.strategy_profile === next || isDcaProfile(readback.strategy_profile)) return { reason: "current_profile_conflict" };
+      const history = await runtimeInstanceCommand(env, { action: "console_settings_history", actor: session.login, platform: account.platform, key: account.key });
+      if (history.approvals.some(row => row.status === "claimed" || (row.status === "approved" &&
+        row.identity_json === canonicalResearchTaskJson(observed.identity) && Number(row.instance_revision) === observed.instance_revision &&
+        Number(row.draft_revision) === draft.revision && row.old_profile === readback.strategy_profile && row.new_profile === next)))
+        return { reason: "profile_application_pending" };
+      return { ready: true };
+    },
   });
 }
 
