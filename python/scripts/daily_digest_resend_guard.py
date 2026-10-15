@@ -17,6 +17,14 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
+def report_date() -> str:
+    return datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Singapore")).date().isoformat()
+
+
+def unified_mode(env: Mapping[str, str]) -> bool:
+    return env.get("QSL_ROUTINE_NOTIFICATION_MODE", "immediate") == "daily_digest"
+
+
 @dataclass(frozen=True)
 class Decision:
     decision: str
@@ -104,7 +112,7 @@ def read_history(business_day: str, env: Mapping[str, str]) -> list[tuple[int, d
     # Reject future dates: a send cannot predate the date covered by this scan.
     if day > datetime.now(timezone.utc).astimezone(ZoneInfo("America/New_York")).date():
         raise ValueError("guard_future_business_day")
-    start = day - timedelta(days=lookback)
+    start = (date.fromisoformat(report_date()) if unified_mode(env) else day) - timedelta(days=lookback)
     root = f"{api}/repos/{repo}/actions"
     query = urllib.parse.urlencode({"created": f">={start.isoformat()}"})
     runs = _pages(f"{root}/workflows/{urllib.parse.quote(workflow, safe='')}/runs?{query}", token, "workflow_runs", max_pages)
@@ -127,7 +135,9 @@ def read_history(business_day: str, env: Mapping[str, str]) -> list[tuple[int, d
         markers = [a for a in artifacts if a.get("name") == env.get("DIGEST_GUARD_ARTIFACT", "daily-digest-receipt")]
         if not markers:
             stamp = datetime.fromisoformat(run["created_at"].replace("Z", "+00:00"))
-            if stamp.astimezone(ZoneInfo("America/New_York")).date() < day:
+            old = (stamp.astimezone(ZoneInfo("Asia/Singapore")).date() < date.fromisoformat(report_date())
+                   if unified_mode(env) else stamp.astimezone(ZoneInfo("America/New_York")).date() < day)
+            if old:
                 continue
             # Maintenance-only or failed-before-send jobs cannot have delivered.
             jobs = _pages(f"{root}/runs/{run_id}/jobs", token, "jobs", max_pages)
@@ -142,6 +152,9 @@ def read_history(business_day: str, env: Mapping[str, str]) -> list[tuple[int, d
             if marker.get("expired") is not False:
                 raise ValueError("guard_send_receipt_expired")
             receipt = _read_marker(api_get(f"{root}/artifacts/{int(marker['id'])}/zip", token, binary=True))
+            if unified_mode(env):
+                receipt.setdefault("report_date", datetime.fromisoformat(run["created_at"].replace("Z", "+00:00")).astimezone(ZoneInfo("Asia/Singapore")).date().isoformat())
+                receipt.setdefault("recipient_scope", "default")
             history.append((run_id, receipt))
     return history
 
@@ -154,11 +167,11 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
     force = env.get("DIGEST_FORCE_RESEND", "false")
     if enabled not in {"true", "false"} or force not in {"true", "false"}:
         return Decision("blocked", "CONFIGURATION_INVALID")
-    if enabled == "false":
+    if enabled == "false" and not unified_mode(env):
         return Decision("send", "LOCAL_EXECUTION")
     if event not in {"schedule", "workflow_dispatch"}:
         return Decision("blocked", "UNSUPPORTED_EVENT")
-    if event == "workflow_dispatch" and force == "true":
+    if event == "workflow_dispatch" and force == "true" and not unified_mode(env):
         return Decision("send", "EXPLICIT_TEST_RESEND", test_message=True)
     try:
         history = read_history(business_day, env)
@@ -167,6 +180,19 @@ def evaluate(business_day: str, env: Mapping[str, str], *, dry_run: bool = False
                       and receipt.get("test_message", False) is False]
         failures = [run for run, receipt in history if receipt.get("status") == "blocked_resend_guard"]
         previous_failures = sum(run > max(deliveries, default=0) for run in failures)
+        if unified_mode(env):
+            scope = env.get("DIGEST_RECIPIENT_SCOPE", "default")
+            if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", scope):
+                return Decision("blocked", "CONFIGURATION_INVALID")
+            same_report_day = [receipt for _, receipt in history
+                               if receipt.get("report_date") == report_date()
+                               and receipt.get("recipient_scope", "default") == scope
+                               and receipt.get("dry_run") is False]
+            if any(receipt.get("delivered") is True for receipt in same_report_day):
+                return Decision("skip", "ALREADY_DELIVERED")
+            if any(receipt.get("status") in {"send_failed", "business_digest_failed", "sending"} for receipt in same_report_day):
+                return Decision("blocked", "DELIVERY_UNCERTAIN")
+            return Decision("send", "FIRST_SEND")
         same_day = [receipt for _, receipt in history if receipt.get("business_day") == business_day
                     and receipt.get("dry_run") is False and not receipt.get("test_message", False)]
         if any(receipt.get("delivered") is True and receipt.get("status") == "delivered" for receipt in same_day):
@@ -185,6 +211,7 @@ def skip_receipt(day: str, locale: str, decision: Decision) -> dict[str, Any]:
         "locale": "en" if locale.lower().startswith("en") else "zh", "dry_run": False, "delivered": False,
         "status": "skipped_duplicate" if decision.decision == "skip" else "blocked_resend_guard",
         "resend_guard": decision.to_dict(), "test_message": False,
+        "report_date": report_date(), "recipient_scope": os.environ.get("DIGEST_RECIPIENT_SCOPE", "default"),
     }
 
 

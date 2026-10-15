@@ -29,7 +29,7 @@ on:
         type: boolean
         default: true
       force_resend:
-        description: "Explicit test resend: bypass the daily guard and label the message TEST. Never used by schedule."
+        description: "Legacy test resend. Unified mode never bypasses the daily guard."
         required: true
         type: boolean
         default: false
@@ -69,6 +69,8 @@ on:
   schedule:
     # Asia/Shanghai Tue–Sat 06:00 → UTC Mon–Fri 22:00
     - cron: "0 22 * * 1-5"
+    # Additional crypto windows run only when unified mode is explicitly enabled.
+    - cron: "0 23 * * *"
 
 permissions:
   contents: read
@@ -85,12 +87,14 @@ jobs:
       id-token: write
       # Read this workflow's existing public receipts; no new state-store writes.
       actions: read
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true }}
+    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.maintenance_read_check != true) && (github.event_name != 'schedule' || (github.event.schedule == '0 23 * * *' && vars.QSL_ROUTINE_NOTIFICATION_MODE == 'daily_digest') || (github.event.schedule == '0 22 * * 1-5' && vars.QSL_ROUTINE_NOTIFICATION_MODE != 'daily_digest')) }}
     name: Aggregate and notify
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: runtime-strategy-switch
     env:
+      QSL_ROUTINE_NOTIFICATION_MODE: ${{ vars.QSL_ROUTINE_NOTIFICATION_MODE || 'immediate' }}
+      DIGEST_RECIPIENT_SCOPE: ${{ vars.DIGEST_RECIPIENT_SCOPE || 'default' }}
       # Sentinel secret *name* contract (value never committed).
       TELEGRAM_TOKEN_SECRET_NAME: ${{ vars.TELEGRAM_TOKEN_SECRET_NAME || 'quant-sentinel-telegram-bot-token' }}
       # Optional direct Environment secret; prefer this when present.

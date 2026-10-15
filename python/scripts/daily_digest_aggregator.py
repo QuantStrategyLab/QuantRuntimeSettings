@@ -907,7 +907,8 @@ def build_digest_payload(
         layout=resolve_layout(layout),
         window=digest_window_for(day),
     )
-    return payload, digest.render_daily_digest(payload), collected
+    from unified_daily_digest import enabled, render
+    return payload, render(payload) if enabled() else digest.render_daily_digest(payload), collected
 
 
 def build_receipt(

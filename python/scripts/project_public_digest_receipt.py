@@ -16,7 +16,7 @@ from daily_digest_delivery_axes import (
 )
 
 PUBLIC_FIELDS = (
-    "schema_version", "business_day", "layout", "locale", "run_count", "total_fills", "total_fills_status",
+    "schema_version", "business_day", "report_date", "recipient_scope", "layout", "locale", "run_count", "total_fills", "total_fills_status",
     "evidence_status", "message_chars", "status", "dry_run", "delivered", "test_message",
 )
 PUBLIC_ENUMS = {
@@ -25,7 +25,7 @@ PUBLIC_ENUMS = {
     "total_fills_status": {"known", "unknown"},
     "evidence_status": {"has_runs", "verified_idle", "evidence_unknown"},
     "status": {"route_check", "dry_run", "blocked_missing_secrets", "delivered", "send_failed",
-               "skipped_duplicate", "blocked_resend_guard", "business_digest_failed"},
+               "skipped_duplicate", "blocked_resend_guard", "business_digest_failed", "skipped_empty"},
 }
 WINDOW_FIELDS = ("timezone", "business_day", "report_date", "start_local", "end_local", "start_utc", "end_utc")
 COVERAGE_FIELDS = (
@@ -86,8 +86,10 @@ def project_public_receipt(receipt: Mapping[str, Any], *, source_sha: str = "") 
             public[key] = _enum(value, PUBLIC_ENUMS[key], "evidence_unknown" if key == "evidence_status" else "unknown")
         elif key in {"dry_run", "delivered", "test_message"}:
             public[key] = value if type(value) is bool else None
-        elif key == "business_day":
+        elif key in {"business_day", "report_date"}:
             public[key] = _date(value)
+        elif key == "recipient_scope":
+            public[key] = value if isinstance(value, str) and re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,40}", value) else "unknown"
         else:
             public[key] = _count(value)
     if "total_fills" in public and (public["total_fills"] is None or public.get("total_fills_status") != "known"):
