@@ -204,6 +204,7 @@ const STRATEGY_HEALTH_DATA_STATUSES = ["ready", "unavailable", "stale"];
 const CONTROL_PLANE_SNAPSHOT_KEY = "control_plane_snapshot";
 const CONTROL_PLANE_SOURCE_PREFIX = "control_plane_source:";
 const CONTROL_PLANE_SOURCE_SCHEMA_VERSION = "qsl_control_plane_source_snapshot.v1";
+const CONTROL_PLANE_SOURCE_RETIREMENTS_KEY = "control_plane_source_retirements";
 const CONTROL_PLANE_ATTENTION_STATUSES = ["research_only", "attention_required", "unavailable"];
 const CONTROL_PLANE_MAX_SOURCES = 100;
 const CONTROL_PLANE_MAX_BODY_BYTES = 256 * 1024;
@@ -9845,13 +9846,23 @@ function researchTaskSourceKey(sourceId) {
 }
 
 async function aggregateControlPlaneSources(env) {
+  const now = Date.now();
+  let retirements;
+  try {
+    const stored = await configStore(env).get(CONTROL_PLANE_SOURCE_RETIREMENTS_KEY);
+    retirements = stored === null || stored === undefined
+      ? new Map()
+      : normalizeControlPlaneSourceRetirements(JSON.parse(stored), now);
+  } catch {
+    return emptyControlPlanePayload("control_plane_source_retirements_invalid");
+  }
   const sources = await readControlPlaneSources(env);
-  if (!sources) return null;
-  if (!sources.length) return null;
+  // A legacy aggregate has no source identity and cannot honor a retirement.
+  if (!sources?.length && !retirements.size) return null;
 
   const ttlSeconds = controlPlaneStaleTtlSeconds(env);
-  const now = Date.now();
   const candidates = [];
+  const historicalSources = [];
   const candidateIds = new Set();
   const duplicateCandidateIds = new Set();
   const errors = [];
@@ -9859,8 +9870,13 @@ async function aggregateControlPlaneSources(env) {
   let hasReadySource = false;
   let hasStaleSource = false;
 
-  for (const source of sources) {
+  for (const source of sources || []) {
     const sourceFreshness = controlPlaneResearchSnapshotFreshness(source, ttlSeconds, now);
+    const retirement = retirements.get(source.source_id);
+    if (retirement) {
+      historicalSources.push({ retirement, snapshot: source, freshness: sourceFreshness });
+      continue;
+    }
     if (source.generated_at) timestamps.push(source.generated_at);
     if (source.computed_at) timestamps.push(source.computed_at);
     if (sourceFreshness.data_status === "ready") hasReadySource = true;
@@ -9899,6 +9915,7 @@ async function aggregateControlPlaneSources(env) {
       errors: uniqueErrors,
     }),
     candidates: uniqueCandidates,
+    ...(retirements.size ? { historical_sources: historicalSources } : {}),
     policy: normalizeControlPlanePolicy({
       p4_p5_automation: "not_configured",
       p6_owner_decision_required: true,
@@ -9906,6 +9923,28 @@ async function aggregateControlPlaneSources(env) {
     }, "aggregated control plane policy"),
     errors: uniqueErrors,
   };
+}
+
+function normalizeControlPlaneSourceRetirements(payload, now) {
+  const value = assertExactFields(payload, ["schema_version", "retirements"], CONTROL_PLANE_SOURCE_RETIREMENTS_KEY);
+  if (value.schema_version !== "qsl_control_plane_source_retirements.v1"
+      || !Array.isArray(value.retirements) || value.retirements.length > CONTROL_PLANE_MAX_SOURCES) {
+    throw new Error("invalid control plane source retirements");
+  }
+  const retirements = new Map();
+  for (const entry of value.retirements) {
+    const item = assertExactFields(entry, ["source_id", "retired_at", "reason"], "source retirement");
+    const sourceId = normalizeControlPlaneIdentifier(item.source_id, "source retirement.source_id", false);
+    const retiredAt = normalizeStrategyHealthTimestamp(item.retired_at, "source retirement.retired_at");
+    const reason = typeof item.reason === "string"
+      ? sanitizeStrategyHealthText(item.reason, "source retirement.reason", 240, false, null) : null;
+    // "unavailable" is the diagnostic identity for unreadable source records.
+    if (sourceId === "unavailable" || retirements.has(sourceId) || Date.parse(retiredAt) > now || !reason) {
+      throw new Error("invalid control plane source retirement");
+    }
+    retirements.set(sourceId, { source_id: sourceId, retired_at: retiredAt, reason });
+  }
+  return retirements;
 }
 
 async function readControlPlaneSources(env) {
@@ -9925,7 +9964,9 @@ async function readControlPlaneSources(env) {
     try {
       const stored = await readConfigJson(env, key);
       if (!stored) continue;
-      sources.push(normalizeControlPlaneSourceSnapshot(stored, key));
+      const source = normalizeControlPlaneSourceSnapshot(stored, key);
+      if (key !== controlPlaneSourceKey(source.source_id)) throw new Error("control plane source identity mismatch");
+      sources.push(source);
     } catch {
       sources.push(emptyControlPlaneSourceSnapshot("control_plane_source_invalid"));
     }
