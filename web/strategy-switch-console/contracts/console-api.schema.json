@@ -1,0 +1,1574 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "inbox": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "read_failed"
+          ]
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "stale",
+                  "unavailable",
+                  "read_failed"
+                ]
+              }
+            },
+            "required": [
+              "source",
+              "status"
+            ]
+          }
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title_key": {
+                "type": "string"
+              },
+              "account_alias": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "platform": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "decision_binding": {
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
+              "category": {
+                "enum": [
+                  "reconciliation_recovery",
+                  "strategy_promotion",
+                  "owner_decision",
+                  "credential_maintenance"
+                ]
+              },
+              "priority": {
+                "enum": [
+                  "high",
+                  "medium",
+                  "normal"
+                ]
+              },
+              "created_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expires_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "evidence_freshness": {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "type": "string"
+                  },
+                  "as_of": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "status",
+                  "as_of"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "pending",
+                  "decided",
+                  "expired"
+                ]
+              },
+              "affects_live": {
+                "type": "boolean"
+              },
+              "diff": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string"
+                    },
+                    "label_key": {
+                      "type": "string"
+                    },
+                    "before": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "after": {
+                      "type": [
+                        "string",
+                        "number",
+                        "boolean",
+                        "null"
+                      ]
+                    },
+                    "affects_live": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "label_key",
+                    "before",
+                    "after",
+                    "affects_live"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "title_key",
+              "account_alias",
+              "platform",
+              "decision_binding",
+              "category",
+              "priority",
+              "created_at",
+              "expires_at",
+              "evidence_freshness",
+              "status",
+              "affects_live",
+              "diff"
+            ]
+          }
+        },
+        "coverage": {
+          "type": "string"
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "status",
+        "sources",
+        "items",
+        "coverage",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "decision_history": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "ok"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item_id": {
+                "type": "string"
+              },
+              "category": {
+                "enum": [
+                  "reconciliation_recovery",
+                  "strategy_promotion",
+                  "owner_decision",
+                  "credential_maintenance"
+                ]
+              },
+              "actor_alias": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "time": {
+                "type": "string"
+              },
+              "action": {
+                "enum": [
+                  "adopt_intent",
+                  "decline_intent"
+                ]
+              },
+              "evidence_sha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              }
+            },
+            "required": [
+              "item_id",
+              "category",
+              "actor_alias",
+              "time",
+              "action",
+              "evidence_sha256"
+            ]
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "items",
+        "next_cursor",
+        "coverage"
+      ]
+    },
+    "settings_diff": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial"
+          ]
+        },
+        "account_alias": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "draft_revision": {
+          "type": "integer"
+        },
+        "identity_status": {
+          "type": "string"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "section": {
+                "enum": [
+                  "strategy",
+                  "dca",
+                  "cash_reserve",
+                  "income_layer",
+                  "options_layer"
+                ]
+              },
+              "field": {
+                "type": "string"
+              },
+              "label_key": {
+                "type": "string"
+              },
+              "current": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "draft": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "null"
+                ]
+              },
+              "affects_live": {
+                "type": "boolean"
+              },
+              "current_status": {
+                "enum": [
+                  "known",
+                  "unknown"
+                ]
+              },
+              "overridden": {
+                "type": "boolean"
+              },
+              "changed": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "section",
+              "field",
+              "label_key",
+              "current",
+              "draft",
+              "affects_live",
+              "current_status",
+              "overridden",
+              "changed"
+            ]
+          }
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "status",
+        "account_alias",
+        "platform",
+        "draft_revision",
+        "identity_status",
+        "rows",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "settings_history": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "partial"
+        },
+        "account_alias": {
+          "type": "string"
+        },
+        "platform": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "event": {
+                "enum": [
+                  "draft_saved",
+                  "approved"
+                ]
+              },
+              "time": {
+                "type": "string"
+              },
+              "actor_alias": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "draft_revision": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "source": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "event",
+              "time",
+              "actor_alias",
+              "draft_revision",
+              "source"
+            ]
+          }
+        },
+        "next_cursor": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {
+          "type": "string"
+        },
+        "availability": {
+          "type": "object",
+          "properties": {
+            "draft_saved": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "partial",
+                    "stale",
+                    "no_data",
+                    "not_connected",
+                    "unavailable"
+                  ]
+                },
+                "unavailable_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "unavailable_reason"
+              ]
+            },
+            "approved": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "partial",
+                    "stale",
+                    "no_data",
+                    "not_connected",
+                    "unavailable"
+                  ]
+                },
+                "unavailable_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "unavailable_reason"
+              ]
+            },
+            "effect_verification": {
+              "type": "object",
+              "properties": {
+                "status": {
+                  "enum": [
+                    "ok",
+                    "partial",
+                    "stale",
+                    "no_data",
+                    "not_connected",
+                    "unavailable"
+                  ]
+                },
+                "unavailable_reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "status",
+                "unavailable_reason"
+              ]
+            }
+          },
+          "required": [
+            "draft_saved",
+            "approved",
+            "effect_verification"
+          ]
+        }
+      },
+      "required": [
+        "status",
+        "account_alias",
+        "platform",
+        "items",
+        "next_cursor",
+        "coverage",
+        "availability"
+      ]
+    },
+    "accounts": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "enum": [
+            "ok",
+            "partial"
+          ]
+        },
+        "coverage": {
+          "type": "string"
+        },
+        "unassigned_decision_count": {
+          "type": "integer"
+        },
+        "accounts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "account_alias": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "pending_draft_count": {
+                "type": "integer"
+              },
+              "pending_decision_count": {
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "last_change_at": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "account_alias",
+              "platform",
+              "pending_draft_count",
+              "pending_decision_count",
+              "last_change_at"
+            ]
+          }
+        }
+      },
+      "required": [
+        "status",
+        "coverage",
+        "unassigned_decision_count",
+        "accounts"
+      ]
+    },
+    "draft": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "platform": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "instance_revision": {
+          "type": "integer"
+        },
+        "identity": {
+          "type": "object"
+        },
+        "draft": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            },
+            "revision": {
+              "type": "integer"
+            },
+            "identity": {},
+            "current_identity": {},
+            "overrides": {
+              "type": "object"
+            }
+          },
+          "required": [
+            "status",
+            "revision",
+            "identity",
+            "current_identity",
+            "overrides"
+          ]
+        },
+        "effective": {
+          "type": "object"
+        },
+        "adopted": {
+          "const": false
+        },
+        "no_order": {
+          "const": true
+        },
+        "execution_authority_granted": {
+          "const": false
+        }
+      },
+      "required": [
+        "ok",
+        "platform",
+        "key",
+        "instance_revision",
+        "identity",
+        "draft",
+        "effective",
+        "adopted",
+        "no_order",
+        "execution_authority_granted"
+      ]
+    },
+    "read_failed": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "const": "read_failed"
+        },
+        "unavailable_reason": {
+          "const": "stored_records_unreadable"
+        }
+      },
+      "required": [
+        "status",
+        "unavailable_reason"
+      ]
+    },
+    "conflict": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "error"
+      ]
+    },
+    "calendar": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        },
+        "year": {
+          "type": "integer"
+        },
+        "month": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "return_percent": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "unavailable"
+                ]
+              },
+              "value_kind": {
+                "enum": [
+                  "pnl",
+                  "asset_change"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "amount",
+              "return_percent",
+              "currency",
+              "status",
+              "value_kind",
+              "unavailable_reason"
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind",
+        "year",
+        "month",
+        "cells"
+      ]
+    },
+    "summary": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        },
+        "twr_return_percent": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "amount": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "simple_weighted_return_percent": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_drawdown": {
+          "type": "object",
+          "properties": {
+            "percent": {
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "peak_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "trough_date": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "unavailable_reason": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "percent",
+            "peak_date",
+            "trough_date",
+            "unavailable_reason"
+          ]
+        },
+        "best_day": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "worst_day": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "excess_returns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "benchmark": {
+                "type": "string"
+              },
+              "start": {
+                "type": "string"
+              },
+              "end": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "percentage_points": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "benchmark",
+              "start",
+              "end",
+              "percentage_points",
+              "unavailable_reason"
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind",
+        "twr_return_percent",
+        "amount",
+        "simple_weighted_return_percent",
+        "max_drawdown",
+        "best_day",
+        "worst_day",
+        "excess_returns"
+      ]
+    },
+    "returns": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        },
+        "aligned_start": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "return_kind": {
+          "enum": [
+            "twr",
+            "unadjusted_asset_ratio"
+          ]
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string"
+              },
+              "value": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date",
+              "value"
+            ]
+          }
+        },
+        "benchmarks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "value"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "id",
+              "points"
+            ]
+          }
+        },
+        "no_common_date": {
+          "type": "boolean"
+        },
+        "benchmark_availability": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "unavailable"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "status",
+              "unavailable_reason",
+              "as_of"
+            ]
+          }
+        },
+        "per_currency": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "currency",
+              "status",
+              "return_kind",
+              "aligned_start",
+              "points",
+              "benchmarks",
+              "as_of",
+              "coverage"
+            ],
+            "properties": {
+              "currency": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "unavailable"
+                ]
+              },
+              "return_kind": {
+                "enum": [
+                  "twr",
+                  "unadjusted_asset_ratio"
+                ]
+              },
+              "aligned_start": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "as_of": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coverage": {
+                "type": "object"
+              },
+              "points": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "date": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "date",
+                    "value"
+                  ]
+                }
+              },
+              "benchmarks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "points": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "date": {
+                            "type": "string"
+                          },
+                          "value": {
+                            "type": "number"
+                          }
+                        },
+                        "required": [
+                          "date",
+                          "value"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "points"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind",
+        "aligned_start",
+        "return_kind",
+        "points",
+        "benchmarks",
+        "no_common_date",
+        "benchmark_availability",
+        "per_currency"
+      ]
+    },
+    "assets": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        },
+        "points": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string"
+              },
+              "value": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date",
+              "value"
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind",
+        "points"
+      ]
+    },
+    "holdings": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "enum": [
+            "ok",
+            "partial",
+            "stale",
+            "no_data",
+            "not_connected",
+            "unavailable"
+          ]
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        },
+        "label_key": {
+          "const": "performance.current_holdings_unrealized"
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "account_alias": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "symbol": {
+                "type": "string"
+              },
+              "quantity": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "market_value": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "avg_cost": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unrealized_pnl": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "unavailable_reason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "coverage": {
+                "type": "string"
+              },
+              "status": {
+                "enum": [
+                  "ok",
+                  "partial",
+                  "stale",
+                  "no_data",
+                  "not_connected",
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "account_alias",
+              "platform",
+              "symbol",
+              "quantity",
+              "market_value",
+              "currency",
+              "avg_cost",
+              "unrealized_pnl",
+              "unavailable_reason",
+              "coverage",
+              "status"
+            ]
+          }
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind",
+        "label_key",
+        "rows"
+      ]
+    },
+    "trades": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "const": "not_connected"
+        },
+        "unavailable_reason": {
+          "const": "fills_not_connected"
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind"
+      ]
+    },
+    "performance_unavailable": {
+      "type": "object",
+      "properties": {
+        "schema_version": {
+          "const": "console_api.v1"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "range": {
+          "enum": [
+            "1M",
+            "3M",
+            "YTD",
+            "1Y",
+            "ALL"
+          ]
+        },
+        "status": {
+          "const": "unavailable"
+        },
+        "unavailable_reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "as_of": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "coverage": {},
+        "value_kind": {
+          "enum": [
+            "pnl",
+            "asset_change"
+          ]
+        }
+      },
+      "required": [
+        "schema_version",
+        "scope",
+        "range",
+        "status",
+        "unavailable_reason",
+        "as_of",
+        "coverage",
+        "value_kind"
+      ]
+    }
+  }
+}
