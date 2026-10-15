@@ -21,7 +21,7 @@ deployments on the broker side.
 | Layer | Repo / ID | Notes |
 | --- | --- | --- |
 | Strategy | `CnEquityStrategies` / `cn_*` profile | `cn_equity` domain |
-| Combo | `QuantCnComboStrategies` / `cn_equity_combo` | Combo profile combining sub-strategies |
+| Combo | `CnEquityStrategies` / `cn_equity_combo` | Combo profile in the domain strategy package |
 | Platform | `QmtPlatform` / `platform_id=qmt` | Unified miniQMT execution layer |
 | Runtime settings | `QuantRuntimeSettings` | Target examples, switch console, `manual-strategy-switch` |
 | Variable scope | `variable_scope=repository` | QMT uses repository-level GitHub Variables |
