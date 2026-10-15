@@ -450,7 +450,7 @@ test("stale research material is not presented as a read failure", () => {
 });
 
 test("only the explicit AIAudit SOXL validation source gets a run link", () => {
-  assert.equal(pages.includes("https://github.com/QuantStrategyLab/AIAuditBridge/actions/runs/"), false);
+  assert.equal(pages.includes("https://github.com/QuantStrategyLab/QuantAIService/actions/runs/"), false);
 });
 
 test("parked research results preserve the source reason and use a neutral fallback", () => {

@@ -8,13 +8,18 @@
  * rows are dropped by the receiver).
  *
  * Env:
- *   MARKET_BENCHMARK_SYNC_URL  default https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync
+ *   MARKET_BENCHMARK_SYNC_URL  required HTTPS sync endpoint
  *   MARKET_BENCHMARK_SYNC_TOKEN  required bearer
  *   MARKET_BENCHMARK_RANGE     Yahoo range query, default 10d
  *   MARKET_BENCHMARK_DRY_RUN   when "true", compare conflict counts without POST
  *   MARKET_BENCHMARK_APPLY_REVISION  when "true", POST an owner-approved revision
  *     (requires MARKET_BENCHMARK_REVISION_TOKEN + MARKET_BENCHMARK_REVISION_PAYLOAD_JSON).
  *     Normal sync never reads the revision token.
+ *   MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256  apply-revision from upstream: when set
+ *     (and no payload JSON is given), the job re-fetches Yahoo closes, rebuilds the
+ *     revision proposal and replacements in-process, and refuses unless the rebuilt
+ *     proposal_sha256 equals this owner-approved hash. With MARKET_BENCHMARK_DRY_RUN=true
+ *     only the apply plan is logged (hashes/counts); the revision token is not needed.
  */
 
 import { pathToFileURL } from "node:url";
@@ -37,14 +42,14 @@ import {
   revisionApplyLogSummary,
 } from "../web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js";
 
-const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL
-  || "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync";
+const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL || "";
 const TOKEN = process.env.MARKET_BENCHMARK_SYNC_TOKEN || "";
 const RANGE = process.env.MARKET_BENCHMARK_RANGE || "10d";
 const DRY_RUN = process.env.MARKET_BENCHMARK_DRY_RUN === "true";
 const APPLY_REVISION = process.env.MARKET_BENCHMARK_APPLY_REVISION === "true";
 const REVISION_TOKEN = process.env.MARKET_BENCHMARK_REVISION_TOKEN || "";
 const REVISION_PAYLOAD_JSON = process.env.MARKET_BENCHMARK_REVISION_PAYLOAD_JSON || "";
+const APPROVED_PROPOSAL_SHA256 = (process.env.MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256 || "").trim();
 
 function yahooUrl(symbol) {
   const encoded = encodeURIComponent(symbol);
@@ -133,6 +138,59 @@ export function diagnoseBenchmarkPoints(points, storedPoints) {
   };
 }
 
+/**
+ * Rebuild an owner-approved revision payload from freshly fetched candidates.
+ * Pure: throws unless the rebuilt proposal hash equals the approved hash, so a
+ * changed upstream (or stored) value can never be applied under an old approval.
+ * Returned replacements carry closes and must never be logged.
+ */
+export function buildUpstreamRevisionPayload(candidatePoints, storedPoints, approvedProposalSha256, detectedAt) {
+  if (!/^[a-f0-9]{64}$/.test(String(approvedProposalSha256 || ""))) {
+    throw new Error("benchmark_revision_approval_required");
+  }
+  const plan = planBenchmarkRevision(
+    candidatePoints.map((point) => normalizeMarketBenchmarkPoint(point)),
+    storedPoints.map((point) => normalizeMarketBenchmarkPoint(point)),
+    {
+      relativeTolerance: RELATIVE_TOLERANCE,
+      primarySource: PRIMARY_SOURCE,
+      policy: "revision_proposal",
+      detectedAt,
+    },
+  );
+  if (!plan.revision_proposal) throw new Error("benchmark_revision_nothing_to_apply");
+  if (plan.revision_proposal.proposal_sha256 !== approvedProposalSha256) {
+    throw new Error("benchmark_revision_approval_mismatch");
+  }
+  return {
+    proposal: plan.revision_proposal,
+    approved_proposal_sha256: approvedProposalSha256,
+    replacements: plan.revision_candidates.map((point) => ({
+      seriesId: point.seriesId,
+      observationDate: point.observationDate,
+      close: point.close,
+      source: point.source || PRIMARY_SOURCE,
+    })),
+    summary: {
+      identical_keys: plan.identical_keys,
+      tolerated_keys: plan.tolerated_keys,
+      unseen_keys: plan.unseen_keys,
+      differing_keys: plan.differing_keys,
+    },
+  };
+}
+
+async function fetchCandidatePoints() {
+  const points = [];
+  for (const [seriesId, symbol] of Object.entries(MARKET_BENCHMARK_YAHOO_SYMBOLS)) {
+    const fetched = await fetchSeries(seriesId, symbol);
+    const seriesPoints = closedSessionPoints(fetched);
+    console.log(`fetched series=${seriesId} symbol=${symbol} points=${seriesPoints.length} skipped_open_session=${fetched.length - seriesPoints.length}`);
+    points.push(...seriesPoints);
+  }
+  return points;
+}
+
 async function readStoredPoints() {
   const url = new URL(SYNC_URL);
   if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash
@@ -171,24 +229,40 @@ async function readStoredPoints() {
 }
 
 export async function main() {
+  if (!SYNC_URL) throw new Error("MARKET_BENCHMARK_SYNC_URL is required");
 
 function nodeDigest(value) {
   return createHash("sha256").update(String(value)).digest("hex");
 }
 
 async function applyApprovedRevision() {
-  if (!REVISION_TOKEN) {
+  // The token is only needed for the real POST; an apply dry run never reads it.
+  if (!DRY_RUN && !REVISION_TOKEN) {
     console.error("MARKET_BENCHMARK_REVISION_TOKEN is required for apply-revision");
     process.exit(2);
   }
-  if (!REVISION_PAYLOAD_JSON) {
-    console.error("MARKET_BENCHMARK_REVISION_PAYLOAD_JSON is required for apply-revision");
+  if (!REVISION_PAYLOAD_JSON && !APPROVED_PROPOSAL_SHA256) {
+    console.error("MARKET_BENCHMARK_REVISION_PAYLOAD_JSON or MARKET_BENCHMARK_APPROVED_PROPOSAL_SHA256 is required for apply-revision");
     process.exit(2);
   }
+  const rawStored = await readStoredPoints();
+  const storedPoints = rawStored.map((point) => normalizeMarketBenchmarkPoint(point));
   let payload;
-  try { payload = JSON.parse(REVISION_PAYLOAD_JSON); }
-  catch { console.error("benchmark_revision_payload_invalid"); process.exit(2); }
-  const storedPoints = (await readStoredPoints()).map((point) => normalizeMarketBenchmarkPoint(point));
+  if (REVISION_PAYLOAD_JSON) {
+    try { payload = JSON.parse(REVISION_PAYLOAD_JSON); }
+    catch { console.error("benchmark_revision_payload_invalid"); process.exit(2); }
+  } else {
+    const candidates = await fetchCandidatePoints();
+    payload = buildUpstreamRevisionPayload(candidates, rawStored, APPROVED_PROPOSAL_SHA256, new Date().toISOString());
+    // Hash/count-only evidence that the rebuilt proposal matches the approval.
+    console.log(JSON.stringify({
+      rebuilt_proposal_sha256: payload.proposal.proposal_sha256,
+      approved_proposal_sha256_match: payload.proposal.proposal_sha256 === APPROVED_PROPOSAL_SHA256,
+      proposal_entries: payload.proposal.entries.length,
+      replacements: payload.replacements.length,
+      ...payload.summary,
+    }));
+  }
   const plan = planRevisionApply({
     proposal: payload.proposal,
     approvedProposalSha256: payload.approved_proposal_sha256,
@@ -198,7 +272,11 @@ async function applyApprovedRevision() {
     appliedAt: payload.applied_at || new Date().toISOString(),
     previouslyAppliedProposalSha256s: payload.previously_applied_proposal_sha256s || [],
   });
-  console.log(JSON.stringify(revisionApplyLogSummary(plan)));
+  console.log(JSON.stringify({
+    ...revisionApplyLogSummary(plan),
+    stored_points: storedPoints.length,
+    untouched_points: storedPoints.length - plan.overwrites,
+  }));
   if (DRY_RUN) {
     console.log(JSON.stringify({ dry_run: true, post_attempts: 0, revision_overwrites: plan.overwrites }));
     process.exit(0);
@@ -252,13 +330,7 @@ async function applyApprovedRevision() {
     console.error("MARKET_BENCHMARK_SYNC_TOKEN is required unless MARKET_BENCHMARK_DRY_RUN=true");
     process.exit(2);
   }
-  const points = [];
-  for (const [seriesId, symbol] of Object.entries(MARKET_BENCHMARK_YAHOO_SYMBOLS)) {
-    const fetched = await fetchSeries(seriesId, symbol);
-    const seriesPoints = closedSessionPoints(fetched);
-    console.log(`fetched series=${seriesId} symbol=${symbol} points=${seriesPoints.length} skipped_open_session=${fetched.length - seriesPoints.length}`);
-    points.push(...seriesPoints);
-  }
+  const points = await fetchCandidatePoints();
   const body = {
     schema_version: MARKET_BENCHMARK_SCHEMA,
     points: points.map((point) => ({
@@ -278,7 +350,12 @@ async function applyApprovedRevision() {
   const plan = planBenchmarkRevision(
     body.points.map((point) => normalizeMarketBenchmarkPoint(point)),
     storedPoints.map((point) => normalizeMarketBenchmarkPoint(point)),
-    { relativeTolerance: RELATIVE_TOLERANCE, primarySource: PRIMARY_SOURCE },
+    {
+      relativeTolerance: RELATIVE_TOLERANCE,
+      primarySource: PRIMARY_SOURCE,
+      // Dry runs also emit a hash-only revision proposal for owner review; never applied here.
+      ...(DRY_RUN ? { policy: "revision_proposal", detectedAt: new Date().toISOString() } : {}),
+    },
   );
   const planSummary = {
     policy: plan.policy, primary_source: PRIMARY_SOURCE, relative_tolerance: RELATIVE_TOLERANCE,
@@ -288,7 +365,8 @@ async function applyApprovedRevision() {
   };
   if (DRY_RUN) {
     console.log(JSON.stringify(diagnoseBenchmarkPoints(body.points, storedPoints)));
-    console.log(JSON.stringify({ revision_plan: planSummary }));
+    // Proposal entries carry SHA-256 digests only, never closes.
+    console.log(JSON.stringify({ revision_plan: planSummary, revision_proposal: plan.revision_proposal }));
     process.exit(0);
   }
   console.log(JSON.stringify({ revision_plan: planSummary }));
@@ -328,6 +406,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   main().catch((error) => {
     const message = String(error && error.message ? error.message : error);
     const fixed = new Set([
+      "MARKET_BENCHMARK_SYNC_URL is required",
       "benchmark_stored_duplicate_key", "benchmark_read_url_invalid", "benchmark_read_body_missing",
       "benchmark_read_body_too_large", "benchmark_read_model_invalid",
       "invalid_market_benchmark_point", "invalid_market_benchmark_series", "invalid_market_benchmark_date",
@@ -336,10 +415,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       "benchmark_candidate_conflicting_key", "benchmark_close_not_decimal",
       "benchmark_revision_approval_required", "benchmark_revision_approval_mismatch",
       "benchmark_revision_already_applied", "benchmark_revision_url_invalid",
+      "benchmark_revision_nothing_to_apply",
     ]);
     const yahoo = message.match(/^yahoo_http_([1-5]\d{2}):(.+)$/);
     const readHttp = message.match(/^benchmark_read_http_([1-5]\d{2})$/);
-    console.error(fixed.has(message) ? message : readHttp ? `benchmark_read_http_${readHttp[1]}`
+    // Revision error codes are fixed identifiers (never values), safe to surface.
+    const revisionCode = /^benchmark_revision_[a-z_]+$/.test(message);
+    console.error(fixed.has(message) || revisionCode ? message : readHttp ? `benchmark_read_http_${readHttp[1]}`
       : yahoo && Object.keys(MARKET_BENCHMARK_YAHOO_SYMBOLS).includes(yahoo[2])
         ? `yahoo_http_${yahoo[1]}` : "benchmark_sync_failed");
     process.exit(1);

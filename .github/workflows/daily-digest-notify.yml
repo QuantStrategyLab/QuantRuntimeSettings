@@ -111,17 +111,33 @@ jobs:
       DIGEST_CANDIDATES_JSON: ${{ secrets.DIGEST_CANDIDATES_JSON }}
       # Optional path override (Environment variable); relative to workspace.
       DIGEST_CANDIDATES_PATH_VAR: ${{ vars.DIGEST_CANDIDATES_PATH || '' }}
-      # NOTIFY-04 B2: producer store (unset = disabled). Production value:
-      #   gs://qsl-runtime-logs-shared/digest-candidates  (reader SA: prefix-conditioned objectViewer)
+      # Optional producer store: gs://<bucket>/digest-candidates.
       # Layout: <uri>/<platform_id>/<business_day>/<target>.json
       DIGEST_CANDIDATES_GCS_URI: ${{ vars.DIGEST_CANDIDATES_GCS_URI || '' }}
       DIGEST_CANDIDATES_READER_WIF_PROVIDER: ${{ vars.DIGEST_CANDIDATES_READER_WIF_PROVIDER || vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
-      DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT || 'qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com' }}
+      DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT: ${{ vars.DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT || vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
       # GCP project that hosts a sentinel bot-token replica (LongBridge path).
-      GCP_PROJECT_ID: ${{ vars.DIGEST_GCP_PROJECT_ID || 'longbridgequant' }}
+      GCP_PROJECT_ID: ${{ vars.DIGEST_GCP_PROJECT_ID }}
       GCP_WORKLOAD_IDENTITY_PROVIDER: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_PROVIDER || 'projects/252919773759/locations/global/workloadIdentityPools/github-actions/providers/github-main' }}
-      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT || 'qsl-artifact-evidence@longbridgequant.iam.gserviceaccount.com' }}
+      GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT: ${{ vars.DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT }}
     steps:
+      - name: Require digest infrastructure variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GCP_PROJECT_ID:-}" ]]; then
+            echo "::error::DIGEST_GCP_PROJECT_ID is required" >&2
+            exit 2
+          fi
+          if [[ -z "${GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT:-}" ]]; then
+            echo "::error::DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT is required" >&2
+            exit 2
+          fi
+          if [[ -z "${DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT:-}" ]]; then
+            echo "::error::DIGEST_CANDIDATES_READER_SERVICE_ACCOUNT or DIGEST_GCP_WORKLOAD_IDENTITY_SERVICE_ACCOUNT is required" >&2
+            exit 2
+          fi
+
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
@@ -152,7 +168,8 @@ jobs:
               fi
               # Runner-only default; preserve any configured URI and reader identity.
               if [[ -z "${DIGEST_CANDIDATES_GCS_URI:-}" ]]; then
-                echo "DIGEST_CANDIDATES_GCS_URI=gs://qsl-runtime-logs-shared/digest-candidates" >> "$GITHUB_ENV"
+                echo "::error::DIGEST_CANDIDATES_GCS_URI is required for private store preflight" >&2
+                exit 2
               fi
               preflight=true
               ;;

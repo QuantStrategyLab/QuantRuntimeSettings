@@ -47,21 +47,17 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
         updates = emitted(root / "github-env")
         return result, {**env, **updates}, outputs, updates
 
-    def test_private_store_preflight_main_dry_run_fills_only_empty_runner_uri(self):
+    def test_private_store_preflight_requires_configured_runner_uri(self):
         for uri in [None, ""]:
             with self.subTest(uri=uri), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
                 overrides = {} if uri is None else {"DIGEST_CANDIDATES_GCS_URI": uri}
                 result, env, outputs, updates = self.execute_opts(root, **overrides)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(updates, {
-                    "DIGEST_CANDIDATES_GCS_URI": "gs://qsl-runtime-logs-shared/digest-candidates",
-                })
-                self.assertEqual(env["DIGEST_CANDIDATES_GCS_URI"], updates["DIGEST_CANDIDATES_GCS_URI"])
-                self.assertEqual(outputs["preflight_private_store"], "true")
-                self.assertEqual(outputs["dry_run"], "true")
-                self.assertEqual(outputs["layout"], "sections_v2")
-                self.assertTrue((root / "data/input/daily-digest").is_dir())
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("DIGEST_CANDIDATES_GCS_URI is required", result.stderr)
+                self.assertEqual(updates, {})
+                self.assertEqual(outputs, {})
+                self.assertFalse((root / "data/input/daily-digest").exists())
 
     def test_private_store_preflight_preserves_configured_uri_and_legacy_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -344,7 +340,9 @@ class DailyDigestStoreWorkflowTests(unittest.TestCase):
         for failure in ["", "auth"]:
             with self.subTest(failure=failure), tempfile.TemporaryDirectory() as tmp:
                 root = Path(tmp)
-                opts_result, opts_env, outputs, _ = self.execute_opts(root)
+                opts_result, opts_env, outputs, _ = self.execute_opts(
+                    root, DIGEST_CANDIDATES_GCS_URI="gs://synthetic-private/digest-candidates"
+                )
                 self.assertEqual(opts_result.returncode, 0, opts_result.stderr)
                 fetch_result, env = self.execute_fetch(root, failure, old_candidate=True, initial_env=opts_env)
                 self.assertEqual(fetch_result.returncode, 0 if not failure else 1)

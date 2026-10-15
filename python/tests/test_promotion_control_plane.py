@@ -2,6 +2,7 @@
 import base64
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -23,23 +24,24 @@ def _openssl(*args, data=None):
 
 class PromotionSignatureTests(unittest.TestCase):
     def setUp(self):
+        self.enterContext(patch.dict(os.environ, {"QSL_PROMOTION_ROOT_PROJECTS_JSON": json.dumps({"longbridge": "example-longbridge-project"})}))
         self.tmp = Path(tempfile.mkdtemp())
         self.key = self.tmp / "key.pem"
         self.key.write_bytes(_openssl("ecparam", "-name", "prime256v1", "-genkey", "-noout"))
         pem = _openssl("ec", "-in", str(self.key), "-pubout").decode()
         now = datetime.now(UTC).replace(microsecond=0)
         root = {
-            "schema": "qsl.gcp_kms_policy_root.v1", "root_id": "qsl-longbridgequant-p0-root-v1",
+            "schema": "qsl.gcp_kms_policy_root.v1", "root_id": "qsl-example-longbridge-project-p0-root-v1",
             "created_at": (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "effective_at": (now - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "expires_at": (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "digest_algorithm": "sha256",
-            "kms_key_version": "projects/longbridgequant/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
+            "kms_key_version": "projects/example-longbridge-project/locations/global/keyRings/qsl-p0-policy-root/cryptoKeys/autonomy-policy-root-v1/cryptoKeyVersions/1",
             "signature_algorithm": "EC_SIGN_P256_SHA256", "public_key_pem": pem,
             "public_key_sha256": hashlib.sha256(pem.encode()).hexdigest(),
         }
         root["trusted_policy_root_sha256"] = calculate_trusted_policy_root_sha256(root)
-        (self.tmp / "longbridgequant.json").write_text(json.dumps(root))
+        (self.tmp / "example-longbridge-project.json").write_text(json.dumps(root))
         self.pins = {"longbridge": root["trusted_policy_root_sha256"]}
         self.enterContext(patch.object(sig, "ROOTS_DIR", self.tmp))
         self.manifest = builder.build(

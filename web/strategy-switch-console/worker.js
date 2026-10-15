@@ -415,7 +415,7 @@ const ACCOUNT_DIAGNOSIS_TARGETS = Object.freeze({
     recheckWorkflow: "runtime-target-lifecycle.yml",
   }),
 });
-const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/AIAuditBridge";
+const ACCOUNT_DIAGNOSIS_WORKFLOW_REPOSITORY = "QuantStrategyLab/QuantAIService";
 const ACCOUNT_DIAGNOSIS_WORKFLOW = "codex_audit.yml";
 const ACCOUNT_DIAGNOSIS_TRIGGERS = ["incident", "manual_check"];
 const ACCOUNT_DIAGNOSIS_STATUSES = ["queued", "running", "succeeded", "failed", "unknown"];
