@@ -118,3 +118,12 @@ class UnifiedScheduleTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertEqual(output.read_text(), f'proceed={str(slot == selected).lower()}\n')
         self.assertTrue(all('steps.schedule_slot.outputs.proceed' in step for step in steps[1:]))
+
+
+class UnifiedFillFactsTests(unittest.TestCase):
+    def test_confirmed_order_without_execution_count_is_not_a_diagnostic_or_fake_fill(self):
+        text = render(payload(row(order_count=1, fill_count=None, fill_count_status="unknown", execution_status="executed")))
+        self.assertIn("订单 Orders 1", text)
+        self.assertIn("Completed", text)
+        self.assertNotIn("Fills 1", text)
+        self.assertNotIn("Diagnostics", text)

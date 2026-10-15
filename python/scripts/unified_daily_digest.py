@@ -24,9 +24,11 @@ def render(payload: DailyDigestInput, *, max_units: int = 3900) -> str:
         known_fills = row.fill_count is not None and row.fill_count_status == "known"
         if (known_orders and row.order_count > 0) or (known_fills and row.fill_count > 0):
             orders = str(row.order_count) if known_orders else "?"
-            fills = str(row.fill_count) if known_fills else "?"
-            trades.append(f"• {label}：订单 Orders {orders} · 成交 Fills {fills}")
-        if row.status == "alert" or not known_orders or not known_fills:
+            completion = row.execution_status in {"executed", "completed"}
+            fill_text = f"成交 Fills {row.fill_count}" if known_fills else ("已完成 / Completed" if completion else "成交数量未知 / Fill count unknown")
+            trades.append(f"• {label}：订单 Orders {orders} · {fill_text}")
+        complete_orders = known_orders and row.order_count > 0 and row.execution_status in {"executed", "completed"}
+        if row.status == "alert" or not known_orders or (not known_fills and not complete_orders):
             # Do not expose producer prose, raw exceptions or private identities.
             reason = "执行异常 / Execution issue" if row.status == "alert" and known_orders and known_fills else "执行证据不完整 / Incomplete execution evidence"
             problems.append(f"• {label}：{reason}")
