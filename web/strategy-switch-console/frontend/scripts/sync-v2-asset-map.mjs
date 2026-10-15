@@ -9,6 +9,7 @@ const mimeByExtension = new Map([
   [".css", "text/css; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
   [".png", "image/png"],
+  [".svg", "image/svg+xml"],
 ]);
 
 async function walk(directory) {
@@ -25,7 +26,7 @@ const files = (await walk(distRoot)).sort();
 const htmlPath = join(distRoot, "index.html");
 if (!files.includes(htmlPath)) throw new Error("frontend dist is missing index.html; run npm run build first");
 const resources = files.filter(path => path !== htmlPath);
-if (!resources.some(path => path.endsWith("/qsl-brand-icon.png"))) throw new Error("frontend dist is missing qsl-brand-icon.png");
+if (!resources.some(path => path.endsWith("/qsl-brand-icon.svg"))) throw new Error("frontend dist is missing qsl-brand-icon.svg");
 const entries = [];
 for (const path of resources) {
   const name = path.slice(distRoot.length + 1).split("\\").join("/").replace(/^assets\//, "");

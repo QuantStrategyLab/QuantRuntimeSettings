@@ -1,0 +1,52 @@
+.decision-refresh { margin-left: auto; }
+
+.decisions-filters {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.decision-detail-head { display: flex; flex-direction: column; gap: 8px; }
+
+.decision-badges { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.decision-prompt { margin: 0; font-size: 14px; font-weight: 600; }
+
+.decision-meta {
+  display: flex;
+  gap: 6px 14px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.decision-section-title { margin: 16px 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); }
+
+.decision-materials { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.decision-materials > summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.decision-materials p { margin: 6px 0 0; font-size: 13px; }
+
+.decision-note { flex-basis: 100%; margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+
+.decision-account-picker {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13px;
+}
+.decision-account-picker > span { color: var(--muted); font-size: 12px; }
+.decision-account-picker select {
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.inbox-item.is-expired { opacity: 0.7; }
+
+.decision-history-more { margin-top: 12px; }
