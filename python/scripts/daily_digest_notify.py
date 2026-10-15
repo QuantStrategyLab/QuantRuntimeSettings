@@ -976,6 +976,15 @@ def _render_observation_block(entry: DigestRunEntry, locale: DigestLocale) -> li
         tip_text = str(tip).strip()
         if tip_text:
             lines.append(f"- {_t(locale, 'tip_prefix')}: {tip_text}")
+    # Rich observations must not hide unknown order/fill evidence that is
+    # visible in the thin-row renderer. This is presentation only.
+    for label, value, status in (
+        ("fills_label", entry.fill_count, entry.fill_count_status),
+        ("orders_label", entry.order_count, entry.order_count_status),
+        ("cycles_label", entry.cycle_count, entry.cycle_count_status),
+    ):
+        if status == "unknown" or value is None:
+            lines.append(_format_count_part(locale, label_key=label, value=value, status=status))
     conclusion = _default_conclusion(entry, locale)
     if conclusion:
         lines.append(conclusion)
@@ -1104,9 +1113,10 @@ def render_daily_digest(payload: DailyDigestInput) -> str:
     else:
         lines.append(_t(locale, "daily_digest_heartbeat_title"))
     lines.append(f"{_t(locale, 'date_label')}: {payload.business_day}")
+    if known_fills is None:
+        lines.append(_t(locale, "heartbeat_fills_unknown"))
     if not rich:
         if known_fills is None:
-            lines.append(_t(locale, "heartbeat_fills_unknown"))
             lines.append(_t(locale, "ran_section"))
         elif known_fills == 0:
             lines.append(_t(locale, "heartbeat_no_fill_verified"))
