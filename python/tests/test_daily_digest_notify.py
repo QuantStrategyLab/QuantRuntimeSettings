@@ -383,7 +383,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 rebalance_kind="no_rebalance",
                 target_id="schwab-primary",
                 opaque_account_uid=(
-                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                    "000000a100000000000000000000000000000000000000000000000000000000"
                 ),
             ),
         )
@@ -392,7 +392,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 business_day="2026-10-08", locale="zh", runs=runs
             )
         )
-        self.assertIn("[schwab bf2e6691] 💓 【心跳检测】", text)  # no scope → platform + short uid
+        self.assertIn("[schwab 000000a1] 💓 【心跳检测】", text)  # no scope → platform + short uid
         self.assertNotIn("[schwab-primary]", text)
         self.assertIn("半导体趋势收益", text)
         self.assertIn("✅ 无需调仓", text)
@@ -411,7 +411,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 equity=989.34,
                 rebalance_kind="no_rebalance",
                 opaque_account_uid=(
-                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                    "000000a100000000000000000000000000000000000000000000000000000000"
                 ),
                 target_id="schwab-primary",
                 account_scope="live",
@@ -449,7 +449,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 equity=989.34,
                 rebalance_kind="no_rebalance",
                 opaque_account_uid=(
-                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                    "000000a100000000000000000000000000000000000000000000000000000000"
                 ),
                 target_id="schwab-primary",
                 account_scope="live",
@@ -553,7 +553,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         hex_hint = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
             strategy_profile="soxl_soxx_trend_income",
-            account_hint="bf2e669106f029a4",
+            account_hint="000000a100000000",
             account_scope="live",
         )
         self.assertEqual(
@@ -571,7 +571,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_profile="any_strategy",
                 account_scope=scope,
                 opaque_account_uid=(
-                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                    "000000a100000000000000000000000000000000000000000000000000000000"
                 ),
                 target_id=f"{platform}-primary",
             )
@@ -591,12 +591,12 @@ class DailyDigestNotifyTests(unittest.TestCase):
             platform_id="schwab",
             strategy_profile="soxl_soxx_trend_income",
             opaque_account_uid=(
-                "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                "000000a100000000000000000000000000000000000000000000000000000000"
             ),
             target_id="schwab-primary",
         )
         self.assertEqual(
-            daily_digest_notify.account_block_tag(uid_beats_target), "schwab bf2e6691"
+            daily_digest_notify.account_block_tag(uid_beats_target), "schwab 000000a1"
         )
         target_last = daily_digest_notify.DigestRunEntry(
             platform_id="schwab",
@@ -668,7 +668,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_label="半导体趋势收益",
                 target_id="schwab-primary",
                 opaque_account_uid=(
-                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                    "000000a100000000000000000000000000000000000000000000000000000000"
                 ),
                 account_scope="live",
                 fill_count=2,
@@ -701,7 +701,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
                 strategy_label="半导体趋势收益",
                 target_id="schwab-primary",
                 opaque_account_uid=(
-                    "bf2e669106f029a41e6f36dc18f704906ad6078d1f16a171ec0001e992d39b7d"
+                    "000000a100000000000000000000000000000000000000000000000000000000"
                 ),
                 account_scope="live",
                 fill_count=None,
@@ -793,7 +793,7 @@ class DailyDigestNotifyTests(unittest.TestCase):
         self.assertIn("[schwab live] 💓 【心跳检测】", text)
         self.assertIn("[ibkr live] 💓 【心跳检测】", text)
         self.assertIn("[firstrade paper] 💓 【心跳检测】", text)
-        self.assertNotIn("[bf2e6691]", text)
+        self.assertNotIn("[000000a1]", text)
         self.assertNotIn("[schwab-primary]", text)
         self.assertNotIn("[live]", text)  # bare scope alone is not the tag
 

@@ -21,7 +21,7 @@ const sourceKey = "runtime_target_lifecycle_source:synthetic-source";
 const factsBinding = {
   platform: "ibkr", account_key: accountId, account_scope: "live-primary",
   target_name: "synthetic-account", service_name: "synthetic-service",
-  deployment_selector: "synthetic-deployment", account_selector: "U12345678",
+  deployment_selector: "synthetic-deployment", account_selector: "U00000007",
   target_id: "primary-live", source_binding: { kind: "deployment_runtime_account", id: "a".repeat(64) },
 };
 const bindingPayload = (bindings = [factsBinding]) => ({ schema_version: "qsl_account_facts_bindings.v1", bindings });
