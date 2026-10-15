@@ -8,7 +8,7 @@
  * rows are dropped by the receiver).
  *
  * Env:
- *   MARKET_BENCHMARK_SYNC_URL  default https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync
+ *   MARKET_BENCHMARK_SYNC_URL  required HTTPS sync endpoint
  *   MARKET_BENCHMARK_SYNC_TOKEN  required bearer
  *   MARKET_BENCHMARK_RANGE     Yahoo range query, default 10d
  *   MARKET_BENCHMARK_DRY_RUN   when "true", compare conflict counts without POST
@@ -37,8 +37,7 @@ import {
   revisionApplyLogSummary,
 } from "../web/strategy-switch-console/infrastructure/market_benchmark/market_benchmark_revision.js";
 
-const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL
-  || "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/market-benchmark/sync";
+const SYNC_URL = process.env.MARKET_BENCHMARK_SYNC_URL || "";
 const TOKEN = process.env.MARKET_BENCHMARK_SYNC_TOKEN || "";
 const RANGE = process.env.MARKET_BENCHMARK_RANGE || "10d";
 const DRY_RUN = process.env.MARKET_BENCHMARK_DRY_RUN === "true";
@@ -171,6 +170,7 @@ async function readStoredPoints() {
 }
 
 export async function main() {
+  if (!SYNC_URL) throw new Error("MARKET_BENCHMARK_SYNC_URL is required");
 
 function nodeDigest(value) {
   return createHash("sha256").update(String(value)).digest("hex");
@@ -328,6 +328,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   main().catch((error) => {
     const message = String(error && error.message ? error.message : error);
     const fixed = new Set([
+      "MARKET_BENCHMARK_SYNC_URL is required",
       "benchmark_stored_duplicate_key", "benchmark_read_url_invalid", "benchmark_read_body_missing",
       "benchmark_read_body_too_large", "benchmark_read_model_invalid",
       "invalid_market_benchmark_point", "invalid_market_benchmark_series", "invalid_market_benchmark_date",

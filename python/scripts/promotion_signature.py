@@ -20,6 +20,7 @@ import base64
 import binascii
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -34,13 +35,7 @@ PAYLOAD_PREFIX = b"qsl.promotion_signature.v1\n"
 ROOT = Path(__file__).resolve().parents[2]
 ROOTS_DIR = ROOT / "docs" / "p0_control_roots" / "gcp"
 # One trust domain per platform; never borrow another platform's root.
-PLATFORM_ROOT_PROJECTS = {
-    "longbridge": "longbridgequant",
-    "ibkr": "interactivebrokersquant",
-    "schwab": "charlesschwabquant",
-    "firstrade": "firstradequant",
-    "binance": "binancequant",
-}
+PROMOTION_PLATFORMS = frozenset(('longbridge', 'ibkr', 'schwab', 'firstrade', 'binance'))
 _SHA256 = re.compile(r"^[a-f0-9]{64}$")
 MAX_TTL_SECONDS = 24 * 3600
 _MAX_SIGNATURE_BYTES = 128  # DER P-256 ECDSA signatures are at most 72 bytes.
@@ -63,9 +58,15 @@ def signing_payload(manifest: Mapping[str, Any]) -> bytes:
 
 
 def load_trusted_root(platform: str, pinned_roots: Mapping[str, Any], *, as_of: str | None = None) -> Mapping[str, Any]:
-    project = PLATFORM_ROOT_PROJECTS.get(platform)
-    if project is None:
+    if platform not in PROMOTION_PLATFORMS:
         _fail("platform has no promotion trust root")
+    try:
+        projects = json.loads(os.environ.get("QSL_PROMOTION_ROOT_PROJECTS_JSON", ""))
+    except (TypeError, ValueError):
+        _fail("QSL_PROMOTION_ROOT_PROJECTS_JSON is required and must be a JSON object")
+    project = projects.get(platform) if isinstance(projects, dict) else None
+    if not isinstance(project, str) or not re.fullmatch(r"[a-z][a-z0-9-]{4,61}[a-z0-9]", project):
+        _fail("QSL_PROMOTION_ROOT_PROJECTS_JSON must name the platform project")
     pinned = pinned_roots.get(platform) if isinstance(pinned_roots, Mapping) else None
     if not isinstance(pinned, str) or not _SHA256.fullmatch(pinned):
         _fail("platform promotion trust root is not pinned")

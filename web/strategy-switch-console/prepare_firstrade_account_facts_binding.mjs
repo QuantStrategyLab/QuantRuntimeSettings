@@ -121,6 +121,14 @@ export function applyFirstradeFactsSettings(payload, {
   env = process.env, command = protectedCommand,
 } = {}) {
   const normalized = normalizeAccountFactsBindings(payload);
+  if (!env.STRATEGY_SWITCH_CONSOLE_URL) fail("STRATEGY_SWITCH_CONSOLE_URL is required");
+  let consoleOrigin;
+  try {
+    const url = new URL(env.STRATEGY_SWITCH_CONSOLE_URL);
+    if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash
+        || (url.pathname !== "/" && url.pathname !== "")) throw new Error();
+    consoleOrigin = env.STRATEGY_SWITCH_CONSOLE_URL.replace(/\/$/, "");
+  } catch { fail("STRATEGY_SWITCH_CONSOLE_URL must be an HTTPS origin"); }
   if (normalized.bindings.length !== 1 || normalized.bindings[0].platform !== "firstrade"
       || !env.GH_TOKEN) fail("protected_configuration_unavailable");
   let metadata;
@@ -144,7 +152,7 @@ export function applyFirstradeFactsSettings(payload, {
     "--env", QRS_ENV], JSON.stringify(normalized), env);
   const variables = {
     FIRSTRADE_ACCOUNT_FACTS_SYNC_ENABLED: "false",
-    FIRSTRADE_ACCOUNT_FACTS_SYNC_URL: "https://qsl-strategy-switch-console.pigbibi.workers.dev/api/account-facts/sync",
+    FIRSTRADE_ACCOUNT_FACTS_SYNC_URL: `${consoleOrigin}/api/account-facts/sync`,
     FIRSTRADE_ACCOUNT_FACTS_SYNC_TOKEN_SECRET_NAME: "firstrade-account-facts-sync",
   };
   // Values travel on stdin, including non-secret settings, to keep one rule.
