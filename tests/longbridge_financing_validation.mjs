@@ -73,7 +73,7 @@ function ibkrHistory(patch = {}) {
   return {
     schema_version: IBKR_ACCOUNT_FACTS_HISTORY_SCHEMA,
     snapshot_schema_version: IBKR_ACCOUNT_FACTS_SNAPSHOT_SCHEMA,
-    account_scope: "U16608560",
+    account_scope: "U00000009",
     target_id: "ibkr-paper",
     source_binding: {
       kind: IBKR_ACCOUNT_FACTS_SOURCE_KIND,
@@ -81,7 +81,7 @@ function ibkrHistory(patch = {}) {
       id: bindingId,
     },
     snapshot_atomic: false,
-    account_ids: ["U16608560"],
+    account_ids: ["U00000009"],
     broker_reported_balances: [{ currency: "USD", net_assets: "10" }],
     cash: [{ currency: "USD", cash_balance: "1", source_tag: "CashBalance" }],
     ...patch,
