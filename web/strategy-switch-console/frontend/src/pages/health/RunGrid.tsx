@@ -129,7 +129,7 @@ export function RunGrid({ accounts, epoch }: { accounts: GridAccount[]; epoch: n
       // Batch per date column: one settled batch per day, cells land progressively.
       for (const date of dates) {
         const results = await Promise.allSettled(
-          accounts.map(account => loadRuntimeDaily(date, account.platform, account.account_alias)),
+          accounts.map(account => loadRuntimeDaily(date, account.platform, account.account_alias, false)),
         );
         if (cancelled) return;
         const patch: Record<string, CellState> = {};

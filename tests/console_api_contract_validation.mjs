@@ -152,6 +152,19 @@ result = await inbox(
 );
 assert.equal(result.status, "read_failed");
 assert.equal(result.sources[0].status, "read_failed");
+
+const quota = "kv_list_daily_limit_exceeded";
+result = await inbox(new Request("https://console.example/api/decisions-inbox"), {}, {
+  ...deps,
+  owner: async () => json({ data_status: "unavailable", errors: [quota] }),
+  promotion: async () => json({ ok: false, error: quota }, 503),
+  recovery: async () => json({ data_status: "unavailable", errors: [quota] }),
+});
+validate("inbox", result);
+assert.equal(result.status, "read_failed");
+assert.deepEqual(result.sources.slice(0, 3).map(source => source.failure_reason), [quota, quota, quota]);
+assert.equal(result.sources[3].status, "ok");
+
 assert.equal(
   decisionFields({ recovery: {}, confirmation: {} }, "reconciliation_recovery")
     .status,

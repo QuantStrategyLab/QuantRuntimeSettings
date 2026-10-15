@@ -67,6 +67,7 @@ export interface InboxResponse {
   sources: {
     source: string;
     status: "ok" | "stale" | "unavailable" | "read_failed";
+    failure_reason?: "kv_list_daily_limit_exceeded";
   }[];
   items: InboxItem[];
   coverage: string;

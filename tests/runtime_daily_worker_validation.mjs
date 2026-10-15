@@ -494,5 +494,36 @@ const noListKv = { async get(key) { return store.get(key) ?? null; }, async put(
 const noListRead = await (await get(coverageDayB, sessionHeaders, { ...env, STRATEGY_SWITCH_CONFIG: noListKv })).json();
 assert.deepEqual(noListRead.history, { available_from: null, available_through: null, stored_days: 0, truncated: false });
 
+// A date-grid read must not enumerate the same directory for every cell.
+let quotaLists = 0;
+const quotaEnv = { ...env, STRATEGY_SWITCH_CONFIG: { ...kv, async list() {
+  quotaLists++;
+  throw new Error("KV list() limit exceeded for the day.");
+} } };
+const dateOnly = await worker.fetch(new Request(`https://console.example/api/runtime-daily?date=${coverageDayB}&include_history=false`, { headers: sessionHeaders }), quotaEnv);
+const dateOnlyBody = await dateOnly.json();
+assert.equal(dateOnly.status, 200);
+assert.equal(quotaLists, 0, "date-only reads spend no list quota");
+assert.equal(dateOnlyBody.history, null, "omitted discovery is distinct from empty coverage");
+assert.deepEqual(dateOnlyBody.record, coverageRead.record, "source evidence is unchanged");
+assert.deepEqual(dateOnlyBody.read_error_codes, []);
+const diagnosticProjection = projection({ read_errors: ["coverage_unconfirmed", "private/path/fixture", "read_failed"] }, {
+  business_date: coverageDayB, observed_at: `${coverageDayB}T20:00:00Z`, status: "read_incomplete", completeness: "incomplete",
+});
+const diagnosticStore = { ...quotaEnv.STRATEGY_SWITCH_CONFIG, async get(key) {
+  return key.startsWith("runtime_daily:") ? JSON.stringify(diagnosticProjection) : kv.get(key);
+} };
+const diagnostic = await worker.fetch(new Request(`https://console.example/api/runtime-daily?date=${coverageDayB}&include_history=false`, { headers: sessionHeaders }), { ...env, STRATEGY_SWITCH_CONFIG: diagnosticStore });
+const diagnosticBody = await diagnostic.json();
+assert.equal(diagnostic.status, 200);
+assert.deepEqual(diagnosticBody.read_error_codes, ["coverage_unconfirmed", "source_read_error", "read_failed"]);
+assert.equal(diagnosticBody.read_error_count, 3);
+assert.equal(diagnosticBody.record.completeness, "incomplete");
+assert.ok(!JSON.stringify(diagnosticBody).includes("private/path/fixture"));
+for (const selection of ["include_history=maybe", "include_history=false&include_history=true"]) {
+  const response = await worker.fetch(new Request(`https://console.example/api/runtime-daily?date=${coverageDayB}&${selection}`, { headers: sessionHeaders }), quotaEnv);
+  assert.equal(response.status, 400);
+}
+
 console.log("runtime_daily_worker_validation ok");
 await import("./runtime_daily_health_integration_validation.mjs");

@@ -32,8 +32,12 @@ export function loadSession(): Promise<Session> {
   return getJson<Session>("/api/session");
 }
 
+let inboxRead: Promise<InboxResponse> | null = null;
 export function loadInbox(): Promise<InboxResponse> {
-  return getJson<InboxResponse>("/api/decisions-inbox");
+  // The badge and page share concurrent reads; settled data is never cached.
+  if (!inboxRead) inboxRead = getJson<InboxResponse>("/api/decisions-inbox")
+    .finally(() => { inboxRead = null; });
+  return inboxRead;
 }
 
 export function loadDecisionHistory(limit = 25, cursor?: string | null): Promise<DecisionHistoryResponse> {
@@ -157,10 +161,11 @@ export async function loadRuntimeDailyBindings(): Promise<RuntimeDailyBinding[]>
 }
 
 /** Legacy per-date daily snapshot used by the 14-day run grid on the health page. */
-export function loadRuntimeDaily(date: string, platform?: string, accountKey?: string): Promise<RuntimeDailySnapshot> {
+export function loadRuntimeDaily(date: string, platform?: string, accountKey?: string, includeHistory = true): Promise<RuntimeDailySnapshot> {
   const params = new URLSearchParams({ date });
   if (platform) params.set("platform", platform);
   if (accountKey) params.set("account_key", accountKey);
+  if (!includeHistory) params.set("include_history", "false");
   return getJson<RuntimeDailySnapshot>(`/api/runtime-daily?${params}`);
 }
 

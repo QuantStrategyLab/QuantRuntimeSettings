@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import worker, { __test } from "../web/strategy-switch-console/worker.js";
-import { V2_ASSETS, V2_PAGE_HTML } from "../web/strategy-switch-console/v2_asset_map.js";
+import { V2_ASSETS, V2_PAGE_HTML, V2_BUILD_ID } from "../web/strategy-switch-console/v2_asset_map.js";
 
 const request = (path, method = "GET", headers = {}) => new Request(`https://console.example${path}`, { method, headers });
 for (const path of ["/"]) {
   const response = await worker.fetch(request(path), {});
   assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-console-build"), V2_BUILD_ID);
   assert.match(response.headers.get("content-type"), /text\/html/);
   assert.equal(response.headers.get("cache-control"), "no-store");
   assert.equal(response.headers.get("content-security-policy"), "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; frame-src https://fred.stlouisfed.org/graph/graph-landing.php; form-action 'self'; img-src 'self' data:; connect-src 'self'; script-src 'self'; style-src 'self'");
@@ -47,6 +48,7 @@ const icon = V2_ASSETS["/v2/assets/qsl-brand-icon.svg"];
 assert.equal(icon.contentType, "image/svg+xml");
 const iconResponse = await worker.fetch(request("/v2/assets/qsl-brand-icon.svg"), {});
 assert.equal(iconResponse.status, 200);
+assert.equal(iconResponse.headers.get("x-console-build"), V2_BUILD_ID);
 assert.equal(iconResponse.headers.get("content-type"), "image/svg+xml");
 assert.equal(iconResponse.headers.get("cache-control"), "no-cache");
 assert.deepEqual(Buffer.from(await iconResponse.arrayBuffer()), await readFile(new URL("../web/strategy-switch-console/frontend/public/qsl-brand-icon.svg", import.meta.url)));
@@ -57,6 +59,7 @@ for (const path of ["/v2", "/v2/unknown", "/v2/assets/not-built.js", "/v2/assets
   assert.equal((await worker.fetch(request(path), {})).status, 404, `${path} must not fall back to the shell`);
   const head = await worker.fetch(request(path, "HEAD"), {});
   assert.equal(head.status, 404);
+  assert.equal(head.headers.get("x-console-build"), V2_BUILD_ID);
   assert.equal(await head.text(), "", "HEAD responses must not include an error body");
 }
 for (const method of ["POST", "PUT", "DELETE"]) assert.equal((await worker.fetch(request("/v2/assets/qsl-brand-icon.svg", method), {})).status, 405);
