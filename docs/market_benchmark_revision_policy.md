@@ -44,6 +44,13 @@ append-only revision endpoint that does not exist yet.
 - Effect: updates matching stored rows and appends to `market_benchmark_revision_ledger` (append-only; re-applying the same `proposal_sha256` is 409).
 - Producer opt-in: `MARKET_BENCHMARK_APPLY_REVISION=true` with `MARKET_BENCHMARK_REVISION_TOKEN` and `MARKET_BENCHMARK_REVISION_PAYLOAD_JSON`. Logs are hash/ratio only.
 
+### Applying an approved proposal from the workflow
+Dispatch `Sync Market Benchmark Closes` with `apply_revision=true` and `approved_proposal_sha256=<hash>`.
+The job re-fetches Yahoo closes, rebuilds the proposal and replacements in-job, and refuses unless the rebuilt
+`proposal_sha256` equals the approved hash. `apply_dry_run=true` (default) logs only hashes and counts
+(overwrites, deletes, untouched points) and never reads the revision token; `apply_dry_run=false` exposes
+`secrets.MARKET_BENCHMARK_REVISION_TOKEN` to that single step and POSTs once. Scheduled runs keep the frozen sync path.
+
 ### Operator next steps (not done by this PR)
 1. Create Cloudflare Worker secret `MARKET_BENCHMARK_REVISION_TOKEN` (and optionally a matching GitHub Actions secret for the apply job). Do not reuse sync tokens.
 2. After US close on 2026-10-15 evening Asia/Shanghai, run a cloud dry-run diagnostic, generate a revision proposal for the four 2026-10-14 intraday points, and approve the `proposal_sha256`.
