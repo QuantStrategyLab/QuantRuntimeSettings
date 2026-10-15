@@ -4,6 +4,8 @@ import { decorateQueue, decisionFields } from "./application/console_api/present
 // deploy: 2026-06-30 — config driven by platform-config.json
 import { CredentialMaintenanceError, initializeCredentialMaintenance, credentialMaintenanceCommand } from "./credentialMaintenance.js";
 import { V2_ASSETS, V2_PAGE_HTML } from "./v2_asset_map.js";
+import { PREVIEW_ASSETS, PREVIEW_PAGE_HTML } from "./preview_asset_map.js";
+import { previewResponse } from "./preview_entry.js";
 import { CycleHealthError, canonicalCycleJson, cycleHealthSha256, normalizeCycleHealth, normalizeCycleInstant, compareCycleInstants, cycleCoverageComplete, cycleHealthAttemptKey, cycleHealthFaultCategory, cycleHealthFaultTime } from "./runtime_cycle_health.js";
 import { RUNTIME_DAILY_TARGET, RUNTIME_DAILY_TARGETS, runtimeDailyTarget, runtimeDailyBoundAccountKey, runtimeDailyRunIssue } from "./runtime_daily_contract.js";
 import {
@@ -753,6 +755,9 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     try {
+      if (url.pathname === "/preview" || url.pathname.startsWith("/preview/")) {
+        return previewResponse(request, { html: PREVIEW_PAGE_HTML, assets: PREVIEW_ASSETS }, responseHeaders);
+      }
       if (url.pathname === "/") {
         if (request.method !== "GET" && request.method !== "HEAD") return json({ ok: false, error: "method_not_allowed" }, 405);
         const headers = responseHeaders({ "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });

@@ -42,3 +42,4 @@ secrets/
 /web/strategy-switch-console/node_modules/
 /web/strategy-switch-console/frontend/node_modules/
 /web/strategy-switch-console/frontend/dist/
+/web/strategy-switch-console/frontend/dist-preview/
