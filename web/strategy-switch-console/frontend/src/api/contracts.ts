@@ -29,7 +29,8 @@ export type Category =
   | "reconciliation_recovery"
   | "strategy_promotion"
   | "owner_decision"
-  | "credential_maintenance";
+  | "credential_maintenance"
+  | "paper_account_application";
 export interface DecisionDiff {
   field: string;
   label_key: string;
@@ -49,6 +50,8 @@ export interface DecisionFields {
 }
 export interface InboxItem extends DecisionFields {
   id: string;
+  short_id: string;
+  application_status?: string | null;
   title_key: string;
   account_alias: string | null;
   platform: string | null;
@@ -71,7 +74,10 @@ export interface InboxResponse {
   execution_authority_granted: false;
 }
 export interface DecisionHistoryItem {
+  id: string;
+  short_id: string;
   item_id: string;
+  item_short_id: string;
   category: Category;
   actor_alias: string | null;
   time: string;
@@ -152,6 +158,8 @@ export interface SettingsHistoryResponse {
   account_alias: string;
   platform: string;
   items: {
+    id: string;
+    short_id: string;
     event: "draft_saved" | "approved";
     time: string;
     actor_alias: string | null;
@@ -307,4 +315,64 @@ export interface ApiError {
 
 export interface PerformanceUnavailable extends PerformanceMeta {
   status: "unavailable";
+}
+
+export interface ReadOnlyProjection {
+  no_order: true;
+  execution_authority_granted: false;
+}
+export interface TodayRunSummary extends ReadOnlyProjection {
+  status: "ok" | "partial" | "read_failed";
+  date: string;
+  timezone: "Asia/Shanghai";
+  as_of: string | null;
+  coverage: string;
+  counts: { configured: number; observed: number; runs: number | null };
+  accounts: {
+    account_alias: string;
+    platform: string;
+    status: "ok" | "partial" | "stale" | "no_data" | "not_connected" | "read_failed";
+    unavailable_reason: string | null;
+    as_of: string | null;
+    activity: string | null;
+    completeness: "complete" | "incomplete" | null;
+    run_count: number | null;
+    runs: { id: string; started_at: string | null; finished_at: string | null;
+      activity: string; execution_lane: string; errors_present: boolean | null }[];
+  }[];
+}
+export interface StrategySummary extends ReadOnlyProjection {
+  status: "ok" | "partial" | "stale" | "not_connected" | "read_failed";
+  as_of: string | null;
+  coverage: string;
+  strategies: {
+    profile: string;
+    domain: string;
+    allowed_execution_modes: string[];
+    configured_accounts: { account_alias: string; platform: string }[];
+    health_status: string | null;
+    health_score: number | null;
+    status: "ok" | "stale" | "not_connected" | "read_failed";
+    unavailable_reason: string | null;
+  }[];
+}
+export interface NotificationSendLog extends ReadOnlyProjection {
+  status: "not_connected";
+  unavailable_reason: "notification_log_not_connected";
+  as_of: null;
+  items: never[];
+  next_cursor: null;
+  coverage: "no_delivery_source";
+}
+export interface RunControlAvailability extends ReadOnlyProjection {
+  status: "ok" | "partial";
+  account_alias: string;
+  platform: string;
+  as_of: string;
+  actions: Record<"enable" | "stop" | "resume" | "approve_application", {
+    enabled: boolean;
+    reason: string;
+    requires_confirmation: true;
+  }>;
+  resume_binding?: { runtime_target_sha256: string };
 }

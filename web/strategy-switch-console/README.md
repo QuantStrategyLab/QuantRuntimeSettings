@@ -2,6 +2,8 @@
 
 [简体中文](README.zh-CN.md)
 
+[Control-plane source retirement](../../docs/control-plane-source-retirement.md)
+
 Alpaca Market Data supplies US equity research inputs; no Alpaca trading target is currently configured. The extra `alpaca` observability identifier preserves historical/research evidence compatibility and does not create a trading account or grant runtime control. Keep data-source health separate from execution heartbeats. The retained AlpacaPlatform shadow/paper contracts are not a deployment. IBKR Gateway is a connection/session component; QMT is an A-share adapter without a configured broker target. Account controls follow actual configured targets, not the repository inventory.
 
 This is the authenticated backend for the personal strategy switch console. It is intentionally thin:

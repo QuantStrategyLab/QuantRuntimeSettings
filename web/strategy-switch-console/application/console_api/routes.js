@@ -4,7 +4,9 @@ import {
   decisionHistoryRows,
   pageQuery,
   settingsDiff,
+  shortId,
 } from "./presentation.js";
+import { todaySummary, strategySummary, notificationLog } from "./operations.js";
 
 export async function consoleApiResponse(request, env, deps) {
   const { json, readSession, command } = deps;
@@ -46,10 +48,13 @@ export async function consoleApiResponse(request, env, deps) {
     }
     if (path === "/api/decisions-inbox")
       return json(await inbox(request, env, deps));
+    if (path === "/api/notifications/send-log") return json(notificationLog());
     const config = await deps.accountOptions(env);
     const accounts = Object.entries(config.options || {}).flatMap(
       ([platform, rows]) => rows.map((row) => ({ ...row, platform })),
     );
+    if (path === "/api/runtime/today") return json(await todaySummary(request, env, deps, accounts));
+    if (path === "/api/strategies/summary") return json(await strategySummary(request, env, deps, accounts));
     if (path === "/api/accounts") {
       const meta = await command(env, {
         action: "console_account_metadata",
@@ -96,6 +101,8 @@ export async function consoleApiResponse(request, env, deps) {
         400,
       );
     const account = matches[0];
+    if (path === "/api/accounts/run-controls")
+      return json(await deps.runControls(request, env, account, session));
     if (path === "/api/account-settings/diff") {
       const readUrl = new URL("/api/account-settings", request.url);
       readUrl.searchParams.set("platform", account.platform);
@@ -136,6 +143,7 @@ export async function consoleApiResponse(request, env, deps) {
       const items = await Promise.all(
         [
           ...saves.map((row) => ({
+            id: `draft:${account.platform}:${account.key}:${row.draft_revision}:${row.ts}`,
             event: "draft_saved",
             time: row.ts,
             actor: row.login,
@@ -143,6 +151,7 @@ export async function consoleApiResponse(request, env, deps) {
             source: "bounded_audit_log",
           })),
           ...result.approvals.map((row) => ({
+            id: row.request_key || `approval:${account.platform}:${account.key}:${row.draft_revision}:${row.approved_at}`,
             event: "approved",
             time: row.approved_at,
             actor: row.approved_by,
@@ -151,7 +160,7 @@ export async function consoleApiResponse(request, env, deps) {
           })),
         ].map(async (row) => {
           const { actor, ...rest } = row;
-          return { ...rest, actor_alias: await actorAlias(actor) };
+          return { ...rest, short_id: shortId(rest.id, "CH"), actor_alias: await actorAlias(actor) };
         }),
       );
       items.sort((a, b) => b.time.localeCompare(a.time));
@@ -208,11 +217,21 @@ export async function inbox(request, env, deps) {
         const unavailable = ["unavailable", "partial"].includes(
           body.data_status,
         );
-        const rows = field
+        let rows = field
           ? body[field] || []
           : body.requires_action
             ? [body]
             : [];
+        // The existing promotion controller remains the only application path.
+        // Include accepted paper requests once, using their original ticket binding.
+        if (source === "promotion") {
+          const merged = new Map(rows.map(row => [row.ticket_id, row]));
+          for (const row of body.applications || []) {
+            if (row.confirmation_execution_mode === "paper" || row.application?.broker_environment === "paper" || row.application_preparation?.preview_request)
+              merged.set(row.ticket_id, row);
+          }
+          rows = [...merged.values()];
+        }
         return {
           source,
           status: failed

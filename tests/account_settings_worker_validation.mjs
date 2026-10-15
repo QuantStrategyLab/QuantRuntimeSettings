@@ -1602,11 +1602,20 @@ const profileOnlyDraft = await profileApplicationCall("/api/account-settings", {
 assert.equal(profileOnlyDraft.status, 200);
 profileApplicationRequest.expected_draft_revision = profileOnlyDraft.body.draft.revision;
 profileApplicationVariables.hk[1].value = "0";
+const disabledControls = await profileApplicationCall("/api/accounts/run-controls?platform=longbridge&account=hk");
+assert.equal(disabledControls.body.actions.approve_application.enabled, false);
+assert.equal(disabledControls.body.actions.approve_application.reason, "runtime_target_not_disabled");
 const nonLiteralFalseApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
   method: "POST", body: profileApplicationRequest,
 });
 assert.equal(nonLiteralFalseApproval.status, 409, "only the exact GitHub variable value 'false' may pass the disabled check");
 profileApplicationVariables.hk[1].value = "false";
+const readyControls = await profileApplicationCall("/api/accounts/run-controls?platform=longbridge&account=hk");
+assert.equal(readyControls.status, 200);
+assert.equal(readyControls.body.actions.approve_application.enabled, true, "backend recognizes a qualified profile-only draft");
+assert.equal(readyControls.body.actions.enable.enabled, false);
+const viewerControls = await profileApplicationCall("/api/accounts/run-controls?platform=longbridge&account=hk", { cookie: viewerCookie });
+assert.equal(viewerControls.body.actions.approve_application.reason, "admin_required");
 const approvedProfileApplication = await profileApplicationCall("/api/account-settings/profile-application/approve", {
   method: "POST", body: profileApplicationRequest,
 });
@@ -1617,6 +1626,9 @@ assert.equal(approvedProfileApplication.body.application.new_profile, "synthetic
 assert.equal(approvedProfileApplication.body.application.runtime_applied, false);
 assert.equal(approvedProfileApplication.body.no_order, true);
 assert.equal(approvedProfileApplication.body.execution_authority_granted, false);
+const pendingControls = await profileApplicationCall("/api/accounts/run-controls?platform=longbridge&account=hk");
+assert.equal(pendingControls.body.actions.approve_application.enabled, false);
+assert.equal(pendingControls.body.actions.approve_application.reason, "profile_application_pending");
 const readsAtApproval = profileApplicationVariableReads;
 const replayedProfileApproval = await profileApplicationCall("/api/account-settings/profile-application/approve", {
   method: "POST", body: profileApplicationRequest,

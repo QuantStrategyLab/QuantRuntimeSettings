@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quantstrategylab.github.io/QuantRuntimeSettings/schemas/qsl-control-plane-source-retirements.v1.schema.json",
+  "title": "QSL Control Plane Source Retirements v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "retirements"],
+  "properties": {
+    "schema_version": { "const": "qsl_control_plane_source_retirements.v1" },
+    "retirements": {
+      "type": "array",
+      "maxItems": 100,
+      "items": { "$ref": "#/$defs/retirement" }
+    }
+  },
+  "$defs": {
+    "retirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "retired_at", "reason"],
+      "properties": {
+        "source_id": { "type": "string", "pattern": "^[A-Za-z0-9._=-]{1,128}$", "not": { "const": "unavailable" } },
+        "retired_at": { "type": "string", "format": "date-time", "maxLength": 64 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 240 }
+      }
+    }
+  }
+}
